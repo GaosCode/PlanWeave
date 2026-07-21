@@ -75,62 +75,29 @@ planweave --help
 npx skills@latest add GaosCode/PlanWeave
 ```
 
-## MCP 与 ChatGPT 网页端生成计划
+## 桌面应用
 
-PlanWeave 内置本机 HTTP MCP server，可以让 ChatGPT 等 MCP client 直接使用 PlanWeave。MCP 工具可以检查和编写计划：初始化项目、创建任务画布、添加任务和 Blocks、连接依赖、编辑 prompt、配置 Review Pipeline、检查 graph quality，并导入 package draft。
+PlanWeave Desktop 提供可视化任务画布、任务工作区、Auto Run 控制、运行历史、搜索与统计视图，以及供 ChatGPT 使用的 MCP tunnel 设置。
 
-如果要在浏览器里的 ChatGPT 使用 PlanWeave，VPS/headless 环境推荐使用 CLI MCP tunnel，本地可视化环境可以使用桌面端设置。你可以使用 ChatGPT Web 来制定计划：描述项目目标，让它先写出临时 draft root 下的 package-shaped draft，dry-run 校验和质量检查，预览导入，再事务式 apply。
+<p align="center">
+  <img src="assets/planweave-desktop-canvas.png" width="860" alt="PlanWeave 桌面端任务画布，展示 Agent 任务图、实现块和评审块。" />
+</p>
 
-VPS 推荐使用 systemd。MCP server 只监听 loopback，OpenAI `tunnel-client` 通过出站长连接接入，systemd 负责服务生命周期。
-
-```bash
-sudo mkdir -p /etc/planweave /srv/planweave
-sudo chmod 700 /etc/planweave
-
-planweave mcp tunnel download
-planweave mcp tunnel configure --tunnel-id tunnel_xxx
-planweave mcp tunnel print-systemd \
-  --planweave-home /srv/planweave \
-  --env-file /etc/planweave/mcp-tunnel.env
-```
-
-把 Runtime API key 写入 systemd environment file，不写入 PlanWeave 的普通 JSON 配置：
+可以直接安装 [GitHub Releases](https://github.com/GaosCode/PlanWeave/releases) 里的安装包。当前桌面安装包未签名，macOS 或 Windows 可能显示安全警告。如果 macOS 阻止启动，请确认安装包来自本仓库，然后运行：
 
 ```bash
-PLANWEAVE_HOME=/srv/planweave
-OPENAI_RUNTIME_API_KEY=...
+xattr -dr com.apple.quarantine "/Applications/PlanWeave.app"
 ```
 
-这个文件应只允许服务所属用户读取：
-
-```bash
-sudo chmod 600 /etc/planweave/mcp-tunnel.env
-```
-
-把打印出来的 service 安装为 `planweave-mcp-tunnel.service` 后运行：
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now planweave-mcp-tunnel
-journalctl -u planweave-mcp-tunnel -f
-```
-
-本地桌面端路径：
-
-1. 在桌面应用打开 **Settings -> MCP Tunnel**。
-2. 下载或选择 OpenAI [`tunnel-client`](https://github.com/openai/tunnel-client)。
-3. 填入 Tunnel ID 和 Runtime API key，然后启动 secure tunnel。
-4. 在 ChatGPT 中用 Tunnel 连接方式添加 PlanWeave。
-
-连接完成后，ChatGPT 可以读取 PlanWeave authoring rules 和 schema，用 `list_tool_groups` 发现推荐工具路径，用 `get_graph_summary` / `get_graph_slice` 查看有界图视图，用 `validate_graph_quality` 检查图质量，并通过 path/ref 内容工具定点读取大内容。大型计划推荐 MCP 流程是 `validate_package_draft`、`preview_package_import`，然后用 `import_package_draft` 且传入 `apply: true`。
-
-源码级 MCP server 配置见 [Development](../DEVELOPMENT.md)。
+仓库结构、源码开发、测试和本地打包命令见 [Development](../DEVELOPMENT.md)。
 
 ## Agent 执行方式
 
 PlanWeave 支持 executor profile，因此同一张任务图里的不同 block 可以分别使用 Codex、Claude Code、OpenCode、Pi、Grok 或 Local Review 命令。Runtime 会把已接受结果继续送入 Review/Feedback 循环。
 
 每次 block run 都会写入可追踪产物，包括 prompt、stdout、stderr、report、metadata 和可用的监控命令。
+
+使用 Plan Package 自定义 executor profile 前，需要通过 `planweave trust executor <profile>` 完成信任。
 
 ## Agent Skills
 
@@ -194,6 +161,57 @@ planweave doctor
 
 简单任务可以由一个 agent 直接使用 `plan-runner` 完成。复杂计划建议用 `plan-coordinator` 作为主控 agent，再把子任务分给 `plan-runner`、`plan-reviewer` 或 `plan-recovery`。
 
+## MCP 与 ChatGPT 网页端生成计划
+
+PlanWeave 内置本机 HTTP MCP server，可以让 ChatGPT 等 MCP client 直接使用 PlanWeave。MCP 工具可以检查和编写计划：初始化项目、创建任务画布、添加任务和 Blocks、连接依赖、编辑 prompt、配置 Review Pipeline、检查 graph quality，并导入 package draft。
+
+如果要在浏览器里的 ChatGPT 使用 PlanWeave，VPS/headless 环境推荐使用 CLI MCP tunnel，本地可视化环境可以使用桌面端设置。你可以使用 ChatGPT Web 来制定计划：描述项目目标，让它先写出临时 draft root 下的 package-shaped draft，dry-run 校验和质量检查，预览导入，再事务式 apply。
+
+VPS 推荐使用 systemd。MCP server 只监听 loopback，OpenAI `tunnel-client` 通过出站长连接接入，systemd 负责服务生命周期。
+
+```bash
+sudo mkdir -p /etc/planweave /srv/planweave
+sudo chmod 700 /etc/planweave
+
+planweave mcp tunnel download
+planweave mcp tunnel configure --tunnel-id tunnel_xxx
+planweave mcp tunnel print-systemd \
+  --planweave-home /srv/planweave \
+  --env-file /etc/planweave/mcp-tunnel.env
+```
+
+把 Runtime API key 写入 systemd environment file，不写入 PlanWeave 的普通 JSON 配置：
+
+```bash
+PLANWEAVE_HOME=/srv/planweave
+OPENAI_RUNTIME_API_KEY=...
+```
+
+这个文件应只允许服务所属用户读取：
+
+```bash
+sudo chmod 600 /etc/planweave/mcp-tunnel.env
+```
+
+把打印出来的 service 安装为 `planweave-mcp-tunnel.service` 后运行：
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now planweave-mcp-tunnel
+journalctl -u planweave-mcp-tunnel -f
+```
+
+本地桌面端路径：
+
+1. 在桌面应用打开 **Settings -> MCP Tunnel**。
+2. 下载或选择 OpenAI [`tunnel-client`](https://github.com/openai/tunnel-client)。
+3. 填入 Tunnel ID 和 Runtime API key，然后启动 secure tunnel。
+4. 在 ChatGPT 中用 Tunnel 连接方式添加 PlanWeave。
+
+连接完成后，ChatGPT 可以通过 MCP 工具创建、检查、校验和导入 PlanWeave 计划。
+
+源码级 MCP server 配置见 [Development](../DEVELOPMENT.md)。
+
 ## Auto Run
 
 Auto Run 会领取 ready work、调用所选 executor、提交产物、继续 review-feedback 循环，并把每次运行记录为 session。
@@ -217,66 +235,18 @@ planweave run-session <session-id> --json
 
 ### ACP runners
 
-Codex、Claude Code、OpenCode、Pi 和 Grok 都提供显式 ACP profile。Agent 的 canonical name 跟随当前配置的 transport，`*-acp` 名称显式选择 ACP：
+PlanWeave 为 Codex、Claude Code、OpenCode、Pi 和 Grok 提供显式 ACP profile：`codex-acp`、`claude-code-acp`、`opencode-acp`、`pi-acp` 和 `grok-acp`。
 
-```text
-codex-acp
-claude-code-acp
-opencode-acp
-pi-acp
-grok-acp
-```
-
-选择 CLI transport 时，Grok 的 canonical profile 是 `grok`。它运行 `grok --no-auto-update --prompt-file <run-prompt-path>`。该路径指向本次 run 记录的同一份持久化 prompt，因此不会把完整 prompt 复制进进程参数。
-
-先安装所选 profile 使用的命令，并在 Agent 侧完成登录和 provider 配置，再运行预检：
-
-| Profile | 内置 ACP 启动命令 | 前置条件 |
-| --- | --- | --- |
-| `codex-acp` | `codex-acp` | 安装并认证独立的 Codex ACP Agent。 |
-| `claude-code-acp` | `claude-agent-acp` | 安装并认证独立的 Claude Code ACP Agent。 |
-| `opencode-acp` | `opencode acp` | 安装 OpenCode 并配置 provider。 |
-| `pi-acp` | `pi-acp` | 安装 `pi-acp` 和 `pi`，再配置 Agent。 |
-| `grok-acp` | `grok --no-auto-update agent stdio` | 安装 Grok CLI，并在 Grok 侧完成登录或 provider 配置。 |
-
-然后检查并运行 profile：
+安装所选 Agent 并完成认证，然后检查并运行对应 profile：
 
 ```bash
 planweave executors test codex-acp --json
 planweave run --once --executor codex-acp --timeout 120000 --json
 ```
 
-每个新 transport 都会重新协商 ACP 认证。PlanWeave 先 initialize Agent，只考虑这次 initialize 实际返回的 `authMethods`，再从无需交互即可安全执行的方法中稳定选择：`env_var` 方法只有在全部必需环境变量名都存在时才会调用；Agent 自行处理的方法只有在内置 definition 将该方法 ID 标记为 headless-safe 时才会调用。如果 Agent 没有返回 `authMethods`，PlanWeave 会保持兼容，不调用协议认证并继续创建 session。缺少 `agentInfo` 也是合法情况，界面会显示“Agent 未提供”；如果 Agent 提供了 `agentInfo`，但 name 或 version 字段非法，预检会失败。
+ACP 预检会协商所选 Agent 声明的认证方式，并可使用已经配置好的非交互认证凭据。如果需要用户操作，CLI 和 Desktop 会显示下一步；交互式登录仍由 Agent 自己处理，PlanWeave 不会自动启动。PlanWeave 不会在 run metadata 或 Desktop state 中持久化 Agent 凭据值。
 
-PlanWeave 不会自动启动终端登录、浏览器登录或其他交互认证。缺少凭据或没有安全方法时，CLI 和 Desktop 预检会返回需要用户操作的状态，展示 Agent 实际声明的方法 ID/类型和下一步。请配置所列环境变量（如果是在 PlanWeave 启动后新增，需要先重启 PlanWeave），或在 PlanWeave 外完成 Agent 登录，然后重新运行预检。Grok 的 ACP transport 内置偏好提示包含 `xai.api_key` 和 `cached_token`，但当前 Agent 实际声明的方法始终是权威来源；本文不声称所有 Grok 账号或认证路径都已通过真实环境验证。Grok CLI 的认证同样由 Grok 自己管理，必须先完成才能执行 headless run。
-
-PlanWeave 会把当前进程已有的环境传给所选 Agent，但不会在 authentication state、run metadata、IPC 或 renderer state 中收集或持久化 secret 值。诊断可以保留所选 method ID 和缺少的环境变量名。Grok 的 CLI 与 ACP runner 是相互独立的 transport，不会互相回退。
-
-ACP run 提供结构化消息、工具更新、产物、usage snapshot 和交互请求。PlanWeave Desktop 会显示当前 run 可用的 follow-up、cancel、permission、elicitation 和 retry 操作。Run record 保存标准化事件和协议诊断，可用于检查与回放。
-
-Plan Package 自定义 profile 需要对解析后的命令和参数进行精确信任：
-
-```bash
-planweave trust executor <profile>
-```
-
-遇到认证或 provider 错误时，按预检给出的下一步处理，再运行 `executors test`。开发验证命令（包括 opt-in Grok live smoke）见 [Development](../DEVELOPMENT.md#acp-verification)。
-
-## 桌面应用
-
-PlanWeave Desktop 提供可视化任务画布、任务工作区、Auto Run 控制、运行历史、搜索与统计视图，以及供 ChatGPT 使用的 MCP tunnel 设置。
-
-<p align="center">
-  <img src="assets/planweave-desktop-canvas.png" width="860" alt="PlanWeave 桌面端任务画布，展示 Agent 任务图、实现块和评审块。" />
-</p>
-
-可以直接安装 [GitHub Releases](https://github.com/GaosCode/PlanWeave/releases) 里的安装包。当前桌面安装包未签名，macOS 或 Windows 可能显示安全警告。如果 macOS 阻止启动，请确认安装包来自本仓库，然后运行：
-
-```bash
-xattr -dr com.apple.quarantine "/Applications/PlanWeave.app"
-```
-
-仓库结构、源码开发、测试和本地打包命令见 [Development](../DEVELOPMENT.md)。
+ACP run 通过 CLI 和 Desktop 提供结构化进度、产物、usage 和交互请求。
 
 ## 未来方向
 

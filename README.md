@@ -75,62 +75,29 @@ Install the agent skills as well:
 npx skills@latest add GaosCode/PlanWeave
 ```
 
-## MCP and ChatGPT Web Planning
+## Desktop App
 
-PlanWeave includes a local HTTP MCP server for MCP clients such as ChatGPT. Its tools inspect and author plans by initializing projects, creating canvases, adding tasks and blocks, wiring dependencies, editing prompts, configuring review pipelines, validating graph quality, and importing package drafts.
+PlanWeave Desktop provides a visual task canvas, task workspaces, Auto Run controls, run history, search and statistics views, and MCP tunnel settings for ChatGPT.
 
-For ChatGPT in the browser, use the CLI MCP tunnel on a VPS or PlanWeave Desktop's MCP settings on a local machine. You can use ChatGPT Web as the planning partner: describe the project goal, ask it to write a package-shaped draft in a temporary draft root, dry-run validate and quality-check it, preview the import, then apply it transactionally.
+<p align="center">
+  <img src="readme/assets/planweave-desktop-canvas.png" width="860" alt="PlanWeave desktop canvas showing an agent task graph with implementation and review blocks." />
+</p>
 
-Recommended headless setup for a VPS uses systemd. The MCP server stays on loopback, the OpenAI `tunnel-client` keeps an outbound connection open, and systemd manages the service lifecycle.
-
-```bash
-sudo mkdir -p /etc/planweave /srv/planweave
-sudo chmod 700 /etc/planweave
-
-planweave mcp tunnel download
-planweave mcp tunnel configure --tunnel-id tunnel_xxx
-planweave mcp tunnel print-systemd \
-  --planweave-home /srv/planweave \
-  --env-file /etc/planweave/mcp-tunnel.env
-```
-
-Put the Runtime API key in the systemd environment file, not in PlanWeave's JSON config:
+Install a packaged build from [GitHub Releases](https://github.com/GaosCode/PlanWeave/releases). Current desktop installers are unsigned, so macOS or Windows may show a security warning. If macOS blocks the app, confirm it came from this repository and run:
 
 ```bash
-PLANWEAVE_HOME=/srv/planweave
-OPENAI_RUNTIME_API_KEY=...
+xattr -dr com.apple.quarantine "/Applications/PlanWeave.app"
 ```
 
-Keep that file readable only by the service owner:
-
-```bash
-sudo chmod 600 /etc/planweave/mcp-tunnel.env
-```
-
-Install the printed service as `planweave-mcp-tunnel.service`, then run:
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now planweave-mcp-tunnel
-journalctl -u planweave-mcp-tunnel -f
-```
-
-For local desktop setup:
-
-1. Open **Settings -> MCP Tunnel** in the desktop app.
-2. Download or select the OpenAI [`tunnel-client`](https://github.com/openai/tunnel-client).
-3. Enter your Tunnel ID and Runtime API key, then start the secure tunnel.
-4. Add PlanWeave in ChatGPT using the Tunnel connection mode.
-
-Once connected, ChatGPT can ask PlanWeave for authoring rules and schema, discover recommended tool groups with `list_tool_groups`, inspect bounded graph views with `get_graph_summary` / `get_graph_slice`, validate graph quality with `validate_graph_quality`, and read large content through path/ref tools instead of broad dumps. For large plans, the recommended MCP flow is `validate_package_draft`, `preview_package_import`, then `import_package_draft` with `apply: true`.
-
-Source-level MCP server setup is documented in [Development](DEVELOPMENT.md).
+For repository layout, source setup, tests, and packaging commands, see [Development](DEVELOPMENT.md).
 
 ## Agent Execution
 
 PlanWeave supports executor profiles, so different blocks can run through Codex, Claude Code, OpenCode, Pi, Grok, or local review commands. The runtime carries accepted results through review-feedback loops.
 
 Each block run writes durable output under the PlanWeave workspace, including prompt, stdout, stderr, report, metadata, and monitor commands when available.
+
+Custom package executor profiles must be trusted before use with `planweave trust executor <profile>`.
 
 ## Agent Skills
 
@@ -194,6 +161,57 @@ planweave doctor
 
 For simple tasks, one agent can use `plan-runner` directly. For larger plans, use `plan-coordinator` as the main agent and route subagent work to `plan-runner`, `plan-reviewer`, or `plan-recovery`.
 
+## MCP and ChatGPT Web Planning
+
+PlanWeave includes a local HTTP MCP server for MCP clients such as ChatGPT. Its tools inspect and author plans by initializing projects, creating canvases, adding tasks and blocks, wiring dependencies, editing prompts, configuring review pipelines, validating graph quality, and importing package drafts.
+
+For ChatGPT in the browser, use the CLI MCP tunnel on a VPS or PlanWeave Desktop's MCP settings on a local machine. You can use ChatGPT Web as the planning partner: describe the project goal, ask it to write a package-shaped draft in a temporary draft root, dry-run validate and quality-check it, preview the import, then apply it transactionally.
+
+Recommended headless setup for a VPS uses systemd. The MCP server stays on loopback, the OpenAI `tunnel-client` keeps an outbound connection open, and systemd manages the service lifecycle.
+
+```bash
+sudo mkdir -p /etc/planweave /srv/planweave
+sudo chmod 700 /etc/planweave
+
+planweave mcp tunnel download
+planweave mcp tunnel configure --tunnel-id tunnel_xxx
+planweave mcp tunnel print-systemd \
+  --planweave-home /srv/planweave \
+  --env-file /etc/planweave/mcp-tunnel.env
+```
+
+Put the Runtime API key in the systemd environment file, not in PlanWeave's JSON config:
+
+```bash
+PLANWEAVE_HOME=/srv/planweave
+OPENAI_RUNTIME_API_KEY=...
+```
+
+Keep that file readable only by the service owner:
+
+```bash
+sudo chmod 600 /etc/planweave/mcp-tunnel.env
+```
+
+Install the printed service as `planweave-mcp-tunnel.service`, then run:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now planweave-mcp-tunnel
+journalctl -u planweave-mcp-tunnel -f
+```
+
+For local desktop setup:
+
+1. Open **Settings -> MCP Tunnel** in the desktop app.
+2. Download or select the OpenAI [`tunnel-client`](https://github.com/openai/tunnel-client).
+3. Enter your Tunnel ID and Runtime API key, then start the secure tunnel.
+4. Add PlanWeave in ChatGPT using the Tunnel connection mode.
+
+Once connected, ChatGPT can create, inspect, validate, and import PlanWeave plans through the MCP tools.
+
+Source-level MCP server setup is documented in [Development](DEVELOPMENT.md).
+
 ## Auto Run
 
 Auto Run claims ready work, invokes the selected executor, submits artifacts, continues review-feedback loops, and records each run as a session.
@@ -217,66 +235,18 @@ planweave run-session <session-id> --json
 
 ### ACP runners
 
-Codex, Claude Code, OpenCode, Pi, and Grok provide explicit ACP profiles. Their canonical names follow the configured Agent transport, while the `*-acp` names explicitly select ACP:
+PlanWeave provides explicit ACP profiles for Codex, Claude Code, OpenCode, Pi, and Grok: `codex-acp`, `claude-code-acp`, `opencode-acp`, `pi-acp`, and `grok-acp`.
 
-```text
-codex-acp
-claude-code-acp
-opencode-acp
-pi-acp
-grok-acp
-```
-
-When CLI transport is selected, the canonical Grok profile is `grok`. It runs `grok --no-auto-update --prompt-file <run-prompt-path>`. The path points to the same durable prompt artifact recorded for the run, so prompt content is not copied into process arguments.
-
-Install the command used by the selected profile and complete its agent-owned login and provider setup before running preflight:
-
-| Profile | Built-in ACP launch | Prerequisite |
-| --- | --- | --- |
-| `codex-acp` | `codex-acp` | Install and authenticate the separate Codex ACP agent. |
-| `claude-code-acp` | `claude-agent-acp` | Install and authenticate the separate Claude Code ACP agent. |
-| `opencode-acp` | `opencode acp` | Install OpenCode and configure its provider. |
-| `pi-acp` | `pi-acp` | Install `pi-acp` and `pi`, then configure the agent. |
-| `grok-acp` | `grok --no-auto-update agent stdio` | Install Grok CLI and complete Grok-owned login or provider configuration. |
-
-Then verify and run the profile:
+Install and authenticate the selected agent, then verify and run its profile:
 
 ```bash
 planweave executors test codex-acp --json
 planweave run --once --executor codex-acp --timeout 120000 --json
 ```
 
-ACP authentication is negotiated on every new transport. PlanWeave initializes the agent, considers only the `authMethods` returned by that initialize response, and chooses deterministically from methods that are safe without interaction: an `env_var` method only when all required variable names are present, or an agent-owned method only when its built-in definition marks that method ID as headless-safe. If the agent returns no `authMethods`, PlanWeave preserves compatibility by skipping protocol authentication and proceeding to session creation. A missing `agentInfo` is also valid and is shown as not provided; an `agentInfo` object with invalid name or version fields fails preflight.
+ACP preflight negotiates the authentication methods advertised by the selected agent and can use credentials already configured for non-interactive authentication. If user action is required, CLI and Desktop show the next step; interactive login remains agent-owned and is not started automatically. PlanWeave does not persist agent credential values in run metadata or Desktop state.
 
-Terminal login, browser login, and other interactive methods are never started automatically. When credentials are missing or no safe method is advertised, CLI and Desktop preflight return an action-required state with the advertised method IDs/types and the next step. Configure the named environment variables (and restart PlanWeave if they were added after launch) or finish login in the agent outside PlanWeave, then rerun preflight. For Grok's ACP transport, the built-in preference hints cover `xai.api_key` and `cached_token`, but the current agent's advertised methods remain authoritative; this documentation does not claim that every Grok account or authentication path has passed live verification. Grok CLI authentication remains Grok-owned and must also be completed before headless execution.
-
-PlanWeave passes the existing process environment to the selected agent but does not collect or persist secret values in authentication state, run metadata, IPC, or renderer state. Diagnostics may retain the selected method ID and missing environment variable names. Grok's CLI and ACP runners are independent transports and never fall back to each other.
-
-ACP runs provide structured messages, tool updates, artifacts, usage snapshots, and interaction requests. PlanWeave Desktop exposes the follow-up, cancellation, permission, elicitation, and retry actions available for the selected run. Run records keep normalized events and protocol diagnostics for inspection and replay.
-
-Custom package profiles require exact trust for their resolved command and arguments:
-
-```bash
-planweave trust executor <profile>
-```
-
-For authentication or provider errors, follow the preflight next step and rerun `executors test`. Contributor verification commands, including the opt-in Grok live smoke, are documented in [Development](DEVELOPMENT.md#acp-verification).
-
-## Desktop App
-
-PlanWeave Desktop provides a visual task canvas, task workspaces, Auto Run controls, run history, search and statistics views, and MCP tunnel settings for ChatGPT.
-
-<p align="center">
-  <img src="readme/assets/planweave-desktop-canvas.png" width="860" alt="PlanWeave desktop canvas showing an agent task graph with implementation and review blocks." />
-</p>
-
-Install a packaged build from [GitHub Releases](https://github.com/GaosCode/PlanWeave/releases). Current desktop installers are unsigned, so macOS or Windows may show a security warning. If macOS blocks the app, confirm it came from this repository and run:
-
-```bash
-xattr -dr com.apple.quarantine "/Applications/PlanWeave.app"
-```
-
-For repository layout, source setup, tests, and packaging commands, see [Development](DEVELOPMENT.md).
+ACP runs expose structured progress, artifacts, usage, and interaction requests through CLI and Desktop.
 
 ## Future Direction
 
