@@ -175,9 +175,7 @@ async function executableAvailable(
     try {
       await access(candidate, constants.X_OK);
       return true;
-    } catch {
-      continue;
-    }
+    } catch {}
   }
   return false;
 }
@@ -231,12 +229,19 @@ async function detectAgent(
         unavailableReason: installed ? null : missingExecutableReason(profile)
       };
     }
-    const { stdout, stderr } = await runAgentProbe(profile.command, profile.versionArgs, {
-      env,
-      timeout:
-        profile.runnerKind === "acp" ? agentAcpDetectionTimeoutMs : agentVersionDetectionTimeoutMs,
-      maxBuffer: 64 * 1024
-    }, platform);
+    const { stdout, stderr } = await runAgentProbe(
+      profile.command,
+      profile.versionArgs,
+      {
+        env,
+        timeout:
+          profile.runnerKind === "acp"
+            ? agentAcpDetectionTimeoutMs
+            : agentVersionDetectionTimeoutMs,
+        maxBuffer: 64 * 1024
+      },
+      platform
+    );
     const version = `${stdout}${stderr}`.trim().split(/\r?\n/)[0] ?? "";
     return {
       ...profile,

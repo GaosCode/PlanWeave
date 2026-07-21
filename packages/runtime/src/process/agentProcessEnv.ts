@@ -1,9 +1,6 @@
 const posixAgentPathEntries = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"];
 
-function environmentValue(
-  env: NodeJS.ProcessEnv | undefined,
-  name: string
-): string | undefined {
+function environmentValue(env: NodeJS.ProcessEnv | undefined, name: string): string | undefined {
   if (!env) {
     return undefined;
   }

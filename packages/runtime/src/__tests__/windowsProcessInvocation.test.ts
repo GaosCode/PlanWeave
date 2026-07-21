@@ -16,14 +16,12 @@ describe("Windows process invocation quoting", () => {
     expect(quoteWindowsCmdArgument(String.raw`C:\Program Files\app\tool.cmd`)).toBe(
       String.raw`"C:\Program Files\app\tool.cmd"`
     );
-    expect(quoteWindowsCmdArgument(String.raw`say "hi"`)).toBe(String.raw`"say ""hi"""`);
+    expect(quoteWindowsCmdArgument('say "hi"')).toBe(`"say ""hi"""`);
   });
 
   it("builds a batch command line for cmd.exe /d /s /c probes", () => {
     expect(
-      windowsBatchCommandLine(String.raw`C:\Users\dev\AppData\Roaming\npm\codex.cmd`, [
-        "--version"
-      ])
+      windowsBatchCommandLine(String.raw`C:\Users\dev\AppData\Roaming\npm\codex.cmd`, ["--version"])
     ).toBe(String.raw`C:\Users\dev\AppData\Roaming\npm\codex.cmd --version`);
     expect(
       windowsBatchCommandLine(String.raw`C:\Program Files\tools\opencode.cmd`, ["acp", "--help"])

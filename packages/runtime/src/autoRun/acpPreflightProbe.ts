@@ -84,10 +84,7 @@ function authRequiredResult(options: {
   message: string;
   agentInfo: { name: string; version: string } | null;
   capabilities: RunnerCapability[];
-  reason: Extract<
-    RunnerAuthenticationState,
-    { status: "action_required" }
-  >["reason"];
+  reason: Extract<RunnerAuthenticationState, { status: "action_required" }>["reason"];
   methods: Extract<RunnerAuthenticationState, { status: "action_required" }>["methods"];
 }): Extract<Awaited<ReturnType<AcpPreflightProbe>>, { kind: "auth_required" }> {
   return {

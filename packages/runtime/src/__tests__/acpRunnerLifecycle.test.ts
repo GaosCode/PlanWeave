@@ -167,7 +167,9 @@ describe("AcpSessionController lifecycle", () => {
     expect(lifecycleOperations(lifecycle)).toEqual(["spawn", "initialize", "session/new"]);
     const events = await readFile(join(result.root, "events.ndjson"), "utf8");
     expect(events).toContain("probing whether an existing login can open a session");
-    expect(events).toContain("ACP session probe failed; interactive authentication is still required.");
+    expect(events).toContain(
+      "ACP session probe failed; interactive authentication is still required."
+    );
     expect(events).not.toContain("ACP runner is ready.");
     expect(events).not.toContain("session/prompt");
     expect(events).toContain('"kind":"terminal"');

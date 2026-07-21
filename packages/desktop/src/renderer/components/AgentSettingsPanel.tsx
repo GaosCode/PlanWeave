@@ -233,9 +233,7 @@ export function AgentSettingsPanel({
                     {agent.installed ? labels.agentDetected : labels.agentMissing}
                     {agent.version ? `: ${agent.version}` : ""}
                   </span>
-                  {!agent.installed ? (
-                    <span>{labels.agentMissingCannotEnable}</span>
-                  ) : null}
+                  {!agent.installed ? <span>{labels.agentMissingCannotEnable}</span> : null}
                   <span>{labels.agentEnableDescription.replace("{command}", command)}</span>
                   {!agent.installed && agent.runnerKind === "acp" && agent.installCommand ? (
                     <div
@@ -250,7 +248,9 @@ export function AgentSettingsPanel({
                     </div>
                   ) : null}
                   {!agent.installed && agent.unavailableReason ? (
-                    <span className="text-xs text-muted-foreground/90">{agent.unavailableReason}</span>
+                    <span className="text-xs text-muted-foreground/90">
+                      {agent.unavailableReason}
+                    </span>
                   ) : null}
                 </div>
               </div>

@@ -104,6 +104,10 @@ describe("package file watcher: polling SLA and resources", () => {
     const inventoryReaddirs = fsPromisesMock.state.readdirPaths.length;
     expect(inventoryReaddirs).toBeGreaterThan(0);
 
+    // Drain in-flight inventory readdir work before measuring the probe-only window;
+    // otherwise a late readdir from the inventory tick can land after the counter reset.
+    await flushMicrotasks();
+    await flushMicrotasks();
     fsPromisesMock.state.readdirPaths = [];
     // More probe ticks between inventory windows must still avoid readdir.
     await advanceAndFlush(4000);

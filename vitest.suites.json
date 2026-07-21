@@ -265,6 +265,7 @@
         "taskStatus.test.ts",
         "validationSummary.test.ts",
         "agentProcessEnv.test.ts",
+        "packagePosixPath.test.ts",
         "windowsProcessInvocation.test.ts"
       ],
       "integration": [
@@ -372,7 +373,6 @@
         "packageDraftImport.test.ts",
         "packageFileChanges.test.ts",
         "packageFiles.test.ts",
-        "packagePosixPath.test.ts",
         "paths.test.ts",
         "persistentRunnerInteractionChannel.test.ts",
         "plangraphCommand.test.ts",

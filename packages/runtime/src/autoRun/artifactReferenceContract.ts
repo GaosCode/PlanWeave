@@ -80,11 +80,7 @@ async function openWithoutFollowingSymlinks(
   const handle = mode === undefined ? await open(path, flags) : await open(path, flags, mode);
   try {
     const descriptor = await handle.stat();
-    if (
-      !descriptor.isFile() ||
-      descriptor.dev !== entry.dev ||
-      descriptor.ino !== entry.ino
-    ) {
+    if (!descriptor.isFile() || descriptor.dev !== entry.dev || descriptor.ino !== entry.ino) {
       throw new ArtifactReferenceVerificationError(
         "Artifact path identity changed while its descriptor was held."
       );

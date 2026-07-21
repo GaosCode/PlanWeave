@@ -295,4 +295,3 @@ it("accepts the repository manifest with the expected suite counts", () => {
     "Test suite classification valid: 171 unit, 200 integration, 11 platform, 1 performance."
   );
 });
-

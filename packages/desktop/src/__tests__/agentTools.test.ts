@@ -306,12 +306,7 @@ describe("desktop agent tool detection", () => {
     });
     expect(execFileMock).toHaveBeenCalledWith(
       String.raw`C:\Windows\System32\cmd.exe`,
-      [
-        "/d",
-        "/s",
-        "/c",
-        String.raw`"C:\Users\dev\AppData\Roaming\npm\codex.cmd" --version`
-      ],
+      ["/d", "/s", "/c", String.raw`"C:\Users\dev\AppData\Roaming\npm\codex.cmd" --version`],
       expect.objectContaining({
         windowsVerbatimArguments: true,
         windowsHide: true
