@@ -372,6 +372,7 @@
         "packageDraftImport.test.ts",
         "packageFileChanges.test.ts",
         "packageFiles.test.ts",
+        "packagePosixPath.test.ts",
         "paths.test.ts",
         "persistentRunnerInteractionChannel.test.ts",
         "plangraphCommand.test.ts",

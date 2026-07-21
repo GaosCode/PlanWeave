@@ -1,4 +1,5 @@
 import { isAbsolute, relative } from "node:path";
+import { toPackagePosixPath } from "../../package/packagePosixPath.js";
 import type {
   CompiledExecutionGraph,
   ExecutionGraphSession,
@@ -7,14 +8,15 @@ import type {
 import { requireMapValue } from "../requireMapValue.js";
 
 export function promptPathToRefs(graph: CompiledExecutionGraph, path: string): string[] {
+  const normalizedPath = toPackagePosixPath(path);
   const refs: string[] = [];
   for (const taskId of graph.taskNodesInManifestOrder) {
     const task = requireMapValue(graph.tasksById, taskId, "tasksById");
-    if (task.prompt === path) {
+    if (toPackagePosixPath(task.prompt) === normalizedPath) {
       refs.push(...requireMapValue(graph.blocksByTask, taskId, "blocksByTask"));
     }
     for (const block of task.blocks) {
-      if (block.prompt === path) {
+      if (toPackagePosixPath(block.prompt) === normalizedPath) {
         refs.push(`${taskId}#${block.id}`);
       }
     }
@@ -27,5 +29,6 @@ export function dedupeFileChanges(changes: PackageFileChange[]): PackageFileChan
 }
 
 export function normalizePackagePath(session: ExecutionGraphSession, path: string): string {
-  return isAbsolute(path) ? relative(session.packageRoot, path) : path;
+  const relativePath = isAbsolute(path) ? relative(session.packageRoot, path) : path;
+  return toPackagePosixPath(relativePath);
 }

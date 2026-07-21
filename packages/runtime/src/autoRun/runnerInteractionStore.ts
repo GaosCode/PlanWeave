@@ -124,10 +124,27 @@ async function assertPrivateCanonicalFile(path: string): Promise<void> {
   }
 }
 
+function withNoFollowFlag(baseFlags: number): number {
+  return typeof constants.O_NOFOLLOW === "number" ? baseFlags | constants.O_NOFOLLOW : baseFlags;
+}
+
+/**
+ * Open without following symlinks. Windows lacks O_NOFOLLOW; lstat already ran via
+ * assertPrivateCanonicalFile for reads, and O_EXCL rejects pre-existing create paths.
+ */
+async function openPrivateFile(
+  path: string,
+  baseFlags: number,
+  mode?: number
+): Promise<Awaited<ReturnType<typeof open>>> {
+  const flags = withNoFollowFlag(baseFlags);
+  return mode === undefined ? open(path, flags) : open(path, flags, mode);
+}
+
 async function readPrivateJson<T>(path: string, schema: ZodType<T>, subject: string): Promise<T> {
   try {
     await assertPrivateCanonicalFile(path);
-    const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const handle = await openPrivateFile(path, constants.O_RDONLY);
     try {
       const raw = await handle.readFile("utf8");
       let decoded: unknown;
@@ -161,9 +178,9 @@ async function publishPrivateJsonExclusive(
     directory,
     `.interaction.${process.pid}.${Date.now()}.${globalThis.crypto.randomUUID()}.tmp`
   );
-  const handle = await open(
+  const handle = await openPrivateFile(
     temporaryPath,
-    constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW,
+    constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY,
     PRIVATE_FILE_MODE
   );
   try {

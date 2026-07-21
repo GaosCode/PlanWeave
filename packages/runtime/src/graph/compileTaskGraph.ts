@@ -2,6 +2,7 @@ import type { Dirent } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { optionalReaddir, optionalStat } from "../fs/optionalFile.js";
+import { toPackagePosixPath } from "../package/packagePosixPath.js";
 import { PackagePathError, resolvePackagePath } from "../package/resolvePackagePath.js";
 import { edgeTypes } from "../types.js";
 import type {
@@ -39,7 +40,7 @@ async function listMarkdownFiles(
   root: string,
   errors: ValidationIssue[]
 ): Promise<string[]> {
-  const promptPath = relative(packageDir, root) || ".";
+  const promptPath = toPackagePosixPath(relative(packageDir, root) || ".");
   let entries: Dirent[] | null;
   try {
     entries = await optionalReaddir(root, { withFileTypes: true });
@@ -390,10 +391,10 @@ export async function compilePackageGraph(
 
   for (const taskId of graph.taskNodesInManifestOrder) {
     const task = requireMapValue(graph.tasksById, taskId, "tasksById");
-    referencedPrompts.add(task.prompt);
+    referencedPrompts.add(toPackagePosixPath(task.prompt));
     await validatePromptReference(packageDir, task.prompt, graph.diagnostics.errors);
     for (const block of task.blocks) {
-      referencedPrompts.add(block.prompt);
+      referencedPrompts.add(toPackagePosixPath(block.prompt));
       await validatePromptReference(packageDir, block.prompt, graph.diagnostics.errors);
     }
   }
@@ -403,7 +404,7 @@ export async function compilePackageGraph(
     join(packageDir, "nodes"),
     graph.diagnostics.errors
   )) {
-    const promptPath = relative(packageDir, file);
+    const promptPath = toPackagePosixPath(relative(packageDir, file));
     if (!referencedPrompts.has(promptPath)) {
       graph.diagnostics.warnings.push(
         issue("stale_prompt_reference", `Prompt '${promptPath}' is not referenced.`, promptPath)

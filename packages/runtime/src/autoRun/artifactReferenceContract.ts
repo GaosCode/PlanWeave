@@ -33,17 +33,67 @@ function safeFileName(relativePath: string): string {
   return artifactRelativePathSchema.parse(relativePath);
 }
 
-function noFollowFlag(): number {
-  if (typeof constants.O_NOFOLLOW !== "number") {
-    throw new ArtifactReferenceVerificationError(
-      "This platform cannot safely open runner artifacts without following symbolic links."
-    );
-  }
-  return constants.O_NOFOLLOW;
+/**
+ * Prefer O_NOFOLLOW when available. On Windows (and other platforms without the flag),
+ * callers must use lstat + open + fstat identity checks instead of hard-failing.
+ */
+function withNoFollowFlag(baseFlags: number): number {
+  return typeof constants.O_NOFOLLOW === "number" ? baseFlags | constants.O_NOFOLLOW : baseFlags;
 }
 
 function isMissingPathError(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+/**
+ * Open a path for read without following symlinks.
+ * Unix: O_NOFOLLOW. Windows: lstat rejects links, then open + fstat re-checks identity.
+ */
+async function openWithoutFollowingSymlinks(
+  path: string,
+  baseFlags: number,
+  mode?: number
+): Promise<FileHandle> {
+  const flags = withNoFollowFlag(baseFlags);
+  if (typeof constants.O_NOFOLLOW === "number") {
+    return mode === undefined ? open(path, flags) : open(path, flags, mode);
+  }
+
+  // Create-exclusive: path must not exist; O_EXCL already rejects existing names (including links).
+  const creatingExclusive =
+    (baseFlags & constants.O_CREAT) !== 0 && (baseFlags & constants.O_EXCL) !== 0;
+  if (creatingExclusive) {
+    return mode === undefined ? open(path, flags) : open(path, flags, mode);
+  }
+
+  const entry = await lstat(path);
+  if (entry.isSymbolicLink()) {
+    throw new ArtifactReferenceVerificationError(
+      "Referenced artifact could not be safely opened without following symbolic links."
+    );
+  }
+  if ((baseFlags & constants.O_RDONLY) === constants.O_RDONLY && !entry.isFile()) {
+    throw new ArtifactReferenceVerificationError(
+      "Referenced artifact could not be safely opened without following symbolic links."
+    );
+  }
+  const handle = mode === undefined ? await open(path, flags) : await open(path, flags, mode);
+  try {
+    const descriptor = await handle.stat();
+    if (
+      !descriptor.isFile() ||
+      descriptor.dev !== entry.dev ||
+      descriptor.ino !== entry.ino
+    ) {
+      throw new ArtifactReferenceVerificationError(
+        "Artifact path identity changed while its descriptor was held."
+      );
+    }
+    return handle;
+  } catch (error) {
+    await handle.close().catch(() => undefined);
+    throw error;
+  }
 }
 
 async function removeTemporaryPath(path: string, root: string): Promise<void> {
@@ -78,8 +128,11 @@ async function readDescriptor(handle: FileHandle, size: number): Promise<Buffer>
 
 async function openArtifactForRead(path: string): Promise<FileHandle> {
   try {
-    return await open(path, constants.O_RDONLY | noFollowFlag());
-  } catch {
+    return await openWithoutFollowingSymlinks(path, constants.O_RDONLY);
+  } catch (error) {
+    if (error instanceof ArtifactReferenceVerificationError) {
+      throw error;
+    }
     throw new ArtifactReferenceVerificationError(
       "Referenced artifact could not be safely opened without following symbolic links."
     );
@@ -151,9 +204,9 @@ export async function materializeArtifactBytes(
   const root = await realpath(options.rootDir);
   const targetPath = resolve(root, relativePath);
   const temporaryPath = resolve(root, `.planweave-artifact-${randomUUID()}.tmp`);
-  const handle = await open(
+  const handle = await openWithoutFollowingSymlinks(
     temporaryPath,
-    constants.O_CREAT | constants.O_EXCL | constants.O_RDWR | noFollowFlag(),
+    constants.O_CREAT | constants.O_EXCL | constants.O_RDWR,
     0o600
   );
   let committed = false;

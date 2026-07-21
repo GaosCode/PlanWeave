@@ -292,7 +292,7 @@ it("accepts the repository manifest with the expected suite counts", () => {
 
   expect(result.status).toBe(0);
   expect(result.stdout).toContain(
-    "Test suite classification valid: 170 unit, 200 integration, 11 platform, 1 performance."
+    "Test suite classification valid: 171 unit, 200 integration, 11 platform, 1 performance."
   );
 });
 

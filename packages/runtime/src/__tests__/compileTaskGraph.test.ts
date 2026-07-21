@@ -175,4 +175,13 @@ describe("compilePackageGraph", () => {
       ])
     );
   });
+
+  it("does not emit stale_prompt_reference for referenced package prompts", async () => {
+    const packageDir = await createPackageDir();
+    const graph = await compilePackageGraph(basicManifest(), packageDir);
+    expect(graph.diagnostics.warnings.map((warning) => warning.code)).not.toContain(
+      "stale_prompt_reference"
+    );
+    expect(graph.diagnostics.errors).toEqual([]);
+  });
 });

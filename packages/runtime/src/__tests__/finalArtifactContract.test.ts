@@ -34,9 +34,13 @@ import { getRunRecord } from "../desktop/index.js";
 const expected = { kind: "implementation", ref: "T-001#B-001", taskId: "T-001" } as const;
 
 describe("final artifact envelope codec", () => {
-  it("has the no-follow and exclusive-open flags required by atomic materialization", () => {
-    expect(typeof constants.O_NOFOLLOW).toBe("number");
+  it("has exclusive-create flags; no-follow is optional (Windows uses lstat fallback)", () => {
     expect(typeof constants.O_EXCL).toBe("number");
+    // O_NOFOLLOW is required for the preferred open path, but unavailable on Windows.
+    // artifactReferenceContract falls back to lstat + open + fstat when it is missing.
+    if (process.platform !== "win32") {
+      expect(typeof constants.O_NOFOLLOW).toBe("number");
+    }
   });
 
   it("uses one newline-terminated marker line and materializes the validated envelope", async () => {
