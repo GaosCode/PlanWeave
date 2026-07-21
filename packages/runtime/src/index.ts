@@ -10,6 +10,16 @@ export type {
   SpawnManagedProcessOptions,
   WindowsJobLaunchStrategy
 } from "./process/managedProcessTree.js";
+export {
+  quoteWindowsCmdArgument,
+  resolveWindowsCommand,
+  resolveWindowsProcessInvocation,
+  windowsBatchCommandLine
+} from "./process/windowsManagedProcess.js";
+export type {
+  ResolvedWindowsCommand,
+  WindowsProcessInvocation
+} from "./process/windowsManagedProcess.js";
 export { readProjectPaths, resolvePlanweaveHome } from "./paths.js";
 export { createManagedProjectId, createProjectId } from "./projectId.js";
 export {

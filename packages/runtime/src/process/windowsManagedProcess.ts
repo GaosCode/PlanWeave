@@ -268,6 +268,67 @@ export function resolveWindowsCommand(
   return null;
 }
 
+/**
+ * Quote one Windows cmd.exe argument for `/d /s /c` short probes.
+ * Spaces and cmd metacharacters are wrapped; embedded quotes are doubled.
+ */
+export function quoteWindowsCmdArgument(value: string): string {
+  if (value.length === 0) {
+    return '""';
+  }
+  if (!/[\t\n\v\f\r "&<>|^]/.test(value)) {
+    return value;
+  }
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+export function windowsBatchCommandLine(executable: string, args: readonly string[]): string {
+  return [quoteWindowsCmdArgument(executable), ...args.map(quoteWindowsCmdArgument)].join(" ");
+}
+
+export type WindowsProcessInvocation = {
+  command: string;
+  args: string[];
+  target: ResolvedWindowsCommand;
+  /** Required when args include a pre-quoted `/c` payload. */
+  windowsVerbatimArguments: boolean;
+};
+
+/**
+ * Resolve a short-lived Windows process invocation without Job ownership.
+ * Native PE binaries run directly; `.cmd`/`.bat` run through `cmd.exe /d /s /c`.
+ */
+export function resolveWindowsProcessInvocation(options: {
+  command: string;
+  args?: readonly string[];
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+}): WindowsProcessInvocation | null {
+  const target = resolveWindowsCommand({
+    command: options.command,
+    cwd: options.cwd,
+    env: options.env
+  });
+  if (!target) {
+    return null;
+  }
+  const args = options.args ? [...options.args] : [];
+  if (target.launchMode === "native") {
+    return {
+      command: target.executable,
+      args,
+      target,
+      windowsVerbatimArguments: false
+    };
+  }
+  return {
+    command: windowsCommandPromptPath(),
+    args: ["/d", "/s", "/c", `"${windowsBatchCommandLine(target.executable, args)}"`],
+    target,
+    windowsVerbatimArguments: true
+  };
+}
+
 export function windowsLauncherArgs(
   job: WindowsJobOwnership,
   target: ResolvedWindowsCommand,

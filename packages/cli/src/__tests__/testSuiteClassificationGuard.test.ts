@@ -8,6 +8,7 @@ const repositoryRoot = process.cwd();
 const classifierPath = join(repositoryRoot, "scripts/check-test-suite-classification.mjs");
 const fixtureRoots: string[] = [];
 const requiredPlatformTests = [
+  "packages/desktop/src/__tests__/agentToolsWindows.test.ts",
   "packages/desktop/src/__tests__/runtimeStateWatch.test.ts",
   "packages/mcp/src/__tests__/oauth.test.ts",
   "packages/mcp/src/__tests__/oauthRefresh.test.ts",
@@ -291,6 +292,7 @@ it("accepts the repository manifest with the expected suite counts", () => {
 
   expect(result.status).toBe(0);
   expect(result.stdout).toContain(
-    "Test suite classification valid: 168 unit, 200 integration, 10 platform, 1 performance."
+    "Test suite classification valid: 169 unit, 200 integration, 11 platform, 1 performance."
   );
 });
+

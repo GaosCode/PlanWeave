@@ -104,6 +104,15 @@ export type DesktopAgentToolProfile = {
   reportsVersion?: boolean;
   execArgs: string[];
   fullAccessArgs: string[];
+  /**
+   * Optional package install command shown when this entry is missing
+   * (for example a separate ACP adapter npm package).
+   */
+  installCommand?: string | null;
+  /**
+   * Optional external login commands shown when interactive authentication is required.
+   */
+  loginCommands?: string[] | null;
 };
 
 /** @deprecated Use DesktopAgentToolProfile. */

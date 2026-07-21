@@ -23,6 +23,7 @@ const externalApiPatterns = [
   /\b(?:chmod|chmodSync|mkdtemp|mkdtempSync|rename|renameSync|rm|rmSync|symlink|symlinkSync|tmpdir|unlink|unlinkSync|watch|watchFile)\s*\(/
 ];
 const curatedPlatformTests = [
+  "packages/desktop/src/__tests__/agentToolsWindows.test.ts",
   "packages/desktop/src/__tests__/runtimeStateWatch.test.ts",
   "packages/mcp/src/__tests__/oauth.test.ts",
   "packages/mcp/src/__tests__/oauthRefresh.test.ts",

@@ -175,7 +175,7 @@
         "runtimeBrowserBoundary.test.ts",
         "smokeProcessGate.test.ts"
       ],
-      "platform": ["runtimeStateWatch.test.ts"],
+      "platform": ["agentToolsWindows.test.ts", "runtimeStateWatch.test.ts"],
       "performance": []
     },
     {
@@ -263,7 +263,8 @@
         "schemaDocumentContract.test.ts",
         "taskManagerTrustedAccess.test.ts",
         "taskStatus.test.ts",
-        "validationSummary.test.ts"
+        "validationSummary.test.ts",
+        "windowsProcessInvocation.test.ts"
       ],
       "integration": [
         "acpActions.test.ts",
