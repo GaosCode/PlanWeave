@@ -256,6 +256,16 @@ describe("package file watcher: polling SLA and resources", () => {
     const workspace = await createWorkspace();
     const webContents = createWebContents();
     const target = join(workspace.packageDir, "nodes", "T-001", "blocks", "B-001.prompt.md");
+    const hashSweepCompleted = createDeferred<void>();
+    const expectedHashPaths = new Set([
+      workspace.manifestFile,
+      workspace.projectPromptFile,
+      join(workspace.packageDir, "nodes", "T-001", "prompt.md"),
+      target
+    ]);
+    const completedHashPaths = new Set<string>();
+    const targetHashReadStarted = createDeferred<void>();
+    const delayedTargetHashRead = createDeferred<Buffer>();
     const pinned = new Date("2020-01-01T00:00:00.000Z");
     await utimes(target, pinned, pinned);
 
@@ -269,24 +279,53 @@ describe("package file watcher: polling SLA and resources", () => {
     webContents.send.mockClear();
 
     const original = await readFile(target);
-    await writeFile(target, Buffer.alloc(original.length, 0x43));
+    const replacement = Buffer.alloc(original.length, 0x43);
+    await writeFile(target, replacement);
     await utimes(target, pinned, pinned);
     const after = await stat(target);
     expect(after.mtimeMs).toBe(pinned.getTime());
 
-    await advanceAndFlush(19_000);
-    await flushDebounce();
-    expect(webContents.send).not.toHaveBeenCalled();
+    fsPromisesMock.state.readFileHook = (path) => {
+      if (path === target) {
+        targetHashReadStarted.resolve();
+        return delayedTargetHashRead.promise;
+      }
+    };
+    fsPromisesMock.state.readFileResultHook = (path) => {
+      if (!expectedHashPaths.has(path)) {
+        return;
+      }
+      completedHashPaths.add(path);
+      if (completedHashPaths.size === expectedHashPaths.size) {
+        hashSweepCompleted.resolve();
+      }
+    };
 
-    await advanceAndFlush(1000);
-    await flushDebounce();
+    try {
+      await advanceAndFlush(19_000);
+      await flushDebounce();
+      expect(webContents.send).not.toHaveBeenCalled();
 
-    const had = webContents.send.mock.calls.some(
-      (call) =>
-        call[0] === packageFileChangedChannel &&
-        (call[1].paths || []).includes("package/nodes/T-001/blocks/B-001.prompt.md")
-    );
-    expect(had).toBe(true);
+      await advanceAndFlush(1000);
+      await targetHashReadStarted.promise;
+      expect(webContents.send).not.toHaveBeenCalled();
+
+      delayedTargetHashRead.resolve(replacement);
+      await hashSweepCompleted.promise;
+      await flushMicrotasks();
+      await flushDebounce();
+
+      const had = webContents.send.mock.calls.some(
+        (call) =>
+          call[0] === packageFileChangedChannel &&
+          (call[1].paths || []).includes("package/nodes/T-001/blocks/B-001.prompt.md")
+      );
+      expect(had).toBe(true);
+    } finally {
+      fsPromisesMock.state.readFileHook = null;
+      fsPromisesMock.state.readFileResultHook = null;
+      delayedTargetHashRead.resolve(replacement);
+    }
   });
 
   it("polling unwatch clears kickoff timers immediately (active timer count is zero)", async () => {

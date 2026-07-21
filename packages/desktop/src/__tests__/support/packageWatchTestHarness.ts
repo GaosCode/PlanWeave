@@ -72,7 +72,8 @@ const fsPromisesMock = vi.hoisted(() => {
     holdReadFilePromise: null as Promise<Buffer> | null,
     activeReadFiles: 0,
     maxActiveReadFiles: 0,
-    readFileHook: null as null | ((path: string) => Promise<Buffer> | Buffer | undefined)
+    readFileHook: null as null | ((path: string) => Promise<Buffer> | Buffer | undefined),
+    readFileResultHook: null as null | ((path: string) => Promise<void> | void)
   };
   return {
     state,
@@ -89,6 +90,7 @@ const fsPromisesMock = vi.hoisted(() => {
       state.activeReadFiles = 0;
       state.maxActiveReadFiles = 0;
       state.readFileHook = null;
+      state.readFileResultHook = null;
     }
   };
 });
@@ -208,19 +210,26 @@ vi.mock("node:fs/promises", async () => {
         fsPromisesMock.state.activeReadFiles
       );
       try {
+        let result: Awaited<ReturnType<typeof actual.readFile>>;
         if (fsPromisesMock.state.readFileHook) {
           const hooked = await fsPromisesMock.state.readFileHook(pathText);
           if (hooked !== undefined) {
-            return hooked as never;
+            result = hooked as never;
+            await fsPromisesMock.state.readFileResultHook?.(pathText);
+            return result;
           }
         }
         if (fsPromisesMock.state.failReadFile) {
           throw new Error("simulated hash read failure");
         }
         if (fsPromisesMock.state.holdReadFilePromise) {
-          return (await fsPromisesMock.state.holdReadFilePromise) as never;
+          result = (await fsPromisesMock.state.holdReadFilePromise) as never;
+          await fsPromisesMock.state.readFileResultHook?.(pathText);
+          return result;
         }
-        return actual.readFile(...args);
+        result = await actual.readFile(...args);
+        await fsPromisesMock.state.readFileResultHook?.(pathText);
+        return result;
       } finally {
         fsPromisesMock.state.activeReadFiles -= 1;
       }

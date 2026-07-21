@@ -2,7 +2,17 @@ name: CI
 
 on:
   push:
+    paths-ignore:
+      - "README.md"
+      - "readme/**"
+      - "DEVELOPMENT.md"
+      - "CONTRIBUTING.md"
   pull_request:
+    paths-ignore:
+      - "README.md"
+      - "readme/**"
+      - "DEVELOPMENT.md"
+      - "CONTRIBUTING.md"
 
 permissions:
   contents: read
@@ -36,9 +46,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # pnpm 11 uses the bulk advisory endpoint required by the npm registry.
-      # Blocking on high/critical: pnpm audit currently reports no known issues.
-      # If a new advisory appears, either fix/override with rationale in DEVELOPMENT.md
-      # or temporarily set continue-on-error after documenting the exception.
+      # Block CI when the resolved dependency graph contains high or critical advisories.
       - name: Audit dependencies (high/critical)
         run: npx --yes pnpm@11.4.0 --pm-on-fail=ignore audit --audit-level=high
 
@@ -69,11 +77,11 @@ jobs:
 
       - name: Redact failed Ubuntu test reports
         id: redact-unit
-        if: failure()
+        if: steps.unit-tests.outcome == 'failure'
         run: node scripts/redact-ci-test-artifacts.mjs reports
 
       - name: Upload failed Ubuntu test reports
-        if: failure() && steps.redact-unit.outcome == 'success'
+        if: steps.unit-tests.outcome == 'failure' && steps.redact-unit.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: test-reports-ubuntu
@@ -130,11 +138,11 @@ jobs:
 
       - name: Redact failed integration test report
         id: redact-integration
-        if: failure()
+        if: steps.integration-tests.outcome == 'failure'
         run: node scripts/redact-ci-test-artifacts.mjs reports
 
       - name: Upload failed integration test report
-        if: failure() && steps.redact-integration.outcome == 'success'
+        if: steps.integration-tests.outcome == 'failure' && steps.redact-integration.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: integration-test-report-${{ matrix.shard }}
@@ -183,11 +191,11 @@ jobs:
 
       - name: Redact failed performance test report
         id: redact-performance
-        if: failure()
+        if: steps.performance-tests.outcome == 'failure'
         run: node scripts/redact-ci-test-artifacts.mjs reports
 
       - name: Upload failed performance test report
-        if: failure() && steps.redact-performance.outcome == 'success'
+        if: steps.performance-tests.outcome == 'failure' && steps.redact-performance.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: performance-test-report
@@ -242,11 +250,11 @@ jobs:
 
       - name: Redact failed platform test report
         id: redact-platform
-        if: failure()
+        if: steps.platform-tests.outcome == 'failure'
         run: node scripts/redact-ci-test-artifacts.mjs reports
 
       - name: Upload failed platform test report
-        if: failure() && steps.redact-platform.outcome == 'success'
+        if: steps.platform-tests.outcome == 'failure' && steps.redact-platform.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: platform-test-report-${{ matrix.os }}
