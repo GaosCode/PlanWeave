@@ -153,7 +153,7 @@ describe("AcpSessionController lifecycle", () => {
     ]);
   });
 
-  it("fails action-required authentication before ready, session creation, or prompt", async () => {
+  it("probes session for action-required auth and fails closed before ready or prompt", async () => {
     const { result, lifecycle } = await withLifecycleTrace(async () => {
       const run = await execute("action-required", 1_000, undefined, undefined, {
         projectId: "project-1",
@@ -163,11 +163,13 @@ describe("AcpSessionController lifecycle", () => {
       return run;
     });
 
-    expect(lifecycleOperations(lifecycle)).toEqual(["spawn", "initialize"]);
+    // Interactive methods may attempt session/new once; failure must stay pre-ready.
+    expect(lifecycleOperations(lifecycle)).toEqual(["spawn", "initialize", "session/new"]);
     const events = await readFile(join(result.root, "events.ndjson"), "utf8");
-    expect(events).toContain("ACP authentication requires user action.");
+    expect(events).toContain("probing whether an existing login can open a session");
+    expect(events).toContain("ACP session probe failed; interactive authentication is still required.");
     expect(events).not.toContain("ACP runner is ready.");
-    expect(events).not.toContain('"state":"running"');
+    expect(events).not.toContain("session/prompt");
     expect(events).toContain('"kind":"terminal"');
     expect(events).toContain('"state":"failed"');
     await expect(readFile(join(result.root, "metadata.json"), "utf8")).resolves.toContain(

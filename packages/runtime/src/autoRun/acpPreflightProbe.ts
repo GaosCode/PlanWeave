@@ -15,8 +15,10 @@ import {
   coordinateAcpAuthentication,
   AcpAuthenticationRequiredError,
   hasAdvertisedAcpAuthenticationMethods,
+  mayProbeSessionDespiteAuthRequired,
   type AcpAuthenticationOutcome
 } from "./acpAuthentication.js";
+import { agentProcessEnvRecord } from "../process/agentProcessEnv.js";
 
 export { sessionConfigurationFromNewSession } from "./acpSessionConfiguration.js";
 
@@ -78,12 +80,35 @@ function authenticationStateFromOutcome(
     : { status: "not_advertised" };
 }
 
+function authRequiredResult(options: {
+  message: string;
+  agentInfo: { name: string; version: string } | null;
+  capabilities: RunnerCapability[];
+  reason: Extract<
+    RunnerAuthenticationState,
+    { status: "action_required" }
+  >["reason"];
+  methods: Extract<RunnerAuthenticationState, { status: "action_required" }>["methods"];
+}): Extract<Awaited<ReturnType<AcpPreflightProbe>>, { kind: "auth_required" }> {
+  return {
+    kind: "auth_required",
+    message: options.message,
+    agentInfo: options.agentInfo,
+    authentication: {
+      status: "action_required",
+      reason: options.reason,
+      methods: options.methods
+    },
+    capabilities: options.capabilities
+  };
+}
+
 export const probeInstalledAcpAgent: AcpPreflightProbe = async ({ definition, cwd, signal }) => {
   const launch = definition.acp.launch;
   if (!launch) return { kind: "failed", message: "ACP launch metadata is unavailable." };
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)
-  );
+  // Match desktop agent detection: include common POSIX install dirs so GUI-launched
+  // Electron (short PATH) can still resolve Homebrew/npm agent binaries.
+  const env = agentProcessEnvRecord();
   const availableEnvironmentVariables = new Set(Object.keys(env));
   const connection = createAcpConnection({
     launch: { trusted: true, command: launch.command, args: launch.args },
@@ -141,20 +166,53 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({ definition, cw
       } catch (error) {
         throw new AcpPreflightPhaseError("authentication", error);
       }
+
+      // When the agent only advertises interactive/agent login methods, still try to open a
+      // session: many CLIs (OpenCode, Pi, Claude) already hold credentials from terminal login.
       if (authenticationOutcome.kind === "auth_required") {
-        const authenticationError = new AcpAuthenticationRequiredError(authenticationOutcome);
-        return {
-          kind: "auth_required",
-          message: authenticationError.message,
-          agentInfo: agentInfo.data,
-          authentication: {
-            status: "action_required",
+        if (!mayProbeSessionDespiteAuthRequired(authenticationOutcome)) {
+          const authenticationError = new AcpAuthenticationRequiredError(authenticationOutcome);
+          return authRequiredResult({
+            message: authenticationError.message,
+            agentInfo: agentInfo.data,
+            capabilities,
             reason: authenticationOutcome.reason,
             methods: authenticationOutcome.methods
-          },
-          capabilities
+          });
+        }
+        let probeSession: NewSessionResponse;
+        try {
+          probeSession = await connection.newSession({ cwd, mcpServers: [] }, { signal });
+        } catch {
+          const authenticationError = new AcpAuthenticationRequiredError(authenticationOutcome);
+          return authRequiredResult({
+            message: authenticationError.message,
+            agentInfo: agentInfo.data,
+            capabilities,
+            reason: authenticationOutcome.reason,
+            methods: authenticationOutcome.methods
+          });
+        }
+        const recoveredAuth = {
+          kind: "authenticated" as const,
+          methodId: authenticationOutcome.methods[0]?.id ?? "session"
+        };
+        if (initialized.agentCapabilities?.sessionCapabilities?.close != null) {
+          try {
+            await connection.closeSession(probeSession.sessionId, { signal });
+          } catch (error) {
+            throw new AcpPreflightPhaseError("session", error);
+          }
+        }
+        return {
+          kind: "ready",
+          agentInfo: agentInfo.data,
+          authentication: authenticationStateFromOutcome(recoveredAuth),
+          capabilities,
+          sessionConfig: sessionConfigurationFromNewSession(probeSession)
         };
       }
+
       let session: NewSessionResponse;
       try {
         session = await connection.newSession({ cwd, mcpServers: [] }, { signal });
@@ -162,18 +220,14 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({ definition, cw
         if (!isAuthRequiredError(error)) {
           throw new AcpPreflightPhaseError("session", error);
         }
-        return {
-          kind: "auth_required",
+        return authRequiredResult({
           message:
             "ACP agent requires authentication but did not advertise a headless-safe method. Authenticate with the agent, then retry.",
           agentInfo: agentInfo.data,
-          authentication: {
-            status: "action_required",
-            reason: "no_safe_method",
-            methods: []
-          },
-          capabilities
-        };
+          capabilities,
+          reason: "no_safe_method",
+          methods: []
+        });
       }
       if (initialized.agentCapabilities?.sessionCapabilities?.close != null) {
         try {

@@ -166,6 +166,28 @@ describe("ACP authenticated preflight lifecycle", () => {
     );
   });
 
+  it("marks agents ready when interactive auth is advertised but a session still opens", async () => {
+    // Mirrors OpenCode/Pi after terminal login: methods are agent/terminal-only, but
+    // credentials already exist so session/new succeeds without protocol authenticate.
+    const result = await preflight("session-ready-with-agent-auth");
+
+    expect(result.authentication).toEqual({
+      status: "authenticated",
+      methodId: "mock-login"
+    });
+    expect(result.negotiatedCapabilities).not.toBeNull();
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ check: "acp_session", status: "passed" }),
+        expect.objectContaining({
+          check: "acp_authenticated",
+          status: "passed",
+          message: expect.stringContaining("mock-login")
+        })
+      ])
+    );
+  });
+
   it("preserves session auth-required classification when no methods were advertised", async () => {
     const result = await preflight("no-auth-methods-but-session-requires-auth");
 

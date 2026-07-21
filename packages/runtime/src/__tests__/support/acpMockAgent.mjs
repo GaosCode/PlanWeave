@@ -93,6 +93,7 @@ const app = agent({ name: "planweave-acp-mock" })
             ? [{ id: "grok.com", name: "Sign in with Grok" }]
             : scenario === "auth-required" ||
                 scenario === "action-required" ||
+                scenario === "session-ready-with-agent-auth" ||
                 scenario === "authenticated-with-auth-methods" ||
                 scenario === "authenticated-artifact-implementation" ||
                 scenario === "authenticate-delayed" ||

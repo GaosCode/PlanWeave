@@ -147,7 +147,7 @@ describe("ACP conversation turn", () => {
     );
   });
 
-  it("does not load or prompt when authentication requires user action", async () => {
+  it("probes loadSession for interactive auth and fails closed when load still requires login", async () => {
     const harness = createHarness({
       authMethods: [{ id: "interactive-login", name: "Interactive login" }],
       rejectUnauthenticatedLoad: true
@@ -157,8 +157,8 @@ describe("ACP conversation turn", () => {
       "headless-safe authentication method"
     );
 
-    expect(harness.operationOrder).toEqual(["initialize"]);
-    expect(harness.connection.loadSession).not.toHaveBeenCalled();
+    expect(harness.operationOrder).toEqual(["initialize", "loadSession"]);
+    expect(harness.connection.loadSession).toHaveBeenCalledOnce();
     expect(harness.connection.prompt).not.toHaveBeenCalled();
     expect(harness.connection.dispose).toHaveBeenCalledOnce();
   });

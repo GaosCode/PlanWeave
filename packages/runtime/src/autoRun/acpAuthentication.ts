@@ -341,3 +341,15 @@ export async function coordinateAcpAuthentication(
     methodId: plan.methodId
   });
 }
+
+/**
+ * Interactive/agent methods often mean "login outside PlanWeave once".
+ * Callers may still open a session; if the agent already has credentials, session succeeds.
+ * Env-var missing credentials remain hard failures (nothing to probe).
+ */
+export function mayProbeSessionDespiteAuthRequired(outcome: AcpAuthenticationOutcome): boolean {
+  return (
+    outcome.kind === "auth_required" &&
+    (outcome.reason === "interactive_method" || outcome.reason === "no_safe_method")
+  );
+}

@@ -22,9 +22,11 @@ import {
   type AcpConnection,
   type CreateAcpConnectionOptions
 } from "./acpConnection.js";
+import { agentProcessEnvRecord } from "../process/agentProcessEnv.js";
 import {
   AcpAuthenticationRequiredError,
   coordinateAcpAuthentication,
+  mayProbeSessionDespiteAuthRequired,
   type AcpAuthenticationHints
 } from "./acpAuthentication.js";
 import { ExecutorCancelledError } from "./executorShared.js";
@@ -114,9 +116,7 @@ type ConnectionFactory = (options: CreateAcpConnectionOptions) => AcpConnection;
 type TerminalStatus = "completed" | "failed" | "cancelled" | "timed_out";
 
 function environment(): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)
-  );
+  return agentProcessEnvRecord();
 }
 
 function updateText(notification: SessionNotification): string | null {
@@ -572,16 +572,72 @@ export class AcpSessionController {
         availableEnvironmentVariables: new Set(Object.keys(spawnEnvironment)),
         operationOptions: { signal: abortController.signal, timeoutMs: options?.timeoutMs }
       });
+      const boundConnection = connection;
+      if (boundConnection === null) {
+        throw new Error("ACP connection was disposed before authentication completed.");
+      }
+      const sessionOperation = {
+        signal: abortController.signal,
+        timeoutMs: options?.timeoutMs
+      };
+      const startSession = (): Promise<NewSessionResponse> =>
+        startAcpSession({
+          connection: boundConnection,
+          initializedCapabilities: initialized.agentCapabilities,
+          sessionStart,
+          cwd: run.cwd,
+          operation: sessionOperation,
+          agentId: run.agentId,
+          onRecoveryLoaded: async (sessionId) => {
+            if (eventStore) {
+              await eventStore.append({
+                kind: "lifecycle",
+                state: "initializing",
+                message: `ACP recovery loaded source session '${sessionId}'.`
+              });
+            }
+          }
+        });
+
+      // Interactive/agent methods: probe session/new before ready. Many CLIs already hold
+      // terminal credentials and accept a session without protocol authenticate.
+      let session: NewSessionResponse | null = null;
       if (authenticationOutcome.kind === "auth_required") {
+        if (!mayProbeSessionDespiteAuthRequired(authenticationOutcome)) {
+          if (eventStore)
+            await eventStore.append({
+              kind: "lifecycle",
+              state: "initializing",
+              message: "ACP authentication requires user action."
+            });
+          throw new AcpAuthenticationRequiredError(authenticationOutcome);
+        }
         if (eventStore)
           await eventStore.append({
             kind: "lifecycle",
             state: "initializing",
-            message: "ACP authentication requires user action."
+            message:
+              "ACP advertised interactive authentication; probing whether an existing login can open a session."
           });
-        throw new AcpAuthenticationRequiredError(authenticationOutcome);
-      }
-      if (eventStore) {
+        executionPhase = "session";
+        try {
+          session = await startSession();
+        } catch {
+          if (eventStore)
+            await eventStore.append({
+              kind: "lifecycle",
+              state: "initializing",
+              message: "ACP session probe failed; interactive authentication is still required."
+            });
+          throw new AcpAuthenticationRequiredError(authenticationOutcome);
+        }
+        if (eventStore)
+          await eventStore.append({
+            kind: "lifecycle",
+            state: "initializing",
+            message: "ACP session opened with an existing agent login (no protocol authenticate)."
+          });
+      } else if (eventStore) {
         if (authenticationOutcome.kind === "authenticated") {
           await eventStore.append({
             kind: "lifecycle",
@@ -603,6 +659,7 @@ export class AcpSessionController {
           });
         }
       }
+
       handle.control.interventionCapabilities.cancel = true;
       handle.control.interventionCapabilities.permission = eventStore !== null;
       handle.control.interventionCapabilities.elicitationPreview =
@@ -615,23 +672,9 @@ export class AcpSessionController {
           message: "ACP runner is ready."
         });
       executionPhase = "session";
-      const session: NewSessionResponse = await startAcpSession({
-        connection,
-        initializedCapabilities: initialized.agentCapabilities,
-        sessionStart,
-        cwd: run.cwd,
-        operation: { signal: abortController.signal, timeoutMs: options?.timeoutMs },
-        agentId: run.agentId,
-        onRecoveryLoaded: async (sessionId) => {
-          if (eventStore) {
-            await eventStore.append({
-              kind: "lifecycle",
-              state: "initializing",
-              message: `ACP recovery loaded source session '${sessionId}'.`
-            });
-          }
-        }
-      });
+      if (session === null) {
+        session = await startSession();
+      }
       initializedSessionId = session.sessionId;
       const sessionCorrelation = acpCorrelationSchema.parse({ sessionId: session.sessionId });
       if (eventStore) {

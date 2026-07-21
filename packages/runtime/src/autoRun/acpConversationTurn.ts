@@ -6,9 +6,11 @@ import {
   type AcpConnection,
   type CreateAcpConnectionOptions
 } from "./acpConnection.js";
+import { agentProcessEnvRecord } from "../process/agentProcessEnv.js";
 import {
   AcpAuthenticationRequiredError,
   coordinateAcpAuthentication,
+  mayProbeSessionDespiteAuthRequired,
   type AcpAuthenticationHints
 } from "./acpAuthentication.js";
 import { normalizeAcpSessionNotification } from "./acpEventNormalization.js";
@@ -56,9 +58,7 @@ type ConnectionFactory = (
 ) => AcpConversationTurnConnection;
 
 function environment(): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)
-  );
+  return agentProcessEnvRecord();
 }
 
 function diagnostic(error: unknown): string {
@@ -151,7 +151,10 @@ export class AcpConversationTurnCoordinator {
         hints: input.authenticationHints,
         availableEnvironmentVariables: new Set(Object.keys(spawnEnvironment))
       });
-      if (authenticationOutcome.kind === "auth_required") {
+      if (
+        authenticationOutcome.kind === "auth_required" &&
+        !mayProbeSessionDespiteAuthRequired(authenticationOutcome)
+      ) {
         throw new AcpAuthenticationRequiredError(authenticationOutcome);
       }
       if (initialized.agentCapabilities?.loadSession !== true) {
@@ -159,11 +162,21 @@ export class AcpConversationTurnCoordinator {
           `ACP agent '${input.agentId}' does not support loading an existing session.`
         );
       }
-      await connection.loadSession({
-        sessionId: input.sessionId,
-        cwd: input.cwd,
-        mcpServers: []
-      });
+      try {
+        await connection.loadSession({
+          sessionId: input.sessionId,
+          cwd: input.cwd,
+          mcpServers: []
+        });
+      } catch (error) {
+        if (
+          authenticationOutcome.kind === "auth_required" &&
+          mayProbeSessionDespiteAuthRequired(authenticationOutcome)
+        ) {
+          throw new AcpAuthenticationRequiredError(authenticationOutcome);
+        }
+        throw error;
+      }
       persistNotifications = true;
       const userContent = normalizedRedactedContent(input.text);
       await append({
