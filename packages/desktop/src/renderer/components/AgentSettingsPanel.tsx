@@ -106,7 +106,9 @@ export function AgentSettingsPanel({
   t,
   updateSettings
 }: AgentSettingsPanelProps) {
-  const [expandedAgent, setExpandedAgent] = useState<DesktopAgentKind | null>(null);
+  const [expandedAgents, setExpandedAgents] = useState<ReadonlySet<DesktopAgentKind>>(
+    () => new Set()
+  );
   const [acpProbes, setAcpProbes] = useState<Partial<Record<DesktopAgentKind, AcpProbeState>>>(() =>
     readAgentCapabilityProbeSession(projectRoot)
   );
@@ -185,11 +187,14 @@ export function AgentSettingsPanel({
               probeGenerationRef.current += 1;
               clearAgentCapabilityProbeSession(projectRoot);
               setAcpProbes({});
-              const expandedDetection = agents.find(
-                (agent) => agent.kind === expandedAgent && agent.runnerKind === "acp"
-              );
-              if (expandedDetection?.installed) {
-                void probeAcpAgent(expandedDetection.kind, true);
+              for (const agent of agents) {
+                if (
+                  expandedAgents.has(agent.kind) &&
+                  agent.runnerKind === "acp" &&
+                  agent.installed
+                ) {
+                  void probeAcpAgent(agent.kind, true);
+                }
               }
             });
           }}
@@ -207,7 +212,7 @@ export function AgentSettingsPanel({
         const fullAccessCommand = `${agent.command} ${agent.fullAccessArgs.join(" ")}`;
         const supportsFullAccess = agent.runnerKind === "cli";
         const supportsAcpOptions = agent.runnerKind === "acp";
-        const expanded = expandedAgent === agent.kind;
+        const expanded = expandedAgents.has(agent.kind);
         const acpProbe = acpProbes[agent.kind];
         const acpProbeReady = acpProbe?.result?.ok === true;
         const sessionConfig =
@@ -253,11 +258,20 @@ export function AgentSettingsPanel({
                 {supportsFullAccess || supportsAcpOptions ? (
                   <Button
                     aria-label={`${agent.name} options`}
+                    aria-expanded={expanded}
                     className="size-7"
                     size="icon-sm"
                     variant="ghost"
                     onClick={() => {
-                      setExpandedAgent(expanded ? null : agent.kind);
+                      setExpandedAgents((current) => {
+                        const next = new Set(current);
+                        if (next.has(agent.kind)) {
+                          next.delete(agent.kind);
+                        } else {
+                          next.add(agent.kind);
+                        }
+                        return next;
+                      });
                       if (!expanded && supportsAcpOptions && agent.installed) {
                         void probeAcpAgent(agent.kind);
                       }
