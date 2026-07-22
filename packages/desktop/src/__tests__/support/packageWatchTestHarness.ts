@@ -63,6 +63,7 @@ const fsPromisesMock = vi.hoisted(() => {
   const state = {
     readFilePaths: [] as string[],
     readdirPaths: [] as string[],
+    readdirResultHook: null as null | ((path: string) => Promise<void> | void),
     failStat: false,
     holdStatPromise: null as Promise<unknown> | null,
     nextStatCallId: 1,
@@ -80,6 +81,7 @@ const fsPromisesMock = vi.hoisted(() => {
     reset() {
       state.readFilePaths = [];
       state.readdirPaths = [];
+      state.readdirResultHook = null;
       state.failStat = false;
       state.holdStatPromise = null;
       state.nextStatCallId = 1;
@@ -171,7 +173,9 @@ vi.mock("node:fs/promises", async () => {
             ? target.toString("utf8")
             : String(target);
       fsPromisesMock.state.readdirPaths.push(pathText);
-      return actual.readdir(...args);
+      const result = await actual.readdir(...args);
+      await fsPromisesMock.state.readdirResultHook?.(pathText);
+      return result;
     }),
     stat: vi.fn(async (...args: Parameters<typeof actual.stat>) => {
       const target = args[0];

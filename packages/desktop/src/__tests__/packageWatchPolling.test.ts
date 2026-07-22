@@ -82,24 +82,27 @@ describe("package file watcher: polling SLA and resources", () => {
     forcePollingBackend();
     const workspace = await createWorkspace();
     const webContents = createWebContents();
+    const blocksDirectory = join(workspace.packageDir, "nodes", "T-001", "blocks");
+
+    const advanceUntilInventoryReaddirCompletes = async (ms: number): Promise<void> => {
+      const completed = createDeferred<void>();
+      fsPromisesMock.state.readdirResultHook = (path) => {
+        if (path === blocksDirectory) {
+          completed.resolve();
+        }
+      };
+      await advanceAndFlush(ms);
+      await completed.promise;
+      fsPromisesMock.state.readdirResultHook = null;
+    };
 
     await registerAndWatch(webContents, workspace);
     await flushMicrotasks();
 
-    // Inventory kickoff (~500ms) walks the nodes tree. Wait until that readdir has been
-    // observed and fully drained so late async work cannot pollute the probe-only window.
-    await advanceAndFlush(600);
-    for (
-      let attempt = 0;
-      attempt < 20 && fsPromisesMock.state.readdirPaths.length === 0;
-      attempt++
-    ) {
-      await flushMicrotasks();
-      await advanceAndFlush(50);
-    }
+    // Wait for the inventory kickoff's final recursive readdir result. Fake timers cannot
+    // prove that real filesystem I/O has settled, so use the mocked I/O boundary explicitly.
+    await advanceUntilInventoryReaddirCompletes(600);
     expect(fsPromisesMock.state.readdirPaths.length).toBeGreaterThan(0);
-    await flushMicrotasks();
-    await flushMicrotasks();
     fsPromisesMock.state.readdirPaths = [];
     fsPromisesMock.state.readFilePaths = [];
 
@@ -110,22 +113,10 @@ describe("package file watcher: polling SLA and resources", () => {
     expect(fsPromisesMock.state.readdirPaths).toHaveLength(0);
 
     // Inventory interval at 10s performs recursive membership scan (readdir of nodes tree).
-    await advanceAndFlush(6000);
-    await flushMicrotasks();
-    for (
-      let attempt = 0;
-      attempt < 20 && fsPromisesMock.state.readdirPaths.length === 0;
-      attempt++
-    ) {
-      await flushMicrotasks();
-      await advanceAndFlush(50);
-    }
+    await advanceUntilInventoryReaddirCompletes(6000);
     const inventoryReaddirs = fsPromisesMock.state.readdirPaths.length;
     expect(inventoryReaddirs).toBeGreaterThan(0);
 
-    // Drain in-flight inventory readdir work before measuring the next probe-only window.
-    await flushMicrotasks();
-    await flushMicrotasks();
     fsPromisesMock.state.readdirPaths = [];
     // More probe ticks between inventory windows must still avoid readdir.
     await advanceAndFlush(4000);

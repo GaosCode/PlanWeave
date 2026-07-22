@@ -4,12 +4,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   buildExpectedAuthority,
   commitAutoRunTransition,
-  generateTransitionId,
   pendingTransitionPath,
   readPendingTransitionIntentResult,
   recoverPendingTransition,
-  writePendingTransitionIntent,
-  type TransitionPersistenceAdapters
+  writePendingTransitionIntent
 } from "../desktop/autoRunTransition.js";
 import {
   getAutoRunState,
@@ -20,137 +18,32 @@ import {
   startAutoRun,
   stopAutoRun
 } from "../desktop/index.js";
-import {
-  readRawPersistedAutoRunState,
-  writePersistedAutoRunState
-} from "../desktop/runStateRepository.js";
-import { appendAutoRunEvent } from "../desktop/runStateStore.js";
-import type { DesktopAutoRunState } from "../desktop/types.js";
-import { appendRunSessionEvent, getRunSession, updateRunSession } from "../runSessions/index.js";
+import { readRawPersistedAutoRunState } from "../desktop/runStateRepository.js";
+import { getRunSession } from "../runSessions/index.js";
 import { runDoctor } from "../taskManager/index.js";
-import type { ProjectWorkspace } from "../types.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
 import { manifestTestBuilder } from "./manifestTestBuilder.js";
+import {
+  cleanupTransitionTestRuns,
+  forgetTransitionTestRun,
+  initializeTransitionTestRun,
+  makeIntent,
+  onceFaultAdapters,
+  sessionSummaryBuilder,
+  writeCommittedState
+} from "./support/autoRunTransitionRecoveryTestHarness.js";
 
-const startedRunIds = new Set<string>();
 const noTmux = { tmuxEnabled: false } as const;
 
 afterEach(async () => {
-  await Promise.all([...startedRunIds].map((runId) => stopAutoRun(runId).catch(() => undefined)));
-  startedRunIds.clear();
+  await cleanupTransitionTestRuns();
   delete process.env.PLANWEAVE_HOME;
 });
-
-async function startRun(root: string) {
-  const run = await startAutoRun(root, null, { kind: "project" }, 2, noTmux);
-  startedRunIds.add(run.runId);
-  return run;
-}
-
-function makeIntent(
-  run: DesktopAutoRunState,
-  nextPhase: DesktopAutoRunState["phase"],
-  eventType: string,
-  options: {
-    transitionId?: string;
-    expectedAuthority?: ReturnType<typeof buildExpectedAuthority>;
-    extra?: Partial<DesktopAutoRunState>;
-  } = {}
-) {
-  const next = {
-    ...run,
-    phase: nextPhase,
-    updatedAt: options.expectedAuthority?.updatedAt ?? new Date().toISOString(),
-    ...options.extra
-  };
-  const expectedAuthority =
-    options.expectedAuthority ?? buildExpectedAuthority({ ...run, ...next, phase: nextPhase });
-  return {
-    version: 2 as const,
-    transitionId: options.transitionId ?? generateTransitionId(),
-    runId: run.runId,
-    previousPhase: "running" as const,
-    nextPhase,
-    eventType,
-    previousAuthority: buildExpectedAuthority(run),
-    expectedAuthority,
-    data: { previousPhase: "running", nextPhase },
-    createdAt: new Date().toISOString()
-  };
-}
-
-async function writeCommittedState(
-  run: DesktopAutoRunState,
-  phase: DesktopAutoRunState["phase"],
-  extra: Partial<DesktopAutoRunState> = {}
-) {
-  const next = {
-    ...run,
-    phase,
-    updatedAt: new Date().toISOString(),
-    ...extra
-  };
-  await mkdir(dirname(run.statePath), { recursive: true });
-  await writePersistedAutoRunState(next);
-  return next;
-}
-
-function sessionSummaryBuilder(parallel = false) {
-  return async (_ws: ProjectWorkspace, state: DesktopAutoRunState) => ({
-    desktopRunId: state.runId,
-    stepCount: state.stepCount,
-    parallel,
-    executorOverride: null,
-    effectiveExecutor: state.currentExecutor,
-    agentId: null,
-    runnerKind: null,
-    stopReason: null
-  });
-}
-
-/**
- * Inject failure once on the named boundary; all other calls delegate to real repositories.
- */
-function onceFaultAdapters(
-  boundary: "writeState" | "appendAutoRunEvent" | "updateSession" | "appendSessionEvent"
-): TransitionPersistenceAdapters {
-  let failed = false;
-  return {
-    writeState: async (state) => {
-      if (boundary === "writeState" && !failed) {
-        failed = true;
-        throw new Error("injected writeState failure");
-      }
-      await writePersistedAutoRunState(state);
-    },
-    appendAutoRunEvent: async (state, type, data) => {
-      if (boundary === "appendAutoRunEvent" && !failed) {
-        failed = true;
-        throw new Error("injected appendAutoRunEvent failure");
-      }
-      await appendAutoRunEvent(state, type, data);
-    },
-    updateSession: async (workspace, sessionId, patch) => {
-      if (boundary === "updateSession" && !failed) {
-        failed = true;
-        throw new Error("injected updateSession failure");
-      }
-      return updateRunSession(workspace, sessionId, patch);
-    },
-    appendSessionEvent: async (workspace, sessionId, eventType, data) => {
-      if (boundary === "appendSessionEvent" && !failed) {
-        failed = true;
-        throw new Error("injected appendSessionEvent failure");
-      }
-      await appendRunSessionEvent(workspace, sessionId, eventType, data);
-    }
-  };
-}
 
 describe("Auto Run transition coordinator recovery", () => {
   it("concurrent recoverPendingTransition yields exactly one Auto Run and session event", async () => {
     const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
-    const run = await startRun(root);
+    const run = await initializeTransitionTestRun(root, init.workspace);
     const committed = await writeCommittedState(run, "stopped");
     const intent = makeIntent(run, "stopped", "run_stopped", {
       expectedAuthority: buildExpectedAuthority(committed)
@@ -188,9 +81,9 @@ describe("Auto Run transition coordinator recovery", () => {
 
   it("reopen with empty memory heals projections using raw disk running authority (no intent loss)", async () => {
     const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
-    const run = await startRun(root);
+    const run = await initializeTransitionTestRun(root, init.workspace);
     await stopAutoRun(run.runId).catch(() => undefined);
-    startedRunIds.delete(run.runId);
+    forgetTransitionTestRun(run.runId);
 
     const runningState = await writeCommittedState(run, "running", {
       stepCount: 1,
@@ -226,7 +119,7 @@ describe("Auto Run transition coordinator recovery", () => {
 
   it("same-phase step_finish state write failure does not pseudo-recover with old authority", async () => {
     const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
-    const run = await startRun(root);
+    const run = await initializeTransitionTestRun(root, init.workspace);
     expect(run.phase).toBe("running");
     expect(run.stepCount).toBe(0);
 
@@ -290,9 +183,9 @@ describe("Auto Run transition coordinator recovery", () => {
 
   it("corrupt authority state with valid intent is unreadable: keep intent, no projection, block start", async () => {
     const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
-    const run = await startRun(root);
+    const run = await initializeTransitionTestRun(root, init.workspace);
     await stopAutoRun(run.runId).catch(() => undefined);
-    startedRunIds.delete(run.runId);
+    forgetTransitionTestRun(run.runId);
 
     const expectedNext = {
       ...run,
@@ -352,9 +245,9 @@ describe("Auto Run transition coordinator recovery", () => {
 
   it("matching memory cannot bypass corrupt raw authority", async () => {
     const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
-    const run = await startRun(root);
+    const run = await initializeTransitionTestRun(root, init.workspace);
     const stopped = await stopAutoRun(run.runId);
-    startedRunIds.delete(run.runId);
+    forgetTransitionTestRun(run.runId);
     const intent = makeIntent(run, "stopped", "run_stopped", {
       expectedAuthority: buildExpectedAuthority(stopped)
     });
@@ -424,9 +317,9 @@ describe("Auto Run transition coordinator recovery", () => {
 
   it("malformed pending intent is unreadable (not absent) and surfaces in latest diagnostics", async () => {
     const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
-    const run = await startRun(root);
+    const run = await initializeTransitionTestRun(root, init.workspace);
     await stopAutoRun(run.runId).catch(() => undefined);
-    startedRunIds.delete(run.runId);
+    forgetTransitionTestRun(run.runId);
 
     const path = pendingTransitionPath(init.workspace, run.runId);
     await mkdir(dirname(path), { recursive: true });
@@ -451,9 +344,9 @@ describe("Auto Run transition coordinator recovery", () => {
 
   it("doctor reports incomplete and unreadable pending transitions (fail-closed)", async () => {
     const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
-    const run = await startRun(root);
+    const run = await initializeTransitionTestRun(root, init.workspace);
     await stopAutoRun(run.runId).catch(() => undefined);
-    startedRunIds.delete(run.runId);
+    forgetTransitionTestRun(run.runId);
 
     const committed = await writeCommittedState(run, "stopped");
     const intent = makeIntent(run, "stopped", "run_stopped", {
@@ -514,7 +407,7 @@ describe("Auto Run transition coordinator recovery", () => {
     eventType
   }) => {
     const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
-    const run = await startRun(root);
+    const run = await initializeTransitionTestRun(root, init.workspace);
     const previous = { ...run, phase: "running" as const };
     const next = {
       ...run,
@@ -597,7 +490,7 @@ describe("Auto Run transition coordinator recovery", () => {
     boundary
   }) => {
     const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
-    const run = await startRun(root);
+    const run = await initializeTransitionTestRun(root, init.workspace);
     const previous = { ...run, phase: "running" as const };
     const finishedAt = new Date().toISOString();
     const next = {
@@ -679,7 +572,7 @@ describe("Auto Run transition coordinator recovery", () => {
 
   it("commit refuses to overwrite unrecovered pending intent from a prior transition", async () => {
     const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
-    const run = await startRun(root);
+    const run = await initializeTransitionTestRun(root, init.workspace);
     const path = pendingTransitionPath(init.workspace, run.runId);
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, "{broken", "utf8");
@@ -726,7 +619,7 @@ describe("Auto Run transition coordinator recovery", () => {
 
   it("memory latest path still recovers missing projections before returning", async () => {
     const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
-    const run = await startRun(root);
+    const run = await initializeTransitionTestRun(root, init.workspace);
     // Memory matches disk authority (same run identity including updatedAt/stepCount).
     const intent = makeIntent(run, "running", "phase_change", {
       expectedAuthority: buildExpectedAuthority(run)
@@ -754,7 +647,7 @@ describe("Auto Run transition coordinator recovery", () => {
 
   it("publishes verified authority to memory after a projection failure is recovered", async () => {
     const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
-    const run = await startRun(root);
+    const run = await initializeTransitionTestRun(root, init.workspace);
     const authority = await writeCommittedState(run, "paused");
     const intent = makeIntent(run, "paused", "pause_completed", {
       expectedAuthority: buildExpectedAuthority(authority)
@@ -795,7 +688,7 @@ describe("Auto Run transition coordinator recovery", () => {
 
   it("pause derives its guard from recovered durable authority instead of stale memory", async () => {
     const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
-    const run = await startRun(root);
+    const run = await initializeTransitionTestRun(root, init.workspace);
     const paused = await writeCommittedState(run, "paused");
     const intent = makeIntent(run, "paused", "pause_completed", {
       expectedAuthority: buildExpectedAuthority(paused)
@@ -812,7 +705,7 @@ describe("Auto Run transition coordinator recovery", () => {
 
   it("resume recovers durable paused authority before deciding to resume", async () => {
     const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
-    const run = await startRun(root);
+    const run = await initializeTransitionTestRun(root, init.workspace);
     const paused = await writeCommittedState(run, "paused");
     const intent = makeIntent(run, "paused", "pause_completed", {
       expectedAuthority: buildExpectedAuthority(paused)
@@ -829,7 +722,7 @@ describe("Auto Run transition coordinator recovery", () => {
 
   it("does not replay projections from a committed transition superseded by newer authority", async () => {
     const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
-    const run = await startRun(root);
+    const run = await initializeTransitionTestRun(root, init.workspace);
     const paused = { ...run, phase: "paused" as const, updatedAt: new Date().toISOString() };
 
     await expect(
@@ -877,7 +770,7 @@ describe("Auto Run transition coordinator recovery", () => {
 
   it("reconstructs a missing authority state from a committed marker before projecting", async () => {
     const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
-    const run = await startRun(root);
+    const run = await initializeTransitionTestRun(root, init.workspace);
     const paused = { ...run, phase: "paused" as const, updatedAt: new Date().toISOString() };
 
     await expect(
@@ -921,7 +814,7 @@ describe("Auto Run transition coordinator recovery", () => {
 
   it("keeps recovery evidence when the session event log is corrupt after projection", async () => {
     const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
-    const run = await startRun(root);
+    const run = await initializeTransitionTestRun(root, init.workspace);
     const paused = { ...run, phase: "paused" as const, updatedAt: new Date().toISOString() };
 
     await expect(
@@ -963,7 +856,7 @@ describe("Auto Run transition coordinator recovery", () => {
 
   it("crash after intent before state cleans without phantom advance", async () => {
     const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
-    const run = await startRun(root);
+    const run = await initializeTransitionTestRun(root, init.workspace);
     const intent = makeIntent(run, "paused", "pause_completed", {
       expectedAuthority: buildExpectedAuthority({
         ...run,
@@ -982,7 +875,7 @@ describe("Auto Run transition coordinator recovery", () => {
 
   it("same-phase authority mismatch (stale stepCount) is not treated as committed", async () => {
     const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
-    const run = await startRun(root);
+    const run = await initializeTransitionTestRun(root, init.workspace);
     // Disk still stepCount=0; intent expects stepCount=1 after step_finish.
     const intent = makeIntent(run, "running", "step_finish", {
       expectedAuthority: buildExpectedAuthority({
