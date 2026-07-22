@@ -3,6 +3,7 @@ import { shutdownDesktopAutoRuns } from "@planweave-ai/runtime";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { registerApplicationMenu } from "./appMenu.js";
+import { configureDesktopAgentShellEnvironment } from "./agentShellEnvironment.js";
 import { checkForAppUpdate, registerAppUpdateHandlers } from "./appUpdate.js";
 import {
   autoStartMcpTunnel,
@@ -49,6 +50,14 @@ async function loadFirstLaunchExample(): Promise<void> {
   }
 }
 
+async function loadDesktopAgentShellEnvironment(): Promise<void> {
+  if (!app.isPackaged || isSmokeRun || process.platform === "win32") return;
+  const result = await configureDesktopAgentShellEnvironment();
+  if (result.kind === "unavailable") {
+    console.warn(result.reason);
+  }
+}
+
 // Packaged app launches can inherit shell env from development tools; source runs still need PLANWEAVE_HOME for isolated demos and tests.
 if (app.isPackaged && !isDev && !isSmokeRun) {
   delete process.env.PLANWEAVE_HOME;
@@ -88,6 +97,7 @@ startSingleInstanceLifecycle({
 
     app.whenReady().then(() => {
       void (async () => {
+        await loadDesktopAgentShellEnvironment();
         await loadFirstLaunchExample();
         const window = await createWindow({ isDev, isSmoke, isStartupSmoke });
         if (isStartupSmoke) {

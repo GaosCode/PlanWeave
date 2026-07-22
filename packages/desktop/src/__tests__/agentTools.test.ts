@@ -109,18 +109,36 @@ describe("desktop agent tool detection", () => {
   it("uses POSIX path delimiter and Homebrew fallbacks", async () => {
     const { agentDetectionPath } = await import("../main/agentTools");
 
-    expect(agentDetectionPath("/usr/bin:/bin", "darwin").split(":")).toEqual([
-      "/usr/bin",
-      "/bin",
-      "/opt/homebrew/bin",
-      "/usr/local/bin"
-    ]);
-    expect(agentDetectionPath("/opt/homebrew/bin", "linux").split(":")).toEqual([
-      "/opt/homebrew/bin",
-      "/usr/local/bin",
-      "/usr/bin",
-      "/bin"
-    ]);
+    const darwinEntries = agentDetectionPath({
+      envPath: "/usr/bin:/bin",
+      platform: "darwin",
+      env: { HOME: "/Users/example" }
+    }).split(":");
+    expect(darwinEntries.slice(0, 2)).toEqual(["/usr/bin", "/bin"]);
+    expect(darwinEntries).toEqual(
+      expect.arrayContaining([
+        "/Users/example/.grok/bin",
+        "/Users/example/Library/pnpm",
+        "/opt/homebrew/bin",
+        "/usr/local/bin"
+      ])
+    );
+
+    const linuxEntries = agentDetectionPath({
+      envPath: "/opt/homebrew/bin",
+      platform: "linux",
+      env: { HOME: "/home/example" }
+    }).split(":");
+    expect(linuxEntries).toEqual(
+      expect.arrayContaining([
+        "/home/example/.local/bin",
+        "/home/example/.opencode/bin",
+        "/usr/local/bin",
+        "/usr/bin",
+        "/bin"
+      ])
+    );
+    expect(linuxEntries).not.toContain("/home/example/Library/pnpm");
   });
 
   it("uses Windows path delimiter and does not append guessed install locations", async () => {

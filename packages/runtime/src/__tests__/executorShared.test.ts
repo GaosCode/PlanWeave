@@ -7,6 +7,7 @@ import {
   execWithStreaming,
   executorHeartbeatPath
 } from "../autoRun/executorShared.js";
+import { setAgentProcessEnvironmentOverlay } from "../process/agentProcessEnv.js";
 
 async function tempRunDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), "planweave-executor-"));
@@ -41,6 +42,24 @@ describe("executor streaming", () => {
 
   afterEach(() => {
     process.off("unhandledRejection", onUnhandledRejection);
+    setAgentProcessEnvironmentOverlay(null);
+  });
+
+  it("passes the configured desktop shell environment to direct CLI executors", async () => {
+    const runDir = await tempRunDir();
+    setAgentProcessEnvironmentOverlay({
+      PLANWEAVE_TEST_AGENT_TOKEN: "from-login-shell"
+    });
+
+    const result = await execWithStdin({
+      command: process.execPath,
+      args: ["-e", "process.stdout.write(process.env.PLANWEAVE_TEST_AGENT_TOKEN ?? 'missing')"],
+      cwd: runDir,
+      stdin: "",
+      timeoutMs: 1_000
+    });
+
+    expect(result).toMatchObject({ exitCode: 0, stdout: "from-login-shell" });
   });
 
   it("cleans up repeated spawn errors without unhandled rejections", async () => {

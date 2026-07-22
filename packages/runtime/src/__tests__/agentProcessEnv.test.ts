@@ -1,14 +1,34 @@
 import { describe, expect, it } from "vitest";
-import { agentProcessEnv, agentProcessPath } from "../process/agentProcessEnv.js";
+import {
+  agentProcessEnv,
+  agentProcessPath,
+  setAgentProcessEnvironmentOverlay
+} from "../process/agentProcessEnv.js";
 
 describe("agentProcessEnv", () => {
+  it("adds common user-level agent install paths on POSIX", () => {
+    expect(
+      agentProcessPath({
+        envPath: "/usr/bin:/bin",
+        platform: "darwin",
+        env: { HOME: "/Users/example" }
+      }).split(":")
+    ).toEqual(
+      expect.arrayContaining([
+        "/Users/example/.local/bin",
+        "/Users/example/.grok/bin",
+        "/Users/example/.opencode/bin",
+        "/Users/example/.bun/bin",
+        "/Users/example/.volta/bin",
+        "/Users/example/Library/pnpm"
+      ])
+    );
+  });
+
   it("uses POSIX delimiters and Homebrew fallbacks", () => {
-    expect(agentProcessPath("/usr/bin:/bin", "darwin").split(":")).toEqual([
-      "/usr/bin",
-      "/bin",
-      "/opt/homebrew/bin",
-      "/usr/local/bin"
-    ]);
+    const entries = agentProcessPath("/usr/bin:/bin", "darwin").split(":");
+    expect(entries.slice(0, 2)).toEqual(["/usr/bin", "/bin"]);
+    expect(entries).toEqual(expect.arrayContaining(["/opt/homebrew/bin", "/usr/local/bin"]));
   });
 
   it("uses Windows delimiters without POSIX fallbacks", () => {
@@ -30,5 +50,20 @@ describe("agentProcessEnv", () => {
     });
     expect(env.Path).toBe(String.raw`C:\Tools`);
     expect(env.PATH).toBeUndefined();
+  });
+
+  it("merges a configured desktop shell environment into every agent process", () => {
+    setAgentProcessEnvironmentOverlay({
+      PATH: "/Users/example/.nvm/versions/node/v24/bin:/usr/bin:/bin",
+      PLANWEAVE_TEST_AGENT_TOKEN: "configured-in-login-shell"
+    });
+    try {
+      const env = agentProcessEnv({ platform: "darwin" });
+
+      expect(env.PATH?.split(":")).toContain("/Users/example/.nvm/versions/node/v24/bin");
+      expect(env.PLANWEAVE_TEST_AGENT_TOKEN).toBe("configured-in-login-shell");
+    } finally {
+      setAgentProcessEnvironmentOverlay(null);
+    }
   });
 });

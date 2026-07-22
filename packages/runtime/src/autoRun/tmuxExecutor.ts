@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { chmod, mkdir, open, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { isNodeFileNotFoundError, optionalStat } from "../fs/optionalFile.js";
+import { agentProcessEnv } from "../process/agentProcessEnv.js";
 import { tmuxRunnerSource } from "./tmuxRunnerScript.js";
 
 export type TmuxSessionInfo = {
@@ -48,7 +49,6 @@ type TmuxOutputLimitExceeded = {
 
 let tmuxAvailable: boolean | null = null;
 const activeTmuxSessions = new Map<string, ActiveTmuxSessionRecord>();
-const runtimePathEntries = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"];
 const TMUX_TERMINATE_FORCE_KILL_GRACE_MS = 500;
 const TMUX_SESSION_RELEASE_POLL_COUNT = 50;
 
@@ -74,10 +74,7 @@ async function runCommand(
   cwd?: string
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const env = {
-      ...process.env,
-      PATH: [process.env.PATH, ...runtimePathEntries].filter(Boolean).join(":")
-    };
+    const env = agentProcessEnv();
     const child = spawn(command, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";

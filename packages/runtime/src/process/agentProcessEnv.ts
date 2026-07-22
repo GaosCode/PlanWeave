@@ -1,4 +1,8 @@
-const posixAgentPathEntries = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"];
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+const posixSystemPathEntries = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"];
+let agentProcessEnvironmentOverlay: Readonly<NodeJS.ProcessEnv> | null = null;
 
 function environmentValue(env: NodeJS.ProcessEnv | undefined, name: string): string | undefined {
   if (!env) {
@@ -9,6 +13,54 @@ function environmentValue(env: NodeJS.ProcessEnv | undefined, name: string): str
 
 function pathDelimiterFor(platform: NodeJS.Platform): string {
   return platform === "win32" ? ";" : ":";
+}
+
+function posixUserPathEntries(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): string[] {
+  const homeDirectory = environmentValue(env, "HOME") ?? homedir();
+  const entries = [
+    join(homeDirectory, ".local", "bin"),
+    join(homeDirectory, ".grok", "bin"),
+    join(homeDirectory, ".opencode", "bin"),
+    join(homeDirectory, ".bun", "bin"),
+    join(homeDirectory, ".volta", "bin"),
+    join(homeDirectory, ".asdf", "shims"),
+    join(homeDirectory, ".local", "share", "mise", "shims"),
+    join(homeDirectory, ".proto", "shims"),
+    join(homeDirectory, ".cargo", "bin"),
+    join(homeDirectory, ".npm-global", "bin")
+  ];
+  if (platform === "darwin") entries.push(join(homeDirectory, "Library", "pnpm"));
+  return entries;
+}
+
+function definedEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(
+    Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined)
+  );
+}
+
+function mergedAgentProcessEnvironment(
+  baseEnv: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform
+): NodeJS.ProcessEnv {
+  if (!agentProcessEnvironmentOverlay) return baseEnv;
+  const overlayPath = environmentValue(agentProcessEnvironmentOverlay, "PATH");
+  const basePath = environmentValue(baseEnv, "PATH");
+  return {
+    ...definedEnvironment(agentProcessEnvironmentOverlay),
+    ...definedEnvironment(baseEnv),
+    PATH: [overlayPath, basePath].filter(Boolean).join(pathDelimiterFor(platform))
+  };
+}
+
+/**
+ * Configures environment discovered by a desktop host from the user's login shell.
+ * The overlay is isolated to agent child processes and never mutates process.env.
+ */
+export function setAgentProcessEnvironmentOverlay(environment: NodeJS.ProcessEnv | null): void {
+  agentProcessEnvironmentOverlay = environment
+    ? Object.freeze(definedEnvironment(environment))
+    : null;
 }
 
 export type AgentProcessPathOptions = {
@@ -36,7 +88,8 @@ export function agentProcessPath(
   const source =
     options.envPath ?? environmentValue(env, "PATH") ?? environmentValue(process.env, "PATH");
   const existingEntries = source?.split(pathDelimiter).filter(Boolean) ?? [];
-  const fallbackEntries = platform === "win32" ? [] : posixAgentPathEntries;
+  const fallbackEntries =
+    platform === "win32" ? [] : [...posixUserPathEntries(env, platform), ...posixSystemPathEntries];
   return [...new Set([...existingEntries, ...fallbackEntries])].join(pathDelimiter);
 }
 
@@ -50,7 +103,8 @@ export function agentProcessEnv(options?: {
   env?: NodeJS.ProcessEnv;
 }): NodeJS.ProcessEnv {
   const platform = options?.platform ?? process.platform;
-  const baseEnv = options?.env ?? process.env;
+  const baseEnv =
+    options?.env === undefined ? mergedAgentProcessEnvironment(process.env, platform) : options.env;
   const pathValue = agentProcessPath({
     platform,
     env: baseEnv,

@@ -23,7 +23,8 @@ export type {
 export {
   agentProcessEnv,
   agentProcessEnvRecord,
-  agentProcessPath
+  agentProcessPath,
+  setAgentProcessEnvironmentOverlay
 } from "./process/agentProcessEnv.js";
 export type { AgentProcessPathOptions } from "./process/agentProcessEnv.js";
 export { readProjectPaths, resolvePlanweaveHome } from "./paths.js";

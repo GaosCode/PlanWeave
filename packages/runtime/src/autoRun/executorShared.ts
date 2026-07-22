@@ -11,6 +11,7 @@ import {
   spawnManagedProcess,
   type ManagedProcessTree
 } from "../process/managedProcessTree.js";
+import { agentProcessEnv } from "../process/agentProcessEnv.js";
 import { isCommandTrusted, untrustedExecutorCommandError } from "../taskManager/hookTrustStore.js";
 import type {
   ClaimResult,
@@ -436,11 +437,12 @@ export async function execWithStdin(options: {
   const maxStdoutBytes = options.maxStdoutBytes ?? DEFAULT_EXECUTOR_MAX_STDOUT_BYTES;
   const maxStderrBytes = options.maxStderrBytes ?? DEFAULT_EXECUTOR_MAX_STDERR_BYTES;
   return new Promise((resolve, reject) => {
+    const env = { ...agentProcessEnv(), ...(options.env ?? {}) };
     const { child, tree } = spawnManagedProcess({
       command: options.command,
       args: options.args,
       cwd: options.cwd,
-      env: options.env ? { ...process.env, ...options.env } : process.env,
+      env,
       graceMs: EXECUTOR_FORCE_KILL_GRACE_MS
     });
     const termination = createExecutorTermination(tree);
@@ -674,11 +676,12 @@ export async function execWithStreaming(options: {
   return new Promise((resolve, reject) => {
     const stdoutStream = createWriteStream(options.stdoutPath, { flags: "w" });
     const stderrStream = createWriteStream(options.stderrPath, { flags: "w" });
+    const env = { ...agentProcessEnv(), ...(options.env ?? {}) };
     const { child, tree } = spawnManagedProcess({
       command: options.command,
       args: options.args,
       cwd: options.cwd,
-      env: options.env ? { ...process.env, ...options.env } : process.env,
+      env,
       graceMs: EXECUTOR_FORCE_KILL_GRACE_MS
     });
     const termination = createExecutorTermination(tree);
