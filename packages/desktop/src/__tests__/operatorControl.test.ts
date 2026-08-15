@@ -819,6 +819,59 @@ describe("Desktop operator control trust boundary", () => {
     expect(seenBases).toEqual(["http://127.0.0.1:50653/"]);
   });
 
+  it("publishes local server readiness failures and clears them after the server returns", async () => {
+    const directory = await root("planweave-operator-local-readiness-");
+    const onStatusChange = vi.fn();
+    const service = new OperatorControlService({
+      profileStore: new OperatorProfileStore({ profilesPath: join(directory, "profiles.json") }),
+      vault: new OperatorCredentialVault({
+        paths: { credentialsPath: join(directory, "credentials.json") },
+        safeStorage: safeStorage(true)
+      }),
+      onStatusChange,
+      localOperatorBackend: {
+        getSnapshot: () => ({
+          running: false,
+          loopbackBaseUrl: null,
+          advertisedOrigin: null
+        }),
+        whenRunning: vi.fn().mockRejectedValue(new Error("operator_local_server_not_ready"))
+      }
+    });
+    await service.upsertProfile(
+      profile("planweave-local-loopback", "https://owner-device.example.ts.net/")
+    );
+    await service.importCredential({
+      profileId: "planweave-local-loopback",
+      operatorToken: tokenA
+    });
+    onStatusChange.mockClear();
+
+    await expect(
+      service.listAgentEndpoints({ profileId: "planweave-local-loopback" })
+    ).rejects.toMatchObject({ code: "operator_local_server_not_ready" });
+    expect(onStatusChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ lastErrorCode: "operator_local_server_not_ready" })
+    );
+
+    await service.ensureMainOwnedServerProfile({
+      profile: {
+        ...profile("planweave-local-loopback", "https://owner-device.example.ts.net/"),
+        endpoint: {
+          topology: "private_https",
+          serverOrigin: "https://owner-device.example.ts.net",
+          allowedClientOrigins: ["https://owner-device.example.ts.net"],
+          tlsTrust: "system_ca"
+        }
+      },
+      operatorId: "desktop-local-admin",
+      operatorToken: tokenA
+    });
+    expect(onStatusChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ lastErrorCode: null })
+    );
+  });
+
   it("keeps remote Operator profiles on their persisted serverBaseUrl", async () => {
     const directory = await root("planweave-operator-remote-no-bypass-");
     const seenBases: string[] = [];

@@ -231,4 +231,30 @@ describe("useAgentEndpointCatalog freshness", () => {
     ).toMatchObject({ source: "remote", available: true });
     expect(result.current.errorCode).toBeNull();
   });
+
+  it("does not loop quick retries while the empty fleet remains unavailable", async () => {
+    const listOperatorAgentEndpoints = vi.fn().mockRejectedValue(
+      Object.assign(new Error("operator_local_server_not_ready"), {
+        code: "operator_local_server_not_ready"
+      })
+    );
+    const { result } = renderHook(() =>
+      useAgentEndpointCatalog({
+        fleetApi: { listOperatorAgentEndpoints },
+        enabled: true,
+        logicalExecutors: [localCodex],
+        operatorProfileId: "operator-profile-1"
+      })
+    );
+
+    await act(async () => undefined);
+    expect(result.current.errorCode).toBe("operator_local_server_not_ready");
+
+    await act(async () => vi.advanceTimersByTimeAsync(2_000));
+    expect(listOperatorAgentEndpoints).toHaveBeenCalledTimes(2);
+
+    await act(async () => vi.advanceTimersByTimeAsync(10_000));
+    expect(listOperatorAgentEndpoints).toHaveBeenCalledTimes(2);
+    expect(result.current.errorCode).toBe("operator_local_server_not_ready");
+  });
 });

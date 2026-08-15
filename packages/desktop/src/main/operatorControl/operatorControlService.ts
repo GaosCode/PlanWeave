@@ -300,6 +300,10 @@ export class OperatorControlService {
       if ((await this.profiles.getActiveProfileId()) === null) {
         await this.profiles.setActiveProfileId(profile.profileId);
       }
+      if (this.lastErrorCode === "operator_local_server_not_ready") {
+        this.lastErrorCode = null;
+        this.lastErrorMessage = null;
+      }
       await this.publishStatus();
     });
   }
@@ -393,7 +397,20 @@ export class OperatorControlService {
   ): Promise<Awaited<ReturnType<OperatorControlClient["listAgentEndpoints"]>>> {
     assertNoSmuggledOperatorSecrets(input, "listAgentEndpoints");
     const parsed = operatorListAgentEndpointsInputSchema.parse(input);
-    return this.enqueue(() => this.withProfile(parsed, (client) => client.listAgentEndpoints()));
+    return this.enqueue(async () => {
+      try {
+        return await this.withProfile(parsed, (client) => client.listAgentEndpoints());
+      } catch (error) {
+        if (
+          error instanceof OperatorControlError &&
+          error.code === "operator_local_server_not_ready"
+        ) {
+          this.rememberError(error);
+          await this.publishStatus();
+        }
+        throw error;
+      }
+    });
   }
 
   async createEnrollmentGrant(

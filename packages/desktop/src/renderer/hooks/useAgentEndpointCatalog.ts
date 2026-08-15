@@ -48,6 +48,7 @@ export function useAgentEndpointCatalog(input: {
   const [refreshing, setRefreshing] = useState(false);
   const generationRef = useRef(0);
   const retryTimerRef = useRef<number | null>(null);
+  const quickRetryAttemptedRef = useRef(false);
   const refreshRef = useRef<() => Promise<void>>(async () => undefined);
   const operatorProfileId = input.operatorProfileId;
   const operatorProfileIdRef = useRef(operatorProfileId);
@@ -82,6 +83,7 @@ export function useAgentEndpointCatalog(input: {
       const result = await listFleetEndpoints({ profileId: requestProfileId });
       if (canWrite()) {
         clearRetryTimer();
+        quickRetryAttemptedRef.current = false;
         setRemoteEndpoints(result.items);
       }
     } catch (caught: unknown) {
@@ -89,8 +91,13 @@ export function useAgentEndpointCatalog(input: {
         const code = operatorFleetErrorCode(caught);
         setError(code);
         setErrorCode(code);
-        // Keep last successful remotes; only schedule a quick retry when still empty.
-        if (remoteEndpointsRef.current.length === 0 && retryTimerRef.current === null) {
+        // Keep last successful remotes and allow one startup retry before the regular interval.
+        if (
+          remoteEndpointsRef.current.length === 0 &&
+          retryTimerRef.current === null &&
+          !quickRetryAttemptedRef.current
+        ) {
+          quickRetryAttemptedRef.current = true;
           retryTimerRef.current = window.setTimeout(() => {
             retryTimerRef.current = null;
             void refreshRef.current();
@@ -111,6 +118,7 @@ export function useAgentEndpointCatalog(input: {
 
   useEffect(() => {
     // Do not clear remotes here: a failed refresh after clear would hide fleet hosts.
+    quickRetryAttemptedRef.current = false;
     void refresh();
     return () => {
       generationRef.current += 1;

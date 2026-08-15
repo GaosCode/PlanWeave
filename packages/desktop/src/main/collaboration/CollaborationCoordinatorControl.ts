@@ -391,9 +391,22 @@ export class LocalCollaborationCoordinatorControl implements CollaborationCoordi
         network.exposureMode ?? (network.lanSharingEnabled ? "lan_http" : "local_only");
       this.lanSharingEnabled = this.exposureMode === "lan_http";
       this.preferredPort = network.preferredPort;
-      return (await this.scopeStore.read()).length > 0 || (await this.hasOwnerRuntimeCanvases())
-        ? this.startUnlocked()
-        : this.status();
+      const shouldRestoreServer =
+        (await this.scopeStore.read()).length > 0 || (await this.hasOwnerRuntimeCanvases());
+      if (!shouldRestoreServer) return this.status();
+      try {
+        return await this.startUnlocked();
+      } catch (error) {
+        const exposureErrorCode = this.exposureCode(error);
+        if (
+          this.exposureMode !== "private_https" ||
+          !exposureErrorCode.startsWith("PRIVATE_HTTPS_")
+        ) {
+          throw error;
+        }
+        this.exposureErrorCode = exposureErrorCode;
+        return this.status();
+      }
     });
   }
 

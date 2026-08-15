@@ -22,6 +22,9 @@ export function deriveFleetCatalogBlockedCode(
   const active = status.profiles.find((profile) => profile.profileId === status.activeProfileId);
   if (!active) return "operator_profile_not_found";
   if (!active.hasOperatorCredential) return "operator_credential_missing";
+  if (active.hostedByThisDesktop && status.lastErrorCode === "operator_local_server_not_ready") {
+    return status.lastErrorCode;
+  }
   return null;
 }
 

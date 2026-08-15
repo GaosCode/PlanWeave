@@ -54,6 +54,28 @@ describe("deriveFleetCatalogBlockedCode", () => {
     expect(derive(status({ activeProfileId: null }))).toBe("operator_profile_not_active");
   });
 
+  it("blocks polling while the active local-owned server is not ready", () => {
+    expect(
+      derive(
+        status({
+          profiles: [profile({ hostedByThisDesktop: true })],
+          lastErrorCode: "operator_local_server_not_ready"
+        })
+      )
+    ).toBe("operator_local_server_not_ready");
+  });
+
+  it("does not apply a stale local-server error to a remote active profile", () => {
+    expect(
+      derive(
+        status({
+          profiles: [profile({ hostedByThisDesktop: false })],
+          lastErrorCode: "operator_local_server_not_ready"
+        })
+      )
+    ).toBeNull();
+  });
+
   it("returns operator_bridge_unavailable when the bridge is unavailable", () => {
     expect(deriveFleetCatalogBlockedCode(status(), { bridgeAvailable: false })).toBe(
       "operator_bridge_unavailable"

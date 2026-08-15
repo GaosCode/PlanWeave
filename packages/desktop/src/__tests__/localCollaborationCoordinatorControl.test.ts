@@ -311,6 +311,104 @@ describe("LocalCollaborationCoordinatorControl", () => {
     });
   });
 
+  it("keeps persisted private HTTPS provider failures as an actionable offline state", async () => {
+    const tailscale = tailscaleControl();
+    vi.mocked(tailscale.inspectNode).mockRejectedValue(
+      new TailscaleExposureError("TAILSCALE_JSON_INVALID")
+    );
+    const control = new LocalCollaborationCoordinatorControl({
+      safeStorage,
+      syncOperatorProfile: async () => undefined,
+      scopeStore: scopeStore([{ projectId: project.projectId, canvasId: "canvas-1" }]),
+      networkStore: {
+        read: vi.fn(async () => ({
+          lanSharingEnabled: false,
+          exposureMode: "private_https" as const,
+          preferredPort: null
+        })),
+        write: vi.fn(async () => undefined)
+      },
+      privateHttpsExposure: new TailscaleManagedPrivateHttpsAdapter(tailscale),
+      projects: {
+        listProjects: async () => [project],
+        resolveAuthorityProjectId: async () => authorityProjectId
+      },
+      createController: () => fakeControl().control,
+      allocatePort: async () => 18_788
+    });
+
+    await expect(control.restore()).resolves.toMatchObject({
+      state: "stopped",
+      profile: null
+    });
+    expect(control.getExposureView()).toMatchObject({
+      mode: "private_https",
+      lifecycle: "error",
+      advertisedOrigin: null,
+      errorCode: "PRIVATE_HTTPS_PROVIDER_UNAVAILABLE",
+      canActivate: true,
+      canInvite: false
+    });
+
+    const service = {
+      getStatus: vi.fn(async () => ({
+        activeProfileId: "planweave-local-stale",
+        profiles: [{ profileId: "planweave-local-stale", hasDeviceCredential: true }],
+        session: { phase: "error" }
+      })),
+      runStatusPublicationTransaction: vi.fn(async <T>(operation: () => Promise<T>) => operation()),
+      clearActiveProfile: vi.fn(async () => undefined),
+      setActiveProfile: vi.fn(async () => undefined),
+      connectSession: vi.fn(async () => undefined),
+      migrateLegacyLocalOwnerDisplayName: vi.fn(async () => false),
+      upsertProfile: vi.fn(async () => undefined),
+      migrateLocalProfileCredential: vi.fn(async () => undefined),
+      adoptWorkspaceAuthority: vi.fn(async () => undefined),
+      activeHumanPrincipalId: vi.fn(async () => "human-owner"),
+      bootstrapOwner: vi.fn()
+    };
+    const activation = createLocalCollaborationActivationCommand({ coordinator: control, service });
+
+    await expect(
+      activation.selectAndReconcile({ projectId: project.projectId, canvasId: "canvas-1" })
+    ).resolves.toBeNull();
+    expect(control.currentSelection()).toEqual({
+      projectId: project.projectId,
+      canvasId: "canvas-1"
+    });
+    expect(control.getExposureView()).toMatchObject({
+      lifecycle: "error",
+      errorCode: "PRIVATE_HTTPS_PROVIDER_UNAVAILABLE"
+    });
+  });
+
+  it("does not hide unexpected failures while restoring persisted private HTTPS", async () => {
+    const control = new LocalCollaborationCoordinatorControl({
+      safeStorage,
+      syncOperatorProfile: async () => undefined,
+      scopeStore: scopeStore([{ projectId: project.projectId, canvasId: "canvas-1" }]),
+      networkStore: {
+        read: vi.fn(async () => ({
+          lanSharingEnabled: false,
+          exposureMode: "private_https" as const,
+          preferredPort: null
+        })),
+        write: vi.fn(async () => undefined)
+      },
+      privateHttpsExposure: new TailscaleManagedPrivateHttpsAdapter(tailscaleControl()),
+      projects: {
+        listProjects: async () => [project],
+        resolveAuthorityProjectId: async () => authorityProjectId
+      },
+      createController: () => fakeControl().control,
+      allocatePort: async () => {
+        throw new Error("unexpected_port_failure");
+      }
+    });
+
+    await expect(control.restore()).rejects.toThrow("unexpected_port_failure");
+  });
+
   it("restores the local management profile without requiring a current canvas selection", async () => {
     const fake = fakeControl();
     const syncOperatorProfile = vi.fn().mockResolvedValue(undefined);
