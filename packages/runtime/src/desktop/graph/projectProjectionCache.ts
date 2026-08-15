@@ -9,6 +9,7 @@ import type {
 import type { ProjectCanvasRuntimeSnapshot } from "./projectCanvasAggregation.js";
 import {
   clearResultsFileIndexCache,
+  maxCachedResultsDirectories,
   type ResultsFileFingerprintSnapshot,
   type ResultsFileIndex
 } from "./resultsFileIndex.js";
@@ -100,11 +101,148 @@ export type CachedProjectProjection = {
 };
 
 export const desktopProjectProjectionCacheVersion = 2;
-export const projectProjectionCache = new Map<string, CachedProjectProjection>();
+const maxCachedDesktopProjectProjections = maxCachedResultsDirectories;
+
+export class DesktopProjectProjectionLru<T> {
+  private readonly entries = new Map<string, T>();
+
+  constructor(
+    private readonly maxEntries: number,
+    private readonly release: (value: T, replacement?: T) => void
+  ) {
+    if (!Number.isInteger(maxEntries) || maxEntries < 1) {
+      throw new Error("Desktop project projection cache capacity must be a positive integer.");
+    }
+  }
+
+  get(key: string): T | undefined {
+    const value = this.entries.get(key);
+    if (value === undefined) {
+      return undefined;
+    }
+    this.entries.delete(key);
+    this.entries.set(key, value);
+    return value;
+  }
+
+  peek(key: string): T | undefined {
+    return this.entries.get(key);
+  }
+
+  set(key: string, value: T): void {
+    const previous = this.entries.get(key);
+    this.entries.delete(key);
+    if (previous !== undefined && !Object.is(previous, value)) {
+      this.release(previous, value);
+    }
+    this.entries.set(key, value);
+    this.trim();
+  }
+
+  delete(key: string): boolean {
+    const value = this.entries.get(key);
+    if (value === undefined) {
+      return false;
+    }
+    this.entries.delete(key);
+    this.release(value);
+    return true;
+  }
+
+  clear(): void {
+    for (const value of this.entries.values()) {
+      this.release(value);
+    }
+    this.entries.clear();
+  }
+
+  private trim(): void {
+    while (this.entries.size > this.maxEntries) {
+      const oldestKey = this.entries.keys().next().value;
+      if (typeof oldestKey !== "string") {
+        return;
+      }
+      this.delete(oldestKey);
+    }
+  }
+}
+
+function releaseDesktopProjectProjection(
+  cached: CachedProjectProjection,
+  replacement?: CachedProjectProjection
+): void {
+  const retainedCanvasEntries = new Set(replacement?.canvases.values() ?? []);
+  const retainedResultsIndexes = new Set(replacement?.projection.resultsByCanvas.values() ?? []);
+  const retainedResultsDirectories = new Set(
+    Array.from(replacement?.projection.resultsByCanvas.values() ?? [], (index) =>
+      resolve(index.workspace.resultsDir)
+    )
+  );
+  const releasedResultsDirectories = new Set<string>();
+  for (const [canvasId, resultsIndex] of cached.projection.resultsByCanvas) {
+    const cachedCanvasEntry = cached.canvases.get(canvasId);
+    const resultsDir = resolve(resultsIndex.workspace.resultsDir);
+    if (
+      (!cachedCanvasEntry || !retainedCanvasEntries.has(cachedCanvasEntry)) &&
+      !retainedResultsIndexes.has(resultsIndex) &&
+      !retainedResultsDirectories.has(resultsDir) &&
+      !releasedResultsDirectories.has(resultsDir)
+    ) {
+      clearResultsFileIndexCache({ resultsDir });
+      releasedResultsDirectories.add(resultsDir);
+    }
+  }
+  cached.canvases = new Map();
+  cached.searchIndex = null;
+  cached.bodySearchIndex = null;
+  cached.statisticsProjection = null;
+}
+
+function createDesktopProjectProjectionCache(
+  maxEntries: number
+): DesktopProjectProjectionLru<CachedProjectProjection> {
+  return new DesktopProjectProjectionLru(maxEntries, releaseDesktopProjectProjection);
+}
+
+let projectProjectionCache = createDesktopProjectProjectionCache(
+  maxCachedDesktopProjectProjections
+);
 export const projectionContextCache = new WeakMap<
   DesktopProjectProjectionContext,
   CachedProjectProjection
 >();
+
+export function getCachedDesktopProjectProjection(
+  key: string
+): CachedProjectProjection | undefined {
+  return projectProjectionCache.get(key);
+}
+
+export function peekCachedDesktopProjectProjection(
+  key: string
+): CachedProjectProjection | undefined {
+  return projectProjectionCache.peek(key);
+}
+
+export function setCachedDesktopProjectProjection(
+  key: string,
+  value: CachedProjectProjection
+): void {
+  projectProjectionCache.set(key, value);
+}
+
+export function useDesktopProjectProjectionCacheCapacityForTests(maxEntries: number): () => void {
+  const previous = projectProjectionCache;
+  previous.clear();
+  const testCache = createDesktopProjectProjectionCache(maxEntries);
+  projectProjectionCache = testCache;
+  return () => {
+    if (projectProjectionCache === testCache) {
+      testCache.clear();
+      projectProjectionCache = previous;
+    }
+  };
+}
 
 function stableResolvedPath(path: string): string {
   const resolved = resolve(path);
@@ -126,12 +264,6 @@ export function invalidateDesktopProjectProjection(projectRoot?: PackageWorkspac
     return;
   }
   const key = projectProjectionKey(projectRoot);
-  const cached = projectProjectionCache.get(key);
-  if (cached) {
-    for (const entry of cached.canvases.values()) {
-      clearResultsFileIndexCache({ resultsDir: entry.resultsIndex.workspace.resultsDir });
-    }
-  }
   projectProjectionCache.delete(key);
 }
 
@@ -176,5 +308,5 @@ export function peekDesktopCanvasProjectionCacheEntryForTests(
   projectRoot: PackageWorkspaceRef,
   canvasId: string
 ): object | undefined {
-  return projectProjectionCache.get(projectProjectionKey(projectRoot))?.canvases.get(canvasId);
+  return projectProjectionCache.peek(projectProjectionKey(projectRoot))?.canvases.get(canvasId);
 }

@@ -10,9 +10,11 @@ import {
   type CanvasProjectionCacheEntry,
   type DesktopProjectProjection,
   type DesktopProjectProjectionContext,
-  projectProjectionCache,
+  getCachedDesktopProjectProjection,
+  peekCachedDesktopProjectProjection,
   projectProjectionKey,
-  projectionContextCache
+  projectionContextCache,
+  setCachedDesktopProjectProjection
 } from "./projectProjectionCache.js";
 import { hydrateResultsFileIndexBodies } from "./resultsFileIndex.js";
 import {
@@ -30,9 +32,9 @@ export async function readDesktopProjectProjectionContext(
   projectRoot: string
 ): Promise<DesktopProjectProjectionContext> {
   const key = projectProjectionKey(projectRoot);
-  const cached = projectProjectionCache.get(key);
+  const cached = getCachedDesktopProjectProjection(key);
   const next = await buildDesktopProjectProjection(projectRoot, cached);
-  projectProjectionCache.set(key, next);
+  setCachedDesktopProjectProjection(key, next);
   const context = {
     key,
     projection: next.projection
@@ -158,9 +160,15 @@ export async function readDesktopProjectSearchIndexFromContext(
   context: DesktopProjectProjectionContext,
   options: { includeBodies?: boolean } = {}
 ): Promise<DesktopSearchIndex> {
-  const cachedFromProject = projectProjectionCache.get(context.key);
+  const cachedFromProject = peekCachedDesktopProjectProjection(context.key);
   const cachedFromContext = projectionContextCache.get(context);
-  const cached = cachedFromContext === cachedFromProject ? cachedFromContext : cachedFromProject;
+  if (cachedFromContext !== cachedFromProject) {
+    return readDesktopProjectSearchIndexFromContext(
+      await readDesktopProjectProjectionContext(context.projection.projectRoot),
+      options
+    );
+  }
+  const cached = getCachedDesktopProjectProjection(context.key);
   const diagnostics = [...context.projection.diagnostics];
   const summaryIndex = await buildProjectSummarySearchIndex({
     cached,
@@ -203,7 +211,7 @@ export async function readDesktopProjectStatisticsProjection(
 ): Promise<DesktopStatisticsProjection> {
   const key = projectProjectionKey(projectRoot);
   const projection = await readDesktopProjectProjection(projectRoot);
-  const cached = projectProjectionCache.get(key);
+  const cached = getCachedDesktopProjectProjection(key);
   if (cached?.statisticsProjection) {
     return cached.statisticsProjection;
   }
