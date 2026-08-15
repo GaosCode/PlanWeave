@@ -30,13 +30,13 @@ async function openMigratedDatabase(): Promise<SqliteDatabase> {
 async function openDatabaseBeforeStockHostFleetMigration(): Promise<SqliteDatabase> {
   const database = await openMigratedDatabase();
   database.prepare("DELETE FROM schema_migrations WHERE version=46").run();
-  expect(centralSchemaVersion(database)).toBe(49);
+  expect(centralSchemaVersion(database)).toBe(latestCentralSchemaVersion);
   return database;
 }
 
 describe("stock host fleet migration v46", () => {
   it("registers as latest schema version", () => {
-    expect(latestCentralSchemaVersion).toBe(49);
+    expect(latestCentralSchemaVersion).toBe(50);
   });
 
   it("preserves legacy exclusive workspace bindings and lifts hosts to server-scoped usability", async () => {
@@ -74,7 +74,7 @@ describe("stock host fleet migration v46", () => {
     expect(identity.hostUsable(hostId, new Date(), workspaceId)).toBe(true);
 
     applyMigrations(database);
-    expect(centralSchemaVersion(database)).toBe(49);
+    expect(centralSchemaVersion(database)).toBe(latestCentralSchemaVersion);
 
     expect(
       database
@@ -91,7 +91,7 @@ describe("stock host fleet migration v46", () => {
     expect(hosts.getRequired(hostId).capabilities).toEqual(["linux"]);
 
     applyMigrations(database);
-    expect(centralSchemaVersion(database)).toBe(49);
+    expect(centralSchemaVersion(database)).toBe(latestCentralSchemaVersion);
     expect(
       database.prepare("SELECT COUNT(*) AS count FROM schema_migrations WHERE version=46").get()
     ).toEqual({ count: 1 });
