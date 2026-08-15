@@ -1,6 +1,12 @@
+/* @vitest-environment jsdom */
+
+import { renderHook, waitFor } from "@testing-library/react";
 import type { TaskWorkspaceRunDetail } from "@planweave-ai/runtime";
 import { describe, expect, it, vi } from "vitest";
-import { TaskWorkspaceRecordCache } from "../renderer/task-workspace/useTaskWorkspaceRecordCache";
+import {
+  TaskWorkspaceRecordCache,
+  useTaskWorkspaceRecordCache
+} from "../renderer/task-workspace/useTaskWorkspaceRecordCache";
 import { deferred } from "./helpers/desktopProjectFixtures";
 import { navigation, projectedRun, record } from "./helpers/taskWorkspaceControllerModelFixture";
 
@@ -46,6 +52,39 @@ function detail(
 }
 
 describe("TaskWorkspaceRecordCache", () => {
+  it("keeps the Block cache identity out of the Runtime run-detail request", async () => {
+    const recordId = "T-001#B-001::RUN-001";
+    const getTaskWorkspaceRunDetail = vi.fn(async () => detail(recordId));
+    const api = { getTaskWorkspaceRunDetail };
+    const onRecordReady = vi.fn();
+    const selectionIdentity = {
+      blockRef: "T-001#B-001",
+      canvasId: baseNavigation.canvasId,
+      projectRoot: baseNavigation.projectRoot,
+      recordId,
+      taskId: baseNavigation.taskId
+    };
+
+    const { result } = renderHook(() =>
+      useTaskWorkspaceRecordCache({
+        api,
+        authorityKey: "authority-a",
+        enabled: true,
+        identity: selectionIdentity,
+        onRecordReady,
+        syntheticLoad: null
+      })
+    );
+
+    await waitFor(() => expect(result.current.recordLoad.status).toBe("ready"));
+    expect(getTaskWorkspaceRunDetail).toHaveBeenCalledWith({
+      canvasId: baseNavigation.canvasId,
+      projectRoot: baseNavigation.projectRoot,
+      recordId,
+      taskId: baseNavigation.taskId
+    });
+  });
+
   it("coalesces in-flight reads and serves later cache hits without reading again", async () => {
     const cache = new TaskWorkspaceRecordCache();
     cache.setAuthority("authority-a");

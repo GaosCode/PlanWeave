@@ -260,8 +260,16 @@ export function useTaskWorkspaceRecordCache(options: UseTaskWorkspaceRecordCache
       key: identity.recordId,
       status: "loading"
     });
+    const runDetailInput: TaskWorkspaceRunDetailInput = {
+      canvasId: identity.canvasId,
+      projectRoot: identity.projectRoot,
+      recordId: identity.recordId,
+      taskId: identity.taskId
+    };
     void cache
-      .loadRecord({ ...identity, authorityKey }, () => api.getTaskWorkspaceRunDetail(identity))
+      .loadRecord({ ...identity, authorityKey }, () =>
+        api.getTaskWorkspaceRunDetail(runDetailInput)
+      )
       .then((loaded) => {
         if (selectionRequest.current !== request || selectionKey !== activeSelectionKey.current)
           return;
