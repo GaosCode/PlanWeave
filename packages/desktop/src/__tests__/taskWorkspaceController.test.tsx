@@ -399,7 +399,7 @@ describe("Task Workspace selected run controller", () => {
     expect(observedStatuses).not.toContain("error");
   });
 
-  it("keeps a previously loaded Feedback run visible while revisiting it", async () => {
+  it("reuses a previously loaded Feedback run while revisiting it", async () => {
     const { api } = controllerApi({ readModel: () => null });
     const feedbackRecordId = "FE-001::RUN-FEEDBACK-001";
     const feedbackRun: TaskWorkspaceRun = {
@@ -430,7 +430,6 @@ describe("Task Workspace selected run controller", () => {
         sourceReviewBlockRef: "T-001#B-001"
       }
     };
-    const revisitedFeedback = deferred<typeof feedbackDetail>();
     const getRunDetail = api.getTaskWorkspaceRunDetail.getMockImplementation();
     if (!getRunDetail) {
       throw new Error("Expected the controller API fixture to provide run detail loading.");
@@ -441,7 +440,7 @@ describe("Task Workspace selected run controller", () => {
         return getRunDetail(input);
       }
       feedbackRequests += 1;
-      return feedbackRequests === 1 ? Promise.resolve(feedbackDetail) : revisitedFeedback.promise;
+      return Promise.resolve(feedbackDetail);
     });
 
     let revisitingFeedback = false;
@@ -480,8 +479,9 @@ describe("Task Workspace selected run controller", () => {
         recordId: feedbackRecordId
       })
     );
-    await waitFor(() => expect(feedbackRequests).toBe(2));
+    await waitFor(() => expect(result.current.selectedRun?.item.run.kind).toBe("feedback"));
 
+    expect(feedbackRequests).toBe(1);
     expect(result.current.selectedRun?.item.run.kind).toBe("feedback");
     expect(result.current.selectedRecord?.recordId).toBe(feedbackRecordId);
     expect(result.current.liveStatus).toBe("unavailable");
@@ -531,6 +531,205 @@ describe("Task Workspace selected run controller", () => {
     expect(api.listTaskWorkspaceRuns).toHaveBeenCalledTimes(1);
     expect(api.getGraphViewModel).toHaveBeenCalledTimes(1);
     expect(result.current.getRunScrollTop("T-001#B-001::RUN-001")).toBe(120);
+  });
+
+  it("clears run scroll positions when the Task Workspace authority changes", async () => {
+    const { api } = controllerApi({ readModel: () => null });
+    const firstNavigation = navigation();
+    const secondNavigation = taskWorkspaceNavigationIdentity(
+      {
+        projectRoot: "/projects/other",
+        canvasId: "canvas-main",
+        taskId: "T-001",
+        blockRef: "T-001#B-001",
+        recordId: "T-001#B-001::RUN-001"
+      },
+      taskWorkspaceSource
+    );
+    const { result, rerender } = renderHook(
+      ({ currentNavigation }) => useControlledNavigationHarness(api, currentNavigation),
+      { initialProps: { currentNavigation: firstNavigation } }
+    );
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    act(() => result.current.onRunScrollTopChange("T-001#B-001::RUN-001", 120));
+    expect(result.current.getRunScrollTop("T-001#B-001::RUN-001")).toBe(120);
+
+    rerender({ currentNavigation: secondNavigation });
+
+    expect(result.current.getRunScrollTop("T-001#B-001::RUN-001")).toBe(0);
+  });
+
+  it("does not publish an old-authority record promise after navigation changes", async () => {
+    const { api } = controllerApi({ readModel: () => null });
+    const recordId = "T-001#B-001::RUN-001";
+    const oldDetail = deferred<Awaited<ReturnType<typeof api.getTaskWorkspaceRunDetail>>>();
+    const makeDetail = (projectRoot: string, summary: string) => ({
+      version: "planweave.task-workspace-run-detail/v1" as const,
+      projectRoot,
+      canvasId: "canvas-main" as const,
+      taskId: "T-001" as const,
+      blockRef: "T-001#B-001" as const,
+      item: {
+        retryIndex: 1,
+        active: false,
+        selected: true,
+        waitingInteraction: { active: false as const, count: 0 as const, kinds: [] },
+        run: projectedRun("RUN-001")
+      },
+      record: { ...record(recordId, null), stdoutSummary: summary }
+    });
+    api.getTaskWorkspaceRunDetail.mockImplementation((input) =>
+      input.projectRoot === "/projects/demo"
+        ? oldDetail.promise
+        : Promise.resolve(makeDetail(input.projectRoot, "new authority"))
+    );
+    const nextNavigation = taskWorkspaceNavigationIdentity(
+      {
+        projectRoot: "/projects/other",
+        canvasId: "canvas-main",
+        taskId: "T-001",
+        blockRef: "T-001#B-001",
+        recordId
+      },
+      taskWorkspaceSource
+    );
+    const { result, rerender } = renderHook(
+      ({ currentNavigation }) => useControlledNavigationHarness(api, currentNavigation),
+      { initialProps: { currentNavigation: navigation() } }
+    );
+    await waitFor(() => expect(api.getTaskWorkspaceRunDetail).toHaveBeenCalledOnce());
+
+    rerender({ currentNavigation: nextNavigation });
+    await waitFor(() => expect(result.current.selectedRecord?.stdoutSummary).toBe("new authority"));
+    oldDetail.resolve(makeDetail("/projects/demo", "old authority"));
+    await act(async () => oldDetail.promise);
+
+    expect(result.current.selectedRecord?.stdoutSummary).toBe("new authority");
+    expect(result.current.recordError).toBeNull();
+  });
+
+  it("does not reuse or publish a same-record detail across Block selections", async () => {
+    const { api } = controllerApi({ readModel: () => null });
+    const recordId = "FE-SHARED::RUN-FEEDBACK-001";
+    const baseWorkspace = workspaceHeader(null);
+    const firstBlock = baseWorkspace.blocks[0];
+    if (!firstBlock) throw new Error("Expected the controller fixture to contain a Block.");
+    api.getTaskWorkspace.mockResolvedValue({
+      ...baseWorkspace,
+      blocks: [
+        firstBlock,
+        {
+          ...firstBlock,
+          ref: "T-001#B-002",
+          blockId: "B-002",
+          title: "Implement second Block"
+        }
+      ]
+    });
+    const detailForBlock = (blockRef: string, marker: string) => {
+      const blockId = blockRef.split("#")[1] ?? "B-001";
+      const run = projectedRun("RUN-FEEDBACK-001");
+      return {
+        version: "planweave.task-workspace-run-detail/v1" as const,
+        projectRoot: "/projects/demo",
+        canvasId: "canvas-main" as const,
+        taskId: "T-001" as const,
+        blockRef,
+        item: {
+          retryIndex: 1,
+          active: false,
+          selected: true,
+          waitingInteraction: { active: false as const, count: 0 as const, kinds: [] },
+          run: {
+            ...run,
+            kind: "feedback" as const,
+            record: { ...run.record, blockId, recordId, ref: blockRef }
+          }
+        },
+        record: {
+          ...record(recordId, null),
+          blockId,
+          feedbackId: "FE-SHARED",
+          kind: "feedback" as const,
+          ref: blockRef,
+          sourceReviewBlockRef: blockRef,
+          stdoutSummary: marker
+        }
+      };
+    };
+    const firstDetail = deferred<ReturnType<typeof detailForBlock>>();
+    api.getTaskWorkspaceRunDetail
+      .mockImplementationOnce(() => firstDetail.promise)
+      .mockResolvedValueOnce(detailForBlock("T-001#B-002", "second Block"));
+    const navigationForBlock = (blockRef: string) =>
+      taskWorkspaceNavigationIdentity(
+        {
+          projectRoot: "/projects/demo",
+          canvasId: "canvas-main",
+          taskId: "T-001",
+          blockRef,
+          recordId
+        },
+        taskWorkspaceSource
+      );
+    const { result, rerender } = renderHook(
+      ({ currentNavigation }) => useControlledNavigationHarness(api, currentNavigation),
+      { initialProps: { currentNavigation: navigationForBlock("T-001#B-001") } }
+    );
+    await waitFor(() => expect(api.getTaskWorkspaceRunDetail).toHaveBeenCalledOnce());
+    act(() => result.current.onRunScrollTopChange(recordId, 88));
+
+    rerender({ currentNavigation: navigationForBlock("T-001#B-002") });
+    expect(result.current.selectedRecord).toBeNull();
+    expect(result.current.getRunScrollTop(recordId)).toBe(0);
+    await waitFor(() => expect(api.getTaskWorkspaceRunDetail).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.selectedRecord?.stdoutSummary).toBe("second Block"));
+    expect(result.current.selectedRun?.block.ref).toBe("T-001#B-002");
+
+    firstDetail.resolve(detailForBlock("T-001#B-001", "first Block"));
+    await act(async () => firstDetail.promise);
+
+    expect(result.current.selectedRecord?.stdoutSummary).toBe("second Block");
+    expect(result.current.selectedRun?.block.ref).toBe("T-001#B-002");
+  });
+
+  it("does not read a synthetic remote-live record from disk", async () => {
+    const { api } = controllerApi({ readModel: () => null });
+    const operationId = "operation-remote-001";
+    const recordId = `T-001#B-001::remote-live-${operationId}`;
+    api.getTaskWorkspace.mockResolvedValue({
+      ...workspaceHeader(null),
+      blocks: workspaceHeader(null).blocks.map((block) => ({
+        ...block,
+        remoteExecution: {
+          identity: { operationId },
+          controlPlane: "owner" as const,
+          phase: "active" as const,
+          status: "running" as const,
+          actionRequired: false,
+          source: { revision: "revision-001", graphFingerprint: "fingerprint-001" },
+          dispatchAttempt: { dispatchId: "dispatch-001", executionAttemptId: "attempt-001" }
+        }
+      }))
+    });
+    const remoteNavigation = taskWorkspaceNavigationIdentity(
+      {
+        projectRoot: "/projects/demo",
+        canvasId: "canvas-main",
+        taskId: "T-001",
+        blockRef: "T-001#B-001",
+        recordId
+      },
+      taskWorkspaceSource
+    );
+    const { result } = renderHook(() => useControllerHarness(api, remoteNavigation));
+
+    await waitFor(() => expect(result.current.selectedRecordId).toBe(recordId));
+    expect(api.getTaskWorkspaceRunDetail).not.toHaveBeenCalled();
+    expect(api.getTaskWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({ selectedRecordId: null })
+    );
   });
 
   it("reports a missing read model as unavailable without subscribing", async () => {

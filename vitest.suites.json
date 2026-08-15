@@ -226,6 +226,7 @@
         "taskWorkspaceLiveDuration.test.ts",
         "taskWorkspaceNavigation.test.ts",
         "taskWorkspacePromptEditing.test.tsx",
+        "taskWorkspaceRecordCache.test.ts",
         "taskWorkspaceRenderBenchmark.test.ts",
         "taskWorkspaceRepositoryActions.test.tsx",
         "taskWorkspaceRouteWiring.test.tsx",

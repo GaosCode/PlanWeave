@@ -5,7 +5,6 @@ import {
 } from "@planweave-ai/runtime/browser";
 import type {
   DesktopBridgeApi,
-  DesktopRunRecord,
   TaskWorkspace,
   TaskWorkspaceRunListItem,
   TaskWorkspaceRunsCursor
@@ -29,31 +28,33 @@ import { runDurablePackageWrite } from "../collaboration/packageWriteAdapter";
 import type { AppViewHistoryController } from "../hooks/useAppViewHistory";
 import type { SharedCanvasCommandsResult } from "../hooks/useSharedCanvasCommands";
 import { useRunnerRecordMonitor } from "../hooks/useRunnerRecordMonitor";
-import {
-  taskWorkspaceNavigationTargetSchema,
-  type TaskWorkspaceNavigationIdentity
-} from "../taskWorkspaceNavigation";
-import type {
-  TaskWorkspaceController,
-  TaskWorkspaceLiveStatus,
-  TaskWorkspaceSelectedRun
-} from "./contracts";
+import { taskWorkspaceNavigationTargetSchema } from "../taskWorkspaceNavigation";
+import type { TaskWorkspaceController, TaskWorkspaceLiveStatus } from "./contracts";
 import {
   projectSharedTaskWorkspace,
   sharedBlockPromptMarkdown,
   sharedTaskPromptMarkdown
 } from "./taskWorkspaceSharedProjection";
 import { useTaskWorkspaceExecutorActions } from "./useTaskWorkspaceExecutorActions";
+import {
+  type TaskWorkspaceRecordLoad,
+  useTaskWorkspaceRecordCache
+} from "./useTaskWorkspaceRecordCache";
 import { useRemoteTaskWorkspaceConversation } from "./useRemoteTaskWorkspaceConversation";
 import { remoteTaskWorkspaceConversationSource } from "./remoteTaskWorkspaceConversationSource";
 import {
   agentFamilyFromExecutorName,
   diskSelectedRecordId,
   isRemoteLiveRecordId,
-  remoteLiveRecordId,
   withRemoteLiveTimelineRuns,
   type RemoteLiveAgentHint
 } from "./remoteLiveRun";
+import {
+  findTaskWorkspaceRun,
+  initialTaskWorkspaceRun,
+  preferredRemoteLiveSelection,
+  taskWorkspaceAuthorityKey
+} from "./taskWorkspaceRunSelection";
 
 type TaskWorkspaceApi = Pick<
   DesktopBridgeApi,
@@ -82,15 +83,6 @@ type WorkspaceLoad = {
   workspace: TaskWorkspace | null;
 };
 
-type RecordLoad = {
-  blockRef: string | null;
-  error: string | null;
-  item: TaskWorkspaceSelectedRun["item"] | null;
-  key: string;
-  record: DesktopRunRecord | null;
-  status: "idle" | "loading" | "ready" | "error";
-};
-
 const idleWorkspaceLoad: WorkspaceLoad = {
   error: null,
   key: "",
@@ -100,15 +92,6 @@ const idleWorkspaceLoad: WorkspaceLoad = {
   status: "idle",
   workspace: null
 };
-const idleRecordLoad: RecordLoad = {
-  blockRef: null,
-  error: null,
-  item: null,
-  key: "",
-  record: null,
-  status: "idle"
-};
-
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -118,90 +101,6 @@ function graphEditError(result: Awaited<ReturnType<DesktopBridgeApi["updateTaskP
     result.diagnostics.map((diagnostic) => diagnostic.message).join("\n") ||
     "The graph edit could not be saved."
   );
-}
-
-function taskWorkspaceAuthorityKey(navigation: TaskWorkspaceNavigationIdentity): string {
-  return JSON.stringify([navigation.projectRoot, navigation.canvasId, navigation.taskId]);
-}
-
-function taskWorkspaceRecordKey(authorityKey: string, recordId: string): string {
-  return `${authorityKey}\u0000${recordId}`;
-}
-
-function findRun(
-  workspace: TaskWorkspace,
-  blockRef: string,
-  recordId: string
-): TaskWorkspaceSelectedRun | null {
-  const block = workspace.blocks.find((candidate) => candidate.ref === blockRef);
-  const item = block?.runs.find((candidate) => candidate.run.record.recordId === recordId);
-  return block && item ? { block, item } : null;
-}
-
-function preferredPersistedRun(
-  runs: NonNullable<TaskWorkspace["blocks"][number]["runs"]>
-): TaskWorkspace["blocks"][number]["runs"][number] | undefined {
-  // Prefer conversation-capable ACP runs over legacy local-review / unknown transports.
-  for (let index = runs.length - 1; index >= 0; index -= 1) {
-    if (runs[index]?.run.metadata.runnerKind === "acp") {
-      return runs[index];
-    }
-  }
-  for (let index = runs.length - 1; index >= 0; index -= 1) {
-    if (runs[index]?.run.metadata.runnerKind === "cli") {
-      return runs[index];
-    }
-  }
-  return runs.at(-1);
-}
-
-function initialRunForNavigation(
-  workspace: TaskWorkspace,
-  navigation: TaskWorkspaceNavigationIdentity
-): TaskWorkspaceSelectedRun | null {
-  if (navigation.recordId && navigation.blockRef) {
-    return findRun(workspace, navigation.blockRef, navigation.recordId);
-  }
-  if (navigation.blockRef) {
-    const block = workspace.blocks.find((candidate) => candidate.ref === navigation.blockRef);
-    // Prefer live remote attempt over the previous completed local run.
-    const item =
-      block?.runs.find(
-        (candidate) => candidate.active && isRemoteLiveRecordId(candidate.run.record.recordId)
-      ) ??
-      block?.runs.find((candidate) => candidate.active) ??
-      (block ? preferredPersistedRun(block.runs) : undefined);
-    return block && item ? { block, item } : null;
-  }
-  // Task-level open: still prefer any in-flight remote live row.
-  for (const block of workspace.blocks) {
-    const live = block.runs.find(
-      (candidate) => candidate.active && isRemoteLiveRecordId(candidate.run.record.recordId)
-    );
-    if (live) return { block, item: live };
-  }
-  return null;
-}
-
-function preferredRemoteLiveSelection(
-  workspace: TaskWorkspace,
-  preferredBlockRef: string | null | undefined
-): { blockRef: string; recordId: string } | null {
-  const ordered = preferredBlockRef
-    ? [
-        ...workspace.blocks.filter((block) => block.ref === preferredBlockRef),
-        ...workspace.blocks.filter((block) => block.ref !== preferredBlockRef)
-      ]
-    : workspace.blocks;
-  for (const block of ordered) {
-    const remote = block.remoteExecution;
-    if (!remote || remote.phase === "terminal") continue;
-    return {
-      blockRef: block.ref,
-      recordId: remoteLiveRecordId(block.ref, remote.identity.operationId)
-    };
-  }
-  return null;
 }
 
 export function useTaskWorkspaceController(options: {
@@ -242,7 +141,6 @@ export function useTaskWorkspaceController(options: {
   const [refreshVersion, setRefreshVersion] = useState(0);
   const refresh = useCallback(() => setRefreshVersion((current) => current + 1), []);
   const [workspaceLoad, setWorkspaceLoad] = useState<WorkspaceLoad>(idleWorkspaceLoad);
-  const [recordLoad, setRecordLoad] = useState<RecordLoad>(idleRecordLoad);
   const [overviewSelected, setOverviewSelected] = useState(false);
   const [selectedAnnotationIdentity, setSelectedAnnotationIdentity] = useState<{
     annotationId: string;
@@ -252,10 +150,7 @@ export function useTaskWorkspaceController(options: {
   const [loadingMoreRuns, setLoadingMoreRuns] = useState(false);
   const [loadMoreRunsError, setLoadMoreRunsError] = useState<string | null>(null);
   const workspaceRequest = useRef(0);
-  const recordRequest = useRef(0);
-  const recordLoads = useRef(new Map<string, RecordLoad>());
   const overviewSelectedRef = useRef(false);
-  const runScrollPositions = useRef(new Map<string, number>());
   const runItemsRef = useRef<TaskWorkspaceRunListItem[]>([]);
   const nextCursorRef = useRef<TaskWorkspaceRunsCursor | null>(null);
   const loadingMoreRef = useRef(false);
@@ -395,7 +290,7 @@ export function useTaskWorkspaceController(options: {
         setLoadMoreRunsError(null);
         setLoadingMoreRuns(false);
         loadingMoreRef.current = false;
-        const selected = initialRunForNavigation(workspace, currentNavigation);
+        const selected = initialTaskWorkspaceRun(workspace, currentNavigation);
         const liveSelection = preferredRemoteLiveSelection(workspace, currentNavigation.blockRef);
         // Prefer the live remote attempt over a stale historical record while remote is active.
         if (
@@ -491,35 +386,13 @@ export function useTaskWorkspaceController(options: {
         : null,
     [loadedWorkspace, sharedCanvas?.projection]
   );
-  const workspaceRef = useRef(workspace);
-  workspaceRef.current = workspace;
   const packageExecutorNames = workspaceLoad.key === key ? workspaceLoad.packageExecutorNames : [];
   const routedSelectedRun = useMemo(() => {
     if (!workspace || !navigation?.blockRef || !navigation.recordId) {
       return null;
     }
-    return findRun(workspace, navigation.blockRef, navigation.recordId);
+    return findTaskWorkspaceRun(workspace, navigation.blockRef, navigation.recordId);
   }, [navigation?.blockRef, navigation?.recordId, workspace]);
-  const visibleRecordLoad = navigation?.recordId
-    ? recordLoad.key === navigation.recordId
-      ? recordLoad
-      : (recordLoads.current.get(taskWorkspaceRecordKey(key, navigation.recordId)) ??
-        idleRecordLoad)
-    : idleRecordLoad;
-  const detailSelectedRun = useMemo(() => {
-    if (
-      !workspace ||
-      visibleRecordLoad.key !== navigation?.recordId ||
-      !visibleRecordLoad.blockRef ||
-      !visibleRecordLoad.item
-    ) {
-      return null;
-    }
-    const block = workspace.blocks.find(
-      (candidate) => candidate.ref === visibleRecordLoad.blockRef
-    );
-    return block ? { block, item: visibleRecordLoad.item } : null;
-  }, [navigation?.recordId, visibleRecordLoad, workspace]);
   const selectedAnnotation = useMemo(() => {
     if (!workspace || !selectedAnnotationIdentity) return null;
     const block = workspace.blocks.find(
@@ -530,17 +403,11 @@ export function useTaskWorkspaceController(options: {
     );
     return block && annotation ? { annotation, block } : null;
   }, [selectedAnnotationIdentity, workspace]);
-  const selectedRun =
-    overviewSelected || selectedAnnotation ? null : (routedSelectedRun ?? detailSelectedRun);
-  const selectedRecordId =
-    overviewSelected || selectedAnnotation
-      ? null
-      : (navigation?.recordId ?? selectedRun?.item.run.record.recordId ?? null);
   const selectedRecordKey = selectedAnnotation
     ? ""
-    : (navigation?.recordId ?? selectedRun?.item.run.record.recordId ?? "");
+    : (navigation?.recordId ?? routedSelectedRun?.item.run.record.recordId ?? "");
   const selectedBlockRef =
-    selectedAnnotation?.block.ref ?? navigation?.blockRef ?? selectedRun?.block.ref ?? "";
+    selectedAnnotation?.block.ref ?? navigation?.blockRef ?? routedSelectedRun?.block.ref ?? "";
   const selectedRemoteExecution = workspace?.blocks.find(
     (block) => block.ref === selectedBlockRef
   )?.remoteExecution;
@@ -570,136 +437,100 @@ export function useTaskWorkspaceController(options: {
     onTerminal: refresh
   });
 
-  useEffect(() => {
-    // Synthetic remote-live rows are projected from workspace state rather than disk records.
-    void remoteExecutionVersion;
-    const request = ++recordRequest.current;
-    if (
-      !api ||
+  const recordIdentity = useMemo(
+    () =>
       navigationProjectRoot === null ||
       navigationCanvasId === null ||
       navigationTaskId === null ||
       !selectedRecordKey ||
-      overviewSelected
-    ) {
-      setRecordLoad(idleRecordLoad);
-      return;
-    }
-    // Synthetic remote-live rows are not persisted on disk; project from the live workspace only.
-    if (isRemoteLiveRecordId(selectedRecordKey)) {
-      const found =
-        selectedBlockRef && workspaceRef.current
-          ? findRun(workspaceRef.current, selectedBlockRef, selectedRecordKey)
-          : null;
-      setRecordLoad({
-        blockRef: found?.block.ref ?? (selectedBlockRef || null),
-        error: found ? null : "Remote live attempt is no longer active.",
-        item: found?.item ?? null,
-        key: selectedRecordKey,
-        record: null,
-        status: found ? "ready" : "error"
-      });
-      return;
-    }
-    const cacheKey = taskWorkspaceRecordKey(key, selectedRecordKey);
-    const cachedLoad = recordLoads.current.get(cacheKey) ?? null;
-    setRecordLoad(
-      cachedLoad ?? {
-        blockRef: null,
-        error: null,
-        item: null,
-        key: selectedRecordKey,
-        record: null,
-        status: "loading"
-      }
-    );
-    void api
-      .getTaskWorkspaceRunDetail({
-        projectRoot: navigationProjectRoot,
-        canvasId: navigationCanvasId,
-        taskId: navigationTaskId,
-        recordId: selectedRecordKey
-      })
-      .then((detail) => {
-        if (recordRequest.current !== request) {
-          return;
-        }
-        const record: DesktopRunRecord = detail.record;
-        if (
-          record.recordId !== selectedRecordKey ||
-          record.ref !== (selectedBlockRef || record.ref) ||
-          record.taskId !== navigationTaskId ||
-          detail.taskId !== navigationTaskId
-        ) {
-          recordLoads.current.delete(cacheKey);
-          setRecordLoad({
-            blockRef: null,
-            error: "Selected run record does not match its Task Workspace navigation identity.",
-            item: null,
-            key: selectedRecordKey,
-            record: null,
-            status: "error"
-          });
-          return;
-        }
-        if (detail.item.run.kind === "block") {
-          // Block details refine the paged summary. Feedback details remain a selected
-          // annotation and must not be inserted into the Block run pagination model.
-          const listItem: TaskWorkspaceRunListItem = {
-            blockRef: detail.blockRef,
-            ...detail.item
-          };
-          const without = runItemsRef.current.filter(
-            (item) => item.run.record.recordId !== listItem.run.record.recordId
-          );
-          runItemsRef.current = [...without, listItem];
-          setWorkspaceLoad((current) => {
-            if (!current.workspace || current.key !== key) {
-              return current;
-            }
-            return {
-              ...current,
-              workspace: withRemoteLiveTimelineRuns(
-                composeTaskWorkspaceRuns(current.workspace, runItemsRef.current)
-              )
-            };
-          });
-        }
-        const loadedRecord: RecordLoad = {
-          blockRef: detail.blockRef,
-          error: null,
-          item: detail.item,
-          key: selectedRecordKey,
-          record,
-          status: "ready"
+      !selectedBlockRef
+        ? null
+        : {
+            blockRef: selectedBlockRef,
+            canvasId: navigationCanvasId,
+            projectRoot: navigationProjectRoot,
+            recordId: selectedRecordKey,
+            taskId: navigationTaskId
+          },
+    [
+      navigationCanvasId,
+      navigationProjectRoot,
+      navigationTaskId,
+      selectedBlockRef,
+      selectedRecordKey
+    ]
+  );
+  const syntheticRecordLoad = useMemo<TaskWorkspaceRecordLoad | null>(() => {
+    void remoteExecutionVersion;
+    if (!recordIdentity || !isRemoteLiveRecordId(recordIdentity.recordId)) return null;
+    const found = workspace
+      ? findTaskWorkspaceRun(workspace, recordIdentity.blockRef, recordIdentity.recordId)
+      : null;
+    return {
+      authorityKey: key,
+      blockRef: found?.block.ref ?? recordIdentity.blockRef,
+      error: found ? null : "Remote live attempt is no longer active.",
+      item: found?.item ?? null,
+      key: recordIdentity.recordId,
+      record: null,
+      status: found ? "ready" : "error"
+    };
+  }, [key, recordIdentity, remoteExecutionVersion, workspace]);
+  const onRecordReady = useCallback(
+    (loaded: TaskWorkspaceRecordLoad) => {
+      if (loaded.item?.run.kind !== "block" || !loaded.blockRef) return;
+      const listItem: TaskWorkspaceRunListItem = {
+        blockRef: loaded.blockRef,
+        ...loaded.item
+      };
+      const without = runItemsRef.current.filter(
+        (item) => item.run.record.recordId !== listItem.run.record.recordId
+      );
+      runItemsRef.current = [...without, listItem];
+      setWorkspaceLoad((current) => {
+        if (!current.workspace || current.key !== key) return current;
+        return {
+          ...current,
+          workspace: withRemoteLiveTimelineRuns(
+            composeTaskWorkspaceRuns(current.workspace, runItemsRef.current)
+          )
         };
-        recordLoads.current.set(cacheKey, loadedRecord);
-        setRecordLoad(loadedRecord);
-      })
-      .catch((error: unknown) => {
-        if (recordRequest.current !== request) {
-          return;
-        }
-        setRecordLoad({
-          blockRef: cachedLoad?.blockRef ?? null,
-          error: errorMessage(error),
-          item: cachedLoad?.item ?? null,
-          key: selectedRecordKey,
-          record: cachedLoad?.record ?? null,
-          status: "error"
-        });
       });
-  }, [
+    },
+    [key]
+  );
+  const {
+    getRunScrollTop,
+    onRunScrollTopChange,
+    recordLoad: visibleRecordLoad
+  } = useTaskWorkspaceRecordCache({
     api,
-    key,
-    navigationCanvasId,
-    navigationProjectRoot,
-    navigationTaskId,
-    overviewSelected,
-    selectedBlockRef,
-    selectedRecordKey,
-    remoteExecutionVersion
-  ]);
+    authorityKey: key,
+    enabled: !overviewSelected && selectedAnnotation === null,
+    identity: recordIdentity,
+    onRecordReady,
+    syntheticLoad: syntheticRecordLoad
+  });
+  const detailSelectedRun = useMemo(() => {
+    if (
+      !workspace ||
+      visibleRecordLoad.key !== navigation?.recordId ||
+      !visibleRecordLoad.blockRef ||
+      !visibleRecordLoad.item
+    ) {
+      return null;
+    }
+    const block = workspace.blocks.find(
+      (candidate) => candidate.ref === visibleRecordLoad.blockRef
+    );
+    return block ? { block, item: visibleRecordLoad.item } : null;
+  }, [navigation?.recordId, visibleRecordLoad, workspace]);
+  const selectedRun =
+    overviewSelected || selectedAnnotation ? null : (routedSelectedRun ?? detailSelectedRun);
+  const selectedRecordId =
+    overviewSelected || selectedAnnotation
+      ? null
+      : (navigation?.recordId ?? selectedRun?.item.run.record.recordId ?? null);
 
   const selectedRecord =
     visibleRecordLoad.key === selectedRecordKey ? visibleRecordLoad.record : null;
@@ -756,7 +587,7 @@ export function useTaskWorkspaceController(options: {
         model,
         now: new Date()
       });
-      const projectedSelectedRun = findRun(
+      const projectedSelectedRun = findTaskWorkspaceRun(
         projectedWorkspace,
         selectedRun.block.ref,
         selectedRun.item.run.record.recordId
@@ -1191,7 +1022,7 @@ export function useTaskWorkspaceController(options: {
       agentEndpointsForBlock,
       agentEndpointsForTask,
       error,
-      getRunScrollTop: (recordId) => runScrollPositions.current.get(recordId) ?? 0,
+      getRunScrollTop,
       hasMoreRuns,
       liveStatus,
       liveUnavailableReason,
@@ -1199,9 +1030,7 @@ export function useTaskWorkspaceController(options: {
       loadMoreRunsError,
       loadingMoreRuns,
       navigation,
-      onRunScrollTopChange: (recordId, scrollTop) => {
-        runScrollPositions.current.set(recordId, Math.max(0, scrollTop));
-      },
+      onRunScrollTopChange,
       packageExecutorNames,
       recordError,
       remoteConversation,
@@ -1228,6 +1057,7 @@ export function useTaskWorkspaceController(options: {
       error,
       agentEndpointsForBlock,
       agentEndpointsForTask,
+      getRunScrollTop,
       hasMoreRuns,
       history.returnToTaskWorkspaceSource,
       liveStatus,
@@ -1238,6 +1068,7 @@ export function useTaskWorkspaceController(options: {
       monitor.subscriptionError,
       liveProjection,
       navigation,
+      onRunScrollTopChange,
       packageExecutorNames,
       recordError,
       remoteConversation,
