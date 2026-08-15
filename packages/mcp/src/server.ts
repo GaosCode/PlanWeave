@@ -147,7 +147,15 @@ async function handleMcpRequest(
   }
 }
 
-export function createPlanweaveMcpHttpServer(config: McpConfig): Server {
+export type McpHttpServerRuntime = {
+  oauthTransientStateNow?: () => number;
+  oauthTransientStateToken?: (bytes: number) => string;
+};
+
+export function createPlanweaveMcpHttpServer(
+  config: McpConfig,
+  runtime: McpHttpServerRuntime = {}
+): Server {
   const oauth =
     config.oauth?.enabled === true
       ? createOAuthProvider({
@@ -161,6 +169,8 @@ export function createPlanweaveMcpHttpServer(config: McpConfig): Server {
             config.oauth.tokenStorePath ??
               join(resolvePlanweaveHome(), "config", "mcp-oauth-tokens.json")
           ),
+          transientStateNow: runtime.oauthTransientStateNow,
+          transientStateToken: runtime.oauthTransientStateToken,
           maxRequestBodyBytes: config.maxRequestBodyBytes,
           host: config.host,
           port: config.port,

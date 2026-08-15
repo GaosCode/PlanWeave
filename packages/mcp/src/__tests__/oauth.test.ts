@@ -4,7 +4,7 @@ import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPlanweaveMcpHttpServer } from "../server.js";
 
 let server: Server | undefined;
@@ -40,24 +40,39 @@ async function createTempStorePath(): Promise<string> {
 async function startOAuthServer(
   options: {
     clientStorePath?: string;
+    clock?: { now: number };
+    tokenGenerator?: (bytes: number) => string;
     tokenStorePath?: string;
     trustForwardedHeaders?: boolean;
   } = {}
 ): Promise<string> {
-  const { clientStorePath, tokenStorePath, trustForwardedHeaders = false } = options;
+  const {
+    clientStorePath,
+    clock,
+    tokenGenerator,
+    tokenStorePath,
+    trustForwardedHeaders = false
+  } = options;
   const storePath = clientStorePath ?? (await createTempStorePath());
-  server = createPlanweaveMcpHttpServer({
-    host: "127.0.0.1",
-    maxRequestBodyBytes: 1_048_576,
-    oauth: {
-      enabled: true,
-      clientStorePath: storePath,
-      tokenStorePath: tokenStorePath ?? (await createTempStorePath())
+  server = createPlanweaveMcpHttpServer(
+    {
+      host: "127.0.0.1",
+      maxRequestBodyBytes: 1_048_576,
+      oauth: {
+        enabled: true,
+        clientStorePath: storePath,
+        tokenStorePath: tokenStorePath ?? (await createTempStorePath()),
+        ...(clock ? { authorizationCodeTtlMs: 1_000 } : {})
+      },
+      port: 0,
+      planweaveHomeFromEnv: true,
+      trustForwardedHeaders
     },
-    port: 0,
-    planweaveHomeFromEnv: true,
-    trustForwardedHeaders
-  });
+    {
+      ...(clock ? { oauthTransientStateNow: () => clock.now } : {}),
+      ...(tokenGenerator ? { oauthTransientStateToken: tokenGenerator } : {})
+    }
+  );
   await new Promise<void>((resolve, reject) => {
     server?.once("error", reject);
     server?.listen(0, "127.0.0.1", () => {
@@ -735,4 +750,240 @@ describe("PlanWeave MCP OAuth server", () => {
     expect(confirmResponse.status).toBe(403);
     await expect(confirmResponse.json()).resolves.toEqual({ error: "invalid_origin" });
   });
+
+  it("bounds consent sessions without evicting live nonces and prunes expired sessions", async () => {
+    const clock = { now: 10_000 };
+    const baseUrl = await startOAuthServer({ clock });
+    const { params } = await transientStateClient(baseUrl);
+    let firstNonce = "";
+
+    for (let index = 0; index < 128; index += 1) {
+      const response = await fetch(`${baseUrl}/oauth/authorize?${new URLSearchParams(params)}`);
+      expect(response.status).toBe(200);
+      const nonce = extractCsrfNonce(await response.text());
+      if (index === 0) {
+        firstNonce = nonce;
+      }
+    }
+
+    const unavailable = await fetch(`${baseUrl}/oauth/authorize?${new URLSearchParams(params)}`);
+    expect(unavailable.status).toBe(503);
+    expect(unavailable.headers.get("content-type")).toContain("text/html");
+    const unavailableHtml = await unavailable.text();
+    expect(unavailableHtml).toContain("temporarily_unavailable");
+    expect(unavailableHtml).not.toContain(firstNonce);
+
+    const liveConfirm = await transientStateConfirm(baseUrl, params, firstNonce);
+    expect(liveConfirm.status).toBe(302);
+    const reusedConfirm = await transientStateConfirm(baseUrl, params, firstNonce);
+    expect(reusedConfirm.status).toBe(400);
+    await expect(reusedConfirm.json()).resolves.toEqual({ error: "invalid_csrf_nonce" });
+
+    const replacementBeforeExpiry = await fetch(
+      `${baseUrl}/oauth/authorize?${new URLSearchParams(params)}`
+    );
+    expect(replacementBeforeExpiry.status).toBe(200);
+    const expiredNonce = extractCsrfNonce(await replacementBeforeExpiry.text());
+    clock.now += 1_001;
+
+    const replacementAfterExpiry = await fetch(
+      `${baseUrl}/oauth/authorize?${new URLSearchParams(params)}`
+    );
+    expect(replacementAfterExpiry.status).toBe(200);
+    const expiredConfirm = await transientStateConfirm(baseUrl, params, expiredNonce);
+    expect(expiredConfirm.status).toBe(400);
+    await expect(expiredConfirm.json()).resolves.toEqual({ error: "invalid_csrf_nonce" });
+  });
+
+  it("bounds codes and preserves valid codes across malformed and mismatched exchanges", async () => {
+    const clock = { now: 20_000 };
+    const baseUrl = await startOAuthServer({ clock });
+    const { clientId, params } = await transientStateClient(baseUrl);
+    let firstCode = "";
+
+    for (let index = 0; index < 128; index += 1) {
+      const code = await transientStateCode(baseUrl, params);
+      if (index === 0) {
+        firstCode = code;
+      }
+    }
+
+    const fullAuthorize = await fetch(`${baseUrl}/oauth/authorize?${new URLSearchParams(params)}`);
+    expect(fullAuthorize.status).toBe(200);
+    const fullNonce = extractCsrfNonce(await fullAuthorize.text());
+    const unavailable = await transientStateConfirm(baseUrl, params, fullNonce);
+    expect(unavailable.status).toBe(503);
+    await expect(unavailable.json()).resolves.toEqual({ error: "temporarily_unavailable" });
+    const unavailableRetry = await transientStateConfirm(baseUrl, params, fullNonce);
+    expect(unavailableRetry.status).toBe(400);
+    await expect(unavailableRetry.json()).resolves.toEqual({ error: "invalid_csrf_nonce" });
+
+    const malformed = await transientStateExchange(baseUrl, clientId, "");
+    expect(malformed.status).toBe(400);
+    await expect(malformed.json()).resolves.toEqual({ error: "invalid_grant" });
+    for (const overrides of [
+      { client_id: "different-client" },
+      { redirect_uri: "https://chat.openai.com/aip/oauth/different-callback" },
+      { resource: "https://wrong.example/mcp" },
+      { code_verifier: "wrong-verifier" }
+    ]) {
+      const mismatch = await transientStateExchange(baseUrl, clientId, firstCode, overrides);
+      expect(mismatch.status).toBe(400);
+      await expect(mismatch.json()).resolves.toEqual({ error: "invalid_grant" });
+    }
+
+    const validExchange = await transientStateExchange(baseUrl, clientId, firstCode);
+    expect(validExchange.status).toBe(200);
+    const reusedCode = await transientStateExchange(baseUrl, clientId, firstCode);
+    expect(reusedCode.status).toBe(400);
+    await expect(reusedCode.json()).resolves.toEqual({ error: "invalid_grant" });
+
+    const replacementCode = await transientStateCode(baseUrl, params);
+    clock.now += 1_001;
+    await transientStateCode(baseUrl, params);
+    const expiredExchange = await transientStateExchange(baseUrl, clientId, replacementCode);
+    expect(expiredExchange.status).toBe(400);
+    await expect(expiredExchange.json()).resolves.toEqual({ error: "invalid_grant" });
+  });
+
+  it("retries transient token collisions without replacing consent sessions or codes", async () => {
+    const tokens = ["nonce-a", "nonce-a", "nonce-b", "code-a", "code-a", "code-b"];
+    const tokenGenerator = vi.fn(() => {
+      const token = tokens.shift();
+      if (!token) {
+        throw new Error("transient token test sequence exhausted");
+      }
+      return token;
+    });
+    const baseUrl = await startOAuthServer({ tokenGenerator });
+    const { params } = await transientStateClient(baseUrl);
+
+    const firstAuthorize = await fetch(`${baseUrl}/oauth/authorize?${new URLSearchParams(params)}`);
+    const firstNonce = extractCsrfNonce(await firstAuthorize.text());
+    const secondAuthorize = await fetch(
+      `${baseUrl}/oauth/authorize?${new URLSearchParams(params)}`
+    );
+    const secondNonce = extractCsrfNonce(await secondAuthorize.text());
+    expect([firstNonce, secondNonce]).toEqual(["nonce-a", "nonce-b"]);
+
+    const firstConfirm = await transientStateConfirm(baseUrl, params, firstNonce);
+    const secondConfirm = await transientStateConfirm(baseUrl, params, secondNonce);
+    expect([
+      transientStateCodeFromResponse(firstConfirm),
+      transientStateCodeFromResponse(secondConfirm)
+    ]).toEqual(["code-a", "code-b"]);
+    expect(tokenGenerator).toHaveBeenCalledTimes(6);
+  });
+
+  it("returns 503 after bounded collision retries without overwriting either transient map", async () => {
+    const repeatedToken = "repeated-transient-token";
+    const tokenGenerator = vi.fn(() => repeatedToken);
+    const baseUrl = await startOAuthServer({ tokenGenerator });
+    const { clientId, params } = await transientStateClient(baseUrl);
+
+    const firstAuthorize = await fetch(`${baseUrl}/oauth/authorize?${new URLSearchParams(params)}`);
+    const firstNonce = extractCsrfNonce(await firstAuthorize.text());
+    const unavailableAuthorize = await fetch(
+      `${baseUrl}/oauth/authorize?${new URLSearchParams(params)}`
+    );
+    expect(unavailableAuthorize.status).toBe(503);
+    expect(await unavailableAuthorize.text()).not.toContain(repeatedToken);
+    expect(tokenGenerator).toHaveBeenCalledTimes(9);
+
+    const firstConfirm = await transientStateConfirm(baseUrl, params, firstNonce);
+    expect(firstConfirm.status).toBe(302);
+    const firstCode = transientStateCodeFromResponse(firstConfirm);
+    const nextAuthorize = await fetch(`${baseUrl}/oauth/authorize?${new URLSearchParams(params)}`);
+    const nextNonce = extractCsrfNonce(await nextAuthorize.text());
+    const unavailableConfirm = await transientStateConfirm(baseUrl, params, nextNonce);
+    expect(unavailableConfirm.status).toBe(503);
+    await expect(unavailableConfirm.json()).resolves.toEqual({
+      error: "temporarily_unavailable"
+    });
+    expect(tokenGenerator).toHaveBeenCalledTimes(19);
+
+    const preservedCodeExchange = await transientStateExchange(baseUrl, clientId, firstCode);
+    expect(preservedCodeExchange.status).toBe(200);
+  });
 });
+
+async function transientStateClient(
+  baseUrl: string
+): Promise<{ clientId: string; params: Record<string, string> }> {
+  const response = await fetch(`${baseUrl}/oauth/register`, {
+    method: "POST",
+    body: JSON.stringify({ redirect_uris: ["https://chat.openai.com/aip/oauth/callback"] }),
+    headers: { "content-type": "application/json" }
+  });
+  expect(response.status).toBe(201);
+  const clientId = ((await response.json()) as { client_id: string }).client_id;
+  return {
+    clientId,
+    params: {
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: "https://chat.openai.com/aip/oauth/callback",
+      resource: `${baseUrl}/mcp`,
+      code_challenge: pkceChallenge("transient-state-verifier-for-planweave-oauth"),
+      code_challenge_method: "S256"
+    }
+  };
+}
+
+async function transientStateConfirm(
+  baseUrl: string,
+  params: Record<string, string>,
+  csrfNonce: string
+): Promise<Response> {
+  return fetch(`${baseUrl}/oauth/authorize/confirm`, {
+    method: "POST",
+    redirect: "manual",
+    body: new URLSearchParams({ ...params, csrf_nonce: csrfNonce }),
+    headers: { "content-type": "application/x-www-form-urlencoded" }
+  });
+}
+
+async function transientStateCode(
+  baseUrl: string,
+  params: Record<string, string>
+): Promise<string> {
+  const authorize = await fetch(`${baseUrl}/oauth/authorize?${new URLSearchParams(params)}`);
+  expect(authorize.status).toBe(200);
+  const confirm = await transientStateConfirm(
+    baseUrl,
+    params,
+    extractCsrfNonce(await authorize.text())
+  );
+  expect(confirm.status).toBe(302);
+  return transientStateCodeFromResponse(confirm);
+}
+
+function transientStateCodeFromResponse(response: Response): string {
+  const location = response.headers.get("location");
+  const code = location ? new URL(location).searchParams.get("code") : null;
+  if (!code) {
+    throw new Error("authorization redirect did not include a code");
+  }
+  return code;
+}
+
+async function transientStateExchange(
+  baseUrl: string,
+  clientId: string,
+  code: string,
+  overrides: Record<string, string> = {}
+): Promise<Response> {
+  return fetch(`${baseUrl}/oauth/token`, {
+    method: "POST",
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: "https://chat.openai.com/aip/oauth/callback",
+      resource: `${baseUrl}/mcp`,
+      client_id: clientId,
+      code_verifier: "transient-state-verifier-for-planweave-oauth",
+      ...overrides
+    }),
+    headers: { "content-type": "application/x-www-form-urlencoded" }
+  });
+}

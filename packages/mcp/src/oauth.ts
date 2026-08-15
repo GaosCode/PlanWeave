@@ -45,6 +45,9 @@ import { resolveEffectiveRequestOrigin } from "./requestGuards.js";
 const defaultAccessTokenTtlMs = 60 * 60 * 1000;
 const defaultAuthorizationCodeTtlMs = 5 * 60 * 1000;
 const defaultRefreshTokenTtlMs = 90 * 24 * 60 * 60 * 1000;
+const maxAuthorizationCodes = 128;
+const maxConsentSessions = 128;
+const maxTransientTokenGenerationAttempts = 8;
 
 type AuthorizationCode = {
   clientId: string;
@@ -65,6 +68,8 @@ type OAuthProviderOptions = Pick<
 > & {
   clientStore?: OAuthClientStore;
   tokenStore?: OAuthTokenStore;
+  transientStateNow?: () => number;
+  transientStateToken?: (bytes: number) => string;
   maxRequestBodyBytes: number;
   host: string;
   port: number;
@@ -80,6 +85,8 @@ export function createOAuthProvider(options: OAuthProviderOptions) {
   const consentSessions = new Map<string, ConsentSession>();
   const accessTokenTtlMs = options.accessTokenTtlMs ?? defaultAccessTokenTtlMs;
   const authorizationCodeTtlMs = options.authorizationCodeTtlMs ?? defaultAuthorizationCodeTtlMs;
+  const transientStateNow = options.transientStateNow ?? Date.now;
+  const transientStateToken = options.transientStateToken ?? randomToken;
   const requestOriginConfig = {
     host: options.host,
     port: options.port,
@@ -91,6 +98,9 @@ export function createOAuthProvider(options: OAuthProviderOptions) {
       if (!isOAuthRoute(req.method, path)) {
         return false;
       }
+      const requestTime = transientStateNow();
+      pruneExpired(consentSessions, requestTime);
+      pruneExpired(authorizationCodes, requestTime);
       const originResult = resolveEffectiveRequestOrigin(req, requestOriginConfig);
       if (!originResult.ok) {
         writeJson(res, originResult.error === "invalid_host" ? 421 : 403, {
@@ -129,7 +139,9 @@ export function createOAuthProvider(options: OAuthProviderOptions) {
           consentSessions,
           authorizationCodeTtlMs,
           context,
-          options.redirectUriPrefixes
+          options.redirectUriPrefixes,
+          transientStateNow,
+          transientStateToken
         );
         return true;
       }
@@ -143,7 +155,9 @@ export function createOAuthProvider(options: OAuthProviderOptions) {
           consentSessions,
           authorizationCodeTtlMs,
           context,
-          options.redirectUriPrefixes
+          options.redirectUriPrefixes,
+          transientStateNow,
+          transientStateToken
         );
         return true;
       }
@@ -155,7 +169,8 @@ export function createOAuthProvider(options: OAuthProviderOptions) {
           authorizationCodes,
           tokenStore,
           accessTokenTtlMs,
-          context
+          context,
+          transientStateNow
         );
         return true;
       }
@@ -255,7 +270,9 @@ async function handleAuthorizePage(
   consentSessions: Map<string, ConsentSession>,
   authorizationCodeTtlMs: number,
   context: OAuthRequestContext,
-  redirectUriPrefixes: string[] | undefined
+  redirectUriPrefixes: string[] | undefined,
+  now: () => number,
+  generateToken: (bytes: number) => string
 ): Promise<void> {
   const params = await validateAuthorizeParams(req, context, clientStore, redirectUriPrefixes);
   if (!params.ok) {
@@ -263,10 +280,20 @@ async function handleAuthorizePage(
     return;
   }
 
-  const csrfNonce = randomToken(32);
+  const currentTime = now();
+  pruneExpired(consentSessions, currentTime);
+  if (consentSessions.size >= maxConsentSessions) {
+    writeHtml(res, 503, errorPage("temporarily_unavailable"));
+    return;
+  }
+  const csrfNonce = generateUniqueTransientToken(consentSessions, generateToken);
+  if (!csrfNonce) {
+    writeHtml(res, 503, errorPage("temporarily_unavailable"));
+    return;
+  }
   consentSessions.set(csrfNonce, {
     ...params.value,
-    expiresAt: Date.now() + authorizationCodeTtlMs
+    expiresAt: currentTime + authorizationCodeTtlMs
   });
 
   writeHtml(res, 200, consentPage({ ...params.value, csrfNonce }));
@@ -281,7 +308,9 @@ async function handleAuthorizeConfirm(
   consentSessions: Map<string, ConsentSession>,
   authorizationCodeTtlMs: number,
   context: OAuthRequestContext,
-  redirectUriPrefixes: string[] | undefined
+  redirectUriPrefixes: string[] | undefined,
+  now: () => number,
+  generateToken: (bytes: number) => string
 ): Promise<void> {
   const body = await readFormBody(req, maxRequestBodyBytes);
   if (!body.ok) {
@@ -291,7 +320,7 @@ async function handleAuthorizeConfirm(
   const form = new URLSearchParams(body.value);
   const csrfNonce = form.get("csrf_nonce") ?? "";
   const session = csrfNonce ? consentSessions.get(csrfNonce) : undefined;
-  if (!session || session.expiresAt <= Date.now()) {
+  if (!session || session.expiresAt <= now()) {
     if (csrfNonce) {
       consentSessions.delete(csrfNonce);
     }
@@ -344,11 +373,21 @@ async function handleAuthorizeConfirm(
     return;
   }
 
-  const code = randomToken(32);
+  const currentTime = now();
+  pruneExpired(authorizationCodes, currentTime);
+  if (authorizationCodes.size >= maxAuthorizationCodes) {
+    writeJson(res, 503, { error: "temporarily_unavailable" });
+    return;
+  }
+  const code = generateUniqueTransientToken(authorizationCodes, generateToken);
+  if (!code) {
+    writeJson(res, 503, { error: "temporarily_unavailable" });
+    return;
+  }
   authorizationCodes.set(code, {
     clientId: params.value.clientId,
     codeChallenge: params.value.codeChallenge,
-    expiresAt: Date.now() + authorizationCodeTtlMs,
+    expiresAt: currentTime + authorizationCodeTtlMs,
     redirectUri: params.value.redirectUri,
     resource: params.value.resource,
     scope: params.value.scope
@@ -370,7 +409,8 @@ async function handleToken(
   authorizationCodes: Map<string, AuthorizationCode>,
   tokenStore: OAuthTokenStore,
   accessTokenTtlMs: number,
-  context: OAuthRequestContext
+  context: OAuthRequestContext,
+  now: () => number
 ): Promise<void> {
   const body = await readFormBody(req, maxRequestBodyBytes);
   if (!body.ok) {
@@ -386,7 +426,8 @@ async function handleToken(
       authorizationCodes,
       tokenStore,
       accessTokenTtlMs,
-      context
+      context,
+      now
     );
     return;
   }
@@ -403,7 +444,8 @@ async function exchangeAuthorizationCode(
   authorizationCodes: Map<string, AuthorizationCode>,
   tokenStore: OAuthTokenStore,
   accessTokenTtlMs: number,
-  context: OAuthRequestContext
+  context: OAuthRequestContext,
+  now: () => number
 ): Promise<void> {
   const code = params.get("code") ?? "";
   const clientId = params.get("client_id") ?? "";
@@ -411,7 +453,7 @@ async function exchangeAuthorizationCode(
   const resource = params.get("resource") ?? "";
   const codeVerifier = params.get("code_verifier") ?? "";
   const stored = authorizationCodes.get(code);
-  if (!stored || stored.expiresAt <= Date.now()) {
+  if (!stored || stored.expiresAt <= now()) {
     authorizationCodes.delete(code);
     writeJson(res, 400, { error: "invalid_grant" });
     return;
@@ -535,4 +577,25 @@ function issueStoredToken(
       scope
     }
   };
+}
+
+function pruneExpired<T extends { expiresAt: number }>(entries: Map<string, T>, now: number): void {
+  for (const [key, entry] of entries) {
+    if (entry.expiresAt <= now) {
+      entries.delete(key);
+    }
+  }
+}
+
+function generateUniqueTransientToken(
+  entries: ReadonlyMap<string, unknown>,
+  generateToken: (bytes: number) => string
+): string | null {
+  for (let attempt = 0; attempt < maxTransientTokenGenerationAttempts; attempt += 1) {
+    const candidate = generateToken(32);
+    if (!entries.has(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
 }

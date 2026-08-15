@@ -44,10 +44,15 @@ export function consentPage(params: ConsentPageParams): string {
 }
 
 export function errorPage(error: string): string {
+  const temporarilyUnavailable = error === "temporarily_unavailable";
+  const detail = temporarilyUnavailable
+    ? "Too many authorization requests are currently pending. Please try again shortly."
+    : error;
+  const errorCode = temporarilyUnavailable ? `<p><code>${escapeHtml(error)}</code></p>` : "";
   return `<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><title>PlanWeave MCP OAuth error</title></head>
-<body><h1>OAuth error</h1><p>${escapeHtml(error)}</p></body>
+<body><h1>OAuth error</h1><p>${escapeHtml(detail)}</p>${errorCode}</body>
 </html>`;
 }
 
