@@ -300,6 +300,7 @@
         "localCollaborationScopeStore.test.ts",
         "operatorControlHandlers.test.ts",
         "operatorControl.test.ts",
+        "operatorControlLocalReadiness.test.ts",
         "operatorRemoteOperations.test.ts",
         "mcpTunnel.test.ts",
         "packageWatch.test.ts",

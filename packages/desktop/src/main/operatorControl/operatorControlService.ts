@@ -44,6 +44,7 @@ import {
   type OperatorControlClientOptions
 } from "./OperatorControlClient.js";
 import {
+  getLocalOperatorBackendPort,
   isLocalOwnedOperatorProfile,
   resolveEffectiveOperatorServerBaseUrl,
   type LocalOperatorBackendPort
@@ -173,9 +174,17 @@ export class OperatorControlService {
       throw new OperatorControlError({ kind: "offline", code: "operator_service_closed" });
   }
 
+  private resolveLocalOperatorBackend(): LocalOperatorBackendPort | null {
+    return this.localOperatorBackend === undefined
+      ? getLocalOperatorBackendPort()
+      : this.localOperatorBackend;
+  }
+
   private async buildStatus(): Promise<OperatorControlStatus> {
     const profiles = await this.profiles.list();
-    const localBackendSnapshot = this.localOperatorBackend?.getSnapshot() ?? null;
+    const activeProfileId = await this.profiles.getActiveProfileId();
+    const localBackend = this.resolveLocalOperatorBackend();
+    const localBackendSnapshot = localBackend?.getSnapshot() ?? null;
     const views: OperatorProfileView[] = [];
     for (const profile of profiles) {
       const persistence = await this.vault.persistenceFor(profile.profileId);
@@ -191,13 +200,33 @@ export class OperatorControlService {
     const sessionOnly =
       views.some((profile) => profile.operatorCredentialPersistence === "session-only") ||
       (await this.vault.hasAnySessionOnlyCredential());
+    const activeProfile = views.find((profile) => profile.profileId === activeProfileId) ?? null;
+    const localServerNotReady =
+      localBackend !== null &&
+      activeProfile?.hostedByThisDesktop === true &&
+      (!localBackendSnapshot?.running || !localBackendSnapshot.loopbackBaseUrl);
+    const localServerRecovered =
+      activeProfile?.hostedByThisDesktop === true &&
+      localBackendSnapshot?.running === true &&
+      Boolean(localBackendSnapshot.loopbackBaseUrl) &&
+      this.lastErrorCode === "operator_local_server_not_ready";
+    const lastErrorCode = localServerNotReady
+      ? "operator_local_server_not_ready"
+      : localServerRecovered
+        ? null
+        : this.lastErrorCode;
+    const lastErrorMessage = localServerNotReady
+      ? "operator_local_server_not_ready"
+      : localServerRecovered
+        ? null
+        : this.lastErrorMessage;
     return {
       profiles: views,
-      activeProfileId: await this.profiles.getActiveProfileId(),
+      activeProfileId,
       credentialStorage: this.vault.storageAvailability(),
       nonPersistenceWarning: sessionOnly ? OPERATOR_SESSION_ONLY_WARNING : null,
-      lastErrorCode: this.lastErrorCode,
-      lastErrorMessage: this.lastErrorMessage,
+      lastErrorCode,
+      lastErrorMessage,
       updatedAt: nowIso(this.clock)
     };
   }
@@ -633,7 +662,7 @@ export class OperatorControlService {
         serverBaseUrl: profile.serverBaseUrl,
         allowInsecureTransport: profile.allowInsecureTransport
       },
-      ...(this.localOperatorBackend !== undefined ? { backend: this.localOperatorBackend } : {})
+      backend: this.resolveLocalOperatorBackend()
     });
     const client = this.createClient({
       profile: operatorControlProfileSchema.parse({
