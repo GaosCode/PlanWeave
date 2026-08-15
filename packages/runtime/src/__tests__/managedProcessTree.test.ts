@@ -14,7 +14,8 @@ import {
   spawnManagedProcess,
   windowsTaskKillArgs,
   type ManagedProcessTree,
-  type ProcessTreePlatformAdapter
+  type ProcessTreePlatformAdapter,
+  type TaskKillSpawnFn
 } from "../process/managedProcessTree.js";
 import {
   DEFAULT_WINDOWS_JOB_LAUNCH_STRATEGY,
@@ -43,6 +44,29 @@ function isAlive(pid: number): boolean {
     }
     return false;
   }
+}
+
+function taskKillSpawnWithExit(
+  exitCode: number,
+  afterClose?: (call: number) => void
+): TaskKillSpawnFn {
+  let calls = 0;
+  return ((_command: string, _args: readonly string[], _options: unknown) => {
+    const call = ++calls;
+    const handlers: { close?: (code: number | null) => void } = {};
+    queueMicrotask(() => {
+      handlers.close?.(exitCode);
+      afterClose?.(call);
+    });
+    return {
+      once(event: string, listener: (...args: unknown[]) => void) {
+        if (event === "close") {
+          handlers.close = listener as (code: number | null) => void;
+        }
+        return this;
+      }
+    };
+  }) as unknown as TaskKillSpawnFn;
 }
 
 async function waitUntil(
@@ -491,33 +515,129 @@ describe("platform adapters", () => {
     expect(terminated).toEqual(["Local\\PlanWeave-test"]);
   });
 
-  it("never treats taskkill root-not-found as proof that the managed tree is gone", async () => {
-    const spawnWithExit = (exitCode: number) =>
-      ((_command: string, _args: readonly string[], _options: unknown) => {
-        const handlers: { close?: (code: number | null) => void; error?: (error: Error) => void } =
-          {};
-        queueMicrotask(() => handlers.close?.(exitCode));
-        return {
-          once(event: string, listener: (...args: unknown[]) => void) {
-            if (event === "close") {
-              handlers.close = listener as (code: number | null) => void;
-            }
-            if (event === "error") {
-              handlers.error = listener as (error: Error) => void;
-            }
-            return this;
-          }
-        };
-      }) as unknown as import("../process/managedProcessTree.js").TaskKillSpawnFn;
+  it("does not let a launcher disappearance race overturn successful Job termination", async () => {
+    const aliveChecks = [true, false];
+    const adapter = createWindowsProcessTreeAdapter({
+      spawnTaskKill: taskKillSpawnWithExit(128),
+      isAlive: () => aliveChecks.shift() ?? false,
+      job: {
+        name: "Local\\PlanWeave-launcher-exit-race",
+        markerPath: "/tmp/planweave-launcher-exit-race",
+        helperPath: "windowsJobProcess.ps1"
+      },
+      terminateJob: () => {}
+    });
 
+    await expect(adapter.signalForce(4_323)).resolves.toBeUndefined();
+    expect(aliveChecks).toEqual([]);
+  });
+
+  it("defers a launcher access race to bounded exit confirmation after Job termination", async () => {
+    const adapter = createWindowsProcessTreeAdapter({
+      spawnTaskKill: taskKillSpawnWithExit(1),
+      isAlive: () => true,
+      job: {
+        name: "Local\\PlanWeave-launcher-access-race",
+        markerPath: "/tmp/planweave-launcher-access-race",
+        helperPath: "windowsJobProcess.ps1"
+      },
+      terminateJob: () => {}
+    });
+    const child = {
+      exitCode: null,
+      signalCode: null,
+      once() {
+        return child;
+      }
+    } as unknown as ChildProcessWithoutNullStreams;
+    const tree = attachManagedProcessTree({ child, pid: 4_324, adapter, graceMs: 10 });
+
+    await expect(tree.terminate("launcher stayed alive")).rejects.toThrow(
+      "did not exit after force termination"
+    );
+  });
+
+  it("accepts launcher exit during bounded confirmation after a force access race", async () => {
+    let spawnCalls = 0;
+    let alive = true;
+    let exitListener: (() => void) | undefined;
+    const child = {
+      exitCode: null,
+      signalCode: null,
+      once(event: string, listener: () => void) {
+        if (event === "exit") exitListener = listener;
+        return child;
+      }
+    } as unknown as ChildProcessWithoutNullStreams;
+    const adapter = createWindowsProcessTreeAdapter({
+      spawnTaskKill: taskKillSpawnWithExit(1, (call) => {
+        spawnCalls = call;
+        if (call === 2) {
+          queueMicrotask(() => {
+            alive = false;
+            (child as { exitCode: number | null }).exitCode = 1;
+            exitListener?.();
+          });
+        }
+      }),
+      isAlive: () => alive,
+      job: {
+        name: "Local\\PlanWeave-launcher-eventual-exit",
+        markerPath: "/tmp/planweave-launcher-eventual-exit",
+        helperPath: "windowsJobProcess.ps1"
+      },
+      terminateJob: () => {}
+    });
+    const tree = attachManagedProcessTree({ child, pid: 4_326, adapter, graceMs: 20 });
+
+    await expect(tree.terminate("launcher exited after Job termination")).resolves.toEqual({
+      outcome: "forced",
+      reason: "launcher exited after Job termination"
+    });
+    expect(spawnCalls).toBe(2);
+  });
+
+  it("keeps Job termination failure authoritative when the launcher disappears", async () => {
+    const jobFailure = Object.assign(new Error("Job access denied"), { code: "EPERM" });
+    const aliveChecks = [true, false];
+    const adapter = createWindowsProcessTreeAdapter({
+      spawnTaskKill: taskKillSpawnWithExit(128),
+      isAlive: () => aliveChecks.shift() ?? false,
+      job: {
+        name: "Local\\PlanWeave-job-failure",
+        markerPath: "/tmp/planweave-job-failure",
+        helperPath: "windowsJobProcess.ps1"
+      },
+      terminateJob: () => {
+        throw jobFailure;
+      }
+    });
+
+    let terminationError: unknown;
+    try {
+      await adapter.signalForce(4_325);
+    } catch (error) {
+      terminationError = error;
+    }
+    expect(terminationError).toBeInstanceOf(AggregateError);
+    if (!(terminationError instanceof AggregateError)) {
+      throw new Error("Expected Job and launcher failures to be aggregated.");
+    }
+    expect(terminationError.errors).toEqual([
+      jobFailure,
+      expect.objectContaining({ code: "ECHILD" })
+    ]);
+  });
+
+  it("never treats taskkill root-not-found as proof that the managed tree is gone", async () => {
     const notFound = createWindowsProcessTreeAdapter({
-      spawnTaskKill: spawnWithExit(128),
+      spawnTaskKill: taskKillSpawnWithExit(128),
       isAlive: () => false
     });
     await expect(notFound.signalGraceful(9_001)).rejects.toMatchObject({ code: "ECHILD" });
 
     const denied = createWindowsProcessTreeAdapter({
-      spawnTaskKill: spawnWithExit(1),
+      spawnTaskKill: taskKillSpawnWithExit(1),
       isAlive: () => true
     });
     await expect(denied.signalGraceful(9_002)).rejects.toMatchObject({ code: "EPERM" });

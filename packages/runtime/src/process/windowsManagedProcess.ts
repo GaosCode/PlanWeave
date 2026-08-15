@@ -129,8 +129,10 @@ export function createWindowsProcessTreeAdapter(
         throw new Error("Windows managed process is missing named Job ownership.");
       }
       const failures: unknown[] = [];
+      let jobTerminated = false;
       try {
         await terminateJob(options.job);
+        jobTerminated = true;
       } catch (error) {
         failures.push(error);
       }
@@ -139,7 +141,15 @@ export function createWindowsProcessTreeAdapter(
           await runTaskKill(pid, true, { spawnTaskKill, isAlive });
         }
       } catch (error) {
-        failures.push(error);
+        const code = errnoCode(error);
+        // Job termination is authoritative for descendants. The managed-tree caller
+        // separately performs bounded launcher-exit confirmation, so these transient
+        // taskkill outcomes must not turn an already-completed tree reap into failure.
+        const launcherExitCanBeConfirmedByCaller =
+          jobTerminated && (code === "ECHILD" || code === "EPERM");
+        if (!launcherExitCanBeConfirmedByCaller) {
+          failures.push(error);
+        }
       }
       if (failures.length === 1) {
         throw failures[0];
