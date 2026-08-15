@@ -100,6 +100,8 @@ export async function createTransportComposition(
   input.handles.canvasPresenceWebSockets = canvasCollaboration.presenceWebSockets;
   input.handles.canvasCommandWebSockets = canvasCollaboration.commandWebSockets;
   input.handles.canvasLiveSyncWebSockets = canvasCollaboration.liveSyncWebSockets;
+  input.handles.canvasOperationRetentionMaintenance =
+    canvasCollaboration.operationRetentionMaintenance;
   const operatorControl = input.createOperatorControl((hostId) =>
     webSockets.disconnectHost(hostId)
   );
@@ -144,6 +146,7 @@ export async function createTransportComposition(
     canvasPresenceWebSockets: canvasCollaboration.presenceWebSockets,
     canvasCommandWebSockets: canvasCollaboration.commandWebSockets,
     canvasLiveSyncWebSockets: canvasCollaboration.liveSyncWebSockets,
+    canvasOperationRetentionMaintenance: canvasCollaboration.operationRetentionMaintenance,
     upgradeRouter
   };
 }

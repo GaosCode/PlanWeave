@@ -1,234 +1,32 @@
-import { createHash } from "node:crypto";
-import { rm } from "node:fs/promises";
 import type { IncomingMessage } from "node:http";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { CANVAS_COMMAND_PROTOCOL_VERSION } from "@planweave-ai/collaboration-protocol/core/limits";
 import {
+  canvasCommandRejectedSchema,
+  canvasCommandServerMessageSchema,
   type CanvasCommandAccepted,
   type CanvasCommandIntent,
   type CanvasJournalEntry
 } from "@planweave-ai/collaboration-protocol/canvas/commands";
-import { createTestWorkspace } from "../../../runtime/src/__tests__/promptTestHelpers.js";
 import {
-  CanvasCommandRepository,
   CanvasCommandService,
-  ContentVersionRepository,
   ContentVersionService,
-  SqliteAuthoritativeCanvasCommitStore,
   createDefaultCanvasRuntimePort,
+  canvasCommandOutcomeHttpStatus,
   digestCanvasIntent,
   routeCanvasCommandHttp,
   type CanvasRuntimeMutationPort
 } from "../canvas/index.js";
-import type { HumanAuthContext } from "../identity/schemas.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
-import { applyMigrations, latestCentralSchemaVersion } from "../migrations.js";
-import { ProjectAccessRepository } from "../projectAccessRepository.js";
-import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
-
-const databases: SqliteDatabase[] = [];
-const directories: string[] = [];
-
-afterEach(async () => {
-  for (const database of databases.splice(0)) database.close();
-  await Promise.all(
-    directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))
-  );
-});
-
-function digestOf(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
-}
-
-function fakeRuntime(initialDigest = digestOf("empty")): CanvasRuntimeMutationPort & {
-  calls: number;
-  setDigest(next: string): void;
-} {
-  let digest = initialDigest;
-  return {
-    calls: 0,
-    setDigest(next: string) {
-      digest = next;
-    },
-    async apply(input) {
-      this.calls += 1;
-      digest = digestOf(`${digest}:${JSON.stringify(input.intent)}`);
-      return {
-        ok: true,
-        contentDigest: digest,
-        digestManifest: {
-          manifest: { digestSha256: digest, sizeBytes: 10 },
-          prompts: [],
-          totalBytes: 10
-        },
-        packageDir: input.expectedPackageDir ?? String(input.projectRoot),
-        sizeBytes: 10
-      };
-    },
-    async readDigest(input) {
-      return {
-        ok: true,
-        contentDigest: digest,
-        digestManifest: {
-          manifest: { digestSha256: digest, sizeBytes: 10 },
-          prompts: [],
-          totalBytes: 10
-        },
-        packageDir: input.expectedPackageDir ?? String(input.projectRoot),
-        sizeBytes: 10
-      };
-    },
-    async readStatus(input) {
-      return {
-        schemaVersion: "canvas-runtime-status/v2",
-        scope: input.scope,
-        packageFingerprint: `pkg-${"a".repeat(64)}`,
-        capturedAt: input.capturedAt ?? "2026-01-02T00:00:00.000Z",
-        tasks: [{ taskId: "T-001", status: "implemented", openFeedbackCount: 0 }],
-        blocks: []
-      };
-    }
-  };
-}
-
-async function fixture(options?: {
-  journalRetention?: number;
-  runtime?: CanvasRuntimeMutationPort;
-  contentVersions?: boolean;
-  onAcceptedInCallerTransaction?: (accepted: CanvasCommandAccepted) => void;
-  onAcceptedEntry?: (entry: CanvasJournalEntry) => void;
-  onAcceptedEntryUnavailable?: (input: {
-    scope: { workspaceId: string; projectId: string; canvasId: string };
-    headRevision: number;
-    headContentDigest: string;
-  }) => void;
-}) {
-  const workspace = await createTestWorkspace();
-  directories.push(workspace.home, workspace.root);
-  const database = await openServerDatabase(":memory:", 5_000);
-  databases.push(database);
-  applyMigrations(database);
-  database.exec(`
-    INSERT INTO workspaces(workspace_id,display_name,created_at) VALUES ('w','Workspace','2026-01-01');
-    INSERT INTO workspace_principals(workspace_id,human_principal_id,display_name,created_at,revoked_at) VALUES
-      ('w','owner','Owner','2026-01-01T00:00:00.000Z',NULL),
-      ('w','editor','Editor','2026-01-01T00:00:00.000Z',NULL),
-      ('w','viewer','Viewer','2026-01-01T00:00:00.000Z',NULL);
-    INSERT INTO workspace_memberships(workspace_id,membership_id,human_principal_id,role,revision,created_at,updated_at,revoked_at) VALUES
-      ('w','m-owner','owner','owner',1,'2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z',NULL),
-      ('w','m-editor','editor','member',1,'2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z',NULL),
-      ('w','m-viewer','viewer','member',1,'2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z',NULL);
-    INSERT INTO legacy_project_workspace_mappings(legacy_project_id,normalized_legacy_project_identity,workspace_id,mapped_at)
-      VALUES ('p','legacy-project:p','w','2026-01-01');
-  `);
-  const access = new ProjectAccessRepository(database, () => new Date("2026-01-02T00:00:00.000Z"));
-  access.registerProjectInternal({
-    workspaceId: "w",
-    projectId: "p",
-    projectRoot: workspace.root,
-    ownerHumanPrincipalId: "owner"
-  });
-  access.registerCanvasInternal({
-    workspaceId: "w",
-    projectId: "p",
-    canvasId: "default",
-    packageDir: workspace.init.workspace.packageDir,
-    visibility: "private",
-    ownerHumanPrincipalId: "owner"
-  });
-  access.markCanvasCutover("w", "p", "default");
-  access.finalizeProjectCutover("w", "p");
-  access.grant({
-    workspaceId: "w",
-    projectId: "p",
-    canvasId: "default",
-    humanPrincipalId: "editor",
-    role: "editor",
-    grantedBy: { kind: "human", id: "owner" }
-  });
-  access.grant({
-    workspaceId: "w",
-    projectId: "p",
-    canvasId: "default",
-    humanPrincipalId: "viewer",
-    role: "viewer",
-    grantedBy: { kind: "human", id: "owner" }
-  });
-
-  const repository = new CanvasCommandRepository(database, {
-    clock: () => new Date("2026-01-02T00:00:00.000Z"),
-    maxJournalEntries: options?.journalRetention ?? 3
-  });
-  const runtime = options?.runtime ?? fakeRuntime();
-  const contentVersions = new ContentVersionRepository(
-    database,
-    () => new Date("2026-01-02T00:00:00.000Z")
-  );
-  const authorityRuntime = createDefaultCanvasRuntimePort();
-  if (!authorityRuntime.captureContent) throw new Error("authority content capture unavailable");
-  const initialContent = await authorityRuntime.captureContent({
-    projectRoot: workspace.root,
-    canvasId: "default",
-    expectedPackageDir: workspace.init.workspace.packageDir,
-    authorityProjectId: "p"
-  });
-  if (!initialContent.ok) throw new Error(initialContent.detail);
-  contentVersions.publishInitial({
-    scope: { workspaceId: "w", projectId: "p", canvasId: "default" },
-    content: initialContent.content,
-    createdBy: { kind: "human", id: "owner" }
-  });
-  const service = new CanvasCommandService({
-    repository,
-    access,
-    workspaceIdentity: new WorkspaceIdentityRepository(database),
-    runtime,
-    contentVersions,
-    authoritativeCommits: new SqliteAuthoritativeCanvasCommitStore(
-      database,
-      contentVersions,
-      repository,
-      options?.onAcceptedInCallerTransaction
-    ),
-    onAcceptedEntry: options?.onAcceptedEntry,
-    onAcceptedEntryUnavailable: options?.onAcceptedEntryUnavailable,
-    clock: () => new Date("2026-01-02T00:00:00.000Z"),
-    presenceHeadProbe: () => 999
-  });
-  return { workspace, database, access, repository, service, runtime, contentVersions };
-}
-
-function actor(id: "owner" | "editor" | "viewer"): HumanAuthContext {
-  return {
-    humanPrincipalId: id,
-    displayName: id,
-    deviceCredentialId: `device-${id}`,
-    projectId: "p",
-    role: id === "owner" ? "owner" : "member",
-    membershipId: `m-${id}`
-  };
-}
-
-function submitBody(
-  operationId: string,
-  expectedRevision: number,
-  intent: CanvasCommandIntent = {
-    kind: "update_task_prompt",
-    taskId: "T-001",
-    promptMarkdown: "# updated"
-  }
-) {
-  return {
-    type: "canvas.command.submit" as const,
-    protocolVersion: CANVAS_COMMAND_PROTOCOL_VERSION,
-    schemaVersion: "canvas-command/v1" as const,
-    projectId: "p",
-    canvasId: "default",
-    operationId,
-    expectedRevision,
-    intent
-  };
-}
+import { latestCentralSchemaVersion } from "../migrations.js";
+import { inWriteTransaction } from "../sqlite.js";
+import {
+  actor,
+  canvasCommandServiceFixture as fixture,
+  digestOf,
+  fakeRuntime,
+  submitBody
+} from "./support/canvasCommandServiceFixture.js";
 
 describe("canvas command service (OSS-004 B-002)", () => {
   it("publishes one complete journal entry only after a durable non-idempotent accept", async () => {
@@ -362,7 +160,7 @@ describe("canvas command service (OSS-004 B-002)", () => {
 
   it("migrates v30 and enforces CAS + operationId idempotency", async () => {
     const { service, repository, runtime, database } = await fixture();
-    expect(latestCentralSchemaVersion).toBe(49);
+    expect(latestCentralSchemaVersion).toBe(50);
     expect(
       database
         .prepare(
@@ -388,6 +186,14 @@ describe("canvas command service (OSS-004 B-002)", () => {
     expect(replay.revision).toBe(first.revision);
     expect(replay.journalEntryId).toBe(first.journalEntryId);
     expect((runtime as ReturnType<typeof fakeRuntime>).calls).toBe(0);
+    expect(
+      database
+        .prepare(
+          `SELECT high_water_sequence FROM canvas_command_operation_retention_scopes
+            WHERE workspace_id='w' AND project_id='p' AND canvas_id='default'`
+        )
+        .get()?.high_water_sequence
+    ).toBe(1);
 
     const conflict = await service.submit(
       actor("owner"),
@@ -411,6 +217,215 @@ describe("canvas command service (OSS-004 B-002)", () => {
     expect(
       repository.head({ workspaceId: "w", projectId: "p", canvasId: "default" }).revision
     ).toBe(2);
+  });
+
+  it("treats an evicted operation as unseen and re-runs CAS before possible execution", async () => {
+    const { service, repository, database } = await fixture();
+    const first = await service.submit(actor("owner"), submitBody("op-evicted", 0));
+    expect(first).toMatchObject({ type: "canvas.command.accepted", revision: 1 });
+    const scope = { workspaceId: "w", projectId: "p", canvasId: "default" };
+    inWriteTransaction(database, () => {
+      for (let index = 0; index < 10_000; index += 1) {
+        const operationId = `filler-${index}`;
+        repository.operationRetention.recordTerminalInCallerTransaction({
+          scope,
+          operationId,
+          intentDigest: "f".repeat(64),
+          outcome: canvasCommandRejectedSchema.parse({
+            type: "canvas.command.rejected",
+            protocolVersion: CANVAS_COMMAND_PROTOCOL_VERSION,
+            schemaVersion: "canvas-command/v1",
+            projectId: "p",
+            canvasId: "default",
+            operationId,
+            code: "invalid_command"
+          }),
+          createdAt: "2026-08-15T00:00:00.000Z"
+        });
+      }
+    });
+
+    await expect(
+      service.submit(
+        actor("owner"),
+        submitBody("op-evicted", 0, {
+          kind: "update_task_prompt",
+          taskId: "T-001",
+          promptMarkdown: "# different after eviction"
+        })
+      )
+    ).resolves.toMatchObject({
+      type: "canvas.command.rejected",
+      code: "stale_revision",
+      conflict: { expectedRevision: 0, authoritativeRevision: 1 }
+    });
+    const reconsidered = await service.submit(actor("owner"), submitBody("op-evicted", 1));
+    expect(reconsidered).toMatchObject({ type: "canvas.command.rejected" });
+    if (reconsidered.type !== "canvas.command.rejected") throw new Error("expected validation");
+    expect(reconsidered.code).toBe("journal_unavailable");
+  });
+
+  it("fails a corrupt receipt closed with a schema-valid repair-required outcome", async () => {
+    const { service, database } = await fixture();
+    const accepted = await service.submit(actor("owner"), submitBody("op-corrupt-receipt", 0));
+    expect(accepted.type).toBe("canvas.command.accepted");
+    database
+      .prepare(
+        `UPDATE canvas_command_operation_receipts SET outcome_json=' ' || outcome_json
+          WHERE workspace_id='w' AND project_id='p' AND canvas_id='default'
+            AND operation_id='op-corrupt-receipt'`
+      )
+      .run();
+
+    const repairOutcome = await service.submit(actor("owner"), submitBody("op-corrupt-receipt", 0));
+    expect(repairOutcome).toMatchObject({
+      type: "canvas.command.rejected",
+      code: "server_error",
+      detail: "canvas_operation_retention_repair_required"
+    });
+    expect(canvasCommandOutcomeHttpStatus(repairOutcome)).toBe(500);
+    expect(canvasCommandServerMessageSchema.parse(repairOutcome)).toEqual(repairOutcome);
+    expect(
+      database
+        .prepare(
+          `SELECT status FROM canvas_command_operation_retention_scopes
+            WHERE workspace_id='w' AND project_id='p' AND canvas_id='default'`
+        )
+        .get()?.status
+    ).toBe("repair_required");
+  });
+
+  it("rolls an accepted transaction back before independently marking sequence corruption", async () => {
+    const { service, repository, database } = await fixture();
+    database.exec(`
+      CREATE TRIGGER corrupt_canvas_retention_before_receipt
+      BEFORE INSERT ON canvas_command_operation_receipts
+      BEGIN
+        UPDATE canvas_command_operation_retention_scopes
+           SET status='repair_required',failure_code='injected_sequence_corruption';
+      END
+    `);
+
+    await expect(
+      service.submit(actor("owner"), submitBody("op-atomic-corruption", 0))
+    ).resolves.toMatchObject({
+      type: "canvas.command.rejected",
+      code: "server_error",
+      detail: "canvas_operation_retention_repair_required"
+    });
+    expect(
+      repository.head({ workspaceId: "w", projectId: "p", canvasId: "default" }).revision
+    ).toBe(0);
+    expect(
+      database.prepare("SELECT COUNT(*) AS count FROM canvas_command_journal").get()?.count
+    ).toBe(0);
+    expect(
+      database.prepare("SELECT COUNT(*) AS count FROM canvas_command_operation_receipts").get()
+        ?.count
+    ).toBe(0);
+    expect(
+      database.prepare("SELECT COUNT(*) AS count FROM canvas_command_pending_scopes").get()?.count
+    ).toBe(1);
+    expect(
+      database
+        .prepare("SELECT status,failure_code FROM canvas_command_operation_retention_scopes")
+        .get()
+    ).toEqual({
+      status: "repair_required",
+      failure_code: "canvas_operation_retention_sequence_conflict"
+    });
+  });
+
+  it("rolls a rejected receipt transaction back without clearing pending on corruption", async () => {
+    const { service, database } = await fixture();
+    database.exec(`
+      CREATE TRIGGER corrupt_canvas_rejection_retention
+      BEFORE INSERT ON canvas_command_operation_receipts
+      BEGIN
+        UPDATE canvas_command_operation_retention_scopes
+           SET status='repair_required',failure_code='injected_rejection_corruption';
+      END
+    `);
+
+    await expect(
+      service.submit(
+        actor("owner"),
+        submitBody("op-rejected-atomic-corruption", 0, {
+          kind: "update_task_prompt",
+          taskId: "missing-task",
+          promptMarkdown: "# invalid"
+        })
+      )
+    ).resolves.toMatchObject({
+      type: "canvas.command.rejected",
+      code: "server_error",
+      detail: "canvas_operation_retention_repair_required"
+    });
+    expect(
+      database.prepare("SELECT COUNT(*) AS count FROM canvas_command_operation_receipts").get()
+        ?.count
+    ).toBe(0);
+    expect(
+      database.prepare("SELECT COUNT(*) AS count FROM canvas_command_pending_scopes").get()?.count
+    ).toBe(1);
+  });
+
+  it("marks a malformed new pending row for repair without recovery fallback or clearing", async () => {
+    const { service, repository, database } = await fixture();
+    const submit = submitBody("op-pending-corrupt", 0);
+    repository.reservePending({
+      scope: { workspaceId: "w", projectId: "p", canvasId: "default" },
+      operationId: submit.operationId,
+      expectedRevision: submit.expectedRevision,
+      intent: submit.intent,
+      intentDigest: digestCanvasIntent(submit.intent),
+      actor: { kind: "human", id: "owner", displayName: "Owner" }
+    });
+    database.exec("PRAGMA ignore_check_constraints=ON");
+    database.prepare("UPDATE canvas_command_pending_scopes SET actor_kind='unknown'").run();
+    database.exec("PRAGMA ignore_check_constraints=OFF");
+
+    await expect(service.recoverInterrupted(100)).resolves.toEqual({
+      cleared: 0,
+      recovered: 0,
+      deferred: 1
+    });
+    expect(
+      database.prepare("SELECT COUNT(*) AS count FROM canvas_command_pending_scopes").get()?.count
+    ).toBe(1);
+    expect(
+      database.prepare("SELECT status FROM canvas_command_operation_retention_scopes").get()?.status
+    ).toBe("repair_required");
+  });
+
+  it("replays a cached terminal rejection and conflicts on a different digest", async () => {
+    const { service, database } = await fixture();
+    const invalid = submitBody("op-invalid-replay", 0, {
+      kind: "update_task_prompt",
+      taskId: "missing-task",
+      promptMarkdown: "# invalid"
+    });
+    const first = await service.submit(actor("owner"), invalid);
+    const replay = await service.submit(actor("owner"), invalid);
+    const conflict = await service.submit(
+      actor("owner"),
+      submitBody("op-invalid-replay", 0, {
+        kind: "update_task_prompt",
+        taskId: "another-missing-task",
+        promptMarkdown: "# invalid"
+      })
+    );
+
+    expect(first).toMatchObject({ type: "canvas.command.rejected", code: "invalid_command" });
+    expect(replay).toEqual(first);
+    expect(conflict).toMatchObject({
+      type: "canvas.command.rejected",
+      code: "operation_conflict"
+    });
+    expect(
+      database.prepare("SELECT COUNT(*) AS count FROM canvas_command_operation_receipts").get()
+        ?.count
+    ).toBe(1);
   });
 
   it("rejects a stale intent base content digest before it can advance authority", async () => {
@@ -491,7 +506,8 @@ describe("canvas command service (OSS-004 B-002)", () => {
       database.prepare("SELECT COUNT(*) AS count FROM canvas_command_journal").get()?.count
     ).toBe(0);
     expect(
-      database.prepare("SELECT COUNT(*) AS count FROM canvas_command_operations").get()?.count
+      database.prepare("SELECT COUNT(*) AS count FROM canvas_command_operation_receipts").get()
+        ?.count
     ).toBe(0);
     expect(published).toEqual([]);
     expect(
@@ -556,7 +572,6 @@ describe("canvas command service (OSS-004 B-002)", () => {
       })
     );
     await new Promise((resolve) => setTimeout(resolve, 20));
-    // Pure authority reduction does not invoke local package mutation.
     expect(enterCount).toBe(0);
     releaseFirst();
     const [first, second] = await Promise.all([firstPromise, secondPromise]);
@@ -948,7 +963,7 @@ describe("canvas command service (OSS-004 B-002)", () => {
     expect(
       database
         .prepare(
-          `SELECT status FROM canvas_command_pending
+          `SELECT status FROM canvas_command_pending_scopes
            WHERE workspace_id='w' AND project_id='p' AND canvas_id='default'
              AND operation_id='op-unreadable-recovery'`
         )

@@ -230,6 +230,57 @@ describe("CollaborationClient canvas commands", () => {
     );
   });
 
+  it("parses schema-valid server_error outcomes carried by HTTP 500", async () => {
+    const { origin, close } = await listen((_req, res) => {
+      json(res, 500, {
+        type: "canvas.command.rejected",
+        protocolVersion: CANVAS_COMMAND_PROTOCOL_VERSION,
+        schemaVersion: "canvas-command/v1",
+        projectId: "project-demo-001",
+        canvasId: "canvas-default",
+        operationId: "op-repair",
+        code: "server_error",
+        detail: "canvas_operation_retention_repair_required"
+      });
+    });
+    cleanups.push(close);
+    const client = new CollaborationClient({
+      profile: {
+        profileId: "profile-repair",
+        displayName: "Repair",
+        serverBaseUrl: origin,
+        projectId: "project-demo-001",
+        allowInsecureTransport: true,
+        endpoint: {
+          topology: "loopback_http",
+          serverOrigin: origin,
+          allowedClientOrigins: [origin],
+          tlsTrust: "not_applicable"
+        }
+      },
+      credential: { getDeviceToken: () => exampleHumanDeviceToken },
+      limits: { requestTimeoutMs: 2_000, jsonBodyMaxBytes: 64_000 }
+    });
+    cleanups.push(async () => client.dispose());
+
+    await expect(
+      client.submitCanvasCommand({
+        canvasId: "canvas-default",
+        operationId: "op-repair",
+        intent: {
+          kind: "update_task_prompt",
+          taskId: "task-1",
+          promptMarkdown: "# repair"
+        },
+        expectedRevision: 0
+      })
+    ).resolves.toMatchObject({
+      type: "canvas.command.rejected",
+      code: "server_error",
+      detail: "canvas_operation_retention_repair_required"
+    });
+  });
+
   it("reconnects with afterRevision from session state", async () => {
     const { origin, close } = await listen(async (req, res) => {
       const body = (await readBody(req)) as { afterRevision: number };

@@ -298,6 +298,46 @@ describe("CanvasReplicaCommandWorker", () => {
     expect(harness.store.pendingOperationIds(baseScope)).toEqual([]);
   });
 
+  it("surfaces repair-required server errors without applying or retrying the operation", async () => {
+    const document = documentFixture();
+    const content = encodeCanvasReplicaDocument(document);
+    const store = new CanvasReplicaStore(() => undefined);
+    let submits = 0;
+    const transport: CanvasReplicaCommandTransport = {
+      async fetchReconnectBaseline() {
+        return { response: snapshotResponse(content, 1), content };
+      },
+      async reconnect() {
+        throw new Error("unexpected reconnect");
+      },
+      async canPersistCanvasCommand() {
+        return true;
+      },
+      async submit(input) {
+        submits += 1;
+        return {
+          type: "canvas.command.rejected",
+          protocolVersion: 1,
+          schemaVersion: "canvas-command/v1",
+          projectId: baseScope.projectId,
+          canvasId: baseScope.canvasId,
+          operationId: input.operationId,
+          code: "server_error",
+          detail: "canvas_operation_retention_repair_required"
+        };
+      }
+    };
+    const worker = new CanvasReplicaCommandWorker(store, transport);
+    await worker.bind(baseScope);
+
+    await expect(
+      worker.submit(baseScope, layoutIntent(1, "2026-08-02T07:00:00.000Z"))
+    ).resolves.toMatchObject({ code: "server_error" });
+    expect(submits).toBe(1);
+    expect(store.pendingOperationIds(baseScope)).toEqual([]);
+    expect(store.revision(baseScope)).toBe(1);
+  });
+
   it("sets canEdit false and rejects remaining pending on forbidden", async () => {
     const document = documentFixture();
     const content = encodeCanvasReplicaDocument(document);

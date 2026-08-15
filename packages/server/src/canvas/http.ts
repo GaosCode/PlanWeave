@@ -1,7 +1,8 @@
 import { CANVAS_COMMAND_PROTOCOL_VERSION } from "@planweave-ai/collaboration-protocol/core/limits";
 import {
   canvasCommandOutcomeSchema,
-  canvasReconnectResponseSchema
+  canvasReconnectResponseSchema,
+  type CanvasCommandOutcome
 } from "@planweave-ai/collaboration-protocol/canvas/commands";
 import { canvasRuntimeStatusProjectionSchema } from "@planweave-ai/collaboration-protocol/canvas/status";
 import { opaqueIdentifierSchema } from "@planweave-ai/agent-host-protocol";
@@ -39,6 +40,11 @@ export type CanvasCommandHttpOptions = {
   transportAdmission: TransportAdmissionPolicy;
   clock?: () => Date;
 };
+
+export function canvasCommandOutcomeHttpStatus(outcome: CanvasCommandOutcome): 200 | 409 | 500 {
+  if (outcome.type === "canvas.command.accepted") return 200;
+  return outcome.code === "server_error" ? 500 : 409;
+}
 
 function decodeIdentifier(value: string): string | undefined {
   try {
@@ -244,7 +250,7 @@ export async function handleCanvasCommandHttpRequest(
             }
           : body;
       const outcome = await options.service.submit(context, submit);
-      const status = outcome.type === "canvas.command.accepted" ? 200 : 409;
+      const status = canvasCommandOutcomeHttpStatus(outcome);
       respond(response, status, canvasCommandOutcomeSchema.parse(outcome));
       return true;
     }

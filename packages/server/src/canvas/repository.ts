@@ -1,8 +1,7 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { CANVAS_COMMAND_PROTOCOL_VERSION } from "@planweave-ai/collaboration-protocol/core/limits";
 import {
   canvasCommandAcceptedSchema,
-  canvasCommandOutcomeSchema,
   canvasCommandRejectedSchema,
   canvasJournalEntrySchema,
   canvasSnapshotContentSchema,
@@ -21,6 +20,10 @@ import {
   CANVAS_COMMAND_JOURNAL_RETAINED_DEFAULT,
   CANVAS_COMMAND_SNAPSHOT_RETAINED_DEFAULT
 } from "./limits.js";
+import { CanvasOperationRetention } from "./operationRetention.js";
+import { parseCanvasPendingRow } from "./operationReceipt.js";
+
+export { digestCanvasIntent } from "./operationRetention.js";
 
 export type CanvasScopeKey = {
   workspaceId: string;
@@ -37,11 +40,8 @@ export type CanvasHead = {
 export type CanvasOperationRecord = {
   operationId: string;
   intentDigest: string;
-  intent: CanvasCommandIntent;
   outcome: CanvasCommandOutcome;
-  accepted: boolean;
-  revision: number | null;
-  journalEntryId: string | null;
+  terminalSequence: number;
   createdAt: string;
 };
 
@@ -53,31 +53,20 @@ export type LegacyCanvasBaselineRebase = {
   replacementContentDigest: string | null;
 };
 
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  return `{${Object.entries(value as Record<string, unknown>)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`)
-    .join(",")}}`;
-}
-
-export function digestCanvasIntent(intent: CanvasCommandIntent): string {
-  return createHash("sha256").update(stableStringify(intent)).digest("hex");
-}
-
 const EMPTY_DIGEST = "0".repeat(64);
 
 export type CanvasCommandRepositoryOptions = {
   clock?: () => Date;
   maxJournalEntries?: number;
   maxSnapshots?: number;
+  operationRetention?: CanvasOperationRetention;
 };
 
 export class CanvasCommandRepository {
   private readonly clock: () => Date;
   private readonly maxJournalEntries: number;
   private readonly maxSnapshots: number;
+  readonly operationRetention: CanvasOperationRetention;
 
   constructor(
     private readonly database: SqliteDatabase,
@@ -86,6 +75,8 @@ export class CanvasCommandRepository {
     this.clock = options.clock ?? (() => new Date());
     this.maxJournalEntries = options.maxJournalEntries ?? CANVAS_COMMAND_JOURNAL_RETAINED_DEFAULT;
     this.maxSnapshots = options.maxSnapshots ?? CANVAS_COMMAND_SNAPSHOT_RETAINED_DEFAULT;
+    this.operationRetention =
+      options.operationRetention ?? new CanvasOperationRetention(database, this.clock);
     if (!Number.isSafeInteger(this.maxJournalEntries) || this.maxJournalEntries < 1) {
       throw new Error("canvas_journal_retention_invalid");
     }
@@ -114,28 +105,14 @@ export class CanvasCommandRepository {
   }
 
   getOperation(scope: CanvasScopeKey, operationId: string): CanvasOperationRecord | undefined {
-    const row = this.database
-      .prepare(
-        `SELECT operation_id,intent_digest,intent_json,outcome_json,accepted,revision,journal_entry_id,created_at
-         FROM canvas_command_operations
-         WHERE workspace_id=? AND project_id=? AND canvas_id=? AND operation_id=?`
-      )
-      .get(scope.workspaceId, scope.projectId, scope.canvasId, operationId) as
-      | Record<string, unknown>
-      | undefined;
-    if (!row) return undefined;
+    const receipt = this.operationRetention.getReceipt(scope, operationId);
+    if (!receipt) return undefined;
     return {
-      operationId: String(row.operation_id),
-      intentDigest: String(row.intent_digest),
-      intent: JSON.parse(String(row.intent_json)) as CanvasCommandIntent,
-      outcome: canvasCommandOutcomeSchema.parse(JSON.parse(String(row.outcome_json))),
-      accepted: Number(row.accepted) === 1,
-      revision: row.revision === null || row.revision === undefined ? null : Number(row.revision),
-      journalEntryId:
-        row.journal_entry_id === null || row.journal_entry_id === undefined
-          ? null
-          : String(row.journal_entry_id),
-      createdAt: String(row.created_at)
+      operationId: receipt.operationId,
+      intentDigest: receipt.intentDigest,
+      outcome: receipt.outcome,
+      terminalSequence: receipt.terminalSequence,
+      createdAt: receipt.createdAt
     };
   }
 
@@ -231,15 +208,44 @@ export class CanvasCommandRepository {
     intentDigest: string;
     actor: ActorRef;
   }): void {
+    this.operationRetention.assertScopeWritable(input.scope);
     const at = this.clock().toISOString();
+    const intentJson = JSON.stringify(input.intent);
+    const existingRow = this.database
+      .prepare(
+        `SELECT operation_id,expected_revision,intent_json,intent_digest,actor_kind,actor_id,
+                actor_display_name,reserved_at,status
+           FROM canvas_command_pending_scopes
+          WHERE workspace_id=? AND project_id=? AND canvas_id=?`
+      )
+      .get(input.scope.workspaceId, input.scope.projectId, input.scope.canvasId);
+    if (existingRow) {
+      const existing = this.pendingFromRow(input.scope, existingRow);
+      if (
+        existing.operationId !== input.operationId ||
+        existing.expectedRevision !== input.expectedRevision ||
+        JSON.stringify(existing.intent) !== intentJson ||
+        existing.intentDigest !== input.intentDigest ||
+        existing.actor.kind !== input.actor.kind ||
+        existing.actor.id !== input.actor.id ||
+        (existing.actor.displayName ?? null) !== (input.actor.displayName ?? null)
+      ) {
+        this.operationRetention.corruption(input.scope, "canvas_command_pending_scope_conflict");
+      }
+      this.database
+        .prepare(
+          `UPDATE canvas_command_pending_scopes SET status='applying',reserved_at=?
+            WHERE workspace_id=? AND project_id=? AND canvas_id=?`
+        )
+        .run(at, input.scope.workspaceId, input.scope.projectId, input.scope.canvasId);
+      return;
+    }
     this.database
       .prepare(
-        `INSERT INTO canvas_command_pending(
+        `INSERT INTO canvas_command_pending_scopes(
           workspace_id,project_id,canvas_id,operation_id,expected_revision,
           intent_json,intent_digest,actor_kind,actor_id,actor_display_name,reserved_at,status
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?, 'applying')
-        ON CONFLICT(workspace_id,project_id,canvas_id,operation_id) DO UPDATE SET
-          status='applying', reserved_at=excluded.reserved_at`
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?, 'applying')`
       )
       .run(
         input.scope.workspaceId,
@@ -247,7 +253,7 @@ export class CanvasCommandRepository {
         input.scope.canvasId,
         input.operationId,
         input.expectedRevision,
-        JSON.stringify(input.intent),
+        intentJson,
         input.intentDigest,
         input.actor.kind,
         input.actor.id,
@@ -259,13 +265,13 @@ export class CanvasCommandRepository {
   clearPending(scope: CanvasScopeKey, operationId: string): void {
     this.database
       .prepare(
-        `DELETE FROM canvas_command_pending
+        `DELETE FROM canvas_command_pending_scopes
          WHERE workspace_id=? AND project_id=? AND canvas_id=? AND operation_id=?`
       )
       .run(scope.workspaceId, scope.projectId, scope.canvasId, operationId);
   }
 
-  listNeedsRecovery(): Array<{
+  listNeedsRecovery(limit = 100): Array<{
     scope: CanvasScopeKey;
     operationId: string;
     expectedRevision: number;
@@ -273,49 +279,59 @@ export class CanvasCommandRepository {
     intentDigest: string;
     actor: ActorRef;
   }> {
+    if (!Number.isSafeInteger(limit) || limit < 0 || limit > 100) {
+      throw new Error("canvas_command_recovery_limit_invalid");
+    }
+    if (limit === 0) return [];
     const rows = this.database
       .prepare(
-        `SELECT workspace_id,project_id,canvas_id,operation_id,expected_revision,
-                intent_json,intent_digest,actor_kind,actor_id,actor_display_name
-         FROM canvas_command_pending WHERE status IN ('applying','needs_recovery')`
+        `SELECT pending.workspace_id,pending.project_id,pending.canvas_id,pending.operation_id,
+                pending.expected_revision,pending.intent_json,pending.intent_digest,
+                pending.actor_kind,pending.actor_id,pending.actor_display_name,
+                pending.reserved_at,pending.status
+         FROM canvas_command_pending_scopes AS pending
+         LEFT JOIN canvas_command_operation_retention_scopes AS retention
+           ON retention.workspace_id=pending.workspace_id
+          AND retention.project_id=pending.project_id
+          AND retention.canvas_id=pending.canvas_id
+         WHERE retention.status IS NULL OR retention.status!='repair_required'
+         ORDER BY pending.workspace_id,pending.project_id,pending.canvas_id
+         LIMIT ?`
       )
-      .all() as Array<Record<string, unknown>>;
-    return rows.map((row) => {
-      const kindRaw = String(row.actor_kind);
-      const kind =
-        kindRaw === "local_admin" || kindRaw === "system" || kindRaw === "human"
-          ? kindRaw
-          : "human";
-      const actor: ActorRef = {
-        kind,
-        id: String(row.actor_id),
-        ...(row.actor_display_name != null ? { displayName: String(row.actor_display_name) } : {})
-      };
-      return {
-        scope: {
+      .all(limit) as Array<Record<string, unknown>>;
+    return rows.map((row) =>
+      this.pendingFromRow(
+        {
           workspaceId: String(row.workspace_id),
           projectId: String(row.project_id),
           canvasId: String(row.canvas_id)
         },
-        operationId: String(row.operation_id),
-        expectedRevision: Number(row.expected_revision),
-        intent: JSON.parse(String(row.intent_json)) as CanvasCommandIntent,
-        intentDigest: String(row.intent_digest),
-        actor
-      };
-    });
+        row
+      )
+    );
+  }
+
+  private pendingFromRow(scope: CanvasScopeKey, row: Record<string, unknown>) {
+    try {
+      return parseCanvasPendingRow(scope, row);
+    } catch (cause) {
+      this.operationRetention.corruption(scope, "canvas_command_pending_corrupt", cause);
+    }
   }
 
   hasPendingRecovery(scope: CanvasScopeKey): boolean {
     const row = this.database
       .prepare(
-        `SELECT 1 AS present FROM canvas_command_pending
+        `SELECT operation_id,expected_revision,intent_json,intent_digest,actor_kind,actor_id,
+                actor_display_name,reserved_at,status
+           FROM canvas_command_pending_scopes
          WHERE workspace_id=? AND project_id=? AND canvas_id=?
-           AND status IN ('applying','needs_recovery')
          LIMIT 1`
       )
-      .get(scope.workspaceId, scope.projectId, scope.canvasId) as { present: number } | undefined;
-    return row !== undefined;
+      .get(scope.workspaceId, scope.projectId, scope.canvasId);
+    if (!row) return false;
+    this.pendingFromRow(scope, row);
+    return true;
   }
 
   legacyBaselineRebase(scope: CanvasScopeKey): LegacyCanvasBaselineRebase | null {
@@ -395,19 +411,24 @@ export class CanvasCommandRepository {
       };
       archiveTable("canvas_command_journal", "journal", "revision");
       archiveTable("canvas_command_operations", "operation", "operation_id");
+      archiveTable("canvas_command_operation_receipts", "operation", "operation_id");
       archiveTable("canvas_command_snapshots", "snapshot", "revision");
       archiveTable("canvas_command_pending", "pending", "operation_id");
+      archiveTable("canvas_command_pending_scopes", "pending", "operation_id");
 
       for (const table of [
         "canvas_command_journal",
         "canvas_command_operations",
+        "canvas_command_operation_receipts",
         "canvas_command_snapshots",
-        "canvas_command_pending"
+        "canvas_command_pending",
+        "canvas_command_pending_scopes"
       ]) {
         this.database
           .prepare(`DELETE FROM ${table} WHERE workspace_id=? AND project_id=? AND canvas_id=?`)
           .run(scope.workspaceId, scope.projectId, scope.canvasId);
       }
+      this.operationRetention.recordBaselineResetInCallerTransaction(scope);
       this.database
         .prepare(
           `UPDATE canvas_command_heads
@@ -459,7 +480,7 @@ export class CanvasCommandRepository {
   markPendingNeedsRecovery(scope: CanvasScopeKey, operationId: string): void {
     this.database
       .prepare(
-        `UPDATE canvas_command_pending SET status='needs_recovery'
+        `UPDATE canvas_command_pending_scopes SET status='needs_recovery'
          WHERE workspace_id=? AND project_id=? AND canvas_id=? AND operation_id=?`
       )
       .run(scope.workspaceId, scope.projectId, scope.canvasId, operationId);
@@ -582,26 +603,13 @@ export class CanvasCommandRepository {
       );
     if (headWrite.changes !== 1) throw new Error("canvas_command_head_cas_conflict");
 
-    this.database
-      .prepare(
-        `INSERT INTO canvas_command_operations(
-            workspace_id,project_id,canvas_id,operation_id,intent_digest,intent_json,outcome_json,
-            accepted,revision,journal_entry_id,created_at
-          ) VALUES(?,?,?,?,?,?,?,?,?,?,?)`
-      )
-      .run(
-        input.scope.workspaceId,
-        input.scope.projectId,
-        input.scope.canvasId,
-        input.operationId,
-        input.intentDigest,
-        JSON.stringify(input.intent),
-        JSON.stringify(accepted),
-        1,
-        input.revision,
-        entryId,
-        acceptedAt
-      );
+    this.operationRetention.recordTerminalInCallerTransaction({
+      scope: input.scope,
+      operationId: input.operationId,
+      intentDigest: input.intentDigest,
+      outcome: accepted,
+      createdAt: acceptedAt
+    });
 
     // Snapshots retain only metadata. The canonical baseline is always addressed by
     // the immutable content-version id derived from content_digest.
@@ -651,27 +659,15 @@ export class CanvasCommandRepository {
     const at = this.clock().toISOString();
     // Only cache terminal non-CAS rejections for idempotency when intent matches.
     // stale_revision is not stored as a permanent outcome (revision moves).
-    if (input.rejected.code === "stale_revision") return;
+    if (input.rejected.code !== "invalid_command") return;
     inWriteTransaction(this.database, () => {
-      this.database
-        .prepare(
-          `INSERT INTO canvas_command_operations(
-            workspace_id,project_id,canvas_id,operation_id,intent_digest,intent_json,outcome_json,
-            accepted,revision,journal_entry_id,created_at
-          ) VALUES(?,?,?,?,?,?,?,?,NULL,NULL,?)
-          ON CONFLICT(workspace_id,project_id,canvas_id,operation_id) DO NOTHING`
-        )
-        .run(
-          input.scope.workspaceId,
-          input.scope.projectId,
-          input.scope.canvasId,
-          input.operationId,
-          input.intentDigest,
-          JSON.stringify(input.intent),
-          JSON.stringify(canvasCommandRejectedSchema.parse(input.rejected)),
-          0,
-          at
-        );
+      this.operationRetention.recordTerminalInCallerTransaction({
+        scope: input.scope,
+        operationId: input.operationId,
+        intentDigest: input.intentDigest,
+        outcome: canvasCommandRejectedSchema.parse(input.rejected),
+        createdAt: at
+      });
       this.clearPending(input.scope, input.operationId);
     });
   }

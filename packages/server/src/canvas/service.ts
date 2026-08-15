@@ -43,6 +43,10 @@ import {
   rejectedOutcome,
   type CanvasScopeKey
 } from "./repository.js";
+import {
+  CanvasOperationRetentionCorruptionError,
+  CanvasOperationRetentionUnavailableError
+} from "./operationRetention.js";
 import type { CanvasRuntimeMutationPort } from "./runtimePort.js";
 import type { ContentAuthorityStore } from "./contentAuthorityStore.js";
 import type { AuthoritativeCanvasCommitPort } from "./authoritativeCanvasCommitPort.js";
@@ -329,7 +333,38 @@ export class CanvasCommandService {
     }
 
     const scope = scopeKey(auth.scope);
-    return this.serialize(scope, () => this.submitAuthorized(actor, submit, auth));
+    return this.serialize(scope, async () => {
+      try {
+        return await this.submitAuthorized(actor, submit, auth);
+      } catch (error) {
+        if (error instanceof CanvasOperationRetentionCorruptionError) {
+          this.options.repository.operationRetention.markRepairRequired(
+            error.scope,
+            error.failureCode
+          );
+          return rejectedOutcome({
+            projectId: submit.projectId,
+            canvasId: submit.canvasId,
+            operationId: submit.operationId,
+            code: "server_error",
+            detail: "canvas_operation_retention_repair_required"
+          });
+        }
+        if (error instanceof CanvasOperationRetentionUnavailableError) {
+          return rejectedOutcome({
+            projectId: submit.projectId,
+            canvasId: submit.canvasId,
+            operationId: submit.operationId,
+            code: "server_error",
+            detail:
+              error.reason === "repair_required"
+                ? "canvas_operation_retention_repair_required"
+                : "canvas_operation_retention_reconciling"
+          });
+        }
+        throw error;
+      }
+    });
   }
 
   private async submitAuthorized(
@@ -390,16 +425,6 @@ export class CanvasCommandService {
       }
       return existing.outcome;
     }
-    if (this.options.repository.isLegacyOperationArchived(scope, submit.operationId)) {
-      return rejectedOutcome({
-        projectId: submit.projectId,
-        canvasId: submit.canvasId,
-        operationId: submit.operationId,
-        code: "operation_conflict",
-        detail: "operation_archived_by_baseline_rebase"
-      });
-    }
-
     if (this.options.repository.hasPendingRecovery(scope)) {
       return rejectedOutcome({
         projectId: submit.projectId,
@@ -492,7 +517,6 @@ export class CanvasCommandService {
         code: "invalid_command",
         detail: error instanceof Error ? error.message.slice(0, 200) : "intent_apply_failed"
       });
-      this.options.repository.clearPending(scope, submit.operationId);
       this.options.repository.storeRejected({
         scope,
         operationId: submit.operationId,
@@ -554,6 +578,12 @@ export class CanvasCommandService {
         expectedContentHeadRevision: authority.expectedContentHeadRevision
       });
     } catch (error) {
+      if (
+        error instanceof CanvasOperationRetentionUnavailableError ||
+        error instanceof CanvasOperationRetentionCorruptionError
+      ) {
+        throw error;
+      }
       this.options.repository.clearPending(scope, submit.operationId);
       const currentHead = this.options.repository.head(scope);
       if (currentHead.revision !== submit.expectedRevision) {
@@ -855,14 +885,48 @@ export class CanvasCommandService {
   }
 
   /** Failed authority transactions cannot have changed a local package, so retries are safe. */
-  async recoverInterrupted(): Promise<{ cleared: number; recovered: number; deferred: number }> {
-    const pending = this.options.repository.listNeedsRecovery();
-    for (const item of pending) {
-      await this.serialize(item.scope, async () => {
-        this.options.repository.clearPending(item.scope, item.operationId);
-      });
+  async recoverInterrupted(
+    limit = 100
+  ): Promise<{ cleared: number; recovered: number; deferred: number }> {
+    let pending: ReturnType<CanvasCommandRepository["listNeedsRecovery"]>;
+    try {
+      pending = this.options.repository.listNeedsRecovery(limit);
+    } catch (error) {
+      if (error instanceof CanvasOperationRetentionCorruptionError) {
+        this.options.repository.operationRetention.markRepairRequired(
+          error.scope,
+          error.failureCode
+        );
+        return { cleared: 0, recovered: 0, deferred: 1 };
+      }
+      throw error;
     }
-    return { cleared: pending.length, recovered: 0, deferred: 0 };
+    let cleared = 0;
+    let deferred = 0;
+    for (const item of pending) {
+      try {
+        await this.serialize(item.scope, async () => {
+          this.options.repository.operationRetention.assertScopeWritable(item.scope);
+          this.options.repository.clearPending(item.scope, item.operationId);
+        });
+        cleared += 1;
+      } catch (error) {
+        if (error instanceof CanvasOperationRetentionCorruptionError) {
+          this.options.repository.operationRetention.markRepairRequired(
+            error.scope,
+            error.failureCode
+          );
+          deferred += 1;
+          continue;
+        }
+        if (error instanceof CanvasOperationRetentionUnavailableError) {
+          deferred += 1;
+          continue;
+        }
+        throw error;
+      }
+    }
+    return { cleared, recovered: 0, deferred };
   }
 
   /** Test/diagnostic head read; not a presence cursor. */

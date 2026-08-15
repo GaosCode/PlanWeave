@@ -3,7 +3,8 @@ import {
   CANVAS_COMMAND_MAX_BULK_UPDATES,
   CANVAS_COMMAND_MAX_LAYOUT_NODES,
   CANVAS_COMMAND_MAX_PROMPT_MARKDOWN_CHARS,
-  CANVAS_COMMAND_PROTOCOL_VERSION
+  CANVAS_COMMAND_PROTOCOL_VERSION,
+  CANVAS_COMMAND_TERMINAL_RECEIPT_WINDOW
 } from "../limits.js";
 import {
   canvasCommandClientMessageSchema,
@@ -50,6 +51,10 @@ const baseSubmit = {
 };
 
 describe("OSS-004 canvas command contracts", () => {
+  it("publishes the exact terminal receipt window", () => {
+    expect(CANVAS_COMMAND_TERMINAL_RECEIPT_WINDOW).toBe(10_000);
+  });
+
   it("accepts client submit intents without actor, auth, path, or revision override", () => {
     const submit = canvasCommandSubmitSchema.parse(baseSubmit);
     expect(submit.operationId).toBe("op-1");

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { canvasCommandMigrationSql } from "../migrations/canvas.js";
+import { canvasOperationRetentionMigrationSql } from "../migrations/canvasOperationRetention.js";
 import { migration17 } from "../migrations/collaborationLegacy.js";
 import { migrationModules } from "../migrations/registry.js";
 import {
@@ -31,6 +32,9 @@ async function openDatabaseAtV26(): Promise<SqliteDatabase> {
     "setup_code_revocations",
     "setup_code_grants",
     "canvas_command_pending",
+    "canvas_command_pending_scopes",
+    "canvas_command_operation_retention_scopes",
+    "canvas_command_operation_receipts",
     "canvas_command_snapshots",
     "canvas_command_journal",
     "canvas_command_operations",
@@ -154,7 +158,7 @@ describe("collaboration migration reconciliation", () => {
       { name: "identity", versions: [27, 34] },
       { name: "acl-registry", versions: [28] },
       { name: "assignment-authority", versions: [29] },
-      { name: "canvas-command", versions: [30, 41, 42] },
+      { name: "canvas-command", versions: [30, 41, 42, 50] },
       { name: "content-versions", versions: [33] },
       { name: "setup-code", versions: [31, 32] },
       { name: "comment-workspace-scope", versions: [35] },
@@ -171,7 +175,7 @@ describe("collaboration migration reconciliation", () => {
       { name: "host-installation-identity", versions: [48] },
       { name: "remote-operation-retention", versions: [49] }
     ]);
-    expect(latestCentralSchemaVersion).toBe(49);
+    expect(latestCentralSchemaVersion).toBe(50);
   });
 
   it("maps a representative v26 project to one stable Workspace and package registry key", async () => {
@@ -331,6 +335,19 @@ describe("collaboration migration reconciliation", () => {
     }).toThrow("injected_canvas_migration_interruption");
     expect(tableExists(canvas, "canvas_command_journal")).toBe(false);
 
+    const retention = await openDatabase();
+    expect(() => {
+      retention.exec("BEGIN IMMEDIATE");
+      try {
+        retention.exec(canvasOperationRetentionMigrationSql);
+        throw new Error("injected_canvas_retention_migration_interruption");
+      } catch (error) {
+        retention.exec("ROLLBACK");
+        throw error;
+      }
+    }).toThrow("injected_canvas_retention_migration_interruption");
+    expect(tableExists(retention, "canvas_command_operation_receipts")).toBe(false);
+
     const setup = await openDatabase();
     expect(() => {
       setup.exec("BEGIN IMMEDIATE");
@@ -347,8 +364,10 @@ describe("collaboration migration reconciliation", () => {
     expect(tableExists(setup, "setup_code_host_enrollment_outcomes")).toBe(false);
 
     applyMigrations(canvas);
+    applyMigrations(retention);
     applyMigrations(setup);
     expect(tableExists(canvas, "canvas_command_journal")).toBe(true);
+    expect(tableExists(retention, "canvas_command_operation_receipts")).toBe(true);
     expect(tableExists(setup, "setup_code_grants")).toBe(true);
     expect(tableExists(setup, "setup_code_host_enrollment_outcomes")).toBe(true);
     expect(canvas.prepare("SELECT version FROM schema_migrations WHERE version=30").get()).toEqual({

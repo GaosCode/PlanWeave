@@ -11,6 +11,7 @@ import {
   attachCanvasLiveSyncWebSocketServer,
   CanvasCommandRepository,
   CanvasCommandService,
+  CanvasOperationRetentionMaintenance,
   ContentVersionRepository,
   ContentVersionService,
   createDefaultCanvasRuntimePort,
@@ -58,6 +59,7 @@ export async function createCanvasCollaborationComposition(
     clock: options.clock
   });
   let liveSyncWebSockets: ReturnType<typeof attachCanvasLiveSyncWebSocketServer> | undefined;
+  let operationRetentionMaintenance: CanvasOperationRetentionMaintenance | undefined;
   try {
     const commandRepository = new CanvasCommandRepository(options.database, {
       clock: options.clock
@@ -135,7 +137,11 @@ export async function createCanvasCollaborationComposition(
       onAcceptedEntryUnavailable: (input) => attachedLiveSyncWebSockets.invalidateScope(input),
       clock: options.clock
     });
-    await commandService.recoverInterrupted();
+    operationRetentionMaintenance = new CanvasOperationRetentionMaintenance(
+      commandRepository.operationRetention,
+      (remainingBudget) => commandService.recoverInterrupted(remainingBudget)
+    );
+    await operationRetentionMaintenance.start();
     const commandWebSockets = attachCanvasCommandWebSocketServer({
       upgradeRouter: options.upgradeRouter,
       service: commandService,
@@ -154,10 +160,16 @@ export async function createCanvasCollaborationComposition(
       commandWebSockets,
       contentVersions,
       contentVersionService,
-      commandService
+      commandService,
+      operationRetentionMaintenance
     };
   } catch (error) {
     const cleanupErrors: unknown[] = [];
+    try {
+      await operationRetentionMaintenance?.close();
+    } catch (cleanupError) {
+      cleanupErrors.push(cleanupError);
+    }
     for (const transport of [liveSyncWebSockets, presenceWebSockets]) {
       try {
         await transport?.close();

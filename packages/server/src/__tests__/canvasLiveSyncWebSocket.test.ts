@@ -3,9 +3,11 @@ import { loopbackHttpTransportAdmission } from "./support/transportAdmission.js"
 import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
+import { canvasCommandServerMessageSchema } from "@planweave-ai/collaboration-protocol/canvas/commands";
 import { CanvasCommandRepository } from "../canvas/repository.js";
 import { ContentVersionRepository } from "../canvas/contentVersionRepository.js";
 import { attachCanvasLiveSyncWebSocketServer } from "../canvas/canvasLiveSyncWebSocket.js";
+import { attachCanvasCommandWebSocketServer } from "../canvas/ws.js";
 import { CanvasCommandService } from "../canvas/service.js";
 import { SqliteAuthoritativeCanvasCommitStore } from "../canvas/sqliteAuthoritativeCanvasCommitStore.js";
 import { HumanIdentityRepository } from "../identity/repository.js";
@@ -160,6 +162,13 @@ async function setup() {
   const httpServer = createServer();
   servers.push(httpServer);
   const router = new WebSocketUpgradeRouter(httpServer);
+  const projectAuthority = {
+    hasScope: (scope: { workspaceId: string; projectId: string; canvasId: string }) =>
+      scope.workspaceId === workspaceId &&
+      scope.projectId === "project-live" &&
+      scope.canvasId === "default",
+    hasProject: (projectId: string) => projectId === "project-live"
+  };
   const live = attachCanvasLiveSyncWebSocketServer({
     upgradeRouter: router,
     repository,
@@ -167,13 +176,7 @@ async function setup() {
     identityRepository: identity,
     workspaceIdentity,
     projectAccess: access,
-    projectAuthority: {
-      hasScope: (scope) =>
-        scope.workspaceId === workspaceId &&
-        scope.projectId === "project-live" &&
-        scope.canvasId === "default",
-      hasProject: (projectId) => projectId === "project-live"
-    },
+    projectAuthority,
     maxPayloadBytes: 64 * 1024,
     shutdownTimeoutMs: 1_000,
     transportAdmission: loopbackHttpTransportAdmission
@@ -184,6 +187,9 @@ async function setup() {
   if (!address || typeof address === "string") throw new Error("expected TCP listener");
   return {
     database,
+    identity,
+    router,
+    projectAuthority,
     live,
     access,
     workspaceIdentity,
@@ -193,7 +199,8 @@ async function setup() {
     ownerToken: owner.deviceToken,
     viewerToken: viewer.deviceToken,
     viewerGrantId: viewerGrant.grantId,
-    url: `ws://127.0.0.1:${address.port}/api/v1/projects/project-live/canvases/default/human/live`
+    url: `ws://127.0.0.1:${address.port}/api/v1/projects/project-live/canvases/default/human/live`,
+    commandUrl: `ws://127.0.0.1:${address.port}/api/v1/projects/project-live/canvases/default/human/commands`
   };
 }
 
@@ -476,6 +483,103 @@ describe("canvas live sync WebSocket", () => {
       headRevision: 1
     });
     await expect(closed).resolves.toBe(4004);
+  });
+
+  it("sends a schema-valid repair-required outcome on the command WebSocket", async () => {
+    const fixture = await setup();
+    const service = new CanvasCommandService({
+      repository: fixture.repository,
+      access: fixture.access,
+      workspaceIdentity: fixture.workspaceIdentity,
+      runtime: {
+        async apply(input) {
+          const contentDigest = "c".repeat(64);
+          return {
+            ok: true as const,
+            contentDigest,
+            digestManifest: {
+              manifest: { digestSha256: contentDigest, sizeBytes: 1 },
+              prompts: [],
+              totalBytes: 1
+            },
+            packageDir: String(input.projectRoot),
+            sizeBytes: 1
+          };
+        },
+        async readDigest(input) {
+          const contentDigest = "b".repeat(64);
+          return {
+            ok: true as const,
+            contentDigest,
+            digestManifest: {
+              manifest: { digestSha256: contentDigest, sizeBytes: 1 },
+              prompts: [],
+              totalBytes: 1
+            },
+            packageDir: String(input.projectRoot),
+            sizeBytes: 1
+          };
+        }
+      },
+      contentVersions: fixture.contentVersions,
+      authoritativeCommits: new SqliteAuthoritativeCanvasCommitStore(
+        fixture.database,
+        fixture.contentVersions,
+        fixture.repository
+      )
+    });
+    const commands = attachCanvasCommandWebSocketServer({
+      upgradeRouter: fixture.router,
+      service,
+      repository: fixture.identity,
+      workspaceIdentity: fixture.workspaceIdentity,
+      projectAuthority: fixture.projectAuthority,
+      maxPayloadBytes: 64 * 1024,
+      shutdownTimeoutMs: 1_000,
+      transportAdmission: loopbackHttpTransportAdmission
+    });
+    liveServers.push(commands);
+    fixture.database.exec(`
+      CREATE TRIGGER corrupt_canvas_receipt_over_websocket
+      BEFORE INSERT ON canvas_command_operation_receipts
+      BEGIN
+        UPDATE canvas_command_operation_retention_scopes
+           SET status='repair_required',failure_code='injected_websocket_corruption';
+      END
+    `);
+    const socket = await connect(fixture.commandUrl, fixture.ownerToken);
+    const received = nextMessage(socket);
+    socket.send(
+      JSON.stringify({
+        type: "canvas.command.submit",
+        protocolVersion: 1,
+        schemaVersion: "canvas-command/v1",
+        projectId: "project-live",
+        canvasId: "default",
+        operationId: "op-websocket-corruption",
+        expectedRevision: 0,
+        intent: {
+          kind: "update_task_prompt",
+          taskId: "T-001",
+          promptMarkdown: "# corrupt receipt"
+        }
+      })
+    );
+
+    expect(canvasCommandServerMessageSchema.parse(await received)).toMatchObject({
+      type: "canvas.command.rejected",
+      operationId: "op-websocket-corruption",
+      code: "server_error",
+      detail: "canvas_operation_retention_repair_required"
+    });
+    expect(
+      fixture.database.prepare("SELECT COUNT(*) AS count FROM canvas_command_pending_scopes").get()
+        ?.count
+    ).toBe(1);
+    expect(
+      fixture.database.prepare("SELECT status FROM canvas_command_operation_retention_scopes").get()
+        ?.status
+    ).toBe("repair_required");
   });
 
   it("invalidates subscribers from accepted head data without reading the journal repository", async () => {

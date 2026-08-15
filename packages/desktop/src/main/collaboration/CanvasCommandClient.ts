@@ -105,7 +105,7 @@ export class CanvasCommandClient {
         body,
         signal,
         // Accepted (200) and CAS/policy rejections (409) both carry outcome contracts.
-        acceptedStatus: [409, 401, 403, 404, 429]
+        acceptedStatus: [409, 401, 403, 404, 429, 500]
       }
     );
     if (outcome.type === "canvas.command.accepted") {

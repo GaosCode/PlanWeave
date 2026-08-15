@@ -239,6 +239,7 @@ export async function createDistributedServerComposition(
         beginDrain();
         closePromise ??= (async () => {
           const errors: unknown[] = [];
+          let transportDrainRequiresProcessExit = false;
           try {
             await remoteCoordinationMaintenance?.close();
           } catch (error) {
@@ -253,11 +254,19 @@ export async function createDistributedServerComposition(
             await drainTransports();
           } catch (error) {
             if (containsCleanupError(error, "server_http_inflight_drain_timeout")) {
-              throw new AggregateError([error], "server_shutdown_requires_process_exit", {
-                cause: error
-              });
+              transportDrainRequiresProcessExit = true;
             }
             errors.push(error);
+          }
+          try {
+            await attachedTransport.canvasOperationRetentionMaintenance.close();
+          } catch (error) {
+            errors.push(error);
+          }
+          if (transportDrainRequiresProcessExit) {
+            throw new AggregateError(errors, "server_shutdown_requires_process_exit", {
+              cause: errors[0]
+            });
           }
           try {
             closeCompositionStorage({
@@ -294,6 +303,11 @@ export async function createDistributedServerComposition(
         inflightRequests,
         config.limits.shutdownTimeoutMs
       );
+    } catch (cleanupError) {
+      cleanupErrors.push(cleanupError);
+    }
+    try {
+      await transportHandles.canvasOperationRetentionMaintenance?.close();
     } catch (cleanupError) {
       cleanupErrors.push(cleanupError);
     }

@@ -113,6 +113,8 @@ export const CANVAS_COMMAND_MAX_REASON_LENGTH = 512 as const;
 export const CANVAS_COMMAND_MAX_JOURNAL_DELTA_ENTRIES = 256 as const;
 /** Contract-level retention bound for Server journal policy documentation/tests. */
 export const CANVAS_COMMAND_MAX_JOURNAL_RETAINED = 10_000 as const;
+/** Exact terminal-operation idempotency receipts retained per Canvas scope. */
+export const CANVAS_COMMAND_TERMINAL_RECEIPT_WINDOW = 10_000 as const;
 /** Coordinate bounds for layout nodes on the shared canvas (same scale as presence). */
 export const CANVAS_COMMAND_LAYOUT_COORDINATE_ABS_MAX = CANVAS_PRESENCE_COORDINATE_ABS_MAX;
 

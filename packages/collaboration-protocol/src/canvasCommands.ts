@@ -60,7 +60,10 @@ export const canvasJournalSchemaVersionSchema = z.literal(canvasJournalSchemaVer
 export const canvasSnapshotSchemaVersion = "canvas-snapshot/v2" as const;
 export const canvasSnapshotSchemaVersionSchema = z.literal(canvasSnapshotSchemaVersion);
 
-/** Client-generated idempotency key; Server returns the same outcome for identical retries. */
+/**
+ * Client-generated idempotency key. Exact replay is guaranteed only while the operation remains
+ * in the Server's per-scope terminal receipt window.
+ */
 export const canvasCommandOperationIdSchema = opaqueIdentifierSchema.brand(
   "CanvasCommandOperationId"
 );
@@ -751,8 +754,12 @@ export function parseCanvasJournalEntry(input: unknown): CanvasJournalEntry {
 
 /**
  * Idempotency decision surface for Server (documented in contracts; applied in B-002).
- * - identical operationId + intent → replay prior accepted outcome
+ * Within the bounded terminal receipt window:
+ * - identical operationId + intent → replay the prior terminal outcome
  * - same operationId + different intent → reject with operation_conflict
+ *
+ * Once an older receipt is evicted, that operationId is unseen and runs authorization, CAS, and
+ * content validation again; if still valid, the intent may be applied again.
  */
 export const canvasCommandIdempotencyDecisionSchema = z.discriminatedUnion("kind", [
   z

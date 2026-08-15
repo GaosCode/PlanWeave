@@ -7,6 +7,7 @@ import { assignmentAuthorityMigration } from "./assignment.js";
 import { canvasCommandMigration } from "./canvas.js";
 import { canvasBaselineMigration } from "./canvasBaseline.js";
 import { canvasSnapshotContentRefMigration } from "./canvasSnapshotContentRef.js";
+import { canvasOperationRetentionMigration } from "./canvasOperationRetention.js";
 import { contentVersionMigration } from "./contentVersions.js";
 import { setupCodeHostEnrollmentOutcomeMigration, setupCodeMigration } from "./setup.js";
 import { commentWorkspaceScopeMigration } from "./commentWorkspaceScope.js";
@@ -40,7 +41,12 @@ export const migrationModules: readonly MigrationModule[] = [
   { name: "assignment-authority", migrations: [assignmentAuthorityMigration] },
   {
     name: "canvas-command",
-    migrations: [canvasCommandMigration, canvasBaselineMigration, canvasSnapshotContentRefMigration]
+    migrations: [
+      canvasCommandMigration,
+      canvasBaselineMigration,
+      canvasSnapshotContentRefMigration,
+      canvasOperationRetentionMigration
+    ]
   },
   { name: "content-versions", migrations: [contentVersionMigration] },
   { name: "setup-code", migrations: [setupCodeMigration, setupCodeHostEnrollmentOutcomeMigration] },

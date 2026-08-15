@@ -158,7 +158,7 @@ describe("canvas command baseline migration", () => {
 
       applyMigrations(database);
 
-      expect(latestCentralSchemaVersion).toBe(49);
+      expect(latestCentralSchemaVersion).toBe(50);
       expect(
         database
           .prepare(
@@ -314,6 +314,14 @@ describe("canvas command baseline migration", () => {
            ) VALUES(?,?,?,?,?,'pending','legacy_nondeterministic_layout',?)`
         )
         .run(scope.workspaceId, scope.projectId, scope.canvasId, 1, oldDigest, at);
+      database
+        .prepare(
+          `INSERT INTO canvas_command_operation_retention_scopes(
+             workspace_id,project_id,canvas_id,high_water_sequence,retained_from_sequence,
+             status,failure_code,updated_at
+           ) VALUES(?,?,?,5,1,'reconciling',NULL,?)`
+        )
+        .run(scope.workspaceId, scope.projectId, scope.canvasId, at);
 
       const repository = new CanvasCommandRepository(database, {
         clock: () => new Date("2026-08-02T00:00:00.000Z")
@@ -349,6 +357,16 @@ describe("canvas command baseline migration", () => {
         database.prepare("SELECT COUNT(*) AS count FROM canvas_command_legacy_archive").get()?.count
       ).toBe(4);
       expect(repository.isLegacyOperationArchived(scope, entry.operationId)).toBe(true);
+      expect(repository.getOperation(scope, entry.operationId)).toBeUndefined();
+      expect(
+        database
+          .prepare(
+            `SELECT high_water_sequence,retained_from_sequence,status
+               FROM canvas_command_operation_retention_scopes
+              WHERE workspace_id=? AND project_id=? AND canvas_id=?`
+          )
+          .get(scope.workspaceId, scope.projectId, scope.canvasId)
+      ).toEqual({ high_water_sequence: 5, retained_from_sequence: 6, status: "ready" });
       expect(
         database
           .prepare(
@@ -607,8 +625,8 @@ describe("canvas command baseline migration", () => {
               }
             : {
                 type: "canvas.command.rejected",
-                code: "operation_conflict",
-                detail: "operation_archived_by_baseline_rebase"
+                code: "stale_revision",
+                conflict: { expectedRevision: 0, authoritativeRevision: 1 }
               }
         );
         expect(repository.legacyBaselineRebase(scope)).toMatchObject({

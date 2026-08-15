@@ -33,11 +33,19 @@ export {
   type CanvasScopeKey
 } from "./repository.js";
 export {
+  CanvasOperationRetention,
+  CanvasOperationRetentionCorruptionError,
+  CanvasOperationRetentionUnavailableError,
+  canonicalCanvasOperationOutcome
+} from "./operationRetention.js";
+export { CanvasOperationRetentionMaintenance } from "./operationRetentionMaintenance.js";
+export {
   createDefaultCanvasRuntimePort,
   type CanvasRuntimeMutationPort
 } from "./runtimePort.js";
 export { CanvasCommandService, type CanvasCommandServiceOptions } from "./service.js";
 export {
+  canvasCommandOutcomeHttpStatus,
   handleCanvasCommandHttpRequest,
   routeCanvasCommandHttp,
   type CanvasCommandHttpOptions

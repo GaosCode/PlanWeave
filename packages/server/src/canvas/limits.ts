@@ -12,6 +12,9 @@ export const CANVAS_COMMAND_JOURNAL_RETAINED_DEFAULT = Math.min(
 
 /** Keep a small number of historical snapshots per canvas for reconnect. */
 export const CANVAS_COMMAND_SNAPSHOT_RETAINED_DEFAULT = 16 as const;
+export const CANVAS_COMMAND_OPERATION_RECONCILE_BATCH_SIZE = 100 as const;
+export const CANVAS_COMMAND_OPERATION_RECEIPT_MAX_OUTCOME_BYTES = 4_096 as const;
+export const CANVAS_COMMAND_OPERATION_MAINTENANCE_INTERVAL_MS = 1_000 as const;
 
 /** Snapshot head after every accepted mutation in v1 (cheap metadata only). */
 export const CANVAS_COMMAND_SNAPSHOT_EVERY_REVISION = 1 as const;
