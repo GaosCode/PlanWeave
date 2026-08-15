@@ -146,8 +146,10 @@ export function HostAdministrationContent({
     error,
     handoff,
     hosts,
+    hostsHasMore,
     hostInventoryState,
     hostsLoading,
+    loadMoreHosts,
     loadState,
     localAgentHost,
     localAgentHostLoading,
@@ -228,8 +230,10 @@ export function HostAdministrationContent({
       <HostAvailabilityCard
         busy={busy}
         hosts={hosts}
+        hasMore={hostsHasMore}
         inventoryState={hostInventoryState}
         loading={hostsLoading}
+        onLoadMore={() => void loadMoreHosts()}
         onRefresh={() => void refreshHosts()}
         onRevoke={(host) => void handleRevoke(host)}
         onRenew={(host) => void renewHostCredential(host.id)}

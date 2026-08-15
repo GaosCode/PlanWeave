@@ -10,8 +10,10 @@ import type { HostInventoryState } from "../hooks/useHostAdministrationControlle
 type HostAvailabilityCardProps = {
   busy: boolean;
   hosts: OperatorHostView[];
+  hasMore: boolean;
   inventoryState: HostInventoryState;
   loading: boolean;
+  onLoadMore: () => void;
   onRefresh: () => void;
   onRevoke: (host: OperatorHostView) => void;
   onRenew: (host: OperatorHostView) => void;
@@ -60,8 +62,10 @@ function agentNames(host: OperatorHostView): string[] {
 export function HostAvailabilityCard({
   busy,
   hosts,
+  hasMore,
   inventoryState,
   loading,
+  onLoadMore,
   onRefresh,
   onRevoke,
   onRenew,
@@ -99,6 +103,25 @@ export function HostAvailabilityCard({
         </Button>
       </div>
       <div className="mt-5">
+        {inventoryState === "ready" && hasMore ? (
+          <div
+            className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3"
+            role="status"
+            data-testid="host-availability-partial"
+          >
+            <p className="text-sm text-text-strong">{t("hostAvailabilityPartial")}</p>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              data-testid="host-availability-load-more"
+              disabled={loading}
+              onClick={onLoadMore}
+            >
+              {t("hostAvailabilityLoadMore")}
+            </Button>
+          </div>
+        ) : null}
         {inventoryState === "loading" ? (
           <div className="py-6" data-testid="host-availability-loading">
             <p className="text-sm text-text-muted">{t("hostAvailabilityLoading")}</p>

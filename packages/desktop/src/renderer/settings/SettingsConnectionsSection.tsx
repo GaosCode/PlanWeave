@@ -144,9 +144,13 @@ function ConnectionsOverview({
       ? t("settingsConnectionsDevicesUnavailable")
       : controller.loadState === "loading" || controller.hostsLoading
         ? t("settingsConnectionsDevicesLoading")
-        : t("settingsConnectionsDevicesOnline")
-            .replace("{online}", String(onlineHosts))
-            .replace("{total}", String(activeHosts.length));
+        : controller.hostsHasMore
+          ? t("settingsConnectionsDevicesLoadedPartial")
+              .replace("{online}", String(onlineHosts))
+              .replace("{loaded}", String(activeHosts.length))
+          : t("settingsConnectionsDevicesOnline")
+              .replace("{online}", String(onlineHosts))
+              .replace("{total}", String(activeHosts.length));
 
   return (
     <div className="flex max-w-4xl flex-col gap-5" data-testid="settings-connections-overview">

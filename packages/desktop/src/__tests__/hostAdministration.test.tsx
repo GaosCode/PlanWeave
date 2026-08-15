@@ -1,11 +1,12 @@
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTranslator } from "../renderer/i18n";
 import { HostAdministrationSection } from "../renderer/settings/HostAdministrationSection";
+import { SettingsConnectionsSection } from "../renderer/settings/SettingsConnectionsSection";
 import { LocalAgentHostCard } from "../renderer/settings/LocalAgentHostCard";
 
 const bridgeMock = vi.hoisted(() => ({
@@ -93,6 +94,14 @@ const host = {
   credentialExpiresAt: "2030-01-02T00:00:00.000Z",
   credentialPolicy: { lifetimeDays: 180 as const, renewal: "automatic" as const }
 };
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((nextResolve) => {
+    resolve = nextResolve;
+  });
+  return { promise, resolve };
+}
 
 beforeEach(() => {
   bridgeMock.getOperatorControlStatus.mockResolvedValue(status());
@@ -419,6 +428,131 @@ describe("Agent Host settings", () => {
     expect(screen.getByText("Codex", { exact: true })).toBeInTheDocument();
     expect(screen.queryByText("codex-acp", { exact: true })).not.toBeInTheDocument();
     expect(screen.queryByText("acp.codex", { exact: true })).not.toBeInTheDocument();
+  });
+
+  it("shows a bounded partial inventory and continues loading without losing earlier Hosts", async () => {
+    bridgeMock.listOperatorHosts.mockImplementation(async ({ query }) => {
+      const cursor = query.cursor;
+      return {
+        items: [{ ...host, id: `host-${cursor}`, displayName: `Host ${cursor}` }],
+        nextCursor: cursor === 5 ? null : cursor + 1
+      };
+    });
+    const user = userEvent.setup();
+
+    render(<HostAdministrationSection t={createTranslator("en")} />);
+
+    expect(await screen.findByTestId("host-availability-partial")).toHaveTextContent(
+      "This list is not complete yet"
+    );
+    expect(screen.getByText("Host 0")).toBeInTheDocument();
+    expect(screen.getByText("Host 4")).toBeInTheDocument();
+    expect(screen.queryByText("Host 5")).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("host-availability-load-more"));
+
+    expect(await screen.findByText("Host 5")).toBeInTheDocument();
+    expect(screen.getByText("Host 0")).toBeInTheDocument();
+    expect(screen.queryByTestId("host-availability-partial")).not.toBeInTheDocument();
+    expect(bridgeMock.listOperatorHosts.mock.calls.map(([input]) => input.query.cursor)).toEqual([
+      0, 1, 2, 3, 4, 5
+    ]);
+  });
+
+  it("marks the overview Host count as incomplete while more pages are available", async () => {
+    bridgeMock.listOperatorHosts.mockImplementation(async ({ query }) => {
+      const cursor = query.cursor;
+      return {
+        items: [
+          {
+            ...host,
+            id: `host-${cursor}`,
+            displayName: `Host ${cursor}`,
+            online: cursor === 0
+          }
+        ],
+        nextCursor: cursor + 1
+      };
+    });
+
+    render(<SettingsConnectionsSection t={createTranslator("en")} />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("settings-connections-devices-state")).toHaveTextContent(
+        "At least 5 devices loaded · 1 online"
+      )
+    );
+    expect(screen.getByTestId("settings-connections-devices-state")).not.toHaveTextContent(
+      "1 of 5 online"
+    );
+  });
+
+  it("keeps the authoritative Host snapshot when a later refresh fails", async () => {
+    const user = userEvent.setup();
+    render(<HostAdministrationSection t={createTranslator("en")} />);
+    expect(await screen.findByText("Build Host")).toBeInTheDocument();
+
+    bridgeMock.listOperatorHosts
+      .mockResolvedValueOnce({
+        items: [{ ...host, id: "host-new", displayName: "Uncommitted first page" }],
+        nextCursor: 1
+      })
+      .mockRejectedValueOnce(new Error("operator_timeout"));
+    await user.click(screen.getByTestId("host-availability-refresh"));
+
+    expect(
+      await screen.findByText(
+        "PlanWeave Server cannot be reached. Check your network and try again."
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByText("Build Host")).toBeInTheDocument();
+    expect(screen.queryByText("Uncommitted first page")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("host-availability-unavailable")).not.toBeInTheDocument();
+  });
+
+  it("does not publish a late Host response after the active profile changes", async () => {
+    const profileARead = deferred<{ items: (typeof host)[]; nextCursor: null }>();
+    let statusListener: ((next: ReturnType<typeof status>) => void) | undefined;
+    bridgeMock.onOperatorControlStatusChanged.mockImplementation((listener) => {
+      statusListener = listener;
+      return () => undefined;
+    });
+    bridgeMock.listOperatorHosts.mockImplementation(({ profileId }) =>
+      profileId === "profile-a"
+        ? profileARead.promise
+        : Promise.resolve({
+            items: [{ ...host, id: "host-b", displayName: "Profile B Host" }],
+            nextCursor: null
+          })
+    );
+
+    render(<HostAdministrationSection t={createTranslator("en")} />);
+    await waitFor(() => expect(bridgeMock.listOperatorHosts).toHaveBeenCalled());
+
+    const profileBStatus = {
+      ...status(),
+      profiles: [
+        {
+          ...status().profiles[0],
+          profileId: "profile-b",
+          displayName: "Secondary admin"
+        }
+      ],
+      activeProfileId: "profile-b"
+    };
+    await act(async () => statusListener?.(profileBStatus));
+    expect(await screen.findByText("Profile B Host")).toBeInTheDocument();
+
+    await act(async () => {
+      profileARead.resolve({
+        items: [{ ...host, id: "host-a", displayName: "Late Profile A Host" }],
+        nextCursor: null
+      });
+      await profileARead.promise;
+    });
+
+    expect(screen.getByText("Profile B Host")).toBeInTheDocument();
+    expect(screen.queryByText("Late Profile A Host")).not.toBeInTheDocument();
   });
 
   it("uses the Server availability result but explains the action without protocol jargon", async () => {

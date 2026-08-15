@@ -3,10 +3,7 @@ import {
   DEFAULT_HOST_CREDENTIAL_LIFETIME_DAYS,
   type HostCredentialLifetimeDays
 } from "@planweave-ai/agent-host-protocol/browser";
-import type {
-  OperatorHostPage,
-  OperatorHostView
-} from "@planweave-ai/agent-host-protocol/operator-control";
+import type { OperatorHostView } from "@planweave-ai/agent-host-protocol/operator-control";
 import {
   OperatorControlError,
   type OperatorHostBootstrapHandoffView,
@@ -17,6 +14,13 @@ import {
   type OperatorProfileView
 } from "../../shared/operatorControl";
 import { operatorControlBridge } from "../bridge";
+import {
+  HOST_INVENTORY_PAGE_SIZE,
+  mergeHostInventory,
+  readHostInventoryBatch,
+  type HostInventoryBatch
+} from "../settings/hostInventoryPagination";
+import { createHostInventoryOperationCoordinator } from "../settings/hostInventoryOperationCoordinator";
 
 export type HostAdministrationLoadState = "loading" | "ready" | "unavailable";
 export type HostInventoryState =
@@ -26,6 +30,19 @@ export type HostInventoryState =
   | "credential_missing"
   | "unavailable";
 
+type HostInventorySnapshot = HostInventoryBatch & {
+  profileId: string;
+  authorityGeneration: number;
+  displayedHosts: OperatorHostView[];
+  preservedHosts: OperatorHostView[];
+};
+
+type HostInventoryAuthority = {
+  generation: number;
+  identity: string;
+  profileId: string | undefined;
+};
+
 export type HostAdministrationController = {
   status: OperatorControlStatus | null;
   hosts: OperatorHostView[];
@@ -33,6 +50,7 @@ export type HostAdministrationController = {
   loadState: HostAdministrationLoadState;
   hostInventoryState: HostInventoryState;
   hostsLoading: boolean;
+  hostsHasMore: boolean;
   busy: boolean;
   error: string | null;
   handoff: OperatorHostBootstrapHandoffView | null;
@@ -42,6 +60,7 @@ export type HostAdministrationController = {
   credentialLifetimeDays: HostCredentialLifetimeDays;
   refresh: () => Promise<void>;
   refreshHosts: () => Promise<void>;
+  loadMoreHosts: () => Promise<void>;
   saveProfile: (profile: OperatorControlProfileInput) => Promise<boolean>;
   removeProfile: (profileId: string) => Promise<boolean>;
   selectProfile: (profileId: string) => Promise<boolean>;
@@ -80,6 +99,9 @@ const knownErrorCodes = new Set([
   "operator_admin_required",
   "operator_server_admin_required",
   "operator_forbidden",
+  "operator_host_pagination_cursor_repeated",
+  "operator_host_pagination_cursor_regressed",
+  "operator_host_pagination_page_too_large",
   "local_agent_host_unavailable",
   "local_agent_host_custom_ca_unsupported",
   "local_agent_host_handoff_invalid",
@@ -135,7 +157,7 @@ function nextExpiry(minutes: number): string {
 
 export function useHostAdministrationController(): HostAdministrationController {
   const [status, setStatus] = useState<OperatorControlStatus | null>(null);
-  const [hosts, setHosts] = useState<OperatorHostView[]>([]);
+  const [hostSnapshot, setHostSnapshot] = useState<HostInventorySnapshot | null>(null);
   const [loadState, setLoadState] = useState<HostAdministrationLoadState>("loading");
   const [hostInventoryState, setHostInventoryState] = useState<HostInventoryState>("loading");
   const [hostsLoading, setHostsLoading] = useState(false);
@@ -173,13 +195,40 @@ export function useHostAdministrationController(): HostAdministrationController 
   );
   const activeProfileId = activeProfile?.profileId;
   const activeProfileHasOperatorCredential = activeProfile?.hasOperatorCredential === true;
+  const hostAuthorityIdentity = activeProfile
+    ? [
+        activeProfile.profileId,
+        activeProfile.hasOperatorCredential ? "credential-present" : "credential-missing",
+        activeProfile.operatorId ?? "",
+        activeProfile.operatorCredentialPersistence,
+        activeProfile.updatedAt
+      ].join("\u0000")
+    : `profile-missing\u0000${status?.activeProfileId ?? ""}`;
+  const hostAuthorityRef = useRef<HostInventoryAuthority>({
+    generation: 0,
+    identity: hostAuthorityIdentity,
+    profileId: activeProfileId
+  });
+  if (hostAuthorityRef.current.identity !== hostAuthorityIdentity) {
+    hostAuthorityRef.current = {
+      generation: hostAuthorityRef.current.generation + 1,
+      identity: hostAuthorityIdentity,
+      profileId: activeProfileId
+    };
+  }
   const previousActiveProfileId = useRef(activeProfile?.profileId);
-  const activeProfileIdRef = useRef(activeProfileId);
-  activeProfileIdRef.current = activeProfileId;
-  const hostRefreshInFlight = useRef<{
-    profileId: string;
-    promise: Promise<void>;
-  } | null>(null);
+  const hostSnapshotRef = useRef(hostSnapshot);
+  hostSnapshotRef.current = hostSnapshot;
+  const hostOperationCoordinator = useRef(createHostInventoryOperationCoordinator());
+  const visibleHostSnapshot =
+    activeProfileHasOperatorCredential &&
+    hostSnapshot !== null &&
+    hostSnapshot.profileId === activeProfileId &&
+    hostSnapshot.authorityGeneration === hostAuthorityRef.current.generation
+      ? hostSnapshot
+      : null;
+  const hosts = visibleHostSnapshot?.displayedHosts ?? [];
+  const hostsHasMore = visibleHostSnapshot?.nextCursor !== null && visibleHostSnapshot !== null;
 
   useEffect(() => {
     const activeProfileId = activeProfile?.profileId;
@@ -189,69 +238,128 @@ export function useHostAdministrationController(): HostAdministrationController 
     }
   }, [activeProfile?.profileId]);
 
-  const refreshHosts = useCallback(
-    (options?: { silent?: boolean }): Promise<void> => {
+  const readHosts = useCallback(
+    (options: { mode: "refresh" | "continue"; silent?: boolean }): Promise<void> => {
       if (!operatorControlBridge) {
-        setHosts([]);
+        hostSnapshotRef.current = null;
+        setHostSnapshot(null);
         setHostsLoading(false);
         setHostInventoryState("unavailable");
         return Promise.resolve();
       }
       if (!status) {
-        setHosts([]);
+        hostSnapshotRef.current = null;
+        setHostSnapshot(null);
         setHostsLoading(false);
         setHostInventoryState(loadState === "loading" ? "loading" : "unavailable");
         return Promise.resolve();
       }
       if (!activeProfileId) {
-        setHosts([]);
+        hostSnapshotRef.current = null;
+        setHostSnapshot(null);
         setHostsLoading(false);
         setHostInventoryState("profile_missing");
         return Promise.resolve();
       }
       if (!activeProfileHasOperatorCredential) {
-        setHosts([]);
+        hostSnapshotRef.current = null;
+        setHostSnapshot(null);
         setHostsLoading(false);
         setHostInventoryState("credential_missing");
         return Promise.resolve();
       }
-      if (hostRefreshInFlight.current?.profileId === activeProfileId) {
-        return hostRefreshInFlight.current.promise;
-      }
-      if (!options?.silent) {
-        setHostsLoading(true);
-        setHostInventoryState("loading");
-      }
+      const requestAuthority = hostAuthorityRef.current;
       const profileId = activeProfileId;
-      const promise = operatorControlBridge
-        .listOperatorHosts({ profileId, query: { cursor: 0, limit: 100 } })
-        .then((page: OperatorHostPage) => {
-          if (activeProfileIdRef.current !== profileId) return;
-          setHosts(page.items);
+      const bridge = operatorControlBridge;
+      const authorityKey = `${profileId}\u0000${requestAuthority.generation}`;
+      return hostOperationCoordinator.current.run(authorityKey, options.mode, async () => {
+        const currentAuthority = hostAuthorityRef.current;
+        if (
+          currentAuthority.generation !== requestAuthority.generation ||
+          currentAuthority.identity !== requestAuthority.identity ||
+          currentAuthority.profileId !== requestAuthority.profileId
+        ) {
+          return;
+        }
+        if (!options.silent) {
+          setHostsLoading(true);
+          if (options.mode === "refresh") setHostInventoryState("loading");
+        }
+        const currentSnapshot = hostSnapshotRef.current;
+        const continuationSnapshot =
+          options.mode === "continue" &&
+          currentSnapshot?.profileId === profileId &&
+          currentSnapshot.authorityGeneration === requestAuthority.generation
+            ? currentSnapshot
+            : null;
+        if (options.mode === "continue" && continuationSnapshot?.nextCursor === null) {
+          setHostsLoading(false);
+          return;
+        }
+        const cursor = continuationSnapshot?.nextCursor ?? 0;
+        try {
+          const batch = await readHostInventoryBatch({
+            cursor,
+            hosts: continuationSnapshot?.hosts ?? [],
+            requestedCursors: continuationSnapshot?.requestedCursors ?? new Set<number>(),
+            readPage: (pageCursor) =>
+              bridge.listOperatorHosts({
+                profileId,
+                query: { cursor: pageCursor, limit: HOST_INVENTORY_PAGE_SIZE }
+              })
+          });
+          if (hostAuthorityRef.current.generation !== requestAuthority.generation) return;
+          const preservedHosts =
+            options.mode === "continue"
+              ? (continuationSnapshot?.preservedHosts ?? [])
+              : options.silent &&
+                  currentSnapshot?.profileId === profileId &&
+                  currentSnapshot.authorityGeneration === requestAuthority.generation
+                ? currentSnapshot.displayedHosts
+                : [];
+          const nextSnapshot: HostInventorySnapshot = {
+            ...batch,
+            profileId,
+            authorityGeneration: requestAuthority.generation,
+            preservedHosts: batch.nextCursor === null ? [] : preservedHosts,
+            displayedHosts:
+              batch.nextCursor === null
+                ? batch.hosts
+                : mergeHostInventory(preservedHosts, batch.hosts)
+          };
+          hostSnapshotRef.current = nextSnapshot;
+          setHostSnapshot(nextSnapshot);
           setHostInventoryState("ready");
           setError(null);
-        })
-        .catch((cause) => {
-          if (activeProfileIdRef.current !== profileId) return;
-          if (!options?.silent) {
-            setHosts([]);
-            setHostInventoryState("unavailable");
-          }
+        } catch (cause) {
+          if (hostAuthorityRef.current.generation !== requestAuthority.generation) return;
+          const authoritativeSnapshot = hostSnapshotRef.current;
+          setHostInventoryState(
+            authoritativeSnapshot?.profileId === profileId &&
+              authoritativeSnapshot.authorityGeneration === requestAuthority.generation
+              ? "ready"
+              : "unavailable"
+          );
           setError(errorMessage(cause));
-        })
-        .finally(() => {
-          if (hostRefreshInFlight.current?.promise === promise) {
-            hostRefreshInFlight.current = null;
-          }
-          if (!options?.silent && activeProfileIdRef.current === profileId) {
+        } finally {
+          if (
+            !options.silent &&
+            hostAuthorityRef.current.generation === requestAuthority.generation
+          ) {
             setHostsLoading(false);
           }
-        });
-      hostRefreshInFlight.current = { profileId, promise };
-      return promise;
+        }
+      });
     },
     [activeProfileId, activeProfileHasOperatorCredential, loadState, status]
   );
+
+  const refreshHosts = useCallback(
+    (options?: { silent?: boolean }) => readHosts({ mode: "refresh", silent: options?.silent }),
+    [readHosts]
+  );
+
+  const loadMoreHosts = useCallback(() => readHosts({ mode: "continue" }), [readHosts]);
 
   useEffect(() => {
     void refresh();
@@ -432,7 +540,26 @@ export function useHostAdministrationController(): HostAdministrationController 
           profileId: activeProfile.profileId,
           hostId
         });
-        setHosts((current) => current.map((host) => (host.id === hostId ? revoked : host)));
+        setHostSnapshot((current) => {
+          if (
+            current?.profileId !== activeProfile.profileId ||
+            current.authorityGeneration !== hostAuthorityRef.current.generation
+          ) {
+            return current;
+          }
+          const next = {
+            ...current,
+            hosts: current.hosts.map((host) => (host.id === hostId ? revoked : host)),
+            displayedHosts: current.displayedHosts.map((host) =>
+              host.id === hostId ? revoked : host
+            ),
+            preservedHosts: current.preservedHosts.map((host) =>
+              host.id === hostId ? revoked : host
+            )
+          };
+          hostSnapshotRef.current = next;
+          return next;
+        });
         setError(null);
         return revoked;
       } catch (cause) {
@@ -457,7 +584,26 @@ export function useHostAdministrationController(): HostAdministrationController 
           profileId: activeProfile.profileId,
           hostId
         });
-        setHosts((current) => current.map((host) => (host.id === hostId ? renewed : host)));
+        setHostSnapshot((current) => {
+          if (
+            current?.profileId !== activeProfile.profileId ||
+            current.authorityGeneration !== hostAuthorityRef.current.generation
+          ) {
+            return current;
+          }
+          const next = {
+            ...current,
+            hosts: current.hosts.map((host) => (host.id === hostId ? renewed : host)),
+            displayedHosts: current.displayedHosts.map((host) =>
+              host.id === hostId ? renewed : host
+            ),
+            preservedHosts: current.preservedHosts.map((host) =>
+              host.id === hostId ? renewed : host
+            )
+          };
+          hostSnapshotRef.current = next;
+          return next;
+        });
         setError(null);
         return renewed;
       } catch (cause) {
@@ -583,6 +729,7 @@ export function useHostAdministrationController(): HostAdministrationController 
     loadState,
     hostInventoryState,
     hostsLoading,
+    hostsHasMore,
     busy,
     error,
     handoff,
@@ -592,6 +739,7 @@ export function useHostAdministrationController(): HostAdministrationController 
     credentialLifetimeDays,
     refresh,
     refreshHosts,
+    loadMoreHosts,
     saveProfile,
     removeProfile,
     selectProfile,
