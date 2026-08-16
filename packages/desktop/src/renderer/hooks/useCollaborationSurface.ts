@@ -63,10 +63,7 @@ export function resolveCollaborationSurfaceReadBinding(input: {
   if (!input.sessionConnected || !input.profileId || !input.profileProjectId) {
     return { profileId: null, projectId: null, canvasId: null };
   }
-  if (
-    input.canvasId !== null &&
-    (!input.localProjectId || input.localProjectId !== input.profileProjectId)
-  ) {
+  if (!input.localProjectId || input.localProjectId !== input.profileProjectId) {
     return { profileId: null, projectId: null, canvasId: null };
   }
   return {
@@ -74,6 +71,32 @@ export function resolveCollaborationSurfaceReadBinding(input: {
     projectId: input.profileProjectId,
     canvasId: input.canvasId
   };
+}
+
+type CollaborationCanvasReadResolution = {
+  localProjectId: string;
+  localCanvasId: string;
+  remoteProjectId: string;
+  remoteCanvasId: string;
+};
+
+export function resolveCollaborationCanvasReadBinding(
+  binding: { profileId: string | null; projectId: string | null; canvasId: string | null },
+  resolution: CollaborationCanvasReadResolution | null
+): { profileId: string | null; projectId: string | null; canvasId: string | null } {
+  if (!binding.profileId || !binding.projectId) {
+    return { profileId: null, projectId: null, canvasId: null };
+  }
+  if (binding.canvasId === null) return binding;
+  if (
+    !resolution ||
+    resolution.localProjectId !== binding.projectId ||
+    resolution.localCanvasId !== binding.canvasId ||
+    resolution.remoteProjectId !== binding.projectId
+  ) {
+    return { profileId: null, projectId: null, canvasId: null };
+  }
+  return { ...binding, canvasId: resolution.remoteCanvasId };
 }
 
 /**
@@ -130,13 +153,65 @@ export function useCollaborationSurface(
     localProjectId: args.localProjectId ?? null,
     canvasId: args.canvasId ?? null
   });
+  const [canvasReadResolution, setCanvasReadResolution] =
+    useState<CollaborationCanvasReadResolution | null>(null);
+
+  useEffect(() => {
+    if (
+      !api ||
+      !readBinding.profileId ||
+      !readBinding.projectId ||
+      readBinding.canvasId === null ||
+      !args.localProjectId
+    ) {
+      setCanvasReadResolution(null);
+      return undefined;
+    }
+    const localProjectId = args.localProjectId;
+    const localCanvasId = readBinding.canvasId;
+    const remoteProjectId = readBinding.projectId;
+    let active = true;
+    setCanvasReadResolution(null);
+    void api
+      .resolveCollaborationCanvasScope({ localProjectId, canvasId: localCanvasId })
+      .then((scope) => {
+        if (!active) return;
+        setCanvasReadResolution(
+          scope && scope.projectId === remoteProjectId
+            ? {
+                localProjectId,
+                localCanvasId,
+                remoteProjectId: scope.projectId,
+                remoteCanvasId: scope.canvasId
+              }
+            : null
+        );
+      })
+      .catch(() => {
+        if (active) setCanvasReadResolution(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [
+    api,
+    args.localProjectId,
+    readBinding.canvasId,
+    readBinding.profileId,
+    readBinding.projectId
+  ]);
+
+  const authorizedReadBinding = resolveCollaborationCanvasReadBinding(
+    readBinding,
+    canvasReadResolution
+  );
 
   // Shell is the sole owner of active project/canvas binding on the shared hub.
   const { snapshot, viewModel, controller } = useCollaborationReadModels({
     api,
-    profileId: readBinding.profileId,
-    projectId: readBinding.projectId,
-    canvasId: readBinding.canvasId,
+    profileId: authorizedReadBinding.profileId,
+    projectId: authorizedReadBinding.projectId,
+    canvasId: authorizedReadBinding.canvasId,
     manageActiveProject: true
   });
 

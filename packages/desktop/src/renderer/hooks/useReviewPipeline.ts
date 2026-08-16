@@ -13,6 +13,7 @@ import type { SharedCanvasCommandsResult } from "./useSharedCanvasCommands";
 
 type UseReviewPipelineArgs = {
   graph: DesktopGraphViewModel | null;
+  projectLoading?: boolean;
   reloadCurrentCanvas: () => Promise<void>;
   selectedCanvasId: string | null;
   selectedProject: DesktopProjectSummary | null;
@@ -39,6 +40,7 @@ const transientManifestRetryDelayMs = 50;
 
 export function useReviewPipeline({
   graph,
+  projectLoading = false,
   reloadCurrentCanvas,
   selectedCanvasId,
   selectedProject,
@@ -67,6 +69,7 @@ export function useReviewPipeline({
   useEffect(() => {
     if (
       !bridge ||
+      projectLoading ||
       !selectedProject ||
       !reviewTaskId ||
       !graph?.tasks.some((task) => task.taskId === reviewTaskId)
@@ -120,7 +123,7 @@ export function useReviewPipeline({
       cancelled = true;
       if (retryTimer !== null) clearTimeout(retryTimer);
     };
-  }, [graph, reviewTaskId, selectedCanvasId, selectedProject, setError]);
+  }, [graph, projectLoading, reviewTaskId, selectedCanvasId, selectedProject, setError]);
 
   const clearReviewTaskSelection = useCallback(
     (taskId?: string | null) => {

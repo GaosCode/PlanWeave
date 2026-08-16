@@ -277,6 +277,57 @@ describe("desktop renderer hook interfaces", () => {
     );
   });
 
+  it("does not query a new canvas with a task from the graph that is still loading", async () => {
+    const getReviewPipeline = vi.fn((_canvas, taskId: string) =>
+      Promise.resolve({ ...reviewPipeline, taskId, taskTitle: `${taskId} title` })
+    );
+    const bridge = createDesktopBridgeMock({ getReviewPipeline });
+    vi.stubGlobal("planweave", bridge);
+    vi.resetModules();
+    const [{ useReviewPipeline }, { createTranslator }] = await Promise.all([
+      import("../renderer/hooks/useReviewPipeline"),
+      import("../renderer/i18n")
+    ]);
+    const nextGraph: DesktopGraphViewModel = {
+      ...graph,
+      tasks: [{ ...graph.tasks[0], taskId: "T-GAMMA", title: "Gamma task" }]
+    };
+    const reloadCurrentCanvas = vi.fn().mockResolvedValue(undefined);
+    const setError = vi.fn();
+    const { rerender } = renderHook(
+      ({ graphValue, canvasId, projectLoading }) =>
+        useReviewPipeline({
+          graph: graphValue,
+          projectLoading,
+          reloadCurrentCanvas,
+          selectedCanvasId: canvasId,
+          selectedProject: project,
+          setError,
+          t: createTranslator("en")
+        }),
+      {
+        initialProps: { graphValue: graph, canvasId: "canvas-main", projectLoading: false }
+      }
+    );
+
+    await waitFor(() => expect(getReviewPipeline).toHaveBeenCalled());
+    getReviewPipeline.mockClear();
+    rerender({ graphValue: graph, canvasId: "canvas-alt", projectLoading: true });
+    await act(async () => undefined);
+    expect(getReviewPipeline).not.toHaveBeenCalledWith(
+      { projectRoot: project.rootPath, canvasId: "canvas-alt" },
+      "T-ALPHA"
+    );
+
+    rerender({ graphValue: nextGraph, canvasId: "canvas-alt", projectLoading: false });
+    await waitFor(() =>
+      expect(getReviewPipeline).toHaveBeenCalledWith(
+        { projectRoot: project.rootPath, canvasId: "canvas-alt" },
+        "T-GAMMA"
+      )
+    );
+  });
+
   it("clears stale review task selection when the selected task was deleted before the graph refreshes", async () => {
     let rejectReviewPipeline: (error: Error) => void = () => undefined;
     const getReviewPipeline = vi.fn(

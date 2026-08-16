@@ -633,6 +633,7 @@ export function ProjectWorkspaceProvider({
     updateReviewStep
   } = useReviewPipeline({
     graph,
+    projectLoading,
     reloadCurrentCanvas,
     selectedCanvasId,
     selectedProject,
