@@ -7,6 +7,7 @@
 import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { normalizedFailureSchema } from "@planweave-ai/agent-host-protocol";
 import {
   claimBlock,
   claimDispatchedBlock,
@@ -247,9 +248,18 @@ describe("real-process remote Block lifecycle", () => {
       executionAttemptId: dispatched.executionAttemptId,
       failure: { code: "acp_incomplete_response", retryable: false }
     });
-    const hostFailure = client.readHostTerminalFailure(dispatched.dispatchId);
-    expect(hostFailure?.code).toEqual(expect.any(String));
-    expect(hostFailure?.retryable).toBe(false);
+    const dispatchRow = client.readServerDispatch(dispatched.dispatchId);
+    if (!dispatchRow.failure_json) throw new Error("host_terminal_failure_missing");
+    const deliveredFailure = normalizedFailureSchema.parse(JSON.parse(dispatchRow.failure_json));
+    expect(deliveredFailure.code).toEqual(expect.any(String));
+    expect(deliveredFailure.retryable).toBe(false);
+    expect(client.readHostTerminalReceipt(dispatched.dispatchId)).toMatchObject({
+      execution_attempt_id: dispatched.executionAttemptId,
+      terminal_kind: "failed",
+      terminal_payload_digest: `sha256:${createHash("sha256")
+        .update(JSON.stringify(deliveredFailure))
+        .digest("hex")}`
+    });
   }, 90_000);
 
   it("process/protocol error fails closed without false success", async () => {

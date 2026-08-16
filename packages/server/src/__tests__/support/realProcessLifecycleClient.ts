@@ -596,27 +596,31 @@ export class RealProcessLifecycleClient {
     }
   }
 
-  readHostTerminalFailure(
+  readHostTerminalReceipt(
     dispatchId: string,
     hostDataDir = this.harness.paths.hostData
-  ): { code: string; message: string; retryable: boolean } | undefined {
+  ):
+    | {
+        execution_attempt_id: string;
+        terminal_kind: string;
+        terminal_payload_digest: string;
+      }
+    | undefined {
     const database = openSqlite(this.hostDatabasePath(hostDataDir));
     try {
-      const row = database
+      return database
         .prepare(
-          `SELECT event_json FROM agent_host_outbox
-           WHERE event_key LIKE ? OR event_json LIKE ?
-           ORDER BY sequence DESC LIMIT 1`
+          `SELECT execution_attempt_id,terminal_kind,terminal_payload_digest
+           FROM agent_host_terminal_execution_receipts
+           WHERE dispatch_id=?`
         )
-        .get(`dispatch.failed:${dispatchId}%`, `%"dispatchId":"${dispatchId}"%`) as
-        | { event_json?: string }
+        .get(dispatchId) as
+        | {
+            execution_attempt_id: string;
+            terminal_kind: string;
+            terminal_payload_digest: string;
+          }
         | undefined;
-      if (!row?.event_json) return undefined;
-      const event = JSON.parse(row.event_json) as {
-        type?: string;
-        failure?: { code: string; message: string; retryable: boolean };
-      };
-      return event.failure;
     } finally {
       database.close();
     }
