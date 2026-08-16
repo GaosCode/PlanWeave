@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, extname, isAbsolute, join, resolve } from "node:path";
+import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 
 import type {
@@ -27,6 +28,8 @@ export type WindowsProcessTreeAdapterOptions = {
   isAlive?: (pid: number) => boolean;
   job?: WindowsJobOwnership;
   terminateJob?: (job: WindowsJobOwnership) => void | Promise<void>;
+  isTreeAlive?: (job: WindowsJobOwnership, pid: number) => boolean | Promise<boolean>;
+  awaitTreeExit?: (job: WindowsJobOwnership, pid: number, timeoutMs: number) => Promise<boolean>;
 };
 
 export type ResolvedWindowsCommand = {
@@ -66,6 +69,22 @@ function windowsRootIsAlive(pid: number): boolean {
     if (code === "EPERM") return true;
     throw error;
   }
+}
+
+async function pollWindowsRootExit(
+  isAlive: (pid: number) => boolean,
+  pid: number,
+  timeoutMs: number
+): Promise<boolean> {
+  const expiresAt = performance.now() + Math.max(0, timeoutMs);
+  while (isAlive(pid)) {
+    const remaining = expiresAt - performance.now();
+    if (remaining <= 0) return false;
+    await new Promise<void>((resolvePromise) =>
+      setTimeout(resolvePromise, Math.min(10, remaining))
+    );
+  }
+  return true;
 }
 
 export function windowsTaskKillArgs(pid: number, force: boolean): string[] {
@@ -116,6 +135,18 @@ export function createWindowsProcessTreeAdapter(
   const spawnTaskKill = options.spawnTaskKill ?? spawn;
   const isAlive = options.isAlive ?? windowsRootIsAlive;
   const terminateJob = options.terminateJob ?? terminateWindowsJob;
+  const isTreeAlive =
+    options.isTreeAlive ??
+    (options.isAlive
+      ? (_job: WindowsJobOwnership, pid: number) => isAlive(pid)
+      : (job: WindowsJobOwnership) => probeWindowsJob(job));
+  const awaitTreeExit =
+    options.awaitTreeExit ??
+    (options.isAlive
+      ? (_job: WindowsJobOwnership, pid: number, timeoutMs: number) =>
+          pollWindowsRootExit(isAlive, pid, timeoutMs)
+      : (job: WindowsJobOwnership, _pid: number, timeoutMs: number) =>
+          waitForWindowsJobExit(job, timeoutMs));
   return {
     name: "windows",
     configureSpawn(spawnOptions) {
@@ -161,7 +192,15 @@ export function createWindowsProcessTreeAdapter(
         );
       }
     },
-    isAlive
+    isAlive,
+    isTreeAlive(pid) {
+      return options.job ? isTreeAlive(options.job, pid) : isAlive(pid);
+    },
+    awaitTreeExit(pid, timeoutMs) {
+      return options.job
+        ? awaitTreeExit(options.job, pid, timeoutMs)
+        : Promise.resolve(!isAlive(pid));
+    }
   };
 }
 
@@ -417,4 +456,45 @@ function terminateWindowsJob(job: WindowsJobOwnership): Promise<void> {
       );
     });
   });
+}
+
+function runWindowsJobProbe(job: WindowsJobOwnership, timeoutMs: number): Promise<boolean> {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(
+      windowsPowerShellPath(),
+      [
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        job.helperPath,
+        "-Mode",
+        "wait",
+        "-JobName",
+        job.name,
+        "-MarkerPath",
+        job.markerPath,
+        "-TimeoutMs",
+        String(Math.max(0, Math.floor(timeoutMs)))
+      ],
+      { stdio: "ignore", windowsHide: true, shell: false }
+    );
+    child.once("error", reject);
+    child.once("close", (code) => {
+      if (code === 0) resolvePromise(true);
+      else if (code === 3) resolvePromise(false);
+      else
+        reject(new Error(`Windows Job exit probe failed for ${job.name} (exit ${String(code)}).`));
+    });
+  });
+}
+
+function probeWindowsJob(job: WindowsJobOwnership): Promise<boolean> {
+  return runWindowsJobProbe(job, 0).then((exited) => !exited);
+}
+
+function waitForWindowsJobExit(job: WindowsJobOwnership, timeoutMs: number): Promise<boolean> {
+  return runWindowsJobProbe(job, timeoutMs);
 }

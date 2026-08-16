@@ -1,4 +1,5 @@
 import type { ResolvedAgentHostAcpProfile } from "../execution/remoteAcpPorts.js";
+import { DEFAULT_ACP_SHUTDOWN_POLICY } from "@planweave-ai/runtime";
 import { resolveHostExecutable } from "../platform/resolveHostExecutable.js";
 import type { RealAcpGate, RealAcpPrecondition } from "./gate.js";
 import { precondition } from "./gate.js";
@@ -151,7 +152,8 @@ export async function resolveRealAcpHostProfile(options: {
       hostProfile: {
         agentId: selected.agentId,
         launch: { command: commandPath, args: [...selected.args] },
-        env: profileEnv
+        env: profileEnv,
+        shutdown: DEFAULT_ACP_SHUTDOWN_POLICY
       }
     }
   };

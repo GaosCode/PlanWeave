@@ -55,7 +55,7 @@ import {
   type AgentHostBackgroundService
 } from "../background/backgroundService.js";
 import { resolveHostExecutable } from "../platform/resolveHostExecutable.js";
-import { agentProcessEnv } from "@planweave-ai/runtime";
+import { agentProcessEnv, DEFAULT_ACP_SHUTDOWN_POLICY } from "@planweave-ai/runtime";
 
 const MAX_CONFIG_BYTES = 256 * 1_024;
 
@@ -205,7 +205,8 @@ export class AgentHostOperator {
           agentId: preset.agentId,
           command,
           args: [...preset.args],
-          environment: [...preset.environment]
+          environment: [...preset.environment],
+          shutdown: DEFAULT_ACP_SHUTDOWN_POLICY
         });
       }
     }
@@ -643,8 +644,7 @@ export class AgentHostOperator {
         // Remote Host ACP work commonly exceeds the local 30s engine default (tool calls + writeback).
         limits: {
           operationTimeoutMs: 15 * 60_000,
-          interactionTimeoutMs: 15 * 60_000,
-          cleanupTimeoutMs: 30_000
+          interactionTimeoutMs: 15 * 60_000
         }
       });
       const transport = new AgentHostClient({

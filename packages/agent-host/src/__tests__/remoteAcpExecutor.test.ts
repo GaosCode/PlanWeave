@@ -9,7 +9,7 @@ import {
   executionEnvelopeSchema,
   hashExecutionEnvelope
 } from "@planweave-ai/agent-host-protocol";
-import type { AcpEngineTerminal } from "@planweave-ai/runtime";
+import { DEFAULT_ACP_SHUTDOWN_POLICY, type AcpEngineTerminal } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   type AcpAdapterConformanceObservation,
@@ -103,12 +103,16 @@ function executionKey(input: ReturnType<typeof command>): string {
   return `${input.dispatchId}:${input.leaseId}:${input.executionAttemptId}`;
 }
 
-function profileResolver(scenario: string): AgentHostAcpProfileResolver {
+function profileResolver(
+  scenario: string,
+  shutdown = DEFAULT_ACP_SHUTDOWN_POLICY
+): AgentHostAcpProfileResolver {
   return {
     resolve: () => ({
       agentId: exampleExecutionEnvelopeInput.agentId,
       launch: { command: process.execPath, args: [mockAgentPath, scenario] },
       env: {},
+      shutdown,
       session: {
         modes: { default: "agent-full-access" },
         configOptions: {
@@ -570,10 +574,13 @@ describe("RemoteAcpExecutor", () => {
   it("preserves both failures when ACP execution and input cleanup fail", async () => {
     const executionError = new Error("execution failed");
     const cleanupError = new Error("cleanup failed");
+    const shutdown = { eofDrainMs: 90, terminateGraceMs: 160, cleanupDeadlineMs: 760 };
+    let receivedShutdown: unknown;
     vi.resetModules();
     vi.doMock("@planweave-ai/runtime", async (importOriginal) => ({
       ...(await importOriginal<typeof import("@planweave-ai/runtime")>()),
-      executeAcp: vi.fn(async () => {
+      executeAcp: vi.fn(async (options) => {
+        receivedShutdown = options.shutdown;
         throw executionError;
       })
     }));
@@ -594,7 +601,7 @@ describe("RemoteAcpExecutor", () => {
       const input = command();
       const executor = new IsolatedRemoteAcpExecutor({
         workspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
-        profileResolver: profileResolver("success"),
+        profileResolver: profileResolver("success", shutdown),
         outbox,
         hostCapabilities: ["linux", "acp.test"]
       });
@@ -609,6 +616,7 @@ describe("RemoteAcpExecutor", () => {
         );
         expect((error as AggregateError).errors).toEqual([executionError, cleanupError]);
         expect((error as AggregateError).cause).toBe(executionError);
+        expect(receivedShutdown).toEqual(shutdown);
       }
     } finally {
       vi.doUnmock("@planweave-ai/runtime");

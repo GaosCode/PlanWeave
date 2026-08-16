@@ -22,6 +22,7 @@ import {
   availableExecutionHostEnvironmentVariables,
   prepareExecutionHostInvocation
 } from "../process/wslExecutionHost.js";
+import { AcpCleanupSequencer, createAcpCleanupDeadline } from "./acpExecutionCleanup.js";
 
 export { sessionConfigurationFromNewSession } from "./acpSessionConfiguration.js";
 
@@ -130,7 +131,8 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({
     ...(prepared.cleanupExitedProcessTree
       ? { cleanupExitedProcessTree: prepared.cleanupExitedProcessTree }
       : {}),
-    clientInfo: { name: "PlanWeave", version: "0.1.0" }
+    clientInfo: { name: "PlanWeave", version: "0.1.0" },
+    shutdown: profile.shutdown
   });
   type ProbeResult = Awaited<ReturnType<AcpPreflightProbe>>;
   type ProbeOutcome =
@@ -140,6 +142,26 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({
   type CleanupOutcome = { status: "passed" } | { status: "failed"; error: unknown };
   let probeOutcome: ProbeOutcome = { status: "pending" };
   let cleanupOutcome: CleanupOutcome = { status: "passed" };
+  let cleanup: AcpCleanupSequencer | undefined;
+  const cleanupSequence = (): AcpCleanupSequencer => {
+    cleanup ??= new AcpCleanupSequencer(
+      createAcpCleanupDeadline(profile.shutdown.cleanupDeadlineMs)
+    );
+    return cleanup;
+  };
+  const closeProbeSession = (sessionId: string): Promise<unknown> => {
+    const sequence = cleanupSequence();
+    return sequence.run(
+      "preflight session close",
+      (timeoutMs) =>
+        connection.closeSession(sessionId, {
+          signal,
+          timeoutMs,
+          cleanupDeadline: sequence.deadline
+        }),
+      100
+    );
+  };
   try {
     const result = await (async (): Promise<ProbeResult> => {
       let initialized: InitializeResponse;
@@ -218,7 +240,7 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({
         };
         if (initialized.agentCapabilities?.sessionCapabilities?.close != null) {
           try {
-            await connection.closeSession(probeSession.sessionId, { signal });
+            await closeProbeSession(probeSession.sessionId);
           } catch (error) {
             throw new AcpPreflightPhaseError("session", error);
           }
@@ -253,7 +275,7 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({
       }
       if (initialized.agentCapabilities?.sessionCapabilities?.close != null) {
         try {
-          await connection.closeSession(session.sessionId, { signal });
+          await closeProbeSession(session.sessionId);
         } catch (error) {
           throw new AcpPreflightPhaseError("session", error);
         }
@@ -271,7 +293,10 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({
     probeOutcome = { status: "threw", error };
   } finally {
     try {
-      await connection.dispose();
+      const sequence = cleanupSequence();
+      await sequence.run("preflight connection disposal", (timeoutMs) =>
+        connection.dispose({ timeoutMs, cleanupDeadline: sequence.deadline })
+      );
     } catch (error) {
       cleanupOutcome = { status: "failed", error };
     }

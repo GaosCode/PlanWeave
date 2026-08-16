@@ -1,13 +1,14 @@
 param(
   [Parameter(Mandatory = $true)]
-  [ValidateSet("launch", "keep", "terminate")]
+  [ValidateSet("launch", "keep", "terminate", "wait")]
   [string]$Mode,
   [Parameter(Mandatory = $true)]
   [string]$JobName,
   [Parameter(Mandatory = $true)]
   [string]$MarkerPath,
   [string]$Payload,
-  [int]$ParentPid
+  [int]$ParentPid,
+  [int]$TimeoutMs = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -619,6 +620,25 @@ function Start-JobKeeper {
 }
 
 try {
+  if ($Mode -eq "wait") {
+    try {
+      $job = [PlanWeaveWindowsJob]::OpenOwnedJob($JobName)
+    } catch [ComponentModel.Win32Exception] {
+      if ($_.Exception.NativeErrorCode -eq 2) { exit 0 }
+      throw
+    }
+    try {
+      $deadline = [DateTime]::UtcNow.AddMilliseconds([Math]::Max(0, $TimeoutMs))
+      while ([PlanWeaveWindowsJob]::ActiveProcesses($job) -gt 0) {
+        if ([DateTime]::UtcNow -ge $deadline) { exit 3 }
+        Start-Sleep -Milliseconds 10
+      }
+      exit 0
+    } finally {
+      [PlanWeaveWindowsJob]::CloseHandle($job) | Out-Null
+    }
+  }
+
   if ($Mode -eq "terminate") {
     try {
       $job = [PlanWeaveWindowsJob]::OpenOwnedJob($JobName)

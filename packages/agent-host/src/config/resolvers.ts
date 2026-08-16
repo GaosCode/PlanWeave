@@ -92,6 +92,7 @@ export class ConfiguredAcpProfileResolver implements AgentHostAcpProfileResolver
       agentId: profile.agentId,
       launch: { command, args: profile.args },
       env,
+      shutdown: profile.shutdown,
       session: profile.session
         ? {
             modes: Object.fromEntries(profile.session.modes.map((mode) => [mode.id, mode.modeId])),

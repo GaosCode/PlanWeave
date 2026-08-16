@@ -19,12 +19,12 @@ function engineOptions(
     workspace: { cwd: process.cwd() },
     env: environment,
     clientInfo: { name: "planweave-engine-test", version: "1.0.0" },
+    shutdown: { eofDrainMs: 25, terminateGraceMs: 25, cleanupDeadlineMs: 300 },
     prompt: "exercise the ACP engine",
     sessionStart: { kind: "new" },
     limits: {
       operationTimeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
-      interactionTimeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
-      cleanupTimeoutMs: 100
+      interactionTimeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS
     },
     ...overrides
   };
@@ -485,9 +485,14 @@ describe("storage-neutral ACP execution engine", () => {
       closeSession: vi.fn(async () => ({})),
       setSessionMode: vi.fn(async () => ({})),
       setSessionConfigOption: vi.fn(async () => ({ configOptions: [] })),
-      dispose: vi.fn(() => {
+      dispose: vi.fn((options) => {
         notifyDisposeStarted?.();
-        return new Promise<never>(() => undefined);
+        return new Promise<void>((_resolve, reject) => {
+          setTimeout(
+            () => reject(new Error("controlled disposal reached its supplied deadline")),
+            options?.timeoutMs
+          );
+        });
       })
     } satisfies AcpConnection;
 
@@ -495,11 +500,11 @@ describe("storage-neutral ACP execution engine", () => {
       const execution = executeAcp(
         engineOptions("success", {
           connect: () => connection,
-          limits: { cleanupTimeoutMs: 20 }
+          shutdown: { eofDrainMs: 10, terminateGraceMs: 10, cleanupDeadlineMs: 270 }
         })
       );
       await disposeStarted;
-      await vi.advanceTimersByTimeAsync(21);
+      await vi.advanceTimersByTimeAsync(271);
 
       await expect(execution).resolves.toMatchObject({
         terminal: { state: "failed", reason: "cleanup_failed" },

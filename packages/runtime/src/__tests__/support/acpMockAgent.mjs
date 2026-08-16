@@ -78,7 +78,7 @@ function spawnSignalIgnoringDescendant() {
   );
   const path = controlPath("descendant-pid");
   if (path && child.pid) writeFileSync(path, `${child.pid}\n`, "utf8");
-  process.on("SIGTERM", () => recordLifecycle("SIGTERM ignored"));
+  child.unref();
 }
 
 /**
@@ -147,6 +147,34 @@ if (scenario === "stubborn-pending") {
   setInterval(() => {}, 1_000);
 }
 
+if (scenario === "eof-delayed-exit") {
+  const keepAlive = setInterval(() => undefined, 1_000);
+  process.stdin.once("end", () => {
+    recordLifecycle("EOF observed");
+    setTimeout(() => {
+      clearInterval(keepAlive);
+      process.exit(0);
+    }, 40);
+  });
+}
+
+if (scenario === "term-exit-pending") {
+  setInterval(() => undefined, 1_000);
+  process.on("SIGTERM", () => {
+    recordLifecycle("SIGTERM exit");
+    process.exit(0);
+  });
+}
+
+if (scenario === "root-exits-descendant-pending") {
+  spawnSignalIgnoringDescendant();
+  setInterval(() => undefined, 1_000);
+  process.on("SIGTERM", () => {
+    recordLifecycle("SIGTERM root exit");
+    process.exit(0);
+  });
+}
+
 const app = agent({ name: "planweave-acp-mock" })
   .onRequest(methods.agent.initialize, async (ctx) => {
     await maybeBarrier("initialize");
@@ -184,7 +212,9 @@ const app = agent({ name: "planweave-acp-mock" })
           scenario === "load-capable-delayed" ||
           scenario === "load-capable-stubborn-child" ||
           scenario === "recovery-permission-artifact",
-        ...(scenario === "close-capable" || scenario === "close-capable-error"
+        ...(scenario === "close-capable" ||
+        scenario === "close-capable-error" ||
+        scenario === "session-ready-with-agent-auth-close-pending"
           ? { sessionCapabilities: { close: {} } }
           : {})
       },
@@ -205,6 +235,7 @@ const app = agent({ name: "planweave-acp-mock" })
             : scenario === "auth-required" ||
                 scenario === "action-required" ||
                 scenario === "session-ready-with-agent-auth" ||
+                scenario === "session-ready-with-agent-auth-close-pending" ||
                 scenario === "authenticated-with-auth-methods" ||
                 scenario === "authenticated-artifact-implementation" ||
                 scenario === "authenticate-delayed" ||
@@ -430,7 +461,11 @@ const app = agent({ name: "planweave-acp-mock" })
     const session = sessions.get(ctx.params.sessionId);
     if (session) session.cancelled = true;
   })
-  .onRequest(methods.agent.session.close, (ctx) => {
+  .onRequest(methods.agent.session.close, async (ctx) => {
+    recordLifecycle("session/close");
+    if (scenario === "session-ready-with-agent-auth-close-pending") {
+      await new Promise(() => undefined);
+    }
     if (scenario === "close-capable-error") {
       throw RequestError.invalidParams({ reason: "scripted close failure" });
     }
@@ -491,7 +526,11 @@ const app = agent({ name: "planweave-acp-mock" })
     }
     if (scenario === "protocol-error")
       throw RequestError.invalidParams({ reason: "scripted protocol error" });
-    if (scenario === "stubborn-pending") {
+    if (
+      scenario === "stubborn-pending" ||
+      scenario === "term-exit-pending" ||
+      scenario === "root-exits-descendant-pending"
+    ) {
       await ctx.client.request("mock/pending", { sessionId });
     }
     if (scenario === "load-capable-stubborn-child") {

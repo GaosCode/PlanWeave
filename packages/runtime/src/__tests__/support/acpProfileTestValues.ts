@@ -17,6 +17,7 @@ export function acpProfileTestValues(launch: { command: string; args: readonly s
       env,
       availableNames: Object.keys(env)
     },
+    shutdown: { eofDrainMs: 25, terminateGraceMs: 25, cleanupDeadlineMs: 300 },
     launch
   };
 }

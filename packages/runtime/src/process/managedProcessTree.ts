@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams, type SpawnOptions } from "node:child_process";
+import { performance } from "node:perf_hooks";
 import {
   createWindowsJobOwnership,
   createWindowsProcessTreeAdapter,
@@ -28,6 +29,11 @@ export type ProcessTerminationResult = {
   reason: string;
 };
 
+export type ProcessTerminationOptions = {
+  graceMs?: number;
+  forceExitConfirmMs?: number;
+};
+
 /**
  * Runtime-owned handle for a PlanWeave-managed process tree root.
  * Callers depend only on this lifecycle contract, not on child_process internals.
@@ -38,8 +44,12 @@ export type ManagedProcessTree = {
   /** Resolves when the root child exits; it does not prove that descendants have exited. */
   readonly exited: Promise<void>;
   isAlive(): boolean;
+  /** Probe the owned process group / Job, including descendants after root exit. */
+  isTreeAlive(): Promise<boolean>;
+  /** Resolves true only when the whole owned tree is confirmed terminal within the window. */
+  awaitTreeExit(timeoutMs: number): Promise<boolean>;
   /** Graceful-then-force tree termination. Concurrent calls share one promise. */
-  terminate(reason: string): Promise<ProcessTerminationResult>;
+  terminate(reason: string, options?: ProcessTerminationOptions): Promise<ProcessTerminationResult>;
 };
 
 export type ManagedChildProcess = {
@@ -55,6 +65,8 @@ export type SpawnManagedProcessOptions = {
   env?: NodeJS.ProcessEnv;
   /** Grace between graceful and force signals. Default: DEFAULT_PROCESS_TREE_GRACE_MS. */
   graceMs?: number;
+  /** Maximum wait after force termination before reporting that the tree survived. */
+  forceExitConfirmMs?: number;
   /** Optional platform adapter override (tests). Default: host platform adapter. */
   adapter?: ProcessTreePlatformAdapter;
   /** Windows-only Job launch behavior. Default: suspended target with explicit Job assignment. */
@@ -71,6 +83,10 @@ export type ProcessTreePlatformAdapter = {
   signalForce(pid: number): void | Promise<void>;
   /** Probe whether the root pid still exists (ESRCH => false). */
   isAlive(pid: number): boolean;
+  /** Probe authoritative tree ownership (POSIX group / Windows Job), not only the root. */
+  isTreeAlive(pid: number): boolean | Promise<boolean>;
+  /** Wait for authoritative tree ownership to become empty. */
+  awaitTreeExit(pid: number, timeoutMs: number): Promise<boolean>;
 };
 
 export type FakeProcessTreeAdapterOptions = {
@@ -82,6 +98,10 @@ export type FakeProcessTreeAdapterOptions = {
   onForce?: (pid: number) => void | Promise<void>;
   /** Override liveness probe. */
   isAlive?: (pid: number) => boolean;
+  /** Override whole-tree liveness probe. Defaults to isAlive. */
+  isTreeAlive?: (pid: number) => boolean | Promise<boolean>;
+  /** Override whole-tree exit wait. Defaults to polling isTreeAlive. */
+  awaitTreeExit?: (pid: number, timeoutMs: number) => Promise<boolean>;
   /** Optional spawn configure (default: identity). */
   configureSpawn?: (options: SpawnOptions) => SpawnOptions;
 };
@@ -91,6 +111,19 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+async function pollTreeExit(
+  probe: () => boolean | Promise<boolean>,
+  timeoutMs: number
+): Promise<boolean> {
+  const expiresAt = performance.now() + Math.max(0, timeoutMs);
+  while (await probe()) {
+    const remaining = expiresAt - performance.now();
+    if (remaining <= 0) return false;
+    await sleep(Math.min(10, remaining));
+  }
+  return true;
 }
 
 function errnoCode(error: unknown): string | undefined {
@@ -127,6 +160,18 @@ function posixIsAlive(pid: number): boolean {
   }
 }
 
+function posixTreeIsAlive(pid: number): boolean {
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch (error) {
+    const code = errnoCode(error);
+    if (code === "ESRCH") return false;
+    if (code === "EPERM") return true;
+    throw error;
+  }
+}
+
 /**
  * Signal a POSIX process group owned by a detached child (pgid === pid).
  * Never accepts a pre-negated pid. Refuses same-pid-as-self.
@@ -157,7 +202,9 @@ export function createPosixProcessTreeAdapter(): ProcessTreePlatformAdapter {
     signalForce(pid) {
       signalPosixProcessGroup(pid, "SIGKILL");
     },
-    isAlive: posixIsAlive
+    isAlive: posixIsAlive,
+    isTreeAlive: posixTreeIsAlive,
+    awaitTreeExit: (pid, timeoutMs) => pollTreeExit(() => posixTreeIsAlive(pid), timeoutMs)
   };
 }
 
@@ -180,6 +227,15 @@ export function createFakeProcessTreeAdapter(
     },
     isAlive(pid) {
       return options.isAlive?.(pid) ?? false;
+    },
+    isTreeAlive(pid) {
+      return options.isTreeAlive?.(pid) ?? options.isAlive?.(pid) ?? false;
+    },
+    awaitTreeExit(pid, timeoutMs) {
+      return (
+        options.awaitTreeExit?.(pid, timeoutMs) ??
+        pollTreeExit(() => options.isTreeAlive?.(pid) ?? options.isAlive?.(pid) ?? false, timeoutMs)
+      );
     }
   };
 }
@@ -206,8 +262,9 @@ function createManagedProcessTree(options: {
   child: ChildProcessWithoutNullStreams;
   adapter: ProcessTreePlatformAdapter;
   graceMs: number;
+  forceExitConfirmMs: number;
 }): ManagedProcessTree {
-  const { pid, child, adapter, graceMs } = options;
+  const { pid, child, adapter, graceMs, forceExitConfirmMs } = options;
   const exited = waitForChildExit(child);
   let terminationPromise: Promise<ProcessTerminationResult> | undefined;
 
@@ -218,40 +275,33 @@ function createManagedProcessTree(options: {
     return adapter.isAlive(pid);
   };
 
-  const waitForForcedExit = async (reason: string): Promise<void> => {
+  const isTreeAlive = (): Promise<boolean> =>
+    Promise.resolve(adapter.isTreeAlive?.(pid) ?? adapter.isAlive(pid));
+
+  const awaitTreeExit = (timeoutMs: number): Promise<boolean> =>
+    adapter.awaitTreeExit?.(pid, timeoutMs) ?? pollTreeExit(isTreeAlive, timeoutMs);
+
+  const waitForForcedExit = async (reason: string, confirmMs: number): Promise<void> => {
     const didNotExitError = (): Error =>
       new Error(
         `Managed process tree pid=${String(pid)} did not exit after force termination (${reason}).`
       );
 
-    await Promise.race([
-      exited,
-      sleep(graceMs).then(() => {
-        if (isAlive()) {
-          throw didNotExitError();
-        }
-      })
-    ]);
-
-    if (isAlive()) {
-      throw didNotExitError();
-    }
+    if (!(await awaitTreeExit(confirmMs))) throw didNotExitError();
     await exited;
   };
 
-  const terminate = (reason: string): Promise<ProcessTerminationResult> => {
+  const terminate = (
+    reason: string,
+    terminationOptions: ProcessTerminationOptions = {}
+  ): Promise<ProcessTerminationResult> => {
     if (!terminationPromise) {
       terminationPromise = (async (): Promise<ProcessTerminationResult> => {
-        const rootWasAlive = isAlive();
+        const effectiveGraceMs = terminationOptions.graceMs ?? graceMs;
+        const effectiveConfirmMs = terminationOptions.forceExitConfirmMs ?? forceExitConfirmMs;
+        const treeWasAlive = await isTreeAlive();
 
-        if (!rootWasAlive) {
-          try {
-            await adapter.signalForce(pid);
-          } catch (error) {
-            if (errnoCode(error) !== "ESRCH") {
-              throw error;
-            }
-          }
+        if (!treeWasAlive) {
           await exited;
           return { outcome: "already_exited", reason };
         }
@@ -279,15 +329,17 @@ function createManagedProcessTree(options: {
             }
             throw forceError;
           }
-          await waitForForcedExit(reason);
+          await waitForForcedExit(reason, effectiveConfirmMs);
           return {
             outcome: rootExitedBeforeGraceful ? "graceful" : "forced",
             reason
           };
         }
 
-        // Fixed grace window so SIGTERM-resistant descendants can be force-reaped next.
-        await sleep(graceMs);
+        if (await awaitTreeExit(effectiveGraceMs)) {
+          await exited;
+          return { outcome: "graceful", reason };
+        }
         const rootExitedDuringGrace = !isAlive();
 
         // Always force the managed tree after grace. Root may already be gone while a
@@ -301,7 +353,7 @@ function createManagedProcessTree(options: {
           }
         }
 
-        await waitForForcedExit(reason);
+        await waitForForcedExit(reason, effectiveConfirmMs);
         return {
           outcome: rootExitedDuringGrace ? "graceful" : "forced",
           reason
@@ -315,6 +367,8 @@ function createManagedProcessTree(options: {
     pid,
     exited,
     isAlive,
+    isTreeAlive,
+    awaitTreeExit,
     terminate
   };
 }
@@ -326,9 +380,15 @@ function createManagedProcessTree(options: {
 export function spawnManagedProcess(options: SpawnManagedProcessOptions): ManagedChildProcess {
   let adapter = options.adapter ?? defaultAdapter;
   const graceMs = options.graceMs ?? DEFAULT_PROCESS_TREE_GRACE_MS;
+  const forceExitConfirmMs = options.forceExitConfirmMs ?? graceMs;
   if (!Number.isFinite(graceMs) || graceMs < 0) {
     throw new Error(
       `Managed process graceMs must be a non-negative number; got ${String(graceMs)}`
+    );
+  }
+  if (!Number.isFinite(forceExitConfirmMs) || forceExitConfirmMs < 0) {
+    throw new Error(
+      `Managed process forceExitConfirmMs must be a non-negative number; got ${String(forceExitConfirmMs)}`
     );
   }
 
@@ -363,13 +423,15 @@ export function spawnManagedProcess(options: SpawnManagedProcessOptions): Manage
       pid: -1,
       exited: waitForChildExit(child),
       isAlive: () => false,
+      isTreeAlive: async () => false,
+      awaitTreeExit: async () => true,
       terminate: async (reason) => ({ outcome: "already_exited", reason })
     };
     return { child, tree: failedTree };
   }
 
   assertSafeManagedPid(pid);
-  const tree = createManagedProcessTree({ pid, child, adapter, graceMs });
+  const tree = createManagedProcessTree({ pid, child, adapter, graceMs, forceExitConfirmMs });
   return { child, tree };
 }
 
@@ -379,12 +441,15 @@ export function attachManagedProcessTree(options: {
   pid: number;
   adapter: ProcessTreePlatformAdapter;
   graceMs?: number;
+  forceExitConfirmMs?: number;
 }): ManagedProcessTree {
   assertSafeManagedPid(options.pid);
   return createManagedProcessTree({
     pid: options.pid,
     child: options.child,
     adapter: options.adapter,
-    graceMs: options.graceMs ?? DEFAULT_PROCESS_TREE_GRACE_MS
+    graceMs: options.graceMs ?? DEFAULT_PROCESS_TREE_GRACE_MS,
+    forceExitConfirmMs:
+      options.forceExitConfirmMs ?? options.graceMs ?? DEFAULT_PROCESS_TREE_GRACE_MS
   });
 }

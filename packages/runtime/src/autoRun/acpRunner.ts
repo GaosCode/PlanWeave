@@ -450,6 +450,7 @@ export function createAcpRunner(options?: {
               environmentNames: resolved.profile.environment.map((entry) => entry.name)
             },
             environment: resolved.environment,
+            shutdown: resolved.profile.shutdown,
             authenticationHints: definition.acp.authentication,
             executorName: input.executorName,
             agentId: resolved.profile.agentId,
@@ -525,6 +526,7 @@ export function createAcpRunner(options?: {
             environmentNames: resolved.profile.environment.map((entry) => entry.name)
           },
           environment: resolved.environment,
+          shutdown: resolved.profile.shutdown,
           authenticationHints: definition.acp.authentication,
           executorName: input.executorName,
           agentId: resolved.profile.agentId,

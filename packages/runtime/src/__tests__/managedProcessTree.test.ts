@@ -181,11 +181,8 @@ describe("managedProcessTree contract (fake adapter)", () => {
     const result = await first;
     expect(result).toEqual({ outcome: "graceful", reason: "timeout" });
     expect(gracefulCalls).toBe(1);
-    expect(forceCalls).toBe(1);
-    expect(signals).toEqual([
-      { kind: "graceful", pid: 42_424 },
-      { kind: "force", pid: 42_424 }
-    ]);
+    expect(forceCalls).toBe(0);
+    expect(signals).toEqual([{ kind: "graceful", pid: 42_424 }]);
   });
 
   it("escalates to force when the tree ignores graceful termination", async () => {
@@ -265,7 +262,7 @@ describe("managedProcessTree contract (fake adapter)", () => {
       outcome: "already_exited",
       reason: "dispose"
     });
-    expect(signals).toEqual([{ kind: "force", pid: 77_001 }]);
+    expect(signals).toEqual([]);
   });
 
   it("surfaces real EPERM from the graceful signal path", async () => {

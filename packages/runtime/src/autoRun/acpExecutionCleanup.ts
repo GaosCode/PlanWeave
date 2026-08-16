@@ -1,3 +1,5 @@
+import { performance } from "node:perf_hooks";
+
 export class AcpCleanupTimeoutError extends Error {
   constructor(step: string) {
     super(`ACP ${step} exceeded the cleanup deadline.`);
@@ -5,24 +7,40 @@ export class AcpCleanupTimeoutError extends Error {
   }
 }
 
-export async function withinAcpCleanupDeadline<T>(
-  operation: Promise<T>,
-  deadline: number,
-  step: string,
-  stepLimitMs?: number
-): Promise<T> {
-  const remaining = Math.max(0, deadline - Date.now());
-  const timeoutMs = Math.min(remaining, stepLimitMs ?? remaining);
-  if (timeoutMs <= 0) throw new AcpCleanupTimeoutError(step);
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      operation,
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new AcpCleanupTimeoutError(step)), timeoutMs);
-      })
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
+export type AcpCleanupDeadline = {
+  readonly expiresAt: number;
+  remainingMs(): number;
+};
+
+export function createAcpCleanupDeadline(
+  timeoutMs: number,
+  now: () => number = () => performance.now()
+): AcpCleanupDeadline {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+    throw new Error("ACP cleanup deadline must be a positive integer.");
+  }
+  const expiresAt = now() + timeoutMs;
+  return Object.freeze({
+    expiresAt,
+    remainingMs: () => Math.max(0, Math.ceil(expiresAt - now()))
+  });
+}
+
+export class AcpCleanupSequencer {
+  constructor(readonly deadline: AcpCleanupDeadline) {}
+
+  remaining(step: string, stepLimitMs?: number): number {
+    const remaining = this.deadline.remainingMs();
+    const timeoutMs = Math.min(remaining, stepLimitMs ?? remaining);
+    if (timeoutMs <= 0) throw new AcpCleanupTimeoutError(step);
+    return timeoutMs;
+  }
+
+  run<T>(
+    step: string,
+    operation: (timeoutMs: number) => Promise<T>,
+    stepLimitMs?: number
+  ): Promise<T> {
+    return operation(this.remaining(step, stepLimitMs));
   }
 }

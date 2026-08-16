@@ -11,6 +11,7 @@ import {
 import {
   ACP_SDK_AUTHORITY,
   executeAcp,
+  DEFAULT_ACP_SHUTDOWN_POLICY,
   planWeaveAcpExecutionAuthentication,
   type AcpEngineEvent,
   type AcpEngineResult
@@ -190,7 +191,6 @@ async function runHostExecutor(
     limits: {
       operationTimeoutMs: 120_000,
       interactionTimeoutMs: 5_000,
-      cleanupTimeoutMs: 10_000,
       outputMaxBytes: 256 * 1024
     }
   });
@@ -275,6 +275,7 @@ async function runCancellation(
       name: "PlanWeave Real ACP Smoke Cancel",
       version: agentHostPackageVersion
     },
+    shutdown: DEFAULT_ACP_SHUTDOWN_POLICY,
     prompt:
       "PlanWeave cancellation check. Keep the turn open with a long reasoned reply. Do not use tools or touch files.",
     sessionStart: { kind: "new" },
@@ -294,7 +295,6 @@ async function runCancellation(
     limits: {
       operationTimeoutMs: 30_000,
       interactionTimeoutMs: 3_000,
-      cleanupTimeoutMs: 10_000,
       promptMaxBytes: 64 * 1024,
       eventMaxBytes: 1_048_576,
       outputMaxBytes: 64 * 1024,

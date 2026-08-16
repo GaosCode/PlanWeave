@@ -208,6 +208,7 @@ export type ResolvedAgentHostAcpProfile = {
   agentId: string;
   launch: Omit<ExecuteAcpOptions["launch"], "trusted">;
   env: Readonly<Record<string, string>>;
+  shutdown: ExecuteAcpOptions["shutdown"];
   authentication?: ExecuteAcpOptions["authentication"];
   session?: AgentHostAcpSessionProfile;
 };

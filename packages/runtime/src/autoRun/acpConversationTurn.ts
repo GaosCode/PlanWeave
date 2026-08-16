@@ -6,7 +6,7 @@ import { prepareExecutionHostInvocation } from "../process/wslExecutionHost.js";
 import {
   createAcpConnection,
   type AcpConnection,
-  type AcpOperationOptions,
+  type AcpDisposeOptions,
   type CreateAcpConnectionOptions
 } from "./acpConnection.js";
 import {
@@ -26,6 +26,7 @@ import {
   type AcpConversationTurnState
 } from "./acpConversationTurnContract.js";
 import { normalizeAcpSessionNotification } from "./acpEventNormalization.js";
+import { AcpCleanupSequencer, createAcpCleanupDeadline } from "./acpExecutionCleanup.js";
 import type { AcpCompletedConversationWriter } from "./acpEventStore.js";
 import {
   normalizedRedactedContent,
@@ -37,7 +38,7 @@ import { redactAcpProtocolPayload, redactRunnerEventText } from "./runnerEventRe
 export type AcpConversationTurnConnection = Pick<
   AcpConnection,
   "initialize" | "authenticate" | "loadSession" | "prompt" | "cancel"
-> & { dispose(options?: AcpOperationOptions): Promise<void> };
+> & { dispose(options?: AcpDisposeOptions): Promise<void> };
 
 export type AcpConversationTurnConnectionOptions = Pick<
   CreateAcpConnectionOptions,
@@ -53,6 +54,7 @@ export type AcpConversationTurnConnectionOptions = Pick<
   | "onElicitationRequest"
   | "observer"
   | "defaultTimeoutMs"
+  | "shutdown"
 >;
 
 export type AcpConversationTurnInput = {
@@ -324,26 +326,13 @@ export class AcpConversationTurnCoordinator {
   private async dispatchCancellation(turn: ActiveConversationTurn): Promise<void> {
     if (turn.sessionLoaded && turn.connection) {
       const dispatchMs = Math.min(500, turn.input.profile.shutdown.cleanupDeadlineMs);
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      let settled = false;
-      const dispatch = turn.connection
-        .cancel({ sessionId: turn.input.identity.sessionId })
-        .then(() => {
-          settled = true;
-        })
-        .catch((error) => {
-          settled = true;
-          turn.cancellationDiagnostic = `ACP continuation cancel notification failed: ${diagnostic(error)}`;
-        });
-      await Promise.race([
-        dispatch,
-        new Promise<void>((resolve) => {
-          timer = setTimeout(resolve, dispatchMs);
-        })
-      ]);
-      if (timer) clearTimeout(timer);
-      if (!settled) {
-        turn.cancellationDiagnostic = `ACP continuation cancel notification exceeded its ${dispatchMs}ms dispatch window.`;
+      try {
+        await turn.connection.cancel(
+          { sessionId: turn.input.identity.sessionId },
+          { timeoutMs: dispatchMs }
+        );
+      } catch (error) {
+        turn.cancellationDiagnostic = `ACP continuation cancel notification failed: ${diagnostic(error)}`;
       }
     }
     turn.controller.abort(new AcpConversationTurnCancelledError());
@@ -385,6 +374,7 @@ export class AcpConversationTurnCoordinator {
         ? { cleanupExitedProcessTree: preparedLaunch.cleanupExitedProcessTree }
         : {}),
       clientInfo: { name: "planweave", version: "1" },
+      shutdown: input.profile.shutdown,
       onSessionUpdate: async (notification: SessionNotification) => {
         if (!persistNotifications || notification.sessionId !== input.identity.sessionId) return;
         const normalized = normalizeAcpSessionNotification(notification);
@@ -499,16 +489,13 @@ export class AcpConversationTurnCoordinator {
     } finally {
       turn.phase = "cleaning";
       await this.notify(input.key);
-      const cleanupController = new AbortController();
-      const cleanupTimer = setTimeout(
-        () => cleanupController.abort(new Error("ACP conversation turn cleanup deadline elapsed.")),
-        input.profile.shutdown.cleanupDeadlineMs
+      const cleanup = new AcpCleanupSequencer(
+        createAcpCleanupDeadline(input.profile.shutdown.cleanupDeadlineMs)
       );
       try {
-        await connection.dispose({
-          signal: cleanupController.signal,
-          timeoutMs: input.profile.shutdown.cleanupDeadlineMs
-        });
+        await cleanup.run("conversation turn disposal", (timeoutMs) =>
+          connection.dispose({ timeoutMs, cleanupDeadline: cleanup.deadline })
+        );
       } catch (cleanupError) {
         secondaryErrors.push(cleanupError);
         try {
@@ -521,8 +508,6 @@ export class AcpConversationTurnCoordinator {
         } catch (diagnosticError) {
           secondaryErrors.push(diagnosticError);
         }
-      } finally {
-        clearTimeout(cleanupTimer);
       }
     }
     if (executionError !== undefined) {

@@ -13,7 +13,7 @@ import {
   acpAgentIdSchema,
   acpProfileCanonicalKey,
   acpProfileDescriptorSchema,
-  acpShutdownPolicyFromLegacyGraceMs,
+  DEFAULT_ACP_SHUTDOWN_POLICY,
   type AcpCapabilityPolicy,
   type AcpConnectionPolicy,
   type AcpEnvironmentRequirement,
@@ -185,7 +185,7 @@ function builtinDescriptors(host: ExecutionHost): readonly AcpProfileDescriptor[
           args: definition.acp.launch.args
         },
         environment: builtinEnvironment[definition.agent] ?? [],
-        shutdown: acpShutdownPolicyFromLegacyGraceMs(),
+        shutdown: DEFAULT_ACP_SHUTDOWN_POLICY,
         capabilities: {
           required: definition.acp.capabilities,
           optional: definition.acp.optionalCapabilities

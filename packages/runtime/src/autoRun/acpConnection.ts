@@ -28,8 +28,19 @@ import {
   type TerminalOutputRequest,
   type TerminalOutputResponse
 } from "@agentclientprotocol/sdk";
-import { spawnManagedProcess, type ManagedProcessTree } from "../process/managedProcessTree.js";
+import {
+  spawnManagedProcess,
+  type ManagedProcessTree,
+  type ProcessTerminationOptions
+} from "../process/managedProcessTree.js";
+import {
+  ACP_FORCE_EXIT_CONFIRM_MS,
+  acpShutdownPolicySchema,
+  type AcpShutdownPolicy
+} from "../acpProfile/schema.js";
 import type { LivePendingOperationHandle } from "./liveControl.js";
+import { createAcpCleanupDeadline, type AcpCleanupDeadline } from "./acpExecutionCleanup.js";
+import { shutdownAcpProcess } from "./acpProcessShutdown.js";
 import {
   AcpProtocolError,
   createGuardedAcpStream,
@@ -82,7 +93,11 @@ export type TrustedAcpLaunch = {
 export type AcpOperationOptions = {
   signal?: AbortSignal;
   timeoutMs?: number;
+  /** Shared monotonic cleanup boundary for cleanup-phase protocol operations. */
+  cleanupDeadline?: AcpCleanupDeadline;
 };
+
+export type AcpDisposeOptions = AcpOperationOptions;
 
 export type AcpConnection = {
   readonly processId: number | null;
@@ -105,7 +120,7 @@ export type AcpConnection = {
     options?: AcpOperationOptions
   ): Promise<LoadSessionResponse>;
   prompt(request: PromptRequest, options?: AcpOperationOptions): Promise<PromptResponse>;
-  cancel(notification: CancelNotification): Promise<void>;
+  cancel(notification: CancelNotification, options?: AcpOperationOptions): Promise<void>;
   closeSession(sessionId: string, options?: AcpOperationOptions): Promise<CloseSessionResponse>;
   setSessionMode(
     request: SetSessionModeRequest,
@@ -115,7 +130,7 @@ export type AcpConnection = {
     request: SetSessionConfigOptionRequest,
     options?: AcpOperationOptions
   ): Promise<SetSessionConfigOptionResponse>;
-  dispose(options?: AcpOperationOptions): Promise<void>;
+  dispose(options?: AcpDisposeOptions): Promise<void>;
 };
 
 export type CreateAcpConnectionOptions = {
@@ -125,7 +140,7 @@ export type CreateAcpConnectionOptions = {
   spawnCwd?: string | null;
   env: Readonly<Record<string, string>>;
   decorateProcessTree?: (tree: ManagedProcessTree) => ManagedProcessTree;
-  cleanupExitedProcessTree?: () => Promise<void>;
+  cleanupExitedProcessTree?: (options?: ProcessTerminationOptions) => Promise<void>;
   clientInfo: { name: string; version: string };
   clientCapabilities?: Parameters<ClientSideConnection["initialize"]>[0]["clientCapabilities"];
   onSessionUpdate?: (notification: SessionNotification) => void | Promise<void>;
@@ -140,7 +155,7 @@ export type CreateAcpConnectionOptions = {
   ) => CreateElicitationResponse | Promise<CreateElicitationResponse>;
   observer?: AcpProtocolObserver;
   defaultTimeoutMs?: number;
-  shutdownGraceMs?: number;
+  shutdown: AcpShutdownPolicy;
   maxInboundMessageBytes?: number;
   maxStderrBytes?: number;
 };
@@ -148,7 +163,6 @@ export type CreateAcpConnectionOptions = {
 export const DEFAULT_ACP_OPERATION_TIMEOUT_MS = 30_000;
 export const DEFAULT_ACP_INBOUND_MESSAGE_MAX_BYTES = 1_048_576;
 export const DEFAULT_ACP_STDERR_MAX_BYTES = 1_048_576;
-const DEFAULT_SHUTDOWN_GRACE_MS = 100;
 
 function validateSpawnOptions(options: CreateAcpConnectionOptions): void {
   if (options.launch.trusted !== true) throw new Error("ACP command is not trusted.");
@@ -206,6 +220,7 @@ class SubprocessAcpConnection implements AcpConnection {
   private initialized = false;
   private terminalError: Error | undefined;
   private disposePromise: Promise<void> | undefined;
+  private readonly settlingOperations = new Set<Promise<unknown>>();
   private readonly livePendingOperations = new Map<string, LivePendingOperationHandle>();
   private nextOperationId = 1;
   private stderrBytes = 0;
@@ -228,13 +243,15 @@ class SubprocessAcpConnection implements AcpConnection {
 
   constructor(options: CreateAcpConnectionOptions) {
     validateSpawnOptions(options);
-    this.options = options;
+    this.options = { ...options, shutdown: acpShutdownPolicySchema.parse(options.shutdown) };
+    const shutdown = this.options.shutdown;
     const managed = spawnManagedProcess({
       command: options.launch.command,
       args: options.launch.args,
       cwd: options.spawnCwd === null ? undefined : (options.spawnCwd ?? options.cwd),
       env: { ...options.env },
-      graceMs: options.shutdownGraceMs ?? DEFAULT_SHUTDOWN_GRACE_MS
+      graceMs: shutdown.terminateGraceMs,
+      forceExitConfirmMs: ACP_FORCE_EXIT_CONFIRM_MS
     });
     this.process = managed.child;
     this.processTree = options.decorateProcessTree?.(managed.tree) ?? managed.tree;
@@ -351,8 +368,9 @@ class SubprocessAcpConnection implements AcpConnection {
     return this.runOperation("session/prompt", () => this.sdk.prompt(request), options);
   }
 
-  cancel(notification: CancelNotification): Promise<void> {
-    return this.sdk.cancel(notification);
+  cancel(notification: CancelNotification, options?: AcpOperationOptions): Promise<void> {
+    if (this.terminalError) return Promise.resolve();
+    return this.runOperation("session/cancel", () => this.sdk.cancel(notification), options);
   }
 
   closeSession(sessionId: string, options?: AcpOperationOptions): Promise<CloseSessionResponse> {
@@ -380,9 +398,11 @@ class SubprocessAcpConnection implements AcpConnection {
     );
   }
 
-  dispose(options?: AcpOperationOptions): Promise<void> {
-    this.disposePromise ??= this.disposeProcess();
-    if (!options) return this.disposePromise;
+  dispose(options?: AcpDisposeOptions): Promise<void> {
+    this.disposePromise ??= this.disposeProcess(
+      options?.cleanupDeadline ?? createAcpCleanupDeadline(this.options.shutdown.cleanupDeadlineMs)
+    );
+    if (!options || options.cleanupDeadline) return this.disposePromise;
     return this.waitForDisposal(this.disposePromise, options);
   }
 
@@ -434,19 +454,19 @@ class SubprocessAcpConnection implements AcpConnection {
     });
     const abort = (): void => {
       const error = asError(options?.signal?.reason, `ACP ${name} aborted.`);
-      this.terminate(error);
+      this.terminate(error, options?.cleanupDeadline);
       rejectBoundary?.(error);
     };
     options?.signal?.addEventListener("abort", abort, { once: true });
     const timer = setTimeout(() => {
       const error = new AcpOperationTimeoutError(name, timeoutMs);
-      this.terminate(error);
+      this.terminate(error, options?.cleanupDeadline);
       rejectBoundary?.(error);
     }, timeoutMs);
     const operationId = `ACP-OP-${String(this.nextOperationId++).padStart(4, "0")}`;
     const rejectOperation = async (reason: string): Promise<void> => {
       const error = new Error(reason);
-      this.terminate(error);
+      this.terminate(error, options?.cleanupDeadline);
       rejectBoundary?.(error);
     };
     try {
@@ -455,7 +475,13 @@ class SubprocessAcpConnection implements AcpConnection {
         operation: name,
         reject: rejectOperation
       });
-      return await Promise.race([operation(), boundary]);
+      const operationPromise = operation();
+      this.settlingOperations.add(operationPromise);
+      void operationPromise.then(
+        () => this.settlingOperations.delete(operationPromise),
+        () => this.settlingOperations.delete(operationPromise)
+      );
+      return await Promise.race([operationPromise, boundary]);
     } finally {
       this.livePendingOperations.delete(operationId);
       clearTimeout(timer);
@@ -463,36 +489,59 @@ class SubprocessAcpConnection implements AcpConnection {
     }
   }
 
-  private terminate(error: Error): void {
+  private terminate(error: Error, cleanupDeadline?: AcpCleanupDeadline): void {
     this.terminalError ??= error;
     if (!this.process.stdin.destroyed) this.process.stdin.destroy(error);
     if (!this.process.stdout.destroyed) this.process.stdout.destroy(error);
-    void this.dispose();
+    void this.dispose(cleanupDeadline ? { cleanupDeadline } : undefined);
   }
 
-  private async disposeProcess(): Promise<void> {
-    if (!this.process.stdin.destroyed && !this.process.stdin.writableEnded)
-      this.process.stdin.end();
-    if (await this.waitForExit()) {
-      await this.options.cleanupExitedProcessTree?.();
-      return;
-    }
-    await this.processTree.terminate("acp-dispose");
-    if (!(await this.waitForExit())) {
-      throw new Error(
-        `ACP process ${String(this.process.pid)} did not exit after process-tree termination.`
-      );
+  private async disposeProcess(deadline: AcpCleanupDeadline): Promise<void> {
+    await shutdownAcpProcess({
+      policy: this.options.shutdown,
+      deadline,
+      closeInput: () => {
+        if (!this.process.stdin.destroyed && !this.process.stdin.writableEnded) {
+          this.process.stdin.end();
+        }
+      },
+      waitForRootExit: (timeoutMs) => this.waitForExit(timeoutMs),
+      processTree: this.processTree,
+      ...(this.options.cleanupExitedProcessTree
+        ? { cleanupExitedProcessTree: this.options.cleanupExitedProcessTree }
+        : {})
+    });
+    await this.settleOperations();
+    this.assertShutdownDeadline(deadline, "forced process-tree cleanup");
+  }
+
+  private async settleOperations(): Promise<void> {
+    if (this.settlingOperations.size > 0) {
+      await Promise.allSettled([...this.settlingOperations]);
     }
   }
 
-  private waitForExit(): Promise<boolean> {
+  private assertShutdownDeadline(deadline: AcpCleanupDeadline, stage: string): void {
+    if (deadline.remainingMs() <= 0) {
+      throw new Error(`ACP ${stage} exceeded the configured cleanup deadline.`);
+    }
+  }
+
+  private waitForExit(waitMs: number): Promise<boolean> {
     if (this.process.exitCode !== null || this.process.signalCode !== null)
       return Promise.resolve(true);
-    const graceMs = this.options.shutdownGraceMs ?? DEFAULT_SHUTDOWN_GRACE_MS;
-    return Promise.race([
-      new Promise<true>((resolve) => this.process.once("exit", () => resolve(true))),
-      new Promise<false>((resolve) => setTimeout(() => resolve(false), graceMs))
-    ]);
+    if (waitMs <= 0) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      const exited = (): void => {
+        clearTimeout(timer);
+        resolve(true);
+      };
+      const timer = setTimeout(() => {
+        this.process.off("exit", exited);
+        resolve(false);
+      }, waitMs);
+      this.process.once("exit", exited);
+    });
   }
 }
 

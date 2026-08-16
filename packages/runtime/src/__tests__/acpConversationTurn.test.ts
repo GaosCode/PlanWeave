@@ -7,7 +7,7 @@ import {
 } from "../autoRun/acpConversationTurn.js";
 import { acpConversationTurnIdentitySchema } from "../autoRun/acpConversationTurnContract.js";
 import type { NormalizedRunnerEvent } from "../autoRun/normalizedEventContract.js";
-import type { AcpOperationOptions } from "../autoRun/acpConnection.js";
+import type { AcpDisposeOptions, AcpOperationOptions } from "../autoRun/acpConnection.js";
 
 const { execFileMock } = vi.hoisted(() => ({ execFileMock: vi.fn() }));
 
@@ -48,7 +48,7 @@ function createHarness(
   let releaseDispose: (() => void) | null = null;
   let connectionOptions: AcpConversationTurnConnectionOptions | null = null;
   const operationSignals: AbortSignal[] = [];
-  let cleanupSignal: AbortSignal | undefined;
+  let cleanupOptions: AcpDisposeOptions | undefined;
   let held = false;
   const hold = async (
     phase: NonNullable<typeof options.holdAt>,
@@ -110,7 +110,7 @@ function createHarness(
     }),
     dispose: vi.fn(async (operation) => {
       operationOrder.push("dispose");
-      cleanupSignal = operation?.signal;
+      cleanupOptions = operation;
       if (options.holdDispose) {
         await new Promise<void>((resolve) => {
           releaseDispose = resolve;
@@ -169,7 +169,7 @@ function createHarness(
     input,
     releasePrompt: () => releasePrompt?.(),
     releaseDispose: () => releaseDispose?.(),
-    cleanupSignal: () => cleanupSignal
+    cleanupOptions: () => cleanupOptions
   };
 }
 
@@ -219,6 +219,7 @@ describe("ACP conversation turn", () => {
 
     const connectionOptions = harness.connect.mock.calls[0]?.[0];
     expect(connectionOptions?.cleanupExitedProcessTree).toBeUndefined();
+    expect(connectionOptions?.shutdown).toEqual(harness.input.profile.shutdown);
   });
 
   it("loads the existing session and appends only the new turn", async () => {
@@ -374,9 +375,8 @@ describe("ACP conversation turn", () => {
       await expect(sending).resolves.toMatchObject({ terminal: "cancelled" });
       expect(harness.connection.cancel).toHaveBeenCalledTimes(phase === "prompt" ? 1 : 0);
       expect(harness.connection.dispose).toHaveBeenCalledOnce();
-      expect(harness.cleanupSignal()).toBeInstanceOf(AbortSignal);
-      expect(harness.cleanupSignal()).not.toBe(harness.operationSignals[0]);
-      expect(harness.cleanupSignal()?.aborted).toBe(false);
+      expect(harness.cleanupOptions()?.cleanupDeadline).toBeDefined();
+      expect(harness.cleanupOptions()?.timeoutMs).toBeGreaterThan(0);
       expect(new Set(harness.operationSignals).size).toBe(1);
     });
   }
@@ -421,8 +421,8 @@ describe("ACP conversation turn", () => {
     expect(harness.operationOrder.indexOf("cancel-dispatched")).toBeLessThan(
       harness.operationOrder.indexOf("dispose")
     );
-    expect(harness.cleanupSignal()).not.toBe(operationSignal);
-    expect(harness.cleanupSignal()?.aborted).toBe(false);
+    expect(harness.cleanupOptions()?.cleanupDeadline).toBeDefined();
+    expect(harness.cleanupOptions()?.timeoutMs).toBeGreaterThan(0);
   });
 
   it("rejects cancellation atomically after prompting completed and cleanup started", async () => {

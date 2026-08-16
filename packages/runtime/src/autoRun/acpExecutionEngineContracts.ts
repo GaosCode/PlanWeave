@@ -12,6 +12,7 @@ import type {
   TrustedAcpLaunch
 } from "./acpConnection.js";
 import type { AcpNormalizedEventBody } from "./acpEventNormalization.js";
+import type { AcpShutdownPolicy } from "../acpProfile/schema.js";
 
 const positiveSafeInteger = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 
@@ -19,7 +20,6 @@ export const acpExecutionLimitsSchema = z
   .object({
     operationTimeoutMs: positiveSafeInteger,
     interactionTimeoutMs: positiveSafeInteger,
-    cleanupTimeoutMs: positiveSafeInteger,
     promptMaxBytes: positiveSafeInteger,
     eventMaxBytes: positiveSafeInteger,
     outputMaxBytes: positiveSafeInteger,
@@ -32,7 +32,6 @@ export type AcpExecutionLimits = z.infer<typeof acpExecutionLimitsSchema>;
 export const DEFAULT_ACP_EXECUTION_LIMITS: AcpExecutionLimits = {
   operationTimeoutMs: 30_000,
   interactionTimeoutMs: 30_000,
-  cleanupTimeoutMs: 5_000,
   promptMaxBytes: 1_048_576,
   eventMaxBytes: 1_048_576,
   outputMaxBytes: 8_388_608,
@@ -232,6 +231,7 @@ export type ExecuteAcpOptions = {
   readonly workspace: AcpPreparedWorkspace;
   readonly env: Readonly<Record<string, string>>;
   readonly clientInfo: { readonly name: string; readonly version: string };
+  readonly shutdown: AcpShutdownPolicy;
   readonly prompt: string;
   readonly sessionStart: AcpEngineSessionStart;
   readonly sessionLoadUnsupportedMessage?: string;

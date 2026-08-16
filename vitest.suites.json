@@ -389,6 +389,7 @@
         "acpConversationProjection.test.ts",
         "acpConversationTurn.test.ts",
         "acpGrokLiveSmokeAuthGuard.test.ts",
+        "acpProcessShutdown.test.ts",
         "acpProfileResolver.test.ts",
         "acpProfileSchema.test.ts",
         "acpRunRecovery.test.ts",

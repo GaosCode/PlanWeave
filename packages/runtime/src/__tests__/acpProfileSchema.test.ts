@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   acpProfileCatalogSchema,
   acpProfileDescriptorSchema,
-  acpShutdownPolicyFromLegacyGraceMs,
   acpShutdownPolicySchema,
-  agentEnvironmentContractSchema
+  agentEnvironmentContractSchema,
+  DEFAULT_ACP_SHUTDOWN_POLICY
 } from "../acpProfile/schema.js";
 import { executorProfileSchema } from "../types/executor.js";
 
@@ -156,20 +156,26 @@ describe("ACP profile schemas", () => {
     ).toThrow();
   });
 
-  it("enforces bounded shutdown stages and provides a legacy compatibility adapter", () => {
-    expect(acpShutdownPolicyFromLegacyGraceMs()).toEqual({
-      eofDrainMs: 100,
-      terminateGraceMs: 100,
-      cleanupDeadlineMs: 1_000
+  it("enforces bounded shutdown stages and a force-exit confirmation reserve", () => {
+    expect(DEFAULT_ACP_SHUTDOWN_POLICY).toEqual({
+      eofDrainMs: 250,
+      terminateGraceMs: 500,
+      cleanupDeadlineMs: 1_500
     });
     expect(() =>
       acpShutdownPolicySchema.parse({
         eofDrainMs: 600,
         terminateGraceMs: 600,
-        cleanupDeadlineMs: 1_000
+        cleanupDeadlineMs: 1_300
       })
     ).toThrow("cover");
-    expect(() => acpShutdownPolicyFromLegacyGraceMs(0)).toThrow();
+    expect(() =>
+      acpShutdownPolicySchema.parse({
+        eofDrainMs: 9,
+        terminateGraceMs: 500,
+        cleanupDeadlineMs: 1_500
+      })
+    ).toThrow();
   });
 
   it("keeps the environment contract name-only and unique", () => {

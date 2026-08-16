@@ -24,8 +24,9 @@ import {
 } from "./acpConnection.js";
 import { normalizeAcpSessionNotification } from "./acpEventNormalization.js";
 import { normalizedRedactedContent } from "./normalizedEventContract.js";
-import { withinAcpCleanupDeadline } from "./acpExecutionCleanup.js";
+import { AcpCleanupSequencer, createAcpCleanupDeadline } from "./acpExecutionCleanup.js";
 import { assistantTextChunk } from "./acpExecutionOutput.js";
+import { acpShutdownPolicySchema } from "../acpProfile/schema.js";
 import {
   AcpEngineInteractionError,
   createAcpExecutionInteractionHandlers
@@ -159,6 +160,7 @@ async function executeAcpOutcome(
 ): Promise<{ result: AcpEngineResult; cause: unknown }> {
   if (!isAbsolute(options.workspace.cwd)) throw new Error("ACP workspace cwd must be absolute.");
   const sessionStart = acpEngineSessionStartSchema.parse(options.sessionStart);
+  const shutdown = acpShutdownPolicySchema.parse(options.shutdown);
   const limits = acpExecutionLimitsSchema.parse({
     ...DEFAULT_ACP_EXECUTION_LIMITS,
     ...options.limits
@@ -273,6 +275,7 @@ async function executeAcpOutcome(
       cwd: options.workspace.cwd,
       env: options.env,
       clientInfo: options.clientInfo,
+      shutdown,
       ...(options.interactionBroker?.advertiseElicitation !== false && options.interactionBroker
         ? { clientCapabilities: { elicitation: { form: {} } } }
         : {}),
@@ -453,7 +456,7 @@ async function executeAcpOutcome(
         };
   } finally {
     cleanupAttempted = true;
-    const cleanupDeadline = Date.now() + limits.cleanupTimeoutMs;
+    const cleanup = new AcpCleanupSequencer(createAcpCleanupDeadline(shutdown.cleanupDeadlineMs));
     let cleanupEventFailure: unknown;
     const cleanupFailures: unknown[] = [];
     try {
@@ -475,25 +478,33 @@ async function executeAcpOutcome(
       cleanupFailures.push(error);
     }
     if (connection && sessionId && terminal.state !== "succeeded") {
+      const cleanupConnection = connection;
+      const cleanupSessionId = sessionId;
       try {
-        await withinAcpCleanupDeadline(
-          connection.cancel({ sessionId }),
-          cleanupDeadline,
+        await cleanup.run(
           "session cancellation",
+          (timeoutMs) =>
+            cleanupConnection.cancel(
+              { sessionId: cleanupSessionId },
+              { timeoutMs, cleanupDeadline: cleanup.deadline }
+            ),
           100
         );
-      } catch {
-        // Cancellation is advisory; bounded close/dispose below own cleanup completion.
+      } catch (error) {
+        cleanupFailures.push(error);
       }
     }
     if (connection && sessionId && capabilities?.closeSession) {
+      const cleanupConnection = connection;
+      const cleanupSessionId = sessionId;
       try {
-        await withinAcpCleanupDeadline(
-          connection.closeSession(sessionId, {
-            timeoutMs: Math.max(1, cleanupDeadline - Date.now())
-          }),
-          cleanupDeadline,
+        await cleanup.run(
           "session close",
+          (timeoutMs) =>
+            cleanupConnection.closeSession(cleanupSessionId, {
+              timeoutMs,
+              cleanupDeadline: cleanup.deadline
+            }),
           100
         );
       } catch (error) {
@@ -502,10 +513,9 @@ async function executeAcpOutcome(
     }
     try {
       if (connection) {
-        await withinAcpCleanupDeadline(
-          connection.dispose(),
-          cleanupDeadline,
-          "connection disposal"
+        const cleanupConnection = connection;
+        await cleanup.run("connection disposal", (timeoutMs) =>
+          cleanupConnection.dispose({ timeoutMs, cleanupDeadline: cleanup.deadline })
         );
       }
     } catch (error) {

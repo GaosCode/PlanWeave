@@ -1,4 +1,7 @@
 import { fileURLToPath } from "node:url";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   ACP_SDK_AUTHORITY,
@@ -7,12 +10,18 @@ import {
   type AcpProtocolObservation
 } from "../autoRun/acpConnection.js";
 import { ACP_MOCK_OPERATION_TIMEOUT_MS } from "./support/acpMockHarness.js";
+import type { AcpShutdownPolicy } from "../acpProfile/schema.js";
 
 const fixture = fileURLToPath(new URL("./support/acpMockAgent.mjs", import.meta.url));
 const environment = Object.fromEntries(
   Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)
 );
 const connections: AcpConnection[] = [];
+const TEST_SHUTDOWN: AcpShutdownPolicy = {
+  eofDrainMs: 25,
+  terminateGraceMs: 25,
+  cleanupDeadlineMs: 300
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -26,17 +35,26 @@ function connect(
     timeoutMs?: number;
     onUpdate?: (text: string) => void;
     allowPermission?: boolean;
-    shutdownGraceMs?: number;
+    shutdown?: AcpShutdownPolicy;
     maxInboundMessageBytes?: number;
+    controlDir?: string;
   } = {}
 ): AcpConnection {
   const connection = createAcpConnection({
-    launch: { trusted: true, command: process.execPath, args: [fixture, scenario] },
+    launch: {
+      trusted: true,
+      command: process.execPath,
+      args: [
+        fixture,
+        scenario,
+        ...(options.controlDir ? ["--control-dir", options.controlDir] : [])
+      ]
+    },
     cwd: process.cwd(),
     env: environment,
     clientInfo: { name: "planweave-test-client", version: "1.0.0" },
     defaultTimeoutMs: options.timeoutMs ?? ACP_MOCK_OPERATION_TIMEOUT_MS,
-    shutdownGraceMs: options.shutdownGraceMs,
+    shutdown: options.shutdown ?? TEST_SHUTDOWN,
     maxInboundMessageBytes: options.maxInboundMessageBytes,
     onSessionUpdate(notification) {
       options.onUpdate?.(JSON.stringify(notification));
@@ -62,6 +80,25 @@ function connect(
   });
   connections.push(connection);
   return connection;
+}
+
+async function waitForFile(path: string): Promise<string> {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    try {
+      return await readFile(path, "utf8");
+    } catch (error) {
+      if (!(error && typeof error === "object" && "code" in error && error.code === "ENOENT")) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+  throw new Error(`Timed out waiting for ${path}.`);
+}
+
+function expectPidExited(pid: number): void {
+  expect(() => process.kill(pid, 0)).toThrow();
 }
 
 afterEach(async () => {
@@ -303,7 +340,7 @@ describe("ACP official SDK subprocess connection", () => {
   it("applies an independent cleanup boundary after operation abort already started disposal", async () => {
     const connection = connect("stubborn-pending", {
       timeoutMs: 5_000,
-      shutdownGraceMs: 25
+      shutdown: TEST_SHUTDOWN
     });
     await connection.initialize();
     const session = await connection.newSession({ cwd: process.cwd(), mcpServers: [] });
@@ -326,7 +363,7 @@ describe("ACP official SDK subprocess connection", () => {
   it("keeps a later cleanup deadline effective after operation abort started disposal", async () => {
     const connection = connect("stubborn-pending", {
       timeoutMs: 5_000,
-      shutdownGraceMs: 50
+      shutdown: { eofDrainMs: 50, terminateGraceMs: 50, cleanupDeadlineMs: 350 }
     });
     await connection.initialize();
     const session = await connection.newSession({ cwd: process.cwd(), mcpServers: [] });
@@ -365,6 +402,7 @@ describe("ACP official SDK subprocess connection", () => {
       cwd: process.cwd(),
       env: environment,
       clientInfo: { name: "planweave-test-client", version: "1.0.0" },
+      shutdown: TEST_SHUTDOWN,
       cleanupExitedProcessTree: async () => {
         throw new Error("sentinel WSL process-group cleanup failed");
       }
@@ -376,7 +414,7 @@ describe("ACP official SDK subprocess connection", () => {
   });
 
   it("escalates a SIGTERM-resistant production connection to SIGKILL and settles pending work", async () => {
-    const connection = connect("stubborn-pending", { timeoutMs: 5_000, shutdownGraceMs: 25 });
+    const connection = connect("stubborn-pending", { timeoutMs: 5_000, shutdown: TEST_SHUTDOWN });
     await connection.initialize();
     const session = await connection.newSession({ cwd: process.cwd(), mcpServers: [] });
     const pending = connection.prompt({
@@ -398,6 +436,53 @@ describe("ACP official SDK subprocess connection", () => {
     expect(connection.stderr.join("")).toContain("SIGTERM observed");
     expect(connection.pendingOperationCount).toBe(0);
     expect(() => process.kill(pid!, 0)).toThrow();
+  });
+
+  it("uses distinct EOF, SIGTERM, force, and descendant cleanup shutdown paths", async () => {
+    const eofDir = await mkdtemp(join(tmpdir(), "planweave-acp-eof-"));
+    const eof = connect("eof-delayed-exit", {
+      controlDir: eofDir,
+      shutdown: { eofDrainMs: 120, terminateGraceMs: 40, cleanupDeadlineMs: 410 }
+    });
+    await eof.initialize();
+    await eof.dispose();
+    expect(await readFile(join(eofDir, "lifecycle.log"), "utf8")).toContain("EOF observed");
+
+    const termDir = await mkdtemp(join(tmpdir(), "planweave-acp-term-"));
+    const term = connect("term-exit-pending", { controlDir: termDir, shutdown: TEST_SHUTDOWN });
+    await term.initialize();
+    const termSession = await term.newSession({ cwd: process.cwd(), mcpServers: [] });
+    const termPrompt = term.prompt({
+      sessionId: termSession.sessionId,
+      prompt: [{ type: "text", text: "stay pending" }]
+    });
+    const termSettled = expect(termPrompt).rejects.toThrow();
+    await term.dispose();
+    await termSettled;
+    expect(await readFile(join(termDir, "lifecycle.log"), "utf8")).toContain("SIGTERM exit");
+
+    const descendantDir = await mkdtemp(join(tmpdir(), "planweave-acp-descendant-"));
+    const descendant = connect("root-exits-descendant-pending", {
+      controlDir: descendantDir,
+      shutdown: TEST_SHUTDOWN
+    });
+    await descendant.initialize();
+    const descendantPid = Number.parseInt(
+      await waitForFile(join(descendantDir, "descendant-pid")),
+      10
+    );
+    const descendantSession = await descendant.newSession({ cwd: process.cwd(), mcpServers: [] });
+    const descendantPrompt = descendant.prompt({
+      sessionId: descendantSession.sessionId,
+      prompt: [{ type: "text", text: "stay pending" }]
+    });
+    const descendantSettled = expect(descendantPrompt).rejects.toThrow();
+    await descendant.dispose();
+    await descendantSettled;
+    expect(await readFile(join(descendantDir, "lifecycle.log"), "utf8")).toContain(
+      "SIGTERM root exit"
+    );
+    expectPidExited(descendantPid);
   });
 
   it("captures stderr only through a caller-supplied redacting observer", async () => {
@@ -422,7 +507,8 @@ describe("ACP official SDK subprocess connection", () => {
         launch: { trusted: true, command: "", args: [] },
         cwd: process.cwd(),
         env: environment,
-        clientInfo: { name: "test", version: "1" }
+        clientInfo: { name: "test", version: "1" },
+        shutdown: TEST_SHUTDOWN
       })
     ).toThrow("missing or invalid");
     expect(() =>
@@ -430,7 +516,8 @@ describe("ACP official SDK subprocess connection", () => {
         launch: { trusted: true, command: process.execPath, args: [] },
         cwd: "relative",
         env: environment,
-        clientInfo: { name: "test", version: "1" }
+        clientInfo: { name: "test", version: "1" },
+        shutdown: TEST_SHUTDOWN
       })
     ).toThrow("absolute path");
     expect(() =>
@@ -439,6 +526,7 @@ describe("ACP official SDK subprocess connection", () => {
         cwd: process.cwd(),
         env: environment,
         clientInfo: { name: "test", version: "1" },
+        shutdown: TEST_SHUTDOWN,
         clientCapabilities: { auth: { terminal: true } }
       })
     ).toThrow("does not implement terminal authentication");

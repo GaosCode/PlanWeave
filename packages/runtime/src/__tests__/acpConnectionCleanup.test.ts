@@ -47,7 +47,8 @@ describe("ACP connection process cleanup", () => {
           launch: { trusted: true, command: process.execPath, args: [fixture, "stubborn-pending"] },
           cwd: process.cwd(),
           env: environment(),
-          clientInfo: { name: "cleanup-integration", version: "1" }
+          clientInfo: { name: "cleanup-integration", version: "1" },
+          shutdown: { eofDrainMs: 25, terminateGraceMs: 25, cleanupDeadlineMs: 300 }
         });
         connections.push(connection);
         return connection;

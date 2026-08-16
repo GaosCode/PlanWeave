@@ -14,6 +14,7 @@ import {
   type AcpAuthenticationHints
 } from "./acpAuthentication.js";
 import type { AcpSessionStart } from "./acpRunRecovery.js";
+import type { AcpShutdownPolicy } from "../acpProfile/schema.js";
 
 type PromptDelivery = {
   readonly text: string;
@@ -28,7 +29,6 @@ function asError(error: unknown): Error {
 function ownedConnection(connection: AcpConnection): AcpConnection {
   const cancellations = new Map<string, Promise<void>>();
   const closes = new Map<string, ReturnType<AcpConnection["closeSession"]>>();
-  let disposal: Promise<void> | null = null;
   return {
     get processId() {
       return connection.processId;
@@ -71,10 +71,7 @@ function ownedConnection(connection: AcpConnection): AcpConnection {
       connection.setSessionMode(request, operationOptions),
     setSessionConfigOption: (request, operationOptions) =>
       connection.setSessionConfigOption(request, operationOptions),
-    dispose: () => {
-      disposal ??= connection.dispose();
-      return disposal;
-    }
+    dispose: (operationOptions) => connection.dispose(operationOptions)
   };
 }
 
@@ -144,6 +141,7 @@ export async function executeLocalAcpAdapter(options: {
   readonly cleanupExitedProcessTree?: CreateAcpConnectionOptions["cleanupExitedProcessTree"];
   readonly agentId: string;
   readonly env: Readonly<Record<string, string>>;
+  readonly shutdown: AcpShutdownPolicy;
   readonly availableEnvironmentVariables?: ReadonlySet<string>;
   readonly prompt: string;
   readonly sessionStart: AcpSessionStart;
@@ -167,6 +165,7 @@ export async function executeLocalAcpAdapter(options: {
       workspace: { cwd: options.cwd },
       env: options.env,
       clientInfo: { name: "planweave", version: "1" },
+      shutdown: options.shutdown,
       prompt: options.prompt,
       sessionStart:
         options.sessionStart.kind === "load"

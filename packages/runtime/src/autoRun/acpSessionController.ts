@@ -73,6 +73,7 @@ import type { AcpEngineLifecycleEvent } from "./acpExecutionEngineContracts.js";
 import { createLocalAcpInteractionBroker } from "./acpLocalInteractionBroker.js";
 import { createLocalAcpActiveRunHandle } from "./acpLocalActiveRunHandle.js";
 import { prepareExecutionHostInvocation } from "../process/wslExecutionHost.js";
+import type { AcpShutdownPolicy } from "../acpProfile/schema.js";
 
 export { applyDesktopAcpSessionDefaults } from "./acpSessionDefaults.js";
 
@@ -93,6 +94,7 @@ export type AcpSessionRun = {
     environmentNames: readonly string[];
   };
   environment: ResolvedAgentEnvironment;
+  shutdown: AcpShutdownPolicy;
   authenticationHints?: AcpAuthenticationHints;
   executorName: string;
   agentId: string;
@@ -696,6 +698,7 @@ export class AcpSessionController {
         availableEnvironmentVariables: new Set(run.environment.availableNames),
         agentId: run.agentId,
         env: preparedLaunch.spawnEnvironment,
+        shutdown: run.shutdown,
         prompt: agentPrompt,
         sessionStart,
         authenticationHints: run.authenticationHints,

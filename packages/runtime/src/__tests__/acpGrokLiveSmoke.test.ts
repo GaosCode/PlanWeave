@@ -16,6 +16,7 @@ import {
   type AcpConnection
 } from "../autoRun/acpConnection.js";
 import { resolveAgentDefinition } from "../autoRun/agentRegistry.js";
+import { DEFAULT_ACP_SHUTDOWN_POLICY } from "../acpProfile/schema.js";
 import type { AgentDefinition, AcpLaunchMetadata } from "../autoRun/agentRunner.js";
 import { createGrokLiveSmokeAuthGuard } from "./acpGrokLiveSmokeAuthGuard.js";
 
@@ -247,6 +248,7 @@ async function runGrokLiveSmoke(): Promise<void> {
     cwd: process.cwd(),
     env: environment,
     clientInfo: { name: "planweave-grok-live-smoke", version: "1" },
+    shutdown: DEFAULT_ACP_SHUTDOWN_POLICY,
     onSessionUpdate: evidence.onSessionUpdate,
     onPermissionRequest: async () => ({ outcome: { outcome: "cancelled" } }),
     onElicitationRequest: async () => ({ action: "cancel" }),

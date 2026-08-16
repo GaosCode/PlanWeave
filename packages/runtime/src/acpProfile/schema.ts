@@ -5,7 +5,9 @@ import { runnerCapabilitySchema } from "../autoRun/runnerContractSchemas.js";
 const MAX_PROFILE_COUNT = 128;
 const MAX_ENVIRONMENT_COUNT = 128;
 const MAX_ARGUMENT_COUNT = 128;
+const MIN_SHUTDOWN_STAGE_MS = 10;
 const MAX_SHUTDOWN_STAGE_MS = 30_000;
+export const ACP_FORCE_EXIT_CONFIRM_MS = 250;
 const MAX_CLEANUP_DEADLINE_MS = 120_000;
 
 const uniqueBy = <T>(values: readonly T[], key: (value: T) => string): boolean =>
@@ -81,30 +83,30 @@ export type AgentEnvironmentContract = z.infer<typeof agentEnvironmentContractSc
 
 export const acpShutdownPolicySchema = z
   .object({
-    eofDrainMs: z.number().int().positive().max(MAX_SHUTDOWN_STAGE_MS),
-    terminateGraceMs: z.number().int().positive().max(MAX_SHUTDOWN_STAGE_MS),
-    cleanupDeadlineMs: z.number().int().positive().max(MAX_CLEANUP_DEADLINE_MS)
+    eofDrainMs: z.number().int().min(MIN_SHUTDOWN_STAGE_MS).max(MAX_SHUTDOWN_STAGE_MS),
+    terminateGraceMs: z.number().int().min(MIN_SHUTDOWN_STAGE_MS).max(MAX_SHUTDOWN_STAGE_MS),
+    cleanupDeadlineMs: z.number().int().min(ACP_FORCE_EXIT_CONFIRM_MS).max(MAX_CLEANUP_DEADLINE_MS)
   })
   .strict()
   .superRefine((policy, context) => {
-    if (policy.cleanupDeadlineMs < policy.eofDrainMs + policy.terminateGraceMs) {
+    const minimumDeadline = policy.eofDrainMs + policy.terminateGraceMs + ACP_FORCE_EXIT_CONFIRM_MS;
+    if (policy.cleanupDeadlineMs < minimumDeadline) {
       context.addIssue({
         code: "custom",
         path: ["cleanupDeadlineMs"],
-        message: "cleanupDeadlineMs must cover eofDrainMs and terminateGraceMs."
+        message: `cleanupDeadlineMs must cover eofDrainMs, terminateGraceMs, and ${ACP_FORCE_EXIT_CONFIRM_MS}ms for force-exit confirmation.`
       });
     }
   });
 export type AcpShutdownPolicy = z.infer<typeof acpShutdownPolicySchema>;
 
-export function acpShutdownPolicyFromLegacyGraceMs(shutdownGraceMs = 100): AcpShutdownPolicy {
-  const graceMs = z.number().int().positive().max(MAX_SHUTDOWN_STAGE_MS).parse(shutdownGraceMs);
-  return acpShutdownPolicySchema.parse({
-    eofDrainMs: graceMs,
-    terminateGraceMs: graceMs,
-    cleanupDeadlineMs: Math.max(1_000, graceMs * 2)
-  });
-}
+export const DEFAULT_ACP_SHUTDOWN_POLICY: AcpShutdownPolicy = Object.freeze(
+  acpShutdownPolicySchema.parse({
+    eofDrainMs: 250,
+    terminateGraceMs: 500,
+    cleanupDeadlineMs: 1_500
+  })
+);
 
 export const acpCapabilityPolicySchema = z
   .object({

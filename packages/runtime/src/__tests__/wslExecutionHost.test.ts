@@ -237,8 +237,8 @@ describe("WSL execution host", () => {
       if (args.includes("wslpath")) {
         return { stdout: Buffer.from("/mnt/c/work\n"), stderr: Buffer.alloc(0) };
       }
-      if (args.includes("planweave-wsl-cleanup")) {
-        return { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
+      if (args.includes("planweave-wsl-terminate")) {
+        return { stdout: Buffer.from("exited\n"), stderr: Buffer.alloc(0) };
       }
       return {
         stdout: Buffer.from(
@@ -276,7 +276,9 @@ describe("WSL execution host", () => {
 
     expect(nativeTerminate).toHaveBeenCalledTimes(1);
     expect(nativeTerminate).toHaveBeenCalledWith("cancelled");
-    const cleanupCalls = run.mock.calls.filter(([args]) => args.includes("planweave-wsl-cleanup"));
+    const cleanupCalls = run.mock.calls.filter(([args]) =>
+      args.includes("planweave-wsl-terminate")
+    );
     expect(cleanupCalls).toHaveLength(1);
     expect(cleanupCalls[0]?.[0]).toEqual([
       "--distribution",
@@ -285,8 +287,11 @@ describe("WSL execution host", () => {
       "sh",
       "-c",
       expect.stringContaining("/bin/kill -TERM"),
-      "planweave-wsl-cleanup",
-      "/tmp/planweave-cleanup-token.pid"
+      "planweave-wsl-terminate",
+      "terminate",
+      "/tmp/planweave-cleanup-token.pid",
+      "50",
+      "50"
     ]);
   });
 
@@ -295,7 +300,7 @@ describe("WSL execution host", () => {
       if (args.includes("wslpath")) {
         return { stdout: Buffer.from("/mnt/c/work\n"), stderr: Buffer.alloc(0) };
       }
-      if (args.includes("planweave-wsl-cleanup")) {
+      if (args.includes("planweave-wsl-terminate")) {
         throw new Error("process group still alive");
       }
       return {
@@ -322,7 +327,103 @@ describe("WSL execution host", () => {
     });
 
     await expect(tree.terminate("cancelled")).rejects.toThrow(
-      "WSL process group cleanup failed in distribution 'Ubuntu'"
+      "WSL process group terminate failed in distribution 'Ubuntu'"
     );
+  });
+
+  it("passes a minimal remaining policy to WSL cleanup without fixed grace windows", async () => {
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args.includes("wslpath")) {
+        return { stdout: Buffer.from("/mnt/c/work\n"), stderr: Buffer.alloc(0) };
+      }
+      if (args.includes("planweave-wsl-terminate")) {
+        return { stdout: Buffer.from("exited\n"), stderr: Buffer.alloc(0) };
+      }
+      return {
+        stdout: Buffer.from(
+          "__PLANWEAVE_PATH_BEGIN__/usr/local/bin:/usr/bin__PLANWEAVE_PATH_END__\n"
+        ),
+        stderr: Buffer.alloc(0)
+      };
+    });
+    const prepared = await prepareWslProcessInvocation({
+      host: { kind: "wsl", distribution: "Ubuntu" },
+      command: "pi-acp",
+      args: [],
+      cwd: "C:\\work",
+      platform: "win32",
+      run,
+      token: "minimal-policy"
+    });
+
+    await prepared.cleanupExitedProcessTree({ graceMs: 10, forceExitConfirmMs: 20 });
+
+    const cleanupArgs = run.mock.calls.find(([args]) =>
+      args.includes("planweave-wsl-terminate")
+    )?.[0];
+    expect(cleanupArgs?.slice(-4)).toEqual([
+      "terminate",
+      "/tmp/planweave-minimal-policy.pid",
+      "1",
+      "2"
+    ]);
+    expect(cleanupArgs?.[5]).not.toContain("sleep 0.5");
+    expect(cleanupArgs?.[5]).not.toContain("sleep 0.1");
+  });
+
+  it("keeps a root-exited WSL descendant visible through probe, wait, and force cleanup", async () => {
+    let wslTreeAlive = true;
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args.includes("wslpath")) {
+        return { stdout: Buffer.from("/mnt/c/work\n"), stderr: Buffer.alloc(0) };
+      }
+      if (args.includes("planweave-wsl-probe") || args.includes("planweave-wsl-wait")) {
+        return {
+          stdout: Buffer.from(wslTreeAlive ? "alive\n" : "exited\n"),
+          stderr: Buffer.alloc(0)
+        };
+      }
+      if (args.includes("planweave-wsl-terminate")) {
+        wslTreeAlive = false;
+        return { stdout: Buffer.from("exited\n"), stderr: Buffer.alloc(0) };
+      }
+      return {
+        stdout: Buffer.from(
+          "__PLANWEAVE_PATH_BEGIN__/usr/local/bin:/usr/bin__PLANWEAVE_PATH_END__\n"
+        ),
+        stderr: Buffer.alloc(0)
+      };
+    });
+    const prepared = await prepareWslProcessInvocation({
+      host: { kind: "wsl", distribution: "Ubuntu" },
+      command: "pi-acp",
+      args: [],
+      cwd: "C:\\work",
+      platform: "win32",
+      run,
+      token: "root-exited-descendant"
+    });
+    const nativeTerminate = vi
+      .fn()
+      .mockResolvedValue({ outcome: "already_exited" as const, reason: "cleanup" });
+    const tree = prepared.decorateProcessTree({
+      pid: 1234,
+      exited: Promise.resolve(),
+      isAlive: () => false,
+      isTreeAlive: async () => false,
+      awaitTreeExit: async () => true,
+      terminate: nativeTerminate
+    });
+
+    await expect(tree.isTreeAlive()).resolves.toBe(true);
+    await expect(tree.awaitTreeExit(20)).resolves.toBe(false);
+    await expect(
+      tree.terminate("cleanup", { graceMs: 10, forceExitConfirmMs: 20 })
+    ).resolves.toEqual({ outcome: "already_exited", reason: "cleanup" });
+    await expect(tree.isTreeAlive()).resolves.toBe(false);
+    expect(nativeTerminate).toHaveBeenCalledWith("cleanup", {
+      graceMs: 10,
+      forceExitConfirmMs: 20
+    });
   });
 });

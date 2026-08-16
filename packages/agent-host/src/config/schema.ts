@@ -5,7 +5,11 @@ import {
   hostCapacitySchema,
   opaqueIdentifierSchema
 } from "@planweave-ai/agent-host-protocol";
-import { acpEnvironmentRequirementsSchema } from "@planweave-ai/runtime";
+import {
+  acpEnvironmentRequirementsSchema,
+  acpShutdownPolicySchema,
+  DEFAULT_ACP_SHUTDOWN_POLICY
+} from "@planweave-ai/runtime";
 import { z } from "zod";
 
 const relativeWorkspacePathSchema = z
@@ -82,6 +86,7 @@ export const agentHostConfigSchema = z
               .refine(isAbsolute, "ACP command must be absolute."),
             args: z.array(z.string().max(4096)).max(128),
             environment: acpEnvironmentRequirementsSchema,
+            shutdown: acpShutdownPolicySchema.default(DEFAULT_ACP_SHUTDOWN_POLICY),
             session: z
               .object({
                 modes: z

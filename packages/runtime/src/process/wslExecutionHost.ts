@@ -1,7 +1,12 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { ExecutionHost } from "../types/executor.js";
-import type { ManagedProcessTree, ProcessTerminationResult } from "./managedProcessTree.js";
+import {
+  DEFAULT_PROCESS_TREE_GRACE_MS,
+  type ManagedProcessTree,
+  type ProcessTerminationOptions,
+  type ProcessTerminationResult
+} from "./managedProcessTree.js";
 
 const WSL_PATH_BEGIN = "__PLANWEAVE_PATH_BEGIN__";
 const WSL_PATH_END = "__PLANWEAVE_PATH_END__";
@@ -17,24 +22,29 @@ const WSL_PROCESS_WRAPPER_SCRIPT = [
   "command -v setsid >/dev/null 2>&1 || { echo 'PlanWeave WSL host requires setsid.' >&2; exit 69; }",
   `setsid sh -c 'pw_pid_file="$1"; shift; printf "%s\\n" "$$" > "$pw_pid_file"; exec "$@"' planweave-wsl-child "$pw_pid_file" "$@"`,
   "pw_status=$?",
-  'rm -f "$pw_pid_file"',
   "exit $pw_status"
 ].join("; ");
 
-const WSL_TERMINATE_GROUP_SCRIPT = [
-  'pw_pid_file="$1"',
-  "pw_attempt=0",
-  'while [ ! -r "$pw_pid_file" ] && [ "$pw_attempt" -lt 10 ]; do sleep 0.05; pw_attempt=$((pw_attempt + 1)); done',
-  '[ -r "$pw_pid_file" ] || exit 0',
+const WSL_PROCESS_GROUP_CONTROL_SCRIPT = [
+  'pw_mode="$1"',
+  'pw_pid_file="$2"',
+  'pw_grace_steps="$3"',
+  'pw_confirm_steps="$4"',
+  '[ -r "$pw_pid_file" ] || { printf "exited\\n"; exit 0; }',
   'pw_pid="$(cat "$pw_pid_file")"',
   `case "$pw_pid" in ''|*[!0-9]*) echo 'Invalid PlanWeave WSL pid file.' >&2; exit 70;; esac`,
   '[ "$pw_pid" -gt 1 ] || { echo "Unsafe PlanWeave WSL pid: $pw_pid" >&2; exit 70; }',
+  'pw_alive() { /bin/kill -0 -- "-$pw_pid" 2>/dev/null; }',
+  'pw_wait() { pw_attempt=0; while pw_alive && [ "$pw_attempt" -lt "$1" ]; do sleep 0.01; pw_attempt=$((pw_attempt + 1)); done; ! pw_alive; }',
+  'if [ "$pw_mode" = probe ]; then if pw_alive; then printf "alive\\n"; else rm -f "$pw_pid_file"; printf "exited\\n"; fi; exit 0; fi',
+  'if [ "$pw_mode" = wait ]; then if pw_wait "$pw_confirm_steps"; then rm -f "$pw_pid_file"; printf "exited\\n"; else printf "alive\\n"; fi; exit 0; fi',
+  '[ "$pw_mode" = terminate ] || { echo "Invalid PlanWeave WSL process-group mode." >&2; exit 70; }',
   '/bin/kill -TERM -- "-$pw_pid" 2>/dev/null || true',
-  "sleep 0.5",
+  'if pw_wait "$pw_grace_steps"; then rm -f "$pw_pid_file"; printf "exited\\n"; exit 0; fi',
   '/bin/kill -KILL -- "-$pw_pid" 2>/dev/null || true',
-  "sleep 0.1",
-  `if /bin/kill -0 -- "-$pw_pid" 2>/dev/null; then echo "PlanWeave WSL process group $pw_pid is still running." >&2; exit 70; fi`,
-  'rm -f "$pw_pid_file"'
+  'if ! pw_wait "$pw_confirm_steps"; then echo "PlanWeave WSL process group $pw_pid is still running." >&2; exit 70; fi',
+  'rm -f "$pw_pid_file"',
+  'printf "exited\\n"'
 ].join("; ");
 
 const WSL_LAUNCHER_ENVIRONMENT_KEYS = new Set([
@@ -107,7 +117,7 @@ export type PreparedWslProcessInvocation = {
   spawnEnvironment: Record<string, string>;
   sessionCwd: string;
   pidFile: string;
-  cleanupExitedProcessTree(): Promise<void>;
+  cleanupExitedProcessTree(options?: ProcessTerminationOptions): Promise<void>;
   decorateProcessTree(tree: ManagedProcessTree): ManagedProcessTree;
 };
 
@@ -118,7 +128,7 @@ export type PreparedExecutionHostInvocation = {
   spawnEnvironment: Record<string, string>;
   sessionCwd: string;
   executionHost: ExecutionHost;
-  cleanupExitedProcessTree?: () => Promise<void>;
+  cleanupExitedProcessTree?: (options?: ProcessTerminationOptions) => Promise<void>;
   decorateProcessTree(tree: ManagedProcessTree): ManagedProcessTree;
 };
 
@@ -362,26 +372,41 @@ function validateToken(token: string): string {
   return token;
 }
 
-async function terminateWslProcessGroup(options: {
+function wslWaitSteps(timeoutMs: number): number {
+  return Math.max(0, Math.ceil(timeoutMs / 10));
+}
+
+async function controlWslProcessGroup(options: {
   distribution: string;
   pidFile: string;
   run: WslCommandRunner;
-}): Promise<void> {
+  mode: "probe" | "wait" | "terminate";
+  graceMs?: number;
+  confirmMs?: number;
+}): Promise<boolean> {
   try {
-    await options.run([
+    const output = await options.run([
       "--distribution",
       options.distribution,
       "--exec",
       "sh",
       "-c",
-      WSL_TERMINATE_GROUP_SCRIPT,
-      "planweave-wsl-cleanup",
-      options.pidFile
+      WSL_PROCESS_GROUP_CONTROL_SCRIPT,
+      `planweave-wsl-${options.mode}`,
+      options.mode,
+      options.pidFile,
+      String(wslWaitSteps(options.graceMs ?? 0)),
+      String(wslWaitSteps(options.confirmMs ?? 0))
     ]);
+    const state = decodeCommandOutput(output.stdout).trim();
+    if (state === "exited") return false;
+    if (state === "alive") return true;
+    if (options.mode === "terminate") return false;
+    throw new Error(`WSL process group ${options.mode} returned an invalid state.`);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(
-      `WSL process group cleanup failed in distribution '${options.distribution}': ${detail}`,
+      `WSL process group ${options.mode} failed in distribution '${options.distribution}': ${detail}`,
       { cause: error }
     );
   }
@@ -389,17 +414,35 @@ async function terminateWslProcessGroup(options: {
 
 function decorateWslProcessTree(options: {
   tree: ManagedProcessTree;
-  cleanupExitedProcessTree: () => Promise<void>;
+  isWslTreeAlive: () => Promise<boolean>;
+  awaitWslTreeExit: (timeoutMs: number) => Promise<boolean>;
+  cleanupExitedProcessTree: (termination?: ProcessTerminationOptions) => Promise<void>;
 }): ManagedProcessTree {
   let termination: Promise<ProcessTerminationResult> | undefined;
   return {
     pid: options.tree.pid,
     exited: options.tree.exited,
     isAlive: () => options.tree.isAlive(),
-    terminate(reason) {
+    async isTreeAlive() {
+      const [nativeAlive, wslAlive] = await Promise.all([
+        options.tree.isTreeAlive(),
+        options.isWslTreeAlive()
+      ]);
+      return nativeAlive || wslAlive;
+    },
+    async awaitTreeExit(timeoutMs) {
+      const [nativeExited, wslAlive] = await Promise.all([
+        options.tree.awaitTreeExit(timeoutMs),
+        options.awaitWslTreeExit(timeoutMs)
+      ]);
+      return nativeExited && !wslAlive;
+    },
+    terminate(reason, terminationOptions) {
       termination ??= (async () => {
-        const cleanup = options.cleanupExitedProcessTree();
-        const nativeTermination = options.tree.terminate(reason);
+        const cleanup = options.cleanupExitedProcessTree(terminationOptions);
+        const nativeTermination = terminationOptions
+          ? options.tree.terminate(reason, terminationOptions)
+          : options.tree.terminate(reason);
         const [cleanupResult, nativeResult] = await Promise.allSettled([
           cleanup,
           nativeTermination
@@ -452,8 +495,27 @@ export async function prepareWslProcessInvocation(options: {
   const pidFile = `/tmp/planweave-${token}.pid`;
   const run = commandRunner(executionOptions);
   let cleanup: Promise<void> | undefined;
-  const cleanupExitedProcessTree = (): Promise<void> => {
-    cleanup ??= terminateWslProcessGroup({ distribution, pidFile, run });
+  const isWslTreeAlive = (): Promise<boolean> =>
+    controlWslProcessGroup({ distribution, pidFile, run, mode: "probe" });
+  const awaitWslTreeExit = (timeoutMs: number): Promise<boolean> =>
+    controlWslProcessGroup({
+      distribution,
+      pidFile,
+      run,
+      mode: "wait",
+      confirmMs: timeoutMs
+    });
+  const cleanupExitedProcessTree = (termination: ProcessTerminationOptions = {}): Promise<void> => {
+    cleanup ??= controlWslProcessGroup({
+      distribution,
+      pidFile,
+      run,
+      mode: "terminate",
+      graceMs: termination.graceMs ?? DEFAULT_PROCESS_TREE_GRACE_MS,
+      confirmMs: termination.forceExitConfirmMs ?? DEFAULT_PROCESS_TREE_GRACE_MS
+    }).then((alive) => {
+      if (alive) throw new Error("WSL process group remained alive after force termination.");
+    });
     return cleanup;
   };
   return {
@@ -479,7 +541,13 @@ export async function prepareWslProcessInvocation(options: {
     sessionCwd,
     pidFile,
     cleanupExitedProcessTree,
-    decorateProcessTree: (tree) => decorateWslProcessTree({ tree, cleanupExitedProcessTree })
+    decorateProcessTree: (tree) =>
+      decorateWslProcessTree({
+        tree,
+        isWslTreeAlive,
+        awaitWslTreeExit,
+        cleanupExitedProcessTree
+      })
   };
 }
 

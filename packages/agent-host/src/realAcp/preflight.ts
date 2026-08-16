@@ -4,6 +4,7 @@ import { basename } from "node:path";
 import { promisify } from "node:util";
 import {
   ACP_SDK_AUTHORITY,
+  DEFAULT_ACP_SHUTDOWN_POLICY,
   probeInstalledAcpAgent,
   resolveAgentDefinition,
   resolveWindowsProcessInvocation,
@@ -165,7 +166,7 @@ export async function preflightRealAcp(options: {
     host: { kind: "native" },
     launch: { command: profile.commandPath, args: profile.hostProfile.launch.args },
     environment: profile.supported.environment,
-    shutdown: { eofDrainMs: 250, terminateGraceMs: 2_000, cleanupDeadlineMs: 5_000 },
+    shutdown: DEFAULT_ACP_SHUTDOWN_POLICY,
     capabilities: {
       required: definition.acp.capabilities,
       optional: definition.acp.optionalCapabilities

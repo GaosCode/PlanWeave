@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { resolveAgentDefinition } from "../autoRun/agentRegistry.js";
 import { createAcpRunner } from "../autoRun/acpRunner.js";
 import { AcpPreflightCleanupError, AcpPreflightPhaseError } from "../autoRun/acpPreflightProbe.js";
+import { acpProfileResolverTestDouble } from "./support/acpProfileTestValues.js";
 
 const fixture = fileURLToPath(new URL("./support/acpMockAgent.mjs", import.meta.url));
 const profile = {
@@ -13,6 +14,17 @@ const profile = {
   agent: "codex",
   runner: { transport: "acp" }
 } as const;
+const testEnvironment = [
+  { name: "PLANWEAVE_ACP_TEST_LIFECYCLE_FILE", required: false },
+  { name: "PLANWEAVE_T002_TEST_API_KEY", required: false }
+] as const;
+
+function profileResolver(scenario: string) {
+  return acpProfileResolverTestDouble({
+    launch: { command: process.execPath, args: [fixture, scenario] },
+    environment: testEnvironment
+  });
+}
 
 function definition(scenario: string, headlessSafe = false) {
   const base = resolveAgentDefinition("codex");
@@ -37,7 +49,7 @@ async function preflight(
   scenario: string,
   options?: { headlessSafe?: boolean; timeoutMs?: number }
 ) {
-  return createAcpRunner().preflight({
+  return createAcpRunner({ profileResolver: profileResolver(scenario) }).preflight({
     profile,
     definition: definition(scenario, options?.headlessSafe),
     cwd: "/tmp",
@@ -188,6 +200,23 @@ describe("ACP authenticated preflight lifecycle", () => {
     );
   });
 
+  it("bounds a hanging close after authentication recovery and preserves disposal budget", async () => {
+    const { result, lifecycle } = await withLifecycleTrace(() =>
+      preflight("session-ready-with-agent-auth-close-pending")
+    );
+
+    expect(result.checks).toEqual([
+      expect.objectContaining({
+        check: "acp_session",
+        status: "failed",
+        failureCode: "initialization_failed",
+        message: expect.stringContaining("session/close timed out after 100ms")
+      })
+    ]);
+    expect(lifecycle).toContain(" session/close\n");
+    expectProcessStopped(lifecycle);
+  });
+
   it("preserves session auth-required classification when no methods were advertised", async () => {
     const result = await preflight("no-auth-methods-but-session-requires-auth");
 
@@ -260,7 +289,9 @@ describe("ACP authenticated preflight lifecycle", () => {
   it("waits for authentication cancellation cleanup and attributes the exact failed check", async () => {
     const controller = new AbortController();
     const { result, lifecycle } = await withLifecycleTrace(async (path) => {
-      const pending = createAcpRunner().preflight({
+      const pending = createAcpRunner({
+        profileResolver: profileResolver("authenticate-delayed")
+      }).preflight({
         profile,
         definition: definition("authenticate-delayed", true),
         cwd: "/tmp",
@@ -289,7 +320,7 @@ describe("ACP authenticated preflight lifecycle", () => {
     const controller = new AbortController();
     controller.abort(new Error("cancelled before preflight"));
     const { result, lifecycle } = await withLifecycleTrace(() =>
-      createAcpRunner().preflight({
+      createAcpRunner({ profileResolver: profileResolver("success") }).preflight({
         profile,
         definition: definition("success"),
         cwd: "/tmp",
@@ -321,6 +352,7 @@ describe("ACP authenticated preflight lifecycle", () => {
     const cleanup = new Error("dispose failed");
     const failure = new AcpPreflightCleanupError(primary, cleanup);
     const runner = createAcpRunner({
+      profileResolver: profileResolver("success"),
       probe: async () => {
         throw failure;
       }

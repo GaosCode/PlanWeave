@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { resolveAgentProcessEnvironment } from "@planweave-ai/runtime";
+import { DEFAULT_ACP_SHUTDOWN_POLICY, resolveAgentProcessEnvironment } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it } from "vitest";
 import { ConfiguredAcpProfileResolver, ConfiguredWorkspaceResolver } from "../config/resolvers.js";
 import { observeHostReadiness } from "../config/readiness.js";
@@ -46,6 +46,37 @@ function input(directory: string, workspaceRoot: string) {
 }
 
 describe("Agent Host configuration", () => {
+  it("defaults, validates, and resolves ACP shutdown policy overrides", async () => {
+    const { directory, workspaceRoot } = await setup();
+    const base = input(directory, workspaceRoot);
+    const defaulted = parseAgentHostConfig(base);
+    expect(defaulted.agentProfiles[0].shutdown).toEqual(DEFAULT_ACP_SHUTDOWN_POLICY);
+
+    const shutdown = { eofDrainMs: 80, terminateGraceMs: 140, cleanupDeadlineMs: 720 };
+    const overridden = parseAgentHostConfig({
+      ...base,
+      agentProfiles: [{ ...base.agentProfiles[0], shutdown }]
+    });
+    await expect(
+      new ConfiguredAcpProfileResolver(overridden, { SAFE_API_KEY: "present" }).resolve(
+        "acp.test",
+        "test-agent"
+      )
+    ).resolves.toMatchObject({ shutdown });
+
+    expect(() =>
+      parseAgentHostConfig({
+        ...base,
+        agentProfiles: [
+          {
+            ...base.agentProfiles[0],
+            shutdown: { eofDrainMs: 80, terminateGraceMs: 140, cleanupDeadlineMs: 300 }
+          }
+        ]
+      })
+    ).toThrow("cleanupDeadlineMs");
+  });
+
   it("strictly rejects unknown fields, duplicate ids, invalid capacity/capabilities, and insecure URLs", async () => {
     const { directory, workspaceRoot } = await setup();
     const valid = input(directory, workspaceRoot);
