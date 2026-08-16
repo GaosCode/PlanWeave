@@ -62,6 +62,45 @@ function delivery(sequence: number, index = sequence) {
   };
 }
 
+function cancelDelivery(sequence: number, index = 1) {
+  const command = commandFor(index);
+  return {
+    type: "mailbox.message" as const,
+    protocolVersion: 1 as const,
+    sequence,
+    previousSequence: sequence - 1,
+    messageId: `mailbox-cancel-compaction-${sequence}`,
+    command: {
+      type: "cancel_execution" as const,
+      protocolVersion: 1 as const,
+      dispatchId: command.dispatchId,
+      leaseId: command.leaseId,
+      executionAttemptId: command.executionAttemptId,
+      reason: "Compaction replay cancellation."
+    }
+  };
+}
+
+function permissionDelivery(sequence: number, index = 1) {
+  const command = commandFor(index);
+  return {
+    type: "mailbox.message" as const,
+    protocolVersion: 1 as const,
+    sequence,
+    previousSequence: sequence - 1,
+    messageId: `mailbox-permission-compaction-${sequence}`,
+    command: {
+      type: "interaction.permission_response" as const,
+      dispatchId: command.dispatchId,
+      leaseId: command.leaseId,
+      executionAttemptId: command.executionAttemptId,
+      acpSessionId: "acp-compaction",
+      actionId: "permission-compaction",
+      decision: "deny" as const
+    }
+  };
+}
+
 const result = {
   summary: "terminal compaction complete",
   reportArtifactRef: `artifact:sha256:${"a".repeat(64)}` as const,
@@ -177,7 +216,78 @@ describe("Agent Host terminal state compaction", () => {
       expect(count(database, table), table).toBe(0);
     }
     expect(count(database, "agent_host_terminal_execution_receipts")).toBe(1);
+    expect(count(database, "agent_host_compacted_mailbox_receipts")).toBe(1);
     database.close();
+  });
+
+  it("deduplicates compacted cancellation and interaction mailbox rows across reopen", async () => {
+    const cancelled = await setup();
+    const execute = delivery(1);
+    const executeReceived = cancelled.state.receive(execute);
+    cancelled.state.acknowledgeEvent(executeReceived.acknowledgement.messageId);
+    cancelled.state.startExecution(1);
+    acknowledgeByType(cancelled.state, "dispatch.accepted");
+    const cancel = cancelDelivery(2);
+    const cancelReceived = cancelled.state.receive(cancel);
+    cancelled.state.acknowledgeEvent(cancelReceived.acknowledgement.messageId);
+    expect(cancelled.state.applyCancellation(2)).toEqual({ shouldAbort: true });
+    cancelled.state.failExecution(1, {
+      code: "execution_cancelled",
+      message: "The execution was cancelled.",
+      retryable: false
+    });
+    acknowledgeByType(cancelled.state, "dispatch.failed");
+    cancelled.state.close();
+    states.pop();
+    const reopenedCancelled = await openAgentHostState(cancelled.path);
+    states.push(reopenedCancelled);
+    const cancelReplay = reopenedCancelled.receive(cancel);
+    expect(cancelReplay.stored).toBe(false);
+    expect(cancelReplay.acknowledgement).toMatchObject({ type: "mailbox.ack", sequence: 2 });
+    expect(() =>
+      reopenedCancelled.receive({ ...cancel, messageId: "mailbox-cancel-conflict" })
+    ).toThrow("mailbox_message_conflict");
+    expect(() =>
+      reopenedCancelled.receive({
+        ...cancel,
+        command: { ...cancel.command, reason: "Changed cancellation reason." }
+      })
+    ).toThrow("mailbox_message_conflict");
+
+    const interaction = await setup();
+    const interactionExecute = interaction.state.receive(delivery(1));
+    interaction.state.acknowledgeEvent(interactionExecute.acknowledgement.messageId);
+    interaction.state.startExecution(1);
+    acknowledgeByType(interaction.state, "dispatch.accepted");
+    interaction.state.recordSessionEvidence(1, {
+      sessionId: "acp-compaction",
+      capabilities: { loadSession: false }
+    });
+    interaction.state.recordInteractionAction(1, {
+      leaseId: commandFor(1).leaseId,
+      sessionId: "acp-compaction",
+      actionId: "permission-compaction",
+      kind: "permission",
+      deadline: "2030-01-01T00:00:00.000Z",
+      requestDigest: `sha256:${"d".repeat(64)}`,
+      afterCursor: 0,
+      cursor: 1
+    });
+    const permission = permissionDelivery(2);
+    const permissionReceived = interaction.state.receive(permission);
+    interaction.state.acknowledgeEvent(permissionReceived.acknowledgement.messageId);
+    interaction.state.completeExecution(1, result);
+    acknowledgeByType(interaction.state, "dispatch.completed");
+    interaction.state.close();
+    states.pop();
+    const reopenedInteraction = await openAgentHostState(interaction.path);
+    states.push(reopenedInteraction);
+    const permissionReplay = reopenedInteraction.receive(permission);
+    expect(permissionReplay.stored).toBe(false);
+    expect(permissionReplay.acknowledgement).toMatchObject({ type: "mailbox.ack", sequence: 2 });
+    expect(() =>
+      reopenedInteraction.receive({ ...permission, messageId: "mailbox-permission-conflict" })
+    ).toThrow("mailbox_message_conflict");
   });
 
   it("deduplicates retained replay, rejects conflict, and rejects replay beyond the receipt horizon", async () => {
@@ -253,8 +363,10 @@ describe("Agent Host terminal state compaction", () => {
     const compaction = new AgentHostTerminalCompactionRepository(database, {
       compactionBatchSize: 1,
       maxReceipts: 1,
+      maxMailboxReceipts: 1,
       maxReceiptAgeDays: 1,
-      receiptPruneBatchSize: 1
+      receiptPruneBatchSize: 1,
+      mailboxReceiptPruneBatchSize: 1
     });
     expect(compaction.compact(new Date("2026-08-16T01:00:00.000Z")).compacted).toBe(1);
     expect(count(database, "agent_host_executions")).toBe(1);
@@ -264,11 +376,13 @@ describe("Agent Host terminal state compaction", () => {
     });
     expect(count(database, "agent_host_executions")).toBe(0);
     expect(count(database, "agent_host_terminal_execution_receipts")).toBe(1);
+    expect(count(database, "agent_host_compacted_mailbox_receipts")).toBe(1);
     database
       .prepare("UPDATE agent_host_terminal_execution_receipts SET compacted_at=?")
       .run("2026-08-14T00:00:00.000Z");
     expect(compaction.compact(new Date("2026-08-16T01:00:00.000Z")).prunedReceipts).toBe(1);
     expect(count(database, "agent_host_terminal_execution_receipts")).toBe(0);
+    expect(count(database, "agent_host_compacted_mailbox_receipts")).toBe(0);
     database.close();
   });
 
@@ -301,12 +415,74 @@ describe("Agent Host terminal state compaction", () => {
     expect(reopened.receive(delivery(1)).stored).toBe(false);
     const inspected = await openAgentHostDatabase(path, 5_000);
     expect(inspected.prepare("SELECT version FROM agent_host_state_schema").get()).toMatchObject({
-      version: 4
+      version: 5
     });
     inspected.close();
   });
 
-  it("fails closed on partial v4 schema and corrupt terminal evidence without deleting state", async () => {
+  it("migrates valid v4 receipts and rejects damaged v4 core state before repair", async () => {
+    const valid = await setup();
+    const received = valid.state.receive(delivery(1));
+    valid.state.acknowledgeEvent(received.acknowledgement.messageId);
+    valid.state.startExecution(1);
+    acknowledgeByType(valid.state, "dispatch.accepted");
+    valid.state.completeExecution(1, result);
+    acknowledgeByType(valid.state, "dispatch.completed");
+    valid.state.close();
+    states.pop();
+    const validV4 = await openAgentHostDatabase(valid.path, 5_000);
+    validV4.exec(`
+      DROP TABLE agent_host_compacted_mailbox_receipts;
+      UPDATE agent_host_state_schema SET version=4;
+    `);
+    validV4.close();
+    const migrated = await openAgentHostState(valid.path);
+    states.push(migrated);
+    expect(migrated.receive(delivery(1)).stored).toBe(false);
+    migrated.close();
+    states.pop();
+    const inspected = await openAgentHostDatabase(valid.path, 5_000);
+    expect(inspected.prepare("SELECT version FROM agent_host_state_schema").get()).toMatchObject({
+      version: 5
+    });
+    expect(count(inspected, "agent_host_compacted_mailbox_receipts")).toBe(1);
+    inspected.close();
+
+    for (const corruption of ["missing-core-table", "missing-checkpoint-row"] as const) {
+      const damaged = await setup();
+      damaged.state.close();
+      states.pop();
+      const damagedV4 = await openAgentHostDatabase(damaged.path, 5_000);
+      damagedV4.exec(`
+        DROP TABLE agent_host_compacted_mailbox_receipts;
+        UPDATE agent_host_state_schema SET version=4;
+      `);
+      if (corruption === "missing-core-table") {
+        damagedV4.exec("DROP TABLE agent_host_executions");
+      } else {
+        damagedV4.exec("DELETE FROM agent_host_mailbox_checkpoint");
+      }
+      damagedV4.close();
+      await expect(openAgentHostState(damaged.path)).rejects.toThrow(
+        "agent_host_state_schema_incomplete"
+      );
+      const unchanged = await openAgentHostDatabase(damaged.path, 5_000);
+      if (corruption === "missing-core-table") {
+        expect(
+          unchanged
+            .prepare(
+              "SELECT 1 AS present FROM sqlite_master WHERE type='table' AND name='agent_host_executions'"
+            )
+            .get()
+        ).toBeUndefined();
+      } else {
+        expect(count(unchanged, "agent_host_mailbox_checkpoint")).toBe(0);
+      }
+      unchanged.close();
+    }
+  });
+
+  it("fails closed on partial current schema and corrupt terminal evidence without deleting state", async () => {
     const partial = await setup();
     partial.state.close();
     states.pop();

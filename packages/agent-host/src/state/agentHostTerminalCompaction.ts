@@ -11,16 +11,20 @@ type MailboxMessage = Extract<ServerEvent, { type: "mailbox.message" }>;
 
 export type AgentHostTerminalCompactionPolicy = {
   maxReceipts: number;
+  maxMailboxReceipts: number;
   maxReceiptAgeDays: number;
   compactionBatchSize: number;
   receiptPruneBatchSize: number;
+  mailboxReceiptPruneBatchSize: number;
 };
 
 export const DEFAULT_AGENT_HOST_TERMINAL_COMPACTION_POLICY: AgentHostTerminalCompactionPolicy = {
   maxReceipts: 4_096,
+  maxMailboxReceipts: 16_384,
   maxReceiptAgeDays: 90,
   compactionBatchSize: 32,
-  receiptPruneBatchSize: 64
+  receiptPruneBatchSize: 64,
+  mailboxReceiptPruneBatchSize: 256
 };
 
 const candidateSchema = z.object({
@@ -58,6 +62,16 @@ const receiptRowSchema = z.object({
   previous_sequence: z.number().int().nonnegative(),
   message_id: z.string().min(1),
   command_digest: z.string().regex(/^sha256:[a-f0-9]{64}$/)
+});
+
+const mailboxReceiptRowSchema = z.object({
+  sequence: z.number().int().positive(),
+  previous_sequence: z.number().int().nonnegative(),
+  message_id: z.string().min(1),
+  command_type: z.string().min(1),
+  command_digest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  dispatch_id: z.string().min(1),
+  execution_attempt_id: z.string().min(1)
 });
 
 function parsePolicy(
@@ -158,61 +172,67 @@ export class AgentHostTerminalCompactionRepository {
 
   inspectMailboxReplay(event: MailboxMessage, commandDigest: string): "new" | "compacted" {
     const identity = commandIdentity(event.command);
-    const receiptRaw = this.database
+    const mailboxReceiptRaw = this.database
       .prepare(
-        `SELECT dispatch_id,execution_attempt_id,inbox_sequence,previous_sequence,message_id,
-                command_digest
-         FROM agent_host_terminal_execution_receipts
-         WHERE inbox_sequence=? OR message_id=?
-            OR (dispatch_id=? AND execution_attempt_id=?)`
+        `SELECT sequence,previous_sequence,message_id,command_type,command_digest,
+                dispatch_id,execution_attempt_id
+         FROM agent_host_compacted_mailbox_receipts
+         WHERE sequence=? OR message_id=?`
       )
-      .get(
-        event.sequence,
-        event.messageId,
-        identity?.dispatchId ?? "",
-        identity?.executionAttemptId ?? ""
-      );
-    if (receiptRaw) {
-      const receipt = receiptRowSchema.parse(receiptRaw);
+      .get(event.sequence, event.messageId);
+    if (mailboxReceiptRaw) {
+      const receipt = mailboxReceiptRowSchema.parse(mailboxReceiptRaw);
+      if (
+        identity &&
+        receipt.command_type === "execute_block" &&
+        event.command.type === "execute_block" &&
+        receipt.dispatch_id === identity.dispatchId &&
+        receipt.execution_attempt_id === identity.executionAttemptId &&
+        receipt.command_digest !== commandDigest
+      ) {
+        throw new Error("execution_identity_conflict");
+      }
       if (
         !identity ||
+        receipt.sequence !== event.sequence ||
+        receipt.previous_sequence !== event.previousSequence ||
+        receipt.message_id !== event.messageId ||
+        receipt.command_type !== event.command.type ||
+        receipt.command_digest !== commandDigest ||
         receipt.dispatch_id !== identity.dispatchId ||
         receipt.execution_attempt_id !== identity.executionAttemptId
       ) {
         throw new Error("mailbox_message_conflict");
       }
-      if (receipt.command_digest !== commandDigest) {
-        throw new Error("execution_identity_conflict");
-      }
-      if (
-        receipt.inbox_sequence === event.sequence &&
-        receipt.previous_sequence === event.previousSequence &&
-        receipt.message_id === event.messageId
-      ) {
-        return "compacted";
-      }
-      const highWater = this.receivedHighWater();
-      if (event.sequence <= highWater || event.previousSequence !== highWater) {
-        throw new Error("mailbox_message_conflict");
-      }
-      this.database
-        .prepare(
-          `UPDATE agent_host_terminal_execution_receipts
-           SET inbox_sequence=?,previous_sequence=?,message_id=?
-           WHERE dispatch_id=? AND execution_attempt_id=?`
-        )
-        .run(
-          event.sequence,
-          event.previousSequence,
-          event.messageId,
-          receipt.dispatch_id,
-          receipt.execution_attempt_id
-        );
-      this.recordReceived(event.sequence);
       return "compacted";
     }
     if (event.sequence <= this.receivedHighWater()) {
       throw new Error("mailbox_message_retention_horizon_exceeded");
+    }
+    if (!identity) return "new";
+    const terminalReceiptRaw = this.database
+      .prepare(
+        `SELECT dispatch_id,execution_attempt_id,inbox_sequence,previous_sequence,message_id,
+                command_digest
+         FROM agent_host_terminal_execution_receipts
+         WHERE dispatch_id=? AND execution_attempt_id=?`
+      )
+      .get(identity.dispatchId, identity.executionAttemptId);
+    if (terminalReceiptRaw) {
+      const receipt = receiptRowSchema.parse(terminalReceiptRaw);
+      if (event.command.type === "execute_block" && receipt.command_digest !== commandDigest) {
+        throw new Error("execution_identity_conflict");
+      }
+      throw new Error("mailbox_message_conflict");
+    }
+    const relatedMailboxReceipt = this.database
+      .prepare(
+        `SELECT 1 AS present FROM agent_host_compacted_mailbox_receipts
+         WHERE dispatch_id=? AND execution_attempt_id=? LIMIT 1`
+      )
+      .get(identity.dispatchId, identity.executionAttemptId);
+    if (relatedMailboxReceipt) {
+      throw new Error("mailbox_message_conflict");
     }
     return "new";
   }
@@ -377,6 +397,28 @@ export class AgentHostTerminalCompactionRepository {
         candidate.terminal_acknowledged_at,
         compactedAt
       );
+    for (const row of inboxRows) {
+      const command = parseAgentHostMailboxCommand(JSON.parse(row.command_json));
+      const identity = commandIdentity(command);
+      if (!identity) throw new Error("agent_host_terminal_compaction_dependency_identity_invalid");
+      this.database
+        .prepare(
+          `INSERT INTO agent_host_compacted_mailbox_receipts(
+            sequence,previous_sequence,message_id,command_type,command_digest,
+            dispatch_id,execution_attempt_id,compacted_at
+          ) VALUES(?,?,?,?,?,?,?,?)`
+        )
+        .run(
+          row.sequence,
+          row.previous_sequence,
+          row.message_id,
+          command.type,
+          row.command_digest,
+          identity.dispatchId,
+          identity.executionAttemptId,
+          compactedAt
+        );
+    }
     const outboxSequences = outboxRows.map((row) => Number(row.sequence));
     if (outboxSequences.length > 0) {
       this.database
@@ -427,11 +469,34 @@ export class AgentHostTerminalCompactionRepository {
     for (const row of rows) {
       this.database
         .prepare(
+          `DELETE FROM agent_host_compacted_mailbox_receipts
+           WHERE dispatch_id=? AND execution_attempt_id=?`
+        )
+        .run(String(row.dispatch_id), String(row.execution_attempt_id));
+      this.database
+        .prepare(
           `DELETE FROM agent_host_terminal_execution_receipts
            WHERE dispatch_id=? AND execution_attempt_id=?`
         )
         .run(String(row.dispatch_id), String(row.execution_attempt_id));
     }
-    return rows.length;
+    const terminalPruned = rows.length;
+    const mailboxRows = this.database
+      .prepare(
+        `SELECT sequence FROM agent_host_compacted_mailbox_receipts
+         WHERE compacted_at<?
+            OR sequence NOT IN (
+              SELECT sequence FROM agent_host_compacted_mailbox_receipts
+              ORDER BY compacted_at DESC,sequence DESC LIMIT ?
+            )
+         ORDER BY compacted_at,sequence LIMIT ?`
+      )
+      .all(cutoff, this.policy.maxMailboxReceipts, this.policy.mailboxReceiptPruneBatchSize);
+    for (const row of mailboxRows) {
+      this.database
+        .prepare("DELETE FROM agent_host_compacted_mailbox_receipts WHERE sequence=?")
+        .run(Number(row.sequence));
+    }
+    return terminalPruned + mailboxRows.length;
   }
 }

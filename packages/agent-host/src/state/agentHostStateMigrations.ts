@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { parseAgentHostMailboxCommand } from "../protocol.js";
 import { inWriteTransaction, type SqliteDatabase } from "./sqliteDatabase.js";
 
-const CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION = 4;
+const CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION = 5;
+const TERMINAL_RECEIPT_SCHEMA_VERSION = 4;
 
 const baseSchema = `
 CREATE TABLE IF NOT EXISTS agent_host_inbox (
@@ -133,6 +134,17 @@ CREATE TABLE IF NOT EXISTS agent_host_terminal_execution_receipts (
   PRIMARY KEY(dispatch_id,execution_attempt_id)
 );
 
+CREATE TABLE IF NOT EXISTS agent_host_compacted_mailbox_receipts (
+  sequence INTEGER PRIMARY KEY,
+  previous_sequence INTEGER NOT NULL,
+  message_id TEXT NOT NULL UNIQUE,
+  command_type TEXT NOT NULL,
+  command_digest TEXT NOT NULL,
+  dispatch_id TEXT NOT NULL,
+  execution_attempt_id TEXT NOT NULL,
+  compacted_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS agent_host_mailbox_checkpoint (
   singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
   received_high_water_sequence INTEGER NOT NULL CHECK(received_high_water_sequence >= 0),
@@ -160,6 +172,10 @@ CREATE INDEX IF NOT EXISTS idx_agent_host_remote_execution_identity
   ON agent_host_remote_execution_outbox(dispatch_id,lease_id,execution_attempt_id,sequence);
 CREATE INDEX IF NOT EXISTS idx_agent_host_terminal_receipts_age
   ON agent_host_terminal_execution_receipts(compacted_at,inbox_sequence);
+CREATE INDEX IF NOT EXISTS idx_agent_host_compacted_mailbox_receipts_age
+  ON agent_host_compacted_mailbox_receipts(compacted_at,sequence);
+CREATE INDEX IF NOT EXISTS idx_agent_host_compacted_mailbox_receipts_identity
+  ON agent_host_compacted_mailbox_receipts(dispatch_id,execution_attempt_id,command_type);
 `;
 
 export function digestJson(value: unknown): string {
@@ -208,9 +224,133 @@ function storedSchemaVersion(database: SqliteDatabase): number | undefined {
   return row ? Number(row.version) : undefined;
 }
 
-function assertCurrentSchemaComplete(database: SqliteDatabase): void {
-  const required: Readonly<Record<string, readonly string[]>> = {
-    agent_host_terminal_execution_receipts: [
+function tableExists(database: SqliteDatabase, table: string): boolean {
+  return Boolean(
+    database
+      .prepare("SELECT 1 AS present FROM sqlite_master WHERE type='table' AND name=?")
+      .get(table)
+  );
+}
+
+type RequiredTableShape = {
+  columns: readonly string[];
+  uniqueKeys: ReadonlyArray<readonly string[]>;
+};
+
+const v4RequiredTables: Readonly<Record<string, RequiredTableShape>> = {
+  agent_host_inbox: {
+    columns: [
+      "sequence",
+      "previous_sequence",
+      "message_id",
+      "command_json",
+      "command_digest",
+      "received_at",
+      "acknowledged_at",
+      "processed_at"
+    ],
+    uniqueKeys: [["sequence"], ["message_id"]]
+  },
+  agent_host_outbox: {
+    columns: ["sequence", "message_id", "event_key", "event_json", "created_at", "acknowledged_at"],
+    uniqueKeys: [["sequence"], ["message_id"], ["event_key"]]
+  },
+  agent_host_executions: {
+    columns: [
+      "inbox_sequence",
+      "dispatch_id",
+      "lease_id",
+      "execution_attempt_id",
+      "protocol_version",
+      "envelope_digest",
+      "envelope_version",
+      "workspace_id",
+      "agent_profile_id",
+      "source_revision",
+      "status",
+      "lease_expires_at",
+      "acp_session_id",
+      "acp_capabilities_json",
+      "recovery_id",
+      "event_cursor",
+      "action_cursor",
+      "cancellation_intent_json",
+      "recovery_intent_json",
+      "terminal_kind",
+      "terminal_payload_digest",
+      "terminal_event_message_id",
+      "terminal_acknowledged_at",
+      "received_at",
+      "started_at",
+      "interrupted_at",
+      "finished_at"
+    ],
+    uniqueKeys: [["inbox_sequence"], ["dispatch_id", "execution_attempt_id"]]
+  },
+  agent_host_execution_transitions: {
+    columns: [
+      "sequence",
+      "inbox_sequence",
+      "from_status",
+      "to_status",
+      "evidence_kind",
+      "occurred_at"
+    ],
+    uniqueKeys: [["sequence"]]
+  },
+  agent_host_execution_actions: {
+    columns: [
+      "sequence",
+      "inbox_sequence",
+      "lease_id",
+      "session_id",
+      "action_id",
+      "action_kind",
+      "deadline",
+      "request_digest",
+      "response_digest",
+      "response_json",
+      "settled_at",
+      "created_at"
+    ],
+    uniqueKeys: [["sequence"], ["inbox_sequence", "session_id", "action_id"]]
+  },
+  agent_host_execution_artifacts: {
+    columns: [
+      "sequence",
+      "inbox_sequence",
+      "operation_id",
+      "direction",
+      "artifact_ref",
+      "sha256",
+      "size_bytes",
+      "media_type",
+      "transferred_at"
+    ],
+    uniqueKeys: [["sequence"], ["inbox_sequence", "operation_id"]]
+  },
+  agent_host_remote_execution_outbox: {
+    columns: [
+      "sequence",
+      "dispatch_id",
+      "lease_id",
+      "execution_attempt_id",
+      "record_kind",
+      "record_id",
+      "record_json",
+      "created_at"
+    ],
+    uniqueKeys: [
+      ["sequence"],
+      ["dispatch_id", "lease_id", "execution_attempt_id", "record_kind", "record_id"]
+    ]
+  },
+  agent_host_state_schema: {
+    columns: ["singleton", "version", "migrated_at"],
+    uniqueKeys: [["singleton"]]
+  },
+  agent_host_terminal_execution_receipts: {
+    columns: [
       "dispatch_id",
       "execution_attempt_id",
       "inbox_sequence",
@@ -230,18 +370,105 @@ function assertCurrentSchemaComplete(database: SqliteDatabase): void {
       "terminal_acknowledged_at",
       "compacted_at"
     ],
-    agent_host_mailbox_checkpoint: [
-      "singleton",
-      "received_high_water_sequence",
-      "acknowledged_high_water_sequence"
-    ]
-  };
-  for (const [table, requiredColumns] of Object.entries(required)) {
+    uniqueKeys: [["dispatch_id", "execution_attempt_id"], ["inbox_sequence"], ["message_id"]]
+  },
+  agent_host_mailbox_checkpoint: {
+    columns: ["singleton", "received_high_water_sequence", "acknowledged_high_water_sequence"],
+    uniqueKeys: [["singleton"]]
+  }
+};
+
+const currentRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
+  ...v4RequiredTables,
+  agent_host_compacted_mailbox_receipts: {
+    columns: [
+      "sequence",
+      "previous_sequence",
+      "message_id",
+      "command_type",
+      "command_digest",
+      "dispatch_id",
+      "execution_attempt_id",
+      "compacted_at"
+    ],
+    uniqueKeys: [["sequence"], ["message_id"]]
+  }
+};
+
+function uniqueKeys(database: SqliteDatabase, table: string): string[][] {
+  const primaryKey = database
+    .prepare(`PRAGMA table_info(${table})`)
+    .all()
+    .filter((row) => Number(row.pk) > 0)
+    .sort((left, right) => Number(left.pk) - Number(right.pk))
+    .map((row) => String(row.name));
+  const indexes = database
+    .prepare(`PRAGMA index_list(${table})`)
+    .all()
+    .filter((row) => Number(row.unique) === 1)
+    .map((row) =>
+      database
+        .prepare(`PRAGMA index_info(${String(row.name)})`)
+        .all()
+        .sort((left, right) => Number(left.seqno) - Number(right.seqno))
+        .map((entry) => String(entry.name))
+    );
+  return primaryKey.length > 0 ? [primaryKey, ...indexes] : indexes;
+}
+
+function assertSchemaComplete(
+  database: SqliteDatabase,
+  required: Readonly<Record<string, RequiredTableShape>>,
+  expectedVersion: number
+): void {
+  for (const [table, shape] of Object.entries(required)) {
     const actual = columns(database, table);
-    if (requiredColumns.some((column) => !actual.has(column))) {
+    const actualUniqueKeys = uniqueKeys(database, table);
+    if (
+      shape.columns.some((column) => !actual.has(column)) ||
+      shape.uniqueKeys.some(
+        (requiredKey) =>
+          !actualUniqueKeys.some(
+            (actualKey) =>
+              requiredKey.length === actualKey.length &&
+              requiredKey.every((column, index) => actualKey[index] === column)
+          )
+      )
+    ) {
       throw new Error("agent_host_state_schema_incomplete");
     }
   }
+  const schemaRows = database
+    .prepare("SELECT singleton,version FROM agent_host_state_schema")
+    .all();
+  const checkpointRows = database
+    .prepare(
+      `SELECT singleton,received_high_water_sequence,acknowledged_high_water_sequence
+       FROM agent_host_mailbox_checkpoint`
+    )
+    .all();
+  const schemaRow = schemaRows[0];
+  const checkpointRow = checkpointRows[0];
+  const receivedHighWater = Number(checkpointRow?.received_high_water_sequence);
+  const acknowledgedHighWater = Number(checkpointRow?.acknowledged_high_water_sequence);
+  if (
+    schemaRows.length !== 1 ||
+    Number(schemaRow?.singleton) !== 1 ||
+    Number(schemaRow?.version) !== expectedVersion ||
+    checkpointRows.length !== 1 ||
+    Number(checkpointRow?.singleton) !== 1 ||
+    !Number.isSafeInteger(receivedHighWater) ||
+    receivedHighWater < 0 ||
+    !Number.isSafeInteger(acknowledgedHighWater) ||
+    acknowledgedHighWater < 0 ||
+    acknowledgedHighWater > receivedHighWater
+  ) {
+    throw new Error("agent_host_state_schema_incomplete");
+  }
+}
+
+function assertCurrentSchemaComplete(database: SqliteDatabase): void {
+  assertSchemaComplete(database, currentRequiredTables, CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION);
 }
 
 function initializeMailboxCheckpoint(database: SqliteDatabase): void {
@@ -258,6 +485,23 @@ function initializeMailboxCheckpoint(database: SqliteDatabase): void {
       ) VALUES(1,?,?)`
     )
     .run(Number(received?.sequence ?? 0), Number(acknowledged?.sequence ?? 0));
+}
+
+function backfillCompactedMailboxReceipts(database: SqliteDatabase): void {
+  database.exec(`
+    INSERT INTO agent_host_compacted_mailbox_receipts(
+      sequence,previous_sequence,message_id,command_type,command_digest,
+      dispatch_id,execution_attempt_id,compacted_at
+    )
+    SELECT inbox_sequence,previous_sequence,message_id,'execute_block',command_digest,
+           dispatch_id,execution_attempt_id,compacted_at
+    FROM agent_host_terminal_execution_receipts
+    WHERE NOT EXISTS(
+      SELECT 1 FROM agent_host_compacted_mailbox_receipts m
+      WHERE m.sequence=agent_host_terminal_execution_receipts.inbox_sequence
+         OR m.message_id=agent_host_terminal_execution_receipts.message_id
+    );
+  `);
 }
 
 function addLegacyInboxColumns(database: SqliteDatabase): void {
@@ -385,7 +629,12 @@ export function initializeAgentHostStateSchema(database: SqliteDatabase): void {
   inWriteTransaction(database, () => {
     assertSupportedSchemaVersion(database);
     const priorVersion = storedSchemaVersion(database);
-    if (priorVersion === CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION) {
+    if (priorVersion === TERMINAL_RECEIPT_SCHEMA_VERSION) {
+      assertSchemaComplete(database, v4RequiredTables, TERMINAL_RECEIPT_SCHEMA_VERSION);
+      if (tableExists(database, "agent_host_compacted_mailbox_receipts")) {
+        throw new Error("agent_host_state_schema_incomplete");
+      }
+    } else if (priorVersion === CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION) {
       assertCurrentSchemaComplete(database);
     }
     database.exec(baseSchema);
@@ -394,12 +643,15 @@ export function initializeAgentHostStateSchema(database: SqliteDatabase): void {
     backfillCommandDigests(database);
     migratePrototypeExecutions(database);
     initializeMailboxCheckpoint(database);
-    assertCurrentSchemaComplete(database);
+    if (priorVersion === TERMINAL_RECEIPT_SCHEMA_VERSION) {
+      backfillCompactedMailboxReceipts(database);
+    }
     database
       .prepare(
         `INSERT INTO agent_host_state_schema(singleton,version,migrated_at) VALUES(1,?,?)
          ON CONFLICT(singleton) DO UPDATE SET version=excluded.version,migrated_at=excluded.migrated_at`
       )
       .run(CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION, new Date().toISOString());
+    assertCurrentSchemaComplete(database);
   });
 }
