@@ -21,12 +21,71 @@ export type {
   WindowsProcessInvocation
 } from "./process/windowsManagedProcess.js";
 export {
+  AgentEnvironmentMissingError,
   agentProcessEnv,
   agentProcessEnvRecord,
   agentProcessPath,
+  resolveAgentProcessEnvironment,
   setAgentProcessEnvironmentOverlay
 } from "./process/agentProcessEnv.js";
-export type { AgentProcessPathOptions } from "./process/agentProcessEnv.js";
+export type {
+  AgentProcessPathOptions,
+  ResolvedAgentEnvironment
+} from "./process/agentProcessEnv.js";
+export {
+  acpAgentIdSchema,
+  acpCapabilityPolicySchema,
+  acpConnectionPolicySchema,
+  acpEnvironmentRequirementSchema,
+  acpEnvironmentRequirementsSchema,
+  acpProfileCatalogSchema,
+  acpProfileCanonicalKey,
+  acpProfileDescriptorSchema,
+  acpProfileIdSchema,
+  acpSessionDefaultsSchema,
+  acpShutdownPolicyFromLegacyGraceMs,
+  acpShutdownPolicySchema,
+  agentEnvironmentContractSchema,
+  agentEnvironmentNameSchema,
+  emptyAcpProfileCatalog,
+  forbiddenAgentEnvironmentNames
+} from "./acpProfile/schema.js";
+export type {
+  AcpCapabilityPolicy,
+  AcpConnectionPolicy,
+  AcpEnvironmentRequirement,
+  AcpProfileCatalog,
+  AcpProfileDescriptor,
+  AcpSessionDefaults,
+  AcpShutdownPolicy,
+  AgentEnvironmentContract
+} from "./acpProfile/schema.js";
+export {
+  AcpProfileAlreadyExistsError,
+  AcpProfileNotFoundError,
+  AcpProfileRevisionConflictError,
+  AcpProfileStore,
+  acpProfileStoreLockValuesSchema,
+  defaultAcpProfileCatalogPath
+} from "./acpProfile/store.js";
+export type {
+  AcpProfileStoreLockOptions,
+  AcpProfileStoreLockValues,
+  AcpProfileStoreOptions
+} from "./acpProfile/store.js";
+export {
+  builtinAcpProfileCatalog,
+  CatalogAcpProfileResolver,
+  NativeAcpHostCommandResolver
+} from "./acpProfile/resolver.js";
+export type {
+  AcpHostCommandResolver,
+  AcpLocalProfileTrustVerifier,
+  AcpProfileReference,
+  AcpProfileResolutionContext,
+  AcpProfileResolver,
+  ResolvedAcpProfile
+} from "./acpProfile/resolver.js";
 export {
   availableExecutionHostEnvironmentVariables,
   decodeCommandOutput,

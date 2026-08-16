@@ -5,6 +5,7 @@ import {
   hostCapacitySchema,
   opaqueIdentifierSchema
 } from "@planweave-ai/agent-host-protocol";
+import { acpEnvironmentRequirementsSchema } from "@planweave-ai/runtime";
 import { z } from "zod";
 
 const relativeWorkspacePathSchema = z
@@ -17,14 +18,6 @@ const relativeWorkspacePathSchema = z
       !value.includes("\\") &&
       value.split("/").every((segment) => segment !== "" && segment !== "." && segment !== ".."),
     "Workspace path must be a safe relative path."
-  );
-
-const environmentNameSchema = z
-  .string()
-  .regex(/^[A-Z_][A-Z0-9_]{0,127}$/)
-  .refine(
-    (name) => !new Set(["PATH", "NODE_OPTIONS", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES"]).has(name),
-    "Process-control environment variables are not allowed."
   );
 
 const uniqueBy = <T>(values: readonly T[], key: (value: T) => string) =>
@@ -88,10 +81,7 @@ export const agentHostConfigSchema = z
               .max(4096)
               .refine(isAbsolute, "ACP command must be absolute."),
             args: z.array(z.string().max(4096)).max(128),
-            environment: z
-              .array(z.object({ name: environmentNameSchema, required: z.boolean() }).strict())
-              .max(128)
-              .refine((values) => uniqueBy(values, (value) => value.name)),
+            environment: acpEnvironmentRequirementsSchema,
             session: z
               .object({
                 modes: z

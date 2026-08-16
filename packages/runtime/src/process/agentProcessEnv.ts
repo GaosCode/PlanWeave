@@ -1,5 +1,9 @@
 import { homedir } from "node:os";
 import { join, win32 as windowsPath } from "node:path";
+import {
+  agentEnvironmentContractSchema,
+  type AgentEnvironmentContract
+} from "../acpProfile/schema.js";
 
 const posixSystemPathEntries = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"];
 let agentProcessEnvironmentOverlay: Readonly<NodeJS.ProcessEnv> | null = null;
@@ -9,6 +13,16 @@ function environmentValue(env: NodeJS.ProcessEnv | undefined, name: string): str
     return undefined;
   }
   return Object.entries(env).find(([key]) => key.toLowerCase() === name.toLowerCase())?.[1];
+}
+
+function contractEnvironmentValue(
+  env: Readonly<NodeJS.ProcessEnv> | undefined,
+  name: string,
+  platform: NodeJS.Platform
+): string | undefined {
+  if (!env) return undefined;
+  if (platform !== "win32") return env[name];
+  return environmentValue(env, name);
 }
 
 function pathDelimiterFor(platform: NodeJS.Platform): string {
@@ -99,6 +113,85 @@ export type AgentProcessPathOptions = {
   platform?: NodeJS.Platform;
   env?: NodeJS.ProcessEnv;
 };
+
+export type ResolvedAgentEnvironment = {
+  readonly env: Readonly<Record<string, string>>;
+  readonly availableNames: readonly string[];
+};
+
+export class AgentEnvironmentMissingError extends Error {
+  readonly code = "agent_environment_missing";
+
+  constructor(readonly missingNames: readonly string[]) {
+    super(`Required agent environment variables are missing: ${missingNames.join(", ")}.`);
+    this.name = "AgentEnvironmentMissingError";
+  }
+}
+
+const windowsBaseEnvironmentNames = [
+  "PATHEXT",
+  "SYSTEMROOT",
+  "COMSPEC",
+  "USERPROFILE",
+  "APPDATA",
+  "LOCALAPPDATA",
+  "TMP",
+  "TEMP",
+  "USERNAME"
+] as const;
+const posixBaseEnvironmentNames = ["HOME", "TMP", "TEMP"] as const;
+
+/**
+ * Materializes the minimal environment contract shared by local Runtime ACP profiles and Agent
+ * Host profiles. Values remain process-local; callers may report names but must not persist values.
+ */
+export function resolveAgentProcessEnvironment(input: {
+  platform: NodeJS.Platform;
+  ambient: Readonly<NodeJS.ProcessEnv>;
+  shellOverlay?: Readonly<NodeJS.ProcessEnv>;
+  contract: AgentEnvironmentContract;
+}): ResolvedAgentEnvironment {
+  const contract = agentEnvironmentContractSchema.parse(input.contract);
+  const env: Record<string, string> = {};
+  const baseNames =
+    input.platform === "win32" ? windowsBaseEnvironmentNames : posixBaseEnvironmentNames;
+  for (const name of baseNames) {
+    const value = contractEnvironmentValue(input.ambient, name, input.platform);
+    if (value !== undefined) env[name] = value;
+  }
+
+  const ambientPath = contractEnvironmentValue(input.ambient, "PATH", input.platform);
+  const overlayPath = contractEnvironmentValue(input.shellOverlay, "PATH", input.platform);
+  const pathSource = [overlayPath, ambientPath]
+    .filter((value): value is string => value !== undefined)
+    .join(pathDelimiterFor(input.platform));
+  const pathValue = agentProcessPath({
+    platform: input.platform,
+    env: { ...input.ambient },
+    envPath: pathSource
+  });
+  env[input.platform === "win32" ? "Path" : "PATH"] = pathValue;
+
+  const missingNames: string[] = [];
+  for (const requirement of contract.variables) {
+    const ambientValue = contractEnvironmentValue(input.ambient, requirement.name, input.platform);
+    const value =
+      ambientValue !== undefined
+        ? ambientValue
+        : contractEnvironmentValue(input.shellOverlay, requirement.name, input.platform);
+    if (value === undefined) {
+      if (requirement.required) missingNames.push(requirement.name);
+      continue;
+    }
+    env[requirement.name] = value;
+  }
+  if (missingNames.length > 0) throw new AgentEnvironmentMissingError(missingNames);
+
+  return Object.freeze({
+    env: Object.freeze({ ...env }),
+    availableNames: Object.freeze(Object.keys(env))
+  });
+}
 
 /**
  * PATH used to resolve agent CLI / ACP binaries.

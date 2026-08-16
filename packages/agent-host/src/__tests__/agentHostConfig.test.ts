@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { resolveAgentProcessEnvironment } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it } from "vitest";
 import { ConfiguredAcpProfileResolver, ConfiguredWorkspaceResolver } from "../config/resolvers.js";
 import { observeHostReadiness } from "../config/readiness.js";
@@ -187,5 +188,33 @@ describe("Agent Host configuration", () => {
       })
     ).toThrow();
     expect(dirname(process.execPath)).not.toBe("");
+  });
+
+  it("uses the Runtime environment authority while preserving the Host resolver boundary", async () => {
+    const { directory, workspaceRoot } = await setup();
+    const config = parseAgentHostConfig(input(directory, workspaceRoot));
+    const ambient = {
+      PATH: "/usr/bin:/bin",
+      HOME: "/home/host",
+      SAFE_API_KEY: "",
+      OPTIONAL_VALUE: "optional",
+      UNDECLARED_SECRET: "secret-marker"
+    };
+    const resolved = await new ConfiguredAcpProfileResolver(
+      config,
+      ambient,
+      undefined,
+      "linux"
+    ).resolve("acp.test", "test-agent");
+    const authoritative = resolveAgentProcessEnvironment({
+      platform: "linux",
+      ambient,
+      contract: { variables: config.agentProfiles[0].environment }
+    });
+
+    expect(resolved.env).toEqual(authoritative.env);
+    expect(resolved.env.SAFE_API_KEY).toBe("");
+    expect(resolved.env).not.toHaveProperty("UNDECLARED_SECRET");
+    expect(JSON.stringify(resolved)).not.toContain("secret-marker");
   });
 });

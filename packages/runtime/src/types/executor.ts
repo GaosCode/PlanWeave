@@ -59,7 +59,15 @@ export const nativeExecutionHostSchema = z.object({ kind: z.literal("native") })
 export const wslExecutionHostSchema = z
   .object({
     kind: z.literal("wsl"),
-    distribution: z.string().trim().min(1).max(256)
+    distribution: z
+      .string()
+      .trim()
+      .min(1)
+      .max(256)
+      .refine(
+        (distribution) => !distribution.includes("\0"),
+        "WSL distribution must not contain NUL."
+      )
   })
   .strict();
 export const executionHostSchema = z.discriminatedUnion("kind", [
