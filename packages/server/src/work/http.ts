@@ -21,6 +21,7 @@ import {
 } from "../identity/index.js";
 import type { TransportAdmissionPolicy } from "../insecureTransport.js";
 import type { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
+import { BoundedFixedWindowAdmission } from "../httpFixedWindowAdmission.js";
 import type { ProjectAccessRepository } from "../projectAccessRepository.js";
 import { WorkAssignmentService, WorkAssignmentServiceError } from "./service.js";
 import { AuthorityService } from "./authorityService.js";
@@ -48,8 +49,11 @@ type AssignmentRoute = {
   authority?: "responsibility" | "reviewer" | "execution_target";
 };
 
-type RateBucket = { windowStartedAt: number; count: number };
-const rateBuckets = new Map<string, RateBucket>();
+const rateLimiter = new BoundedFixedWindowAdmission<string>({
+  windowMs: ASSIGNMENT_RATE_WINDOW_MS,
+  maxRequests: ASSIGNMENT_RATE_MAX_REQUESTS,
+  maxBuckets: ASSIGNMENT_RATE_MAX_BUCKETS
+});
 
 export type WorkAssignmentHttpOptions = {
   resolveService(workspaceId: string, projectId: string): WorkAssignmentService | undefined;
@@ -185,13 +189,19 @@ function route(request: IncomingMessage, pathname: string): AssignmentRoute | un
   return undefined;
 }
 
-function respond(response: ServerResponse, status: number, body: unknown): void {
+function respond(
+  response: ServerResponse,
+  status: number,
+  body: unknown,
+  headers: Readonly<Record<string, string>> = {}
+): void {
   const bytes = Buffer.from(JSON.stringify(body));
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "content-length": bytes.byteLength,
     "cache-control": "no-store",
-    "x-content-type-options": "nosniff"
+    "x-content-type-options": "nosniff",
+    ...headers
   });
   response.end(bytes);
 }
@@ -244,30 +254,9 @@ function parseJsonParameter(value: string | undefined): unknown {
   }
 }
 
-function rateLimitAllowed(
-  humanPrincipalId: string,
-  workspaceId: string,
-  projectId: string,
-  now: number
-): boolean {
+function rateLimit(humanPrincipalId: string, workspaceId: string, projectId: string, now: number) {
   const key = JSON.stringify([humanPrincipalId, workspaceId, projectId]);
-  const current = rateBuckets.get(key);
-  if (current && now - current.windowStartedAt < ASSIGNMENT_RATE_WINDOW_MS) {
-    if (current.count >= ASSIGNMENT_RATE_MAX_REQUESTS) return false;
-    current.count += 1;
-    return true;
-  }
-  for (const [candidateKey, bucket] of rateBuckets) {
-    if (now - bucket.windowStartedAt >= ASSIGNMENT_RATE_WINDOW_MS) {
-      rateBuckets.delete(candidateKey);
-    }
-  }
-  if (rateBuckets.size >= ASSIGNMENT_RATE_MAX_BUCKETS) {
-    const oldestKey = rateBuckets.keys().next().value;
-    if (oldestKey !== undefined) rateBuckets.delete(oldestKey);
-  }
-  rateBuckets.set(key, { windowStartedAt: now, count: 1 });
-  return true;
+  return rateLimiter.admit(key, now);
 }
 
 function statusFor(error: WorkAssignmentServiceError): number {
@@ -325,7 +314,7 @@ function safeError(error: unknown): { status: number; code: string } {
 }
 
 export function resetWorkAssignmentHttpRateLimits(): void {
-  rateBuckets.clear();
+  rateLimiter.reset();
 }
 
 export async function handleWorkAssignmentHttpRequest(
@@ -375,16 +364,20 @@ export async function handleWorkAssignmentHttpRequest(
     );
     if (!authenticated) throw new WorkAssignmentServiceError("work_cross_project_forbidden");
     const now = (options.clock ?? (() => new Date()))().getTime();
-    if (
-      !rateLimitAllowed(
-        authenticated.actor.humanPrincipalId,
-        authenticated.workspaceId,
-        matched.projectId,
-        now
-      )
-    ) {
+    const admission = rateLimit(
+      authenticated.actor.humanPrincipalId,
+      authenticated.workspaceId,
+      matched.projectId,
+      now
+    );
+    if (!admission.allowed) {
       request.resume();
-      respond(response, 429, { error: "assignment_rate_limited" });
+      respond(
+        response,
+        429,
+        { error: "assignment_rate_limited" },
+        { "retry-after": String(admission.retryAfterSeconds) }
+      );
       return true;
     }
     const actor = authenticated.actor;

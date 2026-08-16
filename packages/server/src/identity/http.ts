@@ -11,6 +11,7 @@ import {
   localAdminBootstrapAllowed,
   type TransportAdmissionPolicy
 } from "../insecureTransport.js";
+import { BoundedFixedWindowAdmission } from "../httpFixedWindowAdmission.js";
 import { authenticateHumanForProject } from "./auth.js";
 import {
   HUMAN_AUTH_ERROR_MESSAGES,
@@ -62,12 +63,18 @@ type HumanRoute =
   | { kind: "list_devices"; projectId: string }
   | { kind: "revoke_device"; projectId: string; deviceCredentialId: string };
 
-type RateBucket = { windowStartedAt: number; count: number };
 type HumanRateClass = "read" | "sensitive_write";
-type RateLimitResult = { allowed: true } | { allowed: false; retryAfterSeconds: number };
-const rateBuckets: Record<HumanRateClass, Map<string, RateBucket>> = {
-  read: new Map(),
-  sensitive_write: new Map()
+const rateLimiters: Record<HumanRateClass, BoundedFixedWindowAdmission<string>> = {
+  read: new BoundedFixedWindowAdmission({
+    windowMs: HUMAN_RATE_WINDOW_MS,
+    maxRequests: HUMAN_RATE_MAX_REQUESTS,
+    maxBuckets: HUMAN_RATE_MAX_BUCKETS
+  }),
+  sensitive_write: new BoundedFixedWindowAdmission({
+    windowMs: HUMAN_RATE_WINDOW_MS,
+    maxRequests: HUMAN_RATE_MAX_REQUESTS,
+    maxBuckets: HUMAN_RATE_MAX_BUCKETS
+  })
 };
 
 type InvitationCreateResult = ReturnType<HumanMembershipService["createInvitation"]>;
@@ -254,42 +261,10 @@ function rateLimitKey(
   return JSON.stringify([subject, projectId, rateClass, rateClass === "read" ? routeKind : "all"]);
 }
 
-function checkRateLimit(
-  subject: string,
-  projectId: string,
-  route: HumanRoute,
-  now: number
-): RateLimitResult {
+function checkRateLimit(subject: string, projectId: string, route: HumanRoute, now: number) {
   const requestClass = rateClass(route);
-  const buckets = rateBuckets[requestClass];
   const key = rateLimitKey(subject, projectId, requestClass, route.kind);
-  const bucket = buckets.get(key);
-  if (bucket && now - bucket.windowStartedAt < HUMAN_RATE_WINDOW_MS) {
-    if (bucket.count >= HUMAN_RATE_MAX_REQUESTS) {
-      return {
-        allowed: false,
-        retryAfterSeconds: Math.max(
-          1,
-          Math.ceil((bucket.windowStartedAt + HUMAN_RATE_WINDOW_MS - now) / 1_000)
-        )
-      };
-    }
-    bucket.count += 1;
-    return { allowed: true };
-  }
-
-  for (const [candidateKey, candidate] of buckets) {
-    if (now - candidate.windowStartedAt >= HUMAN_RATE_WINDOW_MS) {
-      buckets.delete(candidateKey);
-    }
-  }
-  if (buckets.size >= HUMAN_RATE_MAX_BUCKETS) {
-    const oldestKey = buckets.keys().next().value;
-    if (oldestKey !== undefined) buckets.delete(oldestKey);
-  }
-
-  buckets.set(key, { windowStartedAt: now, count: 1 });
-  return { allowed: true };
+  return rateLimiters[requestClass].admit(key, now);
 }
 
 function credentialRateLimitSubject(kind: "invitation", credential: string): string {
@@ -308,8 +283,8 @@ function enforceRateLimit(
 
 /** Test helper to clear in-memory admission and invitation replay state. */
 export function resetHumanHttpRateLimits(): void {
-  rateBuckets.read.clear();
-  rateBuckets.sensitive_write.clear();
+  rateLimiters.read.reset();
+  rateLimiters.sensitive_write.reset();
   for (const entry of invitationIdempotencyEntries.values()) {
     if (entry.expiryTimer) clearTimeout(entry.expiryTimer);
   }
@@ -369,13 +344,6 @@ function safeError(error: unknown): { status: number; code: string; retryAfterSe
   if (error instanceof Error) {
     if (error.message === "human_body_too_large") {
       return { status: 413, code: "human_body_too_large" };
-    }
-    if (error.message === "human_rate_limited") {
-      return {
-        status: 429,
-        code: "human_rate_limited",
-        retryAfterSeconds: Math.ceil(HUMAN_RATE_WINDOW_MS / 1_000)
-      };
     }
   }
   return { status: 500, code: "human_request_failed" };

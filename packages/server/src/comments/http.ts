@@ -19,6 +19,7 @@ import {
 } from "../identity/index.js";
 import type { TransportAdmissionPolicy } from "../insecureTransport.js";
 import type { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
+import { BoundedFixedWindowAdmission } from "../httpFixedWindowAdmission.js";
 import { CommentService, CommentServiceError } from "./service.js";
 
 const MAX_COMMENT_BODY_BYTES = 262_144;
@@ -32,8 +33,11 @@ type CommentHttpRoute =
   | { kind: "list_comments" | "create_comment" | "list_activity"; projectId: string }
   | { kind: "edit_comment" | "tombstone_comment"; projectId: string; commentId: string };
 
-type RateBucket = { windowStartedAt: number; count: number };
-const rateBuckets = new Map<string, RateBucket>();
+const rateLimiter = new BoundedFixedWindowAdmission<string>({
+  windowMs: COMMENT_RATE_WINDOW_MS,
+  maxRequests: COMMENT_RATE_MAX_REQUESTS,
+  maxBuckets: COMMENT_RATE_MAX_BUCKETS
+});
 
 export type CommentActivityHttpOptions = {
   resolveService(workspaceId: string, projectId: string): CommentService | undefined;
@@ -109,13 +113,19 @@ function isCandidate(pathname: string): boolean {
   return /^\/api\/v1\/projects\/[^/]+\/(comments|activity)(\/|$)/.test(pathname);
 }
 
-function respond(response: ServerResponse, status: number, body: unknown): void {
+function respond(
+  response: ServerResponse,
+  status: number,
+  body: unknown,
+  headers: Readonly<Record<string, string>> = {}
+): void {
   const bytes = Buffer.from(JSON.stringify(body));
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "content-length": bytes.byteLength,
     "cache-control": "no-store",
-    "x-content-type-options": "nosniff"
+    "x-content-type-options": "nosniff",
+    ...headers
   });
   response.end(bytes);
 }
@@ -168,28 +178,9 @@ function parseJsonParameter(value: string | undefined): unknown {
   }
 }
 
-function rateLimitAllowed(
-  humanPrincipalId: string,
-  workspaceId: string,
-  projectId: string,
-  now: number
-): boolean {
+function rateLimit(humanPrincipalId: string, workspaceId: string, projectId: string, now: number) {
   const key = JSON.stringify([humanPrincipalId, workspaceId, projectId]);
-  const current = rateBuckets.get(key);
-  if (current && now - current.windowStartedAt < COMMENT_RATE_WINDOW_MS) {
-    if (current.count >= COMMENT_RATE_MAX_REQUESTS) return false;
-    current.count += 1;
-    return true;
-  }
-  for (const [candidateKey, bucket] of rateBuckets) {
-    if (now - bucket.windowStartedAt >= COMMENT_RATE_WINDOW_MS) rateBuckets.delete(candidateKey);
-  }
-  if (rateBuckets.size >= COMMENT_RATE_MAX_BUCKETS) {
-    const oldestKey = rateBuckets.keys().next().value;
-    if (oldestKey !== undefined) rateBuckets.delete(oldestKey);
-  }
-  rateBuckets.set(key, { windowStartedAt: now, count: 1 });
-  return true;
+  return rateLimiter.admit(key, now);
 }
 
 function statusFor(error: CommentServiceError): number {
@@ -230,7 +221,7 @@ function safeError(error: unknown): { status: number; code: string } {
 }
 
 export function resetCommentActivityHttpRateLimits(): void {
-  rateBuckets.clear();
+  rateLimiter.reset();
 }
 
 export async function handleCommentActivityHttpRequest(
@@ -280,16 +271,20 @@ export async function handleCommentActivityHttpRequest(
     );
     if (!authenticated) throw new CommentServiceError("comment_cross_project_forbidden");
     const now = (options.clock ?? (() => new Date()))().getTime();
-    if (
-      !rateLimitAllowed(
-        authenticated.actor.humanPrincipalId,
-        authenticated.workspaceId,
-        matched.projectId,
-        now
-      )
-    ) {
+    const admission = rateLimit(
+      authenticated.actor.humanPrincipalId,
+      authenticated.workspaceId,
+      matched.projectId,
+      now
+    );
+    if (!admission.allowed) {
       request.resume();
-      respond(response, 429, { error: "comment_rate_limited" });
+      respond(
+        response,
+        429,
+        { error: "comment_rate_limited" },
+        { "retry-after": String(admission.retryAfterSeconds) }
+      );
       return true;
     }
     const actor = commentActor(authenticated, options.workspaceIdentity);

@@ -47,6 +47,7 @@ export { CanvasCommandService, type CanvasCommandServiceOptions } from "./servic
 export {
   canvasCommandOutcomeHttpStatus,
   handleCanvasCommandHttpRequest,
+  resetCanvasCommandHttpRateLimits,
   routeCanvasCommandHttp,
   type CanvasCommandHttpOptions
 } from "./http.js";

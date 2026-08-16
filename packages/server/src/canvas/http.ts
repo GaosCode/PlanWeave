@@ -14,6 +14,7 @@ import {
   type HumanIdentityRepository,
   type HumanProjectAuthority
 } from "../identity/index.js";
+import { BoundedFixedWindowAdmission } from "../httpFixedWindowAdmission.js";
 import type { TransportAdmissionPolicy } from "../insecureTransport.js";
 import type { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import {
@@ -29,8 +30,12 @@ type CanvasRoute =
   | { kind: "runtime_status"; projectId: string; canvasId: string }
   | { kind: "forbidden_feature"; feature: string; projectId?: string };
 
-type RateBucket = { windowStartedAt: number; count: number };
-const rateBuckets = new Map<string, RateBucket>();
+const CANVAS_COMMAND_RATE_MAX_BUCKETS = 2_000;
+const rateLimiter = new BoundedFixedWindowAdmission<string>({
+  windowMs: CANVAS_COMMAND_RATE_WINDOW_MS,
+  maxRequests: CANVAS_COMMAND_RATE_MAX_REQUESTS,
+  maxBuckets: CANVAS_COMMAND_RATE_MAX_BUCKETS
+});
 
 export type CanvasCommandHttpOptions = {
   service: CanvasCommandService;
@@ -96,13 +101,19 @@ export function routeCanvasCommandHttp(
   return { kind: "command", projectId, canvasId };
 }
 
-function respond(response: ServerResponse, status: number, body: unknown): void {
+function respond(
+  response: ServerResponse,
+  status: number,
+  body: unknown,
+  headers: Readonly<Record<string, string>> = {}
+): void {
   const bytes = Buffer.from(JSON.stringify(body));
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "content-length": bytes.byteLength,
     "cache-control": "no-store",
-    "x-content-type-options": "nosniff"
+    "x-content-type-options": "nosniff",
+    ...headers
   });
   response.end(bytes);
 }
@@ -135,21 +146,8 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
   }
 }
 
-function rateLimit(key: string, clock: () => Date): boolean {
-  const now = clock().getTime();
-  const bucket = rateBuckets.get(key);
-  if (!bucket || now - bucket.windowStartedAt >= CANVAS_COMMAND_RATE_WINDOW_MS) {
-    rateBuckets.set(key, { windowStartedAt: now, count: 1 });
-    if (rateBuckets.size > 2_000) {
-      for (const [entryKey, entry] of rateBuckets) {
-        if (now - entry.windowStartedAt >= CANVAS_COMMAND_RATE_WINDOW_MS)
-          rateBuckets.delete(entryKey);
-      }
-    }
-    return false;
-  }
-  bucket.count += 1;
-  return bucket.count > CANVAS_COMMAND_RATE_MAX_REQUESTS;
+export function resetCanvasCommandHttpRateLimits(): void {
+  rateLimiter.reset();
 }
 
 export async function handleCanvasCommandHttpRequest(
@@ -205,22 +203,26 @@ export async function handleCanvasCommandHttpRequest(
   }
   const context = authenticated.actor;
 
-  const clock = options.clock ?? (() => new Date());
-  if (
-    rateLimit(
-      `${routed.kind}:${context.humanPrincipalId}:${routed.projectId}:${routed.canvasId}`,
-      clock
-    )
-  ) {
-    respond(response, 429, {
-      type: "canvas.command.rejected",
-      protocolVersion: CANVAS_COMMAND_PROTOCOL_VERSION,
-      schemaVersion: "canvas-command/v1",
-      projectId: routed.projectId,
-      canvasId: routed.canvasId,
-      operationId: "rate-limited",
-      code: "rate_limited"
-    });
+  const now = (options.clock ?? (() => new Date()))().getTime();
+  const admission = rateLimiter.admit(
+    `${routed.kind}:${context.humanPrincipalId}:${routed.projectId}:${routed.canvasId}`,
+    now
+  );
+  if (!admission.allowed) {
+    respond(
+      response,
+      429,
+      {
+        type: "canvas.command.rejected",
+        protocolVersion: CANVAS_COMMAND_PROTOCOL_VERSION,
+        schemaVersion: "canvas-command/v1",
+        projectId: routed.projectId,
+        canvasId: routed.canvasId,
+        operationId: "rate-limited",
+        code: "rate_limited"
+      },
+      { "retry-after": String(admission.retryAfterSeconds) }
+    );
     return true;
   }
 

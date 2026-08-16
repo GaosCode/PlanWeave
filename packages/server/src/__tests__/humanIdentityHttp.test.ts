@@ -884,8 +884,9 @@ describe("human membership HTTP APIs", () => {
     expect((await fetch(limitedUrl)).status).toBe(401);
   });
 
-  it("bounds invalid invitation-token buckets without locking a valid invitation", async () => {
-    const { origin } = await setup();
+  it("bounds invitation-token buckets without evicting active quota", async () => {
+    let now = new Date("2026-07-26T10:00:00.000Z");
+    const { origin } = await setup(loopbackHttpTransportAdmission, () => now);
     const owner = await bootstrap(origin);
     const invitationResponse = await fetch(
       `${origin}/api/v1/projects/project-a/human/invitations`,
@@ -897,7 +898,8 @@ describe("human membership HTTP APIs", () => {
     );
     const invitation = (await invitationResponse.json()) as { invitationToken: string };
 
-    for (let bucket = 0; bucket <= HUMAN_RATE_MAX_BUCKETS; bucket += 1) {
+    // Bootstrap and invitation creation already occupy two sensitive-write buckets.
+    for (let bucket = 0; bucket < HUMAN_RATE_MAX_BUCKETS - 2; bucket += 1) {
       const invalidToken = `pw_inv_${createHash("sha256")
         .update(`invalid-invitation-${bucket}`)
         .digest("base64url")}`;
@@ -912,6 +914,31 @@ describe("human membership HTTP APIs", () => {
       expect(response.status).toBe(403);
     }
 
+    const overflowToken = `pw_inv_${createHash("sha256")
+      .update("invalid-invitation-overflow")
+      .digest("base64url")}`;
+    const overflow = await fetch(`${origin}/api/v1/projects/project-a/human/invitations/consume`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ invitationToken: overflowToken, displayName: "Attacker" })
+    });
+    expect(overflow.status).toBe(429);
+    expect(overflow.headers.get("retry-after")).toBe("60");
+
+    const saturatedValid = await fetch(
+      `${origin}/api/v1/projects/project-a/human/invitations/consume`,
+      {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({
+          invitationToken: invitation.invitationToken,
+          displayName: "Invited Member"
+        })
+      }
+    );
+    expect(saturatedValid.status).toBe(429);
+
+    now = new Date(now.getTime() + 60_000);
     const valid = await fetch(`${origin}/api/v1/projects/project-a/human/invitations/consume`, {
       method: "POST",
       headers: jsonHeaders(),

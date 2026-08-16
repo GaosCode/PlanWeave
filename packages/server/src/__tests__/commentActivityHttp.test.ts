@@ -23,6 +23,8 @@ import {
   createDistributedServerComposition,
   type DistributedServerComposition
 } from "../serverComposition.js";
+import { resetCommentActivityHttpRateLimits } from "../comments/index.js";
+import { resetWorkAssignmentHttpRateLimits } from "../work/index.js";
 
 const servers: HttpServer[] = [];
 const compositions: DistributedServerComposition[] = [];
@@ -32,6 +34,8 @@ const projectAWorkspaceId = "workspace-comment-activity-a";
 const projectBWorkspaceId = "workspace-comment-activity-b";
 
 afterEach(async () => {
+  resetCommentActivityHttpRateLimits();
+  resetWorkAssignmentHttpRateLimits();
   for (const composition of compositions.splice(0)) await composition.close();
   await Promise.all(
     servers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve())))
@@ -161,6 +165,16 @@ describe("comment and activity production HTTP", () => {
       expect(
         (await fetch(url, { headers: { Authorization: `Bearer ${ownerToken}` } })).status
       ).toBe(200);
+      for (let request = 1; request < 120; request += 1) {
+        expect(
+          (await fetch(url, { headers: { Authorization: `Bearer ${ownerToken}` } })).status
+        ).toBe(200);
+      }
+      const limited = await fetch(url, {
+        headers: { Authorization: `Bearer ${ownerToken}` }
+      });
+      expect(limited.status).toBe(429);
+      expect(limited.headers.get("retry-after")).toBe("60");
     }
   });
 
