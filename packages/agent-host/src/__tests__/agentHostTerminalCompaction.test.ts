@@ -388,11 +388,13 @@ describe("Agent Host terminal state compaction", () => {
 
   it("migrates a v3 checkpoint atomically and reopens the compacted state", async () => {
     const { path, state } = await setup();
+    state.receive(delivery(1));
     state.close();
     states.pop();
     const v3 = await openAgentHostDatabase(path, 5_000);
     v3.exec(`
       DROP TABLE agent_host_terminal_execution_receipts;
+      DROP TABLE agent_host_compacted_mailbox_receipts;
       DROP TABLE agent_host_mailbox_checkpoint;
       UPDATE agent_host_state_schema SET version=3;
     `);
@@ -400,7 +402,10 @@ describe("Agent Host terminal state compaction", () => {
 
     const migrated = await openAgentHostState(path);
     states.push(migrated);
+    expect(migrated.pendingExecutions(1)).toHaveLength(1);
+    expect(migrated.lastAcknowledgedSequence()).toBe(0);
     const received = migrated.receive(delivery(1));
+    expect(received.stored).toBe(false);
     migrated.acknowledgeEvent(received.acknowledgement.messageId);
     migrated.startExecution(1);
     acknowledgeByType(migrated, "dispatch.accepted");
@@ -420,49 +425,64 @@ describe("Agent Host terminal state compaction", () => {
     inspected.close();
   });
 
-  it("migrates valid v4 receipts and rejects damaged v4 core state before repair", async () => {
-    const valid = await setup();
-    const received = valid.state.receive(delivery(1));
-    valid.state.acknowledgeEvent(received.acknowledgement.messageId);
-    valid.state.startExecution(1);
-    acknowledgeByType(valid.state, "dispatch.accepted");
-    valid.state.completeExecution(1, result);
-    acknowledgeByType(valid.state, "dispatch.completed");
-    valid.state.close();
+  it("rejects the transient v4 compaction schema without fabricating replay receipts", async () => {
+    const transient = await setup();
+    transient.state.close();
     states.pop();
-    const validV4 = await openAgentHostDatabase(valid.path, 5_000);
-    validV4.exec(`
+    const transientV4 = await openAgentHostDatabase(transient.path, 5_000);
+    transientV4.exec(`
       DROP TABLE agent_host_compacted_mailbox_receipts;
       UPDATE agent_host_state_schema SET version=4;
     `);
-    validV4.close();
-    const migrated = await openAgentHostState(valid.path);
-    states.push(migrated);
-    expect(migrated.receive(delivery(1)).stored).toBe(false);
-    migrated.close();
-    states.pop();
-    const inspected = await openAgentHostDatabase(valid.path, 5_000);
-    expect(inspected.prepare("SELECT version FROM agent_host_state_schema").get()).toMatchObject({
-      version: 5
+    transientV4.close();
+    await expect(openAgentHostState(transient.path)).rejects.toThrow(
+      "agent_host_state_intermediate_compaction_schema_unsupported"
+    );
+    const unchanged = await openAgentHostDatabase(transient.path, 5_000);
+    expect(unchanged.prepare("SELECT version FROM agent_host_state_schema").get()).toMatchObject({
+      version: 4
     });
-    expect(count(inspected, "agent_host_compacted_mailbox_receipts")).toBe(1);
-    inspected.close();
+    expect(
+      unchanged
+        .prepare(
+          "SELECT 1 AS present FROM sqlite_master WHERE type='table' AND name='agent_host_compacted_mailbox_receipts'"
+        )
+        .get()
+    ).toBeUndefined();
+    unchanged.close();
+  });
 
+  it("rejects compaction-era tables in a database declaring v3", async () => {
+    const partial = await setup();
+    partial.state.close();
+    states.pop();
+    const partialV3 = await openAgentHostDatabase(partial.path, 5_000);
+    partialV3.exec("UPDATE agent_host_state_schema SET version=3");
+    partialV3.close();
+
+    await expect(openAgentHostState(partial.path)).rejects.toThrow(
+      "agent_host_state_intermediate_compaction_schema_unsupported"
+    );
+    const unchanged = await openAgentHostDatabase(partial.path, 5_000);
+    expect(unchanged.prepare("SELECT version FROM agent_host_state_schema").get()).toMatchObject({
+      version: 3
+    });
+    expect(count(unchanged, "agent_host_compacted_mailbox_receipts")).toBe(0);
+    unchanged.close();
+  });
+
+  it("rejects damaged v5 core state before repair", async () => {
     for (const corruption of ["missing-core-table", "missing-checkpoint-row"] as const) {
       const damaged = await setup();
       damaged.state.close();
       states.pop();
-      const damagedV4 = await openAgentHostDatabase(damaged.path, 5_000);
-      damagedV4.exec(`
-        DROP TABLE agent_host_compacted_mailbox_receipts;
-        UPDATE agent_host_state_schema SET version=4;
-      `);
+      const damagedV5 = await openAgentHostDatabase(damaged.path, 5_000);
       if (corruption === "missing-core-table") {
-        damagedV4.exec("DROP TABLE agent_host_executions");
+        damagedV5.exec("DROP TABLE agent_host_executions");
       } else {
-        damagedV4.exec("DELETE FROM agent_host_mailbox_checkpoint");
+        damagedV5.exec("DELETE FROM agent_host_mailbox_checkpoint");
       }
-      damagedV4.close();
+      damagedV5.close();
       await expect(openAgentHostState(damaged.path)).rejects.toThrow(
         "agent_host_state_schema_incomplete"
       );
@@ -478,6 +498,53 @@ describe("Agent Host terminal state compaction", () => {
       } else {
         expect(count(unchanged, "agent_host_mailbox_checkpoint")).toBe(0);
       }
+      unchanged.close();
+    }
+  });
+
+  it("rejects lagging received and acknowledged checkpoint high-water without repair", async () => {
+    for (const lagging of ["received", "acknowledged"] as const) {
+      const compacted = await setup();
+      const received = compacted.state.receive(delivery(1));
+      if (lagging === "acknowledged") {
+        compacted.state.acknowledgeEvent(received.acknowledgement.messageId);
+        compacted.state.startExecution(1);
+        acknowledgeByType(compacted.state, "dispatch.accepted");
+        compacted.state.completeExecution(1, result);
+        acknowledgeByType(compacted.state, "dispatch.completed");
+      }
+      compacted.state.close();
+      states.pop();
+
+      const damaged = await openAgentHostDatabase(compacted.path, 5_000);
+      expect(count(damaged, "agent_host_inbox")).toBe(lagging === "received" ? 1 : 0);
+      expect(count(damaged, "agent_host_compacted_mailbox_receipts")).toBe(
+        lagging === "acknowledged" ? 1 : 0
+      );
+      damaged
+        .prepare(
+          `UPDATE agent_host_mailbox_checkpoint
+           SET received_high_water_sequence=?,acknowledged_high_water_sequence=?`
+        )
+        .run(lagging === "received" ? 0 : 1, 0);
+      damaged.close();
+
+      await expect(openAgentHostState(compacted.path)).rejects.toThrow(
+        "agent_host_state_schema_incomplete"
+      );
+      const unchanged = await openAgentHostDatabase(compacted.path, 5_000);
+      expect(
+        unchanged
+          .prepare(
+            `SELECT received_high_water_sequence,acknowledged_high_water_sequence
+             FROM agent_host_mailbox_checkpoint WHERE singleton=1`
+          )
+          .get()
+      ).toMatchObject(
+        lagging === "received"
+          ? { received_high_water_sequence: 0, acknowledged_high_water_sequence: 0 }
+          : { received_high_water_sequence: 1, acknowledged_high_water_sequence: 0 }
+      );
       unchanged.close();
     }
   });

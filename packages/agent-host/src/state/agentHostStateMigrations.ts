@@ -3,7 +3,8 @@ import { parseAgentHostMailboxCommand } from "../protocol.js";
 import { inWriteTransaction, type SqliteDatabase } from "./sqliteDatabase.js";
 
 const CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION = 5;
-const TERMINAL_RECEIPT_SCHEMA_VERSION = 4;
+const INTERMEDIATE_COMPACTION_SCHEMA_VERSION = 4;
+const PRE_COMPACTION_SCHEMA_VERSION = 3;
 
 const baseSchema = `
 CREATE TABLE IF NOT EXISTS agent_host_inbox (
@@ -206,6 +207,9 @@ function assertSupportedSchemaVersion(database: SqliteDatabase): void {
   if (!Number.isSafeInteger(version) || version < 0) {
     throw new Error("agent_host_state_schema_version_invalid");
   }
+  if (version === INTERMEDIATE_COMPACTION_SCHEMA_VERSION) {
+    throw new Error("agent_host_state_intermediate_compaction_schema_unsupported");
+  }
   if (version > CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION) {
     throw new Error("agent_host_state_schema_version_unsupported");
   }
@@ -237,7 +241,7 @@ type RequiredTableShape = {
   uniqueKeys: ReadonlyArray<readonly string[]>;
 };
 
-const v4RequiredTables: Readonly<Record<string, RequiredTableShape>> = {
+const preCompactionRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
   agent_host_inbox: {
     columns: [
       "sequence",
@@ -348,7 +352,10 @@ const v4RequiredTables: Readonly<Record<string, RequiredTableShape>> = {
   agent_host_state_schema: {
     columns: ["singleton", "version", "migrated_at"],
     uniqueKeys: [["singleton"]]
-  },
+  }
+};
+
+const compactionRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
   agent_host_terminal_execution_receipts: {
     columns: [
       "dispatch_id",
@@ -379,7 +386,8 @@ const v4RequiredTables: Readonly<Record<string, RequiredTableShape>> = {
 };
 
 const currentRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
-  ...v4RequiredTables,
+  ...preCompactionRequiredTables,
+  ...compactionRequiredTables,
   agent_host_compacted_mailbox_receipts: {
     columns: [
       "sequence",
@@ -416,7 +424,7 @@ function uniqueKeys(database: SqliteDatabase, table: string): string[][] {
   return primaryKey.length > 0 ? [primaryKey, ...indexes] : indexes;
 }
 
-function assertSchemaComplete(
+function assertRequiredTablesAndVersion(
   database: SqliteDatabase,
   required: Readonly<Record<string, RequiredTableShape>>,
   expectedVersion: number
@@ -441,26 +449,55 @@ function assertSchemaComplete(
   const schemaRows = database
     .prepare("SELECT singleton,version FROM agent_host_state_schema")
     .all();
+  const schemaRow = schemaRows[0];
+  if (
+    schemaRows.length !== 1 ||
+    Number(schemaRow?.singleton) !== 1 ||
+    Number(schemaRow?.version) !== expectedVersion
+  ) {
+    throw new Error("agent_host_state_schema_incomplete");
+  }
+}
+
+function maxSequence(database: SqliteDatabase, query: string): number {
+  const row = database.prepare(query).get();
+  const sequence = Number(row?.sequence);
+  if (!Number.isSafeInteger(sequence) || sequence < 0) {
+    throw new Error("agent_host_state_schema_incomplete");
+  }
+  return sequence;
+}
+
+function assertCheckpointIntegrity(database: SqliteDatabase): void {
   const checkpointRows = database
     .prepare(
       `SELECT singleton,received_high_water_sequence,acknowledged_high_water_sequence
        FROM agent_host_mailbox_checkpoint`
     )
     .all();
-  const schemaRow = schemaRows[0];
   const checkpointRow = checkpointRows[0];
   const receivedHighWater = Number(checkpointRow?.received_high_water_sequence);
   const acknowledgedHighWater = Number(checkpointRow?.acknowledged_high_water_sequence);
+  const retainedInboxHighWater = maxSequence(
+    database,
+    "SELECT COALESCE(MAX(sequence),0) AS sequence FROM agent_host_inbox"
+  );
+  const acknowledgedInboxHighWater = maxSequence(
+    database,
+    `SELECT COALESCE(MAX(sequence),0) AS sequence FROM agent_host_inbox
+     WHERE acknowledged_at IS NOT NULL`
+  );
+  const compactedMailboxHighWater = maxSequence(
+    database,
+    "SELECT COALESCE(MAX(sequence),0) AS sequence FROM agent_host_compacted_mailbox_receipts"
+  );
   if (
-    schemaRows.length !== 1 ||
-    Number(schemaRow?.singleton) !== 1 ||
-    Number(schemaRow?.version) !== expectedVersion ||
     checkpointRows.length !== 1 ||
     Number(checkpointRow?.singleton) !== 1 ||
     !Number.isSafeInteger(receivedHighWater) ||
-    receivedHighWater < 0 ||
+    receivedHighWater < Math.max(retainedInboxHighWater, compactedMailboxHighWater) ||
     !Number.isSafeInteger(acknowledgedHighWater) ||
-    acknowledgedHighWater < 0 ||
+    acknowledgedHighWater < Math.max(acknowledgedInboxHighWater, compactedMailboxHighWater) ||
     acknowledgedHighWater > receivedHighWater
   ) {
     throw new Error("agent_host_state_schema_incomplete");
@@ -468,7 +505,12 @@ function assertSchemaComplete(
 }
 
 function assertCurrentSchemaComplete(database: SqliteDatabase): void {
-  assertSchemaComplete(database, currentRequiredTables, CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION);
+  assertRequiredTablesAndVersion(
+    database,
+    currentRequiredTables,
+    CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION
+  );
+  assertCheckpointIntegrity(database);
 }
 
 function initializeMailboxCheckpoint(database: SqliteDatabase): void {
@@ -487,21 +529,14 @@ function initializeMailboxCheckpoint(database: SqliteDatabase): void {
     .run(Number(received?.sequence ?? 0), Number(acknowledged?.sequence ?? 0));
 }
 
-function backfillCompactedMailboxReceipts(database: SqliteDatabase): void {
-  database.exec(`
-    INSERT INTO agent_host_compacted_mailbox_receipts(
-      sequence,previous_sequence,message_id,command_type,command_digest,
-      dispatch_id,execution_attempt_id,compacted_at
-    )
-    SELECT inbox_sequence,previous_sequence,message_id,'execute_block',command_digest,
-           dispatch_id,execution_attempt_id,compacted_at
-    FROM agent_host_terminal_execution_receipts
-    WHERE NOT EXISTS(
-      SELECT 1 FROM agent_host_compacted_mailbox_receipts m
-      WHERE m.sequence=agent_host_terminal_execution_receipts.inbox_sequence
-         OR m.message_id=agent_host_terminal_execution_receipts.message_id
-    );
-  `);
+function assertNoCompactionSchema(database: SqliteDatabase): void {
+  if (
+    tableExists(database, "agent_host_terminal_execution_receipts") ||
+    tableExists(database, "agent_host_compacted_mailbox_receipts") ||
+    tableExists(database, "agent_host_mailbox_checkpoint")
+  ) {
+    throw new Error("agent_host_state_intermediate_compaction_schema_unsupported");
+  }
 }
 
 function addLegacyInboxColumns(database: SqliteDatabase): void {
@@ -629,13 +664,17 @@ export function initializeAgentHostStateSchema(database: SqliteDatabase): void {
   inWriteTransaction(database, () => {
     assertSupportedSchemaVersion(database);
     const priorVersion = storedSchemaVersion(database);
-    if (priorVersion === TERMINAL_RECEIPT_SCHEMA_VERSION) {
-      assertSchemaComplete(database, v4RequiredTables, TERMINAL_RECEIPT_SCHEMA_VERSION);
-      if (tableExists(database, "agent_host_compacted_mailbox_receipts")) {
-        throw new Error("agent_host_state_schema_incomplete");
-      }
-    } else if (priorVersion === CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION) {
+    if (priorVersion === CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION) {
       assertCurrentSchemaComplete(database);
+    } else {
+      assertNoCompactionSchema(database);
+      if (priorVersion === PRE_COMPACTION_SCHEMA_VERSION) {
+        assertRequiredTablesAndVersion(
+          database,
+          preCompactionRequiredTables,
+          PRE_COMPACTION_SCHEMA_VERSION
+        );
+      }
     }
     database.exec(baseSchema);
     addLegacyInboxColumns(database);
@@ -643,9 +682,6 @@ export function initializeAgentHostStateSchema(database: SqliteDatabase): void {
     backfillCommandDigests(database);
     migratePrototypeExecutions(database);
     initializeMailboxCheckpoint(database);
-    if (priorVersion === TERMINAL_RECEIPT_SCHEMA_VERSION) {
-      backfillCompactedMailboxReceipts(database);
-    }
     database
       .prepare(
         `INSERT INTO agent_host_state_schema(singleton,version,migrated_at) VALUES(1,?,?)
