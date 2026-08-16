@@ -13,6 +13,8 @@ import type {
 } from "./acpConnection.js";
 import type { AcpNormalizedEventBody } from "./acpEventNormalization.js";
 import type { AcpShutdownPolicy } from "../acpProfile/schema.js";
+import type { AcpCapabilityPolicy } from "../acpProfile/schema.js";
+import type { AcpCapabilitySnapshot } from "./acpCapabilityGate.js";
 
 const positiveSafeInteger = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 
@@ -107,6 +109,7 @@ export type AcpEngineSessionConfigurator = {
 export type AcpEngineLifecycleEvent =
   | { readonly kind: "connection_ready"; readonly processId: number | null }
   | { readonly kind: "initialized"; readonly agentCapabilities: AgentCapabilities | undefined }
+  | { readonly kind: "capability_gated"; readonly snapshot: AcpCapabilitySnapshot }
   | {
       readonly kind: "authentication_completed";
       readonly authentication: AcpAuthenticationOutcome;
@@ -173,6 +176,7 @@ type AcpEngineEventBase = { readonly sequence: number; readonly timestamp: strin
 
 export type AcpEngineEventPayload =
   | { readonly kind: "lifecycle"; readonly state: "connecting" | "running" | "cleanup" }
+  | { readonly kind: "capability_snapshot"; readonly snapshot: AcpCapabilitySnapshot }
   | { readonly kind: "capabilities"; readonly capabilities: AcpEngineCapabilities }
   | { readonly kind: "session_started"; readonly sessionId: string; readonly loaded: boolean }
   | {
@@ -218,6 +222,7 @@ export type AcpEngineResult = {
   readonly output: string;
   readonly stderr: readonly string[];
   readonly capabilities: AcpEngineCapabilities | null;
+  readonly capabilitySnapshot: AcpCapabilitySnapshot | null;
   readonly authentication: AcpAuthenticationOutcome | null;
   readonly usage: AcpEngineUsage | null;
   readonly terminal: AcpEngineTerminal;
@@ -232,6 +237,7 @@ export type ExecuteAcpOptions = {
   readonly env: Readonly<Record<string, string>>;
   readonly clientInfo: { readonly name: string; readonly version: string };
   readonly shutdown: AcpShutdownPolicy;
+  readonly capabilityPolicy: AcpCapabilityPolicy;
   readonly prompt: string;
   readonly sessionStart: AcpEngineSessionStart;
   readonly sessionLoadUnsupportedMessage?: string;

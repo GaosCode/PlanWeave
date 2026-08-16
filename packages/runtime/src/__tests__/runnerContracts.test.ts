@@ -40,6 +40,137 @@ import {
   redactRunnerEventText,
   redactRunnerEventPayload
 } from "../autoRun/runnerEventRedaction.js";
+import type { InitializeResponse } from "@agentclientprotocol/sdk";
+import {
+  AcpRequiredCapabilityError,
+  RUNTIME_REQUIRED_ACP_CAPABILITIES,
+  acpCapabilitySnapshotSchema,
+  gateAcpCapabilities,
+  negotiateAcpCapabilities
+} from "../autoRun/acpCapabilityGate.js";
+
+const initializedCapabilitiesFixture = (
+  overrides: Partial<InitializeResponse> = {}
+): InitializeResponse => ({
+  protocolVersion: 1,
+  agentCapabilities: {},
+  agentInfo: { name: "fixture-agent", version: "1.2.3" },
+  ...overrides
+});
+
+describe("ACP capability gate contract", () => {
+  it("keeps the runtime baseline required when a custom profile declares none", () => {
+    const snapshot = gateAcpCapabilities(
+      { required: [], optional: [] },
+      initializedCapabilitiesFixture()
+    );
+    expect(snapshot.required).toEqual(RUNTIME_REQUIRED_ACP_CAPABILITIES);
+    expect(snapshot.negotiated).toEqual(RUNTIME_REQUIRED_ACP_CAPABILITIES);
+    expect(snapshot.missing).toEqual([]);
+  });
+
+  it("records unavailable optional capabilities without failing", () => {
+    const snapshot = gateAcpCapabilities(
+      { required: [], optional: ["image", "history-load"] },
+      initializedCapabilitiesFixture()
+    );
+    expect(snapshot.optional).toEqual(["image", "history-load"]);
+    expect(snapshot.negotiated).not.toContain("image");
+    expect(snapshot.missing).toEqual([]);
+  });
+
+  it("adds history-load for continuation and fails with a typed snapshot", () => {
+    let caught: unknown;
+    try {
+      gateAcpCapabilities({ required: [], optional: [] }, initializedCapabilitiesFixture(), {
+        sessionStart: "load",
+        connectionMode: "dedicated"
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(AcpRequiredCapabilityError);
+    expect((caught as AcpRequiredCapabilityError).snapshot.missing).toEqual(["history-load"]);
+  });
+
+  it("models future shared policy as a pure session-close requirement", () => {
+    const missing = negotiateAcpCapabilities(
+      { required: [], optional: [] },
+      initializedCapabilitiesFixture(),
+      { sessionStart: "new", connectionMode: "shared-project" }
+    );
+    expect(missing.required).toContain("session-close");
+    expect(missing.missing).toEqual(["session-close"]);
+
+    const available = gateAcpCapabilities(
+      { required: [], optional: [] },
+      initializedCapabilitiesFixture({
+        agentCapabilities: { sessionCapabilities: { close: {} } }
+      }),
+      { sessionStart: "new", connectionMode: "shared-project" }
+    );
+    expect(available.negotiated).toContain("session-close");
+  });
+
+  it("rejects snapshots that delete the runtime baseline", () => {
+    const snapshot = negotiateAcpCapabilities(
+      { required: [], optional: [] },
+      initializedCapabilitiesFixture()
+    );
+    expect(
+      acpCapabilitySnapshotSchema.safeParse({
+        ...snapshot,
+        required: snapshot.required.filter((capability) => capability !== "cancel"),
+        negotiated: snapshot.negotiated.filter((capability) => capability !== "cancel")
+      }).success
+    ).toBe(false);
+  });
+
+  it("rejects a baseline capability removed from available or negotiated or added to missing", () => {
+    const snapshot = negotiateAcpCapabilities(
+      { required: [], optional: [] },
+      initializedCapabilitiesFixture()
+    );
+    expect(acpCapabilitySnapshotSchema.parse(snapshot)).toEqual(snapshot);
+    expect(
+      acpCapabilitySnapshotSchema.safeParse({
+        ...snapshot,
+        available: snapshot.available.filter((capability) => capability !== "cancel")
+      }).success
+    ).toBe(false);
+    expect(
+      acpCapabilitySnapshotSchema.safeParse({
+        ...snapshot,
+        negotiated: snapshot.negotiated.filter((capability) => capability !== "cancel")
+      }).success
+    ).toBe(false);
+    expect(
+      acpCapabilitySnapshotSchema.safeParse({
+        ...snapshot,
+        missing: ["cancel"]
+      }).success
+    ).toBe(false);
+  });
+
+  it("rejects forged negotiated and missing capability relations", () => {
+    const snapshot = negotiateAcpCapabilities(
+      { required: [], optional: ["history-load"] },
+      initializedCapabilitiesFixture()
+    );
+    expect(
+      acpCapabilitySnapshotSchema.safeParse({
+        ...snapshot,
+        negotiated: [...snapshot.negotiated, "history-load"]
+      }).success
+    ).toBe(false);
+    expect(
+      acpCapabilitySnapshotSchema.safeParse({
+        ...snapshot,
+        missing: ["history-load"]
+      }).success
+    ).toBe(false);
+  });
+});
 
 describe("execution wave identity", () => {
   it("creates unique strict UUIDv4 identities", () => {

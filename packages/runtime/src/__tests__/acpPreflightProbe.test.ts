@@ -7,6 +7,8 @@ import { resolveAgentDefinition } from "../autoRun/agentRegistry.js";
 import { createAcpRunner } from "../autoRun/acpRunner.js";
 import { AcpPreflightCleanupError, AcpPreflightPhaseError } from "../autoRun/acpPreflightProbe.js";
 import { acpProfileResolverTestDouble } from "./support/acpProfileTestValues.js";
+import { executeAcp } from "../autoRun/acpExecutionEngine.js";
+import type { RunnerCapability } from "../autoRun/runnerContractSchemas.js";
 
 const fixture = fileURLToPath(new URL("./support/acpMockAgent.mjs", import.meta.url));
 const profile = {
@@ -19,10 +21,11 @@ const testEnvironment = [
   { name: "PLANWEAVE_T002_TEST_API_KEY", required: false }
 ] as const;
 
-function profileResolver(scenario: string) {
+function profileResolver(scenario: string, requiredCapabilities?: readonly RunnerCapability[]) {
   return acpProfileResolverTestDouble({
     launch: { command: process.execPath, args: [fixture, scenario] },
-    environment: testEnvironment
+    environment: testEnvironment,
+    requiredCapabilities
   });
 }
 
@@ -47,9 +50,15 @@ function definition(scenario: string, headlessSafe = false) {
 
 async function preflight(
   scenario: string,
-  options?: { headlessSafe?: boolean; timeoutMs?: number }
+  options?: {
+    headlessSafe?: boolean;
+    timeoutMs?: number;
+    requiredCapabilities?: readonly RunnerCapability[];
+  }
 ) {
-  return createAcpRunner({ profileResolver: profileResolver(scenario) }).preflight({
+  return createAcpRunner({
+    profileResolver: profileResolver(scenario, options?.requiredCapabilities)
+  }).preflight({
     profile,
     definition: definition(scenario, options?.headlessSafe),
     cwd: "/tmp",
@@ -98,6 +107,41 @@ function expectProcessStopped(lifecycle: string): void {
 }
 
 describe("ACP authenticated preflight lifecycle", () => {
+  it("matches execution negotiation for the same initialize fixture", async () => {
+    const probed = await preflight("success");
+    const executed = await executeAcp({
+      launch: { trusted: true, command: process.execPath, args: [fixture, "success"] },
+      workspace: { cwd: "/tmp" },
+      env: {},
+      clientInfo: { name: "capability-equivalence", version: "1" },
+      shutdown: { eofDrainMs: 25, terminateGraceMs: 25, cleanupDeadlineMs: 300 },
+      capabilityPolicy: { required: ["session", "prompt"], optional: [] },
+      prompt: "compare capability snapshots",
+      sessionStart: { kind: "new" }
+    });
+
+    expect(executed.capabilitySnapshot).toEqual(probed.acpCapabilitySnapshot);
+  });
+
+  it("fails required capability immediately after one initialize", async () => {
+    const { result, lifecycle } = await withLifecycleTrace(() =>
+      preflight("success", { requiredCapabilities: ["history-load"] })
+    );
+
+    expect(result.acpCapabilitySnapshot?.missing).toEqual(["history-load"]);
+    expect(result.checks).toContainEqual(
+      expect.objectContaining({
+        check: "acp_capabilities",
+        status: "failed",
+        failureCode: "unsupported_capability"
+      })
+    );
+    expect(lifecycle.match(/ initialize\n/g)).toHaveLength(1);
+    expect(lifecycle).not.toContain(" authenticate\n");
+    expect(lifecycle).not.toContain(" session/new\n");
+    expect(lifecycle).not.toContain(" session/load\n");
+    expect(lifecycle).not.toContain(" session/prompt\n");
+  });
   it("does not authenticate when no methods are advertised and creates a usable session", async () => {
     const result = await preflight("success");
 
@@ -232,10 +276,23 @@ describe("ACP authenticated preflight lifecycle", () => {
   });
 
   it("allows omitted agentInfo but rejects present partial or invalid agentInfo", async () => {
-    await expect(preflight("missing-agent-info")).resolves.toMatchObject({
+    const probed = await preflight("missing-agent-info");
+    expect(probed).toMatchObject({
       agentInfo: null,
       authentication: { status: "not_advertised" }
     });
+    const executed = await executeAcp({
+      launch: { trusted: true, command: process.execPath, args: [fixture, "missing-agent-info"] },
+      workspace: { cwd: "/tmp" },
+      env: {},
+      clientInfo: { name: "agent-info-equivalence", version: "1" },
+      shutdown: { eofDrainMs: 25, terminateGraceMs: 25, cleanupDeadlineMs: 300 },
+      capabilityPolicy: { required: [], optional: [] },
+      prompt: "compare missing agent info",
+      sessionStart: { kind: "new" }
+    });
+    expect(probed.acpCapabilitySnapshot?.agentInfo).toBeNull();
+    expect(executed.capabilitySnapshot?.agentInfo).toBeNull();
 
     for (const scenario of [
       "missing-agent-version",

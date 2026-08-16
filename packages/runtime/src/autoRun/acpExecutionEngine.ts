@@ -28,6 +28,11 @@ import { AcpCleanupSequencer, createAcpCleanupDeadline } from "./acpExecutionCle
 import { assistantTextChunk } from "./acpExecutionOutput.js";
 import { acpShutdownPolicySchema } from "../acpProfile/schema.js";
 import {
+  AcpRequiredCapabilityError,
+  gateAcpCapabilities,
+  type AcpCapabilitySnapshot
+} from "./acpCapabilityGate.js";
+import {
   AcpEngineInteractionError,
   createAcpExecutionInteractionHandlers
 } from "./acpExecutionInteractions.js";
@@ -146,6 +151,7 @@ function failureReason(error: unknown): AcpEngineFailureReason {
     return error.timedOut ? "interaction_timeout" : "interaction_failed";
   }
   if (error instanceof AcpEngineCapabilityError) return "capability_missing";
+  if (error instanceof AcpRequiredCapabilityError) return "capability_missing";
   if (error instanceof AcpOperationTimeoutError) return "operation_timeout";
   if (error instanceof AcpProtocolError) return "protocol_error";
   if (error instanceof AcpProcessError) return "process_error";
@@ -177,6 +183,7 @@ async function executeAcpOutcome(
   let connection: AcpConnection | null = null;
   let sessionId: string | null = null;
   let capabilities: AcpEngineCapabilities | null = null;
+  let capabilitySnapshot: AcpCapabilitySnapshot | null = null;
   let initializedCapabilities: AgentCapabilities | undefined;
   let authentication: AcpAuthenticationOutcome | null = null;
   let output = "";
@@ -296,6 +303,21 @@ async function executeAcpOutcome(
       kind: "initialized",
       agentCapabilities: initialized.agentCapabilities
     });
+    try {
+      capabilitySnapshot = gateAcpCapabilities(options.capabilityPolicy, initialized, {
+        sessionStart: sessionStart.kind,
+        connectionMode: "dedicated"
+      });
+    } catch (error) {
+      if (error instanceof AcpRequiredCapabilityError) {
+        capabilitySnapshot = error.snapshot;
+        await observeLifecycle({ kind: "capability_gated", snapshot: error.snapshot });
+        await emit({ kind: "capability_snapshot", snapshot: error.snapshot });
+      }
+      throw error;
+    }
+    await observeLifecycle({ kind: "capability_gated", snapshot: capabilitySnapshot });
+    await emit({ kind: "capability_snapshot", snapshot: capabilitySnapshot });
     capabilities = normalizeCapabilities(
       initialized,
       options.interactionBroker !== undefined &&
@@ -595,6 +617,7 @@ async function executeAcpOutcome(
       output,
       stderr: connection?.stderr.map(diagnostic) ?? [],
       capabilities,
+      capabilitySnapshot,
       authentication,
       usage,
       terminal,

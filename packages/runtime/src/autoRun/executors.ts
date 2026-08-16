@@ -412,6 +412,7 @@ function finalizePreflightResult(options: {
   agentInfo?: ProducedExecutorPreflightResult["agentInfo"];
   authentication?: ProducedExecutorPreflightResult["authentication"];
   capabilities?: ProducedExecutorPreflightResult["capabilities"];
+  acpCapabilitySnapshot?: ProducedExecutorPreflightResult["acpCapabilitySnapshot"];
   sessionConfig?: ProducedExecutorPreflightResult["sessionConfig"];
 }): ProducedExecutorPreflightResult {
   const failed = options.checks.find((check) => check.status === "failed");
@@ -426,6 +427,7 @@ function finalizePreflightResult(options: {
     agentInfo: options.agentInfo ?? null,
     authentication: options.authentication ?? null,
     capabilities: options.capabilities ?? null,
+    acpCapabilitySnapshot: options.acpCapabilitySnapshot ?? null,
     sessionConfig: options.sessionConfig ?? null,
     ok: failed === undefined,
     message: failed?.message ?? options.successMessage,
@@ -583,6 +585,7 @@ export async function testExecutorProfile(options: {
         runnerResult.availableCapabilities ??
         runnerResult.negotiatedCapabilities?.available ??
         null,
+      acpCapabilitySnapshot: runnerResult.acpCapabilitySnapshot ?? null,
       sessionConfig: runnerResult.sessionConfig ?? null,
       successMessage: `${profile.runner.transport.toUpperCase()} runner preflight passed.`,
       checks: [

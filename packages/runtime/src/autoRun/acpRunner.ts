@@ -9,12 +9,12 @@ import {
   type ExecutorPreflightFailureCode
 } from "./executorPreflightTypes.js";
 import {
-  negotiatedCapabilitiesSchema,
   runnerAuthenticationActionRequiredSchema,
   runnerAuthenticationAuthenticatedSchema,
   runnerAuthenticationNotAdvertisedSchema,
   runnerCapabilitySchema
 } from "./runnerContractSchemas.js";
+import { AcpRequiredCapabilityError, acpCapabilitySnapshotSchema } from "./acpCapabilityGate.js";
 import { redactRunnerEventText, safeRunnerEventTextSchema } from "./runnerEventRedaction.js";
 import { AcpSessionController } from "./acpSessionController.js";
 import { prepareAcpBlockRun, prepareAcpFeedbackRun } from "./acpRunPreparation.js";
@@ -67,6 +67,7 @@ export const acpProbeResultSchema = z.discriminatedUnion("kind", [
         runnerAuthenticationAuthenticatedSchema
       ]),
       capabilities: uniqueCapabilitiesSchema,
+      capabilitySnapshot: acpCapabilitySnapshotSchema,
       sessionConfig: acpSessionConfigurationSchema.optional()
     })
     .strict(),
@@ -76,7 +77,8 @@ export const acpProbeResultSchema = z.discriminatedUnion("kind", [
       message: acpProbeMessageSchema,
       agentInfo: executorAgentInfoSchema.nullable(),
       authentication: runnerAuthenticationActionRequiredSchema,
-      capabilities: uniqueCapabilitiesSchema
+      capabilities: uniqueCapabilitiesSchema,
+      capabilitySnapshot: acpCapabilitySnapshotSchema
     })
     .strict(),
   z
@@ -118,10 +120,25 @@ function failedCheck(
 
 function preflightCheckForPhase(
   phase: AcpPreflightPhase
-): "acp_initialized" | "acp_authenticated" | "acp_session" {
+): "acp_initialized" | "acp_capabilities" | "acp_authenticated" | "acp_session" {
+  if (phase === "capability") return "acp_capabilities";
   if (phase === "authentication") return "acp_authenticated";
   if (phase === "session") return "acp_session";
   return "acp_initialized";
+}
+
+function requiredCapabilityError(error: unknown): AcpRequiredCapabilityError | null {
+  if (error instanceof AcpRequiredCapabilityError) return error;
+  if (error instanceof Error && error.cause !== undefined) {
+    return requiredCapabilityError(error.cause);
+  }
+  if (error instanceof AggregateError) {
+    for (const nested of error.errors) {
+      const found = requiredCapabilityError(nested);
+      if (found) return found;
+    }
+  }
+  return null;
 }
 
 function preflightPhaseFromError(error: unknown): AcpPreflightPhase {
@@ -234,13 +251,23 @@ export function createAcpRunner(options?: {
       } catch (error) {
         const cancelled = signal?.aborted === true;
         const phase = preflightPhaseFromError(error);
+        const capabilityError = requiredCapabilityError(error);
         return {
           executionIntegration: null,
           negotiatedCapabilities: null,
+          acpCapabilitySnapshot: capabilityError?.snapshot ?? null,
+          availableCapabilities: capabilityError?.snapshot.available ?? null,
+          agentInfo: capabilityError?.snapshot.agentInfo ?? null,
           checks: [
             failedCheck(
               preflightCheckForPhase(phase),
-              timedOut ? "timeout" : cancelled ? "cancelled" : "initialization_failed",
+              timedOut
+                ? "timeout"
+                : cancelled
+                  ? "cancelled"
+                  : capabilityError
+                    ? "unsupported_capability"
+                    : "initialization_failed",
               timedOut
                 ? `ACP preflight timed out after ${timeoutMs}ms.`
                 : cancelled
@@ -282,10 +309,19 @@ export function createAcpRunner(options?: {
         return {
           executionIntegration: null,
           negotiatedCapabilities: null,
+          acpCapabilitySnapshot: result.capabilitySnapshot,
           availableCapabilities: result.capabilities,
           agentInfo: result.agentInfo,
           authentication: result.authentication,
-          checks: [initialized, failedCheck("acp_authenticated", "auth_required", result.message)]
+          checks: [
+            initialized,
+            {
+              check: "acp_capabilities",
+              status: "passed",
+              message: "ACP required capabilities are available."
+            },
+            failedCheck("acp_authenticated", "auth_required", result.message)
+          ]
         };
       }
       if (result.kind === "interaction_required") {
@@ -304,59 +340,27 @@ export function createAcpRunner(options?: {
         };
       }
       const available = result.capabilities;
-      const negotiated = negotiatedCapabilitiesSchema.safeParse({
+      const negotiated = {
         version: "planweave.runner/v1",
-        required: resolved.profile.capabilities.required,
+        required: result.capabilitySnapshot.required,
         available,
-        negotiated: resolved.profile.capabilities.required.filter((capability) =>
-          available.includes(capability)
-        )
-      });
-      if (!negotiated.success) {
-        const missing = resolved.profile.capabilities.required.filter(
-          (capability) => !available.includes(capability)
-        );
-        return {
-          executionIntegration: null,
-          negotiatedCapabilities: null,
-          availableCapabilities: available,
-          agentInfo: result.agentInfo,
-          authentication: result.authentication,
-          sessionConfig: result.sessionConfig ?? null,
-          checks: [
-            initialized,
-            {
-              check: "acp_authenticated",
-              status: "passed",
-              message:
-                result.authentication.status === "authenticated"
-                  ? `ACP authentication completed with method '${result.authentication.methodId}'.`
-                  : "ACP agent did not advertise authentication methods."
-            },
-            {
-              check: "acp_session",
-              status: "passed",
-              message: "ACP temporary session was created successfully."
-            },
-            failedCheck(
-              "acp_capabilities",
-              "unsupported_capability",
-              missing.length > 0
-                ? `ACP agent '${definition.agent}' does not support required capabilities: ${missing.join(", ")}.`
-                : `ACP agent '${definition.agent}' returned invalid negotiated capabilities.`
-            )
-          ]
-        };
-      }
+        negotiated: result.capabilitySnapshot.negotiated
+      } as const;
       return {
         executionIntegration: null,
-        negotiatedCapabilities: negotiated.data,
+        negotiatedCapabilities: negotiated,
+        acpCapabilitySnapshot: result.capabilitySnapshot,
         availableCapabilities: available,
         agentInfo: result.agentInfo,
         authentication: result.authentication,
         sessionConfig: result.sessionConfig ?? null,
         checks: [
           initialized,
+          {
+            check: "acp_capabilities",
+            status: "passed",
+            message: "ACP required capabilities are available."
+          },
           {
             check: "acp_authenticated",
             status: "passed",
@@ -369,11 +373,6 @@ export function createAcpRunner(options?: {
             check: "acp_session",
             status: "passed",
             message: "ACP temporary session was created successfully."
-          },
-          {
-            check: "acp_capabilities",
-            status: "passed",
-            message: "ACP required capabilities are available."
           },
           {
             check: "interaction_policy",
@@ -451,6 +450,7 @@ export function createAcpRunner(options?: {
             },
             environment: resolved.environment,
             shutdown: resolved.profile.shutdown,
+            capabilityPolicy: resolved.profile.capabilities,
             authenticationHints: definition.acp.authentication,
             executorName: input.executorName,
             agentId: resolved.profile.agentId,
@@ -527,6 +527,7 @@ export function createAcpRunner(options?: {
           },
           environment: resolved.environment,
           shutdown: resolved.profile.shutdown,
+          capabilityPolicy: resolved.profile.capabilities,
           authenticationHints: definition.acp.authentication,
           executorName: input.executorName,
           agentId: resolved.profile.agentId,

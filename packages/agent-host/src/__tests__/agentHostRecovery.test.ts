@@ -8,6 +8,8 @@ import {
 } from "@planweave-ai/agent-host-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { openAgentHostState, type AgentHostState } from "../state/agentHostState.js";
+import { openAgentHostDatabase } from "../state/sqliteDatabase.js";
+import { acpCapabilitySnapshotTestValue } from "./support/acpCapabilitySnapshotTestValues.js";
 
 const directories: string[] = [];
 const states: AgentHostState[] = [];
@@ -82,11 +84,33 @@ async function interruptedState(loadSession = true) {
   state.startExecution(1);
   state.recordSessionEvidence(1, {
     sessionId: "acp-session-1",
-    capabilities: { loadSession, closeSession: false },
+    capabilitySnapshot: acpCapabilitySnapshotTestValue(loadSession),
     recoveryId: "recovery-1"
   });
   state.close();
   states.pop();
+  const reopened = await openAgentHostState(path);
+  states.push(reopened);
+  expect(reopened.recoverInterruptedExecutions()).toBe(1);
+  return reopened;
+}
+
+async function legacyInterruptedState() {
+  const { path, state } = await setup();
+  state.receive(executeDelivery());
+  state.startExecution(1);
+  state.recordSessionEvidence(1, {
+    sessionId: "acp-session-1",
+    capabilitySnapshot: acpCapabilitySnapshotTestValue(),
+    recoveryId: "recovery-1"
+  });
+  state.close();
+  states.pop();
+  const database = await openAgentHostDatabase(path, 1_000);
+  database
+    .prepare("UPDATE agent_host_executions SET acp_capabilities_json=? WHERE inbox_sequence=1")
+    .run(JSON.stringify({ loadSession: true, closeSession: false }));
+  database.close();
   const reopened = await openAgentHostState(path);
   states.push(reopened);
   expect(reopened.recoverInterruptedExecutions()).toBe(1);
@@ -218,6 +242,20 @@ describe("Agent Host explicit recovery", () => {
     );
     expect(unsupported.pendingEvents()).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ type: "mailbox.ack", sequence: 2 })])
+    );
+
+    const legacy = await legacyInterruptedState();
+    expect(legacy.executionEvidence(1)).toMatchObject({
+      legacyAcpCapabilities: { loadSession: true, closeSession: false }
+    });
+    expect(legacy.executionEvidence(1)?.acpCapabilitySnapshot).toBeUndefined();
+    expect(legacy.pendingEvents()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "dispatch.interrupted", resumable: false })
+      ])
+    );
+    expect(() => legacy.receive(resumeDelivery())).toThrow(
+      "execution_resume_session_load_unsupported"
     );
 
     const resumable = await interruptedState();

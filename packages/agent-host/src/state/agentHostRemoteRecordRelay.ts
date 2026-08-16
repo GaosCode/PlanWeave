@@ -66,22 +66,22 @@ export class AgentHostRemoteRecordRelay {
     if (!execution) throw new Error("remote_execution_identity_not_found");
     if (record.kind === "engine_event") {
       if (record.event.kind === "session_started") {
-        const capabilities = this.remoteRecords
+        const capabilitySnapshot = this.remoteRecords
           .records(record.identity)
           .find(
             (candidate) =>
-              candidate.kind === "engine_event" && candidate.event.kind === "capabilities"
+              candidate.kind === "engine_event" && candidate.event.kind === "capability_snapshot"
           );
         if (
-          !capabilities ||
-          capabilities.kind !== "engine_event" ||
-          capabilities.event.kind !== "capabilities"
+          !capabilitySnapshot ||
+          capabilitySnapshot.kind !== "engine_event" ||
+          capabilitySnapshot.event.kind !== "capability_snapshot"
         ) {
-          throw new Error("remote_execution_capabilities_missing");
+          throw new Error("remote_execution_capability_snapshot_missing");
         }
         this.executions.recordSession(execution.sequence, {
           sessionId: record.event.sessionId,
-          capabilities: capabilities.event.capabilities,
+          capabilitySnapshot: capabilitySnapshot.event.snapshot,
           recoveryId: `recovery:${digestJson({
             dispatchId: record.identity.dispatchId,
             executionAttemptId: record.identity.executionAttemptId,

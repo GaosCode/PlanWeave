@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { openAgentHostState, type AgentHostState } from "../state/agentHostState.js";
 import { AgentHostTerminalCompactionRepository } from "../state/agentHostTerminalCompaction.js";
 import { openAgentHostDatabase } from "../state/sqliteDatabase.js";
+import { acpCapabilitySnapshotTestValue } from "./support/acpCapabilitySnapshotTestValues.js";
 
 const directories: string[] = [];
 const states: AgentHostState[] = [];
@@ -150,7 +151,7 @@ describe("Agent Host terminal state compaction", () => {
     acknowledgeByType(pendingAction.state, "dispatch.accepted");
     pendingAction.state.recordSessionEvidence(1, {
       sessionId: "acp-compaction",
-      capabilities: { loadSession: false }
+      capabilitySnapshot: acpCapabilitySnapshotTestValue(false)
     });
     pendingAction.state.recordInteractionAction(1, {
       leaseId: commandFor(1).leaseId,
@@ -261,7 +262,7 @@ describe("Agent Host terminal state compaction", () => {
     acknowledgeByType(interaction.state, "dispatch.accepted");
     interaction.state.recordSessionEvidence(1, {
       sessionId: "acp-compaction",
-      capabilities: { loadSession: false }
+      capabilitySnapshot: acpCapabilitySnapshotTestValue(false)
     });
     interaction.state.recordInteractionAction(1, {
       leaseId: commandFor(1).leaseId,

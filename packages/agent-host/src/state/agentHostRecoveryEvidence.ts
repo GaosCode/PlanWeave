@@ -3,13 +3,7 @@ import { parseAgentHostEvent, type HostEvent } from "../protocol.js";
 import type { AgentHostExecutionEvidence } from "./agentHostStateRecords.js";
 
 function advertisesSessionLoad(evidence: AgentHostExecutionEvidence): boolean {
-  const capabilities = evidence.acpCapabilities;
-  return (
-    capabilities !== null &&
-    typeof capabilities === "object" &&
-    !Array.isArray(capabilities) &&
-    capabilities.loadSession === true
-  );
+  return evidence.acpCapabilitySnapshot?.negotiated.includes("history-load") === true;
 }
 
 export function createInterruptedEvent(

@@ -5,6 +5,7 @@ import { exampleExecuteDelivery, mailboxDeliverySchema } from "@planweave-ai/age
 import { afterEach, describe, expect, it } from "vitest";
 import { DurableAcpInteractionRelay } from "../execution/durableAcpRelay.js";
 import { openAgentHostState, type AgentHostState } from "../state/agentHostState.js";
+import { acpCapabilitySnapshotTestValue } from "./support/acpCapabilitySnapshotTestValues.js";
 
 const directories: string[] = [];
 const states: AgentHostState[] = [];
@@ -42,14 +43,8 @@ async function setup() {
     event: {
       sequence: 1,
       timestamp: "2026-07-23T00:00:00.000Z",
-      kind: "capabilities",
-      capabilities: {
-        loadSession: true,
-        closeSession: true,
-        prompt: { image: false, audio: false, embeddedContext: false },
-        mcp: { http: false, sse: false },
-        client: { permission: true, elicitation: true }
-      }
+      kind: "capability_snapshot",
+      snapshot: acpCapabilitySnapshotTestValue()
     }
   });
   state.append({
@@ -90,6 +85,10 @@ describe("durable ACP relay", () => {
 
     expect(state.executionEvidence(delivery.sequence)).toMatchObject({
       acpSessionId: "acp-session-relay-001",
+      acpCapabilitySnapshot: {
+        negotiated: expect.arrayContaining(["history-load"]),
+        missing: []
+      },
       eventCursor: 1
     });
     expect(state.pendingEvents()).toEqual(

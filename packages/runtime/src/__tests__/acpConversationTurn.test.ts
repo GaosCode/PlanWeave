@@ -320,7 +320,7 @@ describe("ACP conversation turn", () => {
     const harness = createHarness({ loadSession: false });
 
     await expect(harness.coordinator.send(harness.input)).rejects.toThrow(
-      "does not support loading an existing session"
+      "missing required capabilities: history-load"
     );
     expect(harness.connection.loadSession).not.toHaveBeenCalled();
     expect(harness.connection.prompt).not.toHaveBeenCalled();

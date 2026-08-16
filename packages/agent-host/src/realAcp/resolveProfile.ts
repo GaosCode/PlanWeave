@@ -151,6 +151,7 @@ export async function resolveRealAcpHostProfile(options: {
       versionOutput: null,
       hostProfile: {
         agentId: selected.agentId,
+        capabilityPolicy: selected.capabilities,
         launch: { command: commandPath, args: [...selected.args] },
         env: profileEnv,
         shutdown: DEFAULT_ACP_SHUTDOWN_POLICY

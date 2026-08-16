@@ -19,6 +19,7 @@ export const desktopAgentCapabilityProbeResultSchema = producedExecutorPreflight
     agentInfo: true,
     authentication: true,
     capabilities: true,
+    acpCapabilitySnapshot: true,
     sessionConfig: true,
     checks: true
   })
@@ -63,6 +64,7 @@ export async function probeDesktopAgentCapabilities(
     authentication: preflight.authentication ?? null,
     capabilities:
       preflight.availableCapabilities ?? preflight.negotiatedCapabilities?.available ?? null,
+    acpCapabilitySnapshot: preflight.acpCapabilitySnapshot ?? null,
     sessionConfig: preflight.sessionConfig ?? null,
     checks: preflight.checks
   });

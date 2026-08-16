@@ -271,6 +271,7 @@ async function runCancellation(
     },
     workspace: { cwd },
     env: { ...profile.hostProfile.env },
+    capabilityPolicy: profile.hostProfile.capabilityPolicy,
     clientInfo: {
       name: "PlanWeave Real ACP Smoke Cancel",
       version: agentHostPackageVersion

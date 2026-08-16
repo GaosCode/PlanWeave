@@ -90,6 +90,7 @@ export class ConfiguredAcpProfileResolver implements AgentHostAcpProfileResolver
     }
     return {
       agentId: profile.agentId,
+      capabilityPolicy: profile.capabilities,
       launch: { command, args: profile.args },
       env,
       shutdown: profile.shutdown,

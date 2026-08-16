@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { ActiveAgentRunRegistry } from "../autoRun/activeAgentRunRegistry.js";
+import { acpCapabilitySnapshotSchema } from "../autoRun/acpCapabilityGate.js";
 import { AcpSessionController, type AcpSessionRun } from "../autoRun/acpSessionController.js";
 import { createAcpConnection, type CreateAcpConnectionOptions } from "../autoRun/acpConnection.js";
 import { createAcpRunner } from "../autoRun/acpRunner.js";
@@ -98,9 +99,36 @@ describe("AcpSessionController lifecycle", () => {
     await expect(readFile(join(run.root, "metadata.json"), "utf8")).resolves.toContain(
       '"status": "completed"'
     );
+    const metadata = JSON.parse(await readFile(join(run.root, "metadata.json"), "utf8")) as {
+      acpCapabilitySnapshot: unknown;
+    };
+    expect(acpCapabilitySnapshotSchema.parse(metadata.acpCapabilitySnapshot)).toMatchObject({
+      required: ["session", "prompt", "cancel", "streaming", "tool-updates"],
+      missing: []
+    });
     await expect(readFile(join(run.root, "heartbeat.json"), "utf8")).resolves.toContain(
       '"status": "completed"'
     );
+  });
+
+  it("persists missing required capability evidence before authentication or session RPCs", async () => {
+    const { result, lifecycle } = await withLifecycleTrace(async () => {
+      const run = await execute("artifact-implementation", 1_000, undefined, undefined, {
+        capabilityPolicy: { required: ["history-load"], optional: [] }
+      });
+      await expect(run.promise).rejects.toThrow("history-load");
+      return run;
+    });
+
+    expect(lifecycleOperations(lifecycle)).toEqual(["spawn", "initialize"]);
+    const metadata = JSON.parse(await readFile(join(result.root, "metadata.json"), "utf8")) as {
+      status: string;
+      acpCapabilitySnapshot: unknown;
+    };
+    expect(metadata.status).toBe("failed");
+    expect(acpCapabilitySnapshotSchema.parse(metadata.acpCapabilitySnapshot)).toMatchObject({
+      missing: ["history-load"]
+    });
   });
 
   it("orders initialize, authentication, session creation, and prompt before becoming runnable", async () => {

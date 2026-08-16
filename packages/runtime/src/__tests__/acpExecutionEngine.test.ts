@@ -20,6 +20,7 @@ function engineOptions(
     env: environment,
     clientInfo: { name: "planweave-engine-test", version: "1.0.0" },
     shutdown: { eofDrainMs: 25, terminateGraceMs: 25, cleanupDeadlineMs: 300 },
+    capabilityPolicy: { required: [], optional: [] },
     prompt: "exercise the ACP engine",
     sessionStart: { kind: "new" },
     limits: {
@@ -31,6 +32,53 @@ function engineOptions(
 }
 
 describe("storage-neutral ACP execution engine", () => {
+  it("gates required capabilities before authentication or session RPCs", async () => {
+    const events: AcpEngineEvent[] = [];
+    const connection = {
+      processId: 123,
+      pendingOperationCount: 0,
+      pendingOperations: new Map(),
+      stderr: [],
+      closed: Promise.resolve(),
+      terminalFailure: undefined,
+      initialize: vi.fn(async () => ({
+        protocolVersion: 1,
+        agentCapabilities: {},
+        agentInfo: { name: "missing-capability", version: "1" }
+      })),
+      authenticate: vi.fn(async () => ({})),
+      newSession: vi.fn(async () => ({ sessionId: "must-not-open" })),
+      loadSession: vi.fn(async () => ({})),
+      prompt: vi.fn(async () => ({ stopReason: "end_turn" as const })),
+      cancel: vi.fn(async () => undefined),
+      closeSession: vi.fn(async () => ({})),
+      setSessionMode: vi.fn(async () => ({})),
+      setSessionConfigOption: vi.fn(async () => ({ configOptions: [] })),
+      dispose: vi.fn(async () => undefined)
+    } satisfies AcpConnection;
+
+    const result = await executeAcp(
+      engineOptions("success", {
+        capabilityPolicy: { required: ["history-load"], optional: ["image"] },
+        connect: () => connection,
+        eventSink: (event) => events.push(event)
+      })
+    );
+
+    expect(result.terminal).toMatchObject({ state: "failed", reason: "capability_missing" });
+    expect(result.capabilitySnapshot?.missing).toEqual(["history-load"]);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        kind: "capability_snapshot",
+        snapshot: expect.objectContaining({ missing: ["history-load"] })
+      })
+    );
+    expect(connection.initialize).toHaveBeenCalledTimes(1);
+    expect(connection.authenticate).not.toHaveBeenCalled();
+    expect(connection.newSession).not.toHaveBeenCalled();
+    expect(connection.loadSession).not.toHaveBeenCalled();
+    expect(connection.prompt).not.toHaveBeenCalled();
+  });
   it("executes initialize/new/prompt/cleanup and emits normalized ordered events", async () => {
     const events: AcpEngineEvent[] = [];
     const result = await executeAcp(
@@ -309,6 +357,7 @@ describe("storage-neutral ACP execution engine", () => {
     expect(lifecycle).toEqual([
       "connection_ready",
       "initialized",
+      "capability_gated",
       "authentication_completed",
       "session_ready",
       "prompt_starting:1:false",

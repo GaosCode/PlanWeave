@@ -15,6 +15,7 @@ import {
 } from "./acpAuthentication.js";
 import type { AcpSessionStart } from "./acpRunRecovery.js";
 import type { AcpShutdownPolicy } from "../acpProfile/schema.js";
+import type { AcpCapabilityPolicy } from "../acpProfile/schema.js";
 
 type PromptDelivery = {
   readonly text: string;
@@ -142,6 +143,7 @@ export async function executeLocalAcpAdapter(options: {
   readonly agentId: string;
   readonly env: Readonly<Record<string, string>>;
   readonly shutdown: AcpShutdownPolicy;
+  readonly capabilityPolicy: AcpCapabilityPolicy;
   readonly availableEnvironmentVariables?: ReadonlySet<string>;
   readonly prompt: string;
   readonly sessionStart: AcpSessionStart;
@@ -166,6 +168,7 @@ export async function executeLocalAcpAdapter(options: {
       env: options.env,
       clientInfo: { name: "planweave", version: "1" },
       shutdown: options.shutdown,
+      capabilityPolicy: options.capabilityPolicy,
       prompt: options.prompt,
       sessionStart:
         options.sessionStart.kind === "load"

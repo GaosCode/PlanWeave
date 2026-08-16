@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { acpConversationTurns } from "../autoRun/acpConversationTurn.js";
+import { gateAcpCapabilities } from "../autoRun/acpCapabilityGate.js";
 import { acpEventReadModels } from "../autoRun/acpEventReadModel.js";
 import { AcpSessionController } from "../autoRun/acpSessionController.js";
 import { normalizedRunnerEventSchema } from "../autoRun/normalizedEventContract.js";
@@ -189,6 +190,15 @@ async function completedRecord(
   }
   const completedMetadata = {
     ...metadata,
+    acpCapabilitySnapshot: gateAcpCapabilities(
+      resolved.capabilities,
+      {
+        protocolVersion: 1,
+        agentCapabilities: { loadSession: true },
+        agentInfo: { name: "planweave-acp-mock", version: "1.0.0" }
+      },
+      { sessionStart: "new", connectionMode: "dedicated" }
+    ),
     executorProfile: executor,
     acpLaunch: resolved.launch,
     acpProfile: {

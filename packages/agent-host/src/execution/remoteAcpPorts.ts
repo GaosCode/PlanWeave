@@ -5,6 +5,7 @@ import type {
   AcpEnginePermissionRequest,
   ExecuteAcpOptions
 } from "@planweave-ai/runtime";
+import { acpCapabilitySnapshotSchema } from "@planweave-ai/runtime";
 import { z } from "zod";
 
 export const agentHostRemoteExecutionIdentitySchema = z
@@ -61,6 +62,13 @@ export const agentHostRemoteEngineEventSchema = z.discriminatedUnion("kind", [
       ...eventBase,
       kind: z.literal("lifecycle"),
       state: z.enum(["connecting", "running", "cleanup"])
+    })
+    .strict(),
+  z
+    .object({
+      ...eventBase,
+      kind: z.literal("capability_snapshot"),
+      snapshot: acpCapabilitySnapshotSchema
     })
     .strict(),
   z
@@ -206,6 +214,7 @@ export type AgentHostAcpSessionProfile = {
 
 export type ResolvedAgentHostAcpProfile = {
   agentId: string;
+  capabilityPolicy: ExecuteAcpOptions["capabilityPolicy"];
   launch: Omit<ExecuteAcpOptions["launch"], "trusted">;
   env: Readonly<Record<string, string>>;
   shutdown: ExecuteAcpOptions["shutdown"];

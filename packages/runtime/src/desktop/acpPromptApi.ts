@@ -48,6 +48,7 @@ import {
   assertDesktopAgentRunControlAccepted,
   executeDesktopAgentRunControl
 } from "./agentRunControlApi.js";
+import { acpCapabilitySnapshotSchema } from "../autoRun/acpCapabilityGate.js";
 
 const acpPromptMetadataBaseSchema = z
   .object({
@@ -84,11 +85,21 @@ const acpPromptMetadataBaseSchema = z
   })
   .passthrough();
 
-const completedAcpMetadataSchema = acpPromptMetadataBaseSchema.extend({
-  status: z.literal("completed"),
-  outcome: z.literal("succeeded"),
-  capabilities: z.object({ loadSession: z.literal(true) }).passthrough()
-});
+const completedAcpMetadataSchema = acpPromptMetadataBaseSchema
+  .extend({
+    status: z.literal("completed"),
+    outcome: z.literal("succeeded"),
+    acpCapabilitySnapshot: acpCapabilitySnapshotSchema
+  })
+  .superRefine((metadata, context) => {
+    if (!metadata.acpCapabilitySnapshot.negotiated.includes("history-load")) {
+      context.addIssue({
+        code: "custom",
+        path: ["acpCapabilitySnapshot", "negotiated"],
+        message: "Completed ACP continuation requires negotiated history-load capability."
+      });
+    }
+  });
 
 const liveAcpMetadataSchema = acpPromptMetadataBaseSchema.extend({
   status: z.literal("running"),

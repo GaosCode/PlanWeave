@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { exampleExecuteDelivery } from "@planweave-ai/agent-host-protocol";
 import { openAgentHostState, type AgentHostState } from "../state/agentHostState.js";
+import { acpCapabilitySnapshotTestValue } from "./support/acpCapabilitySnapshotTestValues.js";
 import { openAgentHostRemoteExecutionOutbox } from "../state/remoteExecutionOutbox.js";
 import { openAgentHostDatabase } from "../state/sqliteDatabase.js";
 
@@ -128,7 +129,7 @@ describe("authoritative Agent Host execution state", () => {
     state.startExecution(1);
     state.recordSessionEvidence(1, {
       sessionId: "acp-session-1",
-      capabilities: { loadSession: true, closeSession: false },
+      capabilitySnapshot: acpCapabilitySnapshotTestValue(),
       recoveryId: "recovery-1"
     });
     expect(state.advanceEventCursor(1, 0, 2)).toBe(2);
@@ -280,7 +281,7 @@ describe("authoritative Agent Host execution state", () => {
     state.startExecution(1);
     state.recordSessionEvidence(1, {
       sessionId: "acp-session-retention",
-      capabilities: { loadSession: false }
+      capabilitySnapshot: acpCapabilitySnapshotTestValue(false)
     });
     state.recordInteractionAction(1, {
       leaseId: "lease-evidence-1",

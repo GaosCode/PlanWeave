@@ -2,6 +2,7 @@ import { dirname, join } from "node:path";
 import { createConnection } from "node:net";
 import { z } from "zod";
 import { AcpEventStore } from "../autoRun/acpEventStore.js";
+import { acpCapabilitySnapshotSchema } from "../autoRun/acpCapabilityGate.js";
 import { AcpOwnerWriteFence } from "../autoRun/acpOwnerWriteFence.js";
 import { activeAgentRunRegistry } from "../autoRun/activeAgentRunRegistry.js";
 import { readAgentRunControlDescriptor } from "../autoRun/agentRunControlEndpoint.js";
@@ -28,7 +29,7 @@ import type { DesktopRunRecord } from "./types/recordsTypes.js";
 const orphanMetadataSchema = runnerInteractionRunMetadataSchema
   .extend({
     agentId: z.string().min(1),
-    capabilities: z.object({ loadSession: z.boolean() }).passthrough(),
+    acpCapabilitySnapshot: acpCapabilitySnapshotSchema,
     recoveryInterruptionReason: z
       .enum(["owner_lost", "transport_lost", "timed_out", "recoverable_cancel"])
       .nullable(),
@@ -341,7 +342,8 @@ export async function reconcileOrphanedAcpRun(
             sourceRecordId: record.recordId,
             sourceRunId: record.runId,
             recoverAcpSession:
-              metadata.sessionId !== null && metadata.capabilities.loadSession === true,
+              metadata.sessionId !== null &&
+              metadata.acpCapabilitySnapshot.negotiated.includes("history-load"),
             retryNewSession: true
           })
         }

@@ -263,6 +263,7 @@ export class RemoteAcpExecutor implements AgentHostExecutor {
           },
           workspace,
           env: profile.env,
+          capabilityPolicy: profile.capabilityPolicy,
           clientInfo: { name: "PlanWeave Agent Host", version: agentHostPackageVersion },
           shutdown: profile.shutdown,
           prompt: preparedInputs.prompt,

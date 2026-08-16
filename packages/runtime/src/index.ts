@@ -1006,6 +1006,18 @@ export type {
   RunnerPreflightResult
 } from "./autoRun/agentRunner.js";
 export {
+  AcpRequiredCapabilityError,
+  RUNTIME_REQUIRED_ACP_CAPABILITIES,
+  acpCapabilitySnapshotSchema,
+  capabilitiesFromInitialize,
+  gateAcpCapabilities,
+  negotiateAcpCapabilities
+} from "./autoRun/acpCapabilityGate.js";
+export type {
+  AcpCapabilityOperation,
+  AcpCapabilitySnapshot
+} from "./autoRun/acpCapabilityGate.js";
+export {
   ACP_SDK_AUTHORITY,
   AcpOperationTimeoutError,
   AcpProcessError,
@@ -1019,7 +1031,6 @@ export type {
 export {
   AcpPreflightCleanupError,
   AcpPreflightPhaseError,
-  capabilitiesFromInitialize,
   probeInstalledAcpAgent
 } from "./autoRun/acpPreflightProbe.js";
 export type { AcpPreflightPhase } from "./autoRun/acpPreflightProbe.js";

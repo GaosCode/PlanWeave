@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { acpCapabilitySnapshotSchema } from "@planweave-ai/runtime";
 import type { DispatchResult, NormalizedFailure } from "../protocol.js";
 import type { SqliteDatabase } from "./sqliteDatabase.js";
 import { digestJson } from "./agentHostStateMigrations.js";
@@ -43,7 +44,7 @@ const transitions: Readonly<
 const sessionEvidenceSchema = z
   .object({
     sessionId: z.string().min(1).max(1_024),
-    capabilities: z.json(),
+    capabilitySnapshot: acpCapabilitySnapshotSchema,
     recoveryId: z.string().min(1).max(128).optional()
   })
   .strict();
@@ -281,15 +282,15 @@ export class AgentHostExecutionRepository {
 
   recordSession(sequence: number, input: unknown): AgentHostExecutionEvidence {
     const parsed = sessionEvidenceSchema.parse(input);
-    const capabilitiesJson = JSON.stringify(parsed.capabilities);
-    if (byteLength(capabilitiesJson) > this.limits.maxCapabilitiesBytes) {
+    const capabilitySnapshotJson = JSON.stringify(parsed.capabilitySnapshot);
+    if (byteLength(capabilitySnapshotJson) > this.limits.maxCapabilitiesBytes) {
       throw new Error("execution_capabilities_too_large");
     }
     const current = this.requireEvidence(sequence);
     if (current.acpSessionId) {
       if (
         current.acpSessionId !== parsed.sessionId ||
-        JSON.stringify(current.acpCapabilities) !== capabilitiesJson ||
+        JSON.stringify(current.acpCapabilitySnapshot) !== capabilitySnapshotJson ||
         current.recoveryId !== parsed.recoveryId
       ) {
         throw new Error("execution_session_identity_conflict");
@@ -305,7 +306,7 @@ export class AgentHostExecutionRepository {
          SET acp_session_id=?,acp_capabilities_json=?,recovery_id=?
          WHERE inbox_sequence=? AND acp_session_id IS NULL`
       )
-      .run(parsed.sessionId, capabilitiesJson, parsed.recoveryId ?? null, sequence);
+      .run(parsed.sessionId, capabilitySnapshotJson, parsed.recoveryId ?? null, sequence);
     return this.requireEvidence(sequence);
   }
 
@@ -584,12 +585,7 @@ export class AgentHostExecutionRepository {
     ) {
       throw new Error("execution_resume_recovery_identity_mismatch");
     }
-    if (
-      typeof current.acpCapabilities !== "object" ||
-      current.acpCapabilities === null ||
-      Array.isArray(current.acpCapabilities) ||
-      current.acpCapabilities.loadSession !== true
-    ) {
+    if (current.acpCapabilitySnapshot?.negotiated.includes("history-load") !== true) {
       throw new Error("execution_resume_session_load_unsupported");
     }
     if (current.leaseId === input.leaseId) throw new Error("execution_resume_fresh_lease_required");

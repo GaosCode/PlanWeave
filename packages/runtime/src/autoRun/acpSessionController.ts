@@ -4,11 +4,10 @@ import { join } from "node:path";
 import type {
   AgentCapabilities,
   SessionNotification,
-  TerminalOutputRequest,
-  TerminalOutputResponse
+  TerminalOutputRequest
 } from "@agentclientprotocol/sdk";
 import { RequestError } from "@agentclientprotocol/sdk";
-import type { ExecutionHost, ExecutorAdapterResult } from "../types.js";
+import type { ExecutorAdapterResult } from "../types.js";
 import {
   AcpOperationTimeoutError,
   DEFAULT_ACP_OPERATION_TIMEOUT_MS,
@@ -16,11 +15,9 @@ import {
   type AcpConnection,
   type CreateAcpConnectionOptions
 } from "./acpConnection.js";
-import type { ResolvedAgentEnvironment } from "../process/agentProcessEnv.js";
 import {
   AcpAuthenticationRequiredError,
-  mayProbeSessionDespiteAuthRequired,
-  type AcpAuthenticationHints
+  mayProbeSessionDespiteAuthRequired
 } from "./acpAuthentication.js";
 import { ExecutorCancelledError } from "./executorCancellation.js";
 import {
@@ -34,7 +31,6 @@ import {
   activeAgentRunRegistry,
   throwAgentRunCleanupFailures,
   type ActiveAgentRunHandle,
-  type ActiveAgentRunIdentity,
   type ActiveAgentRunRegistry
 } from "./activeAgentRunRegistry.js";
 import { redactAcpProtocolPayload, redactRunnerEventText } from "./runnerEventRedaction.js";
@@ -65,7 +61,7 @@ import { RunnerInteractionChannelError } from "./persistentRunnerInteractionChan
 import type { RunnerInteractionObserver } from "./runnerInteractionObserver.js";
 import type { DesktopAcpSessionDefaults } from "./desktopAgentSettings.js";
 import { sessionConfigurationFromNewSession } from "./acpSessionConfiguration.js";
-import { acpSessionStartSchema, type AcpSessionStart } from "./acpRunRecovery.js";
+import { acpSessionStartSchema } from "./acpRunRecovery.js";
 import { projectRunnerNextActions } from "./runnerNextActions.js";
 import { applyDesktopAcpSessionDefaultsWithConfigurator } from "./acpSessionDefaults.js";
 import { createLocalAcpPromptSource, executeLocalAcpAdapter } from "./acpLocalExecutionAdapter.js";
@@ -73,40 +69,11 @@ import type { AcpEngineLifecycleEvent } from "./acpExecutionEngineContracts.js";
 import { createLocalAcpInteractionBroker } from "./acpLocalInteractionBroker.js";
 import { createLocalAcpActiveRunHandle } from "./acpLocalActiveRunHandle.js";
 import { prepareExecutionHostInvocation } from "../process/wslExecutionHost.js";
-import type { AcpShutdownPolicy } from "../acpProfile/schema.js";
+import type { AcpCapabilitySnapshot } from "./acpCapabilityGate.js";
+import type { AcpSessionRun } from "./acpSessionRunContract.js";
 
 export { applyDesktopAcpSessionDefaults } from "./acpSessionDefaults.js";
-
-export type AcpSessionRunKind = "implementation" | "review" | "feedback";
-export type AcpSessionRun = {
-  kind: AcpSessionRunKind;
-  identity: Omit<ActiveAgentRunIdentity, "sessionId">;
-  runDir: string;
-  metadataPath: string;
-  prompt: string;
-  cwd: string;
-  launch: { command: string; args: readonly string[] };
-  host?: ExecutionHost;
-  profileIdentity: {
-    profileId: string;
-    fingerprint: string;
-    source: "builtin" | "local-user";
-    environmentNames: readonly string[];
-  };
-  environment: ResolvedAgentEnvironment;
-  shutdown: AcpShutdownPolicy;
-  authenticationHints?: AcpAuthenticationHints;
-  executorName: string;
-  agentId: string;
-  taskId: string;
-  metadataIdentity: Record<string, string>;
-  projectId?: string;
-  canvasId?: string;
-  sessionStart?: AcpSessionStart;
-  terminalOutputHandler?: (
-    request: TerminalOutputRequest
-  ) => TerminalOutputResponse | Promise<TerminalOutputResponse>;
-};
+export type { AcpSessionRun, AcpSessionRunKind } from "./acpSessionRunContract.js";
 
 type ConnectionFactory = (options: CreateAcpConnectionOptions) => AcpConnection;
 type TerminalStatus = "completed" | "failed" | "cancelled" | "timed_out";
@@ -160,6 +127,10 @@ export class AcpSessionController {
     let output = "";
     let executionPhase: "connecting" | "session" | "prompt" | "artifact" | "cleanup" = "connecting";
     let initializedCapabilities: AgentCapabilities | undefined;
+    let capabilitySnapshot: AcpCapabilitySnapshot | null = null;
+    const negotiatedCapability = (
+      capability: AcpCapabilitySnapshot["negotiated"][number]
+    ): boolean => capabilitySnapshot?.negotiated.includes(capability) === true;
     let initializedSessionId: string | null = null;
     let handle: ActiveAgentRunHandle | null = null;
     let handleRegistered = false;
@@ -315,6 +286,7 @@ export class AcpSessionController {
       await writeState("running", {
         sessionId: null,
         capabilities: null,
+        acpCapabilitySnapshot: null,
         pid: null,
         diagnosticArtifacts: {
           protocol: "protocol.ndjson",
@@ -427,7 +399,7 @@ export class AcpSessionController {
           eventSink,
           agentRunControlLeaseId,
           pendingRequests,
-          supportsSessionClose: () => initializedCapabilities?.sessionCapabilities?.close != null
+          supportsSessionClose: () => negotiatedCapability("session-close")
         });
         this.registry.register(handle);
         handleRegistered = true;
@@ -450,6 +422,10 @@ export class AcpSessionController {
             return;
           case "initialized":
             initializedCapabilities = event.agentCapabilities;
+            return;
+          case "capability_gated":
+            capabilitySnapshot = event.snapshot;
+            await writeState("running", { acpCapabilitySnapshot: event.snapshot });
             return;
           case "authentication_completed":
             if (event.authentication.kind === "auth_required") {
@@ -699,6 +675,7 @@ export class AcpSessionController {
         agentId: run.agentId,
         env: preparedLaunch.spawnEnvironment,
         shutdown: run.shutdown,
+        capabilityPolicy: run.capabilityPolicy,
         prompt: agentPrompt,
         sessionStart,
         authenticationHints: run.authenticationHints,
@@ -910,7 +887,7 @@ export class AcpSessionController {
                 recoverAcpSession:
                   recoveryInterruptionReason !== null &&
                   initializedSessionId !== null &&
-                  initializedCapabilities?.loadSession === true,
+                  negotiatedCapability("history-load"),
                 retryNewSession: true
               })
             }

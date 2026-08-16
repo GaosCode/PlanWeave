@@ -6,15 +6,10 @@ import {
   type InitializeResponse,
   type NewSessionResponse
 } from "@agentclientprotocol/sdk";
-import {
-  executorAgentInfoSchema,
-  invalidExecutorAgentInfoMessage
-} from "./executorPreflightTypes.js";
 import { sessionConfigurationFromNewSession } from "./acpSessionConfiguration.js";
 import {
   coordinateAcpAuthentication,
   AcpAuthenticationRequiredError,
-  hasAdvertisedAcpAuthenticationMethods,
   mayProbeSessionDespiteAuthRequired,
   type AcpAuthenticationOutcome
 } from "./acpAuthentication.js";
@@ -23,10 +18,16 @@ import {
   prepareExecutionHostInvocation
 } from "../process/wslExecutionHost.js";
 import { AcpCleanupSequencer, createAcpCleanupDeadline } from "./acpExecutionCleanup.js";
+import {
+  AcpRequiredCapabilityError,
+  gateAcpCapabilities,
+  type AcpCapabilitySnapshot
+} from "./acpCapabilityGate.js";
 
 export { sessionConfigurationFromNewSession } from "./acpSessionConfiguration.js";
+export { capabilitiesFromInitialize } from "./acpCapabilityGate.js";
 
-export type AcpPreflightPhase = "initialize" | "authentication" | "session";
+export type AcpPreflightPhase = "initialize" | "capability" | "authentication" | "session";
 
 export class AcpPreflightPhaseError extends Error {
   readonly phase: AcpPreflightPhase;
@@ -51,25 +52,6 @@ export class AcpPreflightCleanupError extends AggregateError {
   }
 }
 
-export function capabilitiesFromInitialize(initialized: InitializeResponse): RunnerCapability[] {
-  const capabilities: RunnerCapability[] = [
-    "session",
-    "prompt",
-    "cancel",
-    "streaming",
-    "tool-updates"
-  ];
-  const advertised = initialized.agentCapabilities;
-  if (advertised?.promptCapabilities?.image === true) capabilities.push("image");
-  if (advertised?.promptCapabilities?.embeddedContext === true) {
-    capabilities.push("embedded-context");
-  }
-  if (advertised?.sessionCapabilities?.close != null) capabilities.push("session-close");
-  if (advertised?.loadSession === true) capabilities.push("history-load");
-  if (hasAdvertisedAcpAuthenticationMethods(initialized)) capabilities.push("authentication");
-  return capabilities;
-}
-
 function isAuthRequiredError(error: unknown): error is RequestError {
   if (!(error instanceof RequestError) || error.code !== -32000) return false;
   const message = error.message.trim();
@@ -88,6 +70,7 @@ function authRequiredResult(options: {
   message: string;
   agentInfo: { name: string; version: string } | null;
   capabilities: RunnerCapability[];
+  capabilitySnapshot: AcpCapabilitySnapshot;
   reason: Extract<RunnerAuthenticationState, { status: "action_required" }>["reason"];
   methods: Extract<RunnerAuthenticationState, { status: "action_required" }>["methods"];
 }): Extract<Awaited<ReturnType<AcpPreflightProbe>>, { kind: "auth_required" }> {
@@ -100,7 +83,8 @@ function authRequiredResult(options: {
       reason: options.reason,
       methods: options.methods
     },
-    capabilities: options.capabilities
+    capabilities: options.capabilities,
+    capabilitySnapshot: options.capabilitySnapshot
   };
 }
 
@@ -176,22 +160,20 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({
           new Error(`ACP protocol version '${initialized.protocolVersion}' is not supported.`)
         );
       }
-      const capabilities = capabilitiesFromInitialize(initialized);
-      const rawAgentInfo = initialized.agentInfo;
-      const agentInfo =
-        rawAgentInfo === undefined
-          ? { success: true as const, data: null }
-          : executorAgentInfoSchema.safeParse(
-              typeof rawAgentInfo === "object" && rawAgentInfo !== null
-                ? { name: rawAgentInfo.name, version: rawAgentInfo.version }
-                : rawAgentInfo
-            );
-      if (!agentInfo.success) {
-        return {
-          kind: "failed",
-          message: invalidExecutorAgentInfoMessage
-        };
+      let capabilitySnapshot: AcpCapabilitySnapshot;
+      try {
+        capabilitySnapshot = gateAcpCapabilities(profile.capabilities, initialized, {
+          sessionStart: "new",
+          connectionMode: profile.connection.mode
+        });
+      } catch (error) {
+        throw new AcpPreflightPhaseError(
+          error instanceof AcpRequiredCapabilityError ? "capability" : "initialize",
+          error
+        );
       }
+      const capabilities = capabilitySnapshot.available;
+      const agentInfo = capabilitySnapshot.agentInfo;
       let authenticationOutcome: AcpAuthenticationOutcome;
       try {
         authenticationOutcome = await coordinateAcpAuthentication({
@@ -212,8 +194,9 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({
           const authenticationError = new AcpAuthenticationRequiredError(authenticationOutcome);
           return authRequiredResult({
             message: authenticationError.message,
-            agentInfo: agentInfo.data,
+            agentInfo,
             capabilities,
+            capabilitySnapshot,
             reason: authenticationOutcome.reason,
             methods: authenticationOutcome.methods
           });
@@ -228,8 +211,9 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({
           const authenticationError = new AcpAuthenticationRequiredError(authenticationOutcome);
           return authRequiredResult({
             message: authenticationError.message,
-            agentInfo: agentInfo.data,
+            agentInfo,
             capabilities,
+            capabilitySnapshot,
             reason: authenticationOutcome.reason,
             methods: authenticationOutcome.methods
           });
@@ -247,9 +231,10 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({
         }
         return {
           kind: "ready",
-          agentInfo: agentInfo.data,
+          agentInfo,
           authentication: authenticationStateFromOutcome(recoveredAuth),
           capabilities,
+          capabilitySnapshot,
           sessionConfig: sessionConfigurationFromNewSession(probeSession)
         };
       }
@@ -267,8 +252,9 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({
         return authRequiredResult({
           message:
             "ACP agent requires authentication but did not advertise a headless-safe method. Authenticate with the agent, then retry.",
-          agentInfo: agentInfo.data,
+          agentInfo,
           capabilities,
+          capabilitySnapshot,
           reason: "no_safe_method",
           methods: []
         });
@@ -282,9 +268,10 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({
       }
       return {
         kind: "ready",
-        agentInfo: agentInfo.data,
+        agentInfo,
         authentication: authenticationStateFromOutcome(authenticationOutcome),
         capabilities,
+        capabilitySnapshot,
         sessionConfig: sessionConfigurationFromNewSession(session)
       };
     })();

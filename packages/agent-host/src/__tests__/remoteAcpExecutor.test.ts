@@ -105,11 +105,13 @@ function executionKey(input: ReturnType<typeof command>): string {
 
 function profileResolver(
   scenario: string,
-  shutdown = DEFAULT_ACP_SHUTDOWN_POLICY
+  shutdown = DEFAULT_ACP_SHUTDOWN_POLICY,
+  capabilityPolicy = { required: [] as const, optional: [] as const }
 ): AgentHostAcpProfileResolver {
   return {
     resolve: () => ({
       agentId: exampleExecutionEnvelopeInput.agentId,
+      capabilityPolicy,
       launch: { command: process.execPath, args: [mockAgentPath, scenario] },
       env: {},
       shutdown,
@@ -215,6 +217,39 @@ defineAcpExecutionAdapterConformance("Agent Host remote", {
 });
 
 describe("RemoteAcpExecutor", () => {
+  it("durably retains a missing required capability snapshot before session creation", async () => {
+    const { outbox } = await openOutbox();
+    const input = command();
+    const executor = new RemoteAcpExecutor({
+      workspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
+      profileResolver: profileResolver("success", DEFAULT_ACP_SHUTDOWN_POLICY, {
+        required: ["history-load"],
+        optional: []
+      }),
+      outbox,
+      hostCapabilities: ["linux", "acp.test"]
+    });
+
+    await expect(executor.execute(input, artifactContext(input).context)).rejects.toMatchObject({
+      failure: { code: "acp_capability_missing" }
+    });
+    const records = outbox.records(identity(input));
+    expect(records).toContainEqual(
+      expect.objectContaining({
+        kind: "engine_event",
+        event: expect.objectContaining({
+          kind: "capability_snapshot",
+          snapshot: expect.objectContaining({ missing: ["history-load"] })
+        })
+      })
+    );
+    expect(
+      records.some(
+        (record) => record.kind === "engine_event" && record.event.kind === "session_started"
+      )
+    ).toBe(false);
+  });
+
   it("probes a usable session when an Agent advertises authentication despite an existing login", async () => {
     const { outbox } = await openOutbox();
     const input = command();

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { recordBlockRunInIndex } from "../autoRun/blockRunIndex.js";
+import { gateAcpCapabilities } from "../autoRun/acpCapabilityGate.js";
 import { codexAgentDefinition } from "../autoRun/codexIntegration.js";
 import { publishAgentRunControlDescriptor } from "../autoRun/agentRunControlEndpoint.js";
 import { AcpEventStore } from "../autoRun/acpEventStore.js";
@@ -92,6 +93,15 @@ async function writeInterruptedAcpRun(options: {
       missingEnvironmentNames: []
     },
     capabilities: { loadSession: true },
+    acpCapabilitySnapshot: gateAcpCapabilities(
+      profile.capabilities,
+      {
+        protocolVersion: 1,
+        agentCapabilities: { loadSession: true },
+        agentInfo: { name: "planweave-acp-mock", version: "1.0.0" }
+      },
+      { sessionStart: "new", connectionMode: "dedicated" }
+    ),
     recoveryInterruptionReason: "transport_lost",
     recovery: null,
     startedAt: "2026-07-17T00:00:00.000Z",
@@ -209,6 +219,15 @@ async function createOrphanFixture(
       missingEnvironmentNames: []
     },
     capabilities: { loadSession: true },
+    acpCapabilitySnapshot: gateAcpCapabilities(
+      profile.capabilities,
+      {
+        protocolVersion: 1,
+        agentCapabilities: { loadSession: true },
+        agentInfo: { name: "planweave-acp-mock", version: "1.0.0" }
+      },
+      { sessionStart: "new", connectionMode: "dedicated" }
+    ),
     recoveryInterruptionReason: null,
     recovery: null,
     status: "running",
@@ -494,7 +513,7 @@ describe("desktop Task Workspace ACP recovery", () => {
     ]);
   });
 
-  it("filters a canonical recover candidate when persisted load capability drifts", async () => {
+  it("filters a canonical recover candidate when history-load was not negotiated", async () => {
     const fixture = await createRecoveryFixture();
     const metadata = JSON.parse(await readFile(fixture.metadataPath, "utf8")) as Record<
       string,
@@ -502,7 +521,16 @@ describe("desktop Task Workspace ACP recovery", () => {
     >;
     await writeJsonFile(fixture.metadataPath, {
       ...metadata,
-      capabilities: { loadSession: false }
+      capabilities: { loadSession: true },
+      acpCapabilitySnapshot: gateAcpCapabilities(
+        { required: [], optional: ["history-load"] },
+        {
+          protocolVersion: 1,
+          agentCapabilities: {},
+          agentInfo: { name: "planweave-acp-mock", version: "1.0.0" }
+        },
+        { sessionStart: "new", connectionMode: "dedicated" }
+      )
     });
     const detail = await getTaskWorkspaceRunDetail({
       projectRoot: fixture.root,

@@ -23,6 +23,7 @@ import type {
   RunnerAuthenticationState,
   RunnerCapability
 } from "./runnerContractSchemas.js";
+import type { AcpCapabilitySnapshot } from "./acpCapabilityGate.js";
 
 type AgentAcpExecutorProfile = Extract<AgentExecutorProfile, { runner: { transport: "acp" } }>;
 
@@ -78,6 +79,7 @@ export type RunnerPreflightResult = {
   executionIntegration: ExecutorIntegrationName | null;
   checks: ExecutorPreflightCheck[];
   negotiatedCapabilities: NegotiatedCapabilities | null;
+  acpCapabilitySnapshot?: AcpCapabilitySnapshot | null;
   availableCapabilities?: RunnerCapability[] | null;
   agentInfo?: ExecutorAgentInfo | null;
   authentication?: RunnerAuthenticationState | null;

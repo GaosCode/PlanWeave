@@ -34,6 +34,7 @@ import {
   type TaskWorkspaceAcpRecoveryCapability,
   type TaskWorkspaceAcpRecoveryIdentity
 } from "./types/taskWorkspaceTypes.js";
+import { acpCapabilitySnapshotSchema } from "../autoRun/acpCapabilityGate.js";
 
 const sourceMetadataSchema = z
   .object({
@@ -62,7 +63,7 @@ const sourceMetadataSchema = z
           });
         }
       }),
-    capabilities: z.object({ loadSession: z.literal(true) }).passthrough(),
+    acpCapabilitySnapshot: acpCapabilitySnapshotSchema,
     recoveryInterruptionReason: acpRecoveryInterruptionReasonSchema.nullable(),
     recovery: acpRunRecoveryLineageSchema.nullable()
   })
@@ -215,9 +216,8 @@ export async function evaluateTaskWorkspaceAcpRecovery(options: {
     sourceLaunch: source?.acpProfile.source === "builtin" ? (source.acpLaunch ?? null) : null,
     resolvedLaunch,
     loadSessionAvailable:
-      source?.capabilities.loadSession === true &&
-      profile?.runnerKind === "acp" &&
-      profile.optionalCapabilities?.includes("history-load") === true,
+      source?.acpCapabilitySnapshot.negotiated.includes("history-load") === true &&
+      profile?.runnerKind === "acp",
     blockStatus: options.block.status,
     dependenciesCompleted: options.dependenciesSatisfied,
     activeOrResumableRun: options.hasActiveRun,

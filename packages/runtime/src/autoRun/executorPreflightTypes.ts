@@ -10,6 +10,14 @@ import {
   runnerAuthenticationStateSchema,
   runnerCapabilitySchema
 } from "./runnerContractSchemas.js";
+import { executorAgentInfoSchema } from "./executorAgentInfo.js";
+import { acpCapabilitySnapshotSchema } from "./acpCapabilityGate.js";
+
+export {
+  executorAgentInfoSchema,
+  invalidExecutorAgentInfoMessage
+} from "./executorAgentInfo.js";
+export type { ExecutorAgentInfo } from "./executorAgentInfo.js";
 
 export {
   acpSessionConfigOptionSchema,
@@ -17,18 +25,6 @@ export {
   acpSessionModeStateSchema
 } from "./acpSessionConfiguration.js";
 export type { AcpSessionConfiguration } from "./acpSessionConfiguration.js";
-
-const EXECUTOR_AGENT_INFO_FIELD_MAX_LENGTH = 256;
-export const invalidExecutorAgentInfoMessage =
-  "ACP initialize returned invalid agentInfo; name and version must be non-empty strings.";
-
-export const executorAgentInfoSchema = z
-  .object({
-    name: z.string().trim().min(1).max(EXECUTOR_AGENT_INFO_FIELD_MAX_LENGTH),
-    version: z.string().trim().min(1).max(EXECUTOR_AGENT_INFO_FIELD_MAX_LENGTH)
-  })
-  .strict();
-export type ExecutorAgentInfo = z.infer<typeof executorAgentInfoSchema>;
 
 export const executorPreflightCheckNameSchema = z.enum([
   "profile_exists",
@@ -91,6 +87,7 @@ const executorPreflightResultShape = {
   agentInfo: executorAgentInfoSchema.nullable().optional(),
   authentication: runnerAuthenticationStateSchema.nullable().optional(),
   capabilities: z.array(runnerCapabilitySchema).max(32).nullable().optional(),
+  acpCapabilitySnapshot: acpCapabilitySnapshotSchema.nullable().optional(),
   sessionConfig: acpSessionConfigurationSchema.nullable().optional(),
   ok: z.boolean(),
   message: z.string(),
@@ -112,6 +109,7 @@ export const producedExecutorPreflightResultSchema = z
     agentInfo: executorAgentInfoSchema.nullable(),
     authentication: runnerAuthenticationStateSchema.nullable(),
     capabilities: z.array(runnerCapabilitySchema).max(32).nullable(),
+    acpCapabilitySnapshot: acpCapabilitySnapshotSchema.nullable(),
     sessionConfig: acpSessionConfigurationSchema.nullable()
   })
   .strict();

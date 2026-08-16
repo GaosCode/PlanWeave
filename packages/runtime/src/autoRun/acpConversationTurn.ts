@@ -15,6 +15,7 @@ import {
   mayProbeSessionDespiteAuthRequired,
   type AcpAuthenticationHints
 } from "./acpAuthentication.js";
+import { gateAcpCapabilities } from "./acpCapabilityGate.js";
 import {
   acpConversationTurnCancelResultSchema,
   acpConversationTurnQueryResultSchema,
@@ -403,6 +404,10 @@ export class AcpConversationTurnCoordinator {
       turn.phase = "initializing";
       await this.notify(input.key);
       const initialized = await connection.initialize(operationOptions);
+      gateAcpCapabilities(input.profile.capabilities, initialized, {
+        sessionStart: "load",
+        connectionMode: input.profile.connection.mode
+      });
       turn.phase = "authenticating";
       await this.notify(input.key);
       const authenticationOutcome = await coordinateAcpAuthentication({
@@ -417,11 +422,6 @@ export class AcpConversationTurnCoordinator {
         !mayProbeSessionDespiteAuthRequired(authenticationOutcome)
       ) {
         throw new AcpAuthenticationRequiredError(authenticationOutcome);
-      }
-      if (initialized.agentCapabilities?.loadSession !== true) {
-        throw new Error(
-          `ACP agent '${input.profile.agentId}' does not support loading an existing session.`
-        );
       }
       turn.phase = "loading";
       await this.notify(input.key);

@@ -1,5 +1,6 @@
 import {
   registeredAgentDefinitions,
+  type AcpCapabilityPolicy,
   type AgentDefinition,
   type AcpLaunchMetadata
 } from "@planweave-ai/runtime";
@@ -24,6 +25,7 @@ export type SupportedHostAcpProfile = {
   args: readonly string[];
   /** Optional env vars the Host profile may require (names only; never values). */
   environment: readonly { name: string; required: boolean }[];
+  capabilities: AcpCapabilityPolicy;
   /** Last verified adapter version (informational policy pin). */
   verifiedAdapterVersion: string;
   registryId: string;
@@ -102,6 +104,10 @@ function fromDefinition(definition: AgentDefinition): SupportedHostAcpProfile | 
     command: launch.command,
     args: launch.args,
     environment: environmentFor(definition),
+    capabilities: {
+      required: definition.acp.capabilities,
+      optional: definition.acp.optionalCapabilities
+    },
     verifiedAdapterVersion: launch.source.version,
     registryId: launch.source.registryId,
     limitations: definition.acp.limitations

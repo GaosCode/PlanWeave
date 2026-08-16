@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { acpCapabilitySnapshotSchema, type AcpCapabilitySnapshot } from "@planweave-ai/runtime";
 import { parseAgentHostMailboxCommand, type MailboxCommand } from "../protocol.js";
 
 export type ExecuteBlockCommand = Extract<MailboxCommand, { type: "execute_block" }>;
@@ -43,7 +44,8 @@ export type AgentHostExecutionEvidence = {
   sourceRevision: string;
   status: AgentHostExecutionStatus;
   acpSessionId?: string;
-  acpCapabilities?: JsonValue;
+  acpCapabilitySnapshot?: AcpCapabilitySnapshot;
+  legacyAcpCapabilities?: JsonValue;
   recoveryId?: string;
   eventCursor: number;
   actionCursor: number;
@@ -123,6 +125,8 @@ export function toExecution(raw: Record<string, unknown>): AgentHostExecution {
 
 export function toExecutionEvidence(raw: Record<string, unknown>): AgentHostExecutionEvidence {
   const row = executionEvidenceRowSchema.parse(raw);
+  const storedCapabilities = parseJson(row.acp_capabilities_json);
+  const capabilitySnapshot = acpCapabilitySnapshotSchema.safeParse(storedCapabilities);
   return {
     sequence: row.inbox_sequence,
     dispatchId: row.dispatch_id,
@@ -136,7 +140,11 @@ export function toExecutionEvidence(raw: Record<string, unknown>): AgentHostExec
     sourceRevision: row.source_revision,
     status: row.status,
     acpSessionId: row.acp_session_id ?? undefined,
-    acpCapabilities: parseJson(row.acp_capabilities_json),
+    ...(capabilitySnapshot.success
+      ? { acpCapabilitySnapshot: capabilitySnapshot.data }
+      : storedCapabilities === undefined
+        ? {}
+        : { legacyAcpCapabilities: storedCapabilities }),
     recoveryId: row.recovery_id ?? undefined,
     eventCursor: row.event_cursor,
     actionCursor: row.action_cursor,
