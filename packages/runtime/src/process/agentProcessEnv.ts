@@ -193,6 +193,17 @@ export function resolveAgentProcessEnvironment(input: {
   });
 }
 
+export function resolveCurrentAgentProcessEnvironment(
+  contract: AgentEnvironmentContract
+): ResolvedAgentEnvironment {
+  return resolveAgentProcessEnvironment({
+    platform: process.platform,
+    ambient: process.env,
+    ...(agentProcessEnvironmentOverlay ? { shellOverlay: agentProcessEnvironmentOverlay } : {}),
+    contract
+  });
+}
+
 /**
  * PATH used to resolve agent CLI / ACP binaries.
  * Uses the platform delimiter. POSIX and Windows hosts append common user install

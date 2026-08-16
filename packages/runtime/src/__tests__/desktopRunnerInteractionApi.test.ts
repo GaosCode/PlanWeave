@@ -14,6 +14,7 @@ import { writeJsonFile } from "../json.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
 import { AcpSessionController, type AcpSessionRun } from "../autoRun/acpSessionController.js";
 import { ActiveAgentRunRegistry } from "../autoRun/activeAgentRunRegistry.js";
+import { acpProfileTestValues } from "./support/acpProfileTestValues.js";
 
 const lease = "11111111-1111-4111-8111-111111111111";
 const now = new Date();
@@ -112,7 +113,10 @@ describe("desktop runner interaction API", () => {
       metadataPath: join(runDir, "metadata.json"),
       prompt: "permission-secret",
       cwd: root,
-      launch: { command: process.execPath, args: [acpFixture, "permission-secret"] },
+      ...acpProfileTestValues({
+        command: process.execPath,
+        args: [acpFixture, "permission-secret"]
+      }),
       executorName: "mock-acp",
       agentId: "codex",
       taskId: "T-001",

@@ -10,6 +10,8 @@ import {
   normalizeAcpRecoveryToolSummaryValue
 } from "../autoRun/acpRecoveryToolSummary.js";
 import { utf8ByteLength } from "../autoRun/runnerEventRedaction.js";
+import { AcpProfileResolutionError } from "../acpProfile/resolver.js";
+import { acpProfileResolutionRecoveryReason } from "../desktop/taskWorkspaceAcpRecovery.js";
 
 const eligible: AcpRunRecoveryEligibilityInput = {
   latestMainRun: true,
@@ -22,6 +24,10 @@ const eligible: AcpRunRecoveryEligibilityInput = {
   resolvedAgentId: "codex",
   sourceExecutorProfile: "codex-acp",
   resolvedExecutorProfile: "codex-acp",
+  sourceProfileId: "builtin:codex",
+  resolvedProfileId: "builtin:codex",
+  sourceProfileFingerprint: "a".repeat(64),
+  resolvedProfileFingerprint: "a".repeat(64),
   sourceLaunch: { command: "codex-acp", args: ["--stdio"] },
   resolvedLaunch: { command: "codex-acp", args: ["--stdio"] },
   loadSessionAvailable: true,
@@ -50,6 +56,18 @@ function encodeJsonLayers(value: unknown, layers: number): string {
 }
 
 describe("ACP interruption recovery contract", () => {
+  it.each([
+    ["profile_unavailable", "profile_unavailable"],
+    ["profile_untrusted", "profile_untrusted"],
+    ["profile_environment_missing", "profile_environment_missing"],
+    ["profile_host_unavailable", "profile_host_unavailable"],
+    ["profile_changed", "profile_fingerprint_mismatch"]
+  ] as const)("maps typed resolution code %s to recovery reason %s", (code, reason) => {
+    expect(
+      acpProfileResolutionRecoveryReason(new AcpProfileResolutionError(code, "redacted"))
+    ).toBe(reason);
+  });
+
   it("accepts only a fully consistent recoverable source", () => {
     expect(evaluateAcpRunRecovery(eligible)).toEqual({ available: true, reason: null });
   });
@@ -63,6 +81,8 @@ describe("ACP interruption recovery contract", () => {
     ["sessionId", null, "session_unavailable"],
     ["resolvedAgentId", "claude", "agent_mismatch"],
     ["resolvedExecutorProfile", "claude-acp", "executor_profile_mismatch"],
+    ["resolvedProfileId", "custom:codex", "profile_id_mismatch"],
+    ["resolvedProfileFingerprint", "b".repeat(64), "profile_fingerprint_mismatch"],
     ["resolvedExecutionHost", { kind: "wsl", distribution: "Debian" }, "execution_host_mismatch"],
     ["resolvedLaunch", { command: "codex-acp", args: [] }, "launch_mismatch"],
     ["loadSessionAvailable", false, "load_session_unavailable"],

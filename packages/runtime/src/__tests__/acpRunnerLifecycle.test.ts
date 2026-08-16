@@ -11,6 +11,7 @@ import { codexAgentDefinition } from "../autoRun/codexIntegration.js";
 import { getExecutionStatus } from "../taskManager/executionStatus.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
 import { manifestTestBuilder } from "./manifestTestBuilder.js";
+import { acpProfileTestValues } from "./support/acpProfileTestValues.js";
 import { getAutoRunState, startAutoRun, stopAutoRun } from "../desktop/runApi.js";
 import { activeAgentRunRegistry } from "../autoRun/activeAgentRunRegistry.js";
 import { trustCommand } from "../taskManager/hookTrustStore.js";
@@ -72,7 +73,7 @@ describe("AcpSessionController lifecycle", () => {
         metadataPath: join(root, "metadata.json"),
         prompt: "implement",
         cwd: root,
-        launch: { command: process.execPath, args: [fixture, scenario] },
+        ...acpProfileTestValues({ command: process.execPath, args: [fixture, scenario] }),
         executorName: "mock-acp",
         agentId: "codex",
         taskId: "T-001",

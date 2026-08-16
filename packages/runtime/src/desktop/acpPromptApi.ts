@@ -6,8 +6,7 @@ import {
   createAcpEventSubscriptionCloseResult,
   type AcpEventSubscriptionCloseResult
 } from "../autoRun/acpEventPublisher.js";
-import { builtinAgentProfiles, resolveAgentDefinition } from "../autoRun/agentRegistry.js";
-import { requireAcpLaunch } from "../autoRun/acpLaunch.js";
+import { builtinAgentProfiles, optionalAgentDefinition } from "../autoRun/agentRegistry.js";
 import { DEFAULT_EXECUTOR_TIMEOUT_MS, workspaceExecutionCwd } from "../autoRun/executorShared.js";
 import {
   consumeRunnerRecordReadModel,
@@ -31,13 +30,16 @@ import type { RunnerEventCursor } from "../autoRun/runnerEventReplay.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { loadPackage } from "../package/loadPackage.js";
 import {
-  agentFamilySchema,
+  acpAgentIdSchema,
   executionHostSchema,
-  executorProfileExecutionHost,
+  isAgentAcpExecutorProfile,
   type AgentExecutorProfile,
   type ExecutorProfile,
   type ProjectWorkspace
 } from "../types.js";
+import { resolveAcpExecutionProfile } from "../acpProfile/runtimeResolver.js";
+import { AcpProfileResolutionError } from "../acpProfile/resolver.js";
+import { acpLaunchIdentitySchema } from "../autoRun/acpRunRecovery.js";
 import {
   assertDesktopAgentRunControlAccepted,
   executeDesktopAgentRunControl
@@ -49,10 +51,30 @@ const acpPromptMetadataBaseSchema = z
     executorRunId: executorRunIdSchema,
     claimRef: claimRefSchema,
     sessionId: acpSessionIdSchema,
-    agentId: agentFamilySchema,
+    agentId: acpAgentIdSchema,
     runnerKind: z.literal("acp"),
     executor: z.string().min(1).max(256),
     executionHost: executionHostSchema.optional(),
+    acpProfile: z
+      .object({
+        profileId: z.string().min(1).max(128),
+        fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+        source: z.enum(["builtin", "local-user"]),
+        host: executionHostSchema,
+        launch: acpLaunchIdentitySchema.optional(),
+        environmentNames: z.array(z.string()).max(128),
+        missingEnvironmentNames: z.array(z.string()).max(128)
+      })
+      .passthrough()
+      .superRefine((profile, context) => {
+        if (profile.source === "local-user" && profile.launch !== undefined) {
+          context.addIssue({
+            code: "custom",
+            path: ["launch"],
+            message: "Local ACP prompt metadata must not contain launch details."
+          });
+        }
+      }),
     runSessionId: runSessionIdSchema.nullable().optional(),
     desktopRunId: desktopRunIdSchema.nullable().optional()
   })
@@ -263,7 +285,7 @@ function assertAcpPromptProfile(
   name: string,
   profile: ExecutorProfile | undefined,
   metadata: CompletedAcpMetadata
-): AgentExecutorProfile {
+): Extract<AgentExecutorProfile, { runner: { transport: "acp" } }> {
   if (!profile) {
     throw new Error(`ACP executor profile '${name}' is no longer available.`);
   }
@@ -276,28 +298,43 @@ function assertAcpPromptProfile(
       `Executor profile '${name}' does not match the completed ${metadata.agentId} ACP run.`
     );
   }
+  if (!isAgentAcpExecutorProfile(profile)) {
+    throw new Error(`ACP executor profile '${name}' could not be narrowed.`);
+  }
   return profile;
 }
 
 function resolveAcpPromptProfile(
   manifestExecutors: Readonly<Record<string, ExecutorProfile>> | undefined,
   metadata: CompletedAcpMetadata
-): AgentExecutorProfile {
+): {
+  profile: Extract<AgentExecutorProfile, { runner: { transport: "acp" } }>;
+  source: "builtin" | "package";
+} {
   if (manifestExecutors && Object.hasOwn(manifestExecutors, metadata.executor)) {
-    return assertAcpPromptProfile(
-      metadata.executor,
-      manifestExecutors[metadata.executor],
-      metadata
-    );
+    return {
+      profile: assertAcpPromptProfile(
+        metadata.executor,
+        manifestExecutors[metadata.executor],
+        metadata
+      ),
+      source: "package"
+    };
   }
   const builtins = builtinAgentProfiles();
   const exact = builtins[metadata.executor];
   if (exact?.runner.transport === "acp") {
-    return assertAcpPromptProfile(metadata.executor, exact, metadata);
+    return {
+      profile: assertAcpPromptProfile(metadata.executor, exact, metadata),
+      source: "builtin"
+    };
   }
   if (metadata.executor === metadata.agentId) {
     const canonicalAcpName = `${metadata.agentId}-acp`;
-    return assertAcpPromptProfile(canonicalAcpName, builtins[canonicalAcpName], metadata);
+    return {
+      profile: assertAcpPromptProfile(canonicalAcpName, builtins[canonicalAcpName], metadata),
+      source: "builtin"
+    };
   }
   throw new Error(`ACP executor profile '${metadata.executor}' is no longer available.`);
 }
@@ -395,26 +432,36 @@ export async function continueAcpPrompt(options: {
   context: Extract<AcpPromptContext, { available: true }> & { mode: "completed" };
   text: string;
 }): Promise<void> {
-  const definition = resolveAgentDefinition(options.context.metadata.agentId);
-  const launch = requireAcpLaunch(definition);
   const { manifest } = await loadPackage(options.workspace);
-  const profile = resolveAcpPromptProfile(manifest.executors, options.context.metadata);
-  const persistedHost = options.context.metadata.executionHost ?? { kind: "native" };
-  if (JSON.stringify(executorProfileExecutionHost(profile)) !== JSON.stringify(persistedHost)) {
-    throw new Error(
-      "ACP conversation continuation execution host no longer matches the source run."
+  const executor = resolveAcpPromptProfile(manifest.executors, options.context.metadata);
+  const resolved = await resolveAcpExecutionProfile({
+    executorProfile: executor.profile,
+    projectRoot: options.workspace,
+    executorSource: executor.source
+  });
+  const persisted = options.context.metadata.acpProfile;
+  if (
+    resolved.profile.profileId !== persisted.profileId ||
+    resolved.profile.fingerprint !== persisted.fingerprint ||
+    JSON.stringify(resolved.profile.host) !== JSON.stringify(persisted.host) ||
+    (persisted.launch !== undefined &&
+      JSON.stringify(resolved.profile.launch) !== JSON.stringify(persisted.launch))
+  ) {
+    throw new AcpProfileResolutionError(
+      "profile_changed",
+      "ACP conversation continuation profile identity no longer matches the source run."
     );
   }
+  const definition = optionalAgentDefinition(resolved.profile.agentId);
   await acpConversationTurns.send({
     key: options.context.runDir,
     cwd: workspaceExecutionCwd(options.workspace),
     sessionId: options.context.metadata.sessionId,
-    agentId: options.context.metadata.agentId,
-    launch: { command: launch.command, args: launch.args },
-    host: persistedHost,
-    authenticationHints: definition.acp.authentication,
+    profile: resolved.profile,
+    environment: resolved.environment,
+    authenticationHints: definition?.acp.authentication,
     text: options.text,
-    timeoutMs: profile.timeoutMs ?? DEFAULT_EXECUTOR_TIMEOUT_MS,
+    timeoutMs: executor.profile.timeoutMs ?? DEFAULT_EXECUTOR_TIMEOUT_MS,
     eventStore: async () => verifiedPromptEventStore(options)
   });
 }

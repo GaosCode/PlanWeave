@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { ActiveAgentRunRegistry } from "../autoRun/activeAgentRunRegistry.js";
 import { AcpSessionController, type AcpSessionRun } from "../autoRun/acpSessionController.js";
+import { acpProfileTestValues } from "./support/acpProfileTestValues.js";
 import {
   runnerPermissionInteractionResponseSchema,
   type RunnerPermissionInteractionRequest
@@ -66,7 +67,7 @@ function run(root: string, scenario: string): AcpSessionRun {
     metadataPath: join(root, "metadata.json"),
     prompt: scenario,
     cwd: root,
-    launch: { command: process.execPath, args: [acpFixture, scenario] },
+    ...acpProfileTestValues({ command: process.execPath, args: [acpFixture, scenario] }),
     executorName: "mock-acp",
     agentId: "codex",
     taskId: "T-001",

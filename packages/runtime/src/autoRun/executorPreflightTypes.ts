@@ -1,6 +1,6 @@
 import { z } from "zod";
 import {
-  agentFamilySchema,
+  acpAgentIdSchema,
   executorIntegrationSchema,
   executorProfileAdapterSchema,
   runnerTransportSchema
@@ -85,7 +85,7 @@ const executorPreflightResultShape = {
   adapter: z.union([executorIntegrationSchema, executorProfileAdapterSchema]).nullable(),
   profileAdapter: executorProfileAdapterSchema.nullable().optional(),
   executionIntegration: executorIntegrationSchema.nullable().optional(),
-  agentId: agentFamilySchema.nullable().optional(),
+  agentId: acpAgentIdSchema.nullable().optional(),
   runnerKind: runnerTransportSchema.nullable().optional(),
   failureCode: executorPreflightFailureCodeSchema.nullable().optional(),
   agentInfo: executorAgentInfoSchema.nullable().optional(),
@@ -106,7 +106,7 @@ export const producedExecutorPreflightResultSchema = z
     ...executorPreflightResultShape,
     profileAdapter: executorProfileAdapterSchema.nullable(),
     executionIntegration: executorIntegrationSchema.nullable(),
-    agentId: agentFamilySchema.nullable(),
+    agentId: acpAgentIdSchema.nullable(),
     runnerKind: runnerTransportSchema.nullable(),
     failureCode: executorPreflightFailureCodeSchema.nullable(),
     agentInfo: executorAgentInfoSchema.nullable(),

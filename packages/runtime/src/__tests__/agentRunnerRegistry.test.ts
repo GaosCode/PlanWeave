@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
-import { readdir, writeFile } from "node:fs/promises";
+import { describe, expect, it, vi } from "vitest";
+import { readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { AgentAcpBlockInput } from "../autoRun/agentRunner.js";
+import type { AgentAcpBlockInput, AgentDefinition } from "../autoRun/agentRunner.js";
 import { createAcpRunner, type AcpPreflightProbeResult } from "../autoRun/acpRunner.js";
+import { AcpSessionController } from "../autoRun/acpSessionController.js";
 import { assertAcpLaunchTrusted } from "../autoRun/acpLaunch.js";
 import {
   builtinAgentProfiles,
@@ -15,6 +16,7 @@ import { registeredAgentRunners, resolveAgentRunner } from "../autoRun/runnerReg
 import { executorProfileSchema, type AgentExecutorProfile, type AgentFamily } from "../types.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
 import { manifestTestBuilder } from "./manifestTestBuilder.js";
+import { acpProfileResolverTestDouble } from "./support/acpProfileTestValues.js";
 
 const acpFixture = fileURLToPath(new URL("./support/acpMockAgent.mjs", import.meta.url));
 const mockAgentInfo = { name: "planweave-acp-mock", version: "1.0.0" } as const;
@@ -34,6 +36,23 @@ function probeDefinition(
       capabilities
     }
   };
+}
+
+function runnerForDefinition(
+  definition: AgentDefinition,
+  options: Omit<NonNullable<Parameters<typeof createAcpRunner>[0]>, "profileResolver"> = {}
+) {
+  const launch = definition.acp.launch;
+  if (!launch) throw new Error("Test ACP definition requires a launch.");
+  return createAcpRunner({
+    ...options,
+    profileResolver: acpProfileResolverTestDouble({
+      launch,
+      requiredCapabilities: definition.acp.capabilities,
+      optionalCapabilities: definition.acp.optionalCapabilities,
+      environment: definition.agent === "grok" ? [{ name: "XAI_API_KEY", required: false }] : []
+    })
+  });
 }
 
 const CLI_INTEGRATION_PATTERN = /-exec$/;
@@ -119,7 +138,7 @@ describe("AgentRunner registries", () => {
     expect(runner.availability(definition)).toEqual({
       supported: true,
       integration: null,
-      message: "ACP session integration for agent 'codex' is available."
+      message: "ACP profile resolution for agent 'codex' is available."
     });
   });
 
@@ -189,9 +208,10 @@ describe("AgentRunner registries", () => {
     "claude-code",
     "pi"
   ] as const)("keeps %s on the shared no-auth-methods ACP lifecycle", async (agent) => {
-    const result = await createAcpRunner().preflight({
+    const definition = probeDefinition("success", undefined, agent);
+    const result = await runnerForDefinition(definition).preflight({
       profile: { adapter: "agent", agent, runner: { transport: "acp" } },
-      definition: probeDefinition("success", undefined, agent),
+      definition,
       cwd: "/tmp",
       timeoutMs: 1_000
     });
@@ -204,9 +224,10 @@ describe("AgentRunner registries", () => {
     const previous = process.env.XAI_API_KEY;
     delete process.env.XAI_API_KEY;
     try {
-      const cached = await createAcpRunner().preflight({
+      const definition = probeDefinition("grok-auth", undefined, "grok");
+      const cached = await runnerForDefinition(definition).preflight({
         profile: { adapter: "agent", agent: "grok", runner: { transport: "acp" } },
-        definition: probeDefinition("grok-auth", undefined, "grok"),
+        definition,
         cwd: "/tmp",
         timeoutMs: 1_000
       });
@@ -216,9 +237,9 @@ describe("AgentRunner registries", () => {
       });
 
       process.env.XAI_API_KEY = "test-value-must-not-be-projected";
-      const apiKey = await createAcpRunner().preflight({
+      const apiKey = await runnerForDefinition(definition).preflight({
         profile: { adapter: "agent", agent: "grok", runner: { transport: "acp" } },
-        definition: probeDefinition("grok-auth", undefined, "grok"),
+        definition,
         cwd: "/tmp",
         timeoutMs: 1_000
       });
@@ -234,9 +255,10 @@ describe("AgentRunner registries", () => {
   });
 
   it("returns action required for interactive grok.com authentication", async () => {
-    const result = await createAcpRunner().preflight({
+    const definition = probeDefinition("grok-interactive", undefined, "grok");
+    const result = await runnerForDefinition(definition).preflight({
       profile: { adapter: "agent", agent: "grok", runner: { transport: "acp" } },
-      definition: probeDefinition("grok-interactive", undefined, "grok"),
+      definition,
       cwd: "/tmp",
       timeoutMs: 1_000
     });
@@ -293,7 +315,7 @@ describe("AgentRunner registries", () => {
       ...base,
       acp: { launch: { command: "codex-acp", args: [] }, capabilities: ["session"] }
     };
-    const runner = createAcpRunner({
+    const runner = runnerForDefinition(definition, {
       probe: async ({ signal }) => {
         if (probe === "hang") {
           return new Promise<AcpPreflightProbeResult>((_resolve, reject) => {
@@ -337,7 +359,7 @@ describe("AgentRunner registries", () => {
         capabilities: ["session", "prompt"] as const
       }
     };
-    const runner = createAcpRunner({
+    const runner = runnerForDefinition(definition, {
       probe: async () => ({
         kind: "ready",
         authentication: notAdvertisedAuthentication,
@@ -394,7 +416,7 @@ describe("AgentRunner registries", () => {
         }
       ]
     };
-    const runner = createAcpRunner({
+    const runner = runnerForDefinition(definition, {
       probe: async () => ({
         kind: "ready",
         authentication: notAdvertisedAuthentication,
@@ -415,14 +437,15 @@ describe("AgentRunner registries", () => {
   });
 
   it("uses the formal default probe for advertised capabilities and missing capability diagnostics", async () => {
-    const ready = await createAcpRunner().preflight({
+    const readyDefinition = probeDefinition("close-capable", [
+      "session",
+      "prompt",
+      "cancel",
+      "session-close"
+    ]);
+    const ready = await runnerForDefinition(readyDefinition).preflight({
       profile: { adapter: "agent", agent: "codex", runner: { transport: "acp" } },
-      definition: probeDefinition("close-capable", [
-        "session",
-        "prompt",
-        "cancel",
-        "session-close"
-      ]),
+      definition: readyDefinition,
       cwd: "/tmp",
       timeoutMs: 1_000
     });
@@ -431,9 +454,15 @@ describe("AgentRunner registries", () => {
     );
     expect(ready.agentInfo).toEqual(mockAgentInfo);
 
-    const missing = await createAcpRunner().preflight({
+    const missingDefinition = probeDefinition("success", [
+      "session",
+      "prompt",
+      "cancel",
+      "session-close"
+    ]);
+    const missing = await runnerForDefinition(missingDefinition).preflight({
       profile: { adapter: "agent", agent: "codex", runner: { transport: "acp" } },
-      definition: probeDefinition("success", ["session", "prompt", "cancel", "session-close"]),
+      definition: missingDefinition,
       cwd: "/tmp",
       timeoutMs: 1_000
     });
@@ -443,9 +472,10 @@ describe("AgentRunner registries", () => {
   });
 
   it("projects open SDK agentInfo extensions into the strict internal identity", async () => {
-    const result = await createAcpRunner().preflight({
+    const definition = probeDefinition("extended-agent-info");
+    const result = await runnerForDefinition(definition).preflight({
       profile: { adapter: "agent", agent: "codex", runner: { transport: "acp" } },
-      definition: probeDefinition("extended-agent-info"),
+      definition,
       cwd: "/tmp",
       timeoutMs: 1_000
     });
@@ -464,9 +494,10 @@ describe("AgentRunner registries", () => {
     ["generic-server-error", "initialization_failed", 1_000],
     ["delayed", "timeout", 5]
   ] as const)("maps formal default probe scenario %s to %s", async (scenario, code, timeoutMs) => {
-    const result = await createAcpRunner().preflight({
+    const definition = probeDefinition(scenario);
+    const result = await runnerForDefinition(definition).preflight({
       profile: { adapter: "agent", agent: "codex", runner: { transport: "acp" } },
-      definition: probeDefinition(scenario),
+      definition,
       cwd: "/tmp",
       timeoutMs
     });
@@ -479,7 +510,13 @@ describe("AgentRunner registries", () => {
     const { init } = await createTestWorkspace();
     const before = await readdir(init.workspace.resultsDir, { recursive: true });
     await expect(
-      createAcpRunner().runBlock(
+      createAcpRunner({
+        profileResolver: {
+          async resolve() {
+            throw new Error("ACP profile command is not trusted for this project.");
+          }
+        }
+      }).runBlock(
         {
           projectRoot: init.workspace,
           claim: blockClaim,
@@ -507,6 +544,143 @@ describe("AgentRunner registries", () => {
     ).resolves.toEqual(definition.acp.launch);
   });
 
+  it("executes a custom ACP profile through the resolved profile launch", async () => {
+    const { init } = await createTestWorkspace();
+    const definition: AgentDefinition = {
+      agent: "custom-agent",
+      builtinProfiles: {},
+      cli: null,
+      acp: {
+        launch: null,
+        capabilities: ["session", "prompt"],
+        optionalCapabilities: [],
+        limitations: []
+      }
+    };
+    const runner = createAcpRunner({
+      profileResolver: acpProfileResolverTestDouble({
+        launch: {
+          command: process.execPath,
+          args: [acpFixture, "artifact-implementation", "local-profile-secret-marker"]
+        },
+        requiredCapabilities: ["session", "prompt"]
+      })
+    });
+
+    await expect(
+      runner.runBlock(
+        {
+          projectRoot: init.workspace,
+          claim: blockClaim,
+          prompt: "custom ACP execution",
+          executorName: "custom-acp",
+          profile: {
+            adapter: "agent",
+            agent: "custom-agent",
+            runner: { transport: "acp", profileId: "custom-acp" }
+          },
+          profileSource: "package",
+          runtime: { timeoutMs: 1_000 }
+        },
+        definition
+      )
+    ).resolves.toMatchObject({ kind: "block", exitCode: 0, runnerKind: "acp" });
+    const files = await readdir(init.workspace.resultsDir, { recursive: true });
+    const metadataFile = files.find((file) => file.endsWith("metadata.json"));
+    expect(metadataFile).toBeDefined();
+    const metadata = await readFile(join(init.workspace.resultsDir, metadataFile!), "utf8");
+    expect(metadata).not.toContain("local-profile-secret-marker");
+    expect(metadata).not.toContain(acpFixture);
+  });
+
+  it("fails missing profile environment before the session controller can spawn", async () => {
+    const { init } = await createTestWorkspace();
+    const variable = "PLANWEAVE_TEST_MISSING_CUSTOM_ACP_KEY";
+    const previous = process.env[variable];
+    delete process.env[variable];
+    const controller = new AcpSessionController();
+    const execute = vi.spyOn(controller, "execute");
+    const definition: AgentDefinition = {
+      agent: "custom-agent",
+      builtinProfiles: {},
+      cli: null,
+      acp: {
+        launch: null,
+        capabilities: ["session", "prompt"],
+        optionalCapabilities: [],
+        limitations: []
+      }
+    };
+    const runner = createAcpRunner({
+      sessionController: controller,
+      profileResolver: acpProfileResolverTestDouble({
+        launch: { command: process.execPath, args: [acpFixture, "artifact-implementation"] },
+        environment: [{ name: variable, required: true }]
+      })
+    });
+    try {
+      await expect(
+        runner.runBlock(
+          {
+            projectRoot: init.workspace,
+            claim: blockClaim,
+            prompt: "must not spawn",
+            executorName: "custom-acp",
+            profile: {
+              adapter: "agent",
+              agent: "custom-agent",
+              runner: { transport: "acp", profileId: "custom-acp" }
+            }
+          },
+          definition
+        )
+      ).rejects.toThrow(variable);
+      expect(execute).not.toHaveBeenCalled();
+    } finally {
+      if (previous === undefined) delete process.env[variable];
+      else process.env[variable] = previous;
+    }
+  });
+
+  it("fails an untrusted custom profile before invoking the preflight probe", async () => {
+    const probe = vi.fn();
+    const definition: AgentDefinition = {
+      agent: "custom-agent",
+      builtinProfiles: {},
+      cli: null,
+      acp: {
+        launch: null,
+        capabilities: ["session", "prompt"],
+        optionalCapabilities: [],
+        limitations: []
+      }
+    };
+    const result = await createAcpRunner({
+      probe,
+      profileResolver: {
+        async resolve() {
+          throw new Error("ACP profile command is not trusted for this project.");
+        }
+      }
+    }).preflight({
+      profile: {
+        adapter: "agent",
+        agent: "custom-agent",
+        runner: { transport: "acp", profileId: "custom-acp" }
+      },
+      definition,
+      cwd: "/tmp",
+      timeoutMs: 100
+    });
+
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: "failed", failureCode: "initialization_failed" })
+      ])
+    );
+    expect(probe).not.toHaveBeenCalled();
+  });
+
   it("applies Desktop ACP session defaults only when desktopRunId identifies the origin", async () => {
     const { init } = await createTestWorkspace();
     const settingsFile = join(init.workspace.rootPath, "desktop-settings.json");
@@ -527,7 +701,7 @@ describe("AgentRunner registries", () => {
     process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE = settingsFile;
     try {
       await expect(
-        createAcpRunner().runBlock(
+        runnerForDefinition(probeDefinition("artifact-session-config")).runBlock(
           {
             projectRoot: init.workspace,
             claim: blockClaim,
@@ -557,7 +731,7 @@ describe("AgentRunner registries", () => {
     process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE = settingsFile;
     try {
       await expect(
-        createAcpRunner().runBlock(
+        runnerForDefinition(probeDefinition("artifact-implementation")).runBlock(
           {
             projectRoot: init.workspace,
             claim: blockClaim,
@@ -613,7 +787,9 @@ describe("AgentRunner registries", () => {
       ...base,
       acp: { launch: { command: "codex-acp", args: [] }, capabilities: ["session"] }
     };
-    const runner = createAcpRunner({ probe: async () => malformed as never });
+    const runner = runnerForDefinition(definition, {
+      probe: async () => malformed as never
+    });
     const result = await runner.preflight({
       profile: { adapter: "agent", agent: "codex", runner: { transport: "acp" } },
       definition,

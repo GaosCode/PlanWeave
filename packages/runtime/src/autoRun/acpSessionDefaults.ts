@@ -1,5 +1,4 @@
 import type { NewSessionResponse, SessionConfigOption } from "@agentclientprotocol/sdk";
-import type { AgentFamily } from "../types.js";
 import type { AcpConnection } from "./acpConnection.js";
 import type { AcpEngineSessionConfigurator } from "./acpExecutionEngineContracts.js";
 import type { DesktopAcpSessionDefaults } from "./desktopAgentSettings.js";
@@ -17,7 +16,7 @@ type SessionDefaultsWriter = {
 };
 
 async function applySessionDefaults(options: {
-  agentId: AgentFamily;
+  agentId: string;
   defaults: DesktopAcpSessionDefaults;
   session: NewSessionResponse;
   writer: SessionDefaultsWriter;
@@ -68,7 +67,7 @@ async function applySessionDefaults(options: {
 }
 
 export function applyDesktopAcpSessionDefaults(options: {
-  agentId: AgentFamily;
+  agentId: string;
   defaults: DesktopAcpSessionDefaults;
   connection: AcpConnection;
   session: NewSessionResponse;
@@ -97,7 +96,7 @@ export function applyDesktopAcpSessionDefaults(options: {
 }
 
 export function applyDesktopAcpSessionDefaultsWithConfigurator(options: {
-  agentId: AgentFamily;
+  agentId: string;
   defaults: DesktopAcpSessionDefaults;
   configurator: AcpEngineSessionConfigurator;
   session: NewSessionResponse;

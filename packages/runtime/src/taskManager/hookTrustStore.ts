@@ -16,6 +16,10 @@ export const trustedCommandsSchema = z
           id: z.string().min(1),
           command: z.string().min(1),
           args: z.array(z.string()),
+          profileFingerprint: z
+            .string()
+            .regex(/^[a-f0-9]{64}$/)
+            .optional(),
           approvedAt: z.string().min(1)
         })
         .strict()
@@ -31,9 +35,13 @@ const emptyTrustedCommands = (): TrustedCommandsFile => ({
   entries: []
 });
 
-export function commandFingerprint(command: string, args: string[]): string {
+export function commandFingerprint(
+  command: string,
+  args: string[],
+  profileFingerprint?: string
+): string {
   return createHash("sha256")
-    .update(JSON.stringify([command, ...args]))
+    .update(JSON.stringify([command, ...args, ...(profileFingerprint ? [profileFingerprint] : [])]))
     .digest("hex");
 }
 
@@ -108,9 +116,10 @@ export async function listTrustedCommands(
 export async function isCommandTrusted(
   projectRoot: PackageWorkspaceRef,
   command: string,
-  args: string[]
+  args: string[],
+  options?: { profileFingerprint?: string }
 ): Promise<boolean> {
-  const fingerprint = commandFingerprint(command, args);
+  const fingerprint = commandFingerprint(command, args, options?.profileFingerprint);
   const entries = await listTrustedCommands(projectRoot);
   return entries.some((entry) => entry.id === fingerprint);
 }
@@ -118,12 +127,13 @@ export async function isCommandTrusted(
 export async function trustCommand(
   projectRoot: PackageWorkspaceRef,
   command: string,
-  args: string[]
+  args: string[],
+  options?: { profileFingerprint?: string }
 ): Promise<TrustedCommand> {
   const workspace = await resolveTrustWorkspace(projectRoot);
   const path = trustedCommandsPath(workspace);
   const file = await readTrustedCommandsFile(path);
-  const id = commandFingerprint(command, args);
+  const id = commandFingerprint(command, args, options?.profileFingerprint);
   const existing = file.entries.find((entry) => entry.id === id);
   if (existing) {
     return existing;
@@ -132,6 +142,7 @@ export async function trustCommand(
     id,
     command,
     args: [...args],
+    ...(options?.profileFingerprint ? { profileFingerprint: options.profileFingerprint } : {}),
     approvedAt: new Date().toISOString()
   };
   await writePrivateTrustedCommands(path, {

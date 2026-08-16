@@ -68,6 +68,16 @@ function displayNameFor(agent: AgentFamily): string {
   }
 }
 
+export function isSupportedHostAgentFamily(agentId: string): agentId is AgentFamily {
+  return (
+    agentId === "claude-code" ||
+    agentId === "codex" ||
+    agentId === "opencode" ||
+    agentId === "pi" ||
+    agentId === "grok"
+  );
+}
+
 function environmentFor(
   definition: AgentDefinition
 ): readonly { name: string; required: boolean }[] {
@@ -82,6 +92,7 @@ function environmentFor(
 }
 
 function fromDefinition(definition: AgentDefinition): SupportedHostAcpProfile | null {
+  if (!isSupportedHostAgentFamily(definition.agent)) return null;
   const launch = definition.acp.launch;
   if (!launch) return null;
   return {

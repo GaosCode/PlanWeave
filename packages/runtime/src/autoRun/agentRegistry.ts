@@ -4,6 +4,7 @@ import type {
   ExecutorIntegrationName,
   ExecutorProfile
 } from "../types.js";
+import { agentFamilySchema } from "../types.js";
 import type { AgentDefinition } from "./agentRunner.js";
 import { claudeCodeAgentDefinition } from "./claudeCodeIntegration.js";
 import { codexAgentDefinition } from "./codexIntegration.js";
@@ -21,6 +22,26 @@ const definitions = {
 
 export function resolveAgentDefinition(agent: AgentFamily): AgentDefinition {
   return definitions[agent];
+}
+
+export function optionalAgentDefinition(agent: string): AgentDefinition | undefined {
+  return registeredAgentDefinitions().find((definition) => definition.agent === agent);
+}
+
+export function acpAgentDefinition(agent: string): AgentDefinition {
+  return (
+    optionalAgentDefinition(agent) ?? {
+      agent,
+      builtinProfiles: {},
+      cli: null,
+      acp: {
+        launch: null,
+        capabilities: [],
+        optionalCapabilities: [],
+        limitations: []
+      }
+    }
+  );
 }
 
 export function registeredAgentDefinitions(): readonly AgentDefinition[] {
@@ -52,7 +73,7 @@ export function executorIntegrationForProfile(
   if (profile.runner.transport === "acp") {
     return null;
   }
-  return resolveAgentDefinition(profile.agent).cli?.integration ?? null;
+  return resolveAgentDefinition(agentFamilySchema.parse(profile.agent)).cli?.integration ?? null;
 }
 
 export function requireExecutorIntegration(profile: ExecutorProfile): ExecutorIntegrationName {

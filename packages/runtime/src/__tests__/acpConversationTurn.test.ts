@@ -87,8 +87,20 @@ function createHarness(
     key: "/run/RUN-001",
     cwd: "/workspace",
     sessionId: "session-1",
-    agentId: "codex" as const,
-    launch: { command: "codex-acp", args: [] as const },
+    profile: {
+      profileId: "codex-acp",
+      agentId: "codex",
+      displayName: "Codex",
+      host: { kind: "native" as const },
+      launch: { command: "codex-acp", args: [] as const },
+      environment: [],
+      shutdown: { eofDrainMs: 100, terminateGraceMs: 100, cleanupDeadlineMs: 1_000 },
+      capabilities: { required: [], optional: [] },
+      connection: { mode: "dedicated" as const },
+      source: "builtin" as const,
+      fingerprint: "a".repeat(64)
+    },
+    environment: { env: { PATH: "/usr/bin" }, availableNames: ["PATH"] },
     text: "continue",
     timeoutMs: 45 * 60 * 1_000,
     eventStore: {
@@ -135,7 +147,10 @@ describe("ACP conversation turn", () => {
     try {
       await harness.coordinator.send({
         ...harness.input,
-        host: { kind: "wsl", distribution: "Ubuntu" }
+        profile: {
+          ...harness.input.profile,
+          host: { kind: "wsl", distribution: "Ubuntu" }
+        }
       });
     } finally {
       if (platformDescriptor) Object.defineProperty(process, "platform", platformDescriptor);

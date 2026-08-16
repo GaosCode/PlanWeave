@@ -29,9 +29,21 @@ import { readState, writeState } from "../state.js";
 import { trustCommand } from "../taskManager/hookTrustStore.js";
 import { manifestTestBuilder } from "./manifestTestBuilder.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
+import {
+  CatalogAcpProfileResolver,
+  ExecutionHostAcpCommandResolver
+} from "../acpProfile/resolver.js";
+import { emptyAcpProfileCatalog } from "../acpProfile/schema.js";
 
 const acpMockAgent = fileURLToPath(new URL("./support/acpMockAgent.mjs", import.meta.url));
 const ownerProcesses = new Set<ChildProcess>();
+
+async function resolvedCodexProfile() {
+  return new CatalogAcpProfileResolver(
+    { read: async () => emptyAcpProfileCatalog() },
+    new ExecutionHostAcpCommandResolver()
+  ).resolve({ agentId: "codex" }, { projectRoot: "/tmp", host: { kind: "native" } });
+}
 
 afterEach(async () => {
   const alive = [...ownerProcesses].filter(
@@ -50,6 +62,7 @@ async function writeInterruptedAcpRun(options: {
   projectId: string;
   runId: string;
 }): Promise<string> {
+  const profile = await resolvedCodexProfile();
   const runsRoot = join(options.resultsDir, "T-001", "blocks", "B-001", "runs");
   const runDir = join(runsRoot, options.runId);
   await mkdir(runDir, { recursive: true });
@@ -68,7 +81,16 @@ async function writeInterruptedAcpRun(options: {
     runnerKind: "acp",
     agentId: "codex",
     sessionId: "source-session",
-    acpLaunch: { command: "codex-acp", args: [] },
+    acpLaunch: profile.launch,
+    acpProfile: {
+      profileId: profile.profileId,
+      fingerprint: profile.fingerprint,
+      source: profile.source,
+      host: profile.host,
+      launch: profile.launch,
+      environmentNames: profile.environment.map((entry) => entry.name),
+      missingEnvironmentNames: []
+    },
     capabilities: { loadSession: true },
     recoveryInterruptionReason: "transport_lost",
     recovery: null,
@@ -143,9 +165,10 @@ async function createRecoveryFixture() {
 }
 
 async function createOrphanFixture(
-  launch: { command: string; args: string[] } = { command: "codex-acp", args: [] },
+  _launch: { command: string; args: string[] } = { command: "codex-acp", args: [] },
   options: { ownerPid?: number; interactionCount?: number } = {}
 ) {
+  const profile = await resolvedCodexProfile();
   const manifest = manifestTestBuilder().withDefaultExecutor("codex-acp").build();
   const fixture = await createTestWorkspace(manifest);
   const runId = "RUN-001";
@@ -175,7 +198,16 @@ async function createOrphanFixture(
     runnerKind: "acp",
     agentId: "codex",
     sessionId: "source-session",
-    acpLaunch: launch,
+    acpLaunch: profile.launch,
+    acpProfile: {
+      profileId: profile.profileId,
+      fingerprint: profile.fingerprint,
+      source: profile.source,
+      host: profile.host,
+      launch: profile.launch,
+      environmentNames: profile.environment.map((entry) => entry.name),
+      missingEnvironmentNames: []
+    },
     capabilities: { loadSession: true },
     recoveryInterruptionReason: null,
     recovery: null,
@@ -583,9 +615,9 @@ describe("desktop Task Workspace ACP recovery", () => {
       runId: "RUN-001",
       sessionId: "source-session",
       agentId: "codex",
-      executorProfile: "codex-acp",
-      launch: { command: "codex-acp", args: [] }
+      executorProfile: "codex-acp"
     });
+    expect(recovery.identity).not.toHaveProperty("launch");
     expect(detail.item.run.capabilities.retry.available).toBe(true);
     if (!recovery.identity) throw new Error("Expected an ACP recovery identity.");
 

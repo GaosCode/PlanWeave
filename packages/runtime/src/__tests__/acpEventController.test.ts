@@ -14,6 +14,7 @@ import { createDefaultAcpEventRetentionPolicy } from "../autoRun/acpEventRetenti
 import { RUNNER_EVENT_MAX_ENCODED_BYTES } from "../autoRun/normalizedEventContract.js";
 import { AcpSessionController, type AcpSessionRun } from "../autoRun/acpSessionController.js";
 import { ActiveAgentRunRegistry } from "../autoRun/activeAgentRunRegistry.js";
+import { acpProfileTestValues } from "./support/acpProfileTestValues.js";
 
 const fixture = fileURLToPath(new URL("./support/acpMockAgent.mjs", import.meta.url));
 const retentionEvidenceBucketCount = 3;
@@ -27,7 +28,7 @@ function run(root: string, scenario: string): AcpSessionRun {
     metadataPath: join(root, "metadata.json"),
     prompt: scenario,
     cwd: root,
-    launch: { command: process.execPath, args: [fixture, scenario] },
+    ...acpProfileTestValues({ command: process.execPath, args: [fixture, scenario] }),
     executorName: "mock-acp",
     agentId: "codex",
     taskId: "T-001",

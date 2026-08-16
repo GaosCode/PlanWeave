@@ -8,6 +8,7 @@ import {
   type ActiveAgentRunHandle
 } from "../autoRun/activeAgentRunRegistry.js";
 import { AcpSessionController, type AcpSessionRun } from "../autoRun/acpSessionController.js";
+import { acpProfileTestValues } from "./support/acpProfileTestValues.js";
 import { acpEventReadModels } from "../autoRun/acpEventReadModel.js";
 import {
   consumeRunnerRecordReadModel,
@@ -39,7 +40,7 @@ function controllerRun(root: string, scenario: string, prompt = scenario): AcpSe
     metadataPath: join(root, "metadata.json"),
     prompt,
     cwd: root,
-    launch: { command: process.execPath, args: [acpFixture, scenario] },
+    ...acpProfileTestValues({ command: process.execPath, args: [acpFixture, scenario] }),
     executorName: "mock-acp",
     agentId: "codex",
     taskId: "T-001",

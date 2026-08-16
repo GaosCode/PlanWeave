@@ -9,7 +9,7 @@ import {
   type AcpRunRecoveryUnavailableReason
 } from "../autoRun/acpRunRecovery.js";
 import { projectAcpRecoveryToolSummary } from "../autoRun/acpRecoveryToolSummary.js";
-import { listExecutorProfiles } from "../autoRun/executors.js";
+import { listExecutorProfiles, resolveExecutorAcpExecutionProfile } from "../autoRun/executors.js";
 import { withCanvasLock } from "../fs/withCanvasLock.js";
 import { unblockBlock } from "../taskManager/blockStatusMutations.js";
 import { loadRuntimeReadonly } from "../taskManager/runtimeContext.js";
@@ -28,6 +28,7 @@ import {
 import { canonicalTaskWorkspaceRunIdentity } from "./taskWorkspaceRetry.js";
 import { executionHostSchema, type ProjectWorkspace } from "../types.js";
 import type { DesktopRunRecord } from "./types/recordsTypes.js";
+import { AcpProfileResolutionError } from "../acpProfile/resolver.js";
 import {
   taskWorkspaceAcpRecoveryIdentitySchema,
   type TaskWorkspaceAcpRecoveryCapability,
@@ -42,12 +43,39 @@ const sourceMetadataSchema = z
     agentId: z.string().min(1),
     executorProfile: z.string().min(1),
     executionHost: executionHostSchema.optional(),
-    acpLaunch: acpLaunchIdentitySchema,
+    acpLaunch: acpLaunchIdentitySchema.optional(),
+    acpProfile: z
+      .object({
+        profileId: z.string().min(1),
+        fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+        source: z.enum(["builtin", "local-user"]),
+        host: executionHostSchema,
+        launch: acpLaunchIdentitySchema.optional()
+      })
+      .passthrough()
+      .superRefine((profile, context) => {
+        if (profile.source === "local-user" && profile.launch !== undefined) {
+          context.addIssue({
+            code: "custom",
+            path: ["launch"],
+            message: "Local ACP recovery metadata must not contain launch details."
+          });
+        }
+      }),
     capabilities: z.object({ loadSession: z.literal(true) }).passthrough(),
     recoveryInterruptionReason: acpRecoveryInterruptionReasonSchema.nullable(),
     recovery: acpRunRecoveryLineageSchema.nullable()
   })
-  .passthrough();
+  .passthrough()
+  .superRefine((metadata, context) => {
+    if (metadata.acpProfile.source === "local-user" && metadata.acpLaunch !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["acpLaunch"],
+        message: "Local ACP recovery metadata must not contain launch details."
+      });
+    }
+  });
 
 const messages: Record<AcpRunRecoveryUnavailableReason, string> = {
   not_latest_main_run: "Recovery is available only for the latest primary Block run.",
@@ -55,9 +83,19 @@ const messages: Record<AcpRunRecoveryUnavailableReason, string> = {
   source_not_terminal: "Recovery requires a terminal source run.",
   terminal_reason_not_recoverable: "The source run did not end for a recoverable interruption.",
   source_identity_invalid: "The source run identity is incomplete or inconsistent.",
+  legacy_profile_identity_unavailable:
+    "The source ACP run predates persisted profile identity and cannot be recovered safely.",
+  profile_unavailable: "The source ACP profile is no longer registered.",
+  profile_untrusted: "The source ACP profile command is not trusted for this project.",
+  profile_environment_missing: "The source ACP profile is missing required environment variables.",
+  profile_host_unavailable: "The source ACP profile execution host is unavailable.",
+  profile_resolution_failed: "The source ACP profile could not be resolved safely.",
   session_unavailable: "The source ACP session id is unavailable.",
   agent_mismatch: "The configured Agent no longer matches the source run.",
   executor_profile_mismatch: "The effective executor profile no longer matches the source run.",
+  profile_id_mismatch: "The configured ACP profile no longer matches the source run.",
+  profile_fingerprint_mismatch:
+    "The configured ACP profile changed after the source run was created.",
   execution_host_mismatch:
     "The configured execution host or WSL distribution no longer matches the source run.",
   launch_mismatch: "The configured ACP launch no longer matches the source run.",
@@ -71,6 +109,19 @@ const messages: Record<AcpRunRecoveryUnavailableReason, string> = {
 
 function unavailable(code: AcpRunRecoveryUnavailableReason): TaskWorkspaceAcpRecoveryCapability {
   return { available: false, reason: { code, message: messages[code] }, identity: null };
+}
+
+export function acpProfileResolutionRecoveryReason(
+  error: unknown
+): AcpRunRecoveryUnavailableReason {
+  if (error instanceof AcpProfileResolutionError) {
+    if (error.code === "profile_unavailable") return "profile_unavailable";
+    if (error.code === "profile_untrusted") return "profile_untrusted";
+    if (error.code === "profile_environment_missing") return "profile_environment_missing";
+    if (error.code === "profile_host_unavailable") return "profile_host_unavailable";
+    if (error.code === "profile_changed") return "profile_fingerprint_mismatch";
+  }
+  return "profile_resolution_failed";
 }
 
 function terminalMatchesInterruption(
@@ -98,6 +149,12 @@ export async function evaluateTaskWorkspaceAcpRecovery(options: {
   newerRecoveryChild: boolean;
 }): Promise<TaskWorkspaceAcpRecoveryCapability> {
   const metadata = sourceMetadataSchema.safeParse(options.record.metadata);
+  if (
+    options.record.metadata.runnerKind === "acp" &&
+    (!("acpProfile" in options.record.metadata) || options.record.metadata.acpProfile == null)
+  ) {
+    return unavailable("legacy_profile_identity_unavailable");
+  }
   const terminal = [...(options.record.runnerReadModel?.events ?? [])]
     .reverse()
     .find((event) => event.body.kind === "terminal");
@@ -117,13 +174,18 @@ export async function evaluateTaskWorkspaceAcpRecovery(options: {
         (candidate) => candidate.name === source.executorProfile
       )
     : undefined;
-  const resolvedLaunch =
-    profile?.runnerKind === "acp" && profile.acpLaunch
-      ? acpLaunchIdentitySchema.parse({
-          command: profile.acpLaunch.command,
-          args: profile.acpLaunch.args
-        })
-      : null;
+  let resolved: Awaited<ReturnType<typeof resolveExecutorAcpExecutionProfile>> | null = null;
+  if (source?.executorProfile && profile?.runnerKind === "acp") {
+    try {
+      resolved = await resolveExecutorAcpExecutionProfile({
+        projectRoot: options.workspace,
+        executorName: source.executorProfile
+      });
+    } catch (error) {
+      return unavailable(acpProfileResolutionRecoveryReason(error));
+    }
+  }
+  const resolvedLaunch = resolved ? acpLaunchIdentitySchema.parse(resolved.profile.launch) : null;
   sourceIdentityValid =
     sourceIdentityValid &&
     (source === null ||
@@ -144,10 +206,13 @@ export async function evaluateTaskWorkspaceAcpRecovery(options: {
     resolvedAgentId: profile?.agentId ?? null,
     sourceExecutorProfile: source?.executorProfile ?? null,
     resolvedExecutorProfile: profile?.name ?? null,
+    sourceProfileId: source?.acpProfile.profileId ?? null,
+    resolvedProfileId: resolved?.profile.profileId ?? null,
+    sourceProfileFingerprint: source?.acpProfile.fingerprint ?? null,
+    resolvedProfileFingerprint: resolved?.profile.fingerprint ?? null,
     sourceExecutionHost: source?.executionHost ?? { kind: "native" },
-    resolvedExecutionHost:
-      profile && "host" in profile && profile.host ? profile.host : { kind: "native" },
-    sourceLaunch: source?.acpLaunch ?? null,
+    resolvedExecutionHost: resolved?.profile.host ?? null,
+    sourceLaunch: source?.acpProfile.source === "builtin" ? (source.acpLaunch ?? null) : null,
     resolvedLaunch,
     loadSessionAvailable:
       source?.capabilities.loadSession === true &&
@@ -179,8 +244,9 @@ export async function evaluateTaskWorkspaceAcpRecovery(options: {
       sessionId: source.sessionId,
       terminalEventSequence: terminal.sequence,
       agentId: source.agentId,
-      executorProfile: source.executorProfile,
-      launch: source.acpLaunch
+      profileId: source.acpProfile.profileId,
+      profileFingerprint: source.acpProfile.fingerprint,
+      executorProfile: source.executorProfile
     })
   };
 }
@@ -268,9 +334,10 @@ export async function recoverTaskWorkspaceAcpRun(
       lineage,
       claimRef: identity.claimRef,
       agentId: identity.agentId,
+      profileId: identity.profileId,
+      profileFingerprint: identity.profileFingerprint,
       executorProfile: identity.executorProfile,
       executionHost: metadata.executionHost ?? { kind: "native" },
-      launch: identity.launch,
       interruptionReason: metadata.recoveryInterruptionReason,
       lastToolStateSummary: projectAcpRecoveryToolSummary(record)
     });

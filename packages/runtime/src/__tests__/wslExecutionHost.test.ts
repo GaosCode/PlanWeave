@@ -4,11 +4,32 @@ import {
   listWslDistributions,
   mapWindowsPathToWsl,
   prepareExecutionHostInvocation,
-  prepareWslProcessInvocation
+  prepareWslProcessInvocation,
+  resolveWslExecutable
 } from "../process/wslExecutionHost.js";
 import { executorProfileExecutionHost, executorProfileSchema } from "../types/executor.js";
 
 describe("WSL execution host", () => {
+  it("resolves executables inside the declared distribution without host filesystem checks", async () => {
+    const run = vi.fn().mockResolvedValue({
+      stdout: Buffer.from("/usr/local/bin/custom-acp\n"),
+      stderr: Buffer.alloc(0)
+    });
+
+    await expect(
+      resolveWslExecutable("custom-acp", "Ubuntu Dev", { platform: "win32", run })
+    ).resolves.toBe("/usr/local/bin/custom-acp");
+    expect(run).toHaveBeenCalledWith([
+      "--distribution",
+      "Ubuntu Dev",
+      "--exec",
+      "sh",
+      "-c",
+      expect.stringContaining("readlink -f"),
+      "planweave-wsl-resolve",
+      "custom-acp"
+    ]);
+  });
   it("does not treat native credentials as available inside WSL", () => {
     const environment = { PATH: "native-path", PLANWEAVE_HOME: "C:\\pw", XAI_API_KEY: "secret" };
 

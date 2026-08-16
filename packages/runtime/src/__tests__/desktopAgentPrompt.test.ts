@@ -12,6 +12,13 @@ import { consumeAcpPromptRunRecord, resolveAcpPromptContext } from "../desktop/a
 import { writeJsonFile } from "../json.js";
 import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
 import type { AgentFamily, ExecutorProfile } from "../types.js";
+import {
+  CatalogAcpProfileResolver,
+  ExecutionHostAcpCommandResolver
+} from "../acpProfile/resolver.js";
+import { emptyAcpProfileCatalog } from "../acpProfile/schema.js";
+import { acpProfileTestValues } from "./support/acpProfileTestValues.js";
+import { trustCommand } from "../taskManager/hookTrustStore.js";
 
 const fixture = fileURLToPath(new URL("./support/acpMockAgent.mjs", import.meta.url));
 const originalPath = process.env.PATH;
@@ -87,6 +94,7 @@ async function completedRecord(
     eventSessionId?: string;
     terminalState?: "succeeded" | "failed";
     artifactValidated?: boolean;
+    trustPackageProfile?: boolean;
   } = {}
 ) {
   const manifest = basicManifest();
@@ -110,7 +118,6 @@ async function completedRecord(
     sessionId: "session-1",
     capabilities: { loadSession: true }
   };
-  await writeJsonFile(join(runDir, "metadata.json"), metadata);
   const originalEvents = [
     eventBody({
       sequence: 1,
@@ -148,7 +155,31 @@ async function completedRecord(
   );
   await chmod(executable, 0o755);
   process.env.PATH = `${binDir}:${originalPath ?? ""}`;
-  return { root, workspace: init.workspace, runDir, metadata, originalEvents };
+  const resolved = await new CatalogAcpProfileResolver(
+    { read: async () => emptyAcpProfileCatalog() },
+    new ExecutionHostAcpCommandResolver()
+  ).resolve({ agentId }, { projectRoot: init.workspace, host: { kind: "native" } });
+  if (options.profile?.adapter === "agent" && options.trustPackageProfile !== false) {
+    await trustCommand(init.workspace, resolved.launch.command, [...resolved.launch.args], {
+      profileFingerprint: resolved.fingerprint
+    });
+  }
+  const completedMetadata = {
+    ...metadata,
+    executorProfile: executor,
+    acpLaunch: resolved.launch,
+    acpProfile: {
+      profileId: resolved.profileId,
+      fingerprint: resolved.fingerprint,
+      source: resolved.source,
+      host: resolved.host,
+      launch: resolved.launch,
+      environmentNames: resolved.environment.map((entry) => entry.name),
+      missingEnvironmentNames: []
+    }
+  };
+  await writeJsonFile(join(runDir, "metadata.json"), completedMetadata);
+  return { root, workspace: init.workspace, runDir, metadata: completedMetadata, originalEvents };
 }
 
 function identityFor(prepared: Awaited<ReturnType<typeof completedRecord>>) {
@@ -181,7 +212,10 @@ describe("Desktop ACP prompt continuation", () => {
           metadataPath: join(runDir, "metadata.json"),
           prompt: "original live prompt",
           cwd: root,
-          launch: { command: process.execPath, args: [fixture, "long-prompt"] },
+          ...acpProfileTestValues({
+            command: process.execPath,
+            args: [fixture, "long-prompt"]
+          }),
           executorName: "codex-acp",
           agentId: "codex",
           taskId: "T-001",
@@ -358,6 +392,43 @@ describe("Desktop ACP prompt continuation", () => {
     }
   });
 
+  it("rejects continuation when the persisted profile fingerprint has changed", async () => {
+    const prepared = await completedRecord();
+    await writeJsonFile(join(prepared.runDir, "metadata.json"), {
+      ...prepared.metadata,
+      acpProfile: {
+        ...prepared.metadata.acpProfile,
+        fingerprint: "b".repeat(64)
+      }
+    });
+
+    await expect(sendAgentPrompt(identityFor(prepared), "continue")).rejects.toThrow(
+      "profile identity no longer matches"
+    );
+  });
+
+  it("rejects continuation when a referenced local profile was removed", async () => {
+    const prepared = await completedRecord("codex", "load-capable", {
+      executor: "focused-codex",
+      profile: {
+        adapter: "agent",
+        agent: "codex",
+        runner: { transport: "acp", profileId: "removed-local-acp" }
+      }
+    });
+    await writeJsonFile(join(prepared.runDir, "metadata.json"), {
+      ...prepared.metadata,
+      acpProfile: {
+        ...prepared.metadata.acpProfile,
+        profileId: "removed-local-acp"
+      }
+    });
+
+    await expect(sendAgentPrompt(identityFor(prepared), "continue")).rejects.toThrow(
+      "not registered"
+    );
+  });
+
   it("supports a package ACP alias and applies its configured timeout", async () => {
     const successful = await completedRecord("codex", "load-capable", {
       executor: "focused-codex",
@@ -366,8 +437,18 @@ describe("Desktop ACP prompt continuation", () => {
         agent: "codex",
         runner: { transport: "acp" },
         timeoutMs: 1000
-      }
+      },
+      trustPackageProfile: false
     });
+    await expect(sendAgentPrompt(identityFor(successful), "continue alias")).rejects.toMatchObject({
+      code: "profile_untrusted"
+    });
+    await trustCommand(
+      successful.workspace,
+      successful.metadata.acpLaunch.command,
+      [...successful.metadata.acpLaunch.args],
+      { profileFingerprint: successful.metadata.acpProfile.fingerprint }
+    );
     await sendAgentPrompt(identityFor(successful), "continue alias");
     expect(await readFile(join(successful.runDir, "events.ndjson"), "utf8")).toContain(
       "continue alias"

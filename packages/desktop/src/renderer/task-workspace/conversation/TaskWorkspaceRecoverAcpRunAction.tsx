@@ -24,9 +24,9 @@ function recoveryIdentityKey(
     identity.sessionId,
     identity.terminalEventSequence,
     identity.agentId,
-    identity.executorProfile,
-    identity.launch.command,
-    ...identity.launch.args
+    identity.profileId,
+    identity.profileFingerprint,
+    identity.executorProfile
   ].join("\u0000");
 }
 

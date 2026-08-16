@@ -8,7 +8,7 @@ import type {
   TerminalOutputResponse
 } from "@agentclientprotocol/sdk";
 import { RequestError } from "@agentclientprotocol/sdk";
-import type { AgentFamily, ExecutionHost, ExecutorAdapterResult } from "../types.js";
+import type { ExecutionHost, ExecutorAdapterResult } from "../types.js";
 import {
   AcpOperationTimeoutError,
   DEFAULT_ACP_OPERATION_TIMEOUT_MS,
@@ -16,7 +16,7 @@ import {
   type AcpConnection,
   type CreateAcpConnectionOptions
 } from "./acpConnection.js";
-import { agentProcessEnvRecord } from "../process/agentProcessEnv.js";
+import type { ResolvedAgentEnvironment } from "../process/agentProcessEnv.js";
 import {
   AcpAuthenticationRequiredError,
   mayProbeSessionDespiteAuthRequired,
@@ -72,10 +72,7 @@ import { createLocalAcpPromptSource, executeLocalAcpAdapter } from "./acpLocalEx
 import type { AcpEngineLifecycleEvent } from "./acpExecutionEngineContracts.js";
 import { createLocalAcpInteractionBroker } from "./acpLocalInteractionBroker.js";
 import { createLocalAcpActiveRunHandle } from "./acpLocalActiveRunHandle.js";
-import {
-  availableExecutionHostEnvironmentVariables,
-  prepareExecutionHostInvocation
-} from "../process/wslExecutionHost.js";
+import { prepareExecutionHostInvocation } from "../process/wslExecutionHost.js";
 
 export { applyDesktopAcpSessionDefaults } from "./acpSessionDefaults.js";
 
@@ -89,9 +86,16 @@ export type AcpSessionRun = {
   cwd: string;
   launch: { command: string; args: readonly string[] };
   host?: ExecutionHost;
+  profileIdentity: {
+    profileId: string;
+    fingerprint: string;
+    source: "builtin" | "local-user";
+    environmentNames: readonly string[];
+  };
+  environment: ResolvedAgentEnvironment;
   authenticationHints?: AcpAuthenticationHints;
   executorName: string;
-  agentId: AgentFamily;
+  agentId: string;
   taskId: string;
   metadataIdentity: Record<string, string>;
   projectId?: string;
@@ -104,10 +108,6 @@ export type AcpSessionRun = {
 
 type ConnectionFactory = (options: CreateAcpConnectionOptions) => AcpConnection;
 type TerminalStatus = "completed" | "failed" | "cancelled" | "timed_out";
-
-function environment(): Record<string, string> {
-  return agentProcessEnvRecord();
-}
 
 function diagnostic(error: unknown): string {
   if (error instanceof AggregateError) {
@@ -229,7 +229,16 @@ export class AcpSessionController {
         runnerKind: "acp",
         executionHost,
         executorProfile: run.executorName,
-        acpLaunch: run.launch,
+        ...(run.profileIdentity.source === "builtin" ? { acpLaunch: run.launch } : {}),
+        acpProfile: {
+          profileId: run.profileIdentity.profileId,
+          fingerprint: run.profileIdentity.fingerprint,
+          source: run.profileIdentity.source,
+          host: executionHost,
+          ...(run.profileIdentity.source === "builtin" ? { launch: run.launch } : {}),
+          environmentNames: [...run.profileIdentity.environmentNames],
+          missingEnvironmentNames: []
+        },
         recovery: sessionStart.kind === "load" ? sessionStart.recovery : null,
         recoveryInterruptionReason: null,
         projectId: run.projectId,
@@ -337,7 +346,7 @@ export class AcpSessionController {
           );
         }
       };
-      const spawnEnvironment = environment();
+      const spawnEnvironment = run.environment.env;
       const preparedLaunch = await prepareExecutionHostInvocation({
         host: executionHost,
         command: run.launch.command,
@@ -568,7 +577,10 @@ export class AcpSessionController {
                   controlServer?.stop(),
                   ownerState.setControlAvailability(
                     unavailableAgentRunControlSummary("endpoint_start_failed")
-                  )
+                  ),
+                  ownerState.update("running", {
+                    controlStartError: diagnostic(startError)
+                  })
                 ]);
                 const cleanupFailures = cleanup.flatMap((result) =>
                   result.status === "rejected" ? [result.reason] : []
@@ -681,10 +693,7 @@ export class AcpSessionController {
         ...(preparedLaunch.cleanupExitedProcessTree
           ? { cleanupExitedProcessTree: preparedLaunch.cleanupExitedProcessTree }
           : {}),
-        availableEnvironmentVariables: availableExecutionHostEnvironmentVariables(
-          executionHost,
-          spawnEnvironment
-        ),
+        availableEnvironmentVariables: new Set(run.environment.availableNames),
         agentId: run.agentId,
         env: preparedLaunch.spawnEnvironment,
         prompt: agentPrompt,

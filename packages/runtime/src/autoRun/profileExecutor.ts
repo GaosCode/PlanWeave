@@ -1,6 +1,8 @@
 import type { ExecutorIntegrationName, ExecutorProfile } from "../types.js";
+import { agentFamilySchema } from "../types.js";
 import {
   builtinAgentProfiles,
+  acpAgentDefinition,
   registeredAgentDefinitions,
   resolveAgentDefinition
 } from "./agentRegistry.js";
@@ -47,7 +49,10 @@ function directExecutorForProfile(profile: ExecutorProfile): DirectExecutor {
 
 export function runProfileBlock(input: ExecutorBlockInput) {
   if (input.profile.adapter === "agent") {
-    const definition = resolveAgentDefinition(input.profile.agent);
+    const definition =
+      input.profile.runner.transport === "acp"
+        ? acpAgentDefinition(input.profile.agent)
+        : resolveAgentDefinition(agentFamilySchema.parse(input.profile.agent));
     if ("command" in input.profile) {
       const runtime = input.runtime?.desktopRunId
         ? { ...input.runtime, signal: input.runtime.cliSignal }
@@ -76,7 +81,10 @@ export function runProfileBlock(input: ExecutorBlockInput) {
 
 export function runProfileFeedback(input: ExecutorFeedbackInput) {
   if (input.profile.adapter === "agent") {
-    const definition = resolveAgentDefinition(input.profile.agent);
+    const definition =
+      input.profile.runner.transport === "acp"
+        ? acpAgentDefinition(input.profile.agent)
+        : resolveAgentDefinition(agentFamilySchema.parse(input.profile.agent));
     if ("command" in input.profile) {
       const runtime = input.runtime?.desktopRunId
         ? { ...input.runtime, signal: input.runtime.cliSignal }

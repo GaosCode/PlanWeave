@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { SessionNotification } from "@agentclientprotocol/sdk";
-import type { AgentFamily, ExecutionHost } from "../types.js";
+import type { ResolvedAcpProfile } from "../acpProfile/resolver.js";
+import type { ResolvedAgentEnvironment } from "../process/agentProcessEnv.js";
 import {
   createAcpConnection,
   type AcpConnection,
   type CreateAcpConnectionOptions
 } from "./acpConnection.js";
-import { agentProcessEnvRecord } from "../process/agentProcessEnv.js";
 import {
   AcpAuthenticationRequiredError,
   coordinateAcpAuthentication,
@@ -21,10 +21,7 @@ import {
 } from "./normalizedEventContract.js";
 import { acpCorrelationSchema } from "./runnerContractSchemas.js";
 import { redactAcpProtocolPayload, redactRunnerEventText } from "./runnerEventRedaction.js";
-import {
-  availableExecutionHostEnvironmentVariables,
-  prepareExecutionHostInvocation
-} from "../process/wslExecutionHost.js";
+import { prepareExecutionHostInvocation } from "../process/wslExecutionHost.js";
 
 export type AcpConversationTurnConnection = Pick<
   AcpConnection,
@@ -51,9 +48,8 @@ export type AcpConversationTurnInput = {
   key: string;
   cwd: string;
   sessionId: string;
-  agentId: AgentFamily;
-  launch: { command: string; args: readonly string[] };
-  host?: ExecutionHost;
+  profile: ResolvedAcpProfile;
+  environment: ResolvedAgentEnvironment;
   authenticationHints?: AcpAuthenticationHints;
   text: string;
   timeoutMs: number;
@@ -64,10 +60,6 @@ type TurnStateSubscriber = () => void | Promise<void>;
 type ConnectionFactory = (
   options: AcpConversationTurnConnectionOptions
 ) => AcpConversationTurnConnection;
-
-function environment(): Record<string, string> {
-  return agentProcessEnvRecord();
-}
 
 function diagnostic(error: unknown): string {
   return redactRunnerEventText(error instanceof Error ? error.message : String(error)).text;
@@ -123,12 +115,12 @@ export class AcpConversationTurnCoordinator {
       await eventStore.append(body, correlation);
       await this.notify(input.key);
     };
-    const spawnEnvironment = environment();
-    const executionHost = input.host ?? { kind: "native" };
+    const spawnEnvironment = input.environment.env;
+    const executionHost = input.profile.host;
     const preparedLaunch = await prepareExecutionHostInvocation({
       host: executionHost,
-      command: input.launch.command,
-      args: input.launch.args,
+      command: input.profile.launch.command,
+      args: input.profile.launch.args,
       cwd: input.cwd,
       env: spawnEnvironment
     });
@@ -174,10 +166,7 @@ export class AcpConversationTurnCoordinator {
         connection,
         initialized,
         hints: input.authenticationHints,
-        availableEnvironmentVariables: availableExecutionHostEnvironmentVariables(
-          executionHost,
-          spawnEnvironment
-        )
+        availableEnvironmentVariables: new Set(input.environment.availableNames)
       });
       if (
         authenticationOutcome.kind === "auth_required" &&
@@ -187,7 +176,7 @@ export class AcpConversationTurnCoordinator {
       }
       if (initialized.agentCapabilities?.loadSession !== true) {
         throw new Error(
-          `ACP agent '${input.agentId}' does not support loading an existing session.`
+          `ACP agent '${input.profile.agentId}' does not support loading an existing session.`
         );
       }
       try {

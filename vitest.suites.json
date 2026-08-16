@@ -21,6 +21,7 @@
         "runStatusFollow.test.ts"
       ],
       "integration": [
+        "acpProfilesCommand.test.ts",
         "acpCliE2E.test.ts",
         "acpLiveSmoke.test.ts",
         "agentHostBundleInstall.test.ts",

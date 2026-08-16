@@ -5,7 +5,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseRealAcpGate, precondition } from "../realAcp/gate.js";
 import { evidenceCommandLabel, preflightRealAcp, probeAgentVersion } from "../realAcp/preflight.js";
 import { resolveRealAcpHostProfile } from "../realAcp/resolveProfile.js";
-import { listSupportedHostAcpProfiles } from "../realAcp/supportedProfiles.js";
+import {
+  isSupportedHostAgentFamily,
+  listSupportedHostAcpProfiles
+} from "../realAcp/supportedProfiles.js";
 import { runRealAcpSmokeCli } from "../realAcp/cli.js";
 
 const tempRoots: string[] = [];
@@ -51,6 +54,11 @@ describe("real ACP gate and profile resolution", () => {
       expect(profile.command.length).toBeGreaterThan(0);
       expect(profile.verifiedAdapterVersion.length).toBeGreaterThan(0);
     }
+  });
+
+  it("admits only registry-owned built-in agent families", () => {
+    expect(isSupportedHostAgentFamily("codex")).toBe(true);
+    expect(isSupportedHostAgentFamily("third-party-agent")).toBe(false);
   });
 
   it("soft-skips when no binary is available and never falls back to CLI", async () => {

@@ -1,5 +1,4 @@
 import type {
-  AgentFamily,
   ExecutorAdapterResult,
   ExecutorIntegrationName,
   RunnerTransport
@@ -15,7 +14,7 @@ import type { ValidationIssue } from "./validation.js";
 
 export interface AutoRunRunnerEvidence {
   effectiveExecutor: string;
-  agentId: AgentFamily | null;
+  agentId: string | null;
   runnerKind: RunnerTransport | null;
 }
 
@@ -51,7 +50,7 @@ type AutoRunLatestRunSummaryBase = {
   runId: string;
   executor: string | null;
   adapter: ExecutorIntegrationName | null;
-  agentId: AgentFamily | null;
+  agentId: string | null;
   runnerKind: RunnerTransport | null;
   startedAt: string | null;
   finishedAt: string | null;

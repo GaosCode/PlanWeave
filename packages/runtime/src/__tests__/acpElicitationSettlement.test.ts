@@ -10,6 +10,7 @@ import { AcpEventStore } from "../autoRun/acpEventStore.js";
 import { createAcpElicitationSettlement } from "../autoRun/acpElicitationSettlement.js";
 import type { LivePendingRequestHandle } from "../autoRun/liveControl.js";
 import { ACP_MOCK_OPERATION_TIMEOUT_MS } from "./support/acpMockHarness.js";
+import { acpProfileTestValues } from "./support/acpProfileTestValues.js";
 
 const acpFixture = fileURLToPath(new URL("./support/acpMockAgent.mjs", import.meta.url));
 
@@ -27,7 +28,10 @@ function controllerRun(root: string, prompt: string): AcpSessionRun {
     metadataPath: join(root, "metadata.json"),
     prompt,
     cwd: root,
-    launch: { command: process.execPath, args: [acpFixture, "elicitation-validation"] },
+    ...acpProfileTestValues({
+      command: process.execPath,
+      args: [acpFixture, "elicitation-validation"]
+    }),
     executorName: "mock-acp",
     agentId: "codex",
     taskId: "T-001",

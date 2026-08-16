@@ -18,7 +18,6 @@ import {
   mayProbeSessionDespiteAuthRequired,
   type AcpAuthenticationOutcome
 } from "./acpAuthentication.js";
-import { agentProcessEnvRecord } from "../process/agentProcessEnv.js";
 import {
   availableExecutionHostEnvironmentVariables,
   prepareExecutionHostInvocation
@@ -105,16 +104,15 @@ function authRequiredResult(options: {
 }
 
 export const probeInstalledAcpAgent: AcpPreflightProbe = async ({
-  definition,
+  profile,
+  environment,
+  authenticationHints,
   cwd,
   host,
   signal
 }) => {
-  const launch = definition.acp.launch;
-  if (!launch) return { kind: "failed", message: "ACP launch metadata is unavailable." };
-  // Match desktop agent detection: include common POSIX install dirs so GUI-launched
-  // Electron (short PATH) can still resolve Homebrew/npm agent binaries.
-  const env = agentProcessEnvRecord();
+  const launch = profile.launch;
+  const env = environment.env;
   const prepared = await prepareExecutionHostInvocation({
     host,
     command: launch.command,
@@ -177,7 +175,7 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({
         authenticationOutcome = await coordinateAcpAuthentication({
           connection,
           initialized,
-          hints: definition.acp.authentication,
+          hints: authenticationHints,
           availableEnvironmentVariables,
           operationOptions: { signal }
         });

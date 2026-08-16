@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { basename } from "node:path";
 import { promisify } from "node:util";
 import {
@@ -8,6 +9,7 @@ import {
   resolveWindowsProcessInvocation,
   type AcpPreflightProbeResult
 } from "@planweave-ai/runtime";
+import type { ResolvedAcpProfile } from "@planweave-ai/runtime";
 import type { RealAcpGate, RealAcpPrecondition } from "./gate.js";
 import { precondition } from "./gate.js";
 import { resolveRealAcpHostProfile, type ResolvedRealAcpHostProfile } from "./resolveProfile.js";
@@ -156,26 +158,43 @@ export async function preflightRealAcp(options: {
   profile.versionOutput = versionOutput;
 
   const definition = resolveAgentDefinition(profile.supported.agentId);
-  // Use resolved absolute command; never fall back to CLI transport.
-  const definitionWithResolvedLaunch = {
-    ...definition,
-    acp: {
-      ...definition.acp,
-      launch: definition.acp.launch
-        ? {
-            ...definition.acp.launch,
-            command: profile.commandPath,
-            args: profile.hostProfile.launch.args
-          }
-        : null
-    }
+  const resolvedProfile: ResolvedAcpProfile = {
+    profileId: profile.supported.profileId,
+    agentId: profile.supported.agentId,
+    displayName: profile.supported.displayName,
+    host: { kind: "native" },
+    launch: { command: profile.commandPath, args: profile.hostProfile.launch.args },
+    environment: profile.supported.environment,
+    shutdown: { eofDrainMs: 250, terminateGraceMs: 2_000, cleanupDeadlineMs: 5_000 },
+    capabilities: {
+      required: definition.acp.capabilities,
+      optional: definition.acp.optionalCapabilities
+    },
+    connection: { mode: "dedicated" },
+    source: "builtin",
+    fingerprint: createHash("sha256")
+      .update(
+        JSON.stringify({
+          profileId: profile.supported.profileId,
+          agentId: profile.supported.agentId,
+          command: profile.commandPath,
+          args: profile.hostProfile.launch.args
+        })
+      )
+      .digest("hex")
+  };
+  const environment = {
+    env: profile.hostProfile.env,
+    availableNames: Object.keys(profile.hostProfile.env).sort()
   };
 
   const signal = options.signal ?? AbortSignal.timeout(60_000);
   let probe: AcpPreflightProbeResult;
   try {
     probe = await probeInstalledAcpAgent({
-      definition: definitionWithResolvedLaunch,
+      profile: resolvedProfile,
+      environment,
+      authenticationHints: definition.acp.authentication,
       cwd: options.cwd,
       host: { kind: "native" },
       signal

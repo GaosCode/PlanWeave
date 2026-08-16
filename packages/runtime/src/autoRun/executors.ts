@@ -9,6 +9,7 @@ import {
 } from "./executorPreflightTypes.js";
 import type {
   AutoRunRunnerEvidence,
+  AgentExecutorProfile,
   ExecutorAdapter,
   ExecutorIntegrationName,
   ExecutorProfile,
@@ -19,8 +20,11 @@ import type {
   PlanPackageManifest,
   ProjectWorkspace
 } from "../types.js";
+import { agentFamilySchema } from "../types.js";
 import {
   executorIntegrationForProfile,
+  acpAgentDefinition,
+  optionalAgentDefinition,
   requireExecutorIntegration,
   resolveAgentDefinition
 } from "./agentRegistry.js";
@@ -36,6 +40,11 @@ import {
 } from "./executorShared.js";
 import type { ExecutorRuntimeOptions } from "./executorIntegration.js";
 import {
+  createRuntimeAcpProfileResolver,
+  resolveAcpExecutionProfile
+} from "../acpProfile/runtimeResolver.js";
+import { executorProfileExecutionHost } from "../types/executor.js";
+import {
   builtinExecutorProfiles,
   isBuiltinExecutorProfileName,
   isSupportedExecutionIntegration,
@@ -43,7 +52,6 @@ import {
   runProfileFeedback
 } from "./profileExecutor.js";
 import { resolveAgentRunner } from "./runnerRegistry.js";
-import { assertAcpLaunchTrusted } from "./acpLaunch.js";
 import { executionWaveIdSchema } from "./runnerContractSchemas.js";
 
 export const executorPreflightVersionTimeoutMs = 5_000;
@@ -81,6 +89,12 @@ function profilesByName(manifest: PlanPackageManifest): Record<string, ExecutorP
 
 function profileSource(manifest: PlanPackageManifest, name: string): "builtin" | "package" {
   return manifest.executors?.[name] && !isBuiltinExecutorProfileName(name) ? "package" : "builtin";
+}
+
+function isAcpAgentExecutorProfile(
+  profile: ExecutorProfile
+): profile is Extract<AgentExecutorProfile, { runner: { transport: "acp" } }> {
+  return profile.adapter === "agent" && profile.runner.transport === "acp";
 }
 
 async function resolveProfileForClaim(options: {
@@ -291,14 +305,57 @@ function summarizeExecutorProfile(
     agentId: profile.agent,
     runnerKind: profile.runner.transport,
     ...(profile.runner.transport === "acp"
-      ? {
-          acpLaunch: resolveAgentDefinition(profile.agent).acp.launch,
-          staticCapabilities: resolveAgentDefinition(profile.agent).acp.capabilities,
-          optionalCapabilities: resolveAgentDefinition(profile.agent).acp.optionalCapabilities,
-          limitations: resolveAgentDefinition(profile.agent).acp.limitations
-        }
+      ? (() => {
+          const definition = optionalAgentDefinition(profile.agent);
+          return definition
+            ? {
+                acpLaunch: definition.acp.launch,
+                staticCapabilities: definition.acp.capabilities,
+                optionalCapabilities: definition.acp.optionalCapabilities,
+                limitations: definition.acp.limitations
+              }
+            : {};
+        })()
       : {})
   };
+}
+
+export async function inspectExecutorAcpProfile(options: {
+  projectRoot: PackageWorkspaceRef;
+  executorName: string;
+}) {
+  const { manifest } = await loadPackage(options.projectRoot);
+  const profile = profilesByName(manifest)[options.executorName];
+  if (!profile || !isAcpAgentExecutorProfile(profile)) {
+    throw new Error(`Executor profile '${options.executorName}' is not an ACP profile.`);
+  }
+  const resolver = createRuntimeAcpProfileResolver();
+  return resolver.inspect(
+    {
+      agentId: profile.agent,
+      ...(profile.runner.profileId ? { profileId: profile.runner.profileId } : {})
+    },
+    {
+      projectRoot: options.projectRoot,
+      host: executorProfileExecutionHost(profile)
+    }
+  );
+}
+
+export async function resolveExecutorAcpExecutionProfile(options: {
+  projectRoot: PackageWorkspaceRef;
+  executorName: string;
+}) {
+  const { manifest } = await loadPackage(options.projectRoot);
+  const profile = profilesByName(manifest)[options.executorName];
+  if (!profile || !isAcpAgentExecutorProfile(profile)) {
+    throw new Error(`Executor profile '${options.executorName}' is not an ACP profile.`);
+  }
+  return resolveAcpExecutionProfile({
+    executorProfile: profile,
+    projectRoot: options.projectRoot,
+    executorSource: profileSource(manifest, options.executorName)
+  });
 }
 
 type ProducedExecutorProfileSummary = ExecutorProfileSummary & {
@@ -461,7 +518,10 @@ export async function testExecutorProfile(options: {
   let integrationCheck: ExecutorPreflightCheck;
   if (profile.adapter === "agent") {
     const runner = resolveAgentRunner(profile);
-    const definition = resolveAgentDefinition(profile.agent);
+    const definition =
+      profile.runner.transport === "acp"
+        ? acpAgentDefinition(profile.agent)
+        : resolveAgentDefinition(agentFamilySchema.parse(profile.agent));
     const availability = runner.availability(definition);
     const preflightTimeoutMs =
       options.versionTimeoutMs ??
@@ -502,41 +562,10 @@ export async function testExecutorProfile(options: {
           ]
         });
       }
-    } else if (definition.acp.launch) {
-      const launch = definition.acp.launch;
-      try {
-        await assertAcpLaunchTrusted({
-          projectRoot: workspace,
-          executorName: options.executorName,
-          definition,
-          profileSource: profileSource(manifest, options.executorName)
-        });
-      } catch (error) {
-        return finalizePreflightResult({
-          name: options.executorName,
-          profileAdapter: profile.adapter,
-          executionIntegration: availability.integration,
-          agentId: profile.agent,
-          runnerKind: profile.runner.transport,
-          successMessage: "executor preflight passed",
-          checks: [
-            profileCheck,
-            { check: "adapter_supported", status: "passed", message: availability.message },
-            cwdCheck,
-            {
-              check: "command_started",
-              status: "failed",
-              message: errorMessage(error),
-              command: launch.command,
-              cwd: workspaceExecutionCwd(workspace)
-            },
-            skippedCheck("command_version", "Executor command is not trusted on this machine.")
-          ]
-        });
-      }
     }
     const runnerResult = await runner.preflight({
       profile,
+      projectRoot: workspace,
       profileSource: profileSource(manifest, options.executorName),
       definition,
       cwd: workspaceExecutionCwd(workspace),

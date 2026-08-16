@@ -79,6 +79,36 @@ describe("ACP profile resolver", () => {
     ).resolves.toMatchObject({ profileId: "codex-acp", source: "builtin" });
   });
 
+  it("requires project trust when a package executor resolves a built-in profile", async () => {
+    const verifyTrust = vi.fn(async () => false);
+    const resolver = new CatalogAcpProfileResolver(
+      reader(emptyAcpProfileCatalog()),
+      commandResolver,
+      verifyTrust
+    );
+    await expect(
+      resolver.resolve(
+        { agentId: "codex" },
+        { projectRoot: "/project", host: nativeHost, requireCommandTrust: true }
+      )
+    ).rejects.toThrow("not trusted");
+    expect(verifyTrust).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectRoot: "/project",
+        resolvedCommand: "/resolved/codex-acp",
+        fingerprint: expect.stringMatching(/^[0-9a-f]{64}$/)
+      })
+    );
+
+    verifyTrust.mockResolvedValue(true);
+    await expect(
+      resolver.resolve(
+        { agentId: "codex" },
+        { projectRoot: "/project", host: nativeHost, requireCommandTrust: true }
+      )
+    ).resolves.toMatchObject({ source: "builtin", agentId: "codex" });
+  });
+
   it("uses canonical set and record ordering for profile fingerprints", async () => {
     let catalog: AcpProfileCatalog = {
       version: "planweave.acp-profile-catalog/v1",

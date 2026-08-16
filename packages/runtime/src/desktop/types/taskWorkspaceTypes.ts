@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { agentFamilySchema, runnerTransportSchema } from "../../types/executor.js";
+import {
+  acpAgentIdSchema,
+  agentFamilySchema,
+  runnerTransportSchema
+} from "../../types/executor.js";
 import {
   canvasIdSchema,
   executionWaveIdSchema,
@@ -12,10 +16,7 @@ import { desktopAgentPromptIdentitySchema } from "../../autoRun/runnerRecordRead
 import { acpActualSessionConfigurationSchema } from "../../autoRun/acpSessionConfiguration.js";
 import { runnerNextActionsSchema } from "../../autoRun/runnerNextActions.js";
 import { feedbackRunRecordId, parseRunRecordId, runRecordId } from "../runRecordIdentity.js";
-import {
-  acpLaunchIdentitySchema,
-  acpRunRecoveryUnavailableReasonSchema
-} from "../../autoRun/acpRunRecovery.js";
+import { acpRunRecoveryUnavailableReasonSchema } from "../../autoRun/acpRunRecovery.js";
 
 export const TASK_WORKSPACE_RETRY_UNAVAILABLE_REASON =
   "Retry is unavailable for this persisted run.";
@@ -131,9 +132,10 @@ export const taskWorkspaceAcpRecoveryIdentitySchema = z
     runId: nonEmptyStringSchema.max(256),
     sessionId: nonEmptyStringSchema.max(1_024),
     terminalEventSequence: z.number().int().positive(),
-    agentId: agentFamilySchema,
-    executorProfile: nonEmptyStringSchema.max(256),
-    launch: acpLaunchIdentitySchema
+    agentId: acpAgentIdSchema,
+    profileId: z.string().min(1).max(128),
+    profileFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+    executorProfile: nonEmptyStringSchema.max(256)
   })
   .strict()
   .superRefine((value, context) => {

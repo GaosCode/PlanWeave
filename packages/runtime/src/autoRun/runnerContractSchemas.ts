@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { agentFamilySchema, runnerTransportSchema } from "../types/executor.js";
+import { acpAgentIdSchema, runnerTransportSchema } from "../types/executor.js";
 import {
   acpAuthenticationActionReasonSchema,
   acpAuthMethodIdSchema,
@@ -52,7 +52,7 @@ export const runnerIdentitySchema = z
   .object({
     version: runnerContractVersionSchema,
     runnerKind: runnerTransportSchema,
-    agentId: agentFamilySchema
+    agentId: acpAgentIdSchema
   })
   .strict();
 export type RunnerIdentity = z.infer<typeof runnerIdentitySchema>;

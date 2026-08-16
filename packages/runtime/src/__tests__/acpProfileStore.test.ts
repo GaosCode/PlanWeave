@@ -1,13 +1,14 @@
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AcpProfileRevisionConflictError,
   AcpProfileStore,
   type AcpProfileStoreLockOptions
 } from "../acpProfile/store.js";
 import type { AcpProfileDescriptor } from "../acpProfile/schema.js";
+import { AcpProfileManager } from "../acpProfile/management.js";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -37,6 +38,31 @@ function profile(id: string, args: readonly string[] = []): AcpProfileDescriptor
 }
 
 describe("AcpProfileStore", () => {
+  it("manages profiles through host validation and store CAS", async () => {
+    const { store } = await setup();
+    const resolve = vi.fn(async () => "/resolved/custom-acp");
+    const manager = new AcpProfileManager(store, { resolve });
+
+    await expect(
+      manager.register({ expectedRevision: 0, profile: profile("custom-acp") })
+    ).resolves.toMatchObject({ revision: 1 });
+    await expect(manager.show("CUSTOM-ACP")).resolves.toMatchObject({
+      revision: 1,
+      profile: { id: "custom-acp" }
+    });
+    await expect(manager.list()).resolves.toMatchObject({ revision: 1 });
+    await expect(
+      manager.update({
+        expectedRevision: 1,
+        profileId: "custom-acp",
+        profile: profile("custom-acp", ["serve"])
+      })
+    ).resolves.toMatchObject({ revision: 2, profiles: [{ launch: { args: ["serve"] } }] });
+    await expect(
+      manager.remove({ expectedRevision: 2, profileId: "custom-acp" })
+    ).resolves.toMatchObject({ revision: 3, profiles: [] });
+    expect(resolve).toHaveBeenCalledTimes(2);
+  });
   it("treats a missing file as revision zero and writes a private atomic catalog", async () => {
     const { root, catalogPath, store } = await setup();
     await expect(store.read()).resolves.toEqual({

@@ -25,6 +25,7 @@ export {
   agentProcessEnv,
   agentProcessEnvRecord,
   agentProcessPath,
+  resolveCurrentAgentProcessEnvironment,
   resolveAgentProcessEnvironment,
   setAgentProcessEnvironmentOverlay
 } from "./process/agentProcessEnv.js";
@@ -74,10 +75,19 @@ export type {
   AcpProfileStoreOptions
 } from "./acpProfile/store.js";
 export {
+  AcpProfileResolutionError,
   builtinAcpProfileCatalog,
   CatalogAcpProfileResolver,
+  ExecutionHostAcpCommandResolver,
   NativeAcpHostCommandResolver
 } from "./acpProfile/resolver.js";
+export type { AcpProfileResolutionErrorCode } from "./acpProfile/resolver.js";
+export { AcpProfileManager } from "./acpProfile/management.js";
+export {
+  createRuntimeAcpProfileResolver,
+  resolveAcpExecutionProfile
+} from "./acpProfile/runtimeResolver.js";
+export type { ResolvedAcpExecutionProfile } from "./acpProfile/runtimeResolver.js";
 export type {
   AcpHostCommandResolver,
   AcpLocalProfileTrustVerifier,
@@ -94,6 +104,7 @@ export {
   prepareExecutionHostInvocation,
   prepareWslProcessInvocation,
   readWslLoginPath,
+  resolveWslExecutable,
   wslLauncherEnvironment
 } from "./process/wslExecutionHost.js";
 export type {
@@ -339,6 +350,7 @@ export {
   createManualExecutorAdapter,
   createOpencodeExecAdapter,
   createPiExecAdapter,
+  inspectExecutorAcpProfile,
   listExecutorProfiles,
   resolveExecutorRunnerEvidence,
   testExecutorProfile

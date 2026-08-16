@@ -226,8 +226,9 @@ export function selection(
               sessionId: "ACP-SESSION-001",
               terminalEventSequence: 8,
               agentId: "codex",
-              executorProfile: "codex-acp",
-              launch: { command: "codex-acp", args: ["--stdio"] }
+              profileId: "codex-acp",
+              profileFingerprint: "a".repeat(64),
+              executorProfile: "codex-acp"
             }
           }
         : {

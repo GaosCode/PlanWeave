@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { executionHostSchema } from "../types/executor.js";
+import { acpAgentIdSchema, executionHostSchema } from "../types/executor.js";
 import { runnerCapabilitySchema } from "../autoRun/runnerContractSchemas.js";
 
 const MAX_PROFILE_COUNT = 128;
@@ -22,11 +22,7 @@ export function acpProfileCanonicalKey(profileId: string): string {
   return acpProfileIdSchema.parse(profileId);
 }
 
-export const acpAgentIdSchema = z
-  .string()
-  .min(1)
-  .max(128)
-  .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/);
+export { acpAgentIdSchema };
 
 export const forbiddenAgentEnvironmentNames = new Set([
   "BASH_ENV",

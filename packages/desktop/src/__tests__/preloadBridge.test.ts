@@ -169,8 +169,9 @@ describe("preload bridge invocation", () => {
       sessionId: "session-1",
       terminalEventSequence: 9,
       agentId: "codex" as const,
-      executorProfile: "codex-acp",
-      launch: { command: "codex-acp", args: ["--stdio"] }
+      profileId: "codex-acp",
+      profileFingerprint: "a".repeat(64),
+      executorProfile: "codex-acp"
     };
     const audit = { source: "desktop", reason: "owner process exited" };
     await api.recoverTaskWorkspaceAcpRun(recoveryIdentity, audit);

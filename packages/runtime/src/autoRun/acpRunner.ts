@@ -24,17 +24,28 @@ import {
   probeInstalledAcpAgent,
   type AcpPreflightPhase
 } from "./acpPreflightProbe.js";
-import { assertAcpLaunchTrusted } from "./acpLaunch.js";
 import { executorRuntimeLimits } from "./executorShared.js";
 import { selectedDesktopAcpSessionDefaults } from "./desktopAgentSettings.js";
 import { optionalStat } from "../fs/optionalFile.js";
 import { recordBlockRunInIndex } from "./blockRunIndex.js";
 import { acpRunRecoveryExecutionSchema, renderAcpRunRecoveryPrompt } from "./acpRunRecovery.js";
-import { executorProfileExecutionHost, type ExecutionHost } from "../types.js";
-
-function unavailableMessage(agent: string): string {
-  return `ACP runner for agent '${agent}' is not implemented; PlanWeave will not fall back to CLI.`;
-}
+import {
+  executorProfileExecutionHost,
+  isAgentAcpExecutorProfile,
+  type ExecutionHost
+} from "../types.js";
+import {
+  createRuntimeAcpProfileResolver,
+  resolveAcpExecutionProfile,
+  type ResolvedAcpExecutionProfile
+} from "../acpProfile/runtimeResolver.js";
+import {
+  AcpProfileResolutionError,
+  type AcpProfileResolver,
+  type ResolvedAcpProfile
+} from "../acpProfile/resolver.js";
+import type { ResolvedAgentEnvironment } from "../process/agentProcessEnv.js";
+import type { AcpAuthenticationHints } from "./acpAuthentication.js";
 
 const uniqueCapabilitiesSchema = runnerCapabilitySchema
   .array()
@@ -79,7 +90,9 @@ export const acpProbeResultSchema = z.discriminatedUnion("kind", [
 export type AcpPreflightProbeResult = z.infer<typeof acpProbeResultSchema>;
 
 export type AcpPreflightProbe = (options: {
-  definition: Parameters<AcpAgentRunner["availability"]>[0];
+  profile: ResolvedAcpProfile;
+  environment: ResolvedAgentEnvironment;
+  authenticationHints?: AcpAuthenticationHints;
   cwd: string;
   host: ExecutionHost;
   signal: AbortSignal;
@@ -121,23 +134,22 @@ export function createAcpRunner(options?: {
   probe?: AcpPreflightProbe;
   sessionController?: AcpSessionController;
   recordBlockRun?: typeof recordBlockRunInIndex;
+  profileResolver?: AcpProfileResolver;
 }): AcpAgentRunner {
   const probe = options?.probe ?? probeInstalledAcpAgent;
   const sessionController = options?.sessionController ?? new AcpSessionController();
   const recordBlockRun = options?.recordBlockRun ?? recordBlockRunInIndex;
+  const profileResolver = options?.profileResolver ?? createRuntimeAcpProfileResolver();
   return {
     transport: "acp",
     availability(definition) {
       return {
-        supported: definition.acp.launch !== null,
+        supported: true,
         integration: null,
-        message:
-          definition.acp.launch !== null
-            ? `ACP session integration for agent '${definition.agent}' is available.`
-            : unavailableMessage(definition.agent)
+        message: `ACP profile resolution for agent '${definition.agent}' is available.`
       };
     },
-    async preflight({ profile, definition, cwd, timeoutMs, signal }) {
+    async preflight({ profile, profileSource, definition, cwd, projectRoot, timeoutMs, signal }) {
       if (profile.runner.transport !== "acp") {
         return {
           executionIntegration: null,
@@ -151,17 +163,22 @@ export function createAcpRunner(options?: {
           ]
         };
       }
-      if (!definition.acp.launch) {
+      if (!isAgentAcpExecutorProfile(profile)) {
+        throw new Error("ACP profile narrowing failed.");
+      }
+      let resolved: ResolvedAcpExecutionProfile;
+      try {
+        resolved = await resolveAcpExecutionProfile({
+          executorProfile: profile,
+          projectRoot: projectRoot ?? cwd,
+          executorSource: profileSource ?? "package",
+          resolver: profileResolver
+        });
+      } catch (error) {
         return {
           executionIntegration: null,
           negotiatedCapabilities: null,
-          checks: [
-            failedCheck(
-              "acp_initialized",
-              "initialization_failed",
-              unavailableMessage(definition.agent)
-            )
-          ]
+          checks: [failedCheck("acp_initialized", "initialization_failed", safeDiagnostic(error))]
         };
       }
       if (signal?.aborted) {
@@ -189,7 +206,9 @@ export function createAcpRunner(options?: {
       let rawResult: unknown;
       try {
         rawResult = await probe({
-          definition,
+          profile: resolved.profile,
+          environment: resolved.environment,
+          authenticationHints: definition.acp.authentication,
           cwd,
           host: executorProfileExecutionHost(profile),
           signal: controller.signal
@@ -287,14 +306,14 @@ export function createAcpRunner(options?: {
       const available = result.capabilities;
       const negotiated = negotiatedCapabilitiesSchema.safeParse({
         version: "planweave.runner/v1",
-        required: definition.acp.capabilities,
+        required: resolved.profile.capabilities.required,
         available,
-        negotiated: definition.acp.capabilities.filter((capability) =>
+        negotiated: resolved.profile.capabilities.required.filter((capability) =>
           available.includes(capability)
         )
       });
       if (!negotiated.success) {
-        const missing = definition.acp.capabilities.filter(
+        const missing = resolved.profile.capabilities.required.filter(
           (capability) => !available.includes(capability)
         );
         return {
@@ -368,12 +387,13 @@ export function createAcpRunner(options?: {
       if (input.profile.runner.transport !== "acp" || input.profile.agent !== definition.agent) {
         throw runnerProfileMismatch("acp", input.profile);
       }
-      const launch = await assertAcpLaunchTrusted({
+      const resolved = await resolveAcpExecutionProfile({
+        executorProfile: input.profile,
         projectRoot: input.projectRoot,
-        executorName: input.executorName,
-        definition,
-        profileSource: input.profileSource
+        executorSource: input.profileSource ?? "package",
+        resolver: profileResolver
       });
+      const launch = resolved.profile.launch;
       const recovery = input.runtime?.acpRecovery
         ? acpRunRecoveryExecutionSchema.parse(input.runtime.acpRecovery)
         : null;
@@ -381,16 +401,16 @@ export function createAcpRunner(options?: {
       if (
         recovery &&
         (recovery.claimRef !== input.claim.ref ||
-          recovery.agentId !== definition.agent ||
+          recovery.agentId !== resolved.profile.agentId ||
+          recovery.profileId !== resolved.profile.profileId ||
+          recovery.profileFingerprint !== resolved.profile.fingerprint ||
           recovery.executorProfile !== input.executorName ||
           JSON.stringify(recovery.executionHost ?? { kind: "native" }) !==
-            JSON.stringify(executionHost) ||
-          recovery.launch.command !== launch.command ||
-          recovery.launch.args.length !== launch.args.length ||
-          !recovery.launch.args.every((argument, index) => argument === launch.args[index]))
+            JSON.stringify(executionHost))
       ) {
-        throw new Error(
-          "ACP recovery execution no longer matches the resolved claim/profile/launch."
+        throw new AcpProfileResolutionError(
+          "profile_changed",
+          "ACP recovery execution no longer matches the resolved claim/profile identity."
         );
       }
       const prompt = recovery
@@ -422,10 +442,17 @@ export function createAcpRunner(options?: {
             prompt,
             cwd: prepared.cwd,
             launch,
-            host: executionHost,
+            host: resolved.profile.host,
+            profileIdentity: {
+              profileId: resolved.profile.profileId,
+              fingerprint: resolved.profile.fingerprint,
+              source: resolved.profile.source,
+              environmentNames: resolved.profile.environment.map((entry) => entry.name)
+            },
+            environment: resolved.environment,
             authenticationHints: definition.acp.authentication,
             executorName: input.executorName,
-            agentId: definition.agent,
+            agentId: resolved.profile.agentId,
             taskId: input.claim.taskId,
             metadataIdentity: {
               blockId: input.claim.blockId,
@@ -447,9 +474,11 @@ export function createAcpRunner(options?: {
             interactionBroker: input.runtime?.interactionBroker,
             interactionObserver: input.runtime?.interactionObserver,
             onMetadataPersisted: () => recordBlockRun(dirname(prepared.runDir), prepared.runId),
-            sessionDefaults: input.runtime?.desktopRunId
-              ? selectedDesktopAcpSessionDefaults(definition.agent)
-              : undefined
+            sessionDefaults:
+              resolved.profile.sessionDefaults ??
+              (input.runtime?.desktopRunId && definition.acp.launch
+                ? selectedDesktopAcpSessionDefaults(definition.agent)
+                : undefined)
           }
         );
       } finally {
@@ -462,12 +491,13 @@ export function createAcpRunner(options?: {
       if (input.profile.runner.transport !== "acp" || input.profile.agent !== definition.agent) {
         throw runnerProfileMismatch("acp", input.profile);
       }
-      const launch = await assertAcpLaunchTrusted({
+      const resolved = await resolveAcpExecutionProfile({
+        executorProfile: input.profile,
         projectRoot: input.workspace,
-        executorName: input.executorName,
-        definition,
-        profileSource: input.profileSource
+        executorSource: input.profileSource ?? "package",
+        resolver: profileResolver
       });
+      const launch = resolved.profile.launch;
       const prepared = await prepareAcpFeedbackRun({
         workspace: input.workspace,
         prompt: input.claim.content
@@ -487,10 +517,17 @@ export function createAcpRunner(options?: {
           prompt: input.claim.content,
           cwd: prepared.cwd,
           launch,
-          host: executorProfileExecutionHost(input.profile),
+          host: resolved.profile.host,
+          profileIdentity: {
+            profileId: resolved.profile.profileId,
+            fingerprint: resolved.profile.fingerprint,
+            source: resolved.profile.source,
+            environmentNames: resolved.profile.environment.map((entry) => entry.name)
+          },
+          environment: resolved.environment,
           authenticationHints: definition.acp.authentication,
           executorName: input.executorName,
-          agentId: definition.agent,
+          agentId: resolved.profile.agentId,
           taskId: input.claim.taskId,
           metadataIdentity: {
             feedbackId: input.claim.feedbackId,
@@ -504,9 +541,11 @@ export function createAcpRunner(options?: {
           timeoutMs: input.runtime?.timeoutMs ?? executorRuntimeLimits(input.profile).timeoutMs,
           interactionBroker: input.runtime?.interactionBroker,
           interactionObserver: input.runtime?.interactionObserver,
-          sessionDefaults: input.runtime?.desktopRunId
-            ? selectedDesktopAcpSessionDefaults(definition.agent)
-            : undefined
+          sessionDefaults:
+            resolved.profile.sessionDefaults ??
+            (input.runtime?.desktopRunId && definition.acp.launch
+              ? selectedDesktopAcpSessionDefaults(definition.agent)
+              : undefined)
         }
       );
     }

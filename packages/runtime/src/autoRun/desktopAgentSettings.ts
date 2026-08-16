@@ -122,10 +122,14 @@ function readAcpSessionDefaults(value: unknown): DesktopAcpSessionDefaults | und
   return { modeId, configOptions };
 }
 
-export function selectedDesktopAcpSessionDefaults(
-  kind: DesktopAgentKind
-): DesktopAcpSessionDefaults {
-  return readDesktopAgentSettings()?.agents[kind]?.acp ?? { modeId: null, configOptions: {} };
+export function selectedDesktopAcpSessionDefaults(kind: string): DesktopAcpSessionDefaults {
+  if (!Object.hasOwn(desktopAgentNames, kind)) return { modeId: null, configOptions: {} };
+  return (
+    readDesktopAgentSettings()?.agents[kind as DesktopAgentKind]?.acp ?? {
+      modeId: null,
+      configOptions: {}
+    }
+  );
 }
 
 function fullAccessEnabled(settings: DesktopAgentSettings | null, kind: DesktopAgentKind): boolean {

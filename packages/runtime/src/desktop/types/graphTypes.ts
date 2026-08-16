@@ -1,5 +1,4 @@
 import type {
-  AgentFamily,
   BlockStatus,
   BlockType,
   EdgeType,
@@ -76,7 +75,7 @@ export type DesktopGraphEdgeViewModel = {
 /** Exact runtime binding used to match a logical executor profile to local detection evidence. */
 export type DesktopExecutorProfileBinding = {
   name: string;
-  agentId: AgentFamily | null;
+  agentId: string | null;
   runnerKind: RunnerTransport | null;
 };
 

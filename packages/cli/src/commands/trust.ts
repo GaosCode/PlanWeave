@@ -1,11 +1,11 @@
 import type { Command } from "commander";
 import {
   listExecutorProfiles,
+  inspectExecutorAcpProfile,
   listTrustedCommands,
   loadPackage,
   parseBlockRef,
   trustCommand,
-  type AgentFamily,
   type RunnerTransport,
   type TrustedCommand
 } from "@planweave-ai/runtime";
@@ -39,7 +39,7 @@ function formatHuman(value: unknown): string {
     const trusted = value as {
       entry: TrustedCommand;
       executorName: string;
-      agentId: AgentFamily | null;
+      agentId: string | null;
       runnerKind: RunnerTransport | null;
     };
     return `Trusted: ${trusted.entry.command} ${trusted.entry.args.join(" ")} (executor=${trusted.executorName}, agent=${trusted.agentId ?? "none"}, runner=${trusted.runnerKind ?? "none"})`.trimEnd();
@@ -76,7 +76,7 @@ async function trustExecutorProfile(
 ): Promise<{
   entry: TrustedCommand;
   executorName: string;
-  agentId: AgentFamily | null;
+  agentId: string | null;
   runnerKind: RunnerTransport | null;
 }> {
   const projectRoot = await resolveCliPackageWorkspace(options);
@@ -88,12 +88,18 @@ async function trustExecutorProfile(
   if (profile.adapter === "manual") {
     throw new Error(`Executor profile '${executorName}' does not define a command to trust.`);
   }
-  const launch = "command" in profile ? profile : profile.acpLaunch;
+  const resolvedAcp =
+    profile.runnerKind === "acp"
+      ? await inspectExecutorAcpProfile({ projectRoot, executorName })
+      : null;
+  const launch = "command" in profile ? profile : (resolvedAcp?.launch ?? profile.acpLaunch);
   if (!launch) {
     throw new Error(`Executor profile '${executorName}' does not define a command to trust.`);
   }
   return {
-    entry: await trustCommand(projectRoot, launch.command, [...launch.args]),
+    entry: await trustCommand(projectRoot, launch.command, [...launch.args], {
+      ...(resolvedAcp ? { profileFingerprint: resolvedAcp.fingerprint } : {})
+    }),
     executorName,
     agentId: profile.agentId ?? null,
     runnerKind: profile.runnerKind ?? null

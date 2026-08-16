@@ -20,6 +20,7 @@ import {
 import { AcpOwnerStateWriter } from "../autoRun/acpOwnerState.js";
 import { AgentRunControlServer } from "../autoRun/agentRunControlServer.js";
 import { AcpSessionController, type AcpSessionRun } from "../autoRun/acpSessionController.js";
+import { acpProfileTestValues } from "./support/acpProfileTestValues.js";
 
 const fixture = fileURLToPath(new URL("./support/acpMockAgent.mjs", import.meta.url));
 const frameHeaderBytes = 4;
@@ -38,7 +39,7 @@ function controllerRun(root: string, scenario: string): AcpSessionRun {
     metadataPath: join(root, "metadata.json"),
     prompt: "implement",
     cwd: root,
-    launch: { command: process.execPath, args: [fixture, scenario] },
+    ...acpProfileTestValues({ command: process.execPath, args: [fixture, scenario] }),
     executorName: "mock-acp",
     agentId: "codex",
     taskId: "T-001",
@@ -464,7 +465,8 @@ describe("agent run control controller lifecycle", () => {
         >;
         expect(metadata).toMatchObject({
           controlAvailable: false,
-          controlUnavailableReason: "endpoint_start_failed"
+          controlUnavailableReason: "endpoint_start_failed",
+          controlStartError: "Agent run control directory must use owner-only permissions."
         });
       });
       await expect(execution).resolves.toMatchObject({ exitCode: 0 });

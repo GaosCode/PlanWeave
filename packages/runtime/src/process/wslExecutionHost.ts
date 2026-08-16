@@ -61,6 +61,46 @@ export type WslExecutionOptions = {
   run?: WslCommandRunner;
 };
 
+const WSL_RESOLVE_EXECUTABLE_SCRIPT = [
+  'pw_command="$1"',
+  'case "$pw_command" in /*) pw_candidate="$pw_command";; */*) echo "Relative WSL command paths are not allowed." >&2; exit 71;; *) pw_candidate="$(command -v -- "$pw_command")" || exit 127;; esac',
+  '[ -x "$pw_candidate" ] || { echo "WSL command is not executable." >&2; exit 126; }',
+  'pw_resolved="$(readlink -f -- "$pw_candidate")" || exit 72',
+  'case "$pw_resolved" in /*) printf "%s\\n" "$pw_resolved";; *) exit 72;; esac'
+].join("; ");
+
+export async function resolveWslExecutable(
+  command: string,
+  distribution: string,
+  options: WslExecutionOptions = {}
+): Promise<string> {
+  requireWindows(options.platform ?? process.platform);
+  const selectedDistribution = distribution.trim();
+  if (!selectedDistribution) throw new Error("WSL distribution must be selected explicitly.");
+  if (command.includes("\0")) throw new Error("WSL command must not contain NUL.");
+  try {
+    const { stdout } = await commandRunner(options)([
+      "--distribution",
+      selectedDistribution,
+      "--exec",
+      "sh",
+      "-c",
+      WSL_RESOLVE_EXECUTABLE_SCRIPT,
+      "planweave-wsl-resolve",
+      command
+    ]);
+    const resolved = decodeCommandOutput(stdout).replaceAll("\0", "").trim();
+    if (!resolved.startsWith("/")) throw new Error("WSL resolver returned a non-absolute path.");
+    return resolved;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `ACP command '${command}' is not executable in WSL distribution '${selectedDistribution}': ${detail}`,
+      { cause: error }
+    );
+  }
+}
+
 export type PreparedWslProcessInvocation = {
   command: "wsl.exe";
   args: string[];

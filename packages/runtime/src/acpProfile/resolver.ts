@@ -5,7 +5,9 @@ import { delimiter, extname, isAbsolute, join } from "node:path";
 import { registeredAgentDefinitions } from "../autoRun/agentRegistry.js";
 import type { RunnerCapability } from "../autoRun/runnerContractSchemas.js";
 import { agentProcessPath } from "../process/agentProcessEnv.js";
+import { resolveWslExecutable, type WslExecutionOptions } from "../process/wslExecutionHost.js";
 import type { ExecutionHost } from "../types/executor.js";
+import type { PackageWorkspaceRef } from "../types/workspace.js";
 import type { AcpProfileStore } from "./store.js";
 import {
   acpAgentIdSchema,
@@ -41,8 +43,9 @@ export type ResolvedAcpProfile = {
 };
 
 export type AcpProfileResolutionContext = {
-  projectRoot: string;
+  projectRoot: PackageWorkspaceRef;
   host: ExecutionHost;
+  requireCommandTrust?: boolean;
 };
 
 export interface AcpProfileResolver {
@@ -52,12 +55,31 @@ export interface AcpProfileResolver {
   ): Promise<ResolvedAcpProfile>;
 }
 
+export type AcpProfileResolutionErrorCode =
+  | "profile_unavailable"
+  | "profile_untrusted"
+  | "profile_host_unavailable"
+  | "profile_environment_missing"
+  | "profile_changed"
+  | "profile_identity_mismatch";
+
+export class AcpProfileResolutionError extends Error {
+  constructor(
+    readonly code: AcpProfileResolutionErrorCode,
+    message: string,
+    options?: { cause?: unknown }
+  ) {
+    super(message, options);
+    this.name = "AcpProfileResolutionError";
+  }
+}
+
 export interface AcpHostCommandResolver {
   resolve(command: string, host: ExecutionHost): Promise<string>;
 }
 
 export type AcpLocalProfileTrustVerifier = (input: {
-  projectRoot: string;
+  projectRoot: PackageWorkspaceRef;
   profile: AcpProfileDescriptor;
   resolvedCommand: string;
   fingerprint: string;
@@ -69,6 +91,10 @@ const displayNames: Readonly<Record<string, string>> = {
   "claude-code": "Claude Code",
   pi: "Pi",
   grok: "Grok"
+};
+
+const builtinEnvironment: Readonly<Record<string, readonly AcpEnvironmentRequirement[]>> = {
+  grok: [{ name: "XAI_API_KEY", required: false }]
 };
 
 function sameHost(left: ExecutionHost, right: ExecutionHost): boolean {
@@ -123,6 +149,23 @@ export class NativeAcpHostCommandResolver implements AcpHostCommandResolver {
   }
 }
 
+export class ExecutionHostAcpCommandResolver implements AcpHostCommandResolver {
+  private readonly native: NativeAcpHostCommandResolver;
+
+  constructor(
+    environment: Readonly<NodeJS.ProcessEnv> = process.env,
+    private readonly wslOptions: WslExecutionOptions = {}
+  ) {
+    this.native = new NativeAcpHostCommandResolver(environment);
+  }
+
+  resolve(command: string, host: ExecutionHost): Promise<string> {
+    return host.kind === "native"
+      ? this.native.resolve(command, host)
+      : resolveWslExecutable(command, host.distribution, this.wslOptions);
+  }
+}
+
 function builtinDescriptors(host: ExecutionHost): readonly AcpProfileDescriptor[] {
   return registeredAgentDefinitions().flatMap((definition) => {
     if (!definition.acp.launch) return [];
@@ -141,7 +184,7 @@ function builtinDescriptors(host: ExecutionHost): readonly AcpProfileDescriptor[
           command: definition.acp.launch.command,
           args: definition.acp.launch.args
         },
-        environment: [],
+        environment: builtinEnvironment[definition.agent] ?? [],
         shutdown: acpShutdownPolicyFromLegacyGraceMs(),
         capabilities: {
           required: definition.acp.capabilities,
@@ -235,13 +278,28 @@ function immutableResolvedProfile(input: {
 export class CatalogAcpProfileResolver implements AcpProfileResolver {
   constructor(
     private readonly store: Pick<AcpProfileStore, "read">,
-    private readonly commandResolver: AcpHostCommandResolver = new NativeAcpHostCommandResolver(),
+    private readonly commandResolver: AcpHostCommandResolver = new ExecutionHostAcpCommandResolver(),
     private readonly verifyLocalTrust?: AcpLocalProfileTrustVerifier
   ) {}
 
   async resolve(
     reference: AcpProfileReference,
     context: AcpProfileResolutionContext
+  ): Promise<ResolvedAcpProfile> {
+    return this.resolveInternal(reference, context, true);
+  }
+
+  inspect(
+    reference: AcpProfileReference,
+    context: AcpProfileResolutionContext
+  ): Promise<ResolvedAcpProfile> {
+    return this.resolveInternal(reference, context, false);
+  }
+
+  private async resolveInternal(
+    reference: AcpProfileReference,
+    context: AcpProfileResolutionContext,
+    requireTrust: boolean
   ): Promise<ResolvedAcpProfile> {
     const agentId = acpAgentIdSchema.parse(reference.agentId);
     const profileId = reference.profileId ? acpProfileCanonicalKey(reference.profileId) : undefined;
@@ -255,37 +313,57 @@ export class CatalogAcpProfileResolver implements AcpProfileResolver {
       : undefined;
 
     if (builtin && local) {
-      throw new Error(`ACP profile id '${profileId}' conflicts with a built-in profile.`);
+      throw new AcpProfileResolutionError(
+        "profile_identity_mismatch",
+        `ACP profile id '${profileId}' conflicts with a built-in profile.`
+      );
     }
     const profile = local ?? builtin;
     if (!profile) {
-      throw new Error(
+      throw new AcpProfileResolutionError(
+        "profile_unavailable",
         profileId
           ? `ACP profile '${profileId}' is not registered.`
           : `No built-in ACP profile is registered for agent '${agentId}'.`
       );
     }
     if (profile.agentId !== agentId) {
-      throw new Error(
+      throw new AcpProfileResolutionError(
+        "profile_identity_mismatch",
         `ACP profile '${profile.id}' belongs to agent '${profile.agentId}', not '${agentId}'.`
       );
     }
     if (!sameHost(profile.host, context.host)) {
-      throw new Error(`ACP profile '${profile.id}' does not match the requested execution host.`);
+      throw new AcpProfileResolutionError(
+        "profile_host_unavailable",
+        `ACP profile '${profile.id}' does not match the requested execution host.`
+      );
     }
 
-    const resolvedCommand = await this.commandResolver.resolve(
-      profile.launch.command,
-      context.host
-    );
+    let resolvedCommand: string;
+    try {
+      resolvedCommand = await this.commandResolver.resolve(profile.launch.command, context.host);
+    } catch (error) {
+      throw new AcpProfileResolutionError(
+        "profile_host_unavailable",
+        `ACP profile '${profile.id}' command is unavailable on the requested execution host.`,
+        { cause: error }
+      );
+    }
     if (!isAbsolute(resolvedCommand)) {
-      throw new Error("ACP host command resolver must return an absolute command path.");
+      throw new AcpProfileResolutionError(
+        "profile_host_unavailable",
+        "ACP host command resolver must return an absolute command path."
+      );
     }
     const profileFingerprint = fingerprint(profile, resolvedCommand);
     const source = local ? "local-user" : "builtin";
-    if (local) {
+    if ((local || context.requireCommandTrust) && requireTrust) {
       if (!this.verifyLocalTrust) {
-        throw new Error(`ACP profile '${profile.id}' has no project trust verifier.`);
+        throw new AcpProfileResolutionError(
+          "profile_untrusted",
+          `ACP profile '${profile.id}' has no project trust verifier.`
+        );
       }
       if (
         !(await this.verifyLocalTrust({
@@ -295,7 +373,10 @@ export class CatalogAcpProfileResolver implements AcpProfileResolver {
           fingerprint: profileFingerprint
         }))
       ) {
-        throw new Error(`ACP profile '${profile.id}' is not trusted for this project.`);
+        throw new AcpProfileResolutionError(
+          "profile_untrusted",
+          `ACP profile '${profile.id}' is not trusted for this project.`
+        );
       }
     }
     return immutableResolvedProfile({

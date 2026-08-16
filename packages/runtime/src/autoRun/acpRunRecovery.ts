@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { agentFamilySchema, executionHostSchema } from "../types/executor.js";
+import { acpAgentIdSchema, executionHostSchema } from "../types/executor.js";
+import { acpProfileIdSchema } from "../acpProfile/schema.js";
 import {
   acpSessionIdSchema,
   claimRefSchema,
@@ -54,10 +55,11 @@ export const acpRunRecoveryExecutionSchema = z
   .object({
     lineage: acpRunRecoveryLineageSchema,
     claimRef: claimRefSchema,
-    agentId: agentFamilySchema,
+    agentId: acpAgentIdSchema,
+    profileId: acpProfileIdSchema,
+    profileFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
     executorProfile: z.string().min(1).max(256),
     executionHost: executionHostSchema.optional(),
-    launch: acpLaunchIdentitySchema,
     interruptionReason: acpRecoveryInterruptionReasonSchema,
     lastToolStateSummary: safeRunnerEventTextSchema(4096, "Recovery tool state summary").nullable()
   })
@@ -70,9 +72,17 @@ export const acpRunRecoveryUnavailableReasonSchema = z.enum([
   "source_not_terminal",
   "terminal_reason_not_recoverable",
   "source_identity_invalid",
+  "legacy_profile_identity_unavailable",
+  "profile_unavailable",
+  "profile_untrusted",
+  "profile_environment_missing",
+  "profile_host_unavailable",
+  "profile_resolution_failed",
   "session_unavailable",
   "agent_mismatch",
   "executor_profile_mismatch",
+  "profile_id_mismatch",
+  "profile_fingerprint_mismatch",
   "execution_host_mismatch",
   "launch_mismatch",
   "load_session_unavailable",
@@ -99,6 +109,10 @@ export type AcpRunRecoveryEligibilityInput = {
   resolvedAgentId: string | null;
   sourceExecutorProfile: string | null;
   resolvedExecutorProfile: string | null;
+  sourceProfileId: string | null;
+  resolvedProfileId: string | null;
+  sourceProfileFingerprint: string | null;
+  resolvedProfileFingerprint: string | null;
   sourceExecutionHost?: z.infer<typeof executionHostSchema> | null;
   resolvedExecutionHost?: z.infer<typeof executionHostSchema> | null;
   sourceLaunch: AcpLaunchIdentity | null;
@@ -139,6 +153,15 @@ export function evaluateAcpRunRecovery(
   ) {
     return { available: false, reason: "executor_profile_mismatch" };
   }
+  if (input.sourceProfileId === null || input.sourceProfileId !== input.resolvedProfileId) {
+    return { available: false, reason: "profile_id_mismatch" };
+  }
+  if (
+    input.sourceProfileFingerprint === null ||
+    input.sourceProfileFingerprint !== input.resolvedProfileFingerprint
+  ) {
+    return { available: false, reason: "profile_fingerprint_mismatch" };
+  }
   if (
     JSON.stringify(input.sourceExecutionHost ?? { kind: "native" }) !==
     JSON.stringify(input.resolvedExecutionHost ?? { kind: "native" })
@@ -146,9 +169,8 @@ export function evaluateAcpRunRecovery(
     return { available: false, reason: "execution_host_mismatch" };
   }
   if (
-    input.sourceLaunch === null ||
-    input.resolvedLaunch === null ||
-    !sameLaunch(input.sourceLaunch, input.resolvedLaunch)
+    input.sourceLaunch !== null &&
+    (input.resolvedLaunch === null || !sameLaunch(input.sourceLaunch, input.resolvedLaunch))
   ) {
     return { available: false, reason: "launch_mismatch" };
   }

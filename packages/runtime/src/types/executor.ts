@@ -45,6 +45,13 @@ export const agentFamilySchema = z.enum(["codex", "opencode", "claude-code", "pi
 export const agentFamilies = agentFamilySchema.options;
 export type AgentFamily = z.infer<typeof agentFamilySchema>;
 
+export const acpAgentIdSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/);
+export type AcpAgentId = z.infer<typeof acpAgentIdSchema>;
+
 export const executorRuntimeLimitsSchema = z.object({
   timeoutMs: z.number().int().positive().optional(),
   maxStdoutBytes: z.number().int().positive().optional(),
@@ -92,7 +99,15 @@ export const cliRunnerSchema = z
 export type CliRunner = z.infer<typeof cliRunnerSchema>;
 
 export const acpRunnerSchema = z
-  .object({ transport: runnerTransportSchema.extract(["acp"]) })
+  .object({
+    transport: runnerTransportSchema.extract(["acp"]),
+    profileId: z
+      .string()
+      .min(1)
+      .max(128)
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/)
+      .optional()
+  })
   .strict();
 export type AcpRunner = z.infer<typeof acpRunnerSchema>;
 
@@ -113,7 +128,7 @@ const localReviewExecutorProfileSchema = z
 const agentAcpProfileSchema = z
   .object({
     adapter: executorProfileAdapterSchema.extract(["agent"]),
-    agent: agentFamilySchema,
+    agent: acpAgentIdSchema,
     runner: acpRunnerSchema,
     host: executionHostSchema.optional(),
     ...executorRuntimeLimitsSchema.shape
@@ -308,7 +323,7 @@ const executorProfileUnionSchema = z.union([
 const canonicalAgentDiscriminatorSchema = z
   .object({
     adapter: executorProfileAdapterSchema.extract(["agent"]),
-    agent: agentFamilySchema,
+    agent: acpAgentIdSchema,
     runner: z.object({ transport: runnerTransportSchema }).passthrough()
   })
   .passthrough();
@@ -440,6 +455,16 @@ export type AgentCliExecutorProfile = Extract<
   AgentExecutorProfile,
   { runner: { transport: "cli" } }
 >;
+export type AgentAcpExecutorProfile = Extract<
+  AgentExecutorProfile,
+  { runner: { transport: "acp" } }
+>;
+
+export function isAgentAcpExecutorProfile(
+  profile: AgentExecutorProfile
+): profile is AgentAcpExecutorProfile {
+  return profile.runner.transport === "acp";
+}
 export type CodexExecExecutorProfile = Extract<AgentCliExecutorProfile, { agent: "codex" }>;
 export type OpencodeExecExecutorProfile = Extract<AgentCliExecutorProfile, { agent: "opencode" }>;
 export type ClaudeCodeExecExecutorProfile = Extract<
@@ -457,7 +482,7 @@ type ExecutorProfileSummaryFor<TProfile extends ExecutorProfile> = TProfile exte
       adapter: ExecutorAdapterName | "agent";
       profileAdapter?: TProfile["adapter"];
       executionIntegration?: ExecutorIntegrationName | null;
-      agentId?: AgentFamily | null;
+      agentId?: string | null;
       runnerKind?: RunnerTransport | null;
       acpLaunch?: {
         command: string;
@@ -480,7 +505,7 @@ export type ExecutorAdapterResult =
       executor?: string;
       /** Persisted execution integration identifier retained by the existing run metadata contract. */
       adapter?: ExecutorIntegrationName;
-      agentId?: AgentFamily | null;
+      agentId?: string | null;
       runnerKind?: RunnerTransport | null;
       stdout?: string;
       stderr?: string;
@@ -498,7 +523,7 @@ export type ExecutorAdapterResult =
       executor?: string;
       /** Persisted execution integration identifier retained by the existing run metadata contract. */
       adapter?: ExecutorIntegrationName;
-      agentId?: AgentFamily | null;
+      agentId?: string | null;
       runnerKind?: RunnerTransport | null;
       stdout?: string;
       stderr?: string;
@@ -516,7 +541,7 @@ export type ExecutorAdapterResult =
       executor?: string;
       /** Persisted execution integration identifier retained by the existing run metadata contract. */
       adapter?: ExecutorIntegrationName;
-      agentId?: AgentFamily | null;
+      agentId?: string | null;
       runnerKind?: RunnerTransport | null;
       stdout?: string;
       stderr?: string;

@@ -1,5 +1,4 @@
 import type {
-  AgentFamily,
   AutoRunStatus,
   AutoRunStepResult,
   ClaimScope,
@@ -42,7 +41,7 @@ export type RunSessionAutoRunSummary = {
   parallel: boolean;
   executorOverride: string | null;
   effectiveExecutor: string | null;
-  agentId: AgentFamily | null;
+  agentId: string | null;
   runnerKind: RunnerTransport | null;
   stopReason: "none" | "once" | "step_limit" | "no_steps" | "cancelled" | null;
 };

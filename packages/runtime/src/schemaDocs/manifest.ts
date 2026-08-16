@@ -38,9 +38,13 @@ const executorProfileSchema: Record<string, Record<string, unknown>> = {
   },
   "agent-acp": {
     adapter: "agent",
-    agent: '"codex" | "opencode" | "claude-code" | "pi" | "grok"',
-    runner: { transport: '"acp"' },
-    host: `${JSON.stringify(executionHostField)}, optional; default: native`
+    agent: "ACP agent id: 1-128 characters, alphanumeric first, then alphanumeric/._-",
+    runner: {
+      transport: '"acp"',
+      profileId: "local ACP profile id, optional; omit only for a built-in ACP profile"
+    },
+    host: `${JSON.stringify(executionHostField)}, optional; default: native`,
+    ...runtimeLimitFields
   },
   "codex-exec": {
     adapter: `${executorIntegration.codexExec} (legacy manifest input)`,
@@ -183,6 +187,7 @@ export const manifestSchemaDocument: SchemaDocument<"manifest"> = {
     "ACP is conversation/session integration, not terminal attachment. The selected agent owns login, subscription, provider configuration, quota, and optional API-key mode; PlanWeave does not collect those credentials and ACP does not require a PlanWeave API key.",
     "Existing legacy CLI manifests remain valid without changes and normalize once to the CLI runner contract.",
     "tmuxEnabled is CLI-only. ACP runner objects are strict and reject CLI command, terminal, and tmux fields.",
+    "ACP profiles may reference a locally registered profileId. Plan Packages never carry ACP command, args, or environment values; local profile registration and project command trust are both required.",
     "Headless runner preflight and execution never auto-approve permission, authentication, or elicitation requests; unsupported interaction fails closed within a bounded timeout.",
     "Keep goals, requirements, constraints, risks, and references in project/global prompts, task acceptance, task prompts, or block prompts.",
     "Prompt paths are source files; rendered prompt output is derived and must not be written back into source prompts."

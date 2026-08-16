@@ -6,6 +6,7 @@ import {
   acpShutdownPolicySchema,
   agentEnvironmentContractSchema
 } from "../acpProfile/schema.js";
+import { executorProfileSchema } from "../types/executor.js";
 
 function descriptor(overrides: Record<string, unknown> = {}) {
   return {
@@ -25,6 +26,24 @@ function descriptor(overrides: Record<string, unknown> = {}) {
 }
 
 describe("ACP profile schemas", () => {
+  it("allows custom agent/profile identity only on the ACP executor branch", () => {
+    expect(
+      executorProfileSchema.parse({
+        adapter: "agent",
+        agent: "custom-agent",
+        runner: { transport: "acp", profileId: "custom-acp" }
+      })
+    ).toMatchObject({ agent: "custom-agent", runner: { profileId: "custom-acp" } });
+    expect(() =>
+      executorProfileSchema.parse({
+        adapter: "agent",
+        agent: "custom-agent",
+        runner: { transport: "cli" },
+        command: "custom-agent",
+        args: []
+      })
+    ).toThrow();
+  });
   it("parses a strict versioned dedicated descriptor and WSL host identity", () => {
     expect(acpProfileDescriptorSchema.parse(descriptor())).toMatchObject({
       version: "planweave.acp-profile/v1",

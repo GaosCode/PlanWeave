@@ -1,7 +1,6 @@
 import type {
   AgentCliExecutorProfile,
   AgentExecutorProfile,
-  AgentFamily,
   ExecutorAdapterResult,
   ExecutorIntegrationName,
   ExecutorProfile,
@@ -70,6 +69,7 @@ export type RunnerPreflightInput = {
   profileSource?: "builtin" | "package";
   definition: AgentDefinition;
   cwd: string;
+  projectRoot?: import("../types.js").PackageWorkspaceRef;
   timeoutMs: number;
   signal?: AbortSignal;
 };
@@ -85,7 +85,7 @@ export type RunnerPreflightResult = {
 };
 
 export type AgentDefinition = {
-  agent: AgentFamily;
+  agent: string;
   builtinProfiles: Readonly<Record<string, AgentExecutorProfile>>;
   cli: {
     integration: Exclude<ExecutorIntegrationName, "manual" | "local-review">;

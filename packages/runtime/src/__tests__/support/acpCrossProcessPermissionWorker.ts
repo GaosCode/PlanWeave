@@ -5,6 +5,7 @@ import { ActiveAgentRunRegistry } from "../../autoRun/activeAgentRunRegistry.js"
 import { AcpSessionController, type AcpSessionRun } from "../../autoRun/acpSessionController.js";
 import { runnerPermissionInteractionResponseSchema } from "../../autoRun/runnerInteractionContract.js";
 import { PersistentRunnerInteractionStore } from "../../autoRun/runnerInteractionStore.js";
+import { acpProfileTestValues } from "./acpProfileTestValues.js";
 
 const [mode, runDir] = process.argv.slice(2);
 if (!runDir) throw new Error("Cross-process ACP worker requires a run directory.");
@@ -23,7 +24,7 @@ function ownerRun(): AcpSessionRun {
     metadataPath: join(runDir, "metadata.json"),
     prompt: "permission-secret",
     cwd: runDir,
-    launch: { command: process.execPath, args: [acpFixture, "permission-secret"] },
+    ...acpProfileTestValues({ command: process.execPath, args: [acpFixture, "permission-secret"] }),
     executorName: "mock-acp",
     agentId: "codex",
     taskId: "T-001",
