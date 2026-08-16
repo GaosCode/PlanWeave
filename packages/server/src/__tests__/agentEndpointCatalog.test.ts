@@ -54,13 +54,20 @@ function activeHosts(hosts: AgentHost[]): AgentHost[] {
 function fixture(hostsInput: AgentHost[] = [readyHost()]) {
   let hosts = hostsInput;
   let counts = new Map<string, number>();
+  const hostPageCalls: Array<{ limit: number; offset: number }> = [];
+  const capacityHostIdCalls: string[][] = [];
   const hostPort: AgentEndpointHostPort = {
-    listActiveHosts: () => activeHosts(hosts),
+    listActiveHosts: (limit, offset) => {
+      hostPageCalls.push({ limit, offset });
+      return activeHosts(hosts).slice(offset, offset + limit);
+    },
     listExclusivelyBoundToWorkspace: () => hosts
   };
   const capacityPort: AgentEndpointCapacityPort = {
-    activeCountsForHosts: (hostIds) =>
-      new Map(hostIds.map((hostId) => [hostId, counts.get(hostId) ?? 0]))
+    activeCountsForHosts: (hostIds) => {
+      capacityHostIdCalls.push([...hostIds]);
+      return new Map(hostIds.map((hostId) => [hostId, counts.get(hostId) ?? 0]));
+    }
   };
   const catalog = new AgentEndpointCatalog({
     hosts: hostPort,
@@ -70,6 +77,8 @@ function fixture(hostsInput: AgentHost[] = [readyHost()]) {
   });
   return {
     catalog,
+    hostPageCalls,
+    capacityHostIdCalls,
     setHosts(next: AgentHost[]) {
       hosts = next;
     },
@@ -138,6 +147,80 @@ describe("AgentEndpointCatalog", () => {
     expect(workspaceA.endpointId).toBe(workspaceB.endpointId);
     expect(workspaceA.endpointId).toBe(
       endpointIdFor({ hostId: "host-primary", profileId: "profile-main", agentId: "codex" })
+    );
+  });
+
+  it("enumerates and resolves active Hosts beyond the first repository page", () => {
+    const hosts = Array.from({ length: 105 }, (_, index) =>
+      readyHost({
+        id: `host-${String(index + 1).padStart(3, "0")}`,
+        displayName: `Host ${String(index + 1).padStart(3, "0")}`
+      })
+    );
+    const state = fixture(hosts);
+
+    const endpoints = state.catalog.listVisibleFleet().items;
+    expect(endpoints).toHaveLength(105);
+    expect(state.hostPageCalls).toEqual([
+      { limit: 100, offset: 0 },
+      { limit: 100, offset: 100 }
+    ]);
+    const endpointAfterFirstPage = endpoints[100]!;
+    expect(endpointAfterFirstPage.hostDisplayName).toBe("Host 101");
+    expect(
+      state.catalog.resolveForRun(
+        endpointAfterFirstPage.endpointId,
+        "workspace-a",
+        ["acp.codex"],
+        "owner"
+      )
+    ).toMatchObject({ hostId: "host-101" });
+  });
+
+  it("fails closed when the active Host fleet exceeds the bounded snapshot", () => {
+    let capacityCalls = 0;
+    const catalog = new AgentEndpointCatalog({
+      hosts: {
+        listActiveHosts: (limit, offset) =>
+          Array.from({ length: Math.min(limit, 12_801 - offset) }, (_, index) =>
+            readyHost({ id: `host-${offset + index}` })
+          ),
+        listExclusivelyBoundToWorkspace: () => []
+      },
+      capacities: {
+        activeCountsForHosts: () => {
+          capacityCalls += 1;
+          return new Map();
+        }
+      },
+      hostOfflineAfterMs: 60_000,
+      clock: () => now
+    });
+
+    expect(() => catalog.listVisibleFleet()).toThrowError("agent_endpoint_host_limit_exceeded");
+    expect(capacityCalls).toBe(0);
+  });
+
+  it("fails closed before returning more endpoints than the wire list permits", () => {
+    const profiles = Array.from({ length: 128 }, (_, index) => ({
+      profileId: `profile-${index}`,
+      agentId: `agent-${index}`,
+      displayName: `Agent ${index}`,
+      status: "ready" as const,
+      capabilities: ["acp.codex"]
+    }));
+    const hosts = Array.from({ length: 101 }, (_, index) =>
+      readyHost({
+        id: `host-${index}`,
+        readinessObservation: {
+          workspaceMappings: [{ workspaceId: "workspace-a", status: "ready" }],
+          acpProfiles: profiles
+        }
+      })
+    );
+
+    expect(() => fixture(hosts).catalog.listVisibleFleet()).toThrowError(
+      "agent_endpoint_snapshot_limit_exceeded"
     );
   });
 
@@ -273,7 +356,7 @@ describe("AgentEndpointCatalog", () => {
       }
     });
     const hostPort: AgentEndpointHostPort = {
-      listActiveHosts: () => activeHosts([host]),
+      listActiveHosts: (limit, offset) => activeHosts([host]).slice(offset, offset + limit),
       listExclusivelyBoundToWorkspace: () => []
     };
     const catalog = new AgentEndpointCatalog({
@@ -348,6 +431,21 @@ describe("AgentEndpointCatalog", () => {
     expect(() =>
       state.catalog.resolveForRun(after.endpointId, "workspace-a", ["acp.codex"], "collaboration")
     ).toThrowError(new AgentEndpointCatalogError("agent_endpoint_unavailable"));
+  });
+
+  it("loads capacity once for a multi-endpoint workspace catalog snapshot", () => {
+    const hosts = [
+      readyHost({ id: "host-alpha", displayName: "Alpha" }),
+      readyHost({ id: "host-beta", displayName: "Beta" })
+    ];
+    const state = fixture(hosts);
+    state.setActive("host-beta", 2);
+
+    expect(state.catalog.listVisible("workspace-a").items).toMatchObject([
+      { hostDisplayName: "Alpha", status: "available" },
+      { hostDisplayName: "Beta", status: "unavailable", unavailableReason: "at_capacity" }
+    ]);
+    expect(state.capacityHostIdCalls).toEqual([["host-alpha", "host-beta"]]);
   });
 
   it("resolves from a fresh snapshot and checks Host and profile capabilities separately", () => {

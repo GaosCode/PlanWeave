@@ -19,7 +19,7 @@ import type { AgentHost } from "./hosts.js";
  * remains for legacy `listVisible(workspaceId)` filtering during compat.
  */
 export interface AgentEndpointHostPort {
-  listActiveHosts(): AgentHost[];
+  listActiveHosts(limit: number, offset: number): AgentHost[];
   listExclusivelyBoundToWorkspace(workspaceId: string): AgentHost[];
 }
 
@@ -68,6 +68,10 @@ type InternalCandidate = {
 };
 
 type CandidateScope = "fleet" | "workspace";
+
+const ACTIVE_HOST_PAGE_SIZE = 100;
+const MAX_ACTIVE_HOSTS_PER_SNAPSHOT = 12_800;
+const MAX_ENDPOINTS_PER_SNAPSHOT = 12_800;
 
 function hashEndpointId(parts: readonly string[]): string {
   const digest = createHash("sha256").update(JSON.stringify(parts), "utf8").digest("base64url");
@@ -175,17 +179,17 @@ export class AgentEndpointCatalog {
     const boundHostIds = new Set(
       this.options.hosts.listExclusivelyBoundToWorkspace(workspaceId).map((host) => host.id)
     );
-    const items = this.currentFleetCandidates(false)
+    const snapshot = this.currentFleetSnapshot(false);
+    const now = this.clock();
+    const items = snapshot.candidates
       .filter((candidate) => boundHostIds.has(candidate.host.id))
       .map((candidate) => {
         const reason = unavailableReason(
           candidate.host,
           workspaceId,
           candidate.profile,
-          this.options.capacities
-            .activeCountsForHosts([candidate.host.id])
-            .get(candidate.host.id) ?? 0,
-          this.clock(),
+          snapshot.activeCounts.get(candidate.host.id) ?? 0,
+          now,
           this.options.hostOfflineAfterMs,
           this.profileIdentityCount(candidate.host, candidate.profile) !== 1,
           "workspace",
@@ -330,8 +334,15 @@ export class AgentEndpointCatalog {
   }
 
   private currentFleetCandidates(enforceCapacity: boolean): InternalCandidate[] {
+    return this.currentFleetSnapshot(enforceCapacity).candidates;
+  }
+
+  private currentFleetSnapshot(enforceCapacity: boolean): {
+    candidates: InternalCandidate[];
+    activeCounts: ReadonlyMap<string, number>;
+  } {
     const now = this.clock();
-    const hosts = this.options.hosts.listActiveHosts();
+    const hosts = this.listAllActiveHosts();
     const activeCounts = this.options.capacities.activeCountsForHosts(hosts.map((host) => host.id));
     const candidates: InternalCandidate[] = [];
     for (const host of hosts) {
@@ -374,8 +385,33 @@ export class AgentEndpointCatalog {
         });
         assertRemoteAgentEndpointRedacted(endpoint);
         candidates.push({ endpoint, host, profile });
+        if (candidates.length > MAX_ENDPOINTS_PER_SNAPSHOT) {
+          throw new Error("agent_endpoint_snapshot_limit_exceeded");
+        }
       }
     }
-    return candidates;
+    return { candidates, activeCounts };
+  }
+
+  private listAllActiveHosts(): AgentHost[] {
+    const hosts: AgentHost[] = [];
+    const seenHostIds = new Set<string>();
+    let offset = 0;
+    while (offset <= MAX_ACTIVE_HOSTS_PER_SNAPSHOT) {
+      const limit = Math.min(ACTIVE_HOST_PAGE_SIZE, MAX_ACTIVE_HOSTS_PER_SNAPSHOT - offset + 1);
+      const page = this.options.hosts.listActiveHosts(limit, offset);
+      if (page.length > limit) throw new Error("agent_endpoint_host_page_invalid");
+      for (const host of page) {
+        if (seenHostIds.has(host.id)) throw new Error("agent_endpoint_host_page_unstable");
+        seenHostIds.add(host.id);
+        hosts.push(host);
+        if (hosts.length > MAX_ACTIVE_HOSTS_PER_SNAPSHOT) {
+          throw new Error("agent_endpoint_host_limit_exceeded");
+        }
+      }
+      if (page.length < limit) return hosts;
+      offset += page.length;
+    }
+    throw new Error("agent_endpoint_host_page_invalid");
   }
 }
