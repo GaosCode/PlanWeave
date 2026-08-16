@@ -7,7 +7,13 @@ import { acpConversationTurns } from "../autoRun/acpConversationTurn.js";
 import { acpEventReadModels } from "../autoRun/acpEventReadModel.js";
 import { AcpSessionController } from "../autoRun/acpSessionController.js";
 import { normalizedRunnerEventSchema } from "../autoRun/normalizedEventContract.js";
-import { getRunRecord, sendAgentPrompt, subscribeRunRecord } from "../desktop/recordsApi.js";
+import { getRunRecord, subscribeRunRecord } from "../desktop/recordsApi.js";
+import {
+  cancelAgentPromptTurn,
+  getCurrentAgentPromptTurn,
+  sendAgentPrompt as sendAgentPromptRequest
+} from "../desktop/agentPromptTurnApi.js";
+import type { DesktopAgentPromptIdentity } from "../desktop/types/acpBridgeTypes.js";
 import { consumeAcpPromptRunRecord, resolveAcpPromptContext } from "../desktop/acpPromptApi.js";
 import { writeJsonFile } from "../json.js";
 import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
@@ -22,6 +28,20 @@ import { trustCommand } from "../taskManager/hookTrustStore.js";
 
 const fixture = fileURLToPath(new URL("./support/acpMockAgent.mjs", import.meta.url));
 const originalPath = process.env.PATH;
+let promptTurnSequence = 0;
+
+function sendAgentPrompt(identity: DesktopAgentPromptIdentity, text: string) {
+  promptTurnSequence += 1;
+  return sendAgentPromptRequest({
+    version: "planweave.send-agent-prompt/v1",
+    identity: {
+      ...identity,
+      version: "planweave.agent-prompt-turn/v1",
+      turnId: `00000000-0000-4000-8000-${String(promptTurnSequence).padStart(12, "0")}`
+    },
+    text
+  });
+}
 
 afterEach(() => {
   process.env.PATH = originalPath;
@@ -95,6 +115,7 @@ async function completedRecord(
     terminalState?: "succeeded" | "failed";
     artifactValidated?: boolean;
     trustPackageProfile?: boolean;
+    controlDir?: string;
   } = {}
 ) {
   const manifest = basicManifest();
@@ -150,7 +171,9 @@ async function completedRecord(
   );
   await writeFile(
     executable,
-    `#!/bin/sh\nexec "${process.execPath}" "${fixture}" ${scenario}\n`,
+    `#!/bin/sh\nexec "${process.execPath}" "${fixture}" ${scenario}${
+      options.controlDir ? ` --control-dir ${JSON.stringify(options.controlDir)}` : ""
+    }\n`,
     "utf8"
   );
   await chmod(executable, 0o755);
@@ -278,6 +301,51 @@ describe("Desktop ACP prompt continuation", () => {
     expect(
       snapshots.at(-1)?.conversation.some((item) => item.content.includes("hello from session-1"))
     ).toBe(true);
+  });
+
+  it("cancels a signal-ignoring prompt and reaps its derived process tree", async () => {
+    const controlDir = await mkdtemp(join(tmpdir(), "planweave-acp-cancel-tree-"));
+    const prepared = await completedRecord("codex", "load-capable-stubborn-child", {
+      controlDir
+    });
+    const identity = identityFor(prepared);
+    const turnIdentity = {
+      ...identity,
+      version: "planweave.agent-prompt-turn/v1" as const,
+      turnId: "99999999-9999-4999-8999-999999999999"
+    };
+    const sending = sendAgentPromptRequest({
+      version: "planweave.send-agent-prompt/v1",
+      identity: turnIdentity,
+      text: "block until cancelled"
+    });
+    const readyPath = join(controlDir, "ready");
+    const descendantPath = join(controlDir, "descendant-pid");
+    await vi.waitFor(
+      async () => {
+        expect(await readFile(readyPath, "utf8")).toMatch(/^\d+\n$/);
+        expect(await readFile(descendantPath, "utf8")).toMatch(/^\d+\n$/);
+      },
+      { timeout: 5_000 }
+    );
+    const rootPid = Number.parseInt(await readFile(readyPath, "utf8"), 10);
+    const descendantPid = Number.parseInt(await readFile(descendantPath, "utf8"), 10);
+
+    const current = await getCurrentAgentPromptTurn(identity);
+    expect(current).toMatchObject({ found: true, state: { identity: turnIdentity } });
+    if (!current.found) throw new Error("Expected an active continuation turn.");
+    await expect(cancelAgentPromptTurn(current.state.identity)).resolves.toMatchObject({
+      outcome: "cancel_requested"
+    });
+    await expect(sending).resolves.toMatchObject({ terminal: "cancelled" });
+
+    await vi.waitFor(
+      () => {
+        expect(() => process.kill(rootPid, 0)).toThrow();
+        expect(() => process.kill(descendantPid, 0)).toThrow();
+      },
+      { timeout: 5_000 }
+    );
   });
 
   it("rejects stale identity, path traversal, and non-succeeded terminal metadata", async () => {

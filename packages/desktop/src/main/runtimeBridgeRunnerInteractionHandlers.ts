@@ -1,10 +1,15 @@
 import {
   agentRunControlRespondOutcomeSchema,
   cancelDesktopAgentRun,
+  cancelAgentPromptTurn,
+  desktopAgentPromptTurnCancelResultSchema,
+  desktopAgentPromptIdentitySchema,
+  desktopAgentPromptTurnIdentitySchema,
+  desktopAgentPromptTurnQueryResultSchema,
+  desktopAgentPromptTurnStateSchema,
   desktopAgentActionIdentitySchema,
   desktopAgentActionValueSchema,
-  desktopAgentPromptIdentitySchema,
-  desktopAgentPromptTextSchema,
+  desktopSendAgentPromptRequestSchema,
   desktopAgentSessionActionIdentitySchema,
   listDesktopPendingAgentRequests,
   listPendingRunnerInteractions,
@@ -19,6 +24,8 @@ import {
   runnerInteractionErrorCodeSchema,
   runnerPermissionInteractionDecisionSchema,
   RunnerInteractionApiError,
+  getCurrentAgentPromptTurn,
+  getAgentPromptTurn,
   sendAgentPrompt
 } from "@planweave-ai/runtime";
 import { z } from "zod";
@@ -109,9 +116,20 @@ export const runtimeBridgeRunnerInteractionHandlers = {
   },
   cancelAgentRun: (_event, ref, recordId, identity) =>
     cancelDesktopAgentRun(ref, recordId, desktopAgentSessionActionIdentitySchema.parse(identity)),
-  sendAgentPrompt: (_event, identity, text) =>
-    sendAgentPrompt(
-      desktopAgentPromptIdentitySchema.parse(identity),
-      desktopAgentPromptTextSchema.parse(text)
+  sendAgentPrompt: async (_event, request) =>
+    desktopAgentPromptTurnStateSchema.parse(
+      await sendAgentPrompt(desktopSendAgentPromptRequestSchema.parse(request))
+    ),
+  getAgentPromptTurn: async (_event, identity) =>
+    desktopAgentPromptTurnQueryResultSchema.parse(
+      await getAgentPromptTurn(desktopAgentPromptTurnIdentitySchema.parse(identity))
+    ),
+  getCurrentAgentPromptTurn: async (_event, identity) =>
+    desktopAgentPromptTurnQueryResultSchema.parse(
+      await getCurrentAgentPromptTurn(desktopAgentPromptIdentitySchema.parse(identity))
+    ),
+  cancelAgentPromptTurn: async (_event, identity) =>
+    desktopAgentPromptTurnCancelResultSchema.parse(
+      await cancelAgentPromptTurn(desktopAgentPromptTurnIdentitySchema.parse(identity))
     )
 } satisfies Partial<RuntimeBridgeHandlerMap>;

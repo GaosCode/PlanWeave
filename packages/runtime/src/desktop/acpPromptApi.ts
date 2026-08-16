@@ -1,6 +1,10 @@
 import { basename, dirname } from "node:path";
 import { z } from "zod";
 import { acpConversationTurns } from "../autoRun/acpConversationTurn.js";
+import type {
+  AcpConversationTurnIdentity,
+  AcpConversationTurnState
+} from "../autoRun/acpConversationTurnContract.js";
 import { acpEventReadModels } from "../autoRun/acpEventReadModel.js";
 import {
   createAcpEventSubscriptionCloseResult,
@@ -430,8 +434,9 @@ export async function consumeAcpPromptRunRecord(
 export async function continueAcpPrompt(options: {
   workspace: ProjectWorkspace;
   context: Extract<AcpPromptContext, { available: true }> & { mode: "completed" };
+  identity: AcpConversationTurnIdentity;
   text: string;
-}): Promise<void> {
+}): Promise<AcpConversationTurnState> {
   const { manifest } = await loadPackage(options.workspace);
   const executor = resolveAcpPromptProfile(manifest.executors, options.context.metadata);
   const resolved = await resolveAcpExecutionProfile({
@@ -453,10 +458,10 @@ export async function continueAcpPrompt(options: {
     );
   }
   const definition = optionalAgentDefinition(resolved.profile.agentId);
-  await acpConversationTurns.send({
+  return acpConversationTurns.send({
     key: options.context.runDir,
+    identity: options.identity,
     cwd: workspaceExecutionCwd(options.workspace),
-    sessionId: options.context.metadata.sessionId,
     profile: resolved.profile,
     environment: resolved.environment,
     authenticationHints: definition?.acp.authentication,

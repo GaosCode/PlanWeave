@@ -248,6 +248,12 @@ export {
   desktopAgentSessionActionIdentitySchema,
   desktopAgentPromptIdentitySchema,
   desktopAgentPromptTextSchema,
+  desktopAgentPromptTurnCancelResultSchema,
+  desktopAgentPromptTurnIdentitySchema,
+  desktopAgentPromptTurnPhaseSchema,
+  desktopAgentPromptTurnQueryResultSchema,
+  desktopAgentPromptTurnStateSchema,
+  desktopSendAgentPromptRequestSchema,
   desktopAgentActionValueSchema,
   listPendingRunnerInteractionsResultSchema,
   respondToRunnerInteractionResultSchema,
@@ -299,9 +305,14 @@ export {
   listTaskFeedbackRunRecords,
   resolveRunRecordArtifactPath,
   runIndexAsProjectionRecord,
-  sendAgentPrompt,
   subscribeRunRecord
 } from "./recordsApi.js";
+export {
+  cancelAgentPromptTurn,
+  getAgentPromptTurn,
+  getCurrentAgentPromptTurn,
+  sendAgentPrompt
+} from "./agentPromptTurnApi.js";
 export {
   listPendingRunnerInteractions,
   respondToRunnerInteraction,

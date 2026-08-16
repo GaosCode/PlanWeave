@@ -1,5 +1,5 @@
 import type { DesktopBridgeApi } from "@planweave-ai/runtime";
-import { SendIcon } from "lucide-react";
+import { SendIcon, StopCircleIcon } from "lucide-react";
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,8 @@ type ComposerApi = Partial<
   Pick<
     DesktopBridgeApi,
     | "cancelAgentRun"
+    | "cancelAgentPromptTurn"
+    | "getCurrentAgentPromptTurn"
     | "recoverTaskWorkspaceAcpRun"
     | "respondToAgentRequest"
     | "retryTaskWorkspaceRun"
@@ -166,7 +168,9 @@ function AcpComposer({
   const prompt = useAgentPrompt({
     api,
     identity: promptIdentity,
-    runtimeInFlight: model.intervention.prompt.inFlight
+    runtimeInFlight: model.intervention.prompt.inFlight,
+    runtimeVersion: model,
+    completedContinuation: model.terminal
   });
 
   const promptAvailable =
@@ -218,6 +222,18 @@ function AcpComposer({
               controller={cancelController}
               errorLabel={t("acpActionError")}
             />
+            {prompt.turnCancellable ? (
+              <Button
+                aria-label={t("acpCancelPromptTurn")}
+                disabled={prompt.cancelling}
+                onClick={() => void prompt.cancel()}
+                size="icon-sm"
+                type="button"
+                variant="outline"
+              >
+                <StopCircleIcon />
+              </Button>
+            ) : null}
             <Button
               aria-label={t("acpSendPrompt")}
               disabled={disabled || !draft.trim()}
@@ -230,7 +246,9 @@ function AcpComposer({
           </div>
         </div>
         {prompt.inFlight ? (
-          <p className="px-1 pt-1 text-[11px] text-muted-foreground">{t("acpPromptSending")}</p>
+          <p className="px-1 pt-1 text-[11px] text-muted-foreground">
+            {prompt.cancelling ? t("acpPromptCancelling") : t("acpPromptSending")}
+          </p>
         ) : null}
         {prompt.error ? (
           <p className="px-1 pt-1 text-xs text-destructive" role="alert">

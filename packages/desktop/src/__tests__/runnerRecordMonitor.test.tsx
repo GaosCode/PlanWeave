@@ -19,6 +19,7 @@ import {
 import { AcpSessionController } from "../../../runtime/src/autoRun/acpSessionController";
 import { acpEventReadModels } from "../../../runtime/src/autoRun/acpEventReadModel";
 import { readRunnerRecordReadModel } from "../../../runtime/src/autoRun/runnerRecordReadModel";
+import { acpProfileTestValues } from "../../../runtime/src/__tests__/support/acpProfileTestValues";
 import { RunnerRecordMonitor } from "../renderer/inspector/RunnerRecordMonitor";
 import { AcpConversationTimeline } from "../renderer/inspector/AcpConversationTimeline";
 import { BlockRunRecordCard } from "../renderer/inspector/BlockRunRecordCard";
@@ -288,7 +289,15 @@ describe("ACP runner record monitor", () => {
       claimRef: "T-001#B-001",
       sessionId: "session-1"
     });
-    const sendAgentPrompt = vi.fn(async () => undefined);
+    const sendAgentPrompt = vi.fn(
+      async (request: Parameters<DesktopBridgeApi["sendAgentPrompt"]>[0]) => ({
+        identity: request.identity,
+        phase: "terminal" as const,
+        terminal: "succeeded" as const,
+        cancellationRequested: false,
+        cancellable: false
+      })
+    );
     const bridgeApi = api({ sendAgentPrompt });
     render(
       <RunnerRecordMonitor
@@ -311,7 +320,15 @@ describe("ACP runner record monitor", () => {
     fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
     expect(sendAgentPrompt).not.toHaveBeenCalled();
     fireEvent.keyDown(input, { key: "Enter" });
-    expect(sendAgentPrompt).toHaveBeenCalledWith(identity, "Continue with tests");
+    expect(sendAgentPrompt).toHaveBeenCalledWith({
+      version: "planweave.send-agent-prompt/v1",
+      identity: expect.objectContaining({
+        ...identity,
+        version: "planweave.agent-prompt-turn/v1",
+        turnId: expect.any(String)
+      }),
+      text: "Continue with tests"
+    });
     await vi.waitFor(() => expect(input).toHaveValue(""));
     expect(bridgeApi.subscribeRunnerRecord).toHaveBeenCalledTimes(1);
   });
@@ -324,10 +341,10 @@ describe("ACP runner record monitor", () => {
       claimRef: "T-001#B-001",
       sessionId: "session-1"
     });
-    let resolveSend!: () => void;
+    let resolveSend!: (value: Awaited<ReturnType<DesktopBridgeApi["sendAgentPrompt"]>>) => void;
     const sendAgentPrompt = vi.fn(
       () =>
-        new Promise<void>((resolve) => {
+        new Promise<Awaited<ReturnType<DesktopBridgeApi["sendAgentPrompt"]>>>((resolve) => {
           resolveSend = resolve;
         })
     );
@@ -351,7 +368,17 @@ describe("ACP runner record monitor", () => {
     });
 
     expect(sendAgentPrompt).toHaveBeenCalledTimes(1);
-    await act(async () => resolveSend());
+    const request = sendAgentPrompt.mock.calls[0]?.[0];
+    if (!request) throw new Error("Expected prompt request.");
+    await act(async () =>
+      resolveSend({
+        identity: request.identity,
+        phase: "terminal",
+        terminal: "succeeded",
+        cancellationRequested: false,
+        cancellable: false
+      })
+    );
   });
 
   it("reopens a terminal prompt subscription while a follow-up is in flight", () => {
@@ -452,7 +479,10 @@ describe("ACP runner record monitor", () => {
           metadataPath: join(root, "metadata.json"),
           prompt: "artifact-implementation",
           cwd: root,
-          launch: { command: process.execPath, args: [acpFixture, "artifact-implementation"] },
+          ...acpProfileTestValues({
+            command: process.execPath,
+            args: [acpFixture, "artifact-implementation"]
+          }),
           executorName: "mock-acp",
           agentId: "codex",
           taskId: "T-001",

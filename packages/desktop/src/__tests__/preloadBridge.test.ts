@@ -194,19 +194,52 @@ describe("preload bridge invocation", () => {
     await import("../preload/preload");
     const api = electronMock.exposed.get("planweave") as DesktopBridgeApi;
     const identity = {
+      version: "planweave.agent-prompt-turn/v1" as const,
       ref: { projectRoot: "/tmp/project", canvasId: "canvas-a" },
       recordId: "T-001#B-001::RUN-001",
       executorRunId: "RUN-001",
       claimRef: "T-001#B-001",
-      sessionId: "session-1"
+      sessionId: "session-1",
+      turnId: "11111111-1111-4111-8111-111111111111"
+    };
+    const request = {
+      version: "planweave.send-agent-prompt/v1" as const,
+      identity,
+      text: "continue"
     };
 
-    await api.sendAgentPrompt(identity, "continue");
+    await api.sendAgentPrompt(request);
+    await api.getCurrentAgentPromptTurn({
+      ref: identity.ref,
+      recordId: identity.recordId,
+      executorRunId: identity.executorRunId,
+      claimRef: identity.claimRef,
+      sessionId: identity.sessionId
+    });
+    await api.getAgentPromptTurn(identity);
+    await api.cancelAgentPromptTurn(identity);
 
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
       desktopBridgeInvokeChannels.sendAgentPrompt,
-      identity,
-      "continue"
+      request
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      desktopBridgeInvokeChannels.getCurrentAgentPromptTurn,
+      {
+        ref: identity.ref,
+        recordId: identity.recordId,
+        executorRunId: identity.executorRunId,
+        claimRef: identity.claimRef,
+        sessionId: identity.sessionId
+      }
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      desktopBridgeInvokeChannels.getAgentPromptTurn,
+      identity
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      desktopBridgeInvokeChannels.cancelAgentPromptTurn,
+      identity
     );
   });
 

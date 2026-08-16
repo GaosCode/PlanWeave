@@ -136,9 +136,25 @@ describe("runner record desktop bridge", () => {
     const sendPrompt = electronMock.handlers.get(desktopBridgeInvokeChannels.sendAgentPrompt);
 
     expect(sendPrompt).toBeTypeOf("function");
-    expect(() =>
-      sendPrompt?.({ sender: sender(99) }, { recordId: "../../escape" }, "continue")
-    ).toThrow();
+    await expect(
+      sendPrompt?.(
+        { sender: sender(99) },
+        {
+          version: "planweave.send-agent-prompt/v1",
+          identity: { recordId: "../../escape" },
+          text: "continue"
+        }
+      )
+    ).rejects.toThrow();
+    expect(electronMock.handlers.get(desktopBridgeInvokeChannels.getAgentPromptTurn)).toBeTypeOf(
+      "function"
+    );
+    expect(
+      electronMock.handlers.get(desktopBridgeInvokeChannels.getCurrentAgentPromptTurn)
+    ).toBeTypeOf("function");
+    expect(electronMock.handlers.get(desktopBridgeInvokeChannels.cancelAgentPromptTurn)).toBeTypeOf(
+      "function"
+    );
   });
   beforeEach(async () => {
     await resetRuntimeBridgeMocks();

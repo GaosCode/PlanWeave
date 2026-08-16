@@ -27,6 +27,8 @@ type RunnerRecordMonitorProps = {
           Pick<
             DesktopBridgeApi,
             | "cancelAgentRun"
+            | "cancelAgentPromptTurn"
+            | "getCurrentAgentPromptTurn"
             | "listPendingRunnerInteractions"
             | "respondToAgentRequest"
             | "respondToRunnerInteraction"
@@ -64,7 +66,9 @@ export function RunnerRecordMonitor({
   const prompt = useAgentPrompt({
     api: actionApi,
     identity: model.intervention.prompt.identity,
-    runtimeInFlight: model.intervention.prompt.inFlight
+    runtimeInFlight: model.intervention.prompt.inFlight,
+    runtimeVersion: model,
+    completedContinuation: model.terminal
   });
   const interactionLabel = model.interaction.active
     ? t("acpInteractionLive")

@@ -51,5 +51,7 @@ export const runnerEnCatalog = {
   acpPromptUnavailable: "This session cannot accept another message.",
   acpSendPrompt: "Send message",
   acpPromptSending: "Agent is working…",
-  acpPromptFailed: "Message could not be sent"
+  acpPromptFailed: "Message could not be sent",
+  acpCancelPromptTurn: "Stop follow-up",
+  acpPromptCancelling: "Stopping follow-up…"
 } as const;

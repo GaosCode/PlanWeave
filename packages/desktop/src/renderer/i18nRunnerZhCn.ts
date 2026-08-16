@@ -52,5 +52,7 @@ export const runnerZhCnCatalog = {
   acpPromptUnavailable: "此会话无法继续接收消息。",
   acpSendPrompt: "发送消息",
   acpPromptSending: "Agent 正在处理…",
-  acpPromptFailed: "消息发送失败"
+  acpPromptFailed: "消息发送失败",
+  acpCancelPromptTurn: "停止续聊",
+  acpPromptCancelling: "正在停止续聊…"
 } as const satisfies Record<keyof typeof runnerEnCatalog, string>;

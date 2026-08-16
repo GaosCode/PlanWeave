@@ -8,6 +8,7 @@ import {
   writeFileSync
 } from "node:fs";
 import { join } from "node:path";
+import { spawn } from "node:child_process";
 import { Readable, Writable } from "node:stream";
 import {
   PROTOCOL_VERSION,
@@ -68,6 +69,17 @@ function takeControlFile(name) {
 }
 
 const pause = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+function spawnSignalIgnoringDescendant() {
+  const child = spawn(
+    process.execPath,
+    ["-e", "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"],
+    { stdio: "ignore" }
+  );
+  const path = controlPath("descendant-pid");
+  if (path && child.pid) writeFileSync(path, `${child.pid}\n`, "utf8");
+  process.on("SIGTERM", () => recordLifecycle("SIGTERM ignored"));
+}
 
 /**
  * Harness-owned barrier: while `pause` exists under the control dir, ACP handlers block.
@@ -170,6 +182,7 @@ const app = agent({ name: "planweave-acp-mock" })
           scenario === "load-capable" ||
           scenario === "load-capable-error" ||
           scenario === "load-capable-delayed" ||
+          scenario === "load-capable-stubborn-child" ||
           scenario === "recovery-permission-artifact",
         ...(scenario === "close-capable" || scenario === "close-capable-error"
           ? { sessionCapabilities: { close: {} } }
@@ -397,6 +410,7 @@ const app = agent({ name: "planweave-acp-mock" })
       scenario !== "load-capable" &&
       scenario !== "load-capable-error" &&
       scenario !== "load-capable-delayed" &&
+      scenario !== "load-capable-stubborn-child" &&
       scenario !== "recovery-permission-artifact"
     ) {
       throw RequestError.invalidParams({ sessionId: ctx.params.sessionId });
@@ -479,6 +493,11 @@ const app = agent({ name: "planweave-acp-mock" })
       throw RequestError.invalidParams({ reason: "scripted protocol error" });
     if (scenario === "stubborn-pending") {
       await ctx.client.request("mock/pending", { sessionId });
+    }
+    if (scenario === "load-capable-stubborn-child") {
+      spawnSignalIgnoringDescendant();
+      recordLifecycle("stubborn prompt");
+      await new Promise(() => undefined);
     }
 
     const promptText = ctx.params.prompt.find((part) => part.type === "text")?.text ?? "";

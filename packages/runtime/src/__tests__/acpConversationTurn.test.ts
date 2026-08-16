@@ -5,7 +5,9 @@ import {
   type AcpConversationTurnConnection,
   type AcpConversationTurnConnectionOptions
 } from "../autoRun/acpConversationTurn.js";
+import { acpConversationTurnIdentitySchema } from "../autoRun/acpConversationTurnContract.js";
 import type { NormalizedRunnerEvent } from "../autoRun/normalizedEventContract.js";
+import type { AcpOperationOptions } from "../autoRun/acpConnection.js";
 
 const { execFileMock } = vi.hoisted(() => ({ execFileMock: vi.fn() }));
 
@@ -34,30 +36,55 @@ function createHarness(
     authMethods?: Array<{ id: string; name: string }>;
     rejectUnauthenticatedLoad?: boolean;
     holdPrompt?: boolean;
+    holdAt?: "initialize" | "authenticate" | "loadSession" | "prompt";
+    holdCancel?: boolean;
+    holdDispose?: boolean;
   } = {}
 ) {
   const appended: NormalizedRunnerEvent["body"][] = [];
   const operationOrder: string[] = [];
   let authenticated = false;
   let releasePrompt: (() => void) | null = null;
+  let releaseDispose: (() => void) | null = null;
   let connectionOptions: AcpConversationTurnConnectionOptions | null = null;
+  const operationSignals: AbortSignal[] = [];
+  let cleanupSignal: AbortSignal | undefined;
+  let held = false;
+  const hold = async (
+    phase: NonNullable<typeof options.holdAt>,
+    operation?: AcpOperationOptions
+  ) => {
+    if (operation?.signal) operationSignals.push(operation.signal);
+    if (options.holdAt !== phase || held) return;
+    held = true;
+    await new Promise<never>((_resolve, reject) => {
+      const signal = operation?.signal;
+      if (!signal) throw new Error(`Expected operation signal for ${phase}.`);
+      const abort = () => reject(signal.reason);
+      if (signal.aborted) abort();
+      else signal.addEventListener("abort", abort, { once: true });
+    });
+  };
   const connection: AcpConversationTurnConnection = {
-    initialize: vi.fn(async () => {
+    initialize: vi.fn(async (operation) => {
       operationOrder.push("initialize");
+      await hold("initialize", operation);
       return {
         protocolVersion: 1,
         agentCapabilities: { loadSession: options.loadSession ?? true },
         authMethods: options.authMethods ?? []
       };
     }),
-    authenticate: vi.fn(async () => {
+    authenticate: vi.fn(async (_request, operation) => {
       operationOrder.push("authenticate");
+      await hold("authenticate", operation);
       if (options.authenticateError) throw options.authenticateError;
       authenticated = true;
       return {};
     }),
-    loadSession: vi.fn(async () => {
+    loadSession: vi.fn(async (_request, operation) => {
       operationOrder.push("loadSession");
+      await hold("loadSession", operation);
       if (options.rejectUnauthenticatedLoad && !authenticated) {
         throw new Error("load rejected before authentication");
       }
@@ -65,8 +92,9 @@ function createHarness(
       await connectionOptions?.onSessionUpdate?.(sessionUpdate("replayed"));
       return {};
     }),
-    prompt: vi.fn(async () => {
+    prompt: vi.fn(async (_request, operation) => {
       operationOrder.push("prompt");
+      await hold("prompt", operation);
       await connectionOptions?.onSessionUpdate?.(sessionUpdate("fresh"));
       if (options.holdPrompt) {
         await new Promise<void>((resolve) => {
@@ -76,7 +104,19 @@ function createHarness(
       if (options.promptError) throw options.promptError;
       return { stopReason: "end_turn" };
     }),
-    dispose: vi.fn(async () => undefined)
+    cancel: vi.fn(async () => {
+      operationOrder.push("cancel");
+      if (options.holdCancel) await new Promise(() => undefined);
+    }),
+    dispose: vi.fn(async (operation) => {
+      operationOrder.push("dispose");
+      cleanupSignal = operation?.signal;
+      if (options.holdDispose) {
+        await new Promise<void>((resolve) => {
+          releaseDispose = resolve;
+        });
+      }
+    })
   };
   const connect = vi.fn((input: NonNullable<typeof connectionOptions>) => {
     connectionOptions = input;
@@ -85,8 +125,16 @@ function createHarness(
   const coordinator = new AcpConversationTurnCoordinator(connect);
   const input = {
     key: "/run/RUN-001",
+    identity: acpConversationTurnIdentitySchema.parse({
+      version: "planweave.agent-prompt-turn/v1",
+      ref: { projectRoot: "/workspace", canvasId: "default" },
+      recordId: "T-001#B-001::RUN-001",
+      executorRunId: "RUN-001",
+      claimRef: "T-001#B-001",
+      sessionId: "session-1",
+      turnId: "11111111-1111-4111-8111-111111111111"
+    }),
     cwd: "/workspace",
-    sessionId: "session-1",
     profile: {
       profileId: "codex-acp",
       agentId: "codex",
@@ -114,11 +162,14 @@ function createHarness(
   return {
     appended,
     operationOrder,
+    operationSignals,
     connection,
     connect,
     coordinator,
     input,
-    releasePrompt: () => releasePrompt?.()
+    releasePrompt: () => releasePrompt?.(),
+    releaseDispose: () => releaseDispose?.(),
+    cleanupSignal: () => cleanupSignal
   };
 }
 
@@ -175,11 +226,10 @@ describe("ACP conversation turn", () => {
 
     await harness.coordinator.send(harness.input);
 
-    expect(harness.connection.loadSession).toHaveBeenCalledWith({
-      sessionId: "session-1",
-      cwd: "/workspace",
-      mcpServers: []
-    });
+    expect(harness.connection.loadSession).toHaveBeenCalledWith(
+      { sessionId: "session-1", cwd: "/workspace", mcpServers: [] },
+      { signal: expect.any(AbortSignal) }
+    );
     expect(harness.connect).toHaveBeenCalledWith(
       expect.objectContaining({ defaultTimeoutMs: 45 * 60 * 1_000 })
     );
@@ -188,7 +238,7 @@ describe("ACP conversation turn", () => {
       expect.objectContaining({ kind: "message", role: "assistant", content: "fresh" })
     ]);
     expect(harness.connection.dispose).toHaveBeenCalledOnce();
-    expect(harness.operationOrder).toEqual(["initialize", "loadSession", "prompt"]);
+    expect(harness.operationOrder).toEqual(["initialize", "loadSession", "prompt", "dispose"]);
   });
 
   it("authenticates each new transport before loading the existing session", async () => {
@@ -205,10 +255,16 @@ describe("ACP conversation turn", () => {
       }
     });
 
-    expect(harness.operationOrder).toEqual(["initialize", "authenticate", "loadSession", "prompt"]);
+    expect(harness.operationOrder).toEqual([
+      "initialize",
+      "authenticate",
+      "loadSession",
+      "prompt",
+      "dispose"
+    ]);
     expect(harness.connection.authenticate).toHaveBeenCalledWith(
       { methodId: "cached-login" },
-      undefined
+      { signal: expect.any(AbortSignal) }
     );
   });
 
@@ -222,7 +278,7 @@ describe("ACP conversation turn", () => {
       "headless-safe authentication method"
     );
 
-    expect(harness.operationOrder).toEqual(["initialize", "loadSession"]);
+    expect(harness.operationOrder).toEqual(["initialize", "loadSession", "dispose"]);
     expect(harness.connection.loadSession).toHaveBeenCalledOnce();
     expect(harness.connection.prompt).not.toHaveBeenCalled();
     expect(harness.connection.dispose).toHaveBeenCalledOnce();
@@ -245,7 +301,7 @@ describe("ACP conversation turn", () => {
       })
     ).rejects.toThrow("authentication protocol failure");
 
-    expect(harness.operationOrder).toEqual(["initialize", "authenticate"]);
+    expect(harness.operationOrder).toEqual(["initialize", "authenticate", "dispose"]);
     expect(harness.connection.loadSession).not.toHaveBeenCalled();
     expect(harness.connection.prompt).not.toHaveBeenCalled();
   });
@@ -255,7 +311,7 @@ describe("ACP conversation turn", () => {
 
     await expect(harness.coordinator.send(harness.input)).rejects.toThrow("load failed");
 
-    expect(harness.operationOrder).toEqual(["initialize", "loadSession"]);
+    expect(harness.operationOrder).toEqual(["initialize", "loadSession", "dispose"]);
     expect(harness.connection.prompt).not.toHaveBeenCalled();
   });
 
@@ -267,7 +323,7 @@ describe("ACP conversation turn", () => {
     );
     expect(harness.connection.loadSession).not.toHaveBeenCalled();
     expect(harness.connection.prompt).not.toHaveBeenCalled();
-    expect(harness.operationOrder).toEqual(["initialize"]);
+    expect(harness.operationOrder).toEqual(["initialize", "dispose"]);
   });
 
   it("fails closed when the same record receives concurrent prompts", async () => {
@@ -278,6 +334,208 @@ describe("ACP conversation turn", () => {
     await expect(harness.coordinator.send(harness.input)).rejects.toThrow("already in progress");
     harness.releasePrompt();
     await first;
+  });
+
+  for (const phase of ["initialize", "authenticate", "loadSession", "prompt"] as const) {
+    it(`cancels a completed-run continuation while ${phase} is blocked`, async () => {
+      const harness = createHarness({
+        holdAt: phase,
+        ...(phase === "authenticate"
+          ? { authMethods: [{ id: "cached-login", name: "Cached login" }] }
+          : {})
+      });
+      const input =
+        phase === "authenticate"
+          ? {
+              ...harness.input,
+              authenticationHints: {
+                preferredMethodIds: ["cached-login"],
+                headlessSafeMethodIds: ["cached-login"]
+              }
+            }
+          : harness.input;
+      const sending = harness.coordinator.send(input);
+      await vi.waitFor(() => {
+        const state = harness.coordinator.query(input.key, input.identity);
+        expect(state.found && state.state.phase).toBe(
+          phase === "initialize"
+            ? "initializing"
+            : phase === "authenticate"
+              ? "authenticating"
+              : phase === "loadSession"
+                ? "loading"
+                : "prompting"
+        );
+      });
+
+      const cancelled = await harness.coordinator.cancel(input.key, input.identity);
+
+      expect(cancelled.outcome).toBe("cancel_requested");
+      await expect(sending).resolves.toMatchObject({ terminal: "cancelled" });
+      expect(harness.connection.cancel).toHaveBeenCalledTimes(phase === "prompt" ? 1 : 0);
+      expect(harness.connection.dispose).toHaveBeenCalledOnce();
+      expect(harness.cleanupSignal()).toBeInstanceOf(AbortSignal);
+      expect(harness.cleanupSignal()).not.toBe(harness.operationSignals[0]);
+      expect(harness.cleanupSignal()?.aborted).toBe(false);
+      expect(new Set(harness.operationSignals).size).toBe(1);
+    });
+  }
+
+  it("cancels before connection creation while the turn is starting", async () => {
+    const harness = createHarness();
+    const never = new Promise<never>(() => undefined);
+    const input = { ...harness.input, eventStore: async () => never };
+    const sending = harness.coordinator.send(input);
+    await vi.waitFor(() =>
+      expect(harness.coordinator.query(input.key, input.identity)).toMatchObject({
+        found: true,
+        state: { phase: "starting" }
+      })
+    );
+
+    await expect(harness.coordinator.cancel(input.key, input.identity)).resolves.toMatchObject({
+      outcome: "cancel_requested"
+    });
+    await expect(sending).resolves.toMatchObject({ terminal: "cancelled" });
+    expect(harness.connect).not.toHaveBeenCalled();
+    expect(harness.connection.cancel).not.toHaveBeenCalled();
+  });
+
+  it("dispatches session cancel before aborting prompt and uses an independent cleanup signal", async () => {
+    const harness = createHarness({ holdAt: "prompt" });
+    const sending = harness.coordinator.send(harness.input);
+    await vi.waitFor(() => expect(harness.connection.prompt).toHaveBeenCalledOnce());
+    const operationSignal = harness.operationSignals.at(-1);
+    if (!operationSignal) throw new Error("Expected prompt operation signal.");
+    let abortedWhenCancelDispatched: boolean | null = null;
+    vi.mocked(harness.connection.cancel).mockImplementationOnce(async () => {
+      abortedWhenCancelDispatched = operationSignal.aborted;
+      harness.operationOrder.push("cancel-dispatched");
+    });
+
+    await harness.coordinator.cancel(harness.input.key, harness.input.identity);
+    await expect(sending).resolves.toMatchObject({ terminal: "cancelled" });
+
+    expect(abortedWhenCancelDispatched).toBe(false);
+    expect(operationSignal.aborted).toBe(true);
+    expect(harness.operationOrder.indexOf("cancel-dispatched")).toBeLessThan(
+      harness.operationOrder.indexOf("dispose")
+    );
+    expect(harness.cleanupSignal()).not.toBe(operationSignal);
+    expect(harness.cleanupSignal()?.aborted).toBe(false);
+  });
+
+  it("rejects cancellation atomically after prompting completed and cleanup started", async () => {
+    const harness = createHarness({ holdDispose: true });
+    const sending = harness.coordinator.send(harness.input);
+    await vi.waitFor(() => expect(harness.connection.dispose).toHaveBeenCalledOnce());
+
+    await expect(
+      harness.coordinator.cancel(harness.input.key, harness.input.identity)
+    ).resolves.toMatchObject({
+      outcome: "not_cancellable",
+      state: {
+        phase: "cleaning",
+        terminal: null,
+        cancellationRequested: false,
+        cancellable: false
+      }
+    });
+    expect(harness.connection.cancel).not.toHaveBeenCalled();
+    harness.releaseDispose();
+    await expect(sending).resolves.toMatchObject({
+      terminal: "succeeded",
+      cancellationRequested: false
+    });
+  });
+
+  it("fails closed for the wrong turn identity and makes terminal cancellation idempotent", async () => {
+    const harness = createHarness({ holdAt: "prompt" });
+    const sending = harness.coordinator.send(harness.input);
+    await vi.waitFor(() => expect(harness.connection.prompt).toHaveBeenCalledOnce());
+    const wrongIdentity = {
+      ...harness.input.identity,
+      turnId: "22222222-2222-4222-8222-222222222222"
+    };
+
+    await expect(
+      harness.coordinator.cancel(harness.input.key, wrongIdentity)
+    ).resolves.toMatchObject({
+      outcome: "identity_mismatch"
+    });
+    expect(harness.operationSignals.at(-1)?.aborted).toBe(false);
+    await harness.coordinator.cancel(harness.input.key, harness.input.identity);
+    await expect(sending).resolves.toMatchObject({ terminal: "cancelled" });
+    await expect(
+      harness.coordinator.cancel(harness.input.key, harness.input.identity)
+    ).resolves.toMatchObject({ outcome: "already_terminal" });
+    await expect(
+      harness.coordinator.cancel(harness.input.key, wrongIdentity)
+    ).resolves.toMatchObject({
+      outcome: "not_found"
+    });
+  });
+
+  it("recovers the active turn from its stable persisted run identity", async () => {
+    const harness = createHarness({ holdAt: "prompt" });
+    const sending = harness.coordinator.send(harness.input);
+    await vi.waitFor(() => expect(harness.connection.prompt).toHaveBeenCalledOnce());
+
+    expect(harness.coordinator.current(harness.input.key, harness.input.identity)).toMatchObject({
+      found: true,
+      state: { identity: harness.input.identity, phase: "prompting" }
+    });
+    expect(
+      harness.coordinator.current(harness.input.key, {
+        ...harness.input.identity,
+        sessionId: "wrong-session"
+      })
+    ).toMatchObject({ found: false, reason: "identity_mismatch" });
+
+    await harness.coordinator.cancel(harness.input.key, harness.input.identity);
+    await expect(sending).resolves.toMatchObject({ terminal: "cancelled" });
+  });
+
+  it("bounds retained terminal turns across many run records", async () => {
+    const harness = createHarness();
+    const coordinator = new AcpConversationTurnCoordinator(harness.connect, {
+      terminalLimit: 3,
+      terminalTtlMs: 60_000
+    });
+    const identities = [];
+    for (let index = 1; index <= 5; index += 1) {
+      const suffix = String(index).padStart(12, "0");
+      const identity = acpConversationTurnIdentitySchema.parse({
+        ...harness.input.identity,
+        recordId: `T-001#B-001::RUN-${index}`,
+        executorRunId: `RUN-${index}`,
+        turnId: `00000000-0000-4000-8000-${suffix}`
+      });
+      identities.push(identity);
+      await coordinator.send({ ...harness.input, key: `/run/RUN-${index}`, identity });
+    }
+
+    expect(coordinator.terminalCount()).toBe(3);
+    expect(coordinator.query("/run/RUN-1", identities[0]!)).toMatchObject({ found: false });
+    expect(coordinator.query("/run/RUN-5", identities[4]!)).toMatchObject({ found: true });
+  });
+
+  it("allows a new turn after cancellation without retaining active state", async () => {
+    const harness = createHarness({ holdAt: "prompt" });
+    const first = harness.coordinator.send(harness.input);
+    await vi.waitFor(() => expect(harness.connection.prompt).toHaveBeenCalledOnce());
+    await harness.coordinator.cancel(harness.input.key, harness.input.identity);
+    await expect(first).resolves.toMatchObject({ terminal: "cancelled" });
+    const retryIdentity = {
+      ...harness.input.identity,
+      turnId: "33333333-3333-4333-8333-333333333333"
+    };
+
+    await expect(
+      harness.coordinator.send({ ...harness.input, identity: retryIdentity })
+    ).resolves.toMatchObject({ terminal: "succeeded" });
+    expect(harness.coordinator.isInFlight(harness.input.key)).toBe(false);
+    expect(harness.connection.prompt).toHaveBeenCalledTimes(2);
   });
 
   it("records a prompt error without changing the original terminal outcome", async () => {

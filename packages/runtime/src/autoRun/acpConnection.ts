@@ -115,7 +115,7 @@ export type AcpConnection = {
     request: SetSessionConfigOptionRequest,
     options?: AcpOperationOptions
   ): Promise<SetSessionConfigOptionResponse>;
-  dispose(): Promise<void>;
+  dispose(options?: AcpOperationOptions): Promise<void>;
 };
 
 export type CreateAcpConnectionOptions = {
@@ -380,9 +380,40 @@ class SubprocessAcpConnection implements AcpConnection {
     );
   }
 
-  dispose(): Promise<void> {
+  dispose(options?: AcpOperationOptions): Promise<void> {
     this.disposePromise ??= this.disposeProcess();
-    return this.disposePromise;
+    if (!options) return this.disposePromise;
+    return this.waitForDisposal(this.disposePromise, options);
+  }
+
+  private async waitForDisposal(
+    disposal: Promise<void>,
+    options: AcpOperationOptions
+  ): Promise<void> {
+    const timeoutMs = options.timeoutMs ?? DEFAULT_ACP_OPERATION_TIMEOUT_MS;
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+      throw new Error("ACP dispose timeout must be a positive integer.");
+    }
+    if (options.signal?.aborted) {
+      throw asError(options.signal.reason, "ACP dispose aborted.");
+    }
+    let rejectAbort: ((error: Error) => void) | undefined;
+    const boundary = new Promise<never>((_resolve, reject) => {
+      rejectAbort = reject;
+    });
+    const abort = (): void =>
+      rejectAbort?.(asError(options.signal?.reason, "ACP dispose aborted."));
+    options.signal?.addEventListener("abort", abort, { once: true });
+    const timer = setTimeout(
+      () => rejectAbort?.(new AcpOperationTimeoutError("dispose", timeoutMs)),
+      timeoutMs
+    );
+    try {
+      await Promise.race([disposal, boundary]);
+    } finally {
+      clearTimeout(timer);
+      options.signal?.removeEventListener("abort", abort);
+    }
   }
 
   private async runOperation<T>(

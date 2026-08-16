@@ -30,6 +30,18 @@ import {
   desktopAgentPromptIdentitySchema,
   type DesktopAgentPromptIdentity
 } from "../../autoRun/runnerRecordReadModelContract.js";
+import {
+  acpConversationTurnCancelResultSchema,
+  acpConversationTurnIdentitySchema,
+  acpConversationTurnPhaseSchema,
+  acpConversationTurnQueryResultSchema,
+  acpConversationTurnStateSchema,
+  type AcpConversationTurnCancelResult,
+  type AcpConversationTurnIdentity,
+  type AcpConversationTurnPhase,
+  type AcpConversationTurnQueryResult,
+  type AcpConversationTurnState
+} from "../../autoRun/acpConversationTurnContract.js";
 
 const nonEmptyStringSchema = z.string().min(1).max(4_096);
 
@@ -178,3 +190,24 @@ export const desktopAgentPromptTextSchema = z
   .min(1)
   .max(64 * 1_024)
   .refine((value) => value.trim().length > 0, "ACP prompt text must not be blank.");
+
+export const desktopAgentPromptTurnIdentitySchema = acpConversationTurnIdentitySchema;
+export type DesktopAgentPromptTurnIdentity = AcpConversationTurnIdentity;
+export const desktopAgentPromptTurnPhaseSchema = acpConversationTurnPhaseSchema;
+export type DesktopAgentPromptTurnPhase = AcpConversationTurnPhase;
+export const desktopAgentPromptTurnStateSchema = acpConversationTurnStateSchema;
+export type DesktopAgentPromptTurnState = AcpConversationTurnState;
+
+export const desktopSendAgentPromptRequestSchema = z
+  .object({
+    version: z.literal("planweave.send-agent-prompt/v1"),
+    identity: desktopAgentPromptTurnIdentitySchema,
+    text: desktopAgentPromptTextSchema
+  })
+  .strict();
+export type DesktopSendAgentPromptRequest = z.infer<typeof desktopSendAgentPromptRequestSchema>;
+
+export const desktopAgentPromptTurnQueryResultSchema = acpConversationTurnQueryResultSchema;
+export type DesktopAgentPromptTurnQueryResult = AcpConversationTurnQueryResult;
+export const desktopAgentPromptTurnCancelResultSchema = acpConversationTurnCancelResultSchema;
+export type DesktopAgentPromptTurnCancelResult = AcpConversationTurnCancelResult;

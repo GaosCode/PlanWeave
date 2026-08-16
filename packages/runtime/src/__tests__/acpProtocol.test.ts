@@ -300,6 +300,50 @@ describe("ACP official SDK subprocess connection", () => {
     await expect(prompt).rejects.toThrow("caller aborted");
   });
 
+  it("applies an independent cleanup boundary after operation abort already started disposal", async () => {
+    const connection = connect("stubborn-pending", {
+      timeoutMs: 5_000,
+      shutdownGraceMs: 25
+    });
+    await connection.initialize();
+    const session = await connection.newSession({ cwd: process.cwd(), mcpServers: [] });
+    const operationController = new AbortController();
+    const prompt = connection.prompt(
+      { sessionId: session.sessionId, prompt: [{ type: "text", text: "wait" }] },
+      { signal: operationController.signal }
+    );
+    operationController.abort(new Error("operation cancelled"));
+    await expect(prompt).rejects.toThrow("operation cancelled");
+
+    const cleanupController = new AbortController();
+    await expect(
+      connection.dispose({ signal: cleanupController.signal, timeoutMs: 1_000 })
+    ).resolves.toBeUndefined();
+    expect(operationController.signal.aborted).toBe(true);
+    expect(cleanupController.signal.aborted).toBe(false);
+  });
+
+  it("keeps a later cleanup deadline effective after operation abort started disposal", async () => {
+    const connection = connect("stubborn-pending", {
+      timeoutMs: 5_000,
+      shutdownGraceMs: 50
+    });
+    await connection.initialize();
+    const session = await connection.newSession({ cwd: process.cwd(), mcpServers: [] });
+    const operationController = new AbortController();
+    const prompt = connection.prompt(
+      { sessionId: session.sessionId, prompt: [{ type: "text", text: "wait" }] },
+      { signal: operationController.signal }
+    );
+    operationController.abort(new Error("operation cancelled"));
+    await expect(prompt).rejects.toThrow("operation cancelled");
+
+    await expect(connection.dispose({ timeoutMs: 1 })).rejects.toThrow(
+      "ACP dispose timed out after 1ms"
+    );
+    await expect(connection.dispose()).resolves.toBeUndefined();
+  });
+
   it("settles initialize on early exit and a pending prompt during disposal", async () => {
     await expect(connect("early-exit").initialize()).rejects.toThrow();
 

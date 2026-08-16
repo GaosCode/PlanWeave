@@ -60,8 +60,13 @@ import type { ClaimResult } from "../../types.js";
 import type { CanvasExecutionPolicyInput } from "../graph/editModelTypes.js";
 import type {
   DesktopAgentActionIdentity,
-  DesktopAgentSessionActionIdentity,
   DesktopAgentPromptIdentity,
+  DesktopAgentSessionActionIdentity,
+  DesktopAgentPromptTurnCancelResult,
+  DesktopAgentPromptTurnIdentity,
+  DesktopAgentPromptTurnQueryResult,
+  DesktopAgentPromptTurnState,
+  DesktopSendAgentPromptRequest,
   DesktopAgentActionValue,
   AgentRunControlRespondOutcome,
   DesktopPendingAgentRequest,
@@ -523,7 +528,16 @@ export type DesktopBridgeApi = {
     recordId: string,
     identity: DesktopAgentSessionActionIdentity
   ): Promise<void>;
-  sendAgentPrompt(identity: DesktopAgentPromptIdentity, text: string): Promise<void>;
+  sendAgentPrompt(request: DesktopSendAgentPromptRequest): Promise<DesktopAgentPromptTurnState>;
+  getAgentPromptTurn(
+    identity: DesktopAgentPromptTurnIdentity
+  ): Promise<DesktopAgentPromptTurnQueryResult>;
+  getCurrentAgentPromptTurn(
+    identity: DesktopAgentPromptIdentity
+  ): Promise<DesktopAgentPromptTurnQueryResult>;
+  cancelAgentPromptTurn(
+    identity: DesktopAgentPromptTurnIdentity
+  ): Promise<DesktopAgentPromptTurnCancelResult>;
   startAutoRun(
     ref: DesktopCanvasReference,
     scope: DesktopAutoRunScope,

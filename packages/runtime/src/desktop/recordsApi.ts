@@ -8,8 +8,6 @@ import {
 import { finalArtifactRelativePath } from "../autoRun/finalArtifactContract.js";
 import {
   readRunnerRecordReadModel,
-  desktopAgentPromptIdentitySchema,
-  type DesktopAgentPromptIdentity,
   type RunnerRecordReadConsumer,
   type RunnerRecordReadSubscriber
 } from "../autoRun/runnerRecordReadModel.js";
@@ -43,13 +41,14 @@ import type { RuntimeContext } from "../taskManager/runtimeContext.js";
 import {
   acpPromptReadOptions,
   consumeAcpPromptRunRecord,
-  continueAcpPrompt,
-  queueLiveAcpPrompt,
   resolveAcpPromptContext
 } from "./acpPromptApi.js";
 import { compareRunDirectoriesNewestFirst } from "./autoRunIdReservations.js";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
-import { desktopAgentPromptTextSchema } from "./types/acpBridgeTypes.js";
+import {
+  desktopAgentPromptIdentitySchema,
+  type DesktopAgentPromptIdentity
+} from "./types/acpBridgeTypes.js";
 import {
   cleanOutputSummary,
   displayMarkdownForRecord,
@@ -959,12 +958,10 @@ export async function subscribeRunRecord(
   });
 }
 
-export async function sendAgentPrompt(
-  rawIdentity: DesktopAgentPromptIdentity,
-  rawText: string
-): Promise<void> {
+export async function resolvePersistedAgentPromptTurnTarget(
+  rawIdentity: DesktopAgentPromptIdentity
+) {
   const identity = desktopAgentPromptIdentitySchema.parse(rawIdentity);
-  const text = desktopAgentPromptTextSchema.parse(rawText);
   const workspace = await resolveTaskCanvasWorkspace(
     identity.ref.projectRoot,
     identity.ref.canvasId
@@ -1002,11 +999,7 @@ export async function sendAgentPrompt(
   ) {
     throw new Error("ACP prompt identity does not match the selected persisted run record.");
   }
-  if (context.mode === "live") {
-    await queueLiveAcpPrompt({ context, text });
-    return;
-  }
-  await continueAcpPrompt({ workspace, context, text });
+  return { identity, workspace, context, runDir };
 }
 
 export async function resolveRunRecordArtifactPath(
