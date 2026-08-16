@@ -41,6 +41,7 @@ import {
   AgentHostInteractionSettlements,
   type AgentHostInteractionIdentity
 } from "./agentHostInteractionSettlements.js";
+import { AgentHostTerminalCompactionRepository } from "./agentHostTerminalCompaction.js";
 import { AgentHostRemoteRecordRelay } from "./agentHostRemoteRecordRelay.js";
 import {
   inWriteTransaction,
@@ -75,6 +76,7 @@ export class AgentHostState implements AgentHostStateRepository {
   private readonly remoteRecords: AgentHostRemoteExecutionRecordStore;
   private readonly remoteRelay: AgentHostRemoteRecordRelay;
   private readonly interactions: AgentHostInteractionSettlements;
+  private readonly terminalCompaction: AgentHostTerminalCompactionRepository;
 
   constructor(
     private readonly database: SqliteDatabase,
@@ -106,6 +108,8 @@ export class AgentHostState implements AgentHostStateRepository {
       this.remoteRecords
     );
     this.interactions = new AgentHostInteractionSettlements(this.executions, this.events);
+    this.terminalCompaction = new AgentHostTerminalCompactionRepository(database);
+    this.terminalCompaction.compact();
   }
 
   close(): void {
@@ -144,11 +148,12 @@ export class AgentHostState implements AgentHostStateRepository {
         ) {
           throw new Error("mailbox_message_conflict");
         }
+      } else if (
+        this.terminalCompaction.inspectMailboxReplay(event, commandDigest) === "compacted"
+      ) {
+        stored = false;
       } else {
-        const latest = this.database
-          .prepare("SELECT MAX(sequence) AS sequence FROM agent_host_inbox")
-          .get();
-        if (event.previousSequence !== Number(latest?.sequence ?? 0)) {
+        if (event.previousSequence !== this.terminalCompaction.receivedHighWater()) {
           throw new Error("mailbox_message_out_of_order");
         }
         if (this.pendingCommandCount() >= this.limits.maxPendingCommands) {
@@ -169,6 +174,7 @@ export class AgentHostState implements AgentHostStateRepository {
             commandDigest,
             receivedAt
           );
+        this.terminalCompaction.recordReceived(event.sequence);
         if (event.command.type === "execute_block") {
           if (!this.executions.insert(event.sequence, event.command, receivedAt)) {
             this.database
@@ -221,12 +227,7 @@ export class AgentHostState implements AgentHostStateRepository {
   }
 
   lastAcknowledgedSequence(): number {
-    const row = this.database
-      .prepare(
-        "SELECT MAX(sequence) AS sequence FROM agent_host_inbox WHERE acknowledged_at IS NOT NULL"
-      )
-      .get();
-    return Number(row?.sequence ?? 0);
+    return this.terminalCompaction.lastAcknowledgedSequence();
   }
 
   pendingEvents(limit = this.limits.maxPendingEvents): HostEvent[] {
@@ -257,8 +258,10 @@ export class AgentHostState implements AgentHostStateRepository {
             "UPDATE agent_host_inbox SET acknowledged_at=COALESCE(acknowledged_at,?) WHERE sequence=?"
           )
           .run(acknowledgement.acknowledgedAt, acknowledgement.event.sequence);
+        this.terminalCompaction.recordAcknowledged(acknowledgement.event.sequence);
       }
       this.executions.acknowledgeTerminalEvent(messageId, acknowledgement.acknowledgedAt);
+      this.terminalCompaction.compactInCurrentTransaction();
       return true;
     });
   }

@@ -669,6 +669,7 @@
         "agentHostEnrollment.test.ts",
         "agentHostHandoffProvenance.test.ts",
         "agentHostExecutionState.test.ts",
+        "agentHostTerminalCompaction.test.ts",
         "agentHostPortableSetup.test.ts",
         "agentHostRecovery.test.ts",
         "agentHostState.test.ts",
