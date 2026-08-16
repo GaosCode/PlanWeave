@@ -101,6 +101,7 @@ import { CollaborationSessionLifecycle } from "./CollaborationSessionLifecycle.j
 import { CanvasReplicaStore } from "./CanvasReplicaStore.js";
 import { CanvasReplicaDiskMirror } from "./CanvasReplicaDiskMirror.js";
 import type { CollaborationCanvasReplicaSignal } from "../../shared/canvasReplicaIpc.js";
+import { resolveCollaborationAuthorityScope } from "./collaborationAuthorityScope.js";
 
 export type CollaborationClientFactory = (
   options: CollaborationClientOptions
@@ -1041,34 +1042,11 @@ export class CollaborationService {
     client: CollaborationClient,
     workItem: WorkItemRef
   ): Promise<CollaborationWorkScope> {
-    const page = await client.registry().listProjects({ limit: 100, cursor: 0 });
-    const match = page.items.find((item) => item.registry.projectId === client.projectId);
-    if (!match) {
-      throw new CollaborationClientError({
-        kind: "forbidden",
-        code: "collaboration_workspace_unresolved",
-        message: "Active project has no authorized Workspace registry entry.",
-        retryable: false
-      });
-    }
-    const workspaceId = match.registry.workspaceId;
-    const projectId = client.projectId;
-    if (workItem.kind === "task") {
-      return {
-        kind: "task",
-        workspaceId,
-        projectId,
-        canvasId: workItem.canvasId,
-        taskId: workItem.taskId
-      };
-    }
-    return {
-      kind: "block",
-      workspaceId,
-      projectId,
-      canvasId: workItem.canvasId,
-      blockRef: workItem.blockRef
-    };
+    return resolveCollaborationAuthorityScope({
+      registry: client.registry(),
+      projectId: client.projectId,
+      workItem
+    });
   }
 
   private publishObserverSignal(signal: CollaborationObserverSignal): void {

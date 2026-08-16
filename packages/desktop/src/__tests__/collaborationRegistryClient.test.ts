@@ -5,6 +5,14 @@ import {
   type RegistryJsonRequest
 } from "../main/collaboration/CollaborationRegistryClient.js";
 import { CollaborationRegistryService } from "../main/collaboration/CollaborationRegistryService.js";
+import type {
+  ProjectAccessPage,
+  ProjectAccessRecord
+} from "@planweave-ai/collaboration-protocol/access/project";
+import {
+  AUTHORITY_PROJECT_MAX_PAGES,
+  resolveCollaborationAuthorityScope
+} from "../main/collaboration/collaborationAuthorityScope.js";
 
 const page = { items: [], nextCursor: null };
 const profileEndpoint = {
@@ -13,6 +21,29 @@ const profileEndpoint = {
   allowedClientOrigins: ["https://collaboration.example/"],
   tlsTrust: "system_ca"
 } as const;
+
+function project(projectId: string, workspaceId = `workspace-${projectId}`): ProjectAccessRecord {
+  return {
+    schemaVersion: "project-access/v1",
+    registry: {
+      projectRegistryId: `registry-${projectId}`,
+      workspaceId,
+      projectId
+    },
+    visibility: "private",
+    acl: { revision: 1, updatedAt: "2030-01-01T00:00:00.000Z" },
+    owner: "human-owner",
+    updatedAt: "2030-01-01T00:00:00.000Z"
+  };
+}
+
+function registry(readPage: (cursor: number) => ProjectAccessPage | Promise<ProjectAccessPage>) {
+  return {
+    listProjects: vi.fn(({ cursor }: { limit: number; cursor: number }) => readPage(cursor))
+  };
+}
+
+const authorityWorkItem = { kind: "task", canvasId: "default", taskId: "T-001" } as const;
 
 describe("CollaborationRegistryClient", () => {
   it("builds bounded registry paths without exposing filesystem fields", async () => {
@@ -144,5 +175,89 @@ describe("CollaborationRegistryService", () => {
     ).resolves.toMatchObject({ outcome: "conflict" });
     await expect(client.registry().listProjects()).rejects.toThrow();
     client.dispose();
+  });
+});
+
+describe("collaboration authority scope pagination", () => {
+  it("resolves an authorized active project after the first 100 registry entries", async () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) => project(`other-${index}`));
+    const projectRegistry = registry((cursor) =>
+      cursor === 0
+        ? { items: firstPage, nextCursor: 100 }
+        : { items: [project("active-project", "active-workspace")], nextCursor: null }
+    );
+
+    await expect(
+      resolveCollaborationAuthorityScope({
+        registry: projectRegistry,
+        projectId: "active-project",
+        workItem: authorityWorkItem
+      })
+    ).resolves.toEqual({
+      kind: "task",
+      workspaceId: "active-workspace",
+      projectId: "active-project",
+      canvasId: "default",
+      taskId: "T-001"
+    });
+    expect(projectRegistry.listProjects.mock.calls.map(([query]) => query)).toEqual([
+      { limit: 100, cursor: 0 },
+      { limit: 100, cursor: 100 }
+    ]);
+  });
+
+  it.each([0, 3])("rejects a non-increasing next cursor %s", async (nextCursor) => {
+    const projectRegistry = registry((cursor) => ({
+      items: [],
+      nextCursor: cursor === 0 ? 5 : nextCursor
+    }));
+
+    await expect(
+      resolveCollaborationAuthorityScope({
+        registry: projectRegistry,
+        projectId: "active-project",
+        workItem: authorityWorkItem
+      })
+    ).rejects.toMatchObject({
+      kind: "protocol",
+      code: "collaboration_authority_project_pagination_invalid",
+      retryable: false
+    });
+  });
+
+  it("bounds an endlessly advancing registry traversal", async () => {
+    const projectRegistry = registry((cursor) => ({ items: [], nextCursor: cursor + 1 }));
+
+    await expect(
+      resolveCollaborationAuthorityScope({
+        registry: projectRegistry,
+        projectId: "active-project",
+        workItem: authorityWorkItem
+      })
+    ).rejects.toMatchObject({
+      kind: "protocol",
+      code: "collaboration_authority_project_pagination_limit_exceeded",
+      retryable: false
+    });
+    expect(projectRegistry.listProjects).toHaveBeenCalledTimes(AUTHORITY_PROJECT_MAX_PAGES);
+  });
+
+  it("fails closed when the active project is absent", async () => {
+    const projectRegistry = registry(() => ({
+      items: [project("other-project")],
+      nextCursor: null
+    }));
+
+    await expect(
+      resolveCollaborationAuthorityScope({
+        registry: projectRegistry,
+        projectId: "active-project",
+        workItem: { kind: "block", canvasId: "default", blockRef: "T-001#B-001" }
+      })
+    ).rejects.toMatchObject({
+      kind: "forbidden",
+      code: "collaboration_workspace_unresolved",
+      retryable: false
+    });
   });
 });
