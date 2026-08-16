@@ -18,6 +18,7 @@ import {
   SqliteAuthoritativeCanvasCommitStore
 } from "./index.js";
 import { attachCanvasPresenceWebSocketServer } from "../presenceWebSocket.js";
+import type { AuthorizationChangeSignal } from "../authorizationChangeSignal.js";
 
 export type CanvasCollaborationExpansion = {
   workspaceId: string;
@@ -34,6 +35,7 @@ export type CanvasCollaborationCompositionOptions = {
   workspaceIdentity: WorkspaceIdentityRepository;
   projectAccess: ProjectAccessRepository;
   projectAuthority: HumanProjectAuthority;
+  authorizationChanges: AuthorizationChangeSignal;
   expansions: readonly CanvasCollaborationExpansion[];
   observerJournal: HumanObserverJournal;
   transportAdmission: TransportAdmissionPolicy;
@@ -52,6 +54,7 @@ export async function createCanvasCollaborationComposition(
     repository: options.identity,
     workspaceIdentity: options.workspaceIdentity,
     projectAuthority: options.projectAuthority,
+    authorizationChanges: options.authorizationChanges,
     maxPayloadBytes: options.maxPayloadBytes,
     shutdownTimeoutMs: options.shutdownTimeoutMs,
     transportAdmission: options.transportAdmission,
@@ -71,6 +74,7 @@ export async function createCanvasCollaborationComposition(
       workspaceIdentity: options.workspaceIdentity,
       projectAccess: options.projectAccess,
       projectAuthority: options.projectAuthority,
+      authorizationChanges: options.authorizationChanges,
       maxPayloadBytes: options.maxPayloadBytes,
       shutdownTimeoutMs: options.shutdownTimeoutMs,
       transportAdmission: options.transportAdmission,
@@ -148,6 +152,7 @@ export async function createCanvasCollaborationComposition(
       repository: options.identity,
       workspaceIdentity: options.workspaceIdentity,
       projectAuthority: options.projectAuthority,
+      authorizationChanges: options.authorizationChanges,
       maxPayloadBytes: options.maxPayloadBytes,
       shutdownTimeoutMs: options.shutdownTimeoutMs,
       transportAdmission: options.transportAdmission,

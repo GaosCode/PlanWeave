@@ -163,6 +163,7 @@ import { canvasLiveSyncRouteFromUrl } from "../canvas/canvasLiveSyncWebSocket.js
 import { HumanIdentityRepository } from "../identity/repository.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import { HumanObserverJournal } from "../humanObserverJournal.js";
+import { AuthorizationChangeSignal } from "../authorizationChangeSignal.js";
 import { createTransportAdmissionPolicyForMode } from "../insecureTransport.js";
 import { applyMigrations } from "../migrations.js";
 import { ProjectAccessRepository } from "../projectAccessRepository.js";
@@ -279,6 +280,7 @@ describe("distributed server composition cleanup", () => {
               scope.workspaceId === "workspace-capture-failure" &&
               scope.projectId === "project-capture-failure"
           },
+          authorizationChanges: new AuthorizationChangeSignal(),
           expansions: [
             {
               workspaceId: "workspace-capture-failure",

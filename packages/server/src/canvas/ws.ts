@@ -23,6 +23,10 @@ import type { WorkspaceIdentityRepository } from "../identity/workspaceRepositor
 import type { WebSocketUpgradeRouter } from "../webSocketUpgradeRouter.js";
 import { isAllowedClientOrigin } from "../clientOrigin.js";
 import { CanvasCommandService } from "./service.js";
+import {
+  AUTHORIZATION_SAFETY_CHECK_INTERVAL_MS,
+  type AuthorizationChangeSignal
+} from "../authorizationChangeSignal.js";
 
 const COMMAND_PATH_PATTERN =
   /^\/api\/v1\/projects\/([^/]+)\/canvases\/([^/]+)\/human\/commands(?:\?.*)?$/;
@@ -33,6 +37,7 @@ export type CanvasCommandWebSocketOptions = {
   repository: HumanIdentityRepository;
   workspaceIdentity: WorkspaceIdentityRepository;
   projectAuthority: HumanProjectAuthority;
+  authorizationChanges: AuthorizationChangeSignal;
   maxPayloadBytes: number;
   shutdownTimeoutMs: number;
   transportAdmission: TransportAdmissionPolicy;
@@ -100,7 +105,10 @@ export function attachCanvasCommandWebSocketServer(
   const webSocketServer = new WebSocketServer({ noServer: true, maxPayload: maxPayloadBytes });
   const sessions = new Set<WebSocket>();
   const clock = options.clock ?? (() => new Date());
-  const authCheckIntervalMs = options.authCheckIntervalMs ?? 250;
+  const authCheckIntervalMs = options.authCheckIntervalMs ?? AUTHORIZATION_SAFETY_CHECK_INTERVAL_MS;
+  if (!Number.isSafeInteger(authCheckIntervalMs) || authCheckIntervalMs < 25) {
+    throw new Error("canvas_command_websocket_auth_interval_invalid");
+  }
 
   const unregister = options.upgradeRouter.register({
     matches(request) {
@@ -148,33 +156,79 @@ export function attachCanvasCommandWebSocketServer(
     webSocketServer.handleUpgrade(request, socket, head, (ws) => {
       sessions.add(ws);
       let closed = false;
-      const close = () => {
+      let authTimer: ReturnType<typeof setTimeout> | undefined;
+      let unsubscribeAuthorization = () => {};
+      const actor = authenticated.actor;
+      const humanPrincipalId = actor.humanPrincipalId;
+      const deviceSessionId =
+        "deviceSessionId" in actor ? actor.deviceSessionId : actor.deviceCredentialId;
+      const cleanup = () => {
         if (closed) return;
         closed = true;
+        if (authTimer) clearTimeout(authTimer);
+        unsubscribeAuthorization();
         sessions.delete(ws);
+      };
+      const close = () => {
+        cleanup();
         if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
           ws.close(1000);
         }
       };
-
-      const authTimer = setInterval(() => {
-        const still = authenticateCollaborationForScope(
-          options.repository,
-          options.workspaceIdentity,
-          options.projectAuthority,
-          request.headers.authorization,
-          route.projectId,
-          route.canvasId
-        );
-        if (!still) {
+      const validateAuthorization = () => {
+        try {
+          const still = authenticateCollaborationForScope(
+            options.repository,
+            options.workspaceIdentity,
+            options.projectAuthority,
+            request.headers.authorization,
+            route.projectId,
+            route.canvasId
+          );
+          if (still && still.workspaceId === authenticated.workspaceId) {
+            const currentActor = still.actor;
+            const currentDeviceSessionId =
+              "deviceSessionId" in currentActor
+                ? currentActor.deviceSessionId
+                : currentActor.deviceCredentialId;
+            if (
+              currentActor.humanPrincipalId === humanPrincipalId &&
+              currentDeviceSessionId === deviceSessionId
+            ) {
+              return true;
+            }
+          }
+          cleanup();
           ws.close(4001, "revoked");
-          close();
+        } catch {
+          cleanup();
+          ws.close(1011, "command authorization error");
         }
-      }, authCheckIntervalMs);
+        return false;
+      };
+      const scheduleAuthorizationSafetyCheck = () => {
+        authTimer = setTimeout(() => {
+          authTimer = undefined;
+          if (validateAuthorization()) scheduleAuthorizationSafetyCheck();
+        }, authCheckIntervalMs);
+      };
+      unsubscribeAuthorization = options.authorizationChanges.subscribe(
+        {
+          workspaceId: authenticated.workspaceId,
+          projectId: route.projectId,
+          humanPrincipalId,
+          deviceSessionId
+        },
+        () => {
+          validateAuthorization();
+        }
+      );
+      scheduleAuthorizationSafetyCheck();
 
       ws.on("message", (data) => {
         void (async () => {
           try {
+            if (!validateAuthorization()) return;
             const raw = parseFrame(data);
             // Reject presence or any non-command durable frames on this channel.
             if (
@@ -233,11 +287,9 @@ export function attachCanvasCommandWebSocketServer(
       });
 
       ws.on("close", () => {
-        clearInterval(authTimer);
-        close();
+        cleanup();
       });
       ws.on("error", () => {
-        clearInterval(authTimer);
         close();
       });
     });

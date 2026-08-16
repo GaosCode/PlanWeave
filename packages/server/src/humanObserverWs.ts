@@ -25,7 +25,10 @@ import {
 } from "./humanObserverJournal.js";
 import type { ProjectAccessRepository } from "./projectAccessRepository.js";
 import type { WebSocketUpgradeRouter } from "./webSocketUpgradeRouter.js";
-import type { AuthorizationChangeSignal } from "./authorizationChangeSignal.js";
+import {
+  AUTHORIZATION_SAFETY_CHECK_INTERVAL_MS,
+  type AuthorizationChangeSignal
+} from "./authorizationChangeSignal.js";
 
 export type HumanObserverWebSocketOptions = {
   upgradeRouter: WebSocketUpgradeRouter;
@@ -44,7 +47,8 @@ export type HumanObserverWebSocketOptions = {
   authorizationSafetyCheckIntervalMs?: number;
 };
 
-export const HUMAN_OBSERVER_AUTHORIZATION_SAFETY_INTERVAL_MS = 30_000;
+export const HUMAN_OBSERVER_AUTHORIZATION_SAFETY_INTERVAL_MS =
+  AUTHORIZATION_SAFETY_CHECK_INTERVAL_MS;
 
 export type HumanObserverDeliveryLimits = {
   replay: HumanObserverReplayLimits;

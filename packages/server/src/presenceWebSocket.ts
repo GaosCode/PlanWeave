@@ -12,6 +12,7 @@ import {
   authenticateCollaborationForScope,
   authenticateCollaborationForProject,
   humanTransportAllowed,
+  type AuthenticatedCollaborationScope,
   type HumanIdentityRepository,
   type HumanProjectAuthority
 } from "./identity/index.js";
@@ -24,6 +25,10 @@ import {
 } from "./presenceHub.js";
 import { isAllowedClientOrigin } from "./clientOrigin.js";
 import type { WebSocketUpgradeRouter } from "./webSocketUpgradeRouter.js";
+import {
+  AUTHORIZATION_SAFETY_CHECK_INTERVAL_MS,
+  type AuthorizationChangeSignal
+} from "./authorizationChangeSignal.js";
 
 export type CanvasPresenceProjectAuthority = HumanProjectAuthority;
 
@@ -35,6 +40,7 @@ export type CanvasPresenceWebSocketOptions = {
   repository: HumanIdentityRepository;
   workspaceIdentity: WorkspaceIdentityRepository;
   projectAuthority: CanvasPresenceProjectAuthority;
+  authorizationChanges: AuthorizationChangeSignal;
   maxPayloadBytes: number;
   shutdownTimeoutMs: number;
   transportAdmission: TransportAdmissionPolicy;
@@ -121,7 +127,7 @@ export function attachCanvasPresenceWebSocketServer(
     new CanvasPresenceHub({ clock: () => (options.clock ?? (() => new Date()))().getTime() });
   const ownsHub = options.hub === undefined;
   const sessions = new Set<WebSocket>();
-  const authCheckIntervalMs = options.authCheckIntervalMs ?? 250;
+  const authCheckIntervalMs = options.authCheckIntervalMs ?? AUTHORIZATION_SAFETY_CHECK_INTERVAL_MS;
   if (!Number.isSafeInteger(authCheckIntervalMs) || authCheckIntervalMs < 25) {
     throw new Error("canvas_presence_auth_interval_invalid");
   }
@@ -133,7 +139,8 @@ export function attachCanvasPresenceWebSocketServer(
   const handleConnection = (
     socket: WebSocket,
     route: ScopedPresenceRoute,
-    authorization: string | string[] | undefined
+    authorization: string | string[] | undefined,
+    authenticated: AuthenticatedCollaborationScope
   ) => {
     sessions.add(socket);
     let initialized = false;
@@ -141,16 +148,32 @@ export function attachCanvasPresenceWebSocketServer(
     let authorizationExpired = false;
     let closedByHub = false;
     let alive = true;
+    let cleanedUp = false;
+    let unsubscribeAuthorization = () => {};
+    let authTimer: ReturnType<typeof setTimeout> | undefined;
     const helloTimer = setTimeout(() => socket.close(4002, "presence hello required"), 10_000);
-    const stillAuthorized = () =>
-      authenticateCollaborationForScope(
+    const actor = authenticated.actor;
+    const humanPrincipalId = actor.humanPrincipalId;
+    const deviceSessionId =
+      "deviceSessionId" in actor ? actor.deviceSessionId : actor.deviceCredentialId;
+    const stillAuthorized = () => {
+      const current = authenticateCollaborationForScope(
         options.repository,
         options.workspaceIdentity,
         options.projectAuthority,
         authorization,
         route.projectId,
         route.canvasId
-      ) !== undefined;
+      );
+      if (!current || current.workspaceId !== route.workspaceId) return false;
+      const currentActor = current.actor;
+      return (
+        currentActor.humanPrincipalId === humanPrincipalId &&
+        ("deviceSessionId" in currentActor
+          ? currentActor.deviceSessionId
+          : currentActor.deviceCredentialId) === deviceSessionId
+      );
+    };
 
     const sendError = (code: CanvasPresenceErrorCode) => {
       send(socket, {
@@ -162,16 +185,41 @@ export function attachCanvasPresenceWebSocketServer(
       });
     };
 
+    const cleanup = (removalReason: CanvasPresenceRemovalReason = "disconnect") => {
+      if (cleanedUp) return;
+      cleanedUp = true;
+      clearTimeout(helloTimer);
+      if (authTimer) clearTimeout(authTimer);
+      clearInterval(heartbeatTimer);
+      unsubscribeAuthorization();
+      sessions.delete(socket);
+      if (sessionId && !closedByHub) hub.leave(sessionId, removalReason);
+    };
+
     const expireAuthorization = () => {
       if (authorizationExpired) return;
       authorizationExpired = true;
       sendError("unauthorized");
-      if (sessionId) hub.leave(sessionId, "revoked");
+      cleanup("revoked");
       socket.close(4001, "presence authorization expired");
     };
-    const authTimer = setInterval(() => {
-      if (!stillAuthorized()) expireAuthorization();
-    }, authCheckIntervalMs);
+    const validateAuthorization = () => {
+      try {
+        if (stillAuthorized()) return true;
+        expireAuthorization();
+      } catch {
+        sendError("server_error");
+        cleanup();
+        socket.close(1011, "presence authorization error");
+      }
+      return false;
+    };
+    const scheduleAuthorizationSafetyCheck = () => {
+      authTimer = setTimeout(() => {
+        authTimer = undefined;
+        if (validateAuthorization()) scheduleAuthorizationSafetyCheck();
+      }, authCheckIntervalMs);
+    };
     const heartbeatTimer = setInterval(() => {
       if (socket.readyState !== WebSocket.OPEN) return;
       if (!alive) {
@@ -198,6 +246,19 @@ export function attachCanvasPresenceWebSocketServer(
       socket.close(closeCodeForRemoval(reason), `presence ${reason}`);
     };
 
+    unsubscribeAuthorization = options.authorizationChanges.subscribe(
+      {
+        workspaceId: route.workspaceId,
+        projectId: route.projectId,
+        humanPrincipalId,
+        deviceSessionId
+      },
+      () => {
+        validateAuthorization();
+      }
+    );
+    scheduleAuthorizationSafetyCheck();
+
     socket.on("message", (data, isBinary) => {
       try {
         if (isBinary) {
@@ -205,10 +266,7 @@ export function attachCanvasPresenceWebSocketServer(
           socket.close(1009, "binary presence frame");
           return;
         }
-        if (!stillAuthorized()) {
-          expireAuthorization();
-          return;
-        }
+        if (!validateAuthorization()) return;
         let raw: unknown;
         try {
           raw = parseFrame(data);
@@ -257,7 +315,7 @@ export function attachCanvasPresenceWebSocketServer(
             humanPrincipalId: authenticated.actor.humanPrincipalId,
             displayName: authenticated.actor.displayName,
             send: (outbound) => {
-              if (stillAuthorized()) send(socket, outbound);
+              if (validateAuthorization()) send(socket, outbound);
             },
             onRemoved
           });
@@ -297,14 +355,10 @@ export function attachCanvasPresenceWebSocketServer(
       }
     });
     socket.on("close", () => {
-      clearTimeout(helloTimer);
-      clearInterval(authTimer);
-      clearInterval(heartbeatTimer);
-      sessions.delete(socket);
-      if (sessionId && !closedByHub) hub.leave(sessionId, "disconnect");
+      cleanup();
     });
     socket.on("error", () => {
-      if (sessionId && !closedByHub) hub.leave(sessionId, "disconnect");
+      cleanup();
     });
   };
 
@@ -346,7 +400,8 @@ export function attachCanvasPresenceWebSocketServer(
         handleConnection(
           webSocket,
           { ...route, workspaceId: authenticated.workspaceId },
-          request.headers.authorization
+          request.headers.authorization,
+          authenticated
         )
       );
     }

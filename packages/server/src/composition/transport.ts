@@ -89,6 +89,7 @@ export async function createTransportComposition(
     workspaceIdentity: input.workspaceIdentity,
     projectAccess: input.projectAccess,
     projectAuthority: input.runtimeRegistry,
+    authorizationChanges: input.authorizationChanges,
     expansions: input.runtimeRegistry.expansions,
     observerJournal: input.humanObserverJournal,
     transportAdmission: input.transportAdmission,

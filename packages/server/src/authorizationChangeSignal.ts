@@ -5,6 +5,8 @@ export type AuthorizationChangeScope = {
   deviceSessionId?: string;
 };
 
+export const AUTHORIZATION_SAFETY_CHECK_INTERVAL_MS = 30_000;
+
 type AuthorizationChangeListener = () => void | Promise<void>;
 type AuthorizationChangeErrorReporter = (error: unknown) => void | Promise<void>;
 

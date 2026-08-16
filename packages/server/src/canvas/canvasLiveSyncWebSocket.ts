@@ -16,6 +16,7 @@ import {
   authenticateCollaborationForProject,
   authenticateCollaborationForScope,
   humanTransportAllowed,
+  type CollaborationAuthContext,
   type HumanIdentityRepository,
   type HumanProjectAuthority
 } from "../identity/index.js";
@@ -26,6 +27,10 @@ import { isAllowedClientOrigin } from "../clientOrigin.js";
 import type { WebSocketUpgradeRouter } from "../webSocketUpgradeRouter.js";
 import { authorizeCanvasRead } from "./policy.js";
 import type { CanvasCommandRepository, CanvasScopeKey } from "./repository.js";
+import {
+  AUTHORIZATION_SAFETY_CHECK_INTERVAL_MS,
+  type AuthorizationChangeSignal
+} from "../authorizationChangeSignal.js";
 
 const LIVE_SYNC_PATH_PATTERN =
   /^\/api\/v1\/projects\/([^/]+)\/canvases\/([^/]+)\/human\/live(?:\?.*)?$/;
@@ -37,6 +42,7 @@ export type CanvasLiveSyncWebSocketOptions = {
   workspaceIdentity: WorkspaceIdentityRepository;
   projectAccess: ProjectAccessRepository;
   projectAuthority: HumanProjectAuthority;
+  authorizationChanges: AuthorizationChangeSignal;
   maxPayloadBytes: number;
   shutdownTimeoutMs: number;
   transportAdmission: TransportAdmissionPolicy;
@@ -58,7 +64,7 @@ export type CanvasLiveSyncWebSocketServer = {
 };
 
 type LiveRoute = { projectId: string; canvasId: string };
-type AuthorizedLiveRoute = LiveRoute & { workspaceId: string };
+type AuthorizedLiveRoute = LiveRoute & { workspaceId: string; actor: CollaborationAuthContext };
 type ReadAuthorization =
   | { ok: true; route: AuthorizedLiveRoute }
   | { ok: false; code: "unauthorized" | "forbidden" | "unknown_canvas" | "cross_scope" };
@@ -133,7 +139,7 @@ export function attachCanvasLiveSyncWebSocketServer(
   if (!Number.isSafeInteger(options.shutdownTimeoutMs) || options.shutdownTimeoutMs < 100) {
     throw new Error("canvas_live_sync_websocket_shutdown_timeout_invalid");
   }
-  const authCheckIntervalMs = options.authCheckIntervalMs ?? 250;
+  const authCheckIntervalMs = options.authCheckIntervalMs ?? AUTHORIZATION_SAFETY_CHECK_INTERVAL_MS;
   if (!Number.isSafeInteger(authCheckIntervalMs) || authCheckIntervalMs < 25) {
     throw new Error("canvas_live_sync_websocket_auth_interval_invalid");
   }
@@ -173,7 +179,7 @@ export function attachCanvasLiveSyncWebSocketServer(
     if (authenticatedScope.workspaceId !== read.scope.workspaceId) {
       return { ok: false, code: "cross_scope" };
     }
-    return { ok: true, route: read.scope };
+    return { ok: true, route: { ...read.scope, actor: authenticatedScope.actor } };
   };
 
   const publishAcceptedEntry = (entry: CanvasJournalEntry): void => {
@@ -244,26 +250,53 @@ export function attachCanvasLiveSyncWebSocketServer(
     sessions.add(socket);
     let initialized = false;
     let authorizationExpired = false;
-    let unsubscribe = () => {};
+    let unsubscribeSubscriber = () => {};
+    let unsubscribeAuthorization = () => {};
     let cleanedUp = false;
     let helloTimer: ReturnType<typeof setTimeout> | undefined;
-    let authTimer: ReturnType<typeof setInterval> | undefined;
+    let authTimer: ReturnType<typeof setTimeout> | undefined;
+    const actor = route.actor;
+    const humanPrincipalId = actor.humanPrincipalId;
+    const deviceSessionId =
+      "deviceSessionId" in actor ? actor.deviceSessionId : actor.deviceCredentialId;
     const cleanup = () => {
       if (cleanedUp) return;
       cleanedUp = true;
       if (helloTimer) clearTimeout(helloTimer);
-      if (authTimer) clearInterval(authTimer);
-      unsubscribe();
+      if (authTimer) clearTimeout(authTimer);
+      unsubscribeSubscriber();
+      unsubscribeAuthorization();
       sessions.delete(socket);
     };
     const currentAuthorization = (): ReadAuthorization => {
       const authorizationResult = authorizeRead(authorization, route);
-      if (authorizationResult.ok && authorizationResult.route.workspaceId !== route.workspaceId) {
-        return { ok: false, code: "cross_scope" };
+      if (authorizationResult.ok) {
+        const currentActor = authorizationResult.route.actor;
+        const currentDeviceSessionId =
+          "deviceSessionId" in currentActor
+            ? currentActor.deviceSessionId
+            : currentActor.deviceCredentialId;
+        if (
+          authorizationResult.route.workspaceId !== route.workspaceId ||
+          currentActor.humanPrincipalId !== humanPrincipalId ||
+          currentDeviceSessionId !== deviceSessionId
+        ) {
+          return { ok: false, code: "cross_scope" };
+        }
       }
       return authorizationResult;
     };
-    const stillAuthorized = () => currentAuthorization().ok;
+    const failAuthorizationValidation = () => {
+      send(socket, {
+        type: "canvas.live.error",
+        protocolVersion: CANVAS_LIVE_SYNC_PROTOCOL_VERSION,
+        projectId: route.projectId,
+        canvasId: route.canvasId,
+        code: "server_error"
+      });
+      cleanup();
+      socket.close(1011, "live sync authorization error");
+    };
     const closeForCatchup = (input: {
       reason: "revision_behind" | "revision_ahead" | "head_changed";
       headRevision: number;
@@ -299,14 +332,38 @@ export function attachCanvasLiveSyncWebSocketServer(
       cleanup();
       socket.close(code === "unauthorized" ? 4001 : 4003, "live sync authorization expired");
     };
+    const validateAuthorization = () => {
+      try {
+        const authorizationResult = currentAuthorization();
+        if (authorizationResult.ok) return true;
+        expireAuthorization(authorizationResult);
+      } catch {
+        failAuthorizationValidation();
+      }
+      return false;
+    };
+    const scheduleAuthorizationSafetyCheck = () => {
+      authTimer = setTimeout(() => {
+        authTimer = undefined;
+        if (validateAuthorization()) scheduleAuthorizationSafetyCheck();
+      }, authCheckIntervalMs);
+    };
     helloTimer = setTimeout(() => {
       cleanup();
       socket.close(4002, "live sync hello required");
     }, 10_000);
-    authTimer = setInterval(() => {
-      const authorizationResult = currentAuthorization();
-      if (!authorizationResult.ok) expireAuthorization(authorizationResult);
-    }, authCheckIntervalMs);
+    unsubscribeAuthorization = options.authorizationChanges.subscribe(
+      {
+        workspaceId: route.workspaceId,
+        projectId: route.projectId,
+        humanPrincipalId,
+        deviceSessionId
+      },
+      () => {
+        validateAuthorization();
+      }
+    );
+    scheduleAuthorizationSafetyCheck();
 
     socket.on("message", (data, isBinary) => {
       if (isBinary) {
@@ -320,10 +377,7 @@ export function attachCanvasLiveSyncWebSocketServer(
         socket.close(1009, "binary live sync frame");
         return;
       }
-      if (!stillAuthorized()) {
-        expireAuthorization();
-        return;
-      }
+      if (!validateAuthorization()) return;
       let raw: unknown;
       try {
         raw = parseFrame(data);
@@ -413,15 +467,15 @@ export function attachCanvasLiveSyncWebSocketServer(
         return;
       }
 
-      unsubscribe = attachSubscriber(route, {
+      unsubscribeSubscriber = attachSubscriber(route, {
         socket,
         lastRevision: message.lastRevision,
-        ensureAuthorized: stillAuthorized,
+        ensureAuthorized: validateAuthorization,
         requireCatchup: closeForCatchup
       });
       const secondHead = options.repository.head(route);
       if (secondHead.revision !== message.lastRevision) {
-        unsubscribe();
+        unsubscribeSubscriber();
         initialized = true;
         clearTimeout(helloTimer);
         send(socket, {

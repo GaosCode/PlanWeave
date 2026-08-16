@@ -20,6 +20,10 @@ import {
   canonicalContentVersionDigestPayload,
   type CompleteContentVersion
 } from "@planweave-ai/collaboration-protocol/content/version";
+import {
+  AUTHORIZATION_SAFETY_CHECK_INTERVAL_MS,
+  AuthorizationChangeSignal
+} from "../authorizationChangeSignal.js";
 
 const servers: HttpServer[] = [];
 const databases: SqliteDatabase[] = [];
@@ -100,7 +104,9 @@ afterEach(async () => {
   );
 });
 
-async function setup() {
+async function setup(
+  options: { publishAuthorizationChanges?: boolean; authCheckIntervalMs?: number } = {}
+) {
   const database = await openServerDatabase(":memory:", 5_000);
   databases.push(database);
   applyMigrations(database);
@@ -123,7 +129,14 @@ async function setup() {
     invitationToken: invitation.invitationToken,
     displayName: "Viewer"
   });
-  const access = new ProjectAccessRepository(database, () => new Date("2026-08-02T00:00:00.000Z"));
+  const authorizationChanges = new AuthorizationChangeSignal();
+  const access = new ProjectAccessRepository(
+    database,
+    () => new Date("2026-08-02T00:00:00.000Z"),
+    options.publishAuthorizationChanges === false
+      ? undefined
+      : (change) => authorizationChanges.publish(change)
+  );
   access.registerProjectInternal({
     workspaceId,
     projectId: "project-live",
@@ -177,9 +190,11 @@ async function setup() {
     workspaceIdentity,
     projectAccess: access,
     projectAuthority,
+    authorizationChanges,
     maxPayloadBytes: 64 * 1024,
     shutdownTimeoutMs: 1_000,
-    transportAdmission: loopbackHttpTransportAdmission
+    transportAdmission: loopbackHttpTransportAdmission,
+    authCheckIntervalMs: options.authCheckIntervalMs
   });
   liveServers.push(live);
   await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
@@ -195,6 +210,7 @@ async function setup() {
     workspaceIdentity,
     repository,
     contentVersions,
+    authorizationChanges,
     scope: { workspaceId, projectId: "project-live", canvasId: "default" },
     ownerToken: owner.deviceToken,
     viewerToken: viewer.deviceToken,
@@ -284,6 +300,10 @@ function commit(
 }
 
 describe("canvas live sync WebSocket", () => {
+  it("uses a 30-second authorization safety interval instead of per-socket 250ms polling", () => {
+    expect(AUTHORIZATION_SAFETY_CHECK_INTERVAL_MS).toBe(30_000);
+  });
+
   it("allows owner and viewer subscriptions, broadcasts ordered entries, and never accepts mutation frames", async () => {
     const fixture = await setup();
     const owner = await connect(fixture.url, fixture.ownerToken);
@@ -392,6 +412,57 @@ describe("canvas live sync WebSocket", () => {
     const expired = nextMessage(viewer);
     const closed = waitForClose(viewer);
     fixture.live.publishAcceptedEntry(commit(fixture.repository, fixture.scope, 1));
+    await expect(expired).resolves.toMatchObject({
+      type: "canvas.live.auth_expired",
+      code: "forbidden"
+    });
+    await expect(closed).resolves.toBe(4003);
+  });
+
+  it("keeps unrelated authorization changes scoped and removes the subscription on close", async () => {
+    const fixture = await setup();
+    const owner = await connect(fixture.url, fixture.ownerToken);
+    const welcome = nextMessage(owner);
+    hello(owner, 0);
+    await expect(welcome).resolves.toMatchObject({ type: "canvas.live.welcome" });
+    expect(fixture.authorizationChanges.subscriberCount()).toBe(1);
+
+    for (const change of [
+      { ...fixture.scope, projectId: "other-project" },
+      { ...fixture.scope, humanPrincipalId: "other-principal" },
+      { ...fixture.scope, deviceSessionId: "other-device" },
+      fixture.scope
+    ]) {
+      fixture.authorizationChanges.publish(change);
+    }
+    const pong = nextMessage(owner);
+    owner.send(JSON.stringify({ type: "canvas.live.ping", protocolVersion: 1 }));
+    await expect(pong).resolves.toMatchObject({ type: "canvas.live.pong" });
+
+    const closed = waitForClose(owner);
+    owner.close(1000, "test complete");
+    await expect(closed).resolves.toBe(1000);
+    await vi.waitFor(() => expect(fixture.authorizationChanges.subscriberCount()).toBe(0));
+  });
+
+  it("uses the safety timer to detect a missed authorization signal", async () => {
+    const fixture = await setup({ publishAuthorizationChanges: false, authCheckIntervalMs: 25 });
+    const viewer = await connect(fixture.url, fixture.viewerToken);
+    const welcome = nextMessage(viewer);
+    hello(viewer, 0);
+    await expect(welcome).resolves.toMatchObject({ type: "canvas.live.welcome" });
+    const expired = nextMessage(viewer);
+    const closed = waitForClose(viewer);
+
+    fixture.access.revoke({
+      workspaceId: fixture.scope.workspaceId,
+      projectId: fixture.scope.projectId,
+      canvasId: fixture.scope.canvasId,
+      grantId: fixture.viewerGrantId,
+      actor: { kind: "human", id: "owner" },
+      expectedAclRevision: 1
+    });
+
     await expect(expired).resolves.toMatchObject({
       type: "canvas.live.auth_expired",
       code: "forbidden"
@@ -534,6 +605,7 @@ describe("canvas live sync WebSocket", () => {
       repository: fixture.identity,
       workspaceIdentity: fixture.workspaceIdentity,
       projectAuthority: fixture.projectAuthority,
+      authorizationChanges: fixture.authorizationChanges,
       maxPayloadBytes: 64 * 1024,
       shutdownTimeoutMs: 1_000,
       transportAdmission: loopbackHttpTransportAdmission
@@ -580,6 +652,17 @@ describe("canvas live sync WebSocket", () => {
       fixture.database.prepare("SELECT status FROM canvas_command_operation_retention_scopes").get()
         ?.status
     ).toBe("repair_required");
+
+    expect(fixture.authorizationChanges.subscriberCount()).toBe(1);
+    const closed = waitForClose(socket);
+    vi.spyOn(fixture.projectAuthority, "hasScope").mockReturnValue(false);
+    fixture.authorizationChanges.publish({
+      workspaceId: fixture.scope.workspaceId,
+      projectId: fixture.scope.projectId,
+      humanPrincipalId: "owner"
+    });
+    await expect(closed).resolves.toBe(4001);
+    await vi.waitFor(() => expect(fixture.authorizationChanges.subscriberCount()).toBe(0));
   });
 
   it("invalidates subscribers from accepted head data without reading the journal repository", async () => {
