@@ -772,6 +772,7 @@ export const enCatalog = {
   hostAdminLocalHostServerConnecting: "Connecting",
   hostAdminLocalHostServerReconnecting: "Reconnecting",
   hostAdminLocalHostServerDegraded: "Degraded",
+  hostAdminLocalHostServerReconciliationRequired: "Reconciliation required",
   hostAdminLocalHostServerAuthFailed: "Authentication failed",
   hostAdminLocalHostServerStopped: "Offline",
   hostAdminLocalHostServerUnknown: "Unknown",

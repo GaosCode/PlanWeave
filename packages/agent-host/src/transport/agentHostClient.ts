@@ -171,6 +171,7 @@ export class AgentHostClient implements HostTransport {
 
   async stop(): Promise<void> {
     if (this.currentStatus.state === "stopped") return;
+    const reconciliationRequired = this.currentStatus.state === "reconciliation-required";
     this.stopped = true;
     this.welcomed = false;
     this.inFlightEventIds.clear();
@@ -189,7 +190,7 @@ export class AgentHostClient implements HostTransport {
     }
     await this.waitBounded(this.processing);
     await this.waitBounded(Promise.allSettled([...this.runs]).then(() => undefined));
-    this.transition({ state: "stopped" });
+    if (!reconciliationRequired) this.transition({ state: "stopped" });
   }
 
   private connect(): void {
@@ -243,8 +244,13 @@ export class AgentHostClient implements HostTransport {
           const event = parseAgentHostServerEvent(JSON.parse(data.toString()));
           await this.handleServerEvent(event);
         })
-        .catch(() => {
-          this.transition({ state: "degraded", reason: "invalid_server_event" });
+        .catch((error: unknown) => {
+          const reason = error instanceof Error ? error.message : "";
+          this.transition(
+            reason === "mailbox_message_retention_horizon_exceeded"
+              ? { state: "reconciliation-required", reason }
+              : { state: "degraded", reason: "invalid_server_event" }
+          );
           this.stopped = true;
           socket.close(4003, "server event rejected");
         })
@@ -499,7 +505,12 @@ export class AgentHostClient implements HostTransport {
   private transition(status: HostTransportStatus): void {
     this.currentStatus = status;
     this.options.logger?.log({
-      level: status.state === "degraded" || status.state === "auth-failed" ? "warn" : "debug",
+      level:
+        status.state === "degraded" ||
+        status.state === "reconciliation-required" ||
+        status.state === "auth-failed"
+          ? "warn"
+          : "debug",
       event: "host_transport_state",
       state: status.state,
       reason: "reason" in status ? status.reason : undefined

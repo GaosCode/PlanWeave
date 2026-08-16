@@ -72,6 +72,15 @@ describe("Agent Host connection status file", () => {
     });
     expect(serializeHostTransportStatus({ state: "stopped" })).toEqual({ state: "stopped" });
     expect(
+      serializeHostTransportStatus({
+        state: "reconciliation-required",
+        reason: "mailbox_message_retention_horizon_exceeded"
+      })
+    ).toEqual({
+      state: "reconciliation-required",
+      reason: "mailbox_message_retention_horizon_exceeded"
+    });
+    expect(
       serializeHostTransportStatus({ state: "degraded", reason: "heartbeat_timeout" })
     ).toEqual({
       state: "degraded",

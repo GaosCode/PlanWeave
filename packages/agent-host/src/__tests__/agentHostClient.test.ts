@@ -669,6 +669,70 @@ describe("Agent Host outbound transport", () => {
     });
   });
 
+  it("surfaces replay beyond the compact receipt horizon as reconciliation-required", async () => {
+    const terminal = deferred<void>();
+    const httpServer = createServer();
+    httpServers.push(httpServer);
+    const webSocketServer = new WebSocketServer({ server: httpServer });
+    webSocketServers.push(webSocketServer);
+    let connectionCount = 0;
+    webSocketServer.on("connection", (socket) => {
+      connectionCount += 1;
+      socket.on("message", (data) => {
+        const event = JSON.parse(data.toString());
+        if (event.type === "host.hello") {
+          sendEvent(socket, welcome());
+          sendEvent(socket, executeDelivery());
+        }
+      });
+    });
+    const port = await listen(httpServer);
+    const durableState = await openState();
+    const state = new Proxy(durableState, {
+      get(target, property, receiver) {
+        if (property === "receive") {
+          return () => {
+            throw new Error("mailbox_message_retention_horizon_exceeded");
+          };
+        }
+        const value = Reflect.get(target, property, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      }
+    });
+    const clock = new FakeHostTransportClock();
+    const client = new AgentHostClient({
+      serverUrl: `http://127.0.0.1:${port}`,
+      hostId: "host-client-001",
+      workspaceId: "workspace-client",
+      token: "host-token",
+      capabilities: ["test"],
+      capacity: 1,
+      state,
+      executor: { execute: vi.fn() },
+      allowInsecureTransport: true,
+      clock
+    });
+    client.subscribe((status) => {
+      if (status.state === "reconciliation-required") terminal.resolve();
+    });
+    clients.push(client);
+    client.start();
+
+    await terminal.promise;
+    clock.advanceBy(60_000);
+    await Promise.resolve();
+    expect(connectionCount).toBe(1);
+    expect(client.status()).toEqual({
+      state: "reconciliation-required",
+      reason: "mailbox_message_retention_horizon_exceeded"
+    });
+    await client.stop();
+    expect(client.status()).toEqual({
+      state: "reconciliation-required",
+      reason: "mailbox_message_retention_horizon_exceeded"
+    });
+  });
+
   it("fails bounded shutdown without closing durable state while an active run ignores abort", async () => {
     const executionStarted = deferred<void>();
     const releaseExecution = deferred<void>();

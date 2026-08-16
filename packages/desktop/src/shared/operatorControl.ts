@@ -250,6 +250,7 @@ export const operatorLocalAgentHostServerConnectionSchema = z
       "connecting",
       "backing-off",
       "degraded",
+      "reconciliation-required",
       "auth-failed",
       "stopped",
       "unknown"

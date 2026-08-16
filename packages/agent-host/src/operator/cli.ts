@@ -247,6 +247,10 @@ export async function waitForAgentHostSignal(
         terminal = true;
         unsubscribe();
         reject(new Error("agent_host_auth_failed"));
+      } else if (status.state === "reconciliation-required") {
+        terminal = true;
+        unsubscribe();
+        reject(new Error("agent_host_mailbox_reconciliation_required"));
       } else if (status.state === "degraded") {
         terminal = true;
         unsubscribe();

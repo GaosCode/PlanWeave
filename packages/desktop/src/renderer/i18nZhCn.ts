@@ -739,6 +739,7 @@ export const zhCnCatalog = {
   hostAdminLocalHostServerConnecting: "连接中",
   hostAdminLocalHostServerReconnecting: "重连中",
   hostAdminLocalHostServerDegraded: "连接降级",
+  hostAdminLocalHostServerReconciliationRequired: "需要对账恢复",
   hostAdminLocalHostServerAuthFailed: "认证失败",
   hostAdminLocalHostServerStopped: "离线",
   hostAdminLocalHostServerUnknown: "未知",

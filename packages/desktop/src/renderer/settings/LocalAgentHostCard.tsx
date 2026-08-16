@@ -55,6 +55,8 @@ function serverConnectionLabel(
       return t("hostAdminLocalHostServerReconnecting");
     case "degraded":
       return t("hostAdminLocalHostServerDegraded");
+    case "reconciliation-required":
+      return t("hostAdminLocalHostServerReconciliationRequired");
     case "auth-failed":
       return t("hostAdminLocalHostServerAuthFailed");
     case "stopped":

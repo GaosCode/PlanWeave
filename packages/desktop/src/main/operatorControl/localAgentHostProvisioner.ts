@@ -201,6 +201,12 @@ async function resolveServerConnection(
           state: "degraded",
           reason: document.transport.reason
         };
+      case "reconciliation-required":
+        return {
+          ...base,
+          state: "reconciliation-required",
+          reason: document.transport.reason
+        };
       case "auth-failed":
         return {
           ...base,

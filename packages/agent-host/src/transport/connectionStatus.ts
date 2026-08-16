@@ -13,6 +13,12 @@ const hostConnectionTransportSchema = z.discriminatedUnion("state", [
   z.object({ state: z.literal("degraded"), reason: z.string().min(1).max(256) }).strict(),
   z
     .object({
+      state: z.literal("reconciliation-required"),
+      reason: z.string().min(1).max(256)
+    })
+    .strict(),
+  z
+    .object({
       state: z.literal("backing-off"),
       attempt: z.number().int().positive(),
       delayMs: z.number().int().nonnegative(),
@@ -47,6 +53,8 @@ export function serializeHostTransportStatus(
       return { state: "connected", connectedAt: status.connectedAt };
     case "degraded":
       return { state: "degraded", reason: status.reason.slice(0, 256) };
+    case "reconciliation-required":
+      return { state: "reconciliation-required", reason: status.reason.slice(0, 256) };
     case "backing-off":
       return {
         state: "backing-off",

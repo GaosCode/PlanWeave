@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentHostOperator } from "../operator/agentHostOperator.js";
+import { writeHostConnectionStatus } from "../transport/connectionStatus.js";
 import {
   assertDurableStateReplacementSafe,
   ensureDurableHostIdentity
@@ -83,6 +84,37 @@ describe("Agent Host operator CLI", () => {
       recoverableExecutions: 0
     });
     expect(JSON.stringify(diagnostics)).not.toContain(root);
+  });
+
+  it("reports durable mailbox reconciliation as an actionable status", async () => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-agent-host-reconciliation-"));
+    directories.push(root);
+    const dataDirectory = join(root, "data");
+    const workspaceRoot = join(root, "workspace");
+    const configPath = join(root, "config.json");
+    await mkdir(dataDirectory, { recursive: true, mode: 0o700 });
+    await mkdir(workspaceRoot, { recursive: true });
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        version: "agent-host-config/v1",
+        coordinator: { url: "http://127.0.0.1:9999", allowInsecureDevelopment: true },
+        dataDirectory,
+        workspaceRoot,
+        host: { displayName: "test-host", capacity: 1, capabilities: ["acp.test"] },
+        workspaces: [],
+        agentProfiles: []
+      })
+    );
+    await writeHostConnectionStatus(dataDirectory, {
+      state: "reconciliation-required",
+      reason: "mailbox_message_retention_horizon_exceeded"
+    });
+
+    await expect(new AgentHostOperator().status(configPath)).resolves.toMatchObject({
+      connection: "offline",
+      actionableError: "mailbox_reconciliation_required"
+    });
   });
 
   it("parses stable commands and rejects incomplete or unknown arguments", () => {
@@ -255,6 +287,13 @@ describe("Agent Host operator CLI", () => {
 
   it.each([
     [{ state: "auth-failed", reason: "credential_rejected" } as const, "agent_host_auth_failed"],
+    [
+      {
+        state: "reconciliation-required",
+        reason: "mailbox_message_retention_horizon_exceeded"
+      } as const,
+      "agent_host_mailbox_reconciliation_required"
+    ],
     [{ state: "degraded", reason: "protocol_rejected" } as const, "agent_host_transport_degraded"]
   ])("exits when the transport reaches terminal status", async (terminal, expectedError) => {
     let statusListener: ((status: typeof terminal | { state: "stopped" }) => void) | undefined;

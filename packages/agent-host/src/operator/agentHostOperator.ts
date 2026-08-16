@@ -742,6 +742,9 @@ export class AgentHostOperator {
       const { readHostConnectionStatus } = await import("../transport/connectionStatus.js");
       const status = await readHostConnectionStatus(config.dataDirectory);
       if (status?.transport.state === "connected") connection = "online";
+      if (status?.transport.state === "reconciliation-required") {
+        actionableError ??= "mailbox_reconciliation_required";
+      }
     } catch {
       // Keep the redacted offline default when status storage is unavailable.
     }

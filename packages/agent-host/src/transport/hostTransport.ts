@@ -2,6 +2,7 @@ export type HostTransportStatus =
   | { readonly state: "connecting"; readonly attempt: number }
   | { readonly state: "connected"; readonly connectedAt: string }
   | { readonly state: "degraded"; readonly reason: string }
+  | { readonly state: "reconciliation-required"; readonly reason: string }
   | {
       readonly state: "backing-off";
       readonly attempt: number;
