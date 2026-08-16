@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   getAutoRunRetrospective,
   getLatestAutoRunSummary,
+  getLatestAutoRunSummaryWithDiagnostics,
   getLatestAutoRunRetrospective,
   listAutoRunEvents,
   startAutoRun,
@@ -319,6 +320,46 @@ describe("desktop auto run retrospective API", () => {
         })
       ])
     });
+  });
+
+  it("reads pre-options Auto Run state with the historical tmux behavior", async () => {
+    const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
+    const current = persistedState(init.workspace, {
+      runId: "DESKTOP-RUN-2004",
+      projectRoot: root
+    });
+    const { options: _options, explanation: _explanation, ...legacy } = current;
+    await mkdir(dirname(current.statePath), { recursive: true });
+    await writeJsonFile(current.statePath, legacy);
+
+    const result = await getLatestAutoRunSummaryWithDiagnostics(root, null);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.state).toMatchObject({
+      runId: current.runId,
+      options: {
+        tmuxEnabled: true,
+        acpRecovery: null,
+        executorOverride: null
+      }
+    });
+  });
+
+  it("still diagnoses malformed options in a persisted Auto Run state", async () => {
+    const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
+    const malformed = persistedState(init.workspace, {
+      runId: "DESKTOP-RUN-2005",
+      projectRoot: root
+    });
+    await mkdir(dirname(malformed.statePath), { recursive: true });
+    await writeJsonFile(malformed.statePath, { ...malformed, options: {} });
+
+    const result = await getLatestAutoRunSummaryWithDiagnostics(root, null);
+
+    expect(result.state).toBeNull();
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ code: "auto_run_state_invalid", path: malformed.statePath })
+    ]);
   });
 
   it("keeps the latest effective run when a newer Auto Run has no claimable work", async () => {

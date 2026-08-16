@@ -76,6 +76,11 @@ function normalizeNextActionKind(value: unknown): AutoRunExplanation["nextAction
 }
 
 function normalizeOptions(value: unknown): Required<DesktopAutoRunOptions> | null {
+  // Persisted states written before DesktopAutoRunOptions existed always used tmux.
+  // Only absence identifies that historical shape; present malformed values still fail closed.
+  if (value === undefined) {
+    return { tmuxEnabled: true, acpRecovery: null, executorOverride: null };
+  }
   if (!isRecord(value) || typeof value.tmuxEnabled !== "boolean") {
     return null;
   }
