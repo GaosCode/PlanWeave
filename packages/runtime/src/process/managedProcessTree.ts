@@ -288,7 +288,7 @@ function createManagedProcessTree(options: {
       );
 
     if (!(await awaitTreeExit(confirmMs))) throw didNotExitError();
-    await exited;
+    await Promise.race([exited, sleep(confirmMs)]);
   };
 
   const terminate = (

@@ -87,6 +87,11 @@ async function pollWindowsRootExit(
   return true;
 }
 
+/** Graceful taskkill waits for the tree to exit; cap it so WSL can escalate to Job force. */
+export const WINDOWS_GRACEFUL_TASKKILL_TIMEOUT_MS = 8_000;
+const WINDOWS_FORCE_TASKKILL_TIMEOUT_MS = 15_000;
+const WINDOWS_JOB_TERMINATE_TIMEOUT_MS = 15_000;
+
 export function windowsTaskKillArgs(pid: number, force: boolean): string[] {
   assertSafeManagedPid(pid);
   return force ? ["/pid", String(pid), "/t", "/f"] : ["/pid", String(pid), "/t"];
@@ -98,33 +103,60 @@ function runTaskKill(
   options: { spawnTaskKill: TaskKillSpawnFn; isAlive: (pid: number) => boolean }
 ): Promise<void> {
   assertSafeManagedPid(pid);
+  const timeoutMs = force
+    ? WINDOWS_FORCE_TASKKILL_TIMEOUT_MS
+    : WINDOWS_GRACEFUL_TASKKILL_TIMEOUT_MS;
   return new Promise((resolvePromise, reject) => {
     const child = options.spawnTaskKill("taskkill", windowsTaskKillArgs(pid, force), {
       stdio: "ignore",
       windowsHide: true,
       shell: false
     });
-    child.once("error", reject);
+    let settled = false;
+    const settle = (work: () => void): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      work();
+    };
+    const timer = setTimeout(() => {
+      child.kill?.();
+      settle(() => {
+        reject(
+          Object.assign(
+            new Error(
+              `taskkill ${force ? "force" : "graceful"} timed out after ${String(timeoutMs)}ms for pid=${String(pid)}.`
+            ),
+            { code: "ETIMEDOUT" }
+          )
+        );
+      });
+    }, timeoutMs);
+    child.once("error", (error) => {
+      settle(() => reject(error));
+    });
     child.once("close", (code) => {
-      if (code === 0) {
-        resolvePromise();
-        return;
-      }
-      let stillAlive: boolean;
-      try {
-        stillAlive = options.isAlive(pid);
-      } catch (error) {
-        reject(error);
-        return;
-      }
-      reject(
-        Object.assign(
-          new Error(
-            `taskkill ${force ? "force" : "graceful"} failed for pid=${String(pid)} (exit ${String(code)}).`
-          ),
-          { code: stillAlive ? "EPERM" : "ECHILD" }
-        )
-      );
+      settle(() => {
+        if (code === 0) {
+          resolvePromise();
+          return;
+        }
+        let stillAlive: boolean;
+        try {
+          stillAlive = options.isAlive(pid);
+        } catch (error) {
+          reject(error);
+          return;
+        }
+        reject(
+          Object.assign(
+            new Error(
+              `taskkill ${force ? "force" : "graceful"} failed for pid=${String(pid)} (exit ${String(code)}).`
+            ),
+            { code: stillAlive ? "EPERM" : "ECHILD" }
+          )
+        );
+      });
     });
   });
 }
@@ -437,23 +469,47 @@ function terminateWindowsJob(job: WindowsJobOwnership): Promise<void> {
       { stdio: ["ignore", "ignore", "pipe"], windowsHide: true, shell: false }
     );
     let stderr = "";
+    let settled = false;
+    const settle = (work: () => void): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      work();
+    };
+    const timer = setTimeout(() => {
+      child.kill();
+      settle(() => {
+        reject(
+          Object.assign(
+            new Error(
+              `Windows Job terminate timed out after ${String(WINDOWS_JOB_TERMINATE_TIMEOUT_MS)}ms for ${job.name}.`
+            ),
+            { code: "ETIMEDOUT" }
+          )
+        );
+      });
+    }, WINDOWS_JOB_TERMINATE_TIMEOUT_MS);
     child.stderr.on("data", (chunk: Buffer) => {
       if (stderr.length < 16_384) stderr += chunk.toString("utf8");
     });
-    child.once("error", reject);
+    child.once("error", (error) => {
+      settle(() => reject(error));
+    });
     child.once("close", (code) => {
-      if (code === 0) {
-        resolvePromise();
-        return;
-      }
-      reject(
-        Object.assign(
-          new Error(
-            `Windows Job terminate failed for ${job.name} (exit ${String(code)}): ${stderr.trim() || "no diagnostic"}`
-          ),
-          { code: code === 2 ? "EPERM" : "ECHILD" }
-        )
-      );
+      settle(() => {
+        if (code === 0) {
+          resolvePromise();
+          return;
+        }
+        reject(
+          Object.assign(
+            new Error(
+              `Windows Job terminate failed for ${job.name} (exit ${String(code)}): ${stderr.trim() || "no diagnostic"}`
+            ),
+            { code: code === 2 ? "EPERM" : "ECHILD" }
+          )
+        );
+      });
     });
   });
 }

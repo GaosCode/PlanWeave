@@ -19,6 +19,7 @@ import {
 } from "../process/managedProcessTree.js";
 import {
   DEFAULT_WINDOWS_JOB_LAUNCH_STRATEGY,
+  WINDOWS_GRACEFUL_TASKKILL_TIMEOUT_MS,
   windowsLauncherArgs
 } from "../process/windowsManagedProcess.js";
 
@@ -493,6 +494,30 @@ describe("platform adapters", () => {
       options: { shell: false, windowsHide: true, stdio: "ignore" }
     });
   });
+
+  it(
+    "times out a hanging graceful taskkill so Windows Job force can run",
+    async () => {
+      const spawnTaskKill = ((_command: string, _args: readonly string[]) => ({
+        once() {
+          return this;
+        }
+      })) as unknown as TaskKillSpawnFn;
+      const adapter = createWindowsProcessTreeAdapter({
+        spawnTaskKill,
+        isAlive: () => true,
+        job: {
+          name: "Local\\PlanWeave-taskkill-timeout",
+          markerPath: "/tmp/planweave-taskkill-timeout",
+          helperPath: "windowsJobProcess.ps1"
+        },
+        terminateJob: () => undefined
+      });
+
+      await expect(adapter.signalGraceful(4_325)).rejects.toMatchObject({ code: "ETIMEDOUT" });
+    },
+    WINDOWS_GRACEFUL_TASKKILL_TIMEOUT_MS + 2_000
+  );
 
   it("always opens the owner-independent named Job even when root and marker are absent", async () => {
     const terminated: string[] = [];
