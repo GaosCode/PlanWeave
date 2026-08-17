@@ -205,12 +205,8 @@ jobs:
 
   integration-tests:
     name: Integration tests (${{ matrix.label }})
-    needs:
-      - test-suite-classification
-      - changes
-    if: ${{ matrix.shard != 'distributed' || needs.changes.outputs.server_host == 'true' }}
+    needs: test-suite-classification
     runs-on: ubuntu-latest
-    # Distributed realProcess suites need more wall time and serial workers than CLI/core shards.
     timeout-minutes: ${{ matrix.job_timeout_minutes }}
     strategy:
       fail-fast: false
@@ -226,12 +222,74 @@ jobs:
             job_timeout_minutes: 25
             test_timeout_minutes: 15
             max_workers: 2
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        timeout-minutes: 15
+        run: pnpm build
+
+      - name: Create test report directory
+        run: node -e "require('node:fs').mkdirSync('reports',{recursive:true})"
+
+      - name: Run integration tests
+        id: integration-tests
+        timeout-minutes: ${{ matrix.test_timeout_minutes }}
+        run: pnpm test:integration:${{ matrix.shard }} --maxWorkers=${{ matrix.max_workers }} --reporter=default --reporter=junit --outputFile.junit=reports/integration-${{ matrix.shard }}.xml
+
+      - name: Report slowest integration tests
+        if: always() && steps.integration-tests.outcome != 'skipped'
+        run: node scripts/report-slowest-tests.mjs reports/integration-${{ matrix.shard }}.xml "Integration (${{ matrix.label }})" "${{ steps.integration-tests.outcome }}"
+
+      - name: Redact failed integration test report
+        id: redact-integration
+        if: always() && steps.integration-tests.outcome == 'failure'
+        run: node scripts/redact-ci-test-artifacts.mjs reports
+
+      - name: Upload failed integration test report
+        if: always() && steps.integration-tests.outcome == 'failure' && steps.redact-integration.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-report-${{ matrix.shard }}
+          path: reports
+          if-no-files-found: error
+          retention-days: 7
+
+  # Job-level `if` cannot read `matrix`, so the distributed shard is a separate job.
+  integration-tests-distributed:
+    name: Integration tests (${{ matrix.label }})
+    needs:
+      - test-suite-classification
+      - changes
+    if: ${{ needs.changes.outputs.server_host == 'true' }}
+    runs-on: ubuntu-latest
+    # realProcess multi-process suites allocate loopback ports and long-lived
+    # Server/Host trees; serial workers avoid port/process thrash under CI load.
+    timeout-minutes: ${{ matrix.job_timeout_minutes }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
           - shard: distributed
             label: Server and Agent Host
             job_timeout_minutes: 40
             test_timeout_minutes: 30
-            # realProcess multi-process suites allocate loopback ports and long-lived
-            # Server/Host trees; serial workers avoid port/process thrash under CI load.
             max_workers: 1
 
     steps:
