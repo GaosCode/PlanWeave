@@ -93,8 +93,45 @@ const displayNames: Readonly<Record<string, string>> = {
   grok: "Grok"
 };
 
+/** Official Pi / pi-acp names. Present values are forwarded; absence is not a resolution error. */
+const piProviderEnvironment: readonly AcpEnvironmentRequirement[] = [
+  { name: "PI_CODING_AGENT_DIR", required: false },
+  { name: "PI_ACP_PI_COMMAND", required: false },
+  { name: "ANTHROPIC_API_KEY", required: false },
+  { name: "ANTHROPIC_OAUTH_TOKEN", required: false },
+  { name: "OPENAI_API_KEY", required: false },
+  { name: "AZURE_OPENAI_API_KEY", required: false },
+  { name: "DEEPSEEK_API_KEY", required: false },
+  { name: "GEMINI_API_KEY", required: false },
+  { name: "GOOGLE_CLOUD_API_KEY", required: false },
+  { name: "MISTRAL_API_KEY", required: false },
+  { name: "GROQ_API_KEY", required: false },
+  { name: "CEREBRAS_API_KEY", required: false },
+  { name: "XAI_API_KEY", required: false },
+  { name: "OPENROUTER_API_KEY", required: false },
+  { name: "AI_GATEWAY_API_KEY", required: false },
+  { name: "ZAI_API_KEY", required: false },
+  { name: "OPENCODE_API_KEY", required: false },
+  { name: "HF_TOKEN", required: false },
+  { name: "FIREWORKS_API_KEY", required: false },
+  { name: "TOGETHER_API_KEY", required: false },
+  { name: "KIMI_API_KEY", required: false },
+  { name: "MINIMAX_API_KEY", required: false },
+  { name: "MINIMAX_CN_API_KEY", required: false },
+  { name: "MOONSHOT_API_KEY", required: false },
+  { name: "COPILOT_GITHUB_TOKEN", required: false },
+  { name: "XIAOMI_API_KEY", required: false },
+  { name: "XIAOMI_TOKEN_PLAN_CN_API_KEY", required: false },
+  { name: "XIAOMI_TOKEN_PLAN_AMS_API_KEY", required: false },
+  { name: "XIAOMI_TOKEN_PLAN_SGP_API_KEY", required: false },
+  { name: "CLOUDFLARE_API_KEY", required: false },
+  { name: "CLOUDFLARE_ACCOUNT_ID", required: false },
+  { name: "CLOUDFLARE_GATEWAY_ID", required: false }
+];
+
 const builtinEnvironment: Readonly<Record<string, readonly AcpEnvironmentRequirement[]>> = {
-  grok: [{ name: "XAI_API_KEY", required: false }]
+  grok: [{ name: "XAI_API_KEY", required: false }],
+  pi: piProviderEnvironment
 };
 
 function sameHost(left: ExecutionHost, right: ExecutionHost): boolean {

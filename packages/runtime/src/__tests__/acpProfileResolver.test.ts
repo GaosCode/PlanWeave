@@ -9,6 +9,7 @@ import {
   type AcpProfileCatalog,
   type AcpProfileDescriptor
 } from "../acpProfile/schema.js";
+import { resolveAgentProcessEnvironment } from "../process/agentProcessEnv.js";
 
 const nativeHost = { kind: "native" } as const;
 const commandResolver: AcpHostCommandResolver = {
@@ -45,6 +46,13 @@ describe("ACP profile resolver", () => {
       "pi-acp",
       "grok-acp"
     ]);
+    expect(builtins.find((profile) => profile.id === "pi-acp")?.environment).toEqual(
+      expect.arrayContaining([
+        { name: "DEEPSEEK_API_KEY", required: false },
+        { name: "ANTHROPIC_API_KEY", required: false },
+        { name: "PI_CODING_AGENT_DIR", required: false }
+      ])
+    );
     expect(builtins.map((profile) => [profile.id, profile.launch])).toEqual([
       ["codex-acp", { command: "codex-acp", args: [] }],
       ["opencode-acp", { command: "opencode", args: ["acp"] }],
@@ -77,6 +85,32 @@ describe("ACP profile resolver", () => {
         { projectRoot: "/project", host: nativeHost }
       )
     ).resolves.toMatchObject({ profileId: "codex-acp", source: "builtin" });
+  });
+
+  it("forwards declared Pi provider keys without inheriting undeclared ambient secrets", () => {
+    const environment = builtinAcpProfileCatalog(nativeHost).find(
+      (profile) => profile.id === "pi-acp"
+    )?.environment;
+    if (!environment) {
+      throw new Error("Expected the built-in pi-acp profile.");
+    }
+
+    const resolved = resolveAgentProcessEnvironment({
+      platform: "darwin",
+      ambient: {
+        PATH: "/usr/bin:/bin",
+        HOME: "/Users/example",
+        TMPDIR: "/tmp/planweave-pi",
+        DEEPSEEK_API_KEY: "present",
+        AWS_SECRET_ACCESS_KEY: "must-not-leak"
+      },
+      contract: { variables: [...environment] }
+    });
+
+    expect(resolved.env.DEEPSEEK_API_KEY).toBe("present");
+    expect(resolved.env.HOME).toBe("/Users/example");
+    expect(resolved.env.TMPDIR).toBe("/tmp/planweave-pi");
+    expect(resolved.env).not.toHaveProperty("AWS_SECRET_ACCESS_KEY");
   });
 
   it("requires project trust when a package executor resolves a built-in profile", async () => {

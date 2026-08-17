@@ -139,7 +139,7 @@ const windowsBaseEnvironmentNames = [
   "TEMP",
   "USERNAME"
 ] as const;
-const posixBaseEnvironmentNames = ["HOME", "TMP", "TEMP"] as const;
+const posixBaseEnvironmentNames = ["HOME", "TMP", "TEMP", "TMPDIR"] as const;
 
 /**
  * Materializes the minimal environment contract shared by local Runtime ACP profiles and Agent

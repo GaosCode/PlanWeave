@@ -113,6 +113,7 @@ describe("agentProcessEnv", () => {
       PATH: "/usr/bin:/bin",
       HOME: "/Users/example",
       TMP: "/tmp",
+      TMPDIR: "/tmp/planweave-posix",
       CUSTOM_API_KEY: "local-secret",
       AWS_SECRET_ACCESS_KEY: "must-not-leak"
     };
@@ -140,6 +141,7 @@ describe("agentProcessEnv", () => {
     expect(resolved.env).toMatchObject({
       HOME: "/Users/example",
       TMP: "/tmp",
+      TMPDIR: "/tmp/planweave-posix",
       CUSTOM_API_KEY: "local-secret",
       OPTIONAL_VALUE: "from-shell"
     });
