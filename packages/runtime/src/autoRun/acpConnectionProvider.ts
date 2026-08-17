@@ -11,6 +11,15 @@ import type {
   SetSessionModeResponse
 } from "@agentclientprotocol/sdk";
 import type {
+  CreateElicitationRequest,
+  CreateElicitationResponse,
+  RequestPermissionRequest,
+  RequestPermissionResponse,
+  SessionNotification,
+  TerminalOutputRequest,
+  TerminalOutputResponse
+} from "@agentclientprotocol/sdk";
+import type {
   AcpConnection,
   AcpOperationOptions,
   CreateAcpConnectionOptions
@@ -21,8 +30,30 @@ import {
   type AcpEngineSessionStart
 } from "./acpExecutionEngineContracts.js";
 import type { LivePendingOperationHandle } from "./liveControl.js";
+import type { ExecutionHost } from "../types/executor.js";
 
-export type AcpConnectionAcquireRequest = CreateAcpConnectionOptions;
+export type AcpSharedPoolIdentity = {
+  readonly projectRoot: string;
+  readonly profileFingerprint: string;
+  readonly host: ExecutionHost;
+};
+
+export type AcpConnectionAcquireRequest = CreateAcpConnectionOptions & {
+  readonly poolIdentity?: AcpSharedPoolIdentity;
+};
+
+export type AcpSessionHandlerPort = {
+  readonly onSessionUpdate?: (notification: SessionNotification) => void | Promise<void>;
+  readonly onPermissionRequest?: (
+    request: RequestPermissionRequest
+  ) => RequestPermissionResponse | Promise<RequestPermissionResponse>;
+  readonly onElicitationRequest?: (
+    request: CreateElicitationRequest
+  ) => CreateElicitationResponse | Promise<CreateElicitationResponse>;
+  readonly onTerminalOutput?: (
+    request: TerminalOutputRequest
+  ) => TerminalOutputResponse | Promise<TerminalOutputResponse>;
+};
 
 export const acpLeaseTerminalSchema = z.enum(["succeeded", "failed", "cancelled"]);
 export type AcpLeaseTerminal = z.infer<typeof acpLeaseTerminalSchema>;
@@ -60,6 +91,8 @@ export type AcpOwnedSessionStart = AcpEngineSessionStart;
 
 export type AcpOwnedSessionOpenOptions = AcpOperationOptions & {
   readonly cwd?: string;
+  readonly ownerId?: string;
+  readonly handlers?: AcpSessionHandlerPort;
 };
 
 export type AcpOwnedSessionConfigInput = {

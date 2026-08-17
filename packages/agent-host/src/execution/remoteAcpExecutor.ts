@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { createHash } from "node:crypto";
 import { isAbsolute } from "node:path";
 import {
   AcpEngineCapabilityError,
@@ -7,7 +8,8 @@ import {
   planWeaveAcpExecutionAuthentication,
   type AcpEngineInteractionBroker,
   type AcpEngineLifecycleEvent,
-  type AcpExecutionLimits
+  type AcpExecutionLimits,
+  type AcpSharedPoolIdentity
 } from "@planweave-ai/runtime";
 import { parseAgentHostExecuteCommand } from "../protocol.js";
 import {
@@ -94,6 +96,29 @@ function sessionCapabilityError(): AcpEngineCapabilityError {
   return new AcpEngineCapabilityError(
     "Requested ACP session configuration is not supported by the resolved local profile and agent."
   );
+}
+
+function hostPoolIdentity(
+  profile: ResolvedAgentHostAcpProfile,
+  cwd: string
+): AcpSharedPoolIdentity {
+  return {
+    projectRoot: cwd,
+    profileFingerprint:
+      profile.fingerprint ??
+      createHash("sha256")
+        .update(
+          JSON.stringify({
+            agentId: profile.agentId,
+            launch: profile.launch,
+            capabilities: profile.capabilityPolicy,
+            shutdown: profile.shutdown,
+            connection: profile.connection ?? { mode: "dedicated" }
+          })
+        )
+        .digest("hex"),
+    host: profile.host ?? { kind: "native" }
+  };
 }
 
 function includesSelectValue(
@@ -299,6 +324,8 @@ export class RemoteAcpExecutor implements AgentHostExecutor {
             }
           },
           signal: context.signal,
+          connectionMode: profile.connection?.mode ?? "dedicated",
+          poolIdentity: hostPoolIdentity(profile, workspace.cwd),
           limits: {
             ...this.options.limits,
             outputMaxBytes: Math.min(

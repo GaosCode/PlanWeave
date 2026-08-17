@@ -93,14 +93,16 @@ describe("ACP capability gate contract", () => {
     expect((caught as AcpRequiredCapabilityError).snapshot.missing).toEqual(["history-load"]);
   });
 
-  it("models future shared policy as a pure session-close requirement", () => {
-    const missing = negotiateAcpCapabilities(
+  it("records session-close for shared-project without requiring it", () => {
+    const missing = gateAcpCapabilities(
       { required: [], optional: [] },
       initializedCapabilitiesFixture(),
       { sessionStart: "new", connectionMode: "shared-project" }
     );
-    expect(missing.required).toContain("session-close");
-    expect(missing.missing).toEqual(["session-close"]);
+    expect(missing.required).not.toContain("session-close");
+    expect(missing.optional).toContain("session-close");
+    expect(missing.missing).toEqual([]);
+    expect(missing.negotiated).not.toContain("session-close");
 
     const available = gateAcpCapabilities(
       { required: [], optional: [] },
@@ -110,6 +112,7 @@ describe("ACP capability gate contract", () => {
       { sessionStart: "new", connectionMode: "shared-project" }
     );
     expect(available.negotiated).toContain("session-close");
+    expect(available.missing).toEqual([]);
   });
 
   it("rejects snapshots that delete the runtime baseline", () => {

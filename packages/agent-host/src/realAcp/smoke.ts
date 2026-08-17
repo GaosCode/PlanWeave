@@ -293,6 +293,12 @@ async function runCancellation(
       }
     },
     signal: controller.signal,
+    connectionMode: profile.hostProfile.connection?.mode ?? "dedicated",
+    poolIdentity: {
+      projectRoot: cwd,
+      profileFingerprint: profile.hostProfile.fingerprint ?? profile.supported.profileId,
+      host: profile.hostProfile.host ?? { kind: "native" }
+    },
     limits: {
       operationTimeoutMs: 30_000,
       interactionTimeoutMs: 3_000,

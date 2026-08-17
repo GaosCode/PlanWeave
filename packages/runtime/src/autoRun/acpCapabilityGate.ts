@@ -120,7 +120,6 @@ export type AcpCapabilitySnapshot = z.infer<typeof acpCapabilitySnapshotSchema>;
 
 export type AcpCapabilityOperation = {
   readonly sessionStart: "new" | "load";
-  /** Contract-only future policy. Persisted profile schema remains dedicated-only. */
   readonly connectionMode: "dedicated" | "shared-project";
 };
 
@@ -156,14 +155,17 @@ export function negotiateAcpCapabilities(
 ): AcpCapabilitySnapshot {
   const dynamicRequired: RunnerCapability[] = [];
   if (operation.sessionStart === "load") dynamicRequired.push("history-load");
-  if (operation.connectionMode === "shared-project") dynamicRequired.push("session-close");
   const required = orderedUnion(
     RUNTIME_REQUIRED_ACP_CAPABILITIES,
     policy.required,
     dynamicRequired
   );
   const requiredSet = new Set(required);
-  const optional = policy.optional.filter((capability) => !requiredSet.has(capability));
+  const dynamicOptional: RunnerCapability[] =
+    operation.connectionMode === "shared-project" ? ["session-close"] : [];
+  const optional = orderedUnion(policy.optional, dynamicOptional).filter(
+    (capability) => !requiredSet.has(capability)
+  );
   const available = capabilitiesFromInitialize(initialized);
   const availableSet = new Set(available);
   const negotiated = [...required, ...optional].filter((capability) =>

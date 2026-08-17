@@ -11,10 +11,13 @@ import type {
   CreateAcpConnectionOptions,
   TrustedAcpLaunch
 } from "./acpConnection.js";
-import type { AcpConnectionProvider } from "./acpConnectionProvider.js";
+import type { AcpConnectionProvider, AcpSharedPoolIdentity } from "./acpConnectionProvider.js";
 import type { AcpNormalizedEventBody } from "./acpEventNormalization.js";
-import type { AcpShutdownPolicy } from "../acpProfile/schema.js";
-import type { AcpCapabilityPolicy } from "../acpProfile/schema.js";
+import type {
+  AcpCapabilityPolicy,
+  AcpConnectionMode,
+  AcpShutdownPolicy
+} from "../acpProfile/schema.js";
 import type { AcpCapabilitySnapshot } from "./acpCapabilityGate.js";
 
 const positiveSafeInteger = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
@@ -257,4 +260,6 @@ export type ExecuteAcpOptions = {
   readonly clock?: AcpEngineClock;
   readonly connect?: AcpEngineConnectionFactory;
   readonly provider?: AcpConnectionProvider;
+  readonly connectionMode?: AcpConnectionMode;
+  readonly poolIdentity?: AcpSharedPoolIdentity;
 };

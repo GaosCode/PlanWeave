@@ -1,9 +1,11 @@
 import type {
+  AcpConnectionMode,
   AcpEngineElicitationRequest,
   AcpEngineInteractionBroker,
   AcpEngineInteractionContext,
   AcpEnginePermissionRequest,
-  ExecuteAcpOptions
+  ExecuteAcpOptions,
+  ExecutionHost
 } from "@planweave-ai/runtime";
 import { acpCapabilitySnapshotSchema } from "@planweave-ai/runtime";
 import { z } from "zod";
@@ -220,6 +222,9 @@ export type ResolvedAgentHostAcpProfile = {
   shutdown: ExecuteAcpOptions["shutdown"];
   authentication?: ExecuteAcpOptions["authentication"];
   session?: AgentHostAcpSessionProfile;
+  connection?: { mode: AcpConnectionMode };
+  fingerprint?: string;
+  host?: ExecutionHost;
 };
 
 export interface AgentHostAcpProfileResolver {

@@ -1,6 +1,7 @@
 import { ACP_SDK_AUTHORITY } from "./acpConnection.js";
-import type { AcpOwnedSession } from "./acpConnectionProvider.js";
-import { createDedicatedAcpConnectionProvider } from "./acpDedicatedConnectionProvider.js";
+import type { AcpConnectionLease, AcpOwnedSession } from "./acpConnectionProvider.js";
+import { createAcpConnectionProvider } from "./acpConnectionProviderFactory.js";
+import { AcpSharedConnectionAuthRequiredError } from "./acpSharedConnectionErrors.js";
 import type { AcpPreflightProbe } from "./acpRunner.js";
 import type { RunnerAuthenticationState, RunnerCapability } from "./runnerContractSchemas.js";
 import { RequestError, type InitializeResponse } from "@agentclientprotocol/sdk";
@@ -104,18 +105,42 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({
     env
   });
   const availableEnvironmentVariables = availableExecutionHostEnvironmentVariables(host, env);
-  const lease = await createDedicatedAcpConnectionProvider().acquire({
-    launch: { trusted: true, command: prepared.command, args: prepared.args },
-    cwd,
-    spawnCwd: prepared.spawnCwd ?? null,
-    env: prepared.spawnEnvironment,
-    decorateProcessTree: prepared.decorateProcessTree,
-    ...(prepared.cleanupExitedProcessTree
-      ? { cleanupExitedProcessTree: prepared.cleanupExitedProcessTree }
-      : {}),
-    clientInfo: { name: "PlanWeave", version: "0.1.0" },
-    shutdown: profile.shutdown
-  });
+  let lease: AcpConnectionLease;
+  try {
+    lease = await createAcpConnectionProvider({ mode: profile.connection.mode }).acquire({
+      launch: { trusted: true, command: prepared.command, args: prepared.args },
+      cwd,
+      spawnCwd: prepared.spawnCwd ?? null,
+      env: prepared.spawnEnvironment,
+      decorateProcessTree: prepared.decorateProcessTree,
+      ...(prepared.cleanupExitedProcessTree
+        ? { cleanupExitedProcessTree: prepared.cleanupExitedProcessTree }
+        : {}),
+      clientInfo: { name: "PlanWeave", version: "0.1.0" },
+      shutdown: profile.shutdown,
+      poolIdentity: {
+        projectRoot: cwd,
+        profileFingerprint: profile.fingerprint,
+        host: profile.host
+      }
+    });
+  } catch (error) {
+    if (error instanceof AcpSharedConnectionAuthRequiredError) {
+      const capabilitySnapshot = gateAcpCapabilities(profile.capabilities, error.initialized, {
+        sessionStart: "new",
+        connectionMode: profile.connection.mode
+      });
+      return authRequiredResult({
+        message: new AcpAuthenticationRequiredError(error.outcome).message,
+        agentInfo: capabilitySnapshot.agentInfo,
+        capabilities: capabilitySnapshot.available,
+        capabilitySnapshot,
+        reason: error.outcome.reason,
+        methods: error.outcome.methods
+      });
+    }
+    throw error;
+  }
   type ProbeResult = Awaited<ReturnType<AcpPreflightProbe>>;
   type ProbeOutcome =
     | { status: "pending" }

@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
 import {
   type AgentCapabilities,
@@ -20,7 +21,11 @@ import {
   AcpStderrLimitError
 } from "./acpConnection.js";
 import type { AcpConnectionLease, AcpOwnedSession } from "./acpConnectionProvider.js";
-import { createDedicatedAcpConnectionProvider } from "./acpDedicatedConnectionProvider.js";
+import { createAcpConnectionProvider } from "./acpConnectionProviderFactory.js";
+import {
+  AcpSharedConnectionAuthRequiredError,
+  AcpSharedConnectionLostError
+} from "./acpSharedConnectionErrors.js";
 import { normalizeAcpSessionNotification } from "./acpEventNormalization.js";
 import { normalizedRedactedContent } from "./normalizedEventContract.js";
 import { AcpCleanupSequencer, createAcpCleanupDeadline } from "./acpExecutionCleanup.js";
@@ -139,6 +144,8 @@ function diagnostic(error: unknown): string {
 
 function failureReason(error: unknown): AcpEngineFailureReason {
   if (error instanceof AcpAuthenticationRequiredError) return "authentication_required";
+  if (error instanceof AcpSharedConnectionAuthRequiredError) return "authentication_required";
+  if (error instanceof AcpSharedConnectionLostError) return "process_error";
   if (
     error instanceof AcpEngineLimitError ||
     error instanceof AcpInboundMessageLimitError ||
@@ -277,25 +284,41 @@ async function executeAcpOutcome(
 
   try {
     await emit({ kind: "lifecycle", state: "connecting" });
+    const connectionMode = options.connectionMode ?? "dedicated";
     const provider =
       options.provider ??
-      createDedicatedAcpConnectionProvider(options.connect ? { connect: options.connect } : {});
-    lease = await provider.acquire({
-      launch: options.launch,
-      cwd: options.workspace.cwd,
-      env: options.env,
-      clientInfo: options.clientInfo,
-      shutdown,
-      ...(options.interactionBroker?.advertiseElicitation !== false && options.interactionBroker
-        ? { clientCapabilities: { elicitation: { form: {} } } }
-        : {}),
-      defaultTimeoutMs: limits.operationTimeoutMs,
-      maxStderrBytes: limits.stderrMaxBytes,
-      maxInboundMessageBytes: limits.inboundMessageMaxBytes,
+      createAcpConnectionProvider({
+        mode: connectionMode,
+        ...(options.connect ? { connect: options.connect } : {})
+      });
+    const sessionOwnerId = randomUUID();
+    const sessionHandlers = {
       onSessionUpdate,
       onPermissionRequest: interactionHandlers.onPermissionRequest,
       onElicitationRequest: interactionHandlers.onElicitationRequest
-    });
+    };
+    try {
+      lease = await provider.acquire({
+        launch: options.launch,
+        cwd: options.workspace.cwd,
+        env: options.env,
+        clientInfo: options.clientInfo,
+        shutdown,
+        ...(options.interactionBroker?.advertiseElicitation !== false && options.interactionBroker
+          ? { clientCapabilities: { elicitation: { form: {} } } }
+          : {}),
+        defaultTimeoutMs: limits.operationTimeoutMs,
+        maxStderrBytes: limits.stderrMaxBytes,
+        maxInboundMessageBytes: limits.inboundMessageMaxBytes,
+        ...sessionHandlers,
+        ...(options.poolIdentity ? { poolIdentity: options.poolIdentity } : {})
+      });
+    } catch (error) {
+      if (error instanceof AcpSharedConnectionAuthRequiredError) {
+        throw new AcpAuthenticationRequiredError(error.outcome);
+      }
+      throw error;
+    }
     await observeLifecycle({ kind: "connection_ready", processId: lease.processId });
     const initialized = await lease.initialize({
       signal: abortController.signal,
@@ -309,7 +332,7 @@ async function executeAcpOutcome(
     try {
       capabilitySnapshot = gateAcpCapabilities(options.capabilityPolicy, initialized, {
         sessionStart: sessionStart.kind,
-        connectionMode: "dedicated"
+        connectionMode
       });
     } catch (error) {
       if (error instanceof AcpRequiredCapabilityError) {
@@ -349,7 +372,9 @@ async function executeAcpOutcome(
       }
       return lease.openSession(sessionStart, {
         signal: abortController.signal,
-        timeoutMs: limits.operationTimeoutMs
+        timeoutMs: limits.operationTimeoutMs,
+        ownerId: sessionOwnerId,
+        handlers: sessionHandlers
       });
     };
     if (authentication.kind === "auth_required") {

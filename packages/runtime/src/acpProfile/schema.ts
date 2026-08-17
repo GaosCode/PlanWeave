@@ -137,7 +137,12 @@ export const acpCapabilityPolicySchema = z
   });
 export type AcpCapabilityPolicy = z.infer<typeof acpCapabilityPolicySchema>;
 
-export const acpConnectionPolicySchema = z.object({ mode: z.literal("dedicated") }).strict();
+export const acpConnectionModeSchema = z.enum(["dedicated", "shared-project"]);
+export type AcpConnectionMode = z.infer<typeof acpConnectionModeSchema>;
+
+export const acpConnectionPolicySchema = z
+  .object({ mode: acpConnectionModeSchema.default("dedicated") })
+  .strict();
 export type AcpConnectionPolicy = z.infer<typeof acpConnectionPolicySchema>;
 
 const acpSessionValueSchema = z.union([z.string().max(1_024), z.boolean()]);

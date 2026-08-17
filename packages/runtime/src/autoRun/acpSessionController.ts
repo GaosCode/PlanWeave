@@ -681,6 +681,12 @@ export class AcpSessionController {
         authenticationHints: run.authenticationHints,
         signal: abortController.signal,
         timeoutMs: options?.timeoutMs,
+        connectionMode: run.connectionMode ?? "dedicated",
+        poolIdentity: {
+          projectRoot: run.projectRoot ?? run.cwd,
+          profileFingerprint: run.profileIdentity.fingerprint,
+          host: executionHost
+        },
         ...(this.connect ? { connect: this.connect } : {}),
         onConnection: publishConnection,
         connectionExtensions: {

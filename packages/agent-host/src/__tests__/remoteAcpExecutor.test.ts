@@ -606,6 +606,76 @@ describe("RemoteAcpExecutor", () => {
     }
   });
 
+  it("threads shared-project connection mode and workspace pool identity into executeAcp", async () => {
+    let received:
+      | {
+          connectionMode?: string;
+          poolIdentity?: { projectRoot?: string; profileFingerprint?: string; host?: unknown };
+        }
+      | undefined;
+    vi.resetModules();
+    vi.doMock("@planweave-ai/runtime", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("@planweave-ai/runtime")>()),
+      executeAcp: vi.fn(async (options) => {
+        received = {
+          connectionMode: options.connectionMode,
+          poolIdentity: options.poolIdentity
+        };
+        return {
+          sessionId: "session-shared",
+          output: "shared-project report",
+          terminal: { state: "succeeded", stopReason: "end_turn" },
+          cleanup: { attempted: true, completed: true }
+        };
+      })
+    }));
+    vi.doMock("../execution/inputArtifactWorkspace.js", () => ({
+      prepareInputArtifacts: vi.fn(async () => ({
+        prompt: "prepared prompt",
+        cleanup: vi.fn(async () => undefined)
+      }))
+    }));
+
+    try {
+      const { RemoteAcpExecutor: IsolatedRemoteAcpExecutor } = await import(
+        "../execution/remoteAcpExecutor.js"
+      );
+      const { outbox } = await openOutbox();
+      const input = command();
+      const cwd = process.cwd();
+      const executor = new IsolatedRemoteAcpExecutor({
+        workspaceResolver: { resolve: () => ({ cwd }) },
+        profileResolver: {
+          resolve: () => ({
+            agentId: exampleExecutionEnvelopeInput.agentId,
+            capabilityPolicy: { required: [], optional: [] },
+            launch: { command: process.execPath, args: [mockAgentPath, "success"] },
+            env: {},
+            shutdown: DEFAULT_ACP_SHUTDOWN_POLICY,
+            connection: { mode: "shared-project" as const },
+            fingerprint: "host-shared-fingerprint",
+            host: { kind: "native" as const }
+          })
+        },
+        outbox,
+        hostCapabilities: ["linux", "acp.test"]
+      });
+      await executor.execute(input, artifactContext(input).context);
+      expect(received).toEqual({
+        connectionMode: "shared-project",
+        poolIdentity: {
+          projectRoot: cwd,
+          profileFingerprint: "host-shared-fingerprint",
+          host: { kind: "native" }
+        }
+      });
+    } finally {
+      vi.doUnmock("@planweave-ai/runtime");
+      vi.doUnmock("../execution/inputArtifactWorkspace.js");
+      vi.resetModules();
+    }
+  });
+
   it("preserves both failures when ACP execution and input cleanup fail", async () => {
     const executionError = new Error("execution failed");
     const cleanupError = new Error("cleanup failed");

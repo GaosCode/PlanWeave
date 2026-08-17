@@ -461,6 +461,11 @@ export function createAcpRunner(options?: {
             },
             projectId: prepared.projectId,
             canvasId: prepared.canvasId,
+            projectRoot:
+              typeof input.projectRoot === "string"
+                ? input.projectRoot
+                : input.projectRoot.rootPath,
+            connectionMode: resolved.profile.connection.mode,
             sessionStart: recovery
               ? {
                   kind: "load",
@@ -537,7 +542,10 @@ export function createAcpRunner(options?: {
             sourceReviewBlockRef: input.claim.sourceReviewBlockRef
           },
           projectId: prepared.projectId,
-          canvasId: prepared.canvasId
+          canvasId: prepared.canvasId,
+          projectRoot:
+            typeof input.workspace === "string" ? input.workspace : input.workspace.rootPath,
+          connectionMode: resolved.profile.connection.mode
         },
         {
           signal: input.runtime?.signal,

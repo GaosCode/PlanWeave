@@ -64,10 +64,13 @@ describe("ACP profile schemas", () => {
     ).toThrow("NUL");
   });
 
-  it("rejects shared-project before the F0/F2 gate and rejects persisted secret values", () => {
-    expect(() =>
+  it("accepts shared-project, defaults dedicated, and rejects persisted secret values", () => {
+    expect(
       acpProfileDescriptorSchema.parse(descriptor({ connection: { mode: "shared-project" } }))
-    ).toThrow();
+    ).toMatchObject({ connection: { mode: "shared-project" } });
+    expect(acpProfileDescriptorSchema.parse(descriptor({ connection: {} }))).toMatchObject({
+      connection: { mode: "dedicated" }
+    });
     const credentialProfiles = [
       ...["--api-key", "--api-key-value", "--auth-token-raw", "--client-secret-data"].map((flag) =>
         descriptor({

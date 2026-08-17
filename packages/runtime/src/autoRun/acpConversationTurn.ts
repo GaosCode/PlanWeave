@@ -11,9 +11,10 @@ import type {
 import type {
   AcpConnectionLease,
   AcpConnectionProvider,
-  AcpOwnedSession
+  AcpOwnedSession,
+  AcpSessionHandlerPort
 } from "./acpConnectionProvider.js";
-import { createDedicatedAcpConnectionProvider } from "./acpDedicatedConnectionProvider.js";
+import { createAcpConnectionProvider } from "./acpConnectionProviderFactory.js";
 import {
   AcpAuthenticationRequiredError,
   coordinateAcpAuthentication,
@@ -189,7 +190,10 @@ export class AcpConversationTurnCoordinator {
   private readonly terminalLimit: number;
   private readonly terminalTtlMs: number;
 
-  private readonly provider: AcpConnectionProvider;
+  private readonly injectedProvider?: AcpConnectionProvider;
+  private readonly connect?: ConnectionFactory;
+  private dedicatedProvider?: AcpConnectionProvider;
+  private sharedProvider?: AcpConnectionProvider;
 
   constructor(
     connect?: ConnectionFactory,
@@ -199,8 +203,8 @@ export class AcpConversationTurnCoordinator {
       provider?: AcpConnectionProvider;
     } = {}
   ) {
-    this.provider =
-      options.provider ?? createDedicatedAcpConnectionProvider(connect ? { connect } : {});
+    this.injectedProvider = options.provider;
+    this.connect = connect;
     this.terminalLimit = options.terminalLimit ?? DEFAULT_TERMINAL_TURN_LIMIT;
     this.terminalTtlMs = options.terminalTtlMs ?? DEFAULT_TERMINAL_TURN_TTL_MS;
     if (!Number.isSafeInteger(this.terminalLimit) || this.terminalLimit <= 0) {
@@ -209,6 +213,22 @@ export class AcpConversationTurnCoordinator {
     if (!Number.isSafeInteger(this.terminalTtlMs) || this.terminalTtlMs <= 0) {
       throw new Error("ACP conversation terminal turn TTL must be a positive integer.");
     }
+  }
+
+  private providerFor(mode: ResolvedAcpProfile["connection"]["mode"]): AcpConnectionProvider {
+    if (this.injectedProvider) return this.injectedProvider;
+    if (mode === "shared-project") {
+      this.sharedProvider ??= createAcpConnectionProvider({
+        mode,
+        ...(this.connect ? { connect: this.connect } : {})
+      });
+      return this.sharedProvider;
+    }
+    this.dedicatedProvider ??= createAcpConnectionProvider({
+      mode,
+      ...(this.connect ? { connect: this.connect } : {})
+    });
+    return this.dedicatedProvider;
   }
 
   isInFlight(key: string): boolean {
@@ -388,7 +408,16 @@ export class AcpConversationTurnCoordinator {
       signal
     );
     signal.throwIfAborted();
-    const lease = await this.provider.acquire({
+    const sessionHandlers: AcpSessionHandlerPort = {
+      onSessionUpdate: async (notification: SessionNotification) => {
+        if (!persistNotifications || notification.sessionId !== input.identity.sessionId) return;
+        const normalized = normalizeAcpSessionNotification(notification);
+        if (normalized) await append(normalized);
+      },
+      onPermissionRequest: async () => ({ outcome: { outcome: "cancelled" } }),
+      onElicitationRequest: async () => ({ action: "cancel" })
+    };
+    const lease = await this.providerFor(input.profile.connection.mode).acquire({
       launch: { trusted: true, command: preparedLaunch.command, args: preparedLaunch.args },
       cwd: input.cwd,
       spawnCwd: preparedLaunch.spawnCwd ?? null,
@@ -399,13 +428,7 @@ export class AcpConversationTurnCoordinator {
         : {}),
       clientInfo: { name: "planweave", version: "1" },
       shutdown: input.profile.shutdown,
-      onSessionUpdate: async (notification: SessionNotification) => {
-        if (!persistNotifications || notification.sessionId !== input.identity.sessionId) return;
-        const normalized = normalizeAcpSessionNotification(notification);
-        if (normalized) await append(normalized);
-      },
-      onPermissionRequest: async () => ({ outcome: { outcome: "cancelled" } }),
-      onElicitationRequest: async () => ({ action: "cancel" }),
+      ...sessionHandlers,
       observer: {
         redact: redactAcpProtocolPayload,
         observe: (observation) => {
@@ -417,7 +440,12 @@ export class AcpConversationTurnCoordinator {
             });
         }
       },
-      defaultTimeoutMs: input.timeoutMs
+      defaultTimeoutMs: input.timeoutMs,
+      poolIdentity: {
+        projectRoot: input.identity.ref.projectRoot,
+        profileFingerprint: input.profile.fingerprint,
+        host: input.profile.host
+      }
     });
     turn.lease = lease;
     let executionError: unknown;
@@ -451,7 +479,12 @@ export class AcpConversationTurnCoordinator {
       try {
         turn.session = await lease.openSession(
           { kind: "load", sessionId: input.identity.sessionId },
-          { ...operationOptions, cwd: preparedLaunch.sessionCwd }
+          {
+            ...operationOptions,
+            cwd: preparedLaunch.sessionCwd,
+            ownerId: input.key,
+            handlers: sessionHandlers
+          }
         );
       } catch (error) {
         if (

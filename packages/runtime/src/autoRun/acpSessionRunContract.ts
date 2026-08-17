@@ -1,5 +1,9 @@
 import type { TerminalOutputRequest, TerminalOutputResponse } from "@agentclientprotocol/sdk";
-import type { AcpCapabilityPolicy, AcpShutdownPolicy } from "../acpProfile/schema.js";
+import type {
+  AcpCapabilityPolicy,
+  AcpConnectionMode,
+  AcpShutdownPolicy
+} from "../acpProfile/schema.js";
 import type { ResolvedAgentEnvironment } from "../process/agentProcessEnv.js";
 import type { ExecutionHost } from "../types.js";
 import type { AcpAuthenticationHints } from "./acpAuthentication.js";
@@ -33,6 +37,8 @@ export type AcpSessionRun = {
   metadataIdentity: Record<string, string>;
   projectId?: string;
   canvasId?: string;
+  projectRoot?: string;
+  connectionMode?: AcpConnectionMode;
   sessionStart?: AcpSessionStart;
   terminalOutputHandler?: (
     request: TerminalOutputRequest

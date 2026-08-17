@@ -8,6 +8,7 @@ import {
 import {
   acpEnvironmentRequirementsSchema,
   acpCapabilityPolicySchema,
+  acpConnectionPolicySchema,
   acpShutdownPolicySchema,
   DEFAULT_ACP_SHUTDOWN_POLICY
 } from "@planweave-ai/runtime";
@@ -89,6 +90,7 @@ export const agentHostConfigSchema = z
             environment: acpEnvironmentRequirementsSchema,
             capabilities: acpCapabilityPolicySchema.default({ required: [], optional: [] }),
             shutdown: acpShutdownPolicySchema.default(DEFAULT_ACP_SHUTDOWN_POLICY),
+            connection: acpConnectionPolicySchema.default({ mode: "dedicated" }),
             session: z
               .object({
                 modes: z

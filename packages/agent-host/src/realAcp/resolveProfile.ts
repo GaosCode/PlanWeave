@@ -154,7 +154,10 @@ export async function resolveRealAcpHostProfile(options: {
         capabilityPolicy: selected.capabilities,
         launch: { command: commandPath, args: [...selected.args] },
         env: profileEnv,
-        shutdown: DEFAULT_ACP_SHUTDOWN_POLICY
+        shutdown: DEFAULT_ACP_SHUTDOWN_POLICY,
+        connection: { mode: "dedicated" },
+        host: { kind: "native" },
+        fingerprint: selected.profileId
       }
     }
   };

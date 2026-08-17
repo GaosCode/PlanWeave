@@ -3,6 +3,7 @@ import {
   resolveOwnerRunWorkspace,
   type OwnerPackageLocator
 } from "@planweave-ai/agent-host-protocol";
+import { createHash } from "node:crypto";
 import { access, mkdir, realpath } from "node:fs/promises";
 import { constants } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
@@ -10,13 +11,13 @@ import {
   AgentEnvironmentMissingError,
   resolveAgentProcessEnvironment
 } from "@planweave-ai/runtime";
+import type { AgentHostConfig } from "./schema.js";
 import type {
   AgentHostAcpProfileResolver,
   AgentHostWorkspaceResolver,
   ResolvedAgentHostAcpProfile,
   ResolvedAgentHostWorkspace
 } from "../execution/remoteAcpPorts.js";
-import type { AgentHostConfig } from "./schema.js";
 
 function contained(root: string, candidate: string): boolean {
   const path = relative(root, candidate);
@@ -88,12 +89,31 @@ export class ConfiguredAcpProfileResolver implements AgentHostAcpProfileResolver
       }
       throw error;
     }
+    const connection = profile.connection;
+    const host = { kind: "native" as const };
     return {
       agentId: profile.agentId,
       capabilityPolicy: profile.capabilities,
       launch: { command, args: profile.args },
       env,
       shutdown: profile.shutdown,
+      connection,
+      host,
+      fingerprint: createHash("sha256")
+        .update(
+          JSON.stringify({
+            id: profile.id,
+            agentId: profile.agentId,
+            command,
+            args: profile.args,
+            environment: profile.environment.map((entry) => entry.name).sort(),
+            capabilities: profile.capabilities,
+            shutdown: profile.shutdown,
+            connection,
+            host
+          })
+        )
+        .digest("hex"),
       session: profile.session
         ? {
             modes: Object.fromEntries(profile.session.modes.map((mode) => [mode.id, mode.modeId])),

@@ -207,7 +207,8 @@ export class AgentHostOperator {
           args: [...preset.args],
           environment: [...preset.environment],
           capabilities: preset.capabilities,
-          shutdown: DEFAULT_ACP_SHUTDOWN_POLICY
+          shutdown: DEFAULT_ACP_SHUTDOWN_POLICY,
+          connection: { mode: "dedicated" }
         });
       }
     }

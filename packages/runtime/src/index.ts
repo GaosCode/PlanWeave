@@ -36,6 +36,7 @@ export type {
 export {
   acpAgentIdSchema,
   acpCapabilityPolicySchema,
+  acpConnectionModeSchema,
   acpConnectionPolicySchema,
   acpEnvironmentRequirementSchema,
   acpEnvironmentRequirementsSchema,
@@ -54,6 +55,7 @@ export {
 } from "./acpProfile/schema.js";
 export type {
   AcpCapabilityPolicy,
+  AcpConnectionMode,
   AcpConnectionPolicy,
   AcpEnvironmentRequirement,
   AcpProfileCatalog,
@@ -1041,10 +1043,23 @@ export type {
   AcpOwnedSession,
   AcpOwnedSessionConfigInput,
   AcpOwnedSessionOpenOptions,
-  AcpOwnedSessionStart
+  AcpOwnedSessionStart,
+  AcpSessionHandlerPort,
+  AcpSharedPoolIdentity
 } from "./autoRun/acpConnectionProvider.js";
 export { createDedicatedAcpConnectionProvider } from "./autoRun/acpDedicatedConnectionProvider.js";
 export type { DedicatedAcpConnectionProviderOptions } from "./autoRun/acpDedicatedConnectionProvider.js";
+export { createAcpConnectionProvider } from "./autoRun/acpConnectionProviderFactory.js";
+export {
+  createSharedAcpConnectionProvider,
+  SHARED_ACP_CONNECTION_IDLE_MS
+} from "./autoRun/acpSharedConnectionProvider.js";
+export type { SharedAcpConnectionProviderOptions } from "./autoRun/acpSharedConnectionProvider.js";
+export {
+  AcpSharedConnectionAuthRequiredError,
+  AcpSharedConnectionLostError,
+  AcpSharedConnectionShutdownError
+} from "./autoRun/acpSharedConnectionErrors.js";
 export {
   AcpPreflightCleanupError,
   AcpPreflightPhaseError,

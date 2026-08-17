@@ -12,17 +12,21 @@ import {
 import {
   type AcpConnectionLease,
   type AcpConnectionProvider,
-  type AcpLiveRunTransport
+  type AcpLiveRunTransport,
+  type AcpSharedPoolIdentity
 } from "./acpConnectionProvider.js";
-import { createDedicatedAcpConnectionProvider } from "./acpDedicatedConnectionProvider.js";
+import { createAcpConnectionProvider } from "./acpConnectionProviderFactory.js";
 import { createAcpCleanupDeadline } from "./acpExecutionCleanup.js";
 import {
   planWeaveAcpExecutionAuthentication,
   type AcpAuthenticationHints
 } from "./acpAuthentication.js";
 import type { AcpSessionStart } from "./acpRunRecovery.js";
-import type { AcpShutdownPolicy } from "../acpProfile/schema.js";
-import type { AcpCapabilityPolicy } from "../acpProfile/schema.js";
+import type {
+  AcpCapabilityPolicy,
+  AcpConnectionMode,
+  AcpShutdownPolicy
+} from "../acpProfile/schema.js";
 
 type PromptDelivery = {
   readonly text: string;
@@ -125,6 +129,8 @@ export async function executeLocalAcpAdapter(options: {
   readonly timeoutMs?: number;
   readonly connect?: (options: CreateAcpConnectionOptions) => AcpConnection;
   readonly provider?: AcpConnectionProvider;
+  readonly connectionMode?: AcpConnectionMode;
+  readonly poolIdentity?: AcpSharedPoolIdentity;
   readonly onConnection: (connection: AcpLiveRunTransport) => void;
   readonly connectionExtensions?: Pick<CreateAcpConnectionOptions, "observer" | "onTerminalOutput">;
   readonly interactionBroker: AcpEngineInteractionBroker;
@@ -134,9 +140,13 @@ export async function executeLocalAcpAdapter(options: {
   readonly lifecycleObserver: AcpEngineLifecycleObserver;
 }) {
   const timeoutMs = options.timeoutMs ?? DEFAULT_ACP_OPERATION_TIMEOUT_MS;
+  const connectionMode = options.connectionMode ?? "dedicated";
   const innerProvider =
     options.provider ??
-    createDedicatedAcpConnectionProvider(options.connect ? { connect: options.connect } : {});
+    createAcpConnectionProvider({
+      mode: connectionMode,
+      ...(options.connect ? { connect: options.connect } : {})
+    });
   let registrationCleanup: Promise<void> | null = null;
   const provider: AcpConnectionProvider = {
     async acquire(request) {
@@ -195,7 +205,9 @@ export async function executeLocalAcpAdapter(options: {
         operationTimeoutMs: timeoutMs,
         interactionTimeoutMs: timeoutMs
       },
-      provider
+      provider,
+      connectionMode,
+      ...(options.poolIdentity ? { poolIdentity: options.poolIdentity } : {})
     });
   } catch (error) {
     const executionCause =

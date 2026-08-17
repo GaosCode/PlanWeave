@@ -351,6 +351,9 @@ const app = agent({ name: "planweave-acp-mock" })
     ) {
       throw RequestError.authRequired();
     }
+    if (scenario === "single-session" && sessions.size >= 1) {
+      throw RequestError.invalidParams({ reason: "agent supports only one session" });
+    }
     if (scenario === "no-auth-methods-but-session-requires-auth") {
       throw RequestError.authRequired();
     }
@@ -513,6 +516,11 @@ const app = agent({ name: "planweave-acp-mock" })
     const { sessionId } = ctx.params;
     const session = sessions.get(sessionId);
     if (!session) throw RequestError.invalidParams({ sessionId });
+    if (scenario === "slow-prompt") {
+      for (let i = 0; i < 20 && !session.cancelled; i += 1) {
+        await pause(20);
+      }
+    }
     if (
       scenario === "artifact-session-config" &&
       (session.modeId !== "agent-full-access" ||
