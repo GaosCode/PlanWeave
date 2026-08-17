@@ -10,9 +10,9 @@ const MAX_SHUTDOWN_STAGE_MS = 30_000;
 export const ACP_FORCE_EXIT_CONFIRM_MS = 250;
 const MAX_CLEANUP_DEADLINE_MS = 120_000;
 
-/** `@deepseek-ai/dsh-subagent-acp` `DEFAULT_DISPOSE_EOF_GRACE_MS`. */
+/** Default window to drain stdin EOF before SIGTERM. */
 export const ACP_EOF_DRAIN_MS = 6_000;
-/** `@deepseek-ai/dsh-subagent-acp` `DEFAULT_DISPOSE_GRACE_MS`. */
+/** Default SIGTERM grace window before force-kill. */
 export const ACP_TERMINATE_GRACE_MS = 3_000;
 
 const uniqueBy = <T>(values: readonly T[], key: (value: T) => string): boolean =>
