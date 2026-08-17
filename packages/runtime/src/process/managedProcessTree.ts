@@ -22,6 +22,17 @@ export type {
 /** Default grace between graceful and force termination (matches executor force-kill grace). */
 export const DEFAULT_PROCESS_TREE_GRACE_MS = 500;
 
+function logProcessTree(event: string, extra: Record<string, unknown> = {}): void {
+  console.info(
+    JSON.stringify({
+      scope: "managed-process-tree",
+      event,
+      at: new Date().toISOString(),
+      ...extra
+    })
+  );
+}
+
 export type ProcessTerminationOutcome = "already_exited" | "graceful" | "forced";
 
 export type ProcessTerminationResult = {
@@ -281,14 +292,40 @@ function createManagedProcessTree(options: {
   const awaitTreeExit = (timeoutMs: number): Promise<boolean> =>
     adapter.awaitTreeExit?.(pid, timeoutMs) ?? pollTreeExit(isTreeAlive, timeoutMs);
 
+  const waitForChildExitBounded = async (
+    step: string,
+    timeoutMs: number
+  ): Promise<"exited" | "timeout"> => {
+    logProcessTree("child-exit-wait-start", { pid, adapter: adapter.name, step, timeoutMs });
+    const winner = await Promise.race([
+      exited.then(() => "exited" as const),
+      sleep(timeoutMs).then(() => "timeout" as const)
+    ]);
+    logProcessTree("child-exit-wait-done", { pid, adapter: adapter.name, step, winner });
+    return winner;
+  };
+
   const waitForForcedExit = async (reason: string, confirmMs: number): Promise<void> => {
     const didNotExitError = (): Error =>
       new Error(
         `Managed process tree pid=${String(pid)} did not exit after force termination (${reason}).`
       );
 
-    if (!(await awaitTreeExit(confirmMs))) throw didNotExitError();
-    await Promise.race([exited, sleep(confirmMs)]);
+    logProcessTree("await-tree-exit-start", {
+      pid,
+      adapter: adapter.name,
+      step: "force-confirm",
+      timeoutMs: confirmMs
+    });
+    const treeExited = await awaitTreeExit(confirmMs);
+    logProcessTree("await-tree-exit-done", {
+      pid,
+      adapter: adapter.name,
+      step: "force-confirm",
+      treeExited
+    });
+    if (!treeExited) throw didNotExitError();
+    await waitForChildExitBounded("force-confirm", confirmMs);
   };
 
   const terminate = (
@@ -299,17 +336,36 @@ function createManagedProcessTree(options: {
       terminationPromise = (async (): Promise<ProcessTerminationResult> => {
         const effectiveGraceMs = terminationOptions.graceMs ?? graceMs;
         const effectiveConfirmMs = terminationOptions.forceExitConfirmMs ?? forceExitConfirmMs;
+        logProcessTree("terminate-begin", {
+          pid,
+          adapter: adapter.name,
+          reason,
+          graceMs: effectiveGraceMs,
+          confirmMs: effectiveConfirmMs
+        });
+        logProcessTree("liveness-check-start", { pid, adapter: adapter.name });
         const treeWasAlive = await isTreeAlive();
+        logProcessTree("liveness-check-done", { pid, adapter: adapter.name, treeWasAlive });
 
         if (!treeWasAlive) {
-          await Promise.race([exited, sleep(effectiveConfirmMs)]);
+          await waitForChildExitBounded("already-exited", effectiveConfirmMs);
+          logProcessTree("terminate-return", { pid, reason, outcome: "already_exited" });
           return { outcome: "already_exited", reason };
         }
 
         try {
+          logProcessTree("graceful-start", { pid, adapter: adapter.name, reason });
           await adapter.signalGraceful(pid);
+          logProcessTree("graceful-done", { pid, adapter: adapter.name, reason });
         } catch (error) {
           const code = errnoCode(error);
+          logProcessTree("graceful-failed", {
+            pid,
+            adapter: adapter.name,
+            reason,
+            code: code ?? null,
+            error: error instanceof Error ? error.message : String(error)
+          });
           const rootExitedBeforeGraceful = code === "ESRCH" || code === "ECHILD";
           if (!rootExitedBeforeGraceful && adapter.name !== "windows") {
             throw error;
@@ -317,8 +373,26 @@ function createManagedProcessTree(options: {
           // A Windows taskkill failure does not invalidate the owner-independent Job.
           // Force through that authoritative owner; any Job termination failure surfaces.
           try {
+            logProcessTree("force-start", {
+              pid,
+              adapter: adapter.name,
+              reason,
+              step: "after-graceful-error"
+            });
             await adapter.signalForce(pid);
+            logProcessTree("force-done", {
+              pid,
+              adapter: adapter.name,
+              reason,
+              step: "after-graceful-error"
+            });
           } catch (forceError) {
+            logProcessTree("force-failed", {
+              pid,
+              adapter: adapter.name,
+              reason,
+              error: forceError instanceof Error ? forceError.message : String(forceError)
+            });
             if (adapter.name === "windows" && !rootExitedBeforeGraceful) {
               const forceDiagnostic =
                 forceError instanceof Error ? forceError.message : String(forceError);
@@ -330,14 +404,30 @@ function createManagedProcessTree(options: {
             throw forceError;
           }
           await waitForForcedExit(reason, effectiveConfirmMs);
+          const outcome = rootExitedBeforeGraceful ? "graceful" : "forced";
+          logProcessTree("terminate-return", { pid, reason, outcome });
           return {
-            outcome: rootExitedBeforeGraceful ? "graceful" : "forced",
+            outcome,
             reason
           };
         }
 
-        if (await awaitTreeExit(effectiveGraceMs)) {
-          await Promise.race([exited, sleep(effectiveConfirmMs)]);
+        logProcessTree("await-tree-exit-start", {
+          pid,
+          adapter: adapter.name,
+          step: "after-graceful",
+          timeoutMs: effectiveGraceMs
+        });
+        const exitedAfterGraceful = await awaitTreeExit(effectiveGraceMs);
+        logProcessTree("await-tree-exit-done", {
+          pid,
+          adapter: adapter.name,
+          step: "after-graceful",
+          treeExited: exitedAfterGraceful
+        });
+        if (exitedAfterGraceful) {
+          await waitForChildExitBounded("after-graceful", effectiveConfirmMs);
+          logProcessTree("terminate-return", { pid, reason, outcome: "graceful" });
           return { outcome: "graceful", reason };
         }
         const rootExitedDuringGrace = !isAlive();
@@ -345,17 +435,33 @@ function createManagedProcessTree(options: {
         // Always force the managed tree after grace. Root may already be gone while a
         // grandchild that ignored SIGTERM remains in the same process group / OS tree.
         try {
+          logProcessTree("force-start", {
+            pid,
+            adapter: adapter.name,
+            reason,
+            step: "after-grace"
+          });
           await adapter.signalForce(pid);
+          logProcessTree("force-done", { pid, adapter: adapter.name, reason, step: "after-grace" });
         } catch (error) {
           const code = errnoCode(error);
+          logProcessTree("force-failed", {
+            pid,
+            adapter: adapter.name,
+            reason,
+            code: code ?? null,
+            error: error instanceof Error ? error.message : String(error)
+          });
           if (code !== "ESRCH") {
             throw error;
           }
         }
 
         await waitForForcedExit(reason, effectiveConfirmMs);
+        const outcome = rootExitedDuringGrace ? "graceful" : "forced";
+        logProcessTree("terminate-return", { pid, reason, outcome });
         return {
-          outcome: rootExitedDuringGrace ? "graceful" : "forced",
+          outcome,
           reason
         };
       })();

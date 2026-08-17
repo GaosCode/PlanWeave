@@ -87,6 +87,17 @@ async function pollWindowsRootExit(
   return true;
 }
 
+function logWindowsProcess(event: string, extra: Record<string, unknown> = {}): void {
+  console.info(
+    JSON.stringify({
+      scope: "windows-process-tree",
+      event,
+      at: new Date().toISOString(),
+      ...extra
+    })
+  );
+}
+
 /** Graceful taskkill waits for the tree to exit; cap it so WSL can escalate to Job force. */
 export const WINDOWS_GRACEFUL_TASKKILL_TIMEOUT_MS = 8_000;
 const WINDOWS_FORCE_TASKKILL_TIMEOUT_MS = 15_000;
@@ -112,6 +123,7 @@ function runTaskKill(
       windowsHide: true,
       shell: false
     });
+    logWindowsProcess("taskkill-start", { pid, force, timeoutMs });
     let settled = false;
     const settle = (work: () => void): void => {
       if (settled) return;
@@ -120,6 +132,7 @@ function runTaskKill(
       work();
     };
     const timer = setTimeout(() => {
+      logWindowsProcess("taskkill-timeout", { pid, force, timeoutMs });
       child.kill?.();
       settle(() => {
         reject(
@@ -137,6 +150,7 @@ function runTaskKill(
     });
     child.once("close", (code) => {
       settle(() => {
+        logWindowsProcess("taskkill-close", { pid, force, code });
         if (code === 0) {
           resolvePromise();
           return;
@@ -468,6 +482,10 @@ function terminateWindowsJob(job: WindowsJobOwnership): Promise<void> {
       ],
       { stdio: ["ignore", "ignore", "pipe"], windowsHide: true, shell: false }
     );
+    logWindowsProcess("job-terminate-start", {
+      job: job.name,
+      timeoutMs: WINDOWS_JOB_TERMINATE_TIMEOUT_MS
+    });
     let stderr = "";
     let settled = false;
     const settle = (work: () => void): void => {
@@ -477,6 +495,10 @@ function terminateWindowsJob(job: WindowsJobOwnership): Promise<void> {
       work();
     };
     const timer = setTimeout(() => {
+      logWindowsProcess("job-terminate-timeout", {
+        job: job.name,
+        timeoutMs: WINDOWS_JOB_TERMINATE_TIMEOUT_MS
+      });
       child.kill();
       settle(() => {
         reject(
@@ -497,6 +519,7 @@ function terminateWindowsJob(job: WindowsJobOwnership): Promise<void> {
     });
     child.once("close", (code) => {
       settle(() => {
+        logWindowsProcess("job-terminate-close", { job: job.name, code });
         if (code === 0) {
           resolvePromise();
           return;
@@ -539,6 +562,11 @@ function runWindowsJobProbe(job: WindowsJobOwnership, timeoutMs: number): Promis
       ],
       { stdio: "ignore", windowsHide: true, shell: false }
     );
+    logWindowsProcess("job-probe-start", {
+      job: job.name,
+      requestedMs,
+      nodeTimeoutMs
+    });
     let settled = false;
     const settle = (work: () => void): void => {
       if (settled) return;
@@ -547,6 +575,7 @@ function runWindowsJobProbe(job: WindowsJobOwnership, timeoutMs: number): Promis
       work();
     };
     const timer = setTimeout(() => {
+      logWindowsProcess("job-probe-timeout", { job: job.name, nodeTimeoutMs });
       child.kill();
       // Treat a hung probe as "still alive" so terminate can escalate to force.
       settle(() => resolvePromise(false));
@@ -556,6 +585,7 @@ function runWindowsJobProbe(job: WindowsJobOwnership, timeoutMs: number): Promis
     });
     child.once("close", (code) => {
       settle(() => {
+        logWindowsProcess("job-probe-close", { job: job.name, code });
         if (code === 0) resolvePromise(true);
         else if (code === 3) resolvePromise(false);
         else
