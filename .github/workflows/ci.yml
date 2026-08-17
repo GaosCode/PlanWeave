@@ -19,9 +19,50 @@ permissions:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
+  # Same-ref pushes (including main) keep the newest run; older ones are cancelled.
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      desktop: ${{ steps.filter.outputs.desktop }}
+      wsl: ${{ steps.filter.outputs.wsl }}
+      server_host: ${{ steps.filter.outputs.server_host }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Filter paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            desktop:
+              - ".github/workflows/ci.yml"
+              - "package.json"
+              - "pnpm-lock.yaml"
+              - "packages/desktop/**"
+              - "packages/mcp/**"
+              - "packages/runtime/**"
+              - "scripts/sync-version-metadata.mjs"
+            wsl:
+              - ".github/workflows/ci.yml"
+              - "packages/runtime/**"
+            server_host:
+              - ".github/workflows/ci.yml"
+              - "package.json"
+              - "pnpm-lock.yaml"
+              - "packages/agent-host/**"
+              - "packages/agent-host-protocol/**"
+              - "packages/collaboration-protocol/**"
+              - "packages/runtime/**"
+              - "packages/server/**"
+
   test-suite-classification:
     name: Test suite classification
     runs-on: ubuntu-latest
@@ -164,7 +205,10 @@ jobs:
 
   integration-tests:
     name: Integration tests (${{ matrix.label }})
-    needs: test-suite-classification
+    needs:
+      - test-suite-classification
+      - changes
+    if: ${{ matrix.shard != 'distributed' || needs.changes.outputs.server_host == 'true' }}
     runs-on: ubuntu-latest
     # Distributed realProcess suites need more wall time and serial workers than CLI/core shards.
     timeout-minutes: ${{ matrix.job_timeout_minutes }}
@@ -354,7 +398,10 @@ jobs:
 
   windows-wsl-integration:
     name: Windows WSL execution-host integration
-    needs: test-suite-classification
+    needs:
+      - test-suite-classification
+      - changes
+    if: ${{ needs.changes.outputs.wsl == 'true' }}
     runs-on: windows-2025
     timeout-minutes: 30
     env:
@@ -470,6 +517,8 @@ jobs:
 
   windows-packaged-smoke:
     name: Windows unsigned packaged smoke
+    needs: changes
+    if: ${{ needs.changes.outputs.desktop == 'true' }}
     runs-on: windows-latest
     timeout-minutes: 45
     env:

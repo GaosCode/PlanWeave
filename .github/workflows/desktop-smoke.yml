@@ -28,6 +28,7 @@ permissions:
 
 concurrency:
   group: desktop-smoke-${{ github.workflow }}-${{ github.ref }}
+  # Same-ref pushes (including main) keep the newest run; older ones are cancelled.
   cancel-in-progress: true
 
 jobs:
