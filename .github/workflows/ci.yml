@@ -464,6 +464,7 @@ jobs:
     timeout-minutes: 30
     env:
       PLANWEAVE_REQUIRE_WSL_TESTS: "1"
+      PLANWEAVE_PROCESS_TREE_LOG: "1"
 
     steps:
       - name: Checkout

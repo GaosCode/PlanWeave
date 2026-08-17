@@ -88,6 +88,7 @@ async function pollWindowsRootExit(
 }
 
 function logWindowsProcess(event: string, extra: Record<string, unknown> = {}): void {
+  if (process.env.PLANWEAVE_PROCESS_TREE_LOG !== "1") return;
   console.info(
     JSON.stringify({
       scope: "windows-process-tree",

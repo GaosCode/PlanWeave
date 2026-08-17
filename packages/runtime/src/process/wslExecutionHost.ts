@@ -155,6 +155,7 @@ const WSL_CLEANUP_WAIT_MS = 8_000;
 const WSL_NATIVE_TERMINATE_WAIT_MS = 20_000;
 
 function logWslHost(event: string, extra: Record<string, unknown> = {}): void {
+  if (process.env.PLANWEAVE_PROCESS_TREE_LOG !== "1") return;
   console.info(
     JSON.stringify({
       scope: "wsl-execution-host",

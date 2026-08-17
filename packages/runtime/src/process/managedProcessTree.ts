@@ -23,6 +23,7 @@ export type {
 export const DEFAULT_PROCESS_TREE_GRACE_MS = 500;
 
 function logProcessTree(event: string, extra: Record<string, unknown> = {}): void {
+  if (process.env.PLANWEAVE_PROCESS_TREE_LOG !== "1") return;
   console.info(
     JSON.stringify({
       scope: "managed-process-tree",
