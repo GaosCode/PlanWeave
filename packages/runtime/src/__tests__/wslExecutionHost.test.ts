@@ -295,6 +295,58 @@ describe("WSL execution host", () => {
     ]);
   });
 
+  it("reaps the Windows launcher before starting WSL process-group cleanup", async () => {
+    let releaseNative: (() => void) | undefined;
+    let wslCleanupStarted = false;
+    const nativeGate = new Promise<void>((resolve) => {
+      releaseNative = resolve;
+    });
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args.includes("wslpath")) {
+        return { stdout: Buffer.from("/mnt/c/work\n"), stderr: Buffer.alloc(0) };
+      }
+      if (args.includes("planweave-wsl-terminate")) {
+        wslCleanupStarted = true;
+        return { stdout: Buffer.from("exited\n"), stderr: Buffer.alloc(0) };
+      }
+      return {
+        stdout: Buffer.from(
+          "__PLANWEAVE_PATH_BEGIN__/home/dev/.local/bin:/usr/bin__PLANWEAVE_PATH_END__\n"
+        ),
+        stderr: Buffer.alloc(0)
+      };
+    });
+    const prepared = await prepareWslProcessInvocation({
+      host: { kind: "wsl", distribution: "Ubuntu" },
+      command: "pi-acp",
+      args: [],
+      cwd: "C:\\work",
+      platform: "win32",
+      run,
+      token: "native-first"
+    });
+    const nativeTerminate = vi.fn(async () => {
+      expect(wslCleanupStarted).toBe(false);
+      await nativeGate;
+      expect(wslCleanupStarted).toBe(false);
+      return { outcome: "forced" as const, reason: "cancelled" };
+    });
+    const tree = prepared.decorateProcessTree({
+      pid: 1234,
+      exited: Promise.resolve(),
+      isAlive: () => true,
+      terminate: nativeTerminate
+    });
+
+    const terminating = tree.terminate("cancelled");
+    await Promise.resolve();
+    expect(nativeTerminate).toHaveBeenCalledOnce();
+    expect(wslCleanupStarted).toBe(false);
+    releaseNative?.();
+    await expect(terminating).resolves.toEqual({ outcome: "forced", reason: "cancelled" });
+    expect(wslCleanupStarted).toBe(true);
+  });
+
   it("surfaces WSL cleanup failure even if native process termination succeeds", async () => {
     const run = vi.fn(async (args: readonly string[]) => {
       if (args.includes("wslpath")) {

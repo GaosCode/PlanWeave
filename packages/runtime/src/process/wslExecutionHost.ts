@@ -439,23 +439,27 @@ function decorateWslProcessTree(options: {
     },
     terminate(reason, terminationOptions) {
       termination ??= (async () => {
-        const cleanup = options.cleanupExitedProcessTree(terminationOptions);
-        const nativeTermination = terminationOptions
-          ? options.tree.terminate(reason, terminationOptions)
-          : options.tree.terminate(reason);
-        const [cleanupResult, nativeResult] = await Promise.allSettled([
-          cleanup,
-          nativeTermination
-        ]);
-        if (cleanupResult.status === "rejected" && nativeResult.status === "rejected") {
-          throw new AggregateError(
-            [cleanupResult.reason, nativeResult.reason],
-            "WSL and Windows process-tree cleanup both failed."
-          );
+        // WSL 1 serializes distro entry. A concurrent wsl.exe --exec for
+        // process-group cleanup can block forever while the launcher is still
+        // inside the same distribution. Reap the Windows launcher first.
+        let nativeResult: ProcessTerminationResult;
+        try {
+          nativeResult = terminationOptions
+            ? await options.tree.terminate(reason, terminationOptions)
+            : await options.tree.terminate(reason);
+        } catch (nativeError) {
+          try {
+            await options.cleanupExitedProcessTree(terminationOptions);
+          } catch (cleanupError) {
+            throw new AggregateError(
+              [cleanupError, nativeError],
+              "WSL and Windows process-tree cleanup both failed."
+            );
+          }
+          throw nativeError;
         }
-        if (cleanupResult.status === "rejected") throw cleanupResult.reason;
-        if (nativeResult.status === "rejected") throw nativeResult.reason;
-        return nativeResult.value;
+        await options.cleanupExitedProcessTree(terminationOptions);
+        return nativeResult;
       })();
       return termination;
     }
