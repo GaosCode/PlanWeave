@@ -15,6 +15,7 @@
     "check:distributed-package-install": "node scripts/distributed-package-install-smoke.mjs",
     "check:runtime-browser-boundary": "node scripts/check-runtime-browser-boundary.mjs",
     "check:versions": "node scripts/sync-version-metadata.mjs --check",
+    "gate:acp-connection-reuse": "node scripts/acp-connection-reuse-gate.mjs",
     "lint": "pnpm check:versions && pnpm check:dom-boundaries && pnpm check:runtime-browser-boundary && pnpm check:distributed-package-boundaries && pnpm typecheck",
     "typecheck": "pnpm --filter @planweave-ai/agent-host-protocol typecheck && pnpm --filter @planweave-ai/collaboration-protocol typecheck && pnpm --filter @planweave-ai/runtime typecheck && pnpm --parallel --filter @planweave-ai/mcp --filter @planweave-ai/server --filter @planweave-ai/agent-host typecheck && pnpm --filter @planweave-ai/cli typecheck && pnpm --filter @planweave-ai/desktop typecheck",
     "desktop:build": "pnpm --dir packages/desktop build",

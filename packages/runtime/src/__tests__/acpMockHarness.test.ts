@@ -1,3 +1,8 @@
+import { execFile } from "node:child_process";
+import { rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, isAbsolute, relative } from "node:path";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   ACP_MOCK_OPERATION_TIMEOUT_MS,
@@ -6,6 +11,7 @@ import {
 } from "./support/acpMockHarness.js";
 
 const harnesses: AcpMockHarness[] = [];
+const execFileAsync = promisify(execFile);
 const spawnHarness = (scenario: ConstructorParameters<typeof AcpMockHarness>[0]) => {
   const harness = new AcpMockHarness(scenario);
   harnesses.push(harness);
@@ -17,6 +23,104 @@ afterEach(async () => {
 });
 
 describe("ACP mock subprocess harness", () => {
+  it("keeps the connection-reuse gate hermetic and frozen at the F0 thresholds", async () => {
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      ["scripts/acp-connection-reuse-gate.mjs", "--mock-only"],
+      { cwd: process.cwd(), timeout: 30_000, maxBuffer: 2_000_000 }
+    );
+    const result = JSON.parse(stdout);
+
+    expect(result.decision).toBe("NO-GO");
+    expect(result.safety).toEqual({
+      realPromptRequestsSent: 0,
+      realAuthenticationRequestsSent: 0,
+      credentialEnvironmentForwarded: false,
+      capturedOutputContentEmitted: false,
+      credentialShapedOutputDetected: false,
+      realProbeOperations: ["initialize", "session/new", "session/cancel", "session/close"]
+    });
+    expect(result.thresholds).toEqual({
+      workloadConcurrency: 4,
+      minimumRounds: 3,
+      processReductionPercent: 50,
+      startupInitializeOrPeakRssReductionPercent: 20,
+      maximumOtherMetricRegressionPercent: 15,
+      mockStressIterations: 100,
+      realMinimumSessionsPerConnection: 2
+    });
+    expect(result.mock.conformance).toEqual(
+      expect.objectContaining({
+        passed: true,
+        stress: expect.objectContaining({
+          iterations: 100,
+          crossSessionFailures: 0,
+          cancelledPrompts: 100,
+          survivingPrompts: 100,
+          failureRounds: 10,
+          automaticReplayCount: 0,
+          pendingPromises: 0,
+          passed: true
+        }),
+        connectionFailure: expect.objectContaining({
+          affectedOwners: 2,
+          rejectedPrompts: 2,
+          automaticReplay: false,
+          passed: true
+        })
+      })
+    );
+    expect(result.mock.benchmark).toEqual(
+      expect.objectContaining({
+        passed: true,
+        rounds: 3,
+        cleanupConfirmed: true,
+        outputSafe: true,
+        metrics: expect.objectContaining({
+          peakProcessTreeCount: expect.any(Object),
+          workloadStartupInitializeWallMs: expect.any(Object),
+          startupInitializeP95Ms: expect.any(Object),
+          peakAggregateRssKiB: expect.any(Object)
+        }),
+        reductionsPercent: expect.objectContaining({ peakProcessTreeCount: 75 })
+      })
+    );
+    expect(result.reasons).toContain(
+      "Real-profile evidence was not measured; mock evidence cannot satisfy the gate."
+    );
+  }, 35_000);
+
+  it("creates raw evidence only in a tool-owned private temporary directory", async () => {
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      ["scripts/acp-connection-reuse-gate.mjs", "--mock-only", "--output"],
+      { cwd: process.cwd(), timeout: 30_000, maxBuffer: 2_000_000 }
+    );
+    const result = JSON.parse(stdout);
+    const rawOutputPath = result.rawOutputPath as string;
+    const fromTemporaryRoot = relative(tmpdir(), rawOutputPath);
+    expect(fromTemporaryRoot.startsWith("..")).toBe(false);
+    expect(isAbsolute(fromTemporaryRoot)).toBe(false);
+    expect(rawOutputPath.endsWith("/result.json")).toBe(true);
+    expect(statSync(dirname(rawOutputPath)).mode & 0o777).toBe(0o700);
+    expect(statSync(rawOutputPath).mode & 0o777).toBe(0o600);
+    rmSync(dirname(rawOutputPath), { recursive: true, force: true });
+  }, 35_000);
+
+  it("fails closed for partial observers, unsafe eligibility, and output symlinks", async () => {
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      ["scripts/acp-connection-reuse-gate/regression-cases.mjs"],
+      { cwd: process.cwd(), timeout: 5_000 }
+    );
+    expect(JSON.parse(stdout)).toEqual({
+      partialObserverFailureRejected: true,
+      deadlineAndCleanupFailuresRejected: true,
+      benchmarkCredentialOutputRejected: true,
+      outputSymlinksRejected: true
+    });
+  });
+
   it("pins the official SDK as the protocol authority and labels preview behavior", () => {
     expect(ACP_PROTOCOL_AUTHORITY).toEqual(
       expect.objectContaining({
