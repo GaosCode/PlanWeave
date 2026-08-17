@@ -152,6 +152,7 @@ export function availableExecutionHostEnvironmentVariables(
 
 const WSL_COMMAND_TIMEOUT_MS = 15_000;
 const WSL_CLEANUP_WAIT_MS = 8_000;
+const WSL_NATIVE_TERMINATE_WAIT_MS = 20_000;
 
 function logWslHost(event: string, extra: Record<string, unknown> = {}): void {
   console.info(
@@ -536,13 +537,19 @@ function decorateWslProcessTree(options: {
         logWslHost("terminate-start", { reason });
         let nativeResult: ProcessTerminationResult;
         try {
-          nativeResult = terminationOptions
-            ? await options.tree.terminate(reason, terminationOptions)
-            : await options.tree.terminate(reason);
+          const nativeTermination = terminationOptions
+            ? options.tree.terminate(reason, terminationOptions)
+            : options.tree.terminate(reason);
+          nativeResult = await raceTimeout(
+            nativeTermination,
+            WSL_NATIVE_TERMINATE_WAIT_MS,
+            `Windows launcher terminate timed out after ${String(WSL_NATIVE_TERMINATE_WAIT_MS)}ms.`
+          );
           logWslHost("native-terminate-done", { reason, outcome: nativeResult.outcome });
         } catch (nativeError) {
           logWslHost("native-terminate-failed", {
             reason,
+            timedOut: isTimeoutError(nativeError),
             error: nativeError instanceof Error ? nativeError.message : String(nativeError)
           });
           try {
@@ -556,12 +563,15 @@ function decorateWslProcessTree(options: {
               timedOut: isTimeoutError(cleanupError),
               error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
             });
-            if (!isTimeoutError(cleanupError)) {
+            if (!isTimeoutError(cleanupError) && !isTimeoutError(nativeError)) {
               throw new AggregateError(
                 [cleanupError, nativeError],
                 "WSL and Windows process-tree cleanup both failed."
               );
             }
+          }
+          if (isTimeoutError(nativeError)) {
+            return { outcome: "forced", reason };
           }
           throw nativeError;
         }

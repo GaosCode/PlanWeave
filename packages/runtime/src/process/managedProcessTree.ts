@@ -302,7 +302,7 @@ function createManagedProcessTree(options: {
         const treeWasAlive = await isTreeAlive();
 
         if (!treeWasAlive) {
-          await exited;
+          await Promise.race([exited, sleep(effectiveConfirmMs)]);
           return { outcome: "already_exited", reason };
         }
 
@@ -337,7 +337,7 @@ function createManagedProcessTree(options: {
         }
 
         if (await awaitTreeExit(effectiveGraceMs)) {
-          await exited;
+          await Promise.race([exited, sleep(effectiveConfirmMs)]);
           return { outcome: "graceful", reason };
         }
         const rootExitedDuringGrace = !isAlive();

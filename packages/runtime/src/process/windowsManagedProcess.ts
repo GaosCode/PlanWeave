@@ -515,6 +515,8 @@ function terminateWindowsJob(job: WindowsJobOwnership): Promise<void> {
 }
 
 function runWindowsJobProbe(job: WindowsJobOwnership, timeoutMs: number): Promise<boolean> {
+  const requestedMs = Math.max(0, Math.floor(timeoutMs));
+  const nodeTimeoutMs = requestedMs + 5_000;
   return new Promise((resolvePromise, reject) => {
     const child = spawn(
       windowsPowerShellPath(),
@@ -533,16 +535,34 @@ function runWindowsJobProbe(job: WindowsJobOwnership, timeoutMs: number): Promis
         "-MarkerPath",
         job.markerPath,
         "-TimeoutMs",
-        String(Math.max(0, Math.floor(timeoutMs)))
+        String(requestedMs)
       ],
       { stdio: "ignore", windowsHide: true, shell: false }
     );
-    child.once("error", reject);
+    let settled = false;
+    const settle = (work: () => void): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      work();
+    };
+    const timer = setTimeout(() => {
+      child.kill();
+      // Treat a hung probe as "still alive" so terminate can escalate to force.
+      settle(() => resolvePromise(false));
+    }, nodeTimeoutMs);
+    child.once("error", (error) => {
+      settle(() => reject(error));
+    });
     child.once("close", (code) => {
-      if (code === 0) resolvePromise(true);
-      else if (code === 3) resolvePromise(false);
-      else
-        reject(new Error(`Windows Job exit probe failed for ${job.name} (exit ${String(code)}).`));
+      settle(() => {
+        if (code === 0) resolvePromise(true);
+        else if (code === 3) resolvePromise(false);
+        else
+          reject(
+            new Error(`Windows Job exit probe failed for ${job.name} (exit ${String(code)}).`)
+          );
+      });
     });
   });
 }

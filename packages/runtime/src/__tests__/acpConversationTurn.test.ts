@@ -9,12 +9,55 @@ import { acpConversationTurnIdentitySchema } from "../autoRun/acpConversationTur
 import type { NormalizedRunnerEvent } from "../autoRun/normalizedEventContract.js";
 import type { AcpDisposeOptions, AcpOperationOptions } from "../autoRun/acpConnection.js";
 
-const { execFileMock } = vi.hoisted(() => ({ execFileMock: vi.fn() }));
+const { execFileMock, spawnMock } = vi.hoisted(() => ({
+  execFileMock: vi.fn(),
+  spawnMock: vi.fn()
+}));
 
 vi.mock("node:child_process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:child_process")>();
-  return { ...actual, execFile: execFileMock };
+  return { ...actual, execFile: execFileMock, spawn: spawnMock };
 });
+
+function mockWslSpawnSuccess(): void {
+  spawnMock.mockImplementation((_command: string, args: readonly string[] = []) => {
+    const joined = args.join(" ");
+    const stdout = joined.includes("wslpath")
+      ? Buffer.from("/mnt/c/work\n")
+      : joined.includes("planweave-wsl-")
+        ? Buffer.from("exited\n")
+        : Buffer.from(
+            "__PLANWEAVE_PATH_BEGIN__/home/dev/.local/bin:/usr/bin__PLANWEAVE_PATH_END__\n"
+          );
+    const stdoutListeners: Array<(chunk: Buffer) => void> = [];
+    const closeListeners: Array<(code: number) => void> = [];
+    queueMicrotask(() => {
+      for (const listener of stdoutListeners) listener(stdout);
+      for (const listener of closeListeners) listener(0);
+    });
+    return {
+      pid: 1,
+      stdout: {
+        on(event: string, listener: (chunk: Buffer) => void) {
+          if (event === "data") stdoutListeners.push(listener);
+          return this;
+        }
+      },
+      stderr: {
+        on() {
+          return this;
+        }
+      },
+      once(event: string, listener: (code: number) => void) {
+        if (event === "close") closeListeners.push(listener);
+        return this;
+      },
+      kill() {
+        return true;
+      }
+    };
+  });
+}
 
 function sessionUpdate(text: string): SessionNotification {
   return {
@@ -186,6 +229,7 @@ describe("ACP conversation turn", () => {
   it("provides WSL host cleanup to a custom connection factory", async () => {
     const platformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
     Object.defineProperty(process, "platform", { configurable: true, value: "win32" });
+    mockWslSpawnSuccess();
     execFileMock.mockImplementation(
       (
         _command: string,
@@ -215,6 +259,7 @@ describe("ACP conversation turn", () => {
     } finally {
       if (platformDescriptor) Object.defineProperty(process, "platform", platformDescriptor);
       execFileMock.mockReset();
+      spawnMock.mockReset();
     }
 
     const connectionOptions = harness.connect.mock.calls[0]?.[0];
