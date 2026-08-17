@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type {
-  CollaborationContentBootstrapResult,
-  LocalCollaborationServerStatus,
-  PlanWeaveCollaborationApi
+import {
+  isLocalCollaborationProfileId,
+  type CollaborationContentBootstrapResult,
+  type LocalCollaborationServerStatus,
+  type PlanWeaveCollaborationApi
 } from "../../shared/collaboration.js";
 import { Button } from "@/components/ui/button";
 import { collaborationBridge } from "../bridge";
@@ -26,6 +27,7 @@ import { DeploymentConnectionCard } from "../settings/DeploymentConnectionCard";
 import { isCollaborationSessionConnected } from "../collaboration/sessionState";
 import {
   collaborationConnectionErrorMessage,
+  collaborationDeveloperErrorDetail,
   collaborationErrorCode,
   collaborationErrorMessage
 } from "../collaboration/formatCollaborationError";
@@ -60,12 +62,19 @@ async function defaultCopyText(text: string): Promise<void> {
 
 export function formatPeoplePanelError(
   t: ReturnType<typeof createTranslator>,
-  error: unknown
+  error: unknown,
+  diagnosticsEnabled = false
 ): string {
   const code = collaborationErrorCode(error);
-  if (code === "human_rate_limited") return t("peopleRequestRateLimited");
-  if (code === "human_limit_exceeded") return t("localServerInvitationCapacityExceeded");
-  return collaborationErrorMessage(error);
+  const formatted =
+    code === "human_rate_limited"
+      ? t("peopleRequestRateLimited")
+      : code === "human_limit_exceeded"
+        ? t("localServerInvitationCapacityExceeded")
+        : collaborationErrorMessage(error);
+  if (!diagnosticsEnabled) return formatted;
+  const detail = collaborationDeveloperErrorDetail(error, formatted);
+  return detail ? `${formatted}\n${detail}` : formatted;
 }
 
 /** Workspace-wide member, device, and shared-content administration. */
@@ -136,6 +145,10 @@ export function PeopleView({
   }, [sessionConnected]);
   const hasConfiguredWorkspace = status !== null && status.workspaceConnection.workspaceId !== null;
   const showOnboarding = !hasConfiguredWorkspace;
+  const workspaceHostProfileId =
+    status?.workspaceConnection.profile?.profileId ?? activeProfile?.profileId ?? null;
+  const canControlLocalServer =
+    workspaceHostProfileId !== null && isLocalCollaborationProfileId(workspaceHostProfileId);
 
   useEffect(() => {
     if (!api || typeof api.getDesktopServerExposure !== "function") return;
@@ -159,15 +172,24 @@ export function PeopleView({
     }
   }, [hasConfiguredWorkspace, localHostingOpen]);
 
+  const previousLocalServerStateRef = useRef<LocalCollaborationServerStatus["state"] | null>(null);
   const handleLocalServerStatusChange = useCallback(
     (nextStatus: LocalCollaborationServerStatus) => {
-      if (localHostingOpen && nextStatus.state === "running") {
+      const becameRunning =
+        previousLocalServerStateRef.current !== null &&
+        previousLocalServerStateRef.current !== "running" &&
+        nextStatus.state === "running";
+      previousLocalServerStateRef.current = nextStatus.state;
+      if (becameRunning || (localHostingOpen && nextStatus.state === "running")) {
         void refreshCollaborationStatus();
       }
     },
     [localHostingOpen, refreshCollaborationStatus]
   );
-  const formatPanelError = useCallback((error: unknown) => formatPeoplePanelError(t, error), [t]);
+  const formatPanelError = useCallback(
+    (error: unknown) => formatPeoplePanelError(t, error, diagnosticsEnabled),
+    [diagnosticsEnabled, t]
+  );
 
   // Subscribe only: the project shell owns the shared hub's active project/canvas binding.
   const { snapshot, viewModel, controller } = useCollaborationReadModels({
@@ -186,18 +208,28 @@ export function PeopleView({
     detailsOpen: true,
     formatError: formatPanelError
   });
-  const diagnosticReport = useMemo(
-    () =>
-      diagnosticsEnabled && status
-        ? buildCollaborationDiagnosticReport(
-            status,
-            undefined,
-            snapshot,
-            workspaceAccessScope.access.view
-          )
-        : null,
-    [diagnosticsEnabled, snapshot, status, workspaceAccessScope.access.view]
-  );
+  const diagnosticReport = useMemo(() => {
+    if (!diagnosticsEnabled || !status) return null;
+    const report = buildCollaborationDiagnosticReport(
+      status,
+      undefined,
+      snapshot,
+      workspaceAccessScope.access.view
+    );
+    if (!panel.detailsError && !panel.actionError) return report;
+    return [
+      report,
+      `people.details_error=${panel.detailsError ?? "none"}`,
+      `people.action_error=${panel.actionError ?? "none"}`
+    ].join("\n");
+  }, [
+    diagnosticsEnabled,
+    panel.actionError,
+    panel.detailsError,
+    snapshot,
+    status,
+    workspaceAccessScope.access.view
+  ]);
 
   const handleManageInvitations = useCallback(() => {
     setLocalHostingOpen(false);
@@ -499,6 +531,7 @@ export function PeopleView({
                     onInvitationHandoffChange={setLocalInvitationHandoff}
                     onStatusChange={handleLocalServerStatusChange}
                     serverExposure={desktopServerExposure}
+                    canControlLocalServer={canControlLocalServer}
                   />
                 }
                 contentAuthority={
@@ -510,6 +543,7 @@ export function PeopleView({
                       localProjectId={null}
                       canvasId={null}
                       connected={sessionConnected}
+                      diagnosticsEnabled={diagnosticsEnabled}
                       onReplicaReady={onContentReplicaReady}
                       t={t}
                     />

@@ -13,6 +13,14 @@ import type { CollaborationStatus, PlanWeaveCollaborationApi } from "../shared/c
 const scopeLayout = { collapsed: true, expandedProjectIds: [] };
 const onScopeLayoutChange = () => undefined;
 
+function peopleIdentityReads() {
+  return {
+    listCollaborationMembers: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+    listCollaborationDevices: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+    listCollaborationInvitations: vi.fn().mockResolvedValue({ items: [], nextCursor: null })
+  };
+}
+
 function invitationHandoff(invitationToken: string, invitationId = "invitation-1") {
   return {
     invitationToken,
@@ -47,6 +55,30 @@ describe("PeopleView", () => {
     expect(message).toBe("协作请求过于频繁。请稍候再试。");
     expect(message).not.toContain("Error invoking remote method");
     expect(message).not.toContain("listInvitations");
+  });
+
+  it("keeps People network failures visible and adds the raw IPC text in developer mode", () => {
+    const t = createTranslator("zh-CN");
+    const ipcError = new Error(
+      "Error invoking remote method 'planweave-collaboration:listCollaborationDevices': CollaborationClientError: Network request failed."
+    );
+    const structured = {
+      kind: "offline",
+      code: "collaboration_offline",
+      message: "Network request failed.",
+      retryable: true
+    };
+
+    expect(formatPeoplePanelError(t, ipcError)).toBe("Network request failed.");
+    expect(formatPeoplePanelError(t, structured)).toBe(
+      "collaboration_offline: Network request failed."
+    );
+    expect(formatPeoplePanelError(t, ipcError, true)).toContain(
+      "Error invoking remote method 'planweave-collaboration:listCollaborationDevices'"
+    );
+    expect(formatPeoplePanelError(t, structured, true)).toBe(
+      "collaboration_offline: Network request failed."
+    );
   });
 
   it("keeps the connected workspace visible during a transient disconnected status event", async () => {
@@ -110,7 +142,8 @@ describe("PeopleView", () => {
         lanServerBaseUrl: null
       }),
       onCollaborationObserverSignal: vi.fn(() => () => undefined),
-      listCollaborationContentBootstrapCandidates: vi.fn().mockResolvedValue([])
+      listCollaborationContentBootstrapCandidates: vi.fn().mockResolvedValue([]),
+      ...peopleIdentityReads()
     } as unknown as PlanWeaveCollaborationApi;
 
     render(
@@ -218,7 +251,8 @@ describe("PeopleView", () => {
         lanServerBaseUrl: null
       }),
       onCollaborationObserverSignal: vi.fn(() => () => undefined),
-      listCollaborationContentBootstrapCandidates: vi.fn().mockResolvedValue([])
+      listCollaborationContentBootstrapCandidates: vi.fn().mockResolvedValue([]),
+      ...peopleIdentityReads()
     } as unknown as PlanWeaveCollaborationApi;
 
     render(
@@ -317,7 +351,8 @@ describe("PeopleView", () => {
         projects: [],
         selectedCount: 0
       }),
-      listLocalCollaborationTrustedScopes: vi.fn().mockResolvedValue([])
+      listLocalCollaborationTrustedScopes: vi.fn().mockResolvedValue([]),
+      ...peopleIdentityReads()
     } as unknown as PlanWeaveCollaborationApi;
 
     render(
@@ -465,7 +500,8 @@ describe("PeopleView", () => {
         profileId: "profile-1",
         registeredAt: "2030-01-01T00:00:01.000Z"
       }),
-      createCollaborationInvitationHandoff: createInvitation
+      createCollaborationInvitationHandoff: createInvitation,
+      ...peopleIdentityReads()
     } as unknown as PlanWeaveCollaborationApi;
 
     render(
@@ -579,7 +615,8 @@ describe("PeopleView", () => {
         message: "human_limit_exceeded",
         httpStatus: 409,
         retryable: false
-      })
+      }),
+      ...peopleIdentityReads()
     } as unknown as PlanWeaveCollaborationApi;
 
     render(
@@ -776,7 +813,8 @@ describe("PeopleView", () => {
         .mockResolvedValue([
           { workspaceId: "workspace-1", projectId: "project-1", canvasId: "canvas-1" }
         ]),
-      listCollaborationContentBootstrapCandidates: vi.fn().mockResolvedValue([])
+      listCollaborationContentBootstrapCandidates: vi.fn().mockResolvedValue([]),
+      ...peopleIdentityReads()
     } as unknown as PlanWeaveCollaborationApi;
 
     render(
@@ -937,7 +975,8 @@ describe("PeopleView", () => {
         reason: null,
         lanSharingEnabled: false,
         lanServerBaseUrl: null
-      })
+      }),
+      ...peopleIdentityReads()
     } as unknown as PlanWeaveCollaborationApi;
 
     render(
@@ -1028,7 +1067,8 @@ describe("PeopleView", () => {
         reason: null,
         lanSharingEnabled: false,
         lanServerBaseUrl: null
-      })
+      }),
+      ...peopleIdentityReads()
     } as unknown as PlanWeaveCollaborationApi;
 
     render(

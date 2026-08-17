@@ -886,6 +886,9 @@ describe("preload bridge invocation", () => {
       expiresAt: "2026-07-26T00:00:00.000Z"
     };
     electronMock.ipcRenderer.invoke.mockImplementation(async (channel: string) => {
+      if (channel === collaborationInvokeChannels.listCollaborationContentBootstrapCandidates) {
+        return { ok: true, value: [] };
+      }
       if (channel === collaborationInvokeChannels.listCollaborationMembers) {
         return { ok: true, value: { items: [], nextCursor: null } };
       }

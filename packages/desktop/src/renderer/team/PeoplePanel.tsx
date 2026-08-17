@@ -431,11 +431,6 @@ export function PeoplePanel({
           {t("peopleError")}
         </div>
       ) : null}
-      {mode === "empty" ? (
-        <div className="text-xs text-muted-foreground" data-testid="people-empty">
-          {t("peopleEmptyMembers")}
-        </div>
-      ) : null}
 
       {actionError ? (
         <div

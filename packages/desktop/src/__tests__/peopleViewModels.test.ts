@@ -8,6 +8,7 @@ import {
   evaluateMemberAction,
   formatUnknownCollaborationError,
   isInvitationOpen,
+  stripElectronRemoteInvokeMessage,
   memberInitials,
   resolvePeoplePanelMode
 } from "../renderer/collaboration/peopleViewModels";
@@ -162,26 +163,50 @@ describe("peopleViewModels", () => {
         memberCount: 0
       })
     ).toBe("disconnected");
+    const connectedStatus = {
+      profiles: [],
+      activeProfileId: "p1",
+      credentialStorage: "available" as const,
+      nonPersistenceWarning: null,
+      session: {
+        phase: "connected" as const,
+        activeProfileId: "p1",
+        detail: null,
+        lastErrorCode: null,
+        lastErrorMessage: null
+      },
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
     expect(
       resolvePeoplePanelMode({
-        status: {
-          profiles: [],
-          activeProfileId: "p1",
-          credentialStorage: "available",
-          nonPersistenceWarning: null,
-          session: {
-            phase: "connected",
-            activeProfileId: "p1",
-            detail: null,
-            lastErrorCode: null,
-            lastErrorMessage: null
-          },
-          updatedAt: "2030-01-01T00:00:00.000Z"
-        },
+        status: connectedStatus,
         syncPhase: "ready",
         memberCount: 2
       })
     ).toBe("ready");
+    expect(
+      resolvePeoplePanelMode({
+        status: connectedStatus,
+        syncPhase: "ready",
+        memberCount: 0,
+        detailsLoading: true
+      })
+    ).toBe("loading");
+    expect(
+      resolvePeoplePanelMode({
+        status: connectedStatus,
+        syncPhase: "ready",
+        memberCount: 0,
+        detailsFailed: true
+      })
+    ).toBe("error");
+    expect(
+      resolvePeoplePanelMode({
+        status: connectedStatus,
+        syncPhase: "ready",
+        memberCount: 0
+      })
+    ).toBe("empty");
   });
 
   it("formats errors without leaking invitation or device tokens", () => {
@@ -197,5 +222,17 @@ describe("peopleViewModels", () => {
         message: `bad token pw_inv_${"A".repeat(43)}`
       })
     ).toBe("auth");
+    expect(
+      stripElectronRemoteInvokeMessage(
+        "Error invoking remote method 'planweave-collaboration:listContentBootstrapCandidates': CollaborationClientError: Network request failed."
+      )
+    ).toBe("Network request failed.");
+    expect(
+      formatUnknownCollaborationError(
+        new Error(
+          "Error invoking remote method 'planweave-collaboration:listContentBootstrapCandidates': CollaborationClientError: Network request failed."
+        )
+      )
+    ).toBe("Network request failed.");
   });
 });

@@ -292,6 +292,8 @@ export function resolvePeoplePanelMode(input: {
   status: CollaborationStatus | null;
   syncPhase: CollaborationSyncPhase;
   memberCount: number;
+  detailsLoading?: boolean;
+  detailsFailed?: boolean;
 }): PeoplePanelMode {
   const sessionPhase = input.status?.session.phase ?? "idle";
   if (sessionPhase === "connecting") return "connecting";
@@ -308,7 +310,11 @@ export function resolvePeoplePanelMode(input: {
   if (input.syncPhase === "forbidden") return "forbidden";
   if (input.syncPhase === "disconnected" || input.syncPhase === "reconnecting") return "offline";
   if (input.syncPhase === "error" || input.syncPhase === "degraded") return "error";
-  if (input.memberCount === 0) return "empty";
+  if (input.memberCount === 0) {
+    if (input.detailsLoading) return "loading";
+    if (input.detailsFailed) return "error";
+    return "empty";
+  }
   return "ready";
 }
 
@@ -328,9 +334,17 @@ export function formatCollaborationBoundaryError(
   return message || code || "collaboration_error";
 }
 
+export function stripElectronRemoteInvokeMessage(message: string): string {
+  const match = message.match(
+    /^Error invoking remote method '[^']+':\s*(?:[\w.]+Error:\s*)*(.+)$/s
+  );
+  const inner = match?.[1]?.trim();
+  return inner && inner.length > 0 ? inner : message;
+}
+
 export function formatUnknownCollaborationError(error: unknown): string {
   if (error instanceof Error) {
-    const message = error.message;
+    const message = stripElectronRemoteInvokeMessage(error.message);
     const code =
       "code" in error && typeof (error as { code?: unknown }).code === "string"
         ? (error as { code: string }).code
@@ -352,7 +366,8 @@ export function formatUnknownCollaborationError(error: unknown): string {
     message?: unknown;
   };
   const code = typeof record.code === "string" ? record.code : null;
-  const message = typeof record.message === "string" ? record.message : null;
+  const message =
+    typeof record.message === "string" ? stripElectronRemoteInvokeMessage(record.message) : null;
   // Drop anything that looks like a token/digest fragment.
   const safeMessage =
     message && !/pw_hdev_|pw_inv_|tokenSha256|token_sha256|Authorization|Bearer\s+/i.test(message)

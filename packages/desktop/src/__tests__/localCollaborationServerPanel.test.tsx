@@ -206,6 +206,116 @@ describe("LocalCollaborationServerPanel", () => {
     expect(collaborationApi.startLocalCollaborationServer).not.toHaveBeenCalled();
   });
 
+  it("starts the stopped local server from the hosting panel", async () => {
+    let serverState: "stopped" | "running" = "stopped";
+    const collaborationApi = api({
+      getLocalCollaborationServerStatus: vi.fn(async () =>
+        serverState === "running"
+          ? {
+              profile,
+              state: "running" as const,
+              startedAt: "2030-01-01T00:00:00.000Z",
+              reason: null,
+              lanSharingEnabled: false,
+              lanServerBaseUrl: null
+            }
+          : {
+              profile: null,
+              state: "stopped" as const,
+              startedAt: null,
+              reason: null,
+              lanSharingEnabled: false,
+              lanServerBaseUrl: null
+            }
+      ),
+      startLocalCollaborationServer: vi.fn(async () => {
+        serverState = "running";
+        return {
+          profile,
+          state: "running" as const,
+          startedAt: "2030-01-01T00:00:00.000Z",
+          reason: null,
+          lanSharingEnabled: false,
+          lanServerBaseUrl: null
+        };
+      })
+    });
+    render(
+      <LocalCollaborationServerPanelHarness
+        api={collaborationApi}
+        t={createTranslator("en")}
+        projectId="desktop-project-1"
+        canvasId="canvas-1"
+        scopeLayout={expandedScopeLayout}
+        onScopeLayoutChange={onScopeLayoutChange}
+        copyText={copyText}
+      />
+    );
+
+    expect(await screen.findByTestId("local-collaboration-server-status")).toHaveTextContent(
+      "Stopped"
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Start with 1 canvases" }));
+    await waitFor(() =>
+      expect(collaborationApi.startLocalCollaborationServer).toHaveBeenCalledOnce()
+    );
+    expect(await screen.findByTestId("local-collaboration-server-stop")).toHaveTextContent(
+      "Stop local server"
+    );
+  });
+
+  it("stops a running local server from the hosting panel", async () => {
+    const collaborationApi = api({
+      getLocalCollaborationServerStatus: vi.fn().mockResolvedValue({
+        profile,
+        state: "running",
+        startedAt: "2030-01-01T00:00:00.000Z",
+        reason: null,
+        lanSharingEnabled: false,
+        lanServerBaseUrl: null
+      })
+    });
+    render(
+      <LocalCollaborationServerPanelHarness
+        api={collaborationApi}
+        t={createTranslator("en")}
+        projectId="desktop-project-1"
+        canvasId="canvas-1"
+        scopeLayout={expandedScopeLayout}
+        onScopeLayoutChange={onScopeLayoutChange}
+        copyText={copyText}
+      />
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "Stop local server" }));
+    await waitFor(() =>
+      expect(collaborationApi.stopLocalCollaborationServer).toHaveBeenCalledOnce()
+    );
+  });
+
+  it("hides start and stop when this device does not host the Workspace Server", async () => {
+    const collaborationApi = api();
+    render(
+      <LocalCollaborationServerPanelHarness
+        api={collaborationApi}
+        t={createTranslator("en")}
+        projectId="desktop-project-1"
+        canvasId="canvas-1"
+        scopeLayout={expandedScopeLayout}
+        onScopeLayoutChange={onScopeLayoutChange}
+        copyText={copyText}
+        canControlLocalServer={false}
+      />
+    );
+
+    expect(await screen.findByTestId("local-collaboration-server-status")).toHaveTextContent(
+      "Stopped"
+    );
+    expect(screen.queryByTestId("local-collaboration-server-start")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("local-collaboration-server-stop")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Start/ })).not.toBeInTheDocument();
+  });
+
   it("shows an automatically activated canvas without a second initialization action", async () => {
     const collaborationApi = api({
       getLocalCollaborationServerStatus: vi.fn().mockResolvedValue({

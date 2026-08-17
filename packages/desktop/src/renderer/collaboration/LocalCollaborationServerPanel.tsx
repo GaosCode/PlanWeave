@@ -55,7 +55,8 @@ export function LocalCollaborationServerPanel({
   onInvitationHandoffChange,
   onManageInvitations,
   onStatusChange,
-  serverExposure
+  serverExposure,
+  canControlLocalServer = true
 }: {
   api: PlanWeaveCollaborationApi | null;
   t: ReturnType<typeof createTranslator>;
@@ -72,6 +73,8 @@ export function LocalCollaborationServerPanel({
   onManageInvitations?: () => void;
   onStatusChange?: (status: LocalCollaborationServerStatus) => void;
   serverExposure: DesktopServerExposureView | null;
+  /** Start/stop only apply when this device hosts the Workspace Server. */
+  canControlLocalServer?: boolean;
 }) {
   const [status, setStatus] = useState<LocalCollaborationServerStatus | null>(null);
   const [catalog, setCatalog] = useState<LocalCollaborationScopeCatalog | null>(null);
@@ -174,6 +177,23 @@ export function LocalCollaborationServerPanel({
 
   if (!api) return null;
   const running = status?.state === "running";
+  const startStopLabel = running
+    ? t("localServerStop")
+    : draftScopes.length > 0
+      ? t("localServerStartSelected").replace("{count}", String(draftScopes.length))
+      : t("localServerStart");
+  const startStopButton = (
+    <Button
+      type="button"
+      size="sm"
+      variant={running ? "outline" : "default"}
+      disabled={busy || !status}
+      data-testid={running ? "local-collaboration-server-stop" : "local-collaboration-server-start"}
+      onClick={() => void (running ? stopServer() : startServer())}
+    >
+      {startStopLabel}
+    </Button>
+  );
   const statusLabel =
     status?.state === "error"
       ? status.reason === "stop_failed"
@@ -224,6 +244,34 @@ export function LocalCollaborationServerPanel({
     }
   };
 
+  const startServer = async () => {
+    setBusy(true);
+    try {
+      const nextStatus = await api.startLocalCollaborationServer();
+      setStatus(nextStatus);
+      onStatusChange?.(nextStatus);
+      await refresh();
+    } catch (caught) {
+      setError({ message: collaborationErrorMessage(caught) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const stopServer = async () => {
+    setBusy(true);
+    try {
+      const nextStatus = await api.stopLocalCollaborationServer();
+      setStatus(nextStatus);
+      onStatusChange?.(nextStatus);
+      await refresh();
+    } catch (caught) {
+      setError({ message: collaborationErrorMessage(caught) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const copyInvitation = async () => {
     if (!invitationHandoff) return;
     setInvitationBusy(true);
@@ -247,7 +295,7 @@ export function LocalCollaborationServerPanel({
       aria-labelledby={appearance === "settings" ? undefined : "local-collaboration-server-title"}
     >
       {appearance === "flat" ? (
-        <div className="px-1 pb-5">
+        <div className="flex flex-wrap items-start justify-between gap-3 px-1 pb-5">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h2
@@ -274,11 +322,15 @@ export function LocalCollaborationServerPanel({
               {t("localServerDescription")}
             </p>
           </div>
+          {canControlLocalServer ? startStopButton : null}
         </div>
       ) : (
-        <span className="sr-only" data-testid="local-collaboration-server-status">
-          {statusLabel}
-        </span>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <span className="sr-only" data-testid="local-collaboration-server-status">
+            {statusLabel}
+          </span>
+          {canControlLocalServer ? startStopButton : null}
+        </div>
       )}
 
       {showInvitationControls && invitationPreparationAvailable ? (

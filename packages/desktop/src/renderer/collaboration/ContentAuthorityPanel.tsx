@@ -8,11 +8,17 @@ import type {
   PlanWeaveCollaborationApi
 } from "../../shared/collaboration.js";
 import type { createTranslator } from "../i18n";
-import { collaborationErrorCode, collaborationErrorMessage } from "./formatCollaborationError";
+import {
+  collaborationDeveloperErrorDetail,
+  collaborationErrorCode,
+  collaborationErrorMessage,
+  logCollaborationRendererError
+} from "./formatCollaborationError";
 
 function formatContentAuthorityError(
   t: ReturnType<typeof createTranslator>,
-  cause: unknown
+  cause: unknown,
+  diagnosticsEnabled = false
 ): string {
   const code = collaborationErrorCode(cause);
   const message =
@@ -21,15 +27,16 @@ function formatContentAuthorityError(
       : typeof cause === "string"
         ? cause
         : collaborationErrorMessage(cause);
-  if (
+  const formatted =
     code === "forbidden" ||
     code === "WORKSPACE_FORBIDDEN" ||
     message === "forbidden" ||
     /CollaborationClientError:\s*forbidden/i.test(message)
-  ) {
-    return t("contentAuthorityForbidden");
-  }
-  return collaborationErrorMessage(cause);
+      ? t("contentAuthorityForbidden")
+      : collaborationErrorMessage(cause);
+  if (!diagnosticsEnabled) return formatted;
+  const detail = collaborationDeveloperErrorDetail(cause, formatted);
+  return detail ? `${formatted}\n${detail}` : formatted;
 }
 
 function formatTimestamp(value: string): string {
@@ -92,6 +99,7 @@ export function ContentAuthorityPanel({
   canvasId,
   connected,
   appearance = "flat",
+  diagnosticsEnabled = false,
   onMaterialized,
   onReplicaReady,
   t
@@ -104,6 +112,7 @@ export function ContentAuthorityPanel({
   connected: boolean;
   /** flat: People stack; settings: denser copy inside a Settings card. */
   appearance?: "flat" | "settings";
+  diagnosticsEnabled?: boolean;
   onMaterialized?: () => Promise<void>;
   onReplicaReady?: (result: CollaborationContentBootstrapResult) => Promise<void>;
   t: ReturnType<typeof createTranslator>;
@@ -150,13 +159,14 @@ export function ContentAuthorityPanel({
           operation === operationRef.current &&
           expectedConnectionKey === connectionKeyRef.current
         ) {
-          setError(formatContentAuthorityError(t, cause));
+          logCollaborationRendererError("contentAuthority.action", cause);
+          setError(formatContentAuthorityError(t, cause, diagnosticsEnabled));
         }
       } finally {
         if (operation === operationRef.current) setBusy(false);
       }
     },
-    [t]
+    [diagnosticsEnabled, t]
   );
 
   const loadCandidates = useCallback(async () => {
@@ -169,11 +179,12 @@ export function ContentAuthorityPanel({
       setCandidates(await api.listCollaborationContentBootstrapCandidates());
       setError(null);
     } catch (cause) {
-      setError(formatContentAuthorityError(t, cause));
+      logCollaborationRendererError("contentAuthority.listBootstrapCandidates", cause);
+      setError(formatContentAuthorityError(t, cause, diagnosticsEnabled));
     } finally {
       setCandidatesReady(true);
     }
-  }, [api, connected, connectionKey, t]);
+  }, [api, connected, connectionKey, diagnosticsEnabled, t]);
 
   useEffect(() => {
     let current = true;
@@ -194,7 +205,10 @@ export function ContentAuthorityPanel({
         }
       })
       .catch((cause: unknown) => {
-        if (current) setError(formatContentAuthorityError(t, cause));
+        if (current) {
+          logCollaborationRendererError("contentAuthority.listBootstrapCandidates", cause);
+          setError(formatContentAuthorityError(t, cause, diagnosticsEnabled));
+        }
       })
       .finally(() => {
         if (current) setCandidatesReady(true);
@@ -202,7 +216,7 @@ export function ContentAuthorityPanel({
     return () => {
       current = false;
     };
-  }, [api, connected, connectionKey, t]);
+  }, [api, connected, connectionKey, diagnosticsEnabled, t]);
 
   useEffect(() => {
     if (!api || !connectionKey || !connected) {
@@ -283,7 +297,8 @@ export function ContentAuthorityPanel({
         operation === operationRef.current &&
         expectedConnectionKey === connectionKeyRef.current
       ) {
-        setError(formatContentAuthorityError(t, cause));
+        logCollaborationRendererError("contentAuthority.bootstrap", cause);
+        setError(formatContentAuthorityError(t, cause, diagnosticsEnabled));
       }
     } finally {
       if (operation === operationRef.current) setBusy(false);

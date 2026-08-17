@@ -11,6 +11,34 @@ export function collaborationErrorCode(error: unknown): string | null {
   return typeof code === "string" && code.trim() ? code.trim() : null;
 }
 
+export function logCollaborationRendererError(scope: string, error: unknown): void {
+  const code = collaborationErrorCode(error);
+  const message = collaborationErrorMessage(error);
+  console.error(`[planweave.collaboration] ${scope}`, {
+    code,
+    message,
+    error
+  });
+}
+
+export function collaborationDeveloperErrorDetail(
+  error: unknown,
+  formatted: string
+): string | null {
+  const code = collaborationErrorCode(error);
+  const raw =
+    error instanceof Error
+      ? error.message
+      : error && typeof error === "object" && "message" in error
+        ? String((error as { message?: unknown }).message ?? "")
+        : "";
+  const parts = [
+    code && !formatted.includes(code) ? code : null,
+    raw && raw !== formatted && !formatted.includes(raw) ? raw : null
+  ].filter((part): part is string => Boolean(part));
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
 export function collaborationErrorMessage(
   error: CollaborationBoundaryErrorView | unknown | null | undefined
 ): string {

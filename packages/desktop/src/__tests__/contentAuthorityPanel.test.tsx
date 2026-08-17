@@ -180,6 +180,46 @@ describe("ContentAuthorityPanel", () => {
     expect(await screen.findByText(/Add it under Workspace canvases/i)).toBeVisible();
   });
 
+  it("keeps bootstrap network failures visible and shows the raw IPC text in developer mode", async () => {
+    const ipcError = new Error(
+      "Error invoking remote method 'planweave-collaboration:listContentBootstrapCandidates': CollaborationClientError: Network request failed."
+    );
+    const api = {
+      listCollaborationContentBootstrapCandidates: vi.fn().mockRejectedValue(ipcError)
+    } as unknown as PlanWeaveCollaborationApi;
+
+    const { rerender } = render(
+      <ContentAuthorityPanel
+        api={api}
+        connectionKey="profile-1"
+        authorityProjectId="local-project"
+        localProjectId="local-project"
+        canvasId="default"
+        connected
+        t={createTranslator("en")}
+      />
+    );
+
+    expect(await screen.findByText("Network request failed.")).toBeVisible();
+    expect(screen.queryByText(/Error invoking remote method/)).not.toBeInTheDocument();
+
+    rerender(
+      <ContentAuthorityPanel
+        api={api}
+        connectionKey="profile-1"
+        authorityProjectId="local-project"
+        localProjectId="local-project"
+        canvasId="default"
+        connected
+        diagnosticsEnabled
+        t={createTranslator("en")}
+      />
+    );
+
+    expect(await screen.findByText(/Error invoking remote method/)).toBeVisible();
+    expect(screen.getByText(/listContentBootstrapCandidates/)).toBeVisible();
+  });
+
   it("refreshes the local project and reports success after materializing the authority head", async () => {
     const user = userEvent.setup();
     const model = materializableModel();

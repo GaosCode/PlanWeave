@@ -76,7 +76,8 @@ describe("preload collaboration command bridge", () => {
     for (const operation of [
       api.listCollaborationMembers(),
       api.listCollaborationDevices(),
-      api.listCollaborationInvitations()
+      api.listCollaborationInvitations(),
+      api.listCollaborationContentBootstrapCandidates()
     ]) {
       await expect(operation).rejects.toMatchObject(expectedBoundaryError);
     }

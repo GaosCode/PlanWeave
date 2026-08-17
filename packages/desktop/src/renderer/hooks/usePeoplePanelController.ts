@@ -5,7 +5,10 @@ import type {
   HumanMembershipView
 } from "@planweave-ai/collaboration-protocol/identity/workspace";
 import { collaborationBridge } from "../bridge";
-import { collaborationErrorMessage } from "../collaboration/formatCollaborationError";
+import {
+  collaborationErrorMessage,
+  logCollaborationRendererError
+} from "../collaboration/formatCollaborationError";
 import {
   buildPeopleDeviceRows,
   buildPeopleHostRows,
@@ -32,6 +35,8 @@ import type {
   CollaborationSyncPhase
 } from "../../shared/collaborationReadModels.js";
 import { isCollaborationSessionConnected } from "../collaboration/sessionState";
+
+const EMPTY_MEMBERS: HumanMembershipView[] = [];
 
 export type UsePeoplePanelControllerArgs = {
   api?: PlanWeaveCollaborationApi | null;
@@ -77,6 +82,7 @@ export function usePeoplePanelController(
   const api = args.api === undefined ? collaborationBridge : args.api;
   const [invitations, setInvitations] = useState<HumanInvitationView[]>([]);
   const [devices, setDevices] = useState<HumanDeviceView[]>([]);
+  const [listedMembers, setListedMembers] = useState<HumanMembershipView[] | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -90,13 +96,17 @@ export function usePeoplePanelController(
   const activeProfileId = args.status?.activeProfileId ?? null;
   const formatError = args.formatError ?? collaborationErrorMessage;
 
+  // The project shell may leave the shared observer unbound (local project
+  // mismatch). People administration still reads members from the session.
+  const members = args.members.length > 0 ? args.members : (listedMembers ?? EMPTY_MEMBERS);
+
   const currentMembership = useMemo(
     () =>
       resolveCurrentMembership({
-        members: args.members,
+        members,
         status: args.status
       }),
-    [args.members, args.status]
+    [members, args.status]
   );
   const currentHumanPrincipalId = currentMembership?.humanPrincipalId ?? null;
   const currentUserIsOwner = currentMembership?.role === "owner";
@@ -104,12 +114,12 @@ export function usePeoplePanelController(
   const presence = useMemo(
     () =>
       buildPeoplePresenceSummary({
-        members: args.members,
+        members,
         hosts: args.hosts,
         status: args.status,
         syncPhase: args.syncPhase
       }),
-    [args.hosts, args.members, args.status, args.syncPhase]
+    [args.hosts, args.status, args.syncPhase, members]
   );
 
   const mode = useMemo(
@@ -117,19 +127,21 @@ export function usePeoplePanelController(
       resolvePeoplePanelMode({
         status: args.status,
         syncPhase: args.syncPhase,
-        memberCount: args.members.length
+        memberCount: members.length,
+        detailsLoading,
+        detailsFailed: detailsError !== null
       }),
-    [args.members.length, args.status, args.syncPhase]
+    [args.status, args.syncPhase, detailsError, detailsLoading, members.length]
   );
 
   const memberRows = useMemo(
     () =>
       buildPeopleMemberRows({
-        members: args.members,
+        members,
         currentHumanPrincipalId,
         currentUserIsOwner
       }),
-    [args.members, currentHumanPrincipalId, currentUserIsOwner]
+    [currentHumanPrincipalId, currentUserIsOwner, members]
   );
 
   const hostRows = useMemo(() => buildPeopleHostRows(args.hosts), [args.hosts]);
@@ -143,6 +155,7 @@ export function usePeoplePanelController(
       detailsRequestKeyRef.current = null;
       setInvitations([]);
       setDevices([]);
+      setListedMembers(null);
       setDetailsLoading(false);
       setDetailsError(null);
       return Promise.resolve();
@@ -159,11 +172,12 @@ export function usePeoplePanelController(
     setDetailsError(null);
     const request = (async () => {
       try {
-        const [invitationPage, devicePage] = await Promise.all([
+        const [invitationPage, devicePage, memberPage] = await Promise.all([
           currentUserIsOwner
             ? api.listCollaborationInvitations({ cursor: 0, limit: 100, openOnly: true })
             : Promise.resolve({ items: [], nextCursor: null }),
-          api.listCollaborationDevices({ cursor: 0, limit: 50, scope: deviceScope })
+          api.listCollaborationDevices({ cursor: 0, limit: 50, scope: deviceScope }),
+          api.listCollaborationMembers({ cursor: 0, limit: 100 })
         ]);
         if (detailsGenerationRef.current !== generation) {
           return;
@@ -174,10 +188,12 @@ export function usePeoplePanelController(
           )
         );
         setDevices(devicePage.items);
+        setListedMembers(memberPage.items);
       } catch (error) {
         if (detailsGenerationRef.current !== generation) {
           return;
         }
+        logCollaborationRendererError("people.refreshDetails", error);
         setDetailsError(formatError(error));
       } finally {
         if (detailsGenerationRef.current === generation) {
@@ -212,6 +228,7 @@ export function usePeoplePanelController(
         }
         return true;
       } catch (error) {
+        logCollaborationRendererError("people.action", error);
         setActionError(formatError(error));
         return false;
       } finally {
@@ -254,6 +271,7 @@ export function usePeoplePanelController(
         await refreshDetails();
         return created;
       } catch (error) {
+        logCollaborationRendererError("people.createInvitation", error);
         setActionError(formatError(error));
         return null;
       } finally {
@@ -269,6 +287,7 @@ export function usePeoplePanelController(
         setPendingInvitation(invitation);
         return invitation;
       } catch (error) {
+        logCollaborationRendererError("people.viewInvitation", error);
         setActionError(formatError(error));
         return null;
       } finally {

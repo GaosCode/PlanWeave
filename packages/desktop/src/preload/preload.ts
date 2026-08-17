@@ -33,12 +33,13 @@ import {
   runnerRecordUnsubscribeChannel,
   runtimeStateChangedChannel
 } from "../shared/ipcChannels.js";
-import type {
-  CollaborationObserverSignal,
-  CollaborationCanvasLiveSyncSignal,
-  CollaborationPresenceSignal,
-  CollaborationStatus,
-  PlanWeaveCollaborationApi
+import {
+  collaborationContentBootstrapCandidateSchema,
+  type CollaborationObserverSignal,
+  type CollaborationCanvasLiveSyncSignal,
+  type CollaborationPresenceSignal,
+  type CollaborationStatus,
+  type PlanWeaveCollaborationApi
 } from "../shared/collaboration.js";
 import {
   collaborationCanvasReplicaProjectionSchema,
@@ -325,7 +326,12 @@ const collaborationApi: PlanWeaveCollaborationApi = {
   materializeCollaborationContentHead: async () =>
     ipcRenderer.invoke(collaborationInvokeChannels.materializeCollaborationContentHead),
   listCollaborationContentBootstrapCandidates: async () =>
-    ipcRenderer.invoke(collaborationInvokeChannels.listCollaborationContentBootstrapCandidates),
+    unwrapCollaborationCommandResult(
+      await ipcRenderer.invoke(
+        collaborationInvokeChannels.listCollaborationContentBootstrapCandidates
+      ),
+      z.array(collaborationContentBootstrapCandidateSchema)
+    ),
   bootstrapCollaborationContent: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.bootstrapCollaborationContent, input),
   getCurrentCanvasAccess: async (input) =>

@@ -13,6 +13,7 @@ import {
 } from "@planweave-ai/collaboration-protocol/identity/workspace";
 import { collaborationInvitationHandoffResponseSchema } from "@planweave-ai/collaboration-protocol/handoff/invitation";
 import {
+  collaborationContentBootstrapCandidateSchema,
   collaborationInvokeChannels,
   collaborationObserverSignalChannel,
   collaborationPresenceSignalChannel,
@@ -374,7 +375,10 @@ export function registerCollaborationHandlers(
     active.materializeContentHead()
   );
   ipcMain.handle(collaborationInvokeChannels.listCollaborationContentBootstrapCandidates, () =>
-    active.listContentBootstrapCandidates()
+    runCollaborationCommand(
+      () => active.listContentBootstrapCandidates(),
+      z.array(collaborationContentBootstrapCandidateSchema)
+    )
   );
   ipcMain.handle(
     collaborationInvokeChannels.bootstrapCollaborationContent,

@@ -399,7 +399,7 @@ describe("collaboration render / subscription audit", () => {
   });
 
   it("loads people invitation/device details only when detailsOpen", async () => {
-    const { api, listInvitations, listDevices } = createAuditApi();
+    const { api, listInvitations, listDevices, listMembers } = createAuditApi();
     trackedApis.push(api);
 
     const { rerender } = renderHook(
@@ -420,12 +420,40 @@ describe("collaboration render / subscription audit", () => {
     });
     expect(listInvitations).not.toHaveBeenCalled();
     expect(listDevices).not.toHaveBeenCalled();
+    expect(listMembers).not.toHaveBeenCalled();
 
     rerender({ detailsOpen: true });
     await waitFor(() => {
       expect(listInvitations).toHaveBeenCalledWith({ cursor: 0, limit: 100, openOnly: true });
       expect(listDevices).toHaveBeenCalledWith({ cursor: 0, limit: 50, scope: "project" });
+      expect(listMembers).toHaveBeenCalledWith({ cursor: 0, limit: 100 });
     });
+  });
+
+  it("loads workspace members from the identity API when the observer list is empty", async () => {
+    const { api, listMembers } = createAuditApi();
+    trackedApis.push(api);
+    listMembers.mockResolvedValue({
+      items: [membership("owner")],
+      nextCursor: null
+    });
+
+    const { result } = renderHook(() =>
+      usePeoplePanelController({
+        api,
+        status: connectedStatus(),
+        members: [],
+        hosts: [],
+        syncPhase: "ready",
+        detailsOpen: true
+      })
+    );
+
+    await waitFor(() => expect(result.current.members).toHaveLength(1));
+    expect(result.current.members[0]?.role).toBe("owner");
+    expect(result.current.presence.currentUserIsOwner).toBe(true);
+    expect(result.current.mode).toBe("ready");
+    expect(listMembers).toHaveBeenCalledWith({ cursor: 0, limit: 100 });
   });
 
   it("loads only the current member devices for an ordinary member", async () => {
@@ -451,7 +479,7 @@ describe("collaboration render / subscription audit", () => {
   });
 
   it("does not reload invitation/device details for read-model phase transitions", async () => {
-    const { api, listInvitations, listDevices } = createAuditApi();
+    const { api, listInvitations, listDevices, listMembers } = createAuditApi();
     trackedApis.push(api);
 
     const { rerender } = renderHook(
@@ -476,6 +504,7 @@ describe("collaboration render / subscription audit", () => {
 
     expect(listInvitations).toHaveBeenCalledTimes(1);
     expect(listDevices).toHaveBeenCalledTimes(1);
+    expect(listMembers).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the last invitation details visible when a refresh is rate-limited", async () => {

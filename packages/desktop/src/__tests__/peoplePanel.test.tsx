@@ -372,7 +372,9 @@ describe("PeoplePanel", () => {
 
     const { rerender } = render(<PeoplePanel {...commonProps} mode="empty" />);
 
-    expect(screen.getByTestId("people-empty")).toHaveClass("text-muted-foreground");
+    expect(screen.getByTestId("people-members-empty")).toHaveTextContent("No members yet.");
+    expect(screen.getAllByText("No members yet.")).toHaveLength(1);
+    expect(screen.queryByTestId("people-empty")).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 
     rerender(<PeoplePanel {...commonProps} mode="error" />);
