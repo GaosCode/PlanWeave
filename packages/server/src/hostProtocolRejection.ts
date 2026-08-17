@@ -13,10 +13,33 @@ export type PublicHostProtocolRejection = {
 const STABLE_ERROR_CODE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const GENERIC_CODE = "event_rejected";
 const GENERIC_MESSAGE = "The server rejected the host event.";
+const OPERATOR_LOG_MESSAGE_MAX_LENGTH = 240;
 
 function truncateMessage(value: string): string {
   if (value.length <= PROTOCOL_ERROR_MESSAGE_MAX_LENGTH) return value;
   return `${value.slice(0, PROTOCOL_ERROR_MESSAGE_MAX_LENGTH - 1)}…`;
+}
+
+function redactOperatorText(value: string): string {
+  return value
+    .replace(/\b(token|password|secret|api[_-]?key|authorization)\s*[:=]\s*\S+/gi, "$1=[REDACTED]")
+    .replace(/(?:\/(?:Users|home)\/[^\s"']+|C:\\Users\\[^\s"']+)/gi, "<redacted-user-path>");
+}
+
+function clampOperatorText(value: string): string {
+  const redacted = redactOperatorText(value);
+  if (redacted.length <= OPERATOR_LOG_MESSAGE_MAX_LENGTH) return redacted;
+  return `${redacted.slice(0, OPERATOR_LOG_MESSAGE_MAX_LENGTH - 1)}…`;
+}
+
+function operatorRejectionDetail(error: unknown): { name: string; summary: string } {
+  if (error instanceof ZodError) {
+    return { name: "ZodError", summary: clampOperatorText(zodIssueSummary(error)) };
+  }
+  if (error instanceof Error) {
+    return { name: error.name, summary: clampOperatorText(error.message) };
+  }
+  return { name: "unknown", summary: clampOperatorText(String(error)) };
 }
 
 function clampCode(value: string): string {
@@ -37,7 +60,7 @@ function zodIssueSummary(error: ZodError): string {
 
 /**
  * Map an internal host-event failure into a redacted protocol.error payload.
- * Full diagnostics stay on the Server log; the wire message is intentionally limited.
+ * Operator logs keep a compact, redacted summary; the wire message is intentionally limited.
  */
 export function publicHostProtocolRejection(error: unknown): PublicHostProtocolRejection {
   if (error instanceof ZodError) {
@@ -87,10 +110,6 @@ export function logHostProtocolRejection(input: {
   error: unknown;
   publicRejection: PublicHostProtocolRejection;
 }): void {
-  const detail =
-    input.error instanceof Error
-      ? { name: input.error.name, message: input.error.message, stack: input.error.stack }
-      : { value: String(input.error) };
   console.error(
     JSON.stringify({
       scope: "agent-host-ws",
@@ -99,7 +118,7 @@ export function logHostProtocolRejection(input: {
       phase: input.phase,
       publicCode: input.publicRejection.code,
       publicMessage: input.publicRejection.message,
-      error: detail
+      error: operatorRejectionDetail(input.error)
     })
   );
 }

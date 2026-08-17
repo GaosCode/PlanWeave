@@ -55,7 +55,7 @@ describe("publicHostProtocolRejection", () => {
     expect(JSON.stringify(rejection)).not.toContain("server-secret-value");
   });
 
-  it("logs full internal error detail for operators while keeping wire payload separate", () => {
+  it("logs a compact operator record without stack, secrets, or unbounded text", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     try {
       const publicRejection = publicHostProtocolRejection(
@@ -74,9 +74,54 @@ describe("publicHostProtocolRejection", () => {
         event: "host_event_rejected",
         hostId: "host-1",
         phase: "hello",
-        publicCode: "mailbox_cursor_not_acknowledged"
+        publicCode: "mailbox_cursor_not_acknowledged",
+        error: { name: "Error", summary: "mailbox_cursor_not_acknowledged" }
       });
-      expect(payload.error.message).toBe("mailbox_cursor_not_acknowledged");
+      expect(payload.error).not.toHaveProperty("stack");
+      expect(payload.error).not.toHaveProperty("message");
+
+      spy.mockClear();
+      const secret = "server-secret-value";
+      const leaked = new Error(`/Users/private/server.sqlite token=${secret} ${"x".repeat(400)}`);
+      logHostProtocolRejection({
+        hostId: "host-2",
+        phase: "event",
+        error: leaked,
+        publicRejection: publicHostProtocolRejection(leaked)
+      });
+      const dirtyLine = String(spy.mock.calls[0]?.[0]);
+      expect(dirtyLine).not.toContain(secret);
+      expect(dirtyLine).not.toContain("/Users/private/server.sqlite");
+      expect(dirtyLine).toContain("<redacted-user-path>");
+      expect(dirtyLine).toContain("token=[REDACTED]");
+      expect(dirtyLine.length).toBeLessThan(800);
+
+      spy.mockClear();
+      const schema = z
+        .object({
+          type: z.literal("host.heartbeat"),
+          secret: z.string()
+        })
+        .strict();
+      let zodError: z.ZodError;
+      try {
+        schema.parse({ type: "host.hello", secret: "pw_op_super_secret_token_value" });
+        throw new Error("expected_zod_error");
+      } catch (caught) {
+        if (!(caught instanceof z.ZodError)) throw caught;
+        zodError = caught;
+      }
+      logHostProtocolRejection({
+        hostId: "host-3",
+        phase: "event",
+        error: zodError,
+        publicRejection: publicHostProtocolRejection(zodError)
+      });
+      const zodLine = String(spy.mock.calls[0]?.[0]);
+      expect(zodLine).toContain('"name":"ZodError"');
+      expect(zodLine).toContain("type:");
+      expect(zodLine).not.toContain("pw_op_super_secret_token_value");
+      expect(zodLine).not.toContain("host.hello");
     } finally {
       spy.mockRestore();
     }
