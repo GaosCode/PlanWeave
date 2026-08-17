@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { ExecutionHost } from "../types/executor.js";
 import {
@@ -150,33 +150,124 @@ export function availableExecutionHostEnvironmentVariables(
   return new Set(host.kind === "native" ? Object.keys(environment) : ["PATH", "PLANWEAVE_HOME"]);
 }
 
-function defaultWslCommandRunner(args: readonly string[]): Promise<WslCommandOutput> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      "wsl.exe",
-      [...args],
-      {
-        encoding: "buffer",
-        env: wslLauncherEnvironment(),
-        timeout: 15_000,
-        maxBuffer: 1024 * 1024,
-        windowsHide: true
+const WSL_COMMAND_TIMEOUT_MS = 15_000;
+const WSL_CLEANUP_WAIT_MS = 8_000;
+
+function logWslHost(event: string, extra: Record<string, unknown> = {}): void {
+  console.info(
+    JSON.stringify({
+      scope: "wsl-execution-host",
+      event,
+      at: new Date().toISOString(),
+      ...extra
+    })
+  );
+}
+
+function summarizeWslArgs(args: readonly string[]): string {
+  const mode = args.find((arg) => arg.startsWith("planweave-wsl-")) ?? args[0] ?? "wsl";
+  const distributionIndex = args.indexOf("--distribution");
+  const distribution = distributionIndex >= 0 ? args[distributionIndex + 1] : undefined;
+  return distribution ? `${mode} distro=${distribution}` : mode;
+}
+
+function forceKillWindowsProcessTree(pid: number): void {
+  spawn("taskkill", ["/pid", String(pid), "/t", "/f"], {
+    stdio: "ignore",
+    windowsHide: true,
+    shell: false
+  }).unref();
+}
+
+function isTimeoutError(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current; depth += 1) {
+    if (errorCode(current) === "ETIMEDOUT") return true;
+    if (current instanceof Error && /timed out after \d+ms/i.test(current.message)) return true;
+    current = current instanceof Error ? current.cause : undefined;
+  }
+  return false;
+}
+
+function raceTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(Object.assign(new Error(message), { code: "ETIMEDOUT" }));
+    }, timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
       },
-      (error, stdout, stderr) => {
-        const output = {
-          stdout: Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout ?? ""),
-          stderr: Buffer.isBuffer(stderr) ? stderr : Buffer.from(stderr ?? "")
-        };
-        if (error) {
-          const detail = decodeCommandOutput(output.stderr).trim();
-          reject(
-            new Error(detail ? `${error.message}: ${detail}` : error.message, { cause: error })
-          );
-          return;
-        }
-        resolve(output);
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
       }
     );
+  });
+}
+
+function defaultWslCommandRunner(args: readonly string[]): Promise<WslCommandOutput> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("wsl.exe", [...args], {
+      env: wslLauncherEnvironment(),
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: false
+    });
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    let settled = false;
+    const settle = (work: () => void): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      work();
+    };
+    const timer = setTimeout(() => {
+      logWslHost("command-timeout", {
+        command: summarizeWslArgs(args),
+        pid: child.pid ?? null,
+        timeoutMs: WSL_COMMAND_TIMEOUT_MS
+      });
+      if (child.pid) forceKillWindowsProcessTree(child.pid);
+      else child.kill();
+      settle(() => {
+        reject(
+          Object.assign(
+            new Error(`WSL command timed out after ${String(WSL_COMMAND_TIMEOUT_MS)}ms.`),
+            { code: "ETIMEDOUT" }
+          )
+        );
+      });
+    }, WSL_COMMAND_TIMEOUT_MS);
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdoutChunks.push(chunk);
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderrChunks.push(chunk);
+    });
+    child.once("error", (error) => {
+      settle(() => reject(error));
+    });
+    child.once("close", (code) => {
+      const stdout = Buffer.concat(stdoutChunks);
+      const stderr = Buffer.concat(stderrChunks);
+      settle(() => {
+        if (code === 0) {
+          resolve({ stdout, stderr });
+          return;
+        }
+        const detail = decodeCommandOutput(stderr).trim();
+        reject(
+          new Error(
+            detail
+              ? `WSL command exited ${String(code)}: ${detail}`
+              : `WSL command exited ${String(code)}.`
+          )
+        );
+      });
+    });
   });
 }
 
@@ -442,23 +533,57 @@ function decorateWslProcessTree(options: {
         // WSL 1 serializes distro entry. A concurrent wsl.exe --exec for
         // process-group cleanup can block forever while the launcher is still
         // inside the same distribution. Reap the Windows launcher first.
+        logWslHost("terminate-start", { reason });
         let nativeResult: ProcessTerminationResult;
         try {
           nativeResult = terminationOptions
             ? await options.tree.terminate(reason, terminationOptions)
             : await options.tree.terminate(reason);
+          logWslHost("native-terminate-done", { reason, outcome: nativeResult.outcome });
         } catch (nativeError) {
+          logWslHost("native-terminate-failed", {
+            reason,
+            error: nativeError instanceof Error ? nativeError.message : String(nativeError)
+          });
           try {
-            await options.cleanupExitedProcessTree(terminationOptions);
-          } catch (cleanupError) {
-            throw new AggregateError(
-              [cleanupError, nativeError],
-              "WSL and Windows process-tree cleanup both failed."
+            await raceTimeout(
+              options.cleanupExitedProcessTree(terminationOptions),
+              WSL_CLEANUP_WAIT_MS,
+              `WSL process-group cleanup timed out after ${String(WSL_CLEANUP_WAIT_MS)}ms.`
             );
+          } catch (cleanupError) {
+            logWslHost("cleanup-after-native-failure", {
+              timedOut: isTimeoutError(cleanupError),
+              error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+            });
+            if (!isTimeoutError(cleanupError)) {
+              throw new AggregateError(
+                [cleanupError, nativeError],
+                "WSL and Windows process-tree cleanup both failed."
+              );
+            }
           }
           throw nativeError;
         }
-        await options.cleanupExitedProcessTree(terminationOptions);
+        try {
+          logWslHost("cleanup-start", { reason, waitMs: WSL_CLEANUP_WAIT_MS });
+          await raceTimeout(
+            options.cleanupExitedProcessTree(terminationOptions),
+            WSL_CLEANUP_WAIT_MS,
+            `WSL process-group cleanup timed out after ${String(WSL_CLEANUP_WAIT_MS)}ms.`
+          );
+          logWslHost("cleanup-done", { reason });
+        } catch (cleanupError) {
+          // After the Windows launcher is gone, a hung WSL 1 cleanup must not
+          // keep the executor promise open. Explicit cleanup failures still surface.
+          logWslHost("cleanup-failed", {
+            reason,
+            timedOut: isTimeoutError(cleanupError),
+            error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+          });
+          if (!isTimeoutError(cleanupError)) throw cleanupError;
+        }
+        logWslHost("terminate-done", { reason, outcome: nativeResult.outcome });
         return nativeResult;
       })();
       return termination;

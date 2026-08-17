@@ -209,9 +209,14 @@ describe("executor environment", () => {
         await dumpWslLifecycleDiagnostics({ runDir, stdoutPath });
       };
       onTestFinished(() => dumpOnce());
-      logWslLifecycle("start", { runDir, heartbeatPath });
+      logWslLifecycle("start", {
+        runDir,
+        heartbeatPath,
+        fixture: "trap '' TERM; while :; do sleep 1; done"
+      });
 
       try {
+        // Fixture ignores SIGTERM and never exits so cancel must escalate to force.
         running = execWithStreaming({
           command: "sh",
           args: ["-c", "trap '' TERM; while :; do sleep 1; done"],

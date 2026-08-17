@@ -347,6 +347,43 @@ describe("WSL execution host", () => {
     expect(wslCleanupStarted).toBe(true);
   });
 
+  it("finishes termination when WSL process-group cleanup never returns", async () => {
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args.includes("wslpath")) {
+        return { stdout: Buffer.from("/mnt/c/work\n"), stderr: Buffer.alloc(0) };
+      }
+      if (args.includes("planweave-wsl-terminate")) {
+        await new Promise(() => undefined);
+      }
+      return {
+        stdout: Buffer.from(
+          "__PLANWEAVE_PATH_BEGIN__/home/dev/.local/bin:/usr/bin__PLANWEAVE_PATH_END__\n"
+        ),
+        stderr: Buffer.alloc(0)
+      };
+    });
+    const prepared = await prepareWslProcessInvocation({
+      host: { kind: "wsl", distribution: "Ubuntu" },
+      command: "pi-acp",
+      args: [],
+      cwd: "C:\\work",
+      platform: "win32",
+      run,
+      token: "hung-cleanup"
+    });
+    const tree = prepared.decorateProcessTree({
+      pid: 1234,
+      exited: Promise.resolve(),
+      isAlive: () => true,
+      terminate: vi.fn().mockResolvedValue({ outcome: "forced" as const, reason: "cancelled" })
+    });
+
+    await expect(tree.terminate("cancelled")).resolves.toEqual({
+      outcome: "forced",
+      reason: "cancelled"
+    });
+  }, 12_000);
+
   it("surfaces WSL cleanup failure even if native process termination succeeds", async () => {
     const run = vi.fn(async (args: readonly string[]) => {
       if (args.includes("wslpath")) {
