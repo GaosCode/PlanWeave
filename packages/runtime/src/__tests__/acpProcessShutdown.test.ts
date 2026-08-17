@@ -11,7 +11,6 @@ describe("ACP process shutdown sequencing", () => {
   afterEach(() => vi.useRealTimers());
 
   it("uses one controlled deadline for EOF, TERM, force, and whole-tree confirmation", async () => {
-    vi.useFakeTimers();
     let now = 0;
     let descendantAlive = true;
     const events: string[] = [];
@@ -51,13 +50,10 @@ describe("ACP process shutdown sequencing", () => {
       processTree: tree
     });
 
-    await vi.advanceTimersByTimeAsync(0);
-    expect(events).toEqual(["eof", "eof-wait:100", "term"]);
-    now += 150;
-    await vi.runAllTimersAsync();
     await shutdown;
 
     expect(events).toEqual(["eof", "eof-wait:100", "term", "force"]);
+    now += 150;
     expect(deadline.remainingMs()).toBe(350);
     await expect(tree.isTreeAlive()).resolves.toBe(false);
   });

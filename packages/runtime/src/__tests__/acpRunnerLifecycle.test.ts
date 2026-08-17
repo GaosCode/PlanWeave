@@ -6,18 +6,16 @@ import { ActiveAgentRunRegistry } from "../autoRun/activeAgentRunRegistry.js";
 import { acpCapabilitySnapshotSchema } from "../autoRun/acpCapabilityGate.js";
 import { AcpSessionController, type AcpSessionRun } from "../autoRun/acpSessionController.js";
 import { createAcpConnection, type CreateAcpConnectionOptions } from "../autoRun/acpConnection.js";
-import { createAcpRunner } from "../autoRun/acpRunner.js";
 import type { AgentDefinition } from "../autoRun/agentRunner.js";
-import { codexAgentDefinition } from "../autoRun/codexIntegration.js";
 import { getExecutionStatus } from "../taskManager/executionStatus.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
 import { manifestTestBuilder } from "./manifestTestBuilder.js";
 import { acpProfileTestValues } from "./support/acpProfileTestValues.js";
 import { getAutoRunState, startAutoRun, stopAutoRun } from "../desktop/runApi.js";
 import { activeAgentRunRegistry } from "../autoRun/activeAgentRunRegistry.js";
-import { trustCommand } from "../taskManager/hookTrustStore.js";
 import { ACP_MOCK_OPERATION_TIMEOUT_MS } from "./support/acpMockHarness.js";
-import { fixture, mockLaunch } from "./support/acpRunnerLifecycleFixture.js";
+import { createMockAcpRunner, fixture, mockLaunch } from "./support/acpRunnerLifecycleFixture.js";
+import { installFakeAcpCommands } from "./support/fakeAcpCommands.js";
 import { DEFAULT_EXECUTOR_TIMEOUT_MS } from "../autoRun/executorShared.js";
 
 async function withLifecycleTrace<T>(run: (path: string) => Promise<T>) {
@@ -412,7 +410,9 @@ describe("ACP runner runtime limits", () => {
     const { init } = await createTestWorkspace();
     const controller = new AcpSessionController(new ActiveAgentRunRegistry());
     const execute = vi.spyOn(controller, "execute").mockRejectedValue(new Error("captured"));
-    const runner = createAcpRunner({ sessionController: controller });
+    const runner = createMockAcpRunner("artifact-implementation", {
+      sessionController: controller
+    });
     const runtimeProfile = {
       adapter: "agent",
       agent: "codex",
@@ -471,7 +471,9 @@ describe("ACP runner runtime limits", () => {
     const { init } = await createTestWorkspace();
     const controller = new AcpSessionController(new ActiveAgentRunRegistry());
     const execute = vi.spyOn(controller, "execute").mockRejectedValue(new Error("captured"));
-    const runner = createAcpRunner({ sessionController: controller });
+    const runner = createMockAcpRunner("artifact-implementation", {
+      sessionController: controller
+    });
     const runtimeProfile = {
       adapter: "agent",
       agent: "codex",
@@ -528,7 +530,9 @@ describe("ACP runner runtime limits", () => {
     const { init } = await createTestWorkspace();
     const controller = new AcpSessionController(new ActiveAgentRunRegistry());
     const execute = vi.spyOn(controller, "execute").mockRejectedValue(new Error("captured"));
-    const runner = createAcpRunner({ sessionController: controller });
+    const runner = createMockAcpRunner("artifact-implementation", {
+      sessionController: controller
+    });
     const runtimeProfile = {
       adapter: "agent",
       agent: "codex",
@@ -591,12 +595,7 @@ describe("Desktop ACP stop ownership", () => {
 
   it("keeps an immediately stopped ACP block ready without submission", async () => {
     const { root, init } = await workspace();
-    const previousLaunch = codexAgentDefinition.acp.launch;
-    codexAgentDefinition.acp.launch = mockLaunch("delayed-artifact-implementation");
-    await trustCommand(init.workspace, process.execPath, [
-      fixture,
-      "delayed-artifact-implementation"
-    ]);
+    const fakeAcp = await installFakeAcpCommands("delayed-artifact-implementation");
     try {
       expect(
         (await getExecutionStatus({ projectRoot: init.workspace })).blocks[0]?.effectiveExecutor
@@ -616,15 +615,13 @@ describe("Desktop ACP stop ownership", () => {
       expect(status.blocks.find((block) => block.ref === "T-001#B-001")?.status).toBe("ready");
       expect(activeAgentRunRegistry.lookupDesktopRun(started.runId)).toBeNull();
     } finally {
-      codexAgentDefinition.acp.launch = previousLaunch;
+      fakeAcp.restore();
     }
   });
 
   it("cancels an ACP prompt in flight without submitting its block", async () => {
     const { root, init } = await workspace();
-    const previousLaunch = codexAgentDefinition.acp.launch;
-    codexAgentDefinition.acp.launch = mockLaunch("long-prompt");
-    await trustCommand(init.workspace, process.execPath, [fixture, "long-prompt"]);
+    const fakeAcp = await installFakeAcpCommands("long-prompt");
     try {
       expect(
         (await getExecutionStatus({ projectRoot: init.workspace })).blocks[0]?.effectiveExecutor
@@ -697,7 +694,7 @@ describe("Desktop ACP stop ownership", () => {
       expect(status.blocks.find((block) => block.ref === "T-001#B-001")?.status).toBe("ready");
       expect(activeAgentRunRegistry.lookupDesktopRun(started.runId)).toBeNull();
     } finally {
-      codexAgentDefinition.acp.launch = previousLaunch;
+      fakeAcp.restore();
     }
   });
 });

@@ -29,6 +29,7 @@ function preflightResult(
     agentInfo: null,
     authentication: null,
     capabilities: null,
+    acpCapabilitySnapshot: null,
     sessionConfig: null,
     ok: true,
     message: "executor preflight passed",

@@ -3,6 +3,7 @@ import { readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentAcpBlockInput, AgentDefinition } from "../autoRun/agentRunner.js";
+import { gateAcpCapabilities } from "../autoRun/acpCapabilityGate.js";
 import { createAcpRunner, type AcpPreflightProbeResult } from "../autoRun/acpRunner.js";
 import { AcpSessionController } from "../autoRun/acpSessionController.js";
 import { assertAcpLaunchTrusted } from "../autoRun/acpLaunch.js";
@@ -21,6 +22,15 @@ import { acpProfileResolverTestDouble } from "./support/acpProfileTestValues.js"
 const acpFixture = fileURLToPath(new URL("./support/acpMockAgent.mjs", import.meta.url));
 const mockAgentInfo = { name: "planweave-acp-mock", version: "1.0.0" } as const;
 const notAdvertisedAuthentication = { status: "not_advertised" } as const;
+const mockCapabilitySnapshot = gateAcpCapabilities(
+  { required: ["session", "prompt"], optional: ["authentication"] },
+  {
+    protocolVersion: 1,
+    agentInfo: mockAgentInfo,
+    agentCapabilities: {}
+  },
+  { sessionStart: "new", connectionMode: "dedicated" }
+);
 
 function probeDefinition(
   scenario: string,
@@ -289,19 +299,10 @@ describe("AgentRunner registries", () => {
           reason: "no_safe_method",
           methods: [{ id: "login", name: "Login", type: "agent" }]
         },
-        capabilities: ["session", "authentication"]
+        capabilities: ["session", "authentication"],
+        capabilitySnapshot: mockCapabilitySnapshot
       },
       failureCode: "auth_required"
-    },
-    {
-      label: "rejects unsupported capabilities",
-      probe: {
-        kind: "ready",
-        authentication: notAdvertisedAuthentication,
-        agentInfo: mockAgentInfo,
-        capabilities: []
-      },
-      failureCode: "unsupported_capability"
     },
     {
       label: "denies unsafe headless elicitation",
@@ -313,7 +314,10 @@ describe("AgentRunner registries", () => {
     const base = resolveAgentDefinition("codex");
     const definition = {
       ...base,
-      acp: { launch: { command: "codex-acp", args: [] }, capabilities: ["session"] }
+      acp: {
+        launch: { command: "codex-acp", args: [] },
+        capabilities: ["session"]
+      }
     };
     const runner = runnerForDefinition(definition, {
       probe: async ({ signal }) => {
@@ -364,7 +368,8 @@ describe("AgentRunner registries", () => {
         kind: "ready",
         authentication: notAdvertisedAuthentication,
         agentInfo: mockAgentInfo,
-        capabilities: ["session", "prompt", "event-replay"]
+        capabilities: ["session", "prompt", "event-replay"],
+        capabilitySnapshot: mockCapabilitySnapshot
       })
     });
     const result = await runner.preflight({
@@ -380,9 +385,9 @@ describe("AgentRunner registries", () => {
     );
     expect(result.negotiatedCapabilities).toEqual({
       version: "planweave.runner/v1",
-      required: ["session", "prompt"],
+      required: ["session", "prompt", "cancel", "streaming", "tool-updates"],
       available: ["session", "prompt", "event-replay"],
-      negotiated: ["session", "prompt"]
+      negotiated: ["session", "prompt", "cancel", "streaming", "tool-updates"]
     });
     expect(result.agentInfo).toEqual(mockAgentInfo);
   });
@@ -422,6 +427,7 @@ describe("AgentRunner registries", () => {
         authentication: notAdvertisedAuthentication,
         agentInfo: mockAgentInfo,
         capabilities: ["session"],
+        capabilitySnapshot: mockCapabilitySnapshot,
         sessionConfig
       })
     });

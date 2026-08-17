@@ -3,9 +3,8 @@ import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AgentDefinition } from "../autoRun/agentRunner.js";
 import { recordBlockRunInIndex } from "../autoRun/blockRunIndex.js";
-import { codexAgentDefinition } from "../autoRun/codexIntegration.js";
 import { createAcpRunner } from "../autoRun/acpRunner.js";
-import { createExecutorAdapter } from "../autoRun/executors.js";
+import { createExecutorAdapter, inspectExecutorAcpProfile } from "../autoRun/executors.js";
 import { executionWaveIdSchema } from "../autoRun/runnerContractSchemas.js";
 import { getTaskWorkspace, listTaskWorkspaceRuns } from "../desktop/taskWorkspaceApi.js";
 import { readJsonFile } from "../json.js";
@@ -15,7 +14,8 @@ import { trustCommand } from "../taskManager/hookTrustStore.js";
 import { claimNext } from "../taskManager/index.js";
 import { manifestTestBuilder } from "./manifestTestBuilder.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
-import { fixture, mockLaunch } from "./support/acpRunnerLifecycleFixture.js";
+import { createMockAcpRunner, mockLaunch } from "./support/acpRunnerLifecycleFixture.js";
+import { installFakeAcpCommands } from "./support/fakeAcpCommands.js";
 
 describe("AcpRunner claim routing", () => {
   const profile = { adapter: "agent", agent: "codex", runner: { transport: "acp" } } as const;
@@ -35,6 +35,7 @@ describe("AcpRunner claim routing", () => {
 
   it("requires exact trust for a package override before creating a run record", async () => {
     const { init } = await createTestWorkspace();
+    const fakeAcp = await installFakeAcpCommands("artifact-implementation");
     const runner = createAcpRunner();
     const agentDefinition = definition("artifact-implementation");
     const input = {
@@ -54,19 +55,32 @@ describe("AcpRunner claim routing", () => {
     } as const;
     const before = await readdir(init.workspace.resultsDir, { recursive: true });
 
-    await expect(runner.runBlock(input, agentDefinition)).rejects.toThrow("not trusted");
-    expect(await readdir(init.workspace.resultsDir, { recursive: true })).toEqual(before);
+    try {
+      await expect(runner.runBlock(input, agentDefinition)).rejects.toThrow("not trusted");
+      expect(await readdir(init.workspace.resultsDir, { recursive: true })).toEqual(before);
 
-    const launch = mockLaunch("artifact-implementation");
-    await trustCommand(init.workspace, launch.command, [...launch.args]);
-    await expect(runner.runBlock(input, agentDefinition)).resolves.toMatchObject({
-      kind: "block"
-    });
+      const inspected = await inspectExecutorAcpProfile({
+        projectRoot: init.workspace,
+        executorName: "codex-acp"
+      });
+      await trustCommand(init.workspace, inspected.launch.command, [...inspected.launch.args], {
+        profileFingerprint: inspected.fingerprint
+      });
+      await expect(runner.runBlock(input, agentDefinition)).resolves.toMatchObject({
+        kind: "block"
+      });
+    } finally {
+      fakeAcp.restore();
+    }
   });
 
   it("routes implementation, review, and feedback claims through distinct sessions", async () => {
     const { init } = await createTestWorkspace();
-    const runner = createAcpRunner();
+    const runners = {
+      "artifact-implementation": createMockAcpRunner("artifact-implementation"),
+      "artifact-review": createMockAcpRunner("artifact-review"),
+      "artifact-feedback": createMockAcpRunner("artifact-feedback")
+    };
     for (const scenario of ["artifact-implementation", "artifact-review", "artifact-feedback"]) {
       const launch = mockLaunch(scenario);
       await trustCommand(init.workspace, launch.command, [...launch.args]);
@@ -74,7 +88,7 @@ describe("AcpRunner claim routing", () => {
     const executionWaveId = executionWaveIdSchema.parse(
       "WAVE-123e4567-e89b-42d3-a456-426614174000"
     );
-    const implementation = await runner.runBlock(
+    const implementation = await runners["artifact-implementation"].runBlock(
       {
         projectRoot: init.workspace,
         claim: {
@@ -92,7 +106,7 @@ describe("AcpRunner claim routing", () => {
       },
       definition("artifact-implementation")
     );
-    const review = await runner.runBlock(
+    const review = await runners["artifact-review"].runBlock(
       {
         projectRoot: init.workspace,
         claim: {
@@ -109,7 +123,7 @@ describe("AcpRunner claim routing", () => {
       },
       definition("artifact-review")
     );
-    const feedback = await runner.runFeedback(
+    const feedback = await runners["artifact-feedback"].runFeedback(
       {
         projectRoot: init.workspace,
         workspace: init.workspace,
@@ -153,9 +167,7 @@ describe("AcpRunner claim routing", () => {
 
   it("propagates cancellation through createExecutorAdapter and restores TaskManager claim state", async () => {
     const { init } = await createTestWorkspace();
-    const previousLaunch = codexAgentDefinition.acp.launch;
-    codexAgentDefinition.acp.launch = mockLaunch("delayed");
-    await trustCommand(init.workspace, process.execPath, [fixture, "delayed"]);
+    const fakeAcp = await installFakeAcpCommands("long-prompt");
     const abort = new AbortController();
     try {
       const step = runAutoRunStep({
@@ -165,18 +177,18 @@ describe("AcpRunner claim routing", () => {
           executorName: "codex-acp",
           runtime: {
             signal: abort.signal,
-            timeoutMs: 500,
+            timeoutMs: 5_000,
             desktopRunId: "DESKTOP-RUN-0001",
             runSessionId: "SESSION-0001"
           }
         })
       });
-      setTimeout(() => abort.abort(new Error("end-to-end cancelled")), 10);
+      setTimeout(() => abort.abort(new Error("end-to-end cancelled")), 50);
       await expect(step).rejects.toMatchObject({ name: "AbortError" });
       const status = await getExecutionStatus({ projectRoot: init.workspace });
       expect(status.blocks.find((block) => block.ref === "T-001#B-001")?.status).toBe("ready");
     } finally {
-      codexAgentDefinition.acp.launch = previousLaunch;
+      fakeAcp.restore();
     }
   });
 
@@ -192,7 +204,7 @@ describe("AcpRunner claim routing", () => {
       announceIndex = resolve;
     });
     let firstRecord = true;
-    const runner = createAcpRunner({
+    const runner = createMockAcpRunner("artifact-implementation", {
       recordBlockRun: async (runRoot, runId, options) => {
         await recordBlockRunInIndex(runRoot, runId, options);
         if (!firstRecord) return;
@@ -255,9 +267,7 @@ describe("AcpRunner claim routing", () => {
 
   it("submits a validated ACP final artifact through the TaskManager pipeline", async () => {
     const { init } = await createTestWorkspace();
-    const previousLaunch = codexAgentDefinition.acp.launch;
-    codexAgentDefinition.acp.launch = mockLaunch("artifact-implementation");
-    await trustCommand(init.workspace, process.execPath, [fixture, "artifact-implementation"]);
+    const fakeAcp = await installFakeAcpCommands("artifact-implementation");
     try {
       await expect(
         runAutoRunStep({
@@ -270,7 +280,7 @@ describe("AcpRunner claim routing", () => {
         submitResult: { ref: "T-001#B-001", status: "completed" }
       });
     } finally {
-      codexAgentDefinition.acp.launch = previousLaunch;
+      fakeAcp.restore();
     }
   });
 
@@ -278,9 +288,7 @@ describe("AcpRunner claim routing", () => {
     const { init } = await createTestWorkspace(
       manifestTestBuilder().withDefaultExecutor("codex-acp").build()
     );
-    const previousLaunch = codexAgentDefinition.acp.launch;
-    codexAgentDefinition.acp.launch = mockLaunch("artifact-implementation");
-    await trustCommand(init.workspace, process.execPath, [fixture, "artifact-implementation"]);
+    const fakeAcp = await installFakeAcpCommands("artifact-implementation");
     try {
       const executionWaveId = executionWaveIdSchema.parse(
         "WAVE-123e4567-e89b-42d3-a456-426614174001"
@@ -317,7 +325,7 @@ describe("AcpRunner claim routing", () => {
 
       expect(metadata.executionWaveId).toBe(executionWaveId);
     } finally {
-      codexAgentDefinition.acp.launch = previousLaunch;
+      fakeAcp.restore();
     }
   });
 });

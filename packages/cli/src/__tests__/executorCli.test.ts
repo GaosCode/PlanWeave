@@ -1,6 +1,6 @@
 import { chmod, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { cliWorkflowTimeoutMs, runCli, runCliExpectFailure } from "./support/cliTestHarness.js";
@@ -10,8 +10,10 @@ describe("executor CLI preflight exit status", () => {
     "trusts the exact launch command and args for all built-in ACP profiles",
     async () => {
       const home = await mkdtemp(join(tmpdir(), "planweave-home-"));
-      const env = { ...process.env, PLANWEAVE_HOME: home };
-      await runCli(["init", "--json"], env);
+      const bin = await mkdtemp(join(tmpdir(), "planweave-acp-bin-"));
+      const mockAgent = fileURLToPath(
+        new URL("../../../runtime/src/__tests__/support/acpMockAgent.mjs", import.meta.url)
+      );
       const expected = {
         "codex-acp": ["codex-acp", []],
         "claude-code-acp": ["claude-agent-acp", []],
@@ -19,6 +21,21 @@ describe("executor CLI preflight exit status", () => {
         "pi-acp": ["pi-acp", []],
         "grok-acp": ["grok", ["--no-auto-update", "agent", "stdio"]]
       } as const;
+      for (const command of new Set(Object.values(expected).map(([name]) => name))) {
+        const path = join(bin, command);
+        await writeFile(
+          path,
+          `#!/usr/bin/env node\nprocess.argv[2] = "success";\nawait import(${JSON.stringify(pathToFileURL(mockAgent).href)});\n`,
+          "utf8"
+        );
+        await chmod(path, 0o755);
+      }
+      const env = {
+        ...process.env,
+        PLANWEAVE_HOME: home,
+        PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`
+      };
+      await runCli(["init", "--json"], env);
       for (const [profile, [command, args]] of Object.entries(expected)) {
         const result = JSON.parse(
           (await runCli(["trust", "executor", profile, "--json"], env)).stdout
@@ -26,8 +43,9 @@ describe("executor CLI preflight exit status", () => {
         expect(result).toMatchObject({
           executorName: profile,
           runnerKind: "acp",
-          entry: { command, args }
+          entry: { args }
         });
+        expect(result.entry.command.endsWith(`/${command}`)).toBe(true);
       }
     },
     cliWorkflowTimeoutMs

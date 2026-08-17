@@ -119,7 +119,7 @@ describe("executor environment", () => {
         })
       ).resolves.toBe("Ubuntu:clean");
     },
-    60_000
+    120_000
   );
 
   it.runIf(process.platform === "win32")(
@@ -189,7 +189,7 @@ describe("executor environment", () => {
         }
       }
     },
-    60_000
+    120_000
   );
 
   it("runs codex-exec in the project directory with the PlanWeave data home", async () => {

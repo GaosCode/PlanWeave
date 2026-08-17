@@ -97,6 +97,7 @@ describe("desktop agent capability API", () => {
         capabilities: expect.arrayContaining(["authentication"]),
         checks: [
           expect.objectContaining({ check: "acp_initialized", status: "passed" }),
+          expect.objectContaining({ check: "acp_capabilities", status: "passed" }),
           expect.objectContaining({
             check: "acp_authenticated",
             status: "failed",

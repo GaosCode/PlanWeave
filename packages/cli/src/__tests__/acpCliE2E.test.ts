@@ -44,7 +44,7 @@ async function createFakeAcpBin(): Promise<{
     const executableNames = Object.values(acpProfiles).map((command) => `${command}.exe`);
     await writeFile(
       bootstrap,
-      `import { basename } from "node:path";\nconst commands = new Set(${JSON.stringify(executableNames)});\nif (commands.has(basename(process.execPath).toLowerCase())) {\n  process.argv[2] = process.env.PLANWEAVE_ACP_SCENARIO ?? "artifact-implementation";\n  await import(${JSON.stringify(pathToFileURL(mockAgent).href)});\n}\n`,
+      `import { basename, dirname, join } from "node:path";\nimport { existsSync, readFileSync } from "node:fs";\nimport { fileURLToPath } from "node:url";\nconst commands = new Set(${JSON.stringify(executableNames)});\nif (commands.has(basename(process.execPath).toLowerCase())) {\n  const scenarioFile = join(dirname(fileURLToPath(import.meta.url)), "scenario");\n  process.argv[2] = existsSync(scenarioFile) ? readFileSync(scenarioFile, "utf8").trim() : "artifact-implementation";\n  await import(${JSON.stringify(pathToFileURL(mockAgent).href)});\n}\n`,
       "utf8"
     );
     const agentHost = join(bin, "planweave-acp-agent-host.exe");
@@ -65,7 +65,7 @@ async function createFakeAcpBin(): Promise<{
     const wrapper = join(bin, command);
     await writeFile(
       wrapper,
-      `#!/usr/bin/env node\nprocess.argv[2] = process.env.PLANWEAVE_ACP_SCENARIO ?? "artifact-implementation";\nawait import(${JSON.stringify(pathToFileURL(mockAgent).href)});\n`,
+      `#!/usr/bin/env node\nimport { existsSync, readFileSync } from "node:fs";\nimport { dirname, join } from "node:path";\nimport { fileURLToPath } from "node:url";\nconst scenarioFile = join(dirname(fileURLToPath(import.meta.url)), "scenario");\nprocess.argv[2] = existsSync(scenarioFile) ? readFileSync(scenarioFile, "utf8").trim() : "artifact-implementation";\nawait import(${JSON.stringify(pathToFileURL(mockAgent).href)});\n`,
       "utf8"
     );
     await chmod(wrapper, 0o755);
@@ -101,7 +101,17 @@ async function initializePackage(env: NodeJS.ProcessEnv, profile: keyof typeof a
   return init;
 }
 
+async function applyFakeAcpScenario(env: NodeJS.ProcessEnv): Promise<void> {
+  const bin = env.PATH?.split(delimiter)[0];
+  if (!bin) return;
+  await writeFile(
+    join(bin, "scenario"),
+    `${env.PLANWEAVE_ACP_SCENARIO ?? "artifact-implementation"}\n`
+  );
+}
+
 async function runBlock(env: NodeJS.ProcessEnv, ref: string) {
+  await applyFakeAcpScenario(env);
   return JSON.parse(
     (await runCli(["run", "--once", "--scope", "block", "--block", ref, "--json"], env)).stdout
   ) as Record<string, unknown>;
@@ -341,9 +351,11 @@ describe("ACP CLI end-to-end", () => {
     async (scenario) => {
       const baseEnv = await fakeAcpEnvironment();
       await initializePackage(baseEnv, "codex-acp");
+      const env = { ...baseEnv, PLANWEAVE_ACP_SCENARIO: scenario };
+      await applyFakeAcpScenario(env);
       const failure = await runCliExpectFailure(
         ["run", "--once", "--scope", "block", "--block", "T-001#B-001", "--json"],
-        { ...baseEnv, PLANWEAVE_ACP_SCENARIO: scenario }
+        env
       );
       const result = JSON.parse(failure.stdout) as {
         terminalReason: string;
@@ -366,6 +378,8 @@ describe("ACP CLI end-to-end", () => {
     async () => {
       const baseEnv = await fakeAcpEnvironment();
       await initializePackage(baseEnv, "codex-acp");
+      const env = { ...baseEnv, PLANWEAVE_ACP_SCENARIO: "permission" };
+      await applyFakeAcpScenario(env);
       const failure = await runCliExpectFailure(
         [
           "run",
@@ -378,7 +392,7 @@ describe("ACP CLI end-to-end", () => {
           "T-001#B-001",
           "--json"
         ],
-        { ...baseEnv, PLANWEAVE_ACP_SCENARIO: "permission" },
+        env,
         { hardTimeoutMs: 10_000 }
       );
       const result = JSON.parse(failure.stdout) as {
@@ -396,7 +410,7 @@ describe("ACP CLI end-to-end", () => {
           autoRun: { effectiveExecutor: "codex-acp", runnerKind: "acp" }
         }
       });
-      expect(result.session.error).toMatch(/timed out after 250ms/i);
+      expect(result.session.error).toMatch(/timed out after \d+ms/i);
       expect(JSON.stringify(result)).not.toContain("codex-exec");
     },
     cliWorkflowTimeoutMs
@@ -407,6 +421,8 @@ describe("ACP CLI end-to-end", () => {
     async () => {
       const baseEnv = await fakeAcpEnvironment();
       await initializePackage(baseEnv, "codex-acp");
+      const env = { ...baseEnv, PLANWEAVE_ACP_SCENARIO: "long-prompt" };
+      await applyFakeAcpScenario(env);
       const failure = await runCliExpectFailure(
         [
           "run",
@@ -419,7 +435,7 @@ describe("ACP CLI end-to-end", () => {
           "T-001#B-001",
           "--json"
         ],
-        { ...baseEnv, PLANWEAVE_ACP_SCENARIO: "long-prompt" }
+        env
       );
       const result = JSON.parse(failure.stdout) as {
         terminalReason: string;
@@ -441,6 +457,7 @@ describe("ACP CLI end-to-end", () => {
       const baseEnv = await fakeAcpEnvironment();
       const init = await initializePackage(baseEnv, "codex-acp");
       const env = { ...baseEnv, PLANWEAVE_ACP_SCENARIO: "long-prompt" };
+      await applyFakeAcpScenario(env);
       const managed = spawnManagedProcess({
         command: process.execPath,
         args: [

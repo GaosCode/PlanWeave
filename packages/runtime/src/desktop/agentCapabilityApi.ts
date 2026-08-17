@@ -47,6 +47,7 @@ export async function probeDesktopAgentCapabilities(
   const cwd = resolve(parsed.projectRoot ?? homedir());
   const preflight = await createAcpRunner().preflight({
     profile,
+    profileSource: "builtin",
     definition,
     cwd,
     timeoutMs: capabilityProbeTimeoutMs

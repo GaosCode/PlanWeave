@@ -3,7 +3,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { recordBlockRunInIndex } from "../autoRun/blockRunIndex.js";
 import { gateAcpCapabilities } from "../autoRun/acpCapabilityGate.js";
 import { codexAgentDefinition } from "../autoRun/codexIntegration.js";
@@ -35,9 +35,11 @@ import {
   ExecutionHostAcpCommandResolver
 } from "../acpProfile/resolver.js";
 import { emptyAcpProfileCatalog } from "../acpProfile/schema.js";
+import { installFakeAcpCommands } from "./support/fakeAcpCommands.js";
 
 const acpMockAgent = fileURLToPath(new URL("./support/acpMockAgent.mjs", import.meta.url));
 const ownerProcesses = new Set<ChildProcess>();
+let fakeAcp: Awaited<ReturnType<typeof installFakeAcpCommands>> | undefined;
 
 async function resolvedCodexProfile() {
   return new CatalogAcpProfileResolver(
@@ -45,6 +47,10 @@ async function resolvedCodexProfile() {
     new ExecutionHostAcpCommandResolver()
   ).resolve({ agentId: "codex" }, { projectRoot: "/tmp", host: { kind: "native" } });
 }
+
+beforeEach(async () => {
+  fakeAcp = await installFakeAcpCommands("success");
+});
 
 afterEach(async () => {
   const alive = [...ownerProcesses].filter(
@@ -54,6 +60,8 @@ afterEach(async () => {
   await Promise.all(alive.map((child) => once(child, "exit").catch(() => undefined)));
   ownerProcesses.clear();
   await shutdownDesktopAutoRuns();
+  fakeAcp?.restore();
+  fakeAcp = undefined;
   delete process.env.PLANWEAVE_HOME;
   delete process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE;
 });

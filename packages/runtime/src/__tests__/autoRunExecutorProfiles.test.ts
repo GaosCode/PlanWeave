@@ -176,11 +176,11 @@ describe("Auto Run executor profiles", () => {
     ],
     [
       "unknown agent",
-      { adapter: "agent", agent: "unknown", runner: { transport: "acp" } },
+      { adapter: "agent", agent: "unknown agent", runner: { transport: "acp" } },
       [
         {
           path: ["executors", "invalid", "agent"],
-          message: 'Invalid option: expected one of "codex"|"opencode"|"claude-code"|"pi"|"grok"'
+          message: "Invalid string: must match pattern /^[A-Za-z0-9][A-Za-z0-9._-]*$/"
         }
       ]
     ],

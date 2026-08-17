@@ -20,7 +20,7 @@ async function initializeRun(scenario: string) {
   const wrapper = join(bin, "codex-acp");
   await writeFile(
     wrapper,
-    `#!/usr/bin/env node\nprocess.argv[2] = process.env.PLANWEAVE_ACP_SCENARIO ?? "artifact-implementation";\nawait import(${JSON.stringify(pathToFileURL(mockAgent).href)});\n`,
+    `#!/usr/bin/env node\nprocess.argv[2] = ${JSON.stringify(scenario)};\nawait import(${JSON.stringify(pathToFileURL(mockAgent).href)});\n`,
     "utf8"
   );
   await chmod(wrapper, 0o755);

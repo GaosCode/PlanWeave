@@ -111,14 +111,15 @@ export function defineAcpExecutionAdapterConformance(
       expect(observation.productTexts).toEqual([]);
     });
 
-    it("classifies cleanup failure without producing an artifact", async () => {
+    it("keeps a successful product when session close fails during cleanup", async () => {
       const observation = await harness.run("close-capable-error");
 
       expect(observation.terminal).toEqual({
-        state: "failed",
-        failureCategory: "cleanup_failed"
+        state: "succeeded",
+        stopReason: "end_turn"
       });
-      expect(observation.productTexts).toEqual([]);
+      expect(observation.productTexts).toHaveLength(1);
+      expect(observation.productTexts[0]).toMatch(/^hello from mock-session-/);
     });
 
     it("classifies private overlong process failure without leaking it remotely", async () => {
