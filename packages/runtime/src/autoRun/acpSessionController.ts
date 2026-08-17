@@ -11,10 +11,10 @@ import type { ExecutorAdapterResult } from "../types.js";
 import {
   AcpOperationTimeoutError,
   DEFAULT_ACP_OPERATION_TIMEOUT_MS,
-  createAcpConnection,
   type AcpConnection,
   type CreateAcpConnectionOptions
 } from "./acpConnection.js";
+import type { AcpLiveRunTransport } from "./acpConnectionProvider.js";
 import {
   AcpAuthenticationRequiredError,
   mayProbeSessionDespiteAuthRequired
@@ -100,7 +100,7 @@ function expectedArtifact(run: AcpSessionRun): ExpectedFinalArtifactIdentity {
 export class AcpSessionController {
   constructor(
     private readonly registry: ActiveAgentRunRegistry = activeAgentRunRegistry,
-    private readonly connect: ConnectionFactory = createAcpConnection,
+    private readonly connect?: ConnectionFactory,
     private readonly eventReadModels: AcpEventReadModelRegistry = acpEventReadModels
   ) {}
 
@@ -391,7 +391,7 @@ export class AcpSessionController {
           });
         }
       };
-      const publishConnection = (created: AcpConnection): void => {
+      const publishConnection = (created: AcpLiveRunTransport): void => {
         handle = createLocalAcpActiveRunHandle({
           identity: run.identity,
           connection: created,
@@ -681,7 +681,7 @@ export class AcpSessionController {
         authenticationHints: run.authenticationHints,
         signal: abortController.signal,
         timeoutMs: options?.timeoutMs,
-        connect: this.connect,
+        ...(this.connect ? { connect: this.connect } : {}),
         onConnection: publishConnection,
         connectionExtensions: {
           ...(terminalOutputHandler

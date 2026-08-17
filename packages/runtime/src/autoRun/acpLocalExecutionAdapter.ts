@@ -10,6 +10,13 @@ import {
   type CreateAcpConnectionOptions
 } from "./acpConnection.js";
 import {
+  type AcpConnectionLease,
+  type AcpConnectionProvider,
+  type AcpLiveRunTransport
+} from "./acpConnectionProvider.js";
+import { createDedicatedAcpConnectionProvider } from "./acpDedicatedConnectionProvider.js";
+import { createAcpCleanupDeadline } from "./acpExecutionCleanup.js";
+import {
   planWeaveAcpExecutionAuthentication,
   type AcpAuthenticationHints
 } from "./acpAuthentication.js";
@@ -27,52 +34,18 @@ function asError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
-function ownedConnection(connection: AcpConnection): AcpConnection {
-  const cancellations = new Map<string, Promise<void>>();
-  const closes = new Map<string, ReturnType<AcpConnection["closeSession"]>>();
+function liveTransportFromLease(lease: AcpConnectionLease): AcpLiveRunTransport {
   return {
     get processId() {
-      return connection.processId;
+      return lease.processId;
     },
     get pendingOperationCount() {
-      return connection.pendingOperationCount;
+      return lease.pendingOperationCount;
     },
     get pendingOperations() {
-      return connection.pendingOperations;
+      return lease.pendingOperations;
     },
-    get stderr() {
-      return connection.stderr;
-    },
-    get closed() {
-      return connection.closed;
-    },
-    get terminalFailure() {
-      return connection.terminalFailure;
-    },
-    initialize: (operationOptions) => connection.initialize(operationOptions),
-    authenticate: (request, operationOptions) => connection.authenticate(request, operationOptions),
-    newSession: (request, operationOptions) => connection.newSession(request, operationOptions),
-    loadSession: (request, operationOptions) => connection.loadSession(request, operationOptions),
-    prompt: (request, operationOptions) => connection.prompt(request, operationOptions),
-    cancel: (notification) => {
-      const existing = cancellations.get(notification.sessionId);
-      if (existing) return existing;
-      const operation = connection.cancel(notification);
-      cancellations.set(notification.sessionId, operation);
-      return operation;
-    },
-    closeSession: (sessionId, operationOptions) => {
-      const existing = closes.get(sessionId);
-      if (existing) return existing;
-      const operation = connection.closeSession(sessionId, operationOptions);
-      closes.set(sessionId, operation);
-      return operation;
-    },
-    setSessionMode: (request, operationOptions) =>
-      connection.setSessionMode(request, operationOptions),
-    setSessionConfigOption: (request, operationOptions) =>
-      connection.setSessionConfigOption(request, operationOptions),
-    dispose: (operationOptions) => connection.dispose(operationOptions)
+    cancel: (notification, operationOptions) => lease.cancel(notification, operationOptions)
   };
 }
 
@@ -150,8 +123,9 @@ export async function executeLocalAcpAdapter(options: {
   readonly authenticationHints?: AcpAuthenticationHints;
   readonly signal: AbortSignal;
   readonly timeoutMs?: number;
-  readonly connect: (options: CreateAcpConnectionOptions) => AcpConnection;
-  readonly onConnection: (connection: AcpConnection) => void;
+  readonly connect?: (options: CreateAcpConnectionOptions) => AcpConnection;
+  readonly provider?: AcpConnectionProvider;
+  readonly onConnection: (connection: AcpLiveRunTransport) => void;
   readonly connectionExtensions?: Pick<CreateAcpConnectionOptions, "observer" | "onTerminalOutput">;
   readonly interactionBroker: AcpEngineInteractionBroker;
   readonly interactionDeadline: () => Date | null;
@@ -160,7 +134,38 @@ export async function executeLocalAcpAdapter(options: {
   readonly lifecycleObserver: AcpEngineLifecycleObserver;
 }) {
   const timeoutMs = options.timeoutMs ?? DEFAULT_ACP_OPERATION_TIMEOUT_MS;
+  const innerProvider =
+    options.provider ??
+    createDedicatedAcpConnectionProvider(options.connect ? { connect: options.connect } : {});
   let registrationCleanup: Promise<void> | null = null;
+  const provider: AcpConnectionProvider = {
+    async acquire(request) {
+      const lease = await innerProvider.acquire({
+        ...request,
+        ...(options.spawnCwd !== undefined ? { spawnCwd: options.spawnCwd } : {}),
+        ...(options.decorateProcessTree
+          ? { decorateProcessTree: options.decorateProcessTree }
+          : {}),
+        ...(options.cleanupExitedProcessTree
+          ? { cleanupExitedProcessTree: options.cleanupExitedProcessTree }
+          : {}),
+        ...options.connectionExtensions
+      });
+      try {
+        options.onConnection(liveTransportFromLease(lease));
+      } catch (error) {
+        registrationCleanup = lease
+          .release({
+            terminal: "failed",
+            cleanupDeadline: createAcpCleanupDeadline(options.shutdown.cleanupDeadlineMs)
+          })
+          .then(() => undefined);
+        throw error;
+      }
+      return lease;
+    },
+    shutdown: () => innerProvider.shutdown()
+  };
   try {
     return await executeAcpOrThrow({
       launch: { trusted: true, ...options.launch },
@@ -190,28 +195,7 @@ export async function executeLocalAcpAdapter(options: {
         operationTimeoutMs: timeoutMs,
         interactionTimeoutMs: timeoutMs
       },
-      connect: (engineOptions) => {
-        const connection = ownedConnection(
-          options.connect({
-            ...engineOptions,
-            ...(options.spawnCwd !== undefined ? { spawnCwd: options.spawnCwd } : {}),
-            ...(options.decorateProcessTree
-              ? { decorateProcessTree: options.decorateProcessTree }
-              : {}),
-            ...(options.cleanupExitedProcessTree
-              ? { cleanupExitedProcessTree: options.cleanupExitedProcessTree }
-              : {}),
-            ...options.connectionExtensions
-          })
-        );
-        try {
-          options.onConnection(connection);
-        } catch (error) {
-          registrationCleanup = connection.dispose();
-          throw error;
-        }
-        return connection;
-      }
+      provider
     });
   } catch (error) {
     const executionCause =

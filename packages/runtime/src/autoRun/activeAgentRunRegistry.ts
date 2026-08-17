@@ -1,5 +1,5 @@
 import type { SessionNotification } from "@agentclientprotocol/sdk";
-import type { AcpConnection } from "./acpConnection.js";
+import type { AcpLiveRunTransport } from "./acpConnectionProvider.js";
 import {
   rejectPendingRunnerRequest,
   respondToPendingRunnerRequest,
@@ -27,7 +27,7 @@ export type ActiveAgentRunIdentity = {
 
 export type ActiveAgentRunHandle = {
   identity: ActiveAgentRunIdentity;
-  connection: AcpConnection;
+  connection: AcpLiveRunTransport;
   abortController: AbortController;
   eventSink: (notification: SessionNotification) => void | Promise<void>;
   ownership: LiveOwnership;

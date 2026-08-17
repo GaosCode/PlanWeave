@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
-import { createAcpConnection, type AcpConnection } from "../autoRun/acpConnection.js";
+import { type AcpConnection } from "../autoRun/acpConnection.js";
 import { ActiveAgentRunRegistry } from "../autoRun/activeAgentRunRegistry.js";
 import { agentRunControlLeaseIdSchema } from "../autoRun/agentRunControlContract.js";
 import { createLocalAcpActiveRunHandle } from "../autoRun/acpLocalActiveRunHandle.js";
@@ -49,7 +49,6 @@ async function runLocalConformance(
     sessionStart: { kind: "new" },
     signal: controller.signal,
     timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS,
-    connect: createAcpConnection,
     onConnection: () => undefined,
     interactionBroker: {
       advertiseElicitation: false,

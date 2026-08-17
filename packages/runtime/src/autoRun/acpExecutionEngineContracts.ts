@@ -11,6 +11,7 @@ import type {
   CreateAcpConnectionOptions,
   TrustedAcpLaunch
 } from "./acpConnection.js";
+import type { AcpConnectionProvider } from "./acpConnectionProvider.js";
 import type { AcpNormalizedEventBody } from "./acpEventNormalization.js";
 import type { AcpShutdownPolicy } from "../acpProfile/schema.js";
 import type { AcpCapabilityPolicy } from "../acpProfile/schema.js";
@@ -255,4 +256,5 @@ export type ExecuteAcpOptions = {
   readonly limits?: Partial<AcpExecutionLimits>;
   readonly clock?: AcpEngineClock;
   readonly connect?: AcpEngineConnectionFactory;
+  readonly provider?: AcpConnectionProvider;
 };

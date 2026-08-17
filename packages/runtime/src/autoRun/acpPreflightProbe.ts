@@ -1,11 +1,9 @@
-import { ACP_SDK_AUTHORITY, createAcpConnection } from "./acpConnection.js";
+import { ACP_SDK_AUTHORITY } from "./acpConnection.js";
+import type { AcpOwnedSession } from "./acpConnectionProvider.js";
+import { createDedicatedAcpConnectionProvider } from "./acpDedicatedConnectionProvider.js";
 import type { AcpPreflightProbe } from "./acpRunner.js";
 import type { RunnerAuthenticationState, RunnerCapability } from "./runnerContractSchemas.js";
-import {
-  RequestError,
-  type InitializeResponse,
-  type NewSessionResponse
-} from "@agentclientprotocol/sdk";
+import { RequestError, type InitializeResponse } from "@agentclientprotocol/sdk";
 import { sessionConfigurationFromNewSession } from "./acpSessionConfiguration.js";
 import {
   coordinateAcpAuthentication,
@@ -106,7 +104,7 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({
     env
   });
   const availableEnvironmentVariables = availableExecutionHostEnvironmentVariables(host, env);
-  const connection = createAcpConnection({
+  const lease = await createDedicatedAcpConnectionProvider().acquire({
     launch: { trusted: true, command: prepared.command, args: prepared.args },
     cwd,
     spawnCwd: prepared.spawnCwd ?? null,
@@ -133,12 +131,12 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({
     );
     return cleanup;
   };
-  const closeProbeSession = (sessionId: string): Promise<unknown> => {
+  const closeProbeSession = (session: AcpOwnedSession): Promise<unknown> => {
     const sequence = cleanupSequence();
     return sequence.run(
       "preflight session close",
       (timeoutMs) =>
-        connection.closeSession(sessionId, {
+        session.close({
           signal,
           timeoutMs,
           cleanupDeadline: sequence.deadline
@@ -150,7 +148,7 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({
     const result = await (async (): Promise<ProbeResult> => {
       let initialized: InitializeResponse;
       try {
-        initialized = await connection.initialize({ signal });
+        initialized = await lease.initialize({ signal });
       } catch (error) {
         throw new AcpPreflightPhaseError("initialize", error);
       }
@@ -177,7 +175,7 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({
       let authenticationOutcome: AcpAuthenticationOutcome;
       try {
         authenticationOutcome = await coordinateAcpAuthentication({
-          connection,
+          connection: lease,
           initialized,
           hints: authenticationHints,
           availableEnvironmentVariables,
@@ -201,11 +199,11 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({
             methods: authenticationOutcome.methods
           });
         }
-        let probeSession: NewSessionResponse;
+        let probeSession: AcpOwnedSession;
         try {
-          probeSession = await connection.newSession(
-            { cwd: prepared.sessionCwd, mcpServers: [] },
-            { signal }
+          probeSession = await lease.openSession(
+            { kind: "new" },
+            { signal, cwd: prepared.sessionCwd }
           );
         } catch {
           const authenticationError = new AcpAuthenticationRequiredError(authenticationOutcome);
@@ -222,9 +220,9 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({
           kind: "authenticated" as const,
           methodId: authenticationOutcome.methods[0]?.id ?? "session"
         };
-        if (initialized.agentCapabilities?.sessionCapabilities?.close != null) {
+        if (lease.advertised.closeSession) {
           try {
-            await closeProbeSession(probeSession.sessionId);
+            await closeProbeSession(probeSession);
           } catch (error) {
             throw new AcpPreflightPhaseError("session", error);
           }
@@ -235,16 +233,13 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({
           authentication: authenticationStateFromOutcome(recoveredAuth),
           capabilities,
           capabilitySnapshot,
-          sessionConfig: sessionConfigurationFromNewSession(probeSession)
+          sessionConfig: sessionConfigurationFromNewSession(probeSession.created)
         };
       }
 
-      let session: NewSessionResponse;
+      let session: AcpOwnedSession;
       try {
-        session = await connection.newSession(
-          { cwd: prepared.sessionCwd, mcpServers: [] },
-          { signal }
-        );
+        session = await lease.openSession({ kind: "new" }, { signal, cwd: prepared.sessionCwd });
       } catch (error) {
         if (!isAuthRequiredError(error)) {
           throw new AcpPreflightPhaseError("session", error);
@@ -259,9 +254,9 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({
           methods: []
         });
       }
-      if (initialized.agentCapabilities?.sessionCapabilities?.close != null) {
+      if (lease.advertised.closeSession) {
         try {
-          await closeProbeSession(session.sessionId);
+          await closeProbeSession(session);
         } catch (error) {
           throw new AcpPreflightPhaseError("session", error);
         }
@@ -272,7 +267,7 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({
         authentication: authenticationStateFromOutcome(authenticationOutcome),
         capabilities,
         capabilitySnapshot,
-        sessionConfig: sessionConfigurationFromNewSession(session)
+        sessionConfig: sessionConfigurationFromNewSession(session.created)
       };
     })();
     probeOutcome = { status: "returned", result };
@@ -281,9 +276,16 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({
   } finally {
     try {
       const sequence = cleanupSequence();
-      await sequence.run("preflight connection disposal", (timeoutMs) =>
-        connection.dispose({ timeoutMs, cleanupDeadline: sequence.deadline })
-      );
+      await sequence.run("preflight connection disposal", async () => {
+        const released = await lease.release({
+          terminal: probeOutcome.status === "returned" ? "succeeded" : "failed",
+          cleanupDeadline: sequence.deadline
+        });
+        if (released.failures.length === 1) throw released.failures[0];
+        if (released.failures.length > 1) {
+          throw new AggregateError(released.failures, "ACP preflight connection disposal failed.");
+        }
+      });
     } catch (error) {
       cleanupOutcome = { status: "failed", error };
     }

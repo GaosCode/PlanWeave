@@ -66,6 +66,11 @@ function createHarness(
     });
   };
   const connection: AcpConversationTurnConnection = {
+    processId: 1,
+    pendingOperationCount: 0,
+    pendingOperations: new Map(),
+    stderr: [],
+    closed: Promise.resolve(),
     initialize: vi.fn(async (operation) => {
       operationOrder.push("initialize");
       await hold("initialize", operation);
@@ -82,6 +87,7 @@ function createHarness(
       authenticated = true;
       return {};
     }),
+    newSession: vi.fn(async () => ({ sessionId: "must-not-open" })),
     loadSession: vi.fn(async (_request, operation) => {
       operationOrder.push("loadSession");
       await hold("loadSession", operation);
@@ -108,6 +114,9 @@ function createHarness(
       operationOrder.push("cancel");
       if (options.holdCancel) await new Promise(() => undefined);
     }),
+    closeSession: vi.fn(async () => ({})),
+    setSessionMode: vi.fn(async () => ({})),
+    setSessionConfigOption: vi.fn(async () => ({ configOptions: [] })),
     dispose: vi.fn(async (operation) => {
       operationOrder.push("dispose");
       cleanupOptions = operation;

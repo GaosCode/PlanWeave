@@ -1028,6 +1028,23 @@ export type {
   CreateAcpConnectionOptions,
   TrustedAcpLaunch
 } from "./autoRun/acpConnection.js";
+export { AcpLeaseReleasedError } from "./autoRun/acpConnectionProvider.js";
+export type {
+  AcpConnectionAcquireRequest,
+  AcpConnectionLease,
+  AcpConnectionProvider,
+  AcpLeaseAdvertisedCapabilities,
+  AcpLeaseReleaseInput,
+  AcpLeaseReleaseResult,
+  AcpLeaseTerminal,
+  AcpLiveRunTransport,
+  AcpOwnedSession,
+  AcpOwnedSessionConfigInput,
+  AcpOwnedSessionOpenOptions,
+  AcpOwnedSessionStart
+} from "./autoRun/acpConnectionProvider.js";
+export { createDedicatedAcpConnectionProvider } from "./autoRun/acpDedicatedConnectionProvider.js";
+export type { DedicatedAcpConnectionProviderOptions } from "./autoRun/acpDedicatedConnectionProvider.js";
 export {
   AcpPreflightCleanupError,
   AcpPreflightPhaseError,

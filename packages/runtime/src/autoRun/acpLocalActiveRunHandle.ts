@@ -1,12 +1,12 @@
 import type { SessionNotification } from "@agentclientprotocol/sdk";
-import type { AcpConnection } from "./acpConnection.js";
+import type { AcpLiveRunTransport } from "./acpConnectionProvider.js";
 import type { ActiveAgentRunHandle, ActiveAgentRunIdentity } from "./activeAgentRunRegistry.js";
 import type { AgentRunControlLeaseId } from "./agentRunControlContract.js";
 import { createLiveOwnership, type LivePendingRequestHandle } from "./liveControl.js";
 
 export function createLocalAcpActiveRunHandle(options: {
   readonly identity: Omit<ActiveAgentRunIdentity, "sessionId">;
-  readonly connection: AcpConnection;
+  readonly connection: AcpLiveRunTransport;
   readonly abortController: AbortController;
   readonly eventSink: (notification: SessionNotification) => void | Promise<void>;
   readonly agentRunControlLeaseId: AgentRunControlLeaseId;

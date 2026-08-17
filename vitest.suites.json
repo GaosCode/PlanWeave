@@ -448,6 +448,7 @@
       "integration": [
         "acpActions.test.ts",
         "acpConnectionCleanup.test.ts",
+        "acpDedicatedConnectionProvider.test.ts",
         "acpCrossProcessPermission.test.ts",
         "acpElicitationSettlement.test.ts",
         "acpEventController.test.ts",

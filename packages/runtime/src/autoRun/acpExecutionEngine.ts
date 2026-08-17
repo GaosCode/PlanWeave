@@ -3,7 +3,6 @@ import { isAbsolute } from "node:path";
 import {
   type AgentCapabilities,
   type InitializeResponse,
-  type NewSessionResponse,
   type PromptResponse,
   type SessionNotification
 } from "@agentclientprotocol/sdk";
@@ -18,10 +17,10 @@ import {
   AcpOperationTimeoutError,
   AcpProcessError,
   AcpProtocolError,
-  AcpStderrLimitError,
-  createAcpConnection,
-  type AcpConnection
+  AcpStderrLimitError
 } from "./acpConnection.js";
+import type { AcpConnectionLease, AcpOwnedSession } from "./acpConnectionProvider.js";
+import { createDedicatedAcpConnectionProvider } from "./acpDedicatedConnectionProvider.js";
 import { normalizeAcpSessionNotification } from "./acpEventNormalization.js";
 import { normalizedRedactedContent } from "./normalizedEventContract.js";
 import { AcpCleanupSequencer, createAcpCleanupDeadline } from "./acpExecutionCleanup.js";
@@ -180,7 +179,8 @@ async function executeAcpOutcome(
   const relayAbort = (): void => abortController.abort(options.signal?.reason);
   options.signal?.addEventListener("abort", relayAbort, { once: true });
   if (options.signal?.aborted) relayAbort();
-  let connection: AcpConnection | null = null;
+  let lease: AcpConnectionLease | null = null;
+  let ownedSession: AcpOwnedSession | null = null;
   let sessionId: string | null = null;
   let capabilities: AcpEngineCapabilities | null = null;
   let capabilitySnapshot: AcpCapabilitySnapshot | null = null;
@@ -277,7 +277,10 @@ async function executeAcpOutcome(
 
   try {
     await emit({ kind: "lifecycle", state: "connecting" });
-    connection = (options.connect ?? createAcpConnection)({
+    const provider =
+      options.provider ??
+      createDedicatedAcpConnectionProvider(options.connect ? { connect: options.connect } : {});
+    lease = await provider.acquire({
       launch: options.launch,
       cwd: options.workspace.cwd,
       env: options.env,
@@ -293,8 +296,8 @@ async function executeAcpOutcome(
       onPermissionRequest: interactionHandlers.onPermissionRequest,
       onElicitationRequest: interactionHandlers.onElicitationRequest
     });
-    await observeLifecycle({ kind: "connection_ready", processId: connection.processId });
-    const initialized = await connection.initialize({
+    await observeLifecycle({ kind: "connection_ready", processId: lease.processId });
+    const initialized = await lease.initialize({
       signal: abortController.signal,
       timeoutMs: limits.operationTimeoutMs
     });
@@ -325,7 +328,7 @@ async function executeAcpOutcome(
     );
     await emit({ kind: "capabilities", capabilities });
     authentication = await coordinateAcpAuthentication({
-      connection,
+      connection: lease,
       initialized,
       hints: options.authentication?.hints,
       availableEnvironmentVariables:
@@ -336,27 +339,19 @@ async function executeAcpOutcome(
       }
     });
     await observeLifecycle({ kind: "authentication_completed", authentication });
-    const openSession = async (): Promise<NewSessionResponse> => {
-      if (!connection) throw new Error("ACP connection closed before opening a session.");
-      if (sessionStart.kind === "load") {
-        if (initializedCapabilities?.loadSession !== true) {
-          throw new AcpEngineCapabilityError(
-            options.sessionLoadUnsupportedMessage ??
-              "ACP agent does not advertise session/load capability."
-          );
-        }
-        const loaded = await connection.loadSession(
-          { sessionId: sessionStart.sessionId, cwd: options.workspace.cwd, mcpServers: [] },
-          { signal: abortController.signal, timeoutMs: limits.operationTimeoutMs }
+    const openSession = async (): Promise<AcpOwnedSession> => {
+      if (!lease) throw new Error("ACP connection closed before opening a session.");
+      if (sessionStart.kind === "load" && initializedCapabilities?.loadSession !== true) {
+        throw new AcpEngineCapabilityError(
+          options.sessionLoadUnsupportedMessage ??
+            "ACP agent does not advertise session/load capability."
         );
-        return { sessionId: sessionStart.sessionId, ...loaded };
       }
-      return connection.newSession(
-        { cwd: options.workspace.cwd, mcpServers: [] },
-        { signal: abortController.signal, timeoutMs: limits.operationTimeoutMs }
-      );
+      return lease.openSession(sessionStart, {
+        signal: abortController.signal,
+        timeoutMs: limits.operationTimeoutMs
+      });
     };
-    let session: NewSessionResponse;
     if (authentication.kind === "auth_required") {
       if (
         options.authentication?.requiredPolicy !== "probe_session" ||
@@ -366,33 +361,31 @@ async function executeAcpOutcome(
       }
       await observeLifecycle({ kind: "authentication_probe", state: "starting" });
       try {
-        session = await openSession();
+        ownedSession = await openSession();
       } catch {
         await observeLifecycle({ kind: "authentication_probe", state: "failed" });
         throw new AcpAuthenticationRequiredError(authentication);
       }
       await observeLifecycle({ kind: "authentication_probe", state: "succeeded" });
     } else {
-      session = await openSession();
+      ownedSession = await openSession();
     }
-    sessionId = session.sessionId;
-    const boundConnection = connection;
+    sessionId = ownedSession.sessionId;
+    const boundSession = ownedSession;
     await observeLifecycle({
       kind: "session_ready",
       loaded: sessionStart.kind === "load",
-      session,
+      session: boundSession.created,
       configurator: {
         setMode: async (modeId) => {
-          await boundConnection.setSessionMode(
-            { sessionId: session.sessionId, modeId },
-            { signal: abortController.signal, timeoutMs: limits.operationTimeoutMs }
-          );
+          await boundSession.setMode(modeId, {
+            signal: abortController.signal,
+            timeoutMs: limits.operationTimeoutMs
+          });
         },
         setConfigOption: async ({ configId, value }) => {
-          const response = await boundConnection.setSessionConfigOption(
-            typeof value === "boolean"
-              ? { sessionId: session.sessionId, configId, type: "boolean", value }
-              : { sessionId: session.sessionId, configId, value },
+          const response = await boundSession.setConfigOption(
+            { configId, value },
             { signal: abortController.signal, timeoutMs: limits.operationTimeoutMs }
           );
           return response.configOptions;
@@ -428,10 +421,10 @@ async function executeAcpOutcome(
         followUp,
         prompt
       });
-      response = await connection.prompt(
-        { sessionId, prompt: [{ type: "text", text: prompt }] },
-        { signal: abortController.signal, timeoutMs: limits.operationTimeoutMs }
-      );
+      response = await boundSession.prompt([{ type: "text", text: prompt }], {
+        signal: abortController.signal,
+        timeoutMs: limits.operationTimeoutMs
+      });
       if (sessionUpdateFailure !== undefined) throw sessionUpdateFailure;
       if (response.usage) {
         usage = {
@@ -467,7 +460,7 @@ async function executeAcpOutcome(
             };
   } catch (error) {
     const executionFailure =
-      interactionHandlers.failure ?? sessionUpdateFailure ?? connection?.terminalFailure ?? error;
+      interactionHandlers.failure ?? sessionUpdateFailure ?? lease?.terminalFailure ?? error;
     executionCause = sinkFailure ?? executionFailure;
     terminal = abortController.signal.aborted
       ? { state: "cancelled", message: diagnostic(abortController.signal.reason) }
@@ -499,49 +492,29 @@ async function executeAcpOutcome(
     } catch (error) {
       cleanupFailures.push(error);
     }
-    if (connection && sessionId && terminal.state !== "succeeded") {
-      const cleanupConnection = connection;
-      const cleanupSessionId = sessionId;
+    if (ownedSession && terminal.state !== "succeeded") {
+      const cleanupSession = ownedSession;
       try {
         await cleanup.run(
           "session cancellation",
-          (timeoutMs) =>
-            cleanupConnection.cancel(
-              { sessionId: cleanupSessionId },
-              { timeoutMs, cleanupDeadline: cleanup.deadline }
-            ),
+          (timeoutMs) => cleanupSession.cancel({ timeoutMs, cleanupDeadline: cleanup.deadline }),
           100
         );
       } catch (error) {
         cleanupFailures.push(error);
       }
     }
-    if (connection && sessionId && capabilities?.closeSession) {
-      const cleanupConnection = connection;
-      const cleanupSessionId = sessionId;
+    if (lease) {
+      const cleanupLease = lease;
       try {
-        await cleanup.run(
-          "session close",
-          (timeoutMs) =>
-            cleanupConnection.closeSession(cleanupSessionId, {
-              timeoutMs,
-              cleanupDeadline: cleanup.deadline
-            }),
-          100
-        );
+        const released = await cleanupLease.release({
+          terminal: executionTerminal.state,
+          cleanupDeadline: cleanup.deadline
+        });
+        cleanupFailures.push(...released.failures);
       } catch (error) {
         cleanupFailures.push(error);
       }
-    }
-    try {
-      if (connection) {
-        const cleanupConnection = connection;
-        await cleanup.run("connection disposal", (timeoutMs) =>
-          cleanupConnection.dispose({ timeoutMs, cleanupDeadline: cleanup.deadline })
-        );
-      }
-    } catch (error) {
-      cleanupFailures.push(error);
     }
     cleanupCompleted = cleanupFailures.length === 0;
     if (cleanupFailures.length > 0) {
@@ -615,7 +588,7 @@ async function executeAcpOutcome(
     result: {
       sessionId,
       output,
-      stderr: connection?.stderr.map(diagnostic) ?? [],
+      stderr: lease?.stderr.map(diagnostic) ?? [],
       capabilities,
       capabilitySnapshot,
       authentication,

@@ -3,12 +3,17 @@ import type { SessionNotification } from "@agentclientprotocol/sdk";
 import type { ResolvedAcpProfile } from "../acpProfile/resolver.js";
 import type { ResolvedAgentEnvironment } from "../process/agentProcessEnv.js";
 import { prepareExecutionHostInvocation } from "../process/wslExecutionHost.js";
-import {
-  createAcpConnection,
-  type AcpConnection,
-  type AcpDisposeOptions,
-  type CreateAcpConnectionOptions
+import type {
+  AcpConnection,
+  AcpDisposeOptions,
+  CreateAcpConnectionOptions
 } from "./acpConnection.js";
+import type {
+  AcpConnectionLease,
+  AcpConnectionProvider,
+  AcpOwnedSession
+} from "./acpConnectionProvider.js";
+import { createDedicatedAcpConnectionProvider } from "./acpDedicatedConnectionProvider.js";
 import {
   AcpAuthenticationRequiredError,
   coordinateAcpAuthentication,
@@ -38,7 +43,20 @@ import { redactAcpProtocolPayload, redactRunnerEventText } from "./runnerEventRe
 
 export type AcpConversationTurnConnection = Pick<
   AcpConnection,
-  "initialize" | "authenticate" | "loadSession" | "prompt" | "cancel"
+  | "initialize"
+  | "authenticate"
+  | "loadSession"
+  | "newSession"
+  | "prompt"
+  | "cancel"
+  | "closeSession"
+  | "setSessionMode"
+  | "setSessionConfigOption"
+  | "processId"
+  | "pendingOperationCount"
+  | "pendingOperations"
+  | "stderr"
+  | "closed"
 > & { dispose(options?: AcpDisposeOptions): Promise<void> };
 
 export type AcpConversationTurnConnectionOptions = Pick<
@@ -73,14 +91,13 @@ export type AcpConversationTurnInput = {
 };
 
 type TurnStateSubscriber = () => void | Promise<void>;
-type ConnectionFactory = (
-  options: AcpConversationTurnConnectionOptions
-) => AcpConversationTurnConnection;
+type ConnectionFactory = (options: CreateAcpConnectionOptions) => AcpConnection;
 type ActiveConversationTurn = {
   input: AcpConversationTurnInput;
   controller: AbortController;
   phase: AcpConversationTurnPhase;
-  connection: AcpConversationTurnConnection | null;
+  lease: AcpConnectionLease | null;
+  session: AcpOwnedSession | null;
   sessionLoaded: boolean;
   cancellationRequested: boolean;
   cancelPromise: Promise<void> | null;
@@ -172,10 +189,18 @@ export class AcpConversationTurnCoordinator {
   private readonly terminalLimit: number;
   private readonly terminalTtlMs: number;
 
+  private readonly provider: AcpConnectionProvider;
+
   constructor(
-    private readonly connect: ConnectionFactory = (options) => createAcpConnection(options),
-    options: { terminalLimit?: number; terminalTtlMs?: number } = {}
+    connect?: ConnectionFactory,
+    options: {
+      terminalLimit?: number;
+      terminalTtlMs?: number;
+      provider?: AcpConnectionProvider;
+    } = {}
   ) {
+    this.provider =
+      options.provider ?? createDedicatedAcpConnectionProvider(connect ? { connect } : {});
     this.terminalLimit = options.terminalLimit ?? DEFAULT_TERMINAL_TURN_LIMIT;
     this.terminalTtlMs = options.terminalTtlMs ?? DEFAULT_TERMINAL_TURN_TTL_MS;
     if (!Number.isSafeInteger(this.terminalLimit) || this.terminalLimit <= 0) {
@@ -290,7 +315,8 @@ export class AcpConversationTurnCoordinator {
       input,
       controller: new AbortController(),
       phase: "starting",
-      connection: null,
+      lease: null,
+      session: null,
       sessionLoaded: false,
       cancellationRequested: false,
       cancelPromise: null,
@@ -325,13 +351,10 @@ export class AcpConversationTurnCoordinator {
   }
 
   private async dispatchCancellation(turn: ActiveConversationTurn): Promise<void> {
-    if (turn.sessionLoaded && turn.connection) {
+    if (turn.sessionLoaded && turn.session) {
       const dispatchMs = Math.min(500, turn.input.profile.shutdown.cleanupDeadlineMs);
       try {
-        await turn.connection.cancel(
-          { sessionId: turn.input.identity.sessionId },
-          { timeoutMs: dispatchMs }
-        );
+        await turn.session.cancel({ timeoutMs: dispatchMs });
       } catch (error) {
         turn.cancellationDiagnostic = `ACP continuation cancel notification failed: ${diagnostic(error)}`;
       }
@@ -365,7 +388,7 @@ export class AcpConversationTurnCoordinator {
       signal
     );
     signal.throwIfAborted();
-    const connection = this.connect({
+    const lease = await this.provider.acquire({
       launch: { trusted: true, command: preparedLaunch.command, args: preparedLaunch.args },
       cwd: input.cwd,
       spawnCwd: preparedLaunch.spawnCwd ?? null,
@@ -396,14 +419,14 @@ export class AcpConversationTurnCoordinator {
       },
       defaultTimeoutMs: input.timeoutMs
     });
-    turn.connection = connection;
+    turn.lease = lease;
     let executionError: unknown;
     const secondaryErrors: unknown[] = [];
     const operationOptions = { signal };
     try {
       turn.phase = "initializing";
       await this.notify(input.key);
-      const initialized = await connection.initialize(operationOptions);
+      const initialized = await lease.initialize(operationOptions);
       gateAcpCapabilities(input.profile.capabilities, initialized, {
         sessionStart: "load",
         connectionMode: input.profile.connection.mode
@@ -411,7 +434,7 @@ export class AcpConversationTurnCoordinator {
       turn.phase = "authenticating";
       await this.notify(input.key);
       const authenticationOutcome = await coordinateAcpAuthentication({
-        connection,
+        connection: lease,
         initialized,
         hints: input.authenticationHints,
         availableEnvironmentVariables: new Set(input.environment.availableNames),
@@ -426,9 +449,9 @@ export class AcpConversationTurnCoordinator {
       turn.phase = "loading";
       await this.notify(input.key);
       try {
-        await connection.loadSession(
-          { sessionId: input.identity.sessionId, cwd: preparedLaunch.sessionCwd, mcpServers: [] },
-          operationOptions
+        turn.session = await lease.openSession(
+          { kind: "load", sessionId: input.identity.sessionId },
+          { ...operationOptions, cwd: preparedLaunch.sessionCwd }
         );
       } catch (error) {
         if (
@@ -439,6 +462,8 @@ export class AcpConversationTurnCoordinator {
         }
         throw error;
       }
+      const session = turn.session;
+      if (!session) throw new Error("ACP conversation turn opened a session without binding it.");
       turn.sessionLoaded = true;
       persistNotifications = true;
       const userContent = normalizedRedactedContent(input.text);
@@ -451,13 +476,7 @@ export class AcpConversationTurnCoordinator {
       });
       turn.phase = "prompting";
       await this.notify(input.key);
-      const response = await connection.prompt(
-        {
-          sessionId: input.identity.sessionId,
-          prompt: [{ type: "text", text: input.text }]
-        },
-        operationOptions
-      );
+      const response = await session.prompt([{ type: "text", text: input.text }], operationOptions);
       if (response.stopReason === "cancelled") {
         throw new Error("ACP agent cancelled the conversation turn.");
       }
@@ -493,9 +512,33 @@ export class AcpConversationTurnCoordinator {
         createAcpCleanupDeadline(input.profile.shutdown.cleanupDeadlineMs)
       );
       try {
-        await cleanup.run("conversation turn disposal", (timeoutMs) =>
-          connection.dispose({ timeoutMs, cleanupDeadline: cleanup.deadline })
-        );
+        const released = await lease.release({
+          terminal:
+            executionError === undefined
+              ? "succeeded"
+              : turn.cancellationRequested ||
+                  executionError instanceof AcpConversationTurnCancelledError
+                ? "cancelled"
+                : "failed",
+          cleanupDeadline: cleanup.deadline
+        });
+        if (released.failures.length > 0) {
+          const cleanupError =
+            released.failures.length === 1
+              ? released.failures[0]
+              : new AggregateError(released.failures, "ACP conversation turn cleanup failed.");
+          secondaryErrors.push(cleanupError);
+          try {
+            await append({
+              kind: "diagnostic",
+              code: "protocol_error",
+              message: `ACP conversation turn cleanup failed: ${diagnostic(cleanupError)}`
+            });
+            await eventStore.drain();
+          } catch (diagnosticError) {
+            secondaryErrors.push(diagnosticError);
+          }
+        }
       } catch (cleanupError) {
         secondaryErrors.push(cleanupError);
         try {
