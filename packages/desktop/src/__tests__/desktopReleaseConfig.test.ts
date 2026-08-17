@@ -626,6 +626,7 @@ process.exit(2);
     expect(workflow).toContain(
       '--testNamePattern="does not import a sentinel Windows credential named by WSLENV"'
     );
+    expect(workflow).toContain("PLANWEAVE_WSL_DIAGNOSTIC_DIR: reports/wsl-cancel");
     expect(workflow).toContain(
       'throw "Failed to install the Ubuntu WSL distribution: $(Get-WslFailureSummary $installUbuntu)"'
     );
@@ -641,8 +642,8 @@ process.exit(2);
     expect(occurrenceCount(workflow, "cache: pnpm")).toBe(8);
     expect(occurrenceCount(workflow, "pnpm install --frozen-lockfile")).toBe(8);
     expect(occurrenceCount(workflow, "node scripts/report-slowest-tests.mjs")).toBe(5);
-    expect(occurrenceCount(workflow, "node scripts/redact-ci-test-artifacts.mjs reports")).toBe(6);
-    expect(occurrenceCount(workflow, "actions/upload-artifact@v4")).toBe(6);
+    expect(occurrenceCount(workflow, "node scripts/redact-ci-test-artifacts.mjs reports")).toBe(7);
+    expect(occurrenceCount(workflow, "actions/upload-artifact@v4")).toBe(7);
     expect(workflow).toContain("if: failure() && steps.redact-packaged-smoke.outcome == 'success'");
     expect(desktopSmokeWorkflow).not.toContain("windows-latest");
     expect(desktopSmokeWorkflow).toContain("push:");

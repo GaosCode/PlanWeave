@@ -560,9 +560,28 @@ jobs:
         timeout-minutes: 10
         run: pnpm exec vitest run packages/runtime/src/__tests__/executorEnvironment.test.ts --config vitest.integration-core.config.ts --testNamePattern="does not import a sentinel Windows credential named by WSLENV"
 
+      - name: Create WSL diagnostic directory
+        run: node -e "require('node:fs').mkdirSync('reports/wsl-cancel',{recursive:true})"
+
       - name: Run WSL cancellation lifecycle integration test
         timeout-minutes: 10
+        env:
+          PLANWEAVE_WSL_DIAGNOSTIC_DIR: reports/wsl-cancel
         run: pnpm exec vitest run packages/runtime/src/__tests__/executorEnvironment.test.ts --config vitest.integration-core.config.ts --testNamePattern="cancels a WSL execution and finalizes executor lifecycle"
+
+      - name: Redact WSL diagnostics
+        id: redact-wsl
+        if: failure()
+        run: node scripts/redact-ci-test-artifacts.mjs reports
+
+      - name: Upload WSL diagnostics
+        if: failure() && steps.redact-wsl.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: wsl-cancel-diagnostics
+          path: reports
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Stop Ubuntu WSL
         if: always()

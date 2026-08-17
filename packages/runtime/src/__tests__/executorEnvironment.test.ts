@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import {
   ExecutorCancelledError,
   executorHeartbeatPath,
@@ -21,6 +21,67 @@ import { manifestTestBuilder } from "./manifestTestBuilder.js";
 const WSL_DISTRIBUTION = "Ubuntu";
 const WSL_LAUNCH_TIMEOUT_MS = 30_000;
 const WSL_LIFECYCLE_TIMEOUT_MS = 10_000;
+
+function logWslLifecycle(stage: string, extra: Record<string, unknown> = {}): void {
+  console.info(
+    JSON.stringify({
+      scope: "wsl-lifecycle-test",
+      stage,
+      at: new Date().toISOString(),
+      ...extra
+    })
+  );
+}
+
+function diagnosticErrorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function readOptionalText(path: string): Promise<string | null> {
+  try {
+    return await readFile(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+async function dumpWslLifecycleDiagnostics(input: {
+  runDir: string;
+  stdoutPath: string;
+}): Promise<void> {
+  const stderrPath = join(input.runDir, "stderr.log");
+  const heartbeatPath = executorHeartbeatPath(input.stdoutPath);
+  const files = [
+    ["heartbeat", heartbeatPath],
+    ["stdout", input.stdoutPath],
+    ["stderr", stderrPath]
+  ] as const;
+  for (const [name, path] of files) {
+    const content = await readOptionalText(path);
+    logWslLifecycle("dump", {
+      name,
+      path,
+      missing: content === null,
+      content: content ?? ""
+    });
+  }
+  const destDir = process.env.PLANWEAVE_WSL_DIAGNOSTIC_DIR?.trim();
+  if (!destDir) return;
+  await mkdir(destDir, { recursive: true });
+  for (const [name, path] of files) {
+    const content = await readOptionalText(path);
+    const dest = join(destDir, name === "heartbeat" ? "heartbeat.json" : `${name}.log`);
+    if (content === null) {
+      await writeFile(dest, "", "utf8");
+      continue;
+    }
+    try {
+      await copyFile(path, dest);
+    } catch {
+      await writeFile(dest, content, "utf8");
+    }
+  }
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -138,8 +199,17 @@ describe("executor environment", () => {
 
       const runDir = await mkdtemp(join(homedir(), ".planweave-wsl-lifecycle-"));
       const stdoutPath = join(runDir, "stdout.log");
+      const heartbeatPath = executorHeartbeatPath(stdoutPath);
       const abort = new AbortController();
       let running: ReturnType<typeof execWithStreaming> | undefined;
+      let dumped = false;
+      const dumpOnce = async (): Promise<void> => {
+        if (dumped) return;
+        dumped = true;
+        await dumpWslLifecycleDiagnostics({ runDir, stdoutPath });
+      };
+      onTestFinished(() => dumpOnce());
+      logWslLifecycle("start", { runDir, heartbeatPath });
 
       try {
         running = execWithStreaming({
@@ -155,19 +225,37 @@ describe("executor environment", () => {
           maxStderrBytes: 1024,
           signal: abort.signal
         });
+        logWslLifecycle("spawned");
 
         await waitForFileWhileRunning(
-          executorHeartbeatPath(stdoutPath),
+          heartbeatPath,
           "executor launch",
           running,
           WSL_LAUNCH_TIMEOUT_MS
         );
+        logWslLifecycle("heartbeat-ready", {
+          heartbeat: await readOptionalText(heartbeatPath)
+        });
         await sleep(2_000);
+        logWslLifecycle("pre-abort", {
+          heartbeat: await readOptionalText(heartbeatPath)
+        });
 
         abort.abort(new Error("test cancellation"));
-        await expect(running).rejects.toBeInstanceOf(ExecutorCancelledError);
+        logWslLifecycle("aborted");
+        const progress = setInterval(() => {
+          void readOptionalText(heartbeatPath).then((heartbeat) => {
+            logWslLifecycle("waiting-for-cancel", { heartbeat });
+          });
+        }, 10_000);
+        try {
+          await expect(running).rejects.toBeInstanceOf(ExecutorCancelledError);
+        } finally {
+          clearInterval(progress);
+        }
+        logWslLifecycle("cancelled");
         await expect(
-          readFile(executorHeartbeatPath(stdoutPath), "utf8").then(
+          readFile(heartbeatPath, "utf8").then(
             (content) => JSON.parse(content) as Record<string, unknown>
           )
         ).resolves.toMatchObject({
@@ -176,6 +264,10 @@ describe("executor environment", () => {
           finishedAt: expect.any(String),
           error: "Executor cancelled."
         });
+        logWslLifecycle("heartbeat-finalized");
+      } catch (error) {
+        logWslLifecycle("failed", { error: diagnosticErrorText(error) });
+        throw error;
       } finally {
         abort.abort();
         try {
@@ -185,6 +277,7 @@ describe("executor environment", () => {
             }
           });
         } finally {
+          await dumpOnce();
           await rm(runDir, { recursive: true, force: true });
         }
       }
