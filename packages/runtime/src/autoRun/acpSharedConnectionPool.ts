@@ -60,6 +60,7 @@ export type SharedAcpConnectionEntry = {
   idleThenDispose(): Promise<boolean>;
   disposeImmediate(): Promise<void>;
   poison(error: unknown, exceptLeaseId?: string): Promise<void>;
+  sessionCloseBudgetMs(): number;
 };
 
 export class SharedAcpConnectionPool {
@@ -305,6 +306,10 @@ class SharedAcpPoolEntry implements SharedAcpConnectionEntry {
     this.disposePromise ??= this.disposeTransport();
     this.cancelIdle();
     return this.disposePromise;
+  }
+
+  sessionCloseBudgetMs(): number {
+    return this.request.shutdown.eofDrainMs;
   }
 
   async poison(error: unknown, exceptLeaseId?: string): Promise<void> {

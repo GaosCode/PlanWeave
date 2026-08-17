@@ -166,7 +166,7 @@ export const probeInstalledAcpAgent: AcpPreflightProbe = async ({
           timeoutMs,
           cleanupDeadline: sequence.deadline
         }),
-      100
+      profile.shutdown.eofDrainMs
     );
   };
   try {

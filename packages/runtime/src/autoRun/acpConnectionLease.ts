@@ -9,6 +9,7 @@ import type {
   SetSessionConfigOptionResponse,
   SetSessionModeResponse
 } from "@agentclientprotocol/sdk";
+import type { AcpShutdownPolicy } from "../acpProfile/schema.js";
 import type { AcpConnection, AcpOperationOptions } from "./acpConnection.js";
 import { AcpCleanupSequencer } from "./acpExecutionCleanup.js";
 import type { LivePendingOperationHandle } from "./liveControl.js";
@@ -26,8 +27,6 @@ import {
   type AcpOwnedSessionOpenOptions,
   type AcpOwnedSessionStart
 } from "./acpConnectionProvider.js";
-
-const SESSION_CLOSE_STEP_LIMIT_MS = 100;
 
 class DedicatedAcpOwnedSession implements AcpOwnedSession {
   private readonly cancellations = new Map<string, Promise<void>>();
@@ -105,7 +104,8 @@ class DedicatedAcpConnectionLease implements AcpConnectionLease {
 
   constructor(
     readonly connection: AcpConnection,
-    private readonly sessionCwd: string
+    private readonly sessionCwd: string,
+    private readonly shutdown: AcpShutdownPolicy
   ) {
     this.closed = connection.closed;
   }
@@ -237,7 +237,7 @@ class DedicatedAcpConnectionLease implements AcpConnectionLease {
               timeoutMs,
               cleanupDeadline: parsed.cleanupDeadline
             }),
-          SESSION_CLOSE_STEP_LIMIT_MS
+          this.shutdown.eofDrainMs
         );
         closedSession = true;
       } catch {
@@ -260,7 +260,8 @@ class DedicatedAcpConnectionLease implements AcpConnectionLease {
 
 export function createDedicatedAcpConnectionLease(
   connection: AcpConnection,
-  sessionCwd: string
+  sessionCwd: string,
+  shutdown: AcpShutdownPolicy
 ): AcpConnectionLease {
-  return new DedicatedAcpConnectionLease(connection, sessionCwd);
+  return new DedicatedAcpConnectionLease(connection, sessionCwd, shutdown);
 }

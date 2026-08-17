@@ -161,9 +161,9 @@ describe("ACP profile schemas", () => {
 
   it("enforces bounded shutdown stages and a force-exit confirmation reserve", () => {
     expect(DEFAULT_ACP_SHUTDOWN_POLICY).toEqual({
-      eofDrainMs: 250,
-      terminateGraceMs: 500,
-      cleanupDeadlineMs: 1_500
+      eofDrainMs: 6_000,
+      terminateGraceMs: 3_000,
+      cleanupDeadlineMs: 9_250
     });
     expect(() =>
       acpShutdownPolicySchema.parse({

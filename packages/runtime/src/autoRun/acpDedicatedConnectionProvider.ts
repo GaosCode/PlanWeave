@@ -20,7 +20,9 @@ export function createDedicatedAcpConnectionProvider(
   const connect = options.connect ?? createAcpConnection;
   return {
     acquire(request: AcpConnectionAcquireRequest): Promise<AcpConnectionLease> {
-      return Promise.resolve(createDedicatedAcpConnectionLease(connect(request), request.cwd));
+      return Promise.resolve(
+        createDedicatedAcpConnectionLease(connect(request), request.cwd, request.shutdown)
+      );
     },
     shutdown(): Promise<void> {
       return Promise.resolve();

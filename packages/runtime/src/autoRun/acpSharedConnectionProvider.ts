@@ -38,7 +38,6 @@ import {
   type SharedAcpLeaseHandle
 } from "./acpSharedConnectionPool.js";
 
-const SESSION_CLOSE_STEP_LIMIT_MS = 100;
 const SESSION_CANCEL_STEP_LIMIT_MS = 100;
 
 export type SharedAcpConnectionProviderOptions = SharedAcpConnectionPoolOptions;
@@ -280,7 +279,7 @@ class SharedAcpConnectionLease implements AcpConnectionLease, SharedAcpLeaseHand
               timeoutMs,
               cleanupDeadline: parsed.cleanupDeadline
             }),
-          SESSION_CLOSE_STEP_LIMIT_MS
+          this.entry.sessionCloseBudgetMs()
         );
         closedSession = true;
       } catch (error) {

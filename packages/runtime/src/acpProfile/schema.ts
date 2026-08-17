@@ -10,6 +10,11 @@ const MAX_SHUTDOWN_STAGE_MS = 30_000;
 export const ACP_FORCE_EXIT_CONFIRM_MS = 250;
 const MAX_CLEANUP_DEADLINE_MS = 120_000;
 
+/** `@deepseek-ai/dsh-subagent-acp` `DEFAULT_DISPOSE_EOF_GRACE_MS`. */
+export const ACP_EOF_DRAIN_MS = 6_000;
+/** `@deepseek-ai/dsh-subagent-acp` `DEFAULT_DISPOSE_GRACE_MS`. */
+export const ACP_TERMINATE_GRACE_MS = 3_000;
+
 const uniqueBy = <T>(values: readonly T[], key: (value: T) => string): boolean =>
   new Set(values.map(key)).size === values.length;
 
@@ -102,9 +107,9 @@ export type AcpShutdownPolicy = z.infer<typeof acpShutdownPolicySchema>;
 
 export const DEFAULT_ACP_SHUTDOWN_POLICY: AcpShutdownPolicy = Object.freeze(
   acpShutdownPolicySchema.parse({
-    eofDrainMs: 250,
-    terminateGraceMs: 500,
-    cleanupDeadlineMs: 1_500
+    eofDrainMs: ACP_EOF_DRAIN_MS,
+    terminateGraceMs: ACP_TERMINATE_GRACE_MS,
+    cleanupDeadlineMs: ACP_EOF_DRAIN_MS + ACP_TERMINATE_GRACE_MS + ACP_FORCE_EXIT_CONFIRM_MS
   })
 );
 
