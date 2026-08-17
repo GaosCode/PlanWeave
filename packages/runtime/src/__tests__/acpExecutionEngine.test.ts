@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
+import type { SessionNotification } from "@agentclientprotocol/sdk";
 import { createAcpConnection, type AcpConnection } from "../autoRun/acpConnection.js";
 import { executeAcp } from "../autoRun/acpExecutionEngine.js";
 import type { AcpEngineEvent, ExecuteAcpOptions } from "../autoRun/acpExecutionEngineContracts.js";
@@ -485,6 +486,70 @@ describe("storage-neutral ACP execution engine", () => {
       reason: "incomplete_response",
       message: "ACP execution ended without a complete response."
     });
+  });
+
+  it("includes assistant chunks that are still draining when prompt returns", async () => {
+    const sessionId = "late-chunk-session";
+    const chunks = [
+      'PLANWEAVE_FINAL_ARTIFACT {"version":"planweave.runner-artifact/v1","artifact":{',
+      '"kind":"implementation","ref":"T-001#B-001","taskId":"T-001","reportMarkdown":"',
+      "nothing was committed or pushed",
+      ".",
+      " None",
+      '."}}'
+    ];
+    let completedOutput = "";
+    const connection = {
+      processId: 1,
+      pendingOperationCount: 0,
+      pendingOperations: new Map(),
+      stderr: [],
+      closed: Promise.resolve(),
+      initialize: vi.fn(async () => ({
+        protocolVersion: 1,
+        agentCapabilities: {},
+        agentInfo: { name: "late-chunks", version: "1" }
+      })),
+      authenticate: vi.fn(async () => ({})),
+      newSession: vi.fn(async () => ({ sessionId })),
+      loadSession: vi.fn(async () => ({})),
+      prompt: vi.fn(async () => ({ stopReason: "end_turn" as const })),
+      cancel: vi.fn(async () => undefined),
+      closeSession: vi.fn(async () => ({})),
+      setSessionMode: vi.fn(async () => ({})),
+      setSessionConfigOption: vi.fn(async () => ({ configOptions: [] })),
+      dispose: vi.fn(async () => undefined)
+    } satisfies AcpConnection;
+
+    const result = await executeAcp(
+      engineOptions("success", {
+        connect: (options) => {
+          connection.prompt = vi.fn(async () => {
+            for (const text of chunks) {
+              void options.onSessionUpdate?.({
+                sessionId,
+                update: {
+                  sessionUpdate: "agent_message_chunk",
+                  content: { type: "text", text }
+                }
+              } satisfies SessionNotification);
+            }
+            return { stopReason: "end_turn" as const };
+          });
+          return connection;
+        },
+        eventSink: async () => {
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        },
+        lifecycleObserver: (event) => {
+          if (event.kind === "prompts_completed") completedOutput = event.output;
+        }
+      })
+    );
+
+    expect(result.terminal.state).toBe("succeeded");
+    expect(completedOutput).toBe(chunks.join(""));
+    expect(result.output).toBe(chunks.join(""));
   });
 
   it("keeps raw text output separate from redacted and non-text event content", async () => {

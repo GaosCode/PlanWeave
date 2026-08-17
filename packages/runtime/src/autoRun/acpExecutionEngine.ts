@@ -273,6 +273,11 @@ async function executeAcpOutcome(
     return queueSessionUpdate(notification);
   };
 
+  const drainSessionUpdates = async (): Promise<void> => {
+    await sessionUpdateDrain;
+    if (sessionUpdateFailure !== undefined) throw sessionUpdateFailure;
+  };
+
   const interactionHandlers = createAcpExecutionInteractionHandlers({
     broker: options.interactionBroker,
     deadline: options.interactionDeadline,
@@ -450,7 +455,7 @@ async function executeAcpOutcome(
         signal: abortController.signal,
         timeoutMs: limits.operationTimeoutMs
       });
-      if (sessionUpdateFailure !== undefined) throw sessionUpdateFailure;
+      await drainSessionUpdates();
       if (response.usage) {
         usage = {
           totalTokens: response.usage.totalTokens,
@@ -472,6 +477,7 @@ async function executeAcpOutcome(
       if (response.stopReason === "cancelled" || abortController.signal.aborted) break;
     }
     if (!response) throw new Error("ACP prompt source did not produce an initial prompt.");
+    await drainSessionUpdates();
     await observeLifecycle({ kind: "prompts_completed", sessionId, turns: turn, output });
     terminal =
       response.stopReason === "cancelled" || abortController.signal.aborted
