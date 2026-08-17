@@ -240,8 +240,9 @@ class DedicatedAcpConnectionLease implements AcpConnectionLease {
           SESSION_CLOSE_STEP_LIMIT_MS
         );
         closedSession = true;
-      } catch (error) {
-        failures.push(error);
+      } catch {
+        // Dedicated close is best-effort. The process is about to be disposed,
+        // so a slow session/close must not fail a successful execution.
       }
     }
     let disposed = false;

@@ -444,8 +444,8 @@ describe("storage-neutral ACP execution engine", () => {
         }
       })
     );
-    expect(cleanup.terminal).toMatchObject({ state: "failed", reason: "cleanup_failed" });
-    expect(cleanup.cleanup).toEqual({ attempted: true, completed: false });
+    expect(cleanup.terminal).toMatchObject({ state: "succeeded", stopReason: "end_turn" });
+    expect(cleanup.cleanup).toEqual({ attempted: true, completed: true });
     expect(cleanupConnection).toBeDefined();
     if (!cleanupConnection) throw new Error("ACP cleanup test did not create a connection.");
     await expect(cleanupConnection.closed).resolves.toBeUndefined();
