@@ -62,9 +62,6 @@ export async function createDistributedServerComposition(
   options: DistributedServerCompositionOptions
 ): Promise<DistributedServerComposition> {
   const config = serverConfigSchema.parse(options.config);
-  if (config.trustedProjects.length === 0 && !options.ownerTrustedProjects?.length) {
-    throw new Error("server_runtime_project_required");
-  }
   const transportAdmission = createTransportAdmissionPolicy(config);
   const clock = options.clock ?? (() => new Date());
   const readiness = options.readiness ?? new ServerReadinessController();

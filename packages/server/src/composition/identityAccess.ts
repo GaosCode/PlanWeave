@@ -262,15 +262,17 @@ export function createIdentityServices(input: {
     input.config.operatorCredentials,
     input.clock
   );
+  const serverAdminAnchorWorkspaceId =
+    input.runtimeRegistry.expansions[0]?.workspaceId ??
+    input.ownerRuntimeRegistry.expansions[0]?.workspaceId ??
+    input.workspaceIdentity.ensureConfiguredWorkspace("workspace-self-host");
   provisionConfiguredOperatorSessions({
     database: input.database,
     credentials: input.config.operatorCredentials,
     trustedProjectIds: [
       ...new Set(input.runtimeRegistry.expansions.map((canvas) => canvas.projectId))
     ],
-    serverAdminAnchorWorkspaceId:
-      input.runtimeRegistry.expansions[0]?.workspaceId ??
-      input.ownerRuntimeRegistry.expansions[0]?.workspaceId,
+    serverAdminAnchorWorkspaceId,
     workspaceForProject: (projectId) => {
       const scopes = input.runtimeRegistry.expansions.filter(
         (expansion) => expansion.projectId === projectId

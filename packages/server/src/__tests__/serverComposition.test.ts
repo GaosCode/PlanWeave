@@ -48,6 +48,52 @@ async function setup() {
 }
 
 describe("distributed server composition", () => {
+  it("starts a collaboration Server before any trusted project is configured", async () => {
+    const workspace = await createTestWorkspace(remoteManifest());
+    directories.push(workspace.home, workspace.root);
+    const httpServer = createServer();
+    httpServers.push(httpServer);
+    const config = parseServerConfig({
+      version: "server-config/v1",
+      bind: { host: "127.0.0.1", port: 7_443 },
+      publicUrl: "http://127.0.0.1:7443",
+      allowInsecureDevelopment: true,
+      dataDirectory: join(workspace.root, "empty-collaboration-server-data"),
+      trustedProjects: [],
+      operatorCredentials: [
+        {
+          operatorId: "admin",
+          tokenSha256: hashOperatorToken(adminToken),
+          projectIds: [],
+          serverAdmin: true
+        }
+      ]
+    });
+    const composition = await createDistributedServerComposition({ httpServer, config });
+    compositions.push(composition);
+    await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
+    const address = httpServer.address();
+    if (!address || typeof address === "string") throw new Error("Expected HTTP address");
+
+    expect(composition.trustedProjectControl.listTrustedProjectScopes()).toEqual([]);
+    const origin = `http://127.0.0.1:${address.port}`;
+    const readiness = await fetch(`${origin}/readyz`);
+    expect(readiness.status).toBe(200);
+    const issued = await fetch(`${origin}/api/v1/setup-codes`, {
+      method: "POST",
+      headers: jsonHeaders(adminToken),
+      body: JSON.stringify({
+        schemaVersion: "workspace-setup/v1",
+        purpose: "device_session"
+      })
+    });
+    expect(issued.status).toBe(201);
+    await expect(issued.json()).resolves.toMatchObject({
+      grant: { workspaceId: "workspace-self-host", purpose: "device_session" },
+      displayOnce: true
+    });
+  });
+
   it("exposes active trusted project scopes with WorkspaceIdentity-derived workspace IDs", async () => {
     const fixture = await setup();
     const scopes = fixture.composition.trustedProjectControl.listTrustedProjectScopes();
