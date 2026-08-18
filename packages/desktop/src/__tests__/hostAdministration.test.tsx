@@ -6,6 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTranslator } from "../renderer/i18n";
 import { HostAdministrationSection } from "../renderer/settings/HostAdministrationSection";
+import { HostMemberSetupCard } from "../renderer/settings/HostMemberSetupCard";
 import { SettingsConnectionsSection } from "../renderer/settings/SettingsConnectionsSection";
 import { LocalAgentHostCard } from "../renderer/settings/LocalAgentHostCard";
 
@@ -104,6 +105,22 @@ function deferred<T>() {
 }
 
 beforeEach(() => {
+  Object.defineProperty(window.HTMLElement.prototype, "hasPointerCapture", {
+    configurable: true,
+    value: vi.fn(() => false)
+  });
+  Object.defineProperty(window.HTMLElement.prototype, "setPointerCapture", {
+    configurable: true,
+    value: vi.fn()
+  });
+  Object.defineProperty(window.HTMLElement.prototype, "releasePointerCapture", {
+    configurable: true,
+    value: vi.fn()
+  });
+  Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", {
+    configurable: true,
+    value: vi.fn()
+  });
   bridgeMock.getOperatorControlStatus.mockResolvedValue(status());
   bridgeMock.listOperatorHosts.mockResolvedValue({ items: [host], nextCursor: null });
   bridgeMock.copyOperatorHostBootstrapHandoff.mockResolvedValue({
@@ -267,6 +284,47 @@ describe("Agent Host settings", () => {
     expect(screen.getByTestId("host-admin-local-handoff")).toBeInTheDocument();
   });
 
+  it("copies Server connection details to the clipboard without showing the blob", async () => {
+    const user = userEvent.setup();
+    const copyMemberSetupCode = vi.fn().mockResolvedValue({
+      state: "ready",
+      workspaceId: "workspace-a",
+      expiresAt: "2030-01-01T01:00:00.000Z",
+      copiedAt: "2030-01-01T00:00:00.000Z"
+    });
+    const dismissMemberSetupCodeHandoff = vi.fn();
+    const { rerender } = render(
+      <HostMemberSetupCard
+        activeProfile={status().profiles[0]}
+        busy={false}
+        copyMemberSetupCode={copyMemberSetupCode}
+        dismissMemberSetupCodeHandoff={dismissMemberSetupCodeHandoff}
+        memberSetupCodeHandoff={null}
+        t={createTranslator("en")}
+      />
+    );
+
+    await user.click(screen.getByTestId("host-admin-copy-member-setup"));
+    expect(copyMemberSetupCode).toHaveBeenCalled();
+    rerender(
+      <HostMemberSetupCard
+        activeProfile={status().profiles[0]}
+        busy={false}
+        copyMemberSetupCode={copyMemberSetupCode}
+        dismissMemberSetupCodeHandoff={dismissMemberSetupCodeHandoff}
+        memberSetupCodeHandoff={{
+          state: "ready",
+          workspaceId: "workspace-a",
+          expiresAt: "2030-01-01T01:00:00.000Z",
+          copiedAt: "2030-01-01T00:00:00.000Z"
+        }}
+        t={createTranslator("en")}
+      />
+    );
+    expect(screen.getByTestId("host-admin-member-setup-copied")).toBeInTheDocument();
+    expect(screen.queryByText(/planweave-server-setup|pw_setup_/i)).not.toBeInTheDocument();
+  });
+
   it("allows direct registration to an external profile while the local Server is running", () => {
     render(
       <LocalAgentHostCard
@@ -364,11 +422,15 @@ describe("Agent Host settings", () => {
   });
 
   it("shows only user-facing device and agent information", async () => {
+    const user = userEvent.setup();
     const { container } = render(<HostAdministrationSection t={createTranslator("en")} />);
 
     expect(await screen.findByTestId("host-administration")).toBeInTheDocument();
     expect(screen.getByTestId("deployment-connection")).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: /Private network HTTPS/ })).toBeInTheDocument();
+    await user.click(screen.getByTestId("deployment-topology"));
+    expect(
+      await screen.findByRole("option", { name: /Private network HTTPS/ })
+    ).toBeInTheDocument();
     expect(container.querySelector('[data-slot="card"]')).not.toBeInTheDocument();
     expect(await screen.findByTestId("host-availability-status-host-1")).toHaveTextContent(
       "Offline"

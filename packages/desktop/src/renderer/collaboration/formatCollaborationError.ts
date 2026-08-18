@@ -2,13 +2,28 @@ import type { CollaborationBoundaryErrorView } from "../../shared/collaborationR
 import type { createTranslator } from "../i18n";
 import {
   formatCollaborationBoundaryError,
-  formatUnknownCollaborationError
+  formatUnknownCollaborationError,
+  stripElectronRemoteInvokeMessage
 } from "./peopleViewModels.js";
 
+const collaborationErrorCodePattern = /^[A-Za-z0-9_.-]{1,96}$/;
+
 export function collaborationErrorCode(error: unknown): string | null {
-  if (!error || typeof error !== "object" || !("code" in error)) return null;
-  const code = (error as { code?: unknown }).code;
-  return typeof code === "string" && code.trim() ? code.trim() : null;
+  if (error && typeof error === "object" && "code" in error) {
+    const code = (error as { code?: unknown }).code;
+    if (typeof code === "string" && code.trim()) return code.trim();
+  }
+  const raw =
+    error instanceof Error
+      ? error.message
+      : error && typeof error === "object" && "message" in error
+        ? String((error as { message?: unknown }).message ?? "")
+        : "";
+  if (!raw.trim()) return null;
+  const stripped = stripElectronRemoteInvokeMessage(raw).trim();
+  const named = stripped.match(/^(?:[\w.]+Error:\s*)*([A-Za-z0-9_.-]{1,96})$/);
+  const candidate = named?.[1] ?? stripped;
+  return collaborationErrorCodePattern.test(candidate) ? candidate : null;
 }
 
 export function logCollaborationRendererError(scope: string, error: unknown): void {

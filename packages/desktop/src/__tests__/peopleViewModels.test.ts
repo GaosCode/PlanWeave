@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HumanMembershipView } from "@planweave-ai/collaboration-protocol/identity/workspace";
+import { collaborationErrorCode } from "../renderer/collaboration/formatCollaborationError";
 import {
   buildPeopleHostRows,
   buildPeopleMemberRows,
@@ -234,5 +235,12 @@ describe("peopleViewModels", () => {
         )
       )
     ).toBe("Network request failed.");
+    expect(
+      collaborationErrorCode(
+        new Error(
+          "Error invoking remote method 'planweave-collaboration:connectExistingServerByOrigin': CollaborationClientError: existing_server_admission_required"
+        )
+      )
+    ).toBe("existing_server_admission_required");
   });
 });

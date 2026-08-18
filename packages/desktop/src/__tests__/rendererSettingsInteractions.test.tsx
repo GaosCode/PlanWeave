@@ -179,6 +179,11 @@ function stubLayoutApis() {
   });
 }
 
+async function chooseSelectOption(testId: string, optionName: string) {
+  await userEvent.click(screen.getByTestId(testId));
+  await userEvent.click(await screen.findByRole("option", { name: optionName }));
+}
+
 function stubLocalStorage() {
   const values = new Map<string, string>();
   const storage: Storage = {
@@ -356,17 +361,54 @@ describe("desktop renderer settings interactions", () => {
     expect(settingsViewport).not.toBeNull();
     requestAnimationFrameSpy.mockClear();
     if (settingsViewport) settingsViewport.scrollTop = 240;
-    await userEvent.click(screen.getByTestId("settings-connections-tab-advanced"));
+    await userEvent.click(screen.getByTestId("settings-connections-tab-server"));
     expect(settingsViewport?.scrollTop).toBe(0);
     expect(requestAnimationFrameSpy).not.toHaveBeenCalled();
     expect(await screen.findByTestId("settings-server-section")).toBeVisible();
+    expect(screen.getByTestId("settings-server-lifecycle-block")).toBeVisible();
+    expect(screen.getByText("Server status")).toBeVisible();
+    expect(screen.getByLabelText("Location")).toBeVisible();
+    expect(screen.getByLabelText("Access method")).toBeVisible();
+    expect(screen.getByTestId("local-server-lifecycle-status")).toHaveTextContent("Not connected");
+    await chooseSelectOption("deployment-kind", "Existing Server");
+    expect(screen.getByTestId("settings-server-lifecycle-block")).toBeVisible();
+    expect(screen.getByText("Server status")).toBeVisible();
+    expect(screen.getByTestId("local-server-lifecycle-status")).toHaveTextContent("Not connected");
+    expect(screen.queryByTestId("local-server-lifecycle-start")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("people-workspace-connection-status")).not.toBeInTheDocument();
+    expect(screen.getByTestId("deployment-origin")).toBeVisible();
+    expect(screen.getByTestId("deployment-origin-connect")).toHaveTextContent("Connect");
+    expect(screen.getByTestId("people-connect-handoff-fallback")).toBeVisible();
+    expect(screen.queryByTestId("settings-server-existing-connect")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("people-connect-setup-details")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("people-invite-trust-note")).not.toBeInTheDocument();
+    expect(screen.getByTestId("deployment-existing-connect-hint")).toBeVisible();
+    expect(screen.getByTestId("deployment-existing-tools")).toBeVisible();
+    expect(screen.getByTestId("deployment-export-package")).toHaveTextContent("Deploy tools");
+    expect(screen.getByTestId("deployment-check-connectivity")).toHaveTextContent(
+      "Check connectivity"
+    );
+    expect(screen.queryByTestId("deployment-display-name")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Redeem setup code" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Server" })).not.toBeInTheDocument();
     await waitFor(() => expect(settingsViewport?.scrollTop).toBe(0));
     expect(screen.getByTestId("settings-server-connection-block")).toBeVisible();
     expect(
       screen
         .getByTestId("settings-server-connection-block")
         .querySelector("[data-slot='field-group']")
-    ).toBeNull();
+    ).not.toBeNull();
+    expect(screen.getByTestId("local-server-lifecycle")).not.toHaveClass(
+      "rounded-md",
+      "border",
+      "bg-surface-raised",
+      "shadow-sm"
+    );
+    expect(
+      screen
+        .getByTestId("settings-server-connection-block")
+        .querySelector("[data-slot='field-group']")
+    ).not.toHaveClass("rounded-md", "border", "bg-surface-raised", "shadow-sm");
     expect(screen.getByTestId("deployment-connection")).not.toHaveClass(
       "rounded-md",
       "border",

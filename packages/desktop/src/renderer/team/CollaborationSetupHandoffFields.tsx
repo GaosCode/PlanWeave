@@ -1,4 +1,4 @@
-import type { RefObject } from "react";
+import type { ReactNode, RefObject } from "react";
 import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,8 @@ type CollaborationSetupHandoffFieldsProps = {
   onManualOpenChange: (open: boolean) => void;
   onServerBaseUrlChange: (value: string) => void;
   onAllowInsecureTransportChange: (allow: boolean) => void;
+  /** Primary action immediately after the paste field. */
+  action?: ReactNode;
 };
 
 /** Complete setup handoff first; protocol fields remain available as a recovery path. */
@@ -34,7 +36,8 @@ export function CollaborationSetupHandoffFields({
   onDisplayNameChange,
   onManualOpenChange,
   onServerBaseUrlChange,
-  onAllowInsecureTransportChange
+  onAllowInsecureTransportChange,
+  action
 }: CollaborationSetupHandoffFieldsProps) {
   return (
     <div className="flex flex-col gap-4">
@@ -44,13 +47,15 @@ export function CollaborationSetupHandoffFields({
           id={`${formId}-setup-details`}
           data-testid="people-connect-setup-details"
           ref={handoffInputRef}
-          className="min-h-28 resize-y font-mono text-xs"
+          className="min-h-36 resize-y font-mono text-xs"
           placeholder={t("peopleSetupDetailsPlaceholder")}
           autoComplete="off"
           spellCheck={false}
         />
         <p className="text-xs leading-5 text-muted-foreground">{t("peopleSetupDetailsHint")}</p>
       </div>
+
+      {action}
 
       <Button
         type="button"

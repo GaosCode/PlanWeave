@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import { ChevronDownIcon, ChevronRightIcon, ServerIcon } from "lucide-react";
 import { parseCollaborationSetupHandoffV1 } from "@planweave-ai/collaboration-protocol/handoff/setup";
 import {
@@ -49,6 +49,21 @@ export type CollaborationConnectFormProps = {
   /** Clipboard boundary supplied by the containing desktop view. */
   copyText?: (text: string) => Promise<void>;
   diagnosticsEnabled?: boolean;
+  /** Rendered after the current-connection summary, before the paste editor. */
+  afterSummary?: ReactNode;
+  /** Override the setup-mode submit label, e.g. Settings "Connect". */
+  submitLabel?: string;
+  /** Hide the protocol-oriented setup-code trust note on product surfaces. */
+  showSetupTrustNote?: boolean;
+  connectionSummaryLabel?: string;
+  connectionSummaryHint?: string;
+  showWorkspacePicker?: boolean;
+  /** Place the setup submit control under the paste field. */
+  setupSubmitAfterPaste?: boolean;
+  /** Hide the paste editor until the user asks for a blob from another device. */
+  handoffAsFallback?: boolean;
+  submitAlign?: "start" | "end";
+  submitSize?: "sm" | "default";
 };
 
 export type ConnectMode = "setup" | "join" | "bootstrap" | "connect";
@@ -99,7 +114,17 @@ export function CollaborationConnectForm({
   showHeader = true,
   showConnectionSummary = true,
   copyText,
-  diagnosticsEnabled = false
+  diagnosticsEnabled = false,
+  afterSummary,
+  submitLabel: submitLabelOverride,
+  showSetupTrustNote = true,
+  connectionSummaryLabel,
+  connectionSummaryHint,
+  showWorkspacePicker = true,
+  setupSubmitAfterPaste = false,
+  handoffAsFallback = false,
+  submitAlign = "end",
+  submitSize = "sm"
 }: CollaborationConnectFormProps) {
   const formId = useId();
   const initialSelectedMode = fixedMode ?? (workspaceConnectionOnly ? "join" : initialMode);
@@ -117,6 +142,7 @@ export function CollaborationConnectForm({
     !fixedMode && initialSelectedMode === "join"
   );
   const [manualSetupOpen, setManualSetupOpen] = useState(false);
+  const [handoffFallbackOpen, setHandoffFallbackOpen] = useState(!handoffAsFallback);
   const setupHandoffInputRef = useRef<HTMLTextAreaElement>(null);
   const setupCodeInputRef = useRef<HTMLInputElement>(null);
   const [allowInsecureTransport, setAllowInsecureTransport] = useState(false);
@@ -151,13 +177,14 @@ export function CollaborationConnectForm({
     status && diagnosticsEnabled ? buildCollaborationDiagnosticReport(status) : null;
   const existingServerBaseUrl = activeProfile?.serverBaseUrl ?? "";
   const submitLabel =
-    mode === "setup"
+    submitLabelOverride ??
+    (mode === "setup"
       ? t("peopleConnectSetupSubmit")
       : mode === "join"
         ? t("peopleConnectJoinSubmit")
         : mode === "bootstrap"
           ? t("peopleConnectBootstrapSubmit")
-          : t("peopleConnectExistingSubmit");
+          : t("peopleConnectExistingSubmit"));
 
   const submit = async () => {
     if (!api || busy) return;
@@ -428,6 +455,27 @@ export function CollaborationConnectForm({
     }
   };
 
+  const submitControls = (
+    <div
+      className={submitAlign === "start" ? "flex justify-start gap-2" : "flex justify-end gap-2"}
+    >
+      {onRequestClose ? (
+        <Button type="button" size={submitSize} variant="ghost" onClick={onRequestClose}>
+          {t("peopleClose")}
+        </Button>
+      ) : null}
+      <Button
+        type="button"
+        size={submitSize}
+        disabled={busy || !api}
+        data-testid="people-connect-submit"
+        onClick={() => void submit()}
+      >
+        {busy ? t("peopleWorking") : submitLabel}
+      </Button>
+    </div>
+  );
+
   return (
     <section
       className="max-w-4xl"
@@ -455,100 +503,111 @@ export function CollaborationConnectForm({
       ) : null}
       <div className={`flex flex-col gap-6 ${showHeader ? "" : "pt-0"}`}>
         {showConnectionSummary ? (
-          <div
-            className="flex flex-col gap-3 rounded-xl bg-surface-subtle px-4 py-4 text-sm sm:flex-row sm:items-center sm:justify-between"
-            data-testid="people-workspace-connection-status"
-            data-status={workspaceConnection?.status ?? "local_only"}
-            role="status"
-          >
-            <div className="flex min-w-0 items-start gap-3">
-              <span
-                aria-hidden="true"
-                className={`mt-1.5 size-2 shrink-0 rounded-full ${
-                  workspaceConnection?.status === "connected"
-                    ? "bg-emerald-500"
-                    : workspaceConnection?.status === "error"
-                      ? "bg-destructive"
-                      : "bg-muted-foreground/50"
-                }`}
-              />
-              <div className="min-w-0">
-                <div
-                  className="font-semibold text-text-strong"
-                  data-testid="people-workspace-current-name"
-                >
-                  {workspaceConnection?.workspaceDisplayName ?? t("peopleWorkspaceIdentityMissing")}
-                </div>
-                <div
-                  className="mt-0.5 truncate text-sm text-text-muted"
-                  data-testid="people-workspace-identity-status"
-                >
-                  {workspaceIdentityStatusLabel(workspaceConnection, t)}
-                </div>
-                {workspaceServerBaseUrl ? (
-                  <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                    {workspaceServerBaseUrl}
-                  </div>
-                ) : null}
-                {workspaceConnection?.status === "error" && workspaceConnection.error ? (
+          <div className="flex flex-col gap-2">
+            {connectionSummaryLabel ? (
+              <h3 className="text-sm font-semibold text-text-strong">{connectionSummaryLabel}</h3>
+            ) : null}
+            <div
+              className="flex flex-col gap-3 rounded-xl bg-surface-subtle px-4 py-4 text-sm sm:flex-row sm:items-center sm:justify-between"
+              data-testid="people-workspace-connection-status"
+              data-status={workspaceConnection?.status ?? "local_only"}
+              role="status"
+            >
+              <div className="flex min-w-0 items-start gap-3">
+                <span
+                  aria-hidden="true"
+                  className={`mt-1.5 size-2 shrink-0 rounded-full ${
+                    workspaceConnection?.status === "connected"
+                      ? "bg-emerald-500"
+                      : workspaceConnection?.status === "error"
+                        ? "bg-destructive"
+                        : "bg-muted-foreground/50"
+                  }`}
+                />
+                <div className="min-w-0">
                   <div
-                    className="mt-1 text-xs text-destructive"
-                    data-testid="people-workspace-connection-error"
+                    className="font-semibold text-text-strong"
+                    data-testid="people-workspace-current-name"
                   >
-                    {workspaceConnection.error.message ?? workspaceConnection.error.code}
+                    {workspaceConnection?.workspaceDisplayName ??
+                      t("peopleWorkspaceIdentityMissing")}
                   </div>
+                  <div
+                    className="mt-0.5 truncate text-sm text-text-muted"
+                    data-testid="people-workspace-identity-status"
+                  >
+                    {workspaceIdentityStatusLabel(workspaceConnection, t)}
+                  </div>
+                  {workspaceServerBaseUrl ? (
+                    <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                      {workspaceServerBaseUrl}
+                    </div>
+                  ) : null}
+                  {workspaceConnection?.status === "error" && workspaceConnection.error ? (
+                    <div
+                      className="mt-1 text-xs text-destructive"
+                      data-testid="people-workspace-connection-error"
+                    >
+                      {workspaceConnection.error.message ?? workspaceConnection.error.code}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+              <div className="flex shrink-0 flex-wrap gap-2">
+                {!workspaceCredentialMissing &&
+                (workspaceConnection?.status === "disconnected" ||
+                  (workspaceConnection?.status === "error" &&
+                    workspaceConnection.error?.retryable)) ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    data-testid="people-workspace-retry"
+                    disabled={busy || !api}
+                    onClick={() => void retryWorkspace()}
+                  >
+                    {t("peopleWorkspaceIdentityRetry")}
+                  </Button>
+                ) : null}
+                {localOwnerCredentialMissing ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    data-testid="people-workspace-restore-local-owner"
+                    disabled={
+                      busy ||
+                      !api ||
+                      typeof api.registerLocalCollaborationCurrentProject !== "function"
+                    }
+                    onClick={() => void restoreLocalOwner()}
+                  >
+                    {t("peopleWorkspaceRestoreLocalOwner")}
+                  </Button>
+                ) : null}
+                {workspaceConnected && !fixedMode ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    data-testid="people-workspace-change-connection"
+                    disabled={busy || !api}
+                    onClick={toggleConnectionEditor}
+                  >
+                    {connectionEditorOpen
+                      ? t("peopleWorkspaceCancelSwitch")
+                      : t("peopleWorkspaceSwitch")}
+                  </Button>
                 ) : null}
               </div>
             </div>
-            <div className="flex shrink-0 flex-wrap gap-2">
-              {!workspaceCredentialMissing &&
-              (workspaceConnection?.status === "disconnected" ||
-                (workspaceConnection?.status === "error" &&
-                  workspaceConnection.error?.retryable)) ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  data-testid="people-workspace-retry"
-                  disabled={busy || !api}
-                  onClick={() => void retryWorkspace()}
-                >
-                  {t("peopleWorkspaceIdentityRetry")}
-                </Button>
-              ) : null}
-              {localOwnerCredentialMissing ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  data-testid="people-workspace-restore-local-owner"
-                  disabled={
-                    busy ||
-                    !api ||
-                    typeof api.registerLocalCollaborationCurrentProject !== "function"
-                  }
-                  onClick={() => void restoreLocalOwner()}
-                >
-                  {t("peopleWorkspaceRestoreLocalOwner")}
-                </Button>
-              ) : null}
-              {workspaceConnected && !fixedMode ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  data-testid="people-workspace-change-connection"
-                  disabled={busy || !api}
-                  onClick={toggleConnectionEditor}
-                >
-                  {connectionEditorOpen
-                    ? t("peopleWorkspaceCancelSwitch")
-                    : t("peopleWorkspaceSwitch")}
-                </Button>
-              ) : null}
-            </div>
+            {connectionSummaryHint ? (
+              <p className="text-xs leading-5 text-text-muted">{connectionSummaryHint}</p>
+            ) : null}
           </div>
         ) : null}
+
+        {afterSummary}
 
         {workspaceCredentialMissing ? (
           <p
@@ -567,7 +626,7 @@ export function CollaborationConnectForm({
 
         {showConnectionEditor ? (
           <>
-            {showConnectionSummary && workspacePickerItems.length > 0 ? (
+            {showConnectionSummary && showWorkspacePicker && workspacePickerItems.length > 0 ? (
               <div
                 className="flex flex-col"
                 data-testid="people-workspace-picker"
@@ -601,7 +660,7 @@ export function CollaborationConnectForm({
               </div>
             ) : null}
 
-            {mode === "setup" || mode === "join" ? (
+            {(mode === "setup" && showSetupTrustNote) || mode === "join" ? (
               <p className="text-xs text-muted-foreground" data-testid="people-invite-trust-note">
                 {mode === "setup"
                   ? t("peopleSetupCodeTrustNote")
@@ -697,7 +756,20 @@ export function CollaborationConnectForm({
               </div>
             ) : null}
 
-            {mode === "setup" ? (
+            {mode === "setup" && !handoffFallbackOpen ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="w-fit"
+                data-testid="people-connect-handoff-fallback"
+                onClick={() => setHandoffFallbackOpen(true)}
+              >
+                {t("settingsServerHandoffFallback")}
+              </Button>
+            ) : null}
+
+            {mode === "setup" && handoffFallbackOpen ? (
               <CollaborationSetupHandoffFields
                 formId={formId}
                 t={t}
@@ -711,6 +783,7 @@ export function CollaborationConnectForm({
                 onManualOpenChange={setManualSetupOpen}
                 onServerBaseUrlChange={setServerBaseUrl}
                 onAllowInsecureTransportChange={setAllowInsecureTransport}
+                action={setupSubmitAfterPaste ? submitControls : undefined}
               />
             ) : null}
 
@@ -881,24 +954,9 @@ export function CollaborationConnectForm({
           </div>
         ) : null}
 
-        {showConnectionEditor ? (
-          <div className="flex justify-end gap-2">
-            {onRequestClose ? (
-              <Button type="button" size="sm" variant="ghost" onClick={onRequestClose}>
-                {t("peopleClose")}
-              </Button>
-            ) : null}
-            <Button
-              type="button"
-              size="sm"
-              disabled={busy || !api}
-              data-testid="people-connect-submit"
-              onClick={() => void submit()}
-            >
-              {busy ? t("peopleWorking") : submitLabel}
-            </Button>
-          </div>
-        ) : null}
+        {showConnectionEditor && !(setupSubmitAfterPaste && mode === "setup")
+          ? submitControls
+          : null}
       </div>
     </section>
   );

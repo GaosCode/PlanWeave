@@ -180,6 +180,12 @@ export function HostAdministrationContent({
             <p className="mt-1 max-w-2xl text-sm leading-6 text-text-muted">
               {t("hostAdminDescription")}
             </p>
+            <p
+              className="mt-2 max-w-2xl text-xs leading-5 text-text-muted"
+              data-testid="host-admin-server-binding"
+            >
+              {t("hostAdminServerBinding")}
+            </p>
           </div>
           <Button
             type="button"
@@ -193,7 +199,14 @@ export function HostAdministrationContent({
             {t("hostAdminRefresh")}
           </Button>
         </header>
-      ) : null}
+      ) : (
+        <p
+          className="max-w-2xl pb-4 text-xs leading-5 text-text-muted"
+          data-testid="host-admin-server-binding"
+        >
+          {t("hostAdminServerBinding")}
+        </p>
+      )}
 
       {loadState === "unavailable" ? (
         <div
