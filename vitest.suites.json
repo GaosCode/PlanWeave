@@ -286,6 +286,7 @@
         "desktopImportRecoveryHook.test.tsx",
         "desktopMutationIpcContract.test.ts",
         "desktopReleaseConfig.test.ts",
+        "selfHostServerResource.test.ts",
         "desktopSettingsHandlers.test.ts",
         "desktopSettingsStore.test.ts",
         "deploymentActions.test.ts",

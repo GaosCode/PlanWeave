@@ -82,7 +82,7 @@ describe("desktop release configuration", () => {
     expect(coordinator).toContain(".planweave-workspace-consumer-build.lock");
   });
 
-  it("runs the self-host deploy through the active pnpm CLI without changing node linker mode", async () => {
+  it("deploys the self-host image with a hoisted production graph through the active pnpm CLI", async () => {
     const source = await readFile(
       resolve(desktopRoot, "scripts/prepare-self-host-server-resource.mjs"),
       "utf8"
@@ -90,7 +90,9 @@ describe("desktop release configuration", () => {
     expect(source).toContain("process.env.npm_execpath");
     expect(source).toContain("process.execPath");
     expect(source).not.toContain('run("pnpm"');
-    expect(source).not.toContain("--config.node-linker=hoisted");
+    expect(source).toContain("--config.node-linker=hoisted");
+    expect(source).toContain("await import('@agentclientprotocol/sdk')");
+    expect(source).toContain("await import('@planweave-ai/runtime')");
   });
 
   it("keeps local pack and dist commands explicitly unsigned", async () => {

@@ -10,9 +10,9 @@ const outputRoot = resolve(desktopRoot, "build/generated/planweave-self-host-ser
 const imageRoot = resolve(outputRoot, "image");
 const stagingAppRoot = resolve(outputRoot, "staging-app");
 
-function run(command, args) {
+function run(command, args, cwd = repositoryRoot) {
   return new Promise((resolveRun, reject) => {
-    const child = spawn(command, args, { cwd: repositoryRoot, stdio: "inherit" });
+    const child = spawn(command, args, { cwd, stdio: "inherit" });
     child.once("error", reject);
     child.once("close", (code) =>
       code === 0
@@ -44,17 +44,29 @@ async function assertPortableDirectory(directory) {
 await rm(outputRoot, { recursive: true, force: true });
 await mkdir(imageRoot, { recursive: true });
 const deploy = pnpmInvocation([
+  "--config.node-linker=hoisted",
   "--config.inject-workspace-packages=true",
   "--filter",
   "@planweave-ai/server",
   "--prod",
   "deploy",
+  "--legacy",
   stagingAppRoot
 ]);
 await run(deploy.command, deploy.args);
-await cp(stagingAppRoot, resolve(imageRoot, "app"), { recursive: true, dereference: true });
+const appRoot = resolve(imageRoot, "app");
+await cp(stagingAppRoot, appRoot, { recursive: true, dereference: true });
 await rm(stagingAppRoot, { recursive: true, force: true });
-await assertPortableDirectory(resolve(imageRoot, "app"));
+await assertPortableDirectory(appRoot);
+await run(
+  process.execPath,
+  [
+    "--input-type=module",
+    "-e",
+    "await import('@agentclientprotocol/sdk'); await import('@planweave-ai/runtime');"
+  ],
+  appRoot
+);
 await Promise.all([
   cp(resolve(desktopRoot, "build/self-host-server.Dockerfile"), resolve(imageRoot, "Dockerfile")),
   cp(
