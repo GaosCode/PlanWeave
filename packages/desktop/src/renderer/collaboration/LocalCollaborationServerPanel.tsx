@@ -56,7 +56,10 @@ export function LocalCollaborationServerPanel({
   onManageInvitations,
   onStatusChange,
   serverExposure,
-  canControlLocalServer = true
+  canControlLocalServer = true,
+  serverOrigin = null,
+  scopesRequireRunning = false,
+  onManageServer
 }: {
   api: PlanWeaveCollaborationApi | null;
   t: ReturnType<typeof createTranslator>;
@@ -73,8 +76,13 @@ export function LocalCollaborationServerPanel({
   onManageInvitations?: () => void;
   onStatusChange?: (status: LocalCollaborationServerStatus) => void;
   serverExposure: DesktopServerExposureView | null;
-  /** Start/stop only apply when this device hosts the Workspace Server. */
+  /** True when this device hosts the Workspace Server. */
   canControlLocalServer?: boolean;
+  /** Connected Workspace Server origin, used when this Desktop is a client. */
+  serverOrigin?: string | null;
+  /** Disable canvas-scope edits until the local Server process is running. */
+  scopesRequireRunning?: boolean;
+  onManageServer?: () => void;
 }) {
   const [status, setStatus] = useState<LocalCollaborationServerStatus | null>(null);
   const [catalog, setCatalog] = useState<LocalCollaborationScopeCatalog | null>(null);
@@ -177,23 +185,12 @@ export function LocalCollaborationServerPanel({
 
   if (!api) return null;
   const running = status?.state === "running";
-  const startStopLabel = running
-    ? t("localServerStop")
-    : draftScopes.length > 0
-      ? t("localServerStartSelected").replace("{count}", String(draftScopes.length))
-      : t("localServerStart");
-  const startStopButton = (
-    <Button
-      type="button"
-      size="sm"
-      variant={running ? "outline" : "default"}
-      disabled={busy || !status}
-      data-testid={running ? "local-collaboration-server-stop" : "local-collaboration-server-start"}
-      onClick={() => void (running ? stopServer() : startServer())}
-    >
-      {startStopLabel}
-    </Button>
-  );
+  const scopesReadOnly = scopesRequireRunning && !running;
+  const advertisedOrigin = serverExposure?.advertisedOrigin ?? serverOrigin;
+  const providerLabel =
+    canControlLocalServer || !advertisedOrigin
+      ? t("localServerProvidedByLocal")
+      : t("localServerProvidedByOrigin").replace("{origin}", advertisedOrigin);
   const statusLabel =
     status?.state === "error"
       ? status.reason === "stop_failed"
@@ -236,34 +233,6 @@ export function LocalCollaborationServerPanel({
     setBusy(true);
     try {
       await applyScopes();
-      await refresh();
-    } catch (caught) {
-      setError({ message: collaborationErrorMessage(caught) });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const startServer = async () => {
-    setBusy(true);
-    try {
-      const nextStatus = await api.startLocalCollaborationServer();
-      setStatus(nextStatus);
-      onStatusChange?.(nextStatus);
-      await refresh();
-    } catch (caught) {
-      setError({ message: collaborationErrorMessage(caught) });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const stopServer = async () => {
-    setBusy(true);
-    try {
-      const nextStatus = await api.stopLocalCollaborationServer();
-      setStatus(nextStatus);
-      onStatusChange?.(nextStatus);
       await refresh();
     } catch (caught) {
       setError({ message: collaborationErrorMessage(caught) });
@@ -321,15 +290,32 @@ export function LocalCollaborationServerPanel({
             <p className="mt-1.5 max-w-2xl text-xs leading-5 text-muted-foreground">
               {t("localServerDescription")}
             </p>
+            <p
+              className="mt-2 max-w-2xl text-xs leading-5 text-muted-foreground"
+              data-testid="local-collaboration-server-provider"
+            >
+              {providerLabel}
+              {canControlLocalServer && advertisedOrigin ? ` · ${advertisedOrigin}` : ""}
+            </p>
+            {onManageServer ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="mt-2 h-auto px-0 text-xs"
+                data-testid="local-collaboration-manage-server"
+                onClick={onManageServer}
+              >
+                {t("localServerManage")}
+              </Button>
+            ) : null}
           </div>
-          {canControlLocalServer ? startStopButton : null}
         </div>
       ) : (
         <div className="flex flex-wrap items-center justify-between gap-3">
           <span className="sr-only" data-testid="local-collaboration-server-status">
             {statusLabel}
           </span>
-          {canControlLocalServer ? startStopButton : null}
         </div>
       )}
 
@@ -446,6 +432,15 @@ export function LocalCollaborationServerPanel({
           </span>
         </button>
 
+        {scopesReadOnly ? (
+          <p
+            className="mt-3 text-xs leading-5 text-muted-foreground"
+            data-testid="local-collaboration-scope-readonly"
+          >
+            {t("localServerScopeReadonlyHint")}
+          </p>
+        ) : null}
+
         {!scopeLayout.collapsed ? (
           <div
             id="local-collaboration-scope-catalog"
@@ -506,7 +501,7 @@ export function LocalCollaborationServerPanel({
                               type="checkbox"
                               className="size-4 rounded border-border accent-emerald-600"
                               checked={checked}
-                              disabled={busy}
+                              disabled={busy || scopesReadOnly}
                               onChange={() => toggleScope(scope)}
                               aria-label={`${project.name} / ${canvas.name}`}
                             />
@@ -539,7 +534,7 @@ export function LocalCollaborationServerPanel({
           </div>
         ) : null}
 
-        {scopeChanged ? (
+        {scopeChanged && !scopesReadOnly ? (
           <div className="mt-4 flex items-center justify-between gap-3 border-l-2 border-amber-500 bg-amber-500/5 px-3 py-2.5">
             <span className="text-[11px] text-amber-900 dark:text-amber-200">
               {t("localServerScopeChanged")}

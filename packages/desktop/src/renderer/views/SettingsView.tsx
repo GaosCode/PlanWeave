@@ -17,6 +17,10 @@ import { SettingsMcpSection } from "../settings/SettingsMcpSection";
 import { SettingsProjectDoctorSection } from "../settings/SettingsProjectDoctorSection";
 import { SettingsReviewSection } from "../settings/SettingsReviewSection";
 import { SettingsConnectionsSection } from "../settings/SettingsConnectionsSection";
+import {
+  consumeSettingsConnectionsTab,
+  peekSettingsConnectionsTab
+} from "../settings/settingsEntry";
 import { SettingsSecuritySection } from "../settings/SettingsSecuritySection";
 import type { createTranslator, Language } from "../i18n";
 import type { AppView, DesktopSettingsUpdate, DesktopUiSettings } from "../types";
@@ -72,7 +76,13 @@ export function SettingsView({
   updateSettingsAndWait,
   updateSettings
 }: SettingsViewProps) {
-  const [section, setSection] = useState<SettingsSection>("general");
+  const [queuedConnectionsTab] = useState(() => peekSettingsConnectionsTab());
+  const [section, setSection] = useState<SettingsSection>(
+    queuedConnectionsTab ? "connections" : "general"
+  );
+  useEffect(() => {
+    consumeSettingsConnectionsTab();
+  }, []);
   const [projectPromptDraft, setProjectPromptDraft] = useState(projectPromptMarkdown ?? "");
   const [projectPromptSaving, setProjectPromptSaving] = useState(false);
   const [globalPromptDraft, setGlobalPromptDraft] = useState(globalPromptMarkdown ?? "");
@@ -213,6 +223,7 @@ export function SettingsView({
               <SettingsConnectionsSection
                 t={t}
                 diagnosticsEnabled={settings.developerMode}
+                initialTab={queuedConnectionsTab ?? "overview"}
                 onTabChange={resetSettingsViewport}
               />
             ) : null}

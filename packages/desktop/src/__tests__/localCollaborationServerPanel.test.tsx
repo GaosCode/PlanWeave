@@ -206,40 +206,9 @@ describe("LocalCollaborationServerPanel", () => {
     expect(collaborationApi.startLocalCollaborationServer).not.toHaveBeenCalled();
   });
 
-  it("starts the stopped local server from the hosting panel", async () => {
-    let serverState: "stopped" | "running" = "stopped";
-    const collaborationApi = api({
-      getLocalCollaborationServerStatus: vi.fn(async () =>
-        serverState === "running"
-          ? {
-              profile,
-              state: "running" as const,
-              startedAt: "2030-01-01T00:00:00.000Z",
-              reason: null,
-              lanSharingEnabled: false,
-              lanServerBaseUrl: null
-            }
-          : {
-              profile: null,
-              state: "stopped" as const,
-              startedAt: null,
-              reason: null,
-              lanSharingEnabled: false,
-              lanServerBaseUrl: null
-            }
-      ),
-      startLocalCollaborationServer: vi.fn(async () => {
-        serverState = "running";
-        return {
-          profile,
-          state: "running" as const,
-          startedAt: "2030-01-01T00:00:00.000Z",
-          reason: null,
-          lanSharingEnabled: false,
-          lanServerBaseUrl: null
-        };
-      })
-    });
+  it("keeps start and stop off the canvas panel and explains a stopped local Server", async () => {
+    const onManageServer = vi.fn();
+    const collaborationApi = api();
     render(
       <LocalCollaborationServerPanelHarness
         api={collaborationApi}
@@ -249,48 +218,27 @@ describe("LocalCollaborationServerPanel", () => {
         scopeLayout={expandedScopeLayout}
         onScopeLayoutChange={onScopeLayoutChange}
         copyText={copyText}
+        scopesRequireRunning
+        onManageServer={onManageServer}
       />
     );
 
     expect(await screen.findByTestId("local-collaboration-server-status")).toHaveTextContent(
       "Stopped"
     );
-    await userEvent.click(screen.getByRole("button", { name: "Start with 1 canvases" }));
-    await waitFor(() =>
-      expect(collaborationApi.startLocalCollaborationServer).toHaveBeenCalledOnce()
+    expect(screen.getByTestId("local-collaboration-server-provider")).toHaveTextContent(
+      "These canvases are provided by the Server on this computer"
     );
-    expect(await screen.findByTestId("local-collaboration-server-stop")).toHaveTextContent(
-      "Stop local server"
-    );
-  });
-
-  it("stops a running local server from the hosting panel", async () => {
-    const collaborationApi = api({
-      getLocalCollaborationServerStatus: vi.fn().mockResolvedValue({
-        profile,
-        state: "running",
-        startedAt: "2030-01-01T00:00:00.000Z",
-        reason: null,
-        lanSharingEnabled: false,
-        lanServerBaseUrl: null
-      })
-    });
-    render(
-      <LocalCollaborationServerPanelHarness
-        api={collaborationApi}
-        t={createTranslator("en")}
-        projectId="desktop-project-1"
-        canvasId="canvas-1"
-        scopeLayout={expandedScopeLayout}
-        onScopeLayoutChange={onScopeLayoutChange}
-        copyText={copyText}
-      />
-    );
-
-    await userEvent.click(await screen.findByRole("button", { name: "Stop local server" }));
-    await waitFor(() =>
-      expect(collaborationApi.stopLocalCollaborationServer).toHaveBeenCalledOnce()
-    );
+    expect(screen.getByTestId("local-collaboration-scope-readonly")).toBeVisible();
+    expect(
+      await screen.findByRole("checkbox", { name: "Project One / Canvas One" })
+    ).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /^Start$/ })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("local-collaboration-server-start")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("local-collaboration-server-stop")).not.toBeInTheDocument();
+    expect(collaborationApi.startLocalCollaborationServer).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Manage Server" }));
+    expect(onManageServer).toHaveBeenCalledOnce();
   });
 
   it("hides start and stop when this device does not host the Workspace Server", async () => {
@@ -371,7 +319,7 @@ describe("LocalCollaborationServerPanel", () => {
     );
     expect(screen.getByTestId("local-collaboration-scope-section")).not.toHaveClass("border-t");
     expect(screen.getByTestId("local-collaboration-scope-section")).not.toHaveClass("border-y");
-    expect(screen.getByRole("heading", { name: "Workspace canvases" })).toHaveClass("text-base");
+    expect(screen.getByRole("heading", { name: "Shared canvases" })).toHaveClass("text-base");
     await userEvent.click(screen.getByRole("button", { name: "Hide hosted canvas selection" }));
     expect(onLayoutChange).toHaveBeenLastCalledWith({ collapsed: true });
 
@@ -436,7 +384,7 @@ describe("LocalCollaborationServerPanel", () => {
       />
     );
 
-    expect(await screen.findByRole("heading", { name: "Workspace canvases" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Shared canvases" })).toBeVisible();
     expect(screen.getByText("Invite collaborators")).toBeVisible();
     expect(screen.queryByRole("switch")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Copy address only" })).not.toBeInTheDocument();

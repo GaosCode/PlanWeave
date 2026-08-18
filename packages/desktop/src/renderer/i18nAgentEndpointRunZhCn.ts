@@ -24,7 +24,7 @@ export const agentEndpointRunZhCnCatalog = {
     "块 {block} 的远程运行以 {state} 结束。请检查 Host/operation 详情后重试。[{code}]",
   remoteAgentFailureError: "{message} 请处理该块的 Host/远程失败后重试。[{code}]",
   collaborationRuntimeStatusUnavailableError:
-    "协作运行时状态不可用。请打开设置 → 连接与设备 → 高级连接，发布或同步权威内容后再重跑。[{code}]",
+    "协作运行时状态不可用。请打开设置 → 连接与设备 → Server，发布或同步权威内容后再重跑。[{code}]",
   collaborationRuntimeTaskStatusUnavailableError:
     "任务 {task} 的协作状态缺失。请刷新画布或重新连接后再重跑。[{code}]",
   collaborationRuntimeBlockStatusUnavailableError:

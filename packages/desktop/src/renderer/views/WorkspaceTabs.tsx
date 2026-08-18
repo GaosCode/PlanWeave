@@ -48,6 +48,7 @@ import type {
 } from "../types";
 import type { CollaborationCanvasPresenceResult } from "../hooks/useCollaborationCanvasPresence";
 import { useProjectWorkspace } from "../ProjectWorkspaceProvider";
+import { queueSettingsConnectionsTab } from "../settings/settingsEntry";
 
 const CanvasMapView = lazy(() =>
   import("./CanvasMapView").then((module) => ({ default: module.CanvasMapView }))
@@ -316,6 +317,10 @@ function PeopleRoute({
         } else {
           shell.setError(outcome.message);
         }
+      }}
+      onManageServer={() => {
+        queueSettingsConnectionsTab("server");
+        shell.setActiveView("settings");
       }}
     />
   );

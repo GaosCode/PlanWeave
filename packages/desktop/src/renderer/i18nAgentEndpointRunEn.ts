@@ -23,7 +23,7 @@ export const agentEndpointRunEnCatalog = {
   remoteAgentFailureError:
     "{message} Fix the Host/remote failure for this block, then retry. [{code}]",
   collaborationRuntimeStatusUnavailableError:
-    "Collaboration runtime status is unavailable. Open Settings → Connections & Devices → Advanced connection to publish or sync authoritative content, then re-run. [{code}]",
+    "Collaboration runtime status is unavailable. Open Settings → Connections & Devices → Server to publish or sync authoritative content, then re-run. [{code}]",
   collaborationRuntimeTaskStatusUnavailableError:
     "Collaboration status for task {task} is missing. Refresh the canvas or reconnect, then re-run. [{code}]",
   collaborationRuntimeBlockStatusUnavailableError:

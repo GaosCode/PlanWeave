@@ -177,7 +177,7 @@ describe("ContentAuthorityPanel", () => {
       />
     );
 
-    expect(await screen.findByText(/Add it under Workspace canvases/i)).toBeVisible();
+    expect(await screen.findByText(/Add it under Shared canvases/i)).toBeVisible();
   });
 
   it("keeps bootstrap network failures visible and shows the raw IPC text in developer mode", async () => {
