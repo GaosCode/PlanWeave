@@ -1010,7 +1010,12 @@ describe("preload bridge invocation", () => {
       setupCode: `pw_setup_${"A".repeat(43)}`,
       displayName: "Demo"
     });
+    await api.connectExistingServerByOrigin({
+      serverBaseUrl: "https://collab.example.com/"
+    });
     await api.getActiveWorkspaceConnection();
+    await api.listRememberedServerConnections();
+    await api.forgetRememberedServerConnection({ profileId: "profile-workspace-001" });
     await api.listWorkspacePicker({ cursor: 0, limit: 20 });
     await api.selectWorkspaceConnection({ workspaceId: "workspace-1" });
     await api.connectWorkspaceConnection();
@@ -1049,6 +1054,9 @@ describe("preload bridge invocation", () => {
     await api.setLocalCollaborationLanSharing({ enabled: true });
     await api.getDesktopServerExposure();
     await api.setDesktopServerExposureMode({ mode: "private_https" });
+    await api.listServerDataExportSources();
+    await api.exportServerDataArchive({ sourceId: "this_computer" });
+    await api.restoreServerDataArchive({ overwrite: true });
     await api.listLocalCollaborationTrustedScopes();
     await api.registerLocalCollaborationCurrentProject({ ownerDisplayName: "Local owner" });
     await api.startCollaborationPresence({ canvasId: "default" });
@@ -1115,6 +1123,20 @@ describe("preload bridge invocation", () => {
       expect.objectContaining({ displayName: "Demo" })
     );
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      collaborationInvokeChannels.connectExistingServerByOrigin,
+      { serverBaseUrl: "https://collab.example.com/" }
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      collaborationInvokeChannels.getActiveWorkspaceConnection
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      collaborationInvokeChannels.listRememberedServerConnections
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      collaborationInvokeChannels.forgetRememberedServerConnection,
+      { profileId: "profile-workspace-001" }
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
       collaborationInvokeChannels.selectWorkspaceConnection,
       { workspaceId: "workspace-1" }
     );
@@ -1169,6 +1191,17 @@ describe("preload bridge invocation", () => {
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
       collaborationInvokeChannels.setDesktopServerExposureMode,
       { mode: "private_https" }
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      collaborationInvokeChannels.listServerDataExportSources
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      collaborationInvokeChannels.exportServerDataArchive,
+      { sourceId: "this_computer" }
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      collaborationInvokeChannels.restoreServerDataArchive,
+      { overwrite: true }
     );
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
       collaborationInvokeChannels.createCollaborationInvitationHandoff,

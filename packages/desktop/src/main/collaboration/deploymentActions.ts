@@ -11,10 +11,18 @@ import {
   type DeploymentGuidanceView,
   type ConnectivityValidationView
 } from "@planweave-ai/collaboration-protocol/deployment";
-import { serverConfigFileInput, serverConfigSchema, type ServerConfig } from "@planweave-ai/server";
+import { operatorTokenSchema } from "@planweave-ai/agent-host-protocol";
+import {
+  hashOperatorToken,
+  restoreServerDataScript,
+  serverConfigFileInput,
+  serverConfigSchema,
+  type ServerConfig
+} from "@planweave-ai/server";
 import { lstat, readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, isAbsolute, relative, resolve } from "node:path";
 import { zipSync, strToU8 } from "fflate";
+import { writeDesktopConnectionScript } from "./writeDesktopConnectionScript.js";
 
 const composePreview =
   "test -f tls/server.crt && test -f tls/server.key && docker compose -f compose.yaml up --build --detach --wait";
@@ -22,8 +30,7 @@ const maxBundleInputBytes = 256 * 1024 * 1024;
 
 export type DeploymentBundleSource = {
   config: ServerConfig;
-  workspaceRoot: string;
-  projectId: string;
+  operatorToken: string;
 };
 
 export class DeploymentBundleUnavailableError extends Error {
@@ -349,17 +356,9 @@ async function createBundleArchive(input: {
   target: DeploymentTargetDraft;
 }): Promise<Uint8Array> {
   const config = serverConfigSchema.parse(input.source.config);
-  if (!isAbsolute(input.source.workspaceRoot) || config.trustedProjects.length !== 1) {
-    throw new DeploymentBundleUnavailableError(
-      "invalid_project",
-      "deployment_bundle_source_invalid"
-    );
-  }
-  const trusted = config.trustedProjects[0];
   if (
     config.transport.mode !== "direct_https" ||
-    trusted.projectId !== input.source.projectId ||
-    trusted.projectRoot !== `/var/lib/planweave/projects/${input.source.projectId}` ||
+    config.trustedProjects.length !== 0 ||
     config.deployment?.serverOrigin !== input.target.endpoint.serverOrigin
   ) {
     throw new DeploymentBundleUnavailableError(
@@ -367,12 +366,39 @@ async function createBundleArchive(input: {
       "deployment_bundle_scope_invalid"
     );
   }
+  const operatorToken = operatorTokenSchema.parse(input.source.operatorToken);
+  const tokenDigest = hashOperatorToken(operatorToken);
+  if (
+    !config.operatorCredentials.some(
+      (credential) => credential.serverAdmin === true && credential.tokenSha256 === tokenDigest
+    )
+  ) {
+    throw new DeploymentBundleUnavailableError(
+      "invalid_project",
+      "deployment_bundle_operator_mismatch"
+    );
+  }
   const configInput = serverConfigFileInput(config);
+  const connectionScript = writeDesktopConnectionScript.endsWith("\n")
+    ? writeDesktopConnectionScript
+    : `${writeDesktopConnectionScript}\n`;
+  const restoreScript = restoreServerDataScript.endsWith("\n")
+    ? restoreServerDataScript
+    : `${restoreServerDataScript}\n`;
   const files: Record<string, Uint8Array> = {
     "server.json": strToU8(`${JSON.stringify(configInput)}\n`),
+    ".operator-token": strToU8(`${operatorToken}\n`),
+    "write-desktop-connection.sh": strToU8(connectionScript),
+    "restore-server-data.sh": strToU8(restoreScript),
     "tls/.gitkeep": new Uint8Array()
   };
-  const total = { bytes: Buffer.byteLength(JSON.stringify(configInput)) };
+  const total = {
+    bytes:
+      Buffer.byteLength(JSON.stringify(configInput)) +
+      Buffer.byteLength(operatorToken) +
+      Buffer.byteLength(connectionScript) +
+      Buffer.byteLength(restoreScript)
+  };
   const composePath = resolve(input.resourceDirectory, "compose.yaml");
   const composeMetadata = await lstat(composePath);
   if (composeMetadata.isSymbolicLink() || !composeMetadata.isFile()) {
@@ -387,21 +413,5 @@ async function createBundleArchive(input: {
   }
   files["compose.yaml"] = new Uint8Array(await readFile(composePath));
   await archiveDirectory(resolve(input.resourceDirectory, "image"), "image", files, total);
-  await archiveDirectory(
-    input.source.workspaceRoot,
-    `projects/${input.source.projectId}`,
-    files,
-    total
-  );
-  files[`projects/${input.source.projectId}/project.json`] = strToU8(
-    `${JSON.stringify({
-      id: input.source.projectId,
-      name: input.source.projectId,
-      rootPath: `/var/lib/planweave/projects/${input.source.projectId}`,
-      kind: "managed",
-      sourceRoot: null,
-      createdAt: new Date().toISOString()
-    })}\n`
-  );
   return zipSync(files, { level: 6 });
 }

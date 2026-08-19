@@ -3,6 +3,14 @@ import type {
   CollaborationCanvasReplicaProjection,
   CollaborationCanvasReplicaSignal
 } from "./canvasReplicaIpc.js";
+import type {
+  ExportServerDataArchiveInput,
+  ExportServerDataArchiveResult,
+  ListServerDataExportSourcesResult,
+  RestoreServerDataArchiveInput,
+  RestoreServerDataArchiveResult,
+  ServerDataExportSource
+} from "./serverDataMigration.js";
 import { COMMENT_ATTACHMENT_MAX_BYTES } from "@planweave-ai/collaboration-protocol/core/limits";
 import type { CollaborationInvitationHandoffResponse } from "@planweave-ai/collaboration-protocol/handoff/invitation";
 import {
@@ -345,6 +353,35 @@ export const collaborationRedeemSetupCodeInputSchema = z
 export type CollaborationRedeemSetupCodeInput = z.infer<
   typeof collaborationRedeemSetupCodeInputSchema
 >;
+
+/**
+ * HTTPS origin only. Renderer never sends a setup code; main issues and redeems it.
+ */
+export const collaborationConnectExistingServerByOriginInputSchema = z
+  .object({
+    serverBaseUrl: z.string().trim().min(1).max(2048),
+    displayName: humanDisplayNameSchema.optional()
+  })
+  .strict();
+export type CollaborationConnectExistingServerByOriginInput = z.infer<
+  typeof collaborationConnectExistingServerByOriginInputSchema
+>;
+
+/** Redacted remembered Server for quick reconnect. Never includes credentials. */
+export const rememberedServerConnectionViewSchema = z
+  .object({
+    profileId: z.string().trim().min(1).max(128),
+    displayName: z.string().trim().min(1).max(128),
+    workspaceDisplayName: z.string().trim().min(1).max(128),
+    serverBaseUrl: collaborationServerOriginSchema,
+    hasDeviceCredential: z.boolean()
+  })
+  .strict();
+export type RememberedServerConnectionView = z.infer<typeof rememberedServerConnectionViewSchema>;
+
+export function parseCollaborationServerOriginInput(value: string): string {
+  return collaborationServerOriginSchema.parse(`${new URL(value.trim()).origin}/`);
+}
 
 export const collaborationWorkspacePickerQuerySchema = z
   .object({
@@ -716,6 +753,14 @@ export {
   collaborationPresenceSignalChannel,
   collaborationStatusChangedChannel
 } from "./collaborationIpc.js";
+export type {
+  ExportServerDataArchiveInput,
+  ExportServerDataArchiveResult,
+  ListServerDataExportSourcesResult,
+  RestoreServerDataArchiveInput,
+  RestoreServerDataArchiveResult,
+  ServerDataExportSource
+};
 
 export type PlanWeaveCollaborationApi = {
   getCollaborationStatus: () => Promise<CollaborationStatus>;
@@ -746,7 +791,14 @@ export type PlanWeaveCollaborationApi = {
   redeemCollaborationSetupCode: (
     input: CollaborationRedeemSetupCodeInput
   ) => Promise<CollaborationStatus>;
+  connectExistingServerByOrigin: (
+    input: CollaborationConnectExistingServerByOriginInput
+  ) => Promise<CollaborationStatus>;
   getActiveWorkspaceConnection: () => Promise<ActiveWorkspaceConnectionView>;
+  listRememberedServerConnections: () => Promise<RememberedServerConnectionView[]>;
+  forgetRememberedServerConnection: (
+    input: CollaborationProfileIdInput
+  ) => Promise<CollaborationStatus>;
   listWorkspacePicker: (input?: CollaborationWorkspacePickerQuery) => Promise<WorkspacePickerPage>;
   selectWorkspaceConnection: (
     input: CollaborationProfileIdInput | { workspaceId: string }
@@ -765,6 +817,13 @@ export type PlanWeaveCollaborationApi = {
   ) => Promise<
     import("@planweave-ai/collaboration-protocol/deployment").DeploymentBundleExportView
   >;
+  listServerDataExportSources: () => Promise<ListServerDataExportSourcesResult>;
+  exportServerDataArchive: (
+    input: ExportServerDataArchiveInput
+  ) => Promise<ExportServerDataArchiveResult>;
+  restoreServerDataArchive: (
+    input?: RestoreServerDataArchiveInput
+  ) => Promise<RestoreServerDataArchiveResult>;
   validateDeploymentConnectivity: (
     input: Extract<DesktopDeploymentActionRequest, { action: "validate_connectivity" }>
   ) => Promise<ConnectivityValidationView>;

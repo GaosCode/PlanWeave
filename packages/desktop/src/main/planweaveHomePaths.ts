@@ -17,6 +17,8 @@ export type DesktopHomePaths = {
   collaborationRuntimeStatusFile: string;
   localCollaborationScopesFile: string;
   localCollaborationNetworkFile: string;
+  exportedServerDataIdentityFile: string;
+  localCollaborationServerDir: string;
   operatorControlDir: string;
   operatorProfilesFile: string;
   operatorCredentialsFile: string;
@@ -44,6 +46,8 @@ export function desktopHomePaths(): DesktopHomePaths {
     collaborationRuntimeStatusFile: join(collaborationDir, "runtime-status.json"),
     localCollaborationScopesFile: join(collaborationDir, "local-scopes.json"),
     localCollaborationNetworkFile: join(collaborationDir, "local-network.json"),
+    exportedServerDataIdentityFile: join(collaborationDir, "exported-server-data-identity.json"),
+    localCollaborationServerDir: join(planweaveHome, "desktop", "local-collaboration-server"),
     operatorControlDir,
     operatorProfilesFile: join(operatorControlDir, "profiles.json"),
     operatorCredentialsFile: join(operatorControlDir, "credentials.json"),

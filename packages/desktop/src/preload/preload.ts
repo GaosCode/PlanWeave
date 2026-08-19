@@ -258,8 +258,14 @@ const collaborationApi: PlanWeaveCollaborationApi = {
     ipcRenderer.invoke(collaborationInvokeChannels.disconnectCollaborationSession),
   redeemCollaborationSetupCode: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.redeemCollaborationSetupCode, input),
+  connectExistingServerByOrigin: async (input) =>
+    ipcRenderer.invoke(collaborationInvokeChannels.connectExistingServerByOrigin, input),
   getActiveWorkspaceConnection: async () =>
     ipcRenderer.invoke(collaborationInvokeChannels.getActiveWorkspaceConnection),
+  listRememberedServerConnections: async () =>
+    ipcRenderer.invoke(collaborationInvokeChannels.listRememberedServerConnections),
+  forgetRememberedServerConnection: async (input) =>
+    ipcRenderer.invoke(collaborationInvokeChannels.forgetRememberedServerConnection, input),
   listWorkspacePicker: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.listWorkspacePicker, input),
   selectWorkspaceConnection: async (input) =>
@@ -276,6 +282,12 @@ const collaborationApi: PlanWeaveCollaborationApi = {
     ipcRenderer.invoke(collaborationInvokeChannels.copyDeploymentComposeHandoff, input),
   exportDeploymentComposeBundle: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.exportDeploymentComposeBundle, input),
+  listServerDataExportSources: async () =>
+    ipcRenderer.invoke(collaborationInvokeChannels.listServerDataExportSources),
+  exportServerDataArchive: async (input) =>
+    ipcRenderer.invoke(collaborationInvokeChannels.exportServerDataArchive, input),
+  restoreServerDataArchive: async (input) =>
+    ipcRenderer.invoke(collaborationInvokeChannels.restoreServerDataArchive, input),
   validateDeploymentConnectivity: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.validateDeploymentConnectivity, input),
   getDesktopServerExposure: async () =>

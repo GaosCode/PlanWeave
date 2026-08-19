@@ -15,24 +15,38 @@ import {
   CollaborationSetupCodeClient,
   setupCodeFailureMessage
 } from "./collaborationSetupCodeClient.js";
+import { isLocalCollaborationProfileId } from "./collaborationProfileEndpoint.js";
 import {
   COLLABORATION_CONNECTION_ERROR_CODES,
   CollaborationClientError,
   collaborationConnectionErrorFromUnknown,
   collaborationErrorFromUnknown
 } from "./collaborationErrors.js";
+import {
+  rememberedServerConnectionViewSchema,
+  type RememberedServerConnectionView
+} from "../../shared/collaboration.js";
 import { CollaborationWorkspaceClient } from "./CollaborationWorkspaceClient.js";
 import { redactCollaborationText } from "./redaction.js";
+import { inferPersistedRemoteProfileId } from "./persistedServerConnectionPreference.js";
 import {
   WorkspaceConnectionProfileStore,
   type StoredWorkspaceConnectionProfile,
   type WorkspaceConnectionProfileStorePaths,
   workspaceConnectionProfileStorePaths
 } from "./workspaceConnectionProfileStore.js";
+import {
+  EXPORTED_SERVER_DATA_PROFILE_ID,
+  ExportedServerDataIdentityStore,
+  isExportedServerDataProfileId,
+  type ExportedServerDataIdentity
+} from "./exportedServerDataIdentity.js";
 
 export type CollaborationWorkspaceConnectionOptions = {
   store?: WorkspaceConnectionProfileStore;
   storePaths?: WorkspaceConnectionProfileStorePaths;
+  exportedIdentityStore?: ExportedServerDataIdentityStore;
+  exportedIdentityPath?: string;
   vault: CollaborationCredentialVault;
   request?: typeof fetch;
   clock?: { now(): Date };
@@ -74,12 +88,47 @@ function toPublicProfile(stored: StoredWorkspaceConnectionProfile): WorkspaceCon
   };
 }
 
+function isRetargetableWorkspaceProfileId(profileId: string): boolean {
+  return isLocalCollaborationProfileId(profileId) || isExportedServerDataProfileId(profileId);
+}
+
+function exportedIdentityAsStoredProfile(
+  identity: ExportedServerDataIdentity
+): StoredWorkspaceConnectionProfile {
+  return {
+    ...workspaceConnectionProfileSchema.parse({
+      schemaVersion: "workspace-identity/v1",
+      profileId: EXPORTED_SERVER_DATA_PROFILE_ID,
+      displayName: identity.workspaceDisplayName,
+      serverBaseUrl: "http://127.0.0.1/",
+      workspaceId: identity.workspaceId,
+      allowInsecureTransport: true
+    }),
+    workspaceDisplayName: identity.workspaceDisplayName,
+    membershipRole: identity.membershipRole,
+    membershipActive: true,
+    updatedAt: identity.updatedAt
+  };
+}
+
+function isRejectedWorkspaceCredential(error: unknown): boolean {
+  if (!(error instanceof CollaborationClientError)) return false;
+  if (error.httpStatus === 401 || error.httpStatus === 403) return true;
+  return (
+    error.code === COLLABORATION_CONNECTION_ERROR_CODES.workspaceUnauthorized ||
+    error.code === COLLABORATION_CONNECTION_ERROR_CODES.workspaceForbidden ||
+    error.kind === "auth" ||
+    error.kind === "forbidden"
+  );
+}
+
 /**
  * Single Server/Workspace connection session for Desktop.
  * Credentials stay in the vault; this module only builds redacted connection/picker views.
  */
 export class CollaborationWorkspaceConnection {
   private readonly store: WorkspaceConnectionProfileStore;
+  private readonly exportedIdentity: ExportedServerDataIdentityStore;
   private readonly vault: CollaborationCredentialVault;
   private readonly request?: typeof fetch;
   private readonly clock?: { now(): Date };
@@ -97,6 +146,11 @@ export class CollaborationWorkspaceConnection {
       options.store ??
       new WorkspaceConnectionProfileStore(
         options.storePaths ?? workspaceConnectionProfileStorePaths()
+      );
+    this.exportedIdentity =
+      options.exportedIdentityStore ??
+      new ExportedServerDataIdentityStore(
+        options.exportedIdentityPath ?? ExportedServerDataIdentityStore.defaultPath()
       );
     this.vault = options.vault;
     this.request = options.request;
@@ -130,10 +184,55 @@ export class CollaborationWorkspaceConnection {
       this.error = null;
       return;
     }
-    // Restored profile remains disconnected until the user explicitly connects.
+    // Restored profile remains disconnected until startup restore or an explicit connect.
     this.status = "disconnected";
     this.connectedAt = null;
     this.error = null;
+  }
+
+  async peekPersistedRemoteProfileId(): Promise<string | null> {
+    const document = await this.store.read();
+    const inferred = inferPersistedRemoteProfileId({
+      lastConnection: document.lastConnection,
+      activeProfileId: document.activeProfileId,
+      profiles: document.profiles.map((profile) => ({
+        profileId: profile.profileId,
+        updatedAt: profile.updatedAt
+      }))
+    });
+    if (
+      inferred &&
+      (document.lastConnection?.kind !== "remote" || document.lastConnection.profileId !== inferred)
+    ) {
+      await this.store.setLastConnection({ kind: "remote", profileId: inferred });
+    }
+    return inferred;
+  }
+
+  async markLastConnectionLocal(): Promise<void> {
+    await this.store.setLastConnection({ kind: "local" });
+  }
+
+  async listRememberedServers(): Promise<RememberedServerConnectionView[]> {
+    const remembered: RememberedServerConnectionView[] = [];
+    const profiles = await this.store.list();
+    const ordered = [...profiles].sort((left, right) =>
+      right.updatedAt.localeCompare(left.updatedAt)
+    );
+    for (const profile of ordered) {
+      if (isRetargetableWorkspaceProfileId(profile.profileId)) continue;
+      const persistence = await this.vault.persistenceFor(profile.profileId);
+      remembered.push(
+        rememberedServerConnectionViewSchema.parse({
+          profileId: profile.profileId,
+          displayName: profile.displayName,
+          workspaceDisplayName: profile.workspaceDisplayName,
+          serverBaseUrl: profile.serverBaseUrl,
+          hasDeviceCredential: persistence !== "missing"
+        })
+      );
+    }
+    return remembered;
   }
 
   async buildView(): Promise<ActiveWorkspaceConnectionView> {
@@ -264,6 +363,146 @@ export class CollaborationWorkspaceConnection {
   }
 
   /**
+   * Keep a Workspace device credential that survives deleting this computer's Server data directory.
+   * Tokens stay in the vault; they are never written into the export archive.
+   */
+  async snapshotExportedServerDataIdentity(): Promise<void> {
+    const locals = (await this.store.list())
+      .filter((profile) => isLocalCollaborationProfileId(profile.profileId))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    for (const profile of locals) {
+      if (await this.vault.getDeviceToken(profile.profileId)) {
+        await this.snapshotWorkspaceCredential(profile);
+        return;
+      }
+    }
+  }
+
+  private async snapshotWorkspaceCredential(
+    profile: StoredWorkspaceConnectionProfile
+  ): Promise<void> {
+    const token = await this.vault.getDeviceToken(profile.profileId);
+    if (!token) return;
+    const metadata = await this.vault.getMetadata(profile.profileId);
+    if (profile.profileId !== EXPORTED_SERVER_DATA_PROFILE_ID) {
+      await this.vault.setDeviceToken(EXPORTED_SERVER_DATA_PROFILE_ID, token, {
+        deviceCredentialId: metadata?.deviceCredentialId,
+        humanPrincipalId: metadata?.humanPrincipalId
+      });
+    }
+    await this.exportedIdentity.write({
+      schemaVersion: "exported-server-data-identity/v1",
+      workspaceId: profile.workspaceId,
+      workspaceDisplayName: profile.workspaceDisplayName,
+      membershipRole: profile.membershipRole,
+      updatedAt: nowIso(this.clock)
+    });
+  }
+
+  /**
+   * Reconnect this device when a stored Workspace credential already exists for the origin.
+   * After Server data is restored onto a different origin, the stored credential for that
+   * URL is from the previous Server identity; retry this computer's local Workspace token.
+   */
+  async tryReconnectByOrigin(serverBaseUrl: string): Promise<boolean> {
+    const origin = new URL(serverBaseUrl).origin;
+    const targetBaseUrl = `${origin}/`;
+    const originMatches: StoredWorkspaceConnectionProfile[] = [];
+    const localMatches: StoredWorkspaceConnectionProfile[] = [];
+    for (const profile of await this.store.list()) {
+      if (!(await this.vault.getDeviceToken(profile.profileId))) continue;
+      if (isRetargetableWorkspaceProfileId(profile.profileId)) {
+        localMatches.push(profile);
+        continue;
+      }
+      try {
+        if (new URL(profile.serverBaseUrl).origin !== origin) continue;
+      } catch {
+        continue;
+      }
+      originMatches.push(profile);
+    }
+    const exported = await this.exportedIdentity.read();
+    if (
+      exported &&
+      (await this.vault.getDeviceToken(EXPORTED_SERVER_DATA_PROFILE_ID)) &&
+      !localMatches.some((profile) => profile.profileId === EXPORTED_SERVER_DATA_PROFILE_ID)
+    ) {
+      localMatches.push(exportedIdentityAsStoredProfile(exported));
+    }
+    originMatches.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    localMatches.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    for (const match of originMatches) {
+      try {
+        await this.store.setActiveProfileId(match.profileId);
+        this.activeProfileId = match.profileId;
+        this.workspaceDisplayName = match.workspaceDisplayName;
+        await this.connectActiveProfile();
+        return true;
+      } catch (error) {
+        if (!isRejectedWorkspaceCredential(error)) throw error;
+      }
+    }
+    const originProfile = originMatches[0];
+    if (!originProfile || isRetargetableWorkspaceProfileId(originProfile.profileId)) {
+      return false;
+    }
+    for (const localProfile of localMatches) {
+      if (
+        await this.bindLocalWorkspaceCredentialToOrigin(localProfile, originProfile, targetBaseUrl)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private async bindLocalWorkspaceCredentialToOrigin(
+    localProfile: StoredWorkspaceConnectionProfile,
+    originProfile: StoredWorkspaceConnectionProfile,
+    serverBaseUrl: string
+  ): Promise<boolean> {
+    const token = await this.vault.getDeviceToken(localProfile.profileId);
+    if (!token) return false;
+    const retargeted: StoredWorkspaceConnectionProfile = {
+      ...localProfile,
+      serverBaseUrl
+    };
+    let authoritative: WorkspacePickerPage["items"][number] | null;
+    try {
+      authoritative = await this.findAuthoritativeWorkspace(retargeted);
+    } catch (error) {
+      if (isRejectedWorkspaceCredential(error)) return false;
+      throw error;
+    }
+    if (!authoritative) return false;
+    const metadata = await this.vault.getMetadata(localProfile.profileId);
+    const bound = await this.store.upsert({
+      profile: workspaceConnectionProfileSchema.parse({
+        schemaVersion: originProfile.schemaVersion,
+        profileId: originProfile.profileId,
+        displayName: originProfile.displayName,
+        serverBaseUrl,
+        workspaceId: localProfile.workspaceId,
+        allowInsecureTransport: originProfile.allowInsecureTransport
+      }),
+      workspaceDisplayName: localProfile.workspaceDisplayName,
+      membershipRole: localProfile.membershipRole,
+      membershipActive: true
+    });
+    await this.vault.setDeviceToken(bound.profileId, token, {
+      deviceCredentialId: metadata?.deviceCredentialId,
+      humanPrincipalId: metadata?.humanPrincipalId
+    });
+    await this.snapshotWorkspaceCredential(localProfile);
+    await this.store.setActiveProfileId(bound.profileId);
+    this.activeProfileId = bound.profileId;
+    this.workspaceDisplayName = bound.workspaceDisplayName;
+    await this.connectActiveProfile();
+    return true;
+  }
+
+  /**
    * Redeem a one-time device setup code. Token stays in the vault; never returned.
    */
   async redeemDeviceSetupCode(input: {
@@ -371,6 +610,9 @@ export class CollaborationWorkspaceConnection {
     this.error = null;
     this.activeProfileId = activeId;
     this.workspaceDisplayName = stored.workspaceDisplayName;
+    if (!isLocalCollaborationProfileId(activeId)) {
+      await this.store.setLastConnection({ kind: "remote", profileId: activeId });
+    }
     this.onChange?.();
     try {
       const token = await this.vault.getDeviceToken(activeId);
@@ -443,6 +685,7 @@ export class CollaborationWorkspaceConnection {
   }
 
   async disconnectToLocalOnly(): Promise<ActiveWorkspaceConnectionView> {
+    await this.store.setLastConnection({ kind: "local" });
     await this.store.setActiveProfileId(null);
     this.activeProfileId = null;
     this.workspaceDisplayName = null;
@@ -450,6 +693,34 @@ export class CollaborationWorkspaceConnection {
     this.connectedAt = null;
     this.error = null;
     this.lastAuthoritativePicker = emptyWorkspacePickerPage();
+    this.onChange?.();
+    return this.buildView();
+  }
+
+  async forgetRememberedServer(profileId: string): Promise<ActiveWorkspaceConnectionView> {
+    if (isLocalCollaborationProfileId(profileId)) {
+      throw new CollaborationClientError({
+        kind: "validation",
+        code: "remembered_server_local_profile_forbidden",
+        message: "This computer is not a remembered Server.",
+        retryable: false
+      });
+    }
+    const stored = await this.store.get(profileId);
+    if (!stored) {
+      throw new CollaborationClientError({
+        kind: "validation",
+        code: "remembered_server_unknown",
+        message: "That remembered Server is not available.",
+        retryable: false
+      });
+    }
+    const wasActive = this.activeProfileId === profileId;
+    await this.vault.clear(profileId);
+    await this.store.remove(profileId);
+    if (wasActive) {
+      return this.disconnectToLocalOnly();
+    }
     this.onChange?.();
     return this.buildView();
   }

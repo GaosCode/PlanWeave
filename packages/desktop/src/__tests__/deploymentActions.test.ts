@@ -1,13 +1,21 @@
+import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseServerConfig } from "@planweave-ai/server";
+import {
+  hashOperatorToken,
+  parseServerConfig,
+  restoreServerDataScript
+} from "@planweave-ai/server";
 import { unzipSync } from "fflate";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DeploymentActions,
   DeploymentBundleUnavailableError
 } from "../main/collaboration/deploymentActions.js";
+import { writeDesktopConnectionScript } from "../main/collaboration/writeDesktopConnectionScript.js";
+
+const operatorToken = `pw_operator_${"A".repeat(43)}`;
 
 const target = {
   schemaVersion: "deployment-target-draft/v1" as const,
@@ -160,32 +168,17 @@ describe("DeploymentActions", () => {
     ).rejects.toThrow("secure_storage_failed");
   });
 
-  it("exports a portable non-symlink source bundle", async () => {
+  it("exports a Server bundle without packing the current project", async () => {
     const root = await temporaryRoot();
     const resourceDirectory = join(root, "resource");
-    const workspaceRoot = join(root, "workspace");
     const bundlePath = join(root, "bundle.zip");
-    await Promise.all([
-      mkdir(join(resourceDirectory, "image"), { recursive: true }),
-      mkdir(workspaceRoot, { recursive: true })
-    ]);
+    await mkdir(join(resourceDirectory, "image"), { recursive: true });
     await Promise.all([
       writeFile(join(resourceDirectory, "compose.yaml"), "services: {}\n"),
-      writeFile(join(resourceDirectory, "image", "Dockerfile"), "FROM scratch\n"),
-      writeFile(
-        join(workspaceRoot, "project.json"),
-        JSON.stringify({
-          id: "project-test",
-          name: "Source project",
-          rootPath: workspaceRoot,
-          kind: "external",
-          sourceRoot: workspaceRoot,
-          createdAt: "2030-01-01T00:00:00.000Z"
-        })
-      ),
-      writeFile(join(workspaceRoot, "project.txt"), "portable workspace\n")
+      writeFile(join(resourceDirectory, "image", "Dockerfile"), "FROM scratch\n")
     ]);
     const source = {
+      operatorToken,
       config: parseServerConfig({
         version: "server-config/v1",
         bind: { host: "0.0.0.0", port: 443 },
@@ -196,54 +189,106 @@ describe("DeploymentActions", () => {
           privateKeyPath: "/run/planweave/input/tls/server.key"
         },
         dataDirectory: "/var/lib/planweave-server",
-        trustedProjects: [
-          {
-            workspaceId: "workspace-test",
-            projectId: "project-test",
-            canvasId: "default",
-            projectRoot: "/var/lib/planweave/projects/project-test"
-          }
-        ],
+        trustedProjects: [],
         operatorCredentials: [
           {
             operatorId: "operator-test",
-            tokenSha256: "a".repeat(64),
+            tokenSha256: hashOperatorToken(operatorToken),
             projectIds: [],
             serverAdmin: true
           }
         ]
-      }),
-      workspaceRoot,
-      projectId: "project-test"
+      })
     };
     const actions = new DeploymentActions({
       resourceDirectory,
       resolveBundleSource: async () => source,
       showSaveDialog: async () => ({ canceled: false, filePath: bundlePath })
     });
-    await expect(
-      actions.exportComposeBundle(request("export_supported_compose_bundle"))
-    ).resolves.toEqual({
+    const exported = await actions.exportComposeBundle(request("export_supported_compose_bundle"));
+    expect(exported).toEqual({
       state: "exported",
       fileName: "bundle.zip",
       tls: "required_after_export"
     });
+    expect(JSON.stringify(exported)).not.toContain(operatorToken);
     const archive = unzipSync(await readFile(bundlePath));
-    expect(Object.keys(archive)).toEqual(
-      expect.arrayContaining([
+    expect(Object.keys(archive).sort()).toEqual(
+      [
+        ".operator-token",
         "compose.yaml",
         "image/Dockerfile",
-        "projects/project-test/project.json",
-        "projects/project-test/project.txt"
-      ])
+        "restore-server-data.sh",
+        "server.json",
+        "tls/.gitkeep",
+        "write-desktop-connection.sh"
+      ].sort()
     );
-    expect(
-      JSON.parse(new TextDecoder().decode(archive["projects/project-test/project.json"]))
-    ).toMatchObject({
-      id: "project-test",
-      kind: "managed",
-      rootPath: "/var/lib/planweave/projects/project-test",
-      sourceRoot: null
+    expect(new TextDecoder().decode(archive[".operator-token"])).toBe(`${operatorToken}\n`);
+    const script = new TextDecoder().decode(archive["write-desktop-connection.sh"]);
+    expect(script).toBe(
+      writeDesktopConnectionScript.endsWith("\n")
+        ? writeDesktopConnectionScript
+        : `${writeDesktopConnectionScript}\n`
+    );
+    expect(script).toContain(".setup-handoff.txt");
+    expect(JSON.parse(new TextDecoder().decode(archive["server.json"]))).toMatchObject({
+      trustedProjects: []
     });
+    expect(JSON.parse(new TextDecoder().decode(archive["server.json"]))).not.toMatchObject({
+      operatorToken
+    });
+    const scriptPath = join(root, "write-desktop-connection.sh");
+    await writeFile(scriptPath, script);
+    expect(spawnSync("sh", ["-n", scriptPath], { encoding: "utf8" }).status).toBe(0);
+    const restoreScript = new TextDecoder().decode(archive["restore-server-data.sh"]);
+    expect(restoreScript).toBe(
+      restoreServerDataScript.endsWith("\n")
+        ? restoreServerDataScript
+        : `${restoreServerDataScript}\n`
+    );
+    const restoreScriptPath = join(root, "restore-server-data.sh");
+    await writeFile(restoreScriptPath, restoreScript);
+    expect(spawnSync("sh", ["-n", restoreScriptPath], { encoding: "utf8" }).status).toBe(0);
+  });
+
+  it("rejects a bundle whose operator token does not match server.json", async () => {
+    const root = await temporaryRoot();
+    const resourceDirectory = join(root, "resource");
+    await mkdir(join(resourceDirectory, "image"), { recursive: true });
+    await Promise.all([
+      writeFile(join(resourceDirectory, "compose.yaml"), "services: {}\n"),
+      writeFile(join(resourceDirectory, "image", "Dockerfile"), "FROM scratch\n")
+    ]);
+    const actions = new DeploymentActions({
+      resourceDirectory,
+      resolveBundleSource: async () => ({
+        operatorToken: `pw_operator_${"B".repeat(43)}`,
+        config: parseServerConfig({
+          version: "server-config/v1",
+          bind: { host: "0.0.0.0", port: 443 },
+          publicUrl: target.endpoint.serverOrigin,
+          deployment: target.endpoint,
+          tls: {
+            certificatePath: "/run/planweave/input/tls/server.crt",
+            privateKeyPath: "/run/planweave/input/tls/server.key"
+          },
+          dataDirectory: "/var/lib/planweave-server",
+          trustedProjects: [],
+          operatorCredentials: [
+            {
+              operatorId: "operator-test",
+              tokenSha256: hashOperatorToken(operatorToken),
+              projectIds: [],
+              serverAdmin: true
+            }
+          ]
+        })
+      }),
+      showSaveDialog: async () => ({ canceled: false, filePath: join(root, "bundle.zip") })
+    });
+    await expect(
+      actions.exportComposeBundle(request("export_supported_compose_bundle"))
+    ).resolves.toMatchObject({ state: "invalid_project" });
   });
 });

@@ -205,8 +205,17 @@ describe("desktop IPC contract", () => {
     expect(collaborationInvokeChannels.redeemCollaborationSetupCode).toBe(
       "planweave-collaboration:redeemSetupCode"
     );
+    expect(collaborationInvokeChannels.connectExistingServerByOrigin).toBe(
+      "planweave-collaboration:connectExistingServerByOrigin"
+    );
     expect(collaborationInvokeChannels.getActiveWorkspaceConnection).toBe(
       "planweave-collaboration:getActiveWorkspaceConnection"
+    );
+    expect(collaborationInvokeChannels.listRememberedServerConnections).toBe(
+      "planweave-collaboration:listRememberedServerConnections"
+    );
+    expect(collaborationInvokeChannels.forgetRememberedServerConnection).toBe(
+      "planweave-collaboration:forgetRememberedServerConnection"
     );
     expect(collaborationInvokeChannels.listWorkspacePicker).toBe(
       "planweave-collaboration:listWorkspacePicker"
@@ -279,6 +288,15 @@ describe("desktop IPC contract", () => {
     );
     expect(collaborationInvokeChannels.setDesktopServerExposureMode).toBe(
       "planweave-collaboration:setDesktopServerExposureMode"
+    );
+    expect(collaborationInvokeChannels.listServerDataExportSources).toBe(
+      "planweave-collaboration:listServerDataExportSources"
+    );
+    expect(collaborationInvokeChannels.exportServerDataArchive).toBe(
+      "planweave-collaboration:exportServerDataArchive"
+    );
+    expect(collaborationInvokeChannels.restoreServerDataArchive).toBe(
+      "planweave-collaboration:restoreServerDataArchive"
     );
     expect(collaborationInvokeChannels.revokeCollaborationInvitation).toBe(
       "planweave-collaboration:revokeInvitation"
