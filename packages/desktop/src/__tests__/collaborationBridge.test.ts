@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
@@ -18,8 +18,11 @@ import {
   CollaborationClientError,
   CollaborationCredentialVault,
   CollaborationProfileStore,
-  CollaborationService
+  CollaborationService,
+  CollaborationWorkspaceConnection,
+  WorkspaceConnectionProfileStore
 } from "../main/collaboration/index.js";
+import { ExportedServerDataIdentityStore } from "../main/collaboration/exportedServerDataIdentity.js";
 import { COLLABORATION_SESSION_ONLY_WARNING } from "../shared/collaboration.js";
 
 const tempRoots: string[] = [];
@@ -86,6 +89,33 @@ function json(res: ServerResponse, status: number, body: unknown): void {
     "content-length": bytes.byteLength
   });
   res.end(bytes);
+}
+
+function workspaceConnectionPage() {
+  return {
+    schemaVersion: "workspace-setup/v1",
+    items: [
+      {
+        schemaVersion: "workspace-setup/v1",
+        workspaceId: exampleSetupCodeRedeemDeviceResponse.connectionProfile.workspaceId,
+        displayName: "Authoritative Workspace",
+        role: "owner",
+        archivedAt: null,
+        membershipActive: true
+      }
+    ],
+    nextCursor: null
+  };
+}
+
+function collaborationOriginResponseBody(url: string) {
+  if (url.includes("/registry/projects")) {
+    return { items: [], nextCursor: null };
+  }
+  if (url.includes("/workspace-connection")) {
+    return workspaceConnectionPage();
+  }
+  return exampleSetupCodeRedeemDeviceResponse;
 }
 
 async function listen(
@@ -306,24 +336,7 @@ describe("CollaborationService IPC trust boundary", () => {
   it("redeems a setup code in main and exposes only a redacted Workspace connection", async () => {
     const root = await tempDir("planweave-collab-workspace-setup-");
     const request = vi.fn(async (_input: RequestInfo | URL) => {
-      const url = String(_input);
-      const body = url.includes("/workspace-connection")
-        ? {
-            schemaVersion: "workspace-setup/v1",
-            items: [
-              {
-                schemaVersion: "workspace-setup/v1",
-                workspaceId: exampleSetupCodeRedeemDeviceResponse.connectionProfile.workspaceId,
-                displayName: "Authoritative Workspace",
-                role: "owner",
-                archivedAt: null,
-                membershipActive: true
-              }
-            ],
-            nextCursor: null
-          }
-        : exampleSetupCodeRedeemDeviceResponse;
-      return new Response(JSON.stringify(body), {
+      return new Response(JSON.stringify(collaborationOriginResponseBody(String(_input))), {
         status: 200,
         headers: { "content-type": "application/json" }
       });
@@ -345,7 +358,7 @@ describe("CollaborationService IPC trust boundary", () => {
       displayName: "Ada"
     });
 
-    expect(request).toHaveBeenCalledTimes(2);
+    expect(request).toHaveBeenCalledTimes(3);
     expect(status.workspaceConnection.status).toBe("connected");
     expect(status.workspaceConnection.workspaceId).toBe(
       exampleSetupCodeRedeemDeviceResponse.connectionProfile.workspaceId
@@ -359,6 +372,237 @@ describe("CollaborationService IPC trust boundary", () => {
     expect(profileJson).not.toContain(exampleSetupCodeRedeemDeviceResponse.deviceToken);
     await service.disconnectWorkspaceConnection();
     expect((await service.getStatus()).workspaceConnection.status).toBe("local_only");
+  });
+
+  it("remembers a connected Server after disconnect and reconnects it as the last remote", async () => {
+    const root = await tempDir("planweave-collab-remembered-server-");
+    const request = vi.fn(async (_input: RequestInfo | URL) => {
+      return new Response(JSON.stringify(collaborationOriginResponseBody(String(_input))), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    });
+    const serviceOptions = {
+      profileStore: new CollaborationProfileStore({ profilesPath: join(root, "profiles.json") }),
+      workspaceProfileStorePaths: { profilesPath: join(root, "workspace-profiles.json") },
+      vault: new CollaborationCredentialVault({
+        paths: { credentialsPath: join(root, "credentials.json") },
+        safeStorage: mockSafeStorage({ available: true })
+      }),
+      request
+    };
+    const service = new CollaborationService(serviceOptions);
+    await service.redeemSetupCode({
+      serverBaseUrl: "http://127.0.0.1:8787/",
+      allowInsecureTransport: true,
+      setupCode: exampleSetupCode,
+      displayName: "Ada"
+    });
+
+    const remembered = await service.listRememberedServerConnections();
+    expect(remembered).toEqual([
+      expect.objectContaining({
+        profileId: exampleSetupCodeRedeemDeviceResponse.connectionProfile.profileId,
+        serverBaseUrl: exampleSetupCodeRedeemDeviceResponse.connectionProfile.serverBaseUrl,
+        hasDeviceCredential: true
+      })
+    ]);
+    expect(JSON.stringify(remembered)).not.toContain(
+      exampleSetupCodeRedeemDeviceResponse.deviceToken
+    );
+    expect(await service.peekPersistedRemoteProfileId()).toBe(
+      exampleSetupCodeRedeemDeviceResponse.connectionProfile.profileId
+    );
+
+    await service.disconnectWorkspaceConnection();
+    expect(await service.peekPersistedRemoteProfileId()).toBeNull();
+    expect(await service.listRememberedServerConnections()).toHaveLength(1);
+
+    const restarted = new CollaborationService(serviceOptions);
+    expect(await restarted.peekPersistedRemoteProfileId()).toBeNull();
+    expect(await restarted.listRememberedServerConnections()).toHaveLength(1);
+  });
+
+  it("reconnects the last remote Server after a process restart", async () => {
+    const root = await tempDir("planweave-collab-restore-remote-");
+    const request = vi.fn(async (_input: RequestInfo | URL) => {
+      return new Response(JSON.stringify(collaborationOriginResponseBody(String(_input))), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    });
+    const serviceOptions = {
+      profileStore: new CollaborationProfileStore({ profilesPath: join(root, "profiles.json") }),
+      workspaceProfileStorePaths: { profilesPath: join(root, "workspace-profiles.json") },
+      vault: new CollaborationCredentialVault({
+        paths: { credentialsPath: join(root, "credentials.json") },
+        safeStorage: mockSafeStorage({ available: true })
+      }),
+      request
+    };
+    const service = new CollaborationService(serviceOptions);
+    await service.redeemSetupCode({
+      serverBaseUrl: "http://127.0.0.1:8787/",
+      allowInsecureTransport: true,
+      setupCode: exampleSetupCode,
+      displayName: "Ada"
+    });
+
+    const restarted = new CollaborationService(serviceOptions);
+    expect(await restarted.peekPersistedRemoteProfileId()).toBe(
+      exampleSetupCodeRedeemDeviceResponse.connectionProfile.profileId
+    );
+    const status = await restarted.restorePersistedRemoteServerConnection(
+      exampleSetupCodeRedeemDeviceResponse.connectionProfile.profileId
+    );
+    expect(status.workspaceConnection.status).toBe("connected");
+    expect(status.workspaceConnection.profile?.profileId).toBe(
+      exampleSetupCodeRedeemDeviceResponse.connectionProfile.profileId
+    );
+  });
+
+  it("keeps the last remote Server after a local canvas steals activeProfileId", async () => {
+    const root = await tempDir("planweave-collab-last-connection-steal-");
+    const request = vi.fn(async (_input: RequestInfo | URL) => {
+      return new Response(JSON.stringify(collaborationOriginResponseBody(String(_input))), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    });
+    const serviceOptions = {
+      profileStore: new CollaborationProfileStore({ profilesPath: join(root, "profiles.json") }),
+      workspaceProfileStorePaths: { profilesPath: join(root, "workspace-profiles.json") },
+      vault: new CollaborationCredentialVault({
+        paths: { credentialsPath: join(root, "credentials.json") },
+        safeStorage: mockSafeStorage({ available: true })
+      }),
+      request
+    };
+    const service = new CollaborationService(serviceOptions);
+    await service.redeemSetupCode({
+      serverBaseUrl: "http://127.0.0.1:8787/",
+      allowInsecureTransport: true,
+      setupCode: exampleSetupCode,
+      displayName: "Ada"
+    });
+    const remoteProfileId = exampleSetupCodeRedeemDeviceResponse.connectionProfile.profileId;
+    const localProfileId = "planweave-local-d5e342216f40e0632c512d0d";
+    await service.upsertProfile({
+      profileId: localProfileId,
+      displayName: "This computer",
+      serverBaseUrl: "http://127.0.0.1:8787/",
+      projectId: "desktop-project",
+      allowInsecureTransport: true,
+      endpoint: loopbackEndpoint("http://127.0.0.1:8787/")
+    });
+    await service.adoptWorkspaceAuthority({
+      profileId: localProfileId,
+      workspaceId: "workspace-local-001",
+      membershipRole: "owner"
+    });
+
+    expect(await service.peekPersistedRemoteProfileId()).toBe(remoteProfileId);
+    const persisted = JSON.parse(await readFile(join(root, "workspace-profiles.json"), "utf8")) as {
+      activeProfileId: string;
+      lastConnection?: { kind: string; profileId?: string };
+    };
+    expect(persisted.activeProfileId).toBe(localProfileId);
+    expect(persisted.lastConnection).toEqual({ kind: "remote", profileId: remoteProfileId });
+
+    const restarted = new CollaborationService(serviceOptions);
+    expect(await restarted.peekPersistedRemoteProfileId()).toBe(remoteProfileId);
+  });
+
+  it("repairs a stolen workspace-profiles.json that never stored lastConnection", async () => {
+    const root = await tempDir("planweave-collab-last-connection-repair-");
+    const profilesPath = join(root, "workspace-profiles.json");
+    await writeFile(
+      profilesPath,
+      `${JSON.stringify(
+        {
+          version: 1,
+          profiles: [
+            {
+              schemaVersion: "workspace-identity/v1",
+              profileId: "planweave-local-d5e342216f40e0632c512d0d",
+              displayName: "This computer",
+              serverBaseUrl: "https://mrbrainmacbook-air.tailb06a1e.ts.net/",
+              workspaceId: "workspace-local-001",
+              allowInsecureTransport: false,
+              workspaceDisplayName: "This computer",
+              membershipRole: "owner",
+              membershipActive: true,
+              updatedAt: "2026-08-19T04:18:26.897Z"
+            },
+            {
+              schemaVersion: "workspace-identity/v1",
+              profileId: "profile-a30ac80f13f64bf7133c64cc",
+              displayName: "Configured workspace",
+              serverBaseUrl: "https://vm-0-3-ubuntu.tailb06a1e.ts.net/",
+              workspaceId: "workspace-demo-001",
+              allowInsecureTransport: false,
+              workspaceDisplayName: "Configured workspace",
+              membershipRole: "owner",
+              membershipActive: true,
+              updatedAt: "2026-08-19T04:18:26.137Z"
+            }
+          ],
+          activeProfileId: "planweave-local-d5e342216f40e0632c512d0d"
+        },
+        null,
+        2
+      )}\n`
+    );
+    const restarted = new CollaborationService({
+      profileStore: new CollaborationProfileStore({ profilesPath: join(root, "profiles.json") }),
+      workspaceProfileStorePaths: { profilesPath },
+      vault: new CollaborationCredentialVault({
+        paths: { credentialsPath: join(root, "credentials.json") },
+        safeStorage: mockSafeStorage({ available: true })
+      })
+    });
+    expect(await restarted.peekPersistedRemoteProfileId()).toBe("profile-a30ac80f13f64bf7133c64cc");
+    const persisted = JSON.parse(await readFile(profilesPath, "utf8")) as {
+      lastConnection?: { kind: string; profileId?: string };
+    };
+    expect(persisted.lastConnection).toEqual({
+      kind: "remote",
+      profileId: "profile-a30ac80f13f64bf7133c64cc"
+    });
+  });
+
+  it("forgets a remembered Server and drops its stored credential", async () => {
+    const root = await tempDir("planweave-collab-forget-server-");
+    const request = vi.fn(async (_input: RequestInfo | URL) => {
+      return new Response(JSON.stringify(collaborationOriginResponseBody(String(_input))), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    });
+    const vault = new CollaborationCredentialVault({
+      paths: { credentialsPath: join(root, "credentials.json") },
+      safeStorage: mockSafeStorage({ available: true })
+    });
+    const service = new CollaborationService({
+      profileStore: new CollaborationProfileStore({ profilesPath: join(root, "profiles.json") }),
+      workspaceProfileStorePaths: { profilesPath: join(root, "workspace-profiles.json") },
+      vault,
+      request
+    });
+    await service.redeemSetupCode({
+      serverBaseUrl: "http://127.0.0.1:8787/",
+      allowInsecureTransport: true,
+      setupCode: exampleSetupCode,
+      displayName: "Ada"
+    });
+    const profileId = exampleSetupCodeRedeemDeviceResponse.connectionProfile.profileId;
+    expect(await vault.getDeviceToken(profileId)).toBeTruthy();
+
+    const status = await service.forgetRememberedServerConnection({ profileId });
+    expect(status.workspaceConnection.status).toBe("local_only");
+    expect(await service.listRememberedServerConnections()).toEqual([]);
+    expect(await service.peekPersistedRemoteProfileId()).toBeNull();
+    expect(await vault.getDeviceToken(profileId)).toBeUndefined();
   });
 
   it("returns the missing-credential status instead of throwing again when retry is stale", async () => {
@@ -1068,5 +1312,332 @@ describe("CollaborationService IPC trust boundary", () => {
     expect(startObserver).toHaveBeenCalledWith(expect.any(Object), { cursor: 0 });
 
     await service.shutdown();
+  });
+
+  it("reconnects a restored Server origin with this computer's local Workspace credential", async () => {
+    const root = await tempDir("planweave-collab-restore-origin-");
+    const localToken = exampleHumanDeviceToken;
+    const staleToken = `pw_hdev_${"B".repeat(43)}`;
+    const localWorkspaceId = "workspace-local-d5e342216f40e0632c512d0d61b94e71";
+    const store = new WorkspaceConnectionProfileStore({
+      profilesPath: join(root, "workspace-profiles.json")
+    });
+    const vault = new CollaborationCredentialVault({
+      paths: { credentialsPath: join(root, "credentials.json") },
+      safeStorage: mockSafeStorage({ available: true })
+    });
+    await store.upsert({
+      profile: {
+        schemaVersion: "workspace-identity/v1",
+        profileId: "planweave-local-d5e342216f40e0632c512d0d",
+        displayName: "Local collaboration server",
+        serverBaseUrl: "http://127.0.0.1:9999/",
+        workspaceId: localWorkspaceId,
+        allowInsecureTransport: true
+      },
+      workspaceDisplayName: "Local collaboration server",
+      membershipRole: "owner",
+      membershipActive: true
+    });
+    await store.upsert({
+      profile: {
+        schemaVersion: "workspace-identity/v1",
+        profileId: "profile-remote-origin",
+        displayName: "Configured workspace",
+        serverBaseUrl: "http://127.0.0.1:8787/",
+        workspaceId: "workspace-self-host",
+        allowInsecureTransport: true
+      },
+      workspaceDisplayName: "Configured workspace",
+      membershipRole: "member",
+      membershipActive: true
+    });
+    await vault.setDeviceToken("planweave-local-d5e342216f40e0632c512d0d", localToken, {
+      deviceCredentialId: "device-local-001",
+      humanPrincipalId: "human-owner-001"
+    });
+    await vault.setDeviceToken("profile-remote-origin", staleToken, {
+      deviceCredentialId: "device-stale-001",
+      humanPrincipalId: "human-stale-001"
+    });
+    const request = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const authorization =
+        init && typeof init.headers === "object" && !Array.isArray(init.headers)
+          ? String((init.headers as Record<string, string>).authorization ?? "")
+          : "";
+      if (authorization === `Bearer ${staleToken}`) {
+        return new Response(JSON.stringify({ error: "workspace_connection_unauthorized" }), {
+          status: 401,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      expect(authorization).toBe(`Bearer ${localToken}`);
+      expect(String(input)).toContain("http://127.0.0.1:8787/");
+      return new Response(
+        JSON.stringify({
+          schemaVersion: "workspace-setup/v1",
+          items: [
+            {
+              schemaVersion: "workspace-setup/v1",
+              workspaceId: localWorkspaceId,
+              displayName: "Local collaboration server",
+              role: "owner",
+              archivedAt: null,
+              membershipActive: true
+            }
+          ],
+          nextCursor: null
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    });
+    const connection = new CollaborationWorkspaceConnection({
+      store,
+      vault,
+      request,
+      exportedIdentityPath: join(root, "exported-server-data-identity.json")
+    });
+    expect(await connection.tryReconnectByOrigin("http://127.0.0.1:8787/")).toBe(true);
+    const view = await connection.buildView();
+    expect(view.status).toBe("connected");
+    expect(view.workspaceId).toBe(localWorkspaceId);
+    expect(view.profile?.serverBaseUrl).toBe("http://127.0.0.1:8787/");
+    expect(view.profile?.profileId).toBe("profile-remote-origin");
+    expect(await vault.getDeviceToken("profile-remote-origin")).toBe(localToken);
+    const local = await store.get("planweave-local-d5e342216f40e0632c512d0d");
+    expect(local?.serverBaseUrl).toBe("http://127.0.0.1:9999/");
+  });
+
+  it("reconnects from the exported identity snapshot after local Server profiles are gone", async () => {
+    const root = await tempDir("planweave-collab-restore-exported-");
+    const localToken = exampleHumanDeviceToken;
+    const staleToken = `pw_hdev_${"B".repeat(43)}`;
+    const localWorkspaceId = "workspace-local-d5e342216f40e0632c512d0d61b94e71";
+    const store = new WorkspaceConnectionProfileStore({
+      profilesPath: join(root, "workspace-profiles.json")
+    });
+    const vault = new CollaborationCredentialVault({
+      paths: { credentialsPath: join(root, "credentials.json") },
+      safeStorage: mockSafeStorage({ available: true })
+    });
+    await store.upsert({
+      profile: {
+        schemaVersion: "workspace-identity/v1",
+        profileId: "profile-remote-origin",
+        displayName: "Configured workspace",
+        serverBaseUrl: "http://127.0.0.1:8787/",
+        workspaceId: "workspace-self-host",
+        allowInsecureTransport: true
+      },
+      workspaceDisplayName: "Configured workspace",
+      membershipRole: "member",
+      membershipActive: true
+    });
+    await vault.setDeviceToken("profile-remote-origin", staleToken, {
+      deviceCredentialId: "device-stale-001",
+      humanPrincipalId: "human-stale-001"
+    });
+    const identity = new ExportedServerDataIdentityStore(
+      join(root, "exported-server-data-identity.json")
+    );
+    await identity.write({
+      schemaVersion: "exported-server-data-identity/v1",
+      workspaceId: localWorkspaceId,
+      workspaceDisplayName: "Local collaboration server",
+      membershipRole: "owner",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    });
+    await vault.setDeviceToken("planweave-exported-server-data", localToken, {
+      deviceCredentialId: "device-local-001",
+      humanPrincipalId: "human-owner-001"
+    });
+    const request = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const authorization =
+        init && typeof init.headers === "object" && !Array.isArray(init.headers)
+          ? String((init.headers as Record<string, string>).authorization ?? "")
+          : "";
+      if (authorization === `Bearer ${staleToken}`) {
+        return new Response(JSON.stringify({ error: "workspace_connection_unauthorized" }), {
+          status: 401,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      expect(authorization).toBe(`Bearer ${localToken}`);
+      return new Response(
+        JSON.stringify({
+          schemaVersion: "workspace-setup/v1",
+          items: [
+            {
+              schemaVersion: "workspace-setup/v1",
+              workspaceId: localWorkspaceId,
+              displayName: "Local collaboration server",
+              role: "owner",
+              archivedAt: null,
+              membershipActive: true
+            }
+          ],
+          nextCursor: null
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    });
+    const connection = new CollaborationWorkspaceConnection({
+      store,
+      vault,
+      request,
+      exportedIdentityStore: identity
+    });
+    expect(await connection.tryReconnectByOrigin("http://127.0.0.1:8787/")).toBe(true);
+    const view = await connection.buildView();
+    expect(view.status).toBe("connected");
+    expect(view.workspaceId).toBe(localWorkspaceId);
+    expect(await store.get("planweave-local-d5e342216f40e0632c512d0d")).toBeNull();
+  });
+});
+
+describe("CollaborationService live Server binding", () => {
+  it("connects the collaboration session to the same origin as the live Server", async () => {
+    const root = await tempDir("planweave-collab-live-server-");
+    const localWorkspaceId = "workspace-local-d5e342216f40e0632c512d0d61b94e71";
+    const localToken = exampleHumanDeviceToken;
+    const staleToken = `pw_hdev_${"B".repeat(43)}`;
+    const connectedOrigins: string[] = [];
+    const liveOperatorOrigins: string[] = [];
+    const server = await listen(async (req, res) => {
+      const authorization = String(req.headers.authorization ?? "");
+      if (authorization === `Bearer ${staleToken}`) {
+        json(res, 401, { error: "workspace_connection_unauthorized" });
+        return;
+      }
+      if (authorization !== `Bearer ${localToken}`) {
+        json(res, 401, { error: "unauthorized" });
+        return;
+      }
+      const url = new URL(req.url ?? "/", "http://127.0.0.1");
+      if (url.pathname === "/api/v1/workspace-connection") {
+        json(res, 200, {
+          schemaVersion: "workspace-setup/v1",
+          items: [
+            {
+              schemaVersion: "workspace-setup/v1",
+              workspaceId: localWorkspaceId,
+              displayName: "Local collaboration server",
+              role: "owner",
+              archivedAt: null,
+              membershipActive: true
+            }
+          ],
+          nextCursor: null
+        });
+        return;
+      }
+      if (url.pathname === "/api/v1/registry/projects") {
+        json(res, 200, {
+          items: [
+            {
+              schemaVersion: "project-access/v1",
+              registry: {
+                projectRegistryId: "registry-project-live",
+                workspaceId: localWorkspaceId,
+                projectId: "project-live-001"
+              },
+              visibility: "private",
+              acl: { revision: 1, updatedAt: "2030-01-01T00:00:00.000Z" },
+              owner: "human-owner-001",
+              updatedAt: "2030-01-01T00:00:00.000Z"
+            }
+          ],
+          nextCursor: null
+        });
+        return;
+      }
+      json(res, 404, { error: "not_found" });
+    });
+    const safeStorage = mockSafeStorage({ available: true });
+    const vault = new CollaborationCredentialVault({
+      paths: { credentialsPath: join(root, "credentials.json") },
+      safeStorage
+    });
+    const workspaceStore = new WorkspaceConnectionProfileStore({
+      profilesPath: join(root, "workspace-profiles.json")
+    });
+    await workspaceStore.upsert({
+      profile: {
+        schemaVersion: "workspace-identity/v1",
+        profileId: "planweave-local-d5e342216f40e0632c512d0d",
+        displayName: "Local collaboration server",
+        serverBaseUrl: "http://127.0.0.1:9999/",
+        workspaceId: localWorkspaceId,
+        allowInsecureTransport: true
+      },
+      workspaceDisplayName: "Local collaboration server",
+      membershipRole: "owner",
+      membershipActive: true
+    });
+    await workspaceStore.upsert({
+      profile: {
+        schemaVersion: "workspace-identity/v1",
+        profileId: "profile-remote-origin",
+        displayName: "Configured workspace",
+        serverBaseUrl: server.origin,
+        workspaceId: "workspace-self-host",
+        allowInsecureTransport: true
+      },
+      workspaceDisplayName: "Configured workspace",
+      membershipRole: "member",
+      membershipActive: true
+    });
+    await vault.setDeviceToken("planweave-local-d5e342216f40e0632c512d0d", localToken, {
+      deviceCredentialId: "device-local-001",
+      humanPrincipalId: "human-owner-001"
+    });
+    await vault.setDeviceToken("profile-remote-origin", staleToken, {
+      deviceCredentialId: "device-stale-001",
+      humanPrincipalId: "human-stale-001"
+    });
+    const service = new CollaborationService({
+      profileStore: new CollaborationProfileStore({ profilesPath: join(root, "profiles.json") }),
+      vault,
+      workspaceProfileStore: workspaceStore,
+      safeStorage,
+      request: fetch,
+      bindLiveOperatorToOrigin: async (serverBaseUrl) => {
+        liveOperatorOrigins.push(serverBaseUrl);
+      },
+      createClient: (options) =>
+        ({
+          verifyAccess: async () => {
+            connectedOrigins.push(options.profile.serverBaseUrl);
+          },
+          startObserver: vi.fn(),
+          stopObserver: vi.fn(),
+          dispose: vi.fn(),
+          lastObserverCursor: () => 0
+        }) as never
+    });
+    await service.upsertProfile({
+      profileId: "planweave-local-d5e342216f40e0632c512d0d",
+      displayName: "Local collaboration server",
+      serverBaseUrl: "http://127.0.0.1:9999/",
+      projectId: "project-stale-local",
+      allowInsecureTransport: true,
+      endpoint: loopbackEndpoint("http://127.0.0.1:9999/")
+    });
+    await service.setActiveProfile({ profileId: "planweave-local-d5e342216f40e0632c512d0d" });
+
+    const status = await service.connectExistingServerByOrigin({ serverBaseUrl: server.origin });
+    await server.close();
+
+    expect(status.workspaceConnection.status).toBe("connected");
+    expect(status.workspaceConnection.profile?.serverBaseUrl).toBe(server.origin);
+    expect(status.activeProfileId).toBe("profile-remote-origin");
+    expect(status.session.phase).toBe("connected");
+    expect(connectedOrigins).toEqual([server.origin]);
+    expect(liveOperatorOrigins).toEqual([server.origin]);
+    const liveProfile = status.profiles.find(
+      (profile) => profile.profileId === "profile-remote-origin"
+    );
+    expect(liveProfile?.projectId).toBe("project-live-001");
+    expect(liveProfile?.serverBaseUrl).toBe(server.origin);
   });
 });

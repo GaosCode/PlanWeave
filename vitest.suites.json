@@ -280,6 +280,7 @@
         "collaborationPresence.test.ts",
         "collaborationPresenceTwoClientE2E.test.ts",
         "collaborationProfileEndpoint.test.ts",
+        "liveServerBinding.test.ts",
         "collaborationIpcTrustMatrix.test.ts",
         "collaborationRemoteOperationsProcess.test.ts",
         "collaborationRuntimeStatusStore.test.ts",

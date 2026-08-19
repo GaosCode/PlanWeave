@@ -1,5 +1,5 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, safeStorage } from "electron";
-import { join } from "node:path";
+import { resolveSelfHostServerResourceDirectory } from "./selfHostServerResource.js";
 import WebSocket from "ws";
 import { z } from "zod";
 import {
@@ -45,6 +45,9 @@ import {
 import { switchLocalCollaborationExposure } from "./localCollaborationExposureSwitch.js";
 import { assertRendererProfileNamespace } from "./collaborationProfileEndpoint.js";
 import { restorePersistedCollaborationSession } from "./persistedCollaborationSessionRecovery.js";
+import { restorePersistedDesktopServerConnection } from "./persistedDesktopServerConnection.js";
+import { desktopHomePaths } from "../planweaveHomePaths.js";
+import { ServerDataMigration } from "./serverDataMigration.js";
 
 let service: CollaborationService | null = null;
 let coordinator: LocalCollaborationCoordinatorControl | null = null;
@@ -121,7 +124,12 @@ function createDefaultService(options: CollaborationServiceOptions = {}): Collab
     onPresenceSignal: options.onPresenceSignal ?? publishPresenceSignalToRenderers,
     onCanvasLiveSyncSignal:
       options.onCanvasLiveSyncSignal ?? publishCanvasLiveSyncSignalToRenderers,
-    onCanvasReplicaSignal: options.onCanvasReplicaSignal ?? publishCanvasReplicaSignalToRenderers
+    onCanvasReplicaSignal: options.onCanvasReplicaSignal ?? publishCanvasReplicaSignalToRenderers,
+    bindLiveOperatorToOrigin:
+      options.bindLiveOperatorToOrigin ??
+      (async (serverBaseUrl) => {
+        await getOperatorControlService().bindActiveProfileToLiveOrigin(serverBaseUrl);
+      })
   });
 }
 
@@ -162,7 +170,11 @@ export function registerCollaborationHandlers(
     syncOperatorProfile: (input) => getOperatorControlService().ensureMainOwnedServerProfile(input)
   });
   const local = coordinator;
-  const localReady = lifecycle.run(() => local.restore());
+  const localReady = lifecycle.run(async () => {
+    const remoteProfileId = await active.peekPersistedRemoteProfileId();
+    if (remoteProfileId) return local.hydratePersistedExposure();
+    return local.restore();
+  });
   void localReady.catch((error: unknown) => {
     console.error("Failed to restore the local collaboration service.", error);
   });
@@ -175,9 +187,18 @@ export function registerCollaborationHandlers(
   const runCoordinationOperation = <T>(operation: () => Promise<T>): Promise<T> =>
     lifecycle.run(() => coordinationQueue(operation));
   const persistedWorkspaceReady = runCoordinationOperation(async () => {
-    await localReady;
-    await localActivation.reconcile();
-    await restorePersistedCollaborationSession(active);
+    await restorePersistedDesktopServerConnection({
+      peekPersistedRemoteProfileId: () => active.peekPersistedRemoteProfileId(),
+      restoreLocal: async () => {
+        await localReady;
+        await localActivation.reconcile();
+        await restorePersistedCollaborationSession(active);
+      },
+      restoreRemote: async (profileId) => {
+        await localReady;
+        await active.restorePersistedRemoteServerConnection(profileId);
+      }
+    });
   }).catch((error: unknown) => {
     console.error("Failed to restore the persisted collaboration Workspace.", error);
   });
@@ -190,20 +211,21 @@ export function registerCollaborationHandlers(
   };
   const deploymentActions = new DeploymentActions({
     writeClipboard: (value) => clipboard.writeText(value),
-    resourceDirectory: app.isPackaged
-      ? join(process.resourcesPath, "planweave-self-host-server")
-      : join(
-          process.cwd(),
-          "packages",
-          "desktop",
-          "build",
-          "generated",
-          "planweave-self-host-server"
-        ),
+    resourceDirectory: resolveSelfHostServerResourceDirectory({
+      packaged: app.isPackaged,
+      resourcesPath: process.resourcesPath
+    }),
     resolveBundleSource: (target) => local.createSelfHostedDeploymentSource(target),
     showSaveDialog: (options) => dialog.showSaveDialog(options)
   });
   const invitationHandoff = new CollaborationInvitationHandoffCoordinator(active, local);
+  const serverDataMigration = new ServerDataMigration({
+    dataDirectory: () => desktopHomePaths().localCollaborationServerDir,
+    localServerState: () => local.status().state,
+    showSaveDialog: (options) => dialog.showSaveDialog(options),
+    showOpenDialog: (options) => dialog.showOpenDialog(options),
+    onExported: () => active.snapshotExportedServerDataIdentity()
+  });
 
   ipcMain.handle(collaborationInvokeChannels.getCollaborationStatus, () =>
     lifecycle.run(async () => {
@@ -227,6 +249,24 @@ export function registerCollaborationHandlers(
   ipcMain.handle(
     collaborationInvokeChannels.exportDeploymentComposeBundle,
     (_event, input: unknown) => deploymentActions.exportComposeBundle(input)
+  );
+  ipcMain.handle(collaborationInvokeChannels.listServerDataExportSources, () =>
+    lifecycle.run(async () => {
+      await localReady;
+      return serverDataMigration.listSources();
+    })
+  );
+  ipcMain.handle(collaborationInvokeChannels.exportServerDataArchive, (_event, input: unknown) =>
+    runCoordinationOperation(async () => {
+      await localReady;
+      return serverDataMigration.exportArchive(input);
+    })
+  );
+  ipcMain.handle(collaborationInvokeChannels.restoreServerDataArchive, (_event, input: unknown) =>
+    runCoordinationOperation(async () => {
+      await localReady;
+      return serverDataMigration.restoreArchive(input);
+    })
   );
   ipcMain.handle(collaborationInvokeChannels.clearActiveCollaborationProfile, () =>
     runCoordinationOperation(() => active.clearActiveProfile())
@@ -268,8 +308,27 @@ export function registerCollaborationHandlers(
     collaborationInvokeChannels.redeemCollaborationSetupCode,
     (_event, input: unknown) => runCoordinationOperation(() => active.redeemSetupCode(input))
   );
+  ipcMain.handle(
+    collaborationInvokeChannels.connectExistingServerByOrigin,
+    (_event, input: unknown) =>
+      runCoordinationOperation(() => active.connectExistingServerByOrigin(input))
+  );
   ipcMain.handle(collaborationInvokeChannels.getActiveWorkspaceConnection, () =>
-    active.getActiveWorkspaceConnection()
+    lifecycle.run(async () => {
+      await persistedWorkspaceReady;
+      return active.getActiveWorkspaceConnection();
+    })
+  );
+  ipcMain.handle(collaborationInvokeChannels.listRememberedServerConnections, () =>
+    lifecycle.run(async () => {
+      await persistedWorkspaceReady;
+      return active.listRememberedServerConnections();
+    })
+  );
+  ipcMain.handle(
+    collaborationInvokeChannels.forgetRememberedServerConnection,
+    (_event, input: unknown) =>
+      runCoordinationOperation(() => active.forgetRememberedServerConnection(input))
   );
   ipcMain.handle(collaborationInvokeChannels.listWorkspacePicker, (_event, input: unknown) =>
     active.listWorkspacePicker(input)
@@ -308,7 +367,14 @@ export function registerCollaborationHandlers(
     collaborationInvokeChannels.setDesktopServerExposureMode,
     (_event, input: unknown) =>
       runCoordinationOperation(() =>
-        switchLocalCollaborationExposure(local, localActivation, input)
+        switchLocalCollaborationExposure(
+          local,
+          {
+            reconcile: () => localActivation.reconcile(),
+            rememberThisComputerAsLastServer: () => active.markLastServerConnectionLocal()
+          },
+          input
+        )
       )
   );
   ipcMain.handle(collaborationInvokeChannels.startCollaborationPresence, (_event, input: unknown) =>
@@ -430,6 +496,7 @@ export function registerCollaborationHandlers(
     runCoordinationOperation(async () => {
       const status = await local.start();
       if (status.state !== "running") return status;
+      await active.markLastServerConnectionLocal();
       await localActivation.reconcile();
       return status;
     })

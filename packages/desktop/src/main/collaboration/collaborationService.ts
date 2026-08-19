@@ -59,7 +59,8 @@ import {
   type CollaborationCanvasLiveSyncSignal,
   type CollaborationSessionPhase,
   type CollaborationStatus,
-  type CollaborationUpsertProfileInput
+  type CollaborationUpsertProfileInput,
+  type RememberedServerConnectionView
 } from "../../shared/collaboration.js";
 import { CollaborationClient, type CollaborationClientOptions } from "./CollaborationClient.js";
 import { CollaborationRegistryService } from "./CollaborationRegistryService.js";
@@ -87,6 +88,11 @@ import { collaborationCredentialVaultPaths } from "./collaborationCredentialVaul
 import { collaborationProfileStorePaths } from "./collaborationProfileStore.js";
 import { CollaborationWorkspaceConnection } from "./collaborationWorkspaceConnection.js";
 import { CollaborationWorkspaceConnectionFacade } from "./collaborationWorkspaceConnectionFacade.js";
+import {
+  buildLiveCollaborationProfile,
+  listLiveRegistryProjects,
+  pickLiveProjectId
+} from "./liveServerBinding.js";
 import { buildCollaborationStatus } from "./collaborationStatusView.js";
 import {
   WorkspaceConnectionProfileStore,
@@ -114,6 +120,7 @@ export type CollaborationServiceOptions = {
   profileStorePaths?: CollaborationProfileStorePaths;
   workspaceProfileStore?: WorkspaceConnectionProfileStore;
   workspaceProfileStorePaths?: WorkspaceConnectionProfileStorePaths;
+  exportedIdentityPath?: string;
   credentialsPath?: string;
   invitationVault?: CollaborationInvitationVault;
   invitationsPath?: string;
@@ -125,6 +132,8 @@ export type CollaborationServiceOptions = {
   onPresenceSignal?: (signal: CollaborationPresenceSignal) => void;
   onCanvasLiveSyncSignal?: (signal: CollaborationCanvasLiveSyncSignal) => void;
   onCanvasReplicaSignal?: (signal: CollaborationCanvasReplicaSignal) => void;
+  /** Bind Agent Host operator traffic to the same origin as the live Server. */
+  bindLiveOperatorToOrigin?: (serverBaseUrl: string) => Promise<void>;
 };
 
 /**
@@ -155,6 +164,7 @@ export class CollaborationService {
   private readonly profileLifecycle: CollaborationProfileLifecycle;
   private readonly identityOperations: CollaborationIdentityOperations;
   private readonly sessionLifecycle: CollaborationSessionLifecycle;
+  private readonly bindLiveOperatorToOrigin?: (serverBaseUrl: string) => Promise<void>;
   private workspaceHydrated = false;
 
   private client: CollaborationClient | null = null;
@@ -203,6 +213,7 @@ export class CollaborationService {
     this.onPresenceSignal = options.onPresenceSignal;
     this.onCanvasLiveSyncSignal = options.onCanvasLiveSyncSignal;
     this.onCanvasReplicaSignal = options.onCanvasReplicaSignal;
+    this.bindLiveOperatorToOrigin = options.bindLiveOperatorToOrigin;
     this.canvasReplicaMirror = new CanvasReplicaDiskMirror();
     this.canvasReplicas = new CanvasReplicaStore(
       (projection) => this.onCanvasReplicaSignal?.({ type: "canvas.replica.changed", projection }),
@@ -263,6 +274,7 @@ export class CollaborationService {
         new WorkspaceConnectionProfileStore(
           options.workspaceProfileStorePaths ?? workspaceConnectionProfileStorePaths()
         ),
+      exportedIdentityPath: options.exportedIdentityPath,
       vault: this.vault,
       request: options.request,
       clock: options.clock
@@ -324,6 +336,74 @@ export class CollaborationService {
     if (this.workspaceHydrated) return;
     await this.workspaceConnection.hydrate();
     this.workspaceHydrated = true;
+  }
+
+  /**
+   * After the Workspace origin is live, members and operator must use that same Server.
+   * Origin connect already succeeded; session bind failures stay on the session, not the origin.
+   */
+  private async activateLiveServerSurfacesWithinQueue(): Promise<void> {
+    const view = await this.workspaceConnection.buildView();
+    if (view.status !== "connected" || !view.profile || !view.workspaceId) return;
+    const live = {
+      profileId: view.profile.profileId,
+      displayName: view.profile.displayName,
+      serverBaseUrl: view.profile.serverBaseUrl,
+      workspaceId: view.workspaceId,
+      allowInsecureTransport: view.profile.allowInsecureTransport
+    };
+    if (this.bindLiveOperatorToOrigin) {
+      await this.bindLiveOperatorToOrigin(live.serverBaseUrl);
+    }
+    try {
+      await this.activateLiveCollaborationSessionWithinQueue(live);
+    } catch (error) {
+      const mapped = collaborationErrorFromUnknown(error);
+      this.setSession("error", "live_session_bind_failed", {
+        code: mapped.code,
+        message: mapped.message
+      });
+    }
+  }
+
+  private async activateLiveCollaborationSessionWithinQueue(live: {
+    profileId: string;
+    displayName: string;
+    serverBaseUrl: string;
+    workspaceId: string;
+    allowInsecureTransport: boolean;
+  }): Promise<void> {
+    const origin = new URL(live.serverBaseUrl).origin;
+    const existing = (await this.profiles.list()).find((profile) => {
+      try {
+        return new URL(profile.serverBaseUrl).origin === origin;
+      } catch {
+        return false;
+      }
+    });
+    const registryProjects = await listLiveRegistryProjects({
+      serverBaseUrl: live.serverBaseUrl,
+      getDeviceToken: () => this.vault.getDeviceToken(live.profileId),
+      request: this.request
+    });
+    const projectId = pickLiveProjectId({
+      workspaceId: live.workspaceId,
+      registryProjects,
+      preferredProjectId: existing?.projectId ?? null
+    });
+    if (!projectId) return;
+    await this.profiles.upsert(
+      buildLiveCollaborationProfile({
+        profileId: live.profileId,
+        displayName: live.displayName,
+        serverBaseUrl: live.serverBaseUrl,
+        allowInsecureTransport: live.allowInsecureTransport,
+        projectId
+      })
+    );
+    await this.sessionLifecycle.connectWithinQueue(live.profileId, {
+      preserveCredentialOnAuthFailure: true
+    });
   }
 
   private async activateWorkspaceAuthorityInternal(input: {
@@ -533,7 +613,19 @@ export class CollaborationService {
     return this.enqueue(async () => {
       this.assertOpen();
       await this.ensureWorkspaceHydrated();
-      return this.workspaceConnectionFacade.redeemSetupCode(input);
+      await this.workspaceConnectionFacade.redeemSetupCode(input);
+      await this.activateLiveServerSurfacesWithinQueue();
+      return this.publishStatus();
+    });
+  }
+
+  async connectExistingServerByOrigin(input: unknown): Promise<CollaborationStatus> {
+    return this.enqueue(async () => {
+      this.assertOpen();
+      await this.ensureWorkspaceHydrated();
+      await this.workspaceConnectionFacade.connectExistingServerByOrigin(input);
+      await this.activateLiveServerSurfacesWithinQueue();
+      return this.publishStatus();
     });
   }
 
@@ -542,6 +634,45 @@ export class CollaborationService {
       this.assertOpen();
       await this.ensureWorkspaceHydrated();
       return this.workspaceConnectionFacade.getActiveWorkspaceConnection();
+    });
+  }
+
+  async peekPersistedRemoteProfileId(): Promise<string | null> {
+    return this.enqueue(async () => {
+      this.assertOpen();
+      return this.workspaceConnection.peekPersistedRemoteProfileId();
+    });
+  }
+
+  async snapshotExportedServerDataIdentity(): Promise<void> {
+    return this.enqueue(async () => {
+      this.assertOpen();
+      await this.workspaceConnection.snapshotExportedServerDataIdentity();
+    });
+  }
+
+  async markLastServerConnectionLocal(): Promise<void> {
+    return this.enqueue(async () => {
+      this.assertOpen();
+      await this.workspaceConnection.markLastConnectionLocal();
+    });
+  }
+
+  async restorePersistedRemoteServerConnection(profileId: string): Promise<CollaborationStatus> {
+    return this.enqueue(async () => {
+      this.assertOpen();
+      await this.ensureWorkspaceHydrated();
+      await this.workspaceConnectionFacade.selectWorkspaceConnection({ profileId });
+      await this.activateLiveServerSurfacesWithinQueue();
+      return this.publishStatus();
+    });
+  }
+
+  async listRememberedServerConnections(): Promise<RememberedServerConnectionView[]> {
+    return this.enqueue(async () => {
+      this.assertOpen();
+      await this.ensureWorkspaceHydrated();
+      return this.workspaceConnectionFacade.listRememberedServerConnections();
     });
   }
 
@@ -557,7 +688,9 @@ export class CollaborationService {
     return this.enqueue(async () => {
       this.assertOpen();
       await this.ensureWorkspaceHydrated();
-      return this.workspaceConnectionFacade.selectWorkspaceConnection(input);
+      await this.workspaceConnectionFacade.selectWorkspaceConnection(input);
+      await this.activateLiveServerSurfacesWithinQueue();
+      return this.publishStatus();
     });
   }
 
@@ -565,7 +698,9 @@ export class CollaborationService {
     return this.enqueue(async () => {
       this.assertOpen();
       await this.ensureWorkspaceHydrated();
-      return this.workspaceConnectionFacade.connectWorkspaceConnection();
+      await this.workspaceConnectionFacade.connectWorkspaceConnection();
+      await this.activateLiveServerSurfacesWithinQueue();
+      return this.publishStatus();
     });
   }
 
@@ -573,7 +708,16 @@ export class CollaborationService {
     return this.enqueue(async () => {
       this.assertOpen();
       await this.ensureWorkspaceHydrated();
+      await this.sessionLifecycle.disconnectWithinQueue();
       return this.workspaceConnectionFacade.disconnectWorkspaceConnection();
+    });
+  }
+
+  async forgetRememberedServerConnection(input: unknown): Promise<CollaborationStatus> {
+    return this.enqueue(async () => {
+      this.assertOpen();
+      await this.ensureWorkspaceHydrated();
+      return this.workspaceConnectionFacade.forgetRememberedServerConnection(input);
     });
   }
 
@@ -581,7 +725,9 @@ export class CollaborationService {
     return this.enqueue(async () => {
       this.assertOpen();
       await this.ensureWorkspaceHydrated();
-      return this.workspaceConnectionFacade.retryWorkspaceConnection();
+      await this.workspaceConnectionFacade.retryWorkspaceConnection();
+      await this.activateLiveServerSurfacesWithinQueue();
+      return this.publishStatus();
     });
   }
 

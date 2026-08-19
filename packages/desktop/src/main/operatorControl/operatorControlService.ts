@@ -46,6 +46,7 @@ import {
 import {
   getLocalOperatorBackendPort,
   isLocalOwnedOperatorProfile,
+  LOCAL_OPERATOR_PROFILE_ID,
   resolveEffectiveOperatorServerBaseUrl,
   type LocalOperatorBackendPort
 } from "./localOperatorBackend.js";
@@ -100,6 +101,13 @@ function localAgentHostErrorFromUnknown(error: unknown): OperatorControlError {
       ? error.message
       : "local_agent_host_registration_failed";
   return new OperatorControlError({ kind: "unknown", code, cause: error });
+}
+
+function isRejectedByTargetServer(error: unknown): boolean {
+  return (
+    error instanceof OperatorControlError &&
+    (error.kind === "unauthorized" || error.kind === "forbidden")
+  );
 }
 
 function toPublicProfile(
@@ -358,6 +366,38 @@ export class OperatorControlService {
     });
   }
 
+  /** Point Agent Host administration at the live Server origin; clear it when this Desktop is not that Server's operator. */
+  async bindActiveProfileToLiveOrigin(serverBaseUrl: string): Promise<OperatorControlStatus> {
+    return this.enqueue(async () => {
+      this.assertOpen();
+      const origin = new URL(serverBaseUrl).origin;
+      const matches = await this.operatorProfilesForOrigin(origin);
+      if (matches.length === 0) {
+        const activeId = await this.profiles.getActiveProfileId();
+        if (activeId) {
+          const active = await this.profiles.get(activeId);
+          let activeOrigin: string | null = null;
+          try {
+            activeOrigin = active ? new URL(active.serverBaseUrl).origin : null;
+          } catch {
+            activeOrigin = null;
+          }
+          if (activeOrigin !== origin) {
+            await this.profiles.setActiveProfileId(null);
+          }
+        }
+        return this.publishStatus();
+      }
+      const activeId = await this.profiles.getActiveProfileId();
+      if (!matches.some((match) => match.profileId === activeId)) {
+        await this.profiles.setActiveProfileId(matches[0].profileId);
+      }
+      this.lastErrorCode = null;
+      this.lastErrorMessage = null;
+      return this.publishStatus();
+    });
+  }
+
   async clearActiveProfile(): Promise<OperatorControlStatus> {
     return this.enqueue(async () => {
       this.assertOpen();
@@ -497,6 +537,188 @@ export class OperatorControlService {
           expiresAt: response.grant.expiresAt,
           copiedAt: nowIso(this.clock)
         });
+      })
+    );
+  }
+
+  /**
+   * Main-only: issue a one-time device setup code for a Server this Desktop already administers.
+   * The setup code never crosses the renderer boundary.
+   */
+  async issueDeviceSetupHandoffForOrigin(serverBaseUrl: string): Promise<{
+    serverBaseUrl: string;
+    allowInsecureTransport: boolean;
+    setupCode: string;
+    displayName: string;
+  }> {
+    return this.enqueue(async () => {
+      this.assertOpen();
+      const origin = new URL(serverBaseUrl).origin;
+      const targetBaseUrl = `${origin}/`;
+      const exact = await this.operatorProfilesForOrigin(origin);
+      const rejectedExact = new Set<string>();
+      for (const match of exact) {
+        try {
+          return await this.withProfile(
+            { profileId: match.profileId },
+            async (client, _value, profile) => {
+              const response = await client.issueMemberDeviceSetupCode();
+              return {
+                serverBaseUrl: targetBaseUrl,
+                allowInsecureTransport: profile.allowInsecureTransport,
+                setupCode: response.setupCode,
+                displayName: profile.displayName
+              };
+            }
+          );
+        } catch (error) {
+          if (!isRejectedByTargetServer(error)) throw error;
+          rejectedExact.add(match.profileId);
+        }
+      }
+      if (new URL(targetBaseUrl).protocol !== "https:") {
+        throw new OperatorControlError({
+          kind: "unauthorized",
+          code: "operator_credential_missing"
+        });
+      }
+      const candidates = (await this.profiles.list())
+        .filter((profile) => profile.profileId.startsWith("deployment-"))
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+      for (const profile of candidates) {
+        if (rejectedExact.has(profile.profileId)) continue;
+        if (!(await this.vault.getOperatorToken(profile.profileId))) continue;
+        try {
+          const handoff = await this.issueDeviceSetupHandoffAtOrigin({
+            profileId: profile.profileId,
+            displayName: profile.displayName,
+            serverBaseUrl: targetBaseUrl
+          });
+          await this.retargetOperatorProfileOrigin(profile.profileId, targetBaseUrl);
+          this.lastErrorCode = null;
+          this.lastErrorMessage = null;
+          return handoff;
+        } catch (error) {
+          if (isRejectedByTargetServer(error)) {
+            this.rememberError(error);
+            continue;
+          }
+          this.rememberError(error);
+          throw error;
+        }
+      }
+      if (rejectedExact.size > 0) {
+        const local = await this.profiles.get(LOCAL_OPERATOR_PROFILE_ID);
+        if (local && (await this.vault.getOperatorToken(local.profileId))) {
+          try {
+            const handoff = await this.issueDeviceSetupHandoffAtOrigin({
+              profileId: local.profileId,
+              displayName: local.displayName,
+              serverBaseUrl: targetBaseUrl
+            });
+            this.lastErrorCode = null;
+            this.lastErrorMessage = null;
+            return handoff;
+          } catch (error) {
+            if (!isRejectedByTargetServer(error)) {
+              this.rememberError(error);
+              throw error;
+            }
+            this.rememberError(error);
+          }
+        }
+      }
+      const missing = new OperatorControlError({
+        kind: "unauthorized",
+        code: "operator_credential_missing"
+      });
+      this.rememberError(missing);
+      throw missing;
+    });
+  }
+
+  private async operatorProfilesForOrigin(
+    origin: string
+  ): Promise<Array<{ profileId: string; updatedAt: string; deployment: boolean }>> {
+    const matches: Array<{ profileId: string; updatedAt: string; deployment: boolean }> = [];
+    for (const profile of await this.profiles.list()) {
+      try {
+        if (new URL(profile.serverBaseUrl).origin !== origin) continue;
+      } catch {
+        continue;
+      }
+      if (!(await this.vault.getOperatorToken(profile.profileId))) continue;
+      matches.push({
+        profileId: profile.profileId,
+        updatedAt: profile.updatedAt,
+        deployment: profile.profileId.startsWith("deployment-")
+      });
+    }
+    matches.sort((left, right) => {
+      if (left.deployment !== right.deployment) return left.deployment ? -1 : 1;
+      return right.updatedAt.localeCompare(left.updatedAt);
+    });
+    return matches;
+  }
+
+  private async issueDeviceSetupHandoffAtOrigin(input: {
+    profileId: string;
+    displayName: string;
+    serverBaseUrl: string;
+  }): Promise<{
+    serverBaseUrl: string;
+    allowInsecureTransport: boolean;
+    setupCode: string;
+    displayName: string;
+  }> {
+    const client = this.createClient({
+      profile: operatorControlProfileSchema.parse({
+        profileId: input.profileId,
+        displayName: input.displayName,
+        serverBaseUrl: input.serverBaseUrl,
+        allowInsecureTransport: false
+      }),
+      credential: { getOperatorToken: () => this.vault.getOperatorToken(input.profileId) },
+      request: this.request
+    });
+    try {
+      const response = await client.issueMemberDeviceSetupCode();
+      return {
+        serverBaseUrl: input.serverBaseUrl,
+        allowInsecureTransport: false,
+        setupCode: response.setupCode,
+        displayName: input.displayName
+      };
+    } finally {
+      client.dispose();
+    }
+  }
+
+  private async retargetOperatorProfileOrigin(
+    profileId: string,
+    serverBaseUrl: string
+  ): Promise<void> {
+    const profile = await this.profiles.get(profileId);
+    if (!profile) return;
+    if (new URL(profile.serverBaseUrl).origin === new URL(serverBaseUrl).origin) return;
+    await this.profiles.upsert(
+      operatorControlProfileSchema.parse({
+        profileId: profile.profileId,
+        displayName: profile.displayName,
+        serverBaseUrl,
+        allowInsecureTransport: profile.allowInsecureTransport,
+        ...(profile.operatorId ? { operatorId: profile.operatorId } : {}),
+        ...(profile.endpoint
+          ? {
+              endpoint: {
+                ...profile.endpoint,
+                serverOrigin: serverBaseUrl,
+                allowedClientOrigins: [
+                  ...new Set([serverBaseUrl, ...profile.endpoint.allowedClientOrigins])
+                ]
+              }
+            }
+          : {})
       })
     );
   }
