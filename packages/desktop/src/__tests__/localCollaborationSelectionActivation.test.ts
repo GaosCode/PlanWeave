@@ -188,7 +188,8 @@ describe("activateLocalCollaborationSelection", () => {
       bootstrapOwner: vi.fn(async () => ({
         workspaceId: "workspace-1",
         principal: { humanPrincipalId: "human-restored-owner" }
-      }))
+      })),
+      markLastServerConnectionLocal: vi.fn(async () => undefined)
     };
 
     const command = createLocalCollaborationActivationCommand({ coordinator, service });
@@ -200,6 +201,7 @@ describe("activateLocalCollaborationSelection", () => {
     });
     expect(coordinator.registerCurrentProject).not.toHaveBeenCalled();
     expect(service.connectSession).toHaveBeenCalledWith({ profileId: profile.profileId });
+    expect(service.markLastServerConnectionLocal).toHaveBeenCalledOnce();
   });
 
   it("keeps an old local canvas selectable when automatic Server restoration fails", async () => {
@@ -321,6 +323,52 @@ describe("activateLocalCollaborationSelection", () => {
     await command.selectAndReconcile({ projectId: "desktop-apollo", canvasId: "default" });
 
     expect(service.clearActiveProfile).not.toHaveBeenCalled();
+  });
+
+  it("does not adopt this computer when the last Server connection is remote", async () => {
+    const coordinator = {
+      currentSelection: vi.fn(() => null),
+      status: vi.fn(() => ({ state: "stopped" })),
+      start: vi.fn(async () => ({ state: "running" })),
+      currentSelectionIsTrusted: vi.fn(() => true),
+      recognizesLocalProfile: vi.fn(() => true),
+      setCurrentSelection: vi.fn(async () => undefined),
+      clearCurrentSelection: vi.fn(async () => undefined),
+      localProfile: vi.fn(() => profile),
+      localProfileForId: vi.fn(() => profile),
+      registerCurrentProject: vi.fn(),
+      registerLocalProfile: vi.fn()
+    };
+    const service = {
+      getStatus: vi.fn(async () => ({
+        activeProfileId: profile.profileId,
+        profiles: [{ profileId: profile.profileId, hasDeviceCredential: true }],
+        session: { phase: "idle" }
+      })),
+      runStatusPublicationTransaction: vi.fn(async <T>(operation: () => Promise<T>) => operation()),
+      peekPersistedRemoteProfileId: vi.fn(async () => "profile-workspace-001"),
+      clearActiveProfile: vi.fn(async () => undefined),
+      setActiveProfile: vi.fn(),
+      connectSession: vi.fn(),
+      upsertProfile: vi.fn(),
+      migrateLocalProfileCredential: vi.fn(),
+      adoptWorkspaceAuthority: vi.fn(),
+      activeHumanPrincipalId: vi.fn(),
+      bootstrapOwner: vi.fn()
+    };
+
+    const command = createLocalCollaborationActivationCommand({ coordinator, service });
+    await expect(
+      command.selectAndReconcile({ projectId: "desktop-apollo", canvasId: "default" })
+    ).resolves.toBeNull();
+
+    expect(coordinator.setCurrentSelection).toHaveBeenCalledWith({
+      projectId: "desktop-apollo",
+      canvasId: "default"
+    });
+    expect(coordinator.start).not.toHaveBeenCalled();
+    expect(service.adoptWorkspaceAuthority).not.toHaveBeenCalled();
+    expect(service.upsertProfile).not.toHaveBeenCalled();
   });
 
   it("restores the active local workspace without switching to the sidebar project", async () => {

@@ -2,8 +2,13 @@ import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState }
 import { ServerIcon, WaypointsIcon } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { DesktopServerExposureView } from "../../shared/deploymentExposure";
+import type { LocalCollaborationServerStatus } from "../../shared/collaboration.js";
 import { collaborationBridge } from "../bridge";
-import { isCollaborationSessionConnected } from "../collaboration/sessionState";
+import {
+  presentOverviewServer,
+  type LiveWorkspaceSnapshot,
+  type OverviewServerLabel
+} from "../collaboration/liveServerStatus";
 import { useCollaborationStatus } from "../hooks/useCollaborationStatus";
 import {
   type HostAdministrationController,
@@ -26,10 +31,11 @@ const HostAdministrationContent = lazy(() =>
   }))
 );
 
-type ConnectionsTab = "overview" | "devices" | "advanced";
+type ConnectionsTab = "overview" | "devices" | "server";
 
 type SettingsConnectionsSectionProps = {
   diagnosticsEnabled?: boolean;
+  initialTab?: ConnectionsTab;
   onTabChange?: () => void;
   t: ReturnType<typeof createTranslator>;
 };
@@ -73,6 +79,42 @@ function ConnectionStatus({
   );
 }
 
+function workspaceSnapshot(
+  status: ReturnType<typeof useCollaborationStatus>["status"]
+): LiveWorkspaceSnapshot | null {
+  const connection = status?.workspaceConnection;
+  if (!connection) return null;
+  return {
+    status: connection.status,
+    serverBaseUrl: connection.profile?.serverBaseUrl ?? null,
+    displayName: connection.workspaceDisplayName ?? null
+  };
+}
+
+function overviewServerStatusText(
+  presentation: ReturnType<typeof presentOverviewServer>,
+  t: ReturnType<typeof createTranslator>
+): string {
+  const labelKey: Record<OverviewServerLabel, Parameters<typeof t>[0]> = {
+    remoteConnected: "settingsServerRemoteConnected",
+    remoteConnecting: "settingsServerRemoteConnecting",
+    remoteError: "settingsServerRemoteError",
+    localConnected: "settingsServerLocalConnected",
+    preparing: "settingsConnectionsServerPreparing",
+    localError: "settingsConnectionsServerError",
+    notConnected: "settingsConnectionsServerStopped"
+  };
+  if (
+    (presentation.label === "remoteConnected" ||
+      presentation.label === "localConnected" ||
+      presentation.label === "remoteError") &&
+    presentation.url
+  ) {
+    return presentation.url;
+  }
+  return t(labelKey[presentation.label]);
+}
+
 function ConnectionsOverview({
   controller,
   t
@@ -82,49 +124,40 @@ function ConnectionsOverview({
 }) {
   const { status } = useCollaborationStatus();
   const [exposure, setExposure] = useState<DesktopServerExposureView | null>(null);
+  const [localServer, setLocalServer] = useState<LocalCollaborationServerStatus | null>(null);
 
   useEffect(() => {
-    if (
-      !collaborationBridge ||
-      typeof collaborationBridge.getDesktopServerExposure !== "function"
-    ) {
-      return;
-    }
+    const api = collaborationBridge;
+    if (!api) return;
     let cancelled = false;
-    void collaborationBridge.getDesktopServerExposure().then(
-      (next) => {
-        if (!cancelled) setExposure(next);
-      },
-      () => {
-        if (!cancelled) setExposure(null);
-      }
-    );
+    const load = async () => {
+      const [nextExposure, nextLocal] = await Promise.all([
+        typeof api.getDesktopServerExposure === "function"
+          ? api.getDesktopServerExposure().catch(() => null)
+          : Promise.resolve(null),
+        typeof api.getLocalCollaborationServerStatus === "function"
+          ? api.getLocalCollaborationServerStatus().catch(() => null)
+          : Promise.resolve(null)
+      ]);
+      if (cancelled) return;
+      setExposure(nextExposure);
+      setLocalServer(nextLocal);
+    };
+    void load();
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const activeServerProfile = status?.activeProfileId
-    ? (status.profiles.find((profile) => profile.profileId === status.activeProfileId) ?? null)
-    : null;
-  const remoteServerConnected = isCollaborationSessionConnected(status) && activeServerProfile;
-  const serverState =
-    exposure?.lifecycle === "ready" || remoteServerConnected
-      ? "ready"
-      : exposure?.lifecycle === "preparing"
-        ? "pending"
-        : exposure?.lifecycle === "error"
-          ? "error"
-          : "idle";
-  const serverStatus = remoteServerConnected
-    ? activeServerProfile.serverBaseUrl
-    : exposure?.lifecycle === "ready"
-      ? (exposure.advertisedOrigin ?? t("settingsConnectionsServerReady"))
-      : exposure?.lifecycle === "preparing"
-        ? t("settingsConnectionsServerPreparing")
-        : exposure?.lifecycle === "error"
-          ? t("settingsConnectionsServerError")
-          : t("settingsConnectionsServerStopped");
+  const presentation = presentOverviewServer({
+    workspace: workspaceSnapshot(status),
+    localRunning: localServer?.state === "running",
+    localServerBaseUrl: localServer?.profile?.serverBaseUrl ?? null,
+    advertisedOrigin: exposure?.advertisedOrigin ?? null,
+    localExposureLifecycle: exposure?.lifecycle ?? null
+  });
+  const serverState = presentation.state;
+  const serverStatus = overviewServerStatusText(presentation, t);
 
   const activeHosts = useMemo(
     () => controller.hosts.filter((host) => !host.revokedAt),
@@ -180,10 +213,11 @@ function ConnectionsOverview({
 
 export function SettingsConnectionsSection({
   diagnosticsEnabled = false,
+  initialTab = "overview",
   onTabChange,
   t
 }: SettingsConnectionsSectionProps) {
-  const [tab, setTab] = useState<ConnectionsTab>("overview");
+  const [tab, setTab] = useState<ConnectionsTab>(initialTab);
   const previousTabRef = useRef(tab);
   const hostController = useHostAdministrationController();
 
@@ -198,7 +232,7 @@ export function SettingsConnectionsSection({
   }, [onTabChange, tab]);
 
   const selectTab = (value: string) => {
-    if (value === "overview" || value === "devices" || value === "advanced") {
+    if (value === "overview" || value === "devices" || value === "server") {
       if (value === tab) return;
       setTab(value);
     }
@@ -223,7 +257,7 @@ export function SettingsConnectionsSection({
           <TabsTrigger value="devices" data-testid="settings-connections-tab-devices">
             {t("settingsConnectionsDevices")}
           </TabsTrigger>
-          <TabsTrigger value="advanced" data-testid="settings-connections-tab-advanced">
+          <TabsTrigger value="server" data-testid="settings-connections-tab-server">
             {t("settingsConnectionsAdvanced")}
           </TabsTrigger>
         </TabsList>
@@ -248,7 +282,7 @@ export function SettingsConnectionsSection({
             />
           </Suspense>
         </TabsContent>
-        <TabsContent value="advanced" className="pt-4">
+        <TabsContent value="server" className="pt-4">
           <SettingsServerSection showHeader={false} t={t} />
         </TabsContent>
       </Tabs>

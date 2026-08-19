@@ -4,14 +4,18 @@ import type {
 } from "@planweave-ai/collaboration-protocol/connection";
 import {
   assertNoSmuggledCollaborationSecrets,
+  collaborationConnectExistingServerByOriginInputSchema,
   collaborationProfileIdInputSchema,
   collaborationRedeemSetupCodeInputSchema,
   collaborationWorkspacePickerQuerySchema,
+  parseCollaborationServerOriginInput,
   type CollaborationSessionPhase,
-  type CollaborationStatus
+  type CollaborationStatus,
+  type RememberedServerConnectionView
 } from "../../shared/collaboration.js";
-import { collaborationErrorFromUnknown } from "./collaborationErrors.js";
+import { collaborationErrorFromUnknown, CollaborationClientError } from "./collaborationErrors.js";
 import { CollaborationWorkspaceConnection } from "./collaborationWorkspaceConnection.js";
+import { OperatorControlError } from "../../shared/operatorControl.js";
 
 type SessionError = { code: string; message: string } | null;
 
@@ -90,8 +94,68 @@ export class CollaborationWorkspaceConnectionFacade {
     return this.publishStatus();
   }
 
+  async connectExistingServerByOrigin(input: unknown): Promise<CollaborationStatus> {
+    assertNoSmuggledCollaborationSecrets(input, "connectExistingServerByOrigin");
+    const parsed = collaborationConnectExistingServerByOriginInputSchema.parse(input);
+    let serverBaseUrl: string;
+    try {
+      serverBaseUrl = parseCollaborationServerOriginInput(parsed.serverBaseUrl);
+    } catch (error) {
+      throw new CollaborationClientError({
+        kind: "validation",
+        code: "existing_server_origin_invalid",
+        message: "Enter a valid HTTP(S) server origin without a path.",
+        retryable: false,
+        cause: error
+      });
+    }
+    try {
+      if (await this.connection.tryReconnectByOrigin(serverBaseUrl)) {
+        this.setSession("ready", "existing_server_reconnected", null);
+        return this.publishStatus();
+      }
+      const { getOperatorControlService } = await import(
+        "../operatorControl/operatorControlHandlers.js"
+      );
+      const handoff =
+        await getOperatorControlService().issueDeviceSetupHandoffForOrigin(serverBaseUrl);
+      await this.connection.redeemDeviceSetupCode({
+        serverBaseUrl: handoff.serverBaseUrl,
+        allowInsecureTransport: handoff.allowInsecureTransport,
+        setupCode: handoff.setupCode,
+        displayName: parsed.displayName ?? new URL(serverBaseUrl).hostname
+      });
+      this.setSession("ready", "existing_server_connected", null);
+    } catch (error) {
+      if (error instanceof OperatorControlError && error.code === "operator_credential_missing") {
+        const mapped = new CollaborationClientError({
+          kind: "auth",
+          code: "existing_server_admission_required",
+          message: "existing_server_admission_required",
+          retryable: false
+        });
+        this.setSession("error", "existing_server_admission_required", {
+          code: mapped.code,
+          message: mapped.message
+        });
+        throw mapped;
+      }
+      const mapped = collaborationErrorFromUnknown(error);
+      this.setSession("error", "existing_server_connect_failed", {
+        code: mapped.code,
+        message: mapped.message
+      });
+      throw mapped;
+    }
+    return this.publishStatus();
+  }
+
   getActiveWorkspaceConnection(): Promise<ActiveWorkspaceConnectionView> {
     return this.connection.buildView();
+  }
+
+  listRememberedServerConnections(): Promise<RememberedServerConnectionView[]> {
+    return this.connection.listRememberedServers();
   }
 
   listWorkspacePicker(input: unknown = {}): Promise<WorkspacePickerPage> {
@@ -143,6 +207,26 @@ export class CollaborationWorkspaceConnectionFacade {
   async disconnectWorkspaceConnection(): Promise<CollaborationStatus> {
     await this.connection.disconnectToLocalOnly();
     this.setSession("idle", "workspace_local_only", null);
+    return this.publishStatus();
+  }
+
+  async forgetRememberedServerConnection(input: unknown): Promise<CollaborationStatus> {
+    assertNoSmuggledCollaborationSecrets(input, "forgetRememberedServerConnection");
+    const { profileId } = collaborationProfileIdInputSchema.parse(input);
+    const activeId = this.connection.getActiveProfileId();
+    try {
+      await this.connection.forgetRememberedServer(profileId);
+      if (activeId === profileId) {
+        this.setSession("idle", "remembered_server_forgotten", null);
+      }
+    } catch (error) {
+      const mapped = collaborationErrorFromUnknown(error);
+      this.setSession("error", "remembered_server_forget_failed", {
+        code: mapped.code,
+        message: mapped.message
+      });
+      throw mapped;
+    }
     return this.publishStatus();
   }
 

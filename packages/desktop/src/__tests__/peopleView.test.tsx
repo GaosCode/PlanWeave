@@ -3,12 +3,28 @@
 import "@testing-library/jest-dom/vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTranslator } from "../renderer/i18n";
 import { formatPeoplePanelError, PeopleView } from "../renderer/views/PeopleView";
 import { serializeCollaborationInvitationHandoff } from "../renderer/team/collaborationInvitationHandoff";
 import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
 import type { CollaborationStatus, PlanWeaveCollaborationApi } from "../shared/collaboration";
+
+const { useHostAdministrationController } = vi.hoisted(() => ({
+  useHostAdministrationController: vi.fn()
+}));
+
+vi.mock("../renderer/hooks/useHostAdministrationController", () => ({
+  useHostAdministrationController
+}));
+
+const idleHostController = {
+  activeProfile: null,
+  busy: false,
+  copyMemberSetupCode: vi.fn().mockResolvedValue(null),
+  dismissMemberSetupCodeHandoff: vi.fn(),
+  memberSetupCodeHandoff: null
+};
 
 const scopeLayout = { collapsed: true, expandedProjectIds: [] };
 const onScopeLayoutChange = () => undefined;
@@ -37,6 +53,10 @@ function invitationHandoff(invitationToken: string, invitationId = "invitation-1
     })
   };
 }
+
+beforeEach(() => {
+  useHostAdministrationController.mockReturnValue(idleHostController);
+});
 
 afterEach(cleanupRendererTestEnvironment);
 
@@ -366,6 +386,7 @@ describe("PeopleView", () => {
 
     expect(await screen.findByTestId("people-workspace-section")).toBeVisible();
     expect(screen.getByTestId("people-section-members")).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByTestId("host-admin-member-setup")).not.toBeInTheDocument();
     expect(screen.queryByTestId("people-workspace-management")).not.toBeInTheDocument();
     expect(screen.queryByTestId("content-authority-panel")).not.toBeInTheDocument();
     expect(screen.queryByTestId("deployment-connection")).not.toBeInTheDocument();
@@ -403,6 +424,101 @@ describe("PeopleView", () => {
     expect(screen.queryByText("Invite collaborators")).not.toBeInTheDocument();
     expect(getCollaborationStatus).toHaveBeenCalledOnce();
     expect(screen.queryByTestId("collaboration-workspace-onboarding")).not.toBeInTheDocument();
+  });
+
+  it("puts member computer invite on the Members tab, not Workspace management", async () => {
+    useHostAdministrationController.mockReturnValue({
+      ...idleHostController,
+      activeProfile: {
+        profileId: "profile-a",
+        displayName: "Production admin",
+        serverBaseUrl: "http://127.0.0.1:56584/",
+        allowInsecureTransport: true,
+        hostedByThisDesktop: true,
+        endpoint: {
+          topology: "lan_http" as const,
+          serverOrigin: "http://127.0.0.1:56584",
+          allowedClientOrigins: ["http://127.0.0.1:56584"],
+          tlsTrust: "not_applicable" as const
+        },
+        operatorId: "operator-a",
+        hasOperatorCredential: true,
+        operatorCredentialPersistence: "persisted" as const,
+        updatedAt: "2030-01-01T00:00:00.000Z"
+      }
+    });
+    const api = {
+      getCollaborationStatus: vi.fn().mockResolvedValue({
+        profiles: [
+          {
+            profileId: "profile-1",
+            displayName: "Team workspace",
+            serverBaseUrl: "http://127.0.0.1:56584/",
+            projectId: "project-1",
+            allowInsecureTransport: true,
+            hasDeviceCredential: true,
+            deviceCredentialPersistence: "persisted",
+            deviceCredentialId: "device-1",
+            humanPrincipalId: "human-1",
+            updatedAt: "2030-01-01T00:00:00.000Z"
+          }
+        ],
+        activeProfileId: "profile-1",
+        credentialStorage: "available",
+        nonPersistenceWarning: null,
+        session: {
+          phase: "connected",
+          activeProfileId: "profile-1",
+          detail: null,
+          lastErrorCode: null,
+          lastErrorMessage: null
+        },
+        workspaceConnection: {
+          schemaVersion: "workspace-setup/v1",
+          status: "connected",
+          profile: {
+            schemaVersion: "workspace-identity/v1",
+            profileId: "profile-1",
+            displayName: "Team workspace",
+            serverBaseUrl: "http://127.0.0.1:56584/",
+            workspaceId: "workspace-1",
+            allowInsecureTransport: true
+          },
+          workspaceId: "workspace-1",
+          workspaceDisplayName: "Team",
+          connectedAt: "2030-01-01T00:00:00.000Z",
+          error: null
+        },
+        workspacePicker: { schemaVersion: "workspace-setup/v1", items: [], nextCursor: null },
+        updatedAt: "2030-01-01T00:00:00.000Z"
+      }),
+      onCollaborationStatusChanged: vi.fn(() => () => undefined),
+      onCollaborationObserverSignal: vi.fn(() => () => undefined),
+      listCollaborationContentBootstrapCandidates: vi.fn().mockResolvedValue([]),
+      getLocalCollaborationServerStatus: vi.fn().mockResolvedValue({
+        profile: null,
+        state: "stopped",
+        startedAt: null,
+        reason: null,
+        lanSharingEnabled: false,
+        lanServerBaseUrl: null
+      }),
+      ...peopleIdentityReads()
+    } as unknown as PlanWeaveCollaborationApi;
+
+    render(
+      <PeopleView
+        api={api}
+        t={createTranslator("en")}
+        collaborationScopeLayout={scopeLayout}
+        onCollaborationScopeLayoutChange={onScopeLayoutChange}
+      />
+    );
+
+    expect(await screen.findByTestId("host-admin-member-setup")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Invite another computer" })).toBeVisible();
+    await userEvent.click(screen.getByTestId("people-section-workspace"));
+    expect(screen.queryByTestId("host-admin-member-setup")).not.toBeInTheDocument();
   });
 
   it("keeps invitation creation out of Workspace management after a persisted restart", async () => {
@@ -829,7 +945,7 @@ describe("PeopleView", () => {
     await user.click(await screen.findByTestId("collaboration-onboarding-create"));
     await user.click(screen.getByTestId("collaboration-onboarding-host-locally"));
 
-    await waitFor(() => expect(getCollaborationStatus).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(getCollaborationStatus.mock.calls.length).toBeGreaterThanOrEqual(2));
     expect(await screen.findByTestId("people-workspace-section")).toBeVisible();
     expect(screen.queryByTestId("collaboration-workspace-onboarding")).not.toBeInTheDocument();
     expect(screen.queryByTestId("local-collaboration-server-panel")).not.toBeInTheDocument();

@@ -1,3 +1,10 @@
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from "@/components/ui/select";
 import type { createTranslator } from "../i18n";
 import type { WorkspaceAccessScopeOption } from "../hooks/useWorkspaceAccessScope";
 
@@ -18,31 +25,40 @@ export function WorkspaceAccessScopeSelector({
   t: ReturnType<typeof createTranslator>;
   onSelect: (key: string) => void;
 }) {
+  const label = t("accessScopeLabel");
   return (
     <div className="px-1 pb-4" data-testid="workspace-access-scope-selector">
-      <label className="block min-w-0" htmlFor="workspace-access-scope">
-        <span
+      <div className="flex min-w-0 flex-col gap-2">
+        <label
           id="workspace-access-scope-label"
-          className="block text-xs font-semibold text-text-strong"
+          htmlFor="workspace-access-scope"
+          className="text-xs font-semibold text-text-strong"
         >
-          {t("accessScopeLabel")}
-        </span>
-        <select
-          id="workspace-access-scope"
-          className="mt-2 h-9 w-full max-w-xl rounded-md border border-border bg-background px-3 text-sm text-text-strong outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          value={selectedKey ?? ""}
+          {label}
+        </label>
+        <Select
+          value={selectedKey ?? undefined}
+          onValueChange={onSelect}
           disabled={loading || busy || options.length === 0}
-          data-testid="workspace-access-scope-select"
-          onChange={(event) => onSelect(event.target.value)}
         >
-          {options.length === 0 ? <option value="">{t("accessScopeEmpty")}</option> : null}
-          {options.map((option) => (
-            <option key={option.key} value={option.key}>
-              {option.projectLabel} / {option.canvasLabel}
-            </option>
-          ))}
-        </select>
-      </label>
+          <SelectTrigger
+            id="workspace-access-scope"
+            aria-labelledby="workspace-access-scope-label"
+            className="h-9 w-full max-w-xl"
+            data-testid="workspace-access-scope-select"
+            data-value={selectedKey ?? ""}
+          >
+            <SelectValue placeholder={t("accessScopeEmpty")} />
+          </SelectTrigger>
+          <SelectContent position="popper" align="start">
+            {options.map((option) => (
+              <SelectItem key={option.key} value={option.key}>
+                {option.projectLabel} / {option.canvasLabel}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
       {loading ? (
         <p className="mt-3 text-xs text-muted-foreground" role="status">
           {t("accessScopeLoading")}

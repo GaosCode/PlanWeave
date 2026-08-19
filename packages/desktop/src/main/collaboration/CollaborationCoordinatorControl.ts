@@ -21,7 +21,6 @@ import { collaborationConnectionProfileSchema } from "@planweave-ai/collaboratio
 import { listProjects, resolveTaskCanvasWorkspace } from "@planweave-ai/runtime";
 import { createHash, randomBytes } from "node:crypto";
 import { createServer } from "node:net";
-import { dirname, join } from "node:path";
 import type { OperatorSafeStoragePort } from "../operatorControl/operatorCredentialVault.js";
 import {
   operatorCredentialVaultPaths,
@@ -50,7 +49,10 @@ import {
   type DesktopServerExposureErrorCode,
   type DesktopServerExposureView
 } from "../../shared/deploymentExposure.js";
-import { DeploymentBundleUnavailableError } from "./deploymentActions.js";
+import {
+  DeploymentBundleUnavailableError,
+  type DeploymentBundleSource
+} from "./deploymentActions.js";
 import {
   LocalCollaborationScopeStore,
   type LocalCollaborationScopeStorePort
@@ -153,11 +155,7 @@ export interface CollaborationCoordinatorControl {
     profileId: string,
     actor: { kind: "human"; id: string }
   ): LoopbackProjectRegistrationView;
-  createSelfHostedDeploymentSource(target: DeploymentTargetDraft): Promise<{
-    config: ServerConfig;
-    workspaceRoot: string;
-    projectId: string;
-  }>;
+  createSelfHostedDeploymentSource(target: DeploymentTargetDraft): Promise<DeploymentBundleSource>;
 }
 
 export class LocalCollaborationCoordinatorControl implements CollaborationCoordinatorControl {
@@ -386,11 +384,7 @@ export class LocalCollaborationCoordinatorControl implements CollaborationCoordi
 
   restore(): Promise<LocalCollaborationServerStatus> {
     return this.enqueue(async () => {
-      const network = await this.networkStore.read();
-      this.exposureMode =
-        network.exposureMode ?? (network.lanSharingEnabled ? "lan_http" : "local_only");
-      this.lanSharingEnabled = this.exposureMode === "lan_http";
-      this.preferredPort = network.preferredPort;
+      await this.applyPersistedNetworkUnlocked();
       const shouldRestoreServer =
         (await this.scopeStore.read()).length > 0 || (await this.hasOwnerRuntimeCanvases());
       if (!shouldRestoreServer) return this.status();
@@ -408,6 +402,22 @@ export class LocalCollaborationCoordinatorControl implements CollaborationCoordi
         return this.status();
       }
     });
+  }
+
+  /** Loads the last local access method without starting this computer's Server. */
+  hydratePersistedExposure(): Promise<LocalCollaborationServerStatus> {
+    return this.enqueue(async () => {
+      await this.applyPersistedNetworkUnlocked();
+      return this.status();
+    });
+  }
+
+  private async applyPersistedNetworkUnlocked(): Promise<void> {
+    const network = await this.networkStore.read();
+    this.exposureMode =
+      network.exposureMode ?? (network.lanSharingEnabled ? "lan_http" : "local_only");
+    this.lanSharingEnabled = this.exposureMode === "lan_http";
+    this.preferredPort = network.preferredPort;
   }
 
   start(): Promise<LocalCollaborationServerStatus> {
@@ -793,25 +803,15 @@ export class LocalCollaborationCoordinatorControl implements CollaborationCoordi
     );
   }
 
-  async createSelfHostedDeploymentSource(target: DeploymentTargetDraft): Promise<{
-    config: ServerConfig;
-    workspaceRoot: string;
-    projectId: string;
-  }> {
+  async createSelfHostedDeploymentSource(
+    target: DeploymentTargetDraft
+  ): Promise<DeploymentBundleSource> {
     if (target.endpoint.topology === "loopback_http" || target.endpoint.topology === "lan_http") {
       throw new DeploymentBundleUnavailableError(
-        "needs_project",
+        "invalid_project",
         "deployment_bundle_loopback_not_supported"
       );
     }
-    if (!this.selection) {
-      throw new DeploymentBundleUnavailableError(
-        "needs_project",
-        "local_collaboration_selection_required"
-      );
-    }
-    const selection = this.selection;
-    const workspace = await resolveTaskCanvasWorkspace(selection.projectRoot, selection.canvasId);
     const profileId = `deployment-${createHash("sha256")
       .update(target.endpoint.serverOrigin)
       .digest("hex")
@@ -831,8 +831,8 @@ export class LocalCollaborationCoordinatorControl implements CollaborationCoordi
       },
       operatorId: "desktop-self-host-admin"
     });
-    const projectRoot = `/var/lib/planweave/projects/${workspace.id}`;
     return {
+      operatorToken,
       config: parseServerConfig({
         version: "server-config/v2",
         transport: {
@@ -851,14 +851,7 @@ export class LocalCollaborationCoordinatorControl implements CollaborationCoordi
         deployment: target.endpoint,
         allowedClientOrigins: target.endpoint.allowedClientOrigins,
         dataDirectory: "/var/lib/planweave-server",
-        trustedProjects: [
-          {
-            workspaceId: localWorkspaceIdForProject(workspace.id),
-            projectId: workspace.id,
-            canvasId: selection.canvasId,
-            projectRoot
-          }
-        ],
+        trustedProjects: [],
         operatorCredentials: [
           {
             operatorId: "desktop-self-host-admin",
@@ -867,9 +860,7 @@ export class LocalCollaborationCoordinatorControl implements CollaborationCoordi
             serverAdmin: true
           }
         ]
-      }),
-      workspaceRoot: dirname(workspace.projectFile),
-      projectId: workspace.id
+      })
     };
   }
 
@@ -1095,11 +1086,7 @@ export class LocalCollaborationCoordinatorControl implements CollaborationCoordi
     if (!this.operatorToken) throw new Error("local_collaboration_operator_credential_unavailable");
     const localPort = this.localPort;
     if (localPort === null) throw new Error("local_collaboration_port_allocation_required");
-    const dataDirectory = join(
-      desktopHomePaths().planweaveHome,
-      "desktop",
-      "local-collaboration-server"
-    );
+    const dataDirectory = desktopHomePaths().localCollaborationServerDir;
     if (this.exposureMode === "private_https") {
       const advertisedOrigin = this.privateHttpsOrigin;
       if (!advertisedOrigin) throw new Error("private_https_advertised_origin_unavailable");

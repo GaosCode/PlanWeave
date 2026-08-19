@@ -31,6 +31,28 @@ describe("switchLocalCollaborationExposure", () => {
     expect(reconcile).toHaveBeenCalledWith("local-project-1");
   });
 
+  it("records this computer as the last Server before reconciling", async () => {
+    let mode: "local_only" | "private_https" = "local_only";
+    const rememberThisComputerAsLastServer = vi.fn(async () => undefined);
+    const reconcile = vi.fn().mockResolvedValue(null);
+    const local = {
+      getExposureView: () => view(mode),
+      localProfile: () => ({ profileId: "local-project-1" }),
+      setExposureMode: vi.fn(async (input: { mode: typeof mode }) => {
+        mode = input.mode;
+        return view(mode);
+      })
+    };
+    await switchLocalCollaborationExposure(
+      local,
+      { reconcile, rememberThisComputerAsLastServer },
+      { mode: "private_https" }
+    );
+    expect(rememberThisComputerAsLastServer.mock.invocationCallOrder[0]).toBeLessThan(
+      reconcile.mock.invocationCallOrder[0]
+    );
+  });
+
   it("runs the activation chain against the newly advertised local origin", async () => {
     let mode: "local_only" | "private_https" = "local_only";
     const coordinator = {

@@ -18,11 +18,22 @@ const storedWorkspaceConnectionProfileSchema = workspaceConnectionProfileSchema.
   updatedAt: timestampSchema
 });
 
+const lastServerConnectionSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("local") }).strict(),
+  z
+    .object({
+      kind: z.literal("remote"),
+      profileId: opaqueIdentifierSchema
+    })
+    .strict()
+]);
+
 const workspaceConnectionProfilesDocumentSchema = z
   .object({
     version: z.literal(1),
     profiles: z.array(storedWorkspaceConnectionProfileSchema),
-    activeProfileId: opaqueIdentifierSchema.nullable()
+    activeProfileId: opaqueIdentifierSchema.nullable(),
+    lastConnection: lastServerConnectionSchema.optional()
   })
   .strict()
   .superRefine((document, ctx) => {
@@ -52,6 +63,7 @@ const workspaceConnectionProfilesDocumentSchema = z
 export type StoredWorkspaceConnectionProfile = z.infer<
   typeof storedWorkspaceConnectionProfileSchema
 >;
+export type LastServerConnection = z.infer<typeof lastServerConnectionSchema>;
 export type WorkspaceConnectionProfilesDocument = z.infer<
   typeof workspaceConnectionProfilesDocumentSchema
 >;
@@ -196,6 +208,12 @@ export class WorkspaceConnectionProfileStore {
     if (document.activeProfileId === profileId) {
       document.activeProfileId = null;
     }
+    if (
+      document.lastConnection?.kind === "remote" &&
+      document.lastConnection.profileId === profileId
+    ) {
+      document.lastConnection = { kind: "local" };
+    }
     await this.write(document);
     return true;
   }
@@ -217,5 +235,15 @@ export class WorkspaceConnectionProfileStore {
     }
     document.activeProfileId = profileId;
     await this.write(document);
+  }
+
+  async getLastConnection(): Promise<LastServerConnection | undefined> {
+    const document = await this.read();
+    return document.lastConnection;
+  }
+
+  async setLastConnection(lastConnection: LastServerConnection): Promise<void> {
+    const document = await this.read();
+    await this.write({ ...document, lastConnection });
   }
 }

@@ -21,9 +21,12 @@ import {
   CurrentCanvasMemberAccess
 } from "../collaboration/CurrentCanvasAccessPanel";
 import { LocalCollaborationServerPanel } from "../collaboration/LocalCollaborationServerPanel";
+import { LocalServerLifecycleControls } from "../collaboration/LocalServerLifecycleControls";
 import { ContentAuthorityPanel } from "../collaboration/ContentAuthorityPanel";
 import { WorkspaceAccessScopeSelector } from "../collaboration/WorkspaceAccessScopeSelector";
 import { DeploymentConnectionCard } from "../settings/DeploymentConnectionCard";
+import { HostMemberSetupCard } from "../settings/HostMemberSetupCard";
+import { useHostAdministrationController } from "../hooks/useHostAdministrationController";
 import { isCollaborationSessionConnected } from "../collaboration/sessionState";
 import {
   collaborationConnectionErrorMessage,
@@ -50,6 +53,7 @@ export type PeopleViewProps = {
   ) => void;
   localInvitationHandoff?: string | null;
   onLocalInvitationHandoffChange?: (handoff: string | null) => void;
+  onManageServer?: () => void;
 };
 
 async function defaultCopyText(text: string): Promise<void> {
@@ -88,9 +92,11 @@ export function PeopleView({
   collaborationScopeLayout,
   onCollaborationScopeLayoutChange,
   localInvitationHandoff: controlledLocalInvitationHandoff,
-  onLocalInvitationHandoffChange
+  onLocalInvitationHandoffChange,
+  onManageServer
 }: PeopleViewProps) {
   const api = apiProp === undefined ? collaborationBridge : apiProp;
+  const hostController = useHostAdministrationController();
   const [localHostingOpen, setLocalHostingOpen] = useState(false);
   const [connectedSection, setConnectedSection] = useState<"members" | "workspace">("members");
   const [revealInvitationManagement, setRevealInvitationManagement] = useState(false);
@@ -175,12 +181,13 @@ export function PeopleView({
   const previousLocalServerStateRef = useRef<LocalCollaborationServerStatus["state"] | null>(null);
   const handleLocalServerStatusChange = useCallback(
     (nextStatus: LocalCollaborationServerStatus) => {
-      const becameRunning =
-        previousLocalServerStateRef.current !== null &&
-        previousLocalServerStateRef.current !== "running" &&
-        nextStatus.state === "running";
+      const previous = previousLocalServerStateRef.current;
       previousLocalServerStateRef.current = nextStatus.state;
-      if (becameRunning || (localHostingOpen && nextStatus.state === "running")) {
+      const becameRunning =
+        previous !== null && previous !== "running" && nextStatus.state === "running";
+      const discoveredRunningDuringOnboarding =
+        localHostingOpen && previous === null && nextStatus.state === "running";
+      if (becameRunning || discoveredRunningDuringOnboarding) {
         void refreshCollaborationStatus();
       }
     },
@@ -298,8 +305,14 @@ export function PeopleView({
                 <div className="flex flex-col gap-6">
                   <DeploymentConnectionCard
                     presentation="plain"
+                    showHeading={false}
                     t={t}
                     onExposureChange={handleDesktopServerExposureChange}
+                  />
+                  <LocalServerLifecycleControls
+                    api={api}
+                    t={t}
+                    onStatusChange={handleLocalServerStatusChange}
                   />
                   <LocalCollaborationServerPanel
                     api={api}
@@ -314,6 +327,7 @@ export function PeopleView({
                     onManageInvitations={handleManageInvitations}
                     onStatusChange={handleLocalServerStatusChange}
                     serverExposure={desktopServerExposure}
+                    onManageServer={onManageServer}
                   />
                 </div>
               }
@@ -387,6 +401,16 @@ export function PeopleView({
             ) : null}
             {connectedSection === "members" ? (
               <>
+                {hostController.activeProfile?.hasOperatorCredential ? (
+                  <HostMemberSetupCard
+                    activeProfile={hostController.activeProfile}
+                    busy={hostController.busy}
+                    copyMemberSetupCode={hostController.copyMemberSetupCode}
+                    dismissMemberSetupCodeHandoff={hostController.dismissMemberSetupCodeHandoff}
+                    memberSetupCodeHandoff={hostController.memberSetupCodeHandoff}
+                    t={t}
+                  />
+                ) : null}
                 <PeoplePanel
                   mode={panel.mode}
                   presence={panel.presence}
@@ -532,6 +556,9 @@ export function PeopleView({
                     onStatusChange={handleLocalServerStatusChange}
                     serverExposure={desktopServerExposure}
                     canControlLocalServer={canControlLocalServer}
+                    serverOrigin={status?.workspaceConnection.profile?.serverBaseUrl ?? null}
+                    scopesRequireRunning={canControlLocalServer}
+                    onManageServer={onManageServer}
                   />
                 }
                 contentAuthority={

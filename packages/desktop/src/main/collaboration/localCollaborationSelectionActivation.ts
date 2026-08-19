@@ -50,6 +50,8 @@ type LocalCollaborationServicePort = LocalCollaborationSelectionServicePort & {
     session: { phase: string };
   }>;
   runStatusPublicationTransaction<T>(operation: () => Promise<T>): Promise<T>;
+  peekPersistedRemoteProfileId?(): Promise<string | null>;
+  markLastServerConnectionLocal?(): Promise<void>;
 };
 
 type LocalCollaborationActivationCoordinatorPort = Pick<
@@ -160,6 +162,8 @@ export function createLocalCollaborationActivationCommand({
   ): Promise<LoopbackProjectRegistrationView | null> =>
     enqueue(async () => {
       await coordinatorReady;
+      const skipLocalAuthority =
+        !options.activationRequired && Boolean(await service.peekPersistedRemoteProfileId?.());
       return service.runStatusPublicationTransaction(async () => {
         const previousStatus = await service.getStatus();
         const previousSelection = coordinator.currentSelection();
@@ -175,6 +179,9 @@ export function createLocalCollaborationActivationCommand({
           if (registrationInput.selection) {
             await coordinator.setCurrentSelection(registrationInput.selection);
             transitionStarted = true;
+          }
+          if (skipLocalAuthority) {
+            return null;
           }
           const profileIdToActivate = registrationInput.profileId ?? previousStatus.activeProfileId;
           if (
@@ -269,8 +276,9 @@ export function createLocalCollaborationActivationCommand({
 
   return {
     activate: (registrationInput) =>
-      execute(registrationInput, { activationRequired: true }).then((registration) => {
+      execute(registrationInput, { activationRequired: true }).then(async (registration) => {
         if (!registration) throw new Error("local_collaboration_activation_required");
+        await service.markLastServerConnectionLocal?.();
         return registration;
       }),
     selectAndReconcile: (selection) => execute({ selection }, { activationRequired: false }),

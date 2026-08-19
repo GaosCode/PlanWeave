@@ -9,6 +9,7 @@ type ExposureControlPort = {
 
 type LocalActivationPort = {
   reconcile(previousProfileId?: string): Promise<unknown>;
+  rememberThisComputerAsLastServer?(): Promise<void>;
 };
 
 function sameExposureAuthority(
@@ -64,6 +65,7 @@ export async function switchLocalCollaborationExposure(
     return next;
   }
   try {
+    await activation.rememberThisComputerAsLastServer?.();
     await activation.reconcile(previousProfileId);
     return next;
   } catch (error) {

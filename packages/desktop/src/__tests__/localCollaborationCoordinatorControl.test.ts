@@ -210,6 +210,38 @@ describe("LocalCollaborationCoordinatorControl", () => {
     });
   });
 
+  it("loads the last local access method without starting this computer", async () => {
+    const fake = fakeControl();
+    const createController = vi.fn(() => fake.control);
+    const control = new LocalCollaborationCoordinatorControl({
+      safeStorage,
+      syncOperatorProfile: async () => undefined,
+      scopeStore: scopeStore([{ projectId: project.projectId, canvasId: "canvas-1" }]),
+      networkStore: {
+        read: vi.fn(async () => ({
+          lanSharingEnabled: false,
+          exposureMode: "private_https" as const,
+          preferredPort: 18_787
+        })),
+        write: vi.fn(async () => undefined)
+      },
+      resolveLanAddress: () => "192.168.1.20",
+      projects: {
+        listProjects: async () => [project],
+        resolveAuthorityProjectId: async () => authorityProjectId
+      },
+      createController,
+      allocatePort: async () => 18_787
+    });
+
+    await expect(control.hydratePersistedExposure()).resolves.toMatchObject({ state: "stopped" });
+    expect(control.getExposureView()).toMatchObject({
+      mode: "private_https",
+      lifecycle: "stopped"
+    });
+    expect(createController).not.toHaveBeenCalled();
+  });
+
   it("recovers a stopped service when LAN sharing is already enabled", async () => {
     const fake = fakeControl();
     const storedNetwork = networkStore(true);
