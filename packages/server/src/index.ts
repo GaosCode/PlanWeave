@@ -54,6 +54,29 @@ export {
 } from "./config.js";
 export { serverPackageVersion } from "./packageInfo.js";
 export {
+  ServerDataArchiveError,
+  SERVER_DATA_ARCHIVE_DATABASE_FILE,
+  SERVER_DATA_ARCHIVE_SCHEMA_VERSION,
+  exportServerDataDirectory,
+  inspectServerDataArchive,
+  restoreServerDataDirectory,
+  serverDataArchiveManifestSchema,
+  serverDataDirectoryIsActive,
+  serverDataDirectoryIsOccupied,
+  type ServerDataArchiveManifest
+} from "./serverDataArchive.js";
+export {
+  PLANWEAVE_COMPOSE_CONTAINER_ARCHIVE,
+  PLANWEAVE_COMPOSE_CONTAINER_CONFIG,
+  PLANWEAVE_COMPOSE_FILE,
+  PLANWEAVE_COMPOSE_INNER_BIN,
+  PLANWEAVE_COMPOSE_SERVICE,
+  composeRestoreRunArgs,
+  restoreServerDataScript,
+  restoreServerDataViaCompose,
+  ServerDataComposeError
+} from "./serverDataCompose.js";
+export {
   parseVpsE2eGate,
   runVpsAuthenticatedE2e,
   runVpsE2eCli,

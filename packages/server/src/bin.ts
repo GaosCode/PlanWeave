@@ -6,6 +6,8 @@ import { migrateServerConfigFile } from "./configMigration.js";
 import { runReleaseGateCli } from "./releaseGate/cli.js";
 import { serveDistributedServer, type DistributedServerProcess } from "./serverServe.js";
 import { runVpsE2eCli } from "./vpsE2e/cli.js";
+import { runServerDataCli } from "./serverDataCli.js";
+import type { DockerComposeRunner } from "./serverDataCompose.js";
 
 export type ServerCliIo = { stdout(value: string): void; stderr(value: string): void };
 
@@ -16,6 +18,8 @@ export const SERVER_CLI_USAGE = [
   "Commands:",
   "  serve --config <absolute-path>",
   "  config migrate --config <absolute-path>",
+  "  data export --config <absolute-path> --out <absolute-path>",
+  "  data restore --from <path> [--overwrite] [--config <absolute-path>] [--compose-dir <absolute-path>]",
   "  vps-e2e [options]",
   "  release-gate [options]",
   "",
@@ -48,9 +52,11 @@ export async function runServerCli(
   options: {
     env?: Readonly<Record<string, string | undefined>>;
     io?: ServerCliIo;
+    cwd?: string;
     processLike?: Pick<NodeJS.Process, "once" | "off">;
     serve?: typeof serveDistributedServer;
     migrateConfig?: typeof migrateServerConfigFile;
+    runDockerCompose?: DockerComposeRunner;
   } = {}
 ): Promise<number> {
   const io = options.io ?? { stdout: console.log, stderr: console.error };
@@ -76,6 +82,14 @@ export async function runServerCli(
       io.stdout(JSON.stringify(result));
       return 0;
     }
+    if (command === "data") {
+      return await runServerDataCli(args, {
+        env: options.env,
+        io,
+        cwd: options.cwd,
+        runDockerCompose: options.runDockerCompose
+      });
+    }
     if (command !== "serve") throw new Error("server_cli_usage");
     const config = await loadServerConfig(resolveServerConfigPath(args, options.env));
     const server = await (options.serve ?? serveDistributedServer)(config);
@@ -91,7 +105,12 @@ export async function runServerCli(
   } catch (error) {
     const code = error instanceof Error ? error.message.split(":", 1)[0] : "server_failed";
     io.stderr(code.startsWith("server_") ? code : "server_failed");
-    return code === "server_cli_usage" || code === "server_config_path_required" ? 2 : 1;
+    return code === "server_cli_usage" ||
+      code === "server_config_path_required" ||
+      code === "server_compose_or_config_required" ||
+      code === "server_compose_not_found"
+      ? 2
+      : 1;
   }
 }
 
