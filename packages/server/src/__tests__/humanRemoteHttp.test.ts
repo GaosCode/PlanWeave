@@ -2,7 +2,11 @@ import { createServer, type Server as HttpServer } from "node:http";
 import { loopbackHttpTransportAdmission } from "./support/transportAdmission.js";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { createRemoteBlockRuntimePort, type PlanPackageManifest } from "@planweave-ai/runtime";
+import {
+  createRemoteBlockArtifactSource,
+  createRemoteBlockRuntimePort,
+  type PlanPackageManifest
+} from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   basicManifest,
@@ -101,7 +105,8 @@ async function setup(options: { runtimeAvailable?: boolean } = {}) {
     canonicalRemoteRuntimePort(
       createRemoteBlockRuntimePort({ projectRoot: workspace.root }),
       workspaceId
-    )
+    ),
+    createRemoteBlockArtifactSource({ projectRoot: workspace.root })
   );
   const artifacts = new ArtifactStore(storage.database, dataDirectory, 1024 * 1024);
   const coordination = createRemoteBlockCoordination(
@@ -109,7 +114,7 @@ async function setup(options: { runtimeAvailable?: boolean } = {}) {
     {
       leaseDurationMs: 60_000,
       hostOfflineAfterMs: 60_000,
-      runtimeResolver: registry,
+      runtimeLeases: registry,
       inputArtifacts: { materialize: async () => undefined },
       artifactContent: { readReport: async (ref) => artifacts.read(ref) },
       interactionAuthorization: {

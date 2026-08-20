@@ -73,6 +73,12 @@ export type TrustedRuntimeRegistry = {
     projectId: string;
     canvasId: string;
   }): WorkItemPackagePort | undefined;
+  /** Local adapter fallback for an explicitly configured, pathless collaboration scope. */
+  configuredScopedWorkItemPackagePort(input: {
+    workspaceId: string;
+    projectId: string;
+    canvasId: string;
+  }): WorkItemPackagePort | undefined;
   /** Resolve one exact Workspace/project port that routes each declared canvas by WorkItemRef. */
   scopedProjectWorkItemPackagePort(input: {
     workspaceId: string;
@@ -282,6 +288,9 @@ export async function createTrustedRuntimeRegistry(
     },
     scopedWorkItemPackagePort(input) {
       return externalScopedResolver ? externalScopedResolver(input) : scopedPackagePort(input);
+    },
+    configuredScopedWorkItemPackagePort(input) {
+      return scopedPackagePort(input);
     },
     scopedProjectWorkItemPackagePort(input) {
       return projectWorkItemPorts.get(scopeKey(input.workspaceId, input.projectId));

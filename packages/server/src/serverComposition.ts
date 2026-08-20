@@ -39,6 +39,8 @@ import {
   type TransportCompositionHandles
 } from "./composition/transport.js";
 import { createLocalFilesystemCanvasRuntimeAdapter } from "./canvas/localFilesystemRuntimeAdapter.js";
+import { LocalFilesystemExecutionRuntimeAdapter } from "./canvas/localFilesystemExecutionRuntimeAdapter.js";
+import { LocalFilesystemWorkRuntimeAdapter } from "./work/localFilesystemRuntimeAdapter.js";
 
 export type DistributedServerCompositionOptions = {
   httpServer: HttpServer;
@@ -71,6 +73,13 @@ export async function createDistributedServerComposition(
     ownerTrustedProjects: options.ownerTrustedProjects
   });
   const localCanvasRuntime = createLocalFilesystemCanvasRuntimeAdapter(registries.runtimeRegistry);
+  const localExecutionRuntime = new LocalFilesystemExecutionRuntimeAdapter(
+    registries.runtimeRegistry
+  );
+  const ownerExecutionRuntime = new LocalFilesystemExecutionRuntimeAdapter(
+    registries.ownerRuntimeRegistry
+  );
+  const localWorkRuntime = new LocalFilesystemWorkRuntimeAdapter(registries.runtimeRegistry);
   let lifecycle: Awaited<ReturnType<typeof startRemoteBlockCoordinationServer>> | undefined;
   let activity: ActivityJournalComposition | undefined;
   let activityRetention:
@@ -96,7 +105,8 @@ export async function createDistributedServerComposition(
         return createRemoteCoordinationOptions({
           config,
           clock,
-          ownerRuntimeRegistry: registries.ownerRuntimeRegistry,
+          ownerRuntimeLeases: ownerExecutionRuntime,
+          ownerRuntimeAvailability: ownerExecutionRuntime,
           activity,
           getAuthorization: () => authorization,
           getHumanIdentity: () => humanIdentityForInteractions,
@@ -125,6 +135,11 @@ export async function createDistributedServerComposition(
     });
     const { workspaceIdentity, projectAccess, registryService, collaborationScopeAuthority } =
       identityAccess;
+    localExecutionRuntime.attachCollaborationScopeResolution({
+      workspaceIdentity,
+      projectAccess
+    });
+    localWorkRuntime.attachCollaborationScopeResolution({ workspaceIdentity, projectAccess });
     workspaceIdentityForInteractions = workspaceIdentity;
     const identityServices = createIdentityServices({
       database: server.database,
@@ -160,8 +175,10 @@ export async function createDistributedServerComposition(
       config,
       clock,
       coordination,
-      runtimeRegistry: registries.runtimeRegistry,
-      ownerRuntimeRegistry: registries.ownerRuntimeRegistry,
+      runtimeAvailability: localExecutionRuntime,
+      ownerRuntimeScopes: ownerExecutionRuntime,
+      workRuntimeProjects: localWorkRuntime,
+      workRuntimeLeases: localWorkRuntime,
       workspaceIdentity,
       projectAccess,
       authorization,

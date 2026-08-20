@@ -22,6 +22,7 @@ import { RemoteInteractionService } from "./remoteInteractions.js";
 import { RemoteOperationRepository, type RemoteOperation } from "./remoteOperations.js";
 import { DispatchService } from "./dispatches.js";
 import { toHumanEndpointSnapshot } from "./endpointSelection.js";
+import { CanvasRuntimeUnavailableError } from "./canvas/executionRuntimePort.js";
 
 export class HumanRemoteControlError extends Error {
   constructor(readonly code: string) {
@@ -95,17 +96,25 @@ export class HumanRemoteControlService {
     ) {
       throw new HumanRemoteControlError("human_remote_runtime_unavailable");
     }
-    const outcome = await this.options.coordinator.dispatch({
-      workspaceId: scope.workspaceId,
-      projectId: request.projectId,
-      canvasId: request.canvasId,
-      blockRef: request.blockRef,
-      idempotencyKey: request.idempotencyKey,
-      agentEndpointId: request.agentEndpointId,
-      expectedResponsibilityRevision: request.expectedResponsibilityRevision,
-      expectedReviewerRevision: request.expectedReviewerRevision,
-      controlPlane: "collaboration"
-    });
+    let outcome: Awaited<ReturnType<RemoteBlockCoordinator["dispatch"]>>;
+    try {
+      outcome = await this.options.coordinator.dispatch({
+        workspaceId: scope.workspaceId,
+        projectId: request.projectId,
+        canvasId: request.canvasId,
+        blockRef: request.blockRef,
+        idempotencyKey: request.idempotencyKey,
+        agentEndpointId: request.agentEndpointId,
+        expectedResponsibilityRevision: request.expectedResponsibilityRevision,
+        expectedReviewerRevision: request.expectedReviewerRevision,
+        controlPlane: "collaboration"
+      });
+    } catch (error) {
+      if (error instanceof CanvasRuntimeUnavailableError) {
+        throw new HumanRemoteControlError("human_remote_runtime_unavailable");
+      }
+      throw error;
+    }
     return this.observeOperation(scope, outcome.operation.id);
   }
 

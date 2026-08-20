@@ -17,7 +17,6 @@ import {
 import { ArtifactStore } from "../artifacts.js";
 import { startPlanweaveServer, type PlanweaveServer } from "../lifecycle.js";
 import { RuntimeInputArtifactMaterializer } from "../runtimeArtifactAdapter.js";
-import { RemoteRuntimePortRegistry } from "../remoteRuntimeLocator.js";
 
 const directories: string[] = [];
 const servers: PlanweaveServer[] = [];
@@ -62,17 +61,7 @@ describe("RuntimeInputArtifactMaterializer", () => {
     });
     const runtime = createRemoteBlockRuntimePort({ projectRoot: workspace.root });
     const candidate = await runtime.inspect({ ref: "T-001#B-002" });
-    const locator = {
-      workspaceId: candidate.workspaceId,
-      projectId: candidate.projectId,
-      canvasId: candidate.canvasId
-    };
-    const registry = new RemoteRuntimePortRegistry();
-    registry.bind(
-      locator,
-      runtime,
-      createRemoteBlockArtifactSource({ projectRoot: workspace.root })
-    );
+    const source = createRemoteBlockArtifactSource({ projectRoot: workspace.root });
     const dataDirectory = join(workspace.root, "server-data");
     const server = await startPlanweaveServer({
       dataDirectory,
@@ -81,25 +70,28 @@ describe("RuntimeInputArtifactMaterializer", () => {
     });
     servers.push(server);
     const store = new ArtifactStore(server.database, dataDirectory, 1024 * 1024);
-    const materializer = new RuntimeInputArtifactMaterializer(registry, store);
+    const materializer = new RuntimeInputArtifactMaterializer(store);
 
-    await materializer.materialize(candidate);
-    await materializer.materialize(candidate);
+    await materializer.materialize(candidate, source);
+    await materializer.materialize(candidate, source);
     const declared = candidate.inputArtifacts[0];
     if (!declared) throw new Error("Expected declared input artifact");
     await expect(store.read(declared.artifactRef)).resolves.toEqual(report);
 
     const crossedDigest = createHash("sha256").update("foreign").digest("hex");
     await expect(
-      materializer.materialize({
-        ...candidate,
-        inputArtifacts: [
-          {
-            ...declared,
-            artifactRef: `artifact:sha256:${crossedDigest}`
-          }
-        ]
-      })
+      materializer.materialize(
+        {
+          ...candidate,
+          inputArtifacts: [
+            {
+              ...declared,
+              artifactRef: `artifact:sha256:${crossedDigest}`
+            }
+          ]
+        },
+        source
+      )
     ).rejects.toThrow("remote_block_artifact_not_declared");
 
     await appendFile(
@@ -107,7 +99,7 @@ describe("RuntimeInputArtifactMaterializer", () => {
       "\nsource drift\n",
       "utf8"
     );
-    await expect(materializer.materialize(candidate)).rejects.toThrow(
+    await expect(materializer.materialize(candidate, source)).rejects.toThrow(
       "remote_block_artifact_source_revision_mismatch"
     );
   });

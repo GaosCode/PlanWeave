@@ -17,7 +17,6 @@ import {
   createIdentityMembershipPort,
   WorkAssignmentService
 } from "../work/index.js";
-import type { TrustedRuntimeRegistry } from "./identityAccess.js";
 import type { ActivityJournalComposition } from "./activityComments.js";
 import { activitySubjectSchema } from "../comments/index.js";
 import {
@@ -26,11 +25,21 @@ import {
 } from "../runtimeArtifactAdapter.js";
 import type { HumanIdentityRepository } from "../identity/index.js";
 import { RemoteOperationRetention } from "../remoteOperationRetention.js";
+import type {
+  CanvasExecutionRuntimeLeasePort,
+  CanvasRuntimeScopeAvailabilityPort,
+  OwnerCanvasRuntimeScopeResolverPort
+} from "../canvas/executionRuntimePort.js";
+import type {
+  WorkRuntimePackageLeasePort,
+  WorkRuntimeProjectResolverPort
+} from "../work/runtimePort.js";
 
 export function createRemoteCoordinationOptions(input: {
   config: ServerConfig;
   clock: () => Date;
-  ownerRuntimeRegistry: TrustedRuntimeRegistry;
+  ownerRuntimeLeases: CanvasExecutionRuntimeLeasePort;
+  ownerRuntimeAvailability: CanvasRuntimeScopeAvailabilityPort;
   activity: ActivityJournalComposition;
   getAuthorization(): OperatorTokenRegistry;
   getHumanIdentity(): HumanIdentityRepository | undefined;
@@ -40,17 +49,14 @@ export function createRemoteCoordinationOptions(input: {
     leaseDurationMs: input.config.limits.leaseDurationMs,
     hostOfflineAfterMs: input.config.limits.hostOfflineAfterMs,
     clock: input.clock,
-    runtimeResolver: input.ownerRuntimeRegistry.registry,
-    inputArtifacts: new RuntimeInputArtifactMaterializer(
-      input.ownerRuntimeRegistry.registry,
-      input.activity.artifactStore
-    ),
+    runtimeLeases: input.ownerRuntimeLeases,
+    inputArtifacts: new RuntimeInputArtifactMaterializer(input.activity.artifactStore),
     artifactContent: new ArtifactStoreRemoteContent(input.activity.artifactStore),
     ownerEndpointScopeAuthorized: (scope: {
       workspaceId: string;
       projectId: string;
       canvasId: string;
-    }) => input.ownerRuntimeRegistry.hasScope(scope),
+    }) => input.ownerRuntimeAvailability.hasRuntimeScope(scope),
     interactionAuthorization: {
       canRespond: (interaction: {
         workspaceId: string;
@@ -141,8 +147,10 @@ export function createRemoteExecutionComposition(input: {
   config: ServerConfig;
   clock: () => Date;
   coordination: Coordination;
-  runtimeRegistry: TrustedRuntimeRegistry;
-  ownerRuntimeRegistry: TrustedRuntimeRegistry;
+  runtimeAvailability: CanvasRuntimeScopeAvailabilityPort;
+  ownerRuntimeScopes: OwnerCanvasRuntimeScopeResolverPort;
+  workRuntimeProjects: WorkRuntimeProjectResolverPort;
+  workRuntimeLeases: WorkRuntimePackageLeasePort;
   workspaceIdentity: WorkspaceIdentityRepository;
   projectAccess: ProjectAccessRepository;
   authorization: OperatorTokenRegistry;
@@ -166,7 +174,7 @@ export function createRemoteExecutionComposition(input: {
     if (!project || project.revokedAt !== null || !canvas || canvas.revokedAt !== null) {
       return undefined;
     }
-    const acquired = input.runtimeRegistry.acquireScopedWorkItemPackagePort({
+    const acquired = input.workRuntimeLeases.acquirePackage({
       workspaceId,
       projectId,
       canvasId
@@ -175,7 +183,7 @@ export function createRemoteExecutionComposition(input: {
     return {
       service: new AuthorityService({
         repository: authorityRepository,
-        packagePort: acquired.port,
+        packagePort: acquired.package,
         access: input.projectAccess,
         workspaceIdentity: input.workspaceIdentity,
         hosts: input.coordination.hosts,
@@ -184,10 +192,10 @@ export function createRemoteExecutionComposition(input: {
       release: acquired.release
     };
   };
-  for (const { workspaceId, projectId } of input.runtimeRegistry.locators) {
+  for (const { workspaceId, projectId } of input.workRuntimeProjects.listAttachedProjects()) {
     const serviceKey = assignmentServiceKey(workspaceId, projectId);
     if (assignmentServices.has(serviceKey)) continue;
-    const packagePort = input.runtimeRegistry.scopedProjectWorkItemPackagePort({
+    const packagePort = input.workRuntimeProjects.resolveProjectPackage({
       workspaceId,
       projectId
     });
@@ -212,7 +220,7 @@ export function createRemoteExecutionComposition(input: {
     coordinator: input.coordination.coordinator,
     events: input.coordination.acpEvents,
     interactions: input.coordination.interactions,
-    runtimeAvailable: (scope) => input.runtimeRegistry.hasScope(scope),
+    runtimeAvailable: (scope) => input.runtimeAvailability.hasRuntimeScope(scope),
     authorizeCanvas: (context, scope) => {
       assertHumanScopeAuthorized({
         actor: context,
@@ -242,22 +250,17 @@ export function createRemoteExecutionComposition(input: {
         disconnectHost,
         workspaceIdentity: input.workspaceIdentity,
         authorizeProjectScope: (scope) => {
-          if (!input.runtimeRegistry.hasScope(scope)) throw new Error("operator_project_forbidden");
+          if (!input.runtimeAvailability.hasRuntimeProject(scope)) {
+            throw new Error("operator_project_forbidden");
+          }
         },
         authorizeCanvas: (scope) => {
-          if (!input.runtimeRegistry.hasScope(scope)) throw new Error("operator_project_forbidden");
+          if (!input.runtimeAvailability.hasRuntimeScope(scope)) {
+            throw new Error("operator_project_forbidden");
+          }
         },
         resolveOwnerRuntimeScope: ({ projectId, canvasId }) => {
-          const matches = input.ownerRuntimeRegistry.expansions.filter(
-            (scope) => scope.projectId === projectId && scope.canvasId === canvasId
-          );
-          if (matches.length !== 1) return undefined;
-          const match = matches[0]!;
-          return {
-            workspaceId: match.workspaceId,
-            projectId: match.projectId,
-            canvasId: match.canvasId
-          };
+          return input.ownerRuntimeScopes.resolveUniqueOwnerScope({ projectId, canvasId });
         },
         hostOfflineAfterMs: input.config.limits.hostOfflineAfterMs,
         clock: input.clock

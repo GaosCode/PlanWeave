@@ -37,11 +37,10 @@ async function setup(input: { serverAdmin?: boolean } = {}) {
       leaseDurationMs: 60_000,
       hostOfflineAfterMs: 60_000,
       clock: () => now,
-      runtimeResolver: {
-        resolve: () => {
+      runtimeLeases: {
+        acquire: () => {
           throw new Error("runtime_not_configured");
-        },
-        hasScope: () => true
+        }
       },
       inputArtifacts: { materialize: async () => undefined },
       artifactContent: { readReport: async () => new Uint8Array() }

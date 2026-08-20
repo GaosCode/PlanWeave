@@ -1,6 +1,7 @@
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  createRemoteBlockArtifactSource,
   createRemoteBlockRuntimePort,
   type PlanPackageManifest,
   type RemoteBlockRuntimePort
@@ -121,14 +122,18 @@ export async function setup(
     const runtime = options.decorateRuntime?.(baseRuntime) ?? baseRuntime;
     activeRuntime = runtime;
     const registry = new RemoteRuntimePortRegistry();
-    registry.bind(locator, runtime);
+    registry.bind(
+      locator,
+      runtime,
+      createRemoteBlockArtifactSource({ projectRoot: workspace.root })
+    );
     const artifacts = new ArtifactStore(server.database, dataDirectory, 1024 * 1024);
     return createRemoteBlockCoordination(
       server.database,
       {
         leaseDurationMs: 60_000,
         hostOfflineAfterMs: 60_000,
-        runtimeResolver: registry,
+        runtimeLeases: registry,
         inputArtifacts: {
           materialize: async (candidate) => {
             if (candidate.inputArtifacts.length !== 0) throw new Error("unexpected_test_artifact");

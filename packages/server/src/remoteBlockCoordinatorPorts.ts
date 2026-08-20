@@ -4,7 +4,10 @@ import type {
   MailboxCommand,
   NormalizedFailure
 } from "@planweave-ai/agent-host-protocol";
-import type { RemoteBlockDispatchCandidate, RemoteBlockRuntimePort } from "@planweave-ai/runtime";
+import type {
+  RemoteBlockArtifactSource,
+  RemoteBlockDispatchCandidate
+} from "@planweave-ai/runtime";
 import type { RemoteBlockCompletionInput } from "@planweave-ai/runtime";
 import type { HostCapacityReservation } from "./hostReservations.js";
 import type { MailboxMessage } from "./mailbox.js";
@@ -43,15 +46,6 @@ export type RemoteRuntimeLocator = {
   projectId: string;
   canvasId: string;
 };
-
-export interface RemoteBlockRuntimeResolverPort {
-  resolve(locator: RemoteRuntimeLocator): RemoteBlockRuntimePort;
-  acquire?(
-    locator: RemoteRuntimeLocator
-  ):
-    | { runtime: RemoteBlockRuntimePort; release(): void }
-    | Promise<{ runtime: RemoteBlockRuntimePort; release(): void }>;
-}
 
 export interface RemoteOperationCandidatePort {
   get(operationId: string): RemoteBlockDispatchCandidate | undefined;
@@ -137,5 +131,8 @@ export interface RemoteAcpTranscriptPort {
 }
 
 export interface RemoteInputArtifactPort {
-  materialize(candidate: RemoteBlockDispatchCandidate): Promise<void>;
+  materialize(
+    candidate: RemoteBlockDispatchCandidate,
+    source: RemoteBlockArtifactSource
+  ): Promise<void>;
 }

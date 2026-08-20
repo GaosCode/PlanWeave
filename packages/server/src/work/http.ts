@@ -61,7 +61,7 @@ export type WorkAssignmentHttpOptions = {
     workspaceId: string,
     projectId: string,
     canvasId: string
-  ): { service: AuthorityService; release(): void } | undefined;
+  ): { service: AuthorityService; release(): void | Promise<void> } | undefined;
   repository: HumanIdentityRepository;
   workspaceIdentity: WorkspaceIdentityRepository;
   access: ProjectAccessRepository;
@@ -683,7 +683,7 @@ export async function handleWorkAssignmentHttpRequest(
         try {
           respond(response, 200, handle.service.updateResponsibility(actor, body));
         } finally {
-          handle.release();
+          await handle.release();
         }
         return true;
       }
@@ -720,7 +720,7 @@ export async function handleWorkAssignmentHttpRequest(
         try {
           respond(response, 200, handle.service.updateReviewer(actor, body));
         } finally {
-          handle.release();
+          await handle.release();
         }
         return true;
       }
@@ -775,7 +775,7 @@ export async function handleWorkAssignmentHttpRequest(
                 : handle.service.getExecutionTarget(actor, scope);
           respond(response, 200, result ?? null);
         } finally {
-          handle.release();
+          await handle.release();
         }
         return true;
       }
@@ -798,7 +798,7 @@ export async function handleWorkAssignmentHttpRequest(
         try {
           respond(response, 200, handle.service.getWorkAuthorityProjection(actor, scope));
         } finally {
-          handle.release();
+          await handle.release();
         }
         return true;
       }

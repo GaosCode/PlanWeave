@@ -13,20 +13,93 @@ import {
   projectCanvasWorkspace,
   writeProjectGraph
 } from "../../../runtime/src/projectGraph/index.js";
+import { createRemoteBlockRuntimePort } from "@planweave-ai/runtime";
 import { writeJsonFile } from "../../../runtime/src/json.js";
 import { createTrustedRuntimeRegistry } from "../runtimeProjectRegistry.js";
 import { createLocalFilesystemCanvasRuntimeAdapter } from "../canvas/localFilesystemRuntimeAdapter.js";
+import { LocalFilesystemExecutionRuntimeAdapter } from "../canvas/localFilesystemExecutionRuntimeAdapter.js";
+import { LocalFilesystemWorkRuntimeAdapter } from "../work/localFilesystemRuntimeAdapter.js";
 import { canvasScopeRefSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
+import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
+import { applyMigrations } from "../migrations.js";
+import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
+import { ProjectAccessRepository } from "../projectAccessRepository.js";
 
 const directories: string[] = [];
+const databases: SqliteDatabase[] = [];
 
 afterEach(async () => {
+  for (const database of databases.splice(0)) database.close();
   await Promise.all(
     directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))
   );
 });
 
 describe("createTrustedRuntimeRegistry", () => {
+  it("uses an attached local Runtime when the SQLite collaboration scope is pathless", async () => {
+    const manifest = basicManifest();
+    manifest.execution.defaultExecutor = "codex-acp";
+    manifest.executors = {
+      "codex-acp": {
+        adapter: "agent",
+        agent: "codex",
+        runner: { transport: "acp" }
+      }
+    };
+    const workspace = await createTestWorkspace(manifest);
+    directories.push(workspace.home, workspace.root);
+    const scope = {
+      workspaceId: "workspace-pathless",
+      projectId: workspace.init.workspace.id,
+      canvasId: "default"
+    };
+    const trusted = await createTrustedRuntimeRegistry([{ ...scope, projectRoot: workspace.root }]);
+    const database = await openServerDatabase(":memory:", 5_000);
+    databases.push(database);
+    applyMigrations(database);
+    const workspaceIdentity = new WorkspaceIdentityRepository(database);
+    workspaceIdentity.ensureConfiguredWorkspace(scope.workspaceId);
+    const projectAccess = new ProjectAccessRepository(database);
+    projectAccess.registerProjectInternal({
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      projectRoot: workspace.root
+    });
+    projectAccess.registerCanvasInternal({
+      ...scope,
+      packageDir: workspace.init.workspace.packageDir
+    });
+    database
+      .prepare("UPDATE project_registry SET project_root_internal=NULL WHERE project_id=?")
+      .run(scope.projectId);
+    database
+      .prepare("UPDATE canvas_registry SET package_dir_internal=NULL WHERE project_id=?")
+      .run(scope.projectId);
+
+    const execution = new LocalFilesystemExecutionRuntimeAdapter(trusted);
+    execution.attachCollaborationScopeResolution({ workspaceIdentity, projectAccess });
+    const work = new LocalFilesystemWorkRuntimeAdapter(trusted);
+    work.attachCollaborationScopeResolution({ workspaceIdentity, projectAccess });
+
+    const lease = await execution.acquire(scope);
+    await expect(lease.runtime.inspect({ ref: "T-001#B-001" })).resolves.toMatchObject({
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      canvasId: scope.canvasId
+    });
+    await lease.release();
+    const workLease = work.acquirePackage(scope);
+    expect(
+      workLease?.package.resolveWorkItem({
+        kind: "block",
+        canvasId: scope.canvasId,
+        blockRef: "T-001#B-001"
+      })
+    ).toMatchObject({ exists: true });
+    await workLease?.release();
+    trusted.close();
+  });
+
   it("keeps local filesystem paths behind the logical Canvas runtime port", async () => {
     const workspace = await createTestWorkspace();
     directories.push(workspace.home, workspace.root);
@@ -240,6 +313,24 @@ describe("createTrustedRuntimeRegistry", () => {
 
     expect(resolveScoped).toHaveBeenCalledTimes(2);
     expect(release).toHaveBeenCalledTimes(2);
+    trusted.close();
+  });
+
+  it("keeps runtime-only lookup compatible but rejects an execution lease without artifacts", async () => {
+    const workspace = await createTestWorkspace(basicManifest());
+    directories.push(workspace.home, workspace.root);
+    const locator = {
+      workspaceId: "workspace-runtime-only",
+      projectId: workspace.init.workspace.id,
+      canvasId: "default"
+    };
+    const trusted = await createTrustedRuntimeRegistry([]);
+    trusted.registry.bind(locator, createRemoteBlockRuntimePort({ projectRoot: workspace.root }));
+
+    expect(() => trusted.registry.resolve(locator)).not.toThrow();
+    await expect(trusted.registry.acquire(locator)).rejects.toThrow(
+      "remote_runtime_artifact_source_unresolved"
+    );
     trusted.close();
   });
 

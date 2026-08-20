@@ -18,7 +18,6 @@ import {
 import type {
   RemoteArtifactContentPort,
   RemoteAcpTranscriptPort,
-  RemoteBlockRuntimeResolverPort,
   RemoteCoordinatorCheckpoint,
   RemoteCoordinatorCheckpointPort,
   RemoteDispatchPersistencePort,
@@ -27,6 +26,10 @@ import type {
   RemoteOperationCandidatePort,
   RemoteRuntimeLocator
 } from "./remoteBlockCoordinatorPorts.js";
+import type {
+  CanvasExecutionRuntimeLease,
+  CanvasExecutionRuntimeLeasePort
+} from "./canvas/executionRuntimePort.js";
 import { HostReservationRepository, type HostCapacityReservation } from "./hostReservations.js";
 import { RemoteOperationRepository, type RemoteOperation } from "./remoteOperations.js";
 import {
@@ -77,7 +80,7 @@ export type RemoteDispatchOutcome = {
 };
 
 export type RemoteBlockCoordinatorOptions = {
-  runtimeResolver: RemoteBlockRuntimeResolverPort;
+  runtimeLeases: CanvasExecutionRuntimeLeasePort;
   operations: RemoteOperationRepository;
   actions: RemoteExecutionActionRepository;
   candidates: RemoteOperationCandidatePort;
@@ -170,12 +173,11 @@ export class RemoteBlockCoordinator {
     locator: RemoteRuntimeLocator,
     operation: (runtime: RemoteBlockRuntimePort) => Promise<T>
   ): Promise<T> {
-    const acquired = await this.options.runtimeResolver.acquire?.(locator);
-    if (!acquired) return operation(this.options.runtimeResolver.resolve(locator));
+    const acquired = await this.options.runtimeLeases.acquire(locator);
     try {
       return await operation(acquired.runtime);
     } finally {
-      acquired.release();
+      await acquired.release();
     }
   }
 
@@ -276,6 +278,22 @@ export class RemoteBlockCoordinator {
   }
 
   async reenter(operationId: string): Promise<RemoteDispatchOutcome> {
+    const operation = this.options.operations.getRequired(operationId);
+    if (["completed", "failed", "cancelled"].includes(operation.state)) {
+      return { operation, status: "terminal" };
+    }
+    const lease = await this.options.runtimeLeases.acquire(operation);
+    try {
+      return await this.reenterWithLease(operationId, lease);
+    } finally {
+      await lease.release();
+    }
+  }
+
+  private async reenterWithLease(
+    operationId: string,
+    runtimeLease: CanvasExecutionRuntimeLease
+  ): Promise<RemoteDispatchOutcome> {
     let operation = this.options.operations.getRequired(operationId);
     if (["completed", "failed", "cancelled"].includes(operation.state)) {
       return { operation, status: "terminal" };
@@ -286,9 +304,9 @@ export class RemoteBlockCoordinator {
     const pendingWriteback = this.options.dispatches.inspect(operation).dispatch;
     if (pendingWriteback?.status === "awaiting_writeback" && pendingWriteback.terminalAction) {
       if (pendingWriteback.terminalAction.kind === "complete") {
-        await this.complete(operation.id);
+        await this.complete(operation.id, runtimeLease);
       } else {
-        await this.fail(operation.id);
+        await this.fail(operation.id, runtimeLease);
       }
       return {
         operation: this.options.operations.getRequired(operation.id),
@@ -318,12 +336,10 @@ export class RemoteBlockCoordinator {
     }
     if (operation.state !== "preparing") {
       try {
-        const binding = await this.withRuntime(operation, (runtime) =>
-          runtime.reconcile({
-            ref: operation.blockRef,
-            operationId: operation.id
-          })
-        );
+        const binding = await runtimeLease.runtime.reconcile({
+          ref: operation.blockRef,
+          operationId: operation.id
+        });
         if (binding.divergenceReason && !binding.interruption) {
           this.options.operations.recordDiagnostic(
             operation.id,
@@ -346,9 +362,7 @@ export class RemoteBlockCoordinator {
     let candidate = this.options.candidates.get(operation.id);
     if (!candidate) {
       if (operation.state !== "preparing") throw new Error("remote_operation_candidate_missing");
-      candidate = await this.withRuntime(operation, (runtime) =>
-        runtime.inspect({ ref: operation.blockRef })
-      );
+      candidate = await runtimeLease.runtime.inspect({ ref: operation.blockRef });
       if (
         candidate.projectId !== operation.projectId ||
         candidate.canvasId !== operation.canvasId ||
@@ -368,15 +382,13 @@ export class RemoteBlockCoordinator {
 
     if (operation.state === "preparing") {
       try {
-        await this.withRuntime(operation, (runtime) =>
-          runtime.claim({
-            ref: operation.blockRef,
-            operationId: operation.id,
-            controlPlane: operation.endpointSelection?.authority.controlPlane ?? "collaboration",
-            sourceRevision: operation.ownershipGeneration,
-            graphFingerprint: operation.sourceFingerprint
-          })
-        );
+        await runtimeLease.runtime.claim({
+          ref: operation.blockRef,
+          operationId: operation.id,
+          controlPlane: operation.endpointSelection?.authority.controlPlane ?? "collaboration",
+          sourceRevision: operation.ownershipGeneration,
+          graphFingerprint: operation.sourceFingerprint
+        });
         await this.checkpoint("after_runtime_claim");
       } catch (error) {
         this.options.operations.recordDiagnostic(
@@ -406,7 +418,7 @@ export class RemoteBlockCoordinator {
       digest: envelopeDigest
     });
     await this.checkpoint("after_envelope_persistence");
-    await this.options.inputArtifacts.materialize(candidate);
+    await this.options.inputArtifacts.materialize(candidate, runtimeLease.artifacts);
     await this.checkpoint("after_input_materialization");
 
     const persisted = this.inspectPersistence(
@@ -426,15 +438,13 @@ export class RemoteBlockCoordinator {
       if (!interruption) {
         this.recordInconsistency(operation, "An interrupted dispatch has no interruption payload.");
       }
-      await this.withRuntime(operation, (runtime) =>
-        runtime.markInterrupted({
-          ...remoteBlockIdentity(operation),
-          interruption,
-          ...(operation.endpointSelection?.agentId
-            ? { agentId: operation.endpointSelection.agentId }
-            : {})
-        })
-      );
+      await runtimeLease.runtime.markInterrupted({
+        ...remoteBlockIdentity(operation),
+        interruption,
+        ...(operation.endpointSelection?.agentId
+          ? { agentId: operation.endpointSelection.agentId }
+          : {})
+      });
       return {
         operation: this.options.operations.getRequired(operation.id),
         status: "wait_for_action"
@@ -450,9 +460,9 @@ export class RemoteBlockCoordinator {
         );
       }
       if (action.kind === "complete") {
-        await this.complete(operation.id);
+        await this.complete(operation.id, runtimeLease);
       } else {
-        await this.fail(operation.id);
+        await this.fail(operation.id, runtimeLease);
       }
       return {
         operation: this.options.operations.getRequired(operation.id),
@@ -531,9 +541,7 @@ export class RemoteBlockCoordinator {
     await this.checkpoint("after_dispatch_persistence");
 
     try {
-      await this.withRuntime(operation, (runtime) =>
-        runtime.activate(remoteBlockIdentity(operation))
-      );
+      await runtimeLease.runtime.activate(remoteBlockIdentity(operation));
       await this.checkpoint("after_runtime_binding");
     } catch (error) {
       this.options.operations.recordDiagnostic(
@@ -567,8 +575,10 @@ export class RemoteBlockCoordinator {
   async reenterPending(): Promise<RemoteDispatchOutcome[]> {
     const outcomes: RemoteDispatchOutcome[] = [];
     for (const operation of this.options.operations.listNonTerminal()) {
+      let runtimeLease: CanvasExecutionRuntimeLease | undefined;
       try {
-        outcomes.push(await this.reenter(operation.id));
+        runtimeLease = await this.options.runtimeLeases.acquire(operation);
+        outcomes.push(await this.reenterWithLease(operation.id, runtimeLease));
       } catch (error) {
         const decision = classifyReenterFailure(error);
         if (decision === "fatal") throw error;
@@ -581,7 +591,9 @@ export class RemoteBlockCoordinator {
           });
           continue;
         }
-        outcomes.push(await this.sealOperationLocalFailure(operation, error));
+        outcomes.push(await this.sealOperationLocalFailure(operation, error, runtimeLease));
+      } finally {
+        await runtimeLease?.release();
       }
     }
     return outcomes;
@@ -702,7 +714,24 @@ export class RemoteBlockCoordinator {
     return this.actionsCoordinator;
   }
 
-  async complete(operationId: string): Promise<void> {
+  async complete(operationId: string, existingLease?: CanvasExecutionRuntimeLease): Promise<void> {
+    if (existingLease) {
+      await this.completeWithLease(operationId, existingLease);
+      return;
+    }
+    const operation = this.options.operations.getRequired(operationId);
+    const lease = await this.options.runtimeLeases.acquire(operation);
+    try {
+      await this.completeWithLease(operationId, lease);
+    } finally {
+      await lease.release();
+    }
+  }
+
+  private async completeWithLease(
+    operationId: string,
+    runtimeLease: CanvasExecutionRuntimeLease
+  ): Promise<void> {
     let operation = this.options.operations.getRequired(operationId);
     if (this.reconcileTerminalOperationReplay(operation)) return;
     this.authorizeWritebackIfLeaseActive(operation);
@@ -729,17 +758,15 @@ export class RemoteBlockCoordinator {
       : null;
     await this.checkpoint("before_runtime_writeback");
     try {
-      await this.withRuntime(operation, (runtime) =>
-        runtime.complete({
-          ...remoteBlockIdentity(operation),
-          reportArtifactRef,
-          reportBytes,
-          ...(transcript ? { transcript } : {})
-        })
-      );
+      await runtimeLease.runtime.complete({
+        ...remoteBlockIdentity(operation),
+        reportArtifactRef,
+        reportBytes,
+        ...(transcript ? { transcript } : {})
+      });
     } catch (error) {
       if (!isWritebackDomainFailure(error)) throw error;
-      await this.sealRejectedWriteback(operation, error);
+      await this.sealRejectedWriteback(operation, error, runtimeLease.runtime);
       return;
     }
     await this.checkpoint("after_runtime_writeback");
@@ -754,24 +781,26 @@ export class RemoteBlockCoordinator {
    * Host parked durable complete evidence, but package writeback rejected it.
    * Seal Server terminal state as failed so one bad report cannot wedge startup.
    */
-  private async sealRejectedWriteback(operation: RemoteOperation, error: unknown): Promise<void> {
+  private async sealRejectedWriteback(
+    operation: RemoteOperation,
+    error: unknown,
+    runtime: RemoteBlockRuntimePort
+  ): Promise<void> {
     const diagnostic = diagnosticFromReenterFailure(error);
     this.options.operations.recordDiagnostic(operation.id, diagnostic.code, diagnostic.message);
     try {
-      await this.withRuntime(operation, (runtime) =>
-        runtime.fail(
-          remoteBlockFailureInputSchema.parse({
-            ...remoteBlockIdentity(operation),
-            failure: {
-              code: "protocol_error",
-              message: diagnostic.message,
-              retryable: false
-            },
-            ...(operation.endpointSelection?.agentId
-              ? { agentId: operation.endpointSelection.agentId }
-              : {})
-          })
-        )
+      await runtime.fail(
+        remoteBlockFailureInputSchema.parse({
+          ...remoteBlockIdentity(operation),
+          failure: {
+            code: "protocol_error",
+            message: diagnostic.message,
+            retryable: false
+          },
+          ...(operation.endpointSelection?.agentId
+            ? { agentId: operation.endpointSelection.agentId }
+            : {})
+        })
       );
     } catch (failError) {
       if (!isMissingActiveOwnership(failError)) throw failError;
@@ -786,7 +815,8 @@ export class RemoteBlockCoordinator {
 
   private async sealOperationLocalFailure(
     operation: RemoteOperation,
-    error: unknown
+    error: unknown,
+    existingLease?: CanvasExecutionRuntimeLease
   ): Promise<RemoteDispatchOutcome> {
     const current = this.options.operations.getRequired(operation.id);
     if (["completed", "failed", "cancelled"].includes(current.state)) {
@@ -797,7 +827,16 @@ export class RemoteBlockCoordinator {
       persisted?.status === "awaiting_writeback" &&
       persisted.terminalAction?.kind === "complete"
     ) {
-      await this.sealRejectedWriteback(current, error);
+      if (existingLease) {
+        await this.sealRejectedWriteback(current, error, existingLease.runtime);
+      } else {
+        const runtimeLease = await this.options.runtimeLeases.acquire(current);
+        try {
+          await this.sealRejectedWriteback(current, error, runtimeLease.runtime);
+        } finally {
+          await runtimeLease.release();
+        }
+      }
       return {
         operation: this.options.operations.getRequired(current.id),
         status: "terminal"
@@ -805,7 +844,7 @@ export class RemoteBlockCoordinator {
     }
     if (persisted?.status === "awaiting_writeback" && persisted.terminalAction?.kind === "fail") {
       try {
-        await this.fail(current.id);
+        await this.fail(current.id, existingLease);
       } catch (failError) {
         if (!isMissingActiveOwnership(failError) && !isWritebackDomainFailure(failError)) {
           throw failError;
@@ -848,7 +887,24 @@ export class RemoteBlockCoordinator {
     }
   }
 
-  async fail(operationId: string): Promise<void> {
+  async fail(operationId: string, existingLease?: CanvasExecutionRuntimeLease): Promise<void> {
+    if (existingLease) {
+      await this.failWithLease(operationId, existingLease);
+      return;
+    }
+    const operation = this.options.operations.getRequired(operationId);
+    const lease = await this.options.runtimeLeases.acquire(operation);
+    try {
+      await this.failWithLease(operationId, lease);
+    } finally {
+      await lease.release();
+    }
+  }
+
+  private async failWithLease(
+    operationId: string,
+    runtimeLease: CanvasExecutionRuntimeLease
+  ): Promise<void> {
     let operation = this.options.operations.getRequired(operationId);
     if (this.reconcileTerminalOperationReplay(operation)) return;
     this.authorizeWritebackIfLeaseActive(operation);
@@ -864,16 +920,14 @@ export class RemoteBlockCoordinator {
     await this.checkpoint("after_terminal_event_persistence");
     const failure = terminal.terminalAction.failure;
     await this.checkpoint("before_runtime_writeback");
-    await this.withRuntime(operation, (runtime) =>
-      runtime.fail(
-        remoteBlockFailureInputSchema.parse({
-          ...remoteBlockIdentity(operation),
-          failure,
-          ...(operation.endpointSelection?.agentId
-            ? { agentId: operation.endpointSelection.agentId }
-            : {})
-        })
-      )
+    await runtimeLease.runtime.fail(
+      remoteBlockFailureInputSchema.parse({
+        ...remoteBlockIdentity(operation),
+        failure,
+        ...(operation.endpointSelection?.agentId
+          ? { agentId: operation.endpointSelection.agentId }
+          : {})
+      })
     );
     await this.checkpoint("after_runtime_writeback");
     operation = this.options.operations.getRequired(operation.id);

@@ -11,10 +11,10 @@ import type { SqliteDatabase } from "./sqlite.js";
 import { RemoteBlockCoordinator } from "./remoteBlockCoordinator.js";
 import type {
   RemoteArtifactContentPort,
-  RemoteBlockRuntimeResolverPort,
   RemoteCoordinatorCheckpointPort,
   RemoteInputArtifactPort
 } from "./remoteBlockCoordinatorPorts.js";
+import type { CanvasExecutionRuntimeLeasePort } from "./canvas/executionRuntimePort.js";
 import {
   SqliteRemoteDispatchPersistence,
   SqliteRemoteOperationCandidateRepository
@@ -50,7 +50,7 @@ export type RemoteBlockCoordinationOptions = {
   leaseDurationMs: number;
   hostOfflineAfterMs: number;
   clock?: () => Date;
-  runtimeResolver: RemoteBlockRuntimeResolverPort;
+  runtimeLeases: CanvasExecutionRuntimeLeasePort;
   inputArtifacts: RemoteInputArtifactPort;
   artifactContent: RemoteArtifactContentPort;
   checkpoints?: RemoteCoordinatorCheckpointPort;
@@ -329,7 +329,7 @@ export function createRemoteBlockCoordination(
     }
   };
   const coordinator = new RemoteBlockCoordinator({
-    runtimeResolver: options.runtimeResolver,
+    runtimeLeases: options.runtimeLeases,
     operations,
     actions,
     candidates,

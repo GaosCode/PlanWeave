@@ -2,7 +2,11 @@ import { createServer, type Server as HttpServer } from "node:http";
 import { loopbackHttpTransportAdmission } from "./support/transportAdmission.js";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { createRemoteBlockRuntimePort, type PlanPackageManifest } from "@planweave-ai/runtime";
+import {
+  createRemoteBlockArtifactSource,
+  createRemoteBlockRuntimePort,
+  type PlanPackageManifest
+} from "@planweave-ai/runtime";
 import { WebSocket } from "ws";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRemoteBlockCoordination } from "../distributedCoordination.js";
@@ -143,13 +147,13 @@ async function createWsCoordination() {
   };
   const registry = new RemoteRuntimePortRegistry();
   const runtime = createRemoteBlockRuntimePort({ projectRoot: workspace.root });
-  registry.bind(locator, runtime);
+  registry.bind(locator, runtime, createRemoteBlockArtifactSource({ projectRoot: workspace.root }));
   const coordination = createRemoteBlockCoordination(
     database.database,
     {
       leaseDurationMs: 60_000,
       hostOfflineAfterMs: 60_000,
-      runtimeResolver: registry,
+      runtimeLeases: registry,
       inputArtifacts: {
         materialize: async (candidate) => {
           if (candidate.inputArtifacts.length > 0) throw new Error("unexpected_test_artifact");

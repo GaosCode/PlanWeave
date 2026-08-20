@@ -1,10 +1,8 @@
 import type { RemoteBlockArtifactSource, RemoteBlockRuntimePort } from "@planweave-ai/runtime";
 import { workspaceIdSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import { canonicalRemoteRuntimePort } from "./canonicalRemoteRuntimePort.js";
-import type {
-  RemoteBlockRuntimeResolverPort,
-  RemoteRuntimeLocator
-} from "./remoteBlockCoordinatorPorts.js";
+import type { CanvasExecutionRuntimeLeasePort } from "./canvas/executionRuntimePort.js";
+import type { RemoteRuntimeLocator } from "./remoteBlockCoordinatorPorts.js";
 
 function locatorKey(locator: RemoteRuntimeLocator): string {
   const workspaceId = workspaceIdSchema.safeParse(locator.workspaceId);
@@ -15,14 +13,14 @@ function locatorKey(locator: RemoteRuntimeLocator): string {
 export type ScopedRemoteRuntimeBinding = {
   runtime: RemoteBlockRuntimePort;
   artifacts: RemoteBlockArtifactSource;
-  release(): void;
+  release(): void | Promise<void>;
 };
 
 type ScopedRemoteRuntimeResolver = (
   locator: RemoteRuntimeLocator
 ) => ScopedRemoteRuntimeBinding | Promise<ScopedRemoteRuntimeBinding>;
 
-export class RemoteRuntimePortRegistry implements RemoteBlockRuntimeResolverPort {
+export class RemoteRuntimePortRegistry implements CanvasExecutionRuntimeLeasePort {
   private readonly ports = new Map<
     string,
     { runtime: RemoteBlockRuntimePort; artifacts?: RemoteBlockArtifactSource }
@@ -59,19 +57,21 @@ export class RemoteRuntimePortRegistry implements RemoteBlockRuntimeResolverPort
   }
 
   /** Acquire one request-scoped binding. An installed scoped resolver is authoritative. */
-  async acquire(
-    locator: RemoteRuntimeLocator
-  ): Promise<{ runtime: RemoteBlockRuntimePort; release(): void }> {
+  async acquire(locator: RemoteRuntimeLocator): Promise<ScopedRemoteRuntimeBinding> {
     if (this.scopedResolver) {
       const binding = await this.scopedResolver(locator);
-      return runtimeHandle(binding.runtime, binding.release);
+      return runtimeHandle(binding.runtime, binding.artifacts, binding.release);
     }
-    return runtimeHandle(this.resolve(locator), () => undefined);
+    return runtimeHandle(
+      this.resolve(locator),
+      this.resolveArtifactSource(locator),
+      () => undefined
+    );
   }
 
   async acquireArtifactSource(
     locator: RemoteRuntimeLocator
-  ): Promise<{ source: RemoteBlockArtifactSource; release(): void }> {
+  ): Promise<{ source: RemoteBlockArtifactSource; release(): void | Promise<void> }> {
     if (this.scopedResolver) {
       const binding = await this.scopedResolver(locator);
       return artifactHandle(binding.artifacts, binding.release);
@@ -99,25 +99,28 @@ export class RemoteRuntimePortRegistry implements RemoteBlockRuntimeResolverPort
   }
 }
 
-function once(releaseBinding: () => void): () => void {
+function once(releaseBinding: () => void | Promise<void>): () => void | Promise<void> {
   let released = false;
+  let releaseResult: void | Promise<void>;
   return () => {
-    if (released) return;
+    if (released) return releaseResult;
     released = true;
-    releaseBinding();
+    releaseResult = releaseBinding();
+    return releaseResult;
   };
 }
 
 function runtimeHandle(
   runtime: RemoteBlockRuntimePort,
-  releaseBinding: () => void
-): { runtime: RemoteBlockRuntimePort; release(): void } {
-  return { runtime, release: once(releaseBinding) };
+  artifacts: RemoteBlockArtifactSource,
+  releaseBinding: () => void | Promise<void>
+): ScopedRemoteRuntimeBinding {
+  return { runtime, artifacts, release: once(releaseBinding) };
 }
 
 function artifactHandle(
   source: RemoteBlockArtifactSource,
-  releaseBinding: () => void
-): { source: RemoteBlockArtifactSource; release(): void } {
+  releaseBinding: () => void | Promise<void>
+): { source: RemoteBlockArtifactSource; release(): void | Promise<void> } {
   return { source, release: once(releaseBinding) };
 }

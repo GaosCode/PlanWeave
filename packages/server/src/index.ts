@@ -251,7 +251,6 @@ export {
 } from "./remoteBlockCoordinator.js";
 export type {
   RemoteArtifactContentPort,
-  RemoteBlockRuntimeResolverPort,
   RemoteCoordinatorCheckpoint,
   RemoteCoordinatorCheckpointPort,
   RemoteDispatchReconciliationState,
@@ -261,6 +260,13 @@ export type {
   RemoteOperationCandidatePort,
   RemoteRuntimeLocator
 } from "./remoteBlockCoordinatorPorts.js";
+export type {
+  CanvasExecutionRuntimeLease,
+  CanvasExecutionRuntimeLeasePort,
+  CanvasRuntimeScopeAvailabilityPort,
+  OwnerCanvasRuntimeScopeResolverPort,
+  RuntimeCanvasScope
+} from "./canvas/executionRuntimePort.js";
 export {
   SqliteRemoteDispatchPersistence,
   SqliteRemoteOperationCandidateRepository

@@ -15,6 +15,7 @@ import {
   basicManifest
 } from "../../../runtime/src/__tests__/promptTestHelpers.js";
 import { ArtifactStore } from "../artifacts.js";
+import { AgentEndpointCatalogError } from "../agentEndpointCatalog.js";
 import { canonicalRemoteRuntimePort } from "../canonicalRemoteRuntimePort.js";
 import { createRemoteBlockCoordination } from "../distributedCoordination.js";
 import { startPlanweaveServer, type PlanweaveServer } from "../lifecycle.js";
@@ -38,8 +39,10 @@ afterEach(async () => {
   );
 });
 
-function remoteManifest(): PlanPackageManifest {
-  const manifest = basicManifest();
+function remoteManifest(includeSecondTask = false): PlanPackageManifest {
+  const manifest = basicManifest(
+    includeSecondTask ? { parallel: true, maxConcurrent: 2, includeSecondTask: true } : undefined
+  );
   manifest.execution.defaultExecutor = "codex-acp";
   manifest.executors = {
     "codex-acp": {
@@ -51,7 +54,11 @@ function remoteManifest(): PlanPackageManifest {
   return manifest;
 }
 
-async function setup(withHost: boolean, manifest: PlanPackageManifest = remoteManifest()) {
+async function setup(
+  withHost: boolean,
+  manifest: PlanPackageManifest = remoteManifest(),
+  hostCapacity = 1
+) {
   const workspace = await createTestWorkspace(manifest);
   directories.push(workspace.home, workspace.root);
   const dataDirectory = join(workspace.root, "server-data");
@@ -71,19 +78,18 @@ async function setup(withHost: boolean, manifest: PlanPackageManifest = remoteMa
   };
   const runtime = createRemoteBlockRuntimePort({ projectRoot: workspace.root });
   const registry = new RemoteRuntimePortRegistry();
-  registry.bind(locator, runtime);
+  registry.bind(locator, runtime, createRemoteBlockArtifactSource({ projectRoot: workspace.root }));
   const artifacts = new ArtifactStore(server.database, dataDirectory, 1024 * 1024);
+  const materialize = vi.fn(async (candidate: Awaited<ReturnType<typeof runtime.inspect>>) => {
+    if (candidate.inputArtifacts.length !== 0) throw new Error("unexpected_test_artifact");
+  });
   const coordination = createRemoteBlockCoordination(
     server.database,
     {
       leaseDurationMs: 60_000,
       hostOfflineAfterMs: 60_000,
-      runtimeResolver: registry,
-      inputArtifacts: {
-        materialize: async (candidate) => {
-          if (candidate.inputArtifacts.length !== 0) throw new Error("unexpected_test_artifact");
-        }
-      },
+      runtimeLeases: registry,
+      inputArtifacts: { materialize },
       artifactContent: { readReport: async (ref) => artifacts.read(ref) },
       ownerEndpointScopeAuthorized: (scope) =>
         scope.workspaceId === locator.workspaceId &&
@@ -101,7 +107,7 @@ async function setup(withHost: boolean, manifest: PlanPackageManifest = remoteMa
   const host = withHost ? coordination.hosts.register("Coordinator Host").host : undefined;
   if (host) {
     coordination.hosts.bindToWorkspace(host.id, workspaceId);
-    coordination.hosts.reportOnline(host.id, ["acp.codex"], 1, {
+    coordination.hosts.reportOnline(host.id, ["acp.codex"], hostCapacity, {
       workspaceMappings: [{ workspaceId, status: "ready" }],
       acpProfiles: [
         {
@@ -125,6 +131,7 @@ async function setup(withHost: boolean, manifest: PlanPackageManifest = remoteMa
     mailbox: coordination.mailbox,
     acpEvents: coordination.acpEvents,
     artifacts,
+    materialize,
     operations: coordination.operations,
     coordinator: coordination.coordinator,
     dispatches: coordination.dispatches,
@@ -307,6 +314,116 @@ async function setupActiveV3EndpointOperation(idempotencyKey: string) {
 }
 
 describe("RemoteBlockCoordinator", () => {
+  it("uses one acquired Runtime binding for execution and artifacts and releases every lease once", async () => {
+    const fixture = await setup(true);
+    const bindings: Array<{
+      artifacts: ReturnType<typeof createRemoteBlockArtifactSource>;
+      release: ReturnType<typeof vi.fn>;
+    }> = [];
+    fixture.registry.setScopedResolver(() => {
+      const binding = {
+        runtime: canonicalRemoteRuntimePort(fixture.runtime, fixture.locator.workspaceId),
+        artifacts: createRemoteBlockArtifactSource({ projectRoot: fixture.workspace.root }),
+        release: vi.fn()
+      };
+      bindings.push(binding);
+      return binding;
+    });
+
+    await fixture.coordinator.dispatch(
+      endpointDispatchRequest({
+        agentEndpoints: fixture.agentEndpoints,
+        locator: fixture.locator,
+        blockRef: "T-001#B-001",
+        idempotencyKey: "lease-artifact-binding"
+      })
+    );
+
+    expect(bindings).toHaveLength(2);
+    expect(fixture.materialize).toHaveBeenCalledWith(
+      expect.objectContaining({ blockRef: "T-001#B-001" }),
+      bindings[1]!.artifacts
+    );
+    for (const binding of bindings) expect(binding.release).toHaveBeenCalledOnce();
+
+    const failureFixture = await setup(true);
+    const failedReleases: Array<ReturnType<typeof vi.fn>> = [];
+    failureFixture.registry.setScopedResolver(() => {
+      const release = vi.fn();
+      failedReleases.push(release);
+      return {
+        runtime: canonicalRemoteRuntimePort(
+          failureFixture.runtime,
+          failureFixture.locator.workspaceId
+        ),
+        artifacts: createRemoteBlockArtifactSource({ projectRoot: failureFixture.workspace.root }),
+        release
+      };
+    });
+    failureFixture.materialize.mockRejectedValueOnce(new Error("injected_materialize_failure"));
+    await expect(
+      failureFixture.coordinator.dispatch(
+        endpointDispatchRequest({
+          agentEndpoints: failureFixture.agentEndpoints,
+          locator: failureFixture.locator,
+          blockRef: "T-001#B-001",
+          idempotencyKey: "lease-artifact-release-failure"
+        })
+      )
+    ).rejects.toThrow("injected_materialize_failure");
+    expect(failedReleases).toHaveLength(2);
+    for (const release of failedReleases) expect(release).toHaveBeenCalledOnce();
+  });
+
+  it("classifies a Runtime acquire failure and continues reentering later operations", async () => {
+    const fixture = await setup(true, remoteManifest(true), 2);
+    await fixture.coordinator.dispatch(
+      endpointDispatchRequest({
+        agentEndpoints: fixture.agentEndpoints,
+        locator: fixture.locator,
+        blockRef: "T-001#B-001",
+        idempotencyKey: "acquire-failure-first"
+      })
+    );
+    await fixture.coordinator.dispatch(
+      endpointDispatchRequest({
+        agentEndpoints: fixture.agentEndpoints,
+        locator: fixture.locator,
+        blockRef: "T-002#B-001",
+        idempotencyKey: "acquire-failure-second"
+      })
+    );
+
+    let acquireCount = 0;
+    const releases: Array<ReturnType<typeof vi.fn>> = [];
+    fixture.registry.setScopedResolver(() => {
+      acquireCount += 1;
+      if (acquireCount === 1) {
+        throw new AgentEndpointCatalogError("agent_endpoint_unavailable");
+      }
+      const release = vi.fn();
+      releases.push(release);
+      return {
+        runtime: canonicalRemoteRuntimePort(fixture.runtime, fixture.locator.workspaceId),
+        artifacts: createRemoteBlockArtifactSource({ projectRoot: fixture.workspace.root }),
+        release
+      };
+    });
+
+    const outcomes = await fixture.coordinator.reenterPending();
+
+    expect(outcomes).toHaveLength(2);
+    expect(outcomes[0]).toMatchObject({ status: "awaiting_host" });
+    expect(acquireCount).toBe(2);
+    expect(releases).toHaveLength(1);
+    expect(releases[0]).toHaveBeenCalledOnce();
+    expect(
+      fixture.server.database
+        .prepare("SELECT diagnostic_code FROM remote_operations WHERE id=?")
+        .get(outcomes[0]!.operation.id)
+    ).toEqual({ diagnostic_code: "agent_endpoint_unavailable" });
+  });
+
   it("re-inspects once when the pre-dispatch source snapshot changes", async () => {
     const fixture = await setup(true);
     const inspect = vi.spyOn(fixture.runtime, "inspect");
@@ -607,7 +724,11 @@ describe("RemoteBlockCoordinator", () => {
     new WorkspaceIdentityRepository(fixture.server.database).ensureConfiguredWorkspace(
       secondWorkspaceId
     );
-    fixture.registry.bind(secondLocator, fixture.runtime);
+    fixture.registry.bind(
+      secondLocator,
+      fixture.runtime,
+      createRemoteBlockArtifactSource({ projectRoot: fixture.workspace.root })
+    );
 
     const access = new ProjectAccessRepository(fixture.server.database);
     access.registerProjectInternal({

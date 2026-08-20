@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  createRemoteBlockArtifactSource,
   createRemoteBlockRuntimePort,
   resetRuntimeState,
   type RemoteBlockRuntimePort
@@ -135,7 +136,11 @@ class StartupHarness {
           database
         ).ensureWorkspaceForLegacyProject(this.locator.projectId);
         this.locator.workspaceId = workspaceId;
-        registry.bind({ ...this.locator, workspaceId }, runtime);
+        registry.bind(
+          { ...this.locator, workspaceId },
+          runtime,
+          createRemoteBlockArtifactSource({ projectRoot: this.workspace.root })
+        );
         const access = new ProjectAccessRepository(database);
         const existingProject = access.registry.projectInternal(
           workspaceId,
@@ -159,7 +164,7 @@ class StartupHarness {
         return {
           leaseDurationMs: 60_000,
           hostOfflineAfterMs: 60_000,
-          runtimeResolver: registry,
+          runtimeLeases: registry,
           inputArtifacts: { materialize: async () => {} },
           artifactContent: { readReport: async (ref) => this.requireArtifacts().read(ref) },
           checkpoints

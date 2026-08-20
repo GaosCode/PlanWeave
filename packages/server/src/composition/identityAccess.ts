@@ -1,16 +1,6 @@
-import { readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
-import {
-  createRemoteBlockArtifactSource,
-  createRemoteBlockRuntimePort,
-  manifestSchema,
-  resolveProjectCanvasWorkspace
-} from "@planweave-ai/runtime";
-import { canonicalRemoteRuntimePort } from "../canonicalRemoteRuntimePort.js";
 import type { ServerConfig } from "../config.js";
 import { createTrustedRuntimeRegistry } from "../runtimeProjectRegistry.js";
 import type { SqliteDatabase } from "../sqlite.js";
-import { createManifestWorkItemPort } from "../work/workItemFacts.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import { ProjectAccessRepository } from "../projectAccessRepository.js";
 import { PackageSnapshotRepository } from "../packageSnapshotRepository.js";
@@ -105,53 +95,6 @@ export function createIdentityAccessComposition(input: {
   )) {
     workspaceIdentity.ensureConfiguredWorkspace(workspaceId);
   }
-  input.runtimeRegistry.setScopedPackageResolver((scope) => {
-    if (!workspaceIdentity.workspaceExists(scope.workspaceId)) return undefined;
-    const canvas = projectAccess.registry.canvasInternal(
-      scope.workspaceId,
-      scope.projectId,
-      scope.canvasId
-    );
-    if (!canvas || canvas.revokedAt !== null || !canvas.packageDir) return undefined;
-    const manifest = manifestSchema.parse(
-      JSON.parse(readFileSync(join(canvas.packageDir, "manifest.json"), "utf8"))
-    );
-    return createManifestWorkItemPort(manifest, scope.canvasId);
-  });
-  input.runtimeRegistry.registry.setScopedResolver(async (locator) => {
-    if (!workspaceIdentity.workspaceExists(locator.workspaceId)) {
-      throw new Error("remote_runtime_workspace_unresolved");
-    }
-    const project = projectAccess.registry.projectInternal(locator.workspaceId, locator.projectId);
-    const canvas = projectAccess.registry.canvasInternal(
-      locator.workspaceId,
-      locator.projectId,
-      locator.canvasId
-    );
-    if (
-      !project ||
-      project.revokedAt !== null ||
-      !project.projectRoot ||
-      !canvas ||
-      canvas.revokedAt !== null ||
-      !canvas.packageDir
-    ) {
-      throw new Error("remote_runtime_scope_unavailable");
-    }
-    const workspace = await resolveProjectCanvasWorkspace(project.projectRoot, locator.canvasId);
-    if (resolve(workspace.packageDir) !== resolve(canvas.packageDir)) {
-      throw new Error("remote_runtime_registry_path_mismatch");
-    }
-    return {
-      runtime: canonicalRemoteRuntimePort(
-        createRemoteBlockRuntimePort({ projectRoot: workspace }),
-        locator.workspaceId
-      ),
-      artifacts: createRemoteBlockArtifactSource({ projectRoot: workspace }),
-      release() {}
-    };
-  });
-
   const canvasesByProjectScope = new Map<
     string,
     {

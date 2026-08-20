@@ -65,7 +65,7 @@ export type DistributedHttpRequestListenerOptions = {
     workspaceId: string,
     projectId: string,
     canvasId: string
-  ): { service: AuthorityService; release(): void } | undefined;
+  ): { service: AuthorityService; release(): void | Promise<void> } | undefined;
   contentVersionService: ContentVersionService;
   contentVersions: ContentVersionRepository;
   canvasCommandService: CanvasCommandService;

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { appendFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  createRemoteBlockArtifactSource,
   createRemoteBlockRuntimePort,
   type PlanPackageManifest,
   type RemoteBlockDispatchCandidate,
@@ -126,12 +127,16 @@ class CoordinatorHarness {
       this.server.database
     ).ensureWorkspaceForLegacyProject(this.locator.projectId);
     const registry = new RemoteRuntimePortRegistry();
-    registry.bind(this.locator, this.runtime);
+    registry.bind(
+      this.locator,
+      this.runtime,
+      createRemoteBlockArtifactSource({ projectRoot: this.workspace.root })
+    );
     this.artifacts = new ArtifactStore(this.server.database, this.dataDirectory, 1024 * 1024);
     const options: RemoteBlockCoordinationOptions = {
       leaseDurationMs: 60_000,
       hostOfflineAfterMs: 60_000,
-      runtimeResolver: registry,
+      runtimeLeases: registry,
       inputArtifacts: { materialize },
       artifactContent: { readReport: async (ref) => this.requireArtifacts().read(ref) },
       checkpoints
