@@ -94,6 +94,129 @@ describe("distributed server composition", () => {
     });
   });
 
+  it("authorizes human members from a restored registry without trusted packages", async () => {
+    const workspace = await createTestWorkspace(remoteManifest());
+    directories.push(workspace.home, workspace.root);
+    const httpServer = createServer();
+    httpServers.push(httpServer);
+    const dataDirectory = join(workspace.root, "restored-identity-server-data");
+    const restoredProjectId = "restored-project-1";
+    const config = parseServerConfig({
+      version: "server-config/v1",
+      bind: { host: "127.0.0.1", port: 7_443 },
+      publicUrl: "http://127.0.0.1:7443",
+      allowInsecureDevelopment: true,
+      dataDirectory,
+      trustedProjects: [],
+      operatorCredentials: [
+        {
+          operatorId: "admin",
+          tokenSha256: hashOperatorToken(adminToken),
+          projectIds: [],
+          serverAdmin: true
+        }
+      ]
+    });
+    const composition = await createDistributedServerComposition({ httpServer, config });
+    compositions.push(composition);
+    const database = await openServerDatabase(config.databasePath, 5_000);
+    try {
+      const access = new ProjectAccessRepository(database);
+      const workspaceIdentity = new WorkspaceIdentityRepository(database);
+      access.registerProjectInternal({
+        workspaceId: "workspace-self-host",
+        projectId: restoredProjectId,
+        projectRoot: workspace.root
+      });
+      access.registerCanvasInternal({
+        workspaceId: "workspace-self-host",
+        projectId: restoredProjectId,
+        canvasId: "default",
+        packageDir: workspace.root
+      });
+      workspaceIdentity.ensureLegacyProjectAdapter(restoredProjectId, "workspace-self-host");
+    } finally {
+      database.close();
+    }
+    await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
+    const address = httpServer.address();
+    if (!address || typeof address === "string") throw new Error("Expected HTTP address");
+    const origin = `http://127.0.0.1:${address.port}`;
+
+    const unknown = await fetch(`${origin}/api/v1/projects/unknown-project/human/members?limit=1`);
+    expect(unknown.status).toBe(403);
+    await expect(unknown.json()).resolves.toEqual({ error: "human_cross_project_forbidden" });
+
+    const bootstrap = await fetch(
+      `${origin}/api/v1/projects/${restoredProjectId}/human/bootstrap`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ displayName: "Restored Owner", humanPrincipalId: "restored-owner" })
+      }
+    );
+    expect(bootstrap.status).toBe(201);
+    const { deviceToken } = (await bootstrap.json()) as { deviceToken: string };
+    const members = await fetch(
+      `${origin}/api/v1/projects/${restoredProjectId}/human/members?limit=1`,
+      { headers: { Authorization: `Bearer ${deviceToken}` } }
+    );
+    expect(members.status).toBe(200);
+    await expect(members.json()).resolves.toMatchObject({
+      items: [expect.objectContaining({ humanPrincipalId: "restored-owner", role: "owner" })]
+    });
+
+    const canvases = await fetch(
+      `${origin}/api/v1/registry/projects/${restoredProjectId}/canvases`,
+      { headers: { Authorization: `Bearer ${deviceToken}` } }
+    );
+    expect(canvases.status).toBe(200);
+    await expect(canvases.json()).resolves.toMatchObject({
+      items: [
+        expect.objectContaining({ registry: expect.objectContaining({ canvasId: "default" }) })
+      ]
+    });
+
+    const head = await fetch(
+      `${origin}/api/v1/projects/${restoredProjectId}/canvases/default/content/head`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${deviceToken}`,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          projectId: restoredProjectId,
+          canvasId: "default",
+          localReplica: null,
+          knownRevision: null
+        })
+      }
+    );
+    expect(head.status).toBe(200);
+    await expect(head.json()).resolves.toMatchObject({
+      authoritativeHead: null,
+      canPublishInitial: true
+    });
+
+    const reconnect = await fetch(
+      `${origin}/api/v1/projects/${restoredProjectId}/canvases/default/reconnect`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${deviceToken}`,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ afterRevision: 0 })
+      }
+    );
+    expect(reconnect.status).toBe(409);
+    await expect(reconnect.json()).resolves.toMatchObject({
+      type: "canvas.reconnect.error",
+      code: "snapshot_malformed"
+    });
+  });
+
   it("exposes active trusted project scopes with WorkspaceIdentity-derived workspace IDs", async () => {
     const fixture = await setup();
     const scopes = fixture.composition.trustedProjectControl.listTrustedProjectScopes();

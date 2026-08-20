@@ -137,7 +137,8 @@ export async function createDistributedServerComposition(
       }
     });
     authorization = identityServices.authorization;
-    const { setupCodes, humanIdentity, humanMembership } = identityServices;
+    const { setupCodes, humanIdentity, humanMembership, identityProjectAuthority } =
+      identityServices;
     const activityComments = createActivityCommentsComposition({
       database: server.database,
       config,
@@ -179,6 +180,7 @@ export async function createDistributedServerComposition(
       readiness,
       inflightRequests,
       projectAuthority: registries.runtimeRegistry,
+      identityProjectAuthority,
       registryService,
       agentEndpointCatalog: coordination.agentEndpoints,
       humanRemoteControl: remoteExecution.humanRemoteControl,

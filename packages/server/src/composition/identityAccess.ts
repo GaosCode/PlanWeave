@@ -15,7 +15,12 @@ import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js"
 import { ProjectAccessRepository } from "../projectAccessRepository.js";
 import { PackageSnapshotRepository } from "../packageSnapshotRepository.js";
 import type { RegistryHttpService } from "../registryHttp.js";
-import { HumanIdentityRepository, HumanMembershipService } from "../identity/index.js";
+import {
+  HumanIdentityRepository,
+  HumanMembershipService,
+  type HumanProjectAuthority
+} from "../identity/index.js";
+import type { ProjectRegistryRepository } from "../projectRegistryRepository.js";
 import { SetupCodeService } from "../identity/setupCodeService.js";
 import { provisionConfiguredOperatorSessions } from "../identity/operatorSessionProvisioning.js";
 import { OperatorTokenRegistry } from "../operatorAuth.js";
@@ -28,6 +33,27 @@ import {
 } from "../migrations.js";
 
 export type TrustedRuntimeRegistry = Awaited<ReturnType<typeof createTrustedRuntimeRegistry>>;
+
+/**
+ * Identity APIs may authorize a restored sqlite registry even when this Server
+ * has no local trusted package roots. Work APIs keep using the runtime registry
+ * so they never try to open a missing project path. Canvas content versions,
+ * durable canvas commands, and runtime-status use this identity authority;
+ * runtime-status only opens a package when that path exists on this host.
+ */
+export function composeIdentityProjectAuthority(
+  runtime: HumanProjectAuthority,
+  registry: ProjectRegistryRepository
+): HumanProjectAuthority {
+  return {
+    hasProject(projectId) {
+      return runtime.hasProject(projectId) || registry.hasActiveProject(projectId);
+    },
+    hasScope(input) {
+      return runtime.hasScope(input) || registry.hasActiveScope(input);
+    }
+  };
+}
 
 export async function createRuntimeRegistryComposition(input: {
   trustedProjects: ServerConfig["trustedProjects"];
@@ -317,14 +343,24 @@ export function createIdentityServices(input: {
     onAuthorizationChangeAfterCommit: (change) => input.authorizationChanges.publish(change)
   });
   input.onHumanIdentityCreated(humanIdentity);
+  const identityProjectAuthority = composeIdentityProjectAuthority(
+    input.runtimeRegistry,
+    input.projectAccess.registry
+  );
   const humanMembership = new HumanMembershipService({
     repository: humanIdentity,
-    projectAuthority: input.runtimeRegistry,
+    projectAuthority: identityProjectAuthority,
     workspaceForProject: (projectId) =>
       input.workspaceIdentity.ensureWorkspaceForLegacyProject(projectId),
     clock: input.clock
   });
-  return { setupCodes, authorization, humanIdentity, humanMembership };
+  return {
+    setupCodes,
+    authorization,
+    humanIdentity,
+    humanMembership,
+    identityProjectAuthority
+  };
 }
 
 function createRegistryService(
@@ -353,31 +389,16 @@ function createRegistryService(
       };
     },
     listCanvases(input) {
-      const authorized: ReturnType<ProjectAccessRepository["listAuthorizedCanvases"]> = [];
-      const pageSize = 100;
-      for (let offset = 0; ; offset += pageSize) {
-        const page = projectAccess.listAuthorizedCanvases({
-          workspaceId: input.workspaceId,
-          projectId: input.projectId,
-          actor: input.actor,
-          limit: pageSize,
-          offset
-        });
-        authorized.push(...page);
-        if (page.length < pageSize) break;
-      }
-      const visible = authorized.filter((canvas) =>
-        runtimeRegistry.hasScope({
-          workspaceId: input.workspaceId,
-          projectId: input.projectId,
-          canvasId: canvas.registry.canvasId
-        })
-      );
-      const items = visible.slice(input.cursor, input.cursor + input.limit);
+      const items = projectAccess.listAuthorizedCanvases({
+        workspaceId: input.workspaceId,
+        projectId: input.projectId,
+        actor: input.actor,
+        limit: input.limit,
+        offset: input.cursor
+      });
       return {
         items,
-        nextCursor:
-          input.cursor + items.length < visible.length ? input.cursor + items.length : null
+        nextCursor: items.length === input.limit ? input.cursor + input.limit : null
       };
     },
     readSnapshot(input) {

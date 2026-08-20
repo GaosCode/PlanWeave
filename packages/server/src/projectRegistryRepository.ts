@@ -452,6 +452,40 @@ export class ProjectRegistryRepository {
       .run(ownerHumanPrincipalId, at, project.projectRegistryId, previousOwner);
   }
 
+  /** True when any Workspace still has an unretracted registry row for this project ID. */
+  hasActiveProject(projectId: string): boolean {
+    const parsed = identifierSchema.parse(projectId);
+    return Boolean(
+      this.database
+        .prepare("SELECT 1 FROM project_registry WHERE project_id=? AND revoked_at IS NULL LIMIT 1")
+        .get(parsed)
+    );
+  }
+
+  /**
+   * Identity-only scope check: the Workspace still lists this project, and the
+   * optional canvas row is still active. Does not require a bound package path.
+   */
+  hasActiveScope(input: { workspaceId: string; projectId: string; canvasId?: string }): boolean {
+    const workspaceId = identifierSchema.parse(input.workspaceId);
+    const projectId = identifierSchema.parse(input.projectId);
+    const project = this.database
+      .prepare(
+        "SELECT 1 FROM project_registry WHERE workspace_id=? AND project_id=? AND revoked_at IS NULL LIMIT 1"
+      )
+      .get(workspaceId, projectId);
+    if (!project) return false;
+    if (input.canvasId === undefined) return true;
+    const canvasId = identifierSchema.parse(input.canvasId);
+    return Boolean(
+      this.database
+        .prepare(
+          "SELECT 1 FROM canvas_registry WHERE workspace_id=? AND project_id=? AND canvas_id=? AND revoked_at IS NULL LIMIT 1"
+        )
+        .get(workspaceId, projectId, canvasId)
+    );
+  }
+
   projectInternal(workspaceId: string, projectId: string): InternalProjectRecord | undefined {
     const row = this.database
       .prepare("SELECT * FROM project_registry WHERE workspace_id=? AND project_id=?")

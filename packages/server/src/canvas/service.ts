@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import {
   CANVAS_COMMAND_MAX_JOURNAL_DELTA_ENTRIES,
   CANVAS_COMMAND_PROTOCOL_VERSION
@@ -36,7 +37,8 @@ import {
 import type { CollaborationAuthContext } from "../identity/auth.js";
 import type { ProjectAccessRepository } from "../projectAccessRepository.js";
 import type { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
-import { authorizeCanvasRead, authorizeCanvasWrite } from "./policy.js";
+import { authorizeCanvasCommand, authorizeCanvasContent, authorizeCanvasRead } from "./policy.js";
+import { projectCanvasRuntimeStatusFromContent } from "./runtimeStatusFromContent.js";
 import {
   CanvasCommandRepository,
   digestCanvasIntent,
@@ -315,7 +317,7 @@ export class CanvasCommandService {
       canvasId: submit.canvasId
     });
 
-    const auth = authorizeCanvasWrite({
+    const auth = authorizeCanvasCommand({
       actor,
       projectId: submit.projectId,
       canvasId: submit.canvasId,
@@ -370,13 +372,13 @@ export class CanvasCommandService {
   private async submitAuthorized(
     actor: CollaborationAuthContext,
     submit: CanvasCommandSubmit,
-    auth: Extract<ReturnType<typeof authorizeCanvasWrite>, { ok: true }>
+    auth: Extract<ReturnType<typeof authorizeCanvasCommand>, { ok: true }>
   ): Promise<CanvasCommandOutcome> {
     const scope = scopeKey(auth.scope);
     const intentDigest = digestCanvasIntent(submit.intent);
 
     // Re-check ACL inside the serializer (covers revocation races).
-    const reauth = authorizeCanvasWrite({
+    const reauth = authorizeCanvasCommand({
       actor,
       projectId: submit.projectId,
       canvasId: submit.canvasId,
@@ -665,7 +667,7 @@ export class CanvasCommandService {
       });
     }
     const request = parsed.data;
-    const auth = authorizeCanvasRead({
+    const auth = authorizeCanvasContent({
       actor,
       projectId: request.projectId,
       canvasId: request.canvasId,
@@ -690,23 +692,50 @@ export class CanvasCommandService {
     actor: CollaborationAuthContext,
     input: { projectId: string; canvasId: string }
   ): Promise<CanvasRuntimeStatusProjection> {
-    const auth = authorizeCanvasRead({
+    const contentAuth = authorizeCanvasContent({
       actor,
       projectId: input.projectId,
       canvasId: input.canvasId,
       access: this.options.access,
       workspaceIdentity: this.options.workspaceIdentity
     });
-    if (!auth.ok) throw new Error(`canvas_runtime_status_${auth.code}`);
-    const readStatus = this.options.runtime.readStatus;
-    if (!readStatus) throw new Error("canvas_runtime_status_unavailable");
-    return readStatus({
-      projectRoot: auth.projectRoot,
+    if (!contentAuth.ok) throw new Error(`canvas_runtime_status_${contentAuth.code}`);
+    const capturedAt = this.clock().toISOString();
+    const pathAuth = authorizeCanvasRead({
+      actor,
+      projectId: input.projectId,
       canvasId: input.canvasId,
-      expectedPackageDir: auth.packageDir,
-      scope: canvasScopeRefSchema.parse(auth.scope),
-      capturedAt: this.clock().toISOString()
+      access: this.options.access,
+      workspaceIdentity: this.options.workspaceIdentity
     });
+    const readStatus = this.options.runtime.readStatus;
+    if (
+      pathAuth.ok &&
+      readStatus &&
+      existsSync(pathAuth.projectRoot) &&
+      existsSync(pathAuth.packageDir)
+    ) {
+      return readStatus({
+        projectRoot: pathAuth.projectRoot,
+        canvasId: input.canvasId,
+        expectedPackageDir: pathAuth.packageDir,
+        scope: canvasScopeRefSchema.parse(pathAuth.scope),
+        capturedAt
+      });
+    }
+    try {
+      const authority = this.readAuthoritativeContent(scopeKey(contentAuth.scope));
+      return projectCanvasRuntimeStatusFromContent({
+        content: authority.content.content,
+        scope: canvasScopeRefSchema.parse(contentAuth.scope),
+        capturedAt
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("canvas_runtime_status_")) {
+        throw error;
+      }
+      throw new Error("canvas_runtime_status_unavailable");
+    }
   }
 
   private async reconnectAuthorized(

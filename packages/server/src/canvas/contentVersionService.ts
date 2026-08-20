@@ -16,7 +16,7 @@ import {
 import type { CollaborationAuthContext } from "../identity/auth.js";
 import type { ProjectAccessRepository } from "../projectAccessRepository.js";
 import type { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
-import { authorizeCanvasRead, authorizeCanvasWrite } from "./policy.js";
+import { authorizeCanvasContent } from "./policy.js";
 import type { ContentAuthorityStore } from "./contentAuthorityStore.js";
 import type { CanvasScopeKey } from "./repository.js";
 
@@ -46,7 +46,7 @@ export class ContentVersionService {
     if (!parsed.success)
       return this.rejected("content_verification_failed", false, "initial_publish_invalid");
     const request = parsed.data;
-    const authorization = authorizeCanvasWrite({
+    const authorization = authorizeCanvasContent({
       actor: context,
       projectId: request.projectId,
       canvasId: request.canvasId,
@@ -54,11 +54,7 @@ export class ContentVersionService {
       workspaceIdentity: this.options.workspaceIdentity
     });
     if (!authorization.ok) {
-      return this.rejected(
-        authorization.code === "forbidden" ? "authorization_revoked" : "device_revoked",
-        false,
-        "initial_publish_not_authorized"
-      );
+      return this.rejected("authorization_revoked", false, "initial_publish_not_authorized");
     }
     const canvas = this.options.access.registry.canvasInternal(
       authorization.scope.workspaceId,
@@ -110,7 +106,7 @@ export class ContentVersionService {
     const parsed = contentVersionFetchRequestSchema.safeParse(rawRequest);
     if (!parsed.success) throw new Error("content_fetch_invalid");
     const request = parsed.data;
-    const authorization = authorizeCanvasRead({
+    const authorization = authorizeCanvasContent({
       actor: context,
       projectId: request.projectId,
       canvasId: request.canvasId,
@@ -134,7 +130,7 @@ export class ContentVersionService {
     const parsed = contentVersionAuthorityDiscoveryRequestSchema.safeParse(rawRequest);
     if (!parsed.success) throw new Error("content_authority_invalid");
     const request = parsed.data;
-    const authorization = authorizeCanvasRead({
+    const authorization = authorizeCanvasContent({
       actor: context,
       projectId: request.projectId,
       canvasId: request.canvasId,
@@ -171,7 +167,7 @@ export class ContentVersionService {
   ): ContentVersionAcknowledgement {
     const parsed = contentVersionAcknowledgementRequestSchema.safeParse(rawRequest);
     if (!parsed.success) throw new Error("content_ack_invalid");
-    const authorization = authorizeCanvasRead({
+    const authorization = authorizeCanvasContent({
       actor: context,
       projectId,
       canvasId,

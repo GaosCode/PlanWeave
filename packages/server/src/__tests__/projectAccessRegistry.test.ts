@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { accessMutationRequestSchema } from "@planweave-ai/collaboration-protocol/access/control";
 import { applyMigrations } from "../migrations.js";
 import { HumanIdentityRepository } from "../identity/repository.js";
+import { composeIdentityProjectAuthority } from "../composition/identityAccess.js";
 import { ProjectAccessRepository } from "../projectAccessRepository.js";
 import { inWriteTransaction, openServerDatabase, type SqliteDatabase } from "../sqlite.js";
 
@@ -60,6 +61,34 @@ async function registered() {
 }
 
 describe("project access registry", () => {
+  it("treats unretracted registry rows as active identity scopes", async () => {
+    const { access, database } = await registered();
+    expect(access.registry.hasActiveProject("p")).toBe(true);
+    expect(access.registry.hasActiveProject("missing")).toBe(false);
+    expect(access.registry.hasActiveScope({ workspaceId: "w", projectId: "p" })).toBe(true);
+    expect(
+      access.registry.hasActiveScope({ workspaceId: "w", projectId: "p", canvasId: "c" })
+    ).toBe(true);
+    expect(
+      access.registry.hasActiveScope({ workspaceId: "w", projectId: "p", canvasId: "gone" })
+    ).toBe(false);
+    expect(access.registry.hasActiveScope({ workspaceId: "w-other", projectId: "p" })).toBe(false);
+
+    const identityAuthority = composeIdentityProjectAuthority(
+      { hasProject: () => false, hasScope: () => false },
+      access.registry
+    );
+    expect(identityAuthority.hasProject("p")).toBe(true);
+    expect(identityAuthority.hasProject("missing")).toBe(false);
+    expect(identityAuthority.hasScope({ workspaceId: "w", projectId: "p" })).toBe(true);
+
+    database.exec(
+      "UPDATE project_registry SET revoked_at='2026-01-03T00:00:00.000Z' WHERE project_id='p'"
+    );
+    expect(access.registry.hasActiveProject("p")).toBe(false);
+    expect(access.registry.hasActiveScope({ workspaceId: "w", projectId: "p" })).toBe(false);
+  });
+
   it("publishes authority changes only after an ACL transaction commits", async () => {
     const { database } = await registered();
     const publish = vi.fn();

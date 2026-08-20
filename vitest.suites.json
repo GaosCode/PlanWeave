@@ -755,6 +755,7 @@
         "canvasCommandBaselineMigration.test.ts",
         "canvasCommandHttp.test.ts",
         "canvasCommandRecoveryBudget.test.ts",
+        "canvasCommandRuntimeStatus.test.ts",
         "canvasCommandService.test.ts",
         "canvasLiveSyncWebSocket.test.ts",
         "canvasOperationRetention.test.ts",

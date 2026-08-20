@@ -8,7 +8,12 @@ export {
   CANVAS_COMMAND_SNAPSHOT_RETAINED_DEFAULT,
   CANVAS_COMMAND_WS_MAX_FRAME_BYTES
 } from "./limits.js";
-export { authorizeCanvasRead, authorizeCanvasWrite } from "./policy.js";
+export {
+  authorizeCanvasCommand,
+  authorizeCanvasContent,
+  authorizeCanvasRead,
+  authorizeCanvasWrite
+} from "./policy.js";
 export { ContentVersionRepository } from "./contentVersionRepository.js";
 export type { ContentAuthorityStore } from "./contentAuthorityStore.js";
 export type {

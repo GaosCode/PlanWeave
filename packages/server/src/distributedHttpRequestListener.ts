@@ -53,6 +53,7 @@ export type DistributedHttpRequestListenerOptions = {
   projectAccess: ProjectAccessRepository;
   humanIdentity: HumanIdentityRepository;
   projectAuthority: HumanProjectAuthority;
+  identityProjectAuthority: HumanProjectAuthority;
   transportAdmission: TransportAdmissionPolicy;
   registryService: RegistryHttpService;
   agentEndpointCatalog: AgentEndpointCatalog;
@@ -146,7 +147,7 @@ export function createDistributedHttpRequestListener(
           access: options.projectAccess,
           repository: options.humanIdentity,
           workspaceIdentity: options.workspaceIdentity,
-          projectAuthority: options.projectAuthority,
+          projectAuthority: options.identityProjectAuthority,
           transportAdmission: options.transportAdmission
         })
       )
@@ -176,7 +177,7 @@ export function createDistributedHttpRequestListener(
           service: options.humanRemoteControl,
           repository: options.humanIdentity,
           workspaceIdentity: options.workspaceIdentity,
-          projectAuthority: options.projectAuthority,
+          projectAuthority: options.identityProjectAuthority,
           readiness: () => options.readiness.readiness(),
           transportAdmission: options.transportAdmission
         })
@@ -201,7 +202,7 @@ export function createDistributedHttpRequestListener(
           contentVersions: options.contentVersions,
           repository: options.humanIdentity,
           workspaceIdentity: options.workspaceIdentity,
-          projectAuthority: options.projectAuthority,
+          projectAuthority: options.identityProjectAuthority,
           transportAdmission: options.transportAdmission
         })
       )
@@ -211,7 +212,7 @@ export function createDistributedHttpRequestListener(
           service: options.canvasCommandService,
           repository: options.humanIdentity,
           workspaceIdentity: options.workspaceIdentity,
-          projectAuthority: options.projectAuthority,
+          projectAuthority: options.identityProjectAuthority,
           transportAdmission: options.transportAdmission,
           clock: options.clock
         })
@@ -265,7 +266,7 @@ export function createDistributedHttpRequestListener(
         await handleHumanHttpRequest(request, response, {
           service: options.humanMembership,
           repository: options.humanIdentity,
-          projectAuthority: options.projectAuthority,
+          projectAuthority: options.identityProjectAuthority,
           transportAdmission: options.transportAdmission,
           clock: options.clock
         })

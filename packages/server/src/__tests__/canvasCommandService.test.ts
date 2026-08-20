@@ -29,6 +29,25 @@ import {
 } from "./support/canvasCommandServiceFixture.js";
 
 describe("canvas command service (OSS-004 B-002)", () => {
+  it("submits and reconnects without resolving a bound package path", async () => {
+    const { service, access } = await fixture();
+    const resolvePath = vi.spyOn(access, "resolveAuthorizedCanvas");
+
+    const accepted = await service.submit(actor("owner"), submitBody("op-no-package-path", 0));
+    expect(accepted).toMatchObject({ type: "canvas.command.accepted", revision: 1 });
+
+    const reconnect = await service.reconnect(actor("editor"), {
+      type: "canvas.reconnect.request",
+      protocolVersion: CANVAS_COMMAND_PROTOCOL_VERSION,
+      schemaVersion: "canvas-command/v1",
+      projectId: "p",
+      canvasId: "default",
+      afterRevision: 0
+    });
+    expect(reconnect.type).toBe("canvas.reconnect.snapshot");
+    expect(resolvePath).not.toHaveBeenCalled();
+  });
+
   it("publishes one complete journal entry only after a durable non-idempotent accept", async () => {
     const published: CanvasJournalEntry[] = [];
     const { service } = await fixture({
