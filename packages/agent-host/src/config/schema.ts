@@ -75,6 +75,22 @@ export const agentHostConfigSchema = z
       .array(z.object({ id: opaqueIdentifierSchema, path: relativeWorkspacePathSchema }).strict())
       .max(128)
       .refine((values) => uniqueBy(values, (value) => value.id), "Workspace ids must be unique."),
+    runtimeProjects: z
+      .array(
+        z
+          .object({
+            workspaceId: opaqueIdentifierSchema,
+            projectId: opaqueIdentifierSchema,
+            path: relativeWorkspacePathSchema
+          })
+          .strict()
+      )
+      .max(256)
+      .refine(
+        (values) => uniqueBy(values, (value) => `${value.workspaceId}\0${value.projectId}`),
+        "Runtime project mappings must be unique."
+      )
+      .default([]),
     agentProfiles: z
       .array(
         z

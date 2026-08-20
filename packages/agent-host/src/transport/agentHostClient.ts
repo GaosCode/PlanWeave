@@ -1,5 +1,8 @@
 import { WebSocket } from "ws";
-import type { HostReadinessObservation } from "@planweave-ai/agent-host-protocol";
+import {
+  CANVAS_RUNTIME_CAPABILITY,
+  type HostReadinessObservation
+} from "@planweave-ai/agent-host-protocol";
 import {
   parseAgentHostCapabilities,
   parseAgentHostDispatchResult,
@@ -18,6 +21,7 @@ import {
 } from "../execution/agentHostExecutor.js";
 import type { DurableAcpInteractionRelay } from "../execution/durableAcpRelay.js";
 import type { AgentHostExecution, AgentHostStateRepository } from "../state/agentHostState.js";
+import type { CanvasRuntimeService } from "../runtime/canvasRuntimeService.js";
 import {
   type HostTransport,
   type HostTransportClock,
@@ -47,6 +51,7 @@ export type AgentHostClientOptions = {
   state: AgentHostStateRepository;
   executor: AgentHostExecutor;
   interactionRelay?: Pick<DurableAcpInteractionRelay, "accept">;
+  canvasRuntime?: Pick<CanvasRuntimeService, "disconnect" | "enabled" | "handle" | "recover">;
   allowInsecureTransport?: boolean;
   ca?: string[];
   request?: typeof fetch;
@@ -105,6 +110,7 @@ export class AgentHostClient implements HostTransport {
   private token: string;
   private readonly active = new Map<number, ActiveExecution>();
   private readonly runs = new Set<Promise<void>>();
+  private readonly canvasRuns = new Set<Promise<void>>();
   private socket?: WebSocket;
   private readonly clock: HostTransportClock;
   private readonly limits: HostTransportLimits;
@@ -138,6 +144,12 @@ export class AgentHostClient implements HostTransport {
     this.limits = parseHostTransportLimits(options.limits);
     this.reconnect = parseReconnectBackoffOptions(options.reconnect);
     this.capabilities = parseAgentHostCapabilities(options.capabilities);
+    if (
+      this.capabilities.includes(CANVAS_RUNTIME_CAPABILITY) &&
+      (!options.canvasRuntime || !options.canvasRuntime.enabled())
+    ) {
+      throw new Error("canvas_runtime_capability_service_mismatch");
+    }
     this.token = options.token;
     this.artifacts = this.createArtifactClient(this.token);
   }
@@ -156,6 +168,7 @@ export class AgentHostClient implements HostTransport {
     if (!this.stopped) return;
     this.stopped = false;
     this.options.state.recoverInterruptedExecutions();
+    this.options.canvasRuntime?.recover();
     this.connect();
   }
 
@@ -178,6 +191,7 @@ export class AgentHostClient implements HostTransport {
     if (this.reconnectTimer) this.clock.clearTimeout(this.reconnectTimer);
     if (this.heartbeatTimer) this.clock.clearTimeout(this.heartbeatTimer);
     for (const { controller } of this.active.values()) controller.abort();
+    this.options.canvasRuntime?.disconnect();
     const socket = this.socket;
     this.socket = undefined;
     if (socket && socket.readyState !== WebSocket.CLOSED) {
@@ -190,6 +204,7 @@ export class AgentHostClient implements HostTransport {
     }
     await this.waitBounded(this.processing);
     await this.waitBounded(Promise.allSettled([...this.runs]).then(() => undefined));
+    await this.waitBounded(Promise.allSettled([...this.canvasRuns]).then(() => undefined));
     if (!reconciliationRequired) this.transition({ state: "stopped" });
   }
 
@@ -272,6 +287,7 @@ export class AgentHostClient implements HostTransport {
       this.socket = undefined;
       this.welcomed = false;
       this.inFlightEventIds.clear();
+      this.options.canvasRuntime?.disconnect();
       if (this.heartbeatTimer) this.clock.clearTimeout(this.heartbeatTimer);
       if (!this.stopped && code === 4001) {
         this.stopped = true;
@@ -307,6 +323,27 @@ export class AgentHostClient implements HostTransport {
         return;
       case "mailbox.message":
         this.options.state.receive(event);
+        if (
+          event.command.type === "canvas_runtime.request" ||
+          event.command.type === "canvas_runtime.cancel"
+        ) {
+          if (!this.options.canvasRuntime) throw new Error("canvas_runtime_service_unavailable");
+          const run = this.options.canvasRuntime.handle(event.command);
+          this.canvasRuns.add(run);
+          const onSettled = () => {
+            this.canvasRuns.delete(run);
+            this.flushEvents();
+          };
+          void run.then(onSettled, () => {
+            onSettled();
+            this.stopped = true;
+            this.transition({
+              state: "reconciliation-required",
+              reason: "canvas_runtime_persistence_failed"
+            });
+            this.socket?.close(4003, "canvas runtime persistence failed");
+          });
+        }
         {
           const cancelled = this.options.interactionRelay?.accept(event.command);
           if (cancelled) {

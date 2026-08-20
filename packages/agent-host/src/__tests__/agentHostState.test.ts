@@ -69,7 +69,74 @@ function unsupportedMessage(sequence: number, command: Record<string, unknown>) 
   };
 }
 
+function canvasRuntimeMessage(sequence = 1) {
+  return {
+    type: "mailbox.message" as const,
+    protocolVersion: 1 as const,
+    sequence,
+    previousSequence: sequence - 1,
+    messageId: `canvas-mailbox-${sequence}`,
+    command: {
+      type: "canvas_runtime.request" as const,
+      protocolVersion: 1 as const,
+      requestId: "runtime-request-1",
+      scope: { workspaceId: "workspace-1", projectId: "project-1", canvasId: "default" },
+      deadline: "2030-01-01T00:00:00.000Z",
+      operation: { operation: "availability" as const }
+    }
+  };
+}
+
 describe("durable Agent Host state", () => {
+  it("persists Canvas Runtime receipts independently and replays terminal responses after restart", async () => {
+    const { directory, state } = await setup();
+    const message = canvasRuntimeMessage();
+    state.receive(message);
+    expect(state.canvasRuntime.begin("runtime-request-1")).toBe(true);
+    const response = {
+      type: "canvas_runtime.response" as const,
+      protocolVersion: 1 as const,
+      requestId: "runtime-request-1",
+      response: {
+        outcome: "success" as const,
+        operation: "availability" as const,
+        result: { kind: "unavailable" as const, reason: "runtime_not_attached" as const }
+      }
+    };
+    const event = state.canvasRuntime.complete("runtime-request-1", response);
+    expect(event).toMatchObject({
+      type: "canvas_runtime.response",
+      requestId: "runtime-request-1"
+    });
+    expect(state.canvasRuntime.accept(message.command, message.sequence)).toEqual({
+      kind: "replay",
+      response
+    });
+    expect(() =>
+      state.canvasRuntime.accept(
+        { ...message.command, deadline: "2031-01-01T00:00:00.000Z" },
+        message.sequence
+      )
+    ).toThrow("canvas_runtime_request_identity_conflict");
+
+    state.close();
+    states.pop();
+    const reopened = await openAgentHostState(join(directory, "host.sqlite"));
+    states.push(reopened);
+    expect(reopened.canvasRuntime.accept(message.command, message.sequence)).toEqual({
+      kind: "replay",
+      response
+    });
+    expect(reopened.pendingEvents()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "canvas_runtime.response",
+          requestId: "runtime-request-1",
+          messageId: event.messageId
+        })
+      ])
+    );
+  });
   it("persists a mailbox command before advancing its acknowledged cursor", async () => {
     const { directory, state } = await setup();
     const received = state.receive(executeMessage());

@@ -43,6 +43,7 @@ import {
 } from "./agentHostInteractionSettlements.js";
 import { AgentHostTerminalCompactionRepository } from "./agentHostTerminalCompaction.js";
 import { AgentHostRemoteRecordRelay } from "./agentHostRemoteRecordRelay.js";
+import { CanvasRuntimeRpcRepository } from "./canvasRuntimeRpcRepository.js";
 import {
   inWriteTransaction,
   openAgentHostDatabase,
@@ -77,6 +78,7 @@ export class AgentHostState implements AgentHostStateRepository {
   private readonly remoteRelay: AgentHostRemoteRecordRelay;
   private readonly interactions: AgentHostInteractionSettlements;
   private readonly terminalCompaction: AgentHostTerminalCompactionRepository;
+  readonly canvasRuntime: CanvasRuntimeRpcRepository;
 
   constructor(
     private readonly database: SqliteDatabase,
@@ -95,6 +97,7 @@ export class AgentHostState implements AgentHostStateRepository {
       maxArtifactsPerExecution: this.limits.maxArtifactsPerExecution
     });
     this.events = new AgentHostEventOutbox(database, this.limits.maxPendingEvents);
+    this.canvasRuntime = new CanvasRuntimeRpcRepository(database, this.events);
     this.remoteRecords = new AgentHostRemoteExecutionRecordStore(database, {
       requireAuthoritativeExecution: true,
       retention: {
@@ -177,6 +180,17 @@ export class AgentHostState implements AgentHostStateRepository {
         this.terminalCompaction.recordReceived(event.sequence);
         if (event.command.type === "execute_block") {
           if (!this.executions.insert(event.sequence, event.command, receivedAt)) {
+            this.database
+              .prepare("UPDATE agent_host_inbox SET processed_at=? WHERE sequence=?")
+              .run(receivedAt, event.sequence);
+          }
+        }
+        if (
+          event.command.type === "canvas_runtime.request" ||
+          event.command.type === "canvas_runtime.cancel"
+        ) {
+          const acceptance = this.canvasRuntime.accept(event.command, event.sequence);
+          if (acceptance.kind !== "accepted") {
             this.database
               .prepare("UPDATE agent_host_inbox SET processed_at=? WHERE sequence=?")
               .run(receivedAt, event.sequence);

@@ -1,6 +1,7 @@
 import type { HostReadinessObservation } from "@planweave-ai/agent-host-protocol";
 import { ConfiguredAcpProfileResolver, ConfiguredWorkspaceResolver } from "./resolvers.js";
 import type { AgentHostConfig } from "./schema.js";
+import { ConfiguredCanvasRuntimeResolver } from "../runtime/canvasRuntimeResolver.js";
 import { findSupportedHostAcpProfile } from "../realAcp/supportedProfiles.js";
 
 function observationStatus(error: unknown): "missing" | "invalid" {
@@ -10,7 +11,9 @@ function observationStatus(error: unknown): "missing" | "invalid" {
   if (
     error instanceof Error &&
     (error.message === "agent_host_workspace_not_configured" ||
-      error.message === "agent_host_profile_not_configured")
+      error.message === "agent_host_profile_not_configured" ||
+      error.message === "runtime_project_not_configured" ||
+      error.message === "runtime_project_missing")
   ) {
     return "missing";
   }
@@ -28,6 +31,7 @@ export async function observeHostReadiness(
 ): Promise<HostReadinessObservation> {
   const workspaces = new ConfiguredWorkspaceResolver(config);
   const profiles = new ConfiguredAcpProfileResolver(config, environment);
+  const runtimeProjects = new ConfiguredCanvasRuntimeResolver(config);
   const workspaceMappings = await Promise.all(
     config.workspaces.map(async (workspace) => {
       try {
@@ -63,5 +67,23 @@ export async function observeHostReadiness(
         }
       })
   );
-  return { workspaceMappings, acpProfiles };
+  const runtimeProjectMappings = await Promise.all(
+    runtimeProjects.mappings().map(async (mapping) => {
+      try {
+        await runtimeProjects.resolveProject(mapping.workspaceId, mapping.projectId);
+        return {
+          workspaceId: mapping.workspaceId,
+          projectId: mapping.projectId,
+          status: "ready" as const
+        };
+      } catch (error) {
+        return {
+          workspaceId: mapping.workspaceId,
+          projectId: mapping.projectId,
+          status: observationStatus(error)
+        };
+      }
+    })
+  );
+  return { workspaceMappings, acpProfiles, runtimeProjects: runtimeProjectMappings };
 }

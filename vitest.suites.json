@@ -696,6 +696,7 @@
         "agentHostRecovery.test.ts",
         "agentHostState.test.ts",
         "backgroundServices.test.ts",
+        "canvasRuntimeService.test.ts",
         "connectionStatus.test.ts",
         "durableAcpRelay.test.ts",
         "httpArtifactTransfer.test.ts",

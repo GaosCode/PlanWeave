@@ -68,8 +68,19 @@ export { agentHostPackageVersion } from "./packageInfo.js";
 export { createAgentHostTlsTrust, type AgentHostTlsTrust } from "./tls/trust.js";
 export {
   ConfiguredAcpProfileResolver,
-  ConfiguredWorkspaceResolver
+  ConfiguredWorkspaceResolver,
+  resolveAgentHostCapabilities
 } from "./config/resolvers.js";
+export {
+  CanvasRuntimeResolutionError,
+  ConfiguredCanvasRuntimeResolver,
+  type CanvasRuntimeResolverPort,
+  type ResolvedCanvasRuntime
+} from "./runtime/canvasRuntimeResolver.js";
+export {
+  CanvasRuntimeService,
+  type CanvasRuntimeServiceOptions
+} from "./runtime/canvasRuntimeService.js";
 export { observeHostReadiness } from "./config/readiness.js";
 export {
   configFromAgentHostSetupHandoff,

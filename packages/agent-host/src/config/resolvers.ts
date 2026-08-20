@@ -1,4 +1,5 @@
 import {
+  CANVAS_RUNTIME_CAPABILITY,
   ownerPackageLocatorSchema,
   resolveOwnerRunWorkspace,
   type OwnerPackageLocator
@@ -18,6 +19,13 @@ import type {
   ResolvedAgentHostAcpProfile,
   ResolvedAgentHostWorkspace
 } from "../execution/remoteAcpPorts.js";
+
+export function resolveAgentHostCapabilities(config: AgentHostConfig): string[] {
+  const capabilities = new Set(config.host.capabilities);
+  if (config.runtimeProjects.length > 0) capabilities.add(CANVAS_RUNTIME_CAPABILITY);
+  else capabilities.delete(CANVAS_RUNTIME_CAPABILITY);
+  return [...capabilities];
+}
 
 function contained(root: string, candidate: string): boolean {
   const path = relative(root, candidate);

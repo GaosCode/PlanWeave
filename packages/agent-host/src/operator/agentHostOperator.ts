@@ -3,7 +3,11 @@ import { hostname } from "node:os";
 import { join } from "node:path";
 import { parseAgentHostConfig, type AgentHostConfig } from "../config/schema.js";
 import { observeHostReadiness } from "../config/readiness.js";
-import { ConfiguredAcpProfileResolver, ConfiguredWorkspaceResolver } from "../config/resolvers.js";
+import {
+  ConfiguredAcpProfileResolver,
+  ConfiguredWorkspaceResolver,
+  resolveAgentHostCapabilities
+} from "../config/resolvers.js";
 import {
   composeAgentHost,
   type AgentHostComposition
@@ -27,6 +31,8 @@ import {
   ensureDurableHostIdentity
 } from "../state/durableHostIdentity.js";
 import { AgentHostClient } from "../transport/agentHostClient.js";
+import { ConfiguredCanvasRuntimeResolver } from "../runtime/canvasRuntimeResolver.js";
+import { CanvasRuntimeService } from "../runtime/canvasRuntimeService.js";
 import { agentHostPackageVersion } from "../packageInfo.js";
 import { createAgentHostTlsTrust } from "../tls/trust.js";
 import { findSupportedHostAcpProfile } from "../realAcp/supportedProfiles.js";
@@ -618,6 +624,7 @@ export class AgentHostOperator {
       process.env,
       await readExposedAgentProfileIds(config)
     );
+    const capabilities = resolveAgentHostCapabilities(config);
     await ensureDurableHostIdentity(
       config.dataDirectory,
       credential.hostId,
@@ -642,12 +649,17 @@ export class AgentHostOperator {
         ),
         outbox: state,
         interactionResponder: interactionRelay,
-        hostCapabilities: config.host.capabilities,
+        hostCapabilities: capabilities,
         // Remote Host ACP work commonly exceeds the local 30s engine default (tool calls + writeback).
         limits: {
           operationTimeoutMs: 15 * 60_000,
           interactionTimeoutMs: 15 * 60_000
         }
+      });
+      const canvasRuntime = new CanvasRuntimeService({
+        resolver: new ConfiguredCanvasRuntimeResolver(config),
+        receipts: state.canvasRuntime,
+        capabilities
       });
       const transport = new AgentHostClient({
         serverUrl: transportOrigin(config.coordinator.url),
@@ -663,12 +675,13 @@ export class AgentHostOperator {
               )
             }
           : {}),
-        capabilities: config.host.capabilities,
+        capabilities,
         capacity: config.host.capacity,
         readiness,
         state,
         executor,
         interactionRelay,
+        canvasRuntime,
         allowInsecureTransport: config.coordinator.allowInsecureDevelopment,
         ca: trust.ca,
         request: trust.request
@@ -755,7 +768,7 @@ export class AgentHostOperator {
       hostId,
       workspaceId,
       credential,
-      capabilities: [...config.host.capabilities],
+      capabilities: resolveAgentHostCapabilities(config),
       capacity: config.host.capacity,
       connection,
       recoverableExecutions,

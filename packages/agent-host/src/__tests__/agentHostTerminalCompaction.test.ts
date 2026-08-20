@@ -421,8 +421,39 @@ describe("Agent Host terminal state compaction", () => {
     expect(reopened.receive(delivery(1)).stored).toBe(false);
     const inspected = await openAgentHostDatabase(path, 5_000);
     expect(inspected.prepare("SELECT version FROM agent_host_state_schema").get()).toMatchObject({
-      version: 5
+      version: 6
     });
+    inspected.close();
+  });
+
+  it("migrates the v5 state forward without changing existing mailbox data", async () => {
+    const { path, state } = await setup();
+    state.receive(delivery(1));
+    state.close();
+    states.pop();
+    const v5 = await openAgentHostDatabase(path, 5_000);
+    v5.exec(`
+      DROP TABLE canvas_runtime_rpc_receipts;
+      DROP TABLE canvas_runtime_leases;
+      UPDATE agent_host_state_schema SET version=5;
+    `);
+    v5.close();
+
+    const migrated = await openAgentHostState(path);
+    states.push(migrated);
+    expect(migrated.pendingExecutions(1)).toHaveLength(1);
+    expect(migrated.receive(delivery(1)).stored).toBe(false);
+    const inspected = await openAgentHostDatabase(path, 5_000);
+    expect(inspected.prepare("SELECT version FROM agent_host_state_schema").get()).toMatchObject({
+      version: 6
+    });
+    expect(
+      inspected
+        .prepare(
+          "SELECT 1 AS present FROM sqlite_master WHERE type='table' AND name='canvas_runtime_rpc_receipts'"
+        )
+        .get()
+    ).toBeDefined();
     inspected.close();
   });
 

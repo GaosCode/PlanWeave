@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { parseAgentHostMailboxCommand } from "../protocol.js";
 import { inWriteTransaction, type SqliteDatabase } from "./sqliteDatabase.js";
 
-const CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION = 5;
+const CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION = 6;
+const PRE_CANVAS_RUNTIME_SCHEMA_VERSION = 5;
 const INTERMEDIATE_COMPACTION_SCHEMA_VERSION = 4;
 const PRE_COMPACTION_SCHEMA_VERSION = 3;
 
@@ -146,6 +147,36 @@ CREATE TABLE IF NOT EXISTS agent_host_compacted_mailbox_receipts (
   compacted_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS canvas_runtime_rpc_receipts (
+  request_id TEXT PRIMARY KEY,
+  inbox_sequence INTEGER NOT NULL UNIQUE,
+  lease_id TEXT,
+  command_digest TEXT NOT NULL,
+  command_json TEXT NOT NULL,
+  workspace_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  canvas_id TEXT NOT NULL,
+  operation TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('pending','running','terminal','reconcile_required')),
+  response_json TEXT,
+  received_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(lease_id,request_id)
+);
+
+CREATE TABLE IF NOT EXISTS canvas_runtime_leases (
+  lease_id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  canvas_id TEXT NOT NULL,
+  source_revision TEXT NOT NULL,
+  graph_fingerprint TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('active','released')),
+  acquired_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  released_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS agent_host_mailbox_checkpoint (
   singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
   received_high_water_sequence INTEGER NOT NULL CHECK(received_high_water_sequence >= 0),
@@ -177,6 +208,10 @@ CREATE INDEX IF NOT EXISTS idx_agent_host_compacted_mailbox_receipts_age
   ON agent_host_compacted_mailbox_receipts(compacted_at,sequence);
 CREATE INDEX IF NOT EXISTS idx_agent_host_compacted_mailbox_receipts_identity
   ON agent_host_compacted_mailbox_receipts(dispatch_id,execution_attempt_id,command_type);
+CREATE INDEX IF NOT EXISTS idx_canvas_runtime_rpc_receipts_status
+  ON canvas_runtime_rpc_receipts(status,received_at);
+CREATE INDEX IF NOT EXISTS idx_canvas_runtime_leases_scope
+  ON canvas_runtime_leases(workspace_id,project_id,canvas_id,status);
 `;
 
 export function digestJson(value: unknown): string {
@@ -400,8 +435,47 @@ const currentRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
       "compacted_at"
     ],
     uniqueKeys: [["sequence"], ["message_id"]]
+  },
+  canvas_runtime_rpc_receipts: {
+    columns: [
+      "request_id",
+      "inbox_sequence",
+      "lease_id",
+      "command_digest",
+      "command_json",
+      "workspace_id",
+      "project_id",
+      "canvas_id",
+      "operation",
+      "status",
+      "response_json",
+      "received_at",
+      "updated_at"
+    ],
+    uniqueKeys: [["request_id"], ["inbox_sequence"]]
+  },
+  canvas_runtime_leases: {
+    columns: [
+      "lease_id",
+      "workspace_id",
+      "project_id",
+      "canvas_id",
+      "source_revision",
+      "graph_fingerprint",
+      "status",
+      "acquired_at",
+      "expires_at",
+      "released_at"
+    ],
+    uniqueKeys: [["lease_id"]]
   }
 };
+
+const versionFiveRequiredTables: Readonly<Record<string, RequiredTableShape>> = Object.fromEntries(
+  Object.entries(currentRequiredTables).filter(
+    ([table]) => table !== "canvas_runtime_rpc_receipts" && table !== "canvas_runtime_leases"
+  )
+);
 
 function uniqueKeys(database: SqliteDatabase, table: string): string[][] {
   const primaryKey = database
@@ -666,6 +740,12 @@ export function initializeAgentHostStateSchema(database: SqliteDatabase): void {
     const priorVersion = storedSchemaVersion(database);
     if (priorVersion === CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION) {
       assertCurrentSchemaComplete(database);
+    } else if (priorVersion === PRE_CANVAS_RUNTIME_SCHEMA_VERSION) {
+      assertRequiredTablesAndVersion(
+        database,
+        versionFiveRequiredTables,
+        PRE_CANVAS_RUNTIME_SCHEMA_VERSION
+      );
     } else {
       assertNoCompactionSchema(database);
       if (priorVersion === PRE_COMPACTION_SCHEMA_VERSION) {
