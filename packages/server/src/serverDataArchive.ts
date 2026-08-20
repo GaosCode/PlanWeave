@@ -8,6 +8,10 @@ import { createGunzip, createGzip, type Gzip } from "node:zlib";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { openServerDatabase } from "./sqlite.js";
+import {
+  normalizeServerDataRestoreHostBindings,
+  ServerDataRestoreHostBindingError
+} from "./serverDataRestoreHostBindings.js";
 
 export const SERVER_DATA_ARCHIVE_SCHEMA_VERSION = "planweave-server-data-archive/v1" as const;
 export const SERVER_DATA_ARCHIVE_DATABASE_FILE = "planweave-server.sqlite";
@@ -141,21 +145,34 @@ export async function serverDataDirectoryIsActive(dataDirectory: string): Promis
   }
 }
 
-async function clearServerInstanceOwnership(dataDirectory: string): Promise<void> {
-  const databasePath = join(dataDirectory, SERVER_DATA_ARCHIVE_DATABASE_FILE);
+async function normalizeRestoredServerData(
+  stagingDirectory: string,
+  targetDirectory: string
+): Promise<void> {
+  const databasePath = join(stagingDirectory, SERVER_DATA_ARCHIVE_DATABASE_FILE);
   try {
     await stat(databasePath);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
     throw error;
   }
-  const database = await openExistingServerDatabase(databasePath);
-  if (!database) return;
+  const database = await openServerDatabase(databasePath, 1_000).catch((error: unknown) => {
+    if (isNotADatabase(error)) {
+      throw new ServerDataArchiveError("server_data_restore_database_invalid");
+    }
+    throw error;
+  });
   try {
-    database.exec("DELETE FROM server_instance_ownership");
+    await normalizeServerDataRestoreHostBindings({
+      database,
+      stagingDirectory,
+      targetDirectory
+    });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "";
-    if (!message.includes("no such table")) throw error;
+    if (error instanceof ServerDataRestoreHostBindingError) {
+      throw new ServerDataArchiveError(error.code);
+    }
+    throw error;
   } finally {
     database.close();
   }
@@ -375,9 +392,9 @@ export async function restoreServerDataDirectory(input: {
       await mkdir(dirname(destination), { recursive: true, mode: 0o700 });
       await writeFile(destination, file.body, { mode: 0o600 });
     }
+    await normalizeRestoredServerData(staging, target);
     await promoteRestoredDirectory(target, staging);
     await chmod(target, 0o700).catch(() => undefined);
-    await clearServerInstanceOwnership(target);
     return manifest;
   } finally {
     await rm(staging, { recursive: true, force: true }).catch(() => undefined);
