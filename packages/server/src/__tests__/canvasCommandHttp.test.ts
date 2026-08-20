@@ -1,5 +1,5 @@
 import { createServer, type Server as HttpServer } from "node:http";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   handleCanvasCommandHttpRequest,
   resetCanvasCommandHttpRateLimits
@@ -61,7 +61,8 @@ async function setup(clock: () => Date) {
   if (!address || typeof address === "string") throw new Error("Expected HTTP address");
   return {
     origin: `http://127.0.0.1:${address.port}`,
-    token
+    token,
+    service
   };
 }
 
@@ -100,5 +101,23 @@ describe("canvas command HTTP rate limiting", () => {
     });
     expect(allowedAfterReset.status).toBe(200);
     expect(allowedAfterReset.headers.has("retry-after")).toBe(false);
+  });
+});
+
+describe("canvas runtime status HTTP errors", () => {
+  it("maps runtime unavailable to a service-unavailable response", async () => {
+    const { origin, token, service } = await setup(() => new Date("2026-08-16T00:00:00.000Z"));
+    vi.spyOn(service, "readRuntimeStatus").mockRejectedValue(
+      new Error("canvas_runtime_status_unavailable")
+    );
+
+    const response = await fetch(`${origin}/api/v1/projects/p/canvases/default/runtime-status`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: "canvas_runtime_status_unavailable"
+    });
   });
 });

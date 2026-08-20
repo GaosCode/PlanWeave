@@ -38,7 +38,6 @@ import type { CollaborationAuthContext } from "../identity/auth.js";
 import type { ProjectAccessRepository } from "../projectAccessRepository.js";
 import type { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import { authorizeCanvasCommand, authorizeCanvasContent, authorizeCanvasRead } from "./policy.js";
-import { projectCanvasRuntimeStatusFromContent } from "./runtimeStatusFromContent.js";
 import {
   CanvasCommandRepository,
   digestCanvasIntent,
@@ -710,31 +709,23 @@ export class CanvasCommandService {
     });
     const readStatus = this.options.runtime.readStatus;
     if (
-      pathAuth.ok &&
-      readStatus &&
-      existsSync(pathAuth.projectRoot) &&
-      existsSync(pathAuth.packageDir)
+      !pathAuth.ok ||
+      !readStatus ||
+      !existsSync(pathAuth.projectRoot) ||
+      !existsSync(pathAuth.packageDir)
     ) {
-      return readStatus({
+      throw new Error("canvas_runtime_status_unavailable");
+    }
+    try {
+      return await readStatus({
         projectRoot: pathAuth.projectRoot,
         canvasId: input.canvasId,
         expectedPackageDir: pathAuth.packageDir,
         scope: canvasScopeRefSchema.parse(pathAuth.scope),
         capturedAt
       });
-    }
-    try {
-      const authority = this.readAuthoritativeContent(scopeKey(contentAuth.scope));
-      return projectCanvasRuntimeStatusFromContent({
-        content: authority.content.content,
-        scope: canvasScopeRefSchema.parse(contentAuth.scope),
-        capturedAt
-      });
     } catch (error) {
-      if (error instanceof Error && error.message.startsWith("canvas_runtime_status_")) {
-        throw error;
-      }
-      throw new Error("canvas_runtime_status_unavailable");
+      throw new Error("canvas_runtime_status_unavailable", { cause: error });
     }
   }
 
