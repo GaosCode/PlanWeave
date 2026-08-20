@@ -13,9 +13,9 @@ import {
   CanvasCommandService,
   ContentVersionRepository,
   SqliteAuthoritativeCanvasCommitStore,
-  createDefaultCanvasRuntimePort,
-  type CanvasRuntimeMutationPort
+  type CanvasRuntimeStatusPort
 } from "../../canvas/index.js";
+import { captureAuthorizedCanvasContent } from "@planweave-ai/runtime";
 import type { HumanAuthContext } from "../../identity/schemas.js";
 import { WorkspaceIdentityRepository } from "../../identity/workspaceRepository.js";
 import { applyMigrations } from "../../migrations.js";
@@ -36,50 +36,17 @@ export function digestOf(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-export function fakeRuntime(initialDigest = digestOf("empty")): CanvasRuntimeMutationPort & {
+export function fakeRuntime(): CanvasRuntimeStatusPort & {
   calls: number;
-  setDigest(next: string): void;
 } {
-  let digest = initialDigest;
   return {
     calls: 0,
-    setDigest(next: string) {
-      digest = next;
-    },
-    async apply(input) {
-      this.calls += 1;
-      digest = digestOf(`${digest}:${JSON.stringify(input.intent)}`);
-      return {
-        ok: true,
-        contentDigest: digest,
-        digestManifest: {
-          manifest: { digestSha256: digest, sizeBytes: 10 },
-          prompts: [],
-          totalBytes: 10
-        },
-        packageDir: input.expectedPackageDir ?? String(input.projectRoot),
-        sizeBytes: 10
-      };
-    },
-    async readDigest(input) {
-      return {
-        ok: true,
-        contentDigest: digest,
-        digestManifest: {
-          manifest: { digestSha256: digest, sizeBytes: 10 },
-          prompts: [],
-          totalBytes: 10
-        },
-        packageDir: input.expectedPackageDir ?? String(input.projectRoot),
-        sizeBytes: 10
-      };
-    },
-    async readStatus(input) {
+    async read(scope, capturedAt) {
       return {
         schemaVersion: "canvas-runtime-status/v2",
-        scope: input.scope,
+        scope,
         packageFingerprint: `pkg-${"a".repeat(64)}`,
-        capturedAt: input.capturedAt ?? "2026-01-02T00:00:00.000Z",
+        capturedAt: capturedAt ?? "2026-01-02T00:00:00.000Z",
         tasks: [{ taskId: "T-001", status: "implemented", openFeedbackCount: 0 }],
         blocks: []
       };
@@ -89,7 +56,7 @@ export function fakeRuntime(initialDigest = digestOf("empty")): CanvasRuntimeMut
 
 export async function canvasCommandServiceFixture(options?: {
   journalRetention?: number;
-  runtime?: CanvasRuntimeMutationPort;
+  runtime?: CanvasRuntimeStatusPort;
   contentVersions?: boolean;
   onAcceptedInCallerTransaction?: (accepted: CanvasCommandAccepted) => void;
   onAcceptedEntry?: (entry: CanvasJournalEntry) => void;
@@ -160,15 +127,12 @@ export async function canvasCommandServiceFixture(options?: {
     database,
     () => new Date("2026-01-02T00:00:00.000Z")
   );
-  const authorityRuntime = createDefaultCanvasRuntimePort();
-  if (!authorityRuntime.captureContent) throw new Error("authority content capture unavailable");
-  const initialContent = await authorityRuntime.captureContent({
+  const initialContent = await captureAuthorizedCanvasContent({
     projectRoot: workspace.root,
     canvasId: "default",
     expectedPackageDir: workspace.init.workspace.packageDir,
     authorityProjectId: "p"
   });
-  if (!initialContent.ok) throw new Error(initialContent.detail);
   contentVersions.publishInitial({
     scope: { workspaceId: "w", projectId: "p", canvasId: "default" },
     content: initialContent.content,
@@ -178,7 +142,7 @@ export async function canvasCommandServiceFixture(options?: {
     repository,
     access,
     workspaceIdentity: new WorkspaceIdentityRepository(database),
-    runtime,
+    runtimeStatus: runtime,
     contentVersions,
     authoritativeCommits: new SqliteAuthoritativeCanvasCommitStore(
       database,

@@ -6,26 +6,23 @@ import {
   type CanvasCommandIntent,
   type CanvasJournalEntry
 } from "@planweave-ai/collaboration-protocol/canvas/commands";
-import {
-  ContentVersionService,
-  createDefaultCanvasRuntimePort,
-  type CanvasRuntimeMutationPort
-} from "../canvas/index.js";
+import { ContentVersionService } from "../canvas/index.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import { latestCentralSchemaVersion } from "../migrations.js";
 import { inWriteTransaction } from "../sqlite.js";
 import {
   actor,
   canvasCommandServiceFixture as fixture,
-  digestOf,
   fakeRuntime,
   submitBody
 } from "./support/canvasCommandServiceFixture.js";
 
 describe("canvas command service (OSS-004 B-002)", () => {
   it("submits and reconnects without resolving a bound package path", async () => {
-    const { service, access } = await fixture();
-    const resolvePath = vi.spyOn(access, "resolveAuthorizedCanvas");
+    const { service, database } = await fixture();
+    database.exec(
+      "UPDATE project_registry SET project_root_internal=NULL; UPDATE canvas_registry SET package_dir_internal=NULL"
+    );
 
     const accepted = await service.submit(actor("owner"), submitBody("op-no-package-path", 0));
     expect(accepted).toMatchObject({ type: "canvas.command.accepted", revision: 1 });
@@ -39,7 +36,6 @@ describe("canvas command service (OSS-004 B-002)", () => {
       afterRevision: 0
     });
     expect(reconnect.type).toBe("canvas.reconnect.snapshot");
-    expect(resolvePath).not.toHaveBeenCalled();
   });
 
   it("migrates v30 and enforces CAS + operationId idempotency", async () => {
@@ -267,44 +263,7 @@ describe("canvas command service (OSS-004 B-002)", () => {
   });
 
   it("serializes concurrent writers so only one CAS winner advances revision", async () => {
-    let releaseFirst!: () => void;
-    const firstGate = new Promise<void>((resolve) => {
-      releaseFirst = resolve;
-    });
-    let enterCount = 0;
-    const runtime: CanvasRuntimeMutationPort = {
-      async apply(input) {
-        enterCount += 1;
-        if (enterCount === 1) await firstGate;
-        const digest = digestOf(`apply:${enterCount}:${JSON.stringify(input.intent)}`);
-        return {
-          ok: true,
-          contentDigest: digest,
-          digestManifest: {
-            manifest: { digestSha256: digest, sizeBytes: 1 },
-            prompts: [],
-            totalBytes: 1
-          },
-          packageDir: String(input.projectRoot),
-          sizeBytes: 1
-        };
-      },
-      async readDigest(input) {
-        const digest = digestOf("head");
-        return {
-          ok: true,
-          contentDigest: digest,
-          digestManifest: {
-            manifest: { digestSha256: digest, sizeBytes: 1 },
-            prompts: [],
-            totalBytes: 1
-          },
-          packageDir: String(input.projectRoot),
-          sizeBytes: 1
-        };
-      }
-    };
-    const { service } = await fixture({ runtime });
+    const { service } = await fixture();
     const firstPromise = service.submit(
       actor("owner"),
       submitBody("op-a", 0, {
@@ -313,7 +272,6 @@ describe("canvas command service (OSS-004 B-002)", () => {
         promptMarkdown: "A"
       })
     );
-    await new Promise((resolve) => setTimeout(resolve, 20));
     const secondPromise = service.submit(
       actor("editor"),
       submitBody("op-b", 0, {
@@ -322,16 +280,12 @@ describe("canvas command service (OSS-004 B-002)", () => {
         promptMarkdown: "B"
       })
     );
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(enterCount).toBe(0);
-    releaseFirst();
     const [first, second] = await Promise.all([firstPromise, secondPromise]);
     const accepted = [first, second].filter((item) => item.type === "canvas.command.accepted");
     const rejected = [first, second].filter((item) => item.type === "canvas.command.rejected");
     expect(accepted).toHaveLength(1);
     expect(rejected).toHaveLength(1);
     expect(rejected[0]).toMatchObject({ code: "stale_revision" });
-    expect(enterCount).toBe(0);
   });
 
   it("rejects viewer writes and ACL-revoked editors", async () => {
@@ -367,9 +321,9 @@ describe("canvas command service (OSS-004 B-002)", () => {
   });
 
   it("accepts authority commits when server-local materialization is unavailable", async () => {
-    const runtime = createDefaultCanvasRuntimePort();
+    const runtime = fakeRuntime();
     const materialize = vi
-      .spyOn(runtime, "apply")
+      .spyOn(runtime, "read")
       .mockRejectedValue(new Error("local_disk_unavailable"));
     const { service } = await fixture({ runtime });
     const outcome = await service.submit(actor("owner"), {
@@ -395,14 +349,13 @@ describe("canvas command service (OSS-004 B-002)", () => {
   });
 
   it("commits immutable content and both authority heads in one accepted transaction", async () => {
-    const runtime = createDefaultCanvasRuntimePort();
+    const runtime = fakeRuntime();
     const acceptedCommits: CanvasCommandAccepted[] = [];
     const { database, access, repository, service, contentVersions } = await fixture({
       runtime,
       onAcceptedInCallerTransaction: (accepted) => acceptedCommits.push(accepted)
     });
-    if (!contentVersions || !runtime.captureContent)
-      throw new Error("content version fixture unavailable");
+    if (!contentVersions) throw new Error("content version fixture unavailable");
     const scope = { workspaceId: "w", projectId: "p", canvasId: "default" };
     const intent: CanvasCommandIntent = {
       kind: "update_task_prompt",

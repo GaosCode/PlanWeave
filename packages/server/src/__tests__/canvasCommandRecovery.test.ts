@@ -7,14 +7,14 @@ import {
 import {
   CanvasCommandService,
   canvasCommandOutcomeHttpStatus,
-  digestCanvasIntent,
-  type CanvasRuntimeMutationPort
+  digestCanvasIntent
 } from "../canvas/index.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import {
   actor,
   canvasCommandServiceFixture as fixture,
   digestOf,
+  fakeRuntime,
   submitBody
 } from "./support/canvasCommandServiceFixture.js";
 
@@ -237,8 +237,8 @@ describe("canvas command service (OSS-004 B-002)", () => {
     const scope = { workspaceId: "w", projectId: "p", canvasId: "default" };
     let digest = digestOf("empty");
     let applyCalls = 0;
-    const runtime: CanvasRuntimeMutationPort = {
-      async apply(input) {
+    const runtime = {
+      async apply(input: { intent: CanvasCommandIntent; projectRoot: string }) {
         applyCalls += 1;
         digest = digestOf(`${digest}:applied:${JSON.stringify(input.intent)}`);
         return {
@@ -253,7 +253,7 @@ describe("canvas command service (OSS-004 B-002)", () => {
           sizeBytes: 10
         };
       },
-      async readDigest(input) {
+      async readDigest(input: { projectRoot: string }) {
         return {
           ok: true,
           contentDigest: digest,
@@ -267,7 +267,7 @@ describe("canvas command service (OSS-004 B-002)", () => {
         };
       }
     };
-    const { service, repository } = await fixture({ runtime });
+    const { service, repository } = await fixture();
 
     // Simulate: accept path reserved pending, apply mutated package, commit never ran.
     const intent: CanvasCommandIntent = {
@@ -305,8 +305,8 @@ describe("canvas command service (OSS-004 B-002)", () => {
     let digest = digestOf("empty");
     const digestReadable = false;
     let applyCalls = 0;
-    const runtime: CanvasRuntimeMutationPort = {
-      async apply(input) {
+    const runtime = {
+      async apply(input: { intent: CanvasCommandIntent; projectRoot: string }) {
         applyCalls += 1;
         digest = digestOf(`${digest}:applied:${JSON.stringify(input.intent)}`);
         return {
@@ -321,7 +321,7 @@ describe("canvas command service (OSS-004 B-002)", () => {
           sizeBytes: 10
         };
       },
-      async readDigest(input) {
+      async readDigest(input: { projectRoot: string }) {
         if (!digestReadable) {
           return {
             ok: false,
@@ -342,12 +342,12 @@ describe("canvas command service (OSS-004 B-002)", () => {
         };
       }
     };
-    const { access, database, repository } = await fixture({ runtime });
+    const { access, database, repository } = await fixture();
     const restarted = new CanvasCommandService({
       repository,
       access,
       workspaceIdentity: new WorkspaceIdentityRepository(database),
-      runtime
+      runtimeStatus: fakeRuntime()
     });
     const intent: CanvasCommandIntent = {
       kind: "update_task_prompt",

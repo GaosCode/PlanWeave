@@ -1,61 +1,56 @@
 import { describe, expect, it, vi } from "vitest";
+import type { CanvasRuntimeStatusPort } from "../canvas/runtimePort.js";
 import {
   actor,
   canvasCommandServiceFixture as fixture,
   fakeRuntime
 } from "./support/canvasCommandServiceFixture.js";
 
-const missingPackageLocation = {
-  scope: { workspaceId: "w", projectId: "p", canvasId: "default" },
-  projectRoot: "/Users/missing/planweave-project",
-  packageDir: "/Users/missing/planweave-project/package",
-  aclRevision: 1
-};
-
-describe("canvas command runtime status without a local package", () => {
-  it("rejects as unavailable when the bound path is missing", async () => {
-    const { service, access, runtime } = await fixture();
-    vi.spyOn(access, "resolveAuthorizedCanvas").mockReturnValue(missingPackageLocation);
-    const readStatus = vi.spyOn(runtime, "readStatus");
+describe("canvas command runtime status", () => {
+  it("passes only the authorized logical scope to the status port", async () => {
+    const runtime = fakeRuntime();
+    const read = vi.spyOn(runtime, "read");
+    const { service } = await fixture({ runtime });
 
     await expect(
       service.readRuntimeStatus(actor("viewer"), { projectId: "p", canvasId: "default" })
-    ).rejects.toThrow("canvas_runtime_status_unavailable");
-    expect(readStatus).not.toHaveBeenCalled();
-  });
-
-  it("rejects as unavailable when no local runtime path is bound", async () => {
-    const { service, access, runtime } = await fixture();
-    vi.spyOn(access, "resolveAuthorizedCanvas").mockImplementation(() => {
-      throw new Error("canvas_path_not_bound");
+    ).resolves.toMatchObject({
+      schemaVersion: "canvas-runtime-status/v2",
+      scope: { workspaceId: "w", projectId: "p", canvasId: "default" }
     });
-    const readStatus = vi.spyOn(runtime, "readStatus");
+    expect(read).toHaveBeenCalledWith(
+      { workspaceId: "w", projectId: "p", canvasId: "default" },
+      "2026-01-02T00:00:00.000Z"
+    );
+  });
+
+  it("does not consult restored registry paths before reading runtime status", async () => {
+    const runtime = fakeRuntime();
+    const { service, access, database } = await fixture({ runtime });
+    database.exec(
+      "UPDATE project_registry SET project_root_internal=NULL; UPDATE canvas_registry SET package_dir_internal=NULL"
+    );
+    const pathResolver = vi.spyOn(access.registry, "resolveCanvasPath");
 
     await expect(
       service.readRuntimeStatus(actor("viewer"), { projectId: "p", canvasId: "default" })
-    ).rejects.toThrow("canvas_runtime_status_unavailable");
-    expect(readStatus).not.toHaveBeenCalled();
+    ).resolves.toMatchObject({ schemaVersion: "canvas-runtime-status/v2" });
+    expect(pathResolver).not.toHaveBeenCalled();
   });
 
-  it("rejects as unavailable when the local runtime lacks status capability", async () => {
-    const runtimeWithoutStatus = fakeRuntime();
-    delete runtimeWithoutStatus.readStatus;
-    const { service } = await fixture({ runtime: runtimeWithoutStatus });
-
-    await expect(
-      service.readRuntimeStatus(actor("viewer"), { projectId: "p", canvasId: "default" })
-    ).rejects.toThrow("canvas_runtime_status_unavailable");
-  });
-
-  it("maps local runtime read failures to unavailable without returning a projection", async () => {
-    const { service, runtime } = await fixture();
-    vi.spyOn(runtime, "readStatus").mockRejectedValue(new Error("runtime_state_missing"));
+  it("maps status port failures to the existing unavailable contract", async () => {
+    const runtime: CanvasRuntimeStatusPort = {
+      async read() {
+        throw new Error("canvas_runtime_unavailable");
+      }
+    };
+    const { service } = await fixture({ runtime });
 
     await expect(
       service.readRuntimeStatus(actor("viewer"), { projectId: "p", canvasId: "default" })
     ).rejects.toMatchObject({
       message: "canvas_runtime_status_unavailable",
-      cause: expect.objectContaining({ message: "runtime_state_missing" })
+      cause: expect.objectContaining({ message: "canvas_runtime_unavailable" })
     });
   });
 });

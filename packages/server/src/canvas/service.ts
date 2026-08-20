@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import {
   CANVAS_COMMAND_MAX_JOURNAL_DELTA_ENTRIES,
   CANVAS_COMMAND_PROTOCOL_VERSION
@@ -37,7 +36,7 @@ import {
 import type { CollaborationAuthContext } from "../identity/auth.js";
 import type { ProjectAccessRepository } from "../projectAccessRepository.js";
 import type { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
-import { authorizeCanvasCommand, authorizeCanvasContent, authorizeCanvasRead } from "./policy.js";
+import { authorizeCanvasCommand, authorizeCanvasContent } from "./policy.js";
 import {
   CanvasCommandRepository,
   digestCanvasIntent,
@@ -48,7 +47,7 @@ import {
   CanvasOperationRetentionCorruptionError,
   CanvasOperationRetentionUnavailableError
 } from "./operationRetention.js";
-import type { CanvasRuntimeMutationPort } from "./runtimePort.js";
+import type { CanvasRuntimeStatusPort } from "./runtimePort.js";
 import type { ContentAuthorityStore } from "./contentAuthorityStore.js";
 import type { AuthoritativeCanvasCommitPort } from "./authoritativeCanvasCommitPort.js";
 
@@ -56,7 +55,7 @@ export type CanvasCommandServiceOptions = {
   repository: CanvasCommandRepository;
   access: ProjectAccessRepository;
   workspaceIdentity: WorkspaceIdentityRepository;
-  runtime: CanvasRuntimeMutationPort;
+  runtimeStatus: CanvasRuntimeStatusPort;
   /** When configured, commands are only visible after a complete immutable content version advances. */
   contentVersions?: ContentAuthorityStore;
   authoritativeCommits?: AuthoritativeCanvasCommitPort;
@@ -700,30 +699,11 @@ export class CanvasCommandService {
     });
     if (!contentAuth.ok) throw new Error(`canvas_runtime_status_${contentAuth.code}`);
     const capturedAt = this.clock().toISOString();
-    const pathAuth = authorizeCanvasRead({
-      actor,
-      projectId: input.projectId,
-      canvasId: input.canvasId,
-      access: this.options.access,
-      workspaceIdentity: this.options.workspaceIdentity
-    });
-    const readStatus = this.options.runtime.readStatus;
-    if (
-      !pathAuth.ok ||
-      !readStatus ||
-      !existsSync(pathAuth.projectRoot) ||
-      !existsSync(pathAuth.packageDir)
-    ) {
-      throw new Error("canvas_runtime_status_unavailable");
-    }
     try {
-      return await readStatus({
-        projectRoot: pathAuth.projectRoot,
-        canvasId: input.canvasId,
-        expectedPackageDir: pathAuth.packageDir,
-        scope: canvasScopeRefSchema.parse(pathAuth.scope),
+      return await this.options.runtimeStatus.read(
+        canvasScopeRefSchema.parse(contentAuth.scope),
         capturedAt
-      });
+      );
     } catch (error) {
       throw new Error("canvas_runtime_status_unavailable", { cause: error });
     }

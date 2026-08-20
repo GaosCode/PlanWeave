@@ -31,6 +31,7 @@ import {
   repairAclRegistryMigration,
   retryAclRegistryMigration
 } from "../migrations.js";
+import type { CanvasPackageSnapshotRuntimePort } from "../canvas/runtimePort.js";
 
 export type TrustedRuntimeRegistry = Awaited<ReturnType<typeof createTrustedRuntimeRegistry>>;
 
@@ -90,6 +91,7 @@ export function createIdentityAccessComposition(input: {
   clock: () => Date;
   runtimeRegistry: TrustedRuntimeRegistry;
   ownerRuntimeRegistry: TrustedRuntimeRegistry;
+  packageSnapshotRuntime: CanvasPackageSnapshotRuntimePort;
   onAuthorizationChange: ConstructorParameters<typeof ProjectAccessRepository>[2];
 }) {
   const workspaceIdentity = new WorkspaceIdentityRepository(input.database);
@@ -231,6 +233,7 @@ export function createIdentityAccessComposition(input: {
     input.database,
     projectAccess,
     input.config.dataDirectory,
+    input.packageSnapshotRuntime,
     input.clock
   );
   const collaborationScopeAuthority = createRegistryCollaborationScopeAuthority(

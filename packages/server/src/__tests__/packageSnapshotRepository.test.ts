@@ -9,6 +9,7 @@ import { PackageSnapshotRepository } from "../packageSnapshotRepository.js";
 import { ProjectAccessRepository } from "../projectAccessRepository.js";
 import { HumanIdentityRepository } from "../identity/repository.js";
 import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
+import { createLocalFilesystemCanvasRuntimeAdapter } from "../canvas/localFilesystemRuntimeAdapter.js";
 
 const databases: SqliteDatabase[] = [];
 const directories: string[] = [];
@@ -60,13 +61,43 @@ async function fixture() {
   access.markCanvasCutover("w", "p", "default");
   access.markCanvasCutover("w", "p", "other");
   access.finalizeProjectCutover("w", "p");
+  let runtimeAttached = true;
+  const runtimeLocations = {
+    resolveExactCanvasLocation(scope: {
+      workspaceId: string;
+      projectId: string;
+      canvasId: string;
+    }) {
+      return runtimeAttached &&
+        scope.workspaceId === "w" &&
+        scope.projectId === "p" &&
+        scope.canvasId === "default"
+        ? {
+            workspaceId: "w",
+            projectId: "p",
+            canvasId: "default",
+            projectRoot: workspace.root,
+            packageDir: workspace.init.workspace.packageDir
+          }
+        : undefined;
+    }
+  };
   const snapshots = new PackageSnapshotRepository(
     database,
     access,
     join(workspace.root, "snapshot-data"),
+    createLocalFilesystemCanvasRuntimeAdapter(runtimeLocations),
     () => new Date("2026-01-02T00:00:00.000Z")
   );
-  return { workspace, database, access, snapshots };
+  return {
+    workspace,
+    database,
+    access,
+    snapshots,
+    detachRuntime() {
+      runtimeAttached = false;
+    }
+  };
 }
 
 const owner = { kind: "human", id: "owner" } as const;
@@ -81,6 +112,79 @@ function deferred<T>() {
 }
 
 describe("package snapshot repository", () => {
+  it("reads Server backing without restored runtime paths", async () => {
+    const { database, snapshots } = await fixture();
+    const created = await snapshots.create({
+      workspaceId: "w",
+      projectId: "p",
+      canvasId: "default",
+      actor: owner,
+      expectedAclRevision: 0
+    });
+    database.exec(
+      "UPDATE project_registry SET project_root_internal=NULL; UPDATE canvas_registry SET package_dir_internal=NULL"
+    );
+
+    expect(
+      snapshots.read({
+        workspaceId: "w",
+        projectId: "p",
+        canvasId: "default",
+        snapshotId: created.snapshot.immutable.snapshotId,
+        actor: owner
+      })
+    ).toEqual(created.snapshot);
+  });
+
+  it("fails create explicitly without a runtime and writes no snapshot state", async () => {
+    const { database, snapshots, detachRuntime } = await fixture();
+    detachRuntime();
+
+    await expect(
+      snapshots.create({
+        workspaceId: "w",
+        projectId: "p",
+        canvasId: "default",
+        actor: owner,
+        expectedAclRevision: 0
+      })
+    ).rejects.toThrow("canvas_runtime_unavailable");
+    expect(database.prepare("SELECT COUNT(*) AS count FROM package_snapshots").get()).toEqual({
+      count: 0
+    });
+  });
+
+  it("recovers the restore marker when runtime is unavailable", async () => {
+    const { database, snapshots, detachRuntime } = await fixture();
+    const created = await snapshots.create({
+      workspaceId: "w",
+      projectId: "p",
+      canvasId: "default",
+      actor: owner,
+      expectedAclRevision: 0
+    });
+    detachRuntime();
+
+    await expect(
+      snapshots.restore({
+        workspaceId: "w",
+        projectId: "p",
+        canvasId: "default",
+        snapshotId: created.snapshot.immutable.snapshotId,
+        actor: owner,
+        expectedAclRevision: 0
+      })
+    ).resolves.toMatchObject({
+      outcome: "conflict",
+      detail: "canvas_runtime_unavailable"
+    });
+    expect(
+      database
+        .prepare("SELECT state,restore_marker FROM package_snapshots WHERE snapshot_id=?")
+        .get(created.snapshot.immutable.snapshotId)
+    ).toEqual({ state: "available", restore_marker: "none" });
+  });
+
   it("persists bounded payloads without package paths and restores through ACL", async () => {
     const { workspace, snapshots } = await fixture();
     const created = await snapshots.create({

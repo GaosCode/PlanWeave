@@ -15,6 +15,10 @@ import type { ProjectAccessRepository } from "../projectAccessRepository.js";
 import type { AuthorizationChangeSignal } from "../authorizationChangeSignal.js";
 import type { TrustedRuntimeRegistry } from "./identityAccess.js";
 import type { SqliteDatabase } from "../sqlite.js";
+import type {
+  CanvasInitialContentCapturePort,
+  CanvasRuntimeStatusPort
+} from "../canvas/runtimePort.js";
 
 type Coordination = Awaited<ReturnType<typeof startRemoteBlockCoordinationServer>>["coordination"];
 type HttpListenerOptions = Omit<
@@ -29,6 +33,8 @@ export async function createTransportComposition(
     config: ServerConfig;
     coordination: Coordination;
     runtimeRegistry: TrustedRuntimeRegistry;
+    initialContentCapture: CanvasInitialContentCapturePort;
+    runtimeStatus: CanvasRuntimeStatusPort;
     workspaceIdentity: WorkspaceIdentityRepository;
     projectAccess: ProjectAccessRepository;
     humanIdentity: HumanIdentityRepository;
@@ -91,7 +97,9 @@ export async function createTransportComposition(
     projectAccess: input.projectAccess,
     collaborationScopeAuthority: input.collaborationScopeAuthority,
     authorizationChanges: input.authorizationChanges,
-    expansions: input.runtimeRegistry.expansions,
+    runtimeAttachments: input.runtimeRegistry.locators,
+    initialContentCapture: input.initialContentCapture,
+    runtimeStatus: input.runtimeStatus,
     observerJournal: input.humanObserverJournal,
     transportAdmission: input.transportAdmission,
     maxPayloadBytes: input.config.limits.maxWebSocketPayloadBytes,

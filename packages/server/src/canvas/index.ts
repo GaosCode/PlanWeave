@@ -8,12 +8,7 @@ export {
   CANVAS_COMMAND_SNAPSHOT_RETAINED_DEFAULT,
   CANVAS_COMMAND_WS_MAX_FRAME_BYTES
 } from "./limits.js";
-export {
-  authorizeCanvasCommand,
-  authorizeCanvasContent,
-  authorizeCanvasRead,
-  authorizeCanvasWrite
-} from "./policy.js";
+export { authorizeCanvasCommand, authorizeCanvasContent } from "./policy.js";
 export { ContentVersionRepository } from "./contentVersionRepository.js";
 export type { ContentAuthorityStore } from "./contentAuthorityStore.js";
 export type {
@@ -44,10 +39,16 @@ export {
   canonicalCanvasOperationOutcome
 } from "./operationRetention.js";
 export { CanvasOperationRetentionMaintenance } from "./operationRetentionMaintenance.js";
-export {
-  createDefaultCanvasRuntimePort,
-  type CanvasRuntimeMutationPort
+export type {
+  CanvasInitialContentCapturePort,
+  CanvasPackageSnapshotRuntimePort,
+  CanvasRuntimeStatusPort,
+  LocalFilesystemCanvasRuntimePort
 } from "./runtimePort.js";
+export {
+  createLocalFilesystemCanvasRuntimeAdapter,
+  type ExactCanvasRuntimeLocationResolver
+} from "./localFilesystemRuntimeAdapter.js";
 export { CanvasCommandService, type CanvasCommandServiceOptions } from "./service.js";
 export {
   canvasCommandOutcomeHttpStatus,

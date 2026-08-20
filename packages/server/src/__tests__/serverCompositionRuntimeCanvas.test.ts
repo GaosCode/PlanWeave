@@ -99,6 +99,15 @@ describe("distributed server composition", () => {
         })
       ])
     });
+    const runtimeStatus = await fetch(
+      `${origin}/api/v1/projects/${projectId}/canvases/default/runtime-status`,
+      { headers: { Authorization: `Bearer ${deviceToken}` } }
+    );
+    expect(runtimeStatus.status).toBe(200);
+    await expect(runtimeStatus.json()).resolves.toMatchObject({
+      schemaVersion: "canvas-runtime-status/v2",
+      scope: { workspaceId: "workspace-server", projectId, canvasId: "default" }
+    });
     const secondaryDispatch = await fetch(`${origin}/api/v1/remote-operations`, {
       method: "POST",
       headers: jsonHeaders(adminToken),

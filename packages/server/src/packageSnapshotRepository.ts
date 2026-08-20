@@ -8,12 +8,12 @@ import {
   type PackageSnapshot,
   type RestorePackageSnapshotResult
 } from "@planweave-ai/collaboration-protocol/content/snapshot";
-import { type ActorRef } from "@planweave-ai/collaboration-protocol/core/primitives";
 import {
-  capturePackageSnapshot,
-  restorePackageSnapshot,
-  type CapturedPackageSnapshot
-} from "@planweave-ai/runtime";
+  canvasScopeRefSchema,
+  type ActorRef
+} from "@planweave-ai/collaboration-protocol/core/primitives";
+import type { CapturedPackageSnapshot } from "@planweave-ai/runtime";
+import type { CanvasPackageSnapshotRuntimePort } from "./canvas/runtimePort.js";
 import { ProjectAccessRepository } from "./projectAccessRepository.js";
 import {
   assertCapturedSnapshotIntegrity,
@@ -63,6 +63,7 @@ export class PackageSnapshotRepository {
     private readonly database: SqliteDatabase,
     private readonly access: ProjectAccessRepository,
     private readonly dataDirectory: string,
+    private readonly runtime: CanvasPackageSnapshotRuntimePort,
     private readonly clock: () => Date = () => new Date()
   ) {}
 
@@ -89,19 +90,12 @@ export class PackageSnapshotRepository {
       canvasId: input.canvasId,
       actor: input.actor
     });
-    const location = this.access.resolveAuthorizedCanvas({
+    const scope = canvasScopeRefSchema.parse({
       workspaceId: input.workspaceId,
       projectId: input.projectId,
-      canvasId: input.canvasId,
-      actor: input.actor
-    });
-    const capturedEnvelope = await capturePackageSnapshot({
-      projectRoot: location.projectRoot,
       canvasId: input.canvasId
     });
-    if (capturedEnvelope.resolvedPackageDir !== location.packageDir)
-      throw new Error("runtime_package_location_mismatch");
-    const captured = capturedSnapshotSchema.parse(capturedEnvelope.snapshot);
+    const captured = capturedSnapshotSchema.parse(await this.runtime.captureSnapshot(scope));
     const canvas = this.access.registry.canvasInternal(
       input.workspaceId,
       input.projectId,
@@ -216,7 +210,7 @@ export class PackageSnapshotRepository {
     return createPackageSnapshotResultSchema.parse({
       snapshot,
       actor: input.actor,
-      scope: location.scope
+      scope
     });
   }
 
@@ -251,11 +245,11 @@ export class PackageSnapshotRepository {
     expectedAclRevision: number;
   }): Promise<RestorePackageSnapshotResult> {
     const decision = this.access.decideCanvasAccess(input);
-    const scope = {
+    const scope = canvasScopeRefSchema.parse({
       workspaceId: input.workspaceId,
       projectId: input.projectId,
       canvasId: input.canvasId
-    };
+    });
     const base = {
       schemaVersion: "package-snapshot/v1" as const,
       snapshotId: input.snapshotId,
@@ -368,21 +362,7 @@ export class PackageSnapshotRepository {
       });
     };
 
-    let location: ReturnType<ProjectAccessRepository["resolveAuthorizedCanvas"]>;
     let captured: CapturedPackageSnapshot;
-    try {
-      location = this.access.resolveAuthorizedCanvas(input);
-    } catch (error) {
-      const code = error instanceof Error ? error.message : "";
-      return resultAfterFailure({
-        outcome: code.startsWith("canvas_access_denied:") ? "conflict" : "malformed",
-        detail: code.startsWith("canvas_access_denied:")
-          ? "canvas_access_denied"
-          : "snapshot_restore_location_failed",
-        state: "available",
-        aggregate: false
-      });
-    }
     try {
       const expectedBackingRoot = backingPath(this.dataDirectory, input.snapshotId);
       if (String(row.content_root_internal) !== expectedBackingRoot)
@@ -439,10 +419,8 @@ export class PackageSnapshotRepository {
         if (currentDecision.aclRevision !== input.expectedAclRevision)
           throw new Error("snapshot_restore_acl_conflict");
       };
-      await restorePackageSnapshot({
-        projectRoot: location.projectRoot,
-        canvasId: input.canvasId,
-        expectedPackageDir: location.packageDir,
+      await this.runtime.restoreSnapshot({
+        scope,
         snapshot: captured,
         beforeCommit: assertRestoreAuthorization
       });
@@ -461,6 +439,14 @@ export class PackageSnapshotRepository {
         return resultAfterFailure({
           outcome: "conflict",
           detail: "stale_acl_revision",
+          state: "available",
+          aggregate
+        });
+      }
+      if (code === "canvas_runtime_unavailable") {
+        return resultAfterFailure({
+          outcome: "conflict",
+          detail: "canvas_runtime_unavailable",
           state: "available",
           aggregate
         });

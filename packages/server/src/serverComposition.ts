@@ -38,6 +38,7 @@ import {
   createTransportComposition,
   type TransportCompositionHandles
 } from "./composition/transport.js";
+import { createLocalFilesystemCanvasRuntimeAdapter } from "./canvas/localFilesystemRuntimeAdapter.js";
 
 export type DistributedServerCompositionOptions = {
   httpServer: HttpServer;
@@ -69,6 +70,7 @@ export async function createDistributedServerComposition(
     trustedProjects: config.trustedProjects,
     ownerTrustedProjects: options.ownerTrustedProjects
   });
+  const localCanvasRuntime = createLocalFilesystemCanvasRuntimeAdapter(registries.runtimeRegistry);
   let lifecycle: Awaited<ReturnType<typeof startRemoteBlockCoordinationServer>> | undefined;
   let activity: ActivityJournalComposition | undefined;
   let activityRetention:
@@ -118,6 +120,7 @@ export async function createDistributedServerComposition(
       clock,
       runtimeRegistry: registries.runtimeRegistry,
       ownerRuntimeRegistry: registries.ownerRuntimeRegistry,
+      packageSnapshotRuntime: localCanvasRuntime,
       onAuthorizationChange: (change) => authorizationChanges.publish(change)
     });
     const { workspaceIdentity, projectAccess, registryService, collaborationScopeAuthority } =
@@ -171,6 +174,8 @@ export async function createDistributedServerComposition(
       config,
       coordination,
       runtimeRegistry: registries.runtimeRegistry,
+      initialContentCapture: localCanvasRuntime,
+      runtimeStatus: localCanvasRuntime,
       workspaceIdentity,
       projectAccess,
       humanIdentity,

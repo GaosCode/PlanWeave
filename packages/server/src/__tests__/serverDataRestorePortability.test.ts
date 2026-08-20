@@ -20,6 +20,8 @@ import {
   stableStringify
 } from "../packageSnapshotBacking.js";
 import { PackageSnapshotRepository } from "../packageSnapshotRepository.js";
+import { createLocalFilesystemCanvasRuntimeAdapter } from "../canvas/localFilesystemRuntimeAdapter.js";
+import type { CanvasPackageSnapshotRuntimePort } from "../canvas/runtimePort.js";
 import { ProjectAccessRepository } from "../projectAccessRepository.js";
 import {
   exportServerDataDirectory,
@@ -36,6 +38,14 @@ import { openServerDatabase } from "../sqlite.js";
 const clock = () => new Date("2030-01-01T00:00:00.000Z");
 const projectId = "portable-project";
 const canvasId = "default";
+const unavailableSnapshotRuntime: CanvasPackageSnapshotRuntimePort = {
+  async captureSnapshot() {
+    throw new Error("canvas_runtime_unavailable");
+  },
+  async restoreSnapshot() {
+    throw new Error("canvas_runtime_unavailable");
+  }
+};
 const ownerId = "portable-owner";
 const operatorToken = `pw_operator_${"R".repeat(43)}`;
 const directories: string[] = [];
@@ -121,6 +131,21 @@ async function createPortableSource(): Promise<PortableSource> {
       database,
       access,
       dataDirectory,
+      createLocalFilesystemCanvasRuntimeAdapter({
+        resolveExactCanvasLocation(scope) {
+          return scope.workspaceId === workspaceId &&
+            scope.projectId === projectId &&
+            scope.canvasId === canvasId
+            ? {
+                workspaceId,
+                projectId,
+                canvasId,
+                projectRoot: workspace.root,
+                packageDir: workspace.init.workspace.packageDir
+              }
+            : undefined;
+        }
+      }),
       clock
     ).create({
       workspaceId,
@@ -279,7 +304,13 @@ describe("server data restore portability", () => {
       expect(content.readVersion(scope, head.content).content.members.length).toBeGreaterThan(0);
 
       const access = new ProjectAccessRepository(restoredDatabase, clock);
-      const snapshot = new PackageSnapshotRepository(restoredDatabase, access, target, clock).read({
+      const snapshot = new PackageSnapshotRepository(
+        restoredDatabase,
+        access,
+        target,
+        unavailableSnapshotRuntime,
+        clock
+      ).read({
         ...scope,
         snapshotId: source.snapshotId,
         actor: { kind: "human", id: ownerId }

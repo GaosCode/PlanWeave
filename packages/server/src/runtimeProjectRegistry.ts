@@ -55,6 +55,11 @@ export type TrustedRuntimeRegistry = {
   registry: RemoteRuntimePortRegistry;
   locators: Array<{ workspaceId: string; projectId: string; canvasId: string }>;
   readonly expansions: readonly RuntimeCanvasExpansion[];
+  resolveExactCanvasLocation(input: {
+    workspaceId: string;
+    projectId: string;
+    canvasId: string;
+  }): RuntimeCanvasExpansion | undefined;
   hasScope(input: { workspaceId: string; projectId: string; canvasId?: string }): boolean;
   /** Legacy adapter: succeeds only when a project ID has one trusted Workspace scope. */
   hasProject(projectId: string): boolean;
@@ -250,6 +255,15 @@ export async function createTrustedRuntimeRegistry(
     registry,
     locators,
     expansions: Object.freeze(expansions),
+    resolveExactCanvasLocation(input) {
+      const matches = expansions.filter(
+        (expansion) =>
+          expansion.workspaceId === input.workspaceId &&
+          expansion.projectId === input.projectId &&
+          expansion.canvasId === input.canvasId
+      );
+      return matches.length === 1 ? matches[0] : undefined;
+    },
     hasScope(input) {
       const canvases = canvasIdsByProjectScope.get(scopeKey(input.workspaceId, input.projectId));
       return (

@@ -15,6 +15,8 @@ import {
 } from "../../../runtime/src/projectGraph/index.js";
 import { writeJsonFile } from "../../../runtime/src/json.js";
 import { createTrustedRuntimeRegistry } from "../runtimeProjectRegistry.js";
+import { createLocalFilesystemCanvasRuntimeAdapter } from "../canvas/localFilesystemRuntimeAdapter.js";
+import { canvasScopeRefSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 
 const directories: string[] = [];
 
@@ -25,6 +27,60 @@ afterEach(async () => {
 });
 
 describe("createTrustedRuntimeRegistry", () => {
+  it("keeps local filesystem paths behind the logical Canvas runtime port", async () => {
+    const workspace = await createTestWorkspace();
+    directories.push(workspace.home, workspace.root);
+    const scope = canvasScopeRefSchema.parse({
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+      canvasId: "default"
+    });
+    const adapter = createLocalFilesystemCanvasRuntimeAdapter({
+      resolveExactCanvasLocation(input) {
+        return input.workspaceId === scope.workspaceId &&
+          input.projectId === scope.projectId &&
+          input.canvasId === scope.canvasId
+          ? {
+              ...scope,
+              projectRoot: workspace.root,
+              packageDir: workspace.init.workspace.packageDir
+            }
+          : undefined;
+      }
+    });
+
+    const content = await adapter.captureInitialContent(scope);
+    const snapshot = await adapter.captureSnapshot(scope);
+    const status = await adapter.read(scope, "2026-08-20T00:00:00.000Z");
+
+    expect(content.members.length).toBeGreaterThan(0);
+    expect(snapshot.files.length).toBeGreaterThan(0);
+    expect(status).toMatchObject({ scope, capturedAt: "2026-08-20T00:00:00.000Z" });
+    expect(JSON.stringify({ content, snapshot, status })).not.toContain(workspace.root);
+    expect(JSON.stringify({ content, snapshot, status })).not.toContain(
+      workspace.init.workspace.packageDir
+    );
+  });
+
+  it("fails local filesystem access when the exact Canvas binding is missing", async () => {
+    const adapter = createLocalFilesystemCanvasRuntimeAdapter({
+      resolveExactCanvasLocation() {
+        return undefined;
+      }
+    });
+    const scope = canvasScopeRefSchema.parse({
+      workspaceId: "workspace-missing",
+      projectId: "project-missing",
+      canvasId: "canvas-missing"
+    });
+
+    await expect(adapter.read(scope)).rejects.toThrow("canvas_runtime_unavailable");
+    await expect(adapter.captureInitialContent(scope)).rejects.toThrow(
+      "canvas_runtime_unavailable"
+    );
+    await expect(adapter.captureSnapshot(scope)).rejects.toThrow("canvas_runtime_unavailable");
+  });
+
   it("supports an empty collaboration runtime registry", async () => {
     const trusted = await createTrustedRuntimeRegistry([]);
 
@@ -58,6 +114,14 @@ describe("createTrustedRuntimeRegistry", () => {
     ]);
     expect(trusted.locators).toEqual([locator]);
     expect(trusted.hasScope(locator)).toBe(true);
+    expect(trusted.resolveExactCanvasLocation(locator)).toMatchObject({
+      ...locator,
+      projectRoot: workspace.root,
+      packageDir: workspace.init.workspace.packageDir
+    });
+    expect(
+      trusted.resolveExactCanvasLocation({ ...locator, workspaceId: "workspace-missing" })
+    ).toBeUndefined();
     expect(trusted.hasProject("unknown-project")).toBe(false);
     expect(trusted.hasScope(locator)).toBe(true);
     expect(trusted.hasCanvas(locator.projectId, "unknown-canvas")).toBe(false);
@@ -120,6 +184,20 @@ describe("createTrustedRuntimeRegistry", () => {
       true
     );
     expect(trusted.hasCanvas(projectId, "default")).toBe(false);
+    expect(
+      trusted.resolveExactCanvasLocation({
+        workspaceId: "workspace-a",
+        projectId,
+        canvasId: "default"
+      })
+    ).toMatchObject({ workspaceId: "workspace-a", projectId, canvasId: "default" });
+    expect(
+      trusted.resolveExactCanvasLocation({
+        workspaceId: "workspace-missing",
+        projectId,
+        canvasId: "default"
+      })
+    ).toBeUndefined();
     expect(() =>
       trusted.registry.resolve({ workspaceId: "workspace-missing", projectId, canvasId: "default" })
     ).toThrow("remote_runtime_locator_unresolved");

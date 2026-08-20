@@ -4,6 +4,7 @@ import { Socket } from "node:net";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import type { PlanPackageManifest } from "@planweave-ai/runtime";
+import { captureAuthorizedCanvasContent } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   basicManifest,
@@ -21,8 +22,7 @@ const cleanupSpies = vi.hoisted(() => ({
   lifecycleClose: vi.fn(),
   runtimeRegistryClose: vi.fn(),
   canvasPresenceClose: vi.fn(),
-  canvasLiveSyncClose: vi.fn(),
-  canvasCaptureFailure: { enabled: false }
+  canvasLiveSyncClose: vi.fn()
 }));
 
 vi.mock("../presenceWebSocket.js", async () => {
@@ -58,18 +58,6 @@ vi.mock("../canvas/index.js", async () => {
         async close() {
           cleanupSpies.canvasLiveSyncClose();
           await server.close();
-        }
-      };
-    },
-    createDefaultCanvasRuntimePort: () => {
-      const runtime = actual.createDefaultCanvasRuntimePort();
-      return {
-        ...runtime,
-        async captureContent(input: Parameters<NonNullable<typeof runtime.captureContent>>[0]) {
-          if (cleanupSpies.canvasCaptureFailure.enabled) {
-            throw new Error("canvas_capture_startup_failed");
-          }
-          return runtime.captureContent?.(input);
         }
       };
     }
@@ -159,6 +147,7 @@ import { parseServerConfig } from "../config.js";
 import { legacyWorkspaceIdForProject } from "./support/legacyWorkspaceId.js";
 import { createDistributedServerComposition } from "../serverComposition.js";
 import { createCanvasCollaborationComposition } from "../canvas/collaborationComposition.js";
+import { ContentVersionRepository } from "../canvas/contentVersionRepository.js";
 import { canvasLiveSyncRouteFromUrl } from "../canvas/canvasLiveSyncWebSocket.js";
 import { HumanIdentityRepository } from "../identity/repository.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
@@ -182,7 +171,6 @@ afterEach(async () => {
   cleanupSpies.runtimeRegistryClose.mockClear();
   cleanupSpies.canvasPresenceClose.mockClear();
   cleanupSpies.canvasLiveSyncClose.mockClear();
-  cleanupSpies.canvasCaptureFailure.enabled = false;
   cleanupSpies.retentionStartFailure.enabled = false;
   cleanupSpies.retentionCloseFailure.enabled = false;
   vi.useRealTimers();
@@ -264,7 +252,6 @@ describe("distributed server composition cleanup", () => {
     const observerJournal = new HumanObserverJournal(database, 100);
     vi.useFakeTimers();
     const initialTimerCount = vi.getTimerCount();
-    cleanupSpies.canvasCaptureFailure.enabled = true;
 
     try {
       await expect(
@@ -281,22 +268,30 @@ describe("distributed server composition cleanup", () => {
               scope.projectId === "project-capture-failure"
           },
           authorizationChanges: new AuthorizationChangeSignal(),
-          expansions: [
+          runtimeAttachments: [
             {
               workspaceId: "workspace-capture-failure",
               projectId: "project-capture-failure",
-              canvasId: "default",
-              projectRoot: "/srv/project-capture-failure",
-              packageDir: "/srv/project-capture-failure/default"
+              canvasId: "default"
             }
           ],
+          initialContentCapture: {
+            async captureInitialContent() {
+              throw new Error("canvas_capture_startup_failed");
+            }
+          },
+          runtimeStatus: {
+            async read() {
+              throw new Error("canvas_runtime_unavailable");
+            }
+          },
           observerJournal,
           transportAdmission: createTransportAdmissionPolicyForMode("loopback_http"),
           maxPayloadBytes: 64 * 1024,
           shutdownTimeoutMs: 1_000,
           clock: () => new Date("2026-08-04T00:00:00.000Z")
         })
-      ).rejects.toThrow("canvas_capture_startup_failed");
+      ).rejects.toThrow("initial_content_publish_failed:default");
 
       expect(cleanupSpies.canvasLiveSyncClose).toHaveBeenCalledOnce();
       expect(cleanupSpies.canvasPresenceClose).toHaveBeenCalledOnce();
@@ -332,6 +327,67 @@ describe("distributed server composition cleanup", () => {
       httpServer.close();
       database.close();
     }
+  });
+
+  it("starts with an existing SQLite content head when the local runtime is unavailable", async () => {
+    const database = await openServerDatabase(":memory:", 5_000);
+    applyMigrations(database);
+    const workspace = await createTestWorkspace();
+    directories.push(workspace.home, workspace.root);
+    const httpServer = createServer();
+    const upgradeRouter = new WebSocketUpgradeRouter(httpServer);
+    const workspaceIdentity = new WorkspaceIdentityRepository(database);
+    const identity = new HumanIdentityRepository(database);
+    const projectAccess = new ProjectAccessRepository(database);
+    const observerJournal = new HumanObserverJournal(database, 100);
+    const scope = {
+      workspaceId: "workspace-existing-head",
+      projectId: "project-existing-head",
+      canvasId: "default"
+    };
+    const captured = await captureAuthorizedCanvasContent({
+      projectRoot: workspace.root,
+      canvasId: "default",
+      expectedPackageDir: workspace.init.workspace.packageDir,
+      authorityProjectId: scope.projectId
+    });
+    new ContentVersionRepository(database).publishInitial({
+      scope,
+      content: captured.content,
+      createdBy: { kind: "system", id: "restored-server" }
+    });
+    const captureInitialContent = vi.fn(async () => {
+      throw new Error("canvas_runtime_unavailable");
+    });
+
+    const composition = await createCanvasCollaborationComposition({
+      database,
+      upgradeRouter,
+      identity,
+      workspaceIdentity,
+      projectAccess,
+      collaborationScopeAuthority: { hasProject: () => true, hasScope: () => true },
+      authorizationChanges: new AuthorizationChangeSignal(),
+      runtimeAttachments: [scope],
+      initialContentCapture: { captureInitialContent },
+      runtimeStatus: {
+        async read() {
+          throw new Error("canvas_runtime_unavailable");
+        }
+      },
+      observerJournal,
+      transportAdmission: createTransportAdmissionPolicyForMode("loopback_http"),
+      maxPayloadBytes: 64 * 1024,
+      shutdownTimeoutMs: 1_000,
+      clock: () => new Date("2026-08-04T00:00:00.000Z")
+    });
+    expect(captureInitialContent).not.toHaveBeenCalled();
+
+    await composition.operationRetentionMaintenance.close();
+    await composition.commandWebSockets.close();
+    await composition.liveSyncWebSockets.close();
+    await composition.presenceWebSockets.close();
+    database.close();
   });
 
   it("closes SQLite and unbinds runtimes when WebSocket cleanup fails", async () => {

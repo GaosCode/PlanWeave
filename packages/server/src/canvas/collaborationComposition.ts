@@ -14,18 +14,18 @@ import {
   CanvasOperationRetentionMaintenance,
   ContentVersionRepository,
   ContentVersionService,
-  createDefaultCanvasRuntimePort,
   SqliteAuthoritativeCanvasCommitStore
 } from "./index.js";
 import { attachCanvasPresenceWebSocketServer } from "../presenceWebSocket.js";
 import type { AuthorizationChangeSignal } from "../authorizationChangeSignal.js";
+import type { CompleteContentVersion } from "@planweave-ai/collaboration-protocol/content/version";
+import { canvasScopeRefSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
+import type { CanvasInitialContentCapturePort, CanvasRuntimeStatusPort } from "./runtimePort.js";
 
-export type CanvasCollaborationExpansion = {
+export type CanvasRuntimeAttachment = {
   workspaceId: string;
   projectId: string;
   canvasId: string;
-  projectRoot: string;
-  packageDir: string;
 };
 
 export type CanvasCollaborationCompositionOptions = {
@@ -36,7 +36,9 @@ export type CanvasCollaborationCompositionOptions = {
   projectAccess: ProjectAccessRepository;
   collaborationScopeAuthority: CollaborationScopeAuthority;
   authorizationChanges: AuthorizationChangeSignal;
-  expansions: readonly CanvasCollaborationExpansion[];
+  runtimeAttachments: readonly CanvasRuntimeAttachment[];
+  initialContentCapture: CanvasInitialContentCapturePort;
+  runtimeStatus: CanvasRuntimeStatusPort;
   observerJournal: HumanObserverJournal;
   transportAdmission: TransportAdmissionPolicy;
   maxPayloadBytes: number;
@@ -83,26 +85,18 @@ export async function createCanvasCollaborationComposition(
     });
     liveSyncWebSockets = attachedLiveSyncWebSockets;
     const contentVersions = new ContentVersionRepository(options.database, options.clock);
-    const runtime = createDefaultCanvasRuntimePort();
-    for (const expansion of options.expansions) {
-      const scope = {
-        workspaceId: expansion.workspaceId,
-        projectId: expansion.projectId,
-        canvasId: expansion.canvasId
-      };
+    for (const attachment of options.runtimeAttachments) {
+      const scope = canvasScopeRefSchema.parse(attachment);
       if (contentVersions.head(scope)) continue;
-      const captured = await runtime.captureContent?.({
-        projectRoot: expansion.projectRoot,
-        canvasId: expansion.canvasId,
-        expectedPackageDir: expansion.packageDir,
-        authorityProjectId: expansion.projectId
-      });
-      if (!captured || !captured.ok) {
-        throw new Error(`initial_content_publish_failed:${expansion.canvasId}`);
+      let content: CompleteContentVersion;
+      try {
+        content = await options.initialContentCapture.captureInitialContent(scope);
+      } catch (error) {
+        throw new Error(`initial_content_publish_failed:${scope.canvasId}`, { cause: error });
       }
       contentVersions.publishInitial({
         scope,
-        content: captured.content,
+        content,
         createdBy: { kind: "system", id: "server-bootstrap" }
       });
     }
@@ -134,7 +128,7 @@ export async function createCanvasCollaborationComposition(
       repository: commandRepository,
       access: options.projectAccess,
       workspaceIdentity: options.workspaceIdentity,
-      runtime,
+      runtimeStatus: options.runtimeStatus,
       contentVersions,
       authoritativeCommits,
       onAcceptedEntry: (entry) => attachedLiveSyncWebSockets.publishAcceptedEntry(entry),

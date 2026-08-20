@@ -1,5 +1,5 @@
 import { createServer, type Server as HttpServer } from "node:http";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   handleCanvasCommandHttpRequest,
   resetCanvasCommandHttpRateLimits
@@ -10,6 +10,7 @@ import { HumanIdentityRepository } from "../identity/repository.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import { loopbackHttpTransportAdmission } from "./support/transportAdmission.js";
 import { canvasCommandServiceFixture } from "./support/canvasCommandServiceFixture.js";
+import type { CanvasRuntimeStatusPort } from "../canvas/runtimePort.js";
 
 const servers: HttpServer[] = [];
 
@@ -20,8 +21,8 @@ afterEach(async () => {
   );
 });
 
-async function setup(clock: () => Date) {
-  const { service, database } = await canvasCommandServiceFixture();
+async function setup(clock: () => Date, runtime?: CanvasRuntimeStatusPort) {
+  const { service, database } = await canvasCommandServiceFixture({ runtime });
   const repository = new HumanIdentityRepository(database);
   const workspaceIdentity = new WorkspaceIdentityRepository(database);
   const token = mintHumanDeviceToken();
@@ -106,10 +107,11 @@ describe("canvas command HTTP rate limiting", () => {
 
 describe("canvas runtime status HTTP errors", () => {
   it("maps runtime unavailable to a service-unavailable response", async () => {
-    const { origin, token, service } = await setup(() => new Date("2026-08-16T00:00:00.000Z"));
-    vi.spyOn(service, "readRuntimeStatus").mockRejectedValue(
-      new Error("canvas_runtime_status_unavailable")
-    );
+    const { origin, token } = await setup(() => new Date("2026-08-16T00:00:00.000Z"), {
+      async read() {
+        throw new Error("canvas_runtime_unavailable");
+      }
+    });
 
     const response = await fetch(`${origin}/api/v1/projects/p/canvases/default/runtime-status`, {
       headers: { Authorization: `Bearer ${token}` }

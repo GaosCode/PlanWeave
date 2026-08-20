@@ -233,29 +233,6 @@ export class ProjectAccessRepository {
     this.registry.reconcileRuntimeCanvases(workspaceId, projectId, trustedCanvasIds);
   }
 
-  resolveAuthorizedCanvas(input: {
-    workspaceId: string;
-    projectId: string;
-    canvasId: string;
-    actor: ActorRef;
-  }): {
-    scope: { workspaceId: string; projectId: string; canvasId: string };
-    projectRoot: string;
-    packageDir: string;
-    aclRevision: number;
-  } {
-    const decision = this.policy.decideCanvas(input);
-    if (decision.decision !== "allow") throw new Error(`canvas_access_denied:${decision.reason}`);
-    return {
-      ...this.registry.resolveCanvasPath({
-        workspaceId: input.workspaceId,
-        projectId: input.projectId,
-        canvasId: input.canvasId
-      }),
-      aclRevision: decision.aclRevision
-    };
-  }
-
   grant(rawInput: unknown): MembershipGrant {
     const input = grantInputSchema.parse(rawInput);
     if (input.role === "owner") throw new Error("project_owner_grant_forbidden");

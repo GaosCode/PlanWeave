@@ -7,15 +7,15 @@ import {
 } from "@planweave-ai/collaboration-protocol/fixtures/content-version";
 import { type AuthoritativeContentHead } from "@planweave-ai/collaboration-protocol/content/version";
 import { createTestWorkspace } from "../../../runtime/src/__tests__/promptTestHelpers.js";
+import { captureAuthorizedCanvasContent } from "@planweave-ai/runtime";
 import { applyMigrations, latestCentralSchemaVersion } from "../migrations.js";
 import { migrations } from "../migrations/registry.js";
 import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
 import { CanvasCommandRepository } from "../canvas/repository.js";
-import { createDefaultCanvasRuntimePort } from "../canvas/runtimePort.js";
 import { ContentVersionRepository } from "../canvas/contentVersionRepository.js";
 import { CanvasCommandService } from "../canvas/service.js";
 import type { ContentAuthorityStore } from "../canvas/contentAuthorityStore.js";
-import type { CanvasRuntimeMutationPort } from "../canvas/runtimePort.js";
+import type { CanvasRuntimeStatusPort } from "../canvas/runtimePort.js";
 import { ProjectAccessRepository } from "../projectAccessRepository.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 
@@ -55,15 +55,12 @@ describe("canvas command baseline migration", () => {
         database,
         () => new Date("2026-08-02T00:00:00.000Z")
       );
-      const runtime = createDefaultCanvasRuntimePort();
-      if (!runtime.captureContent) throw new Error("capture unavailable");
-      const captured = await runtime.captureContent({
+      const captured = await captureAuthorizedCanvasContent({
         projectRoot: workspace.root,
         canvasId: "default",
         expectedPackageDir: workspace.init.workspace.packageDir,
         authorityProjectId: scope.projectId
       });
-      if (!captured.ok) throw new Error(captured.detail);
       const version = contentVersions.persistImmutable({
         scope,
         content: captured.content,
@@ -527,11 +524,8 @@ describe("canvas command baseline migration", () => {
         )
         .run(scope.workspaceId, scope.projectId, scope.canvasId, 1, oldDigest, acceptedAt);
 
-      const runtime: CanvasRuntimeMutationPort = {
-        async apply() {
-          throw new Error("not called");
-        },
-        async readDigest() {
+      const runtimeStatus: CanvasRuntimeStatusPort = {
+        async read() {
           throw new Error("local runtime digest must not gate authoritative baseline migration");
         }
       };
@@ -577,7 +571,7 @@ describe("canvas command baseline migration", () => {
         repository,
         access,
         workspaceIdentity: new WorkspaceIdentityRepository(database),
-        runtime,
+        runtimeStatus,
         contentVersions
       });
 
