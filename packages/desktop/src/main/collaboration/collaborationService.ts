@@ -41,16 +41,10 @@ import { type ReviewAssignmentReadModel } from "@planweave-ai/collaboration-prot
 import { type WorkAuthorityProjection } from "@planweave-ai/collaboration-protocol/work/authority";
 import { type WorkItemRef } from "@planweave-ai/collaboration-protocol/core/primitives";
 import {
-  type AccessScope,
-  type AccessMutationRequest,
   type AccessMutationResult,
   type CurrentCanvasAccessView
 } from "@planweave-ai/collaboration-protocol/access/control";
 import {
-  assertNoSmuggledCollaborationSecrets,
-  collaborationCurrentCanvasAccessInputSchema,
-  collaborationAccessMutationInputSchema,
-  collaborationCanvasSessionInputSchema,
   type CollaborationAuthHandoffView,
   type CollaborationCommentAttachmentBody,
   type CollaborationInvitationCreateView,
@@ -62,7 +56,7 @@ import {
   type CollaborationUpsertProfileInput,
   type RememberedServerConnectionView
 } from "../../shared/collaboration.js";
-import { CollaborationClient, type CollaborationClientOptions } from "./CollaborationClient.js";
+import { CollaborationClient } from "./CollaborationClient.js";
 import { CollaborationRegistryService } from "./CollaborationRegistryService.js";
 import {
   CollaborationCanvasCommandFacade,
@@ -78,14 +72,12 @@ import { CollaborationReadMutationsFacade } from "./collaborationReadMutations.j
 import { CollaborationClientError, collaborationErrorFromUnknown } from "./collaborationErrors.js";
 import {
   CollaborationCredentialVault,
-  type CollaborationSafeStoragePort
+  collaborationCredentialVaultPaths
 } from "./collaborationCredentialVault.js";
 import {
   CollaborationProfileStore,
-  type CollaborationProfileStorePaths
+  collaborationProfileStorePaths
 } from "./collaborationProfileStore.js";
-import { collaborationCredentialVaultPaths } from "./collaborationCredentialVault.js";
-import { collaborationProfileStorePaths } from "./collaborationProfileStore.js";
 import { CollaborationWorkspaceConnection } from "./collaborationWorkspaceConnection.js";
 import { CollaborationWorkspaceConnectionFacade } from "./collaborationWorkspaceConnectionFacade.js";
 import {
@@ -96,7 +88,6 @@ import {
 import { buildCollaborationStatus } from "./collaborationStatusView.js";
 import {
   WorkspaceConnectionProfileStore,
-  type WorkspaceConnectionProfileStorePaths,
   workspaceConnectionProfileStorePaths
 } from "./workspaceConnectionProfileStore.js";
 import { redactCollaborationText } from "./redaction.js";
@@ -108,33 +99,18 @@ import { CanvasReplicaStore } from "./CanvasReplicaStore.js";
 import { CanvasReplicaDiskMirror } from "./CanvasReplicaDiskMirror.js";
 import type { CollaborationCanvasReplicaSignal } from "../../shared/canvasReplicaIpc.js";
 import { resolveCollaborationAuthorityScope } from "./collaborationAuthorityScope.js";
-
-export type CollaborationClientFactory = (
-  options: CollaborationClientOptions
-) => CollaborationClient;
-
-export type CollaborationServiceOptions = {
-  profileStore?: CollaborationProfileStore;
-  vault?: CollaborationCredentialVault;
-  safeStorage?: CollaborationSafeStoragePort;
-  profileStorePaths?: CollaborationProfileStorePaths;
-  workspaceProfileStore?: WorkspaceConnectionProfileStore;
-  workspaceProfileStorePaths?: WorkspaceConnectionProfileStorePaths;
-  exportedIdentityPath?: string;
-  credentialsPath?: string;
-  invitationVault?: CollaborationInvitationVault;
-  invitationsPath?: string;
-  createClient?: CollaborationClientFactory;
-  request?: typeof fetch;
-  clock?: { now(): Date };
-  onStatusChange?: (status: CollaborationStatus) => void;
-  onObserverSignal?: (signal: CollaborationObserverSignal) => void;
-  onPresenceSignal?: (signal: CollaborationPresenceSignal) => void;
-  onCanvasLiveSyncSignal?: (signal: CollaborationCanvasLiveSyncSignal) => void;
-  onCanvasReplicaSignal?: (signal: CollaborationCanvasReplicaSignal) => void;
-  /** Bind Agent Host operator traffic to the same origin as the live Server. */
-  bindLiveOperatorToOrigin?: (serverBaseUrl: string) => Promise<void>;
-};
+import { CurrentCanvasAccessFacade } from "./CurrentCanvasAccessFacade.js";
+import { CanvasRuntimeAvailabilityCoordinator } from "./CanvasRuntimeAvailabilityCoordinator.js";
+import { CollaborationCanvasOperationsFacade } from "./CollaborationCanvasOperationsFacade.js";
+import { CollaborationCanvasRealtimeFacade } from "./CollaborationCanvasRealtimeFacade.js";
+import type {
+  CollaborationClientFactory,
+  CollaborationServiceOptions
+} from "./collaborationServiceOptions.js";
+export type {
+  CollaborationClientFactory,
+  CollaborationServiceOptions
+} from "./collaborationServiceOptions.js";
 
 /**
  * Electron-main orchestration for collaboration profiles, device credentials, and session lifecycle.
@@ -164,6 +140,10 @@ export class CollaborationService {
   private readonly profileLifecycle: CollaborationProfileLifecycle;
   private readonly identityOperations: CollaborationIdentityOperations;
   private readonly sessionLifecycle: CollaborationSessionLifecycle;
+  private readonly currentCanvasAccess: CurrentCanvasAccessFacade;
+  private readonly canvasRuntimeAvailability: CanvasRuntimeAvailabilityCoordinator;
+  private readonly canvasOperations: CollaborationCanvasOperationsFacade;
+  private readonly canvasRealtime: CollaborationCanvasRealtimeFacade;
   private readonly bindLiveOperatorToOrigin?: (serverBaseUrl: string) => Promise<void>;
   private workspaceHydrated = false;
 
@@ -245,6 +225,20 @@ export class CollaborationService {
       store: this.canvasReplicas,
       mirror: this.canvasReplicaMirror
     });
+    this.canvasRuntimeAvailability = new CanvasRuntimeAvailabilityCoordinator(
+      () => this.client !== null,
+      () => (this.client ? this.contentVersions.authorityIdForClient(this.client) : null),
+      this.contentVersions,
+      this.canvasCommands,
+      this.canvasReplicas
+    );
+    this.canvasOperations = new CollaborationCanvasOperationsFacade({
+      enqueue: (operation) => this.enqueue(operation),
+      assertOpen: () => this.assertOpen(),
+      commands: this.canvasCommands,
+      runtimeAvailability: this.canvasRuntimeAvailability,
+      contentVersions: this.contentVersions
+    });
     this.remoteOperations = new CollaborationRemoteOperationsFacade((operation) =>
       this.withActiveClient((client) => operation(client.remoteOperations()))
     );
@@ -263,6 +257,12 @@ export class CollaborationService {
       publishCanvasLiveSyncSignal: (signal) => this.publishCanvasLiveSyncSignal(signal),
       clearDeviceCredential: (profileId) => this.vault.clear(profileId),
       publishStatus: () => this.publishStatus()
+    });
+    this.canvasRealtime = new CollaborationCanvasRealtimeFacade({
+      enqueue: (operation) => this.enqueue(operation),
+      assertOpen: () => this.assertOpen(),
+      presence: this.presenceSession,
+      liveSync: this.canvasLiveSyncSession
     });
     this.readMutations = new CollaborationReadMutationsFacade(
       (operation) => this.withActiveClient(operation),
@@ -283,6 +283,11 @@ export class CollaborationService {
       connection: this.workspaceConnection,
       publishStatus: () => this.publishStatus(),
       setSession: (phase, detail, error) => this.setSession(phase, detail, error)
+    });
+    this.currentCanvasAccess = new CurrentCanvasAccessFacade({
+      ensureWorkspaceHydrated: () => this.ensureWorkspaceHydrated(),
+      buildWorkspaceConnectionView: () => this.workspaceConnection.buildView(),
+      withActiveClient: (operation) => this.withActiveClient(operation)
     });
     this.sessionLifecycle = new CollaborationSessionLifecycle({
       profiles: this.profiles,
@@ -734,279 +739,100 @@ export class CollaborationService {
   async getCurrentCanvasAccess(input: unknown): Promise<CurrentCanvasAccessView> {
     return this.enqueue(async () => {
       this.assertOpen();
-      assertNoSmuggledCollaborationSecrets(input, "getCurrentCanvasAccess");
-      const parsed = collaborationCurrentCanvasAccessInputSchema.parse(input);
-      return (await this.currentCanvasAccessContext(parsed.canvasId)).view;
+      return this.currentCanvasAccess.get(input);
     });
   }
 
   async mutateCurrentCanvasAccess(input: unknown): Promise<AccessMutationResult> {
     return this.enqueue(async () => {
       this.assertOpen();
-      assertNoSmuggledCollaborationSecrets(input, "mutateCurrentCanvasAccess");
-      const mutation = collaborationAccessMutationInputSchema.parse(input);
-      const { scope } = await this.currentCanvasAccessContext(mutation.canvasId);
-      const request = mutation.request;
-      if (
-        request.scope.workspaceId !== scope.workspaceId ||
-        request.scope.projectId !== scope.projectId ||
-        (request.scope.scopeKind === "canvas" && request.scope.canvasId !== scope.canvasId)
-      ) {
-        throw new CollaborationClientError({
-          kind: "forbidden",
-          code: "collaboration_access_scope_mismatch",
-          message: "The requested access scope does not match the active Workspace canvas."
-        });
-      }
-      const canonicalScope: AccessScope =
-        request.scope.scopeKind === "canvas"
-          ? scope
-          : {
-              scopeKind: "project",
-              workspaceId: scope.workspaceId,
-              projectId: scope.projectId,
-              canvasId: null
-            };
-      const scopedRequest: AccessMutationRequest = { ...request, scope: canonicalScope };
-      return this.withActiveClient((client) =>
-        client.mutateCurrentCanvasAccess({ canvasId: scope.canvasId, request: scopedRequest })
-      );
+      return this.currentCanvasAccess.mutate(input);
     });
   }
 
-  private async currentCanvasAccessContext(canvasId: string): Promise<{
-    scope: Extract<AccessScope, { scopeKind: "canvas" }>;
-    view: CurrentCanvasAccessView;
-  }> {
-    await this.ensureWorkspaceHydrated();
-    const connection = await this.workspaceConnection.buildView();
-    return this.withActiveClient(async (client) => {
-      if (
-        connection.status === "connected" &&
-        connection.profile?.serverBaseUrl !== client.connectionProfile.serverBaseUrl
-      ) {
-        throw new CollaborationClientError({
-          kind: "forbidden",
-          code: "collaboration_workspace_connection_mismatch",
-          message:
-            "The active Workspace connection does not authorize the active collaboration project."
-        });
-      }
-      const view = await client.getCurrentCanvasAccess(canvasId);
-      const scope = view.scope;
-      if (
-        scope.projectId !== client.projectId ||
-        scope.canvasId !== canvasId ||
-        (connection.status === "connected" && connection.workspaceId !== scope.workspaceId)
-      ) {
-        throw new CollaborationClientError({
-          kind: "forbidden",
-          code: "collaboration_access_scope_mismatch",
-          message: "The Server returned access data for a different Workspace canvas."
-        });
-      }
-      this.assertCurrentCanvasAccessScope(view, scope);
-      return { scope, view };
-    });
-  }
-
-  private assertCurrentCanvasAccessScope(
-    view: CurrentCanvasAccessView,
-    scope: Extract<AccessScope, { scopeKind: "canvas" }>
-  ): void {
-    if (
-      view.scope.workspaceId !== scope.workspaceId ||
-      view.scope.projectId !== scope.projectId ||
-      view.scope.canvasId !== scope.canvasId
-    ) {
-      throw new CollaborationClientError({
-        kind: "forbidden",
-        code: "collaboration_access_scope_mismatch",
-        message: "The Server returned access data for a different Workspace canvas."
-      });
-    }
-  }
-
-  /** Bind ephemeral presence to the active profile/project and selected canvas. */
   async startPresence(input: unknown): Promise<void> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      await this.presenceSession.start(input);
-    });
+    return this.canvasRealtime.startPresence(input);
   }
 
   async stopPresence(): Promise<void> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      await this.presenceSession.stop();
-    });
+    return this.canvasRealtime.stopPresence();
   }
 
-  /** Start a read-only remote Canvas journal notification stream for the bound command session. */
   async startCanvasLiveSync(input: unknown): Promise<void> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      await this.canvasLiveSyncSession.start(input);
-    });
+    return this.canvasRealtime.startLiveSync(input);
   }
 
   async stopCanvasLiveSync(): Promise<void> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      this.canvasLiveSyncSession.stop();
-    });
+    return this.canvasRealtime.stopLiveSync();
   }
 
   async publishPresence(input: unknown): Promise<void> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      await this.presenceSession.publish(input);
-    });
+    return this.canvasRealtime.publishPresence(input);
   }
 
-  // ---------------------------------------------------------------------------
-  // Server-authoritative canvas commands (durable; independent of presence)
-  // ---------------------------------------------------------------------------
-
   async submitCanvasCommand(input: unknown): Promise<CollaborationCanvasCommandSubmitResult> {
-    // Hold the global service queue only for sync validation + optimistic enqueue.
-    // Network submit must not block a second op from entering optimistic pending.
-    let pending: Promise<CollaborationCanvasCommandSubmitResult>;
-    await this.enqueue(async () => {
-      this.assertOpen();
-      assertNoSmuggledCollaborationSecrets(input, "submitCollaborationCanvasCommand");
-      pending = this.canvasCommands.submit(input);
-    });
-    return pending!;
+    return this.canvasOperations.submitCommand(input);
   }
 
   async reconnectCanvas(input: unknown): Promise<CollaborationCanvasReconnectResult> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      assertNoSmuggledCollaborationSecrets(input, "reconnectCollaborationCanvas");
-      return this.canvasCommands.reconnect(input);
-    });
+    return this.canvasOperations.reconnect(input);
   }
 
   async bindCanvasCommandSession(input: unknown): Promise<CollaborationCanvasCommandSessionView> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      return this.canvasCommands.bind(input);
-    });
+    return this.canvasOperations.bindCommandSession(input);
   }
 
   async getCanvasCommandSession(): Promise<CollaborationCanvasCommandSessionView> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      return this.canvasCommands.session();
-    });
+    return this.canvasOperations.getCommandSession();
   }
 
   async flushCanvasReplicaMaterialization(): Promise<void> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      await this.canvasCommands.flushMaterialization();
-    });
+    return this.canvasOperations.flushReplicaMaterialization();
   }
 
   async resolveCanvasScope(input: unknown) {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      return this.contentVersions.resolveCanvasScope(input);
-    });
+    return this.canvasOperations.resolveScope(input);
   }
 
   async readCanvasRuntimeStatus(input: unknown) {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      const status = await this.contentVersions.readRuntimeStatus(input);
-      if (status && this.client) {
-        const scope = {
-          authorityId: this.contentVersions.authorityIdForClient(this.client),
-          workspaceId: status.scope.workspaceId,
-          projectId: status.scope.projectId,
-          canvasId: status.scope.canvasId
-        };
-        if (this.canvasReplicas.has(scope)) this.canvasReplicas.setRuntimeStatus(scope, status);
-      }
-      return status;
-    });
+    return this.canvasOperations.readRuntimeStatus(input);
+  }
+
+  async readCanvasRuntimeAvailability(input: unknown) {
+    return this.canvasOperations.readRuntimeAvailability(input);
   }
 
   async getCanvasReplicaProjection(input: unknown) {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      const requested = collaborationCanvasSessionInputSchema.parse(input);
-      const fromBinding = this.canvasCommands.projectionForBinding(requested);
-      if (fromBinding) return fromBinding;
-      const authorityId = this.client
-        ? this.contentVersions.authorityIdForClient(this.client)
-        : null;
-      const scope = await this.contentVersions.resolveCanvasScope(requested);
-      if (!authorityId || !scope) return null;
-      return this.canvasReplicas.projection({
-        authorityId,
-        workspaceId: scope.workspaceId,
-        projectId: scope.projectId,
-        canvasId: scope.canvasId
-      });
-    });
+    return this.canvasOperations.getReplicaProjection(input);
   }
 
   async bindContentAuthority(input: unknown) {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      assertNoSmuggledCollaborationSecrets(input, "bindCollaborationContentAuthority");
-      return this.contentVersions.bind(input);
-    });
+    return this.canvasOperations.bindContentAuthority(input);
   }
 
   async getContentAuthority() {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      return this.contentVersions.read();
-    });
+    return this.canvasOperations.getContentAuthority();
   }
 
   async refreshContentAuthority() {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      return this.contentVersions.refresh();
-    });
+    return this.canvasOperations.refreshContentAuthority();
   }
 
   async publishInitialContent() {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      return this.contentVersions.publishInitial();
-    });
+    return this.canvasOperations.publishInitialContent();
   }
 
   async materializeContentHead() {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      return this.contentVersions.materializeHead();
-    });
+    return this.canvasOperations.materializeContentHead();
   }
 
   async listContentBootstrapCandidates() {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      return this.contentVersions.listBootstrapCandidates();
-    });
+    return this.canvasOperations.listContentBootstrapCandidates();
   }
 
   async bootstrapContent(input: unknown) {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      assertNoSmuggledCollaborationSecrets(input, "bootstrapCollaborationContent");
-      return this.contentVersions.bootstrap(input);
-    });
+    return this.canvasOperations.bootstrapContent(input);
   }
-
-  // ---------------------------------------------------------------------------
-  // Session-scoped read models / mutations (require active connected client)
-  // ---------------------------------------------------------------------------
 
   async listMembers(input: unknown = {}): Promise<HumanMemberPage> {
     return this.identityOperations.listMembers(input);
@@ -1225,5 +1051,4 @@ export class CollaborationService {
   }
 }
 
-// Re-export input type for handlers
 export type { CollaborationUpsertProfileInput };

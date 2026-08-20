@@ -399,6 +399,70 @@ describe("CollaborationClient", () => {
     client.dispose();
   });
 
+  it("reads both strict runtime availability branches from the dedicated endpoint", async () => {
+    const status = {
+      schemaVersion: "canvas-runtime-status/v2" as const,
+      scope: {
+        workspaceId: "workspace-demo-001",
+        projectId: "project-demo-001",
+        canvasId: "canvas-available"
+      },
+      packageFingerprint: `pkg-${"a".repeat(64)}`,
+      capturedAt: "2026-08-20T00:00:00.000Z",
+      tasks: [],
+      blocks: []
+    };
+    const fixture = await listen((req, res) => {
+      expect(req.method).toBe("GET");
+      expect(req.headers.authorization).toBe(`Bearer ${exampleHumanDeviceToken}`);
+      if (req.url?.endsWith("/canvas-available/runtime-availability")) {
+        json(res, 200, {
+          schemaVersion: "canvas-runtime-availability/v1",
+          kind: "available",
+          status,
+          sourceRevision: "src-revision-001",
+          graphFingerprint: `pkg-${"b".repeat(64)}`
+        });
+        return;
+      }
+      expect(req.url).toBe(
+        "/api/v1/projects/project-demo-001/canvases/canvas-detached/runtime-availability"
+      );
+      json(res, 200, {
+        schemaVersion: "canvas-runtime-availability/v1",
+        kind: "unavailable",
+        reason: "runtime_not_attached"
+      });
+    });
+    cleanups.push(fixture.close);
+    const client = clientFor(fixture.origin, { token: exampleHumanDeviceToken });
+
+    await expect(client.readRuntimeAvailability("canvas-available")).resolves.toMatchObject({
+      kind: "available",
+      status
+    });
+    await expect(client.readRuntimeAvailability("canvas-detached")).resolves.toEqual({
+      schemaVersion: "canvas-runtime-availability/v1",
+      kind: "unavailable",
+      reason: "runtime_not_attached"
+    });
+    client.dispose();
+  });
+
+  it("rejects an invalid runtime availability response instead of mapping it to unavailable", async () => {
+    const fixture = await listen((_req, res) => {
+      json(res, 200, {
+        schemaVersion: "canvas-runtime-availability/v1",
+        kind: "unavailable"
+      });
+    });
+    cleanups.push(fixture.close);
+    const client = clientFor(fixture.origin, { token: exampleHumanDeviceToken });
+
+    await expect(client.readRuntimeAvailability("canvas-invalid")).rejects.toBeInstanceOf(Error);
+    client.dispose();
+  });
+
   it("uses device-authenticated current-canvas access transport and preserves CAS conflicts", async () => {
     const scope = {
       scopeKind: "canvas" as const,

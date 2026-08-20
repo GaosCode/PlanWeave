@@ -18,6 +18,7 @@ import {
   type CollaborationContentReplicaStorePort
 } from "../main/collaboration/CollaborationContentReplicaStore.js";
 import { CollaborationRuntimeStatusStore } from "../main/collaboration/CollaborationRuntimeStatusStore.js";
+import { CollaborationRuntimeAvailabilityStore } from "../main/collaboration/CollaborationRuntimeAvailabilityStore.js";
 import { CollaborationClientError } from "../main/collaboration/collaborationErrors.js";
 import type { CollaborationClient } from "../main/collaboration/CollaborationClient.js";
 import { createTestWorkspace } from "../../../runtime/src/__tests__/promptTestHelpers.js";
@@ -177,6 +178,20 @@ function fakeClient(projectId: string) {
       session: null
     };
   });
+  const readRuntimeAvailability = vi.fn(async () => ({
+    schemaVersion: "canvas-runtime-availability/v1" as const,
+    kind: "available" as const,
+    status: {
+      schemaVersion: "canvas-runtime-status/v2" as const,
+      scope: { workspaceId: "workspace-test", projectId, canvasId: "default" },
+      packageFingerprint: `pkg-${"a".repeat(64)}`,
+      capturedAt: "2026-08-20T00:00:00.000Z",
+      tasks: [],
+      blocks: []
+    },
+    sourceRevision: "src-revision-001",
+    graphFingerprint: `pkg-${"b".repeat(64)}`
+  }));
   return {
     client: {
       projectId,
@@ -211,14 +226,16 @@ function fakeClient(projectId: string) {
       publishInitialContent,
       fetchContentVersion,
       acknowledgeContentVersion,
-      reconnectCanvasCommands
+      reconnectCanvasCommands,
+      readRuntimeAvailability
     } as unknown as CollaborationClient,
     calls: {
       discoverContentAuthority,
       publishInitialContent,
       fetchContentVersion,
       acknowledgeContentVersion,
-      reconnectCanvasCommands
+      reconnectCanvasCommands,
+      readRuntimeAvailability
     }
   };
 }
@@ -366,6 +383,94 @@ describe("ContentVersionFacade", () => {
     await expect(
       facade.readRuntimeStatus({ localProjectId: "local-project", canvasId: "default" })
     ).resolves.toEqual(status);
+  });
+
+  it("reads and caches strict runtime availability online, then reuses only that cache offline", async () => {
+    const workspace = await createTestWorkspace();
+    directories.push(workspace.home, workspace.root);
+    const fake = fakeClient(workspace.init.workspace.id);
+    const availabilityStore = new CollaborationRuntimeAvailabilityStore(
+      join(workspace.home, "runtime-availability.json")
+    );
+    const contentReplicas = new CollaborationContentReplicaStore(
+      join(workspace.home, "content-replicas.json")
+    );
+    const authority = {
+      profileId: "profile-test",
+      serverOrigin: "http://127.0.0.1:50653",
+      projectId: workspace.init.workspace.id
+    };
+    const online = new ContentVersionFacade(
+      () => fake.client,
+      contentReplicas,
+      () => authority,
+      undefined,
+      availabilityStore
+    );
+
+    const availability = await online.readRuntimeAvailability({
+      localProjectId: workspace.init.project.id,
+      canvasId: "default"
+    });
+    expect(availability?.kind).toBe("available");
+    expect(fake.calls.readRuntimeAvailability).toHaveBeenCalledWith("default");
+
+    const offline = new ContentVersionFacade(
+      () => null,
+      contentReplicas,
+      () => authority,
+      undefined,
+      new CollaborationRuntimeAvailabilityStore(join(workspace.home, "runtime-availability.json"))
+    );
+    await expect(
+      offline.readRuntimeAvailability({
+        localProjectId: workspace.init.project.id,
+        canvasId: "default"
+      })
+    ).resolves.toEqual(availability);
+  });
+
+  it("preserves unavailable and rejects an available status for a different resolved scope", async () => {
+    const workspace = await createTestWorkspace();
+    directories.push(workspace.home, workspace.root);
+    const fake = fakeClient(workspace.init.workspace.id);
+    fake.client.readRuntimeAvailability = vi.fn(async () => ({
+      schemaVersion: "canvas-runtime-availability/v1" as const,
+      kind: "unavailable" as const,
+      reason: "runtime_not_attached" as const
+    }));
+    const facade = new ContentVersionFacade(() => fake.client);
+    await expect(
+      facade.readRuntimeAvailability({
+        localProjectId: workspace.init.project.id,
+        canvasId: "default"
+      })
+    ).resolves.toMatchObject({ kind: "unavailable", reason: "runtime_not_attached" });
+
+    fake.client.readRuntimeAvailability = vi.fn(async () => ({
+      schemaVersion: "canvas-runtime-availability/v1" as const,
+      kind: "available" as const,
+      status: {
+        schemaVersion: "canvas-runtime-status/v2" as const,
+        scope: {
+          workspaceId: "workspace-other",
+          projectId: workspace.init.workspace.id,
+          canvasId: "default"
+        },
+        packageFingerprint: `pkg-${"a".repeat(64)}`,
+        capturedAt: "2026-08-20T00:00:00.000Z",
+        tasks: [],
+        blocks: []
+      },
+      sourceRevision: "src-revision-001",
+      graphFingerprint: `pkg-${"b".repeat(64)}`
+    }));
+    await expect(
+      facade.readRuntimeAvailability({
+        localProjectId: workspace.init.project.id,
+        canvasId: "default"
+      })
+    ).rejects.toMatchObject({ code: "runtime_availability_scope_mismatch" });
   });
 
   it("resolves only a persisted shared replica while disconnected", async () => {

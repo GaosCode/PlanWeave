@@ -12,6 +12,7 @@ import {
   humanRevokeInvitationsResponseSchema
 } from "@planweave-ai/collaboration-protocol/identity/workspace";
 import { collaborationInvitationHandoffResponseSchema } from "@planweave-ai/collaboration-protocol/handoff/invitation";
+import { canvasRuntimeAvailabilitySchema } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import {
   collaborationContentBootstrapCandidateSchema,
   collaborationInvokeChannels,
@@ -419,6 +420,13 @@ export function registerCollaborationHandlers(
   ipcMain.handle(
     collaborationInvokeChannels.readCollaborationCanvasRuntimeStatus,
     (_event, input: unknown) => active.readCanvasRuntimeStatus(input)
+  );
+  ipcMain.handle(
+    collaborationInvokeChannels.readCollaborationCanvasRuntimeAvailability,
+    async (_event, input: unknown) =>
+      canvasRuntimeAvailabilitySchema
+        .nullable()
+        .parse(await active.readCanvasRuntimeAvailability(input))
   );
   ipcMain.handle(
     collaborationInvokeChannels.getCollaborationCanvasReplicaProjection,

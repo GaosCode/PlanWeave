@@ -968,6 +968,13 @@ describe("preload bridge invocation", () => {
       ) {
         return { ok: true, value: undefined };
       }
+      if (channel === collaborationInvokeChannels.readCollaborationCanvasRuntimeAvailability) {
+        return {
+          schemaVersion: "canvas-runtime-availability/v1",
+          kind: "unavailable",
+          reason: "runtime_not_attached"
+        };
+      }
       return status;
     });
 
@@ -1068,6 +1075,10 @@ describe("preload bridge invocation", () => {
     });
     await api.stopCollaborationCanvasLiveSync();
     await api.flushCollaborationCanvasReplicaMaterialization();
+    await api.readCollaborationCanvasRuntimeAvailability({
+      localProjectId: "project-1",
+      canvasId: "default"
+    });
     await api.listCollaborationMembers({ cursor: 0, limit: 20 });
     await api.updateOwnCollaborationDisplayName({ displayName: "Ada Lovelace" });
     await api.createCollaborationInvitation({});
@@ -1228,6 +1239,10 @@ describe("preload bridge invocation", () => {
     );
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
       collaborationInvokeChannels.flushCollaborationCanvasReplicaMaterialization
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      collaborationInvokeChannels.readCollaborationCanvasRuntimeAvailability,
+      { localProjectId: "project-1", canvasId: "default" }
     );
 
     const statusCall = electronMock.ipcRenderer.on.mock.calls.find(

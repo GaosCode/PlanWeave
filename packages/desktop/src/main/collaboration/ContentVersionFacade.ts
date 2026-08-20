@@ -10,6 +10,7 @@ import {
   type ContentVersionDesktopReadModel
 } from "@planweave-ai/collaboration-protocol/content/authority";
 import { type CanvasAccessRecord } from "@planweave-ai/collaboration-protocol/access/project";
+import type { CanvasRuntimeAvailability } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import {
   captureAuthorizedCanvasContent,
   createManagedProjectFromAuthoritativeContent,
@@ -38,6 +39,10 @@ import {
   CollaborationRuntimeStatusStore,
   type CollaborationRuntimeStatusStorePort
 } from "./CollaborationRuntimeStatusStore.js";
+import {
+  CollaborationRuntimeAvailabilityStore,
+  type CollaborationRuntimeAvailabilityStorePort
+} from "./CollaborationRuntimeAvailabilityStore.js";
 import { CollaborationClientError } from "./collaborationErrors.js";
 import type { CanvasReplicaScope } from "./CanvasReplicaStore.js";
 
@@ -86,7 +91,8 @@ export class ContentVersionFacade {
       | CollaborationAuthorityContext
       | null
       | Promise<CollaborationAuthorityContext | null> = () => null,
-    private readonly runtimeStatuses: CollaborationRuntimeStatusStorePort = new CollaborationRuntimeStatusStore()
+    private readonly runtimeStatuses: CollaborationRuntimeStatusStorePort = new CollaborationRuntimeStatusStore(),
+    private readonly runtimeAvailabilities: CollaborationRuntimeAvailabilityStorePort = new CollaborationRuntimeAvailabilityStore()
   ) {}
 
   async bind(input: unknown): Promise<ContentVersionDesktopReadModel> {
@@ -485,6 +491,31 @@ export class ContentVersionFacade {
       throw unavailable("runtime_status_scope_mismatch", false);
     }
     return this.runtimeStatuses.put(cacheKey, status);
+  }
+
+  async readRuntimeAvailability(input: unknown): Promise<CanvasRuntimeAvailability | null> {
+    const requested = collaborationContentAuthorityCanvasInputSchema.parse(input);
+    const client = this.resolveClient();
+    const authority = await this.authorityContext(client);
+    if (!authority) return null;
+    const cacheKey = {
+      ...authority,
+      localProjectId: requested.localProjectId,
+      localCanvasId: requested.canvasId
+    };
+    if (!client) return this.runtimeAvailabilities.get(cacheKey);
+    const scope = await this.resolveCanvasScope(requested);
+    if (!scope) return null;
+    const availability = await client.readRuntimeAvailability(scope.canvasId);
+    if (
+      availability.kind === "available" &&
+      (availability.status.scope.workspaceId !== scope.workspaceId ||
+        availability.status.scope.projectId !== scope.projectId ||
+        availability.status.scope.canvasId !== scope.canvasId)
+    ) {
+      throw unavailable("runtime_availability_scope_mismatch", false);
+    }
+    return this.runtimeAvailabilities.put(cacheKey, availability);
   }
 
   async refresh(): Promise<ContentVersionDesktopReadModel> {

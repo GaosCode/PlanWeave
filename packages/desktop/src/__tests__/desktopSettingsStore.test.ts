@@ -70,6 +70,12 @@ describe("DesktopSettingsStore", () => {
         "content-replicas.json"
       ),
       collaborationRuntimeStatusFile: join(home, "desktop", "collaboration", "runtime-status.json"),
+      collaborationRuntimeAvailabilityFile: join(
+        home,
+        "desktop",
+        "collaboration",
+        "runtime-availability.json"
+      ),
       localCollaborationScopesFile: join(home, "desktop", "collaboration", "local-scopes.json"),
       localCollaborationNetworkFile: join(home, "desktop", "collaboration", "local-network.json"),
       exportedServerDataIdentityFile: join(

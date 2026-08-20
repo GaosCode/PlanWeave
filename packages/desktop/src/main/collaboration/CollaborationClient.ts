@@ -129,6 +129,10 @@ import {
   type CanvasRuntimeStatusProjection
 } from "@planweave-ai/collaboration-protocol/canvas/status";
 import {
+  canvasRuntimeAvailabilitySchema,
+  type CanvasRuntimeAvailability
+} from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
+import {
   type CanvasCommandOutcome,
   type CanvasRevision
 } from "@planweave-ai/collaboration-protocol/canvas/commands";
@@ -1071,6 +1075,18 @@ export class CollaborationClient {
       "GET",
       `/api/v1/projects/${encodeURIComponent(this.projectId)}/canvases/${encodeURIComponent(canvasId)}/runtime-status`,
       canvasRuntimeStatusProjectionSchema,
+      { signal }
+    );
+  }
+
+  async readRuntimeAvailability(
+    canvasId: string,
+    signal?: AbortSignal
+  ): Promise<CanvasRuntimeAvailability> {
+    return this.transport.json(
+      "GET",
+      `/api/v1/projects/${encodeURIComponent(this.projectId)}/canvases/${encodeURIComponent(canvasId)}/runtime-availability`,
+      canvasRuntimeAvailabilitySchema,
       { signal }
     );
   }

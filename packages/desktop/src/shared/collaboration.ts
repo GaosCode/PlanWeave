@@ -103,6 +103,7 @@ import {
   type EligibleHostBatchResponse
 } from "@planweave-ai/collaboration-protocol/work/assignment";
 import { type CanvasRuntimeStatusProjection } from "@planweave-ai/collaboration-protocol/canvas/status";
+import { type CanvasRuntimeAvailability } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import { type CanvasLiveSyncServerMessage } from "@planweave-ai/collaboration-protocol/canvas/live-sync";
 import {
   type RemoteActionView,
@@ -853,6 +854,9 @@ export type PlanWeaveCollaborationApi = {
   readCollaborationCanvasRuntimeStatus: (
     input: CollaborationContentAuthorityCanvasInput
   ) => Promise<CanvasRuntimeStatusProjection | null>;
+  readCollaborationCanvasRuntimeAvailability: (
+    input: CollaborationContentAuthorityCanvasInput
+  ) => Promise<CanvasRuntimeAvailability | null>;
   getCollaborationCanvasReplicaProjection: (
     input: CollaborationCanvasSessionInput
   ) => Promise<CollaborationCanvasReplicaProjection | null>;

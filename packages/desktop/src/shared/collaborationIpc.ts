@@ -46,6 +46,8 @@ export const collaborationInvokeChannels = {
     "planweave-collaboration:flushCanvasReplicaMaterialization",
   resolveCollaborationCanvasScope: "planweave-collaboration:resolveCanvasScope",
   readCollaborationCanvasRuntimeStatus: "planweave-collaboration:readCanvasRuntimeStatus",
+  readCollaborationCanvasRuntimeAvailability:
+    "planweave-collaboration:readCanvasRuntimeAvailability",
   getCollaborationCanvasReplicaProjection: "planweave-collaboration:getCanvasReplicaProjection",
   bindCollaborationContentAuthority: "planweave-collaboration:bindContentAuthority",
   getCollaborationContentAuthority: "planweave-collaboration:getContentAuthority",

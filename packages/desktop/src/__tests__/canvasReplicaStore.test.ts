@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type {
   CanvasCommandIntent,
   CanvasJournalEntry,
@@ -15,6 +15,12 @@ import { basicManifest } from "../../../runtime/src/__tests__/promptTestHelpers.
 import { CanvasReplicaStore } from "../main/collaboration/CanvasReplicaStore.js";
 import { canvasReplicaProjectionToDesktopGraph } from "../renderer/collaboration/canvasReplicaGraphAdapter.js";
 import type { CollaborationCanvasReplicaProjection } from "../shared/canvasReplicaIpc.js";
+import {
+  CanvasRuntimeAvailabilityCoordinator,
+  type CanvasRuntimeCommandPort,
+  type CanvasRuntimeContentPort,
+  type CanvasRuntimeReplicaPort
+} from "../main/collaboration/CanvasRuntimeAvailabilityCoordinator.js";
 
 function documentFixture(): CanvasReplicaDocument {
   const manifest = basicManifest({ includeSecondTask: true });
@@ -443,5 +449,92 @@ describe("CanvasReplicaStore", () => {
     expect(store.pendingOperationIds(installed.scope)).toEqual([]);
     expect(store.revision(installed.scope)).toBe(installed.revision);
     expect(store.digest(installed.scope)).toBe(installed.digest);
+  });
+});
+
+describe("CanvasRuntimeAvailabilityCoordinator", () => {
+  const scope = {
+    workspaceId: "workspace-1",
+    projectId: "project-1",
+    canvasId: "canvas-1"
+  };
+  const status = {
+    schemaVersion: "canvas-runtime-status/v2" as const,
+    scope,
+    packageFingerprint: `pkg-${"a".repeat(64)}`,
+    capturedAt: "2026-08-20T00:00:00.000Z",
+    tasks: [],
+    blocks: []
+  };
+  const available = {
+    schemaVersion: "canvas-runtime-availability/v1" as const,
+    kind: "available" as const,
+    status,
+    sourceRevision: "src-revision-001",
+    graphFingerprint: `pkg-${"b".repeat(64)}`
+  };
+
+  function setup(
+    initialAvailability: Awaited<ReturnType<CanvasRuntimeContentPort["readRuntimeAvailability"]>>
+  ) {
+    const content: CanvasRuntimeContentPort = {
+      resolveCanvasScope: vi.fn(async () => scope),
+      readRuntimeStatus: vi.fn(async () => status),
+      readRuntimeAvailability: vi.fn(async () => initialAvailability)
+    };
+    const commands: CanvasRuntimeCommandPort = { projectionForBinding: vi.fn(() => null) };
+    const replicas: CanvasRuntimeReplicaPort = {
+      has: vi.fn(() => true),
+      setRuntimeStatus: vi.fn(),
+      projection: vi.fn(() => null)
+    };
+    return {
+      content,
+      replicas,
+      coordinator: new CanvasRuntimeAvailabilityCoordinator(
+        () => true,
+        () => "authority-1",
+        content,
+        commands,
+        replicas
+      )
+    };
+  }
+
+  it("writes only an available status into the exact resolved replica scope", async () => {
+    const fixture = setup(available);
+
+    await expect(
+      fixture.coordinator.readRuntimeAvailability({
+        localProjectId: "local-project",
+        canvasId: "default"
+      })
+    ).resolves.toEqual(available);
+    expect(fixture.replicas.setRuntimeStatus).toHaveBeenCalledWith(
+      { authorityId: "authority-1", ...scope },
+      status
+    );
+  });
+
+  it("clears the resolved replica overlay for unavailable without synthesizing status", async () => {
+    const unavailable = {
+      schemaVersion: "canvas-runtime-availability/v1" as const,
+      kind: "unavailable" as const,
+      reason: "host_offline" as const,
+      hostId: "host-1",
+      lastSeenAt: "2026-08-20T00:00:00.000Z"
+    };
+    const fixture = setup(unavailable);
+
+    await expect(
+      fixture.coordinator.readRuntimeAvailability({
+        localProjectId: "local-project",
+        canvasId: "default"
+      })
+    ).resolves.toEqual(unavailable);
+    expect(fixture.replicas.setRuntimeStatus).toHaveBeenCalledWith(
+      { authorityId: "authority-1", ...scope },
+      null
+    );
   });
 });
