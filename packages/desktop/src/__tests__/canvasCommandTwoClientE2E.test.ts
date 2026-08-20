@@ -178,7 +178,7 @@ function bridgeFor(client: CollaborationClient): CanvasCommandBridge {
         session: result.session
       };
     },
-    bindCollaborationCanvasCommandSession: async ({ canvasId }) => {
+    bindCollaborationCanvasBindingSession: async ({ canvasId }) => {
       client.bindCanvasCommandSession(canvasId);
       return client.canvasCommandSession();
     },

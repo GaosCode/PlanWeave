@@ -43,7 +43,7 @@ describe("CanvasCommandController", () => {
       }
     }));
     const api: CanvasCommandBridge = {
-      bindCollaborationCanvasCommandSession: vi.fn(async () => initialSession),
+      bindCollaborationCanvasBindingSession: vi.fn(async () => initialSession),
       getCollaborationCanvasCommandSession: vi.fn(async () => initialSession),
       reconnectCollaborationCanvas: vi.fn(async () => {
         await reconnectGate;
@@ -63,6 +63,7 @@ describe("CanvasCommandController", () => {
     const controller = new CanvasCommandController({ api, labels });
 
     const binding = controller.bind({
+      kind: "local",
       localProjectId: "local-project",
       canvasId: "local-canvas"
     });

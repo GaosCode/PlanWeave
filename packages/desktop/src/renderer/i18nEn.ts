@@ -139,6 +139,7 @@ export const enCatalog = {
   error: "Error",
   warning: "Warning",
   resetLayout: "Reset layout",
+  remoteCanvases: "Remote canvases",
   undoGraphCommand: "Undo graph change",
   redoGraphCommand: "Redo graph change",
   searchPlaceholder: "Search tasks, blocks, prompts",

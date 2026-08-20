@@ -153,12 +153,12 @@ export type CollaborationCanvasBindingReplicaProjection = z.infer<
   typeof collaborationCanvasBindingReplicaProjectionSchema
 >;
 
-export const collaborationCanvasReplicaSignalSchema = z
+export const collaborationCanvasBindingReplicaSignalSchema = z
   .object({
     type: z.literal("canvas.replica.changed"),
-    projection: collaborationCanvasReplicaProjectionSchema
+    projection: collaborationCanvasBindingReplicaProjectionSchema
   })
   .strict();
-export type CollaborationCanvasReplicaSignal = z.infer<
-  typeof collaborationCanvasReplicaSignalSchema
+export type CollaborationCanvasBindingReplicaSignal = z.infer<
+  typeof collaborationCanvasBindingReplicaSignalSchema
 >;

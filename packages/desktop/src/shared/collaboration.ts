@@ -1,14 +1,9 @@
 import { z } from "zod";
 import type {
   CollaborationCanvasBindingReplicaProjection,
-  CollaborationCanvasReplicaProjection,
-  CollaborationCanvasReplicaSignal
+  CollaborationCanvasBindingReplicaSignal
 } from "./canvasReplicaIpc.js";
-import type {
-  CollaborationCanvasBindingInput,
-  CollaborationCanvasSessionInput,
-  CollaborationContentAuthorityCanvasInput
-} from "./collaborationCanvasBinding.js";
+import type { CollaborationCanvasBindingInput } from "./collaborationCanvasBinding.js";
 import type {
   ExportServerDataArchiveInput,
   ExportServerDataArchiveResult,
@@ -617,13 +612,8 @@ export type CollaborationCanvasReconnectInput = z.infer<
 >;
 
 export {
-  asLocalCollaborationCanvasBinding,
   collaborationCanvasBindingInputSchema,
-  collaborationCanvasSessionInputSchema,
-  collaborationContentAuthorityCanvasInputSchema,
   type CollaborationCanvasBindingInput,
-  type CollaborationCanvasSessionInput,
-  type CollaborationContentAuthorityCanvasInput,
   type LocalCollaborationCanvasBindingInput,
   type RemoteCollaborationCanvasBindingInput
 } from "./collaborationCanvasBinding.js";
@@ -748,7 +738,7 @@ export type CollaborationCurrentSelectionInput = z.infer<
 export {
   collaborationInvokeChannels,
   collaborationCanvasLiveSyncSignalChannel,
-  collaborationCanvasReplicaSignalChannel,
+  collaborationCanvasBindingReplicaSignalChannel,
   collaborationObserverSignalChannel,
   collaborationPresenceSignalChannel,
   collaborationStatusChangedChannel
@@ -833,7 +823,6 @@ export type PlanWeaveCollaborationApi = {
   ) => Promise<DesktopServerExposureView>;
   startCollaborationPresence: (input: CollaborationPresenceCanvasInput) => Promise<void>;
   stopCollaborationPresence: () => Promise<void>;
-  startCollaborationCanvasLiveSync: (input: CollaborationCanvasLiveSyncInput) => Promise<void>;
   startCollaborationCanvasBindingLiveSync: (
     input: CollaborationCanvasBindingInput
   ) => Promise<void>;
@@ -845,35 +834,20 @@ export type PlanWeaveCollaborationApi = {
   reconnectCollaborationCanvas: (
     input: CollaborationCanvasReconnectInput
   ) => Promise<CollaborationCanvasReconnectResult>;
-  bindCollaborationCanvasCommandSession: (
-    input: CollaborationCanvasSessionInput
-  ) => Promise<CollaborationCanvasCommandSessionView | null>;
   bindCollaborationCanvasBindingSession: (
     input: CollaborationCanvasBindingInput
   ) => Promise<CollaborationCanvasCommandSessionView | null>;
   getCollaborationCanvasCommandSession: () => Promise<CollaborationCanvasCommandSessionView | null>;
   flushCollaborationCanvasReplicaMaterialization: () => Promise<void>;
-  resolveCollaborationCanvasScope: (
-    input: CollaborationContentAuthorityCanvasInput
-  ) => Promise<CollaborationCanvasScopeResolution | null>;
   resolveCollaborationCanvasBindingScope: (
     input: CollaborationCanvasBindingInput
   ) => Promise<CollaborationCanvasScopeResolution | null>;
-  readCollaborationCanvasRuntimeAvailability: (
-    input: CollaborationContentAuthorityCanvasInput
-  ) => Promise<CanvasRuntimeAvailability | null>;
   readCollaborationCanvasBindingRuntimeAvailability: (
     input: CollaborationCanvasBindingInput
   ) => Promise<CanvasRuntimeAvailability | null>;
-  getCollaborationCanvasReplicaProjection: (
-    input: CollaborationCanvasSessionInput
-  ) => Promise<CollaborationCanvasReplicaProjection | null>;
   getCollaborationCanvasBindingReplicaProjection: (
     input: CollaborationCanvasBindingInput
   ) => Promise<CollaborationCanvasBindingReplicaProjection | null>;
-  bindCollaborationContentAuthority: (
-    input: CollaborationContentAuthorityCanvasInput
-  ) => Promise<CollaborationContentAuthorityView>;
   bindCollaborationCanvasBindingContentAuthority: (
     input: CollaborationCanvasBindingInput
   ) => Promise<CollaborationContentAuthorityView>;
@@ -1038,8 +1012,8 @@ export type PlanWeaveCollaborationApi = {
   onCollaborationCanvasLiveSyncSignal: (
     callback: (signal: CollaborationCanvasLiveSyncSignal) => void
   ) => () => void;
-  onCollaborationCanvasReplicaSignal: (
-    callback: (signal: CollaborationCanvasReplicaSignal) => void
+  onCollaborationCanvasBindingReplicaSignal: (
+    callback: (signal: CollaborationCanvasBindingReplicaSignal) => void
   ) => () => void;
 };
 

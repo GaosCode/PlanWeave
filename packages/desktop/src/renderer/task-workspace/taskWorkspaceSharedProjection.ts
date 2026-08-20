@@ -1,18 +1,19 @@
 import type { TaskWorkspace } from "@planweave-ai/runtime";
-import type { CollaborationCanvasReplicaProjection } from "../../shared/canvasReplicaIpc";
+import type { CollaborationCanvasBindingReplicaProjection } from "../../shared/canvasReplicaIpc";
 
 function matchesWorkspace(
   workspace: TaskWorkspace,
-  projection: CollaborationCanvasReplicaProjection
+  projection: CollaborationCanvasBindingReplicaProjection
 ): boolean {
   return (
+    !("bindingKind" in projection) &&
     projection.localProjectId === workspace.project.projectId &&
     projection.localCanvasId === workspace.project.canvasId
   );
 }
 
 export function sharedTaskPromptMarkdown(
-  projection: CollaborationCanvasReplicaProjection | null,
+  projection: CollaborationCanvasBindingReplicaProjection | null,
   workspace: TaskWorkspace,
   taskId: string
 ): string | null {
@@ -23,7 +24,7 @@ export function sharedTaskPromptMarkdown(
 }
 
 export function sharedBlockPromptMarkdown(
-  projection: CollaborationCanvasReplicaProjection | null,
+  projection: CollaborationCanvasBindingReplicaProjection | null,
   workspace: TaskWorkspace,
   blockRef: string
 ): string | null {
@@ -40,7 +41,7 @@ export function sharedBlockPromptMarkdown(
  */
 export function projectSharedTaskWorkspace(
   workspace: TaskWorkspace,
-  projection: CollaborationCanvasReplicaProjection | null
+  projection: CollaborationCanvasBindingReplicaProjection | null
 ): TaskWorkspace {
   if (!projection || !matchesWorkspace(workspace, projection)) {
     return workspace;

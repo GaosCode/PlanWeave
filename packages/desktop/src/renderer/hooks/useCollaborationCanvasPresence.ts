@@ -10,6 +10,7 @@ import {
   type CanvasPresenceRemoteSession
 } from "../collaboration/CanvasPresenceController";
 import type { createTranslator } from "../i18n";
+import type { CollaborationCanvasBindingInput } from "../../shared/collaboration.js";
 
 const POINTER_INTERVAL_MS = 50;
 
@@ -41,14 +42,36 @@ function normalizeSelectionIds(selection: OnSelectionChangeParams): string[] {
 export function useCollaborationCanvasPresence(input: {
   enabled: boolean;
   sessionConnected: boolean;
-  canvasId: string | null;
+  binding: CollaborationCanvasBindingInput | null;
   profileId: string | null;
-  selectedProjectId: string | null;
   activeProjectId: string | null;
   t: ReturnType<typeof createTranslator>;
   api?: CanvasPresenceBridge | null;
 }): CollaborationCanvasPresenceResult {
   const api = input.api === undefined ? collaborationBridge : input.api;
+  const bindingKind = input.binding?.kind ?? null;
+  const bindingWorkspaceId = input.binding?.kind === "remote" ? input.binding.workspaceId : null;
+  const bindingProjectId =
+    input.binding?.kind === "local"
+      ? input.binding.localProjectId
+      : (input.binding?.projectId ?? null);
+  const bindingCanvasId = input.binding?.canvasId ?? null;
+  const binding = useMemo<CollaborationCanvasBindingInput | null>(
+    () =>
+      bindingKind === "local" && bindingProjectId && bindingCanvasId
+        ? { kind: "local", localProjectId: bindingProjectId, canvasId: bindingCanvasId }
+        : bindingKind === "remote" && bindingWorkspaceId && bindingProjectId && bindingCanvasId
+          ? {
+              kind: "remote",
+              workspaceId: bindingWorkspaceId,
+              projectId: bindingProjectId,
+              canvasId: bindingCanvasId
+            }
+          : null,
+    [bindingCanvasId, bindingKind, bindingProjectId, bindingWorkspaceId]
+  );
+  const selectedProjectId = bindingProjectId;
+  const canvasId = binding?.canvasId ?? null;
   const [resolvedScope, setResolvedScope] = useState<{
     localProjectId: string;
     localCanvasId: string;
@@ -57,8 +80,8 @@ export function useCollaborationCanvasPresence(input: {
   } | null>(null);
   const currentScope =
     resolvedScope &&
-    resolvedScope.localProjectId === input.selectedProjectId &&
-    resolvedScope.localCanvasId === input.canvasId &&
+    resolvedScope.localProjectId === selectedProjectId &&
+    resolvedScope.localCanvasId === canvasId &&
     resolvedScope.remoteProjectId === input.activeProjectId
       ? resolvedScope
       : null;
@@ -87,23 +110,21 @@ export function useCollaborationCanvasPresence(input: {
       !input.enabled ||
       !input.sessionConnected ||
       !input.profileId ||
-      !input.selectedProjectId ||
-      !input.canvasId ||
+      !binding ||
+      !selectedProjectId ||
+      !canvasId ||
       !input.activeProjectId
     ) {
       setResolvedScope(null);
       return undefined;
     }
-    const localProjectId = input.selectedProjectId;
-    const localCanvasId = input.canvasId;
+    const localProjectId = selectedProjectId;
+    const localCanvasId = canvasId;
     const activeProjectId = input.activeProjectId;
     let active = true;
     setResolvedScope(null);
     void api
-      .resolveCollaborationCanvasScope({
-        localProjectId,
-        canvasId: localCanvasId
-      })
+      .resolveCollaborationCanvasBindingScope(binding)
       .then((scope) => {
         if (!active || !scope || scope.projectId !== activeProjectId) return;
         setResolvedScope({
@@ -122,10 +143,11 @@ export function useCollaborationCanvasPresence(input: {
   }, [
     api,
     input.activeProjectId,
-    input.canvasId,
+    binding,
     input.enabled,
     input.profileId,
-    input.selectedProjectId,
+    canvasId,
+    selectedProjectId,
     input.sessionConnected
   ]);
 

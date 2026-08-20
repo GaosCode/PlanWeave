@@ -15,7 +15,7 @@ import type {
   CollaborationPresenceSignal,
   CollaborationStatus
 } from "../../shared/collaboration.js";
-import type { CollaborationCanvasReplicaSignal } from "../../shared/canvasReplicaIpc.js";
+import type { CollaborationCanvasBindingReplicaSignal } from "../../shared/canvasReplicaIpc.js";
 
 export type CollaborationClientFactory = (
   options: CollaborationClientOptions
@@ -39,6 +39,6 @@ export type CollaborationServiceOptions = {
   onObserverSignal?: (signal: CollaborationObserverSignal) => void;
   onPresenceSignal?: (signal: CollaborationPresenceSignal) => void;
   onCanvasLiveSyncSignal?: (signal: CollaborationCanvasLiveSyncSignal) => void;
-  onCanvasReplicaSignal?: (signal: CollaborationCanvasReplicaSignal) => void;
+  onCanvasReplicaSignal?: (signal: CollaborationCanvasBindingReplicaSignal) => void;
   bindLiveOperatorToOrigin?: (serverBaseUrl: string) => Promise<void>;
 };

@@ -1,6 +1,6 @@
 import type { CanvasCommandIntent } from "@planweave-ai/collaboration-protocol/canvas/commands";
 import type {
-  CollaborationCanvasSessionInput,
+  CollaborationCanvasBindingInput,
   CollaborationCanvasCommandSessionView,
   CollaborationCanvasCommandSubmitResult,
   CollaborationCanvasReconnectResult,
@@ -12,7 +12,7 @@ export type CanvasCommandBridge = Pick<
   PlanWeaveCollaborationApi,
   | "submitCollaborationCanvasCommand"
   | "reconnectCollaborationCanvas"
-  | "bindCollaborationCanvasCommandSession"
+  | "bindCollaborationCanvasBindingSession"
   | "getCollaborationCanvasCommandSession"
 >;
 
@@ -105,7 +105,7 @@ export class CanvasCommandController {
     return this.snapshot;
   }
 
-  bind(input: CollaborationCanvasSessionInput): Promise<void> {
+  bind(input: CollaborationCanvasBindingInput): Promise<void> {
     this.generation += 1;
     const generation = this.generation;
     this.canvasId = null;
@@ -260,11 +260,11 @@ export class CanvasCommandController {
   }
 
   private async bindAndReconnect(
-    input: CollaborationCanvasSessionInput,
+    input: CollaborationCanvasBindingInput,
     generation: number
   ): Promise<void> {
     try {
-      const session = await this.api.bindCollaborationCanvasCommandSession(input);
+      const session = await this.api.bindCollaborationCanvasBindingSession(input);
       if (generation !== this.generation) return;
       if (!session) throw new Error(this.labels.notConnected);
       this.canvasId = session.canvasId;

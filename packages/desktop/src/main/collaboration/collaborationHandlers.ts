@@ -14,15 +14,13 @@ import {
 import { collaborationInvitationHandoffResponseSchema } from "@planweave-ai/collaboration-protocol/handoff/invitation";
 import { canvasRuntimeAvailabilitySchema } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import {
-  asLocalCollaborationCanvasBinding,
   collaborationCanvasBindingInputSchema,
-  collaborationCanvasSessionInputSchema,
   collaborationContentBootstrapCandidateSchema,
   collaborationInvokeChannels,
   collaborationObserverSignalChannel,
   collaborationPresenceSignalChannel,
   collaborationCanvasLiveSyncSignalChannel,
-  collaborationCanvasReplicaSignalChannel,
+  collaborationCanvasBindingReplicaSignalChannel,
   collaborationStatusChangedChannel,
   type CollaborationObserverSignal,
   type CollaborationStatus
@@ -33,7 +31,7 @@ import {
   type CollaborationWebSocketConstructor
 } from "./CollaborationClient.js";
 import { CollaborationService, type CollaborationServiceOptions } from "./collaborationService.js";
-import type { CollaborationCanvasReplicaSignal } from "../../shared/canvasReplicaIpc.js";
+import type { CollaborationCanvasBindingReplicaSignal } from "../../shared/canvasReplicaIpc.js";
 import { LocalCollaborationCoordinatorControl } from "./CollaborationCoordinatorControl.js";
 import { DeploymentActions } from "./deploymentActions.js";
 import { runCollaborationCommand } from "./collaborationCommandHandler.js";
@@ -97,10 +95,12 @@ function publishCanvasLiveSyncSignalToRenderers(
   }
 }
 
-function publishCanvasReplicaSignalToRenderers(signal: CollaborationCanvasReplicaSignal): void {
+function publishCanvasReplicaSignalToRenderers(
+  signal: CollaborationCanvasBindingReplicaSignal
+): void {
   for (const window of BrowserWindow.getAllWindows()) {
     if (!window.webContents.isDestroyed()) {
-      window.webContents.send(collaborationCanvasReplicaSignalChannel, signal);
+      window.webContents.send(collaborationCanvasBindingReplicaSignalChannel, signal);
     }
   }
 }
@@ -388,13 +388,6 @@ export function registerCollaborationHandlers(
     active.stopPresence()
   );
   ipcMain.handle(
-    collaborationInvokeChannels.startCollaborationCanvasLiveSync,
-    (_event, input: unknown) =>
-      active.startCanvasLiveSync(
-        asLocalCollaborationCanvasBinding(collaborationCanvasSessionInputSchema.parse(input))
-      )
-  );
-  ipcMain.handle(
     collaborationInvokeChannels.startCollaborationCanvasBindingLiveSync,
     (_event, input: unknown) =>
       active.startCanvasLiveSync(collaborationCanvasBindingInputSchema.parse(input))
@@ -415,13 +408,6 @@ export function registerCollaborationHandlers(
     (_event, input: unknown) => active.reconnectCanvas(input)
   );
   ipcMain.handle(
-    collaborationInvokeChannels.bindCollaborationCanvasCommandSession,
-    (_event, input: unknown) =>
-      active.bindCanvasCommandSession(
-        asLocalCollaborationCanvasBinding(collaborationCanvasSessionInputSchema.parse(input))
-      )
-  );
-  ipcMain.handle(
     collaborationInvokeChannels.bindCollaborationCanvasBindingSession,
     (_event, input: unknown) =>
       active.bindCanvasCommandSession(collaborationCanvasBindingInputSchema.parse(input))
@@ -433,27 +419,9 @@ export function registerCollaborationHandlers(
     active.flushCanvasReplicaMaterialization()
   );
   ipcMain.handle(
-    collaborationInvokeChannels.resolveCollaborationCanvasScope,
-    (_event, input: unknown) =>
-      active.resolveCanvasScope(
-        asLocalCollaborationCanvasBinding(collaborationCanvasSessionInputSchema.parse(input))
-      )
-  );
-  ipcMain.handle(
     collaborationInvokeChannels.resolveCollaborationCanvasBindingScope,
     (_event, input: unknown) =>
       active.resolveCanvasScope(collaborationCanvasBindingInputSchema.parse(input))
-  );
-  ipcMain.handle(
-    collaborationInvokeChannels.readCollaborationCanvasRuntimeAvailability,
-    async (_event, input: unknown) =>
-      canvasRuntimeAvailabilitySchema
-        .nullable()
-        .parse(
-          await active.readCanvasRuntimeAvailability(
-            asLocalCollaborationCanvasBinding(collaborationCanvasSessionInputSchema.parse(input))
-          )
-        )
   );
   ipcMain.handle(
     collaborationInvokeChannels.readCollaborationCanvasBindingRuntimeAvailability,
@@ -467,23 +435,9 @@ export function registerCollaborationHandlers(
         )
   );
   ipcMain.handle(
-    collaborationInvokeChannels.getCollaborationCanvasReplicaProjection,
-    (_event, input: unknown) =>
-      active.getCanvasReplicaProjection(
-        asLocalCollaborationCanvasBinding(collaborationCanvasSessionInputSchema.parse(input))
-      )
-  );
-  ipcMain.handle(
     collaborationInvokeChannels.getCollaborationCanvasBindingReplicaProjection,
     (_event, input: unknown) =>
       active.getCanvasReplicaProjection(collaborationCanvasBindingInputSchema.parse(input))
-  );
-  ipcMain.handle(
-    collaborationInvokeChannels.bindCollaborationContentAuthority,
-    (_event, input: unknown) =>
-      active.bindContentAuthority(
-        asLocalCollaborationCanvasBinding(collaborationCanvasSessionInputSchema.parse(input))
-      )
   );
   ipcMain.handle(
     collaborationInvokeChannels.bindCollaborationCanvasBindingContentAuthority,

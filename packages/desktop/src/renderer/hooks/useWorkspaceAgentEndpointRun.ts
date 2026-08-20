@@ -87,7 +87,7 @@ type WorkspaceAgentEndpointRunInput = {
     | "observeCollaborationRemoteOperation"
     | "executeCollaborationRemoteOperationAction"
     | "onCollaborationObserverSignal"
-    | "readCollaborationCanvasRuntimeAvailability"
+    | "readCollaborationCanvasBindingRuntimeAvailability"
   > | null;
   createId?: () => string;
   localAutoRunApi?: LocalAutoRunObserver | null;
@@ -370,7 +370,8 @@ export function useWorkspaceAgentEndpointRun(
               }
               const readStatus = async () => {
                 if (!api) throw new Error("collaboration_runtime_availability_unavailable");
-                const availability = await api.readCollaborationCanvasRuntimeAvailability({
+                const availability = await api.readCollaborationCanvasBindingRuntimeAvailability({
+                  kind: "local",
                   localProjectId: selectedProject.projectId,
                   canvasId: selectedCanvasId
                 });

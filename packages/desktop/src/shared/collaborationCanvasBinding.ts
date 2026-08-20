@@ -4,17 +4,6 @@ import {
   workspaceIdSchema
 } from "@planweave-ai/collaboration-protocol/core/primitives";
 
-export const collaborationCanvasSessionInputSchema = z
-  .object({
-    localProjectId: opaqueIdentifierSchema,
-    canvasId: opaqueIdentifierSchema
-  })
-  .strict();
-export type CollaborationCanvasSessionInput = z.infer<typeof collaborationCanvasSessionInputSchema>;
-
-export const collaborationContentAuthorityCanvasInputSchema = collaborationCanvasSessionInputSchema;
-export type CollaborationContentAuthorityCanvasInput = CollaborationCanvasSessionInput;
-
 const localCollaborationCanvasBindingInputSchema = z
   .object({
     kind: z.literal("local"),
@@ -46,9 +35,3 @@ export type RemoteCollaborationCanvasBindingInput = Extract<
   CollaborationCanvasBindingInput,
   { kind: "remote" }
 >;
-
-export function asLocalCollaborationCanvasBinding(
-  input: CollaborationCanvasSessionInput
-): LocalCollaborationCanvasBindingInput {
-  return localCollaborationCanvasBindingInputSchema.parse({ kind: "local", ...input });
-}

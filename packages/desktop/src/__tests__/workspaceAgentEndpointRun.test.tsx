@@ -306,7 +306,7 @@ function renderRun(input?: {
         observeCollaborationRemoteOperation: observe,
         executeCollaborationRemoteOperationAction: executeAction,
         onCollaborationObserverSignal: vi.fn(() => () => undefined),
-        readCollaborationCanvasRuntimeAvailability: readCanvasRuntimeAvailability
+        readCollaborationCanvasBindingRuntimeAvailability: readCanvasRuntimeAvailability
       },
       createId: () => "operation-1",
       localAutoRunApi: {

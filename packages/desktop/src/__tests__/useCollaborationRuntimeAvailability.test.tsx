@@ -68,8 +68,8 @@ const available = {
 
 function api(read = vi.fn().mockResolvedValue(available)) {
   return {
-    readCollaborationCanvasRuntimeAvailability: read,
-    resolveCollaborationCanvasScope: vi.fn().mockResolvedValue(scope)
+    readCollaborationCanvasBindingRuntimeAvailability: read,
+    resolveCollaborationCanvasBindingScope: vi.fn().mockResolvedValue(scope)
   };
 }
 
@@ -83,8 +83,7 @@ function hookInput(
     sessionConnected: true,
     profileId: "profile-1",
     activeProjectId: "remote-project",
-    localProjectId: "local-replica",
-    localCanvasId: "default",
+    binding: { kind: "local" as const, localProjectId: "local-replica", canvasId: "default" },
     graph: graphWithBlock,
     api: defaultApi,
     ...override
@@ -108,8 +107,8 @@ describe("collaboration runtime availability", () => {
       )
     );
 
-    expect(bridge.resolveCollaborationCanvasScope).not.toHaveBeenCalled();
-    expect(bridge.readCollaborationCanvasRuntimeAvailability).not.toHaveBeenCalled();
+    expect(bridge.resolveCollaborationCanvasBindingScope).not.toHaveBeenCalled();
+    expect(bridge.readCollaborationCanvasBindingRuntimeAvailability).not.toHaveBeenCalled();
     expect(result.current.availability).toEqual({ kind: "not_applicable" });
     expect(result.current.graph).toBe(graphWithBlock);
     expect(result.current.graph?.tasks[0]?.blocks[0]?.dispatchable).toBe(true);
@@ -121,8 +120,8 @@ describe("collaboration runtime availability", () => {
       useCollaborationRuntimeAvailability(hookInput({ api: bridge, sessionConnected: false }))
     );
 
-    expect(bridge.resolveCollaborationCanvasScope).not.toHaveBeenCalled();
-    expect(bridge.readCollaborationCanvasRuntimeAvailability).not.toHaveBeenCalled();
+    expect(bridge.resolveCollaborationCanvasBindingScope).not.toHaveBeenCalled();
+    expect(bridge.readCollaborationCanvasBindingRuntimeAvailability).not.toHaveBeenCalled();
     expect(result.current.availability).toEqual({ kind: "server_disconnected" });
     expect(result.current.graph?.tasks[0]?.status).toBe("ready");
     expect(result.current.graph?.tasks[0]?.blocks[0]?.dispatchable).toBe(false);

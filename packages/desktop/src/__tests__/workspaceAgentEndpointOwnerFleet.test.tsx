@@ -189,7 +189,7 @@ function renderOwnerFleetRun(input?: {
   const getBlockDetail =
     input?.getBlockDetail ??
     vi.fn(async () => ({ ref: "T-001#B-001", status: "ready" as const, remoteExecution: null }));
-  const readCollaborationCanvasRuntimeAvailability = vi.fn(async () => {
+  const readCollaborationCanvasBindingRuntimeAvailability = vi.fn(async () => {
     throw new Error("collaboration_runtime_availability_unavailable");
   });
   const dispatchCollaborationRemoteOperation = vi.fn();
@@ -227,7 +227,7 @@ function renderOwnerFleetRun(input?: {
             observeCollaborationRemoteOperation: vi.fn(),
             executeCollaborationRemoteOperationAction: vi.fn(),
             onCollaborationObserverSignal: vi.fn(() => () => undefined),
-            readCollaborationCanvasRuntimeAvailability
+            readCollaborationCanvasBindingRuntimeAvailability
           }
         : null,
       createId: () => "operation-fleet-1",
@@ -247,7 +247,7 @@ function renderOwnerFleetRun(input?: {
     ...hook,
     setError,
     lifecycle,
-    readCollaborationCanvasRuntimeAvailability,
+    readCollaborationCanvasBindingRuntimeAvailability,
     dispatchCollaborationRemoteOperation,
     ensureWorkAuthority
   };
@@ -293,7 +293,7 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
           observeCollaborationRemoteOperation: vi.fn(),
           executeCollaborationRemoteOperationAction: vi.fn(),
           onCollaborationObserverSignal: vi.fn(() => () => undefined),
-          readCollaborationCanvasRuntimeAvailability: vi.fn()
+          readCollaborationCanvasBindingRuntimeAvailability: vi.fn()
         },
         previewClaimNext
       });
@@ -365,7 +365,7 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
       result,
       lifecycle,
       setError,
-      readCollaborationCanvasRuntimeAvailability,
+      readCollaborationCanvasBindingRuntimeAvailability,
       dispatchCollaborationRemoteOperation,
       ensureWorkAuthority
     } = renderOwnerFleetRun({ withCollaborationRuntime: true });
@@ -374,7 +374,7 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
 
     expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).toHaveBeenCalled();
     expect(dispatchCollaborationRemoteOperation).not.toHaveBeenCalled();
-    expect(readCollaborationCanvasRuntimeAvailability).not.toHaveBeenCalled();
+    expect(readCollaborationCanvasBindingRuntimeAvailability).not.toHaveBeenCalled();
     expect(ensureWorkAuthority).not.toHaveBeenCalled();
     expect(lifecycle.onCompleted).toHaveBeenCalledTimes(1);
     expect(setError).not.toHaveBeenCalled();

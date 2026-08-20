@@ -6,27 +6,14 @@ import {
   useMemo,
   useRef,
   useState,
-  type Dispatch,
-  type ReactNode,
-  type SetStateAction
+  type ReactNode
 } from "react";
 import { type Edge, type ReactFlowInstance, useEdgesState, useNodesState } from "@xyflow/react";
-import type {
-  DesktopAgentDetection,
-  DesktopProjectSummary,
-  DesktopRuntimeToolAvailability
-} from "@planweave-ai/runtime";
+import type { DesktopProjectSummary } from "@planweave-ai/runtime";
 import { bridge, collaborationBridge, desktopCanvasReference } from "./bridge";
 import { edgeTypes, nodeTypes } from "./graph/flowModel";
-import type { createTranslator } from "./i18n";
 import { orderProjectsByPinnedIds } from "./settings";
-import type {
-  AppFlowNode,
-  AppView,
-  DesktopSettingsUpdate,
-  DesktopUiSettings,
-  FloatingControlPosition
-} from "./types";
+import type { AppFlowNode } from "./types";
 import { useReviewPipeline } from "./hooks/useReviewPipeline";
 import { useGraphPaletteActions } from "./hooks/useGraphPaletteActions";
 import { useSelectedBlock } from "./hooks/useSelectedBlock";
@@ -70,7 +57,6 @@ import type {
 import type { ComponentProps } from "react";
 import type { AppSettingsRoute } from "./AppSettingsRoute";
 import type { ProjectSidebar } from "./sidebar/ProjectSidebar";
-import type { AppViewHistoryController } from "./hooks/useAppViewHistory";
 import type { TaskWorkspaceController } from "./task-workspace/contracts";
 import { useTaskWorkspaceController } from "./task-workspace/useTaskWorkspaceController";
 import { useTaskWorkspaceGraphNavigation } from "./task-workspace/useTaskWorkspaceGraphNavigation";
@@ -84,6 +70,9 @@ import type {
   TaskWorkspaceNavigationTarget
 } from "./taskWorkspaceNavigation";
 import { collaborationSurfaceCanvasIdForView } from "./collaboration/workspaceCollaborationScope";
+import { useRemoteCanvasWorkspace } from "./hooks/useRemoteCanvasWorkspace";
+import type { ProjectWorkspaceShellInput } from "./projectWorkspaceShell";
+export type { ProjectWorkspaceShellInput } from "./projectWorkspaceShell";
 
 type TaskCanvasSummary = DesktopProjectSummary["taskCanvases"][number];
 type AppSettingsRouteProps = ComponentProps<typeof AppSettingsRoute>;
@@ -96,37 +85,6 @@ function canvasPackageDir(project: DesktopProjectSummary, canvasId: string | nul
 function unavailablePackageDirMessage(canvasId: string): string {
   return `Cannot copy agent prompt because packageDir is unavailable for canvas '${canvasId}'.`;
 }
-
-type LayoutSettingsPatch = {
-  leftSidebar?: Partial<DesktopUiSettings["layout"]["leftSidebar"]>;
-  rightSidebar?: Partial<DesktopUiSettings["layout"]["rightSidebar"]>;
-  autoRunControl?: Partial<DesktopUiSettings["layout"]["autoRunControl"]> & {
-    position?: FloatingControlPosition | null;
-  };
-  collaborationScope?: Partial<DesktopUiSettings["layout"]["collaborationScope"]>;
-};
-
-export type ProjectWorkspaceShellInput = {
-  activeView: AppView;
-  appHistory: AppViewHistoryController;
-  agentDetectionRefreshing: boolean;
-  agentDetections: DesktopAgentDetection[];
-  globalPromptMarkdown: string | null;
-  language: DesktopUiSettings["language"];
-  refreshAgentDetections: () => Promise<void>;
-  refreshRuntimeTools: () => Promise<void>;
-  runtimeTools: DesktopRuntimeToolAvailability;
-  setActiveView: Dispatch<SetStateAction<AppView>>;
-  setError: (message: string | null) => void;
-  setSuccessMessage: Dispatch<SetStateAction<string | null>>;
-  settings: DesktopUiSettings;
-  settingsHydrated: boolean;
-  t: ReturnType<typeof createTranslator>;
-  updateLayoutSettings: (patch: LayoutSettingsPatch) => void;
-  updateGlobalPrompt: (markdown: string) => Promise<void>;
-  updateSettings: (update: DesktopSettingsUpdate) => void;
-  updateSettingsAndWait: (update: DesktopSettingsUpdate) => Promise<void>;
-};
 
 export type ProjectWorkspaceValue = {
   autoRun: WorkspaceTabsAutoRunProps;
@@ -231,6 +189,8 @@ export function ProjectWorkspaceProvider({
     removeProject,
     selectedCanvasId,
     selectedProject,
+    setSelectedCanvasId,
+    setSelectedProject,
     setLayout,
     statistics,
     todoGroups,
@@ -238,21 +198,44 @@ export function ProjectWorkspaceProvider({
     updateProjectPromptPolicy
   } = desktopProject;
 
+  const remoteWorkspace = useRemoteCanvasWorkspace();
+  const selectRemoteCanvas = useCallback(
+    (canvas: Parameters<typeof remoteWorkspace.select>[0]) => {
+      setSelectedProject(null);
+      setSelectedCanvasId(null);
+      remoteWorkspace.select(canvas);
+      setActiveView("graph");
+    },
+    [remoteWorkspace.select, setActiveView, setSelectedCanvasId, setSelectedProject]
+  );
+  const activeCanvasId = remoteWorkspace.binding?.canvasId ?? selectedCanvasId;
+  const canvasBinding = useMemo(
+    () =>
+      remoteWorkspace.binding ??
+      (selectedProject && selectedCanvasId
+        ? {
+            kind: "local" as const,
+            localProjectId: selectedProject.projectId,
+            canvasId: selectedCanvasId
+          }
+        : null),
+    [remoteWorkspace.binding, selectedCanvasId, selectedProject]
+  );
   // Shared canvas command session must be available before any durable package write hooks.
   const collaborationSurface = useCollaborationSurface({
-    canvasId: collaborationSurfaceCanvasIdForView(activeView, selectedCanvasId),
+    binding: canvasBinding,
+    canvasId: collaborationSurfaceCanvasIdForView(activeView, activeCanvasId),
     localProjectId: selectedProject?.projectId ?? null,
     t
   });
   const sharedCanvasCommands = useSharedCanvasCommands({
     api: collaborationBridge,
-    canvasId: selectedCanvasId,
+    binding: canvasBinding,
     // A configured shared project remains read-only while offline; package writers must not
     // fall through to local direct writes merely because its session disconnected.
-    enabled: Boolean(selectedProject),
+    enabled: canvasBinding !== null,
     sessionConnected: collaborationSurface.sessionConnected,
     profileId: collaborationSurface.activeProfileId,
-    selectedProjectId: selectedProject?.projectId ?? null,
     activeProjectId: collaborationSurface.activeProjectId,
     localOwnerDirectWriteAvailable: collaborationSurface.localOwnerDirectWriteAvailable,
     t,
@@ -264,18 +247,21 @@ export function ProjectWorkspaceProvider({
     () =>
       sharedCanvasCommands.projection
         ? canvasReplicaProjectionToDesktopGraph(sharedCanvasCommands.projection, localGraph)
-        : localGraph,
-    [localGraph, sharedCanvasCommands.projection]
+        : remoteWorkspace.binding
+          ? null
+          : localGraph,
+    [localGraph, remoteWorkspace.binding, sharedCanvasCommands.projection]
   );
-  const layout = sharedCanvasCommands.projection?.content.layout ?? localLayout;
+  const layout =
+    sharedCanvasCommands.projection?.content.layout ??
+    (remoteWorkspace.binding ? null : localLayout);
   const collaborationRuntime = useWorkspaceCollaborationRuntimeAvailability({
     activeProfileId: collaborationSurface.activeProfileId,
     activeProjectId: collaborationSurface.activeProjectId,
     graph: replicaGraph,
     localOwnerDirectWriteAvailable: collaborationSurface.localOwnerDirectWriteAvailable,
-    selectedCanvasId,
-    selectedProject,
-    sessionConnected: collaborationSurface.sessionConnected
+    sessionConnected: collaborationSurface.sessionConnected,
+    binding: canvasBinding
   });
   const graph = collaborationRuntime.graph;
   const ownerControlPlane = useOwnerControlPlaneAvailability();
@@ -359,6 +345,13 @@ export function ProjectWorkspaceProvider({
     setSelectedBlock,
     setSelectedRunRecord
   });
+  const openLocalProject = useCallback(
+    async (...args: Parameters<typeof openProjectInSession>) => {
+      remoteWorkspace.clear();
+      return openProjectInSession(...args);
+    },
+    [openProjectInSession, remoteWorkspace.clear]
+  );
 
   const createLocalProjectFromTaskCanvas = useCallback(
     async (project: DesktopProjectSummary, canvasId: string) => {
@@ -506,11 +499,10 @@ export function ProjectWorkspaceProvider({
   });
   const collaborationPresence = useCollaborationCanvasPresence({
     api: collaborationBridge,
-    canvasId: selectedCanvasId,
-    enabled: activeView === "graph" && Boolean(selectedProject),
+    enabled: activeView === "graph" && canvasBinding !== null,
     sessionConnected: collaborationSurface.sessionConnected,
+    binding: canvasBinding,
     profileId: collaborationSurface.activeProfileId,
-    selectedProjectId: selectedProject?.projectId ?? null,
     activeProjectId: collaborationSurface.activeProjectId,
     t
   });
@@ -1012,10 +1004,10 @@ export function ProjectWorkspaceProvider({
       handleRevealPathInFinder,
       handleRevealTaskCanvas,
       handleRenameTaskCanvas,
-      loadProject: openProjectInSession,
+      loadProject: openLocalProject,
       refreshProjects,
       projectLoading,
-      selectedCanvasId,
+      selectedCanvasId: activeCanvasId,
       selectedProject,
       selectedTaskPanelId,
       setActiveView,
@@ -1034,10 +1026,10 @@ export function ProjectWorkspaceProvider({
       handleRevealPathInFinder,
       handleRevealTaskCanvas,
       handleRenameTaskCanvas,
-      openProjectInSession,
+      openLocalProject,
       projectLoading,
       refreshProjects,
-      selectedCanvasId,
+      activeCanvasId,
       selectedProject,
       selectedTaskPanelId,
       setActiveView,
@@ -1165,7 +1157,7 @@ export function ProjectWorkspaceProvider({
       handleRenameTaskCanvas,
       handleUnlinkSourceRoot,
       handleTaskPanelSelect,
-      loadProject: openProjectInSession,
+      loadProject: openLocalProject,
       notificationItems: notificationController.notificationItems,
       onTogglePinnedProject: handleTogglePinnedProject,
       pinnedProjectIds,
@@ -1175,6 +1167,9 @@ export function ProjectWorkspaceProvider({
       selectedProject,
       selectedCanvasId,
       selectedTaskPanelId,
+      remoteCanvases: remoteWorkspace.authorizedCanvases,
+      selectedRemoteCanvasId: remoteWorkspace.binding?.canvasId ?? null,
+      onRemoteCanvasSelect: selectRemoteCanvas,
       setActiveView,
       t
     }),
@@ -1203,15 +1198,18 @@ export function ProjectWorkspaceProvider({
       handleTogglePinnedProject,
       handleUnlinkSourceRoot,
       notificationController.notificationItems,
-      openProjectInSession,
+      openLocalProject,
       orderedProjects,
       pinnedProjectIds,
       projectRefreshing,
+      remoteWorkspace.authorizedCanvases,
+      remoteWorkspace.binding?.canvasId,
       refreshProjects,
       resetLayout,
       selectedCanvasId,
       selectedProject,
       selectedTaskPanelId,
+      selectRemoteCanvas,
       setActiveView,
       t
     ]

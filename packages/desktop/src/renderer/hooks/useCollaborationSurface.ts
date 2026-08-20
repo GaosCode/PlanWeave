@@ -13,6 +13,7 @@ import type { CollaborationReadModelSnapshot } from "../../shared/collaborationR
 import {
   isLocalCollaborationProfileId,
   type CollaborationStatus,
+  type CollaborationCanvasBindingInput,
   type LocalCollaborationServerStatus,
   type PlanWeaveCollaborationApi
 } from "../../shared/collaboration.js";
@@ -21,6 +22,7 @@ import { useCollaborationStatus } from "./useCollaborationStatus";
 import { isCollaborationSessionConnected } from "../collaboration/sessionState";
 
 export type UseCollaborationSurfaceArgs = {
+  binding?: CollaborationCanvasBindingInput | null;
   /** Active local canvas id (filters assignment pages when set). */
   canvasId?: string | null;
   /** Active local package project id, used to prevent cross-project Workspace reads. */
@@ -153,11 +155,24 @@ export function useCollaborationSurface(
     localProjectId: args.localProjectId ?? null,
     canvasId: args.canvasId ?? null
   });
+  const remoteBinding = args.binding?.kind === "remote" ? args.binding : null;
+  const remoteReadBinding = useMemo(
+    () =>
+      remoteBinding && sessionConnected && activeProfile?.projectId === remoteBinding.projectId
+        ? {
+            profileId: activeProfile.profileId,
+            projectId: remoteBinding.projectId,
+            canvasId: remoteBinding.canvasId
+          }
+        : null,
+    [activeProfile, remoteBinding, sessionConnected]
+  );
   const [canvasReadResolution, setCanvasReadResolution] =
     useState<CollaborationCanvasReadResolution | null>(null);
 
   useEffect(() => {
     if (
+      remoteReadBinding ||
       !api ||
       !readBinding.profileId ||
       !readBinding.projectId ||
@@ -173,7 +188,11 @@ export function useCollaborationSurface(
     let active = true;
     setCanvasReadResolution(null);
     void api
-      .resolveCollaborationCanvasScope({ localProjectId, canvasId: localCanvasId })
+      .resolveCollaborationCanvasBindingScope({
+        kind: "local",
+        localProjectId,
+        canvasId: localCanvasId
+      })
       .then((scope) => {
         if (!active) return;
         setCanvasReadResolution(
@@ -196,15 +215,14 @@ export function useCollaborationSurface(
   }, [
     api,
     args.localProjectId,
+    remoteReadBinding,
     readBinding.canvasId,
     readBinding.profileId,
     readBinding.projectId
   ]);
 
-  const authorizedReadBinding = resolveCollaborationCanvasReadBinding(
-    readBinding,
-    canvasReadResolution
-  );
+  const authorizedReadBinding =
+    remoteReadBinding ?? resolveCollaborationCanvasReadBinding(readBinding, canvasReadResolution);
 
   // Shell is the sole owner of active project/canvas binding on the shared hub.
   const { snapshot, viewModel, controller } = useCollaborationReadModels({

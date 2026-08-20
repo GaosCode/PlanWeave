@@ -235,11 +235,11 @@ export function GraphView({
     selectedProject?.taskCanvases.find((canvas) => canvas.canvasId === selectedCanvasId)?.name ??
     t("taskCanvas");
   const graphScopeId = useMemo(() => {
-    if (!graph || !selectedProject) {
+    if (!graph) {
       return null;
     }
-    return `${selectedProject.projectId}:${selectedCanvasId ?? "default"}`;
-  }, [graph, selectedCanvasId, selectedProject]);
+    return `${graph.projectId}:${selectedCanvasId ?? "default"}`;
+  }, [graph, selectedCanvasId]);
   const handleFlowInit = useCallback(
     (instance: ReactFlowInstance<AppFlowNode, Edge>) => {
       setLocalFlowInstance(instance);
@@ -513,7 +513,7 @@ export function GraphView({
             const resourceGroup = graph.sharedResourceGroups.find(
               (group) => group.name === pinnedResource
             );
-            if (!resourceGroup || !selectedProject) {
+            if (!resourceGroup) {
               return null;
             }
             return (

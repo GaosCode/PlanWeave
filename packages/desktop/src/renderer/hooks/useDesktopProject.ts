@@ -210,6 +210,8 @@ export function useDesktopProject({
     removeProject,
     selectedCanvasId,
     selectedProject,
+    setSelectedCanvasId,
+    setSelectedProject,
     setLayout,
     statistics,
     todoGroups,

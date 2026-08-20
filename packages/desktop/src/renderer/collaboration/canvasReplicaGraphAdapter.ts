@@ -1,15 +1,17 @@
 import type { DesktopGraphViewModel } from "@planweave-ai/runtime";
-import type { CollaborationCanvasReplicaProjection } from "../../shared/canvasReplicaIpc.js";
+import type { CollaborationCanvasBindingReplicaProjection } from "../../shared/canvasReplicaIpc.js";
 
 /** Adapts replica-owned content while retaining the selected local project's executor catalog. */
 export function canvasReplicaProjectionToDesktopGraph(
-  projection: CollaborationCanvasReplicaProjection,
+  projection: CollaborationCanvasBindingReplicaProjection,
   runtimeGraph: DesktopGraphViewModel | null
 ): DesktopGraphViewModel {
   const executorCatalog =
-    runtimeGraph?.projectId === projection.localProjectId ? runtimeGraph : null;
+    !("bindingKind" in projection) && runtimeGraph?.projectId === projection.localProjectId
+      ? runtimeGraph
+      : null;
   return {
-    projectId: projection.localProjectId,
+    projectId: "bindingKind" in projection ? projection.projectId : projection.localProjectId,
     projectTitle: projection.content.projectTitle,
     graphVersion: projection.content.graphVersion,
     packageFingerprint: projection.content.packageFingerprint,

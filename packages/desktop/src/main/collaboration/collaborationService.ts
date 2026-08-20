@@ -97,7 +97,7 @@ import { CollaborationProfileLifecycle } from "./CollaborationProfileLifecycle.j
 import { CollaborationSessionLifecycle } from "./CollaborationSessionLifecycle.js";
 import { CanvasReplicaStore } from "./CanvasReplicaStore.js";
 import { CanvasReplicaDiskMirror } from "./CanvasReplicaDiskMirror.js";
-import type { CollaborationCanvasReplicaSignal } from "../../shared/canvasReplicaIpc.js";
+import type { CollaborationCanvasBindingReplicaSignal } from "../../shared/canvasReplicaIpc.js";
 import { resolveCollaborationAuthorityScope } from "./collaborationAuthorityScope.js";
 import { CurrentCanvasAccessFacade } from "./CurrentCanvasAccessFacade.js";
 import { CanvasRuntimeAvailabilityCoordinator } from "./CanvasRuntimeAvailabilityCoordinator.js";
@@ -127,7 +127,9 @@ export class CollaborationService {
   private readonly onObserverSignal?: (signal: CollaborationObserverSignal) => void;
   private readonly onPresenceSignal?: (signal: CollaborationPresenceSignal) => void;
   private readonly onCanvasLiveSyncSignal?: (signal: CollaborationCanvasLiveSyncSignal) => void;
-  private readonly onCanvasReplicaSignal?: (signal: CollaborationCanvasReplicaSignal) => void;
+  private readonly onCanvasReplicaSignal?: (
+    signal: CollaborationCanvasBindingReplicaSignal
+  ) => void;
   private readonly canvasReplicas: CanvasReplicaStore;
   private readonly canvasReplicaMirror: CanvasReplicaDiskMirror;
   private readonly registryService: CollaborationRegistryService;
@@ -196,11 +198,7 @@ export class CollaborationService {
     this.bindLiveOperatorToOrigin = options.bindLiveOperatorToOrigin;
     this.canvasReplicaMirror = new CanvasReplicaDiskMirror();
     this.canvasReplicas = new CanvasReplicaStore(
-      (projection) => {
-        if (!("bindingKind" in projection)) {
-          this.onCanvasReplicaSignal?.({ type: "canvas.replica.changed", projection });
-        }
-      },
+      (projection) => this.onCanvasReplicaSignal?.({ type: "canvas.replica.changed", projection }),
       (snapshot) => this.canvasReplicaMirror.capture(snapshot)
     );
     this.registryService = new CollaborationRegistryService(() => this.client);

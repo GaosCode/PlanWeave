@@ -968,7 +968,9 @@ describe("preload bridge invocation", () => {
       ) {
         return { ok: true, value: undefined };
       }
-      if (channel === collaborationInvokeChannels.readCollaborationCanvasRuntimeAvailability) {
+      if (
+        channel === collaborationInvokeChannels.readCollaborationCanvasBindingRuntimeAvailability
+      ) {
         return {
           schemaVersion: "canvas-runtime-availability/v1",
           kind: "unavailable",
@@ -1069,13 +1071,15 @@ describe("preload bridge invocation", () => {
     await api.startCollaborationPresence({ canvasId: "default" });
     await api.publishCollaborationPresence({ pointer: { x: 1, y: 2 }, selectionIds: [] });
     await api.stopCollaborationPresence();
-    await api.startCollaborationCanvasLiveSync({
+    await api.startCollaborationCanvasBindingLiveSync({
+      kind: "local",
       localProjectId: "project-1",
       canvasId: "default"
     });
     await api.stopCollaborationCanvasLiveSync();
     await api.flushCollaborationCanvasReplicaMaterialization();
-    await api.readCollaborationCanvasRuntimeAvailability({
+    await api.readCollaborationCanvasBindingRuntimeAvailability({
+      kind: "local",
       localProjectId: "project-1",
       canvasId: "default"
     });
@@ -1112,7 +1116,7 @@ describe("preload bridge invocation", () => {
         "onCollaborationObserverSignal",
         "onCollaborationPresenceSignal",
         "onCollaborationCanvasLiveSyncSignal",
-        "onCollaborationCanvasReplicaSignal"
+        "onCollaborationCanvasBindingReplicaSignal"
       ].sort()
     );
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
@@ -1241,8 +1245,8 @@ describe("preload bridge invocation", () => {
       collaborationInvokeChannels.flushCollaborationCanvasReplicaMaterialization
     );
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
-      collaborationInvokeChannels.readCollaborationCanvasRuntimeAvailability,
-      { localProjectId: "project-1", canvasId: "default" }
+      collaborationInvokeChannels.readCollaborationCanvasBindingRuntimeAvailability,
+      { kind: "local", localProjectId: "project-1", canvasId: "default" }
     );
 
     const statusCall = electronMock.ipcRenderer.on.mock.calls.find(

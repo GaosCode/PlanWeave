@@ -19,9 +19,9 @@ afterEach(() => {
 function bridgeFixture() {
   let onSignal: ((signal: CollaborationPresenceSignal) => void) | null = null;
   const api: CanvasPresenceBridge = {
-    resolveCollaborationCanvasScope: vi.fn(async (input) => ({
+    resolveCollaborationCanvasBindingScope: vi.fn(async (input) => ({
       workspaceId: "workspace-1",
-      projectId: input.localProjectId,
+      projectId: input.kind === "local" ? input.localProjectId : input.projectId,
       canvasId: input.canvasId
     })),
     startCollaborationPresence: vi.fn(async ({ canvasId }) => {
@@ -65,11 +65,10 @@ describe("useCollaborationCanvasPresence", () => {
     renderHook(() =>
       useCollaborationCanvasPresence({
         api: fixture.api,
-        canvasId: "canvas-main",
+        binding: { kind: "local", localProjectId: "project-1", canvasId: "canvas-main" },
         enabled: true,
         sessionConnected: false,
         profileId: "profile-1",
-        selectedProjectId: "project-1",
         activeProjectId: "project-1",
         t
       })
@@ -89,15 +88,14 @@ describe("useCollaborationCanvasPresence", () => {
     });
     vi.stubGlobal("cancelAnimationFrame", vi.fn());
     const fixture = bridgeFixture();
-    expect(fixture.api).not.toHaveProperty("readCollaborationCanvasRuntimeAvailability");
+    expect(fixture.api).not.toHaveProperty("readCollaborationCanvasBindingRuntimeAvailability");
     const { result } = renderHook(() =>
       useCollaborationCanvasPresence({
         api: fixture.api,
-        canvasId: "canvas-main",
+        binding: { kind: "local", localProjectId: "project-1", canvasId: "canvas-main" },
         enabled: true,
         sessionConnected: true,
         profileId: "profile-1",
-        selectedProjectId: "project-1",
         activeProjectId: "project-1",
         t
       })
@@ -141,11 +139,10 @@ describe("useCollaborationCanvasPresence", () => {
       ({ enabled }) =>
         useCollaborationCanvasPresence({
           api: fixture.api,
-          canvasId: "canvas-main",
+          binding: { kind: "local", localProjectId: "project-1", canvasId: "canvas-main" },
           enabled,
           sessionConnected: true,
           profileId: "profile-1",
-          selectedProjectId: "project-1",
           activeProjectId: "project-1",
           t
         }),
@@ -182,7 +179,7 @@ describe("useCollaborationCanvasPresence", () => {
 
   it("resolves an imported local replica before starting presence", async () => {
     const fixture = bridgeFixture();
-    vi.mocked(fixture.api.resolveCollaborationCanvasScope).mockResolvedValue({
+    vi.mocked(fixture.api.resolveCollaborationCanvasBindingScope).mockResolvedValue({
       workspaceId: "workspace-1",
       projectId: "remote-project",
       canvasId: "remote-canvas"
@@ -190,18 +187,22 @@ describe("useCollaborationCanvasPresence", () => {
     const { result } = renderHook(() =>
       useCollaborationCanvasPresence({
         api: fixture.api,
-        canvasId: "default",
+        binding: {
+          kind: "local",
+          localProjectId: "imported-local-project",
+          canvasId: "default"
+        },
         enabled: true,
         sessionConnected: true,
         profileId: "profile-1",
-        selectedProjectId: "imported-local-project",
         activeProjectId: "remote-project",
         t
       })
     );
 
     await waitFor(() =>
-      expect(fixture.api.resolveCollaborationCanvasScope).toHaveBeenCalledWith({
+      expect(fixture.api.resolveCollaborationCanvasBindingScope).toHaveBeenCalledWith({
+        kind: "local",
         localProjectId: "imported-local-project",
         canvasId: "default"
       })
@@ -228,11 +229,10 @@ describe("useCollaborationCanvasPresence", () => {
     const { result } = renderHook(() =>
       useCollaborationCanvasPresence({
         api: fixture.api,
-        canvasId: "canvas-main",
+        binding: { kind: "local", localProjectId: "project-1", canvasId: "canvas-main" },
         enabled: true,
         sessionConnected: true,
         profileId: "profile-1",
-        selectedProjectId: "project-1",
         activeProjectId: "project-1",
         t
       })

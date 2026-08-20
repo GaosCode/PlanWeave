@@ -21,7 +21,7 @@ import { readJsonFile, writeJsonFile } from "../../../runtime/src/json.js";
 import type { ProjectMetadata } from "../../../runtime/src/projectMetadata.js";
 import { getDesktopLayoutDirect } from "../../../runtime/src/desktop/layoutStore.js";
 import { LocalCanvasCommandMaterializer } from "../main/collaboration/LocalCanvasCommandMaterializer.js";
-import { collaborationCanvasSessionInputSchema } from "../shared/collaboration.js";
+import { collaborationCanvasBindingInputSchema } from "../shared/collaboration.js";
 
 const directories: string[] = [];
 const originalHome = process.env.PLANWEAVE_HOME;
@@ -71,7 +71,8 @@ describe("LocalCanvasCommandMaterializer", () => {
     process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE = join(workspace.home, "desktop-settings.json");
 
     expect(
-      collaborationCanvasSessionInputSchema.parse({
+      collaborationCanvasBindingInputSchema.parse({
+        kind: "local",
         localProjectId: workspace.init.workspace.id,
         canvasId: "default"
       })
@@ -80,7 +81,8 @@ describe("LocalCanvasCommandMaterializer", () => {
       canvasId: "default"
     });
     expect(() =>
-      collaborationCanvasSessionInputSchema.parse({
+      collaborationCanvasBindingInputSchema.parse({
+        kind: "local",
         localProjectId: workspace.init.workspace.id,
         canvasId: "default",
         projectRoot: workspace.root

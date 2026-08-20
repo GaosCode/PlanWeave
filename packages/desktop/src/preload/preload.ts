@@ -44,14 +44,13 @@ import {
 } from "../shared/collaboration.js";
 import {
   collaborationCanvasBindingReplicaProjectionSchema,
-  collaborationCanvasReplicaProjectionSchema,
-  collaborationCanvasReplicaSignalSchema
+  collaborationCanvasBindingReplicaSignalSchema
 } from "../shared/canvasReplicaIpc.js";
 import {
   collaborationInvokeChannels,
   collaborationObserverSignalChannel,
   collaborationCanvasLiveSyncSignalChannel,
-  collaborationCanvasReplicaSignalChannel,
+  collaborationCanvasBindingReplicaSignalChannel,
   collaborationPresenceSignalChannel,
   collaborationStatusChangedChannel
 } from "../shared/collaborationIpc.js";
@@ -300,8 +299,6 @@ const collaborationApi: PlanWeaveCollaborationApi = {
     ipcRenderer.invoke(collaborationInvokeChannels.startCollaborationPresence, input),
   stopCollaborationPresence: async () =>
     ipcRenderer.invoke(collaborationInvokeChannels.stopCollaborationPresence),
-  startCollaborationCanvasLiveSync: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.startCollaborationCanvasLiveSync, input),
   startCollaborationCanvasBindingLiveSync: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.startCollaborationCanvasBindingLiveSync, input),
   stopCollaborationCanvasLiveSync: async () =>
@@ -312,42 +309,20 @@ const collaborationApi: PlanWeaveCollaborationApi = {
     ipcRenderer.invoke(collaborationInvokeChannels.submitCollaborationCanvasCommand, input),
   reconnectCollaborationCanvas: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.reconnectCollaborationCanvas, input),
-  bindCollaborationCanvasCommandSession: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.bindCollaborationCanvasCommandSession, input),
   bindCollaborationCanvasBindingSession: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.bindCollaborationCanvasBindingSession, input),
   getCollaborationCanvasCommandSession: async () =>
     ipcRenderer.invoke(collaborationInvokeChannels.getCollaborationCanvasCommandSession),
   flushCollaborationCanvasReplicaMaterialization: async () =>
     ipcRenderer.invoke(collaborationInvokeChannels.flushCollaborationCanvasReplicaMaterialization),
-  resolveCollaborationCanvasScope: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.resolveCollaborationCanvasScope, input),
   resolveCollaborationCanvasBindingScope: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.resolveCollaborationCanvasBindingScope, input),
-  readCollaborationCanvasRuntimeAvailability: async (input) =>
-    canvasRuntimeAvailabilitySchema
-      .nullable()
-      .parse(
-        await ipcRenderer.invoke(
-          collaborationInvokeChannels.readCollaborationCanvasRuntimeAvailability,
-          input
-        )
-      ),
   readCollaborationCanvasBindingRuntimeAvailability: async (input) =>
     canvasRuntimeAvailabilitySchema
       .nullable()
       .parse(
         await ipcRenderer.invoke(
           collaborationInvokeChannels.readCollaborationCanvasBindingRuntimeAvailability,
-          input
-        )
-      ),
-  getCollaborationCanvasReplicaProjection: async (input) =>
-    z
-      .union([collaborationCanvasReplicaProjectionSchema, z.null()])
-      .parse(
-        await ipcRenderer.invoke(
-          collaborationInvokeChannels.getCollaborationCanvasReplicaProjection,
           input
         )
       ),
@@ -360,8 +335,6 @@ const collaborationApi: PlanWeaveCollaborationApi = {
           input
         )
       ),
-  bindCollaborationContentAuthority: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.bindCollaborationContentAuthority, input),
   bindCollaborationCanvasBindingContentAuthority: async (input) =>
     ipcRenderer.invoke(
       collaborationInvokeChannels.bindCollaborationCanvasBindingContentAuthority,
@@ -577,11 +550,11 @@ const collaborationApi: PlanWeaveCollaborationApi = {
     ipcRenderer.on(collaborationCanvasLiveSyncSignalChannel, listener);
     return () => ipcRenderer.off(collaborationCanvasLiveSyncSignalChannel, listener);
   },
-  onCollaborationCanvasReplicaSignal: (callback) => {
+  onCollaborationCanvasBindingReplicaSignal: (callback) => {
     const listener = (_event: IpcRendererEvent, payload: unknown) =>
-      callback(collaborationCanvasReplicaSignalSchema.parse(payload));
-    ipcRenderer.on(collaborationCanvasReplicaSignalChannel, listener);
-    return () => ipcRenderer.off(collaborationCanvasReplicaSignalChannel, listener);
+      callback(collaborationCanvasBindingReplicaSignalSchema.parse(payload));
+    ipcRenderer.on(collaborationCanvasBindingReplicaSignalChannel, listener);
+    return () => ipcRenderer.off(collaborationCanvasBindingReplicaSignalChannel, listener);
   }
 };
 

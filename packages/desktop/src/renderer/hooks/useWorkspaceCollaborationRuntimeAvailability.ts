@@ -1,22 +1,21 @@
-import type { DesktopGraphViewModel, DesktopProjectSummary } from "@planweave-ai/runtime";
+import type { DesktopGraphViewModel } from "@planweave-ai/runtime";
 import { useCollaborationRuntimeAvailability } from "./useCollaborationRuntimeAvailability";
+import type { CollaborationCanvasBindingInput } from "../../shared/collaboration";
 
 export function useWorkspaceCollaborationRuntimeAvailability(input: {
   activeProfileId: string | null;
   activeProjectId: string | null;
   graph: DesktopGraphViewModel | null;
   localOwnerDirectWriteAvailable: boolean;
-  selectedCanvasId: string | null;
-  selectedProject: DesktopProjectSummary | null;
   sessionConnected: boolean;
+  binding: CollaborationCanvasBindingInput | null;
 }) {
   return useCollaborationRuntimeAvailability({
-    enabled: Boolean(input.selectedProject) && !input.localOwnerDirectWriteAvailable,
+    enabled: Boolean(input.binding) && !input.localOwnerDirectWriteAvailable,
     sessionConnected: input.sessionConnected,
     profileId: input.activeProfileId,
     activeProjectId: input.activeProjectId,
-    localProjectId: input.selectedProject?.projectId ?? null,
-    localCanvasId: input.selectedCanvasId,
+    binding: input.binding,
     graph: input.graph
   });
 }

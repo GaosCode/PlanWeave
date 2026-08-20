@@ -138,6 +138,7 @@ export const zhCnCatalog = {
   error: "错误",
   warning: "警告",
   resetLayout: "重置布局",
+  remoteCanvases: "远端画布",
   undoGraphCommand: "撤销图谱修改",
   redoGraphCommand: "重做图谱修改",
   searchPlaceholder: "搜索 task、block、prompt",

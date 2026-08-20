@@ -24,7 +24,7 @@ export type CanvasPresenceBridge = Pick<
   | "stopCollaborationPresence"
   | "publishCollaborationPresence"
   | "onCollaborationPresenceSignal"
-  | "resolveCollaborationCanvasScope"
+  | "resolveCollaborationCanvasBindingScope"
 >;
 
 export type CanvasPresenceRemoteSession = {

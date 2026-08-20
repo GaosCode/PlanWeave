@@ -230,7 +230,13 @@ export function ContentAuthorityPanel({
       );
       return;
     }
-    void run(() => api.bindCollaborationContentAuthority({ localProjectId, canvasId }));
+    void run(() =>
+      api.bindCollaborationCanvasBindingContentAuthority({
+        kind: "local",
+        localProjectId,
+        canvasId
+      })
+    );
   }, [
     api,
     authorityProjectId,
@@ -306,7 +312,13 @@ export function ContentAuthorityPanel({
   };
   const retryBinding = () => {
     if (api && canBindSelectedCanvas && localProjectId && canvasId) {
-      void run(() => api.bindCollaborationContentAuthority({ localProjectId, canvasId }));
+      void run(() =>
+        api.bindCollaborationCanvasBindingContentAuthority({
+          kind: "local",
+          localProjectId,
+          canvasId
+        })
+      );
     }
   };
   return (

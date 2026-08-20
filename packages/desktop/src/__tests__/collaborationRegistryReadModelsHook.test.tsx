@@ -1,8 +1,24 @@
 // @vitest-environment jsdom
 
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { useCollaborationRegistryReadModels } from "../renderer/hooks/useCollaborationRegistryReadModels.js";
+import { useRemoteCanvasWorkspace } from "../renderer/hooks/useRemoteCanvasWorkspace.js";
+
+const canvas = {
+  schemaVersion: "project-access/v1" as const,
+  registry: {
+    projectRegistryId: "project-registry-1",
+    canvasRegistryId: "canvas-registry-1",
+    workspaceId: "workspace-1",
+    projectId: "project-a",
+    canvasId: "canvas-a"
+  },
+  visibility: "workspace" as const,
+  acl: { revision: 1, updatedAt: "2030-01-01T00:00:00.000Z" },
+  owner: "human-1",
+  updatedAt: "2030-01-01T00:00:00.000Z"
+};
 
 describe("useCollaborationRegistryReadModels", () => {
   it("loads project and selected-canvas read models through the typed bridge", async () => {
@@ -54,5 +70,38 @@ describe("useCollaborationRegistryReadModels", () => {
     await waitFor(() => expect(result.current.phase).toBe("error"));
     expect(result.current.error).toBe("collaboration_registry_read_failed");
     expect(result.current.error).not.toContain("/srv");
+  });
+});
+
+describe("useRemoteCanvasWorkspace", () => {
+  it("selects only an authorized canvas with exact remote identity and clears it offline", async () => {
+    const api = {
+      listCollaborationAuthorizedProjects: vi.fn(async () => ({ items: [], nextCursor: null })),
+      listCollaborationAuthorizedCanvases: vi.fn(async () => ({
+        items: [canvas],
+        nextCursor: null
+      }))
+    };
+    const { result, rerender } = renderHook(
+      ({ connected }) =>
+        useRemoteCanvasWorkspace({
+          activeProjectId: "project-a",
+          sessionConnected: connected,
+          api
+        }),
+      { initialProps: { connected: true } }
+    );
+
+    await waitFor(() => expect(result.current.authorizedCanvases).toEqual([canvas]));
+    act(() => result.current.select(canvas));
+    expect(result.current.binding).toEqual({
+      kind: "remote",
+      workspaceId: "workspace-1",
+      projectId: "project-a",
+      canvasId: "canvas-a"
+    });
+
+    rerender({ connected: false });
+    await waitFor(() => expect(result.current.binding).toBeNull());
   });
 });

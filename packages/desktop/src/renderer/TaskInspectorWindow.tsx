@@ -117,11 +117,13 @@ export function TaskInspectorWindow() {
     sharedProjectId === graphProjectId;
   const sharedCanvas = useSharedCanvasCommands({
     api: collaborationBridge,
-    canvasId,
+    binding:
+      sharedProjectId && canvasId
+        ? { kind: "local", localProjectId: sharedProjectId, canvasId }
+        : null,
     enabled: sharedCanvasEnabled,
     sessionConnected,
     profileId: activeCollaborationProfile?.profileId ?? null,
-    selectedProjectId: sharedProjectId,
     activeProjectId: sharedProjectId,
     localOwnerDirectWriteAvailable: false,
     t,

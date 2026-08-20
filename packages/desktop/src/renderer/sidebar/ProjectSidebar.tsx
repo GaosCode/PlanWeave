@@ -14,6 +14,7 @@ import { HistoryNavigationButtons } from "../components/HistoryNavigationButtons
 import { VerticalResizeHandle } from "../components/VerticalResizeHandle";
 import { ProjectTree } from "./ProjectTree";
 import { SidebarNav } from "./SidebarNav";
+import type { CanvasAccessRecord } from "@planweave-ai/collaboration-protocol/access/project";
 
 type TaskCanvasSummary = DesktopProjectSummary["taskCanvases"][number];
 
@@ -68,6 +69,9 @@ type ProjectSidebarProps = {
   selectedProject: DesktopProjectSummary | null;
   selectedCanvasId: string | null;
   selectedTaskPanelId: string | null;
+  remoteCanvases?: CanvasAccessRecord[];
+  selectedRemoteCanvasId?: string | null;
+  onRemoteCanvasSelect?: (canvas: CanvasAccessRecord) => void;
   setActiveView: Dispatch<SetStateAction<AppView>>;
   t: ReturnType<typeof createTranslator>;
   width?: number;
@@ -110,6 +114,9 @@ export function ProjectSidebar({
   selectedProject,
   selectedCanvasId,
   selectedTaskPanelId,
+  remoteCanvases = [],
+  selectedRemoteCanvasId = null,
+  onRemoteCanvasSelect,
   setActiveView,
   t,
   width = 280
@@ -225,6 +232,26 @@ export function ProjectSidebar({
         onSelectView={setActiveView}
         t={t}
       />
+      {remoteCanvases.length > 0 ? (
+        <div className="border-b border-border/80 px-3 py-2" data-testid="remote-canvas-catalog">
+          <div className="mb-1 text-xs text-text-muted">{t("remoteCanvases")}</div>
+          <div className="flex flex-col gap-1">
+            {remoteCanvases.map((canvas) => (
+              <Button
+                key={`${canvas.registry.workspaceId}:${canvas.registry.projectId}:${canvas.registry.canvasId}`}
+                size="sm"
+                variant={
+                  selectedRemoteCanvasId === canvas.registry.canvasId ? "secondary" : "ghost"
+                }
+                className="justify-start"
+                onClick={() => onRemoteCanvasSelect?.(canvas)}
+              >
+                {canvas.registry.canvasId}
+              </Button>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <ProjectTree
         collapsedCanvasIds={collapsedCanvasIds}
         collapsedProjectIds={collapsedProjectIds}

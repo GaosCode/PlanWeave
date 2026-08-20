@@ -63,7 +63,7 @@ export class CollaborationCanvasOperationsFacade {
 
   bindContentAuthority(input: unknown) {
     return this.run(() => {
-      assertNoSmuggledCollaborationSecrets(input, "bindCollaborationContentAuthority");
+      assertNoSmuggledCollaborationSecrets(input, "bindCollaborationCanvasBindingContentAuthority");
       return this.options.contentVersions.bind(input);
     });
   }

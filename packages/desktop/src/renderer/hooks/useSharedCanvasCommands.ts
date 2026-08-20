@@ -8,20 +8,23 @@ import {
   type CanvasCommandLabels
 } from "../collaboration/CanvasCommandController";
 import type { createTranslator } from "../i18n";
-import type { PlanWeaveCollaborationApi } from "../../shared/collaboration";
-import type { CollaborationCanvasReplicaProjection } from "../../shared/canvasReplicaIpc";
+import type {
+  CollaborationCanvasBindingInput,
+  PlanWeaveCollaborationApi
+} from "../../shared/collaboration";
+import type { CollaborationCanvasBindingReplicaProjection } from "../../shared/canvasReplicaIpc";
 
 export type SharedCanvasCommandBridge = CanvasCommandBridge &
   Pick<
     PlanWeaveCollaborationApi,
-    | "resolveCollaborationCanvasScope"
+    | "resolveCollaborationCanvasBindingScope"
     | "onCollaborationObserverSignal"
     | "flushCollaborationCanvasReplicaMaterialization"
   > &
   Partial<
     Pick<
       PlanWeaveCollaborationApi,
-      "getCollaborationCanvasReplicaProjection" | "onCollaborationCanvasReplicaSignal"
+      "getCollaborationCanvasBindingReplicaProjection" | "onCollaborationCanvasBindingReplicaSignal"
     >
   >;
 
@@ -38,12 +41,31 @@ export type SharedCanvasCommandsResult = {
   enabled: boolean;
   snapshot: CanvasCommandControllerSnapshot;
   /** Authoritative in-memory projection used by the shared canvas renderer. */
-  projection: CollaborationCanvasReplicaProjection | null;
+  projection: CollaborationCanvasBindingReplicaProjection | null;
   /** Shared authority is configured but the command session is currently unavailable. */
   offline: boolean;
   submit: (input: { intent: CanvasCommandIntent }) => Promise<SharedCanvasSubmitResult>;
   reconnect: () => Promise<boolean>;
 };
+
+function projectionMatchesBinding(
+  projection: CollaborationCanvasBindingReplicaProjection,
+  binding: CollaborationCanvasBindingInput,
+  scope: { remoteProjectId: string; remoteCanvasId: string }
+): boolean {
+  if (
+    projection.projectId !== scope.remoteProjectId ||
+    projection.canvasId !== scope.remoteCanvasId
+  )
+    return false;
+  return binding.kind === "remote"
+    ? "bindingKind" in projection &&
+        projection.bindingKind === "remote" &&
+        projection.workspaceId === binding.workspaceId
+    : !("bindingKind" in projection) &&
+        projection.localProjectId === binding.localProjectId &&
+        projection.localCanvasId === binding.canvasId;
+}
 
 /**
  * Binds shared-mode canvas command session when collaboration is connected
@@ -53,9 +75,8 @@ export type SharedCanvasCommandsResult = {
 export function useSharedCanvasCommands(input: {
   enabled: boolean;
   sessionConnected: boolean;
-  canvasId: string | null;
+  binding: CollaborationCanvasBindingInput | null;
   profileId: string | null;
-  selectedProjectId: string | null;
   activeProjectId: string | null;
   /** This device owns the selected authority, but its Server is not running. */
   localOwnerDirectWriteAvailable: boolean;
@@ -65,6 +86,29 @@ export function useSharedCanvasCommands(input: {
   onAuthoritativeChange?: () => void | Promise<void>;
 }): SharedCanvasCommandsResult {
   const api = input.api === undefined ? collaborationBridge : input.api;
+  const bindingKind = input.binding?.kind ?? null;
+  const bindingWorkspaceId = input.binding?.kind === "remote" ? input.binding.workspaceId : null;
+  const bindingProjectId =
+    input.binding?.kind === "local"
+      ? input.binding.localProjectId
+      : (input.binding?.projectId ?? null);
+  const bindingCanvasId = input.binding?.canvasId ?? null;
+  const binding = useMemo<CollaborationCanvasBindingInput | null>(
+    () =>
+      bindingKind === "local" && bindingProjectId && bindingCanvasId
+        ? { kind: "local", localProjectId: bindingProjectId, canvasId: bindingCanvasId }
+        : bindingKind === "remote" && bindingWorkspaceId && bindingProjectId && bindingCanvasId
+          ? {
+              kind: "remote",
+              workspaceId: bindingWorkspaceId,
+              projectId: bindingProjectId,
+              canvasId: bindingCanvasId
+            }
+          : null,
+    [bindingCanvasId, bindingKind, bindingProjectId, bindingWorkspaceId]
+  );
+  const canvasId = binding?.canvasId ?? null;
+  const selectedProjectId = bindingProjectId;
   const [scopeResolution, setScopeResolution] = useState<
     | { phase: "idle" }
     | { phase: "resolving"; localProjectId: string; localCanvasId: string }
@@ -79,25 +123,25 @@ export function useSharedCanvasCommands(input: {
   >({ phase: "idle" });
   const currentScope =
     scopeResolution.phase === "resolved" &&
-    scopeResolution.localProjectId === input.selectedProjectId &&
-    scopeResolution.localCanvasId === input.canvasId &&
+    scopeResolution.localProjectId === selectedProjectId &&
+    scopeResolution.localCanvasId === canvasId &&
     scopeResolution.remoteProjectId === input.activeProjectId
       ? scopeResolution
       : null;
   const scopeMayBeShared =
     scopeResolution.phase === "resolving" &&
-    scopeResolution.localProjectId === input.selectedProjectId &&
-    scopeResolution.localCanvasId === input.canvasId;
+    scopeResolution.localProjectId === selectedProjectId &&
+    scopeResolution.localCanvasId === canvasId;
   const scopeKnownUnmapped =
     scopeResolution.phase === "unmapped" &&
-    scopeResolution.localProjectId === input.selectedProjectId &&
-    scopeResolution.localCanvasId === input.canvasId;
+    scopeResolution.localProjectId === selectedProjectId &&
+    scopeResolution.localCanvasId === canvasId;
   const collaborationConfigured =
     input.enabled &&
     !input.localOwnerDirectWriteAvailable &&
-    input.selectedProjectId !== null &&
+    selectedProjectId !== null &&
     input.activeProjectId !== null &&
-    input.canvasId !== null &&
+    canvasId !== null &&
     input.profileId !== null;
   const authorityEnabled =
     collaborationConfigured &&
@@ -125,9 +169,9 @@ export function useSharedCanvasCommands(input: {
   const refreshGenerationRef = useRef(0);
   const refreshScopeIdentity = JSON.stringify([
     input.activeProjectId,
-    input.canvasId,
+    canvasId,
     input.profileId,
-    input.selectedProjectId
+    selectedProjectId
   ]);
   const [snapshot, setSnapshot] = useState<CanvasCommandControllerSnapshot>({
     session: null,
@@ -136,14 +180,16 @@ export function useSharedCanvasCommands(input: {
     lastStaleConflict: null,
     busy: false
   });
-  const [projection, setProjection] = useState<CollaborationCanvasReplicaProjection | null>(null);
+  const [projection, setProjection] = useState<CollaborationCanvasBindingReplicaProjection | null>(
+    null
+  );
   const lastConfirmedProjectionRef = useRef<{
     profileId: string | null;
-    projection: CollaborationCanvasReplicaProjection;
+    projection: CollaborationCanvasBindingReplicaProjection;
   } | null>(null);
 
   const refreshAfterMaterialization = useCallback(() => {
-    if (!api || !onChangeRef.current) return;
+    if (!api || binding?.kind !== "local" || !onChangeRef.current) return;
     const generation = ++refreshGenerationRef.current;
     void api
       .flushCollaborationCanvasReplicaMaterialization()
@@ -156,7 +202,7 @@ export function useSharedCanvasCommands(input: {
           controllerRef.current?.reportRefreshFailure(error);
         }
       });
-  }, [api]);
+  }, [api, binding?.kind]);
 
   useEffect(() => {
     void refreshScopeIdentity;
@@ -169,20 +215,21 @@ export function useSharedCanvasCommands(input: {
     if (
       !api ||
       !collaborationConfigured ||
-      !input.selectedProjectId ||
-      !input.canvasId ||
+      !binding ||
+      !selectedProjectId ||
+      !canvasId ||
       !input.activeProjectId
     ) {
       setScopeResolution({ phase: "idle" });
       return undefined;
     }
-    const localProjectId = input.selectedProjectId;
-    const localCanvasId = input.canvasId;
+    const localProjectId = selectedProjectId;
+    const localCanvasId = canvasId;
     const activeProjectId = input.activeProjectId;
     let active = true;
     setScopeResolution({ phase: "resolving", localProjectId, localCanvasId });
     void api
-      .resolveCollaborationCanvasScope({ localProjectId, canvasId: localCanvasId })
+      .resolveCollaborationCanvasBindingScope(binding)
       .then((scope) => {
         if (!active) return;
         if (!scope || scope.projectId !== activeProjectId) {
@@ -205,13 +252,7 @@ export function useSharedCanvasCommands(input: {
     return () => {
       active = false;
     };
-  }, [
-    api,
-    collaborationConfigured,
-    input.activeProjectId,
-    input.canvasId,
-    input.selectedProjectId
-  ]);
+  }, [api, collaborationConfigured, input.activeProjectId, binding, canvasId, selectedProjectId]);
 
   useEffect(() => {
     if (!api) {
@@ -249,9 +290,9 @@ export function useSharedCanvasCommands(input: {
       setProjection(() =>
         confirmed &&
         confirmed.profileId === input.profileId &&
-        confirmed.projection.localProjectId === input.selectedProjectId &&
-        confirmed.projection.localCanvasId === input.canvasId &&
-        confirmed.projection.projectId === input.activeProjectId
+        binding &&
+        currentScope &&
+        projectionMatchesBinding(confirmed.projection, binding, currentScope)
           ? {
               ...confirmed.projection,
               canEdit: false,
@@ -272,12 +313,10 @@ export function useSharedCanvasCommands(input: {
     const reportRefreshFailure = (error: unknown) => {
       if (active) controller.reportRefreshFailure(error);
     };
-    const acceptsProjection = (candidate: CollaborationCanvasReplicaProjection) =>
-      candidate.localProjectId === localProjectId &&
-      candidate.localCanvasId === localCanvasId &&
-      candidate.projectId === currentScope.remoteProjectId &&
-      candidate.canvasId === currentScope.remoteCanvasId;
-    const publishProjection = (candidate: CollaborationCanvasReplicaProjection) => {
+    if (!binding) return undefined;
+    const acceptsProjection = (candidate: CollaborationCanvasBindingReplicaProjection) =>
+      projectionMatchesBinding(candidate, binding, currentScope);
+    const publishProjection = (candidate: CollaborationCanvasBindingReplicaProjection) => {
       if (candidate.optimisticOperationIds.length === 0) {
         lastConfirmedProjectionRef.current = {
           profileId: input.profileId,
@@ -287,11 +326,8 @@ export function useSharedCanvasCommands(input: {
       setProjection(candidate);
     };
     const refreshReplicaProjection = async () => {
-      if (!activeApi.getCollaborationCanvasReplicaProjection) return;
-      const next = await activeApi.getCollaborationCanvasReplicaProjection({
-        localProjectId,
-        canvasId: localCanvasId
-      });
+      if (!activeApi.getCollaborationCanvasBindingReplicaProjection) return;
+      const next = await activeApi.getCollaborationCanvasBindingReplicaProjection(binding);
       if (active && next && acceptsProjection(next)) publishProjection(next);
     };
     const poll = async (queueWhenBusy = false) => {
@@ -323,11 +359,11 @@ export function useSharedCanvasCommands(input: {
     const bindAndStartPolling = async () => {
       try {
         unsubscribeReplica =
-          activeApi.onCollaborationCanvasReplicaSignal?.((signal) => {
+          activeApi.onCollaborationCanvasBindingReplicaSignal?.((signal) => {
             if (active && acceptsProjection(signal.projection))
               publishProjection(signal.projection);
           }) ?? null;
-        await controller.bind({ localProjectId, canvasId: localCanvasId });
+        await controller.bind(binding);
         if (!active) return;
         const snap = controller.getSnapshot();
         if (!snap.session || snap.lastError) return;
@@ -372,16 +408,11 @@ export function useSharedCanvasCommands(input: {
       unsubscribeReplica?.();
     };
   }, [
-    currentScope?.localCanvasId,
-    currentScope?.localProjectId,
-    currentScope?.remoteCanvasId,
-    currentScope?.remoteProjectId,
+    currentScope,
     api,
-    input.activeProjectId,
-    input.canvasId,
+    binding,
     input.localOwnerDirectWriteAvailable,
     input.profileId,
-    input.selectedProjectId,
     refreshAfterMaterialization,
     sessionEnabled
   ]);
@@ -444,9 +475,9 @@ export function useSharedCanvasCommands(input: {
     const confirmedProjection =
       confirmed &&
       confirmed.profileId === input.profileId &&
-      confirmed.projection.localProjectId === input.selectedProjectId &&
-      confirmed.projection.localCanvasId === input.canvasId &&
-      confirmed.projection.projectId === input.activeProjectId
+      binding &&
+      currentScope &&
+      projectionMatchesBinding(confirmed.projection, binding, currentScope)
         ? confirmed.projection
         : null;
     const retained = confirmedProjection ?? projection;
@@ -459,10 +490,9 @@ export function useSharedCanvasCommands(input: {
       : null;
   }, [
     authorityEnabled,
-    input.activeProjectId,
-    input.canvasId,
+    binding,
     input.profileId,
-    input.selectedProjectId,
+    currentScope,
     projection,
     snapshot.connectionPhase
   ]);
