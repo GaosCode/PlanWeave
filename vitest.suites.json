@@ -103,6 +103,7 @@
         "chromiumAccessibility.test.ts",
         "claimBusScheduler.test.ts",
         "collaborationAccessibility.test.tsx",
+        "collaborationCanvasBinding.test.ts",
         "collaborationCanvasCommands.test.ts",
         "collaborationCanvasLiveSyncSession.test.ts",
         "collaborationCommandHandler.test.ts",

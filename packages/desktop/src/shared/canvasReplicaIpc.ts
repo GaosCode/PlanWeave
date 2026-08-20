@@ -136,6 +136,23 @@ export type CollaborationCanvasReplicaProjection = z.infer<
   typeof collaborationCanvasReplicaProjectionSchema
 >;
 
+export const collaborationRemoteCanvasReplicaProjectionSchema =
+  collaborationCanvasReplicaProjectionSchema
+    .omit({ localProjectId: true, localCanvasId: true })
+    .extend({ bindingKind: z.literal("remote") })
+    .strict();
+export type CollaborationRemoteCanvasReplicaProjection = z.infer<
+  typeof collaborationRemoteCanvasReplicaProjectionSchema
+>;
+
+export const collaborationCanvasBindingReplicaProjectionSchema = z.union([
+  collaborationCanvasReplicaProjectionSchema,
+  collaborationRemoteCanvasReplicaProjectionSchema
+]);
+export type CollaborationCanvasBindingReplicaProjection = z.infer<
+  typeof collaborationCanvasBindingReplicaProjectionSchema
+>;
+
 export const collaborationCanvasReplicaSignalSchema = z
   .object({
     type: z.literal("canvas.replica.changed"),

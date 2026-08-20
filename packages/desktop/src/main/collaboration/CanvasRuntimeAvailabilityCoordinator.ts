@@ -1,8 +1,5 @@
 import type { CanvasRuntimeAvailability } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
-import {
-  collaborationCanvasSessionInputSchema,
-  collaborationContentAuthorityCanvasInputSchema
-} from "../../shared/collaboration.js";
+import { collaborationCanvasBindingInputSchema } from "../../shared/collaboration.js";
 import type { ContentVersionFacade } from "./ContentVersionFacade.js";
 import type { CollaborationCanvasCommandFacade } from "./collaborationCanvasCommands.js";
 import type { CanvasReplicaStore } from "./CanvasReplicaStore.js";
@@ -35,7 +32,7 @@ export class CanvasRuntimeAvailabilityCoordinator {
   }
 
   async readRuntimeAvailability(input: unknown): Promise<CanvasRuntimeAvailability | null> {
-    const requested = collaborationContentAuthorityCanvasInputSchema.parse(input);
+    const requested = collaborationCanvasBindingInputSchema.parse(input);
     const authorityId = this.resolveAuthorityId();
     if (!this.isOnline() || !authorityId) return null;
     const scope = await this.contentVersions.resolveCanvasScope(requested);
@@ -82,7 +79,7 @@ export class CanvasRuntimeAvailabilityCoordinator {
   }
 
   async getReplicaProjection(input: unknown) {
-    const requested = collaborationCanvasSessionInputSchema.parse(input);
+    const requested = collaborationCanvasBindingInputSchema.parse(input);
     const fromBinding = this.canvasCommands.projectionForBinding(requested);
     if (fromBinding) return fromBinding;
     const authorityId = this.resolveAuthorityId();

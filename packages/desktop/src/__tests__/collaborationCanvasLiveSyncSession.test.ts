@@ -107,8 +107,9 @@ describe("CollaborationCanvasLiveSyncSession", () => {
       getClient: () => client,
       getClientProfileId: () => "profile-1",
       resolveCanvasBinding: async ({ localProjectId, canvasId }) => ({
+        kind: "local" as const,
         localProjectId,
-        localCanvasId: canvasId,
+        canvasId,
         remoteProjectId: "project-1",
         remoteCanvasId: `remote-${canvasId}`
       }),
@@ -118,15 +119,15 @@ describe("CollaborationCanvasLiveSyncSession", () => {
     });
 
     client.bindCanvasCommandSession("remote-first");
-    await session.start({ localProjectId: "local-project", canvasId: "first" });
+    await session.start({ kind: "local", localProjectId: "local-project", canvasId: "first" });
     await flush();
     const firstSocket = TestSocket.instances[0];
-    await session.start({ localProjectId: "local-project", canvasId: "first" });
+    await session.start({ kind: "local", localProjectId: "local-project", canvasId: "first" });
     await flush();
     expect(TestSocket.instances).toHaveLength(1);
 
     client.bindCanvasCommandSession("remote-second");
-    await session.start({ localProjectId: "local-project", canvasId: "second" });
+    await session.start({ kind: "local", localProjectId: "local-project", canvasId: "second" });
     await flush();
     const secondSocket = TestSocket.instances[1];
     expect(firstSocket.readyState).toBe(3);
@@ -143,7 +144,7 @@ describe("CollaborationCanvasLiveSyncSession", () => {
 
     // After rebind to second, frames for the first canvas must never be published with the old scope.
     client.bindCanvasCommandSession("remote-first");
-    await session.start({ localProjectId: "local-project", canvasId: "first" });
+    await session.start({ kind: "local", localProjectId: "local-project", canvasId: "first" });
     await flush();
     const reboundSocket = TestSocket.instances.at(-1)!;
     const signalsBefore = signals.length;
@@ -223,8 +224,9 @@ describe("CollaborationCanvasLiveSyncSession", () => {
       getClient: () => client,
       getClientProfileId: () => "profile-1",
       resolveCanvasBinding: async ({ localProjectId, canvasId }) => ({
+        kind: "local" as const,
         localProjectId,
-        localCanvasId: canvasId,
+        canvasId,
         remoteProjectId: "project-1",
         remoteCanvasId: "remote-first"
       }),
@@ -236,18 +238,18 @@ describe("CollaborationCanvasLiveSyncSession", () => {
     });
 
     // First open establishes the socket once.
-    await session.start({ localProjectId: "local-project", canvasId: "first" });
+    await session.start({ kind: "local", localProjectId: "local-project", canvasId: "first" });
     expect(client.starts).toEqual([0]);
     expect(client.listeners).toHaveLength(1);
 
     // Re-start while already connected only re-subscribes — never restarts or stops the owner socket.
-    await session.start({ localProjectId: "local-project", canvasId: "first" });
+    await session.start({ kind: "local", localProjectId: "local-project", canvasId: "first" });
     expect(client.starts).toEqual([0]);
     expect(client.stopCalls).toBe(0);
     expect(client.listeners).toHaveLength(1);
 
     client.revision = 1;
-    await session.start({ localProjectId: "local-project", canvasId: "first" });
+    await session.start({ kind: "local", localProjectId: "local-project", canvasId: "first" });
     // Revision advances are owned by the command facade; session stays subscribe-only.
     expect(client.starts).toEqual([0]);
     expect(client.stopCalls).toBe(0);

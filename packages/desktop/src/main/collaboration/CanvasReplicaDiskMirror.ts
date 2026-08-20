@@ -5,18 +5,21 @@ import {
 } from "./LocalCanvasCommandMaterializer.js";
 import type { CanvasReplicaCommittedSnapshot, CanvasReplicaScope } from "./CanvasReplicaStore.js";
 
+type LocalCanvasReplicaScope = Extract<CanvasReplicaScope, { bindingKind: "local" }>;
+
 type CanvasReplicaMaterializerPort = Pick<
   LocalCanvasCommandMaterializer,
   "bind" | "materializeConfirmed"
 >;
 
 type CanvasReplicaDiskBinding = {
-  scope: CanvasReplicaScope;
+  scope: LocalCanvasReplicaScope;
   local: Promise<LocalCanvasCommandBinding>;
 };
 
-function sameScope(left: CanvasReplicaScope, right: CanvasReplicaScope): boolean {
+function sameScope(left: LocalCanvasReplicaScope, right: CanvasReplicaScope): boolean {
   return (
+    right.bindingKind === "local" &&
     left.authorityId === right.authorityId &&
     left.localProjectId === right.localProjectId &&
     left.localCanvasId === right.localCanvasId &&
@@ -46,7 +49,7 @@ export class CanvasReplicaDiskMirror {
     private readonly materializer: CanvasReplicaMaterializerPort = new LocalCanvasCommandMaterializer()
   ) {}
 
-  async bind(scope: CanvasReplicaScope): Promise<void> {
+  async bind(scope: LocalCanvasReplicaScope): Promise<void> {
     const generation = ++this.generation;
     this.pending = null;
     this.binding = null;

@@ -238,8 +238,9 @@ describe("CollaborationCanvasCommandFacade", () => {
     const facade = new CollaborationCanvasCommandFacade({
       resolveClient: () => client,
       resolveCanvasBinding: async () => ({
+        kind: "local" as const,
         localProjectId: "local-project",
-        localCanvasId: "local-canvas",
+        canvasId: "local-canvas",
         remoteProjectId: "remote-project",
         remoteCanvasId: "remote-canvas"
       }),
@@ -255,10 +256,11 @@ describe("CollaborationCanvasCommandFacade", () => {
     });
 
     await expect(
-      facade.bind({ localProjectId: "local-project", canvasId: "local-canvas" })
+      facade.bind({ kind: "local", localProjectId: "local-project", canvasId: "local-canvas" })
     ).resolves.toEqual(remoteSession);
     expect(client.bindCanvasCommandSession).toHaveBeenCalledWith("remote-canvas");
     expect(mirror.bind).toHaveBeenCalledWith({
+      bindingKind: "local",
       authorityId: "authority-1",
       localProjectId: "local-project",
       localCanvasId: "local-canvas",
@@ -330,8 +332,9 @@ describe("CollaborationCanvasCommandFacade", () => {
     const facade = new CollaborationCanvasCommandFacade({
       resolveClient: () => client,
       resolveCanvasBinding: async () => ({
+        kind: "local" as const,
         localProjectId: "local-project",
-        localCanvasId: "local-canvas",
+        canvasId: "local-canvas",
         remoteProjectId: "remote-project",
         remoteCanvasId: "remote-canvas"
       }),
@@ -344,10 +347,70 @@ describe("CollaborationCanvasCommandFacade", () => {
       store,
       transport
     });
-    await facade.bind({ localProjectId: "local-project", canvasId: "local-canvas" });
+    await facade.bind({ kind: "local", localProjectId: "local-project", canvasId: "local-canvas" });
     const result = await facade.reconnect({ canvasId: "remote-canvas", afterRevision: 1 });
     expect(result.response.type).toBe("canvas.reconnect.delta");
     expect(result.snapshotRequired).toBe(false);
+  });
+
+  it("binds a remote canvas replica without creating a disk mirror binding", async () => {
+    const content = fixtureContent();
+    const store = new CanvasReplicaStore(() => undefined);
+    const transport: CanvasReplicaCommandTransport = {
+      async fetchReconnectBaseline() {
+        return { response: snapshotResponse(content, 1), content };
+      },
+      async reconnect() {
+        return { response: snapshotResponse(content, 1) };
+      },
+      async canPersistCanvasCommand() {
+        return true;
+      },
+      async submit() {
+        throw new Error("unexpected submit");
+      }
+    };
+    const client = makeClient();
+    const mirror = {
+      bind: vi.fn().mockResolvedValue(undefined),
+      flush: vi.fn().mockResolvedValue(undefined),
+      clear: vi.fn()
+    };
+    const remote = {
+      kind: "remote" as const,
+      workspaceId: "workspace-001",
+      projectId: "remote-project",
+      canvasId: "remote-canvas"
+    };
+    const facade = new CollaborationCanvasCommandFacade({
+      resolveClient: () => client,
+      resolveCanvasBinding: async () => ({
+        ...remote,
+        remoteProjectId: remote.projectId,
+        remoteCanvasId: remote.canvasId
+      }),
+      resolveCanvasScope: async () => ({
+        workspaceId: remote.workspaceId,
+        projectId: remote.projectId,
+        canvasId: remote.canvasId
+      }),
+      resolveAuthorityId: () => "authority-remote",
+      store,
+      mirror,
+      transport
+    });
+
+    await facade.bind(remote);
+    expect(mirror.bind).not.toHaveBeenCalled();
+    expect(facade.projectionForBinding(remote)).toMatchObject({
+      bindingKind: "remote",
+      workspaceId: remote.workspaceId,
+      projectId: remote.projectId,
+      canvasId: remote.canvasId
+    });
+    expect(facade.projectionForBinding(remote)).not.toHaveProperty("localProjectId");
+    facade.clearAllSessions();
+    expect(facade.projectionForBinding(remote)).toBeNull();
   });
 
   it("clears replica sessions so late work cannot rebind an old authority", async () => {
@@ -371,8 +434,9 @@ describe("CollaborationCanvasCommandFacade", () => {
     const facade = new CollaborationCanvasCommandFacade({
       resolveClient: () => client,
       resolveCanvasBinding: async () => ({
+        kind: "local" as const,
         localProjectId: "local-project",
-        localCanvasId: "local-canvas",
+        canvasId: "local-canvas",
         remoteProjectId: "remote-project",
         remoteCanvasId: "remote-canvas"
       }),
@@ -385,10 +449,14 @@ describe("CollaborationCanvasCommandFacade", () => {
       store,
       transport
     });
-    await facade.bind({ localProjectId: "local-project", canvasId: "local-canvas" });
+    await facade.bind({ kind: "local", localProjectId: "local-project", canvasId: "local-canvas" });
     facade.clearAllSessions();
     expect(
-      facade.projectionForBinding({ localProjectId: "local-project", canvasId: "local-canvas" })
+      facade.projectionForBinding({
+        kind: "local",
+        localProjectId: "local-project",
+        canvasId: "local-canvas"
+      })
     ).toBeNull();
   });
 
@@ -421,8 +489,9 @@ describe("CollaborationCanvasCommandFacade", () => {
     const facade = new CollaborationCanvasCommandFacade({
       resolveClient: () => client,
       resolveCanvasBinding: async (input) => ({
+        kind: "local" as const,
         localProjectId: input.localProjectId,
-        localCanvasId: input.canvasId,
+        canvasId: input.canvasId,
         remoteProjectId: "remote-project",
         remoteCanvasId: input.canvasId === "local-canvas" ? "remote-canvas" : "remote-canvas-b"
       }),
@@ -436,16 +505,24 @@ describe("CollaborationCanvasCommandFacade", () => {
       transport
     });
 
-    await facade.bind({ localProjectId: "local-project", canvasId: "local-canvas" });
+    await facade.bind({ kind: "local", localProjectId: "local-project", canvasId: "local-canvas" });
     await expect(
-      facade.bind({ localProjectId: "local-project", canvasId: "local-canvas-b" })
+      facade.bind({ kind: "local", localProjectId: "local-project", canvasId: "local-canvas-b" })
     ).rejects.toThrow(/second canvas baseline failed/);
 
     expect(
-      facade.projectionForBinding({ localProjectId: "local-project", canvasId: "local-canvas" })
+      facade.projectionForBinding({
+        kind: "local",
+        localProjectId: "local-project",
+        canvasId: "local-canvas"
+      })
     ).toBeNull();
     expect(
-      facade.projectionForBinding({ localProjectId: "local-project", canvasId: "local-canvas-b" })
+      facade.projectionForBinding({
+        kind: "local",
+        localProjectId: "local-project",
+        canvasId: "local-canvas-b"
+      })
     ).toBeNull();
     expect(
       store.projection({
@@ -528,8 +605,9 @@ describe("CollaborationCanvasCommandFacade", () => {
       resolveCanvasBinding: async (input) => {
         if (input.canvasId === "missing-canvas") return null;
         return {
+          kind: "local" as const,
           localProjectId: "local-project",
-          localCanvasId: "local-canvas",
+          canvasId: "local-canvas",
           remoteProjectId: "remote-project",
           remoteCanvasId: "remote-canvas"
         };
@@ -544,7 +622,7 @@ describe("CollaborationCanvasCommandFacade", () => {
       transport
     });
 
-    await facade.bind({ localProjectId: "local-project", canvasId: "local-canvas" });
+    await facade.bind({ kind: "local", localProjectId: "local-project", canvasId: "local-canvas" });
     const inFlight = facade.submit({
       canvasId: "remote-canvas",
       intent: {
@@ -560,12 +638,16 @@ describe("CollaborationCanvasCommandFacade", () => {
 
     // Mapping failure must tear down the old worker before the late network reply.
     await expect(
-      facade.bind({ localProjectId: "local-project", canvasId: "missing-canvas" })
+      facade.bind({ kind: "local", localProjectId: "local-project", canvasId: "missing-canvas" })
     ).rejects.toMatchObject({ code: "collaboration_canvas_scope_unmapped" });
 
     expect(clearCanvasCommandSession).toHaveBeenCalled();
     expect(
-      facade.projectionForBinding({ localProjectId: "local-project", canvasId: "local-canvas" })
+      facade.projectionForBinding({
+        kind: "local",
+        localProjectId: "local-project",
+        canvasId: "local-canvas"
+      })
     ).toBeNull();
     expect(
       store.projection({
@@ -608,15 +690,17 @@ describe("CollaborationCanvasCommandFacade", () => {
       resolveCanvasBinding: async (input) => {
         if (input.canvasId === "local-canvas-b") {
           return {
+            kind: "local" as const,
             localProjectId: "local-project",
-            localCanvasId: "local-canvas-b",
+            canvasId: "local-canvas-b",
             remoteProjectId: "remote-project",
             remoteCanvasId: "remote-canvas-b"
           };
         }
         return {
+          kind: "local" as const,
           localProjectId: "local-project",
-          localCanvasId: "local-canvas",
+          canvasId: "local-canvas",
           remoteProjectId: "remote-project",
           remoteCanvasId: "remote-canvas"
         };
@@ -641,10 +725,10 @@ describe("CollaborationCanvasCommandFacade", () => {
       transport
     });
 
-    await facade.bind({ localProjectId: "local-project", canvasId: "local-canvas" });
+    await facade.bind({ kind: "local", localProjectId: "local-project", canvasId: "local-canvas" });
     clearCanvasCommandSession.mockClear();
     await expect(
-      facade.bind({ localProjectId: "local-project", canvasId: "local-canvas-b" })
+      facade.bind({ kind: "local", localProjectId: "local-project", canvasId: "local-canvas-b" })
     ).rejects.toMatchObject({ code: "collaboration_canvas_scope_unmapped" });
 
     expect(clearCanvasCommandSession).toHaveBeenCalled();

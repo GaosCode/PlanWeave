@@ -43,6 +43,7 @@ import {
   type PlanWeaveCollaborationApi
 } from "../shared/collaboration.js";
 import {
+  collaborationCanvasBindingReplicaProjectionSchema,
   collaborationCanvasReplicaProjectionSchema,
   collaborationCanvasReplicaSignalSchema
 } from "../shared/canvasReplicaIpc.js";
@@ -301,6 +302,8 @@ const collaborationApi: PlanWeaveCollaborationApi = {
     ipcRenderer.invoke(collaborationInvokeChannels.stopCollaborationPresence),
   startCollaborationCanvasLiveSync: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.startCollaborationCanvasLiveSync, input),
+  startCollaborationCanvasBindingLiveSync: async (input) =>
+    ipcRenderer.invoke(collaborationInvokeChannels.startCollaborationCanvasBindingLiveSync, input),
   stopCollaborationCanvasLiveSync: async () =>
     ipcRenderer.invoke(collaborationInvokeChannels.stopCollaborationCanvasLiveSync),
   publishCollaborationPresence: async (input) =>
@@ -311,18 +314,31 @@ const collaborationApi: PlanWeaveCollaborationApi = {
     ipcRenderer.invoke(collaborationInvokeChannels.reconnectCollaborationCanvas, input),
   bindCollaborationCanvasCommandSession: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.bindCollaborationCanvasCommandSession, input),
+  bindCollaborationCanvasBindingSession: async (input) =>
+    ipcRenderer.invoke(collaborationInvokeChannels.bindCollaborationCanvasBindingSession, input),
   getCollaborationCanvasCommandSession: async () =>
     ipcRenderer.invoke(collaborationInvokeChannels.getCollaborationCanvasCommandSession),
   flushCollaborationCanvasReplicaMaterialization: async () =>
     ipcRenderer.invoke(collaborationInvokeChannels.flushCollaborationCanvasReplicaMaterialization),
   resolveCollaborationCanvasScope: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.resolveCollaborationCanvasScope, input),
+  resolveCollaborationCanvasBindingScope: async (input) =>
+    ipcRenderer.invoke(collaborationInvokeChannels.resolveCollaborationCanvasBindingScope, input),
   readCollaborationCanvasRuntimeAvailability: async (input) =>
     canvasRuntimeAvailabilitySchema
       .nullable()
       .parse(
         await ipcRenderer.invoke(
           collaborationInvokeChannels.readCollaborationCanvasRuntimeAvailability,
+          input
+        )
+      ),
+  readCollaborationCanvasBindingRuntimeAvailability: async (input) =>
+    canvasRuntimeAvailabilitySchema
+      .nullable()
+      .parse(
+        await ipcRenderer.invoke(
+          collaborationInvokeChannels.readCollaborationCanvasBindingRuntimeAvailability,
           input
         )
       ),
@@ -335,8 +351,22 @@ const collaborationApi: PlanWeaveCollaborationApi = {
           input
         )
       ),
+  getCollaborationCanvasBindingReplicaProjection: async (input) =>
+    collaborationCanvasBindingReplicaProjectionSchema
+      .nullable()
+      .parse(
+        await ipcRenderer.invoke(
+          collaborationInvokeChannels.getCollaborationCanvasBindingReplicaProjection,
+          input
+        )
+      ),
   bindCollaborationContentAuthority: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.bindCollaborationContentAuthority, input),
+  bindCollaborationCanvasBindingContentAuthority: async (input) =>
+    ipcRenderer.invoke(
+      collaborationInvokeChannels.bindCollaborationCanvasBindingContentAuthority,
+      input
+    ),
   getCollaborationContentAuthority: async () =>
     ipcRenderer.invoke(collaborationInvokeChannels.getCollaborationContentAuthority),
   refreshCollaborationContentAuthority: async () =>

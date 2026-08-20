@@ -1,5 +1,6 @@
 import {
-  collaborationCanvasLiveSyncInputSchema,
+  collaborationCanvasBindingInputSchema,
+  type CollaborationCanvasBindingInput,
   type CollaborationCanvasLiveSyncSignal
 } from "../../shared/collaboration.js";
 import type { CollaborationClient } from "./CollaborationClient.js";
@@ -23,10 +24,9 @@ export type CollaborationCanvasLiveSyncClientPort = Pick<
 export type CollaborationCanvasLiveSyncSessionHost = {
   getClient(): CollaborationCanvasLiveSyncClientPort | null;
   getClientProfileId(): string | null;
-  resolveCanvasBinding(input: {
-    localProjectId: string;
-    canvasId: string;
-  }): Promise<ResolvedCollaborationCanvasBinding | null>;
+  resolveCanvasBinding(
+    input: CollaborationCanvasBindingInput
+  ): Promise<ResolvedCollaborationCanvasBinding | null>;
   publishCanvasLiveSyncSignal(signal: CollaborationCanvasLiveSyncSignal): void;
   clearDeviceCredential(profileId: string): Promise<void>;
   publishStatus(): Promise<unknown>;
@@ -52,8 +52,6 @@ function messageMatchesRemoteScope(
  */
 export class CollaborationCanvasLiveSyncSession {
   private scope: {
-    localProjectId: string;
-    localCanvasId: string;
     remoteProjectId: string;
     remoteCanvasId: string;
   } | null = null;
@@ -69,7 +67,7 @@ export class CollaborationCanvasLiveSyncSession {
   }
 
   async start(input: unknown): Promise<void> {
-    const parsed = collaborationCanvasLiveSyncInputSchema.parse(input);
+    const parsed = collaborationCanvasBindingInputSchema.parse(input);
     const client = this.host.getClient();
     const profileId = this.host.getClientProfileId();
     if (!client || !profileId) {
@@ -83,8 +81,14 @@ export class CollaborationCanvasLiveSyncSession {
     const commandSession = client.canvasCommandSession();
     if (
       !resolved ||
-      resolved.localProjectId !== parsed.localProjectId ||
-      resolved.localCanvasId !== parsed.canvasId ||
+      resolved.kind !== parsed.kind ||
+      resolved.canvasId !== parsed.canvasId ||
+      (resolved.kind === "local" &&
+        parsed.kind === "local" &&
+        resolved.localProjectId !== parsed.localProjectId) ||
+      (resolved.kind === "remote" &&
+        parsed.kind === "remote" &&
+        (resolved.workspaceId !== parsed.workspaceId || resolved.projectId !== parsed.projectId)) ||
       resolved.remoteProjectId !== client.projectId ||
       !commandSession ||
       commandSession.canvasId !== resolved.remoteCanvasId
@@ -97,8 +101,6 @@ export class CollaborationCanvasLiveSyncSession {
       });
     }
     const nextScope = {
-      localProjectId: resolved.localProjectId,
-      localCanvasId: resolved.localCanvasId,
       remoteProjectId: resolved.remoteProjectId,
       remoteCanvasId: resolved.remoteCanvasId
     };

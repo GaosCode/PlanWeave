@@ -36,19 +36,28 @@ export const collaborationInvokeChannels = {
   startCollaborationPresence: "planweave-collaboration:startPresence",
   stopCollaborationPresence: "planweave-collaboration:stopPresence",
   startCollaborationCanvasLiveSync: "planweave-collaboration:startCanvasLiveSync",
+  startCollaborationCanvasBindingLiveSync: "planweave-collaboration:startCanvasBindingLiveSync",
   stopCollaborationCanvasLiveSync: "planweave-collaboration:stopCanvasLiveSync",
   publishCollaborationPresence: "planweave-collaboration:publishPresence",
   submitCollaborationCanvasCommand: "planweave-collaboration:submitCanvasCommand",
   reconnectCollaborationCanvas: "planweave-collaboration:reconnectCanvas",
   bindCollaborationCanvasCommandSession: "planweave-collaboration:bindCanvasCommandSession",
+  bindCollaborationCanvasBindingSession: "planweave-collaboration:bindCanvasBindingSession",
   getCollaborationCanvasCommandSession: "planweave-collaboration:getCanvasCommandSession",
   flushCollaborationCanvasReplicaMaterialization:
     "planweave-collaboration:flushCanvasReplicaMaterialization",
   resolveCollaborationCanvasScope: "planweave-collaboration:resolveCanvasScope",
+  resolveCollaborationCanvasBindingScope: "planweave-collaboration:resolveCanvasBindingScope",
   readCollaborationCanvasRuntimeAvailability:
     "planweave-collaboration:readCanvasRuntimeAvailability",
+  readCollaborationCanvasBindingRuntimeAvailability:
+    "planweave-collaboration:readCanvasBindingRuntimeAvailability",
   getCollaborationCanvasReplicaProjection: "planweave-collaboration:getCanvasReplicaProjection",
+  getCollaborationCanvasBindingReplicaProjection:
+    "planweave-collaboration:getCanvasBindingReplicaProjection",
   bindCollaborationContentAuthority: "planweave-collaboration:bindContentAuthority",
+  bindCollaborationCanvasBindingContentAuthority:
+    "planweave-collaboration:bindCanvasBindingContentAuthority",
   getCollaborationContentAuthority: "planweave-collaboration:getContentAuthority",
   refreshCollaborationContentAuthority: "planweave-collaboration:refreshContentAuthority",
   publishCollaborationInitialContent: "planweave-collaboration:publishInitialContent",

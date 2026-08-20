@@ -28,6 +28,7 @@ function content() {
 
 function scope(authorityId = "authority-1"): CanvasReplicaScope {
   return {
+    bindingKind: "local",
     authorityId,
     localProjectId: "local-project",
     localCanvasId: "local-canvas",

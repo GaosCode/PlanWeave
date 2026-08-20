@@ -506,6 +506,7 @@ describe("CanvasRuntimeAvailabilityCoordinator", () => {
 
     await expect(
       fixture.coordinator.readRuntimeAvailability({
+        kind: "local",
         localProjectId: "local-project",
         canvasId: "default"
       })
@@ -528,6 +529,7 @@ describe("CanvasRuntimeAvailabilityCoordinator", () => {
 
     await expect(
       fixture.coordinator.readRuntimeAvailability({
+        kind: "local",
         localProjectId: "local-project",
         canvasId: "default"
       })
@@ -550,6 +552,7 @@ describe("CanvasRuntimeAvailabilityCoordinator", () => {
     );
 
     const pending = fixture.coordinator.readRuntimeAvailability({
+      kind: "local",
       localProjectId: "local-project",
       canvasId: "default"
     });
@@ -578,6 +581,7 @@ describe("CanvasRuntimeAvailabilityCoordinator", () => {
     );
 
     const pending = fixture.coordinator.readRuntimeAvailability({
+      kind: "local",
       localProjectId: "local-project",
       canvasId: "default"
     });

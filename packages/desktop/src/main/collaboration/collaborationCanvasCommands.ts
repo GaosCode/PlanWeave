@@ -10,9 +10,9 @@ import { type CanvasLiveSyncServerMessage } from "@planweave-ai/collaboration-pr
 import { type CompleteContentVersion } from "@planweave-ai/collaboration-protocol/content/version";
 import { z } from "zod";
 import {
-  collaborationCanvasSessionInputSchema,
-  type CollaborationCanvasScopeResolution,
-  type CollaborationCanvasSessionInput
+  collaborationCanvasBindingInputSchema,
+  type CollaborationCanvasBindingInput,
+  type CollaborationCanvasScopeResolution
 } from "../../shared/collaboration.js";
 import type { CollaborationClient } from "./CollaborationClient.js";
 import type { ResolvedCollaborationCanvasBinding } from "./ContentVersionFacade.js";
@@ -111,10 +111,10 @@ type CanvasCommandClientPort = Pick<
 export type CollaborationCanvasCommandFacadeDeps = {
   resolveClient: () => CanvasCommandClientPort | null;
   resolveCanvasBinding: (
-    input: CollaborationCanvasSessionInput
+    input: CollaborationCanvasBindingInput
   ) => Promise<ResolvedCollaborationCanvasBinding | null>;
   resolveCanvasScope: (
-    input: CollaborationCanvasSessionInput
+    input: CollaborationCanvasBindingInput
   ) => Promise<CollaborationCanvasScopeResolution | null>;
   resolveAuthorityId: () => string | null;
   store: CanvasReplicaStore;
@@ -342,7 +342,7 @@ export class CollaborationCanvasCommandFacade {
   }
 
   async bind(input: unknown): Promise<CollaborationCanvasCommandSessionView> {
-    const parsed = collaborationCanvasSessionInputSchema.parse(input);
+    const parsed = collaborationCanvasBindingInputSchema.parse(input);
     const client = requireClient(this.resolveClient());
     const authorityId = this.resolveAuthorityId();
     if (!authorityId) {
@@ -357,8 +357,7 @@ export class CollaborationCanvasCommandFacade {
     const resolved = await this.resolveCanvasBinding(parsed);
     if (
       !resolved ||
-      resolved.localProjectId !== parsed.localProjectId ||
-      resolved.localCanvasId !== parsed.canvasId ||
+      !sameBinding(resolved, parsed) ||
       resolved.remoteProjectId !== client.projectId
     ) {
       this.unbindCurrent(client);
@@ -388,17 +387,24 @@ export class CollaborationCanvasCommandFacade {
     // facade pointing at a cleared scope.
     this.unbindCurrent(client);
 
-    const scope: CanvasReplicaScope = {
+    const remoteReplicaScope = {
       authorityId,
-      localProjectId: resolved.localProjectId,
-      localCanvasId: resolved.localCanvasId,
       workspaceId: remoteScope.workspaceId,
       projectId: remoteScope.projectId,
       canvasId: remoteScope.canvasId
     };
+    const scope: CanvasReplicaScope =
+      resolved.kind === "local"
+        ? {
+            ...remoteReplicaScope,
+            bindingKind: "local",
+            localProjectId: resolved.localProjectId,
+            localCanvasId: resolved.canvasId
+          }
+        : { ...remoteReplicaScope, bindingKind: "remote" };
 
     try {
-      await this.mirror?.bind(scope);
+      if (scope.bindingKind === "local") await this.mirror?.bind(scope);
       await this.worker.bind(scope);
       this.binding = {
         scope,
@@ -421,13 +427,9 @@ export class CollaborationCanvasCommandFacade {
     return client?.canvasCommandSession() ?? null;
   }
 
-  projectionForBinding(input: CollaborationCanvasSessionInput) {
+  projectionForBinding(input: CollaborationCanvasBindingInput) {
     const binding = this.binding;
-    if (
-      !binding ||
-      binding.scope.localProjectId !== input.localProjectId ||
-      binding.scope.localCanvasId !== input.canvasId
-    ) {
+    if (!binding || !scopeMatchesBinding(binding.scope, input)) {
       return null;
     }
     return this.store.projection(binding.scope);
@@ -658,4 +660,31 @@ export class CollaborationCanvasCommandFacade {
     }
     return binding;
   }
+}
+
+function sameBinding(
+  resolved: ResolvedCollaborationCanvasBinding,
+  requested: CollaborationCanvasBindingInput
+): boolean {
+  if (resolved.kind !== requested.kind || resolved.canvasId !== requested.canvasId) return false;
+  return resolved.kind === "local" && requested.kind === "local"
+    ? resolved.localProjectId === requested.localProjectId
+    : resolved.kind === "remote" &&
+        requested.kind === "remote" &&
+        resolved.workspaceId === requested.workspaceId &&
+        resolved.projectId === requested.projectId;
+}
+
+function scopeMatchesBinding(
+  scope: CanvasReplicaScope,
+  requested: CollaborationCanvasBindingInput
+): boolean {
+  if (scope.bindingKind !== requested.kind || scope.canvasId !== requested.canvasId) return false;
+  return scope.bindingKind === "local" && requested.kind === "local"
+    ? scope.localProjectId === requested.localProjectId &&
+        scope.localCanvasId === requested.canvasId
+    : scope.bindingKind === "remote" &&
+        requested.kind === "remote" &&
+        scope.workspaceId === requested.workspaceId &&
+        scope.projectId === requested.projectId;
 }

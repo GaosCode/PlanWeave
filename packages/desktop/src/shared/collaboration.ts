@@ -1,8 +1,14 @@
 import { z } from "zod";
 import type {
+  CollaborationCanvasBindingReplicaProjection,
   CollaborationCanvasReplicaProjection,
   CollaborationCanvasReplicaSignal
 } from "./canvasReplicaIpc.js";
+import type {
+  CollaborationCanvasBindingInput,
+  CollaborationCanvasSessionInput,
+  CollaborationContentAuthorityCanvasInput
+} from "./collaborationCanvasBinding.js";
 import type {
   ExportServerDataArchiveInput,
   ExportServerDataArchiveResult,
@@ -610,13 +616,17 @@ export type CollaborationCanvasReconnectInput = z.infer<
   typeof collaborationCanvasReconnectInputSchema
 >;
 
-export const collaborationCanvasSessionInputSchema = z
-  .object({
-    localProjectId: collaborationOpaqueIdSchema,
-    canvasId: collaborationOpaqueIdSchema
-  })
-  .strict();
-export type CollaborationCanvasSessionInput = z.infer<typeof collaborationCanvasSessionInputSchema>;
+export {
+  asLocalCollaborationCanvasBinding,
+  collaborationCanvasBindingInputSchema,
+  collaborationCanvasSessionInputSchema,
+  collaborationContentAuthorityCanvasInputSchema,
+  type CollaborationCanvasBindingInput,
+  type CollaborationCanvasSessionInput,
+  type CollaborationContentAuthorityCanvasInput,
+  type LocalCollaborationCanvasBindingInput,
+  type RemoteCollaborationCanvasBindingInput
+} from "./collaborationCanvasBinding.js";
 
 export type CollaborationCanvasCommandSessionView = {
   canvasId: string;
@@ -645,16 +655,6 @@ export type CollaborationCanvasReconnectResult = {
   session: CollaborationCanvasCommandSessionView | null;
 };
 
-/** Renderer supplies opaque local identities only; main resolves and verifies disk paths. */
-export const collaborationContentAuthorityCanvasInputSchema = z
-  .object({
-    localProjectId: collaborationOpaqueIdSchema,
-    canvasId: collaborationOpaqueIdSchema
-  })
-  .strict();
-export type CollaborationContentAuthorityCanvasInput = z.infer<
-  typeof collaborationContentAuthorityCanvasInputSchema
->;
 export const collaborationCanvasScopeResolutionSchema = z
   .object({
     workspaceId: workspaceIdSchema,
@@ -834,6 +834,9 @@ export type PlanWeaveCollaborationApi = {
   startCollaborationPresence: (input: CollaborationPresenceCanvasInput) => Promise<void>;
   stopCollaborationPresence: () => Promise<void>;
   startCollaborationCanvasLiveSync: (input: CollaborationCanvasLiveSyncInput) => Promise<void>;
+  startCollaborationCanvasBindingLiveSync: (
+    input: CollaborationCanvasBindingInput
+  ) => Promise<void>;
   stopCollaborationCanvasLiveSync: () => Promise<void>;
   publishCollaborationPresence: (input: CollaborationPresenceUpdateInput) => Promise<void>;
   submitCollaborationCanvasCommand: (
@@ -845,19 +848,34 @@ export type PlanWeaveCollaborationApi = {
   bindCollaborationCanvasCommandSession: (
     input: CollaborationCanvasSessionInput
   ) => Promise<CollaborationCanvasCommandSessionView | null>;
+  bindCollaborationCanvasBindingSession: (
+    input: CollaborationCanvasBindingInput
+  ) => Promise<CollaborationCanvasCommandSessionView | null>;
   getCollaborationCanvasCommandSession: () => Promise<CollaborationCanvasCommandSessionView | null>;
   flushCollaborationCanvasReplicaMaterialization: () => Promise<void>;
   resolveCollaborationCanvasScope: (
     input: CollaborationContentAuthorityCanvasInput
   ) => Promise<CollaborationCanvasScopeResolution | null>;
+  resolveCollaborationCanvasBindingScope: (
+    input: CollaborationCanvasBindingInput
+  ) => Promise<CollaborationCanvasScopeResolution | null>;
   readCollaborationCanvasRuntimeAvailability: (
     input: CollaborationContentAuthorityCanvasInput
+  ) => Promise<CanvasRuntimeAvailability | null>;
+  readCollaborationCanvasBindingRuntimeAvailability: (
+    input: CollaborationCanvasBindingInput
   ) => Promise<CanvasRuntimeAvailability | null>;
   getCollaborationCanvasReplicaProjection: (
     input: CollaborationCanvasSessionInput
   ) => Promise<CollaborationCanvasReplicaProjection | null>;
+  getCollaborationCanvasBindingReplicaProjection: (
+    input: CollaborationCanvasBindingInput
+  ) => Promise<CollaborationCanvasBindingReplicaProjection | null>;
   bindCollaborationContentAuthority: (
     input: CollaborationContentAuthorityCanvasInput
+  ) => Promise<CollaborationContentAuthorityView>;
+  bindCollaborationCanvasBindingContentAuthority: (
+    input: CollaborationCanvasBindingInput
   ) => Promise<CollaborationContentAuthorityView>;
   getCollaborationContentAuthority: () => Promise<CollaborationContentAuthorityView | null>;
   refreshCollaborationContentAuthority: () => Promise<CollaborationContentAuthorityView>;

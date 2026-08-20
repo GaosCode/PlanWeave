@@ -196,7 +196,11 @@ export class CollaborationService {
     this.bindLiveOperatorToOrigin = options.bindLiveOperatorToOrigin;
     this.canvasReplicaMirror = new CanvasReplicaDiskMirror();
     this.canvasReplicas = new CanvasReplicaStore(
-      (projection) => this.onCanvasReplicaSignal?.({ type: "canvas.replica.changed", projection }),
+      (projection) => {
+        if (!("bindingKind" in projection)) {
+          this.onCanvasReplicaSignal?.({ type: "canvas.replica.changed", projection });
+        }
+      },
       (snapshot) => this.canvasReplicaMirror.capture(snapshot)
     );
     this.registryService = new CollaborationRegistryService(() => this.client);

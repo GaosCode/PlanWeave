@@ -21,13 +21,15 @@ import {
   resolveTaskCanvasWorkspace
 } from "@planweave-ai/runtime";
 import {
-  collaborationContentAuthorityCanvasInputSchema,
+  collaborationCanvasBindingInputSchema,
   collaborationCanvasScopeResolutionSchema,
   collaborationContentBootstrapCandidateSchema,
   collaborationContentBootstrapInputSchema,
   collaborationContentBootstrapResultSchema,
   type CollaborationContentBootstrapCandidate,
-  type CollaborationContentBootstrapResult
+  type CollaborationContentBootstrapResult,
+  type CollaborationCanvasBindingInput,
+  type RemoteCollaborationCanvasBindingInput
 } from "../../shared/collaboration.js";
 import type { CollaborationClient } from "./CollaborationClient.js";
 import {
@@ -43,6 +45,7 @@ import { CollaborationClientError } from "./collaborationErrors.js";
 import type { CanvasReplicaScope } from "./CanvasReplicaStore.js";
 
 type LocalCanvasBinding = {
+  kind: "local";
   clientFingerprint: string;
   authorityProjectId: string;
   remoteCanvasId: string;
@@ -52,9 +55,14 @@ type LocalCanvasBinding = {
   expectedPackageDir: string;
 };
 
-export type ResolvedCollaborationCanvasBinding = {
-  localProjectId: string;
-  localCanvasId: string;
+type RemoteCanvasBinding = RemoteCollaborationCanvasBindingInput & {
+  clientFingerprint: string;
+  remoteCanvasId: string;
+};
+
+type CanvasBinding = LocalCanvasBinding | RemoteCanvasBinding;
+
+export type ResolvedCollaborationCanvasBinding = CollaborationCanvasBindingInput & {
   remoteProjectId: string;
   remoteCanvasId: string;
 };
@@ -77,7 +85,7 @@ function unavailable(code: string, retryable = false): CollaborationClientError 
 
 /** Main-only authority workflow. Renderer receives only redacted content refs/read models. */
 export class ContentVersionFacade {
-  private binding: LocalCanvasBinding | null = null;
+  private binding: CanvasBinding | null = null;
   private lastModel: ContentVersionDesktopReadModel | null = null;
 
   constructor(
@@ -91,9 +99,18 @@ export class ContentVersionFacade {
   ) {}
 
   async bind(input: unknown): Promise<ContentVersionDesktopReadModel> {
-    const { localProjectId, canvasId } =
-      collaborationContentAuthorityCanvasInputSchema.parse(input);
+    const requested = collaborationCanvasBindingInputSchema.parse(input);
     const client = this.requireClient();
+    if (requested.kind === "remote") {
+      await this.authorizeRemoteCanvas(client, requested);
+      this.binding = {
+        ...requested,
+        clientFingerprint: this.clientFingerprint(client),
+        remoteCanvasId: requested.canvasId
+      };
+      return this.refresh();
+    }
+    const { localProjectId, canvasId } = requested;
     const mapped = (await this.replicas.list()).find(
       (replica) =>
         replica.remote.serverOrigin === this.serverOrigin(client) &&
@@ -298,15 +315,25 @@ export class ContentVersionFacade {
   }
 
   async resolveCanvasBinding(input: unknown): Promise<ResolvedCollaborationCanvasBinding | null> {
-    const { localProjectId, canvasId } =
-      collaborationContentAuthorityCanvasInputSchema.parse(input);
+    const requested = collaborationCanvasBindingInputSchema.parse(input);
     const client = this.resolveClient();
     const authority = await this.authorityContext(client);
     if (!authority) return null;
+    if (requested.kind === "remote") {
+      if (!client || requested.projectId !== client.projectId) return null;
+      const canvas = await this.authorizeRemoteCanvas(client, requested);
+      return {
+        ...requested,
+        remoteProjectId: canvas.registry.projectId,
+        remoteCanvasId: canvas.registry.canvasId
+      };
+    }
+    const { localProjectId, canvasId } = requested;
     if (client && localProjectId === client.projectId) {
       return {
+        kind: "local",
         localProjectId,
-        localCanvasId: canvasId,
+        canvasId,
         remoteProjectId: client.projectId,
         remoteCanvasId: canvasId
       };
@@ -321,8 +348,9 @@ export class ContentVersionFacade {
     );
     return replica
       ? {
+          kind: "local",
           localProjectId: replica.local.projectId,
-          localCanvasId: replica.local.canvasId,
+          canvasId: replica.local.canvasId,
           remoteProjectId: replica.remote.projectId,
           remoteCanvasId: replica.remote.canvasId
         }
@@ -336,7 +364,7 @@ export class ContentVersionFacade {
    * Does not materialize disk. Content-authority revision is intentionally not returned.
    */
   async readCanvasReplicaBaseline(input: unknown): Promise<CanvasReplicaBaseline> {
-    const requested = collaborationContentAuthorityCanvasInputSchema.parse(input);
+    const requested = collaborationCanvasBindingInputSchema.parse(input);
     const client = this.requireClient();
     const binding = await this.resolveCanvasBinding(requested);
     if (!binding) throw unavailable("canvas_replica_scope_unmapped", false);
@@ -384,8 +412,13 @@ export class ContentVersionFacade {
     return {
       scope: {
         authorityId: this.clientFingerprint(client),
-        localProjectId: binding.localProjectId,
-        localCanvasId: binding.localCanvasId,
+        ...(binding.kind === "local"
+          ? {
+              bindingKind: "local" as const,
+              localProjectId: binding.localProjectId,
+              localCanvasId: binding.canvasId
+            }
+          : { bindingKind: "remote" as const }),
         workspaceId: scope.workspaceId,
         projectId: scope.projectId,
         canvasId: scope.canvasId
@@ -401,10 +434,15 @@ export class ContentVersionFacade {
   }
 
   async resolveCanvasScope(input: unknown) {
-    const requested = collaborationContentAuthorityCanvasInputSchema.parse(input);
+    const requested = collaborationCanvasBindingInputSchema.parse(input);
     const client = this.resolveClient();
     const authority = await this.authorityContext(client);
     if (!authority) return null;
+    if (requested.kind === "remote") {
+      if (!client || requested.projectId !== client.projectId) return null;
+      const canvas = await this.authorizeRemoteCanvas(client, requested);
+      return collaborationCanvasScopeResolutionSchema.parse(canvas.registry);
+    }
     if (!client) {
       const replica = (await this.replicas.list()).find(
         (candidate) =>
@@ -460,15 +498,18 @@ export class ContentVersionFacade {
   }
 
   async readRuntimeAvailability(input: unknown): Promise<CanvasRuntimeAvailability | null> {
-    const requested = collaborationContentAuthorityCanvasInputSchema.parse(input);
+    const requested = collaborationCanvasBindingInputSchema.parse(input);
     const client = this.requireClient();
     const authority = await this.authorityContext(client);
     if (!authority) return null;
-    const cacheKey = {
-      ...authority,
-      localProjectId: requested.localProjectId,
-      localCanvasId: requested.canvasId
-    };
+    const cacheKey =
+      requested.kind === "local"
+        ? {
+            ...authority,
+            localProjectId: requested.localProjectId,
+            localCanvasId: requested.canvasId
+          }
+        : null;
     const scope = await this.resolveCanvasScope(requested);
     if (!scope) return null;
     const availability = await client.readRuntimeAvailability(scope.canvasId);
@@ -480,16 +521,16 @@ export class ContentVersionFacade {
     ) {
       throw unavailable("runtime_availability_scope_mismatch", false);
     }
-    return this.runtimeAvailabilities.put(cacheKey, availability);
+    return cacheKey ? this.runtimeAvailabilities.put(cacheKey, availability) : availability;
   }
 
   async refresh(): Promise<ContentVersionDesktopReadModel> {
     const client = this.requireClient();
     const binding = this.requireBinding(client);
-    const local = await this.collect(binding);
+    const local = binding.kind === "local" ? await this.collect(binding) : null;
     const discovered = await client.discoverContentAuthority({
       canvasId: binding.remoteCanvasId,
-      localReplica: local.ref,
+      localReplica: local?.ref ?? null,
       knownRevision: this.lastModel?.authoritativeHead?.revision ?? null
     });
     this.lastModel = contentVersionDesktopReadModelSchema.parse(
@@ -500,7 +541,7 @@ export class ContentVersionFacade {
 
   async publishInitial(): Promise<ContentVersionDesktopReadModel> {
     const client = this.requireClient();
-    const binding = this.requireBinding(client);
+    const binding = this.requireLocalBinding(client);
     const local = await this.collect(binding);
     const published = await client.publishInitialContent({
       canvasId: binding.remoteCanvasId,
@@ -518,7 +559,7 @@ export class ContentVersionFacade {
 
   async materializeHead(): Promise<ContentVersionDesktopReadModel> {
     const client = this.requireClient();
-    const binding = this.requireBinding(client);
+    const binding = this.requireLocalBinding(client);
     const model = await this.refresh();
     const head = model.authoritativeHead;
     if (!head || !model.canMaterialize)
@@ -557,7 +598,7 @@ export class ContentVersionFacade {
     return client;
   }
 
-  private requireBinding(client: CollaborationClient): LocalCanvasBinding {
+  private requireBinding(client: CollaborationClient): CanvasBinding {
     if (!this.binding) throw unavailable("content_canvas_binding_required", false);
     if (this.binding.clientFingerprint !== this.clientFingerprint(client)) {
       this.binding = null;
@@ -565,6 +606,14 @@ export class ContentVersionFacade {
       throw unavailable("content_canvas_binding_scope_mismatch", false);
     }
     return this.binding;
+  }
+
+  private requireLocalBinding(client: CollaborationClient): LocalCanvasBinding {
+    const binding = this.requireBinding(client);
+    if (binding.kind !== "local") {
+      throw unavailable("content_local_canvas_binding_required", false);
+    }
+    return binding;
   }
 
   private async bindLocal(
@@ -596,6 +645,7 @@ export class ContentVersionFacade {
       throw unavailable("content_local_project_scope_mismatch", false);
     }
     return {
+      kind: "local",
       clientFingerprint: this.clientFingerprint(client),
       authorityProjectId: client.projectId,
       remoteCanvasId,
@@ -692,6 +742,25 @@ export class ContentVersionFacade {
       if (page.nextCursor === null) return items;
       cursor = page.nextCursor;
     }
+  }
+
+  private async authorizeRemoteCanvas(
+    client: CollaborationClient,
+    requested: RemoteCollaborationCanvasBindingInput
+  ): Promise<CanvasAccessRecord> {
+    if (requested.projectId !== client.projectId) {
+      throw unavailable("content_remote_project_profile_mismatch", false);
+    }
+    const matches = (await this.listAuthorizedCanvases(client)).filter(
+      (candidate) =>
+        candidate.registry.workspaceId === requested.workspaceId &&
+        candidate.registry.projectId === requested.projectId &&
+        candidate.registry.canvasId === requested.canvasId
+    );
+    if (matches.length > 1) throw unavailable("content_remote_canvas_scope_ambiguous", false);
+    const canvas = matches[0];
+    if (!canvas) throw unavailable("content_remote_canvas_not_authorized", false);
+    return canvas;
   }
 
   private async acknowledgeCurrentHead(

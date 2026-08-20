@@ -14,6 +14,9 @@ import {
 import { collaborationInvitationHandoffResponseSchema } from "@planweave-ai/collaboration-protocol/handoff/invitation";
 import { canvasRuntimeAvailabilitySchema } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import {
+  asLocalCollaborationCanvasBinding,
+  collaborationCanvasBindingInputSchema,
+  collaborationCanvasSessionInputSchema,
   collaborationContentBootstrapCandidateSchema,
   collaborationInvokeChannels,
   collaborationObserverSignalChannel,
@@ -386,7 +389,15 @@ export function registerCollaborationHandlers(
   );
   ipcMain.handle(
     collaborationInvokeChannels.startCollaborationCanvasLiveSync,
-    (_event, input: unknown) => active.startCanvasLiveSync(input)
+    (_event, input: unknown) =>
+      active.startCanvasLiveSync(
+        asLocalCollaborationCanvasBinding(collaborationCanvasSessionInputSchema.parse(input))
+      )
+  );
+  ipcMain.handle(
+    collaborationInvokeChannels.startCollaborationCanvasBindingLiveSync,
+    (_event, input: unknown) =>
+      active.startCanvasLiveSync(collaborationCanvasBindingInputSchema.parse(input))
   );
   ipcMain.handle(collaborationInvokeChannels.stopCollaborationCanvasLiveSync, () =>
     active.stopCanvasLiveSync()
@@ -405,7 +416,15 @@ export function registerCollaborationHandlers(
   );
   ipcMain.handle(
     collaborationInvokeChannels.bindCollaborationCanvasCommandSession,
-    (_event, input: unknown) => active.bindCanvasCommandSession(input)
+    (_event, input: unknown) =>
+      active.bindCanvasCommandSession(
+        asLocalCollaborationCanvasBinding(collaborationCanvasSessionInputSchema.parse(input))
+      )
+  );
+  ipcMain.handle(
+    collaborationInvokeChannels.bindCollaborationCanvasBindingSession,
+    (_event, input: unknown) =>
+      active.bindCanvasCommandSession(collaborationCanvasBindingInputSchema.parse(input))
   );
   ipcMain.handle(collaborationInvokeChannels.getCollaborationCanvasCommandSession, () =>
     active.getCanvasCommandSession()
@@ -415,22 +434,61 @@ export function registerCollaborationHandlers(
   );
   ipcMain.handle(
     collaborationInvokeChannels.resolveCollaborationCanvasScope,
-    (_event, input: unknown) => active.resolveCanvasScope(input)
+    (_event, input: unknown) =>
+      active.resolveCanvasScope(
+        asLocalCollaborationCanvasBinding(collaborationCanvasSessionInputSchema.parse(input))
+      )
+  );
+  ipcMain.handle(
+    collaborationInvokeChannels.resolveCollaborationCanvasBindingScope,
+    (_event, input: unknown) =>
+      active.resolveCanvasScope(collaborationCanvasBindingInputSchema.parse(input))
   );
   ipcMain.handle(
     collaborationInvokeChannels.readCollaborationCanvasRuntimeAvailability,
     async (_event, input: unknown) =>
       canvasRuntimeAvailabilitySchema
         .nullable()
-        .parse(await active.readCanvasRuntimeAvailability(input))
+        .parse(
+          await active.readCanvasRuntimeAvailability(
+            asLocalCollaborationCanvasBinding(collaborationCanvasSessionInputSchema.parse(input))
+          )
+        )
+  );
+  ipcMain.handle(
+    collaborationInvokeChannels.readCollaborationCanvasBindingRuntimeAvailability,
+    async (_event, input: unknown) =>
+      canvasRuntimeAvailabilitySchema
+        .nullable()
+        .parse(
+          await active.readCanvasRuntimeAvailability(
+            collaborationCanvasBindingInputSchema.parse(input)
+          )
+        )
   );
   ipcMain.handle(
     collaborationInvokeChannels.getCollaborationCanvasReplicaProjection,
-    (_event, input: unknown) => active.getCanvasReplicaProjection(input)
+    (_event, input: unknown) =>
+      active.getCanvasReplicaProjection(
+        asLocalCollaborationCanvasBinding(collaborationCanvasSessionInputSchema.parse(input))
+      )
+  );
+  ipcMain.handle(
+    collaborationInvokeChannels.getCollaborationCanvasBindingReplicaProjection,
+    (_event, input: unknown) =>
+      active.getCanvasReplicaProjection(collaborationCanvasBindingInputSchema.parse(input))
   );
   ipcMain.handle(
     collaborationInvokeChannels.bindCollaborationContentAuthority,
-    (_event, input: unknown) => active.bindContentAuthority(input)
+    (_event, input: unknown) =>
+      active.bindContentAuthority(
+        asLocalCollaborationCanvasBinding(collaborationCanvasSessionInputSchema.parse(input))
+      )
+  );
+  ipcMain.handle(
+    collaborationInvokeChannels.bindCollaborationCanvasBindingContentAuthority,
+    (_event, input: unknown) =>
+      active.bindContentAuthority(collaborationCanvasBindingInputSchema.parse(input))
   );
   ipcMain.handle(collaborationInvokeChannels.getCollaborationContentAuthority, () =>
     active.getContentAuthority()
