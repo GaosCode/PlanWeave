@@ -223,7 +223,7 @@ export function createDistributedHttpRequestListener(
           resolveService: options.resolveCommentService,
           repository: options.humanIdentity,
           workspaceIdentity: options.workspaceIdentity,
-          projectAuthority: options.projectAuthority,
+          projectAuthority: options.identityProjectAuthority,
           transportAdmission: options.transportAdmission,
           clock: options.clock
         })
@@ -277,7 +277,7 @@ export function createDistributedHttpRequestListener(
           service: options.commentAttachments,
           repository: options.humanIdentity,
           workspaceIdentity: options.workspaceIdentity,
-          projectAuthority: options.projectAuthority,
+          projectAuthority: options.identityProjectAuthority,
           transportAdmission: options.transportAdmission,
           clock: options.clock
         })

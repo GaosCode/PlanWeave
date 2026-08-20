@@ -1,4 +1,5 @@
 import type { SqliteDatabase } from "../sqlite.js";
+import { decodeCanvasReplicaDocument } from "@planweave-ai/runtime";
 import { ArtifactStore } from "../artifacts.js";
 import {
   ActivityProjectionService,
@@ -20,7 +21,10 @@ import type { HumanIdentityRepository } from "../identity/index.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import type { ProjectAccessRepository } from "../projectAccessRepository.js";
 import type { ServerConfig } from "../config.js";
-import type { TrustedRuntimeRegistry } from "./identityAccess.js";
+import type { HumanProjectAuthority } from "../identity/index.js";
+import { ContentVersionRepository } from "../canvas/index.js";
+import { createRoutedWorkItemPackagePort } from "../work/ports.js";
+import { createManifestWorkItemPort } from "../work/workItemFacts.js";
 
 function appendHumanObserverActivity(
   journal: HumanObserverJournal,
@@ -95,7 +99,7 @@ export function createActivityCommentsComposition(input: {
   database: SqliteDatabase;
   config: ServerConfig;
   clock: () => Date;
-  runtimeRegistry: TrustedRuntimeRegistry;
+  projectAuthority: HumanProjectAuthority;
   workspaceIdentity: WorkspaceIdentityRepository;
   projectAccess: ProjectAccessRepository;
   humanIdentity: HumanIdentityRepository;
@@ -118,19 +122,23 @@ export function createActivityCommentsComposition(input: {
     blobs: new CommentAttachmentBlobStore(input.database, input.config.dataDirectory),
     clock: input.clock
   });
+  const contentVersions = new ContentVersionRepository(input.database, input.clock);
   const commentServices = new Map<string, CommentService>();
-  for (const { workspaceId, projectId, canvasId } of input.runtimeRegistry.expansions) {
+  const resolveCommentService = (workspaceId: string, projectId: string) => {
+    if (!input.projectAuthority.hasScope({ workspaceId, projectId })) return undefined;
     const serviceKey = collaborationScopeKey(workspaceId, projectId);
-    if (commentServices.has(serviceKey)) continue;
-    const packagePort = input.runtimeRegistry.scopedWorkItemPackagePort({
-      workspaceId,
-      projectId,
-      canvasId
-    });
-    if (!packagePort) throw new Error("trusted_project_work_item_port_missing");
-    commentServices.set(
-      serviceKey,
-      new CommentService({
+    let service = commentServices.get(serviceKey);
+    if (!service) {
+      const packagePort = createRoutedWorkItemPackagePort((canvasId) => {
+        const scope = { workspaceId, projectId, canvasId };
+        if (!input.projectAuthority.hasScope(scope)) return undefined;
+        const head = contentVersions.head(scope);
+        if (!head) return undefined;
+        const content = contentVersions.readVersion(scope, head.content).content;
+        const document = decodeCanvasReplicaDocument(content);
+        return createManifestWorkItemPort(document.manifest, canvasId);
+      });
+      service = new CommentService({
         workspaceId,
         comments: new CommentRepository(input.database, workspaceId),
         activity: new ActivityRepository(input.database, {
@@ -176,17 +184,18 @@ export function createActivityCommentsComposition(input: {
           }
         },
         clock: input.clock
-      })
-    );
-  }
+      });
+      commentServices.set(serviceKey, service);
+    }
+    return service;
+  };
   const retention = new ActivityRetentionMaintenance(
     input.activity.activityRepository,
     input.clock
   );
   return {
     commentAttachments,
-    resolveCommentService: (workspaceId: string, projectId: string) =>
-      commentServices.get(collaborationScopeKey(workspaceId, projectId)),
+    resolveCommentService,
     retention
   };
 }

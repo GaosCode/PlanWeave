@@ -143,7 +143,7 @@ export async function createDistributedServerComposition(
       database: server.database,
       config,
       clock,
-      runtimeRegistry: registries.runtimeRegistry,
+      projectAuthority: identityProjectAuthority,
       workspaceIdentity,
       projectAccess,
       humanIdentity,

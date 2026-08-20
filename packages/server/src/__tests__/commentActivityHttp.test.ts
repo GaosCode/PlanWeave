@@ -292,7 +292,7 @@ describe("comment and activity production HTTP", () => {
     );
     expect(list.status).toBe(200);
     await expect(list.json()).resolves.toMatchObject({
-      items: [{ commentId: created.commentId, workItemPresence: "missing", body: "Edited comment" }]
+      items: [{ commentId: created.commentId, workItemPresence: "present", body: "Edited comment" }]
     });
 
     const tombstone = await fetch(
