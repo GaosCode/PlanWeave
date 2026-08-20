@@ -22,6 +22,11 @@ import {
 } from "./mailboxIdentity.js";
 import { agentHostProtocolVersionSchema } from "./version.js";
 import { hostCapacitySchema, hostReadinessObservationSchema } from "./hostReadiness.js";
+import {
+  canvasRuntimeCancelCommandSchema,
+  canvasRuntimeRequestCommandSchema,
+  canvasRuntimeResponsePayloadSchema
+} from "./canvasRuntimeProtocol.js";
 
 export const PROTOCOL_ERROR_MESSAGE_MAX_LENGTH = 4_096 as const;
 export const CANCEL_REASON_MAX_LENGTH = 4_096 as const;
@@ -90,13 +95,17 @@ export const resumeExecutionCommandSchema = versionedSchema.extend({
 export const serverToHostCommandSchema = z.discriminatedUnion("type", [
   executeBlockCommandSchema,
   cancelExecutionCommandSchema,
-  resumeExecutionCommandSchema
+  resumeExecutionCommandSchema,
+  canvasRuntimeRequestCommandSchema,
+  canvasRuntimeCancelCommandSchema
 ]);
 
 export const mailboxCommandSchema = z.discriminatedUnion("type", [
   executeBlockCommandSchema,
   cancelExecutionCommandSchema,
   resumeExecutionCommandSchema,
+  canvasRuntimeRequestCommandSchema,
+  canvasRuntimeCancelCommandSchema,
   interactionSettlementSchema.options[0],
   interactionSettlementSchema.options[1],
   interactionSettlementSchema.options[2]
@@ -138,8 +147,13 @@ export const hostToServerEventSchema = z.discriminatedUnion("type", [
   leaseRenewalRequestSchema,
   durableHostEventSchema.merge(executionInterruptedSchema),
   durableHostEventSchema.merge(executionCompletedSchema),
-  durableHostEventSchema.merge(executionFailedSchema)
+  durableHostEventSchema.merge(executionFailedSchema),
+  durableHostEventSchema.merge(canvasRuntimeResponsePayloadSchema)
 ]);
+
+export const canvasRuntimeResponseEventSchema = durableHostEventSchema.merge(
+  canvasRuntimeResponsePayloadSchema
+);
 
 const dispatchProgressSchema = durableHostEventSchema.extend({
   type: z.literal("dispatch.progress"),

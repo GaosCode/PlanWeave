@@ -632,6 +632,7 @@
         "agentHostSetupHandoff.test.ts",
         "artifactMediaType.test.ts",
         "canonicalJson.test.ts",
+        "canvasRuntimeProtocol.test.ts",
         "compatibility.test.ts",
         "credentialLifecycle.test.ts",
         "executionEnvelope.test.ts",

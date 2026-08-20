@@ -68,10 +68,12 @@ export {
 export {
   hostAcpProfileObservationSchema,
   hostCapacitySchema,
+  HOST_RUNTIME_PROJECT_OBSERVATION_MAX_COUNT,
   hostReadinessObservationSchema,
   hostWorkspaceMappingObservationSchema,
   type HostAcpProfileObservation,
   type HostReadinessObservation,
+  type HostRuntimeProjectObservation,
   type HostWorkspaceMappingObservation
 } from "./hostReadiness.js";
 export {
@@ -149,8 +151,45 @@ export { blockRefSchema, type BlockRef } from "./blockRef.js";
 export {
   CAPABILITIES_MAX_COUNT,
   CAPABILITY_MAX_LENGTH,
+  CANVAS_RUNTIME_CAPABILITY,
   capabilitiesSchema,
   capabilitySchema,
+  hasCanvasRuntimeCapability,
   type Capabilities,
   type Capability
 } from "./capabilities.js";
+export {
+  CANVAS_RUNTIME_ERROR_MESSAGE_MAX_LENGTH,
+  CANVAS_RUNTIME_JSON_MAX_ARRAY_ITEMS,
+  CANVAS_RUNTIME_JSON_MAX_BYTES,
+  CANVAS_RUNTIME_JSON_MAX_DEPTH,
+  CANVAS_RUNTIME_JSON_MAX_KEY_LENGTH,
+  CANVAS_RUNTIME_JSON_MAX_OBJECT_KEYS,
+  CANVAS_RUNTIME_JSON_MAX_STRING_LENGTH,
+  CANVAS_RUNTIME_SOURCE_REVISION_MAX_LENGTH,
+  canvasRuntimeArtifactMetadataSchema,
+  canvasRuntimeCancelCommandSchema,
+  canvasRuntimeDeadlineSchema,
+  canvasRuntimeErrorSchema,
+  canvasRuntimeGraphFingerprintSchema,
+  canvasRuntimeJsonValueSchema,
+  canvasRuntimeLeaseIdSchema,
+  canvasRuntimeLogicalScopeSchema,
+  canvasRuntimeOperationSchema,
+  canvasRuntimeRequestCommandSchema,
+  canvasRuntimeRequestIdSchema,
+  canvasRuntimeResponsePayloadSchema,
+  canvasRuntimeSourceEvidenceSchema,
+  canvasRuntimeSourceRevisionSchema,
+  canvasRuntimeSuccessSchema,
+  canvasRuntimeUnavailableReasonSchema,
+  type CanvasRuntimeCancelCommand,
+  type CanvasRuntimeJsonValue,
+  type CanvasRuntimeLeaseId,
+  type CanvasRuntimeLogicalScope,
+  type CanvasRuntimeOperation,
+  type CanvasRuntimeRequestCommand,
+  type CanvasRuntimeRequestId,
+  type CanvasRuntimeResponsePayload,
+  type CanvasRuntimeSourceEvidence
+} from "./canvasRuntimeProtocol.js";
