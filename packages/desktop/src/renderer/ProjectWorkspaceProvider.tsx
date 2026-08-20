@@ -209,6 +209,7 @@ export function ProjectWorkspaceProvider({
     [remoteWorkspace.select, setActiveView, setSelectedCanvasId, setSelectedProject]
   );
   const activeCanvasId = remoteWorkspace.binding?.canvasId ?? selectedCanvasId;
+  const workspaceProjectLoading = remoteWorkspace.binding ? false : projectLoading;
   const canvasBinding = useMemo(
     () =>
       remoteWorkspace.binding ??
@@ -1008,7 +1009,7 @@ export function ProjectWorkspaceProvider({
       handleRenameTaskCanvas,
       loadProject: openLocalProject,
       refreshProjects,
-      projectLoading,
+      projectLoading: workspaceProjectLoading,
       selectedCanvasId: activeCanvasId,
       selectedProject,
       selectedTaskPanelId,
@@ -1029,7 +1030,7 @@ export function ProjectWorkspaceProvider({
       handleRevealTaskCanvas,
       handleRenameTaskCanvas,
       openLocalProject,
-      projectLoading,
+      workspaceProjectLoading,
       refreshProjects,
       activeCanvasId,
       selectedProject,

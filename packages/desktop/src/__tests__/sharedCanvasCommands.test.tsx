@@ -154,6 +154,23 @@ function replicaProjection(revision: number): CollaborationCanvasReplicaProjecti
   });
 }
 
+function remoteReplicaProjection(input: {
+  canvasId: string;
+  projectId?: string;
+  revision: number;
+  workspaceId?: string;
+}): CollaborationCanvasBindingReplicaProjection {
+  const local = replicaProjection(input.revision);
+  const { localProjectId: _project, localCanvasId: _canvas, ...projection } = local;
+  return {
+    ...projection,
+    bindingKind: "remote",
+    workspaceId: input.workspaceId ?? "workspace-1",
+    projectId: input.projectId ?? "project-1",
+    canvasId: input.canvasId
+  };
+}
+
 function hookInput(
   api: SharedCanvasCommandBridge,
   onAuthoritativeChange?: () => void | Promise<void>
@@ -748,5 +765,38 @@ describe("useSharedCanvasCommands", () => {
       canvasId: "default"
     });
     expect(flush).not.toHaveBeenCalled();
+  });
+
+  it("hides a stale remote projection immediately when canvas or profile identity changes", async () => {
+    vi.useFakeTimers();
+    const bridge = createBridge();
+    const initialBinding = {
+      kind: "remote" as const,
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+      canvasId: "default"
+    };
+    const { result, rerender } = renderHook(
+      ({ binding, profileId }) =>
+        useSharedCanvasCommands({
+          ...hookInput(bridge.api),
+          binding,
+          profileId
+        }),
+      { initialProps: { binding: initialBinding, profileId: "profile-1" } }
+    );
+    await flushEffects();
+
+    act(() => bridge.emitReplica(remoteReplicaProjection({ canvasId: "default", revision: 7 })));
+    expect(result.current.projection?.canvasId).toBe("default");
+
+    rerender({
+      binding: { ...initialBinding, canvasId: "secondary" },
+      profileId: "profile-1"
+    });
+    expect(result.current.projection).toBeNull();
+
+    rerender({ binding: initialBinding, profileId: "profile-2" });
+    expect(result.current.projection).toBeNull();
   });
 });

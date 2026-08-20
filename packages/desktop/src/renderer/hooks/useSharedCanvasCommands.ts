@@ -67,6 +67,22 @@ function projectionMatchesBinding(
         projection.localCanvasId === binding.canvasId;
 }
 
+function projectionIdentity(
+  profileId: string,
+  binding: CollaborationCanvasBindingInput,
+  scope: { remoteProjectId: string; remoteCanvasId: string }
+): string {
+  return JSON.stringify([
+    profileId,
+    binding.kind,
+    binding.kind === "remote" ? binding.workspaceId : binding.localProjectId,
+    binding.kind === "remote" ? binding.projectId : null,
+    binding.canvasId,
+    scope.remoteProjectId,
+    scope.remoteCanvasId
+  ]);
+}
+
 /**
  * Binds shared-mode canvas command session when collaboration is connected
  * for the active profile/project/canvas. Local/offline mode leaves enabled=false
@@ -148,6 +164,10 @@ export function useSharedCanvasCommands(input: {
     (scopeMayBeShared || currentScope !== null || (!input.sessionConnected && !scopeKnownUnmapped));
   const sessionEnabled = authorityEnabled && input.sessionConnected && currentScope !== null;
   const resolvedSharedAuthority = currentScope !== null;
+  const currentProjectionIdentity =
+    input.profileId && binding && currentScope
+      ? projectionIdentity(input.profileId, binding, currentScope)
+      : null;
 
   const labels = useMemo<CanvasCommandLabels>(
     () => ({
@@ -180,9 +200,12 @@ export function useSharedCanvasCommands(input: {
     lastStaleConflict: null,
     busy: false
   });
-  const [projection, setProjection] = useState<CollaborationCanvasBindingReplicaProjection | null>(
-    null
-  );
+  const [projectionState, setProjectionState] = useState<{
+    identity: string;
+    projection: CollaborationCanvasBindingReplicaProjection;
+  } | null>(null);
+  const projection =
+    projectionState?.identity === currentProjectionIdentity ? projectionState.projection : null;
   const lastConfirmedProjectionRef = useRef<{
     profileId: string | null;
     projection: CollaborationCanvasBindingReplicaProjection;
@@ -283,23 +306,30 @@ export function useSharedCanvasCommands(input: {
     if (!api || !controller || !sessionEnabled || !localProjectId || !localCanvasId) {
       void controller?.unbind();
       if (input.localOwnerDirectWriteAvailable) {
-        setProjection(null);
+        setProjectionState(null);
         return undefined;
       }
       const confirmed = lastConfirmedProjectionRef.current;
-      setProjection(() =>
-        confirmed &&
-        confirmed.profileId === input.profileId &&
-        binding &&
-        currentScope &&
-        projectionMatchesBinding(confirmed.projection, binding, currentScope)
-          ? {
-              ...confirmed.projection,
-              canEdit: false,
-              optimisticOperationIds: []
-            }
-          : null
-      );
+      setProjectionState(() => {
+        if (
+          !currentProjectionIdentity ||
+          !confirmed ||
+          confirmed.profileId !== input.profileId ||
+          !binding ||
+          !currentScope ||
+          !projectionMatchesBinding(confirmed.projection, binding, currentScope)
+        ) {
+          return null;
+        }
+        return {
+          identity: currentProjectionIdentity,
+          projection: {
+            ...confirmed.projection,
+            canEdit: false,
+            optimisticOperationIds: []
+          }
+        };
+      });
       return undefined;
     }
     const activeApi = api;
@@ -323,7 +353,9 @@ export function useSharedCanvasCommands(input: {
           projection: candidate
         };
       }
-      setProjection(candidate);
+      if (currentProjectionIdentity) {
+        setProjectionState({ identity: currentProjectionIdentity, projection: candidate });
+      }
     };
     const refreshReplicaProjection = async () => {
       if (!activeApi.getCollaborationCanvasBindingReplicaProjection) return;
@@ -409,6 +441,7 @@ export function useSharedCanvasCommands(input: {
     };
   }, [
     currentScope,
+    currentProjectionIdentity,
     api,
     binding,
     input.localOwnerDirectWriteAvailable,
@@ -470,6 +503,7 @@ export function useSharedCanvasCommands(input: {
   }, [refreshAfterMaterialization, sessionEnabled]);
 
   const visibleProjection = useMemo(() => {
+    if (!currentProjectionIdentity) return null;
     if (!(authorityEnabled && snapshot.connectionPhase === "disconnected")) return projection;
     const confirmed = lastConfirmedProjectionRef.current;
     const confirmedProjection =
@@ -491,6 +525,7 @@ export function useSharedCanvasCommands(input: {
   }, [
     authorityEnabled,
     binding,
+    currentProjectionIdentity,
     input.profileId,
     currentScope,
     projection,
