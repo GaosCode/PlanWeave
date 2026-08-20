@@ -3,6 +3,7 @@ import {
   agentEndpointPreferenceKey,
   agentEndpointSelectionId,
   clearAgentEndpointPreference,
+  remoteAgentEndpointPreferenceKey,
   selectedAgentEndpointId,
   updateAgentEndpointPreferences
 } from "../renderer/collaboration/agentEndpointPreferences";
@@ -45,6 +46,17 @@ const remoteUnavailable: AvailableAgentEndpoint = {
 };
 
 describe("desktopAgentEndpointPreferenceSchema", () => {
+  it("keys remote preferences by logical canvas identity without a filesystem path", () => {
+    expect(
+      remoteAgentEndpointPreferenceKey({
+        workspaceId: "workspace-1",
+        projectId: "project-1",
+        canvasId: "canvas-1",
+        scope: { kind: "task", taskId: "T-001" }
+      })
+    ).toBe('["remote","workspace-1","project-1","canvas-1","task","T-001"]');
+  });
+
   it("migrates legacy {executorName, remoteEndpointId} to remote preference", () => {
     const parsed = desktopAgentEndpointPreferenceSchema.parse({
       executorName: "grok",

@@ -4,6 +4,7 @@ import type { AvailableAgentEndpoint } from "../collaboration/agentEndpointViewM
 import {
   agentEndpointPreferenceKey,
   agentEndpointSelectionId,
+  remoteAgentEndpointPreferenceKey,
   selectedAgentEndpointId
 } from "../collaboration/agentEndpointPreferences";
 import { changeAgentEndpointSelection } from "../collaboration/changeAgentEndpoint";
@@ -14,6 +15,7 @@ export function useTaskAgentEndpointSelection(input: {
   changeLogicalExecutor: (taskId: string, executorName: string) => Promise<boolean>;
   preferences: DesktopUiSettings["execution"]["agentEndpointPreferences"];
   projectRoot: string | null;
+  remoteCanvas?: { workspaceId: string; projectId: string; canvasId: string } | null;
   savePreference: (key: string, endpoint: AvailableAgentEndpoint | null) => Promise<void>;
   setError: (message: string | null) => void;
 }) {
@@ -25,8 +27,13 @@ export function useTaskAgentEndpointSelection(input: {
             canvasId: input.canvasId,
             scope: { kind: "task", taskId }
           })
-        : null,
-    [input.canvasId, input.projectRoot]
+        : input.remoteCanvas
+          ? remoteAgentEndpointPreferenceKey({
+              ...input.remoteCanvas,
+              scope: { kind: "task", taskId }
+            })
+          : null,
+    [input.canvasId, input.projectRoot, input.remoteCanvas]
   );
   const selectedEndpointId = useCallback(
     (taskId: string, executorName: string) => {

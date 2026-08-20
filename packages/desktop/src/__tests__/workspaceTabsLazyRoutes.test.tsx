@@ -21,15 +21,31 @@ vi.mock("../renderer/views/NotificationsView", () => ({
 vi.mock("../renderer/views/PeopleView", () => ({
   PeopleView: ({
     localInvitationHandoff,
-    onLocalInvitationHandoffChange
+    onLocalInvitationHandoffChange,
+    onContentReplicaReady
   }: {
     localInvitationHandoff: string | null;
     onLocalInvitationHandoffChange: (handoff: string | null) => void;
+    onContentReplicaReady: (result: {
+      localProjectId: string;
+      localCanvasId: string;
+    }) => Promise<void>;
   }) => (
     <div data-testid="people-route">
       <span data-testid="people-invitation-handoff">{localInvitationHandoff}</span>
       <button type="button" onClick={() => onLocalInvitationHandoffChange("full-invitation")}>
         Create invitation
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          void onContentReplicaReady({
+            localProjectId: "local-project",
+            localCanvasId: "canvas-remote"
+          })
+        }
+      >
+        Open materialized canvas
       </button>
     </div>
   )
@@ -121,5 +137,24 @@ describe("WorkspaceTabs lazy routes", () => {
     expect(await screen.findByTestId("people-invitation-handoff")).toHaveTextContent(
       "full-invitation"
     );
+  });
+
+  it("opens the exact local canvas returned by explicit materialization", async () => {
+    const refreshProjects = vi.fn().mockResolvedValue(undefined);
+    useProjectWorkspace.mockReturnValue({
+      shell: {
+        activeView: "people",
+        refreshProjects,
+        t: (key: string) => key
+      }
+    });
+
+    render(<WorkspaceTabs />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open materialized canvas" }));
+
+    expect(refreshProjects).toHaveBeenCalledWith({
+      selectProjectId: "local-project",
+      selectCanvasId: "canvas-remote"
+    });
   });
 });

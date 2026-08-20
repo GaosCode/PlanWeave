@@ -161,12 +161,14 @@ describe("desktop project loader hook", () => {
     vi.stubGlobal("planweave", bridge);
     vi.resetModules();
     const { useDesktopProject } = await import("../renderer/hooks/useDesktopProject");
+    const setError = vi.fn();
+    const updateSettings = vi.fn();
 
     const { result } = renderHook(() =>
       useDesktopProject({
-        setError: vi.fn(),
+        setError,
         t: createTranslator("en"),
-        updateSettings: vi.fn()
+        updateSettings
       })
     );
 
@@ -181,6 +183,18 @@ describe("desktop project loader hook", () => {
     expect(result.current.projects.map((item) => item.projectId)).toEqual(["P-001", "P-002"]);
     expect(result.current.selectedProject?.name).toBe("Demo project updated");
     expect(result.current.selectedCanvasId).toBe("canvas-main");
+
+    await act(async () => {
+      await result.current.refreshProjects({
+        selectProjectId: refreshedProject.projectId,
+        selectCanvasId: "canvas-secondary"
+      });
+    });
+    expect(bridge.getDesktopProjectSnapshot).toHaveBeenCalledWith({
+      projectRoot: refreshedProject.rootPath,
+      canvasId: "canvas-secondary"
+    });
+    await waitFor(() => expect(result.current.selectedCanvasId).toBe("canvas-secondary"));
   });
 
   it("refreshes graph and layout together for same-canvas history updates", async () => {

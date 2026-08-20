@@ -340,7 +340,7 @@ export function useDesktopProjectLoader({
   );
 
   const refreshProjects = useCallback(
-    async (options: { selectProjectId?: string } = {}) => {
+    async (options: { selectProjectId?: string; selectCanvasId?: string } = {}) => {
       if (!bridge) {
         return;
       }
@@ -352,7 +352,7 @@ export function useDesktopProjectLoader({
           ? (nextProjects.find((item) => item.projectId === options.selectProjectId) ?? null)
           : null;
         if (requestedProject) {
-          await loadProject(requestedProject);
+          await loadProject(requestedProject, options.selectCanvasId);
           return;
         }
         const currentProject =

@@ -10,6 +10,7 @@ import {
 } from "./agentEndpointViewModel";
 import {
   agentEndpointPreferenceKey,
+  remoteAgentEndpointPreferenceKey,
   selectedAgentEndpointId,
   type EndpointSelection
 } from "./agentEndpointPreferences";
@@ -72,6 +73,7 @@ export function createAgentEndpointRunPlan(input: {
   endpoints: readonly AvailableAgentEndpoint[];
   preferences: DesktopUiSettings["execution"]["agentEndpointPreferences"];
   project: DesktopProjectSummary | null;
+  remoteCanvas?: { workspaceId: string; projectId: string; canvasId: string } | null;
   canvasId: string;
 }): AgentEndpointRunPlan {
   let task: GraphTask | null = null;
@@ -98,14 +100,24 @@ export function createAgentEndpointRunPlan(input: {
             canvasId: input.canvasId,
             scope: { kind: "task", taskId: candidateTask.taskId }
           })
-        : null;
+        : input.remoteCanvas
+          ? remoteAgentEndpointPreferenceKey({
+              ...input.remoteCanvas,
+              scope: { kind: "task", taskId: candidateTask.taskId }
+            })
+          : null;
       const blockPreferenceKey = input.project
         ? agentEndpointPreferenceKey({
             projectRoot: input.project.rootPath,
             canvasId: input.canvasId,
             scope: { kind: "block", blockRef: block.ref }
           })
-        : null;
+        : input.remoteCanvas
+          ? remoteAgentEndpointPreferenceKey({
+              ...input.remoteCanvas,
+              scope: { kind: "block", blockRef: block.ref }
+            })
+          : null;
       const preference =
         (blockPreferenceKey ? input.preferences[blockPreferenceKey] : undefined) ??
         (taskPreferenceKey ? input.preferences[taskPreferenceKey] : undefined);

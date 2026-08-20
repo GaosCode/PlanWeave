@@ -198,7 +198,7 @@ export function ProjectWorkspaceProvider({
     updateProjectPromptPolicy
   } = desktopProject;
 
-  const remoteWorkspace = useRemoteCanvasWorkspace();
+  const remoteWorkspace = useRemoteCanvasWorkspace({ localProjectId: selectedProject?.projectId });
   const selectRemoteCanvas = useCallback(
     (canvas: Parameters<typeof remoteWorkspace.select>[0]) => {
       setSelectedProject(null);
@@ -455,9 +455,10 @@ export function ProjectWorkspaceProvider({
     activeProjectId: collaborationSurface.activeProjectId,
     agentEndpoints: agentEndpointCatalog.endpoints,
     collaborationController: collaborationSurface.controller,
+    canvasBinding,
     graph,
     preferences: settings.execution.agentEndpointPreferences,
-    selectedCanvasId,
+    selectedCanvasId: activeCanvasId,
     selectedProject,
     operatorProfileId: ownerControlPlane.operatorProfileId,
     ownerFleetDispatchEnabled: ownerControlPlane.fleetCatalogEnabled,
@@ -687,6 +688,7 @@ export function ProjectWorkspaceProvider({
     changeLogicalExecutor: handleTaskExecutorChange,
     preferences: settings.execution.agentEndpointPreferences,
     projectRoot: selectedProject?.rootPath ?? null,
+    remoteCanvas: remoteWorkspace.binding,
     savePreference: agentEndpointCatalog.savePreference,
     setError
   });

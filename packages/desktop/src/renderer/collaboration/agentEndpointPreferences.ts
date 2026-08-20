@@ -19,6 +19,23 @@ export function agentEndpointPreferenceKey(input: {
   return JSON.stringify([input.projectRoot, input.canvasId, input.scope.kind, scopeId]);
 }
 
+export function remoteAgentEndpointPreferenceKey(input: {
+  workspaceId: string;
+  projectId: string;
+  canvasId: string;
+  scope: AgentEndpointPreferenceScope;
+}): string {
+  const scopeId = input.scope.kind === "task" ? input.scope.taskId : input.scope.blockRef;
+  return JSON.stringify([
+    "remote",
+    input.workspaceId,
+    input.projectId,
+    input.canvasId,
+    input.scope.kind,
+    scopeId
+  ]);
+}
+
 /** UI/select display id. Mismatch never silently becomes local:. */
 export function agentEndpointSelectionId(selection: EndpointSelection): string {
   if (selection.kind === "mismatch") {

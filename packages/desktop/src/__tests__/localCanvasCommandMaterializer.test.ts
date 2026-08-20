@@ -77,6 +77,7 @@ describe("LocalCanvasCommandMaterializer", () => {
         canvasId: "default"
       })
     ).toEqual({
+      kind: "local",
       localProjectId: workspace.init.workspace.id,
       canvasId: "default"
     });

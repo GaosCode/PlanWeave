@@ -8,6 +8,7 @@ import { isCollaborationSessionConnected } from "../collaboration/sessionState.j
 export function useRemoteCanvasWorkspace(
   input: {
     activeProjectId?: string | null;
+    localProjectId?: string | null;
     sessionConnected?: boolean;
     api?: CollaborationRegistryReadPort | null;
   } = {}
@@ -31,6 +32,7 @@ export function useRemoteCanvasWorkspace(
   useEffect(() => {
     if (
       !sessionConnected ||
+      input.localProjectId ||
       !binding ||
       binding.projectId !== activeProjectId ||
       !authorizedCanvases.some(
@@ -42,7 +44,7 @@ export function useRemoteCanvasWorkspace(
     ) {
       setBinding(null);
     }
-  }, [activeProjectId, authorizedCanvases, binding, sessionConnected]);
+  }, [activeProjectId, authorizedCanvases, binding, input.localProjectId, sessionConnected]);
 
   const select = useCallback((canvas: (typeof authorizedCanvases)[number]) => {
     setBinding({

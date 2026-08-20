@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { DesktopGraphViewModel, DesktopProjectSummary } from "@planweave-ai/runtime";
-import { agentEndpointPreferenceKey } from "../renderer/collaboration/agentEndpointPreferences";
+import {
+  agentEndpointPreferenceKey,
+  remoteAgentEndpointPreferenceKey
+} from "../renderer/collaboration/agentEndpointPreferences";
 import { createAgentEndpointRunPlan } from "../renderer/collaboration/agentEndpointRunPlan";
 import type { AvailableAgentEndpoint } from "../renderer/collaboration/agentEndpointViewModel";
 
@@ -97,6 +100,32 @@ describe("createAgentEndpointRunPlan preference routing", () => {
     projectRoot: project.rootPath,
     canvasId: "canvas-main",
     scope: { kind: "task", taskId: "T-001" }
+  });
+
+  it("routes a remote canvas Block without a local project path", () => {
+    const remoteCanvas = {
+      workspaceId: "workspace-1",
+      projectId: "project-server",
+      canvasId: "canvas-main"
+    };
+    const remoteKey = remoteAgentEndpointPreferenceKey({
+      ...remoteCanvas,
+      scope: { kind: "task", taskId: "T-001" }
+    });
+
+    expect(
+      createAgentEndpointRunPlan({
+        graph: graphWithExecutor("grok"),
+        scope: { kind: "block", blockRef: "T-001#B-001" },
+        endpoints: [localCodex, remoteGrok],
+        preferences: {
+          [remoteKey]: { kind: "remote", remoteEndpointId: "endpoint-grok" }
+        },
+        project: null,
+        remoteCanvas,
+        canvasId: "canvas-main"
+      })
+    ).toMatchObject({ kind: "coordinated_block" });
   });
 
   it("rejects mismatch with blockRef, endpoint agent, and manifest executor", () => {

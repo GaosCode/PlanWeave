@@ -90,7 +90,10 @@ export type WorkspaceTabsShellProps = {
     currentName: string
   ) => Promise<void>;
   loadProject: (project: DesktopProjectSummary, canvasId?: string | null) => Promise<void>;
-  refreshProjects: (options?: { selectProjectId?: string }) => Promise<void>;
+  refreshProjects: (options?: {
+    selectProjectId?: string;
+    selectCanvasId?: string;
+  }) => Promise<void>;
   projectLoading: boolean;
   selectedCanvasId: string | null;
   selectedProject: DesktopProjectSummary | null;
@@ -308,7 +311,10 @@ function PeopleRoute({
       t={shell.t}
       diagnosticsEnabled={shell.developerMode}
       onContentReplicaReady={(result) =>
-        shell.refreshProjects({ selectProjectId: result.localProjectId })
+        shell.refreshProjects({
+          selectProjectId: result.localProjectId,
+          selectCanvasId: result.localCanvasId
+        })
       }
       collaborationScopeLayout={shell.collaborationScopeLayout}
       onCollaborationScopeLayoutChange={shell.updateCollaborationScopeLayout}

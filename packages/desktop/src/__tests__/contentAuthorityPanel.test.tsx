@@ -372,4 +372,35 @@ describe("ContentAuthorityPanel", () => {
       await screen.findByText("The authoritative Plan Package was synced and opened.")
     ).toBeInTheDocument();
   });
+
+  it("keeps the remote workspace active when explicit materialization fails", async () => {
+    const user = userEvent.setup();
+    const model = materializableModel();
+    const onReplicaReady = vi.fn();
+    const api = {
+      listCollaborationContentBootstrapCandidates: vi
+        .fn()
+        .mockResolvedValue([hostedCandidate(model, "project-1")]),
+      bootstrapCollaborationContent: vi.fn().mockRejectedValue(new Error("materialization_failed"))
+    } as unknown as PlanWeaveCollaborationApi;
+
+    render(
+      <ContentAuthorityPanel
+        api={api}
+        connectionKey="profile-1"
+        authorityProjectId="project-1"
+        localProjectId={null}
+        canvasId={null}
+        connected
+        onReplicaReady={onReplicaReady}
+        t={createTranslator("en")}
+      />
+    );
+
+    expect(api.bootstrapCollaborationContent).not.toHaveBeenCalled();
+    await user.click(await screen.findByRole("button", { name: "Sync to this device" }));
+
+    expect(await screen.findByText("materialization_failed")).toBeVisible();
+    expect(onReplicaReady).not.toHaveBeenCalled();
+  });
 });

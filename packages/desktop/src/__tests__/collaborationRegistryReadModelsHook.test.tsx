@@ -83,13 +83,14 @@ describe("useRemoteCanvasWorkspace", () => {
       }))
     };
     const { result, rerender } = renderHook(
-      ({ connected }) =>
+      ({ connected, localProjectId }) =>
         useRemoteCanvasWorkspace({
           activeProjectId: "project-a",
+          localProjectId,
           sessionConnected: connected,
           api
         }),
-      { initialProps: { connected: true } }
+      { initialProps: { connected: true, localProjectId: null as string | null } }
     );
 
     await waitFor(() => expect(result.current.authorizedCanvases).toEqual([canvas]));
@@ -101,7 +102,12 @@ describe("useRemoteCanvasWorkspace", () => {
       canvasId: "canvas-a"
     });
 
-    rerender({ connected: false });
+    rerender({ connected: true, localProjectId: "local-project" });
+    await waitFor(() => expect(result.current.binding).toBeNull());
+
+    rerender({ connected: true, localProjectId: null });
+    act(() => result.current.select(canvas));
+    rerender({ connected: false, localProjectId: null });
     await waitFor(() => expect(result.current.binding).toBeNull());
   });
 });
