@@ -285,6 +285,15 @@ describe("distributed server composition cleanup", () => {
               throw new Error("canvas_runtime_unavailable");
             }
           },
+          runtimeAvailability: {
+            async readAvailability() {
+              return {
+                schemaVersion: "canvas-runtime-availability/v1",
+                kind: "unavailable",
+                reason: "runtime_not_attached"
+              };
+            }
+          },
           observerJournal,
           transportAdmission: createTransportAdmissionPolicyForMode("loopback_http"),
           maxPayloadBytes: 64 * 1024,
@@ -373,6 +382,15 @@ describe("distributed server composition cleanup", () => {
       runtimeStatus: {
         async read() {
           throw new Error("canvas_runtime_unavailable");
+        }
+      },
+      runtimeAvailability: {
+        async readAvailability() {
+          return {
+            schemaVersion: "canvas-runtime-availability/v1",
+            kind: "unavailable",
+            reason: "runtime_not_attached"
+          };
         }
       },
       observerJournal,

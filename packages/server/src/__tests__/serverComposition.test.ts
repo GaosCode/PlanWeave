@@ -247,6 +247,17 @@ describe("distributed server composition", () => {
       canPublishInitial: true
     });
 
+    const runtimeAvailability = await fetch(
+      `${origin}/api/v1/projects/${restoredProjectId}/canvases/default/runtime-availability`,
+      { headers: { Authorization: `Bearer ${deviceToken}` } }
+    );
+    expect(runtimeAvailability.status).toBe(200);
+    await expect(runtimeAvailability.json()).resolves.toEqual({
+      schemaVersion: "canvas-runtime-availability/v1",
+      kind: "unavailable",
+      reason: "runtime_not_attached"
+    });
+
     const reconnect = await fetch(
       `${origin}/api/v1/projects/${restoredProjectId}/canvases/default/reconnect`,
       {

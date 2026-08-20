@@ -125,12 +125,22 @@ describe("createTrustedRuntimeRegistry", () => {
     const content = await adapter.captureInitialContent(scope);
     const snapshot = await adapter.captureSnapshot(scope);
     const status = await adapter.read(scope, "2026-08-20T00:00:00.000Z");
+    const availability = await adapter.readAvailability(scope, "2026-08-20T00:00:00.000Z");
 
     expect(content.members.length).toBeGreaterThan(0);
     expect(snapshot.files.length).toBeGreaterThan(0);
     expect(status).toMatchObject({ scope, capturedAt: "2026-08-20T00:00:00.000Z" });
-    expect(JSON.stringify({ content, snapshot, status })).not.toContain(workspace.root);
-    expect(JSON.stringify({ content, snapshot, status })).not.toContain(
+    expect(availability).toMatchObject({
+      schemaVersion: "canvas-runtime-availability/v1",
+      kind: "available",
+      sourceRevision: snapshot.sourceRevision,
+      graphFingerprint: status.packageFingerprint,
+      status
+    });
+    expect(JSON.stringify({ content, snapshot, status, availability })).not.toContain(
+      workspace.root
+    );
+    expect(JSON.stringify({ content, snapshot, status, availability })).not.toContain(
       workspace.init.workspace.packageDir
     );
   });
@@ -148,10 +158,38 @@ describe("createTrustedRuntimeRegistry", () => {
     });
 
     await expect(adapter.read(scope)).rejects.toThrow("canvas_runtime_unavailable");
+    await expect(adapter.readAvailability(scope)).resolves.toEqual({
+      schemaVersion: "canvas-runtime-availability/v1",
+      kind: "unavailable",
+      reason: "runtime_not_attached"
+    });
     await expect(adapter.captureInitialContent(scope)).rejects.toThrow(
       "canvas_runtime_unavailable"
     );
     await expect(adapter.captureSnapshot(scope)).rejects.toThrow("canvas_runtime_unavailable");
+  });
+
+  it("reports runtime_not_attached when an exact binding no longer has an accessible path", async () => {
+    const scope = canvasScopeRefSchema.parse({
+      workspaceId: "workspace-stale",
+      projectId: "project-stale",
+      canvasId: "default"
+    });
+    const adapter = createLocalFilesystemCanvasRuntimeAdapter({
+      resolveExactCanvasLocation() {
+        return {
+          ...scope,
+          projectRoot: "/missing/planweave-project",
+          packageDir: "/missing/planweave-project/package"
+        };
+      }
+    });
+
+    await expect(adapter.readAvailability(scope)).resolves.toEqual({
+      schemaVersion: "canvas-runtime-availability/v1",
+      kind: "unavailable",
+      reason: "runtime_not_attached"
+    });
   });
 
   it("supports an empty collaboration runtime registry", async () => {

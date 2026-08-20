@@ -11,6 +11,7 @@ import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js"
 import { loopbackHttpTransportAdmission } from "./support/transportAdmission.js";
 import { canvasCommandServiceFixture } from "./support/canvasCommandServiceFixture.js";
 import type { CanvasRuntimeStatusPort } from "../canvas/runtimePort.js";
+import type { CanvasRuntimeAvailabilityPort } from "../canvas/runtimePort.js";
 
 const servers: HttpServer[] = [];
 
@@ -21,8 +22,15 @@ afterEach(async () => {
   );
 });
 
-async function setup(clock: () => Date, runtime?: CanvasRuntimeStatusPort) {
-  const { service, database } = await canvasCommandServiceFixture({ runtime });
+async function setup(
+  clock: () => Date,
+  runtime?: CanvasRuntimeStatusPort,
+  runtimeAvailability?: CanvasRuntimeAvailabilityPort
+) {
+  const { service, runtimeAvailabilityService, database } = await canvasCommandServiceFixture({
+    runtime,
+    runtimeAvailability
+  });
   const repository = new HumanIdentityRepository(database);
   const workspaceIdentity = new WorkspaceIdentityRepository(database);
   const token = mintHumanDeviceToken();
@@ -49,6 +57,7 @@ async function setup(clock: () => Date, runtime?: CanvasRuntimeStatusPort) {
   const server = createServer((request, response) => {
     void handleCanvasCommandHttpRequest(request, response, {
       service,
+      runtimeAvailabilityService,
       repository,
       workspaceIdentity,
       collaborationScopeAuthority,
@@ -120,6 +129,73 @@ describe("canvas runtime status HTTP errors", () => {
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toEqual({
       error: "canvas_runtime_status_unavailable"
+    });
+  });
+});
+
+describe("canvas runtime availability HTTP", () => {
+  it("returns available and runtime_not_attached as schema-valid 200 responses", async () => {
+    const available = await setup(() => new Date("2026-08-16T00:00:00.000Z"));
+    const availableResponse = await fetch(
+      `${available.origin}/api/v1/projects/p/canvases/default/runtime-availability`,
+      { headers: { Authorization: `Bearer ${available.token}` } }
+    );
+    expect(availableResponse.status).toBe(200);
+    await expect(availableResponse.json()).resolves.toMatchObject({
+      schemaVersion: "canvas-runtime-availability/v1",
+      kind: "available"
+    });
+
+    const detached = await setup(() => new Date("2026-08-16T00:00:00.000Z"), undefined, {
+      async readAvailability() {
+        return {
+          schemaVersion: "canvas-runtime-availability/v1",
+          kind: "unavailable",
+          reason: "runtime_not_attached"
+        };
+      }
+    });
+    const detachedResponse = await fetch(
+      `${detached.origin}/api/v1/projects/p/canvases/default/runtime-availability`,
+      { headers: { Authorization: `Bearer ${detached.token}` } }
+    );
+    expect(detachedResponse.status).toBe(200);
+    await expect(detachedResponse.json()).resolves.toEqual({
+      schemaVersion: "canvas-runtime-availability/v1",
+      kind: "unavailable",
+      reason: "runtime_not_attached"
+    });
+  });
+
+  it("returns content_out_of_sync without leaking mismatched Runtime status", async () => {
+    const fixture = await setup(() => new Date("2026-08-16T00:00:00.000Z"), undefined, {
+      async readAvailability(scope, capturedAt) {
+        const graphFingerprint = `pkg-${"c".repeat(64)}`;
+        return {
+          schemaVersion: "canvas-runtime-availability/v1",
+          kind: "available",
+          sourceRevision: `snapshot:${"d".repeat(64)}`,
+          graphFingerprint,
+          status: {
+            schemaVersion: "canvas-runtime-status/v2",
+            scope,
+            packageFingerprint: graphFingerprint,
+            capturedAt: capturedAt ?? "2026-08-16T00:00:00.000Z",
+            tasks: [],
+            blocks: []
+          }
+        };
+      }
+    });
+    const response = await fetch(
+      `${fixture.origin}/api/v1/projects/p/canvases/default/runtime-availability`,
+      { headers: { Authorization: `Bearer ${fixture.token}` } }
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      schemaVersion: "canvas-runtime-availability/v1",
+      kind: "unavailable",
+      reason: "content_out_of_sync"
     });
   });
 });

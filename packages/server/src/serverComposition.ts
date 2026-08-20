@@ -192,6 +192,7 @@ export async function createDistributedServerComposition(
       coordination,
       runtimeAttachments: registries.runtimeRegistry.locators,
       initialContentCapture: localCanvasRuntime,
+      runtimeAvailability: localCanvasRuntime,
       runtimeStatus: localCanvasRuntime,
       workspaceIdentity,
       projectAccess,

@@ -34,6 +34,12 @@ describe("canvas command service (OSS-004 B-002)", () => {
         "/api/v1/projects/p/canvases/default/runtime-status"
       )?.kind
     ).toBe("runtime_status");
+    expect(
+      routeCanvasCommandHttp(
+        { method: "GET" } as IncomingMessage,
+        "/api/v1/projects/p/canvases/default/runtime-availability"
+      )?.kind
+    ).toBe("runtime_availability");
 
     const { service } = await fixture();
     const accepted = await service.submit(actor("owner"), submitBody("op-presence", 0));

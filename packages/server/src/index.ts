@@ -567,6 +567,7 @@ export {
 export {
   CanvasCommandRepository,
   CanvasCommandService,
+  CanvasRuntimeAvailabilityService,
   ContentVersionRepository,
   ContentVersionService,
   SqliteAuthoritativeCanvasCommitStore,
@@ -587,6 +588,8 @@ export {
   type CanvasInitialContentCapturePort,
   type CanvasPackageSnapshotRuntimePort,
   type CanvasRuntimeStatusPort,
+  type CanvasRuntimeAvailabilityPort,
+  type CanvasRuntimeAvailabilityServiceOptions,
   type LocalFilesystemCanvasRuntimePort,
   type ExactCanvasRuntimeLocationResolver,
   type AuthoritativeCanvasAcceptedCommit,

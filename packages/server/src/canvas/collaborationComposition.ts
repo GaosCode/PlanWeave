@@ -11,6 +11,7 @@ import {
   attachCanvasLiveSyncWebSocketServer,
   CanvasCommandRepository,
   CanvasCommandService,
+  CanvasRuntimeAvailabilityService,
   CanvasOperationRetentionMaintenance,
   ContentVersionRepository,
   ContentVersionService,
@@ -20,7 +21,11 @@ import { attachCanvasPresenceWebSocketServer } from "../presenceWebSocket.js";
 import type { AuthorizationChangeSignal } from "../authorizationChangeSignal.js";
 import type { CompleteContentVersion } from "@planweave-ai/collaboration-protocol/content/version";
 import { canvasScopeRefSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
-import type { CanvasInitialContentCapturePort, CanvasRuntimeStatusPort } from "./runtimePort.js";
+import type {
+  CanvasInitialContentCapturePort,
+  CanvasRuntimeAvailabilityPort,
+  CanvasRuntimeStatusPort
+} from "./runtimePort.js";
 
 export type CanvasRuntimeAttachment = {
   workspaceId: string;
@@ -38,6 +43,7 @@ export type CanvasCollaborationCompositionOptions = {
   authorizationChanges: AuthorizationChangeSignal;
   runtimeAttachments: readonly CanvasRuntimeAttachment[];
   initialContentCapture: CanvasInitialContentCapturePort;
+  runtimeAvailability: CanvasRuntimeAvailabilityPort;
   runtimeStatus: CanvasRuntimeStatusPort;
   observerJournal: HumanObserverJournal;
   transportAdmission: TransportAdmissionPolicy;
@@ -135,6 +141,13 @@ export async function createCanvasCollaborationComposition(
       onAcceptedEntryUnavailable: (input) => attachedLiveSyncWebSockets.invalidateScope(input),
       clock: options.clock
     });
+    const runtimeAvailabilityService = new CanvasRuntimeAvailabilityService({
+      access: options.projectAccess,
+      workspaceIdentity: options.workspaceIdentity,
+      contentVersions,
+      runtimeAvailability: options.runtimeAvailability,
+      clock: options.clock
+    });
     operationRetentionMaintenance = new CanvasOperationRetentionMaintenance(
       commandRepository.operationRetention,
       (remainingBudget) => commandService.recoverInterrupted(remainingBudget)
@@ -160,6 +173,7 @@ export async function createCanvasCollaborationComposition(
       contentVersions,
       contentVersionService,
       commandService,
+      runtimeAvailabilityService,
       operationRetentionMaintenance
     };
   } catch (error) {

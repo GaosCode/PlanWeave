@@ -16,8 +16,10 @@ describe("Runtime composition boundary", () => {
     expect(transportSource).toContain("runtimeAttachments: readonly CanvasRuntimeAttachment[]");
     expect(transportSource).not.toContain("TrustedRuntimeRegistry");
     expect(transportSource).not.toContain("runtimeRegistry:");
+    expect(transportSource).toContain("runtimeAvailability: CanvasRuntimeAvailabilityPort");
     expect(compositionRootSource).toContain(
       "runtimeAttachments: registries.runtimeRegistry.locators"
     );
+    expect(compositionRootSource).toContain("runtimeAvailability: localCanvasRuntime");
   });
 });

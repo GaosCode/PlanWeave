@@ -42,6 +42,7 @@ export { CanvasOperationRetentionMaintenance } from "./operationRetentionMainten
 export type {
   CanvasInitialContentCapturePort,
   CanvasPackageSnapshotRuntimePort,
+  CanvasRuntimeAvailabilityPort,
   CanvasRuntimeStatusPort,
   LocalFilesystemCanvasRuntimePort
 } from "./runtimePort.js";
@@ -50,6 +51,10 @@ export {
   type ExactCanvasRuntimeLocationResolver
 } from "./localFilesystemRuntimeAdapter.js";
 export { CanvasCommandService, type CanvasCommandServiceOptions } from "./service.js";
+export {
+  CanvasRuntimeAvailabilityService,
+  type CanvasRuntimeAvailabilityServiceOptions
+} from "./runtimeAvailabilityService.js";
 export {
   canvasCommandOutcomeHttpStatus,
   handleCanvasCommandHttpRequest,

@@ -108,6 +108,19 @@ describe("distributed server composition", () => {
       schemaVersion: "canvas-runtime-status/v2",
       scope: { workspaceId: "workspace-server", projectId, canvasId: "default" }
     });
+    const runtimeAvailability = await fetch(
+      `${origin}/api/v1/projects/${projectId}/canvases/default/runtime-availability`,
+      { headers: { Authorization: `Bearer ${deviceToken}` } }
+    );
+    expect(runtimeAvailability.status).toBe(200);
+    await expect(runtimeAvailability.json()).resolves.toMatchObject({
+      schemaVersion: "canvas-runtime-availability/v1",
+      kind: "available",
+      status: {
+        schemaVersion: "canvas-runtime-status/v2",
+        scope: { workspaceId: "workspace-server", projectId, canvasId: "default" }
+      }
+    });
     const secondaryDispatch = await fetch(`${origin}/api/v1/remote-operations`, {
       method: "POST",
       headers: jsonHeaders(adminToken),

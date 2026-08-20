@@ -16,6 +16,7 @@ import type { AuthorizationChangeSignal } from "../authorizationChangeSignal.js"
 import type { SqliteDatabase } from "../sqlite.js";
 import type {
   CanvasInitialContentCapturePort,
+  CanvasRuntimeAvailabilityPort,
   CanvasRuntimeStatusPort
 } from "../canvas/runtimePort.js";
 import type { CanvasRuntimeAttachment } from "../canvas/collaborationComposition.js";
@@ -23,7 +24,11 @@ import type { CanvasRuntimeAttachment } from "../canvas/collaborationComposition
 type Coordination = Awaited<ReturnType<typeof startRemoteBlockCoordinationServer>>["coordination"];
 type HttpListenerOptions = Omit<
   Parameters<typeof createDistributedHttpRequestListener>[0],
-  "operatorControl" | "contentVersionService" | "contentVersions" | "canvasCommandService"
+  | "operatorControl"
+  | "contentVersionService"
+  | "contentVersions"
+  | "canvasCommandService"
+  | "canvasRuntimeAvailabilityService"
 >;
 
 export async function createTransportComposition(
@@ -34,6 +39,7 @@ export async function createTransportComposition(
     coordination: Coordination;
     runtimeAttachments: readonly CanvasRuntimeAttachment[];
     initialContentCapture: CanvasInitialContentCapturePort;
+    runtimeAvailability: CanvasRuntimeAvailabilityPort;
     runtimeStatus: CanvasRuntimeStatusPort;
     workspaceIdentity: WorkspaceIdentityRepository;
     projectAccess: ProjectAccessRepository;
@@ -99,6 +105,7 @@ export async function createTransportComposition(
     authorizationChanges: input.authorizationChanges,
     runtimeAttachments: input.runtimeAttachments,
     initialContentCapture: input.initialContentCapture,
+    runtimeAvailability: input.runtimeAvailability,
     runtimeStatus: input.runtimeStatus,
     observerJournal: input.humanObserverJournal,
     transportAdmission: input.transportAdmission,
@@ -131,6 +138,7 @@ export async function createTransportComposition(
     contentVersionService: canvasCollaboration.contentVersionService,
     contentVersions: canvasCollaboration.contentVersions,
     canvasCommandService: canvasCollaboration.commandService,
+    canvasRuntimeAvailabilityService: canvasCollaboration.runtimeAvailabilityService,
     resolveCommentService: input.resolveCommentService,
     enrollments: input.enrollments,
     setupCodes: input.setupCodes,

@@ -11,11 +11,17 @@ import { createTestWorkspace } from "../../../../runtime/src/__tests__/promptTes
 import {
   CanvasCommandRepository,
   CanvasCommandService,
+  CanvasRuntimeAvailabilityService,
   ContentVersionRepository,
   SqliteAuthoritativeCanvasCommitStore,
+  type CanvasRuntimeAvailabilityPort,
   type CanvasRuntimeStatusPort
 } from "../../canvas/index.js";
-import { captureAuthorizedCanvasContent } from "@planweave-ai/runtime";
+import {
+  captureAuthorizedCanvasContent,
+  decodeCanvasReplicaDocument,
+  projectCanvasReplicaDocument
+} from "@planweave-ai/runtime";
 import type { HumanAuthContext } from "../../identity/schemas.js";
 import { WorkspaceIdentityRepository } from "../../identity/workspaceRepository.js";
 import { applyMigrations } from "../../migrations.js";
@@ -57,6 +63,7 @@ export function fakeRuntime(): CanvasRuntimeStatusPort & {
 export async function canvasCommandServiceFixture(options?: {
   journalRetention?: number;
   runtime?: CanvasRuntimeStatusPort;
+  runtimeAvailability?: CanvasRuntimeAvailabilityPort;
   contentVersions?: boolean;
   onAcceptedInCallerTransaction?: (accepted: CanvasCommandAccepted) => void;
   onAcceptedEntry?: (entry: CanvasJournalEntry) => void;
@@ -138,10 +145,32 @@ export async function canvasCommandServiceFixture(options?: {
     content: initialContent.content,
     createdBy: { kind: "human", id: "owner" }
   });
+  const packageFingerprint = projectCanvasReplicaDocument(
+    decodeCanvasReplicaDocument(initialContent.content)
+  ).packageFingerprint;
+  const runtimeAvailability: CanvasRuntimeAvailabilityPort = options?.runtimeAvailability ?? {
+    async readAvailability(scope, capturedAt) {
+      return {
+        schemaVersion: "canvas-runtime-availability/v1",
+        kind: "available",
+        sourceRevision: `snapshot:${"b".repeat(64)}`,
+        graphFingerprint: packageFingerprint,
+        status: {
+          schemaVersion: "canvas-runtime-status/v2",
+          scope,
+          packageFingerprint,
+          capturedAt: capturedAt ?? "2026-01-02T00:00:00.000Z",
+          tasks: [],
+          blocks: []
+        }
+      };
+    }
+  };
+  const workspaceIdentity = new WorkspaceIdentityRepository(database);
   const service = new CanvasCommandService({
     repository,
     access,
-    workspaceIdentity: new WorkspaceIdentityRepository(database),
+    workspaceIdentity,
     runtimeStatus: runtime,
     contentVersions,
     authoritativeCommits: new SqliteAuthoritativeCanvasCommitStore(
@@ -155,7 +184,23 @@ export async function canvasCommandServiceFixture(options?: {
     clock: () => new Date("2026-01-02T00:00:00.000Z"),
     presenceHeadProbe: () => 999
   });
-  return { workspace, database, access, repository, service, runtime, contentVersions };
+  const runtimeAvailabilityService = new CanvasRuntimeAvailabilityService({
+    access,
+    workspaceIdentity,
+    contentVersions,
+    runtimeAvailability,
+    clock: () => new Date("2026-01-02T00:00:00.000Z")
+  });
+  return {
+    workspace,
+    database,
+    access,
+    repository,
+    service,
+    runtime,
+    contentVersions,
+    runtimeAvailabilityService
+  };
 }
 
 export function actor(id: "owner" | "editor" | "viewer"): HumanAuthContext {
