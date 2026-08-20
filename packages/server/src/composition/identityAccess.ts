@@ -34,23 +34,16 @@ import {
 
 export type TrustedRuntimeRegistry = Awaited<ReturnType<typeof createTrustedRuntimeRegistry>>;
 
-/**
- * Identity APIs may authorize a restored sqlite registry even when this Server
- * has no local trusted package roots. Work APIs keep using the runtime registry
- * so they never try to open a missing project path. Canvas content versions,
- * durable canvas commands, and runtime-status use this identity authority;
- * runtime-status only opens a package when that path exists on this host.
- */
-export function composeIdentityProjectAuthority(
-  runtime: HumanProjectAuthority,
+/** Collaboration identity and ACL scope existence comes only from the SQLite registry. */
+export function createRegistryIdentityProjectAuthority(
   registry: ProjectRegistryRepository
 ): HumanProjectAuthority {
   return {
     hasProject(projectId) {
-      return runtime.hasProject(projectId) || registry.hasActiveProject(projectId);
+      return registry.hasActiveProject(projectId);
     },
     hasScope(input) {
-      return runtime.hasScope(input) || registry.hasActiveScope(input);
+      return registry.hasActiveScope(input);
     }
   };
 }
@@ -343,8 +336,7 @@ export function createIdentityServices(input: {
     onAuthorizationChangeAfterCommit: (change) => input.authorizationChanges.publish(change)
   });
   input.onHumanIdentityCreated(humanIdentity);
-  const identityProjectAuthority = composeIdentityProjectAuthority(
-    input.runtimeRegistry,
+  const identityProjectAuthority = createRegistryIdentityProjectAuthority(
     input.projectAccess.registry
   );
   const humanMembership = new HumanMembershipService({

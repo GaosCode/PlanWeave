@@ -25,7 +25,7 @@ import type { WorkspaceIdentityRepository } from "../identity/workspaceRepositor
 import type { ProjectAccessRepository } from "../projectAccessRepository.js";
 import { isAllowedClientOrigin } from "../clientOrigin.js";
 import type { WebSocketUpgradeRouter } from "../webSocketUpgradeRouter.js";
-import { authorizeCanvasRead } from "./policy.js";
+import { authorizeCanvasContent } from "./policy.js";
 import type { CanvasCommandRepository, CanvasScopeKey } from "./repository.js";
 import {
   AUTHORIZATION_SAFETY_CHECK_INTERVAL_MS,
@@ -159,7 +159,7 @@ export function attachCanvasLiveSyncWebSocketServer(
       route.projectId
     );
     if (!actor) return { ok: false, code: "unauthorized" };
-    const read = authorizeCanvasRead({
+    const read = authorizeCanvasContent({
       actor,
       projectId: route.projectId,
       canvasId: route.canvasId,

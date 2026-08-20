@@ -105,7 +105,11 @@ afterEach(async () => {
 });
 
 async function setup(
-  options: { publishAuthorizationChanges?: boolean; authCheckIntervalMs?: number } = {}
+  options: {
+    publishAuthorizationChanges?: boolean;
+    authCheckIntervalMs?: number;
+    withoutRuntimePaths?: boolean;
+  } = {}
 ) {
   const database = await openServerDatabase(":memory:", 5_000);
   databases.push(database);
@@ -152,6 +156,13 @@ async function setup(
   });
   access.markCanvasCutover(workspaceId, "project-live", "default");
   access.finalizeProjectCutover(workspaceId, "project-live");
+  if (options.withoutRuntimePaths) {
+    database.exec(`
+      UPDATE project_registry SET project_root_internal=NULL WHERE project_id='project-live';
+      UPDATE canvas_registry SET package_dir_internal=NULL
+      WHERE project_id='project-live' AND canvas_id='default';
+    `);
+  }
   const viewerGrant = access.grant({
     workspaceId,
     projectId: "project-live",
@@ -353,6 +364,33 @@ describe("canvas live sync WebSocket", () => {
       code: "invalid_message"
     });
     expect(fixture.repository.head(fixture.scope).revision).toBe(2);
+  });
+
+  it("connects and reauthorizes from the active registry without Runtime paths", async () => {
+    const fixture = await setup({ withoutRuntimePaths: true });
+    const owner = await connect(fixture.url, fixture.ownerToken);
+    const welcome = nextMessage(owner);
+    hello(owner, 0);
+    await expect(welcome).resolves.toMatchObject({
+      type: "canvas.live.welcome",
+      headRevision: 0
+    });
+
+    const accepted = nextMessage(owner);
+    fixture.live.publishAcceptedEntry(commit(fixture.repository, fixture.scope, 1));
+    await expect(accepted).resolves.toMatchObject({
+      type: "canvas.live.accepted_entry",
+      entry: { revision: 1, previousRevision: 0 }
+    });
+
+    const expired = nextMessage(owner);
+    const closed = waitForClose(owner);
+    fixture.database.exec(
+      "UPDATE canvas_registry SET revoked_at='2026-08-03T00:00:00.000Z' WHERE project_id='project-live' AND canvas_id='default'"
+    );
+    fixture.authorizationChanges.publish(fixture.scope);
+    await expect(expired).resolves.toMatchObject({ type: "canvas.live.auth_expired" });
+    await expect(closed).resolves.toBe(4003);
   });
 
   it("rejects unauthorized and cross-canvas subscriptions, and explicitly requires HTTP catchup", async () => {
