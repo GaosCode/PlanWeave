@@ -685,8 +685,9 @@ describe("Canvas replica live broadcast (Phase 5B)", () => {
     const facade = new CollaborationCanvasCommandFacade({
       resolveClient: () => client,
       resolveCanvasBinding: async () => ({
+        kind: "local" as const,
         localProjectId: baseScope.localProjectId,
-        localCanvasId: baseScope.localCanvasId,
+        canvasId: baseScope.localCanvasId,
         remoteProjectId: baseScope.projectId,
         remoteCanvasId: baseScope.canvasId
       }),
@@ -701,6 +702,7 @@ describe("Canvas replica live broadcast (Phase 5B)", () => {
     });
 
     await facade.bind({
+      kind: "local",
       localProjectId: baseScope.localProjectId,
       canvasId: baseScope.localCanvasId
     });
