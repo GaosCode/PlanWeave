@@ -129,11 +129,51 @@ async function setup() {
     access,
     identity,
     workspaceIdentity,
-    workspaceId
+    workspaceId,
+    service
   };
 }
 
 describe("registry HTTP boundary", () => {
+  it("maps an unavailable Canvas Runtime to 503 after authentication and preserves ACL denial", async () => {
+    const fixture = await setup();
+    fixture.service.createSnapshot = async (input) => {
+      if (input.actor.id !== "human-owner") throw new Error("canvas_access_denied:not_member");
+      throw new Error("canvas_runtime_unavailable");
+    };
+    const snapshotUrl = `${fixture.origin}/api/v1/registry/projects/project-a/canvases/default/snapshots`;
+    const request = (token: string) =>
+      fetch(snapshotUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          projectId: "project-a",
+          canvasId: "default",
+          expectedAclRevision: 1
+        })
+      });
+
+    const unavailable = await request(fixture.token);
+    expect(unavailable.status).toBe(503);
+    expect(await unavailable.json()).toEqual({ error: "canvas_runtime_unavailable" });
+
+    const invitation = fixture.identity.createInvitation({
+      projectId: "project-a",
+      createdByHumanPrincipalId: "human-owner"
+    });
+    const viewer = fixture.identity.consumeInvitation({
+      projectId: "project-a",
+      invitationToken: invitation.invitationToken,
+      displayName: "Viewer"
+    });
+    const denied = await request(viewer.deviceToken);
+    expect(denied.status).toBe(404);
+    expect(await denied.json()).toEqual({ error: "registry_resource_not_found" });
+  });
+
   it("lists only redacted registry records with bounded pagination", async () => {
     const fixture = await setup();
     const response = await fetch(`${fixture.origin}/api/v1/registry/projects?cursor=0&limit=1`, {

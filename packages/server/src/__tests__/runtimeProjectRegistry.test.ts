@@ -296,7 +296,8 @@ describe("createTrustedRuntimeRegistry", () => {
     ]);
     const runtime = trusted.registry.resolve(locator);
     const artifacts = trusted.registry.resolveArtifactSource(locator);
-    const release = vi.fn();
+    const releaseResult = Promise.resolve();
+    const release = vi.fn(() => releaseResult);
     const resolveScoped = vi.fn(() => ({ runtime, artifacts, release }));
     trusted.registry.setScopedResolver(resolveScoped);
 
@@ -305,14 +306,15 @@ describe("createTrustedRuntimeRegistry", () => {
       canvasId: "dynamically-registered"
     });
     expect(runtimeHandle.runtime).toBe(runtime);
-    runtimeHandle.release();
-    runtimeHandle.release();
-    const artifactHandle = await trusted.registry.acquireArtifactSource(locator);
-    expect(artifactHandle.source).toBe(artifacts);
-    artifactHandle.release();
+    expect(runtimeHandle.artifacts).toBe(artifacts);
+    const firstRelease = runtimeHandle.release();
+    const repeatedRelease = runtimeHandle.release();
 
-    expect(resolveScoped).toHaveBeenCalledTimes(2);
-    expect(release).toHaveBeenCalledTimes(2);
+    expect(firstRelease).toBe(releaseResult);
+    expect(repeatedRelease).toBe(firstRelease);
+    await repeatedRelease;
+    expect(resolveScoped).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
     trusted.close();
   });
 

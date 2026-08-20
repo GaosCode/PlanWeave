@@ -69,16 +69,6 @@ export class RemoteRuntimePortRegistry implements CanvasExecutionRuntimeLeasePor
     );
   }
 
-  async acquireArtifactSource(
-    locator: RemoteRuntimeLocator
-  ): Promise<{ source: RemoteBlockArtifactSource; release(): void | Promise<void> }> {
-    if (this.scopedResolver) {
-      const binding = await this.scopedResolver(locator);
-      return artifactHandle(binding.artifacts, binding.release);
-    }
-    return artifactHandle(this.resolveArtifactSource(locator), () => undefined);
-  }
-
   resolveArtifactSource(locator: RemoteRuntimeLocator): RemoteBlockArtifactSource {
     const binding = this.bindingFor(locator);
     if (!binding) {
@@ -116,11 +106,4 @@ function runtimeHandle(
   releaseBinding: () => void | Promise<void>
 ): ScopedRemoteRuntimeBinding {
   return { runtime, artifacts, release: once(releaseBinding) };
-}
-
-function artifactHandle(
-  source: RemoteBlockArtifactSource,
-  releaseBinding: () => void | Promise<void>
-): { source: RemoteBlockArtifactSource; release(): void | Promise<void> } {
-  return { source, release: once(releaseBinding) };
 }

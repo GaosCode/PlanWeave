@@ -13,12 +13,12 @@ import type { HumanIdentityRepository, CollaborationScopeAuthority } from "../id
 import type { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import type { ProjectAccessRepository } from "../projectAccessRepository.js";
 import type { AuthorizationChangeSignal } from "../authorizationChangeSignal.js";
-import type { TrustedRuntimeRegistry } from "./identityAccess.js";
 import type { SqliteDatabase } from "../sqlite.js";
 import type {
   CanvasInitialContentCapturePort,
   CanvasRuntimeStatusPort
 } from "../canvas/runtimePort.js";
+import type { CanvasRuntimeAttachment } from "../canvas/collaborationComposition.js";
 
 type Coordination = Awaited<ReturnType<typeof startRemoteBlockCoordinationServer>>["coordination"];
 type HttpListenerOptions = Omit<
@@ -32,7 +32,7 @@ export async function createTransportComposition(
     database: SqliteDatabase;
     config: ServerConfig;
     coordination: Coordination;
-    runtimeRegistry: TrustedRuntimeRegistry;
+    runtimeAttachments: readonly CanvasRuntimeAttachment[];
     initialContentCapture: CanvasInitialContentCapturePort;
     runtimeStatus: CanvasRuntimeStatusPort;
     workspaceIdentity: WorkspaceIdentityRepository;
@@ -97,7 +97,7 @@ export async function createTransportComposition(
     projectAccess: input.projectAccess,
     collaborationScopeAuthority: input.collaborationScopeAuthority,
     authorizationChanges: input.authorizationChanges,
-    runtimeAttachments: input.runtimeRegistry.locators,
+    runtimeAttachments: input.runtimeAttachments,
     initialContentCapture: input.initialContentCapture,
     runtimeStatus: input.runtimeStatus,
     observerJournal: input.humanObserverJournal,

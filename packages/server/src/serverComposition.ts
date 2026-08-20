@@ -190,7 +190,7 @@ export async function createDistributedServerComposition(
       database: server.database,
       config,
       coordination,
-      runtimeRegistry: registries.runtimeRegistry,
+      runtimeAttachments: registries.runtimeRegistry.locators,
       initialContentCapture: localCanvasRuntime,
       runtimeStatus: localCanvasRuntime,
       workspaceIdentity,

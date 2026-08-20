@@ -213,6 +213,9 @@ function safeError(error: unknown): { status: number; code: string } {
     if (error.message === "snapshot_stale_acl_revision") {
       return { status: 409, code: error.message };
     }
+    if (error.message === "canvas_runtime_unavailable") {
+      return { status: 503, code: error.message };
+    }
     if (error.message.includes("access_denied") || error.message.includes("not_found")) {
       return { status: 404, code: "registry_resource_not_found" };
     }

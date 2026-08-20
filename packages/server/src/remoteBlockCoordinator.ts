@@ -10,11 +10,7 @@ import {
 } from "@planweave-ai/agent-host-protocol";
 import { workspaceIdSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import type { RemoteBlockDispatchCandidate, RemoteBlockRuntimePort } from "@planweave-ai/runtime";
-import {
-  RemoteBlockRuntimeError,
-  RemoteOwnershipConflictError,
-  remoteBlockFailureInputSchema
-} from "@planweave-ai/runtime";
+import { RemoteBlockRuntimeError, RemoteOwnershipConflictError } from "@planweave-ai/runtime";
 import type {
   RemoteArtifactContentPort,
   RemoteAcpTranscriptPort,
@@ -52,12 +48,8 @@ import {
   endpointSelectionSnapshotSchema,
   type EndpointSelectionSnapshot
 } from "./endpointSelection.js";
-import {
-  classifyReenterFailure,
-  diagnosticFromReenterFailure,
-  isMissingActiveOwnership,
-  isWritebackDomainFailure
-} from "./remoteReenterRecovery.js";
+import { classifyReenterFailure, diagnosticFromReenterFailure } from "./remoteReenterRecovery.js";
+import { RemoteBlockWritebackCoordinator } from "./remoteBlockWritebackCoordinator.js";
 
 export type RemoteEndpointDispatchRequest = RemoteRuntimeLocator & {
   blockRef: string;
@@ -162,6 +154,7 @@ function buildEnvelope(
 
 export class RemoteBlockCoordinator {
   private actionsCoordinator: RemoteBlockActionCoordinator | undefined;
+  private terminalWriteback: RemoteBlockWritebackCoordinator | undefined;
 
   constructor(private readonly options: RemoteBlockCoordinatorOptions) {}
 
@@ -474,7 +467,7 @@ export class RemoteBlockCoordinator {
       persisted.dispatch?.status === "failed" ||
       persisted.dispatch?.status === "cancelled"
     ) {
-      this.finalizeOperationTerminal(operation, persisted.dispatch.status);
+      this.writebackCoordinator().finalizeOperationTerminal(operation, persisted.dispatch.status);
       return {
         operation: this.options.operations.getRequired(operation.id),
         status: "terminal"
@@ -591,7 +584,13 @@ export class RemoteBlockCoordinator {
           });
           continue;
         }
-        outcomes.push(await this.sealOperationLocalFailure(operation, error, runtimeLease));
+        outcomes.push(
+          await this.writebackCoordinator().sealOperationLocalFailure(
+            operation,
+            error,
+            runtimeLease
+          )
+        );
       } finally {
         await runtimeLease?.release();
       }
@@ -644,7 +643,7 @@ export class RemoteBlockCoordinator {
       "runtime_binding_reset",
       "Runtime reset removed remote ownership after the remote execution was interrupted."
     );
-    this.finalizeOperationTerminal(operation, "cancelled");
+    this.writebackCoordinator().finalizeOperationTerminal(operation, "cancelled");
     return {
       operation: this.options.operations.getRequired(operation.id),
       status: "terminal"
@@ -714,271 +713,34 @@ export class RemoteBlockCoordinator {
     return this.actionsCoordinator;
   }
 
+  private writebackCoordinator(): RemoteBlockWritebackCoordinator {
+    this.terminalWriteback ??= new RemoteBlockWritebackCoordinator({
+      runtimeLeases: this.options.runtimeLeases,
+      operations: this.options.operations,
+      candidates: this.options.candidates,
+      reservations: this.options.reservations,
+      dispatches: this.options.dispatches,
+      artifactContent: this.options.artifactContent,
+      acpTranscript: this.options.acpTranscript,
+      checkpoint: (point) => this.checkpoint(point),
+      authorizeActiveWriteback: (operation, candidate, reservation) => {
+        if (operation.endpointSelection) {
+          if (!candidate) throw new Error("remote_operation_candidate_missing");
+          this.authorizeReservedEndpoint(operation, candidate, reservation);
+          return;
+        }
+        this.options.finalAuthorize?.({ operation, reservation });
+      }
+    });
+    return this.terminalWriteback;
+  }
+
   async complete(operationId: string, existingLease?: CanvasExecutionRuntimeLease): Promise<void> {
-    if (existingLease) {
-      await this.completeWithLease(operationId, existingLease);
-      return;
-    }
-    const operation = this.options.operations.getRequired(operationId);
-    const lease = await this.options.runtimeLeases.acquire(operation);
-    try {
-      await this.completeWithLease(operationId, lease);
-    } finally {
-      await lease.release();
-    }
-  }
-
-  private async completeWithLease(
-    operationId: string,
-    runtimeLease: CanvasExecutionRuntimeLease
-  ): Promise<void> {
-    let operation = this.options.operations.getRequired(operationId);
-    if (this.reconcileTerminalOperationReplay(operation)) return;
-    this.authorizeWritebackIfLeaseActive(operation);
-    const terminal = this.options.dispatches.inspect(operation).dispatch;
-    if (terminal?.status !== "awaiting_writeback" || terminal.terminalAction?.kind !== "complete") {
-      throw new Error("remote_completion_evidence_missing");
-    }
-    await this.checkpoint("after_terminal_event_persistence");
-    const reportArtifactRef = terminal.terminalAction.reportArtifactRef;
-    const reportBytes = new Uint8Array(
-      await this.options.artifactContent.readReport(reportArtifactRef)
-    );
-    const candidate = this.options.candidates.get(operation.id);
-    if (!candidate) throw new Error("remote_operation_candidate_missing");
-    const observedTranscript = this.options.acpTranscript.readCompletionTranscript(
-      operation.executionAttemptId
-    );
-    const transcript = observedTranscript
-      ? {
-          ...observedTranscript,
-          executor: candidate.effectiveExecutor,
-          agentId: candidate.agentId
-        }
-      : null;
-    await this.checkpoint("before_runtime_writeback");
-    try {
-      await runtimeLease.runtime.complete({
-        ...remoteBlockIdentity(operation),
-        reportArtifactRef,
-        reportBytes,
-        ...(transcript ? { transcript } : {})
-      });
-    } catch (error) {
-      if (!isWritebackDomainFailure(error)) throw error;
-      await this.sealRejectedWriteback(operation, error, runtimeLease.runtime);
-      return;
-    }
-    await this.checkpoint("after_runtime_writeback");
-    operation = this.options.operations.getRequired(operation.id);
-    this.options.dispatches.finishTerminal({ operation, status: "completed" });
-    await this.checkpoint("after_dispatch_terminal_persistence");
-    this.finalizeOperationTerminal(operation, "completed");
-    await this.checkpoint("after_terminal_persistence");
-  }
-
-  /**
-   * Host parked durable complete evidence, but package writeback rejected it.
-   * Seal Server terminal state as failed so one bad report cannot wedge startup.
-   */
-  private async sealRejectedWriteback(
-    operation: RemoteOperation,
-    error: unknown,
-    runtime: RemoteBlockRuntimePort
-  ): Promise<void> {
-    const diagnostic = diagnosticFromReenterFailure(error);
-    this.options.operations.recordDiagnostic(operation.id, diagnostic.code, diagnostic.message);
-    try {
-      await runtime.fail(
-        remoteBlockFailureInputSchema.parse({
-          ...remoteBlockIdentity(operation),
-          failure: {
-            code: "protocol_error",
-            message: diagnostic.message,
-            retryable: false
-          },
-          ...(operation.endpointSelection?.agentId
-            ? { agentId: operation.endpointSelection.agentId }
-            : {})
-        })
-      );
-    } catch (failError) {
-      if (!isMissingActiveOwnership(failError)) throw failError;
-    }
-    await this.checkpoint("after_runtime_writeback");
-    const current = this.options.operations.getRequired(operation.id);
-    this.options.dispatches.finishTerminal({ operation: current, status: "failed" });
-    await this.checkpoint("after_dispatch_terminal_persistence");
-    this.finalizeOperationTerminal(current, "failed");
-    await this.checkpoint("after_terminal_persistence");
-  }
-
-  private async sealOperationLocalFailure(
-    operation: RemoteOperation,
-    error: unknown,
-    existingLease?: CanvasExecutionRuntimeLease
-  ): Promise<RemoteDispatchOutcome> {
-    const current = this.options.operations.getRequired(operation.id);
-    if (["completed", "failed", "cancelled"].includes(current.state)) {
-      return { operation: current, status: "terminal" };
-    }
-    const persisted = this.options.dispatches.inspect(current).dispatch;
-    if (
-      persisted?.status === "awaiting_writeback" &&
-      persisted.terminalAction?.kind === "complete"
-    ) {
-      if (existingLease) {
-        await this.sealRejectedWriteback(current, error, existingLease.runtime);
-      } else {
-        const runtimeLease = await this.options.runtimeLeases.acquire(current);
-        try {
-          await this.sealRejectedWriteback(current, error, runtimeLease.runtime);
-        } finally {
-          await runtimeLease.release();
-        }
-      }
-      return {
-        operation: this.options.operations.getRequired(current.id),
-        status: "terminal"
-      };
-    }
-    if (persisted?.status === "awaiting_writeback" && persisted.terminalAction?.kind === "fail") {
-      try {
-        await this.fail(current.id, existingLease);
-      } catch (failError) {
-        if (!isMissingActiveOwnership(failError) && !isWritebackDomainFailure(failError)) {
-          throw failError;
-        }
-        this.forceFailedTerminal(current);
-      }
-      return {
-        operation: this.options.operations.getRequired(current.id),
-        status: "terminal"
-      };
-    }
-    this.forceFailedTerminal(current);
-    return {
-      operation: this.options.operations.getRequired(current.id),
-      status: "terminal"
-    };
-  }
-
-  private forceFailedTerminal(operation: RemoteOperation): void {
-    const current = this.options.operations.getRequired(operation.id);
-    if (["completed", "failed", "cancelled"].includes(current.state)) return;
-    const persisted = this.options.dispatches.inspect(current).dispatch;
-    if (persisted?.status === "awaiting_writeback") {
-      this.options.dispatches.finishTerminal({ operation: current, status: "failed" });
-    }
-    if (current.attempt.leaseId) {
-      this.finalizeOperationTerminal(current, "failed");
-      return;
-    }
-    if (
-      current.state === "claimed" &&
-      current.attempt.status === "prepared" &&
-      current.attempt.hostId === undefined &&
-      !persisted
-    ) {
-      this.options.operations.cancelClaimedAfterRuntimeReset({
-        operationId: current.id,
-        executionAttemptId: current.executionAttemptId
-      });
-    }
+    await this.writebackCoordinator().complete(operationId, existingLease);
   }
 
   async fail(operationId: string, existingLease?: CanvasExecutionRuntimeLease): Promise<void> {
-    if (existingLease) {
-      await this.failWithLease(operationId, existingLease);
-      return;
-    }
-    const operation = this.options.operations.getRequired(operationId);
-    const lease = await this.options.runtimeLeases.acquire(operation);
-    try {
-      await this.failWithLease(operationId, lease);
-    } finally {
-      await lease.release();
-    }
-  }
-
-  private async failWithLease(
-    operationId: string,
-    runtimeLease: CanvasExecutionRuntimeLease
-  ): Promise<void> {
-    let operation = this.options.operations.getRequired(operationId);
-    if (this.reconcileTerminalOperationReplay(operation)) return;
-    this.authorizeWritebackIfLeaseActive(operation);
-    const terminal = this.options.dispatches.inspect(operation).dispatch;
-    if (terminal?.status !== "awaiting_writeback" || terminal.terminalAction?.kind !== "fail") {
-      const current = this.options.dispatches.inspect(operation).dispatch;
-      if (current?.status === "failed" || current?.status === "cancelled") {
-        this.finalizeOperationTerminal(operation, current.status);
-        return;
-      }
-      throw new Error("remote_failure_evidence_missing");
-    }
-    await this.checkpoint("after_terminal_event_persistence");
-    const failure = terminal.terminalAction.failure;
-    await this.checkpoint("before_runtime_writeback");
-    await runtimeLease.runtime.fail(
-      remoteBlockFailureInputSchema.parse({
-        ...remoteBlockIdentity(operation),
-        failure,
-        ...(operation.endpointSelection?.agentId
-          ? { agentId: operation.endpointSelection.agentId }
-          : {})
-      })
-    );
-    await this.checkpoint("after_runtime_writeback");
-    operation = this.options.operations.getRequired(operation.id);
-    const status = failure.code === "execution_cancelled" ? "cancelled" : "failed";
-    this.options.dispatches.finishTerminal({ operation, status });
-    await this.checkpoint("after_dispatch_terminal_persistence");
-    this.finalizeOperationTerminal(operation, status);
-    await this.checkpoint("after_terminal_persistence");
-  }
-
-  private reconcileTerminalOperationReplay(operation: RemoteOperation): boolean {
-    if (
-      operation.state !== "completed" &&
-      operation.state !== "failed" &&
-      operation.state !== "cancelled"
-    ) {
-      return false;
-    }
-    const dispatch = this.options.dispatches.inspect(operation).dispatch;
-    if (!dispatch) throw new Error("remote_dispatch_not_found");
-    if (dispatch.status === "awaiting_writeback") {
-      this.options.dispatches.finishTerminal({ operation, status: operation.state });
-    } else if (dispatch.status !== operation.state) {
-      throw new Error("remote_terminal_persistence_conflict");
-    }
-    this.finalizeOperationTerminal(operation, operation.state);
-    return true;
-  }
-
-  private finalizeOperationTerminal(
-    operation: RemoteOperation,
-    status: "completed" | "failed" | "cancelled"
-  ): void {
-    if (!operation.attempt.leaseId) throw new Error("remote_terminal_attempt_not_bound");
-    const reservation = this.options.reservations.getRequired(operation.attempt.leaseId);
-    if (reservation.status === "active") {
-      this.options.reservations.release({
-        leaseId: reservation.leaseId,
-        fencingToken: reservation.fencingToken,
-        expectedVersion: reservation.version,
-        reason: status
-      });
-      return;
-    }
-    const current = this.options.operations.getRequired(operation.id);
-    this.options.reservations.finalizeFencedAttempt({
-      operationId: current.id,
-      executionAttemptId: current.executionAttemptId,
-      leaseId: reservation.leaseId,
-      status
-    });
+    await this.writebackCoordinator().fail(operationId, existingLease);
   }
 
   private inspectPersistence(
@@ -1029,23 +791,6 @@ export class RemoteBlockCoordinator {
       message
     );
     throw new Error("remote_persistence_inconsistent");
-  }
-
-  /**
-   * Writeback uses durable dispatch terminal evidence. Re-authorize only while the
-   * attempt lease is still active; an expired reservation must not block package seal.
-   */
-  private authorizeWritebackIfLeaseActive(operation: RemoteOperation): void {
-    if (!operation.attempt.leaseId) return;
-    const reservation = this.options.reservations.getRequired(operation.attempt.leaseId);
-    if (reservation.status !== "active") return;
-    const candidate = this.options.candidates.get(operation.id);
-    if (operation.endpointSelection) {
-      if (!candidate) throw new Error("remote_operation_candidate_missing");
-      this.authorizeReservedEndpoint(operation, candidate, reservation);
-      return;
-    }
-    this.options.finalAuthorize?.({ operation, reservation });
   }
 
   /**
