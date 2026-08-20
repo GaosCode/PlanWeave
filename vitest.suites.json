@@ -838,6 +838,7 @@
         "serverCompositionMigrationRecovery.test.ts",
         "serverCompositionStageH.test.ts",
         "serverDataArchive.test.ts",
+        "serverDataRestorePromotion.test.ts",
         "serverDataRestorePortability.test.ts",
         "serverDataCli.test.ts",
         "serverDataCompose.test.ts",

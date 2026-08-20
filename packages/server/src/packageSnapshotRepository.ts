@@ -16,6 +16,7 @@ import {
 } from "@planweave-ai/runtime";
 import { ProjectAccessRepository } from "./projectAccessRepository.js";
 import {
+  assertCapturedSnapshotIntegrity,
   backingPath,
   capturedSnapshotSchema,
   fingerprint,
@@ -390,6 +391,7 @@ export class PackageSnapshotRepository {
       const metadata = await stat(packageFile);
       if (metadata.size > maxBackingBytes) throw new Error("snapshot_backing_too_large");
       captured = capturedSnapshotSchema.parse(JSON.parse(await readFile(packageFile, "utf8")));
+      assertCapturedSnapshotIntegrity(captured);
       if (
         captured.sourceRevision !== String(row.source_revision) ||
         fingerprint(captured.digestManifest) !== row.digest_fingerprint ||
@@ -406,6 +408,8 @@ export class PackageSnapshotRepository {
         "snapshot_backing_too_large",
         "snapshot_source_revision_mismatch",
         "snapshot_digest_mismatch",
+        "snapshot_file_set_mismatch",
+        "snapshot_digest_manifest_mismatch",
         "snapshot_backing_mismatch"
       ].includes(code)
         ? code

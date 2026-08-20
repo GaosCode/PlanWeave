@@ -333,6 +333,27 @@ describe("server data restore portability", () => {
     });
   });
 
+  it("fails closed when snapshot file paths disagree with the digest manifest", async () => {
+    const source = await createPortableSource();
+    const captured = capturedSnapshotSchema.parse(
+      JSON.parse(await readFile(source.snapshotBackingFile, "utf8"))
+    );
+    const first = captured.files[0];
+    if (!first) throw new Error("expected snapshot file");
+    await writeFile(
+      source.snapshotBackingFile,
+      JSON.stringify({
+        ...captured,
+        files: [{ ...first, path: "nodes/path-tampered/prompt.md" }, ...captured.files.slice(1)]
+      }),
+      "utf8"
+    );
+    await expectRestoreFailurePreservesTarget({
+      source,
+      expectedCode: "server_data_restore_snapshot_backing_malformed"
+    });
+  });
+
   it("fails closed when database immutable snapshot metadata is corrupted", async () => {
     const source = await createPortableSource();
     const database = await openServerDatabase(source.databasePath, 5_000);
@@ -420,7 +441,7 @@ describe("server data restore portability", () => {
     }
   });
 
-  it("rejects an existing host-binding table with an incompatible schema", async () => {
+  it("rejects path-only host-binding tables even when migration 28 is claimed", async () => {
     const workspace = await createTestWorkspace();
     directories.push(workspace.home, workspace.root);
     const source: PortableSource = {
@@ -434,7 +455,20 @@ describe("server data restore portability", () => {
     };
     const database = await openServerDatabase(source.databasePath, 5_000);
     try {
-      database.exec("CREATE TABLE project_registry(project_registry_id TEXT PRIMARY KEY)");
+      database.exec(`
+        CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+        INSERT INTO schema_migrations(version,applied_at) VALUES(28,'2030-01-01T00:00:00.000Z');
+        CREATE TABLE project_registry(project_root_internal TEXT);
+        CREATE TABLE canvas_registry(package_dir_internal TEXT);
+        CREATE TABLE package_snapshots(
+          snapshot_id TEXT,
+          canvas_registry_id TEXT,
+          source_revision TEXT,
+          digest_manifest_json TEXT,
+          digest_fingerprint TEXT,
+          content_root_internal TEXT
+        );
+      `);
     } finally {
       database.close();
     }

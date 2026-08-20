@@ -1,13 +1,16 @@
 import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import {
+  assertCapturedSnapshotIntegrity,
   backingPath,
   capturedSnapshotSchema,
   fingerprint,
   maxBackingBytes,
+  PackageSnapshotBackingIntegrityError,
   snapshotId,
   stableStringify
 } from "./packageSnapshotBacking.js";
+import { aclRegistryMigration } from "./migrations/aclRegistry.js";
 import { inWriteTransaction, type SqliteDatabase } from "./sqlite.js";
 
 export class ServerDataRestoreHostBindingError extends Error {
@@ -22,18 +25,61 @@ type SnapshotHostBinding = {
   finalContentRoot: string;
 };
 
-const requiredColumns = {
-  project_registry: ["project_root_internal"],
-  canvas_registry: ["package_dir_internal"],
+const hostBindingTables = ["project_registry", "canvas_registry", "package_snapshots"] as const;
+type HostBindingTable = (typeof hostBindingTables)[number];
+
+const requiredColumns: Record<HostBindingTable, readonly string[]> = {
+  project_registry: [
+    "project_registry_id",
+    "workspace_id",
+    "project_id",
+    "project_root_internal",
+    "visibility",
+    "owner_human_principal_id",
+    "acl_revision",
+    "created_at",
+    "updated_at",
+    "revoked_at"
+  ],
+  canvas_registry: [
+    "canvas_registry_id",
+    "project_registry_id",
+    "workspace_id",
+    "project_id",
+    "canvas_id",
+    "package_dir_internal",
+    "visibility",
+    "owner_human_principal_id",
+    "acl_revision",
+    "created_at",
+    "updated_at",
+    "revoked_at"
+  ],
   package_snapshots: [
     "snapshot_id",
+    "project_registry_id",
     "canvas_registry_id",
+    "workspace_id",
+    "project_id",
+    "canvas_id",
     "source_revision",
     "digest_manifest_json",
     "digest_fingerprint",
-    "content_root_internal"
+    "content_root_internal",
+    "creator_kind",
+    "creator_id",
+    "migration_marker",
+    "state",
+    "acl_revision",
+    "project_visibility",
+    "canvas_visibility",
+    "created_at",
+    "updated_at",
+    "revoked_at",
+    "retention_order",
+    "restore_marker"
   ]
-} as const;
+};
 
 function tableExists(database: SqliteDatabase, table: string): boolean {
   return Boolean(
@@ -43,11 +89,7 @@ function tableExists(database: SqliteDatabase, table: string): boolean {
   );
 }
 
-function assertCompatibleTable(
-  database: SqliteDatabase,
-  table: keyof typeof requiredColumns
-): boolean {
-  if (!tableExists(database, table)) return false;
+function assertCompatibleTable(database: SqliteDatabase, table: HostBindingTable): void {
   const columns = new Set(
     database
       .prepare(`PRAGMA table_info(${table})`)
@@ -57,6 +99,33 @@ function assertCompatibleTable(
   if (requiredColumns[table].some((column) => !columns.has(column))) {
     throw new ServerDataRestoreHostBindingError("server_data_restore_schema_incompatible");
   }
+}
+
+function assertCompatibleHostBindingSchema(database: SqliteDatabase): boolean {
+  const presentTables = hostBindingTables.filter((table) => tableExists(database, table));
+  if (presentTables.length === 0) return false;
+  if (
+    presentTables.length !== hostBindingTables.length ||
+    !tableExists(database, "schema_migrations")
+  ) {
+    throw new ServerDataRestoreHostBindingError("server_data_restore_schema_incompatible");
+  }
+  const migrationColumns = new Set(
+    database
+      .prepare("PRAGMA table_info(schema_migrations)")
+      .all()
+      .map((row) => String(row.name))
+  );
+  if (!migrationColumns.has("version") || !migrationColumns.has("applied_at")) {
+    throw new ServerDataRestoreHostBindingError("server_data_restore_schema_incompatible");
+  }
+  const migration = database
+    .prepare("SELECT 1 AS applied FROM schema_migrations WHERE version=?")
+    .get(aclRegistryMigration.version);
+  if (!migration) {
+    throw new ServerDataRestoreHostBindingError("server_data_restore_schema_incompatible");
+  }
+  for (const table of hostBindingTables) assertCompatibleTable(database, table);
   return true;
 }
 
@@ -127,6 +196,14 @@ async function validateSnapshotBacking(input: {
     throw new ServerDataRestoreHostBindingError("server_data_restore_snapshot_backing_malformed");
   }
   const captured = parsed.data;
+  try {
+    assertCapturedSnapshotIntegrity(captured);
+  } catch (error) {
+    if (error instanceof PackageSnapshotBackingIntegrityError) {
+      throw new ServerDataRestoreHostBindingError("server_data_restore_snapshot_backing_malformed");
+    }
+    throw error;
+  }
   const expectedFingerprint = fingerprint(captured.digestManifest);
   if (
     captured.sourceRevision !== sourceRevision ||
@@ -149,12 +226,11 @@ async function validateSnapshotBacking(input: {
 function assertNormalizedHostBindings(
   database: SqliteDatabase,
   targetDirectory: string,
-  hasProjectRegistry: boolean,
-  hasCanvasRegistry: boolean,
+  hasHostBindingSchema: boolean,
   snapshots: readonly SnapshotHostBinding[]
 ): void {
   if (
-    hasProjectRegistry &&
+    hasHostBindingSchema &&
     database
       .prepare(
         "SELECT 1 AS present FROM project_registry WHERE project_root_internal IS NOT NULL LIMIT 1"
@@ -164,7 +240,7 @@ function assertNormalizedHostBindings(
     throw new ServerDataRestoreHostBindingError("server_data_restore_host_binding_residual");
   }
   if (
-    hasCanvasRegistry &&
+    hasHostBindingSchema &&
     database
       .prepare(
         "SELECT 1 AS present FROM canvas_registry WHERE package_dir_internal IS NOT NULL LIMIT 1"
@@ -195,11 +271,9 @@ export async function normalizeServerDataRestoreHostBindings(input: {
 }): Promise<void> {
   const stagingDirectory = resolve(input.stagingDirectory);
   const targetDirectory = resolve(input.targetDirectory);
-  const hasProjectRegistry = assertCompatibleTable(input.database, "project_registry");
-  const hasCanvasRegistry = assertCompatibleTable(input.database, "canvas_registry");
-  const hasPackageSnapshots = assertCompatibleTable(input.database, "package_snapshots");
+  const hasHostBindingSchema = assertCompatibleHostBindingSchema(input.database);
   const stagingRealPath = await realpath(stagingDirectory);
-  const snapshotRows = hasPackageSnapshots
+  const snapshotRows = hasHostBindingSchema
     ? input.database
         .prepare(
           `SELECT snapshot_id,canvas_registry_id,source_revision,digest_manifest_json,
@@ -220,9 +294,9 @@ export async function normalizeServerDataRestoreHostBindings(input: {
     );
   }
   inWriteTransaction(input.database, () => {
-    if (hasProjectRegistry)
+    if (hasHostBindingSchema)
       input.database.exec("UPDATE project_registry SET project_root_internal=NULL");
-    if (hasCanvasRegistry)
+    if (hasHostBindingSchema)
       input.database.exec("UPDATE canvas_registry SET package_dir_internal=NULL");
     for (const snapshot of snapshots) {
       const changed = input.database
@@ -237,12 +311,6 @@ export async function normalizeServerDataRestoreHostBindings(input: {
     if (tableExists(input.database, "server_instance_ownership")) {
       input.database.exec("DELETE FROM server_instance_ownership");
     }
-    assertNormalizedHostBindings(
-      input.database,
-      targetDirectory,
-      hasProjectRegistry,
-      hasCanvasRegistry,
-      snapshots
-    );
+    assertNormalizedHostBindings(input.database, targetDirectory, hasHostBindingSchema, snapshots);
   });
 }

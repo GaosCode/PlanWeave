@@ -4,6 +4,7 @@ import * as runtime from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTestWorkspace } from "../../../runtime/src/__tests__/promptTestHelpers.js";
 import { applyMigrations } from "../migrations.js";
+import { capturedSnapshotSchema } from "../packageSnapshotBacking.js";
 import { PackageSnapshotRepository } from "../packageSnapshotRepository.js";
 import { ProjectAccessRepository } from "../projectAccessRepository.js";
 import { HumanIdentityRepository } from "../identity/repository.js";
@@ -232,6 +233,52 @@ describe("package snapshot repository", () => {
       expectedAclRevision: 0
     });
     expect(result.outcome).toBe("malformed");
+    expect(
+      database
+        .prepare("SELECT state,restore_marker FROM package_snapshots WHERE snapshot_id=?")
+        .get(created.snapshot.immutable.snapshotId)
+    ).toEqual({ state: "malformed", restore_marker: "none" });
+  });
+
+  it("marks snapshots malformed when backing paths disagree with the digest manifest", async () => {
+    const { database, workspace, snapshots } = await fixture();
+    const created = await snapshots.create({
+      workspaceId: "w",
+      projectId: "p",
+      canvasId: "default",
+      actor: owner,
+      expectedAclRevision: 0
+    });
+    const backing = join(
+      workspace.root,
+      "snapshot-data",
+      "snapshots",
+      created.snapshot.immutable.snapshotId,
+      "package.json"
+    );
+    const captured = capturedSnapshotSchema.parse(JSON.parse(await readFile(backing, "utf8")));
+    const first = captured.files[0];
+    if (!first) throw new Error("expected snapshot file");
+    await writeFile(
+      backing,
+      JSON.stringify({
+        ...captured,
+        files: [{ ...first, path: "nodes/path-tampered/prompt.md" }, ...captured.files.slice(1)]
+      }),
+      "utf8"
+    );
+    const result = await snapshots.restore({
+      workspaceId: "w",
+      projectId: "p",
+      canvasId: "default",
+      snapshotId: created.snapshot.immutable.snapshotId,
+      actor: owner,
+      expectedAclRevision: 0
+    });
+    expect(result).toMatchObject({
+      outcome: "malformed",
+      detail: "snapshot_digest_manifest_mismatch"
+    });
     expect(
       database
         .prepare("SELECT state,restore_marker FROM package_snapshots WHERE snapshot_id=?")

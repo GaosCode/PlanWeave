@@ -1,7 +1,7 @@
 import { hostname } from "node:os";
 import { createReadStream, createWriteStream } from "node:fs";
-import { chmod, mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { chmod, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { once } from "node:events";
 import { createGunzip, createGzip, type Gzip } from "node:zlib";
@@ -12,16 +12,16 @@ import {
   normalizeServerDataRestoreHostBindings,
   ServerDataRestoreHostBindingError
 } from "./serverDataRestoreHostBindings.js";
+import { ServerDataArchiveError } from "./serverDataArchiveError.js";
+import {
+  promoteRestoredDirectory,
+  SERVER_DATA_RESTORE_BACKUP_PREFIX
+} from "./serverDataRestorePromotion.js";
+
+export { ServerDataArchiveError } from "./serverDataArchiveError.js";
 
 export const SERVER_DATA_ARCHIVE_SCHEMA_VERSION = "planweave-server-data-archive/v1" as const;
 export const SERVER_DATA_ARCHIVE_DATABASE_FILE = "planweave-server.sqlite";
-
-export class ServerDataArchiveError extends Error {
-  constructor(readonly code: string) {
-    super(code);
-    this.name = "ServerDataArchiveError";
-  }
-}
 
 export const serverDataArchiveManifestSchema = z
   .object({
@@ -36,7 +36,6 @@ export type ServerDataArchiveManifest = z.infer<typeof serverDataArchiveManifest
 const SKIP_ROOTS = new Set(["backups"]);
 const SKIP_TMP_PARENTS = new Set(["artifacts", "comment-attachments"]);
 const RESTORE_STAGING_PREFIX = ".planweave-server-restore-";
-const RESTORE_BACKUP_PREFIX = ".planweave-server-replaced-";
 
 function toPosix(relativePath: string): string {
   return relativePath.split(sep).join("/");
@@ -55,7 +54,10 @@ function assertSafeRelative(posixPath: string): void {
 function shouldSkipPosix(posixPath: string): boolean {
   const parts = posixPath.split("/");
   if (SKIP_ROOTS.has(parts[0] ?? "")) return true;
-  if (parts[0]?.startsWith(RESTORE_STAGING_PREFIX) || parts[0]?.startsWith(RESTORE_BACKUP_PREFIX)) {
+  if (
+    parts[0]?.startsWith(RESTORE_STAGING_PREFIX) ||
+    parts[0]?.startsWith(SERVER_DATA_RESTORE_BACKUP_PREFIX)
+  ) {
     return true;
   }
   if (parts.length >= 2 && SKIP_TMP_PARENTS.has(parts[0] ?? "") && parts[1] === "tmp") return true;
@@ -398,32 +400,5 @@ export async function restoreServerDataDirectory(input: {
     return manifest;
   } finally {
     await rm(staging, { recursive: true, force: true }).catch(() => undefined);
-  }
-}
-
-async function promoteRestoredDirectory(target: string, staging: string): Promise<void> {
-  const stagingName = basename(staging);
-  const backup = join(target, `${RESTORE_BACKUP_PREFIX}${randomUUID()}`);
-  await mkdir(backup, { recursive: true, mode: 0o700 });
-  const backupName = basename(backup);
-  for (const entry of await readdir(target, { withFileTypes: true })) {
-    if (entry.name === stagingName || entry.name === backupName) continue;
-    await rename(join(target, entry.name), join(backup, entry.name));
-  }
-  try {
-    for (const name of await readdir(staging)) {
-      await rename(join(staging, name), join(target, name));
-    }
-    await rm(staging, { recursive: true, force: true });
-    await rm(backup, { recursive: true, force: true });
-  } catch (error) {
-    for (const entry of await readdir(target, { withFileTypes: true }).catch(() => [])) {
-      if (entry.name === stagingName || entry.name === backupName) continue;
-      await rm(join(target, entry.name), { recursive: true, force: true }).catch(() => undefined);
-    }
-    for (const name of await readdir(backup).catch(() => [])) {
-      await rename(join(backup, name), join(target, name)).catch(() => undefined);
-    }
-    throw error;
   }
 }
