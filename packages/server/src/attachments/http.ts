@@ -15,7 +15,7 @@ import {
   humanTransportAllowed,
   workspaceDeviceSessionHumanContext,
   type HumanIdentityRepository,
-  type HumanProjectAuthority,
+  type CollaborationScopeAuthority,
   type WorkspaceIdentityRepository
 } from "../identity/index.js";
 import type { TransportAdmissionPolicy } from "../insecureTransport.js";
@@ -26,7 +26,7 @@ export type AttachmentHttpOptions = {
   service: CommentAttachmentService;
   repository: HumanIdentityRepository;
   workspaceIdentity: WorkspaceIdentityRepository;
-  projectAuthority: HumanProjectAuthority;
+  collaborationScopeAuthority: CollaborationScopeAuthority;
   transportAdmission: TransportAdmissionPolicy;
   clock?: () => Date;
 };
@@ -273,7 +273,7 @@ export async function handleCommentAttachmentHttpRequest(
     const authenticated = authenticateCollaborationForScope(
       options.repository,
       options.workspaceIdentity,
-      options.projectAuthority,
+      options.collaborationScopeAuthority,
       request.headers.authorization,
       matched.projectId
     );

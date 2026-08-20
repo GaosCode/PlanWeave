@@ -37,17 +37,19 @@ async function setup() {
   applyMigrations(database);
   const repository = new HumanIdentityRepository(database);
   const workspaceIdentity = new WorkspaceIdentityRepository(database);
-  const projectAuthority = { hasProject: (projectId: string) => projectId === "project-a" };
+  const collaborationScopeAuthority = {
+    hasProject: (projectId: string) => projectId === "project-a"
+  };
   const service = new HumanMembershipService({
     repository,
-    projectAuthority,
+    collaborationScopeAuthority,
     workspaceForProject: (projectId) => workspaceIdentity.ensureWorkspaceForLegacyProject(projectId)
   });
   const server = createServer((request, response) => {
     void handleHumanHttpRequest(request, response, {
       service,
       repository,
-      projectAuthority,
+      collaborationScopeAuthority,
       transportAdmission: loopbackHttpTransportAdmission
     });
   });

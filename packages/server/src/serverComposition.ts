@@ -120,7 +120,8 @@ export async function createDistributedServerComposition(
       ownerRuntimeRegistry: registries.ownerRuntimeRegistry,
       onAuthorizationChange: (change) => authorizationChanges.publish(change)
     });
-    const { workspaceIdentity, projectAccess, registryService } = identityAccess;
+    const { workspaceIdentity, projectAccess, registryService, collaborationScopeAuthority } =
+      identityAccess;
     workspaceIdentityForInteractions = workspaceIdentity;
     const identityServices = createIdentityServices({
       database: server.database,
@@ -130,6 +131,7 @@ export async function createDistributedServerComposition(
       ownerRuntimeRegistry: registries.ownerRuntimeRegistry,
       workspaceIdentity,
       projectAccess,
+      collaborationScopeAuthority,
       authorizationChanges,
       activity: initializedActivity,
       onHumanIdentityCreated: (identity) => {
@@ -137,13 +139,12 @@ export async function createDistributedServerComposition(
       }
     });
     authorization = identityServices.authorization;
-    const { setupCodes, humanIdentity, humanMembership, identityProjectAuthority } =
-      identityServices;
+    const { setupCodes, humanIdentity, humanMembership } = identityServices;
     const activityComments = createActivityCommentsComposition({
       database: server.database,
       config,
       clock,
-      projectAuthority: identityProjectAuthority,
+      collaborationScopeAuthority,
       workspaceIdentity,
       projectAccess,
       humanIdentity,
@@ -179,8 +180,7 @@ export async function createDistributedServerComposition(
       handles: transportHandles,
       readiness,
       inflightRequests,
-      projectAuthority: registries.runtimeRegistry,
-      identityProjectAuthority,
+      collaborationScopeAuthority,
       registryService,
       agentEndpointCatalog: coordination.agentEndpoints,
       humanRemoteControl: remoteExecution.humanRemoteControl,

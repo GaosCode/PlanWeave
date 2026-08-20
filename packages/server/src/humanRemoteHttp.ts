@@ -6,7 +6,7 @@ import {
   hasAuthenticatedCollaborationDevice,
   humanTransportAllowed,
   type HumanIdentityRepository,
-  type HumanProjectAuthority
+  type CollaborationScopeAuthority
 } from "./identity/index.js";
 import type { TransportAdmissionPolicy } from "./insecureTransport.js";
 import type { WorkspaceIdentityRepository } from "./identity/workspaceRepository.js";
@@ -25,7 +25,7 @@ export type HumanRemoteHttpOptions = {
   service: HumanRemoteControlService;
   repository: HumanIdentityRepository;
   workspaceIdentity: WorkspaceIdentityRepository;
-  projectAuthority: HumanProjectAuthority;
+  collaborationScopeAuthority: CollaborationScopeAuthority;
   readiness(): ServerReadiness;
   transportAdmission: TransportAdmissionPolicy;
 };
@@ -131,6 +131,9 @@ function safeError(error: unknown): { status: number; code: string } {
   if (endpointErrorCode) return { status: 409, code: endpointErrorCode };
   if (error instanceof HumanRemoteControlError) {
     if (error.code === "human_remote_body_too_large") return { status: 413, code: error.code };
+    if (error.code === "human_remote_runtime_unavailable") {
+      return { status: 503, code: error.code };
+    }
     if (error.code.includes("forbidden") || error.code.includes("project_mismatch")) {
       return { status: 403, code: error.code };
     }
@@ -198,7 +201,7 @@ export async function handleHumanRemoteHttpRequest(
     const scope = authenticateCollaborationForScope(
       options.repository,
       options.workspaceIdentity,
-      options.projectAuthority,
+      options.collaborationScopeAuthority,
       request.headers.authorization,
       matched.projectId
     );

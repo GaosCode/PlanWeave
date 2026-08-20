@@ -18,7 +18,7 @@ import type { RegistryHttpService } from "../registryHttp.js";
 import {
   HumanIdentityRepository,
   HumanMembershipService,
-  type HumanProjectAuthority
+  type CollaborationScopeAuthority
 } from "../identity/index.js";
 import type { ProjectRegistryRepository } from "../projectRegistryRepository.js";
 import { SetupCodeService } from "../identity/setupCodeService.js";
@@ -35,9 +35,9 @@ import {
 export type TrustedRuntimeRegistry = Awaited<ReturnType<typeof createTrustedRuntimeRegistry>>;
 
 /** Collaboration identity and ACL scope existence comes only from the SQLite registry. */
-export function createRegistryIdentityProjectAuthority(
+export function createRegistryCollaborationScopeAuthority(
   registry: ProjectRegistryRepository
-): HumanProjectAuthority {
+): CollaborationScopeAuthority {
   return {
     hasProject(projectId) {
       return registry.hasActiveProject(projectId);
@@ -233,12 +233,15 @@ export function createIdentityAccessComposition(input: {
     input.config.dataDirectory,
     input.clock
   );
+  const collaborationScopeAuthority = createRegistryCollaborationScopeAuthority(
+    projectAccess.registry
+  );
   const registryService = createRegistryService(
-    input.runtimeRegistry,
+    collaborationScopeAuthority,
     projectAccess,
     packageSnapshots
   );
-  return { workspaceIdentity, projectAccess, registryService };
+  return { workspaceIdentity, projectAccess, registryService, collaborationScopeAuthority };
 }
 
 export function createIdentityServices(input: {
@@ -249,6 +252,7 @@ export function createIdentityServices(input: {
   ownerRuntimeRegistry: TrustedRuntimeRegistry;
   workspaceIdentity: WorkspaceIdentityRepository;
   projectAccess: ProjectAccessRepository;
+  collaborationScopeAuthority: CollaborationScopeAuthority;
   authorizationChanges: AuthorizationChangeSignal;
   activity: ActivityJournalComposition;
   onHumanIdentityCreated(identity: HumanIdentityRepository): void;
@@ -336,12 +340,9 @@ export function createIdentityServices(input: {
     onAuthorizationChangeAfterCommit: (change) => input.authorizationChanges.publish(change)
   });
   input.onHumanIdentityCreated(humanIdentity);
-  const identityProjectAuthority = createRegistryIdentityProjectAuthority(
-    input.projectAccess.registry
-  );
   const humanMembership = new HumanMembershipService({
     repository: humanIdentity,
-    projectAuthority: identityProjectAuthority,
+    collaborationScopeAuthority: input.collaborationScopeAuthority,
     workspaceForProject: (projectId) =>
       input.workspaceIdentity.ensureWorkspaceForLegacyProject(projectId),
     clock: input.clock
@@ -351,12 +352,12 @@ export function createIdentityServices(input: {
     authorization,
     humanIdentity,
     humanMembership,
-    identityProjectAuthority
+    collaborationScopeAuthority: input.collaborationScopeAuthority
   };
 }
 
 function createRegistryService(
-  runtimeRegistry: TrustedRuntimeRegistry,
+  collaborationScopeAuthority: CollaborationScopeAuthority,
   projectAccess: ProjectAccessRepository,
   packageSnapshots: PackageSnapshotRepository
 ): RegistryHttpService {
@@ -365,7 +366,7 @@ function createRegistryService(
     projectId: string;
     canvasId: string;
   }) => {
-    if (!runtimeRegistry.hasScope(scope)) throw new Error("registry_canvas_not_found");
+    if (!collaborationScopeAuthority.hasScope(scope)) throw new Error("registry_canvas_not_found");
   };
   return {
     listProjects(input) {

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { accessMutationRequestSchema } from "@planweave-ai/collaboration-protocol/access/control";
 import { applyMigrations } from "../migrations.js";
 import { HumanIdentityRepository } from "../identity/repository.js";
-import { createRegistryIdentityProjectAuthority } from "../composition/identityAccess.js";
+import { createRegistryCollaborationScopeAuthority } from "../composition/identityAccess.js";
 import { ProjectAccessRepository } from "../projectAccessRepository.js";
 import { inWriteTransaction, openServerDatabase, type SqliteDatabase } from "../sqlite.js";
 
@@ -75,7 +75,7 @@ describe("project access registry", () => {
     expect(access.registry.hasActiveScope({ workspaceId: "w-other", projectId: "p" })).toBe(false);
 
     const runtimeAuthority = { hasProject: () => true, hasScope: () => true };
-    const identityAuthority = createRegistryIdentityProjectAuthority(access.registry);
+    const identityAuthority = createRegistryCollaborationScopeAuthority(access.registry);
     expect(identityAuthority.hasProject("p")).toBe(true);
     expect(identityAuthority.hasProject("missing")).toBe(false);
     expect(identityAuthority.hasScope({ workspaceId: "w", projectId: "p" })).toBe(true);

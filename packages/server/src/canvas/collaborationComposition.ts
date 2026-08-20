@@ -1,4 +1,4 @@
-import type { HumanProjectAuthority } from "../identity/index.js";
+import type { CollaborationScopeAuthority } from "../identity/index.js";
 import type { HumanIdentityRepository } from "../identity/repository.js";
 import type { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import type { TransportAdmissionPolicy } from "../insecureTransport.js";
@@ -34,7 +34,7 @@ export type CanvasCollaborationCompositionOptions = {
   identity: HumanIdentityRepository;
   workspaceIdentity: WorkspaceIdentityRepository;
   projectAccess: ProjectAccessRepository;
-  projectAuthority: HumanProjectAuthority;
+  collaborationScopeAuthority: CollaborationScopeAuthority;
   authorizationChanges: AuthorizationChangeSignal;
   expansions: readonly CanvasCollaborationExpansion[];
   observerJournal: HumanObserverJournal;
@@ -53,7 +53,7 @@ export async function createCanvasCollaborationComposition(
     upgradeRouter: options.upgradeRouter,
     repository: options.identity,
     workspaceIdentity: options.workspaceIdentity,
-    projectAuthority: options.projectAuthority,
+    collaborationScopeAuthority: options.collaborationScopeAuthority,
     authorizationChanges: options.authorizationChanges,
     maxPayloadBytes: options.maxPayloadBytes,
     shutdownTimeoutMs: options.shutdownTimeoutMs,
@@ -73,7 +73,7 @@ export async function createCanvasCollaborationComposition(
       identityRepository: options.identity,
       workspaceIdentity: options.workspaceIdentity,
       projectAccess: options.projectAccess,
-      projectAuthority: options.projectAuthority,
+      collaborationScopeAuthority: options.collaborationScopeAuthority,
       authorizationChanges: options.authorizationChanges,
       maxPayloadBytes: options.maxPayloadBytes,
       shutdownTimeoutMs: options.shutdownTimeoutMs,
@@ -151,7 +151,7 @@ export async function createCanvasCollaborationComposition(
       service: commandService,
       repository: options.identity,
       workspaceIdentity: options.workspaceIdentity,
-      projectAuthority: options.projectAuthority,
+      collaborationScopeAuthority: options.collaborationScopeAuthority,
       authorizationChanges: options.authorizationChanges,
       maxPayloadBytes: options.maxPayloadBytes,
       shutdownTimeoutMs: options.shutdownTimeoutMs,

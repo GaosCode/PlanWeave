@@ -114,7 +114,7 @@ async function fixture() {
   const identity = new HumanIdentityRepository(database);
   const membership = new HumanMembershipService({
     repository: identity,
-    projectAuthority: { hasProject: (id) => id === "p" },
+    collaborationScopeAuthority: { hasProject: (id) => id === "p" },
     workspaceForProject: (id) => (id === "p" ? "w" : undefined)
   });
   const owner = membership.bootstrapOwner("p", { humanPrincipalId: "owner", displayName: "Owner" });
@@ -190,7 +190,7 @@ async function fixture() {
       contentVersions,
       repository: identity,
       workspaceIdentity,
-      projectAuthority: {
+      collaborationScopeAuthority: {
         hasProject: (id) => id === "p",
         hasScope: (scope) =>
           scope.workspaceId === "w" &&

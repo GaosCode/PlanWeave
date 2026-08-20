@@ -12,7 +12,7 @@ import {
   humanTransportAllowed,
   type AuthenticatedCollaborationScope,
   type HumanIdentityRepository,
-  type HumanProjectAuthority
+  type CollaborationScopeAuthority
 } from "./identity/index.js";
 import type { TransportAdmissionPolicy } from "./insecureTransport.js";
 import { isAllowedClientOrigin } from "./clientOrigin.js";
@@ -36,7 +36,7 @@ export type HumanObserverWebSocketOptions = {
   repository: HumanIdentityRepository;
   workspaceIdentity: WorkspaceIdentityRepository;
   projectAccess: ProjectAccessRepository;
-  projectAuthority: HumanProjectAuthority;
+  collaborationScopeAuthority: CollaborationScopeAuthority;
   authorizationChanges: AuthorizationChangeSignal;
   maxPayloadBytes: number;
   shutdownTimeoutMs: number;
@@ -219,7 +219,7 @@ export function attachHumanObserverWebSocketServer(
     const authenticated = authenticateCollaborationForScope(
       options.repository,
       options.workspaceIdentity,
-      options.projectAuthority,
+      options.collaborationScopeAuthority,
       authorization,
       projectId,
       undefined,

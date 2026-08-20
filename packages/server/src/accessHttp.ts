@@ -10,7 +10,7 @@ import {
   authenticateCollaborationForProject,
   humanTransportAllowed,
   type HumanIdentityRepository,
-  type HumanProjectAuthority
+  type CollaborationScopeAuthority
 } from "./identity/index.js";
 import type { TransportAdmissionPolicy } from "./insecureTransport.js";
 import type { WorkspaceIdentityRepository } from "./identity/workspaceRepository.js";
@@ -26,7 +26,7 @@ export type AccessHttpOptions = {
   access: ProjectAccessRepository;
   repository: HumanIdentityRepository;
   workspaceIdentity: WorkspaceIdentityRepository;
-  projectAuthority: HumanProjectAuthority;
+  collaborationScopeAuthority: CollaborationScopeAuthority;
   transportAdmission: TransportAdmissionPolicy;
 };
 
@@ -143,7 +143,7 @@ export async function handleAccessHttpRequest(
       return true;
     }
     if (
-      !options.projectAuthority.hasScope({
+      !options.collaborationScopeAuthority.hasScope({
         workspaceId,
         projectId: matched.projectId,
         canvasId: matched.canvasId

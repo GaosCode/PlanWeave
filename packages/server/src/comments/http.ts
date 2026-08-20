@@ -15,7 +15,7 @@ import {
   humanAuthContextSchema,
   humanTransportAllowed,
   type HumanIdentityRepository,
-  type HumanProjectAuthority
+  type CollaborationScopeAuthority
 } from "../identity/index.js";
 import type { TransportAdmissionPolicy } from "../insecureTransport.js";
 import type { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
@@ -43,7 +43,7 @@ export type CommentActivityHttpOptions = {
   resolveService(workspaceId: string, projectId: string): CommentService | undefined;
   repository: HumanIdentityRepository;
   workspaceIdentity: WorkspaceIdentityRepository;
-  projectAuthority: HumanProjectAuthority;
+  collaborationScopeAuthority: CollaborationScopeAuthority;
   transportAdmission: TransportAdmissionPolicy;
   clock?: () => Date;
 };
@@ -265,7 +265,7 @@ export async function handleCommentActivityHttpRequest(
     const authenticated = authenticateCollaborationForScope(
       options.repository,
       options.workspaceIdentity,
-      options.projectAuthority,
+      options.collaborationScopeAuthority,
       request.headers.authorization,
       matched.projectId
     );

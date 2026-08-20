@@ -21,7 +21,7 @@ import type { HumanIdentityRepository } from "../identity/index.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import type { ProjectAccessRepository } from "../projectAccessRepository.js";
 import type { ServerConfig } from "../config.js";
-import type { HumanProjectAuthority } from "../identity/index.js";
+import type { CollaborationScopeAuthority } from "../identity/index.js";
 import { ContentVersionRepository } from "../canvas/index.js";
 import { createRoutedWorkItemPackagePort } from "../work/ports.js";
 import { createManifestWorkItemPort } from "../work/workItemFacts.js";
@@ -99,7 +99,7 @@ export function createActivityCommentsComposition(input: {
   database: SqliteDatabase;
   config: ServerConfig;
   clock: () => Date;
-  projectAuthority: HumanProjectAuthority;
+  collaborationScopeAuthority: CollaborationScopeAuthority;
   workspaceIdentity: WorkspaceIdentityRepository;
   projectAccess: ProjectAccessRepository;
   humanIdentity: HumanIdentityRepository;
@@ -125,13 +125,13 @@ export function createActivityCommentsComposition(input: {
   const contentVersions = new ContentVersionRepository(input.database, input.clock);
   const commentServices = new Map<string, CommentService>();
   const resolveCommentService = (workspaceId: string, projectId: string) => {
-    if (!input.projectAuthority.hasScope({ workspaceId, projectId })) return undefined;
+    if (!input.collaborationScopeAuthority.hasScope({ workspaceId, projectId })) return undefined;
     const serviceKey = collaborationScopeKey(workspaceId, projectId);
     let service = commentServices.get(serviceKey);
     if (!service) {
       const packagePort = createRoutedWorkItemPackagePort((canvasId) => {
         const scope = { workspaceId, projectId, canvasId };
-        if (!input.projectAuthority.hasScope(scope)) return undefined;
+        if (!input.collaborationScopeAuthority.hasScope(scope)) return undefined;
         const head = contentVersions.head(scope);
         if (!head) return undefined;
         const content = contentVersions.readVersion(scope, head.content).content;

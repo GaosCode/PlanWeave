@@ -53,7 +53,7 @@ function remoteManifest(): PlanPackageManifest {
   return manifest;
 }
 
-async function setup() {
+async function setup(options: { runtimeAvailable?: boolean } = {}) {
   const workspace = await createTestWorkspace(remoteManifest());
   directories.push(workspace.home, workspace.root);
   const dataDirectory = join(workspace.root, "server-data");
@@ -71,7 +71,7 @@ async function setup() {
   const identity = new HumanIdentityRepository(storage.database);
   const workspaceIdentity = new WorkspaceIdentityRepository(storage.database);
   const workspaceId = workspaceIdentity.ensureWorkspaceForLegacyProject(projectId);
-  const projectAuthority = {
+  const collaborationScopeAuthority = {
     hasProject: (candidate: string) => candidate === projectId || candidate === otherProjectId,
     hasScope: (scope: { workspaceId: string; projectId: string }) =>
       scope.workspaceId === workspaceId &&
@@ -79,7 +79,7 @@ async function setup() {
   };
   const membership = new HumanMembershipService({
     repository: identity,
-    projectAuthority,
+    collaborationScopeAuthority,
     workspaceForProject: (candidate) =>
       candidate === projectId || candidate === otherProjectId ? workspaceId : undefined
   });
@@ -148,7 +148,8 @@ async function setup() {
     dispatches: coordination.dispatches,
     coordinator: coordination.coordinator,
     events: coordination.acpEvents,
-    interactions: coordination.interactions
+    interactions: coordination.interactions,
+    runtimeAvailable: () => options.runtimeAvailable ?? true
   });
   let acceptingMutations = true;
 
@@ -158,7 +159,7 @@ async function setup() {
         await handleHumanHttpRequest(request, response, {
           service: membership,
           repository: identity,
-          projectAuthority,
+          collaborationScopeAuthority,
           transportAdmission: loopbackHttpTransportAdmission
         })
       ) {
@@ -169,7 +170,7 @@ async function setup() {
           service,
           repository: identity,
           workspaceIdentity,
-          projectAuthority,
+          collaborationScopeAuthority,
           readiness: () =>
             acceptingMutations
               ? { status: "ready", schemaVersion: 1 }
@@ -409,6 +410,23 @@ describe("human remote operation HTTP", () => {
     );
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({ error: "agent_endpoint_unknown" });
+  });
+
+  it("reports Runtime unavailability after collaboration scope authorization", async () => {
+    const fixture = await setup({ runtimeAvailable: false });
+    const token = await bootstrap(fixture.origin, fixture.projectId, "runtime-unavailable-owner");
+    const response = await fetch(
+      `${fixture.origin}/api/v1/projects/${fixture.projectId}/remote-operations`,
+      {
+        method: "POST",
+        headers: headers(token),
+        body: JSON.stringify(remoteDispatchBody(fixture, "runtime-unavailable-dispatch"))
+      }
+    );
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: "human_remote_runtime_unavailable"
+    });
   });
 
   it.each([

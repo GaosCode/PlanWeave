@@ -12,7 +12,7 @@ import {
   authenticateCollaborationForProject,
   humanTransportAllowed,
   type HumanIdentityRepository,
-  type HumanProjectAuthority
+  type CollaborationScopeAuthority
 } from "../identity/index.js";
 import { BoundedFixedWindowAdmission } from "../httpFixedWindowAdmission.js";
 import type { TransportAdmissionPolicy } from "../insecureTransport.js";
@@ -41,7 +41,7 @@ export type CanvasCommandHttpOptions = {
   service: CanvasCommandService;
   repository: HumanIdentityRepository;
   workspaceIdentity: WorkspaceIdentityRepository;
-  projectAuthority: HumanProjectAuthority;
+  collaborationScopeAuthority: CollaborationScopeAuthority;
   transportAdmission: TransportAdmissionPolicy;
   clock?: () => Date;
 };
@@ -183,7 +183,7 @@ export async function handleCanvasCommandHttpRequest(
     ? authenticateCollaborationForScope(
         options.repository,
         options.workspaceIdentity,
-        options.projectAuthority,
+        options.collaborationScopeAuthority,
         request.headers.authorization,
         routed.projectId,
         routed.canvasId

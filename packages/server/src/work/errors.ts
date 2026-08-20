@@ -22,6 +22,7 @@ export const workAssignmentErrorCodeSchema = z.enum([
   "work_not_agent_assigned",
   "work_dispatch_host_mismatch",
   "execution_target_read_only",
+  "work_runtime_unavailable",
   "work_cross_project_forbidden"
 ]);
 
@@ -73,5 +74,6 @@ export const WORK_ASSIGNMENT_ERROR_MESSAGES: Readonly<Record<WorkAssignmentError
   work_dispatch_host_mismatch: "Dispatch Host does not match the current exact Host assignment.",
   execution_target_read_only:
     "Legacy Host execution targets are read-only; choose a local or remote Agent Endpoint.",
+  work_runtime_unavailable: "No Runtime is currently available for this collaboration scope.",
   work_cross_project_forbidden: "Cross-project work assignment access is not permitted."
 };

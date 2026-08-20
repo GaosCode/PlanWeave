@@ -87,7 +87,7 @@ async function fixture() {
     hostOfflineAfterMs: 60_000,
     clock: () => now
   });
-  const projectAuthority = {
+  const collaborationScopeAuthority = {
     hasProject: (projectId: string) => projectId === "project-a" || projectId === "project-b",
     hasScope: (scope: { workspaceId: string; projectId: string }) =>
       (scope.workspaceId === workspaceId && scope.projectId === "project-a") ||
@@ -98,7 +98,7 @@ async function fixture() {
       catalog,
       repository: identity,
       workspaceIdentity,
-      projectAuthority,
+      collaborationScopeAuthority,
       transportAdmission: loopbackHttpTransportAdmission
     }).then((handled) => {
       if (!handled) {

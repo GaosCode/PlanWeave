@@ -381,7 +381,7 @@ export {
   type HumanDeviceTokenHandoff,
   type HumanHttpOptions,
   type HumanIdentityRepositoryOptions,
-  type HumanProjectAuthority,
+  type CollaborationScopeAuthority,
   type HumanMembershipServiceOptions,
   type HumanPolicyFacts,
   type HumanPolicySubject,

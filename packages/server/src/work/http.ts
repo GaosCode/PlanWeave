@@ -17,7 +17,7 @@ import {
   workspaceDeviceSessionHumanContext,
   type CollaborationAuthContext,
   type HumanIdentityRepository,
-  type HumanProjectAuthority
+  type CollaborationScopeAuthority
 } from "../identity/index.js";
 import type { TransportAdmissionPolicy } from "../insecureTransport.js";
 import type { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
@@ -65,7 +65,7 @@ export type WorkAssignmentHttpOptions = {
   repository: HumanIdentityRepository;
   workspaceIdentity: WorkspaceIdentityRepository;
   access: ProjectAccessRepository;
-  projectAuthority: HumanProjectAuthority;
+  collaborationScopeAuthority: CollaborationScopeAuthority;
   transportAdmission: TransportAdmissionPolicy;
   clock?: () => Date;
 };
@@ -135,15 +135,22 @@ function hasPrincipalAccessCapability(
   }
 }
 
-function assertTrustedScope(input: {
-  projectAuthority: HumanProjectAuthority;
+function assertCollaborationScope(input: {
+  collaborationScopeAuthority: CollaborationScopeAuthority;
   workspaceId: string;
   projectId: string;
   canvasId?: string;
 }): void {
-  if (!input.projectAuthority.hasScope(input)) {
+  if (!input.collaborationScopeAuthority.hasScope(input)) {
     throw new WorkAssignmentServiceError("work_cross_project_forbidden");
   }
+}
+
+function requireAssignmentService(
+  service: WorkAssignmentService | undefined
+): WorkAssignmentService {
+  if (!service) throw new WorkAssignmentServiceError("work_runtime_unavailable");
+  return service;
 }
 
 function decodeIdentifier(value: string): string | undefined {
@@ -271,6 +278,8 @@ function statusFor(error: WorkAssignmentServiceError): number {
     case "work_item_not_found":
     case "work_host_not_found":
       return 404;
+    case "work_runtime_unavailable":
+      return 503;
     case "work_revision_conflict":
       return 409;
     case "work_input_invalid":
@@ -358,7 +367,7 @@ export async function handleWorkAssignmentHttpRequest(
     const authenticated = authenticateCollaborationForScope(
       options.repository,
       options.workspaceIdentity,
-      options.projectAuthority,
+      options.collaborationScopeAuthority,
       request.headers.authorization,
       matched.projectId
     );
@@ -382,16 +391,6 @@ export async function handleWorkAssignmentHttpRequest(
     }
     const actor = authenticated.actor;
     const service = options.resolveService(authenticated.workspaceId, matched.projectId);
-    if (
-      !service &&
-      matched.kind !== "responsibility" &&
-      matched.kind !== "reviewer" &&
-      matched.kind !== "execution_target" &&
-      matched.kind !== "authority_get" &&
-      matched.kind !== "authority_projection"
-    ) {
-      throw new WorkAssignmentServiceError("work_cross_project_forbidden");
-    }
     const serviceActor = workspaceDeviceSessionHumanContext(actor, options.workspaceIdentity);
 
     switch (matched.kind) {
@@ -399,8 +398,8 @@ export async function handleWorkAssignmentHttpRequest(
         query(url, []);
         const body = assignmentUpdateWireCommandSchema.parse(await readJson(request));
         if (!serviceActor) throw new WorkAssignmentServiceError("work_auth_forbidden");
-        assertTrustedScope({
-          projectAuthority: options.projectAuthority,
+        assertCollaborationScope({
+          collaborationScopeAuthority: options.collaborationScopeAuthority,
           workspaceId: authenticated.workspaceId,
           projectId: matched.projectId,
           canvasId: body.workItem.canvasId
@@ -426,11 +425,15 @@ export async function handleWorkAssignmentHttpRequest(
             access: options.access
           });
         }
+        const assignmentService = requireAssignmentService(service);
         respond(
           response,
           200,
-          service!.updateAssignment({ ...body, actor: serviceActor, projectId: matched.projectId })
-            .display
+          assignmentService.updateAssignment({
+            ...body,
+            actor: serviceActor,
+            projectId: matched.projectId
+          }).display
         );
         return true;
       }
@@ -438,8 +441,8 @@ export async function handleWorkAssignmentHttpRequest(
         const parameters = query(url, ["workItem"]);
         const workItem = workItemRefSchema.parse(parseJsonParameter(parameters.workItem));
         if (!serviceActor) throw new WorkAssignmentServiceError("work_auth_forbidden");
-        assertTrustedScope({
-          projectAuthority: options.projectAuthority,
+        assertCollaborationScope({
+          collaborationScopeAuthority: options.collaborationScopeAuthority,
           workspaceId: authenticated.workspaceId,
           projectId: matched.projectId,
           canvasId: workItem.canvasId
@@ -452,7 +455,12 @@ export async function handleWorkAssignmentHttpRequest(
           capability: "read",
           access: options.access
         });
-        respond(response, 200, service!.getAssignment(serviceActor, matched.projectId, workItem));
+        const assignmentService = requireAssignmentService(service);
+        respond(
+          response,
+          200,
+          assignmentService.getAssignment(serviceActor, matched.projectId, workItem)
+        );
         return true;
       }
       case "list": {
@@ -468,8 +476,8 @@ export async function handleWorkAssignmentHttpRequest(
         if (!serviceActor) throw new WorkAssignmentServiceError("work_auth_forbidden");
         if (parsed.workItems) {
           for (const canvasId of new Set(parsed.workItems.map((workItem) => workItem.canvasId))) {
-            assertTrustedScope({
-              projectAuthority: options.projectAuthority,
+            assertCollaborationScope({
+              collaborationScopeAuthority: options.collaborationScopeAuthority,
               workspaceId: authenticated.workspaceId,
               projectId: matched.projectId,
               canvasId
@@ -483,12 +491,20 @@ export async function handleWorkAssignmentHttpRequest(
               access: options.access
             });
           }
+          const assignmentService = requireAssignmentService(service);
+          respond(
+            response,
+            200,
+            assignmentService.listAssignments(serviceActor, matched.projectId, parsed)
+          );
+          return true;
         } else if (isWorkspaceDeviceContext(actor) && parsed.canvasId === undefined) {
+          const assignmentService = requireAssignmentService(service);
           const items: AssignmentDisplayProjection[] = [];
           let cursor = parsed.cursor;
           let nextCursor: number | null = null;
           while (items.length < parsed.limit) {
-            const page = service!.listAssignments(serviceActor, matched.projectId, {
+            const page = assignmentService.listAssignments(serviceActor, matched.projectId, {
               cursor,
               limit: 1
             });
@@ -499,7 +515,7 @@ export async function handleWorkAssignmentHttpRequest(
             }
             cursor += 1;
             if (
-              options.projectAuthority.hasScope({
+              options.collaborationScopeAuthority.hasScope({
                 workspaceId: authenticated.workspaceId,
                 projectId: matched.projectId,
                 canvasId: item.workItem.canvasId
@@ -521,8 +537,8 @@ export async function handleWorkAssignmentHttpRequest(
           respond(response, 200, { items, nextCursor });
           return true;
         } else {
-          assertTrustedScope({
-            projectAuthority: options.projectAuthority,
+          assertCollaborationScope({
+            collaborationScopeAuthority: options.collaborationScopeAuthority,
             workspaceId: authenticated.workspaceId,
             projectId: matched.projectId,
             ...(parsed.canvasId === undefined ? {} : { canvasId: parsed.canvasId })
@@ -536,7 +552,12 @@ export async function handleWorkAssignmentHttpRequest(
             access: options.access
           });
         }
-        respond(response, 200, service!.listAssignments(serviceActor, matched.projectId, parsed));
+        const assignmentService = requireAssignmentService(service);
+        respond(
+          response,
+          200,
+          assignmentService.listAssignments(serviceActor, matched.projectId, parsed)
+        );
         return true;
       }
       case "eligible": {
@@ -549,8 +570,8 @@ export async function handleWorkAssignmentHttpRequest(
         ]);
         const workItem = workItemRefSchema.parse(parseJsonParameter(parameters.workItem));
         if (!serviceActor) throw new WorkAssignmentServiceError("work_auth_forbidden");
-        assertTrustedScope({
-          projectAuthority: options.projectAuthority,
+        assertCollaborationScope({
+          collaborationScopeAuthority: options.collaborationScopeAuthority,
           workspaceId: authenticated.workspaceId,
           projectId: matched.projectId,
           canvasId: workItem.canvasId
@@ -563,20 +584,26 @@ export async function handleWorkAssignmentHttpRequest(
           capability: "read",
           access: options.access
         });
-        const result = service!.listEligibleAssignees(serviceActor, matched.projectId, workItem, {
-          ...(parameters.humanLimit === undefined
-            ? {}
-            : { humanLimit: Number(parameters.humanLimit) }),
-          ...(parameters.humanCursor === undefined
-            ? {}
-            : { humanCursor: Number(parameters.humanCursor) }),
-          ...(parameters.hostLimit === undefined
-            ? {}
-            : { hostLimit: Number(parameters.hostLimit) }),
-          ...(parameters.hostCursor === undefined
-            ? {}
-            : { hostCursor: Number(parameters.hostCursor) })
-        });
+        const assignmentService = requireAssignmentService(service);
+        const result = assignmentService.listEligibleAssignees(
+          serviceActor,
+          matched.projectId,
+          workItem,
+          {
+            ...(parameters.humanLimit === undefined
+              ? {}
+              : { humanLimit: Number(parameters.humanLimit) }),
+            ...(parameters.humanCursor === undefined
+              ? {}
+              : { humanCursor: Number(parameters.humanCursor) }),
+            ...(parameters.hostLimit === undefined
+              ? {}
+              : { hostLimit: Number(parameters.hostLimit) }),
+            ...(parameters.hostCursor === undefined
+              ? {}
+              : { hostCursor: Number(parameters.hostCursor) })
+          }
+        );
         respond(response, 200, {
           workItem: result.workItem,
           humans: result.humans.filter((human) =>
@@ -600,8 +627,8 @@ export async function handleWorkAssignmentHttpRequest(
         const body = eligibleHostBatchRequestSchema.parse(await readJson(request));
         if (!serviceActor) throw new WorkAssignmentServiceError("work_auth_forbidden");
         for (const canvasId of new Set(body.workItems.map((workItem) => workItem.canvasId))) {
-          assertTrustedScope({
-            projectAuthority: options.projectAuthority,
+          assertCollaborationScope({
+            collaborationScopeAuthority: options.collaborationScopeAuthority,
             workspaceId: authenticated.workspaceId,
             projectId: matched.projectId,
             canvasId
@@ -615,10 +642,11 @@ export async function handleWorkAssignmentHttpRequest(
             access: options.access
           });
         }
+        const assignmentService = requireAssignmentService(service);
         respond(
           response,
           200,
-          service!.listEligibleHostsBatch(serviceActor, matched.projectId, body)
+          assignmentService.listEligibleHostsBatch(serviceActor, matched.projectId, body)
         );
         return true;
       }
@@ -639,14 +667,19 @@ export async function handleWorkAssignmentHttpRequest(
         ) {
           throw new WorkAssignmentServiceError("work_cross_project_forbidden");
         }
-        if (!options.projectAuthority.hasScope({ ...authenticated, canvasId: body.scope.canvasId }))
+        if (
+          !options.collaborationScopeAuthority.hasScope({
+            ...authenticated,
+            canvasId: body.scope.canvasId
+          })
+        )
           throw new WorkAssignmentServiceError("work_cross_project_forbidden");
         const handle = options.acquireAuthorityService?.(
           authenticated.workspaceId,
           matched.projectId,
           body.scope.canvasId
         );
-        if (!handle) throw new WorkAssignmentServiceError("work_cross_project_forbidden");
+        if (!handle) throw new WorkAssignmentServiceError("work_runtime_unavailable");
         try {
           respond(response, 200, handle.service.updateResponsibility(actor, body));
         } finally {
@@ -671,14 +704,19 @@ export async function handleWorkAssignmentHttpRequest(
         ) {
           throw new WorkAssignmentServiceError("work_cross_project_forbidden");
         }
-        if (!options.projectAuthority.hasScope({ ...authenticated, canvasId: body.scope.canvasId }))
+        if (
+          !options.collaborationScopeAuthority.hasScope({
+            ...authenticated,
+            canvasId: body.scope.canvasId
+          })
+        )
           throw new WorkAssignmentServiceError("work_cross_project_forbidden");
         const handle = options.acquireAuthorityService?.(
           authenticated.workspaceId,
           matched.projectId,
           body.scope.canvasId
         );
-        if (!handle) throw new WorkAssignmentServiceError("work_cross_project_forbidden");
+        if (!handle) throw new WorkAssignmentServiceError("work_runtime_unavailable");
         try {
           respond(response, 200, handle.service.updateReviewer(actor, body));
         } finally {
@@ -703,21 +741,31 @@ export async function handleWorkAssignmentHttpRequest(
         ) {
           throw new WorkAssignmentServiceError("work_cross_project_forbidden");
         }
-        if (!options.projectAuthority.hasScope({ ...authenticated, canvasId: body.scope.canvasId }))
+        if (
+          !options.collaborationScopeAuthority.hasScope({
+            ...authenticated,
+            canvasId: body.scope.canvasId
+          })
+        )
           throw new WorkAssignmentServiceError("work_cross_project_forbidden");
         throw new WorkAssignmentServiceError("execution_target_read_only");
       }
       case "authority_get": {
         const parameters = query(url, ["scope"]);
         const scope = authorityScopeSchema.parse(parseJsonParameter(parameters.scope));
-        if (!options.projectAuthority.hasScope({ ...authenticated, canvasId: scope.canvasId }))
+        if (
+          !options.collaborationScopeAuthority.hasScope({
+            ...authenticated,
+            canvasId: scope.canvasId
+          })
+        )
           throw new WorkAssignmentServiceError("work_cross_project_forbidden");
         const handle = options.acquireAuthorityService?.(
           authenticated.workspaceId,
           matched.projectId,
           scope.canvasId
         );
-        if (!handle) throw new WorkAssignmentServiceError("work_cross_project_forbidden");
+        if (!handle) throw new WorkAssignmentServiceError("work_runtime_unavailable");
         try {
           const result =
             matched.authority === "responsibility"
@@ -734,14 +782,19 @@ export async function handleWorkAssignmentHttpRequest(
       case "authority_projection": {
         const parameters = query(url, ["scope"]);
         const scope = authorityScopeSchema.parse(parseJsonParameter(parameters.scope));
-        if (!options.projectAuthority.hasScope({ ...authenticated, canvasId: scope.canvasId }))
+        if (
+          !options.collaborationScopeAuthority.hasScope({
+            ...authenticated,
+            canvasId: scope.canvasId
+          })
+        )
           throw new WorkAssignmentServiceError("work_cross_project_forbidden");
         const handle = options.acquireAuthorityService?.(
           authenticated.workspaceId,
           matched.projectId,
           scope.canvasId
         );
-        if (!handle) throw new WorkAssignmentServiceError("work_cross_project_forbidden");
+        if (!handle) throw new WorkAssignmentServiceError("work_runtime_unavailable");
         try {
           respond(response, 200, handle.service.getWorkAuthorityProjection(actor, scope));
         } finally {

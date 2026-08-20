@@ -86,7 +86,7 @@ describe("distributed server composition", () => {
     });
   });
 
-  it("authorizes human members from a restored registry without trusted packages", async () => {
+  it("uses an active pathless registry scope for collaboration and reports missing Runtime", async () => {
     const workspace = await createTestWorkspace(remoteManifest());
     directories.push(workspace.home, workspace.root);
     const httpServer = createServer();
@@ -126,6 +126,14 @@ describe("distributed server composition", () => {
         canvasId: "default",
         packageDir: workspace.root
       });
+      database
+        .prepare("UPDATE project_registry SET project_root_internal=NULL WHERE project_id=?")
+        .run(restoredProjectId);
+      database
+        .prepare(
+          "UPDATE canvas_registry SET package_dir_internal=NULL WHERE project_id=? AND canvas_id='default'"
+        )
+        .run(restoredProjectId);
       workspaceIdentity.ensureLegacyProjectAdapter(restoredProjectId, "workspace-self-host");
     } finally {
       database.close();
@@ -156,6 +164,54 @@ describe("distributed server composition", () => {
     expect(members.status).toBe(200);
     await expect(members.json()).resolves.toMatchObject({
       items: [expect.objectContaining({ humanPrincipalId: "restored-owner", role: "owner" })]
+    });
+
+    const access = await fetch(
+      `${origin}/api/v1/projects/${restoredProjectId}/canvases/default/access`,
+      { headers: { Authorization: `Bearer ${deviceToken}` } }
+    );
+    expect(access.status).toBe(200);
+
+    const agentEndpoints = await fetch(
+      `${origin}/api/v1/projects/${restoredProjectId}/agent-endpoints`,
+      { headers: { Authorization: `Bearer ${deviceToken}` } }
+    );
+    expect(agentEndpoints.status).toBe(200);
+    await expect(agentEndpoints.json()).resolves.toEqual({
+      schemaVersion: "agent-endpoint-list/v1",
+      items: []
+    });
+
+    const workItem = encodeURIComponent(
+      JSON.stringify({ kind: "task", canvasId: "default", taskId: "T-001" })
+    );
+    const assignment = await fetch(
+      `${origin}/api/v1/projects/${restoredProjectId}/assignments?workItem=${workItem}`,
+      { headers: { Authorization: `Bearer ${deviceToken}` } }
+    );
+    expect(assignment.status).toBe(503);
+    await expect(assignment.json()).resolves.toEqual({ error: "work_runtime_unavailable" });
+
+    const remoteOperation = await fetch(
+      `${origin}/api/v1/projects/${restoredProjectId}/remote-operations`,
+      {
+        method: "POST",
+        headers: jsonHeaders(deviceToken),
+        body: JSON.stringify({
+          schemaVersion: "remote-run/v3",
+          projectId: restoredProjectId,
+          canvasId: "default",
+          blockRef: "T-001#B-001",
+          agentEndpointId: "missing-agent-endpoint",
+          idempotencyKey: "pathless-registry-dispatch",
+          expectedResponsibilityRevision: 0,
+          expectedReviewerRevision: 0
+        })
+      }
+    );
+    expect(remoteOperation.status).toBe(503);
+    await expect(remoteOperation.json()).resolves.toEqual({
+      error: "human_remote_runtime_unavailable"
     });
 
     const canvases = await fetch(
@@ -206,6 +262,31 @@ describe("distributed server composition", () => {
     await expect(reconnect.json()).resolves.toMatchObject({
       type: "canvas.reconnect.error",
       code: "snapshot_malformed"
+    });
+
+    const revokeDatabase = await openServerDatabase(config.databasePath, 5_000);
+    try {
+      revokeDatabase
+        .prepare("UPDATE project_registry SET revoked_at=? WHERE project_id=?")
+        .run("2026-08-20T00:00:00.000Z", restoredProjectId);
+    } finally {
+      revokeDatabase.close();
+    }
+    const revokedAgentEndpoints = await fetch(
+      `${origin}/api/v1/projects/${restoredProjectId}/agent-endpoints`,
+      { headers: { Authorization: `Bearer ${deviceToken}` } }
+    );
+    expect(revokedAgentEndpoints.status).toBe(403);
+    await expect(revokedAgentEndpoints.json()).resolves.toEqual({
+      error: "agent_endpoint_forbidden"
+    });
+    const revokedAssignment = await fetch(
+      `${origin}/api/v1/projects/${restoredProjectId}/assignments?workItem=${workItem}`,
+      { headers: { Authorization: `Bearer ${deviceToken}` } }
+    );
+    expect(revokedAssignment.status).toBe(403);
+    await expect(revokedAssignment.json()).resolves.toEqual({
+      error: "work_cross_project_forbidden"
     });
   });
 

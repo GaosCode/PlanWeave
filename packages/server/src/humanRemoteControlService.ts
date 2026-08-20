@@ -36,6 +36,7 @@ export type HumanRemoteControlServiceOptions = {
   coordinator: RemoteBlockCoordinator;
   events: RemoteAcpEventRepository;
   interactions: RemoteInteractionService;
+  runtimeAvailable(scope: { workspaceId: string; projectId: string; canvasId: string }): boolean;
   authorizeCanvas?: (
     context: CollaborationAuthContext,
     scope: { workspaceId: string; projectId: string; canvasId: string }
@@ -85,6 +86,15 @@ export class HumanRemoteControlService {
     const request = remoteDispatchIntentV3Schema.parse(rawRequest);
     if (request.projectId !== projectId)
       throw new HumanRemoteControlError("human_remote_project_mismatch");
+    if (
+      !this.options.runtimeAvailable({
+        workspaceId: scope.workspaceId,
+        projectId: request.projectId,
+        canvasId: request.canvasId
+      })
+    ) {
+      throw new HumanRemoteControlError("human_remote_runtime_unavailable");
+    }
     const outcome = await this.options.coordinator.dispatch({
       workspaceId: scope.workspaceId,
       projectId: request.projectId,

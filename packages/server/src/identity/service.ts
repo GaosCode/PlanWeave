@@ -55,14 +55,14 @@ function mapIdentityError(error: unknown): never {
 
 export type HumanMembershipServiceOptions = {
   repository: HumanIdentityRepository;
-  projectAuthority: HumanProjectAuthority;
+  collaborationScopeAuthority: CollaborationScopeAuthority;
   workspaceForProject(projectId: string): string | undefined;
   clock?: () => Date;
 };
 
-export type HumanProjectAuthority = {
+export type CollaborationScopeAuthority = {
   hasScope(input: { workspaceId: string; projectId: string; canvasId?: string }): boolean;
-  /** Legacy adapter: true only when the project ID resolves to one trusted Workspace scope. */
+  /** True only when the project has one active logical scope in the collaboration registry. */
   hasProject(projectId: string): boolean;
 };
 
@@ -71,20 +71,20 @@ export type HumanProjectAuthority = {
  */
 export class HumanMembershipService {
   private readonly repository: HumanIdentityRepository;
-  private readonly projectAuthority: HumanProjectAuthority;
+  private readonly collaborationScopeAuthority: CollaborationScopeAuthority;
   private readonly workspaceForProject: (projectId: string) => string | undefined;
   private readonly clock: () => Date;
 
   constructor(options: HumanMembershipServiceOptions) {
     this.repository = options.repository;
-    this.projectAuthority = options.projectAuthority;
+    this.collaborationScopeAuthority = options.collaborationScopeAuthority;
     this.workspaceForProject = options.workspaceForProject;
     this.clock = options.clock ?? (() => new Date());
   }
 
   private requireProject(projectId: string): string {
     const pid = humanProjectIdSchema.parse(projectId);
-    if (!this.projectAuthority.hasProject(pid)) deny("human_cross_project_forbidden");
+    if (!this.collaborationScopeAuthority.hasProject(pid)) deny("human_cross_project_forbidden");
     return pid;
   }
 

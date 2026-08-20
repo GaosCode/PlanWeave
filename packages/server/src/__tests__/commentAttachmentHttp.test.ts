@@ -60,14 +60,14 @@ async function setup(options?: { clock?: () => Date }) {
     `${workspaceA}\u0000project-a`,
     `${workspaceB}\u0000project-b`
   ]);
-  const projectAuthority = {
+  const collaborationScopeAuthority = {
     hasProject: (projectId: string) => projectId === "project-a" || projectId === "project-b",
     hasScope: (scope: { workspaceId: string; projectId: string }) =>
       authorizedScopes.has(`${scope.workspaceId}\u0000${scope.projectId}`)
   };
   const humanService = new HumanMembershipService({
     repository: humanRepository,
-    projectAuthority,
+    collaborationScopeAuthority,
     workspaceForProject: (projectId) =>
       projectId === "project-a" ? workspaceA : projectId === "project-b" ? workspaceB : undefined,
     clock: options?.clock
@@ -86,7 +86,7 @@ async function setup(options?: { clock?: () => Date }) {
         await handleHumanHttpRequest(request, response, {
           service: humanService,
           repository: humanRepository,
-          projectAuthority,
+          collaborationScopeAuthority,
           transportAdmission: loopbackHttpTransportAdmission,
           clock: options?.clock
         })
@@ -98,7 +98,7 @@ async function setup(options?: { clock?: () => Date }) {
           service: attachmentService,
           repository: humanRepository,
           workspaceIdentity,
-          projectAuthority,
+          collaborationScopeAuthority,
           transportAdmission: loopbackHttpTransportAdmission,
           clock: options?.clock
         })

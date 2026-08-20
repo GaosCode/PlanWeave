@@ -60,7 +60,7 @@ async function fixture() {
       access,
       repository: identity,
       workspaceIdentity,
-      projectAuthority: {
+      collaborationScopeAuthority: {
         hasScope: (scope) =>
           scope.workspaceId === workspaceId &&
           scope.projectId === "project-a" &&

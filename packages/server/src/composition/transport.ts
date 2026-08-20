@@ -9,7 +9,7 @@ import { WebSocketUpgradeRouter } from "../webSocketUpgradeRouter.js";
 import { attachReverseProxyWebSocketReadiness } from "../exposure/reverseProxyWebSocketReadiness.js";
 import type { TransportAdmissionPolicy } from "../insecureTransport.js";
 import type { HumanObserverJournal } from "../humanObserverJournal.js";
-import type { HumanIdentityRepository, HumanProjectAuthority } from "../identity/index.js";
+import type { HumanIdentityRepository, CollaborationScopeAuthority } from "../identity/index.js";
 import type { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import type { ProjectAccessRepository } from "../projectAccessRepository.js";
 import type { AuthorizationChangeSignal } from "../authorizationChangeSignal.js";
@@ -39,7 +39,7 @@ export async function createTransportComposition(
       disconnectHost: (hostId: string) => void
     ): Parameters<typeof createDistributedHttpRequestListener>[0]["operatorControl"];
     handles: TransportCompositionHandles;
-    identityProjectAuthority: HumanProjectAuthority;
+    collaborationScopeAuthority: CollaborationScopeAuthority;
   }
 ) {
   const upgradeRouter = new WebSocketUpgradeRouter(input.httpServer);
@@ -74,7 +74,7 @@ export async function createTransportComposition(
     repository: input.humanIdentity,
     workspaceIdentity: input.workspaceIdentity,
     projectAccess: input.projectAccess,
-    projectAuthority: input.identityProjectAuthority,
+    collaborationScopeAuthority: input.collaborationScopeAuthority,
     authorizationChanges: input.authorizationChanges,
     maxPayloadBytes: input.config.limits.maxWebSocketPayloadBytes,
     shutdownTimeoutMs: input.config.limits.shutdownTimeoutMs,
@@ -89,7 +89,7 @@ export async function createTransportComposition(
     identity: input.humanIdentity,
     workspaceIdentity: input.workspaceIdentity,
     projectAccess: input.projectAccess,
-    projectAuthority: input.identityProjectAuthority,
+    collaborationScopeAuthority: input.collaborationScopeAuthority,
     authorizationChanges: input.authorizationChanges,
     expansions: input.runtimeRegistry.expansions,
     observerJournal: input.humanObserverJournal,
@@ -113,8 +113,7 @@ export async function createTransportComposition(
     workspaceIdentity: input.workspaceIdentity,
     projectAccess: input.projectAccess,
     humanIdentity: input.humanIdentity,
-    projectAuthority: input.projectAuthority,
-    identityProjectAuthority: input.identityProjectAuthority,
+    collaborationScopeAuthority: input.collaborationScopeAuthority,
     transportAdmission: input.transportAdmission,
     registryService: input.registryService,
     agentEndpointCatalog: input.agentEndpointCatalog,

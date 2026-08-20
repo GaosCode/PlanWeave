@@ -45,7 +45,7 @@ describe("human display name service", () => {
     };
     const service = new HumanMembershipService({
       repository,
-      projectAuthority: { hasProject: (projectId) => projectId === "project-a" },
+      collaborationScopeAuthority: { hasProject: (projectId) => projectId === "project-a" },
       workspaceForProject: (projectId) =>
         workspaceIdentity.ensureWorkspaceForLegacyProject(projectId)
     });

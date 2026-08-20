@@ -129,7 +129,7 @@ export {
 export {
   HumanMembershipService,
   HumanMembershipServiceError,
-  type HumanProjectAuthority,
+  type CollaborationScopeAuthority,
   type HumanMembershipServiceOptions
 } from "./service.js";
 

@@ -57,19 +57,19 @@ async function setup(
   const repository = new HumanIdentityRepository(database);
   const workspaceIdentity = new WorkspaceIdentityRepository(database);
   const authorizedProjectIds = new Set([...defaultTestProjectIds, ...additionalProjectIds]);
-  const projectAuthority = {
+  const collaborationScopeAuthority = {
     hasProject: (projectId: string) => authorizedProjectIds.has(projectId)
   };
   const service = new HumanMembershipService({
     repository,
-    projectAuthority,
+    collaborationScopeAuthority,
     workspaceForProject: (projectId) => workspaceIdentity.ensureWorkspaceForLegacyProject(projectId)
   });
   const server = createServer((request, response) => {
     void handleHumanHttpRequest(request, response, {
       service,
       repository,
-      projectAuthority,
+      collaborationScopeAuthority,
       transportAdmission,
       clock
     });

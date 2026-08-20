@@ -12,7 +12,7 @@ import {
   parseHumanDeviceBearer,
   workspaceDeviceSessionHumanContext,
   type HumanIdentityRepository,
-  type HumanProjectAuthority
+  type CollaborationScopeAuthority
 } from "./identity/index.js";
 import { authorizeHumanAction } from "./identity/policy.js";
 import type { WorkspaceIdentityRepository } from "./identity/workspaceRepository.js";
@@ -23,7 +23,7 @@ export type AgentEndpointHttpOptions = {
   catalog: AgentEndpointCatalog;
   repository: HumanIdentityRepository;
   workspaceIdentity: WorkspaceIdentityRepository;
-  projectAuthority: HumanProjectAuthority;
+  collaborationScopeAuthority: CollaborationScopeAuthority;
   transportAdmission: TransportAdmissionPolicy;
 };
 
@@ -83,7 +83,7 @@ export async function handleAgentEndpointHttpRequest(
   const scope = authenticateCollaborationForScope(
     options.repository,
     options.workspaceIdentity,
-    options.projectAuthority,
+    options.collaborationScopeAuthority,
     request.headers.authorization,
     projectId
   );

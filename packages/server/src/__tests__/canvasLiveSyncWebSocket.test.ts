@@ -186,7 +186,7 @@ async function setup(
   const httpServer = createServer();
   servers.push(httpServer);
   const router = new WebSocketUpgradeRouter(httpServer);
-  const projectAuthority = {
+  const collaborationScopeAuthority = {
     hasScope: (scope: { workspaceId: string; projectId: string; canvasId: string }) =>
       scope.workspaceId === workspaceId &&
       scope.projectId === "project-live" &&
@@ -200,7 +200,7 @@ async function setup(
     identityRepository: identity,
     workspaceIdentity,
     projectAccess: access,
-    projectAuthority,
+    collaborationScopeAuthority,
     authorizationChanges,
     maxPayloadBytes: 64 * 1024,
     shutdownTimeoutMs: 1_000,
@@ -215,7 +215,7 @@ async function setup(
     database,
     identity,
     router,
-    projectAuthority,
+    collaborationScopeAuthority,
     live,
     access,
     workspaceIdentity,
@@ -642,7 +642,7 @@ describe("canvas live sync WebSocket", () => {
       service,
       repository: fixture.identity,
       workspaceIdentity: fixture.workspaceIdentity,
-      projectAuthority: fixture.projectAuthority,
+      collaborationScopeAuthority: fixture.collaborationScopeAuthority,
       authorizationChanges: fixture.authorizationChanges,
       maxPayloadBytes: 64 * 1024,
       shutdownTimeoutMs: 1_000,
@@ -693,7 +693,7 @@ describe("canvas live sync WebSocket", () => {
 
     expect(fixture.authorizationChanges.subscriberCount()).toBe(1);
     const closed = waitForClose(socket);
-    vi.spyOn(fixture.projectAuthority, "hasScope").mockReturnValue(false);
+    vi.spyOn(fixture.collaborationScopeAuthority, "hasScope").mockReturnValue(false);
     fixture.authorizationChanges.publish({
       workspaceId: fixture.scope.workspaceId,
       projectId: fixture.scope.projectId,

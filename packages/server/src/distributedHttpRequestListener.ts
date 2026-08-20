@@ -27,7 +27,7 @@ import {
   handleWorkspaceIdentityHttpRequest,
   type HumanIdentityRepository,
   type HumanMembershipService,
-  type HumanProjectAuthority
+  type CollaborationScopeAuthority
 } from "./identity/index.js";
 import { handleSetupCodeHttpRequest } from "./identity/setupCodeHttp.js";
 import type { SetupCodeService } from "./identity/setupCodeService.js";
@@ -52,8 +52,7 @@ export type DistributedHttpRequestListenerOptions = {
   workspaceIdentity: WorkspaceIdentityRepository;
   projectAccess: ProjectAccessRepository;
   humanIdentity: HumanIdentityRepository;
-  projectAuthority: HumanProjectAuthority;
-  identityProjectAuthority: HumanProjectAuthority;
+  collaborationScopeAuthority: CollaborationScopeAuthority;
   transportAdmission: TransportAdmissionPolicy;
   registryService: RegistryHttpService;
   agentEndpointCatalog: AgentEndpointCatalog;
@@ -147,7 +146,7 @@ export function createDistributedHttpRequestListener(
           access: options.projectAccess,
           repository: options.humanIdentity,
           workspaceIdentity: options.workspaceIdentity,
-          projectAuthority: options.identityProjectAuthority,
+          collaborationScopeAuthority: options.collaborationScopeAuthority,
           transportAdmission: options.transportAdmission
         })
       )
@@ -167,7 +166,7 @@ export function createDistributedHttpRequestListener(
           catalog: options.agentEndpointCatalog,
           repository: options.humanIdentity,
           workspaceIdentity: options.workspaceIdentity,
-          projectAuthority: options.projectAuthority,
+          collaborationScopeAuthority: options.collaborationScopeAuthority,
           transportAdmission: options.transportAdmission
         })
       )
@@ -177,7 +176,7 @@ export function createDistributedHttpRequestListener(
           service: options.humanRemoteControl,
           repository: options.humanIdentity,
           workspaceIdentity: options.workspaceIdentity,
-          projectAuthority: options.identityProjectAuthority,
+          collaborationScopeAuthority: options.collaborationScopeAuthority,
           readiness: () => options.readiness.readiness(),
           transportAdmission: options.transportAdmission
         })
@@ -190,7 +189,7 @@ export function createDistributedHttpRequestListener(
           repository: options.humanIdentity,
           workspaceIdentity: options.workspaceIdentity,
           access: options.projectAccess,
-          projectAuthority: options.projectAuthority,
+          collaborationScopeAuthority: options.collaborationScopeAuthority,
           transportAdmission: options.transportAdmission,
           clock: options.clock
         })
@@ -202,7 +201,7 @@ export function createDistributedHttpRequestListener(
           contentVersions: options.contentVersions,
           repository: options.humanIdentity,
           workspaceIdentity: options.workspaceIdentity,
-          projectAuthority: options.identityProjectAuthority,
+          collaborationScopeAuthority: options.collaborationScopeAuthority,
           transportAdmission: options.transportAdmission
         })
       )
@@ -212,7 +211,7 @@ export function createDistributedHttpRequestListener(
           service: options.canvasCommandService,
           repository: options.humanIdentity,
           workspaceIdentity: options.workspaceIdentity,
-          projectAuthority: options.identityProjectAuthority,
+          collaborationScopeAuthority: options.collaborationScopeAuthority,
           transportAdmission: options.transportAdmission,
           clock: options.clock
         })
@@ -223,7 +222,7 @@ export function createDistributedHttpRequestListener(
           resolveService: options.resolveCommentService,
           repository: options.humanIdentity,
           workspaceIdentity: options.workspaceIdentity,
-          projectAuthority: options.identityProjectAuthority,
+          collaborationScopeAuthority: options.collaborationScopeAuthority,
           transportAdmission: options.transportAdmission,
           clock: options.clock
         })
@@ -266,7 +265,7 @@ export function createDistributedHttpRequestListener(
         await handleHumanHttpRequest(request, response, {
           service: options.humanMembership,
           repository: options.humanIdentity,
-          projectAuthority: options.identityProjectAuthority,
+          collaborationScopeAuthority: options.collaborationScopeAuthority,
           transportAdmission: options.transportAdmission,
           clock: options.clock
         })
@@ -277,7 +276,7 @@ export function createDistributedHttpRequestListener(
           service: options.commentAttachments,
           repository: options.humanIdentity,
           workspaceIdentity: options.workspaceIdentity,
-          projectAuthority: options.identityProjectAuthority,
+          collaborationScopeAuthority: options.collaborationScopeAuthority,
           transportAdmission: options.transportAdmission,
           clock: options.clock
         })

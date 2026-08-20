@@ -10,7 +10,7 @@ import {
 } from "@planweave-ai/collaboration-protocol/core/primitives";
 import type { HumanIdentityRepository } from "./repository.js";
 import type { WorkspaceIdentityRepository } from "./workspaceRepository.js";
-import type { HumanProjectAuthority } from "./service.js";
+import type { CollaborationScopeAuthority } from "./service.js";
 
 export type WorkspaceDeviceAuthContext = {
   kind: "workspace_device";
@@ -162,7 +162,7 @@ export function hasAuthenticatedCollaborationDevice(
 export function authenticateCollaborationForScope(
   repository: HumanIdentityRepository,
   workspaceIdentity: WorkspaceIdentityRepository,
-  projectAuthority: HumanProjectAuthority,
+  collaborationScopeAuthority: CollaborationScopeAuthority,
   authorization: string | string[] | undefined,
   projectId: string,
   canvasId?: string,
@@ -187,7 +187,7 @@ export function authenticateCollaborationForScope(
     projectId,
     ...(canvasId === undefined ? {} : { canvasId })
   };
-  if (!projectAuthority.hasScope(scope)) return undefined;
+  if (!collaborationScopeAuthority.hasScope(scope)) return undefined;
   return { actor, ...scope };
 }
 

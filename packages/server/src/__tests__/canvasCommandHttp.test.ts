@@ -40,7 +40,7 @@ async function setup(clock: () => Date) {
       "2026-01-02T00:00:00.000Z",
       "2036-01-02T00:00:00.000Z"
     );
-  const projectAuthority = {
+  const collaborationScopeAuthority = {
     hasProject: (projectId: string) => projectId === "p",
     hasScope: (scope: { workspaceId: string; projectId: string; canvasId?: string }) =>
       scope.workspaceId === "w" && scope.projectId === "p" && scope.canvasId === "default"
@@ -50,7 +50,7 @@ async function setup(clock: () => Date) {
       service,
       repository,
       workspaceIdentity,
-      projectAuthority,
+      collaborationScopeAuthority,
       transportAdmission: loopbackHttpTransportAdmission,
       clock
     });

@@ -14,7 +14,7 @@ import {
   humanTransportAllowed,
   type AuthenticatedCollaborationScope,
   type HumanIdentityRepository,
-  type HumanProjectAuthority
+  type CollaborationScopeAuthority
 } from "./identity/index.js";
 import type { TransportAdmissionPolicy } from "./insecureTransport.js";
 import type { WorkspaceIdentityRepository } from "./identity/workspaceRepository.js";
@@ -30,7 +30,7 @@ import {
   type AuthorizationChangeSignal
 } from "./authorizationChangeSignal.js";
 
-export type CanvasPresenceProjectAuthority = HumanProjectAuthority;
+export type CanvasPresenceProjectAuthority = CollaborationScopeAuthority;
 
 const PRESENCE_PATH_PATTERN =
   /^\/api\/v1\/projects\/([^/]+)\/canvases\/([^/]+)\/human\/presence(?:\?.*)?$/;
@@ -39,7 +39,7 @@ export type CanvasPresenceWebSocketOptions = {
   upgradeRouter: WebSocketUpgradeRouter;
   repository: HumanIdentityRepository;
   workspaceIdentity: WorkspaceIdentityRepository;
-  projectAuthority: CanvasPresenceProjectAuthority;
+  collaborationScopeAuthority: CanvasPresenceProjectAuthority;
   authorizationChanges: AuthorizationChangeSignal;
   maxPayloadBytes: number;
   shutdownTimeoutMs: number;
@@ -160,7 +160,7 @@ export function attachCanvasPresenceWebSocketServer(
       const current = authenticateCollaborationForScope(
         options.repository,
         options.workspaceIdentity,
-        options.projectAuthority,
+        options.collaborationScopeAuthority,
         authorization,
         route.projectId,
         route.canvasId
@@ -301,7 +301,7 @@ export function attachCanvasPresenceWebSocketServer(
           const authenticated = authenticateCollaborationForScope(
             options.repository,
             options.workspaceIdentity,
-            options.projectAuthority,
+            options.collaborationScopeAuthority,
             authorization,
             route.projectId,
             route.canvasId
@@ -381,7 +381,7 @@ export function attachCanvasPresenceWebSocketServer(
       const authenticated = authenticateCollaborationForScope(
         options.repository,
         options.workspaceIdentity,
-        options.projectAuthority,
+        options.collaborationScopeAuthority,
         request.headers.authorization,
         route.projectId,
         route.canvasId

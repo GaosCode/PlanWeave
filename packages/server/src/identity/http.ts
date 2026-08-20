@@ -22,7 +22,7 @@ import { HumanIdentityRepository } from "./repository.js";
 import {
   HumanMembershipService,
   HumanMembershipServiceError,
-  type HumanProjectAuthority
+  type CollaborationScopeAuthority
 } from "./service.js";
 import {
   HUMAN_DEVICE_TOKEN_PREFIX,
@@ -43,7 +43,7 @@ export const HUMAN_RATE_MAX_BUCKETS = 1_000;
 export type HumanHttpOptions = {
   service: HumanMembershipService;
   repository: HumanIdentityRepository;
-  projectAuthority: HumanProjectAuthority;
+  collaborationScopeAuthority: CollaborationScopeAuthority;
   transportAdmission: TransportAdmissionPolicy;
   clock?: () => Date;
 };
@@ -491,7 +491,7 @@ export async function handleHumanHttpRequest(
       return true;
     }
 
-    if (!options.projectAuthority.hasProject(matched.projectId)) {
+    if (!options.collaborationScopeAuthority.hasProject(matched.projectId)) {
       request.resume();
       respond(response, 403, { error: "human_cross_project_forbidden" });
       return true;

@@ -18,7 +18,7 @@ import {
   humanTransportAllowed,
   type CollaborationAuthContext,
   type HumanIdentityRepository,
-  type HumanProjectAuthority
+  type CollaborationScopeAuthority
 } from "../identity/index.js";
 import type { TransportAdmissionPolicy } from "../insecureTransport.js";
 import type { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
@@ -41,7 +41,7 @@ export type CanvasLiveSyncWebSocketOptions = {
   identityRepository: HumanIdentityRepository;
   workspaceIdentity: WorkspaceIdentityRepository;
   projectAccess: ProjectAccessRepository;
-  projectAuthority: HumanProjectAuthority;
+  collaborationScopeAuthority: CollaborationScopeAuthority;
   authorizationChanges: AuthorizationChangeSignal;
   maxPayloadBytes: number;
   shutdownTimeoutMs: number;
@@ -170,7 +170,7 @@ export function attachCanvasLiveSyncWebSocketServer(
     const authenticatedScope = authenticateCollaborationForScope(
       options.identityRepository,
       options.workspaceIdentity,
-      options.projectAuthority,
+      options.collaborationScopeAuthority,
       authorization,
       route.projectId,
       route.canvasId

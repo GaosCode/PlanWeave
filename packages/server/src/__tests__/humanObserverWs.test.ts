@@ -319,7 +319,7 @@ async function setupDirectObserver(
     repository: new HumanIdentityRepository(database),
     workspaceIdentity,
     projectAccess,
-    projectAuthority: {
+    collaborationScopeAuthority: {
       hasScope: (scope) => scope.workspaceId === workspaceId && scope.projectId === projectId,
       hasProject: (candidateProjectId) => candidateProjectId === projectId
     },
@@ -732,7 +732,7 @@ describe("human observer WSS", () => {
       repository: new HumanIdentityRepository(database),
       workspaceIdentity,
       projectAccess,
-      projectAuthority: {
+      collaborationScopeAuthority: {
         hasScope: ({ workspaceId, projectId }) =>
           projectId === "shared-project" &&
           (workspaceId === "observer-workspace" || workspaceId === "observer-workspace-b"),

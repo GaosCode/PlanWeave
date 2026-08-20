@@ -274,7 +274,7 @@ describe("distributed server composition cleanup", () => {
           identity,
           workspaceIdentity,
           projectAccess,
-          projectAuthority: {
+          collaborationScopeAuthority: {
             hasProject: (projectId) => projectId === "project-capture-failure",
             hasScope: (scope) =>
               scope.workspaceId === "workspace-capture-failure" &&
