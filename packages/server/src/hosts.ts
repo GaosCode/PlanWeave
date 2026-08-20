@@ -18,6 +18,7 @@ import { HostInstallationRepository } from "./hostInstallationRepository.js";
 import { toAgentHost, type AgentHost, type HostRow } from "./hostRecord.js";
 import { capabilitiesSchema } from "./protocol.js";
 import type { SqliteDatabase } from "./sqlite.js";
+import { CanvasRuntimeHostBindingRepository } from "./canvas/runtimeHostLocator.js";
 
 export type { AgentHost } from "./hostRecord.js";
 
@@ -184,11 +185,13 @@ export class AgentHostRepository {
     this.workspaceIdentity = new WorkspaceIdentityRepository(database);
     this.credentials = new HostCredentialLifecycleRepository(database, clock);
     this.installations = new HostInstallationRepository(database);
+    this.runtimeBindings = new CanvasRuntimeHostBindingRepository(database, this, clock);
   }
 
   private readonly workspaceIdentity: WorkspaceIdentityRepository;
   private readonly credentials: HostCredentialLifecycleRepository;
   private readonly installations: HostInstallationRepository;
+  readonly runtimeBindings: CanvasRuntimeHostBindingRepository;
 
   private syncWorkspaceHost(hostId: string): void {
     this.workspaceIdentity.synchronizeHost(hostId);
@@ -479,6 +482,7 @@ export class AgentHostRepository {
       );
     if (updated.changes !== 1) throw new Error("agent_host_not_found_or_revoked");
     const host = this.getRequired(hostId);
+    this.runtimeBindings.synchronizeReadiness(hostId, readiness?.runtimeProjects);
     this.syncWorkspaceHost(hostId);
     return host;
   }
@@ -498,6 +502,9 @@ export class AgentHostRepository {
       );
     if (updated.changes !== 1) throw new Error("agent_host_not_found_or_revoked");
     this.getRequired(hostId);
+    if (readiness !== undefined) {
+      this.runtimeBindings.synchronizeReadiness(hostId, readiness.runtimeProjects);
+    }
     this.syncWorkspaceHost(hostId);
   }
 

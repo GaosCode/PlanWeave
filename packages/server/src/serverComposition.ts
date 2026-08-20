@@ -41,6 +41,13 @@ import {
 import { createLocalFilesystemCanvasRuntimeAdapter } from "./canvas/localFilesystemRuntimeAdapter.js";
 import { LocalFilesystemExecutionRuntimeAdapter } from "./canvas/localFilesystemExecutionRuntimeAdapter.js";
 import { LocalFilesystemWorkRuntimeAdapter } from "./work/localFilesystemRuntimeAdapter.js";
+import {
+  LocalFirstCanvasExecutionRuntimeRouter,
+  LocalFirstCanvasRuntimeRouter,
+  RemoteHostCanvasRuntimeAdapter
+} from "./canvas/remoteHostRuntimeAdapter.js";
+import { CanvasRuntimeRpcBroker } from "./canvas/runtimeRpcBroker.js";
+import { CanvasRuntimeHostLocator } from "./canvas/runtimeHostLocator.js";
 
 export type DistributedServerCompositionOptions = {
   httpServer: HttpServer;
@@ -80,12 +87,22 @@ export async function createDistributedServerComposition(
     registries.ownerRuntimeRegistry
   );
   const localWorkRuntime = new LocalFilesystemWorkRuntimeAdapter(registries.runtimeRegistry);
+  const collaborationRuntime = new LocalFirstCanvasRuntimeRouter(
+    localCanvasRuntime,
+    localExecutionRuntime,
+    localExecutionRuntime
+  );
+  const executionRuntime = new LocalFirstCanvasExecutionRuntimeRouter(
+    ownerExecutionRuntime,
+    ownerExecutionRuntime
+  );
   let lifecycle: Awaited<ReturnType<typeof startRemoteBlockCoordinationServer>> | undefined;
   let activity: ActivityJournalComposition | undefined;
   let activityRetention:
     | Awaited<ReturnType<typeof createActivityCommentsComposition>>["retention"]
     | undefined;
   let remoteCoordinationMaintenance: RemoteCoordinationMaintenance | undefined;
+  let runtimeRpc: CanvasRuntimeRpcBroker | undefined;
   const transportHandles: TransportCompositionHandles = {};
   let authorization: ReturnType<typeof createIdentityServices>["authorization"];
   let humanIdentityForInteractions: HumanIdentityRepository | undefined;
@@ -105,7 +122,7 @@ export async function createDistributedServerComposition(
         return createRemoteCoordinationOptions({
           config,
           clock,
-          ownerRuntimeLeases: ownerExecutionRuntime,
+          ownerRuntimeLeases: executionRuntime,
           ownerRuntimeAvailability: ownerExecutionRuntime,
           activity,
           getAuthorization: () => authorization,
@@ -141,6 +158,23 @@ export async function createDistributedServerComposition(
     });
     localWorkRuntime.attachCollaborationScopeResolution({ workspaceIdentity, projectAccess });
     workspaceIdentityForInteractions = workspaceIdentity;
+    runtimeRpc = new CanvasRuntimeRpcBroker(
+      server.database,
+      coordination.hosts,
+      coordination.mailbox,
+      { requestTimeoutMs: config.limits.leaseDurationMs, clock }
+    );
+    const remoteCanvasRuntime = new RemoteHostCanvasRuntimeAdapter(
+      new CanvasRuntimeHostLocator(
+        coordination.hosts.runtimeBindings,
+        coordination.hosts,
+        runtimeRpc,
+        projectAccess
+      ),
+      runtimeRpc
+    );
+    collaborationRuntime.attachRemote(remoteCanvasRuntime);
+    executionRuntime.attachRemote(remoteCanvasRuntime);
     const identityServices = createIdentityServices({
       database: server.database,
       config,
@@ -175,7 +209,7 @@ export async function createDistributedServerComposition(
       config,
       clock,
       coordination,
-      runtimeAvailability: localExecutionRuntime,
+      runtimeAvailability: collaborationRuntime,
       ownerRuntimeScopes: ownerExecutionRuntime,
       workRuntimeProjects: localWorkRuntime,
       workRuntimeLeases: localWorkRuntime,
@@ -192,7 +226,8 @@ export async function createDistributedServerComposition(
       coordination,
       runtimeAttachments: registries.runtimeRegistry.locators,
       initialContentCapture: localCanvasRuntime,
-      runtimeAvailability: localCanvasRuntime,
+      runtimeAvailability: collaborationRuntime,
+      runtimeRpc,
       workspaceIdentity,
       projectAccess,
       humanIdentity,
@@ -266,6 +301,7 @@ export async function createDistributedServerComposition(
           } catch (error) {
             errors.push(error);
           }
+          runtimeRpc?.close();
           try {
             await activityRetention?.close();
           } catch (error) {
@@ -312,6 +348,7 @@ export async function createDistributedServerComposition(
     } catch (cleanupError) {
       cleanupErrors.push(cleanupError);
     }
+    runtimeRpc?.close();
     try {
       await activityRetention?.close();
     } catch (cleanupError) {

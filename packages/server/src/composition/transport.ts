@@ -19,6 +19,7 @@ import type {
   CanvasRuntimeAvailabilityPort
 } from "../canvas/runtimePort.js";
 import type { CanvasRuntimeAttachment } from "../canvas/collaborationComposition.js";
+import type { CanvasRuntimeRpcBroker } from "../canvas/runtimeRpcBroker.js";
 
 type Coordination = Awaited<ReturnType<typeof startRemoteBlockCoordinationServer>>["coordination"];
 type HttpListenerOptions = Omit<
@@ -39,6 +40,7 @@ export async function createTransportComposition(
     runtimeAttachments: readonly CanvasRuntimeAttachment[];
     initialContentCapture: CanvasInitialContentCapturePort;
     runtimeAvailability: CanvasRuntimeAvailabilityPort;
+    runtimeRpc: CanvasRuntimeRpcBroker;
     workspaceIdentity: WorkspaceIdentityRepository;
     projectAccess: ProjectAccessRepository;
     humanIdentity: HumanIdentityRepository;
@@ -68,6 +70,7 @@ export async function createTransportComposition(
     acpEvents: input.coordination.acpEvents,
     interactions: input.coordination.interactions,
     actions: input.coordination.actions,
+    runtimeRpc: input.runtimeRpc,
     heartbeatIntervalMs: input.config.limits.heartbeatIntervalMs,
     leaseDurationMs: input.config.limits.leaseDurationMs,
     maxPayloadBytes: input.config.limits.maxWebSocketPayloadBytes,

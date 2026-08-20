@@ -105,6 +105,7 @@ describe("CanvasRuntimeAvailabilityService", () => {
     await expect(
       first.service.read(actor("viewer"), { projectId: "other", canvasId: "default" })
     ).rejects.toThrow("canvas_runtime_availability_cross_scope");
+    expect(first.readAvailability).not.toHaveBeenCalled();
 
     first.database
       .prepare(
@@ -114,6 +115,7 @@ describe("CanvasRuntimeAvailabilityService", () => {
     await expect(
       first.service.read(actor("viewer"), { projectId: "p", canvasId: "default" })
     ).rejects.toThrow("canvas_runtime_availability_forbidden");
+    expect(first.readAvailability).not.toHaveBeenCalled();
 
     first.database
       .prepare(

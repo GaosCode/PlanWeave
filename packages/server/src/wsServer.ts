@@ -18,6 +18,7 @@ import {
 import type { WebSocketUpgradeRouter } from "./webSocketUpgradeRouter.js";
 import type { TransportAdmissionPolicy } from "./insecureTransport.js";
 import { logHostProtocolRejection, publicHostProtocolRejection } from "./hostProtocolRejection.js";
+import type { CanvasRuntimeRpcBroker } from "./canvas/runtimeRpcBroker.js";
 
 export type AgentHostWebSocketOptions = {
   server: HttpServer;
@@ -34,6 +35,7 @@ export type AgentHostWebSocketOptions = {
   transportAdmission: TransportAdmissionPolicy;
   upgradeRouter?: WebSocketUpgradeRouter;
   onHostAvailable?: (hostId: string) => Promise<void>;
+  runtimeRpc?: CanvasRuntimeRpcBroker;
 };
 
 export type AgentHostWebSocketServer = {
@@ -80,7 +82,13 @@ export function attachAgentHostWebSocketServer(
     noServer: true,
     maxPayload: options.maxPayloadBytes ?? 256 * 1024
   });
-  const sessions = new Map<string, WebSocket>();
+  const sessions = new Map<string, { socket: WebSocket; initialized: boolean }>();
+  options.runtimeRpc?.attachSessionLookup({
+    isActive(hostId) {
+      const session = sessions.get(hostId);
+      return session?.initialized === true && session.socket.readyState === WebSocket.OPEN;
+    }
+  });
   const shutdownTimeoutMs = options.shutdownTimeoutMs ?? 5_000;
   if (!Number.isSafeInteger(shutdownTimeoutMs) || shutdownTimeoutMs < 100) {
     throw new Error("agent_host_websocket_shutdown_timeout_invalid");
@@ -88,8 +96,12 @@ export function attachAgentHostWebSocketServer(
 
   const handleConnection = (socket: WebSocket, hostId: string) => {
     const prior = sessions.get(hostId);
-    if (prior && prior.readyState === WebSocket.OPEN) prior.close(4001, "superseded");
-    sessions.set(hostId, socket);
+    if (prior && prior.socket.readyState === WebSocket.OPEN) {
+      options.runtimeRpc?.detachHost(hostId, "superseded");
+      prior.socket.close(4001, "superseded");
+    }
+    const session = { socket, initialized: false };
+    sessions.set(hostId, session);
 
     let initialized = false;
     let alive = true;
@@ -208,6 +220,9 @@ export function attachAgentHostWebSocketServer(
           options.interactions.recordRequest(hostId, event.messageId, request);
           break;
         }
+        case "canvas_runtime.response":
+          options.runtimeRpc?.handleResponse(hostId, event);
+          break;
       }
       sendEvent(socket, {
         type: "host.event_ack",
@@ -234,6 +249,7 @@ export function attachAgentHostWebSocketServer(
             }
             options.hosts.reportOnline(hostId, hello.capabilities, hello.capacity, hello.readiness);
             initialized = true;
+            session.initialized = true;
             clearTimeout(helloTimeout);
             unsubscribe = options.mailbox.subscribe(hostId, (message) =>
               sendMailboxMessage(socket, message)
@@ -273,7 +289,10 @@ export function attachAgentHostWebSocketServer(
       clearTimeout(helloTimeout);
       clearInterval(pingTimer);
       unsubscribe();
-      if (sessions.get(hostId) === socket) sessions.delete(hostId);
+      if (sessions.get(hostId) === session) {
+        sessions.delete(hostId);
+        options.runtimeRpc?.detachHost(hostId, "disconnected");
+      }
     });
   };
 
@@ -311,12 +330,15 @@ export function attachAgentHostWebSocketServer(
   let closePromise: Promise<void> | undefined;
   return {
     disconnectHost(hostId) {
-      sessions.get(hostId)?.close(4003, "host revoked");
+      const session = sessions.get(hostId);
+      if (session) session.initialized = false;
+      options.runtimeRpc?.detachHost(hostId, "revoked");
+      session?.socket.close(4003, "host revoked");
     },
     close: () => {
       closePromise ??= (async () => {
         unregisterUpgrade();
-        for (const socket of sessions.values()) socket.close(1001, "server shutdown");
+        for (const { socket } of sessions.values()) socket.close(1001, "server shutdown");
         let closeError: Error | undefined;
         let timer: ReturnType<typeof setTimeout> | undefined;
         const graceful = new Promise<void>((resolve) => {
@@ -327,14 +349,14 @@ export function attachAgentHostWebSocketServer(
         });
         const timeout = new Promise<void>((resolve) => {
           timer = setTimeout(() => {
-            for (const socket of sessions.values()) socket.terminate();
+            for (const { socket } of sessions.values()) socket.terminate();
             resolve();
           }, shutdownTimeoutMs);
         });
         await Promise.race([graceful, timeout]);
         if (timer) clearTimeout(timer);
         if (sessions.size > 0) {
-          for (const socket of sessions.values()) socket.terminate();
+          for (const { socket } of sessions.values()) socket.terminate();
         }
         await graceful;
         if (closeError) throw closeError;

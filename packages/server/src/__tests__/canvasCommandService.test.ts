@@ -39,7 +39,7 @@ describe("canvas command service (OSS-004 B-002)", () => {
 
   it("migrates v30 and enforces CAS + operationId idempotency", async () => {
     const { service, repository, database } = await fixture();
-    expect(latestCentralSchemaVersion).toBe(50);
+    expect(latestCentralSchemaVersion).toBe(51);
     expect(
       database
         .prepare(
