@@ -1,0 +1,15 @@
+{
+  "name": "@planweave-ai/distributed-integration",
+  "version": "0.4.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@planweave-ai/agent-host": "workspace:*",
+    "@planweave-ai/agent-host-protocol": "workspace:*",
+    "@planweave-ai/runtime": "workspace:*"
+  }
+}

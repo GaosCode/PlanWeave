@@ -147,6 +147,7 @@ export async function createTransportComposition(
     dispatches: input.dispatches,
     artifactAuthorization: input.artifactAuthorization,
     artifacts: input.artifacts,
+    runtimeArtifactGrants: input.runtimeArtifactGrants,
     humanMembership: input.humanMembership,
     commentAttachments: input.commentAttachments,
     operatorControl,

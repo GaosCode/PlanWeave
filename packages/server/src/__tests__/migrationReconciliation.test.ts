@@ -27,6 +27,8 @@ async function openDatabaseAtV26(): Promise<SqliteDatabase> {
   applyMigrations(database);
   database.exec("PRAGMA foreign_keys=OFF");
   for (const table of [
+    "canvas_runtime_artifact_grants",
+    "canvas_runtime_leases",
     "canvas_runtime_host_bindings",
     "server_exposure_leases",
     "setup_code_host_enrollment_outcomes",
@@ -175,9 +177,10 @@ describe("collaboration migration reconciliation", () => {
       { name: "host-credential-lifecycle", versions: [47] },
       { name: "host-installation-identity", versions: [48] },
       { name: "remote-operation-retention", versions: [49] },
-      { name: "canvas-runtime-host-binding", versions: [51] }
+      { name: "canvas-runtime-host-binding", versions: [51] },
+      { name: "canvas-runtime-artifact-grant", versions: [52] }
     ]);
-    expect(latestCentralSchemaVersion).toBe(51);
+    expect(latestCentralSchemaVersion).toBe(52);
   });
 
   it("maps a representative v26 project to one stable Workspace and package registry key", async () => {

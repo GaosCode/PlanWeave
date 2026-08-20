@@ -296,6 +296,48 @@ export const canvasRuntimeArtifactMetadataSchema = z
     path: ["artifactRef"]
   });
 
+const canvasRuntimeArtifactTransferBaseSchema = z.object({
+  version: z.literal("canvas-runtime-artifact-transfer/v1"),
+  grantId: opaqueIdentifierSchema,
+  runtimeLeaseId: canvasRuntimeLeaseIdSchema,
+  artifactRef: artifactRefSchema,
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  mediaType: artifactMediaTypeSchema,
+  expiresAt: z.iso.datetime()
+});
+
+export const canvasRuntimeArtifactTransferDescriptorSchema = z
+  .discriminatedUnion("direction", [
+    canvasRuntimeArtifactTransferBaseSchema
+      .extend({
+        direction: z.literal("download"),
+        sizeBytes: z.number().int().positive().max(OUTPUT_MAX_ARTIFACT_BYTES)
+      })
+      .strict(),
+    canvasRuntimeArtifactTransferBaseSchema
+      .extend({
+        direction: z.literal("upload"),
+        maxSizeBytes: z.number().int().positive().max(OUTPUT_MAX_ARTIFACT_BYTES)
+      })
+      .strict()
+  ])
+  .superRefine((descriptor, context) => {
+    if (descriptor.artifactRef !== `artifact:sha256:${descriptor.sha256}`) {
+      context.addIssue({
+        code: "custom",
+        message: "Canvas Runtime artifact transfer reference must match its digest.",
+        path: ["artifactRef"]
+      });
+    }
+  });
+
+export const canvasRuntimeArtifactTransferInputSchema = z
+  .object({
+    domainInput: canvasRuntimeJsonValueSchema,
+    transfer: canvasRuntimeArtifactTransferDescriptorSchema
+  })
+  .strict();
+
 const genericSuccessOperations = [
   "status",
   "inspect",
@@ -406,6 +448,12 @@ export type CanvasRuntimeLogicalScope = z.infer<typeof canvasRuntimeLogicalScope
 export type CanvasRuntimeRequestId = z.infer<typeof canvasRuntimeRequestIdSchema>;
 export type CanvasRuntimeLeaseId = z.infer<typeof canvasRuntimeLeaseIdSchema>;
 export type CanvasRuntimeSourceEvidence = z.infer<typeof canvasRuntimeSourceEvidenceSchema>;
+export type CanvasRuntimeArtifactTransferDescriptor = z.infer<
+  typeof canvasRuntimeArtifactTransferDescriptorSchema
+>;
+export type CanvasRuntimeArtifactTransferInput = z.infer<
+  typeof canvasRuntimeArtifactTransferInputSchema
+>;
 export type CanvasRuntimeOperation = z.infer<typeof canvasRuntimeOperationSchema>;
 export type CanvasRuntimeRequestCommand = z.infer<typeof canvasRuntimeRequestCommandSchema>;
 export type CanvasRuntimeCancelCommand = z.infer<typeof canvasRuntimeCancelCommandSchema>;

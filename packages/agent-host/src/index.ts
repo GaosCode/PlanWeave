@@ -81,6 +81,11 @@ export {
   CanvasRuntimeService,
   type CanvasRuntimeServiceOptions
 } from "./runtime/canvasRuntimeService.js";
+export {
+  CanvasRuntimeArtifactTransfer,
+  type CanvasRuntimeArtifactTransferOptions,
+  type CanvasRuntimeArtifactTransferPort
+} from "./artifacts/canvasRuntimeArtifactTransfer.js";
 export { observeHostReadiness } from "./config/readiness.js";
 export {
   configFromAgentHostSetupHandoff,

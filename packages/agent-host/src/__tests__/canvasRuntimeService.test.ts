@@ -2,8 +2,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CANVAS_RUNTIME_CAPABILITY } from "@planweave-ai/agent-host-protocol";
-import type { ProjectWorkspace } from "@planweave-ai/runtime";
+import { createRemoteBlockRuntimePort, type ProjectWorkspace } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  basicManifest,
+  createTestWorkspace
+} from "../../../runtime/src/__tests__/promptTestHelpers.js";
 import type {
   CanvasRuntimeResolverPort,
   ResolvedCanvasRuntime
@@ -32,6 +36,12 @@ async function setup() {
 const scope = { workspaceId: "workspace-1", projectId: "project-1", canvasId: "default" };
 const sourceRevision = `snapshot:${"b".repeat(64)}`;
 const graphFingerprint = `pkg-${"a".repeat(64)}`;
+const artifactTransfer = {
+  updateCredentialToken: vi.fn(),
+  synchronizeServerTime: vi.fn(),
+  download: vi.fn(async () => new Uint8Array([1])),
+  upload: vi.fn(async () => {})
+};
 
 function request(
   requestId: string,
@@ -119,6 +129,53 @@ function createLease(state: AgentHostState, runtimeLeaseId = "runtime-lease-1") 
 }
 
 describe("Canvas Runtime Host service", () => {
+  it("keeps package lease evidence separate from block mutation evidence", async () => {
+    const { state } = await setup();
+    const manifest = basicManifest();
+    manifest.execution.defaultExecutor = "codex-acp";
+    manifest.executors = {
+      "codex-acp": { adapter: "agent", agent: "codex", runner: { transport: "acp" } }
+    };
+    const workspace = await createTestWorkspace(manifest);
+    directories.push(workspace.home, workspace.root);
+    const service = new CanvasRuntimeService({
+      resolver: resolverWith(async () => ({
+        scope,
+        project: workspace.init.workspace,
+        canvas: workspace.init.workspace
+      })),
+      receipts: state.canvasRuntime,
+      capabilities: [CANVAS_RUNTIME_CAPABILITY],
+      artifactTransfer
+    });
+    createLease(state);
+    const candidate = await createRemoteBlockRuntimePort({
+      projectRoot: workspace.init.workspace
+    }).inspect({ ref: "T-001#B-001" });
+    expect(candidate.sourceRevision).not.toBe(sourceRevision);
+    const claim = request("request-block-evidence", {
+      operation: "claim",
+      runtimeLeaseId: "runtime-lease-1",
+      evidence: {
+        operationId: "operation-block-evidence",
+        sourceRevision: candidate.sourceRevision,
+        graphFingerprint: candidate.graphFingerprint
+      },
+      input: {
+        ref: "T-001#B-001",
+        operationId: "operation-block-evidence",
+        controlPlane: "collaboration",
+        sourceRevision: candidate.sourceRevision,
+        graphFingerprint: candidate.graphFingerprint
+      }
+    });
+    state.receive(delivery(1, claim));
+    await service.handle(claim);
+    expect(response(state, claim.requestId)).toMatchObject({
+      response: { outcome: "success", operation: "claim" }
+    });
+  });
+
   it("fails closed when the capability was not negotiated or the deadline elapsed", async () => {
     const { state } = await setup();
     const resolve = vi.fn<CanvasRuntimeResolverPort["resolve"]>();
@@ -128,7 +185,8 @@ describe("Canvas Runtime Host service", () => {
     await new CanvasRuntimeService({
       resolver,
       receipts: state.canvasRuntime,
-      capabilities: []
+      capabilities: [],
+      artifactTransfer
     }).handle(capabilityRequest);
     expect(response(state, "request-capability")).toMatchObject({
       response: { outcome: "error", error: { code: "capability_not_negotiated" } }
@@ -143,11 +201,38 @@ describe("Canvas Runtime Host service", () => {
     await new CanvasRuntimeService({
       resolver,
       receipts: state.canvasRuntime,
-      capabilities: [CANVAS_RUNTIME_CAPABILITY]
+      capabilities: [CANVAS_RUNTIME_CAPABILITY],
+      artifactTransfer
     }).handle(deadlineRequest);
     expect(response(state, "request-deadline")).toMatchObject({
       response: { outcome: "error", error: { code: "deadline_exceeded" } }
     });
+
+    const skewedRequest = request(
+      "request-clock-skew",
+      { operation: "availability" },
+      "2026-01-01T00:05:00.000Z"
+    );
+    state.receive(delivery(3, skewedRequest));
+    const skewedService = new CanvasRuntimeService({
+      resolver,
+      receipts: state.canvasRuntime,
+      capabilities: [CANVAS_RUNTIME_CAPABILITY],
+      artifactTransfer,
+      now: () => new Date("2026-01-01T00:00:00.000Z")
+    });
+    skewedService.synchronizeServerTime(
+      "2026-01-01T00:10:00.000Z",
+      new Date("2026-01-01T00:00:00.000Z")
+    );
+    await skewedService.handle(skewedRequest);
+    expect(response(state, "request-clock-skew")).toMatchObject({
+      response: { outcome: "error", error: { code: "deadline_exceeded" } }
+    });
+    expect(artifactTransfer.synchronizeServerTime).toHaveBeenCalledWith(
+      "2026-01-01T00:10:00.000Z",
+      new Date("2026-01-01T00:00:00.000Z")
+    );
     expect(resolve).not.toHaveBeenCalled();
   });
 
@@ -166,7 +251,8 @@ describe("Canvas Runtime Host service", () => {
     const service = new CanvasRuntimeService({
       resolver,
       receipts: state.canvasRuntime,
-      capabilities: [CANVAS_RUNTIME_CAPABILITY]
+      capabilities: [CANVAS_RUNTIME_CAPABILITY],
+      artifactTransfer
     });
     const target = request("request-target");
     const cancellation = cancel("request-cancel", "request-target");
@@ -196,7 +282,8 @@ describe("Canvas Runtime Host service", () => {
     const service = new CanvasRuntimeService({
       resolver: resolverWith(() => blocked),
       receipts: state.canvasRuntime,
-      capabilities: [CANVAS_RUNTIME_CAPABILITY]
+      capabilities: [CANVAS_RUNTIME_CAPABILITY],
+      artifactTransfer
     });
     const target = request("request-disconnect");
     state.receive(delivery(1, target));
@@ -217,7 +304,8 @@ describe("Canvas Runtime Host service", () => {
     const service = new CanvasRuntimeService({
       resolver: resolverWith(async () => ({ scope, project: workspace, canvas: workspace })),
       receipts: state.canvasRuntime,
-      capabilities: [CANVAS_RUNTIME_CAPABILITY]
+      capabilities: [CANVAS_RUNTIME_CAPABILITY],
+      artifactTransfer
     });
     createLease(state);
     const inspect = request("request-invalid-inspect", {
@@ -259,7 +347,8 @@ describe("Canvas Runtime Host service", () => {
     const service = new CanvasRuntimeService({
       resolver: resolverWith(async () => ({ scope, project: workspace, canvas: workspace })),
       receipts: state.canvasRuntime,
-      capabilities: [CANVAS_RUNTIME_CAPABILITY]
+      capabilities: [CANVAS_RUNTIME_CAPABILITY],
+      artifactTransfer
     });
     createLease(state);
     for (const [sequence, requestId] of [
@@ -311,7 +400,8 @@ describe("Canvas Runtime Host service", () => {
         throw new Error("must_not_resume_unknown_work");
       }),
       receipts: state.canvasRuntime,
-      capabilities: [CANVAS_RUNTIME_CAPABILITY]
+      capabilities: [CANVAS_RUNTIME_CAPABILITY],
+      artifactTransfer
     }).recover();
     expect(response(state, command.requestId)).toMatchObject({
       response: {

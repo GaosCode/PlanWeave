@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "noEmit": true,
+    "paths": {
+      "@planweave-ai/agent-host": ["../agent-host/src/index.ts"],
+      "@planweave-ai/agent-host-protocol": ["../agent-host-protocol/src/index.ts"],
+      "@planweave-ai/runtime": ["../runtime/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"]
+}

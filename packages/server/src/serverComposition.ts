@@ -48,6 +48,7 @@ import {
 } from "./canvas/remoteHostRuntimeAdapter.js";
 import { CanvasRuntimeRpcBroker } from "./canvas/runtimeRpcBroker.js";
 import { CanvasRuntimeHostLocator } from "./canvas/runtimeHostLocator.js";
+import { RuntimeArtifactGrantRepository } from "./canvas/runtimeArtifactGrantRepository.js";
 
 export type DistributedServerCompositionOptions = {
   httpServer: HttpServer;
@@ -164,15 +165,31 @@ export async function createDistributedServerComposition(
       coordination.mailbox,
       { requestTimeoutMs: config.limits.leaseDurationMs, clock }
     );
-    const remoteCanvasRuntime = new RemoteHostCanvasRuntimeAdapter(
-      new CanvasRuntimeHostLocator(
-        coordination.hosts.runtimeBindings,
-        coordination.hosts,
-        runtimeRpc,
-        projectAccess
-      ),
-      runtimeRpc
+    const runtimeHostLocator = new CanvasRuntimeHostLocator(
+      coordination.hosts.runtimeBindings,
+      coordination.hosts,
+      runtimeRpc,
+      projectAccess
     );
+    const runtimeArtifactGrants = new RuntimeArtifactGrantRepository(server.database, {
+      maxArtifactBytes: initializedActivity.artifactStore.maxArtifactBytes,
+      clock,
+      leaseActive: (lease) => {
+        if (
+          !runtimeRpc?.isActive(lease.hostId) ||
+          runtimeRpc.attachmentVersion(lease.hostId) !== lease.attachmentVersion
+        ) {
+          return false;
+        }
+        const located = runtimeHostLocator.locate(lease);
+        return located.kind === "available" && located.hostId === lease.hostId;
+      }
+    });
+    runtimeArtifactGrants.revokeActiveAfterRestart();
+    const remoteCanvasRuntime = new RemoteHostCanvasRuntimeAdapter(runtimeHostLocator, runtimeRpc, {
+      grants: runtimeArtifactGrants,
+      artifacts: initializedActivity.artifactStore
+    });
     collaborationRuntime.attachRemote(remoteCanvasRuntime);
     executionRuntime.attachRemote(remoteCanvasRuntime);
     const identityServices = createIdentityServices({
@@ -251,6 +268,7 @@ export async function createDistributedServerComposition(
       dispatches: coordination.dispatches,
       artifactAuthorization: coordination.artifactAuthorization,
       artifacts: initializedActivity.artifactStore,
+      runtimeArtifactGrants,
       humanMembership,
       commentAttachments: activityComments.commentAttachments,
       createOperatorControl: remoteExecution.createOperatorControl,

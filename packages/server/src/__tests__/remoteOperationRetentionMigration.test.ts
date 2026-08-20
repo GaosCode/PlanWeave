@@ -24,7 +24,7 @@ describe("remote operation retention migration", () => {
     expect(
       database.prepare("SELECT version FROM schema_migrations WHERE version=49").get()?.version
     ).toBe(49);
-    expect(latestCentralSchemaVersion).toBe(51);
+    expect(latestCentralSchemaVersion).toBe(52);
     expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   });
 

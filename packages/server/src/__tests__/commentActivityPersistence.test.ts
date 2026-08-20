@@ -125,7 +125,7 @@ describe("comment/activity migration v20", () => {
     prepareHistoricalSchema(database, 19);
     applyMigrations(database);
     expect(centralSchemaVersion(database)).toBe(latestCentralSchemaVersion);
-    expect(latestCentralSchemaVersion).toBe(51);
+    expect(latestCentralSchemaVersion).toBe(52);
 
     for (const table of ["comments", "activity_records", "activity_projection_outbox"]) {
       expect(

@@ -51,7 +51,15 @@ export type AgentHostClientOptions = {
   state: AgentHostStateRepository;
   executor: AgentHostExecutor;
   interactionRelay?: Pick<DurableAcpInteractionRelay, "accept">;
-  canvasRuntime?: Pick<CanvasRuntimeService, "disconnect" | "enabled" | "handle" | "recover">;
+  canvasRuntime?: Pick<
+    CanvasRuntimeService,
+    | "disconnect"
+    | "enabled"
+    | "handle"
+    | "recover"
+    | "synchronizeServerTime"
+    | "updateCredentialToken"
+  >;
   allowInsecureTransport?: boolean;
   ca?: string[];
   request?: typeof fetch;
@@ -315,6 +323,7 @@ export class AgentHostClient implements HostTransport {
         this.reconnectAttempt = 0;
         this.transition({ state: "connected", connectedAt: this.clock.now().toISOString() });
         this.serverClockOffsetMs = Date.parse(event.serverTime) - this.clock.now().getTime();
+        this.options.canvasRuntime?.synchronizeServerTime(event.serverTime, this.clock.now());
         this.abandonExpiredExecutions();
         this.startHeartbeat(event.heartbeatIntervalMs);
         this.checkCredentialRenewal();
@@ -563,6 +572,7 @@ export class AgentHostClient implements HostTransport {
         if (!credential || this.stopped) return;
         this.token = credential.credentialToken;
         this.artifacts = this.createArtifactClient(this.token);
+        this.options.canvasRuntime?.updateCredentialToken(this.token);
         this.socket?.close(1000, "credential rotated");
       })
       .catch((error: unknown) => {

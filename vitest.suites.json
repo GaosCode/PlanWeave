@@ -6,7 +6,11 @@
       "packages/mcp/src/__tests__",
       "packages/runtime/src/__tests__"
     ],
-    "distributed": ["packages/server/src/__tests__", "packages/agent-host/src/__tests__"]
+    "distributed": [
+      "packages/agent-host/src/__tests__",
+      "packages/distributed-integration/src/__tests__",
+      "packages/server/src/__tests__"
+    ]
   },
   "groups": [
     {
@@ -696,6 +700,7 @@
         "agentHostRecovery.test.ts",
         "agentHostState.test.ts",
         "backgroundServices.test.ts",
+        "canvasRuntimeArtifactTransfer.test.ts",
         "canvasRuntimeService.test.ts",
         "connectionStatus.test.ts",
         "durableAcpRelay.test.ts",
@@ -709,6 +714,13 @@
         "resolveHostExecutable.test.ts",
         "tlsTrust.test.ts"
       ],
+      "platform": [],
+      "performance": []
+    },
+    {
+      "root": "packages/distributed-integration/src/__tests__",
+      "unit": [],
+      "integration": ["canvasRuntimeArtifactLoopback.test.ts"],
       "platform": [],
       "performance": []
     },
@@ -834,6 +846,7 @@
         "remoteWorkspaceScopeMigration.test.ts",
         "registryHttp.test.ts",
         "runtimeArtifactAdapter.test.ts",
+        "runtimeArtifactGrantRepository.test.ts",
         "runtimeCompositionBoundary.test.ts",
         "runtimeHostLocator.test.ts",
         "runtimeProjectRegistry.test.ts",

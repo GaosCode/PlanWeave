@@ -24,6 +24,7 @@ import { hostCredentialLifecycleMigration } from "./hostCredentialLifecycle.js";
 import { hostInstallationIdentityMigration } from "./hostInstallationIdentity.js";
 import { remoteOperationRetentionMigration } from "./remoteOperationRetention.js";
 import { canvasRuntimeHostBindingMigration } from "./canvasRuntimeHostBinding.js";
+import { canvasRuntimeArtifactGrantMigration } from "./canvasRuntimeArtifactGrant.js";
 import type { Migration, MigrationModule } from "./types.js";
 
 const identityModule: MigrationModule = { name: "identity", migrations: identityMigrations };
@@ -64,7 +65,8 @@ export const migrationModules: readonly MigrationModule[] = [
   { name: "host-credential-lifecycle", migrations: [hostCredentialLifecycleMigration] },
   { name: "host-installation-identity", migrations: [hostInstallationIdentityMigration] },
   { name: "remote-operation-retention", migrations: [remoteOperationRetentionMigration] },
-  { name: "canvas-runtime-host-binding", migrations: [canvasRuntimeHostBindingMigration] }
+  { name: "canvas-runtime-host-binding", migrations: [canvasRuntimeHostBindingMigration] },
+  { name: "canvas-runtime-artifact-grant", migrations: [canvasRuntimeArtifactGrantMigration] }
 ];
 
 const flattened = migrationModules.flatMap((module) => module.migrations);

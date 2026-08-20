@@ -19,6 +19,8 @@ import { DurableMailbox, type MailboxMessage } from "../mailbox.js";
 import { applyMigrations } from "../migrations.js";
 import { ProjectAccessRepository } from "../projectAccessRepository.js";
 import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
+import { ArtifactStore } from "../artifacts.js";
+import { RuntimeArtifactGrantRepository } from "../canvas/runtimeArtifactGrantRepository.js";
 
 const databases: SqliteDatabase[] = [];
 const scope = canvasScopeRefSchema.parse({
@@ -65,10 +67,17 @@ async function setup() {
   broker.attachSessionLookup({ isActive: (hostId) => hostId === host.id });
   const deliveries: MailboxMessage[] = [];
   mailbox.subscribe(host.id, (message) => deliveries.push(message));
-  const adapter = new RemoteHostCanvasRuntimeAdapter(
-    new CanvasRuntimeHostLocator(hosts.runtimeBindings, hosts, broker, projectAccess),
-    broker
-  );
+  const locator = new CanvasRuntimeHostLocator(hosts.runtimeBindings, hosts, broker, projectAccess);
+  const grants = new RuntimeArtifactGrantRepository(database, {
+    maxArtifactBytes: 1024 * 1024,
+    leaseActive: (lease) =>
+      broker.isActive(lease.hostId) &&
+      broker.attachmentVersion(lease.hostId) === lease.attachmentVersion
+  });
+  const adapter = new RemoteHostCanvasRuntimeAdapter(locator, broker, {
+    grants,
+    artifacts: new ArtifactStore(database, "/not-observed", 1024 * 1024)
+  });
   return { adapter, broker, deliveries, host };
 }
 
@@ -153,7 +162,7 @@ describe("RemoteHostCanvasRuntimeAdapter", () => {
         sourceRevision: `snapshot:${"b".repeat(64)}`,
         graphFingerprint: `pkg-${"a".repeat(64)}`,
         acquiredAt: "2026-08-20T00:00:00.000Z",
-        expiresAt: "2026-08-20T00:01:00.000Z"
+        expiresAt: "2099-08-20T00:01:00.000Z"
       }
     });
     const lease = await acquiring;

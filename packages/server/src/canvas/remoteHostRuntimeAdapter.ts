@@ -1,4 +1,6 @@
 import {
+  canvasRuntimeArtifactMetadataSchema,
+  canvasRuntimeArtifactTransferInputSchema,
   canvasRuntimeJsonValueSchema,
   canvasRuntimeLogicalScopeSchema,
   canvasRuntimeGraphFingerprintSchema,
@@ -6,6 +8,7 @@ import {
   type CanvasRuntimeOperation,
   type CanvasRuntimeResponsePayload
 } from "@planweave-ai/agent-host-protocol";
+import { createHash } from "node:crypto";
 import {
   canvasRuntimeAvailabilitySchema,
   type CanvasRuntimeAvailability
@@ -16,6 +19,7 @@ import {
   remoteBlockBindingViewSchema,
   remoteBlockClaimInputSchema,
   remoteBlockCompletionInputSchema,
+  remoteBlockCompletionResultSchema,
   remoteBlockDispatchCandidateSchema,
   remoteBlockFailureInputSchema,
   remoteBlockInspectInputSchema,
@@ -39,6 +43,8 @@ import { CanvasRuntimeUnavailableError } from "./executionRuntimePort.js";
 import type { CanvasRuntimeAvailabilityPort } from "./runtimePort.js";
 import { CanvasRuntimeHostLocator } from "./runtimeHostLocator.js";
 import { CanvasRuntimeRpcBroker, CanvasRuntimeRpcError } from "./runtimeRpcBroker.js";
+import type { ArtifactStore } from "../artifacts.js";
+import type { RuntimeArtifactGrantRepository } from "./runtimeArtifactGrantRepository.js";
 
 type RuntimeResponse = CanvasRuntimeResponsePayload["response"];
 
@@ -88,7 +94,11 @@ export class RemoteHostCanvasRuntimeAdapter
 {
   constructor(
     private readonly locator: CanvasRuntimeHostLocator,
-    private readonly broker: CanvasRuntimeRpcBroker
+    private readonly broker: CanvasRuntimeRpcBroker,
+    private readonly artifactDataPlane: {
+      grants: RuntimeArtifactGrantRepository;
+      artifacts: ArtifactStore;
+    }
   ) {}
 
   hasRuntimeScope(scope: RuntimeCanvasScope): boolean {
@@ -146,6 +156,15 @@ export class RemoteHostCanvasRuntimeAdapter
       throw new Error("canvas_runtime_response_operation_mismatch");
     }
     const runtimeLeaseId = response.result.runtimeLeaseId;
+    this.artifactDataPlane.grants.recordLease({
+      runtimeLeaseId,
+      hostId: located.hostId,
+      ...scope,
+      attachmentVersion,
+      sourceRevision: response.result.sourceRevision,
+      graphFingerprint: response.result.graphFingerprint,
+      expiresAt: response.result.expiresAt
+    });
     const call = (operation: CanvasRuntimeOperation) =>
       this.broker.request(located.hostId, scope, operation, attachmentVersion);
     const runtime = canonicalRemoteRuntimePort(
@@ -153,16 +172,61 @@ export class RemoteHostCanvasRuntimeAdapter
       scope.workspaceId
     );
     const artifacts: RemoteBlockArtifactSource = {
-      async read(rawInput) {
-        remoteBlockArtifactReadInputSchema.parse(rawInput);
-        throw new CanvasRuntimeRpcError(
-          "canvas_runtime_artifact_data_plane_unavailable",
-          false,
-          false
-        );
+      read: async (rawInput) => {
+        const input = remoteBlockArtifactReadInputSchema.parse(rawInput);
+        const sha256 = input.artifactRef.slice("artifact:sha256:".length);
+        const operationId = `artifact-read:${createHash("sha256")
+          .update(JSON.stringify(input))
+          .digest("hex")}`;
+        const transfer = this.artifactDataPlane.grants.createUploadGrant({
+          runtimeLeaseId,
+          operationId,
+          artifactRef: input.artifactRef,
+          sha256,
+          mediaType: input.mediaType,
+          maxSizeBytes: this.artifactDataPlane.artifacts.maxArtifactBytes,
+          expiresAt: response.result.expiresAt
+        });
+        if (transfer.direction !== "upload") {
+          throw new Error("canvas_runtime_artifact_transfer_direction_invalid");
+        }
+        const artifactResponse = await call({
+          operation: "artifact_read",
+          runtimeLeaseId,
+          sourceRevision: canvasRuntimeSourceRevisionSchema.parse(input.sourceRevision),
+          input: jsonInput(
+            canvasRuntimeArtifactTransferInputSchema.parse({ domainInput: input, transfer })
+          )
+        });
+        if (artifactResponse.outcome === "error") throw responseError(artifactResponse);
+        if (artifactResponse.operation !== "artifact_read") {
+          throw new Error("canvas_runtime_response_operation_mismatch");
+        }
+        const metadata = canvasRuntimeArtifactMetadataSchema.parse(artifactResponse.result);
+        if (
+          metadata.artifactRef !== transfer.artifactRef ||
+          metadata.sha256 !== transfer.sha256 ||
+          metadata.mediaType !== transfer.mediaType ||
+          metadata.sizeBytes < 1 ||
+          metadata.sizeBytes > transfer.maxSizeBytes
+        ) {
+          throw new Error("canvas_runtime_artifact_response_mismatch");
+        }
+        const stored = this.artifactDataPlane.artifacts.getRequired(metadata.artifactRef);
+        if (
+          stored.ref !== metadata.artifactRef ||
+          stored.sha256 !== metadata.sha256 ||
+          stored.sizeBytes !== metadata.sizeBytes ||
+          stored.mediaType !== metadata.mediaType
+        ) {
+          throw new Error("canvas_runtime_artifact_response_mismatch");
+        }
+        const bytes = await this.artifactDataPlane.artifacts.read(metadata.artifactRef);
+        return { ...input, bytes: new Uint8Array(bytes) };
       }
     };
     const release = once(async () => {
+      this.artifactDataPlane.grants.releaseLease(runtimeLeaseId);
       const released = await call({ operation: "release", runtimeLeaseId });
       if (released.outcome === "error") throw responseError(released);
       if (released.operation !== "release" || released.result.released !== true) {
@@ -261,11 +325,42 @@ export class RemoteHostCanvasRuntimeAdapter
         );
       },
       complete: async (rawInput) => {
-        remoteBlockCompletionInputSchema.parse(rawInput);
-        throw new CanvasRuntimeRpcError(
-          "canvas_runtime_artifact_data_plane_unavailable",
-          false,
-          false
+        const input = remoteBlockCompletionInputSchema.parse(rawInput);
+        const metadata = this.artifactDataPlane.artifacts.getRequired(input.reportArtifactRef);
+        const actualDigest = createHash("sha256").update(input.reportBytes).digest("hex");
+        if (
+          actualDigest !== metadata.sha256 ||
+          input.reportBytes.byteLength !== metadata.sizeBytes
+        ) {
+          throw new Error("canvas_runtime_report_artifact_mismatch");
+        }
+        const serverLease = this.artifactDataPlane.grants.lease(runtimeLeaseId);
+        if (!serverLease) throw new Error("canvas_runtime_lease_not_found");
+        const transfer = this.artifactDataPlane.grants.createDownloadGrant({
+          runtimeLeaseId,
+          operationId: input.operationId,
+          artifactRef: metadata.ref,
+          sha256: metadata.sha256,
+          sizeBytes: metadata.sizeBytes,
+          mediaType: metadata.mediaType,
+          expiresAt: serverLease.expiresAt
+        });
+        const { reportBytes: _reportBytes, ...domainInput } = input;
+        return parseGenericResult(
+          await call({
+            operation: "complete",
+            runtimeLeaseId,
+            evidence: {
+              operationId: input.operationId,
+              sourceRevision: canvasRuntimeSourceRevisionSchema.parse(input.sourceRevision),
+              graphFingerprint: canvasRuntimeGraphFingerprintSchema.parse(input.graphFingerprint)
+            },
+            input: jsonInput(
+              canvasRuntimeArtifactTransferInputSchema.parse({ domainInput, transfer })
+            )
+          }),
+          "complete",
+          remoteBlockCompletionResultSchema
         );
       },
       fail: async (rawInput) => {

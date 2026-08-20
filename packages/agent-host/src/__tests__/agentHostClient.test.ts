@@ -795,4 +795,54 @@ describe("Agent Host outbound transport", () => {
       await expect(client.stop()).resolves.toBeUndefined();
     });
   });
+
+  it("propagates renewed credentials to the Canvas Runtime transfer service", async () => {
+    const rotated = deferred<string>();
+    const httpServer = createServer();
+    httpServers.push(httpServer);
+    const webSocketServer = new WebSocketServer({ server: httpServer });
+    webSocketServers.push(webSocketServer);
+    webSocketServer.on("connection", (socket) => {
+      socket.on("message", (data) => {
+        const event = JSON.parse(data.toString());
+        if (event.type === "host.hello") sendEvent(socket, welcome());
+      });
+    });
+    const port = await listen(httpServer);
+    const state = await openState();
+    const nextToken = `pw_host_${"b".repeat(43)}`;
+    const canvasRuntime = {
+      enabled: () => true,
+      recover: vi.fn(),
+      disconnect: vi.fn(),
+      handle: vi.fn(async () => {}),
+      synchronizeServerTime: vi.fn(),
+      updateCredentialToken: vi.fn((token: string) => rotated.resolve(token))
+    };
+    const client = new AgentHostClient({
+      serverUrl: `http://127.0.0.1:${port}`,
+      hostId: "host-client-001",
+      token: "host-token",
+      credentialRenewal: {
+        poll: vi.fn(async () => ({
+          hostId: "host-client-001",
+          credentialToken: nextToken,
+          issuedAt: "2030-01-01T00:00:00.000Z",
+          expiresAt: "2030-07-01T00:00:00.000Z"
+        }))
+      },
+      capabilities: ["test"],
+      capacity: 1,
+      readiness: { workspaceMappings: [], acpProfiles: [], runtimeProjects: [] },
+      state,
+      executor: { execute: vi.fn() },
+      canvasRuntime,
+      allowInsecureTransport: true
+    });
+    clients.push(client);
+    client.start();
+
+    await expect(rotated.promise).resolves.toBe(nextToken);
+    expect(canvasRuntime.updateCredentialToken).toHaveBeenCalledOnce();
+  });
 });

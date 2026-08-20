@@ -6,6 +6,7 @@ import {
   CANVAS_RUNTIME_JSON_MAX_DEPTH,
   CANVAS_RUNTIME_JSON_MAX_STRING_LENGTH,
   canvasRuntimeArtifactMetadataSchema,
+  canvasRuntimeArtifactTransferInputSchema,
   canvasRuntimeCancelCommandSchema,
   canvasRuntimeJsonValueSchema,
   canvasRuntimeRequestCommandSchema,
@@ -336,6 +337,46 @@ describe("Canvas Runtime control protocol", () => {
     expect(() =>
       canvasRuntimeArtifactMetadataSchema.parse({ ...metadata, sizeBytes: Number.MAX_SAFE_INTEGER })
     ).toThrow("must not exceed");
+  });
+
+  it("strictly binds Runtime artifact transfer descriptors without URLs or bytes", () => {
+    const sha256 = "a".repeat(64);
+    const transfer = {
+      version: "canvas-runtime-artifact-transfer/v1",
+      grantId: "runtime-artifact-grant-a",
+      direction: "download",
+      runtimeLeaseId: "runtime-lease-a",
+      artifactRef: `artifact:sha256:${sha256}`,
+      sha256,
+      sizeBytes: 42,
+      mediaType: "text/plain",
+      expiresAt: deadline
+    };
+    expect(
+      canvasRuntimeArtifactTransferInputSchema.parse({
+        domainInput: { ref: "T-001#B-001" },
+        transfer
+      })
+    ).toMatchObject({ transfer });
+    expect(() =>
+      canvasRuntimeArtifactTransferInputSchema.parse({
+        domainInput: {},
+        transfer: { ...transfer, artifactRef: `artifact:sha256:${"b".repeat(64)}` }
+      })
+    ).toThrow("must match its digest");
+    for (const forbidden of [
+      { url: "https://server.invalid/private" },
+      { path: "/private/runtime/report.md" },
+      { bytes: new Uint8Array([1]) },
+      { base64: "c2VjcmV0" }
+    ]) {
+      expect(() =>
+        canvasRuntimeArtifactTransferInputSchema.parse({
+          domainInput: {},
+          transfer: { ...transfer, ...forbidden }
+        })
+      ).toThrow();
+    }
   });
 
   it("adds optional path-free Runtime project readiness without changing old observations", () => {

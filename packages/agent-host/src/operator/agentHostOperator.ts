@@ -33,6 +33,7 @@ import {
 import { AgentHostClient } from "../transport/agentHostClient.js";
 import { ConfiguredCanvasRuntimeResolver } from "../runtime/canvasRuntimeResolver.js";
 import { CanvasRuntimeService } from "../runtime/canvasRuntimeService.js";
+import { CanvasRuntimeArtifactTransfer } from "../artifacts/canvasRuntimeArtifactTransfer.js";
 import { agentHostPackageVersion } from "../packageInfo.js";
 import { createAgentHostTlsTrust } from "../tls/trust.js";
 import { findSupportedHostAcpProfile } from "../realAcp/supportedProfiles.js";
@@ -659,7 +660,13 @@ export class AgentHostOperator {
       const canvasRuntime = new CanvasRuntimeService({
         resolver: new ConfiguredCanvasRuntimeResolver(config),
         receipts: state.canvasRuntime,
-        capabilities
+        capabilities,
+        artifactTransfer: new CanvasRuntimeArtifactTransfer({
+          baseUrl: new URL(transportOrigin(config.coordinator.url)),
+          hostId: credential.hostId,
+          token: credential.credentialToken,
+          request: trust.request
+        })
       });
       const transport = new AgentHostClient({
         serverUrl: transportOrigin(config.coordinator.url),

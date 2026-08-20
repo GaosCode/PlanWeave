@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   CANVAS_RUNTIME_CAPABILITY,
+  canvasRuntimeArtifactTransferInputSchema,
   canvasRuntimeResponsePayloadSchema,
   type CanvasRuntimeCancelCommand,
   type CanvasRuntimeRequestCommand,
@@ -33,6 +34,7 @@ import {
   type CanvasRuntimeResolverPort,
   type ResolvedCanvasRuntime
 } from "./canvasRuntimeResolver.js";
+import type { CanvasRuntimeArtifactTransferPort } from "../artifacts/canvasRuntimeArtifactTransfer.js";
 
 type CanvasRuntimeCommand = CanvasRuntimeRequestCommand | CanvasRuntimeCancelCommand;
 type ResponseOperation = CanvasRuntimeResponsePayload["response"]["operation"];
@@ -81,22 +83,39 @@ export type CanvasRuntimeServiceOptions = {
   resolver: CanvasRuntimeResolverPort;
   receipts: CanvasRuntimeRpcRepository;
   capabilities: readonly string[];
+  artifactTransfer: CanvasRuntimeArtifactTransferPort;
   now?: () => Date;
   leaseDurationMs?: number;
 };
 
 export class CanvasRuntimeService {
   private readonly active = new Map<string, ActiveRequest>();
-  private readonly now: () => Date;
+  private readonly localNow: () => Date;
   private readonly leaseDurationMs: number;
+  private serverClockOffsetMs = 0;
 
   constructor(private readonly options: CanvasRuntimeServiceOptions) {
-    this.now = options.now ?? (() => new Date());
+    this.localNow = options.now ?? (() => new Date());
     this.leaseDurationMs = options.leaseDurationMs ?? 5 * 60_000;
   }
 
   enabled(): boolean {
     return this.options.capabilities.includes(CANVAS_RUNTIME_CAPABILITY);
+  }
+
+  updateCredentialToken(token: string): void {
+    this.options.artifactTransfer.updateCredentialToken(token);
+  }
+
+  synchronizeServerTime(serverTime: string, localNow = this.localNow()): void {
+    const serverTimeMs = Date.parse(serverTime);
+    if (!Number.isFinite(serverTimeMs)) throw new Error("server_time_invalid");
+    this.serverClockOffsetMs = serverTimeMs - localNow.getTime();
+    this.options.artifactTransfer.synchronizeServerTime(serverTime, localNow);
+  }
+
+  private now(): Date {
+    return new Date(this.localNow().getTime() + this.serverClockOffsetMs);
   }
 
   recover(): void {
@@ -296,18 +315,6 @@ export class CanvasRuntimeService {
     return lease;
   }
 
-  private assertLeaseEvidence(
-    lease: CanvasRuntimeLeaseRecord,
-    evidence: { sourceRevision: string; graphFingerprint: string }
-  ): void {
-    if (
-      lease.sourceRevision !== evidence.sourceRevision ||
-      lease.graphFingerprint !== evidence.graphFingerprint
-    ) {
-      throw new CanvasRuntimeServiceError("content_out_of_sync");
-    }
-  }
-
   private async executeLeased(
     command: CanvasRuntimeRequestCommand,
     resolved: ResolvedCanvasRuntime,
@@ -322,67 +329,88 @@ export class CanvasRuntimeService {
         return (await this.availability(resolved)).status;
       case "inspect":
         return runtime.inspect(remoteBlockInspectInputSchema.parse(operation.input));
-      case "claim":
-        this.assertLeaseEvidence(lease, operation.evidence);
-        {
-          const input = remoteBlockClaimInputSchema.parse(operation.input);
-          active.committed = true;
-          return runtime.claim(input);
-        }
-      case "activate":
-        this.assertLeaseEvidence(lease, operation.evidence);
-        {
-          const input = remoteBlockRefIdentitySchema.parse(operation.input);
-          active.committed = true;
-          return runtime.activate(input);
-        }
+      case "claim": {
+        const input = remoteBlockClaimInputSchema.parse(operation.input);
+        active.committed = true;
+        return runtime.claim(input);
+      }
+      case "activate": {
+        const input = remoteBlockRefIdentitySchema.parse(operation.input);
+        active.committed = true;
+        return runtime.activate(input);
+      }
       case "query":
         return runtime.query(remoteBlockOperationQuerySchema.parse(operation.input));
       case "reconcile":
         return runtime.reconcile(remoteBlockOperationQuerySchema.parse(operation.input));
-      case "mark_interrupted":
-        this.assertLeaseEvidence(lease, operation.evidence);
-        {
-          const input = remoteBlockInterruptionInputSchema.parse(operation.input);
-          active.committed = true;
-          return runtime.markInterrupted(input);
+      case "mark_interrupted": {
+        const input = remoteBlockInterruptionInputSchema.parse(operation.input);
+        active.committed = true;
+        return runtime.markInterrupted(input);
+      }
+      case "resume_attempt": {
+        const input = remoteBlockRefIdentitySchema.parse(operation.input);
+        active.committed = true;
+        return runtime.resumeAttempt(input);
+      }
+      case "retry_attempt": {
+        const input = remoteBlockRetryAttemptInputSchema.parse(operation.input);
+        active.committed = true;
+        return runtime.retryAttempt(input);
+      }
+      case "complete": {
+        const transferInput = canvasRuntimeArtifactTransferInputSchema.parse(operation.input);
+        if (
+          transferInput.transfer.direction !== "download" ||
+          transferInput.transfer.runtimeLeaseId !== lease.runtimeLeaseId
+        ) {
+          throw new CanvasRuntimeServiceError("invalid_operation_input");
         }
-      case "resume_attempt":
-        this.assertLeaseEvidence(lease, operation.evidence);
-        {
-          const input = remoteBlockRefIdentitySchema.parse(operation.input);
-          active.committed = true;
-          return runtime.resumeAttempt(input);
-        }
-      case "retry_attempt":
-        this.assertLeaseEvidence(lease, operation.evidence);
-        {
-          const input = remoteBlockRetryAttemptInputSchema.parse(operation.input);
-          active.committed = true;
-          return runtime.retryAttempt(input);
-        }
-      case "complete":
-        this.assertLeaseEvidence(lease, operation.evidence);
-        {
-          const input = remoteBlockCompletionInputSchema.parse(operation.input);
-          active.committed = true;
-          return runtime.complete(input);
-        }
-      case "fail":
-        this.assertLeaseEvidence(lease, operation.evidence);
-        {
-          const input = remoteBlockFailureInputSchema.parse(operation.input);
-          active.committed = true;
-          return runtime.fail(input);
-        }
+        const reportBytes = await this.options.artifactTransfer.download(
+          transferInput.transfer,
+          active.controller.signal
+        );
+        const domainInput = remoteBlockCompletionInputSchema
+          .omit({ reportBytes: true })
+          .parse(transferInput.domainInput);
+        const input = remoteBlockCompletionInputSchema.parse({
+          ...domainInput,
+          reportBytes
+        });
+        active.committed = true;
+        return runtime.complete(input);
+      }
+      case "fail": {
+        const input = remoteBlockFailureInputSchema.parse(operation.input);
+        active.committed = true;
+        return runtime.fail(input);
+      }
       case "artifact_read": {
-        if (operation.sourceRevision !== lease.sourceRevision) {
-          throw new CanvasRuntimeServiceError("content_out_of_sync");
+        const transferInput = canvasRuntimeArtifactTransferInputSchema.parse(operation.input);
+        if (
+          transferInput.transfer.direction !== "upload" ||
+          transferInput.transfer.runtimeLeaseId !== lease.runtimeLeaseId
+        ) {
+          throw new CanvasRuntimeServiceError("invalid_operation_input");
         }
+        const input = remoteBlockArtifactReadInputSchema.parse(transferInput.domainInput);
         const artifact = await createRemoteBlockArtifactSource({
           projectRoot: resolved.canvas
-        }).read(remoteBlockArtifactReadInputSchema.parse(operation.input));
+        }).read(input);
         const sha256 = createHash("sha256").update(artifact.bytes).digest("hex");
+        if (
+          artifact.artifactRef !== transferInput.transfer.artifactRef ||
+          artifact.mediaType !== transferInput.transfer.mediaType ||
+          sha256 !== transferInput.transfer.sha256
+        ) {
+          throw new CanvasRuntimeServiceError("runtime_artifact_evidence_mismatch");
+        }
+        await this.options.artifactTransfer.upload(
+          transferInput.transfer,
+          artifact.bytes,
+          artifact.mediaType,
+          active.controller.signal
+        );
         return {
           artifactRef: artifact.artifactRef,
           sha256,
