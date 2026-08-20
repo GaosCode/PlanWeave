@@ -722,7 +722,10 @@
     {
       "root": "packages/distributed-integration/src/__tests__",
       "unit": [],
-      "integration": ["canvasRuntimeArtifactLoopback.test.ts"],
+      "integration": [
+        "canvasRuntimeAdapterContract.test.ts",
+        "canvasRuntimeArtifactLoopback.test.ts"
+      ],
       "platform": [],
       "performance": []
     },
