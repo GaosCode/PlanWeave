@@ -1742,6 +1742,14 @@ export const enCatalog = {
     "This shared canvas is offline and cannot be edited. Start or check the Server, then go to Members and select Refresh to reconnect.",
   sharedCanvasOfflineReplica: "Offline · read-only local replica",
   sharedCanvasOfflineRevision: "Offline · read-only · last confirmed revision {revision}",
+  collaborationServerDisconnected:
+    "Server disconnected · collaboration runtime operations disabled",
+  collaborationRuntimeChecking: "Checking collaboration runtime availability…",
+  collaborationRuntimeError: "Runtime availability check failed: {message}",
+  collaborationRuntimeNotAttached: "Runtime unavailable · no runtime is attached",
+  collaborationRuntimeHostOffline: "Runtime unavailable · host is offline",
+  collaborationRuntimeContentOutOfSync: "Runtime unavailable · content is out of sync",
+  collaborationRuntimeStatusUnavailable: "Runtime status unknown",
   canvasCommandUnsupportedLocalOnly:
     "This edit is not available while the shared canvas is connected. Disconnect collaboration or use a supported shared command.",
   contentAuthorityTitle: "Member content sync",

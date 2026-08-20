@@ -125,10 +125,6 @@ import {
   type ContentVersionAuthorityDiscoveryResult
 } from "@planweave-ai/collaboration-protocol/content/authority";
 import {
-  canvasRuntimeStatusProjectionSchema,
-  type CanvasRuntimeStatusProjection
-} from "@planweave-ai/collaboration-protocol/canvas/status";
-import {
   canvasRuntimeAvailabilitySchema,
   type CanvasRuntimeAvailability
 } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
@@ -1064,18 +1060,6 @@ export class CollaborationClient {
       `/api/v1/projects/${encodeURIComponent(this.projectId)}/canvases/${encodeURIComponent(input.canvasId)}/content/acknowledgements`,
       contentVersionAcknowledgementSchema,
       { body: { content: input.content } }
-    );
-  }
-
-  async readRuntimeStatus(
-    canvasId: string,
-    signal?: AbortSignal
-  ): Promise<CanvasRuntimeStatusProjection> {
-    return this.transport.json(
-      "GET",
-      `/api/v1/projects/${encodeURIComponent(this.projectId)}/canvases/${encodeURIComponent(canvasId)}/runtime-status`,
-      canvasRuntimeStatusProjectionSchema,
-      { signal }
     );
   }
 

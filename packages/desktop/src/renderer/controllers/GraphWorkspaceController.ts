@@ -18,6 +18,7 @@ import type { createTranslator } from "../i18n";
 import { useVisibleGraphTasks } from "../hooks/useVisibleGraphTasks";
 import type { CollaborationCanvasPresenceResult } from "../hooks/useCollaborationCanvasPresence";
 import type { WorkspaceTabsGraphWorkspaceProps } from "../views/WorkspaceTabs";
+import type { CollaborationRuntimeAvailabilityView } from "../collaboration/runtimeAvailabilityView";
 
 export type GraphWorkspaceControllerInput = Omit<
   WorkspaceTabsGraphWorkspaceProps,
@@ -74,7 +75,8 @@ export function useGraphWorkspaceController({
   clearPinnedResource,
   presence,
   sharedCanvasOffline,
-  sharedCanvasRevision
+  sharedCanvasRevision,
+  runtimeAvailability
 }: {
   edges: Edge[];
   edgeTypes: AppEdgeTypes;
@@ -110,6 +112,7 @@ export function useGraphWorkspaceController({
   presence?: CollaborationCanvasPresenceResult;
   sharedCanvasOffline: boolean;
   sharedCanvasRevision: number | null;
+  runtimeAvailability: CollaborationRuntimeAvailabilityView;
 }): GraphWorkspaceController {
   const { visibleTaskIds, visibleTasks } = useVisibleGraphTasks(graph, searchQuery);
 
@@ -145,6 +148,7 @@ export function useGraphWorkspaceController({
     clearPinnedResource,
     presence,
     sharedCanvasOffline,
-    sharedCanvasRevision
+    sharedCanvasRevision,
+    runtimeAvailability
   });
 }

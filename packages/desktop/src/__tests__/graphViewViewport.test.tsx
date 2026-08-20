@@ -141,6 +141,7 @@ function defaultProps(
     autoRunControlStyle: {},
     autoRunScopeMode: "project",
     autoRunState: null,
+    runtimeAvailability: { kind: "not_applicable" },
     edges: [],
     edgeTypes: {} as ComponentProps<typeof GraphView>["edgeTypes"],
     graph: graph(),
@@ -196,6 +197,35 @@ afterEach(() => {
 });
 
 describe("GraphView viewport fitting", () => {
+  it.each([
+    [{ kind: "server_disconnected" } as const, "Server disconnected"],
+    [{ kind: "checking" } as const, "Checking collaboration runtime availability"],
+    [{ kind: "error", message: "IPC failed" } as const, "Runtime availability check failed"],
+    [{ kind: "unavailable", reason: "runtime_not_attached" } as const, "no runtime is attached"],
+    [{ kind: "unavailable", reason: "host_offline" } as const, "host is offline"],
+    [{ kind: "unavailable", reason: "content_out_of_sync" } as const, "content is out of sync"]
+  ])("shows the mutually exclusive collaboration availability banner", (availability, message) => {
+    render(<GraphView {...defaultProps({ runtimeAvailability: availability })} />);
+
+    expect(screen.getByTestId("collaboration-runtime-availability")).toHaveTextContent(message);
+    expect(screen.queryByTestId("shared-canvas-offline-replica")).not.toBeInTheDocument();
+  });
+
+  it("does not label a disconnected Server as Runtime not attached", () => {
+    render(
+      <GraphView
+        {...defaultProps({
+          runtimeAvailability: { kind: "server_disconnected" },
+          sharedCanvasOffline: true
+        })}
+      />
+    );
+
+    const banner = screen.getByTestId("collaboration-runtime-availability");
+    expect(banner).toHaveTextContent("Server disconnected");
+    expect(banner).not.toHaveTextContent("no runtime is attached");
+  });
+
   it("labels the retained shared replica as offline and read-only", () => {
     render(<GraphView {...defaultProps({ sharedCanvasOffline: true, sharedCanvasRevision: 4 })} />);
 

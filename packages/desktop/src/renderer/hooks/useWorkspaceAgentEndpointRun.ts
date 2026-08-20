@@ -33,6 +33,11 @@ import {
 } from "../collaboration/agentEndpointScopeRun";
 import { runClaimBusScope } from "../collaboration/claimBusScheduler";
 import { waitForRemoteOperationTerminal } from "../collaboration/remoteTaskEndpointRun";
+import type { CollaborationRuntimeAvailabilityView } from "../collaboration/runtimeAvailabilityView";
+import {
+  collaborationRuntimeOperationsAllowed,
+  collaborationRuntimeUnavailableCode
+} from "../collaboration/runtimeAvailabilityView";
 
 const OWNER_FLEET_TERMINAL_OPERATION_STATES = new Set<RemoteOperationObservation["state"]>([
   "completed",
@@ -74,6 +79,7 @@ type WorkspaceAgentEndpointRunInput = {
   selectedProject: DesktopProjectSummary | null;
   operatorProfileId?: string | null;
   ownerFleetDispatchEnabled?: boolean;
+  runtimeAvailability: CollaborationRuntimeAvailabilityView;
   setError: (message: string | null) => void;
   api?: Pick<
     PlanWeaveCollaborationApi,
@@ -81,7 +87,7 @@ type WorkspaceAgentEndpointRunInput = {
     | "observeCollaborationRemoteOperation"
     | "executeCollaborationRemoteOperationAction"
     | "onCollaborationObserverSignal"
-    | "readCollaborationCanvasRuntimeStatus"
+    | "readCollaborationCanvasRuntimeAvailability"
   > | null;
   createId?: () => string;
   localAutoRunApi?: LocalAutoRunObserver | null;
@@ -145,6 +151,14 @@ export function useWorkspaceAgentEndpointRun(
 
   return useCallback(
     async (scope: DesktopAutoRunScope, startLocal: LocalAutoRunScopeStarter, lifecycle) => {
+      if (!collaborationRuntimeOperationsAllowed(input.runtimeAvailability)) {
+        const message =
+          collaborationRuntimeUnavailableCode(input.runtimeAvailability) ??
+          "collaboration_runtime_unavailable";
+        input.setError(message);
+        lifecycle?.onFailed(message);
+        return;
+      }
       if (!input.graph || !input.selectedCanvasId) return;
       const plan = createAgentEndpointRunPlan({
         graph: input.graph,
@@ -355,13 +369,18 @@ export function useWorkspaceAgentEndpointRun(
                 return isOwnerFleetScopeSatisfied(options);
               }
               const readStatus = async () => {
-                if (!api) throw new Error("collaboration_runtime_status_unavailable");
-                const status = await api.readCollaborationCanvasRuntimeStatus({
+                if (!api) throw new Error("collaboration_runtime_availability_unavailable");
+                const availability = await api.readCollaborationCanvasRuntimeAvailability({
                   localProjectId: selectedProject.projectId,
                   canvasId: selectedCanvasId
                 });
-                if (!status) throw new Error("collaboration_runtime_status_unavailable");
-                return status;
+                if (!availability) {
+                  throw new Error("collaboration_runtime_availability_unavailable");
+                }
+                if (availability.kind === "unavailable") {
+                  throw new Error(`collaboration_runtime_${availability.reason}`);
+                }
+                return availability.status;
               };
 
               // refresh: dedicated re-read so claim-none idle cannot use a lagging projection.
@@ -418,6 +437,7 @@ export function useWorkspaceAgentEndpointRun(
       input.selectedProject,
       input.operatorProfileId,
       input.ownerFleetDispatchEnabled,
+      input.runtimeAvailability,
       input.setError,
       input.stopLocal,
       input.waitForLocalUnit,

@@ -24,6 +24,11 @@ import {
   dependencyEdgeSourceColors
 } from "./dependencyEdgeVisual";
 import { displayEdgeManifestData, executionFlowEndpoints } from "./dependencyEdges";
+import type { CollaborationRuntimeAvailabilityView } from "../collaboration/runtimeAvailabilityView";
+import {
+  collaborationRuntimeOperationsAllowed,
+  collaborationRuntimeStatusKnown
+} from "../collaboration/runtimeAvailabilityView";
 
 export const nodeTypes = {
   task: TaskNodeCard
@@ -211,7 +216,8 @@ export function graphNodes(
     onResourceOverflow: () => undefined
   },
   assigneeUi: GraphAssigneeUiState | null = null,
-  commentUi: GraphCommentUiState | null = null
+  commentUi: GraphCommentUiState | null = null,
+  runtimeAvailability: CollaborationRuntimeAvailabilityView = { kind: "not_applicable" }
 ): AppFlowNode[] {
   const layoutByNode = new Map(layout?.nodes.map((node) => [node.nodeId, node]) ?? []);
   const defaultPositions = defaultTaskNodePositions(graph);
@@ -303,6 +309,8 @@ export function graphNodes(
               t: commentUi.t
             }
           : null,
+        runtimeOperationsAllowed: collaborationRuntimeOperationsAllowed(runtimeAvailability),
+        runtimeStatusKnown: collaborationRuntimeStatusKnown(runtimeAvailability),
         onTitleChange,
         onTitleSave,
         onAgentEndpointChange,

@@ -117,6 +117,8 @@ function nodeData(patch: Partial<TaskNodeData> = {}): TaskNodeData {
     ],
     selectedAgentEndpointId: "local:manual",
     agentEndpointFleetCatalogError: null,
+    runtimeOperationsAllowed: true,
+    runtimeStatusKnown: true,
     labels: taskNodeLabels(createTranslator("en")),
     selectedBlock: null,
     commentUi: null,
@@ -300,6 +302,27 @@ describe("TaskNodeCard executor options", () => {
 });
 
 describe("TaskNodeCard context menu", () => {
+  it("shows unknown Runtime state and disables Task Run when Runtime is unavailable", async () => {
+    const onAutoRunScopeStart = vi.fn().mockResolvedValue(undefined);
+    renderTaskNode(
+      nodeData({
+        runtimeOperationsAllowed: false,
+        runtimeStatusKnown: false,
+        onAutoRunScopeStart
+      })
+    );
+
+    expect(screen.getByTestId("task-node-status-marker")).toHaveTextContent(
+      "Runtime status unknown"
+    );
+    fireEvent.contextMenu(screen.getByTestId("task-node-card"));
+    const runItem = (await screen.findByText("Run This Task")).closest('[role="menuitem"]');
+    if (!runItem) throw new Error("task_run_menu_item_missing");
+    expect(runItem).toHaveAttribute("data-disabled");
+    await userEvent.click(runItem);
+    expect(onAutoRunScopeStart).not.toHaveBeenCalled();
+  });
+
   it("leaves ordinary card clicks to ReactFlow task selection", () => {
     const onParentClick = vi.fn();
     const onTaskWorkspaceOpen = vi.fn();
@@ -475,6 +498,45 @@ describe("TaskNodeCard context menu", () => {
     await userEvent.click(await screen.findByRole("menuitem", { name: "View 1 comments" }));
 
     expect(await screen.findByTestId("mock-comments-panel")).toHaveTextContent(blockRef);
+  });
+
+  it("shows an unknown Block badge and disables Block Run when Runtime is unavailable", async () => {
+    const blockRef = "T-001#B-001";
+    const onAutoRunScopeStart = vi.fn().mockResolvedValue(undefined);
+    renderTaskNode(
+      nodeData({
+        task: {
+          ...task("# Prompt"),
+          blocks: [
+            {
+              ref: blockRef,
+              blockId: "B-001",
+              type: "implementation",
+              title: "Implement workspace",
+              status: "planned",
+              executor: null,
+              promptMissing: false,
+              exceptionReason: null,
+              dispatchable: false
+            }
+          ]
+        },
+        runtimeOperationsAllowed: false,
+        runtimeStatusKnown: false,
+        onAutoRunScopeStart
+      })
+    );
+
+    expect(screen.getByText("B-001 · Runtime status unknown")).toHaveAttribute(
+      "data-runtime-status-known",
+      "false"
+    );
+    fireEvent.contextMenu(screen.getByTestId("task-node-block"));
+    const runItem = (await screen.findByText("Run This Block")).closest('[role="menuitem"]');
+    if (!runItem) throw new Error("block_run_menu_item_missing");
+    expect(runItem).toHaveAttribute("data-disabled");
+    await userEvent.click(runItem);
+    expect(onAutoRunScopeStart).not.toHaveBeenCalled();
   });
 });
 

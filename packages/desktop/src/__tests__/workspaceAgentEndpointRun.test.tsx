@@ -12,7 +12,12 @@ import type { RemoteOperationObservation } from "@planweave-ai/collaboration-pro
 import { describe, expect, it, vi } from "vitest";
 import { agentEndpointPreferenceKey } from "../renderer/collaboration/agentEndpointPreferences";
 import type { AvailableAgentEndpoint } from "../renderer/collaboration/agentEndpointViewModel";
+import type { CollaborationRuntimeAvailabilityView } from "../renderer/collaboration/runtimeAvailabilityView";
 import { useWorkspaceAgentEndpointRun } from "../renderer/hooks/useWorkspaceAgentEndpointRun";
+import {
+  availableRuntime,
+  statusProjection
+} from "./helpers/collaborationRuntimeAvailabilityFixture";
 
 const operatorControlBridgeMock = vi.hoisted(() => ({
   dispatchOwnerFleetRemoteOperation: vi.fn(),
@@ -204,31 +209,6 @@ function feedbackClaim(feedbackId = "FE-001"): Extract<ClaimResult, { kind: "fee
   };
 }
 
-function statusProjection(input: {
-  taskStatus: "ready" | "in_progress" | "implemented";
-  blocks: Array<{
-    ref: string;
-    status: "ready" | "planned" | "completed" | "in_progress";
-    dispatchable?: boolean;
-  }>;
-}) {
-  return {
-    schemaVersion: "canvas-runtime-status/v2" as const,
-    scope: { workspaceId: "workspace-1", projectId: "project-server", canvasId: "canvas-main" },
-    packageFingerprint: `pkg-${"a".repeat(64)}`,
-    capturedAt: "2026-08-05T00:00:00.000Z",
-    tasks: [{ taskId: "T-001", status: input.taskStatus, openFeedbackCount: 0 }],
-    blocks: input.blocks.map((block) => ({
-      ref: block.ref,
-      status: block.status,
-      completionReason: block.status === "completed" ? ("passed" as const) : null,
-      blockedReason: null,
-      divergenceReason: null,
-      dispatchable: block.dispatchable ?? block.status === "ready"
-    }))
-  };
-}
-
 function renderRun(input?: {
   endpoint?: AvailableAgentEndpoint;
   endpoints?: AvailableAgentEndpoint[];
@@ -237,7 +217,8 @@ function renderRun(input?: {
     string,
     { kind: "remote"; remoteEndpointId: string } | { kind: "local"; executorName: string }
   >;
-  readRuntimeStatus?: ReturnType<typeof vi.fn>;
+  readRuntimeAvailability?: ReturnType<typeof vi.fn>;
+  runtimeAvailability?: CollaborationRuntimeAvailabilityView;
   previewClaimNext?: ReturnType<typeof vi.fn>;
   resolveLiveRemoteBinding?: ReturnType<typeof vi.fn>;
   activeProjectId?: string | null;
@@ -261,21 +242,25 @@ function renderRun(input?: {
   // Real Desktop Auto Run: start → running, then stepLimit settles as paused + Step limit reached.
   const startLocal = vi.fn(async () => localRunState("running"));
   const stopLocal = vi.fn(async () => localRunState("stopped", { error: null, stepCount: 1 }));
-  const readRuntimeStatus =
-    input?.readRuntimeStatus ??
+  const readRuntimeAvailability =
+    input?.readRuntimeAvailability ??
     vi
       .fn()
       .mockResolvedValueOnce(
-        statusProjection({
-          taskStatus: "ready",
-          blocks: [{ ref: "T-001#B-001", status: "ready" }]
-        })
+        availableRuntime(
+          statusProjection({
+            taskStatus: "ready",
+            blocks: [{ ref: "T-001#B-001", status: "ready" }]
+          })
+        )
       )
       .mockResolvedValue(
-        statusProjection({
-          taskStatus: "implemented",
-          blocks: [{ ref: "T-001#B-001", status: "completed", dispatchable: false }]
-        })
+        availableRuntime(
+          statusProjection({
+            taskStatus: "implemented",
+            blocks: [{ ref: "T-001#B-001", status: "completed", dispatchable: false }]
+          })
+        )
       );
   const previewClaimNext =
     input?.previewClaimNext ??
@@ -283,6 +268,11 @@ function renderRun(input?: {
       .fn()
       .mockResolvedValueOnce(blockClaim("T-001#B-001"))
       .mockResolvedValue({ kind: "none", reason: "no_claimable_blocks" });
+  const readCanvasRuntimeAvailability = vi.fn(async (...args: unknown[]) => {
+    const result = await readRuntimeAvailability(...args);
+    if (!result || "kind" in result) return result;
+    return availableRuntime(result);
+  });
   // Default: no live remote binding → fresh dispatch (graph snapshot is not authoritative).
   const resolveLiveRemoteBinding = input?.resolveLiveRemoteBinding ?? vi.fn(async () => null);
   const waitForTerminal = vi.fn(async () => input?.remoteTerminal ?? operation("completed"));
@@ -309,13 +299,14 @@ function renderRun(input?: {
             }),
       selectedCanvasId: "canvas-main",
       selectedProject: project,
+      runtimeAvailability: input?.runtimeAvailability ?? { kind: "available" },
       setError,
       api: {
         dispatchCollaborationRemoteOperation: dispatch,
         observeCollaborationRemoteOperation: observe,
         executeCollaborationRemoteOperationAction: executeAction,
         onCollaborationObserverSignal: vi.fn(() => () => undefined),
-        readCollaborationCanvasRuntimeStatus: readRuntimeStatus
+        readCollaborationCanvasRuntimeAvailability: readCanvasRuntimeAvailability
       },
       createId: () => "operation-1",
       localAutoRunApi: {
@@ -338,7 +329,7 @@ function renderRun(input?: {
     observe,
     executeAction,
     ensureWorkAuthority,
-    readRuntimeStatus,
+    readRuntimeAvailability,
     previewClaimNext,
     resolveLiveRemoteBinding,
     setError,
@@ -347,101 +338,6 @@ function renderRun(input?: {
     lifecycle,
     waitForLocalUnit,
     waitForTerminal
-  };
-}
-
-function renderOwnerFleetRun(input?: {
-  previewClaimNext?: ReturnType<typeof vi.fn>;
-  waitForTerminal?: ReturnType<typeof vi.fn>;
-  getBlockDetail?: ReturnType<typeof vi.fn>;
-  withCollaborationRuntime?: boolean;
-}) {
-  const setError = vi.fn();
-  const lifecycle = {
-    onStarted: vi.fn(),
-    onCompleted: vi.fn(),
-    onFailed: vi.fn()
-  };
-  const startLocal = vi.fn(async () => localRunState("running"));
-  const stopLocal = vi.fn(async () => localRunState("stopped", { error: null, stepCount: 1 }));
-  const previewClaimNext =
-    input?.previewClaimNext ??
-    vi
-      .fn()
-      .mockResolvedValueOnce(blockClaim("T-001#B-001"))
-      .mockResolvedValue({ kind: "none", reason: "no_claimable_blocks" });
-  const waitForTerminal =
-    input?.waitForTerminal ?? vi.fn(async () => operation("completed", undefined));
-  const getBlockDetail =
-    input?.getBlockDetail ??
-    vi.fn(async () => ({
-      ref: "T-001#B-001",
-      status: "ready" as const,
-      remoteExecution: null
-    }));
-  const readCollaborationCanvasRuntimeStatus = vi.fn(async () => {
-    throw new Error("collaboration_runtime_status_unavailable");
-  });
-  const dispatchCollaborationRemoteOperation = vi.fn();
-  const ensureWorkAuthority = vi.fn();
-  bridgeMock.getBlockDetail.mockImplementation(getBlockDetail);
-  operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation.mockResolvedValue(
-    operation("running")
-  );
-  operatorControlBridgeMock.observeOwnerFleetRemoteOperation.mockResolvedValue(
-    operation("completed")
-  );
-  const hook = renderHook(() => {
-    const startWithEndpoint = useWorkspaceAgentEndpointRun({
-      activeProjectId: input?.withCollaborationRuntime ? "project-server" : null,
-      agentEndpoints: [remoteEndpoint],
-      collaborationController: input?.withCollaborationRuntime ? { ensureWorkAuthority } : null,
-      graph,
-      preferences: {
-        [taskPreferenceKey]: {
-          kind: "remote",
-          remoteEndpointId: "endpoint-windows"
-        }
-      },
-      selectedCanvasId: "canvas-main",
-      selectedProject: project,
-      operatorProfileId: "profile-a",
-      ownerFleetDispatchEnabled: true,
-      setError,
-      api: input?.withCollaborationRuntime
-        ? {
-            dispatchCollaborationRemoteOperation,
-            observeCollaborationRemoteOperation: vi.fn(),
-            executeCollaborationRemoteOperationAction: vi.fn(),
-            onCollaborationObserverSignal: vi.fn(() => () => undefined),
-            readCollaborationCanvasRuntimeStatus
-          }
-        : null,
-      createId: () => "operation-fleet-1",
-      localAutoRunApi: {
-        getAutoRunState: vi.fn(async () =>
-          localRunState("paused", { error: "Step limit reached.", stepCount: 1 })
-        ),
-        onAutoRunChanged: vi.fn(() => () => undefined)
-      },
-      stopLocal,
-      waitForTerminal,
-      previewClaimNext,
-      resolveLiveRemoteBinding: vi.fn(async () => null)
-    });
-    return (scope: DesktopAutoRunScope) => startWithEndpoint(scope, startLocal, lifecycle);
-  });
-  return {
-    ...hook,
-    setError,
-    lifecycle,
-    startLocal,
-    previewClaimNext,
-    waitForTerminal,
-    getBlockDetail,
-    readCollaborationCanvasRuntimeStatus,
-    dispatchCollaborationRemoteOperation,
-    ensureWorkAuthority
   };
 }
 
@@ -498,7 +394,7 @@ describe("workspace Agent Endpoint routing", () => {
       dispatchId: "dispatch-retry-operation-1",
       executionAttemptId: "attempt-retry-operation-1"
     };
-    const readRuntimeStatus = vi
+    const readRuntimeAvailability = vi
       .fn()
       .mockResolvedValueOnce(
         statusProjection({
@@ -514,7 +410,7 @@ describe("workspace Agent Endpoint routing", () => {
       );
     const { result, dispatch, observe, executeAction, waitForTerminal, setError } = renderRun({
       graph,
-      readRuntimeStatus,
+      readRuntimeAvailability,
       resolveLiveRemoteBinding: vi.fn(async () => liveInterruptedBinding)
     });
     observe.mockResolvedValueOnce(interrupted).mockResolvedValue(recovered);
@@ -579,7 +475,7 @@ describe("workspace Agent Endpoint routing", () => {
       dispatchId: "dispatch-resume",
       executionAttemptId: "attempt-resume"
     };
-    const readRuntimeStatus = vi
+    const readRuntimeAvailability = vi
       .fn()
       .mockResolvedValueOnce(
         statusProjection({
@@ -595,7 +491,7 @@ describe("workspace Agent Endpoint routing", () => {
       );
     const { result, dispatch, observe, executeAction, waitForTerminal, setError } = renderRun({
       graph,
-      readRuntimeStatus,
+      readRuntimeAvailability,
       resolveLiveRemoteBinding: vi.fn(async () => liveResumeBinding)
     });
     observe.mockResolvedValueOnce(interrupted).mockResolvedValue(resumed);
@@ -671,7 +567,7 @@ describe("workspace Agent Endpoint routing", () => {
     const {
       result,
       dispatch,
-      readRuntimeStatus,
+      readRuntimeAvailability,
       setError,
       startLocal,
       previewClaimNext: preview
@@ -689,7 +585,7 @@ describe("workspace Agent Endpoint routing", () => {
     expect(setError).toHaveBeenCalledWith(
       "agent_endpoint_unavailable:T-001#B-001:Codex:agent_endpoint_host_offline"
     );
-    expect(readRuntimeStatus).not.toHaveBeenCalled();
+    expect(readRuntimeAvailability).not.toHaveBeenCalled();
     expect(preview).not.toHaveBeenCalled();
     expect(dispatch).not.toHaveBeenCalled();
     expect(startLocal).not.toHaveBeenCalled();
@@ -749,7 +645,7 @@ describe("workspace Agent Endpoint routing", () => {
         }
       ]
     };
-    const readRuntimeStatus = vi
+    const readRuntimeAvailability = vi
       .fn()
       .mockResolvedValueOnce(
         statusProjection({
@@ -816,7 +712,7 @@ describe("workspace Agent Endpoint routing", () => {
           remoteEndpointId: "endpoint-windows"
         }
       },
-      readRuntimeStatus,
+      readRuntimeAvailability,
       previewClaimNext
     });
 
@@ -879,7 +775,7 @@ describe("workspace Agent Endpoint routing", () => {
       .mockResolvedValueOnce(blockClaim("T-001#B-001"))
       .mockResolvedValueOnce(blockClaim("T-001#B-002"))
       .mockResolvedValue({ kind: "none", reason: "no_claimable_blocks" });
-    const readRuntimeStatus = vi
+    const readRuntimeAvailability = vi
       .fn()
       .mockResolvedValueOnce(
         statusProjection({
@@ -923,7 +819,7 @@ describe("workspace Agent Endpoint routing", () => {
         }
       },
       previewClaimNext,
-      readRuntimeStatus
+      readRuntimeAvailability
     });
 
     await act(() => result.current({ kind: "project" }));
@@ -943,7 +839,7 @@ describe("workspace Agent Endpoint routing", () => {
   });
 
   it("executes a feedback claim unit with stepLimit 1 then continues", async () => {
-    const readRuntimeStatus = vi
+    const readRuntimeAvailability = vi
       .fn()
       .mockResolvedValueOnce(
         statusProjection({
@@ -970,7 +866,7 @@ describe("workspace Agent Endpoint routing", () => {
       .mockResolvedValue({ kind: "none", reason: "no_claimable_blocks" });
     const { result, dispatch, setError, startLocal, stopLocal, waitForLocalUnit, lifecycle } =
       renderRun({
-        readRuntimeStatus,
+        readRuntimeAvailability,
         previewClaimNext
       });
 
@@ -990,7 +886,7 @@ describe("workspace Agent Endpoint routing", () => {
       reason: "dependency_incomplete",
       ref: "T-001#B-002"
     }));
-    const readRuntimeStatus = vi.fn().mockResolvedValue(
+    const readRuntimeAvailability = vi.fn().mockResolvedValue(
       statusProjection({
         taskStatus: "ready",
         blocks: [{ ref: "T-001#B-001", status: "ready" }]
@@ -998,7 +894,7 @@ describe("workspace Agent Endpoint routing", () => {
     );
     const { result, dispatch, setError, lifecycle } = renderRun({
       previewClaimNext,
-      readRuntimeStatus
+      readRuntimeAvailability
     });
 
     await act(() => result.current({ kind: "project" }));
@@ -1013,7 +909,7 @@ describe("workspace Agent Endpoint routing", () => {
       kind: "none" as const,
       reason: "no_claimable_blocks"
     }));
-    const readRuntimeStatus = vi.fn().mockResolvedValue(
+    const readRuntimeAvailability = vi.fn().mockResolvedValue(
       statusProjection({
         taskStatus: "in_progress",
         blocks: [{ ref: "T-001#B-001", status: "ready" }]
@@ -1021,7 +917,7 @@ describe("workspace Agent Endpoint routing", () => {
     );
     const { result, setError, lifecycle } = renderRun({
       previewClaimNext,
-      readRuntimeStatus
+      readRuntimeAvailability
     });
 
     await act(() => result.current({ kind: "project" }));
@@ -1029,7 +925,7 @@ describe("workspace Agent Endpoint routing", () => {
     expect(setError).toHaveBeenCalledWith("claim_bus_idle:no_claimable_blocks");
     expect(lifecycle.onFailed).toHaveBeenCalledWith("claim_bus_idle:no_claimable_blocks");
     // loop check (1) + refresh path (2 dedicated reads)
-    expect(readRuntimeStatus).toHaveBeenCalledTimes(3);
+    expect(readRuntimeAvailability).toHaveBeenCalledTimes(3);
   });
 
   it("refreshes completion projection after claim none before judging idle", async () => {
@@ -1045,14 +941,14 @@ describe("workspace Agent Endpoint routing", () => {
       taskStatus: "implemented",
       blocks: [{ ref: "T-001#B-001", status: "completed", dispatchable: false }]
     });
-    const readRuntimeStatus = vi
+    const readRuntimeAvailability = vi
       .fn()
       .mockResolvedValueOnce(incomplete) // loop-start check
       .mockResolvedValueOnce(incomplete) // refresh first read (still lagging)
       .mockResolvedValue(complete); // refresh second read catches up
     const { result, setError, lifecycle, dispatch } = renderRun({
       previewClaimNext,
-      readRuntimeStatus
+      readRuntimeAvailability
     });
 
     await act(() => result.current({ kind: "project" }));
@@ -1060,15 +956,15 @@ describe("workspace Agent Endpoint routing", () => {
     expect(lifecycle.onCompleted).toHaveBeenCalled();
     expect(setError).not.toHaveBeenCalled();
     expect(dispatch).not.toHaveBeenCalled();
-    expect(readRuntimeStatus).toHaveBeenCalledTimes(3);
+    expect(readRuntimeAvailability).toHaveBeenCalledTimes(3);
   });
 
-  it("surfaces collaboration_runtime_status_unavailable when refresh cannot read status", async () => {
+  it("surfaces collaboration_runtime_availability_unavailable when refresh cannot read availability", async () => {
     const previewClaimNext = vi.fn(async () => ({
       kind: "none" as const,
       reason: "no_claimable_blocks"
     }));
-    const readRuntimeStatus = vi
+    const readRuntimeAvailability = vi
       .fn()
       .mockResolvedValueOnce(
         statusProjection({
@@ -1079,13 +975,46 @@ describe("workspace Agent Endpoint routing", () => {
       .mockResolvedValue(null);
     const { result, setError, lifecycle } = renderRun({
       previewClaimNext,
-      readRuntimeStatus
+      readRuntimeAvailability
     });
 
     await act(() => result.current({ kind: "project" }));
 
-    expect(setError).toHaveBeenCalledWith("collaboration_runtime_status_unavailable");
-    expect(lifecycle.onFailed).toHaveBeenCalledWith("collaboration_runtime_status_unavailable");
+    expect(setError).toHaveBeenCalledWith("collaboration_runtime_availability_unavailable");
+    expect(lifecycle.onFailed).toHaveBeenCalledWith(
+      "collaboration_runtime_availability_unavailable"
+    );
+  });
+
+  it("fails completion refresh on explicit unavailable without using cached status", async () => {
+    const previewClaimNext = vi.fn(async () => ({
+      kind: "none" as const,
+      reason: "no_claimable_blocks"
+    }));
+    const readRuntimeAvailability = vi
+      .fn()
+      .mockResolvedValueOnce(
+        statusProjection({
+          taskStatus: "in_progress",
+          blocks: [{ ref: "T-001#B-001", status: "ready" }]
+        })
+      )
+      .mockResolvedValue({
+        schemaVersion: "canvas-runtime-availability/v1",
+        kind: "unavailable",
+        reason: "content_out_of_sync",
+        sourceRevision: null,
+        graphFingerprint: null
+      });
+    const { result, setError, lifecycle } = renderRun({
+      previewClaimNext,
+      readRuntimeAvailability
+    });
+
+    await act(() => result.current({ kind: "project" }));
+
+    expect(setError).toHaveBeenCalledWith("collaboration_runtime_content_out_of_sync");
+    expect(lifecycle.onFailed).toHaveBeenCalledWith("collaboration_runtime_content_out_of_sync");
   });
 
   it("surfaces collaboration_runtime_block_status_unavailable when block row missing after refresh", async () => {
@@ -1101,13 +1030,13 @@ describe("workspace Agent Endpoint routing", () => {
       taskStatus: "in_progress",
       blocks: []
     });
-    const readRuntimeStatus = vi
+    const readRuntimeAvailability = vi
       .fn()
       .mockResolvedValueOnce(withBlock) // loop-start: block present, not completed
       .mockResolvedValue(missingBlock); // refresh: target block row still absent
     const { result, setError, lifecycle } = renderRun({
       previewClaimNext,
-      readRuntimeStatus
+      readRuntimeAvailability
     });
 
     await act(() => result.current({ kind: "block", blockRef: "T-001#B-001" }));
@@ -1126,7 +1055,7 @@ describe("workspace Agent Endpoint routing", () => {
       .fn()
       .mockResolvedValueOnce(blockClaim("T-001#B-001"))
       .mockResolvedValue({ kind: "none", reason: "done" });
-    const readRuntimeStatus = vi
+    const readRuntimeAvailability = vi
       .fn()
       .mockResolvedValueOnce(
         statusProjection({
@@ -1147,7 +1076,7 @@ describe("workspace Agent Endpoint routing", () => {
       setError
     } = renderRun({
       previewClaimNext,
-      readRuntimeStatus
+      readRuntimeAvailability
     });
 
     await act(() => result.current({ kind: "block", blockRef: "T-001#B-001" }));
@@ -1260,92 +1189,5 @@ describe("workspace Agent Endpoint routing", () => {
     expect(setError).toHaveBeenCalledWith(
       "ACP authentication is required. (acp_authentication_required)"
     );
-  });
-
-  it("I4: dispatches through owner fleet operator control without collaboration controller", async () => {
-    const { result, lifecycle, setError } = renderOwnerFleetRun();
-
-    await act(() => result.current({ kind: "project" }));
-
-    expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).toHaveBeenCalledWith({
-      profileId: "profile-a",
-      command: expect.objectContaining({
-        schemaVersion: "remote-run/v3",
-        projectId: "project-local",
-        canvasId: "canvas-main",
-        blockRef: "T-001#B-001",
-        agentEndpointId: "endpoint-windows",
-        expectedResponsibilityRevision: 0,
-        expectedReviewerRevision: 0
-      })
-    });
-    expect(lifecycle.onCompleted).toHaveBeenCalled();
-    expect(setError).not.toHaveBeenCalled();
-  });
-
-  it("keeps owner fleet authority when a legacy collaboration runtime is also present", async () => {
-    const {
-      result,
-      lifecycle,
-      setError,
-      readCollaborationCanvasRuntimeStatus,
-      dispatchCollaborationRemoteOperation,
-      ensureWorkAuthority
-    } = renderOwnerFleetRun({ withCollaborationRuntime: true });
-
-    await act(() => result.current({ kind: "project" }));
-
-    expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).toHaveBeenCalledWith({
-      profileId: "profile-a",
-      command: expect.objectContaining({
-        projectId: "project-local",
-        canvasId: "canvas-main",
-        blockRef: "T-001#B-001",
-        agentEndpointId: "endpoint-windows"
-      })
-    });
-    expect(dispatchCollaborationRemoteOperation).not.toHaveBeenCalled();
-    expect(readCollaborationCanvasRuntimeStatus).not.toHaveBeenCalled();
-    expect(ensureWorkAuthority).not.toHaveBeenCalled();
-    expect(lifecycle.onCompleted).toHaveBeenCalledTimes(1);
-    expect(lifecycle.onFailed).not.toHaveBeenCalled();
-    expect(setError).not.toHaveBeenCalled();
-  });
-
-  it("I3: treats owner fleet terminal observation as scope completion when local block status lags", async () => {
-    const laggingBlockDetail = vi.fn(async () => ({
-      ref: "T-001#B-001",
-      status: "ready" as const,
-      remoteExecution: null
-    }));
-    const previewClaimNext = vi
-      .fn()
-      .mockResolvedValueOnce(blockClaim("T-001#B-001"))
-      .mockResolvedValue({ kind: "none", reason: "no_claimable_blocks" });
-    operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation.mockResolvedValueOnce({
-      ...operation("running"),
-      operationId: "operation-fleet-lag"
-    });
-    operatorControlBridgeMock.observeOwnerFleetRemoteOperation.mockResolvedValue({
-      ...operation("completed"),
-      operationId: "operation-fleet-lag"
-    });
-    const { result, lifecycle, setError } = renderOwnerFleetRun({
-      previewClaimNext,
-      getBlockDetail: laggingBlockDetail,
-      waitForTerminal: vi.fn(async () => ({
-        ...operation("completed"),
-        operationId: "operation-fleet-lag"
-      }))
-    });
-
-    await act(() => result.current({ kind: "project" }));
-
-    expect(operatorControlBridgeMock.observeOwnerFleetRemoteOperation).toHaveBeenCalledWith({
-      profileId: "profile-a",
-      operationId: "operation-fleet-lag"
-    });
-    expect(lifecycle.onCompleted).toHaveBeenCalled();
-    expect(setError).not.toHaveBeenCalledWith(expect.stringContaining("claim_bus_idle"));
   });
 });

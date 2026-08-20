@@ -1,14 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
+import type {
+  CanvasRuntimeAvailability,
+  CanvasRuntimeUnavailableReason
+} from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import type { CanvasRuntimeStatusProjection } from "@planweave-ai/collaboration-protocol/canvas/status";
 import type { DesktopGraphViewModel } from "@planweave-ai/runtime";
 import type { PlanWeaveCollaborationApi } from "../../shared/collaboration";
 import { collaborationBridge } from "../bridge";
+import type { CollaborationRuntimeAvailabilityView } from "../collaboration/runtimeAvailabilityView";
 
-export const COLLABORATION_RUNTIME_STATUS_POLL_MS = 3_000;
+export const COLLABORATION_RUNTIME_AVAILABILITY_POLL_MS = 3_000;
 
-export type CollaborationRuntimeStatusBridge = Pick<
+export type CollaborationRuntimeAvailabilityBridge = Pick<
   PlanWeaveCollaborationApi,
-  "readCollaborationCanvasRuntimeStatus" | "resolveCollaborationCanvasScope"
+  "readCollaborationCanvasRuntimeAvailability" | "resolveCollaborationCanvasScope"
 >;
 
 type ResolvedCanvasIdentity = {
@@ -20,10 +25,19 @@ type ResolvedCanvasIdentity = {
   remoteCanvasId: string;
 };
 
-type RuntimeStatusSnapshot = {
-  identity: ResolvedCanvasIdentity;
-  status: CanvasRuntimeStatusProjection;
-};
+type RemoteAvailabilityState =
+  | { kind: "checking" }
+  | {
+      kind: "available";
+      identity: ResolvedCanvasIdentity;
+      availability: Extract<CanvasRuntimeAvailability, { kind: "available" }>;
+    }
+  | { kind: "unavailable"; reason: CanvasRuntimeUnavailableReason }
+  | { kind: "error"; message: string };
+
+function errorMessage(caught: unknown): string {
+  return caught instanceof Error ? caught.message : String(caught);
+}
 
 function sameRuntimeScope(
   left: CanvasRuntimeStatusProjection["scope"],
@@ -63,7 +77,9 @@ function hasExactRuntimeIdentity(
   );
 }
 
-function failClosedDispatchability(graph: DesktopGraphViewModel): DesktopGraphViewModel {
+export function failClosedCollaborationRuntimeDispatchability(
+  graph: DesktopGraphViewModel
+): DesktopGraphViewModel {
   return {
     ...graph,
     tasks: graph.tasks.map((task) => ({
@@ -74,18 +90,13 @@ function failClosedDispatchability(graph: DesktopGraphViewModel): DesktopGraphVi
   };
 }
 
-export function mergeCollaborationRuntimeStatus(
+export function mergeAvailableCollaborationRuntimeStatus(
   graph: DesktopGraphViewModel,
-  status: CanvasRuntimeStatusProjection | null,
-  expectedScope: CanvasRuntimeStatusProjection["scope"] | null
+  status: CanvasRuntimeStatusProjection,
+  expectedScope: CanvasRuntimeStatusProjection["scope"]
 ): DesktopGraphViewModel {
-  if (
-    !status ||
-    !expectedScope ||
-    !sameRuntimeScope(status.scope, expectedScope) ||
-    !hasExactRuntimeIdentity(graph, status)
-  ) {
-    return failClosedDispatchability(graph);
+  if (!sameRuntimeScope(status.scope, expectedScope) || !hasExactRuntimeIdentity(graph, status)) {
+    return failClosedCollaborationRuntimeDispatchability(graph);
   }
   const contentMatchesRuntime = status.packageFingerprint === graph.packageFingerprint;
   const taskStatuses = new Map(status.tasks.map((task) => [task.taskId, task]));
@@ -128,7 +139,7 @@ export function mergeCollaborationRuntimeStatus(
   };
 }
 
-export function useCollaborationRuntimeStatus(input: {
+export function useCollaborationRuntimeAvailability(input: {
   enabled: boolean;
   sessionConnected: boolean;
   profileId: string | null;
@@ -136,25 +147,23 @@ export function useCollaborationRuntimeStatus(input: {
   localProjectId: string | null;
   localCanvasId: string | null;
   graph: DesktopGraphViewModel | null;
-  api?: CollaborationRuntimeStatusBridge | null;
-}): { graph: DesktopGraphViewModel | null; error: string | null } {
+  api?: CollaborationRuntimeAvailabilityBridge | null;
+}): { graph: DesktopGraphViewModel | null; availability: CollaborationRuntimeAvailabilityView } {
   const api = input.api === undefined ? collaborationBridge : input.api;
   const graphPackageFingerprint = input.graph?.packageFingerprint ?? null;
-  const [snapshot, setSnapshot] = useState<RuntimeStatusSnapshot | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [remoteState, setRemoteState] = useState<RemoteAvailabilityState>({ kind: "checking" });
 
   useEffect(() => {
+    if (!input.enabled || !input.sessionConnected) return undefined;
     if (
       !api ||
-      !input.enabled ||
       !input.profileId ||
       !input.activeProjectId ||
       !input.localProjectId ||
       !input.localCanvasId ||
       !graphPackageFingerprint
     ) {
-      setSnapshot(null);
-      setError(null);
+      setRemoteState({ kind: "error", message: "collaboration_runtime_scope_unavailable" });
       return undefined;
     }
     const profileId = input.profileId;
@@ -164,28 +173,29 @@ export function useCollaborationRuntimeStatus(input: {
     let active = true;
     let inFlight = false;
     let identity: ResolvedCanvasIdentity | null = null;
-    setError(null);
+    setRemoteState({ kind: "checking" });
 
     const refresh = async () => {
       if (!active || inFlight || !identity) return;
       const currentIdentity = identity;
       inFlight = true;
       try {
-        const next = await api.readCollaborationCanvasRuntimeStatus({
+        const next = await api.readCollaborationCanvasRuntimeAvailability({
           localProjectId,
           canvasId: localCanvasId
         });
         if (!active) return;
-        if (!next || !matchesResolvedCanvas(next, currentIdentity)) {
-          setSnapshot(null);
-          return;
+        if (!next) {
+          setRemoteState({ kind: "error", message: "collaboration_runtime_availability_missing" });
+        } else if (next.kind === "unavailable") {
+          setRemoteState({ kind: "unavailable", reason: next.reason });
+        } else if (!matchesResolvedCanvas(next.status, currentIdentity)) {
+          setRemoteState({ kind: "error", message: "collaboration_runtime_scope_mismatch" });
+        } else {
+          setRemoteState({ kind: "available", identity: currentIdentity, availability: next });
         }
-        setSnapshot({ identity: currentIdentity, status: next });
-        setError(null);
       } catch (caught) {
-        if (active) {
-          setError(caught instanceof Error ? caught.message : String(caught));
-        }
+        if (active) setRemoteState({ kind: "error", message: errorMessage(caught) });
       } finally {
         inFlight = false;
       }
@@ -194,8 +204,12 @@ export function useCollaborationRuntimeStatus(input: {
     void api
       .resolveCollaborationCanvasScope({ localProjectId, canvasId: localCanvasId })
       .then((resolved) => {
-        if (!active || !resolved || resolved.projectId !== activeProjectId) return;
-        const resolvedIdentity: ResolvedCanvasIdentity = {
+        if (!active) return;
+        if (!resolved || resolved.projectId !== activeProjectId) {
+          setRemoteState({ kind: "error", message: "collaboration_runtime_scope_unavailable" });
+          return;
+        }
+        identity = {
           profileId,
           localProjectId,
           localCanvasId,
@@ -203,18 +217,18 @@ export function useCollaborationRuntimeStatus(input: {
           remoteProjectId: resolved.projectId,
           remoteCanvasId: resolved.canvasId
         };
-        identity = resolvedIdentity;
         void refresh();
       })
       .catch((caught: unknown) => {
-        if (active) setError(caught instanceof Error ? caught.message : String(caught));
+        if (active) setRemoteState({ kind: "error", message: errorMessage(caught) });
       });
-    const intervalId = input.sessionConnected
-      ? setInterval(() => void refresh(), COLLABORATION_RUNTIME_STATUS_POLL_MS)
-      : null;
+    const intervalId = setInterval(
+      () => void refresh(),
+      COLLABORATION_RUNTIME_AVAILABILITY_POLL_MS
+    );
     return () => {
       active = false;
-      if (intervalId !== null) clearInterval(intervalId);
+      clearInterval(intervalId);
     };
   }, [
     api,
@@ -227,52 +241,44 @@ export function useCollaborationRuntimeStatus(input: {
     input.sessionConnected
   ]);
 
-  const currentSnapshot =
-    snapshot &&
+  const currentAvailableState =
+    remoteState.kind === "available" &&
     input.profileId &&
     input.localProjectId &&
     input.localCanvasId &&
     input.activeProjectId &&
-    snapshot.identity.profileId === input.profileId &&
-    snapshot.identity.localProjectId === input.localProjectId &&
-    snapshot.identity.localCanvasId === input.localCanvasId &&
-    snapshot.identity.remoteProjectId === input.activeProjectId
-      ? snapshot
+    remoteState.identity.profileId === input.profileId &&
+    remoteState.identity.localProjectId === input.localProjectId &&
+    remoteState.identity.localCanvasId === input.localCanvasId &&
+    remoteState.identity.remoteProjectId === input.activeProjectId
+      ? remoteState
       : null;
 
-  return useMemo(
-    () => ({
-      graph: input.graph
-        ? !input.enabled
-          ? input.graph
-          : input.sessionConnected && !error
-            ? mergeCollaborationRuntimeStatus(
-                input.graph,
-                currentSnapshot?.status ?? null,
-                currentSnapshot
-                  ? {
-                      workspaceId: currentSnapshot.identity.remoteWorkspaceId,
-                      projectId: currentSnapshot.identity.remoteProjectId,
-                      canvasId: currentSnapshot.identity.remoteCanvasId
-                    }
-                  : null
-              )
-            : failClosedDispatchability(
-                mergeCollaborationRuntimeStatus(
-                  input.graph,
-                  currentSnapshot?.status ?? null,
-                  currentSnapshot
-                    ? {
-                        workspaceId: currentSnapshot.identity.remoteWorkspaceId,
-                        projectId: currentSnapshot.identity.remoteProjectId,
-                        canvasId: currentSnapshot.identity.remoteCanvasId
-                      }
-                    : null
-                )
-              )
-        : null,
-      error
-    }),
-    [currentSnapshot, error, input.enabled, input.graph, input.sessionConnected]
-  );
+  return useMemo(() => {
+    const availability: CollaborationRuntimeAvailabilityView = !input.enabled
+      ? { kind: "not_applicable" }
+      : !input.sessionConnected
+        ? { kind: "server_disconnected" }
+        : remoteState.kind === "available" && !currentAvailableState
+          ? { kind: "checking" }
+          : remoteState.kind === "available"
+            ? { kind: "available" }
+            : remoteState;
+    const graph = input.graph
+      ? availability.kind === "not_applicable"
+        ? input.graph
+        : availability.kind === "available" && currentAvailableState
+          ? mergeAvailableCollaborationRuntimeStatus(
+              input.graph,
+              currentAvailableState.availability.status,
+              {
+                workspaceId: currentAvailableState.identity.remoteWorkspaceId,
+                projectId: currentAvailableState.identity.remoteProjectId,
+                canvasId: currentAvailableState.identity.remoteCanvasId
+              }
+            )
+          : failClosedCollaborationRuntimeDispatchability(input.graph)
+      : null;
+    return { graph, availability };
+  }, [currentAvailableState, input.enabled, input.graph, input.sessionConnected, remoteState]);
 }

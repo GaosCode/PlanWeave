@@ -371,34 +371,6 @@ describe("CollaborationClient", () => {
     client.dispose();
   });
 
-  it("reads the redacted canvas runtime status with device authentication", async () => {
-    const projection = {
-      schemaVersion: "canvas-runtime-status/v2",
-      scope: {
-        workspaceId: "workspace-demo-001",
-        projectId: "project-demo-001",
-        canvasId: "canvas-demo-001"
-      },
-      packageFingerprint: `pkg-${"a".repeat(64)}`,
-      capturedAt: "2026-08-01T00:00:00.000Z",
-      tasks: [{ taskId: "T-001", status: "implemented", openFeedbackCount: 0 }],
-      blocks: []
-    };
-    const fixture = await listen((req, res) => {
-      expect(req.method).toBe("GET");
-      expect(req.headers.authorization).toBe(`Bearer ${exampleHumanDeviceToken}`);
-      expect(req.url).toBe(
-        "/api/v1/projects/project-demo-001/canvases/canvas-demo-001/runtime-status"
-      );
-      json(res, 200, projection);
-    });
-    cleanups.push(fixture.close);
-    const client = clientFor(fixture.origin, { token: exampleHumanDeviceToken });
-
-    await expect(client.readRuntimeStatus("canvas-demo-001")).resolves.toEqual(projection);
-    client.dispose();
-  });
-
   it("reads both strict runtime availability branches from the dedicated endpoint", async () => {
     const status = {
       schemaVersion: "canvas-runtime-status/v2" as const,

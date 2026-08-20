@@ -17,7 +17,7 @@ export type FeedbackExecutionPort = {
 
 export type ScopeCompletionCheckOptions = {
   /**
-   * Force a fresh collaboration runtime-status projection read before judging.
+   * Force a fresh collaboration Runtime availability read before judging.
    * Used after claim-none / at_capacity so a lagging projection cannot false-idle a finished scope.
    */
   refresh?: boolean;

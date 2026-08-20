@@ -18,6 +18,7 @@ import type { createTranslator } from "../i18n";
 import type { AppFlowNode, TaskNodeData } from "../types";
 import type { AvailableAgentEndpoint } from "../collaboration/agentEndpointViewModel";
 import { formatAgentEndpointFleetCatalogError } from "../collaboration/formatAgentEndpointFleetCatalogError";
+import type { CollaborationRuntimeAvailabilityView } from "../collaboration/runtimeAvailabilityView";
 
 type GraphFlowSource = {
   agentEndpointCatalogErrorCode?: string | null;
@@ -30,6 +31,7 @@ type GraphFlowSource = {
   resourceUi?: GraphSharedResourceUiState;
   assigneeUi?: GraphAssigneeUiState | null;
   commentUi?: GraphCommentUiState | null;
+  runtimeAvailability: CollaborationRuntimeAvailabilityView;
 };
 
 type GraphFlowDrafts = {
@@ -94,7 +96,8 @@ export function useGraphFlowModel({
     t,
     resourceUi,
     assigneeUi,
-    commentUi
+    commentUi,
+    runtimeAvailability
   } = source;
   const { promptDrafts, saveStates, titleDrafts } = drafts;
   const activeResource = resourceUi?.activeResource ?? null;
@@ -176,7 +179,8 @@ export function useGraphFlowModel({
         handleOpenRunRecord,
         resolvedResourceUi,
         assigneeUi ?? null,
-        commentUi ?? null
+        commentUi ?? null,
+        runtimeAvailability
       )
     );
     setEdges(graphEdges(graph, { activeResource }));
@@ -184,6 +188,7 @@ export function useGraphFlowModel({
     activeResource,
     assigneeUi,
     commentUi,
+    runtimeAvailability,
     transitionEpochByResource,
     onResourceHover,
     onResourcePin,

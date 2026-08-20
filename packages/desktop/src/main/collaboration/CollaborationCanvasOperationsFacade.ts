@@ -53,10 +53,6 @@ export class CollaborationCanvasOperationsFacade {
     return this.run(() => this.options.runtimeAvailability.resolveCanvasScope(input));
   }
 
-  readRuntimeStatus(input: unknown) {
-    return this.run(() => this.options.runtimeAvailability.readRuntimeStatus(input));
-  }
-
   readRuntimeAvailability(input: unknown) {
     return this.run(() => this.options.runtimeAvailability.readRuntimeAvailability(input));
   }

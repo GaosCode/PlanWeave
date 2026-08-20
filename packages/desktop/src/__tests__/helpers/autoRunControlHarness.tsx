@@ -146,7 +146,18 @@ export function createAutoRunChangedBridge(overrides: Partial<DesktopBridgeApi> 
 
 export async function loadAutoRunControl() {
   vi.resetModules();
-  return import("../../renderer/hooks/useAutoRunControl");
+  const module = await import("../../renderer/hooks/useAutoRunControl");
+  return {
+    ...module,
+    useAutoRunControl: (
+      input: Omit<AutoRunControlArgs, "runtimeAvailability"> &
+        Partial<Pick<AutoRunControlArgs, "runtimeAvailability">>
+    ) =>
+      module.useAutoRunControl({
+        runtimeAvailability: { kind: "not_applicable" },
+        ...input
+      })
+  };
 }
 
 export function defaultAutoRunControlArgs(
@@ -154,6 +165,7 @@ export function defaultAutoRunControlArgs(
 ): AutoRunControlArgs {
   return {
     autoRunState: null,
+    runtimeAvailability: { kind: "not_applicable" },
     openRunWorkspace: vi.fn(),
     selectedCanvasId: "canvas-main",
     selectedBlock: null,

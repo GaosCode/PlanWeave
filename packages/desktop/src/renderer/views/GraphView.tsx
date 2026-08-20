@@ -54,6 +54,7 @@ import { FloatingAutoRunControl } from "../run/FloatingAutoRunControl";
 import type { AutoRunNextActionDescriptor } from "../run/autoRunNextActions";
 import type { AppFlowNode, AutoRunScopeMode } from "../types";
 import type { CollaborationCanvasPresenceResult } from "../hooks/useCollaborationCanvasPresence";
+import type { CollaborationRuntimeAvailabilityView } from "../collaboration/runtimeAvailabilityView";
 
 type GraphViewProps = {
   autoRunControlStyle: CSSProperties;
@@ -81,6 +82,7 @@ type GraphViewProps = {
   handleRedoGraph: () => Promise<void>;
   handleRevealPathInFinder: (path: string | null | undefined) => Promise<void>;
   resetRuntimeStateClick: () => Promise<void>;
+  runtimeOperationsAllowed: boolean;
   handleUndoGraph: () => Promise<void>;
   miniRunPanelOpen: boolean;
   moveAutoRunControl: (event: PointerEvent<HTMLButtonElement>) => void;
@@ -116,7 +118,33 @@ type GraphViewProps = {
   presence?: CollaborationCanvasPresenceResult;
   sharedCanvasOffline: boolean;
   sharedCanvasRevision: number | null;
+  runtimeAvailability: CollaborationRuntimeAvailabilityView;
 };
+
+function runtimeAvailabilityBanner(
+  availability: CollaborationRuntimeAvailabilityView,
+  t: ReturnType<typeof createTranslator>
+): string | null {
+  switch (availability.kind) {
+    case "not_applicable":
+    case "available":
+      return null;
+    case "server_disconnected":
+      return t("collaborationServerDisconnected");
+    case "checking":
+      return t("collaborationRuntimeChecking");
+    case "error":
+      return t("collaborationRuntimeError").replace("{message}", availability.message);
+    case "unavailable":
+      return t(
+        availability.reason === "runtime_not_attached"
+          ? "collaborationRuntimeNotAttached"
+          : availability.reason === "host_offline"
+            ? "collaborationRuntimeHostOffline"
+            : "collaborationRuntimeContentOutOfSync"
+      );
+  }
+}
 
 export function GraphView({
   autoRunControlStyle,
@@ -144,6 +172,7 @@ export function GraphView({
   handleRedoGraph,
   handleRevealPathInFinder,
   resetRuntimeStateClick,
+  runtimeOperationsAllowed,
   handleUndoGraph,
   miniRunPanelOpen,
   moveAutoRunControl,
@@ -178,7 +207,8 @@ export function GraphView({
   clearPinnedResource,
   presence,
   sharedCanvasOffline,
-  sharedCanvasRevision
+  sharedCanvasRevision,
+  runtimeAvailability
 }: GraphViewProps) {
   const fittedGraphScopeId = useRef<string | null>(null);
   const [localFlowInstance, setLocalFlowInstance] = useState<ReactFlowInstance<
@@ -189,6 +219,7 @@ export function GraphView({
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const dirtyPromptRefs = graph?.dirtyPromptRefs ?? [];
   const dirtyPromptCount = dirtyPromptRefs.length;
+  const runtimeBanner = runtimeAvailabilityBanner(runtimeAvailability, t);
   const visibleNodes = visibleTasks
     ? nodes.filter((node) => node.type !== "task" || visibleTaskIds.has(node.id))
     : nodes;
@@ -307,7 +338,15 @@ export function GraphView({
       onMouseMove={graph ? handleGraphPointerMove : undefined}
       onMouseLeave={graph ? handleGraphPointerLeave : undefined}
     >
-      {sharedCanvasOffline ? (
+      {runtimeBanner ? (
+        <div
+          className="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full border border-border bg-surface/95 px-3 py-1 text-xs text-text-muted shadow-sm"
+          data-runtime-availability={runtimeAvailability.kind}
+          data-testid="collaboration-runtime-availability"
+        >
+          {runtimeBanner}
+        </div>
+      ) : sharedCanvasOffline ? (
         <div
           className="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full border border-border bg-surface/95 px-3 py-1 text-xs text-text-muted shadow-sm"
           data-testid="shared-canvas-offline-replica"
@@ -519,6 +558,7 @@ export function GraphView({
         watcherChangedPathCount={fileSyncResult?.watcherChangedPathCount}
         watcherRefreshElapsedMs={fileSyncResult?.watcherRefreshElapsedMs}
         resetRuntimeStateClick={resetRuntimeStateClick}
+        runtimeOperationsAllowed={runtimeOperationsAllowed}
         selectedBlockPresent={selectedBlockPresent}
         selectedCanvasId={selectedCanvasId}
         selectedProject={selectedProject}

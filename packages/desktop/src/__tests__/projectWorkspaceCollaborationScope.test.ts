@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { collaborationSurfaceCanvasIdForView } from "../renderer/ProjectWorkspaceProvider";
+import { collaborationSurfaceCanvasIdForView } from "../renderer/collaboration/workspaceCollaborationScope";
 import {
   resolveCollaborationCanvasReadBinding,
   resolveCollaborationSurfaceReadBinding

@@ -74,6 +74,8 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
     assigneeChip = null,
     blockAssigneeChips = {},
     commentUi = null,
+    runtimeOperationsAllowed,
+    runtimeStatusKnown,
     onTitleChange,
     onTitleSave,
     onAgentEndpointChange,
@@ -95,12 +97,19 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
   } = data;
   const [taskCommentsOpen, setTaskCommentsOpen] = useState(false);
   const hasException = task.exceptions.length > 0;
-  const statusVisual = taskNodeStatusVisual(task.status, hasException);
+  const statusVisual = taskNodeStatusVisual(
+    runtimeStatusKnown ? task.status : "unknown",
+    runtimeStatusKnown && hasException
+  );
   const highlightColor =
     resourceHighlighted && highlightedResource
       ? sharedResourceColor(highlightedResource).dot
       : null;
-  const statusLabel = hasException ? labels.exception : task.status;
+  const statusLabel = runtimeStatusKnown
+    ? hasException
+      ? labels.exception
+      : task.status
+    : labels.runtimeStatusUnavailable;
   const handlePromptKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const key = event.key.toLowerCase();
     const isUndo = (event.metaKey || event.ctrlKey) && !event.shiftKey && key === "z";
@@ -160,9 +169,9 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
                 onBlur={() => onTitleSave(task.taskId)}
               />
               <TaskNodeStatusMarker
-                hasException={hasException}
+                hasException={runtimeStatusKnown && hasException}
                 label={statusLabel}
-                status={task.status}
+                status={runtimeStatusKnown ? task.status : "unknown"}
               />
             </CardTitle>
             <CardDescription className="flex flex-wrap items-center gap-2">
@@ -279,6 +288,8 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
                     onDelete={onBlockDelete}
                     onInspect={onBlockSelect}
                     onRun={(ref) => void onAutoRunScopeStart({ kind: "block", blockRef: ref })}
+                    runtimeOperationsAllowed={runtimeOperationsAllowed}
+                    runtimeStatusKnown={runtimeStatusKnown}
                     onSelect={onBlockWorkspaceOpen}
                     selectedBlockRef={selectedBlock?.ref ?? null}
                     commentUi={
@@ -329,6 +340,7 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
           {labels.openTaskInFileManager}
         </ContextMenuItem>
         <ContextMenuItem
+          disabled={!runtimeOperationsAllowed}
           onSelect={() => void onAutoRunScopeStart({ kind: "task", taskId: task.taskId })}
         >
           <PlayIcon data-icon="inline-start" />

@@ -479,7 +479,6 @@ describe("CanvasRuntimeAvailabilityCoordinator", () => {
   ) {
     const content: CanvasRuntimeContentPort = {
       resolveCanvasScope: vi.fn(async () => scope),
-      readRuntimeStatus: vi.fn(async () => status),
       readRuntimeAvailability: vi.fn(async () => initialAvailability)
     };
     const commands: CanvasRuntimeCommandPort = { projectionForBinding: vi.fn(() => null) };

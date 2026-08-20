@@ -56,6 +56,7 @@ type FloatingAutoRunControlProps = {
   watcherChangedPathCount?: number;
   watcherRefreshElapsedMs?: number;
   resetRuntimeStateClick: () => Promise<void>;
+  runtimeOperationsAllowed: boolean;
   selectedBlockPresent: boolean;
   selectedCanvasId?: string | null;
   selectedProject: DesktopProjectSummary | null;
@@ -119,6 +120,7 @@ export function FloatingAutoRunControl({
   watcherChangedPathCount,
   watcherRefreshElapsedMs,
   resetRuntimeStateClick,
+  runtimeOperationsAllowed,
   selectedBlockPresent,
   selectedCanvasId = null,
   selectedProject,
@@ -251,6 +253,7 @@ export function FloatingAutoRunControl({
               miniRunPanelOpen={miniRunPanelOpen}
               preflightExecutor={preflightExecutor}
               resetRuntimeStateClick={resetRuntimeStateClick}
+              runtimeOperationsAllowed={runtimeOperationsAllowed}
               selectedProject={selectedProject}
               setMiniRunPanelOpen={setMiniRunPanelOpen}
               stopAutoRunClick={stopAutoRunClick}
@@ -274,6 +277,7 @@ export function FloatingAutoRunControl({
           variant="outline"
           aria-label={t("stop")}
           title={t("stop")}
+          disabled={!runtimeOperationsAllowed}
           onClick={() => void stopAutoRunClick()}
         >
           <SquareIcon data-icon="inline-start" />
@@ -284,7 +288,7 @@ export function FloatingAutoRunControl({
         variant="outline"
         aria-label={t("resetRuntimeState")}
         title={t("resetRuntimeState")}
-        disabled={!hasProject}
+        disabled={!hasProject || !runtimeOperationsAllowed}
         onClick={() => void resetRuntimeStateClick()}
       >
         <RotateCcwIcon data-icon="inline-start" />

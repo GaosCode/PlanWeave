@@ -9,7 +9,7 @@ import type { CanvasReplicaStore } from "./CanvasReplicaStore.js";
 
 export type CanvasRuntimeContentPort = Pick<
   ContentVersionFacade,
-  "resolveCanvasScope" | "readRuntimeStatus" | "readRuntimeAvailability"
+  "resolveCanvasScope" | "readRuntimeAvailability"
 >;
 export type CanvasRuntimeCommandPort = Pick<
   CollaborationCanvasCommandFacade,
@@ -32,21 +32,6 @@ export class CanvasRuntimeAvailabilityCoordinator {
 
   resolveCanvasScope(input: unknown) {
     return this.contentVersions.resolveCanvasScope(input);
-  }
-
-  async readRuntimeStatus(input: unknown) {
-    const status = await this.contentVersions.readRuntimeStatus(input);
-    const authorityId = this.resolveAuthorityId();
-    if (status && authorityId) {
-      const scope = {
-        authorityId,
-        workspaceId: status.scope.workspaceId,
-        projectId: status.scope.projectId,
-        canvasId: status.scope.canvasId
-      };
-      if (this.canvasReplicas.has(scope)) this.canvasReplicas.setRuntimeStatus(scope, status);
-    }
-    return status;
   }
 
   async readRuntimeAvailability(input: unknown): Promise<CanvasRuntimeAvailability | null> {

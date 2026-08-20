@@ -171,6 +171,7 @@ describe("FloatingAutoRunControl", () => {
         autoRunNextAction={waitAction}
         autoRunRetrospective={retrospective}
         autoRunScopeMode="project"
+        runtimeOperationsAllowed={true}
         autoRunState={autoRunState}
         diagnostics={[
           {
@@ -319,6 +320,7 @@ describe("FloatingAutoRunControl", () => {
         autoRunNextAction={null}
         autoRunRetrospective={null}
         autoRunScopeMode="project"
+        runtimeOperationsAllowed={true}
         autoRunState={createAutoRunState({
           runId: "RUN-FAILED",
           phase: "failed",
@@ -410,6 +412,7 @@ describe("FloatingAutoRunControl", () => {
         autoRunNextAction={null}
         autoRunRetrospective={null}
         autoRunScopeMode="project"
+        runtimeOperationsAllowed={true}
         autoRunState={null}
         diagnostics={[]}
         projectDiagnostics={[]}
@@ -454,6 +457,7 @@ describe("FloatingAutoRunControl", () => {
         autoRunNextAction={null}
         autoRunRetrospective={null}
         autoRunScopeMode="project"
+        runtimeOperationsAllowed={true}
         autoRunState={null}
         diagnostics={[]}
         projectDiagnostics={[

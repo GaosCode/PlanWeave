@@ -36,10 +36,6 @@ import {
   type CollaborationContentReplicaStorePort
 } from "./CollaborationContentReplicaStore.js";
 import {
-  CollaborationRuntimeStatusStore,
-  type CollaborationRuntimeStatusStorePort
-} from "./CollaborationRuntimeStatusStore.js";
-import {
   CollaborationRuntimeAvailabilityStore,
   type CollaborationRuntimeAvailabilityStorePort
 } from "./CollaborationRuntimeAvailabilityStore.js";
@@ -91,7 +87,6 @@ export class ContentVersionFacade {
       | CollaborationAuthorityContext
       | null
       | Promise<CollaborationAuthorityContext | null> = () => null,
-    private readonly runtimeStatuses: CollaborationRuntimeStatusStorePort = new CollaborationRuntimeStatusStore(),
     private readonly runtimeAvailabilities: CollaborationRuntimeAvailabilityStorePort = new CollaborationRuntimeAvailabilityStore()
   ) {}
 
@@ -426,12 +421,7 @@ export class ContentVersionFacade {
           canvasId: replica.remote.canvasId
         });
       }
-      const cached = await this.runtimeStatuses.get({
-        ...authority,
-        localProjectId: requested.localProjectId,
-        localCanvasId: requested.canvasId
-      });
-      return cached ? collaborationCanvasScopeResolutionSchema.parse(cached.scope) : null;
+      return null;
     }
     const binding = await this.resolveCanvasBinding(input);
     if (!binding) return null;
@@ -467,30 +457,6 @@ export class ContentVersionFacade {
           canvasId: binding.remoteCanvasId
         })
       : null;
-  }
-
-  async readRuntimeStatus(input: unknown) {
-    const requested = collaborationContentAuthorityCanvasInputSchema.parse(input);
-    const client = this.resolveClient();
-    const authority = await this.authorityContext(client);
-    if (!authority) return null;
-    const cacheKey = {
-      ...authority,
-      localProjectId: requested.localProjectId,
-      localCanvasId: requested.canvasId
-    };
-    if (!client) return this.runtimeStatuses.get(cacheKey);
-    const scope = await this.resolveCanvasScope(requested);
-    if (!scope) return null;
-    const status = await client.readRuntimeStatus(scope.canvasId);
-    if (
-      status.scope.workspaceId !== scope.workspaceId ||
-      status.scope.projectId !== scope.projectId ||
-      status.scope.canvasId !== scope.canvasId
-    ) {
-      throw unavailable("runtime_status_scope_mismatch", false);
-    }
-    return this.runtimeStatuses.put(cacheKey, status);
   }
 
   async readRuntimeAvailability(input: unknown): Promise<CanvasRuntimeAvailability | null> {

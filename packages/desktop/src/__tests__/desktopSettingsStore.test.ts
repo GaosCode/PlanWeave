@@ -69,7 +69,6 @@ describe("DesktopSettingsStore", () => {
         "collaboration",
         "content-replicas.json"
       ),
-      collaborationRuntimeStatusFile: join(home, "desktop", "collaboration", "runtime-status.json"),
       collaborationRuntimeAvailabilityFile: join(
         home,
         "desktop",

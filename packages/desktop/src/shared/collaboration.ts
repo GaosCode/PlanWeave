@@ -102,7 +102,6 @@ import {
   type EligibleHostBatchRequest,
   type EligibleHostBatchResponse
 } from "@planweave-ai/collaboration-protocol/work/assignment";
-import { type CanvasRuntimeStatusProjection } from "@planweave-ai/collaboration-protocol/canvas/status";
 import { type CanvasRuntimeAvailability } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import { type CanvasLiveSyncServerMessage } from "@planweave-ai/collaboration-protocol/canvas/live-sync";
 import {
@@ -851,9 +850,6 @@ export type PlanWeaveCollaborationApi = {
   resolveCollaborationCanvasScope: (
     input: CollaborationContentAuthorityCanvasInput
   ) => Promise<CollaborationCanvasScopeResolution | null>;
-  readCollaborationCanvasRuntimeStatus: (
-    input: CollaborationContentAuthorityCanvasInput
-  ) => Promise<CanvasRuntimeStatusProjection | null>;
   readCollaborationCanvasRuntimeAvailability: (
     input: CollaborationContentAuthorityCanvasInput
   ) => Promise<CanvasRuntimeAvailability | null>;

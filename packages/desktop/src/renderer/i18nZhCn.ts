@@ -1642,6 +1642,13 @@ export const zhCnCatalog = {
     "共享画布当前离线，无法编辑。请先启动或检查 Server，然后前往“成员”页面点击“刷新”重新连接。",
   sharedCanvasOfflineReplica: "离线只读 · 显示本机最后同步副本",
   sharedCanvasOfflineRevision: "离线只读 · 最后确认修订 {revision}",
+  collaborationServerDisconnected: "Server 已断开 · 协作 Runtime 操作已禁用",
+  collaborationRuntimeChecking: "正在检查协作 Runtime 可用性…",
+  collaborationRuntimeError: "Runtime 可用性检查失败：{message}",
+  collaborationRuntimeNotAttached: "Runtime 不可用 · 尚未附着 Runtime",
+  collaborationRuntimeHostOffline: "Runtime 不可用 · Host 已离线",
+  collaborationRuntimeContentOutOfSync: "Runtime 不可用 · 内容不同步",
+  collaborationRuntimeStatusUnavailable: "Runtime 状态未知",
   canvasCommandUnsupportedLocalOnly:
     "共享画布已连接时无法执行此编辑。请断开协作连接，或改用受支持的共享命令。",
   contentAuthorityTitle: "成员内容同步",

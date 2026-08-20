@@ -60,6 +60,7 @@ export type TaskNodeLabels = {
   sharedResourceActive: string;
   moreResources: (count: number) => string;
   assignee: string;
+  runtimeStatusUnavailable: string;
 };
 
 export type TaskNodeData = {
@@ -89,6 +90,8 @@ export type TaskNodeData = {
     blockCommentCounts: Record<string, number>;
     t: ReturnType<typeof createTranslator>;
   } | null;
+  runtimeOperationsAllowed: boolean;
+  runtimeStatusKnown: boolean;
   onTitleChange: (taskId: string, value: string) => void;
   onTitleSave: (taskId: string) => void;
   onAgentEndpointChange: (taskId: string, endpointId: string) => void;

@@ -15,6 +15,7 @@ import { useAutoRunControl } from "../hooks/useAutoRunControl";
 import type { WorkspaceAgentEndpointScopeStarter } from "../hooks/useWorkspaceAgentEndpointRun";
 import { usePackageFileSync } from "../hooks/usePackageFileSync";
 import type { WorkspaceTabsAutoRunProps, WorkspaceTabsFileSyncProps } from "../views/WorkspaceTabs";
+import type { CollaborationRuntimeAvailabilityView } from "../collaboration/runtimeAvailabilityView";
 
 export type AutoRunController = WorkspaceTabsAutoRunProps & {
   startAutoRunWithScope: ReturnType<typeof useAutoRunControl>["startAutoRunWithScope"];
@@ -46,7 +47,8 @@ export function useAutoRunController({
   setError,
   t,
   tmuxMonitoringEnabled,
-  startAutoRunScope
+  startAutoRunScope,
+  runtimeAvailability
 }: {
   autoRunState: DesktopAutoRunState | null;
   openRunWorkspace: (locator: {
@@ -66,6 +68,7 @@ export function useAutoRunController({
   t: ReturnType<typeof createTranslator>;
   tmuxMonitoringEnabled: boolean;
   startAutoRunScope?: WorkspaceAgentEndpointScopeStarter;
+  runtimeAvailability: CollaborationRuntimeAvailabilityView;
 }): AutoRunController {
   const {
     autoRunControlRef,
@@ -80,6 +83,7 @@ export function useAutoRunController({
     miniRunPanelOpen,
     moveAutoRunControl,
     resetRuntimeStateClick,
+    runtimeOperationsAllowed,
     setAutoRunScopeMode,
     setMiniRunPanelOpen,
     startAutoRunControlDrag,
@@ -100,7 +104,8 @@ export function useAutoRunController({
     tmuxMonitoringEnabled,
     position,
     onPositionCommit,
-    startAutoRunScope
+    startAutoRunScope,
+    runtimeAvailability
   });
 
   return useMemo(
@@ -118,6 +123,7 @@ export function useAutoRunController({
         miniRunPanelOpen,
         moveAutoRunControl,
         resetRuntimeStateClick,
+        runtimeOperationsAllowed,
         setAutoRunScopeMode,
         setMiniRunPanelOpen,
         startAutoRunControlDrag,
@@ -138,6 +144,7 @@ export function useAutoRunController({
       miniRunPanelOpen,
       moveAutoRunControl,
       resetRuntimeStateClick,
+      runtimeOperationsAllowed,
       setAutoRunScopeMode,
       setMiniRunPanelOpen,
       startAutoRunControlDrag,

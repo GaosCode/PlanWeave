@@ -71,6 +71,51 @@ afterEach(() => {
 });
 
 describe("AutoRunMiniPanel", () => {
+  it("visually disables run, reset, and stop controls when Runtime operations are gated", () => {
+    render(
+      <AutoRunMiniPanel
+        autoRunNextAction={{
+          action: "retry",
+          disabledReason: null,
+          enabled: true,
+          label: "Retry failed ref",
+          manualCommand: null,
+          message: "Retry the failed block.",
+          nextActionKind: "resolve_error",
+          recordId: null,
+          ref: "T-001#B-001",
+          targetPath: null
+        }}
+        autoRunRetrospective={null}
+        autoRunState={createFailedAutoRunState()}
+        runtimeOperationsAllowed={false}
+        canStop={true}
+        executorPreflight={{
+          error: null,
+          loading: false,
+          result: null,
+          runPreflight: vi.fn().mockResolvedValue(null)
+        }}
+        handleAutoRunClick={vi.fn().mockResolvedValue(undefined)}
+        handleAutoRunNextAction={vi.fn().mockResolvedValue(undefined)}
+        handleRevealPathInFinder={vi.fn().mockResolvedValue(undefined)}
+        hasProject={true}
+        miniRunPanelOpen={true}
+        preflightExecutor="codex"
+        resetRuntimeStateClick={vi.fn().mockResolvedValue(undefined)}
+        selectedProject={project}
+        setMiniRunPanelOpen={vi.fn()}
+        stopAutoRunClick={vi.fn().mockResolvedValue(undefined)}
+        t={t}
+      />
+    );
+
+    expect(screen.getByTestId("auto-run-trigger")).toBeDisabled();
+    expect(screen.getByTestId("auto-run-next-action")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Reset runtime state" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Stop" })).toBeDisabled();
+  });
+
   it("shows failed run details and dispatches next action and record actions", async () => {
     const handleAutoRunNextAction = vi.fn().mockResolvedValue(undefined);
     const handleRevealPathInFinder = vi.fn().mockResolvedValue(undefined);
@@ -93,6 +138,7 @@ describe("AutoRunMiniPanel", () => {
         autoRunNextAction={nextAction}
         autoRunRetrospective={null}
         autoRunState={createFailedAutoRunState()}
+        runtimeOperationsAllowed={true}
         canStop={true}
         executorPreflight={{
           error: null,
@@ -183,6 +229,7 @@ describe("AutoRunMiniPanel", () => {
         autoRunNextAction={null}
         autoRunRetrospective={retrospective}
         autoRunState={noWorkState}
+        runtimeOperationsAllowed={true}
         canStop={false}
         executorPreflight={{
           error: null,
@@ -231,6 +278,7 @@ describe("AutoRunMiniPanel", () => {
         autoRunNextAction={null}
         autoRunRetrospective={null}
         autoRunState={runningState}
+        runtimeOperationsAllowed={true}
         canStop={true}
         executorPreflight={{
           error: null,

@@ -418,10 +418,6 @@ export function registerCollaborationHandlers(
     (_event, input: unknown) => active.resolveCanvasScope(input)
   );
   ipcMain.handle(
-    collaborationInvokeChannels.readCollaborationCanvasRuntimeStatus,
-    (_event, input: unknown) => active.readCanvasRuntimeStatus(input)
-  );
-  ipcMain.handle(
     collaborationInvokeChannels.readCollaborationCanvasRuntimeAvailability,
     async (_event, input: unknown) =>
       canvasRuntimeAvailabilitySchema

@@ -1,23 +1,3 @@
-/**
- * ProjectWorkspaceProvider inventory (plan 018):
- *
- * Context (project-scoped) members — depend on the open project/canvas:
- * - desktopProject refresh family + graph/layout/selection/diagnostics/planning
- * - selected block + session (task panel, auto-run state, canvas CRUD)
- * - auto-run / file-sync / search / notification controllers
- * - review pipeline, prompt drafts, graph flow/palette/history
- * - WorkspaceTabs groups: shell, graphWorkspace, autoRun, fileSync, search,
- *   review, notifications, planning
- * - ProjectSidebar action handlers + ordered project list
- * - Right palette add/drag handlers
- * - settingsRouteProps derived from project + shell agents/tools
- *
- * Shell members (stay in App.tsx):
- * - settings bridge, language/translator, theme effects
- * - activeView routing, error/success overlays
- * - agent detection + runtime tools refresh
- * - resizable sidebar layout chrome (collapsed/width/resize)
- */
 import {
   createContext,
   useCallback,
@@ -67,7 +47,7 @@ import { useSharedResourceHighlight } from "./hooks/useSharedResourceHighlight";
 import { useLerpedNodeDrag } from "./hooks/useLerpedNodeDrag";
 import { useCollaborationSurface } from "./hooks/useCollaborationSurface";
 import { useCollaborationCanvasPresence } from "./hooks/useCollaborationCanvasPresence";
-import { useCollaborationRuntimeStatus } from "./hooks/useCollaborationRuntimeStatus";
+import { useWorkspaceCollaborationRuntimeAvailability } from "./hooks/useWorkspaceCollaborationRuntimeAvailability";
 import { useSharedCanvasCommands } from "./hooks/useSharedCanvasCommands";
 import { canvasReplicaProjectionToDesktopGraph } from "./collaboration/canvasReplicaGraphAdapter";
 import { buildAppSettingsRouteProps } from "./AppSettingsRouteProps";
@@ -103,6 +83,7 @@ import type {
   RecordAuthorityTarget,
   TaskWorkspaceNavigationTarget
 } from "./taskWorkspaceNavigation";
+import { collaborationSurfaceCanvasIdForView } from "./collaboration/workspaceCollaborationScope";
 
 type TaskCanvasSummary = DesktopProjectSummary["taskCanvases"][number];
 type AppSettingsRouteProps = ComponentProps<typeof AppSettingsRoute>;
@@ -114,13 +95,6 @@ function canvasPackageDir(project: DesktopProjectSummary, canvasId: string | nul
 
 function unavailablePackageDirMessage(canvasId: string): string {
   return `Cannot copy agent prompt because packageDir is unavailable for canvas '${canvasId}'.`;
-}
-
-export function collaborationSurfaceCanvasIdForView(
-  activeView: AppView,
-  selectedCanvasId: string | null
-): string | null {
-  return activeView === "people" ? null : selectedCanvasId;
 }
 
 type LayoutSettingsPatch = {
@@ -294,16 +268,16 @@ export function ProjectWorkspaceProvider({
     [localGraph, sharedCanvasCommands.projection]
   );
   const layout = sharedCanvasCommands.projection?.content.layout ?? localLayout;
-  const collaborationRuntimeStatus = useCollaborationRuntimeStatus({
-    enabled: Boolean(selectedProject) && !collaborationSurface.localOwnerDirectWriteAvailable,
-    sessionConnected: collaborationSurface.sessionConnected,
-    profileId: collaborationSurface.activeProfileId,
+  const collaborationRuntime = useWorkspaceCollaborationRuntimeAvailability({
+    activeProfileId: collaborationSurface.activeProfileId,
     activeProjectId: collaborationSurface.activeProjectId,
-    localProjectId: selectedProject?.projectId ?? null,
-    localCanvasId: selectedCanvasId,
-    graph: replicaGraph
+    graph: replicaGraph,
+    localOwnerDirectWriteAvailable: collaborationSurface.localOwnerDirectWriteAvailable,
+    selectedCanvasId,
+    selectedProject,
+    sessionConnected: collaborationSurface.sessionConnected
   });
-  const graph = collaborationRuntimeStatus.graph;
+  const graph = collaborationRuntime.graph;
   const ownerControlPlane = useOwnerControlPlaneAvailability();
   const agentEndpointCatalog = useWorkspaceAgentEndpointCatalog({
     agentDetections,
@@ -494,6 +468,7 @@ export function ProjectWorkspaceProvider({
     selectedProject,
     operatorProfileId: ownerControlPlane.operatorProfileId,
     ownerFleetDispatchEnabled: ownerControlPlane.fleetCatalogEnabled,
+    runtimeAvailability: collaborationRuntime.availability,
     setError
   });
 
@@ -511,7 +486,8 @@ export function ProjectWorkspaceProvider({
     tmuxMonitoringEnabled: settings.execution.tmuxMonitoring && runtimeTools.tmux.available,
     position: settings.layout.autoRunControl.position,
     onPositionCommit: (position) => updateLayoutSettings({ autoRunControl: { position } }),
-    startAutoRunScope: startAutoRunWithSelectedEndpoint
+    startAutoRunScope: startAutoRunWithSelectedEndpoint,
+    runtimeAvailability: collaborationRuntime.availability
   });
   useTaskNodeFocus({
     activeView,
@@ -916,7 +892,8 @@ export function ProjectWorkspaceProvider({
       t,
       resourceUi,
       assigneeUi,
-      commentUi
+      commentUi,
+      runtimeAvailability: collaborationRuntime.availability
     },
     taskActions: {
       handleDeleteBlock,
@@ -1103,7 +1080,8 @@ export function ProjectWorkspaceProvider({
     clearPinnedResource,
     presence: collaborationPresence,
     sharedCanvasOffline: sharedCanvasCommands.offline,
-    sharedCanvasRevision: sharedCanvasCommands.projection?.revision ?? null
+    sharedCanvasRevision: sharedCanvasCommands.projection?.revision ?? null,
+    runtimeAvailability: collaborationRuntime.availability
   });
   const review = useMemo<WorkspaceTabsReviewProps>(
     () => ({

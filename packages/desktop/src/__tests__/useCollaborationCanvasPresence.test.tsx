@@ -79,7 +79,7 @@ describe("useCollaborationCanvasPresence", () => {
     expect(fixture.api.startCollaborationPresence).not.toHaveBeenCalled();
   });
 
-  it("publishes selection only on change and coalesces pointer updates to 20Hz", async () => {
+  it("publishes presence without depending on the Runtime availability bridge", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000);
     let frame: FrameRequestCallback | null = null;
@@ -89,6 +89,7 @@ describe("useCollaborationCanvasPresence", () => {
     });
     vi.stubGlobal("cancelAnimationFrame", vi.fn());
     const fixture = bridgeFixture();
+    expect(fixture.api).not.toHaveProperty("readCollaborationCanvasRuntimeAvailability");
     const { result } = renderHook(() =>
       useCollaborationCanvasPresence({
         api: fixture.api,

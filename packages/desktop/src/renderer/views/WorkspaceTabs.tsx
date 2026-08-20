@@ -49,6 +49,7 @@ import type {
 import type { CollaborationCanvasPresenceResult } from "../hooks/useCollaborationCanvasPresence";
 import { useProjectWorkspace } from "../ProjectWorkspaceProvider";
 import { queueSettingsConnectionsTab } from "../settings/settingsEntry";
+import type { CollaborationRuntimeAvailabilityView } from "../collaboration/runtimeAvailabilityView";
 
 const CanvasMapView = lazy(() =>
   import("./CanvasMapView").then((module) => ({ default: module.CanvasMapView }))
@@ -105,6 +106,7 @@ export type WorkspaceTabsShellProps = {
 };
 
 export type WorkspaceTabsGraphWorkspaceProps = {
+  runtimeAvailability: CollaborationRuntimeAvailabilityView;
   edges: Edge[];
   edgeTypes: AppEdgeTypes;
   executionPlan: DesktopProjectExecutionPlan | null;
@@ -155,6 +157,7 @@ export type WorkspaceTabsAutoRunProps = {
   miniRunPanelOpen: boolean;
   moveAutoRunControl: (event: PointerEvent<HTMLButtonElement>) => void;
   resetRuntimeStateClick: () => Promise<void>;
+  runtimeOperationsAllowed: boolean;
   setAutoRunScopeMode: Dispatch<SetStateAction<AutoRunScopeMode>>;
   setMiniRunPanelOpen: Dispatch<SetStateAction<boolean>>;
   startAutoRunControlDrag: (event: PointerEvent<HTMLButtonElement>) => void;

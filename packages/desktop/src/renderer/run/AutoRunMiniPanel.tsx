@@ -42,6 +42,7 @@ type AutoRunMiniPanelProps = {
   miniRunPanelOpen: boolean;
   preflightExecutor: string | null;
   resetRuntimeStateClick: () => Promise<void>;
+  runtimeOperationsAllowed: boolean;
   selectedProject: DesktopProjectSummary | null;
   setMiniRunPanelOpen: Dispatch<SetStateAction<boolean>>;
   stopAutoRunClick: () => Promise<void>;
@@ -156,10 +157,12 @@ function AutoRunFailureDetails({
 function AutoRunActionRow({
   action,
   handleAutoRunNextAction,
+  runtimeOperationsAllowed,
   t
 }: {
   action: AutoRunNextActionDescriptor | null;
   handleAutoRunNextAction: (action: AutoRunNextActionDescriptor) => Promise<void>;
+  runtimeOperationsAllowed: boolean;
   t: FloatingAutoRunTranslator;
 }) {
   if (!action) {
@@ -178,7 +181,7 @@ function AutoRunActionRow({
         <Button
           data-action-kind={action.nextActionKind}
           data-testid="auto-run-next-action"
-          disabled={!action.enabled}
+          disabled={!action.enabled || !runtimeOperationsAllowed}
           size="sm"
           variant={action.command === "retry_ref" ? "destructive" : "outline"}
           onClick={() => void handleAutoRunNextAction(action)}
@@ -265,6 +268,7 @@ export function AutoRunMiniPanel({
   miniRunPanelOpen,
   preflightExecutor,
   resetRuntimeStateClick,
+  runtimeOperationsAllowed,
   selectedProject,
   setMiniRunPanelOpen,
   stopAutoRunClick,
@@ -311,7 +315,7 @@ export function AutoRunMiniPanel({
           }
           aria-label={t("autoRun")}
           title={t("autoRun")}
-          disabled={!hasProject}
+          disabled={!hasProject || !runtimeOperationsAllowed}
           onClick={() => void handleAutoRunClick()}
         >
           {autoRunState?.phase === "running" ? (
@@ -407,6 +411,7 @@ export function AutoRunMiniPanel({
           <AutoRunActionRow
             action={autoRunNextAction}
             handleAutoRunNextAction={handleAutoRunNextAction}
+            runtimeOperationsAllowed={runtimeOperationsAllowed}
             t={t}
           />
           {explanation?.latestOutputSummary ? (
@@ -444,7 +449,7 @@ export function AutoRunMiniPanel({
             <Button
               size="sm"
               variant="outline"
-              disabled={!hasProject}
+              disabled={!hasProject || !runtimeOperationsAllowed}
               onClick={() => void resetRuntimeStateClick()}
             >
               <RotateCcwIcon data-icon="inline-start" />
@@ -464,7 +469,12 @@ export function AutoRunMiniPanel({
               </Button>
             ) : null}
             {canStop ? (
-              <Button size="sm" variant="outline" onClick={() => void stopAutoRunClick()}>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!runtimeOperationsAllowed}
+                onClick={() => void stopAutoRunClick()}
+              >
                 <SquareIcon data-icon="inline-start" />
                 {t("stop")}
               </Button>

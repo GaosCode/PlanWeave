@@ -24,6 +24,8 @@ export function BlockPreviewButton({
   onInspect,
   onRun,
   onSelect,
+  runtimeOperationsAllowed,
+  runtimeStatusKnown,
   selectedBlockRef
 }: {
   assigneeChip?: CompactAssigneeChip | null;
@@ -38,6 +40,8 @@ export function BlockPreviewButton({
   onInspect: (ref: string) => void;
   onRun: (ref: string) => void;
   onSelect: (ref: string) => void;
+  runtimeOperationsAllowed: boolean;
+  runtimeStatusKnown: boolean;
   selectedBlockRef: string | null;
 }) {
   const isSelected = selectedBlockRef === block.ref;
@@ -67,8 +71,15 @@ export function BlockPreviewButton({
                 <CompactAssigneeChipView chip={assigneeChip} label={labels.assignee} />
               ) : null}
             </span>
-            <Badge className="shrink-0" variant={statusVariant[block.status]}>
-              {block.blockId}
+            <Badge
+              className="shrink-0"
+              data-runtime-status-known={runtimeStatusKnown ? "true" : "false"}
+              title={runtimeStatusKnown ? block.status : labels.runtimeStatusUnavailable}
+              variant={runtimeStatusKnown ? statusVariant[block.status] : "outline"}
+            >
+              {runtimeStatusKnown
+                ? block.blockId
+                : `${block.blockId} · ${labels.runtimeStatusUnavailable}`}
             </Badge>
           </button>
           {commentUi ? (
@@ -100,7 +111,7 @@ export function BlockPreviewButton({
               : commentUi.t("commentsAdd")}
           </ContextMenuItem>
         ) : null}
-        <ContextMenuItem onSelect={() => onRun(block.ref)}>
+        <ContextMenuItem disabled={!runtimeOperationsAllowed} onSelect={() => onRun(block.ref)}>
           <PlayIcon data-icon="inline-start" />
           {labels.runBlock}
         </ContextMenuItem>

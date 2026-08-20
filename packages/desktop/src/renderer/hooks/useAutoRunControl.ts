@@ -17,6 +17,11 @@ import {
 import type { AutoRunScopeMode, FloatingControlDrag, FloatingControlPosition } from "../types";
 import { clamp } from "../viewHelpers";
 import type { WorkspaceAgentEndpointScopeStarter } from "./useWorkspaceAgentEndpointRun";
+import type { CollaborationRuntimeAvailabilityView } from "../collaboration/runtimeAvailabilityView";
+import {
+  collaborationRuntimeOperationsAllowed,
+  collaborationRuntimeUnavailableCode
+} from "../collaboration/runtimeAvailabilityView";
 
 type UseAutoRunControlArgs = {
   autoRunState: DesktopAutoRunState | null;
@@ -38,6 +43,7 @@ type UseAutoRunControlArgs = {
   position?: FloatingControlPosition | null;
   onPositionCommit?: (position: FloatingControlPosition) => void;
   startAutoRunScope?: WorkspaceAgentEndpointScopeStarter;
+  runtimeAvailability: CollaborationRuntimeAvailabilityView;
 };
 
 type FloatingControlViewport = {
@@ -149,7 +155,8 @@ export function useAutoRunControl({
   initialPosition,
   position,
   onPositionCommit,
-  startAutoRunScope
+  startAutoRunScope,
+  runtimeAvailability
 }: UseAutoRunControlArgs) {
   const [autoRunScopeMode, setAutoRunScopeMode] = useState<AutoRunScopeMode>("project");
   const [endpointScopeRunPhase, setEndpointScopeRunPhase] = useState<
@@ -303,7 +310,9 @@ export function useAutoRunControl({
     return { kind: "block", blockRef: selectedBlock.ref };
   }, [autoRunScopeMode, selectedBlock, selectedTaskPanelId]);
 
-  const autoRunNextAction = buildAutoRunNextActionDescriptor({
+  const runtimeOperationsAllowed = collaborationRuntimeOperationsAllowed(runtimeAvailability);
+  const runtimeUnavailableCode = collaborationRuntimeUnavailableCode(runtimeAvailability);
+  const baseAutoRunNextAction = buildAutoRunNextActionDescriptor({
     labels: {
       copyManualCommand: t("copyManualCommand"),
       inspectRecord: t("inspectRecord"),
@@ -322,9 +331,23 @@ export function useAutoRunControl({
     selectedScopeReady: Boolean(selectedAutoRunScope()),
     state: autoRunState
   });
+  const autoRunNextAction =
+    baseAutoRunNextAction &&
+    !runtimeOperationsAllowed &&
+    ["start", "resume", "retry_ref"].includes(baseAutoRunNextAction.command)
+      ? {
+          ...baseAutoRunNextAction,
+          enabled: false,
+          disabledReason: t("collaborationRuntimeStatusUnavailable")
+        }
+      : baseAutoRunNextAction;
 
   const startLocalAutoRunWithScope = useCallback(
     async (scope: DesktopAutoRunScope, options?: { stepLimit?: number }) => {
+      if (!runtimeOperationsAllowed) {
+        setError(runtimeUnavailableCode ?? "collaboration_runtime_unavailable");
+        return null;
+      }
       if (!bridge || !selectedProject) {
         return null;
       }
@@ -358,6 +381,8 @@ export function useAutoRunControl({
       autoRunState,
       selectedCanvasId,
       selectedProject,
+      runtimeOperationsAllowed,
+      runtimeUnavailableCode,
       setError,
       tmuxMonitoringEnabled
     ]
@@ -365,6 +390,10 @@ export function useAutoRunControl({
 
   const startAutoRunWithScope = useCallback(
     async (scope: DesktopAutoRunScope) => {
+      if (!runtimeOperationsAllowed) {
+        setError(runtimeUnavailableCode ?? "collaboration_runtime_unavailable");
+        return;
+      }
       if (startAutoRunScope) {
         await startAutoRunScope(scope, startLocalAutoRunWithScope, {
           onStarted: () => {
@@ -378,10 +407,21 @@ export function useAutoRunControl({
       }
       await startLocalAutoRunWithScope(scope);
     },
-    [startAutoRunScope, startLocalAutoRunWithScope, setAutoRunState]
+    [
+      runtimeOperationsAllowed,
+      runtimeUnavailableCode,
+      setError,
+      startAutoRunScope,
+      startLocalAutoRunWithScope,
+      setAutoRunState
+    ]
   );
 
   const handleAutoRunClick = useCallback(async () => {
+    if (!runtimeOperationsAllowed) {
+      setError(runtimeUnavailableCode ?? "collaboration_runtime_unavailable");
+      return;
+    }
     if (!bridge || !selectedProject) {
       return;
     }
@@ -414,6 +454,8 @@ export function useAutoRunControl({
     applyAutoRunState,
     autoRunState,
     endpointScopeRunPhase,
+    runtimeOperationsAllowed,
+    runtimeUnavailableCode,
     selectedAutoRunScope,
     selectedProject,
     setError,
@@ -516,6 +558,10 @@ export function useAutoRunControl({
   );
 
   const stopAutoRunClick = useCallback(async () => {
+    if (!runtimeOperationsAllowed) {
+      setError(runtimeUnavailableCode ?? "collaboration_runtime_unavailable");
+      return;
+    }
     if (!bridge || !autoRunState) {
       return;
     }
@@ -524,9 +570,13 @@ export function useAutoRunControl({
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [applyAutoRunState, autoRunState, setError]);
+  }, [applyAutoRunState, autoRunState, runtimeOperationsAllowed, runtimeUnavailableCode, setError]);
 
   const resetRuntimeStateClick = useCallback(async () => {
+    if (!runtimeOperationsAllowed) {
+      setError(runtimeUnavailableCode ?? "collaboration_runtime_unavailable");
+      return;
+    }
     if (!bridge || !selectedProject) {
       return;
     }
@@ -554,6 +604,8 @@ export function useAutoRunControl({
     onAutoRunDerivedStateRefresh,
     selectedCanvasId,
     selectedProject,
+    runtimeOperationsAllowed,
+    runtimeUnavailableCode,
     setAutoRunState,
     setError,
     t
@@ -660,6 +712,7 @@ export function useAutoRunControl({
     setAutoRunState,
     setMiniRunPanelOpen,
     resetRuntimeStateClick,
+    runtimeOperationsAllowed,
     startAutoRunWithScope,
     startAutoRunControlDrag,
     stopAutoRunClick,

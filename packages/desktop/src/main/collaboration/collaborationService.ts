@@ -794,10 +794,6 @@ export class CollaborationService {
     return this.canvasOperations.resolveScope(input);
   }
 
-  async readCanvasRuntimeStatus(input: unknown) {
-    return this.canvasOperations.readRuntimeStatus(input);
-  }
-
   async readCanvasRuntimeAvailability(input: unknown) {
     return this.canvasOperations.readRuntimeAvailability(input);
   }
