@@ -661,6 +661,7 @@
         "presence.test.ts",
         "projectAccess.test.ts",
         "remoteRunV3.test.ts",
+        "runtimeAvailability.test.ts",
         "runtimeStatus.test.ts",
         "setupContracts.test.ts",
         "setupHandoff.test.ts",

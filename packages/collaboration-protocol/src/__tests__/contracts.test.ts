@@ -54,6 +54,7 @@ const productionExportPaths = [
   "./work/assignment-migration",
   "./canvas/commands",
   "./canvas/live-sync",
+  "./canvas/runtime-availability",
   "./canvas/status",
   "./canvas/presence",
   "./activity/comments",

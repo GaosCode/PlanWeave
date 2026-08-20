@@ -93,6 +93,10 @@
       "types": "./dist/runtimeStatus.d.ts",
       "import": "./dist/runtimeStatus.js"
     },
+    "./canvas/runtime-availability": {
+      "types": "./dist/runtimeAvailability.d.ts",
+      "import": "./dist/runtimeAvailability.js"
+    },
     "./canvas/presence": {
       "types": "./dist/presence.d.ts",
       "import": "./dist/presence.js"

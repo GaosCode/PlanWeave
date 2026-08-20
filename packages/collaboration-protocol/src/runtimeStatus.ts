@@ -19,7 +19,8 @@ export const canvasRuntimeBlockStatuses = [
 ] as const;
 
 const runtimeIdentitySchema = z.string().trim().min(1).max(256);
-const runtimePackageFingerprintSchema = z.string().regex(/^pkg-[a-f0-9]{64}$/);
+export const canvasRuntimePackageFingerprintSchema = z.string().regex(/^pkg-[a-f0-9]{64}$/);
+export type CanvasRuntimePackageFingerprint = z.infer<typeof canvasRuntimePackageFingerprintSchema>;
 const taskStatusSchema = z
   .object({
     taskId: runtimeIdentitySchema,
@@ -42,7 +43,7 @@ export const canvasRuntimeStatusProjectionSchema = z
   .object({
     schemaVersion: z.literal(canvasRuntimeStatusSchemaVersion),
     scope: canvasScopeRefSchema,
-    packageFingerprint: runtimePackageFingerprintSchema,
+    packageFingerprint: canvasRuntimePackageFingerprintSchema,
     capturedAt: timestampSchema,
     tasks: z.array(taskStatusSchema).max(10_000),
     blocks: z.array(blockStatusSchema).max(50_000)
