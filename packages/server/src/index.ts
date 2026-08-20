@@ -587,7 +587,6 @@ export {
   type CanvasLiveSyncWebSocketServer,
   type CanvasInitialContentCapturePort,
   type CanvasPackageSnapshotRuntimePort,
-  type CanvasRuntimeStatusPort,
   type CanvasRuntimeAvailabilityPort,
   type CanvasRuntimeAvailabilityServiceOptions,
   type LocalFilesystemCanvasRuntimePort,

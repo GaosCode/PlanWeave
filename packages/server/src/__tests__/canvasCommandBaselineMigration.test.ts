@@ -15,7 +15,6 @@ import { CanvasCommandRepository } from "../canvas/repository.js";
 import { ContentVersionRepository } from "../canvas/contentVersionRepository.js";
 import { CanvasCommandService } from "../canvas/service.js";
 import type { ContentAuthorityStore } from "../canvas/contentAuthorityStore.js";
-import type { CanvasRuntimeStatusPort } from "../canvas/runtimePort.js";
 import { ProjectAccessRepository } from "../projectAccessRepository.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 
@@ -524,11 +523,6 @@ describe("canvas command baseline migration", () => {
         )
         .run(scope.workspaceId, scope.projectId, scope.canvasId, 1, oldDigest, acceptedAt);
 
-      const runtimeStatus: CanvasRuntimeStatusPort = {
-        async read() {
-          throw new Error("local runtime digest must not gate authoritative baseline migration");
-        }
-      };
       const authorityHead: AuthoritativeContentHead = {
         schemaVersion: "content-version/v1",
         scope,
@@ -571,7 +565,6 @@ describe("canvas command baseline migration", () => {
         repository,
         access,
         workspaceIdentity: new WorkspaceIdentityRepository(database),
-        runtimeStatus,
         contentVersions
       });
 

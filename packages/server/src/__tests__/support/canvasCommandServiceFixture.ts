@@ -14,8 +14,7 @@ import {
   CanvasRuntimeAvailabilityService,
   ContentVersionRepository,
   SqliteAuthoritativeCanvasCommitStore,
-  type CanvasRuntimeAvailabilityPort,
-  type CanvasRuntimeStatusPort
+  type CanvasRuntimeAvailabilityPort
 } from "../../canvas/index.js";
 import {
   captureAuthorizedCanvasContent,
@@ -42,27 +41,8 @@ export function digestOf(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-export function fakeRuntime(): CanvasRuntimeStatusPort & {
-  calls: number;
-} {
-  return {
-    calls: 0,
-    async read(scope, capturedAt) {
-      return {
-        schemaVersion: "canvas-runtime-status/v2",
-        scope,
-        packageFingerprint: `pkg-${"a".repeat(64)}`,
-        capturedAt: capturedAt ?? "2026-01-02T00:00:00.000Z",
-        tasks: [{ taskId: "T-001", status: "implemented", openFeedbackCount: 0 }],
-        blocks: []
-      };
-    }
-  };
-}
-
 export async function canvasCommandServiceFixture(options?: {
   journalRetention?: number;
-  runtime?: CanvasRuntimeStatusPort;
   runtimeAvailability?: CanvasRuntimeAvailabilityPort;
   contentVersions?: boolean;
   onAcceptedInCallerTransaction?: (accepted: CanvasCommandAccepted) => void;
@@ -129,7 +109,6 @@ export async function canvasCommandServiceFixture(options?: {
     clock: () => new Date("2026-01-02T00:00:00.000Z"),
     maxJournalEntries: options?.journalRetention ?? 3
   });
-  const runtime = options?.runtime ?? fakeRuntime();
   const contentVersions = new ContentVersionRepository(
     database,
     () => new Date("2026-01-02T00:00:00.000Z")
@@ -171,7 +150,6 @@ export async function canvasCommandServiceFixture(options?: {
     repository,
     access,
     workspaceIdentity,
-    runtimeStatus: runtime,
     contentVersions,
     authoritativeCommits: new SqliteAuthoritativeCanvasCommitStore(
       database,
@@ -197,7 +175,6 @@ export async function canvasCommandServiceFixture(options?: {
     access,
     repository,
     service,
-    runtime,
     contentVersions,
     runtimeAvailabilityService
   };

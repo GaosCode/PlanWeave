@@ -757,7 +757,6 @@
         "canvasCommandBaselineMigration.test.ts",
         "canvasCommandHttp.test.ts",
         "canvasCommandRecoveryBudget.test.ts",
-        "canvasCommandRuntimeStatus.test.ts",
         "canvasRuntimeAvailabilityService.test.ts",
         "canvasCommandHttpBoundary.test.ts",
         "canvasCommandLivePublication.test.ts",

@@ -32,8 +32,8 @@ describe("canvas command service (OSS-004 B-002)", () => {
       routeCanvasCommandHttp(
         { method: "GET" } as IncomingMessage,
         "/api/v1/projects/p/canvases/default/runtime-status"
-      )?.kind
-    ).toBe("runtime_status");
+      )
+    ).toBeUndefined();
     expect(
       routeCanvasCommandHttp(
         { method: "GET" } as IncomingMessage,
@@ -49,18 +49,6 @@ describe("canvas command service (OSS-004 B-002)", () => {
       expect(accepted.revision).toBe(1);
       expect(accepted.revision).not.toBe(999);
     }
-  });
-
-  it("returns a read-only redacted runtime status to an authorized viewer", async () => {
-    const { service } = await fixture();
-
-    await expect(
-      service.readRuntimeStatus(actor("viewer"), { projectId: "p", canvasId: "default" })
-    ).resolves.toMatchObject({
-      schemaVersion: "canvas-runtime-status/v2",
-      scope: { workspaceId: "w", projectId: "p", canvasId: "default" },
-      tasks: [{ taskId: "T-001", status: "implemented", openFeedbackCount: 0 }]
-    });
   });
 
   it("serves reconnect snapshots from the content head rather than digest-only snapshot rows", async () => {

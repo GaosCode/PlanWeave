@@ -43,7 +43,6 @@ export type {
   CanvasInitialContentCapturePort,
   CanvasPackageSnapshotRuntimePort,
   CanvasRuntimeAvailabilityPort,
-  CanvasRuntimeStatusPort,
   LocalFilesystemCanvasRuntimePort
 } from "./runtimePort.js";
 export {

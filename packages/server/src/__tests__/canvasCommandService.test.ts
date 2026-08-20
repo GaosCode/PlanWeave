@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { CANVAS_COMMAND_PROTOCOL_VERSION } from "@planweave-ai/collaboration-protocol/core/limits";
 import {
   canvasCommandRejectedSchema,
@@ -13,7 +13,6 @@ import { inWriteTransaction } from "../sqlite.js";
 import {
   actor,
   canvasCommandServiceFixture as fixture,
-  fakeRuntime,
   submitBody
 } from "./support/canvasCommandServiceFixture.js";
 
@@ -39,7 +38,7 @@ describe("canvas command service (OSS-004 B-002)", () => {
   });
 
   it("migrates v30 and enforces CAS + operationId idempotency", async () => {
-    const { service, repository, runtime, database } = await fixture();
+    const { service, repository, database } = await fixture();
     expect(latestCentralSchemaVersion).toBe(50);
     expect(
       database
@@ -57,7 +56,6 @@ describe("canvas command service (OSS-004 B-002)", () => {
       previousRevision: 0,
       idempotentReplay: false
     });
-    expect((runtime as ReturnType<typeof fakeRuntime>).calls).toBe(0);
 
     const replay = await service.submit(actor("owner"), submitBody("op-1", 0));
     expect(replay.type).toBe("canvas.command.accepted");
@@ -65,7 +63,6 @@ describe("canvas command service (OSS-004 B-002)", () => {
     expect(replay.idempotentReplay).toBe(true);
     expect(replay.revision).toBe(first.revision);
     expect(replay.journalEntryId).toBe(first.journalEntryId);
-    expect((runtime as ReturnType<typeof fakeRuntime>).calls).toBe(0);
     expect(
       database
         .prepare(
@@ -320,39 +317,9 @@ describe("canvas command service (OSS-004 B-002)", () => {
     expect(afterRevoke).toMatchObject({ type: "canvas.command.rejected", code: "forbidden" });
   });
 
-  it("accepts authority commits when server-local materialization is unavailable", async () => {
-    const runtime = fakeRuntime();
-    const materialize = vi
-      .spyOn(runtime, "read")
-      .mockRejectedValue(new Error("local_disk_unavailable"));
-    const { service } = await fixture({ runtime });
-    const outcome = await service.submit(actor("owner"), {
-      type: "canvas.command.submit",
-      protocolVersion: CANVAS_COMMAND_PROTOCOL_VERSION,
-      schemaVersion: "canvas-command/v1",
-      projectId: "p",
-      canvasId: "default",
-      operationId: "op-real-1",
-      expectedRevision: 0,
-      intent: {
-        kind: "update_task_prompt",
-        taskId: "T-001",
-        promptMarkdown: "# Server authoritative prompt\n"
-      }
-    });
-    if (outcome.type !== "canvas.command.accepted") {
-      throw new Error(`expected accept, got ${JSON.stringify(outcome)}`);
-    }
-    expect(outcome.revision).toBe(1);
-    expect(outcome.contentDigest).toMatch(/^[a-f0-9]{64}$/);
-    expect(materialize).not.toHaveBeenCalled();
-  });
-
   it("commits immutable content and both authority heads in one accepted transaction", async () => {
-    const runtime = fakeRuntime();
     const acceptedCommits: CanvasCommandAccepted[] = [];
     const { database, access, repository, service, contentVersions } = await fixture({
-      runtime,
       onAcceptedInCallerTransaction: (accepted) => acceptedCommits.push(accepted)
     });
     if (!contentVersions) throw new Error("content version fixture unavailable");

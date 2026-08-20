@@ -14,7 +14,6 @@ import {
   actor,
   canvasCommandServiceFixture as fixture,
   digestOf,
-  fakeRuntime,
   submitBody
 } from "./support/canvasCommandServiceFixture.js";
 
@@ -346,8 +345,7 @@ describe("canvas command service (OSS-004 B-002)", () => {
     const restarted = new CanvasCommandService({
       repository,
       access,
-      workspaceIdentity: new WorkspaceIdentityRepository(database),
-      runtimeStatus: fakeRuntime()
+      workspaceIdentity: new WorkspaceIdentityRepository(database)
     });
     const intent: CanvasCommandIntent = {
       kind: "update_task_prompt",

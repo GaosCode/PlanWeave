@@ -23,8 +23,7 @@ import type { CompleteContentVersion } from "@planweave-ai/collaboration-protoco
 import { canvasScopeRefSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import type {
   CanvasInitialContentCapturePort,
-  CanvasRuntimeAvailabilityPort,
-  CanvasRuntimeStatusPort
+  CanvasRuntimeAvailabilityPort
 } from "./runtimePort.js";
 
 export type CanvasRuntimeAttachment = {
@@ -44,7 +43,6 @@ export type CanvasCollaborationCompositionOptions = {
   runtimeAttachments: readonly CanvasRuntimeAttachment[];
   initialContentCapture: CanvasInitialContentCapturePort;
   runtimeAvailability: CanvasRuntimeAvailabilityPort;
-  runtimeStatus: CanvasRuntimeStatusPort;
   observerJournal: HumanObserverJournal;
   transportAdmission: TransportAdmissionPolicy;
   maxPayloadBytes: number;
@@ -134,7 +132,6 @@ export async function createCanvasCollaborationComposition(
       repository: commandRepository,
       access: options.projectAccess,
       workspaceIdentity: options.workspaceIdentity,
-      runtimeStatus: options.runtimeStatus,
       contentVersions,
       authoritativeCommits,
       onAcceptedEntry: (entry) => attachedLiveSyncWebSockets.publishAcceptedEntry(entry),

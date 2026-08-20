@@ -16,8 +16,7 @@ import type { AuthorizationChangeSignal } from "../authorizationChangeSignal.js"
 import type { SqliteDatabase } from "../sqlite.js";
 import type {
   CanvasInitialContentCapturePort,
-  CanvasRuntimeAvailabilityPort,
-  CanvasRuntimeStatusPort
+  CanvasRuntimeAvailabilityPort
 } from "../canvas/runtimePort.js";
 import type { CanvasRuntimeAttachment } from "../canvas/collaborationComposition.js";
 
@@ -40,7 +39,6 @@ export async function createTransportComposition(
     runtimeAttachments: readonly CanvasRuntimeAttachment[];
     initialContentCapture: CanvasInitialContentCapturePort;
     runtimeAvailability: CanvasRuntimeAvailabilityPort;
-    runtimeStatus: CanvasRuntimeStatusPort;
     workspaceIdentity: WorkspaceIdentityRepository;
     projectAccess: ProjectAccessRepository;
     humanIdentity: HumanIdentityRepository;
@@ -106,7 +104,6 @@ export async function createTransportComposition(
     runtimeAttachments: input.runtimeAttachments,
     initialContentCapture: input.initialContentCapture,
     runtimeAvailability: input.runtimeAvailability,
-    runtimeStatus: input.runtimeStatus,
     observerJournal: input.humanObserverJournal,
     transportAdmission: input.transportAdmission,
     maxPayloadBytes: input.config.limits.maxWebSocketPayloadBytes,

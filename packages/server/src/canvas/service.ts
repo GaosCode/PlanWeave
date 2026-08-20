@@ -26,7 +26,6 @@ import {
   type AuthoritativeContentVersion,
   type CompleteContentVersion
 } from "@planweave-ai/collaboration-protocol/content/version";
-import { type CanvasRuntimeStatusProjection } from "@planweave-ai/collaboration-protocol/canvas/status";
 import { type PackageSnapshotDigestManifest } from "@planweave-ai/collaboration-protocol/content/snapshot";
 import {
   applyCanvasReplicaIntent,
@@ -47,7 +46,6 @@ import {
   CanvasOperationRetentionCorruptionError,
   CanvasOperationRetentionUnavailableError
 } from "./operationRetention.js";
-import type { CanvasRuntimeStatusPort } from "./runtimePort.js";
 import type { ContentAuthorityStore } from "./contentAuthorityStore.js";
 import type { AuthoritativeCanvasCommitPort } from "./authoritativeCanvasCommitPort.js";
 
@@ -55,7 +53,6 @@ export type CanvasCommandServiceOptions = {
   repository: CanvasCommandRepository;
   access: ProjectAccessRepository;
   workspaceIdentity: WorkspaceIdentityRepository;
-  runtimeStatus: CanvasRuntimeStatusPort;
   /** When configured, commands are only visible after a complete immutable content version advances. */
   contentVersions?: ContentAuthorityStore;
   authoritativeCommits?: AuthoritativeCanvasCommitPort;
@@ -684,29 +681,6 @@ export class CanvasCommandService {
     }
     const scope = scopeKey(auth.scope);
     return this.serialize(scope, () => this.reconnectAuthorized(request, scope));
-  }
-
-  async readRuntimeStatus(
-    actor: CollaborationAuthContext,
-    input: { projectId: string; canvasId: string }
-  ): Promise<CanvasRuntimeStatusProjection> {
-    const contentAuth = authorizeCanvasContent({
-      actor,
-      projectId: input.projectId,
-      canvasId: input.canvasId,
-      access: this.options.access,
-      workspaceIdentity: this.options.workspaceIdentity
-    });
-    if (!contentAuth.ok) throw new Error(`canvas_runtime_status_${contentAuth.code}`);
-    const capturedAt = this.clock().toISOString();
-    try {
-      return await this.options.runtimeStatus.read(
-        canvasScopeRefSchema.parse(contentAuth.scope),
-        capturedAt
-      );
-    } catch (error) {
-      throw new Error("canvas_runtime_status_unavailable", { cause: error });
-    }
   }
 
   private async reconnectAuthorized(

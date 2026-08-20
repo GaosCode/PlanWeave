@@ -95,16 +95,6 @@ export function createLocalFilesystemCanvasRuntimeAdapter(
         throw error;
       }
     },
-    async read(scope, capturedAt) {
-      const location = resolve(scope);
-      return readAuthorizedCanvasRuntimeStatus({
-        projectRoot: location.projectRoot,
-        canvasId: scope.canvasId,
-        expectedPackageDir: location.packageDir,
-        scope,
-        capturedAt
-      });
-    },
     async captureInitialContent(scope) {
       const location = resolve(scope);
       const captured = await captureAuthorizedCanvasContent({

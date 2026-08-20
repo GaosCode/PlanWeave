@@ -4,7 +4,6 @@ import {
   canvasReconnectResponseSchema,
   type CanvasCommandOutcome
 } from "@planweave-ai/collaboration-protocol/canvas/commands";
-import { canvasRuntimeStatusProjectionSchema } from "@planweave-ai/collaboration-protocol/canvas/status";
 import { canvasRuntimeAvailabilitySchema } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import { opaqueIdentifierSchema } from "@planweave-ai/agent-host-protocol";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -29,7 +28,6 @@ import { CanvasRuntimeAvailabilityService } from "./runtimeAvailabilityService.j
 type CanvasRoute =
   | { kind: "command"; projectId: string; canvasId: string }
   | { kind: "reconnect"; projectId: string; canvasId: string }
-  | { kind: "runtime_status"; projectId: string; canvasId: string }
   | { kind: "runtime_availability"; projectId: string; canvasId: string }
   | { kind: "forbidden_feature"; feature: string; projectId?: string };
 
@@ -85,7 +83,7 @@ export function routeCanvasCommandHttp(
   }
 
   const match =
-    /^\/api\/v1\/projects\/([^/]+)\/canvases\/([^/]+)\/(?:commands|reconnect|runtime-status|runtime-availability)(\/.*)?$/.exec(
+    /^\/api\/v1\/projects\/([^/]+)\/canvases\/([^/]+)\/(?:commands|reconnect|runtime-availability)(\/.*)?$/.exec(
       pathname
     );
   if (!match) return undefined;
@@ -96,10 +94,6 @@ export function routeCanvasCommandHttp(
   if (isReconnect) {
     if (request.method !== "POST") return undefined;
     return { kind: "reconnect", projectId, canvasId };
-  }
-  if (pathname.includes("/runtime-status")) {
-    if (request.method !== "GET") return undefined;
-    return { kind: "runtime_status", projectId, canvasId };
   }
   if (pathname.includes("/runtime-availability")) {
     if (request.method !== "GET") return undefined;
@@ -235,14 +229,6 @@ export async function handleCanvasCommandHttpRequest(
   }
 
   try {
-    if (routed.kind === "runtime_status") {
-      const status = await options.service.readRuntimeStatus(context, {
-        projectId: routed.projectId,
-        canvasId: routed.canvasId
-      });
-      respond(response, 200, canvasRuntimeStatusProjectionSchema.parse(status));
-      return true;
-    }
     if (routed.kind === "runtime_availability") {
       const availability = await options.runtimeAvailabilityService.read(context, {
         projectId: routed.projectId,

@@ -280,11 +280,6 @@ describe("distributed server composition cleanup", () => {
               throw new Error("canvas_capture_startup_failed");
             }
           },
-          runtimeStatus: {
-            async read() {
-              throw new Error("canvas_runtime_unavailable");
-            }
-          },
           runtimeAvailability: {
             async readAvailability() {
               return {
@@ -379,11 +374,6 @@ describe("distributed server composition cleanup", () => {
       authorizationChanges: new AuthorizationChangeSignal(),
       runtimeAttachments: [scope],
       initialContentCapture: { captureInitialContent },
-      runtimeStatus: {
-        async read() {
-          throw new Error("canvas_runtime_unavailable");
-        }
-      },
       runtimeAvailability: {
         async readAvailability() {
           return {

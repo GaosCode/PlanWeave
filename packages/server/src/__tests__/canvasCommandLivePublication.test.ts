@@ -106,14 +106,13 @@ describe("canvas command service (OSS-004 B-002)", () => {
   });
 
   it("fails fast when only one live publication callback is configured", async () => {
-    const { repository, access, database, runtime } = await fixture();
+    const { repository, access, database } = await fixture();
     expect(
       () =>
         new CanvasCommandService({
           repository,
           access,
           workspaceIdentity: new WorkspaceIdentityRepository(database),
-          runtime,
           onAcceptedEntry: () => {}
         })
     ).toThrow("canvas_live_sync_publication_callbacks_must_be_paired");

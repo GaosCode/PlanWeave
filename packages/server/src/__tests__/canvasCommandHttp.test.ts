@@ -10,7 +10,6 @@ import { HumanIdentityRepository } from "../identity/repository.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import { loopbackHttpTransportAdmission } from "./support/transportAdmission.js";
 import { canvasCommandServiceFixture } from "./support/canvasCommandServiceFixture.js";
-import type { CanvasRuntimeStatusPort } from "../canvas/runtimePort.js";
 import type { CanvasRuntimeAvailabilityPort } from "../canvas/runtimePort.js";
 
 const servers: HttpServer[] = [];
@@ -22,13 +21,8 @@ afterEach(async () => {
   );
 });
 
-async function setup(
-  clock: () => Date,
-  runtime?: CanvasRuntimeStatusPort,
-  runtimeAvailability?: CanvasRuntimeAvailabilityPort
-) {
+async function setup(clock: () => Date, runtimeAvailability?: CanvasRuntimeAvailabilityPort) {
   const { service, runtimeAvailabilityService, database } = await canvasCommandServiceFixture({
-    runtime,
     runtimeAvailability
   });
   const repository = new HumanIdentityRepository(database);
@@ -80,7 +74,7 @@ describe("canvas command HTTP rate limiting", () => {
   it("authenticates before admission and returns exact Retry-After only for 429", async () => {
     let now = new Date("2026-08-16T00:00:00.000Z");
     const { origin, token } = await setup(() => now);
-    const url = `${origin}/api/v1/projects/p/canvases/default/runtime-status`;
+    const url = `${origin}/api/v1/projects/p/canvases/default/runtime-availability`;
 
     for (let request = 0; request <= CANVAS_COMMAND_RATE_MAX_REQUESTS; request += 1) {
       const unauthenticated = await fetch(url);
@@ -114,25 +108,6 @@ describe("canvas command HTTP rate limiting", () => {
   });
 });
 
-describe("canvas runtime status HTTP errors", () => {
-  it("maps runtime unavailable to a service-unavailable response", async () => {
-    const { origin, token } = await setup(() => new Date("2026-08-16T00:00:00.000Z"), {
-      async read() {
-        throw new Error("canvas_runtime_unavailable");
-      }
-    });
-
-    const response = await fetch(`${origin}/api/v1/projects/p/canvases/default/runtime-status`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-
-    expect(response.status).toBe(503);
-    await expect(response.json()).resolves.toEqual({
-      error: "canvas_runtime_status_unavailable"
-    });
-  });
-});
-
 describe("canvas runtime availability HTTP", () => {
   it("returns available and runtime_not_attached as schema-valid 200 responses", async () => {
     const available = await setup(() => new Date("2026-08-16T00:00:00.000Z"));
@@ -146,7 +121,7 @@ describe("canvas runtime availability HTTP", () => {
       kind: "available"
     });
 
-    const detached = await setup(() => new Date("2026-08-16T00:00:00.000Z"), undefined, {
+    const detached = await setup(() => new Date("2026-08-16T00:00:00.000Z"), {
       async readAvailability() {
         return {
           schemaVersion: "canvas-runtime-availability/v1",
@@ -168,7 +143,7 @@ describe("canvas runtime availability HTTP", () => {
   });
 
   it("returns content_out_of_sync without leaking mismatched Runtime status", async () => {
-    const fixture = await setup(() => new Date("2026-08-16T00:00:00.000Z"), undefined, {
+    const fixture = await setup(() => new Date("2026-08-16T00:00:00.000Z"), {
       async readAvailability(scope, capturedAt) {
         const graphFingerprint = `pkg-${"c".repeat(64)}`;
         return {
