@@ -18,6 +18,7 @@ import type {
   WorkItemRef
 } from "../work/schemas.js";
 import type { WorkItemPackagePort } from "../work/workItemFacts.js";
+import { runtimeFactsFromPackagePort } from "./workRuntimeFactsFixture.js";
 
 const directories: string[] = [];
 const databases: SqliteDatabase[] = [];
@@ -224,7 +225,7 @@ async function openStack() {
   const service = new WorkAssignmentService({
     workspaceId,
     repository,
-    packagePort,
+    runtimeFacts: runtimeFactsFromPackagePort(packagePort),
     membershipPort: createIdentityMembershipPort({ identity }),
     hostPort,
     clock: () => now
@@ -252,7 +253,7 @@ describe("work assignment service API", () => {
   it("assigns, reassigns, unassigns with CAS and surfaces availability", async () => {
     const { service, memberContext, member } = await openStack();
 
-    const assigned = service.updateAssignment({
+    const assigned = await service.updateAssignment({
       projectId,
       workItem: taskItem,
       target: { kind: "human", humanPrincipalId: member.principal.humanPrincipalId },
@@ -265,7 +266,7 @@ describe("work assignment service API", () => {
     expect(assigned.display.human?.membershipActive).toBe(true);
 
     // Idempotent same-target update with matching expected revision advances revision.
-    const same = service.updateAssignment({
+    const same = await service.updateAssignment({
       projectId,
       workItem: taskItem,
       target: { kind: "human", humanPrincipalId: member.principal.humanPrincipalId },
@@ -278,7 +279,7 @@ describe("work assignment service API", () => {
       humanPrincipalId: member.principal.humanPrincipalId
     });
 
-    const unassigned = service.updateAssignment({
+    const unassigned = await service.updateAssignment({
       projectId,
       workItem: taskItem,
       target: { kind: "unassigned" },
@@ -293,7 +294,7 @@ describe("work assignment service API", () => {
     expect(unassigned.record.revision).toBe(3);
 
     try {
-      service.updateAssignment({
+      await service.updateAssignment({
         projectId,
         workItem: taskItem,
         target: { kind: "unassigned" },
@@ -310,7 +311,7 @@ describe("work assignment service API", () => {
   it("rejects concurrent CAS losers and deleted/renamed work items", async () => {
     const { service, memberContext, member } = await openStack();
 
-    service.updateAssignment({
+    await service.updateAssignment({
       projectId,
       workItem: taskItem,
       target: { kind: "human", humanPrincipalId: member.principal.humanPrincipalId },
@@ -319,7 +320,7 @@ describe("work assignment service API", () => {
     });
 
     try {
-      service.updateAssignment({
+      await service.updateAssignment({
         projectId,
         workItem: taskItem,
         target: { kind: "unassigned" },
@@ -332,7 +333,7 @@ describe("work assignment service API", () => {
     }
 
     try {
-      service.updateAssignment({
+      await service.updateAssignment({
         projectId,
         workItem: missingItem,
         target: { kind: "unassigned" },
@@ -345,7 +346,7 @@ describe("work assignment service API", () => {
     }
 
     try {
-      service.updateAssignment({
+      await service.updateAssignment({
         projectId,
         workItem: renamedItem,
         target: { kind: "human", humanPrincipalId: member.principal.humanPrincipalId },
@@ -376,7 +377,7 @@ describe("work assignment service API", () => {
     // Remove member, then try assign.
     identity.removeMember(projectId, member.principal.humanPrincipalId);
     try {
-      service.updateAssignment({
+      await service.updateAssignment({
         projectId,
         workItem: taskItem,
         target: { kind: "human", humanPrincipalId: member.principal.humanPrincipalId },
@@ -390,7 +391,7 @@ describe("work assignment service API", () => {
 
     // Host capability mismatch.
     try {
-      service.updateAssignment({
+      await service.updateAssignment({
         projectId,
         workItem: blockItem,
         target: { kind: "exact_host", hostId: weakHost.host.id },
@@ -404,7 +405,7 @@ describe("work assignment service API", () => {
 
     // Revoked host.
     try {
-      service.updateAssignment({
+      await service.updateAssignment({
         projectId,
         workItem: blockItem,
         target: { kind: "exact_host", hostId: revokedHost.host.id },
@@ -417,7 +418,7 @@ describe("work assignment service API", () => {
     }
 
     // Exact Host assignment fails closed when the Host is not ready.
-    expect(() =>
+    await expect(
       service.updateAssignment({
         projectId,
         workItem: blockItem,
@@ -425,7 +426,7 @@ describe("work assignment service API", () => {
         expectedRevision: 0,
         actor: ownerContext
       })
-    ).toThrow(/ready workspace and ACP profile state/);
+    ).rejects.toThrow(/ready workspace and ACP profile state/);
 
     hosts.reportOnline(capableHost.host.id, ["acp.codex", "linux", "git.read"], 2, {
       workspaceMappings: [],
@@ -439,7 +440,7 @@ describe("work assignment service API", () => {
         }
       ]
     });
-    expect(() =>
+    await expect(
       service.updateAssignment({
         projectId,
         workItem: blockItem,
@@ -447,7 +448,7 @@ describe("work assignment service API", () => {
         expectedRevision: 0,
         actor: ownerContext
       })
-    ).toThrow(/ready workspace and ACP profile state/);
+    ).rejects.toThrow(/ready workspace and ACP profile state/);
     hosts.reportOnline(
       capableHost.host.id,
       ["acp.codex", "linux", "git.read"],
@@ -456,7 +457,7 @@ describe("work assignment service API", () => {
     );
 
     // Reassign to capable online host.
-    const online = service.updateAssignment({
+    const online = await service.updateAssignment({
       projectId,
       workItem: blockItem,
       target: { kind: "exact_host", hostId: capableHost.host.id },
@@ -467,7 +468,7 @@ describe("work assignment service API", () => {
 
     // Task cannot target Host.
     try {
-      service.updateAssignment({
+      await service.updateAssignment({
         projectId,
         workItem: taskItem,
         target: { kind: "exact_host", hostId: capableHost.host.id },
@@ -483,7 +484,7 @@ describe("work assignment service API", () => {
 
     // Cross-project actor rejected.
     try {
-      service.updateAssignment({
+      await service.updateAssignment({
         projectId,
         workItem: taskItem,
         target: { kind: "unassigned" },
@@ -502,14 +503,14 @@ describe("work assignment service API", () => {
     const { service, ownerContext, memberContext, member, capableHost, weakHost } =
       await openStack();
 
-    service.updateAssignment({
+    await service.updateAssignment({
       projectId,
       workItem: taskItem,
       target: { kind: "human", humanPrincipalId: member.principal.humanPrincipalId },
       expectedRevision: 0,
       actor: memberContext
     });
-    service.updateAssignment({
+    await service.updateAssignment({
       projectId,
       workItem: blockItem,
       target: { kind: "exact_host", hostId: capableHost.host.id },
@@ -517,18 +518,18 @@ describe("work assignment service API", () => {
       actor: ownerContext
     });
 
-    const eligibleTask = service.listEligibleAssignees(ownerContext, projectId, taskItem);
+    const eligibleTask = await service.listEligibleAssignees(ownerContext, projectId, taskItem);
     expect(eligibleTask.humans.length).toBeGreaterThanOrEqual(2);
     expect(eligibleTask.hosts).toEqual([]);
     expect(eligibleTask.humans.every((h: AssignmentMembershipFacts) => h.membershipActive)).toBe(
       true
     );
 
-    const eligibleBlock = service.listEligibleAssignees(memberContext, projectId, blockItem);
+    const eligibleBlock = await service.listEligibleAssignees(memberContext, projectId, blockItem);
     expect(eligibleBlock.hosts.some((h) => h.hostId === capableHost.host.id)).toBe(true);
     expect(eligibleBlock.hosts.some((h) => h.hostId === weakHost.host.id)).toBe(false);
 
-    const batch = service.listAssignments(memberContext, projectId, {
+    const batch = await service.listAssignments(memberContext, projectId, {
       workItems: [taskItem, blockItem, missingItem]
     });
     expect(batch.items).toHaveLength(3);
@@ -548,7 +549,7 @@ describe("work assignment service API", () => {
       reason: "work_item_missing"
     });
 
-    const canvasPage = service.listAssignments(ownerContext, projectId, {
+    const canvasPage = await service.listAssignments(ownerContext, projectId, {
       canvasId: "default",
       limit: 1,
       cursor: 0
@@ -562,7 +563,7 @@ describe("work assignment service API", () => {
 
   it("projects a Host eligibility batch with one inventory read and single-item equivalence", async () => {
     const { service, memberContext, capableHost, weakHost, hostPort, hosts } = await openStack();
-    const single = service.listEligibleAssignees(memberContext, projectId, blockItem);
+    const single = await service.listEligibleAssignees(memberContext, projectId, blockItem);
     const inventory = vi.spyOn(hostPort, "listEligibleHostProjections");
     const hostList = vi.spyOn(hosts, "list");
     const workspaceBatch = vi.spyOn(hosts, "workspaceIdsForHosts");
@@ -571,7 +572,7 @@ describe("work assignment service API", () => {
       canvasId: "default",
       blockRef: "T-001#B-002"
     };
-    const batch = service.listEligibleHostsBatch(memberContext, projectId, {
+    const batch = await service.listEligibleHostsBatch(memberContext, projectId, {
       workItems: [blockItem, equivalentBlockItem]
     });
 
@@ -589,20 +590,20 @@ describe("work assignment service API", () => {
     expect(batch.hosts.some((host) => host.hostId === capableHost.host.id)).toBe(true);
     expect(batch.hosts.some((host) => host.hostId === weakHost.host.id)).toBe(false);
 
-    expect(() =>
+    await expect(
       service.listEligibleHostsBatch({ ...memberContext, projectId: "project-other" }, projectId, {
         workItems: [blockItem]
       })
-    ).toThrowError(expect.objectContaining({ code: "work_auth_project_mismatch" }));
-    expect(() =>
+    ).rejects.toThrowError(expect.objectContaining({ code: "work_auth_project_mismatch" }));
+    await expect(
       service.listEligibleHostsBatch(memberContext, projectId, { workItems: [missingItem] })
-    ).toThrowError(expect.objectContaining({ code: "work_item_not_found" }));
+    ).rejects.toThrowError(expect.objectContaining({ code: "work_item_not_found" }));
   });
 
   it("keeps durable assignment when member is removed (no silent retarget)", async () => {
     const { service, identity, ownerContext, memberContext, member } = await openStack();
 
-    service.updateAssignment({
+    await service.updateAssignment({
       projectId,
       workItem: taskItem,
       target: { kind: "human", humanPrincipalId: member.principal.humanPrincipalId },
@@ -611,7 +612,7 @@ describe("work assignment service API", () => {
     });
     identity.removeMember(projectId, member.principal.humanPrincipalId);
 
-    const projection = service.getAssignment(ownerContext, projectId, taskItem);
+    const projection = await service.getAssignment(ownerContext, projectId, taskItem);
     expect(projection.target).toEqual({
       kind: "human",
       humanPrincipalId: member.principal.humanPrincipalId
@@ -635,14 +636,14 @@ describe("work assignment service API", () => {
     };
 
     try {
-      service.getAssignment(bogus, projectId, taskItem);
+      await service.getAssignment(bogus, projectId, taskItem);
       expect.fail("cross project view");
     } catch (error) {
       expect((error as WorkAssignmentServiceError).code).toMatch(/work_auth|work_input_invalid/);
     }
 
     try {
-      service.updateAssignment({
+      await service.updateAssignment({
         projectId,
         workItem: taskItem,
         target: { kind: "human", humanPrincipalId: member.principal.humanPrincipalId },
@@ -659,7 +660,7 @@ describe("work assignment service API", () => {
 
   it("supports automatic_host assign and pending availability", async () => {
     const { service, ownerContext } = await openStack();
-    const result = service.updateAssignment({
+    const result = await service.updateAssignment({
       projectId,
       workItem: blockItem,
       target: { kind: "automatic_host" },

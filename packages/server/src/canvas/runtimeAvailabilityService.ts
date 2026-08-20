@@ -3,13 +3,13 @@ import {
   type CanvasRuntimeAvailability
 } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import { canvasScopeRefSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
-import { decodeCanvasReplicaDocument, projectCanvasReplicaDocument } from "@planweave-ai/runtime";
 import type { CollaborationAuthContext } from "../identity/auth.js";
 import type { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import type { ProjectAccessRepository } from "../projectAccessRepository.js";
 import type { ContentAuthorityStore } from "./contentAuthorityStore.js";
 import { authorizeCanvasContent } from "./policy.js";
 import type { CanvasRuntimeAvailabilityPort } from "./runtimePort.js";
+import { readStableCanvasContentFingerprint } from "./contentFingerprint.js";
 
 export type CanvasRuntimeAvailabilityServiceOptions = {
   access: ProjectAccessRepository;
@@ -72,26 +72,16 @@ export class CanvasRuntimeAvailabilityService {
       return unavailableContentOutOfSync();
     }
 
-    const head = this.options.contentVersions.head(scope);
-    if (!head) return unavailableContentOutOfSync();
-    const authoritative = this.options.contentVersions.readVersion(scope, head.content);
-    if (
-      authoritative.completed.versionId !== head.content.versionId ||
-      authoritative.content.canonicalDigest !== head.content.canonicalDigest
-    ) {
-      throw new Error("canvas_runtime_availability_content_head_mismatch");
+    let contentFingerprint: string | undefined;
+    try {
+      contentFingerprint = readStableCanvasContentFingerprint(this.options.contentVersions, scope);
+    } catch (error) {
+      if (error instanceof Error && error.message === "canvas_content_head_mismatch") {
+        throw new Error("canvas_runtime_availability_content_head_mismatch");
+      }
+      throw error;
     }
-    const contentFingerprint = projectCanvasReplicaDocument(
-      decodeCanvasReplicaDocument(authoritative.content)
-    ).packageFingerprint;
-    const currentHead = this.options.contentVersions.head(scope);
-    if (
-      !currentHead ||
-      currentHead.revision !== head.revision ||
-      currentHead.content.versionId !== head.content.versionId ||
-      currentHead.content.canonicalDigest !== head.content.canonicalDigest ||
-      availability.graphFingerprint !== contentFingerprint
-    ) {
+    if (!contentFingerprint || availability.graphFingerprint !== contentFingerprint) {
       return unavailableContentOutOfSync();
     }
     return canvasRuntimeAvailabilitySchema.parse(availability);

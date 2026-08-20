@@ -40,7 +40,11 @@ import {
 } from "./composition/transport.js";
 import { createLocalFilesystemCanvasRuntimeAdapter } from "./canvas/localFilesystemRuntimeAdapter.js";
 import { LocalFilesystemExecutionRuntimeAdapter } from "./canvas/localFilesystemExecutionRuntimeAdapter.js";
-import { LocalFilesystemWorkRuntimeAdapter } from "./work/localFilesystemRuntimeAdapter.js";
+import {
+  LocalFilesystemWorkRuntimeFactsAdapter,
+  LocalFirstWorkRuntimeFactsAdapter
+} from "./work/runtimeFactsAdapters.js";
+import { RemoteHostWorkRuntimeFactsAdapter } from "./work/remoteHostRuntimeFactsAdapter.js";
 import {
   LocalFirstCanvasExecutionRuntimeRouter,
   LocalFirstCanvasRuntimeRouter,
@@ -87,7 +91,9 @@ export async function createDistributedServerComposition(
   const ownerExecutionRuntime = new LocalFilesystemExecutionRuntimeAdapter(
     registries.ownerRuntimeRegistry
   );
-  const localWorkRuntime = new LocalFilesystemWorkRuntimeAdapter(registries.runtimeRegistry);
+  const workRuntimeFacts = new LocalFirstWorkRuntimeFactsAdapter(
+    new LocalFilesystemWorkRuntimeFactsAdapter(registries.runtimeRegistry)
+  );
   const collaborationRuntime = new LocalFirstCanvasRuntimeRouter(
     localCanvasRuntime,
     localExecutionRuntime,
@@ -157,7 +163,6 @@ export async function createDistributedServerComposition(
       workspaceIdentity,
       projectAccess
     });
-    localWorkRuntime.attachCollaborationScopeResolution({ workspaceIdentity, projectAccess });
     workspaceIdentityForInteractions = workspaceIdentity;
     runtimeRpc = new CanvasRuntimeRpcBroker(
       server.database,
@@ -192,6 +197,9 @@ export async function createDistributedServerComposition(
     });
     collaborationRuntime.attachRemote(remoteCanvasRuntime);
     executionRuntime.attachRemote(remoteCanvasRuntime);
+    workRuntimeFacts.attachRemote(
+      new RemoteHostWorkRuntimeFactsAdapter(runtimeHostLocator, runtimeRpc)
+    );
     const identityServices = createIdentityServices({
       database: server.database,
       config,
@@ -228,8 +236,7 @@ export async function createDistributedServerComposition(
       coordination,
       runtimeAvailability: collaborationRuntime,
       ownerRuntimeScopes: ownerExecutionRuntime,
-      workRuntimeProjects: localWorkRuntime,
-      workRuntimeLeases: localWorkRuntime,
+      workRuntimeFacts,
       workspaceIdentity,
       projectAccess,
       authorization,

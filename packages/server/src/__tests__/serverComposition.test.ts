@@ -190,7 +190,7 @@ describe("distributed server composition", () => {
       { headers: { Authorization: `Bearer ${deviceToken}` } }
     );
     expect(assignment.status).toBe(503);
-    await expect(assignment.json()).resolves.toEqual({ error: "work_runtime_unavailable" });
+    await expect(assignment.json()).resolves.toEqual({ error: "runtime_not_attached" });
 
     const remoteOperation = await fetch(
       `${origin}/api/v1/projects/${restoredProjectId}/remote-operations`,

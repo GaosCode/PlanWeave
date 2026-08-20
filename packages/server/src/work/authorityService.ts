@@ -35,6 +35,7 @@ import {
   assertHumanScopeAuthorized
 } from "./authorityPolicy.js";
 import type { WorkItemPackagePort } from "./workItemFacts.js";
+import { withWorkRuntimeFacts, type WorkRuntimePackageFactsPort } from "./runtimePort.js";
 import { workItemRefSchema } from "./schemas.js";
 
 function actorOf(context: CollaborationAuthContext): AuthorityActor {
@@ -56,7 +57,7 @@ function workItem(scope: AuthorityScope) {
 
 export type AuthorityServiceOptions = {
   repository: AuthorityRepository;
-  packagePort: WorkItemPackagePort;
+  runtimeFacts: WorkRuntimePackageFactsPort;
   access: ProjectAccessRepository;
   workspaceIdentity: WorkspaceIdentityRepository;
   hosts: AgentHostRepository;
@@ -89,12 +90,11 @@ export class AuthorityService {
     this.clock = options.clock ?? (() => new Date());
   }
 
-  updateResponsibility(actor: CollaborationAuthContext, rawIntent: unknown) {
+  async updateResponsibility(actor: CollaborationAuthContext, rawIntent: unknown) {
     const intent = responsibilityMutationSchema.parse(rawIntent);
     const scope = authorityScopeSchema.parse(intent.scope);
     this.assertActorScope(actor, scope);
     assertMigration(this.options.repository, scope);
-    this.assertPackageScope(scope);
     assertHumanScopeAuthorized({
       actor,
       scope,
@@ -102,24 +102,26 @@ export class AuthorityService {
       workspaceIdentity: this.options.workspaceIdentity,
       capability: "assignment"
     });
-    if (intent.principal) {
-      assertAssignmentPrincipalActive({
-        actor,
-        workspaceId: scope.workspaceId,
-        humanPrincipalId: intent.principal.humanPrincipalId,
-        workspaceIdentity: this.options.workspaceIdentity
-      });
-    }
-    this.options.repository.applyResponsibility({ mutation: intent, actor: actorOf(actor) });
-    return this.getResponsibility(actor, scope)!;
+    return await this.withPackageScope(scope, (packagePort) => {
+      this.assertPackageScope(scope, packagePort);
+      if (intent.principal) {
+        assertAssignmentPrincipalActive({
+          actor,
+          workspaceId: scope.workspaceId,
+          humanPrincipalId: intent.principal.humanPrincipalId,
+          workspaceIdentity: this.options.workspaceIdentity
+        });
+      }
+      this.options.repository.applyResponsibility({ mutation: intent, actor: actorOf(actor) });
+      return this.getResponsibility(actor, scope)!;
+    });
   }
 
-  updateReviewer(actor: CollaborationAuthContext, rawIntent: unknown) {
+  async updateReviewer(actor: CollaborationAuthContext, rawIntent: unknown) {
     const intent = reviewerMutationSchema.parse(rawIntent);
     const scope = authorityScopeSchema.parse(intent.scope);
     this.assertActorScope(actor, scope);
     assertMigration(this.options.repository, scope);
-    this.assertPackageScope(scope);
     assertHumanScopeAuthorized({
       actor,
       scope,
@@ -127,40 +129,52 @@ export class AuthorityService {
       workspaceIdentity: this.options.workspaceIdentity,
       capability: "assignment"
     });
-    if (intent.principal) {
-      assertAssignmentPrincipalActive({
-        actor,
-        workspaceId: scope.workspaceId,
-        humanPrincipalId: intent.principal.humanPrincipalId,
-        workspaceIdentity: this.options.workspaceIdentity
-      });
-    }
-    this.options.repository.applyReviewer({ mutation: intent, actor: actorOf(actor) });
-    return this.getReviewer(actor, scope)!;
+    return await this.withPackageScope(scope, (packagePort) => {
+      this.assertPackageScope(scope, packagePort);
+      if (intent.principal) {
+        assertAssignmentPrincipalActive({
+          actor,
+          workspaceId: scope.workspaceId,
+          humanPrincipalId: intent.principal.humanPrincipalId,
+          workspaceIdentity: this.options.workspaceIdentity
+        });
+      }
+      this.options.repository.applyReviewer({ mutation: intent, actor: actorOf(actor) });
+      return this.getReviewer(actor, scope)!;
+    });
   }
 
-  updateExecutionTarget(actor: CollaborationAuthContext, rawIntent: unknown) {
+  async updateExecutionTarget(actor: CollaborationAuthContext, rawIntent: unknown) {
     const intent = executionTargetMutationSchema.parse(rawIntent);
     const scope = intent.scope;
     this.assertActorScope(actor, scope);
     assertMigration(this.options.repository, scope);
-    const packageFacts = this.options.packagePort.resolveWorkItem(workItem(scope));
-    assertExecutionTargetMutation({
+    assertHumanScopeAuthorized({
       actor,
       scope,
-      target: intent.target,
       access: this.options.access,
       workspaceIdentity: this.options.workspaceIdentity,
-      hosts: this.options.hosts,
-      packageFacts,
-      now: this.clock(),
-      hostOfflineAfterMs: this.options.hostOfflineAfterMs ?? 60_000
+      capability: "assignment"
     });
-    this.options.repository.applyExecutionTarget({
-      mutation: intent,
-      actor: actorOf(actor)
+    return await this.withPackageScope(scope, (packagePort) => {
+      const packageFacts = packagePort.resolveWorkItem(workItem(scope));
+      assertExecutionTargetMutation({
+        actor,
+        scope,
+        target: intent.target,
+        access: this.options.access,
+        workspaceIdentity: this.options.workspaceIdentity,
+        hosts: this.options.hosts,
+        packageFacts,
+        now: this.clock(),
+        hostOfflineAfterMs: this.options.hostOfflineAfterMs ?? 60_000
+      });
+      this.options.repository.applyExecutionTarget({
+        mutation: intent,
+        actor: actorOf(actor)
+      });
+      return this.getExecutionTargetWithFacts(scope, packagePort)!;
     });
-    return this.getExecutionTarget(actor, scope)!;
   }
 
   getResponsibility(
@@ -195,14 +209,23 @@ export class AuthorityService {
     return reviewAssignmentReadModelSchema.parse({ ...record, availability });
   }
 
-  getExecutionTarget(
+  async getExecutionTarget(
     actor: CollaborationAuthContext,
     rawScope: unknown
-  ): ExecutionTargetReadModel | undefined {
+  ): Promise<ExecutionTargetReadModel | undefined> {
     const scope = authorityScopeSchema.parse(rawScope);
     if (scope.kind !== "block") throw new Error("execution_target_requires_exact_block_scope");
     this.authorizeRead(actor, scope);
-    this.assertPackageScope(scope);
+    return await this.withPackageScope(scope, (packagePort) =>
+      this.getExecutionTargetWithFacts(scope, packagePort)
+    );
+  }
+
+  private getExecutionTargetWithFacts(
+    scope: Extract<AuthorityScope, { kind: "block" }>,
+    packagePort: WorkItemPackagePort
+  ): ExecutionTargetReadModel | undefined {
+    this.assertPackageScope(scope, packagePort);
     const record = this.options.repository.getExecutionTarget(scope);
     if (!record) return undefined;
     const target = record.target;
@@ -219,7 +242,7 @@ export class AuthorityService {
       });
     // Align exact_host availability with selection readiness (offline/capacity/capability/ACL),
     // not only missing/revoked — Desktop assignmentProjectionFromAuthority uses this field.
-    const packageFacts = this.options.packagePort.resolveWorkItem(workItem(scope));
+    const packageFacts = packagePort.resolveWorkItem(workItem(scope));
     const reason = this.selectionAvailabilityReason({
       host,
       hostId: target.hostId,
@@ -248,74 +271,77 @@ export class AuthorityService {
    * Missing durable rows surface as unassigned revision 0 so clients can CAS cleanly.
    * Task scopes never include Host execution targets.
    */
-  getWorkAuthorityProjection(
+  async getWorkAuthorityProjection(
     actor: CollaborationAuthContext,
     rawScope: unknown
-  ): WorkAuthorityProjection {
+  ): Promise<WorkAuthorityProjection> {
     const scope = this.authorizeRead(actor, rawScope);
-    this.assertPackageScope(scope);
-    const evaluatedAt = this.clock().toISOString();
-    const revisions = this.options.repository.currentRevisions(scope);
-    const responsibility =
-      this.getResponsibility(actor, scope) ??
-      responsibilityReadModelSchema.parse({
-        schemaVersion: "responsibility/v1",
+    return await this.withPackageScope(scope, (packagePort) => {
+      this.assertPackageScope(scope, packagePort);
+      const evaluatedAt = this.clock().toISOString();
+      const revisions = this.options.repository.currentRevisions(scope);
+      const responsibility =
+        this.getResponsibility(actor, scope) ??
+        responsibilityReadModelSchema.parse({
+          schemaVersion: "responsibility/v1",
+          scope,
+          principal: null,
+          revision: 0,
+          updatedAt: evaluatedAt,
+          availability: "unassigned"
+        });
+      const reviewer =
+        this.getReviewer(actor, scope) ??
+        reviewAssignmentReadModelSchema.parse({
+          schemaVersion: "review-assignment/v1",
+          scope,
+          principal: null,
+          revision: 0,
+          updatedAt: evaluatedAt,
+          availability: "unassigned"
+        });
+
+      if (scope.kind === "task") {
+        return workAuthorityProjectionSchema.parse({
+          schemaVersion: "work-authority/v1",
+          scope,
+          responsibility,
+          reviewer,
+          executionTarget: null,
+          revisions,
+          selectedHost: null,
+          evaluatedAt
+        });
+      }
+
+      const executionTarget =
+        this.getExecutionTargetWithFacts(scope, packagePort) ??
+        executionTargetReadModelSchema.parse({
+          schemaVersion: "execution-target/v1",
+          scope,
+          target: { kind: "unassigned" },
+          revision: 0,
+          updatedAt: evaluatedAt,
+          availability: { status: "unassigned", reason: "unassigned" }
+        });
+      const selectedHost = this.projectSelectedHost({
         scope,
-        principal: null,
-        revision: 0,
-        updatedAt: evaluatedAt,
-        availability: "unassigned"
-      });
-    const reviewer =
-      this.getReviewer(actor, scope) ??
-      reviewAssignmentReadModelSchema.parse({
-        schemaVersion: "review-assignment/v1",
-        scope,
-        principal: null,
-        revision: 0,
-        updatedAt: evaluatedAt,
-        availability: "unassigned"
+        executionTarget,
+        revisions,
+        evaluatedAt,
+        packagePort
       });
 
-    if (scope.kind === "task") {
       return workAuthorityProjectionSchema.parse({
         schemaVersion: "work-authority/v1",
         scope,
         responsibility,
         reviewer,
-        executionTarget: null,
+        executionTarget,
         revisions,
-        selectedHost: null,
+        selectedHost,
         evaluatedAt
       });
-    }
-
-    const executionTarget =
-      this.getExecutionTarget(actor, scope) ??
-      executionTargetReadModelSchema.parse({
-        schemaVersion: "execution-target/v1",
-        scope,
-        target: { kind: "unassigned" },
-        revision: 0,
-        updatedAt: evaluatedAt,
-        availability: { status: "unassigned", reason: "unassigned" }
-      });
-    const selectedHost = this.projectSelectedHost({
-      scope,
-      executionTarget,
-      revisions,
-      evaluatedAt
-    });
-
-    return workAuthorityProjectionSchema.parse({
-      schemaVersion: "work-authority/v1",
-      scope,
-      responsibility,
-      reviewer,
-      executionTarget,
-      revisions,
-      selectedHost,
-      evaluatedAt
     });
   }
 
@@ -324,15 +350,16 @@ export class AuthorityService {
     executionTarget: ExecutionTargetReadModel;
     revisions: ReturnType<AuthorityRepository["currentRevisions"]>;
     evaluatedAt: string;
+    packagePort: WorkItemPackagePort;
   }) {
-    const { scope, executionTarget, revisions, evaluatedAt } = input;
+    const { scope, executionTarget, revisions, evaluatedAt, packagePort } = input;
     if (executionTarget.target.kind !== "exact_host") {
       return null;
     }
 
     const hostId = executionTarget.target.hostId;
     const host = this.options.hosts.get(hostId);
-    const packageFacts = this.options.packagePort.resolveWorkItem(workItem(scope));
+    const packageFacts = packagePort.resolveWorkItem(workItem(scope));
     const availabilityReason = this.selectionAvailabilityReason({
       host,
       hostId,
@@ -465,14 +492,26 @@ export class AuthorityService {
       throw new Error("authority_workspace_mismatch");
   }
 
-  private assertPackageScope(scope: AuthorityScope): void {
-    const facts = this.options.packagePort.resolveWorkItem(workItem(scope));
+  private assertPackageScope(scope: AuthorityScope, packagePort: WorkItemPackagePort): void {
+    const facts = packagePort.resolveWorkItem(workItem(scope));
     if (!facts.exists || facts.kind !== scope.kind)
       throw new Error("authority_work_item_not_found");
     if (scope.kind === "task" && facts.taskId !== scope.taskId)
       throw new Error("authority_work_item_not_found");
     if (scope.kind === "block" && facts.blockRef !== scope.blockRef)
       throw new Error("authority_work_item_not_found");
+  }
+
+  private withPackageScope<T>(
+    scope: AuthorityScope,
+    use: (packagePort: WorkItemPackagePort) => T | Promise<T>
+  ): Promise<T> {
+    return withWorkRuntimeFacts(
+      this.options.runtimeFacts,
+      { workspaceId: scope.workspaceId, projectId: scope.projectId },
+      [workItem(scope)],
+      use
+    );
   }
 
   private isActiveWorkspaceMember(workspaceId: string, humanPrincipalId: string): boolean {

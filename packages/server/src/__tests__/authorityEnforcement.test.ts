@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { applyMigrations } from "../migrations.js";
 import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
 import { HumanIdentityRepository } from "../identity/repository.js";
@@ -13,6 +13,7 @@ import {
 } from "../work/dispatchIntegration.js";
 import { workItemPackageFactsSchema, type WorkItemRef } from "../work/schemas.js";
 import type { WorkItemPackagePort } from "../work/workItemFacts.js";
+import { runtimeFactsFromPackagePort } from "./workRuntimeFactsFixture.js";
 
 const databases: SqliteDatabase[] = [];
 const now = () => new Date("2026-07-27T10:00:00.000Z");
@@ -122,9 +123,10 @@ async function fixture() {
       return workItems.map(resolveWorkItem);
     }
   };
+  const runtimeFacts = runtimeFactsFromPackagePort(packagePort);
   const service = new AuthorityService({
     repository,
-    packagePort,
+    runtimeFacts,
     identity: new HumanIdentityRepository(database, now),
     access,
     workspaceIdentity,
@@ -139,10 +141,40 @@ async function fixture() {
     role: "owner" as const,
     membershipId: "pm-owner"
   };
-  return { database, access, workspaceIdentity, hosts, host, repository, service, actor };
+  return {
+    database,
+    access,
+    workspaceIdentity,
+    hosts,
+    host,
+    repository,
+    service,
+    actor,
+    runtimeFacts
+  };
 }
 
 describe("separated assignment authorities", () => {
+  it("keeps pure SQLite authority getters available without Runtime facts", async () => {
+    const { service, actor, runtimeFacts } = await fixture();
+    const scope = {
+      kind: "task" as const,
+      workspaceId: "w",
+      projectId: "p",
+      canvasId: "c",
+      taskId: "T-001"
+    };
+    const acquireFacts = vi.spyOn(runtimeFacts, "acquireFacts");
+    expect(service.getResponsibility(actor, scope)).toBeUndefined();
+    expect(service.getReviewer(actor, scope)).toBeUndefined();
+    expect(service.currentRevisions(actor, scope)).toEqual({
+      responsibilityRevision: 0,
+      reviewerRevision: 0,
+      executionTargetRevision: 0
+    });
+    expect(acquireFacts).not.toHaveBeenCalled();
+  });
+
   it("mutates responsibility, reviewer, and Block execution target independently", async () => {
     const { service, actor, host } = await fixture();
     const taskScope = {
@@ -153,7 +185,7 @@ describe("separated assignment authorities", () => {
       taskId: "T-001"
     };
     expect(
-      service.updateResponsibility(actor, {
+      await service.updateResponsibility(actor, {
         schemaVersion: "responsibility/v1",
         scope: taskScope,
         principal: { kind: "human", humanPrincipalId: "member" },
@@ -161,7 +193,7 @@ describe("separated assignment authorities", () => {
       })
     ).toMatchObject({ revision: 1, principal: { humanPrincipalId: "member" } });
     expect(
-      service.updateReviewer(actor, {
+      await service.updateReviewer(actor, {
         schemaVersion: "review-assignment/v1",
         scope: taskScope,
         principal: { kind: "human", humanPrincipalId: "owner" },
@@ -181,7 +213,7 @@ describe("separated assignment authorities", () => {
       blockRef: "T-001#B-001"
     };
     expect(
-      service.updateExecutionTarget(actor, {
+      await service.updateExecutionTarget(actor, {
         schemaVersion: "execution-target/v1",
         scope: blockScope,
         target: { kind: "exact_host", hostId: host.id },
@@ -193,14 +225,14 @@ describe("separated assignment authorities", () => {
       reviewerRevision: 0,
       executionTargetRevision: 1
     });
-    expect(() =>
+    await expect(
       service.updateExecutionTarget(actor, {
         schemaVersion: "execution-target/v1",
         scope: taskScope,
         target: { kind: "automatic_host" },
         expectedRevision: 0
       })
-    ).toThrow();
+    ).rejects.toThrow();
   });
 
   it("projects redacted work authority without coupling reviewer to Host execution", async () => {
@@ -212,32 +244,32 @@ describe("separated assignment authorities", () => {
       canvasId: "c",
       blockRef: "T-001#B-001"
     };
-    service.updateResponsibility(actor, {
+    await service.updateResponsibility(actor, {
       schemaVersion: "responsibility/v1",
       scope: blockScope,
       principal: { kind: "human", humanPrincipalId: "member" },
       expectedRevision: 0
     });
-    service.updateReviewer(actor, {
+    await service.updateReviewer(actor, {
       schemaVersion: "review-assignment/v1",
       scope: blockScope,
       principal: { kind: "human", humanPrincipalId: "owner" },
       expectedRevision: 0
     });
-    service.updateExecutionTarget(actor, {
+    await service.updateExecutionTarget(actor, {
       schemaVersion: "execution-target/v1",
       scope: blockScope,
       target: { kind: "exact_host", hostId: host.id },
       expectedRevision: 0
     });
     // Reviewer change must not rewrite execution target revision.
-    service.updateReviewer(actor, {
+    await service.updateReviewer(actor, {
       schemaVersion: "review-assignment/v1",
       scope: blockScope,
       principal: { kind: "human", humanPrincipalId: "member" },
       expectedRevision: 1
     });
-    const projection = service.getWorkAuthorityProjection(actor, blockScope);
+    const projection = await service.getWorkAuthorityProjection(actor, blockScope);
     expect(projection.responsibility.principal).toEqual({
       kind: "human",
       humanPrincipalId: "member"
@@ -682,25 +714,25 @@ describe("strict Host dispatch authority", () => {
       canvasId: "c",
       blockRef: "T-001#B-001"
     };
-    service.updateResponsibility(actor, {
+    await service.updateResponsibility(actor, {
       schemaVersion: "responsibility/v1",
       scope: blockScope,
       principal: { kind: "human", humanPrincipalId: "member" },
       expectedRevision: 0
     });
-    service.updateReviewer(actor, {
+    await service.updateReviewer(actor, {
       schemaVersion: "review-assignment/v1",
       scope: blockScope,
       principal: { kind: "human", humanPrincipalId: "owner" },
       expectedRevision: 0
     });
-    service.updateExecutionTarget(actor, {
+    await service.updateExecutionTarget(actor, {
       schemaVersion: "execution-target/v1",
       scope: blockScope,
       target: { kind: "exact_host", hostId: host.id },
       expectedRevision: 0
     });
-    const projection = service.getWorkAuthorityProjection(actor, blockScope);
+    const projection = await service.getWorkAuthorityProjection(actor, blockScope);
     expect(projection.responsibility.principal?.humanPrincipalId).toBe("member");
     expect(projection.reviewer.principal?.humanPrincipalId).toBe("owner");
     expect(projection.executionTarget?.target).toEqual({
@@ -722,7 +754,7 @@ describe("strict Host dispatch authority", () => {
       canvasId: "c",
       blockRef: "T-001#B-001"
     };
-    ctx.service.updateExecutionTarget(ctx.actor, {
+    await ctx.service.updateExecutionTarget(ctx.actor, {
       schemaVersion: "execution-target/v1",
       scope: blockScope,
       target: { kind: "exact_host", hostId: ctx.host.id },
@@ -731,12 +763,12 @@ describe("strict Host dispatch authority", () => {
     ctx.database
       .prepare("UPDATE agent_hosts SET last_seen_at=? WHERE id=?")
       .run("2020-01-01T00:00:00.000Z", ctx.host.id);
-    const execution = ctx.service.getExecutionTarget(ctx.actor, blockScope);
+    const execution = await ctx.service.getExecutionTarget(ctx.actor, blockScope);
     expect(execution?.availability).toEqual({
       status: "unavailable",
       reason: "host_offline"
     });
-    const projection = ctx.service.getWorkAuthorityProjection(ctx.actor, blockScope);
+    const projection = await ctx.service.getWorkAuthorityProjection(ctx.actor, blockScope);
     expect(projection.selectedHost?.availabilityReason).toBe("host_offline");
     expect(projection.executionTarget?.availability.reason).toBe("host_offline");
   });

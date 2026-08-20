@@ -15,6 +15,7 @@ import { WorkAssignmentRepository } from "../work/repository.js";
 import { WorkAssignmentService } from "../work/service.js";
 import type { WorkItemRef } from "../work/schemas.js";
 import type { WorkItemPackagePort } from "../work/workItemFacts.js";
+import { runtimeFactsFromPackagePort } from "./workRuntimeFactsFixture.js";
 
 const directories: string[] = [];
 const servers: PlanweaveServer[] = [];
@@ -99,7 +100,7 @@ describe("workspace-scoped active dispatch projections", () => {
       new WorkAssignmentService({
         workspaceId,
         repository: new WorkAssignmentRepository(server.database),
-        packagePort,
+        runtimeFacts: runtimeFactsFromPackagePort(packagePort),
         membershipPort,
         hostPort,
         resolveActiveDispatch
@@ -128,13 +129,13 @@ describe("workspace-scoped active dispatch projections", () => {
       })
     ).toMatchObject({ present: true, dispatchId: operationB.dispatchId });
     expect(
-      createService(workspaceA).getAssignment(owner, projectId, workItem).activeDispatch
+      (await createService(workspaceA).getAssignment(owner, projectId, workItem)).activeDispatch
     ).toEqual({ present: true, dispatchId: operationA.dispatchId });
     expect(
-      createService(workspaceB).getAssignment(owner, projectId, workItem).activeDispatch
+      (await createService(workspaceB).getAssignment(owner, projectId, workItem)).activeDispatch
     ).toEqual({ present: true, dispatchId: operationB.dispatchId });
     expect(
-      createService(workspaceWithoutDispatch).getAssignment(owner, projectId, workItem)
+      (await createService(workspaceWithoutDispatch).getAssignment(owner, projectId, workItem))
         .activeDispatch
     ).toEqual({ present: false });
   });

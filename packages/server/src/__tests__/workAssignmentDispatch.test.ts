@@ -19,7 +19,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
   it("revalidates exact Host authorization, revocation, readiness, and capabilities at dispatch", async () => {
     const fixture = await setup({ strictGate: true });
     const hostId = fixture.hosts[0]!.id;
-    fixture.assignmentService.updateAssignment({
+    await fixture.assignmentService.updateAssignment({
       projectId: fixture.locator.projectId,
       workItem: fixture.blockItem,
       target: { kind: "exact_host", hostId },
@@ -82,7 +82,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
         { name: "Free Second", capabilities: ["acp.codex"], capacity: 1 }
       ]
     });
-    fixture.assignmentService.updateAssignment({
+    await fixture.assignmentService.updateAssignment({
       projectId: fixture.locator.projectId,
       workItem: fixture.blockItem,
       target: { kind: "automatic_host" },
@@ -112,14 +112,14 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
     const fixture = await setup();
     const hostId = fixture.hosts[0]!.id;
 
-    fixture.assignmentService.updateAssignment({
+    await fixture.assignmentService.updateAssignment({
       projectId: fixture.locator.projectId,
       workItem: { kind: "task", canvasId: "default", taskId: "T-001" },
       target: { kind: "human", humanPrincipalId: fixture.ownerContext.humanPrincipalId },
       expectedRevision: 0,
       actor: fixture.ownerContext
     });
-    fixture.assignmentService.updateAssignment({
+    await fixture.assignmentService.updateAssignment({
       projectId: fixture.locator.projectId,
       workItem: fixture.blockItem,
       target: { kind: "exact_host", hostId },
@@ -138,7 +138,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
     const dispatched = await fixture.coordination.coordinator.reenter(operation.id);
     expect(dispatched.status).toBe("activated");
 
-    const batch = fixture.assignmentService.listAssignments(
+    const batch = await fixture.assignmentService.listAssignments(
       fixture.ownerContext,
       fixture.locator.projectId,
       {
@@ -176,7 +176,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
     const hostA = fixture.hosts[0]!;
     const hostB = fixture.hosts[1]!;
 
-    const first = fixture.assignmentService.updateAssignment({
+    const first = await fixture.assignmentService.updateAssignment({
       projectId: fixture.locator.projectId,
       workItem: fixture.blockItem,
       target: { kind: "exact_host", hostId: hostA.id },
@@ -185,7 +185,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
     });
 
     // Concurrent CAS loser does not touch dispatch.
-    expect(() =>
+    await expect(
       fixture.assignmentService.updateAssignment({
         projectId: fixture.locator.projectId,
         workItem: fixture.blockItem,
@@ -193,7 +193,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
         expectedRevision: 0,
         actor: fixture.ownerContext
       })
-    ).toThrowError(/revision|conflict/i);
+    ).rejects.toThrowError(/revision|conflict/i);
 
     const stillA = fixture.workAssignments.get(
       fixture.workspaceId,
@@ -215,7 +215,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
     const hostA = fixture.hosts[0]!;
     const hostB = fixture.hosts[1]!;
 
-    fixture.assignmentService.updateAssignment({
+    await fixture.assignmentService.updateAssignment({
       projectId: fixture.locator.projectId,
       workItem: fixture.blockItem,
       target: { kind: "exact_host", hostId: hostA.id },
@@ -267,7 +267,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
     await fixture.coordination.coordinator.reenter(dispatched.operation.id);
 
     // Reassignment before explicit retry: new attempt must follow current assignment, not A.
-    fixture.assignmentService.updateAssignment({
+    await fixture.assignmentService.updateAssignment({
       projectId: fixture.locator.projectId,
       workItem: fixture.blockItem,
       target: { kind: "exact_host", hostId: hostB.id },
@@ -350,7 +350,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
       })
     });
     const hostA = fixture.hosts[0]!;
-    fixture.assignmentService.updateAssignment({
+    await fixture.assignmentService.updateAssignment({
       projectId: fixture.locator.projectId,
       workItem: fixture.blockItem,
       target: { kind: "exact_host", hostId: hostA.id },
@@ -408,7 +408,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
 
     const winner = fixture.coordination.coordinator.executeAction(action);
     await retryEntered.promise;
-    fixture.assignmentService.updateAssignment({
+    await fixture.assignmentService.updateAssignment({
       projectId: fixture.locator.projectId,
       workItem: fixture.blockItem,
       target: { kind: "human", humanPrincipalId: fixture.ownerContext.humanPrincipalId },
@@ -444,7 +444,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
       withHosts: [{ name: "Host A", capabilities: ["acp.codex"], capacity: 1 }]
     });
     const hostA = fixture.hosts[0]!;
-    fixture.assignmentService.updateAssignment({
+    await fixture.assignmentService.updateAssignment({
       projectId: fixture.locator.projectId,
       workItem: fixture.blockItem,
       target: { kind: "exact_host", hostId: hostA.id },
@@ -539,7 +539,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
       context: { preferredHostId: hostA.id, assignmentRevision: 1 }
     });
 
-    fixture.assignmentService.updateAssignment({
+    await fixture.assignmentService.updateAssignment({
       projectId: fixture.locator.projectId,
       workItem: fixture.blockItem,
       target: { kind: "human", humanPrincipalId: fixture.ownerContext.humanPrincipalId },
@@ -577,7 +577,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
     });
     const hostA = fixture.hosts[0]!;
 
-    fixture.assignmentService.updateAssignment({
+    await fixture.assignmentService.updateAssignment({
       projectId: fixture.locator.projectId,
       workItem: fixture.blockItem,
       target: { kind: "exact_host", hostId: hostA.id },
@@ -621,7 +621,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
     });
     await fixture.coordination.coordinator.reenter(dispatched.operation.id);
 
-    fixture.assignmentService.updateAssignment({
+    await fixture.assignmentService.updateAssignment({
       projectId: fixture.locator.projectId,
       workItem: fixture.blockItem,
       target:
@@ -672,7 +672,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
         .get()?.count
     ).toBe(reservationCount);
 
-    fixture.assignmentService.updateAssignment({
+    await fixture.assignmentService.updateAssignment({
       projectId: fixture.locator.projectId,
       workItem: fixture.blockItem,
       target: { kind: "exact_host", hostId: hostA.id },
@@ -714,7 +714,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
     const hostA = fixture.hosts[0]!;
     const hostB = fixture.hosts[1]!;
 
-    fixture.assignmentService.updateAssignment({
+    await fixture.assignmentService.updateAssignment({
       projectId: fixture.locator.projectId,
       workItem: fixture.blockItem,
       target: { kind: "exact_host", hostId: hostA.id },
@@ -727,7 +727,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
     expect(partial.attempt.hostId).toBeUndefined();
 
     // Concurrent reassignment after upgrade: legacy null recovery revalidates current assignment.
-    fixture.assignmentService.updateAssignment({
+    await fixture.assignmentService.updateAssignment({
       projectId: fixture.locator.projectId,
       workItem: fixture.blockItem,
       target: { kind: "exact_host", hostId: hostB.id },
@@ -751,7 +751,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
     expect(durable.host_selection_json).toContain(hostB.id);
 
     // Same-attempt reenter after another reassignment must keep the recovered snapshot (Host B).
-    fixture.assignmentService.updateAssignment({
+    await fixture.assignmentService.updateAssignment({
       projectId: fixture.locator.projectId,
       workItem: fixture.blockItem,
       target: { kind: "unassigned" },
@@ -771,7 +771,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
     });
     const hostA = fixture.hosts[0]!;
 
-    fixture.assignmentService.updateAssignment({
+    await fixture.assignmentService.updateAssignment({
       projectId: fixture.locator.projectId,
       workItem: fixture.blockItem,
       target: { kind: "exact_host", hostId: hostA.id },
@@ -781,7 +781,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
 
     const partial = await fixture.seedLegacyOperation("legacy-null-deny");
 
-    fixture.assignmentService.updateAssignment({
+    await fixture.assignmentService.updateAssignment({
       projectId: fixture.locator.projectId,
       workItem: fixture.blockItem,
       target: { kind: "human", humanPrincipalId: fixture.ownerContext.humanPrincipalId },
@@ -810,7 +810,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
     const hostA = fixture.hosts[0]!;
     const hostB = fixture.hosts[1]!;
 
-    fixture.assignmentService.updateAssignment({
+    await fixture.assignmentService.updateAssignment({
       projectId: fixture.locator.projectId,
       workItem: fixture.blockItem,
       target: { kind: "exact_host", hostId: hostA.id },
@@ -834,7 +834,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
     expect(partial.attempt.hostId).toBeUndefined();
 
     // Concurrent reassignment after commit, before reservation.
-    fixture.assignmentService.updateAssignment({
+    await fixture.assignmentService.updateAssignment({
       projectId: fixture.locator.projectId,
       workItem: fixture.blockItem,
       target: { kind: "unassigned" },
@@ -842,7 +842,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
       actor: fixture.ownerContext
     });
     // Also exercise reassignment to another exact Host path on a fresh revision.
-    fixture.assignmentService.updateAssignment({
+    await fixture.assignmentService.updateAssignment({
       projectId: fixture.locator.projectId,
       workItem: fixture.blockItem,
       target: { kind: "exact_host", hostId: hostB.id },

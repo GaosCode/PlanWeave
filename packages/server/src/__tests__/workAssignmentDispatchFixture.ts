@@ -33,6 +33,7 @@ import { WorkAssignmentRepository } from "../work/repository.js";
 import { WorkAssignmentService } from "../work/service.js";
 import type { WorkItemRef } from "../work/schemas.js";
 import { seedLegacyRemoteOperation } from "./support/legacyRemoteOperationSeed.js";
+import { runtimeFactsFromPackagePort } from "./workRuntimeFactsFixture.js";
 
 const directories: string[] = [];
 const servers: PlanweaveServer[] = [];
@@ -205,7 +206,7 @@ export async function setup(
   const assignmentService = new WorkAssignmentService({
     workspaceId,
     repository: workAssignments,
-    packagePort: {
+    runtimeFacts: runtimeFactsFromPackagePort({
       resolveWorkItem(workItem) {
         if (workItem.kind === "block" && workItem.blockRef === "T-001#B-001") {
           return {
@@ -239,7 +240,7 @@ export async function setup(
       resolveWorkItems(workItems) {
         return workItems.map((workItem) => this.resolveWorkItem(workItem));
       }
-    },
+    }),
     membershipPort: createIdentityMembershipPort({ identity }),
     hostPort: createHostAssignmentPort({
       hosts: coordination.hosts,

@@ -156,3 +156,10 @@ export {
   evaluateHostAuthorization,
   type AuthorityPolicyErrorCode
 } from "./authorityPolicy.js";
+export {
+  WorkRuntimeUnavailableError,
+  withWorkRuntimeFacts,
+  type WorkRuntimePackageFactsPort,
+  type WorkRuntimeFactsLease,
+  type WorkRuntimeFactsRequest
+} from "./runtimePort.js";

@@ -18,7 +18,7 @@ import { writeJsonFile } from "../../../runtime/src/json.js";
 import { createTrustedRuntimeRegistry } from "../runtimeProjectRegistry.js";
 import { createLocalFilesystemCanvasRuntimeAdapter } from "../canvas/localFilesystemRuntimeAdapter.js";
 import { LocalFilesystemExecutionRuntimeAdapter } from "../canvas/localFilesystemExecutionRuntimeAdapter.js";
-import { LocalFilesystemWorkRuntimeAdapter } from "../work/localFilesystemRuntimeAdapter.js";
+import { LocalFilesystemWorkRuntimeFactsAdapter } from "../work/runtimeFactsAdapters.js";
 import { canvasScopeRefSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
 import { applyMigrations } from "../migrations.js";
@@ -78,8 +78,7 @@ describe("createTrustedRuntimeRegistry", () => {
 
     const execution = new LocalFilesystemExecutionRuntimeAdapter(trusted);
     execution.attachCollaborationScopeResolution({ workspaceIdentity, projectAccess });
-    const work = new LocalFilesystemWorkRuntimeAdapter(trusted);
-    work.attachCollaborationScopeResolution({ workspaceIdentity, projectAccess });
+    const work = new LocalFilesystemWorkRuntimeFactsAdapter(trusted);
 
     const lease = await execution.acquire(scope);
     await expect(lease.runtime.inspect({ ref: "T-001#B-001" })).resolves.toMatchObject({
@@ -88,14 +87,13 @@ describe("createTrustedRuntimeRegistry", () => {
       canvasId: scope.canvasId
     });
     await lease.release();
-    const workLease = work.acquirePackage(scope);
-    expect(
-      workLease?.package.resolveWorkItem({
-        kind: "block",
-        canvasId: scope.canvasId,
-        blockRef: "T-001#B-001"
-      })
-    ).toMatchObject({ exists: true });
+    const workItem = {
+      kind: "block" as const,
+      canvasId: scope.canvasId,
+      blockRef: "T-001#B-001"
+    };
+    const workLease = await work.acquireFacts({ scope, workItems: [workItem] });
+    expect(workLease?.package.resolveWorkItem(workItem)).toMatchObject({ exists: true });
     await workLease?.release();
     trusted.close();
   });

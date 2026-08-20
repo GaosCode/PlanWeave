@@ -27,6 +27,7 @@ import { WorkAssignmentService, WorkAssignmentServiceError } from "./service.js"
 import { AuthorityService } from "./authorityService.js";
 import { workItemRefSchema, type AssignmentDisplayProjection } from "./schemas.js";
 import { authorityScopeSchema } from "./authoritySchemas.js";
+import { WorkRuntimeUnavailableError } from "./runtimePort.js";
 
 const MAX_ASSIGNMENT_BODY_BYTES = 65_536;
 const ASSIGNMENT_RATE_WINDOW_MS = 60_000;
@@ -299,6 +300,9 @@ function statusFor(error: WorkAssignmentServiceError): number {
 }
 
 function safeError(error: unknown): { status: number; code: string } {
+  if (error instanceof WorkRuntimeUnavailableError) {
+    return { status: 503, code: error.code };
+  }
   if (error instanceof z.ZodError) return { status: 400, code: "work_input_invalid" };
   if (error instanceof WorkAssignmentServiceError) {
     return { status: statusFor(error), code: error.code };
@@ -429,11 +433,13 @@ export async function handleWorkAssignmentHttpRequest(
         respond(
           response,
           200,
-          assignmentService.updateAssignment({
-            ...body,
-            actor: serviceActor,
-            projectId: matched.projectId
-          }).display
+          (
+            await assignmentService.updateAssignment({
+              ...body,
+              actor: serviceActor,
+              projectId: matched.projectId
+            })
+          ).display
         );
         return true;
       }
@@ -459,7 +465,7 @@ export async function handleWorkAssignmentHttpRequest(
         respond(
           response,
           200,
-          assignmentService.getAssignment(serviceActor, matched.projectId, workItem)
+          await assignmentService.getAssignment(serviceActor, matched.projectId, workItem)
         );
         return true;
       }
@@ -495,7 +501,7 @@ export async function handleWorkAssignmentHttpRequest(
           respond(
             response,
             200,
-            assignmentService.listAssignments(serviceActor, matched.projectId, parsed)
+            await assignmentService.listAssignments(serviceActor, matched.projectId, parsed)
           );
           return true;
         } else if (isWorkspaceDeviceContext(actor) && parsed.canvasId === undefined) {
@@ -504,7 +510,7 @@ export async function handleWorkAssignmentHttpRequest(
           let cursor = parsed.cursor;
           let nextCursor: number | null = null;
           while (items.length < parsed.limit) {
-            const page = assignmentService.listAssignments(serviceActor, matched.projectId, {
+            const page = await assignmentService.listAssignments(serviceActor, matched.projectId, {
               cursor,
               limit: 1
             });
@@ -556,7 +562,7 @@ export async function handleWorkAssignmentHttpRequest(
         respond(
           response,
           200,
-          assignmentService.listAssignments(serviceActor, matched.projectId, parsed)
+          await assignmentService.listAssignments(serviceActor, matched.projectId, parsed)
         );
         return true;
       }
@@ -585,7 +591,7 @@ export async function handleWorkAssignmentHttpRequest(
           access: options.access
         });
         const assignmentService = requireAssignmentService(service);
-        const result = assignmentService.listEligibleAssignees(
+        const result = await assignmentService.listEligibleAssignees(
           serviceActor,
           matched.projectId,
           workItem,
@@ -646,7 +652,7 @@ export async function handleWorkAssignmentHttpRequest(
         respond(
           response,
           200,
-          assignmentService.listEligibleHostsBatch(serviceActor, matched.projectId, body)
+          await assignmentService.listEligibleHostsBatch(serviceActor, matched.projectId, body)
         );
         return true;
       }
@@ -681,7 +687,7 @@ export async function handleWorkAssignmentHttpRequest(
         );
         if (!handle) throw new WorkAssignmentServiceError("work_runtime_unavailable");
         try {
-          respond(response, 200, handle.service.updateResponsibility(actor, body));
+          respond(response, 200, await handle.service.updateResponsibility(actor, body));
         } finally {
           await handle.release();
         }
@@ -718,7 +724,7 @@ export async function handleWorkAssignmentHttpRequest(
         );
         if (!handle) throw new WorkAssignmentServiceError("work_runtime_unavailable");
         try {
-          respond(response, 200, handle.service.updateReviewer(actor, body));
+          respond(response, 200, await handle.service.updateReviewer(actor, body));
         } finally {
           await handle.release();
         }
@@ -772,7 +778,7 @@ export async function handleWorkAssignmentHttpRequest(
               ? handle.service.getResponsibility(actor, scope)
               : matched.authority === "reviewer"
                 ? handle.service.getReviewer(actor, scope)
-                : handle.service.getExecutionTarget(actor, scope);
+                : await handle.service.getExecutionTarget(actor, scope);
           respond(response, 200, result ?? null);
         } finally {
           await handle.release();
@@ -796,7 +802,7 @@ export async function handleWorkAssignmentHttpRequest(
         );
         if (!handle) throw new WorkAssignmentServiceError("work_runtime_unavailable");
         try {
-          respond(response, 200, handle.service.getWorkAuthorityProjection(actor, scope));
+          respond(response, 200, await handle.service.getWorkAuthorityProjection(actor, scope));
         } finally {
           await handle.release();
         }

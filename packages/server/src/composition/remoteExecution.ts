@@ -30,10 +30,9 @@ import type {
   CanvasRuntimeScopeAvailabilityPort,
   OwnerCanvasRuntimeScopeResolverPort
 } from "../canvas/executionRuntimePort.js";
-import type {
-  WorkRuntimePackageLeasePort,
-  WorkRuntimeProjectResolverPort
-} from "../work/runtimePort.js";
+import type { WorkRuntimePackageFactsPort } from "../work/runtimePort.js";
+import { ContentAlignedWorkRuntimeFactsAdapter } from "../work/runtimeFactsAdapters.js";
+import { ContentVersionRepository } from "../canvas/contentVersionRepository.js";
 
 export function createRemoteCoordinationOptions(input: {
   config: ServerConfig;
@@ -149,8 +148,7 @@ export function createRemoteExecutionComposition(input: {
   coordination: Coordination;
   runtimeAvailability: CanvasRuntimeScopeAvailabilityPort;
   ownerRuntimeScopes: OwnerCanvasRuntimeScopeResolverPort;
-  workRuntimeProjects: WorkRuntimeProjectResolverPort;
-  workRuntimeLeases: WorkRuntimePackageLeasePort;
+  workRuntimeFacts: WorkRuntimePackageFactsPort;
   workspaceIdentity: WorkspaceIdentityRepository;
   projectAccess: ProjectAccessRepository;
   authorization: OperatorTokenRegistry;
@@ -166,7 +164,12 @@ export function createRemoteExecutionComposition(input: {
   });
   const activeDispatch = createActiveDispatchResolver(input.database);
   const assignmentServices = new Map<string, WorkAssignmentService>();
+  const authorityServices = new Map<string, AuthorityService>();
   const authorityRepository = new AuthorityRepository(input.database, { clock: input.clock });
+  const runtimeFacts = new ContentAlignedWorkRuntimeFactsAdapter(
+    input.workRuntimeFacts,
+    new ContentVersionRepository(input.database, input.clock)
+  );
   const acquireAuthorityService = (workspaceId: string, projectId: string, canvasId: string) => {
     if (!input.workspaceIdentity.workspaceExists(workspaceId)) return undefined;
     const project = input.projectAccess.registry.projectInternal(workspaceId, projectId);
@@ -174,45 +177,43 @@ export function createRemoteExecutionComposition(input: {
     if (!project || project.revokedAt !== null || !canvas || canvas.revokedAt !== null) {
       return undefined;
     }
-    const acquired = input.workRuntimeLeases.acquirePackage({
-      workspaceId,
-      projectId,
-      canvasId
-    });
-    if (!acquired) return undefined;
-    return {
-      service: new AuthorityService({
+    const key = assignmentServiceKey(workspaceId, projectId);
+    let service = authorityServices.get(key);
+    if (!service) {
+      service = new AuthorityService({
         repository: authorityRepository,
-        packagePort: acquired.package,
+        runtimeFacts,
         access: input.projectAccess,
         workspaceIdentity: input.workspaceIdentity,
         hosts: input.coordination.hosts,
         clock: input.clock
-      }),
-      release: acquired.release
+      });
+      authorityServices.set(key, service);
+    }
+    return {
+      service,
+      release() {}
     };
   };
-  for (const { workspaceId, projectId } of input.workRuntimeProjects.listAttachedProjects()) {
+  const resolveAssignmentService = (workspaceId: string, projectId: string) => {
     const serviceKey = assignmentServiceKey(workspaceId, projectId);
-    if (assignmentServices.has(serviceKey)) continue;
-    const packagePort = input.workRuntimeProjects.resolveProjectPackage({
+    let service = assignmentServices.get(serviceKey);
+    if (service) return service;
+    if (!input.workspaceIdentity.workspaceExists(workspaceId)) return undefined;
+    const project = input.projectAccess.registry.projectInternal(workspaceId, projectId);
+    if (!project || project.revokedAt !== null) return undefined;
+    service = new WorkAssignmentService({
       workspaceId,
-      projectId
+      repository: input.coordination.workAssignments,
+      runtimeFacts,
+      membershipPort,
+      hostPort,
+      resolveActiveDispatch: activeDispatch,
+      clock: input.clock
     });
-    if (!packagePort) throw new Error("trusted_project_work_item_port_missing");
-    assignmentServices.set(
-      serviceKey,
-      new WorkAssignmentService({
-        workspaceId,
-        repository: input.coordination.workAssignments,
-        packagePort,
-        membershipPort,
-        hostPort,
-        resolveActiveDispatch: activeDispatch,
-        clock: input.clock
-      })
-    );
-  }
+    assignmentServices.set(serviceKey, service);
+    return service;
+  };
 
   const humanRemoteControl = new HumanRemoteControlService({
     operations: input.coordination.operations,
@@ -233,8 +234,7 @@ export function createRemoteExecutionComposition(input: {
 
   return {
     humanRemoteControl,
-    resolveAssignmentService: (workspaceId: string, projectId: string) =>
-      assignmentServices.get(assignmentServiceKey(workspaceId, projectId)),
+    resolveAssignmentService,
     acquireAuthorityService,
     createOperatorControl(disconnectHost: (hostId: string) => void) {
       return new RemoteControlService({

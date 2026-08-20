@@ -879,6 +879,7 @@
         "workAssignmentService.test.ts",
         "workAssignmentTempPackage.test.ts",
         "workAssignmentWorkspaceProjection.test.ts",
+        "workRuntimeFactsPort.test.ts",
         "workspaceConnectionHttp.test.ts",
         "workspaceIdentityHttp.test.ts",
         "workspaceIdentityMigration.test.ts",
