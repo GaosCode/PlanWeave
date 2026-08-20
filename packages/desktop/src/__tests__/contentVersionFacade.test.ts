@@ -338,7 +338,7 @@ describe("ContentVersionFacade", () => {
     });
   });
 
-  it("reads and caches strict runtime availability online, then reuses only that cache offline", async () => {
+  it("does not expose persisted runtime availability without an active client", async () => {
     const workspace = await createTestWorkspace();
     directories.push(workspace.home, workspace.root);
     const fake = fakeClient(workspace.init.workspace.id);
@@ -378,7 +378,10 @@ describe("ContentVersionFacade", () => {
         localProjectId: workspace.init.project.id,
         canvasId: "default"
       })
-    ).resolves.toEqual(availability);
+    ).rejects.toMatchObject({
+      code: "collaboration_content_offline",
+      retryable: true
+    });
   });
 
   it("preserves unavailable and rejects an available status for a different resolved scope", async () => {

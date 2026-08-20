@@ -20,10 +20,6 @@ services:
         source: ${PLANWEAVE_SERVER_TLS_DIRECTORY:?PLANWEAVE_SERVER_TLS_DIRECTORY_is_required}
         target: /run/planweave/input/tls
         read_only: true
-      - type: bind
-        source: ${PLANWEAVE_SERVER_PROJECTS_ROOT:?PLANWEAVE_SERVER_PROJECTS_ROOT_is_required}
-        target: /var/lib/planweave/projects
-        read_only: true
     cap_drop:
       - ALL
     cap_add:

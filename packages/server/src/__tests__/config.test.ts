@@ -84,6 +84,7 @@ describe("server config", () => {
     const config = parseServerConfig({ ...input, trustedProjects: [] });
 
     expect(config.trustedProjects).toEqual([]);
+    expect(JSON.stringify(config.trustedProjects)).not.toContain("projectRoot");
     expect(serverConfigSummary(config).projectIds).toEqual([]);
   });
 

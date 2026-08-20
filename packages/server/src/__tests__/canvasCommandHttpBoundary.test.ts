@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import type { IncomingMessage } from "node:http";
 import { describe, expect, it } from "vitest";
 import { CANVAS_COMMAND_PROTOCOL_VERSION } from "@planweave-ai/collaboration-protocol/core/limits";
@@ -29,6 +30,9 @@ describe("canvas command service (OSS-004 B-002)", () => {
       routeCanvasCommandHttp(request, "/api/v1/projects/p/canvases/default/commands")?.kind
     ).toBe("command");
     expect(
+      routeCanvasCommandHttp(request, "/api/v1/projects/p/canvases/default/reconnect")?.kind
+    ).toBe("reconnect");
+    expect(
       routeCanvasCommandHttp(
         { method: "GET" } as IncomingMessage,
         "/api/v1/projects/p/canvases/default/runtime-status"
@@ -40,6 +44,17 @@ describe("canvas command service (OSS-004 B-002)", () => {
         "/api/v1/projects/p/canvases/default/runtime-availability"
       )?.kind
     ).toBe("runtime_availability");
+    for (const [method, path] of [
+      ["GET", "/api/v1/projects/p/canvases/default/commands/runtime-availability"],
+      ["GET", "/api/v1/projects/p/canvases/default/runtime-availability/extra"],
+      ["GET", "/api/v1/projects/p/canvases/default/commands"],
+      ["POST", "/api/v1/projects/p/canvases/default/runtime-availability"]
+    ] as const) {
+      expect(
+        routeCanvasCommandHttp({ method } as IncomingMessage, path),
+        `${method} ${path}`
+      ).toBeUndefined();
+    }
 
     const { service } = await fixture();
     const accepted = await service.submit(actor("owner"), submitBody("op-presence", 0));
@@ -49,6 +64,12 @@ describe("canvas command service (OSS-004 B-002)", () => {
       expect(accepted.revision).toBe(1);
       expect(accepted.revision).not.toBe(999);
     }
+  });
+
+  it("keeps the removed runtime-status error namespace out of the HTTP handler", async () => {
+    const source = await readFile(new URL("../canvas/http.ts", import.meta.url), "utf8");
+
+    expect(source).not.toContain("canvas_runtime_status_");
   });
 
   it("serves reconnect snapshots from the content head rather than digest-only snapshot rows", async () => {

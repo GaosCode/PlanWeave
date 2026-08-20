@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -25,6 +25,13 @@ afterEach(async () => {
 });
 
 describe("server data compose restore", () => {
+  it("keeps the default deployment independent from a local Runtime projects root", async () => {
+    const compose = await readFile(new URL("../../compose.yaml", import.meta.url), "utf8");
+
+    expect(compose).not.toContain("PLANWEAVE_SERVER_PROJECTS_ROOT");
+    expect(compose).not.toContain("/var/lib/planweave/projects");
+  });
+
   it("keeps the packed restore script aligned with the docker compose argv", () => {
     expect(restoreServerDataScript).toContain(`-f "$COMPOSE_DIR/${PLANWEAVE_COMPOSE_FILE}"`);
     expect(restoreServerDataScript).toContain(

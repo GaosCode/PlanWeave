@@ -959,20 +959,25 @@ describe("workspace Agent Endpoint routing", () => {
     expect(readRuntimeAvailability).toHaveBeenCalledTimes(3);
   });
 
-  it("surfaces collaboration_runtime_availability_unavailable when refresh cannot read availability", async () => {
+  it("fails closed after a mid-run disconnect instead of accepting a cached completed status", async () => {
     const previewClaimNext = vi.fn(async () => ({
       kind: "none" as const,
       reason: "no_claimable_blocks"
     }));
-    const readRuntimeAvailability = vi
-      .fn()
-      .mockResolvedValueOnce(
-        statusProjection({
-          taskStatus: "in_progress",
-          blocks: [{ ref: "T-001#B-001", status: "ready" }]
-        })
-      )
-      .mockResolvedValue(null);
+    const cachedCompleted = statusProjection({
+      taskStatus: "implemented",
+      blocks: [{ ref: "T-001#B-001", status: "completed", dispatchable: false }]
+    });
+    let online = true;
+    const readRuntimeAvailability = vi.fn(async () => {
+      if (!online) return null;
+      online = false;
+      return statusProjection({
+        taskStatus: "in_progress",
+        blocks: [{ ref: "T-001#B-001", status: "ready" }]
+      });
+    });
+    expect(cachedCompleted.tasks[0]?.status).toBe("implemented");
     const { result, setError, lifecycle } = renderRun({
       previewClaimNext,
       readRuntimeAvailability

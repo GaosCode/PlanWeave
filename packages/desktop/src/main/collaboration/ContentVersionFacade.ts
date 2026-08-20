@@ -461,7 +461,7 @@ export class ContentVersionFacade {
 
   async readRuntimeAvailability(input: unknown): Promise<CanvasRuntimeAvailability | null> {
     const requested = collaborationContentAuthorityCanvasInputSchema.parse(input);
-    const client = this.resolveClient();
+    const client = this.requireClient();
     const authority = await this.authorityContext(client);
     if (!authority) return null;
     const cacheKey = {
@@ -469,7 +469,6 @@ export class ContentVersionFacade {
       localProjectId: requested.localProjectId,
       localCanvasId: requested.canvasId
     };
-    if (!client) return this.runtimeAvailabilities.get(cacheKey);
     const scope = await this.resolveCanvasScope(requested);
     if (!scope) return null;
     const availability = await client.readRuntimeAvailability(scope.canvasId);

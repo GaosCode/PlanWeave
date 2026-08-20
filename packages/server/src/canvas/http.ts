@@ -83,19 +83,19 @@ export function routeCanvasCommandHttp(
   }
 
   const match =
-    /^\/api\/v1\/projects\/([^/]+)\/canvases\/([^/]+)\/(?:commands|reconnect|runtime-availability)(\/.*)?$/.exec(
+    /^\/api\/v1\/projects\/([^/]+)\/canvases\/([^/]+)\/(commands|reconnect|runtime-availability)$/.exec(
       pathname
     );
   if (!match) return undefined;
   const projectId = decodeIdentifier(match[1] ?? "");
   const canvasId = decodeIdentifier(match[2] ?? "");
   if (!projectId || !canvasId) return undefined;
-  const isReconnect = pathname.includes("/reconnect");
-  if (isReconnect) {
+  const action = match[3];
+  if (action === "reconnect") {
     if (request.method !== "POST") return undefined;
     return { kind: "reconnect", projectId, canvasId };
   }
-  if (pathname.includes("/runtime-availability")) {
+  if (action === "runtime-availability") {
     if (request.method !== "GET") return undefined;
     return { kind: "runtime_availability", projectId, canvasId };
   }
@@ -285,13 +285,6 @@ export async function handleCanvasCommandHttpRequest(
     }
     if (message === "canvas_body_content_type" || message === "canvas_body_malformed") {
       respond(response, 400, { error: "invalid_command" });
-      return true;
-    }
-    if (message.startsWith("canvas_runtime_status_")) {
-      const forbidden = message.endsWith("forbidden") || message.endsWith("cross_scope");
-      respond(response, forbidden ? 403 : message.endsWith("unknown_canvas") ? 404 : 503, {
-        error: message
-      });
       return true;
     }
     if (message.startsWith("canvas_runtime_availability_")) {

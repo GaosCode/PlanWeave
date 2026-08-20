@@ -475,7 +475,8 @@ describe("CanvasRuntimeAvailabilityCoordinator", () => {
   };
 
   function setup(
-    initialAvailability: Awaited<ReturnType<CanvasRuntimeContentPort["readRuntimeAvailability"]>>
+    initialAvailability: Awaited<ReturnType<CanvasRuntimeContentPort["readRuntimeAvailability"]>>,
+    isOnline: () => boolean = () => true
   ) {
     const content: CanvasRuntimeContentPort = {
       resolveCanvasScope: vi.fn(async () => scope),
@@ -491,7 +492,7 @@ describe("CanvasRuntimeAvailabilityCoordinator", () => {
       content,
       replicas,
       coordinator: new CanvasRuntimeAvailabilityCoordinator(
-        () => true,
+        isOnline,
         () => "authority-1",
         content,
         commands,
@@ -531,6 +532,60 @@ describe("CanvasRuntimeAvailabilityCoordinator", () => {
         canvasId: "default"
       })
     ).resolves.toEqual(unavailable);
+    expect(fixture.replicas.setRuntimeStatus).toHaveBeenCalledWith(
+      { authorityId: "authority-1", ...scope },
+      null
+    );
+  });
+
+  it("fails closed and clears a completed overlay when the client disconnects during the read", async () => {
+    let online = true;
+    let resolveAvailability!: (value: typeof available) => void;
+    const fixture = setup(available, () => online);
+    vi.mocked(fixture.content.readRuntimeAvailability).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveAvailability = resolve;
+        })
+    );
+
+    const pending = fixture.coordinator.readRuntimeAvailability({
+      localProjectId: "local-project",
+      canvasId: "default"
+    });
+    await vi.waitFor(() => {
+      expect(fixture.content.readRuntimeAvailability).toHaveBeenCalledTimes(1);
+    });
+    online = false;
+    resolveAvailability(available);
+
+    await expect(pending).resolves.toBeNull();
+    expect(fixture.replicas.setRuntimeStatus).toHaveBeenCalledWith(
+      { authorityId: "authority-1", ...scope },
+      null
+    );
+  });
+
+  it("does not begin an availability read after disconnecting during scope resolution", async () => {
+    let online = true;
+    let resolveScope!: (value: typeof scope) => void;
+    const fixture = setup(available, () => online);
+    vi.mocked(fixture.content.resolveCanvasScope).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveScope = resolve;
+        })
+    );
+
+    const pending = fixture.coordinator.readRuntimeAvailability({
+      localProjectId: "local-project",
+      canvasId: "default"
+    });
+    online = false;
+    resolveScope(scope);
+
+    await expect(pending).resolves.toBeNull();
+    expect(fixture.content.readRuntimeAvailability).not.toHaveBeenCalled();
     expect(fixture.replicas.setRuntimeStatus).toHaveBeenCalledWith(
       { authorityId: "authority-1", ...scope },
       null

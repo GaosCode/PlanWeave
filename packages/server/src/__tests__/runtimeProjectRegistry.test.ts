@@ -124,8 +124,10 @@ describe("createTrustedRuntimeRegistry", () => {
 
     const content = await adapter.captureInitialContent(scope);
     const snapshot = await adapter.captureSnapshot(scope);
-    const status = await adapter.read(scope, "2026-08-20T00:00:00.000Z");
     const availability = await adapter.readAvailability(scope, "2026-08-20T00:00:00.000Z");
+    expect(availability.kind).toBe("available");
+    if (availability.kind !== "available") throw new Error("Expected available Runtime");
+    const status = availability.status;
 
     expect(content.members.length).toBeGreaterThan(0);
     expect(snapshot.files.length).toBeGreaterThan(0);
@@ -157,7 +159,6 @@ describe("createTrustedRuntimeRegistry", () => {
       canvasId: "canvas-missing"
     });
 
-    await expect(adapter.read(scope)).rejects.toThrow("canvas_runtime_unavailable");
     await expect(adapter.readAvailability(scope)).resolves.toEqual({
       schemaVersion: "canvas-runtime-availability/v1",
       kind: "unavailable",
