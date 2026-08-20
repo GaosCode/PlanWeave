@@ -35,6 +35,7 @@ import {
   type ResolvedCanvasRuntime
 } from "./canvasRuntimeResolver.js";
 import type { CanvasRuntimeArtifactTransferPort } from "../artifacts/canvasRuntimeArtifactTransfer.js";
+import { resolveCanvasRuntimeWorkItems } from "./canvasRuntimeWorkItemFacts.js";
 
 type CanvasRuntimeCommand = CanvasRuntimeRequestCommand | CanvasRuntimeCancelCommand;
 type ResponseOperation = CanvasRuntimeResponsePayload["response"]["operation"];
@@ -231,6 +232,8 @@ export class CanvasRuntimeService {
     switch (command.operation.operation) {
       case "availability":
         return this.availability(resolved);
+      case "resolve_work_items":
+        return resolveCanvasRuntimeWorkItems(resolved, command.operation.input);
       case "acquire":
         return this.acquire(command, resolved);
       case "release": {

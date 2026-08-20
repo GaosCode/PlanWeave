@@ -81,6 +81,10 @@
       "types": "./dist/assignmentMigration.d.ts",
       "import": "./dist/assignmentMigration.js"
     },
+    "./work/package-facts": {
+      "types": "./dist/workPackageFacts.d.ts",
+      "import": "./dist/workPackageFacts.js"
+    },
     "./canvas/commands": {
       "types": "./dist/canvasCommands.d.ts",
       "import": "./dist/canvasCommands.js"

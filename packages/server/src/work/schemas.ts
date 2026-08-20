@@ -1,4 +1,4 @@
-import { blockRefSchema, opaqueIdentifierSchema } from "@planweave-ai/agent-host-protocol";
+import { opaqueIdentifierSchema } from "@planweave-ai/agent-host-protocol";
 import {
   actorRefSchema,
   humanAssignReasonSchema,
@@ -11,6 +11,10 @@ import {
   assignmentTargetSchema,
   type AssignmentTarget
 } from "@planweave-ai/collaboration-protocol/work/assignment";
+export {
+  workItemPackageFactsSchema,
+  type WorkItemPackageFacts
+} from "@planweave-ai/collaboration-protocol/work/package-facts";
 import { z } from "zod";
 import { humanAuthContextSchema } from "../identity/schemas.js";
 import { WORK_ASSIGNMENT_BATCH_MAX } from "./limits.js";
@@ -113,41 +117,6 @@ export const workAssignmentBatchLimitSchema = z
   .int()
   .min(1)
   .max(WORK_ASSIGNMENT_BATCH_MAX);
-
-/** Plan Package facts used by Server policy and readiness evaluation. */
-export const workItemPackageFactsSchema = z
-  .object({
-    canvasId: opaqueIdentifierSchema,
-    kind: z.enum(["task", "block"]),
-    exists: z.boolean(),
-    taskId: opaqueIdentifierSchema.optional(),
-    blockRef: blockRefSchema.optional(),
-    blockType: z.enum(["implementation", "review"]).optional(),
-    requiredCapabilities: z.array(z.string().min(1)).max(128)
-  })
-  .strict()
-  .superRefine((value, ctx) => {
-    if (value.kind === "task") {
-      if (value.taskId === undefined) {
-        ctx.addIssue({ code: "custom", message: "task facts require taskId", path: ["taskId"] });
-      }
-      if (value.blockRef !== undefined || value.blockType !== undefined) {
-        ctx.addIssue({
-          code: "custom",
-          message: "task facts must not include block fields",
-          path: ["blockRef"]
-        });
-      }
-    }
-    if (value.kind === "block" && value.blockRef === undefined) {
-      ctx.addIssue({
-        code: "custom",
-        message: "block facts require blockRef",
-        path: ["blockRef"]
-      });
-    }
-  });
-export type WorkItemPackageFacts = z.infer<typeof workItemPackageFactsSchema>;
 
 /** Current durable assignment compare-and-set facts. */
 export const assignmentConcurrencyFactsSchema = z

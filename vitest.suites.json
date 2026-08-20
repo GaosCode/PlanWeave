@@ -671,6 +671,7 @@
         "runtimeStatus.test.ts",
         "setupContracts.test.ts",
         "setupHandoff.test.ts",
+        "workPackageFacts.test.ts",
         "workspaceIdentity.test.ts"
       ],
       "integration": [],
@@ -702,6 +703,7 @@
         "backgroundServices.test.ts",
         "canvasRuntimeArtifactTransfer.test.ts",
         "canvasRuntimeService.test.ts",
+        "canvasRuntimeWorkItemFacts.test.ts",
         "connectionStatus.test.ts",
         "durableAcpRelay.test.ts",
         "httpArtifactTransfer.test.ts",

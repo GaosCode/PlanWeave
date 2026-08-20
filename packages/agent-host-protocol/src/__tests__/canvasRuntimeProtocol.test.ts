@@ -82,6 +82,12 @@ describe("Canvas Runtime control protocol", () => {
     const commands = [
       request({ operation: "availability" }),
       request({
+        operation: "resolve_work_items",
+        input: {
+          workItems: [{ kind: "task", canvasId: scope.canvasId, taskId: "task-a" }]
+        }
+      }),
+      request({
         operation: "acquire",
         expectedEvidence: {
           sourceRevision: evidence.sourceRevision,
@@ -117,7 +123,7 @@ describe("Canvas Runtime control protocol", () => {
     for (const command of commands) {
       expect(mailboxCommandSchema.parse(command)).toEqual(command);
     }
-    expect(commands).toHaveLength(15);
+    expect(commands).toHaveLength(16);
   });
 
   it("keeps cancellation separate from ACP leases and correlates its durable response", () => {
@@ -180,6 +186,27 @@ describe("Canvas Runtime control protocol", () => {
         })
       )
     ).toMatchObject({ response: { operation: "acquire" } });
+    expect(
+      canvasRuntimeResponseEventSchema.parse(
+        response({
+          outcome: "success",
+          operation: "resolve_work_items",
+          result: {
+            sourceRevision: evidence.sourceRevision,
+            graphFingerprint: evidence.graphFingerprint,
+            facts: [
+              {
+                canvasId: scope.canvasId,
+                kind: "task",
+                exists: true,
+                taskId: "task-a",
+                requiredCapabilities: []
+              }
+            ]
+          }
+        })
+      )
+    ).toMatchObject({ response: { operation: "resolve_work_items" } });
     expect(
       canvasRuntimeResponseEventSchema.parse(
         response({ outcome: "success", operation: "release", result: { released: true } })

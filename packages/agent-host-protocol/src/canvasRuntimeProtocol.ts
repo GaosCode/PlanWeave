@@ -135,6 +135,12 @@ function requireMatchingField(
 }
 
 const availabilityOperationSchema = z.object({ operation: z.literal("availability") }).strict();
+const resolveWorkItemsOperationSchema = z
+  .object({
+    operation: z.literal("resolve_work_items"),
+    input: canvasRuntimeJsonValueSchema
+  })
+  .strict();
 const acquireOperationSchema = z
   .object({
     operation: z.literal("acquire"),
@@ -199,6 +205,7 @@ const releaseOperationSchema = z
 
 export const canvasRuntimeOperationSchema = z.discriminatedUnion("operation", [
   availabilityOperationSchema,
+  resolveWorkItemsOperationSchema,
   acquireOperationSchema,
   statusOperationSchema,
   inspectOperationSchema,
@@ -339,6 +346,7 @@ export const canvasRuntimeArtifactTransferInputSchema = z
   .strict();
 
 const genericSuccessOperations = [
+  "resolve_work_items",
   "status",
   "inspect",
   "claim",
@@ -408,6 +416,7 @@ export const canvasRuntimeErrorSchema = z
     outcome: z.literal("error"),
     operation: z.enum([
       "availability",
+      "resolve_work_items",
       "acquire",
       "status",
       "inspect",

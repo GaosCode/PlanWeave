@@ -129,6 +129,50 @@ function createLease(state: AgentHostState, runtimeLeaseId = "runtime-lease-1") 
 }
 
 describe("Canvas Runtime Host service", () => {
+  it("dispatches bounded work facts without creating an execution lease", async () => {
+    const { state } = await setup();
+    const workspace = await createTestWorkspace(basicManifest());
+    directories.push(workspace.home, workspace.root);
+    const resolve = vi.fn(async () => ({
+      scope,
+      project: workspace.init.workspace,
+      canvas: workspace.init.workspace
+    }));
+    const service = new CanvasRuntimeService({
+      resolver: resolverWith(resolve),
+      receipts: state.canvasRuntime,
+      capabilities: [CANVAS_RUNTIME_CAPABILITY],
+      artifactTransfer
+    });
+    const createRuntimeLease = vi.spyOn(state.canvasRuntime, "createLease");
+    const command = request("request-work-facts", {
+      operation: "resolve_work_items",
+      input: {
+        workItems: [
+          { kind: "task", canvasId: scope.canvasId, taskId: "T-001" },
+          { kind: "block", canvasId: scope.canvasId, blockRef: "T-001#B-001" }
+        ]
+      }
+    });
+    state.receive(delivery(1, command));
+    await service.handle(command);
+
+    expect(resolve).toHaveBeenCalledOnce();
+    expect(response(state, command.requestId)).toMatchObject({
+      response: {
+        outcome: "success",
+        operation: "resolve_work_items",
+        result: {
+          facts: [
+            { kind: "task", taskId: "T-001", exists: true },
+            { kind: "block", blockRef: "T-001#B-001", exists: true }
+          ]
+        }
+      }
+    });
+    expect(createRuntimeLease).not.toHaveBeenCalled();
+  });
+
   it("keeps package lease evidence separate from block mutation evidence", async () => {
     const { state } = await setup();
     const manifest = basicManifest();
