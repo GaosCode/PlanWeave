@@ -1,11 +1,10 @@
 import type { CanvasRuntimeAvailabilityPort } from "../../../../server/src/canvas/runtimePort.js";
 import type {
-  CanvasExecutionRuntimeLease,
   CanvasExecutionRuntimeLeasePort,
   RuntimeCanvasScope
 } from "../../../../server/src/canvas/executionRuntimePort.js";
-import type { RemoteBlockDispatchCandidate } from "@planweave-ai/runtime";
 import type { CanvasScopeRef } from "../../../../collaboration-protocol/src/primitives.js";
+import type { RemoteBlockDispatchCandidate } from "@planweave-ai/runtime";
 import { describe, expect, it } from "vitest";
 
 export type CanvasRuntimeAdapterContractFixture = {
@@ -13,12 +12,9 @@ export type CanvasRuntimeAdapterContractFixture = {
   blockRef: string;
   adapter: CanvasRuntimeAvailabilityPort & CanvasExecutionRuntimeLeasePort;
   detach(): void | Promise<void>;
-  releaseCount(): number;
-  inspectReleased(lease: CanvasExecutionRuntimeLease): Promise<unknown>;
-  beginMutationThenDetach(
-    lease: CanvasExecutionRuntimeLease,
-    candidate: RemoteBlockDispatchCandidate
-  ): Promise<unknown>;
+  releaseDelegateCalls(): number;
+  sourceDriftError: Readonly<Record<string, unknown>>;
+  unavailableAcquireError: Readonly<Record<string, unknown>>;
   close(): void | Promise<void>;
 };
 
@@ -69,41 +65,22 @@ export function registerCanvasRuntimeAdapterContract(
           lease.runtime.claim(
             claimInput(candidate, changedSourceRevision(candidate.sourceRevision))
           )
-        ).rejects.toMatchObject({ contractOutcome: "content_out_of_sync" });
+        ).rejects.toMatchObject(fixture.sourceDriftError);
 
         await lease.release();
         await lease.release();
-        expect(fixture.releaseCount()).toBe(1);
-        await expect(fixture.inspectReleased(lease)).rejects.toMatchObject({
-          contractOutcome: "runtime_unavailable"
-        });
-
-        const pendingLease = await fixture.adapter.acquire(fixture.scope);
-        const pendingCandidate = await pendingLease.runtime.inspect({ ref: fixture.blockRef });
-        await expect(
-          fixture.beginMutationThenDetach(pendingLease, pendingCandidate)
-        ).rejects.toMatchObject({ contractOutcome: "reconcile_required" });
+        expect(fixture.releaseDelegateCalls()).toBe(1);
 
         await fixture.detach();
         await expect(fixture.adapter.readAvailability(fixture.scope)).resolves.toMatchObject({
           kind: "unavailable"
         });
-        await expect(fixture.adapter.acquire(fixture.scope)).rejects.toMatchObject({
-          contractOutcome: "runtime_unavailable"
-        });
+        await expect(fixture.adapter.acquire(fixture.scope)).rejects.toMatchObject(
+          fixture.unavailableAcquireError
+        );
       } finally {
         await fixture.close();
       }
     });
   });
-}
-
-export function contractError(
-  contractOutcome: "content_out_of_sync" | "runtime_unavailable" | "reconcile_required"
-): Error & { contractOutcome: string } {
-  return Object.assign(new Error(contractOutcome), { contractOutcome });
-}
-
-export function contractClaimInput(candidate: RemoteBlockDispatchCandidate) {
-  return claimInput(candidate, candidate.sourceRevision);
 }

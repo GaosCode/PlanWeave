@@ -4,8 +4,14 @@ import {
   canvasRuntimeResponseEventSchema,
   type CanvasRuntimeRequestCommand
 } from "@planweave-ai/agent-host-protocol";
-import type { RemoteBlockRuntimePort } from "@planweave-ai/runtime";
-import { remoteBlockClaimInputSchema, remoteBlockInspectInputSchema } from "@planweave-ai/runtime";
+import type { RemoteBlockDispatchCandidate, RemoteBlockRuntimePort } from "@planweave-ai/runtime";
+import {
+  RemoteBlockRuntimeError,
+  remoteBlockClaimInputSchema,
+  remoteBlockDispatchCandidateSchema,
+  remoteBlockInspectInputSchema
+} from "@planweave-ai/runtime";
+import { canvasRuntimeAvailabilitySchema } from "../../../collaboration-protocol/src/runtimeAvailability.js";
 import { canvasScopeRefSchema } from "../../../collaboration-protocol/src/primitives.js";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -34,82 +40,32 @@ import { applyMigrations } from "../../../server/src/migrations.js";
 import { ProjectAccessRepository } from "../../../server/src/projectAccessRepository.js";
 import { createTrustedRuntimeRegistry } from "../../../server/src/runtimeProjectRegistry.js";
 import { openServerDatabase } from "../../../server/src/sqlite.js";
+import { describe, expect, it } from "vitest";
 import {
-  contractClaimInput,
-  contractError,
   registerCanvasRuntimeAdapterContract,
   type CanvasRuntimeAdapterContractFixture
 } from "./support/canvasRuntimeAdapterContract.js";
 
 const blockRef = "T-001#B-001";
 
-function unavailable() {
-  return {
-    schemaVersion: "canvas-runtime-availability/v1" as const,
-    kind: "unavailable" as const,
-    reason: "runtime_not_attached" as const
-  };
+function validClaim(candidate: RemoteBlockDispatchCandidate) {
+  return remoteBlockClaimInputSchema.parse({
+    ref: candidate.blockRef,
+    operationId: "operation-contract-pending",
+    controlPlane: "collaboration",
+    sourceRevision: candidate.sourceRevision,
+    graphFingerprint: candidate.graphFingerprint
+  });
 }
 
-function contractFacade(
+function combineAdapter(
   availability: CanvasRuntimeAvailabilityPort,
-  leases: CanvasExecutionRuntimeLeasePort,
-  attached: () => boolean
-) {
-  let releases = 0;
-  const released = new WeakSet<CanvasExecutionRuntimeLease>();
-  const adapter: CanvasRuntimeAvailabilityPort & CanvasExecutionRuntimeLeasePort = {
-    readAvailability(scope, capturedAt) {
-      return attached()
-        ? availability.readAvailability(scope, capturedAt)
-        : Promise.resolve(unavailable());
-    },
-    async acquire(scope) {
-      if (!attached()) throw contractError("runtime_unavailable");
-      let raw: CanvasExecutionRuntimeLease;
-      try {
-        raw = await leases.acquire(scope);
-      } catch {
-        throw contractError("runtime_unavailable");
-      }
-      let releaseResult: void | Promise<void>;
-      const runtime: RemoteBlockRuntimePort = {
-        ...raw.runtime,
-        inspect(input) {
-          if (released.has(lease)) return Promise.reject(contractError("runtime_unavailable"));
-          return raw.runtime.inspect(input);
-        },
-        async claim(input) {
-          if (released.has(lease)) throw contractError("runtime_unavailable");
-          try {
-            return await raw.runtime.claim(input);
-          } catch (error) {
-            if (
-              error instanceof Error &&
-              (error.message === "canvas_runtime_reconcile_required" ||
-                ("reconcileRequired" in error && error.reconcileRequired === true))
-            ) {
-              throw contractError("reconcile_required");
-            }
-            throw contractError("content_out_of_sync");
-          }
-        }
-      };
-      const lease: CanvasExecutionRuntimeLease = {
-        runtime,
-        artifacts: raw.artifacts,
-        release() {
-          if (released.has(lease)) return releaseResult;
-          released.add(lease);
-          releases += 1;
-          releaseResult = raw.release();
-          return releaseResult;
-        }
-      };
-      return lease;
-    }
+  leases: CanvasExecutionRuntimeLeasePort
+): CanvasRuntimeAvailabilityPort & CanvasExecutionRuntimeLeasePort {
+  return {
+    readAvailability: availability.readAvailability.bind(availability),
+    acquire: leases.acquire.bind(leases)
   };
-  return { adapter, releaseCount: () => releases };
 }
 
 async function createLocalFixture(): Promise<CanvasRuntimeAdapterContractFixture> {
@@ -127,31 +83,35 @@ async function createLocalFixture(): Promise<CanvasRuntimeAdapterContractFixture
   const trusted = await createTrustedRuntimeRegistry([
     { ...scope, trustAllDeclaredCanvases: false, projectRoot: workspace.root }
   ]);
-  let attached = true;
+  const runtime = trusted.registry.resolve(scope);
+  const artifacts = trusted.registry.resolveArtifactSource(scope);
+  let releaseDelegateCalls = 0;
+  trusted.registry.setScopedResolver(async () => ({
+    runtime,
+    artifacts,
+    release() {
+      releaseDelegateCalls += 1;
+    }
+  }));
+  let locationAttached = true;
   const availability = createLocalFilesystemCanvasRuntimeAdapter({
     resolveExactCanvasLocation: (input) =>
-      attached ? trusted.resolveExactCanvasLocation(input) : undefined
+      locationAttached ? trusted.resolveExactCanvasLocation(input) : undefined
   });
-  const facade = contractFacade(
-    availability,
-    new LocalFilesystemExecutionRuntimeAdapter(trusted),
-    () => attached
-  );
+  const execution = new LocalFilesystemExecutionRuntimeAdapter(trusted);
   return {
     scope,
     blockRef,
-    adapter: facade.adapter,
+    adapter: combineAdapter(availability, execution),
     detach() {
-      attached = false;
+      locationAttached = false;
+      trusted.registry.setScopedResolver(async () => {
+        throw new Error("remote_runtime_scope_unavailable");
+      });
     },
-    releaseCount: facade.releaseCount,
-    async inspectReleased(lease) {
-      return lease.runtime.inspect({ ref: blockRef });
-    },
-    async beginMutationThenDetach(_lease) {
-      attached = false;
-      throw contractError("reconcile_required");
-    },
+    releaseDelegateCalls: () => releaseDelegateCalls,
+    sourceDriftError: { code: "remote_block_source_changed" },
+    unavailableAcquireError: { message: "canvas_runtime_unavailable" },
     async close() {
       trusted.close();
       await Promise.all([
@@ -163,12 +123,48 @@ async function createLocalFixture(): Promise<CanvasRuntimeAdapterContractFixture
 }
 
 async function createInMemoryFixture(): Promise<CanvasRuntimeAdapterContractFixture> {
-  const seed = await createLocalFixture();
-  const availability = await seed.adapter.readAvailability(seed.scope);
-  const seedLease = await seed.adapter.acquire(seed.scope);
-  const candidate = await seedLease.runtime.inspect({ ref: blockRef });
-  await seed.close();
+  const scope = canvasScopeRefSchema.parse({
+    workspaceId: "workspace-contract-memory",
+    projectId: "project-contract-memory",
+    canvasId: "default"
+  });
+  const sourceRevision = `snapshot:${"b".repeat(64)}`;
+  const graphFingerprint = `pkg-${"a".repeat(64)}`;
+  const candidate = remoteBlockDispatchCandidateSchema.parse({
+    workspaceId: scope.workspaceId,
+    projectId: scope.projectId,
+    canvasId: scope.canvasId,
+    taskId: "T-001",
+    blockRef,
+    blockType: "implementation",
+    sourceRevision,
+    graphFingerprint,
+    renderedPrompt: "# In-memory contract prompt",
+    acceptance: [],
+    dependencySummaries: [],
+    inputArtifacts: [],
+    effectiveExecutor: "codex-acp",
+    agentId: "codex",
+    agentProfileId: "codex-acp",
+    session: {},
+    requiredCapabilities: []
+  });
+  const availability = canvasRuntimeAvailabilitySchema.parse({
+    schemaVersion: "canvas-runtime-availability/v1",
+    kind: "available",
+    sourceRevision,
+    graphFingerprint,
+    status: {
+      schemaVersion: "canvas-runtime-status/v2",
+      scope,
+      packageFingerprint: graphFingerprint,
+      capturedAt: "2026-08-20T00:00:00.000Z",
+      tasks: [],
+      blocks: []
+    }
+  });
   let attached = true;
+  let releaseDelegateCalls = 0;
   const runtime: RemoteBlockRuntimePort = {
     inspect: async () => candidate,
     async claim(input) {
@@ -176,7 +172,9 @@ async function createInMemoryFixture(): Promise<CanvasRuntimeAdapterContractFixt
         input.sourceRevision !== candidate.sourceRevision ||
         input.graphFingerprint !== candidate.graphFingerprint
       ) {
-        throw new Error("in_memory_source_drift");
+        throw Object.assign(new Error("remote_block_source_changed"), {
+          code: "remote_block_source_changed"
+        });
       }
       throw new Error("in_memory_claim_not_needed");
     },
@@ -205,39 +203,56 @@ async function createInMemoryFixture(): Promise<CanvasRuntimeAdapterContractFixt
       throw new Error("not_implemented");
     }
   };
-  const facade = contractFacade(
-    { readAvailability: async () => availability },
-    {
-      acquire: async () => ({
+  const adapter: CanvasRuntimeAvailabilityPort & CanvasExecutionRuntimeLeasePort = {
+    async readAvailability() {
+      return attached
+        ? availability
+        : canvasRuntimeAvailabilitySchema.parse({
+            schemaVersion: "canvas-runtime-availability/v1",
+            kind: "unavailable",
+            reason: "runtime_not_attached"
+          });
+    },
+    async acquire() {
+      if (!attached) throw new Error("canvas_runtime_unavailable");
+      let released = false;
+      return {
         runtime,
         artifacts: {
           read: async () => {
             throw new Error("not_implemented");
           }
         },
-        release() {}
-      })
-    },
-    () => attached
-  );
+        release() {
+          if (released) return;
+          released = true;
+          releaseDelegateCalls += 1;
+        }
+      };
+    }
+  };
   return {
-    scope: seed.scope,
+    scope,
     blockRef,
-    adapter: facade.adapter,
+    adapter,
     detach() {
       attached = false;
     },
-    releaseCount: facade.releaseCount,
-    inspectReleased: async (lease) => lease.runtime.inspect({ ref: blockRef }),
-    async beginMutationThenDetach() {
-      attached = false;
-      throw contractError("reconcile_required");
-    },
+    releaseDelegateCalls: () => releaseDelegateCalls,
+    sourceDriftError: { code: "remote_block_source_changed" },
+    unavailableAcquireError: { message: "canvas_runtime_unavailable" },
     close() {}
   };
 }
 
-async function createRemoteFixture(): Promise<CanvasRuntimeAdapterContractFixture> {
+type RemoteContractFixture = CanvasRuntimeAdapterContractFixture & {
+  beginPendingClaimAndDetach(
+    lease: CanvasExecutionRuntimeLease,
+    candidate: RemoteBlockDispatchCandidate
+  ): Promise<unknown>;
+};
+
+async function createRemoteFixture(): Promise<RemoteContractFixture> {
   const local = await createLocalFixture();
   const database = await openServerDatabase(":memory:", 5_000);
   applyMigrations(database);
@@ -276,7 +291,6 @@ async function createRemoteFixture(): Promise<CanvasRuntimeAdapterContractFixtur
     leaseActive: () => attached
   });
   const raw = new RemoteHostCanvasRuntimeAdapter(locator, broker, { grants, artifacts });
-  const facade = contractFacade(raw, raw, () => attached);
   const hostLeases = new Map<string, CanvasExecutionRuntimeLease>();
   let holdMutation = false;
   let heldMutation = false;
@@ -361,12 +375,14 @@ async function createRemoteFixture(): Promise<CanvasRuntimeAdapterContractFixtur
           return;
         }
         throw new Error("operation_not_supported_by_contract_host");
-      } catch {
+      } catch (error) {
+        const sourceDrift =
+          error instanceof RemoteBlockRuntimeError && error.code === "remote_block_source_changed";
         respond(command, {
           outcome: "error",
           operation: command.operation.operation,
           error: {
-            code: "content_out_of_sync",
+            code: sourceDrift ? "content_out_of_sync" : "contract_host_operation_failed",
             message: "The Canvas Runtime request could not be completed.",
             retryable: false
           }
@@ -378,16 +394,17 @@ async function createRemoteFixture(): Promise<CanvasRuntimeAdapterContractFixtur
   return {
     scope: local.scope,
     blockRef,
-    adapter: facade.adapter,
+    adapter: raw,
     detach() {
       attached = false;
       broker.detachHost(host.id, "disconnected");
     },
-    releaseCount: facade.releaseCount,
-    inspectReleased: async (lease) => lease.runtime.inspect({ ref: blockRef }),
-    async beginMutationThenDetach(lease, candidate) {
+    releaseDelegateCalls: local.releaseDelegateCalls,
+    sourceDriftError: { code: "content_out_of_sync" },
+    unavailableAcquireError: { message: "canvas_runtime_unavailable" },
+    async beginPendingClaimAndDetach(lease, candidate) {
       holdMutation = true;
-      const pending = lease.runtime.claim(contractClaimInput(candidate));
+      const pending = lease.runtime.claim(validClaim(candidate));
       for (let attempt = 0; attempt < 100 && !heldMutation; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, 1));
       }
@@ -410,3 +427,20 @@ registerCanvasRuntimeAdapterContract([
   { name: "Remote Host", create: createRemoteFixture },
   { name: "In-memory", create: createInMemoryFixture }
 ]);
+
+describe("Remote Host Canvas Runtime transport contract", () => {
+  it("marks an in-flight mutation reconcile_required when its Host detaches", async () => {
+    const fixture = await createRemoteFixture();
+    try {
+      const lease = await fixture.adapter.acquire(fixture.scope);
+      const candidate = await lease.runtime.inspect({ ref: fixture.blockRef });
+
+      await expect(fixture.beginPendingClaimAndDetach(lease, candidate)).rejects.toMatchObject({
+        code: "canvas_runtime_reconcile_required",
+        reconcileRequired: true
+      });
+    } finally {
+      await fixture.close();
+    }
+  });
+});
