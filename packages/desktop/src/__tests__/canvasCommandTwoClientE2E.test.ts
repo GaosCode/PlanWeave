@@ -23,7 +23,7 @@ import {
   createDistributedServerComposition,
   type DistributedServerComposition
 } from "../../../server/src/serverComposition.js";
-import { createDefaultCanvasRuntimePort } from "../../../server/src/canvas/runtimePort.js";
+import { createLocalFilesystemCanvasRuntimeAdapter } from "../../../server/src/canvas/localFilesystemRuntimeAdapter.js";
 import {
   CollaborationClient,
   type CollaborationWebSocketConstructor
@@ -68,15 +68,23 @@ async function setup() {
     nodes: [],
     updatedAt: "2026-01-01T00:00:00.000Z"
   });
-  const runtime = createDefaultCanvasRuntimePort();
-  if (!runtime.captureContent) throw new Error("content capture unavailable");
-  const initialContent = await runtime.captureContent({
-    projectRoot: workspace.root,
-    canvasId: "default",
-    expectedPackageDir: canonicalWorkspace.packageDir
-  });
-  if (!initialContent.ok) throw new Error(initialContent.detail);
   const projectId = workspace.init.workspace.id;
+  const workspaceId = legacyWorkspaceIdForProject(projectId);
+  const scope = { workspaceId, projectId, canvasId: "default" };
+  const runtime = createLocalFilesystemCanvasRuntimeAdapter({
+    resolveExactCanvasLocation(input) {
+      return input.workspaceId === workspaceId &&
+        input.projectId === projectId &&
+        input.canvasId === "default"
+        ? {
+            ...scope,
+            projectRoot: workspace.root,
+            packageDir: canonicalWorkspace.packageDir
+          }
+        : undefined;
+    }
+  });
+  const initialContent = await runtime.captureInitialContent(scope);
   const httpServer = createServer();
   servers.push(httpServer);
   const adminToken = `pw_operator_${"C".repeat(43)}`;
@@ -88,7 +96,7 @@ async function setup() {
     dataDirectory: join(workspace.root, "server-data"),
     trustedProjects: [
       {
-        workspaceId: legacyWorkspaceIdForProject(projectId),
+        workspaceId,
         projectId,
         canvasId: "default",
         projectRoot: workspace.root
@@ -117,7 +125,7 @@ async function setup() {
     projectId,
     projectRoot: workspace.root,
     packageDir: canonicalWorkspace.packageDir,
-    initialContent: initialContent.content
+    initialContent
   };
 }
 

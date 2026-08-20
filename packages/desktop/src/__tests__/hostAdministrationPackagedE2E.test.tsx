@@ -256,6 +256,7 @@ describe("packaged Host administration control plane", () => {
       workspaces: parsedHandoff.workspaceId
         ? [{ id: parsedHandoff.workspaceId, path: "project" }]
         : [],
+      runtimeProjects: [],
       agentProfiles: []
     };
     expect(uiConfig).not.toHaveProperty("enrollmentCode");

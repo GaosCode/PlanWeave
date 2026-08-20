@@ -100,8 +100,9 @@ describe("authoritative canvas replica two-client live E2E", () => {
         const facade = new CollaborationCanvasCommandFacade({
           resolveClient: () => client,
           resolveCanvasBinding: async () => ({
+            kind: "local" as const,
             localProjectId: fixture.projectId,
-            localCanvasId: "default",
+            canvasId: "default",
             remoteProjectId: fixture.projectId,
             remoteCanvasId: "default"
           }),
@@ -118,7 +119,11 @@ describe("authoritative canvas replica two-client live E2E", () => {
       };
       const ownerFacade = createFacade(ownerClient, "owner-authority", ownerProjections);
       const memberFacade = createFacade(memberClient, "member-authority", memberProjections);
-      const bindInput = { localProjectId: fixture.projectId, canvasId: "default" };
+      const bindInput = {
+        kind: "local" as const,
+        localProjectId: fixture.projectId,
+        canvasId: "default"
+      };
       await ownerFacade.bind(bindInput);
       await memberFacade.bind(bindInput);
       await waitFor(

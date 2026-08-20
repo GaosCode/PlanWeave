@@ -24,7 +24,7 @@ import {
   createDistributedServerComposition,
   type DistributedServerComposition
 } from "../../../../server/src/serverComposition.js";
-import { createDefaultCanvasRuntimePort } from "../../../../server/src/canvas/runtimePort.js";
+import { createLocalFilesystemCanvasRuntimeAdapter } from "../../../../server/src/canvas/localFilesystemRuntimeAdapter.js";
 import { CollaborationCredentialVault } from "../../main/collaboration/collaborationCredentialVault.js";
 import { CollaborationWorkspaceConnection } from "../../main/collaboration/collaborationWorkspaceConnection.js";
 
@@ -58,18 +58,25 @@ export async function setupSelfHostedTwoClientFixture() {
     nodes: [],
     updatedAt: "2026-01-01T00:00:00.000Z"
   });
-  const runtime = createDefaultCanvasRuntimePort();
-  if (!runtime.captureContent) throw new Error("content_capture_unavailable");
-  const initialContent = await runtime.captureContent({
-    projectRoot: workspace.root,
-    canvasId: "default",
-    expectedPackageDir: canonicalWorkspace.packageDir
-  });
-  if (!initialContent.ok) throw new Error(initialContent.detail);
-  await createCanvasWorkspace({ cwd: workspace.root, id: "private", title: "Private canvas" });
-  directories.push(workspace.home, workspace.root);
   const projectId = workspace.init.workspace.id;
   const workspaceId = legacyWorkspaceIdForProject(projectId);
+  const scope = { workspaceId, projectId, canvasId: "default" };
+  const runtime = createLocalFilesystemCanvasRuntimeAdapter({
+    resolveExactCanvasLocation(input) {
+      return input.workspaceId === workspaceId &&
+        input.projectId === projectId &&
+        input.canvasId === "default"
+        ? {
+            ...scope,
+            projectRoot: workspace.root,
+            packageDir: canonicalWorkspace.packageDir
+          }
+        : undefined;
+    }
+  });
+  const initialContent = await runtime.captureInitialContent(scope);
+  await createCanvasWorkspace({ cwd: workspace.root, id: "private", title: "Private canvas" });
+  directories.push(workspace.home, workspace.root);
   const httpServer = createServer();
   servers.push(httpServer);
   await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
@@ -102,7 +109,7 @@ export async function setupSelfHostedTwoClientFixture() {
     origin,
     home: workspace.home,
     databasePath: config.databasePath,
-    initialContent: initialContent.content
+    initialContent
   };
 }
 
