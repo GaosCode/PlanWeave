@@ -284,6 +284,9 @@ class StartupHarness {
       DROP TABLE remote_operations_unscoped_legacy;
       DROP TABLE dispatches_unscoped_legacy;
       DROP TABLE server_exposure_leases;
+      DROP TABLE canvas_runtime_artifact_grants;
+      DROP TABLE canvas_runtime_leases;
+      DROP TABLE canvas_runtime_host_bindings;
       DELETE FROM project_access_grants;
       DELETE FROM canvas_registry;
       DELETE FROM project_registry;

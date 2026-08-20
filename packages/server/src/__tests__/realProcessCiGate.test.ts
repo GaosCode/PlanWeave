@@ -40,7 +40,11 @@ describe("real-process CI registration gate", () => {
       /vitest\.integration-distributed\.config\.ts/
     );
     expect(new Set(suites.integrationShards.distributed)).toEqual(
-      new Set(["packages/server/src/__tests__", "packages/agent-host/src/__tests__"])
+      new Set([
+        "packages/server/src/__tests__",
+        "packages/agent-host/src/__tests__",
+        "packages/distributed-integration/src/__tests__"
+      ])
     );
     expect(integrationDistributedConfig).toContain('testFilesForIntegrationShard("distributed")');
     expect(integrationDistributedConfig).not.toContain("testFilesForRoots");
