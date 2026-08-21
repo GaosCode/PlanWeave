@@ -1408,7 +1408,7 @@ export const enCatalog = {
     "This legacy profile needs a new invitation or deployment connection before it can connect.",
   peopleRemoteWorkspaceTitle: "Workspace management",
   peopleRemoteWorkspaceDescription:
-    "Manage the current Workspace identity, canvas publishing, and access. Project collaboration and this device's Server status are shown separately.",
+    "Manage the current Workspace identity and canvas publishing. Manage canvas access from Members; project collaboration and this device's Server status are shown separately.",
   peopleClose: "Close",
   peopleWorking: "Working…",
   peopleDisplayName: "Your name or nickname",

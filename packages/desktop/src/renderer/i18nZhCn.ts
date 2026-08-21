@@ -1319,7 +1319,7 @@ export const zhCnCatalog = {
   peopleProfileReconnectRequired: "此旧配置需要通过新邀请或部署连接重新建立后才能连接。",
   peopleRemoteWorkspaceTitle: "Workspace 管理",
   peopleRemoteWorkspaceDescription:
-    "管理当前 Workspace 身份、画布发布和访问权限。项目协作在线状态与这台设备的 Server 状态分别显示。",
+    "管理当前 Workspace 身份和画布发布。画布访问权限请在“成员”页管理；项目协作在线状态与这台设备的 Server 状态分别显示。",
   peopleClose: "关闭",
   peopleWorking: "处理中…",
   peopleDisplayName: "你的姓名或昵称",
