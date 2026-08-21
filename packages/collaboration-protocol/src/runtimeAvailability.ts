@@ -18,7 +18,8 @@ export const canvasRuntimeUnavailableReasonSchema = z.enum([
 ]);
 export type CanvasRuntimeUnavailableReason = z.infer<typeof canvasRuntimeUnavailableReasonSchema>;
 
-export const canvasRuntimeAvailabilitySchema = z.discriminatedUnion("kind", [
+/** Execution-device observation. This is never the authority for shared Runtime State. */
+export const canvasRuntimeExecutionAvailabilitySchema = z.discriminatedUnion("kind", [
   z
     .object({
       schemaVersion: canvasRuntimeAvailabilitySchemaVersionSchema,
@@ -39,4 +40,42 @@ export const canvasRuntimeAvailabilitySchema = z.discriminatedUnion("kind", [
     })
     .strict()
 ]);
+export type CanvasRuntimeExecutionAvailability = z.infer<
+  typeof canvasRuntimeExecutionAvailabilitySchema
+>;
+
+export const canvasRuntimeStateAvailabilitySchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("initialized"),
+      status: canvasRuntimeStatusProjectionSchema
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("uninitialized")
+    })
+    .strict()
+]);
+export type CanvasRuntimeStateAvailability = z.infer<typeof canvasRuntimeStateAvailabilitySchema>;
+
+export const canvasRuntimeViewSchemaVersion = "canvas-runtime-view/v1" as const;
+
+/**
+ * Shared-canvas Runtime read model. State remains readable when no execution device is online.
+ */
+export const canvasRuntimeAvailabilitySchema = z
+  .object({
+    schemaVersion: z.literal(canvasRuntimeViewSchemaVersion),
+    state: canvasRuntimeStateAvailabilitySchema,
+    execution: canvasRuntimeExecutionAvailabilitySchema
+  })
+  .strict();
 export type CanvasRuntimeAvailability = z.infer<typeof canvasRuntimeAvailabilitySchema>;
+
+export const importCanvasRuntimeStatusRequestSchema = z
+  .object({ status: canvasRuntimeStatusProjectionSchema })
+  .strict();
+export type ImportCanvasRuntimeStatusRequest = z.infer<
+  typeof importCanvasRuntimeStatusRequestSchema
+>;
