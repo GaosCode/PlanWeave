@@ -414,7 +414,8 @@ describe("PeopleView", () => {
     expect(screen.queryByTestId("people-connect-mode-setup")).not.toBeInTheDocument();
     expect(screen.queryByTestId("people-connect-mode-connect")).not.toBeInTheDocument();
     expect(screen.queryByTestId("people-connect-mode-bootstrap")).not.toBeInTheDocument();
-    expect(screen.getByTestId("local-collaboration-server-panel")).toBeVisible();
+    expect(screen.queryByTestId("local-collaboration-server-panel")).not.toBeInTheDocument();
+    expect(screen.getByTestId("canvas-access-panel")).toBeVisible();
     expect(screen.getByTestId("content-authority-panel")).toBeVisible();
     expect(screen.queryByTestId("people-panel")).not.toBeInTheDocument();
     expect(screen.queryByTestId("current-canvas-access-panel")).not.toBeInTheDocument();

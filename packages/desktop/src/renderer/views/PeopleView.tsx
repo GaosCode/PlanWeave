@@ -277,6 +277,34 @@ export function PeopleView({
   const membershipResult = (ok: boolean) =>
     ok ? t("notifyMembershipChanged") : (panel.actionError ?? t("peopleError"));
 
+  const authoritativeCanvasAccess = (
+    <CurrentCanvasAccessPanel
+      view={workspaceAccessScope.access.view}
+      loading={workspaceAccessScope.access.loading}
+      error={workspaceAccessScope.access.error}
+      busy={workspaceAccessScope.access.busy || workspaceAccessScope.loading}
+      scopeSelector={
+        <WorkspaceAccessScopeSelector
+          options={workspaceAccessScope.options}
+          selectedKey={workspaceAccessScope.selectedKey}
+          loading={workspaceAccessScope.loading}
+          error={workspaceAccessScope.error}
+          busy={workspaceAccessScope.access.busy}
+          t={t}
+          onSelect={workspaceAccessScope.select}
+        />
+      }
+      t={t}
+      onRefresh={async () => {
+        await Promise.all([
+          workspaceAccessScope.refreshOptions(),
+          workspaceAccessScope.access.refresh()
+        ]);
+      }}
+      onUpdateVisibility={workspaceAccessScope.access.updateVisibility}
+    />
+  );
+
   return (
     <section
       className="h-full min-h-0 w-full overflow-y-auto [scrollbar-gutter:stable]"
@@ -499,31 +527,7 @@ export function PeopleView({
                   }}
                   onRefreshDetails={handleRefreshDetails}
                 />
-                <CurrentCanvasAccessPanel
-                  view={workspaceAccessScope.access.view}
-                  loading={workspaceAccessScope.access.loading}
-                  error={workspaceAccessScope.access.error}
-                  busy={workspaceAccessScope.access.busy || workspaceAccessScope.loading}
-                  scopeSelector={
-                    <WorkspaceAccessScopeSelector
-                      options={workspaceAccessScope.options}
-                      selectedKey={workspaceAccessScope.selectedKey}
-                      loading={workspaceAccessScope.loading}
-                      error={workspaceAccessScope.error}
-                      busy={workspaceAccessScope.access.busy}
-                      t={t}
-                      onSelect={workspaceAccessScope.select}
-                    />
-                  }
-                  t={t}
-                  onRefresh={async () => {
-                    await Promise.all([
-                      workspaceAccessScope.refreshOptions(),
-                      workspaceAccessScope.access.refresh()
-                    ]);
-                  }}
-                  onUpdateVisibility={workspaceAccessScope.access.updateVisibility}
-                />
+                {authoritativeCanvasAccess}
               </>
             ) : (
               <WorkspaceManagementPanel
@@ -542,24 +546,26 @@ export function PeopleView({
                   />
                 }
                 hostedCanvases={
-                  <LocalCollaborationServerPanel
-                    api={api}
-                    t={t}
-                    projectId={null}
-                    canvasId={null}
-                    scopeLayout={collaborationScopeLayout}
-                    onScopeLayoutChange={onCollaborationScopeLayoutChange}
-                    copyText={copyText}
-                    showInvitationControls={false}
-                    invitationHandoff={localInvitationHandoff}
-                    onInvitationHandoffChange={setLocalInvitationHandoff}
-                    onStatusChange={handleLocalServerStatusChange}
-                    serverExposure={desktopServerExposure}
-                    canControlLocalServer={canControlLocalServer}
-                    serverOrigin={status?.workspaceConnection.profile?.serverBaseUrl ?? null}
-                    scopesRequireRunning={canControlLocalServer}
-                    onManageServer={onManageServer}
-                  />
+                  canControlLocalServer ? (
+                    <LocalCollaborationServerPanel
+                      api={api}
+                      t={t}
+                      projectId={null}
+                      canvasId={null}
+                      scopeLayout={collaborationScopeLayout}
+                      onScopeLayoutChange={onCollaborationScopeLayoutChange}
+                      copyText={copyText}
+                      showInvitationControls={false}
+                      invitationHandoff={localInvitationHandoff}
+                      onInvitationHandoffChange={setLocalInvitationHandoff}
+                      onStatusChange={handleLocalServerStatusChange}
+                      serverExposure={desktopServerExposure}
+                      scopesRequireRunning
+                      onManageServer={onManageServer}
+                    />
+                  ) : sessionConnected ? (
+                    authoritativeCanvasAccess
+                  ) : null
                 }
                 contentAuthority={
                   sessionConnected ? (

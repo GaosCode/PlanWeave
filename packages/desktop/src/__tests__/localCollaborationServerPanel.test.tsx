@@ -196,6 +196,10 @@ describe("LocalCollaborationServerPanel", () => {
     await userEvent.click(
       await screen.findByRole("checkbox", { name: "Project One / Canvas One" })
     );
+    expect(
+      screen.getByTestId("local-collaboration-scope-status-desktop-project-1-canvas-1")
+    ).toHaveTextContent("Pending apply");
+    expect(screen.queryByText("Hosted here")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Apply changes" }));
 
     await waitFor(() =>
@@ -204,6 +208,47 @@ describe("LocalCollaborationServerPanel", () => {
       })
     );
     expect(collaborationApi.startLocalCollaborationServer).not.toHaveBeenCalled();
+  });
+
+  it("keeps a failed local hosting change pending instead of presenting it as applied", async () => {
+    const emptyCatalog = {
+      projects: [
+        {
+          projectId: "desktop-project-1",
+          name: "Project One",
+          selectedCanvasCount: 0,
+          canvases: [{ canvasId: "canvas-1", name: "Canvas One", selected: false, current: true }]
+        }
+      ],
+      selectedCount: 0
+    };
+    const collaborationApi = api({
+      getLocalCollaborationScopeCatalog: vi.fn().mockResolvedValue(emptyCatalog),
+      setLocalCollaborationTrustedScopes: vi.fn().mockRejectedValue(new Error("apply failed"))
+    });
+    render(
+      <LocalCollaborationServerPanelHarness
+        api={collaborationApi}
+        t={createTranslator("en")}
+        projectId="desktop-project-1"
+        canvasId="canvas-1"
+        scopeLayout={expandedScopeLayout}
+        onScopeLayoutChange={onScopeLayoutChange}
+        copyText={copyText}
+      />
+    );
+
+    await userEvent.click(
+      await screen.findByRole("checkbox", { name: "Project One / Canvas One" })
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Apply changes" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("apply failed");
+    expect(screen.getByText("0 hosted")).toBeVisible();
+    expect(
+      screen.getByTestId("local-collaboration-scope-status-desktop-project-1-canvas-1")
+    ).toHaveTextContent("Pending apply");
+    expect(screen.queryByText("Hosted here")).not.toBeInTheDocument();
   });
 
   it("keeps start and stop off the canvas panel and explains a stopped local Server", async () => {
@@ -319,8 +364,10 @@ describe("LocalCollaborationServerPanel", () => {
     );
     expect(screen.getByTestId("local-collaboration-scope-section")).not.toHaveClass("border-t");
     expect(screen.getByTestId("local-collaboration-scope-section")).not.toHaveClass("border-y");
-    expect(screen.getByRole("heading", { name: "Shared canvases" })).toHaveClass("text-base");
-    await userEvent.click(screen.getByRole("button", { name: "Hide hosted canvas selection" }));
+    expect(screen.getByRole("heading", { name: "Canvases hosted on this computer" })).toHaveClass(
+      "text-base"
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Hide local hosting selection" }));
     expect(onLayoutChange).toHaveBeenLastCalledWith({ collapsed: true });
 
     rerender(
@@ -384,7 +431,9 @@ describe("LocalCollaborationServerPanel", () => {
       />
     );
 
-    expect(await screen.findByRole("heading", { name: "Shared canvases" })).toBeVisible();
+    expect(
+      await screen.findByRole("heading", { name: "Canvases hosted on this computer" })
+    ).toBeVisible();
     expect(screen.getByText("Invite collaborators")).toBeVisible();
     expect(screen.queryByRole("switch")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Copy address only" })).not.toBeInTheDocument();

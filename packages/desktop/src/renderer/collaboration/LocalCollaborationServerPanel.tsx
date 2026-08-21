@@ -428,7 +428,7 @@ export function LocalCollaborationServerPanel({
             </span>
           </span>
           <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">
-            {t("localServerSelectedCount").replace("{count}", String(draftScopes.length))}
+            {t("localServerSelectedCount").replace("{count}", String(savedScopes.length))}
           </span>
         </button>
 
@@ -479,7 +479,7 @@ export function LocalCollaborationServerPanel({
                     <span className="text-xs tabular-nums text-muted-foreground">
                       {
                         project.canvases.filter((canvas) =>
-                          draftScopeKeys.has(
+                          savedScopeKeys.has(
                             scopeKey({ projectId: project.projectId, canvasId: canvas.canvasId })
                           )
                         ).length
@@ -491,7 +491,17 @@ export function LocalCollaborationServerPanel({
                     <div id={projectContentId} className="flex flex-col gap-1 px-2 pb-2">
                       {project.canvases.map((canvas) => {
                         const scope = { projectId: project.projectId, canvasId: canvas.canvasId };
-                        const checked = draftScopeKeys.has(scopeKey(scope));
+                        const key = scopeKey(scope);
+                        const checked = draftScopeKeys.has(key);
+                        const saved = savedScopeKeys.has(key);
+                        const scopeStatus =
+                          checked === saved
+                            ? saved
+                              ? { label: t("localServerHosted"), tone: "hosted" as const }
+                              : { label: t("localServerPrivate"), tone: "private" as const }
+                            : checked
+                              ? { label: t("localServerPendingAdd"), tone: "pending" as const }
+                              : { label: t("localServerPendingRemove"), tone: "pending" as const };
                         return (
                           <label
                             key={canvas.canvasId}
@@ -514,9 +524,16 @@ export function LocalCollaborationServerPanel({
                               </span>
                             ) : null}
                             <span
-                              className={`text-[10px] ${checked ? "text-emerald-700 dark:text-emerald-300" : "text-muted-foreground"}`}
+                              className={`text-[10px] ${
+                                scopeStatus.tone === "hosted"
+                                  ? "text-emerald-700 dark:text-emerald-300"
+                                  : scopeStatus.tone === "pending"
+                                    ? "text-amber-700 dark:text-amber-300"
+                                    : "text-muted-foreground"
+                              }`}
+                              data-testid={`local-collaboration-scope-status-${project.projectId}-${canvas.canvasId}`}
                             >
-                              {checked ? t("localServerHosted") : t("localServerPrivate")}
+                              {scopeStatus.label}
                             </span>
                           </label>
                         );
