@@ -9,6 +9,7 @@ import { AnimatedTreeRegion } from "../renderer/sidebar/AnimatedTreeRegion";
 import { ProjectSidebar } from "../renderer/sidebar/ProjectSidebar";
 import { orderProjectsByPinnedIds } from "../renderer/settings";
 import type { DesktopGraphViewModel, DesktopProjectSummary } from "@planweave-ai/runtime";
+import type { CanvasAccessRecord } from "@planweave-ai/collaboration-protocol/access/project";
 import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
 
 afterEach(cleanupRendererTestEnvironment);
@@ -32,6 +33,90 @@ function replaceNavigatorForTest(value: {
 }
 
 describe("desktop renderer component interactions", () => {
+  it("groups Workspace canvases inside the project area instead of a standalone remote section", async () => {
+    class ResizeObserverMock {
+      disconnect = vi.fn();
+      observe = vi.fn();
+      unobserve = vi.fn();
+    }
+    vi.stubGlobal("ResizeObserver", ResizeObserverMock);
+    const remoteCanvas = {
+      schemaVersion: "project-access/v1",
+      registry: {
+        projectRegistryId: "project-registry-1",
+        canvasRegistryId: "canvas-registry-1",
+        workspaceId: "workspace-1",
+        projectId: "project-a",
+        canvasId: "canvas-alpha"
+      },
+      visibility: "shared",
+      acl: { revision: 1, updatedAt: "2030-01-01T00:00:00.000Z" },
+      owner: "human-1",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    } as CanvasAccessRecord;
+    const otherProjectCanvas = {
+      ...remoteCanvas,
+      registry: {
+        ...remoteCanvas.registry,
+        projectRegistryId: "project-registry-2",
+        canvasRegistryId: "canvas-registry-2",
+        projectId: "project-b"
+      }
+    } as CanvasAccessRecord;
+    const onRemoteCanvasSelect = vi.fn();
+
+    render(
+      <ProjectSidebar
+        activeView="graph"
+        collapsed={false}
+        expandedProjectId={null}
+        graph={null}
+        handleDeleteProject={vi.fn().mockResolvedValue(undefined)}
+        handleDeleteTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+        handleDuplicateTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+        handleDeleteTaskNode={vi.fn().mockResolvedValue(undefined)}
+        handleOpenProject={vi.fn().mockResolvedValue(undefined)}
+        handleProjectNewGraph={vi.fn().mockResolvedValue(undefined)}
+        handleRefreshProjects={vi.fn().mockResolvedValue(undefined)}
+        handleRenameTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+        handleRevealProject={vi.fn().mockResolvedValue(undefined)}
+        handleTaskPanelSelect={vi.fn()}
+        loadProject={vi.fn().mockResolvedValue(undefined)}
+        notificationItems={[]}
+        onRemoteCanvasSelect={onRemoteCanvasSelect}
+        onToggleSidebar={vi.fn()}
+        onTogglePinnedProject={vi.fn()}
+        pinnedProjectIds={new Set()}
+        projectRefreshing={false}
+        projects={[]}
+        remoteCanvases={[remoteCanvas, otherProjectCanvas]}
+        resetLayout={vi.fn().mockResolvedValue(undefined)}
+        selectedProject={null}
+        selectedCanvasId={null}
+        selectedWorkspaceCanvas={{ projectId: "project-a", canvasId: "canvas-alpha" }}
+        selectedTaskPanelId={null}
+        setActiveView={vi.fn()}
+        t={createTranslator("zh-CN")}
+      />
+    );
+
+    expect(screen.queryByTestId("remote-canvas-catalog")).not.toBeInTheDocument();
+    expect(screen.getByTestId("workspace-canvas-catalog")).toBeVisible();
+    expect(screen.getByText("Workspace 画布")).toBeVisible();
+    expect(screen.getByRole("button", { name: /project-a/ })).toBeVisible();
+    expect(screen.getAllByRole("button", { name: "canvas-alpha" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "canvas-alpha" })[0]).toHaveAttribute(
+      "aria-current",
+      "page"
+    );
+    expect(screen.getAllByRole("button", { name: "canvas-alpha" })[1]).not.toHaveAttribute(
+      "aria-current"
+    );
+
+    await userEvent.click(screen.getAllByRole("button", { name: "canvas-alpha" })[0]);
+    expect(onRemoteCanvasSelect).toHaveBeenCalledWith(remoteCanvas);
+  });
+
   it("keeps sidebar tree labels visible while right-side controls collapse rows", async () => {
     class ResizeObserverMock {
       disconnect = vi.fn();

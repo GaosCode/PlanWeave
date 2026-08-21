@@ -110,11 +110,11 @@ describe("desktop renderer i18n", () => {
     const en = createTranslator("en");
 
     expect(zh("peopleProjectSessionConnected")).toBe("项目协作已连接");
-    expect(zh("peopleWorkspaceIdentityPending")).toBe("已配置，等待身份验证");
-    expect(zh("peopleRemoteWorkspaceDescription")).toContain("画布访问权限请在“成员”页管理");
+    expect(zh("peopleWorkspaceIdentityPending")).toBe("已配置，等待连接");
+    expect(zh("peopleRemoteWorkspaceDescription")).toContain("成员权限请在“成员”页管理");
     expect(en("peopleProjectSessionConnected")).toBe("Project collaboration connected");
-    expect(en("peopleWorkspaceIdentityPending")).toBe("Configured · identity verification pending");
-    expect(en("peopleRemoteWorkspaceDescription")).toContain("Manage canvas access from Members");
+    expect(en("peopleWorkspaceIdentityPending")).toBe("Configured · waiting to connect");
+    expect(en("peopleRemoteWorkspaceDescription")).toContain("Manage member access from Members");
   });
 
   it("resolves file manager labels from renderer platform data", () => {

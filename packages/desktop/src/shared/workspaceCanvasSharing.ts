@@ -12,6 +12,7 @@ const opaqueIdSchema = z
 export const workspaceCanvasSharingStateSchema = z.enum([
   "local_only",
   "registered_unpublished",
+  "published_outdated",
   "published_private",
   "published_shared"
 ]);

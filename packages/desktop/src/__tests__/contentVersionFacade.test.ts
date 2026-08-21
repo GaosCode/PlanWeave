@@ -111,12 +111,13 @@ function fakeClient(
           canRecover: true
         };
       }
+      const inSync = input.localReplica.versionId === published.completed.versionId;
       return {
         authoritativeHead: head(projectId, published.completed),
         localReplica: input.localReplica,
         lastAcknowledgement: acknowledgement(projectId, published.completed),
-        replicaStatus: "in_sync",
-        recoveryAction: "none",
+        replicaStatus: inSync ? "in_sync" : "diverged",
+        recoveryAction: inSync ? "none" : "fetch_head",
         canPublishInitial: false,
         canMaterialize: true,
         canRecover: true
@@ -300,6 +301,20 @@ describe("ContentVersionFacade", () => {
     await expect(facade.listWorkspaceCanvasSharingCandidates()).resolves.toEqual([
       expect.objectContaining({ state: "published_private", visibility: "private" })
     ]);
+
+    await writeFile(
+      join(workspace.init.workspace.packageDir, "nodes/T-001/prompt.md"),
+      "# changed after sharing\n",
+      "utf8"
+    );
+    await expect(facade.listWorkspaceCanvasSharingCandidates()).resolves.toEqual([
+      expect.objectContaining({ state: "published_outdated", visibility: "private" })
+    ]);
+    expect(fake.calls.discoverContentAuthority).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        localReplica: expect.objectContaining({ verification: "complete" })
+      })
+    );
   });
 
   it("imports the exact local working-copy Runtime status without supporting remote bindings", async () => {

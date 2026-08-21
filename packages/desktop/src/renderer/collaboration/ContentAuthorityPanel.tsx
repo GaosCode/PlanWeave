@@ -8,6 +8,7 @@ import type {
   PlanWeaveCollaborationApi
 } from "../../shared/collaboration.js";
 import type { createTranslator } from "../i18n";
+import { WorkspaceSectionHeader } from "../team/WorkspaceSectionHeader";
 import {
   collaborationDeveloperErrorDetail,
   collaborationErrorCode,
@@ -326,20 +327,19 @@ export function ContentAuthorityPanel({
       className={
         appearance === "settings"
           ? "min-w-0 flex flex-col gap-5"
-          : "min-w-0 border-t border-border/70 py-7"
+          : "mt-8 min-w-0 border-t border-border/70 pt-8"
       }
       data-testid="content-authority-panel"
       data-appearance={appearance}
       aria-labelledby={appearance === "settings" ? undefined : "content-authority-title"}
     >
       {appearance === "flat" ? (
-        <div className="min-w-0 px-1 pb-5">
-          <h2 id="content-authority-title" className="text-base font-semibold text-text-strong">
-            {t("contentAuthorityTitle")}
-          </h2>
-          <p className="mt-1 max-w-3xl text-xs leading-5 text-muted-foreground">
-            {t("contentAuthorityDescription")}
-          </p>
+        <div className="min-w-0 pb-5">
+          <WorkspaceSectionHeader
+            title={t("contentAuthorityTitle")}
+            description={t("contentAuthorityDescription")}
+            titleId="content-authority-title"
+          />
         </div>
       ) : null}
       {selectedCanvasOutsideHostedScope ? (

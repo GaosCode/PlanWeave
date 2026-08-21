@@ -38,7 +38,8 @@ import {
 import {
   workspaceCanvasPublishInputSchema,
   workspaceCanvasSharingCandidateSchema,
-  type WorkspaceCanvasSharingCandidate
+  type WorkspaceCanvasSharingCandidate,
+  type WorkspaceCanvasSharingState
 } from "../../shared/workspaceCanvasSharing.js";
 import type { CollaborationClient } from "./CollaborationClient.js";
 import {
@@ -90,6 +91,15 @@ export type CollaborationAuthorityContext = {
 
 function unavailable(code: string, retryable = false): CollaborationClientError {
   return new CollaborationClientError({ kind: "unknown", code, message: code, retryable });
+}
+
+function sharingState(
+  visibility: CanvasAccessRecord["visibility"],
+  authority: ContentVersionDesktopReadModel
+): WorkspaceCanvasSharingState {
+  if (!authority.authoritativeHead) return "registered_unpublished";
+  if (authority.replicaStatus !== "in_sync") return "published_outdated";
+  return visibility === "shared" ? "published_shared" : "published_private";
 }
 
 /** Main-only authority workflow. Renderer receives only redacted content refs/read models. */
@@ -197,6 +207,21 @@ export class ContentVersionFacade {
       for (const canvas of overview.taskCanvases) {
         const workspace = await resolveTaskCanvasWorkspace(overview.rootPath, canvas.canvasId);
         if (workspace.id !== client.projectId) continue;
+        const registered = registeredByCanvasId.get(canvas.canvasId) ?? null;
+        const localReplica = registered
+          ? (
+              await this.collect({
+                kind: "local",
+                clientFingerprint: this.clientFingerprint(client),
+                authorityProjectId: client.projectId,
+                remoteCanvasId: canvas.canvasId,
+                projectRoot: overview.rootPath,
+                localProjectId: overview.projectId,
+                localCanvasId: canvas.canvasId,
+                expectedPackageDir: workspace.packageDir
+              })
+            ).ref
+          : null;
         candidates.push(
           await this.workspaceCanvasSharingCandidate(
             client,
@@ -204,7 +229,8 @@ export class ContentVersionFacade {
             overview.name,
             canvas.canvasId,
             canvas.name,
-            registeredByCanvasId.get(canvas.canvasId) ?? null
+            registered,
+            localReplica
           )
         );
       }
@@ -252,7 +278,7 @@ export class ContentVersionFacade {
       projectName: overview.name,
       canvasId: canvas.canvasId,
       canvasName: canvas.name,
-      state: registered.visibility === "shared" ? "published_shared" : "published_private",
+      state: sharingState(registered.visibility, authority),
       visibility: registered.visibility,
       authority
     });
@@ -875,7 +901,8 @@ export class ContentVersionFacade {
     projectName: string,
     canvasId: string,
     canvasName: string,
-    registered: CanvasAccessRecord | null
+    registered: CanvasAccessRecord | null,
+    localReplica: CompletedContentVersionRef | null
   ): Promise<WorkspaceCanvasSharingCandidate> {
     if (!registered) {
       return workspaceCanvasSharingCandidateSchema.parse({
@@ -890,7 +917,7 @@ export class ContentVersionFacade {
     }
     const discovered = await client.discoverContentAuthority({
       canvasId,
-      localReplica: null,
+      localReplica,
       knownRevision: null
     });
     const authority = contentVersionDesktopReadModelSchema.parse(
@@ -901,11 +928,7 @@ export class ContentVersionFacade {
       projectName,
       canvasId,
       canvasName,
-      state: !authority.authoritativeHead
-        ? "registered_unpublished"
-        : registered.visibility === "shared"
-          ? "published_shared"
-          : "published_private",
+      state: sharingState(registered.visibility, authority),
       visibility: registered.visibility,
       authority
     });

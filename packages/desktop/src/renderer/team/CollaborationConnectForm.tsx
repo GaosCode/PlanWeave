@@ -98,6 +98,16 @@ function workspaceIdentityStatusLabel(
   }
 }
 
+function workspaceDisplayName(
+  displayName: string | null | undefined,
+  t: ReturnType<typeof createTranslator>
+): string {
+  if (!displayName || displayName === "Configured workspace") {
+    return t("peopleWorkspaceDefaultName");
+  }
+  return displayName;
+}
+
 /**
  * Join / bootstrap / setup-code / connect onboarding.
  * Setup codes and device tokens are never retained in renderer state.
@@ -529,8 +539,9 @@ export function CollaborationConnectForm({
                     className="font-semibold text-text-strong"
                     data-testid="people-workspace-current-name"
                   >
-                    {workspaceConnection?.workspaceDisplayName ??
-                      t("peopleWorkspaceIdentityMissing")}
+                    {workspaceConnection
+                      ? workspaceDisplayName(workspaceConnection.workspaceDisplayName, t)
+                      : t("peopleWorkspaceIdentityMissing")}
                   </div>
                   <div
                     className="mt-0.5 truncate text-sm text-text-muted"
@@ -859,7 +870,10 @@ export function CollaborationConnectForm({
                 {activeProfile || workspaceConnection?.profile ? (
                   <div data-testid="people-connect-active-profile">
                     <div className="font-medium text-text-strong">
-                      {workspaceConnection?.workspaceDisplayName ?? activeProfile?.displayName}
+                      {workspaceDisplayName(
+                        workspaceConnection?.workspaceDisplayName ?? activeProfile?.displayName,
+                        t
+                      )}
                     </div>
                     <div className="text-muted-foreground">
                       {workspaceConnection?.profile?.serverBaseUrl ?? activeProfile?.serverBaseUrl}

@@ -1175,7 +1175,7 @@ export function ProjectWorkspaceProvider({
       selectedCanvasId,
       selectedTaskPanelId,
       remoteCanvases: remoteWorkspace.authorizedCanvases,
-      selectedRemoteCanvasId: remoteWorkspace.binding?.canvasId ?? null,
+      selectedWorkspaceCanvas: remoteWorkspace.binding,
       onRemoteCanvasSelect: selectRemoteCanvas,
       setActiveView,
       t
@@ -1210,7 +1210,7 @@ export function ProjectWorkspaceProvider({
       pinnedProjectIds,
       projectRefreshing,
       remoteWorkspace.authorizedCanvases,
-      remoteWorkspace.binding?.canvasId,
+      remoteWorkspace.binding,
       refreshProjects,
       resetLayout,
       selectedCanvasId,

@@ -70,7 +70,7 @@ type ProjectSidebarProps = {
   selectedCanvasId: string | null;
   selectedTaskPanelId: string | null;
   remoteCanvases?: CanvasAccessRecord[];
-  selectedRemoteCanvasId?: string | null;
+  selectedWorkspaceCanvas?: Pick<CanvasAccessRecord["registry"], "projectId" | "canvasId"> | null;
   onRemoteCanvasSelect?: (canvas: CanvasAccessRecord) => void;
   setActiveView: Dispatch<SetStateAction<AppView>>;
   t: ReturnType<typeof createTranslator>;
@@ -115,7 +115,7 @@ export function ProjectSidebar({
   selectedCanvasId,
   selectedTaskPanelId,
   remoteCanvases = [],
-  selectedRemoteCanvasId = null,
+  selectedWorkspaceCanvas = null,
   onRemoteCanvasSelect,
   setActiveView,
   t,
@@ -232,26 +232,6 @@ export function ProjectSidebar({
         onSelectView={setActiveView}
         t={t}
       />
-      {remoteCanvases.length > 0 ? (
-        <div className="border-b border-border/80 px-3 py-2" data-testid="remote-canvas-catalog">
-          <div className="mb-1 text-xs text-text-muted">{t("remoteCanvases")}</div>
-          <div className="flex flex-col gap-1">
-            {remoteCanvases.map((canvas) => (
-              <Button
-                key={`${canvas.registry.workspaceId}:${canvas.registry.projectId}:${canvas.registry.canvasId}`}
-                size="sm"
-                variant={
-                  selectedRemoteCanvasId === canvas.registry.canvasId ? "secondary" : "ghost"
-                }
-                className="justify-start"
-                onClick={() => onRemoteCanvasSelect?.(canvas)}
-              >
-                {canvas.registry.canvasId}
-              </Button>
-            ))}
-          </div>
-        </div>
-      ) : null}
       <ProjectTree
         collapsedCanvasIds={collapsedCanvasIds}
         collapsedProjectIds={collapsedProjectIds}
@@ -285,11 +265,14 @@ export function ProjectSidebar({
         pinnedProjectIds={pinnedProjectIds}
         projectRefreshing={projectRefreshing}
         projects={projects}
+        remoteCanvases={remoteCanvases}
         renamingProjectId={renamingProjectId}
         selectedCanvasId={selectedCanvasId}
         selectedProject={selectedProject}
+        selectedWorkspaceCanvas={selectedWorkspaceCanvas}
         selectedTaskPanelId={selectedTaskPanelId}
         setRenamingProjectId={setRenamingProjectId}
+        onRemoteCanvasSelect={onRemoteCanvasSelect}
         t={t}
       />
       <Separator className="bg-border/80" />

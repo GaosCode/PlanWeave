@@ -180,7 +180,11 @@ describe("ContentAuthorityPanel", () => {
       />
     );
 
-    expect(await screen.findByText(/Add it under Shared canvases/i)).toBeVisible();
+    expect(
+      await screen.findByText(
+        "This account cannot sync the selected Server canvas. Ask a Workspace owner to grant access. [forbidden]"
+      )
+    ).toBeVisible();
   });
 
   it("keeps bootstrap network failures visible and shows the raw IPC text in developer mode", async () => {
@@ -261,21 +265,19 @@ describe("ContentAuthorityPanel", () => {
       "bg-background"
     );
     expect(screen.queryByTestId("content-authority-section-icon")).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Member content sync" })).toHaveClass("text-base");
+    expect(screen.getByRole("heading", { name: "Sync to this computer" })).toHaveClass("text-base");
     expect(screen.getByTestId("content-authority-digest")).toHaveAttribute("title", "a".repeat(64));
     expect(screen.getByTestId("content-authority-local-version")).toHaveTextContent(
-      "Not materialized on this device"
+      "Not synced to this computer"
     );
 
-    await user.click(
-      await screen.findByRole("button", { name: "Restore from authoritative version" })
-    );
+    await user.click(await screen.findByRole("button", { name: "Restore Workspace version" }));
 
     await waitFor(() => expect(onMaterialized).toHaveBeenCalledTimes(1));
     expect(api.materializeCollaborationContentHead).toHaveBeenCalledTimes(1);
     expect(
       screen.getByText(
-        "The authoritative version is synced to this device and the project view has been refreshed."
+        "The Workspace version is synced to this computer and the project view has been refreshed."
       )
     ).toBeInTheDocument();
   });
@@ -309,9 +311,7 @@ describe("ContentAuthorityPanel", () => {
       />
     );
 
-    await user.click(
-      await screen.findByRole("button", { name: "Restore from authoritative version" })
-    );
+    await user.click(await screen.findByRole("button", { name: "Restore Workspace version" }));
 
     await waitFor(() => expect(screen.getByText("project_refresh_failed")).toBeInTheDocument());
     expect(api.materializeCollaborationContentHead).toHaveBeenCalledTimes(1);
@@ -368,9 +368,7 @@ describe("ContentAuthorityPanel", () => {
       })
     );
     expect(onReplicaReady).toHaveBeenCalledWith(result);
-    expect(
-      await screen.findByText("The authoritative Plan Package was synced and opened.")
-    ).toBeInTheDocument();
+    expect(await screen.findByText("The canvas was synced and opened.")).toBeInTheDocument();
   });
 
   it("keeps the remote workspace active when explicit materialization fails", async () => {

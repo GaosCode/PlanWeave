@@ -3,8 +3,10 @@ import type { Dispatch, SetStateAction } from "react";
 import type { DesktopGraphViewModel, DesktopProjectSummary } from "@planweave-ai/runtime";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import type { CanvasAccessRecord } from "@planweave-ai/collaboration-protocol/access/project";
 import type { createTranslator } from "../i18n";
 import { ProjectTreeItem } from "./ProjectTreeItem";
+import { WorkspaceCanvasCatalog } from "./WorkspaceCanvasCatalog";
 
 type TaskCanvasSummary = DesktopProjectSummary["taskCanvases"][number];
 
@@ -56,7 +58,10 @@ type ProjectTreeProps = {
   pinnedProjectIds: Set<string>;
   projectRefreshing: boolean;
   projects: DesktopProjectSummary[];
+  remoteCanvases: CanvasAccessRecord[];
   renamingProjectId: string | null;
+  selectedWorkspaceCanvas: Pick<CanvasAccessRecord["registry"], "projectId" | "canvasId"> | null;
+  onRemoteCanvasSelect?: (canvas: CanvasAccessRecord) => void;
   selectedProject: DesktopProjectSummary | null;
   selectedCanvasId: string | null;
   selectedTaskPanelId: string | null;
@@ -97,7 +102,10 @@ export function ProjectTree({
   pinnedProjectIds,
   projectRefreshing,
   projects,
+  remoteCanvases,
   renamingProjectId,
+  selectedWorkspaceCanvas,
+  onRemoteCanvasSelect,
   selectedProject,
   selectedCanvasId,
   selectedTaskPanelId,
@@ -192,6 +200,12 @@ export function ProjectTree({
               />
             );
           })}
+          <WorkspaceCanvasCatalog
+            canvases={remoteCanvases}
+            selectedCanvas={selectedWorkspaceCanvas}
+            onSelect={onRemoteCanvasSelect}
+            t={t}
+          />
         </div>
       </ScrollArea>
     </div>

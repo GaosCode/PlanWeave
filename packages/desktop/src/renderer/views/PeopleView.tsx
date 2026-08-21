@@ -571,6 +571,9 @@ export function PeopleView({
                         api={api}
                         connected={sessionConnected}
                         connectionKey={activeProfile?.profileId ?? null}
+                        onPublished={() => {
+                          void workspaceAccessScope.refreshOptions();
+                        }}
                         t={t}
                       />
                     </div>
