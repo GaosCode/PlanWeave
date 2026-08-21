@@ -4,7 +4,7 @@ import {
   readAuthorizedCanvasRuntimeStatus,
   restorePackageSnapshot
 } from "@planweave-ai/runtime";
-import { canvasRuntimeAvailabilitySchema } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
+import { canvasRuntimeExecutionAvailabilitySchema } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import type { CanvasScopeRef } from "@planweave-ai/collaboration-protocol/core/primitives";
 import type { RuntimeCanvasExpansion } from "../runtimeProjectRegistry.js";
 import type { LocalFilesystemCanvasRuntimePort } from "./runtimePort.js";
@@ -31,7 +31,7 @@ export function createLocalFilesystemCanvasRuntimeAdapter(
     async readAvailability(scope, capturedAt) {
       const location = locations.resolveExactCanvasLocation(scope);
       if (!location) {
-        return canvasRuntimeAvailabilitySchema.parse({
+        return canvasRuntimeExecutionAvailabilitySchema.parse({
           schemaVersion: "canvas-runtime-availability/v1",
           kind: "unavailable",
           reason: "runtime_not_attached"
@@ -57,20 +57,20 @@ export function createLocalFilesystemCanvasRuntimeAdapter(
           before.resolvedPackageDir !== location.packageDir ||
           after.resolvedPackageDir !== location.packageDir
         ) {
-          return canvasRuntimeAvailabilitySchema.parse({
+          return canvasRuntimeExecutionAvailabilitySchema.parse({
             schemaVersion: "canvas-runtime-availability/v1",
             kind: "unavailable",
             reason: "runtime_not_attached"
           });
         }
         if (before.snapshot.sourceRevision !== after.snapshot.sourceRevision) {
-          return canvasRuntimeAvailabilitySchema.parse({
+          return canvasRuntimeExecutionAvailabilitySchema.parse({
             schemaVersion: "canvas-runtime-availability/v1",
             kind: "unavailable",
             reason: "content_out_of_sync"
           });
         }
-        return canvasRuntimeAvailabilitySchema.parse({
+        return canvasRuntimeExecutionAvailabilitySchema.parse({
           schemaVersion: "canvas-runtime-availability/v1",
           kind: "available",
           status,
@@ -86,7 +86,7 @@ export function createLocalFilesystemCanvasRuntimeAdapter(
           code === "EACCES" ||
           message === "runtime_package_location_mismatch"
         ) {
-          return canvasRuntimeAvailabilitySchema.parse({
+          return canvasRuntimeExecutionAvailabilitySchema.parse({
             schemaVersion: "canvas-runtime-availability/v1",
             kind: "unavailable",
             reason: "runtime_not_attached"

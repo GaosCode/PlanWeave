@@ -1,9 +1,11 @@
 import {
   createRemoteBlockArtifactSource,
   createRemoteBlockRuntimePort,
+  readAuthorizedCanvasRuntimeStatus,
   resolveProjectCanvasWorkspace
 } from "@planweave-ai/runtime";
 import { resolve } from "node:path";
+import { canvasScopeRefSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import { canonicalRemoteRuntimePort } from "../canonicalRemoteRuntimePort.js";
 import type { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import type { ProjectAccessRepository } from "../projectAccessRepository.js";
@@ -26,7 +28,22 @@ export class LocalFilesystemExecutionRuntimeAdapter
 
   async acquire(scope: RuntimeCanvasScope) {
     try {
-      return await this.registry.registry.acquire(scope);
+      const lease = await this.registry.registry.acquire(scope);
+      const location = this.registry.resolveExactCanvasLocation(scope);
+      return {
+        ...lease,
+        ...(location
+          ? {
+              readStatus: () =>
+                readAuthorizedCanvasRuntimeStatus({
+                  projectRoot: location.projectRoot,
+                  canvasId: scope.canvasId,
+                  expectedPackageDir: location.packageDir,
+                  scope: canvasScopeRefSchema.parse(scope)
+                })
+            }
+          : {})
+      };
     } catch (error) {
       if (isUnavailableRuntimeBinding(error)) throw new CanvasRuntimeUnavailableError();
       throw error;

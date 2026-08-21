@@ -109,7 +109,7 @@ describe("canvas command HTTP rate limiting", () => {
 });
 
 describe("canvas runtime availability HTTP", () => {
-  it("returns available and runtime_not_attached as schema-valid 200 responses", async () => {
+  it("keeps state and execution availability as independent schema-valid results", async () => {
     const available = await setup(() => new Date("2026-08-16T00:00:00.000Z"));
     const availableResponse = await fetch(
       `${available.origin}/api/v1/projects/p/canvases/default/runtime-availability`,
@@ -117,8 +117,9 @@ describe("canvas runtime availability HTTP", () => {
     );
     expect(availableResponse.status).toBe(200);
     await expect(availableResponse.json()).resolves.toMatchObject({
-      schemaVersion: "canvas-runtime-availability/v1",
-      kind: "available"
+      schemaVersion: "canvas-runtime-view/v1",
+      state: { kind: "uninitialized" },
+      execution: { kind: "available" }
     });
 
     const detached = await setup(() => new Date("2026-08-16T00:00:00.000Z"), {
@@ -136,9 +137,13 @@ describe("canvas runtime availability HTTP", () => {
     );
     expect(detachedResponse.status).toBe(200);
     await expect(detachedResponse.json()).resolves.toEqual({
-      schemaVersion: "canvas-runtime-availability/v1",
-      kind: "unavailable",
-      reason: "runtime_not_attached"
+      schemaVersion: "canvas-runtime-view/v1",
+      state: { kind: "uninitialized" },
+      execution: {
+        schemaVersion: "canvas-runtime-availability/v1",
+        kind: "unavailable",
+        reason: "runtime_not_attached"
+      }
     });
   });
 
@@ -168,9 +173,63 @@ describe("canvas runtime availability HTTP", () => {
     );
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
-      schemaVersion: "canvas-runtime-availability/v1",
-      kind: "unavailable",
-      reason: "content_out_of_sync"
+      schemaVersion: "canvas-runtime-view/v1",
+      state: { kind: "uninitialized" },
+      execution: {
+        schemaVersion: "canvas-runtime-availability/v1",
+        kind: "unavailable",
+        reason: "content_out_of_sync"
+      }
+    });
+  });
+
+  it("imports an exact initial state once and preserves it when execution is detached", async () => {
+    const fixture = await setup(() => new Date("2026-08-16T00:00:00.000Z"));
+    const availabilityUrl = `${fixture.origin}/api/v1/projects/p/canvases/default/runtime-availability`;
+    const initial = await fetch(availabilityUrl, {
+      headers: { Authorization: `Bearer ${fixture.token}` }
+    }).then((response) => response.json());
+    const initialStatus = initial.execution.status;
+    const importUrl = `${fixture.origin}/api/v1/projects/p/canvases/default/runtime-status/import`;
+
+    const invalid = await fetch(importUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${fixture.token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({})
+    });
+    expect(invalid.status).toBe(400);
+    await expect(invalid.json()).resolves.toEqual({ error: "invalid_runtime_status" });
+
+    const imported = await fetch(importUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${fixture.token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ status: initialStatus })
+    });
+    expect(imported.status).toBe(200);
+    await expect(imported.json()).resolves.toEqual({
+      kind: "initialized",
+      status: initialStatus
+    });
+
+    const conflicting = await fetch(importUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${fixture.token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        status: { ...initialStatus, capturedAt: "2026-08-17T00:00:00.000Z" }
+      })
+    });
+    expect(conflicting.status).toBe(409);
+    await expect(conflicting.json()).resolves.toEqual({
+      error: "canvas_runtime_status_already_initialized"
     });
   });
 });

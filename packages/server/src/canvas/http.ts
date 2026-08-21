@@ -4,9 +4,13 @@ import {
   canvasReconnectResponseSchema,
   type CanvasCommandOutcome
 } from "@planweave-ai/collaboration-protocol/canvas/commands";
-import { canvasRuntimeAvailabilitySchema } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
+import {
+  canvasRuntimeAvailabilitySchema,
+  canvasRuntimeStateAvailabilitySchema
+} from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import { opaqueIdentifierSchema } from "@planweave-ai/agent-host-protocol";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { ZodError } from "zod";
 import {
   authenticateCollaborationForScope,
   authenticateCollaborationForProject,
@@ -29,6 +33,7 @@ type CanvasRoute =
   | { kind: "command"; projectId: string; canvasId: string }
   | { kind: "reconnect"; projectId: string; canvasId: string }
   | { kind: "runtime_availability"; projectId: string; canvasId: string }
+  | { kind: "runtime_status_import"; projectId: string; canvasId: string }
   | { kind: "forbidden_feature"; feature: string; projectId?: string };
 
 const CANVAS_COMMAND_RATE_MAX_BUCKETS = 2_000;
@@ -80,6 +85,17 @@ export function routeCanvasCommandHttp(
       feature: pathname,
       projectId: forbidden[1] ? decodeIdentifier(forbidden[1]) : undefined
     };
+  }
+
+  const runtimeStatusImport =
+    /^\/api\/v1\/projects\/([^/]+)\/canvases\/([^/]+)\/runtime-status\/import$/.exec(pathname);
+  if (runtimeStatusImport) {
+    if (request.method !== "POST") return undefined;
+    const projectId = decodeIdentifier(runtimeStatusImport[1] ?? "");
+    const canvasId = decodeIdentifier(runtimeStatusImport[2] ?? "");
+    return projectId && canvasId
+      ? { kind: "runtime_status_import", projectId, canvasId }
+      : undefined;
   }
 
   const match =
@@ -238,6 +254,15 @@ export async function handleCanvasCommandHttpRequest(
       return true;
     }
     const body = await readJson(request);
+    if (routed.kind === "runtime_status_import") {
+      const state = options.runtimeAvailabilityService.importInitial(context, {
+        projectId: routed.projectId,
+        canvasId: routed.canvasId,
+        body
+      });
+      respond(response, 200, canvasRuntimeStateAvailabilitySchema.parse(state));
+      return true;
+    }
     if (routed.kind === "command") {
       const submit =
         body && typeof body === "object"
@@ -278,6 +303,16 @@ export async function handleCanvasCommandHttpRequest(
     respond(response, status, canvasReconnectResponseSchema.parse(reconnect));
     return true;
   } catch (error) {
+    if (error instanceof ZodError) {
+      respond(
+        response,
+        routed.kind === "runtime_status_import" ? 400 : 500,
+        routed.kind === "runtime_status_import"
+          ? { error: "invalid_runtime_status" }
+          : { error: "server_error" }
+      );
+      return true;
+    }
     const message = error instanceof Error ? error.message : "server_error";
     if (message === "canvas_body_too_large") {
       respond(response, 413, { error: "payload_too_large" });
@@ -292,6 +327,17 @@ export async function handleCanvasCommandHttpRequest(
       respond(response, forbidden ? 403 : message.endsWith("unknown_canvas") ? 404 : 500, {
         error: message
       });
+      return true;
+    }
+    if (message === "canvas_runtime_status_already_initialized") {
+      respond(response, 409, { error: message });
+      return true;
+    }
+    if (
+      message === "canvas_runtime_status_scope_mismatch" ||
+      message === "canvas_runtime_status_content_out_of_sync"
+    ) {
+      respond(response, 409, { error: message });
       return true;
     }
     respond(response, 500, { error: "server_error" });

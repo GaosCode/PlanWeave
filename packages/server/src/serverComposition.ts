@@ -53,6 +53,10 @@ import {
 import { CanvasRuntimeRpcBroker } from "./canvas/runtimeRpcBroker.js";
 import { CanvasRuntimeHostLocator } from "./canvas/runtimeHostLocator.js";
 import { RuntimeArtifactGrantRepository } from "./canvas/runtimeArtifactGrantRepository.js";
+import { AuthoritativeExecutionRuntimeAdapter } from "./canvas/authoritativeExecutionRuntimeAdapter.js";
+import { CanvasRuntimeStatusRepository } from "./canvas/runtimeStatusRepository.js";
+import { ContentVersionRepository } from "./canvas/contentVersionRepository.js";
+import { readStableCanvasContentFingerprint } from "./canvas/contentFingerprint.js";
 
 export type DistributedServerCompositionOptions = {
   httpServer: HttpServer;
@@ -126,10 +130,17 @@ export async function createDistributedServerComposition(
       (database) => {
         readiness.transition("reconciling");
         activity = createActivityJournalComposition({ database, config, clock });
+        const contentVersions = new ContentVersionRepository(database, clock);
+        const authoritativeExecutionRuntime = new AuthoritativeExecutionRuntimeAdapter({
+          delegate: executionRuntime,
+          readContentFingerprint: (scope) =>
+            readStableCanvasContentFingerprint(contentVersions, scope),
+          runtimeStatuses: new CanvasRuntimeStatusRepository(database, clock)
+        });
         return createRemoteCoordinationOptions({
           config,
           clock,
-          ownerRuntimeLeases: executionRuntime,
+          ownerRuntimeLeases: authoritativeExecutionRuntime,
           ownerRuntimeAvailability: ownerExecutionRuntime,
           activity,
           getAuthorization: () => authorization,

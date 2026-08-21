@@ -209,7 +209,7 @@ const member = {
 describe("authoritative content version repository", () => {
   it("persists a verified owner-only initial version before creating the first head", async () => {
     const { repository, service } = await fixture();
-    expect(latestCentralSchemaVersion).toBe(52);
+    expect(latestCentralSchemaVersion).toBe(53);
     const result = service.publishInitial(owner, {
       projectId: "p",
       canvasId: "default",

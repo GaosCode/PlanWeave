@@ -44,11 +44,19 @@ describe("canvas command service (OSS-004 B-002)", () => {
         "/api/v1/projects/p/canvases/default/runtime-availability"
       )?.kind
     ).toBe("runtime_availability");
+    expect(
+      routeCanvasCommandHttp(
+        { method: "POST" } as IncomingMessage,
+        "/api/v1/projects/p/canvases/default/runtime-status/import"
+      )?.kind
+    ).toBe("runtime_status_import");
     for (const [method, path] of [
       ["GET", "/api/v1/projects/p/canvases/default/commands/runtime-availability"],
       ["GET", "/api/v1/projects/p/canvases/default/runtime-availability/extra"],
       ["GET", "/api/v1/projects/p/canvases/default/commands"],
-      ["POST", "/api/v1/projects/p/canvases/default/runtime-availability"]
+      ["POST", "/api/v1/projects/p/canvases/default/runtime-availability"],
+      ["GET", "/api/v1/projects/p/canvases/default/runtime-status/import"],
+      ["POST", "/api/v1/projects/p/canvases/default/runtime-status/import/extra"]
     ] as const) {
       expect(
         routeCanvasCommandHttp({ method } as IncomingMessage, path),
@@ -66,10 +74,10 @@ describe("canvas command service (OSS-004 B-002)", () => {
     }
   });
 
-  it("keeps the removed runtime-status error namespace out of the HTTP handler", async () => {
+  it("keeps the removed runtime-status read route out of the HTTP handler", async () => {
     const source = await readFile(new URL("../canvas/http.ts", import.meta.url), "utf8");
 
-    expect(source).not.toContain("canvas_runtime_status_");
+    expect(source).not.toContain('kind: "runtime_status_read"');
   });
 
   it("serves reconnect snapshots from the content head rather than digest-only snapshot rows", async () => {

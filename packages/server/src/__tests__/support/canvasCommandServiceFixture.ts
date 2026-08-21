@@ -12,6 +12,7 @@ import {
   CanvasCommandRepository,
   CanvasCommandService,
   CanvasRuntimeAvailabilityService,
+  CanvasRuntimeStatusRepository,
   ContentVersionRepository,
   SqliteAuthoritativeCanvasCommitStore,
   type CanvasRuntimeAvailabilityPort
@@ -162,11 +163,16 @@ export async function canvasCommandServiceFixture(options?: {
     clock: () => new Date("2026-01-02T00:00:00.000Z"),
     presenceHeadProbe: () => 999
   });
+  const runtimeStatuses = new CanvasRuntimeStatusRepository(
+    database,
+    () => new Date("2026-01-02T00:00:00.000Z")
+  );
   const runtimeAvailabilityService = new CanvasRuntimeAvailabilityService({
     access,
     workspaceIdentity,
     contentVersions,
     runtimeAvailability,
+    runtimeStatuses,
     clock: () => new Date("2026-01-02T00:00:00.000Z")
   });
   return {
@@ -176,6 +182,7 @@ export async function canvasCommandServiceFixture(options?: {
     repository,
     service,
     contentVersions,
+    runtimeStatuses,
     runtimeAvailabilityService
   };
 }

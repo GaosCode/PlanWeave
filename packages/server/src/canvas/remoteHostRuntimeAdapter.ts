@@ -10,10 +10,11 @@ import {
 } from "@planweave-ai/agent-host-protocol";
 import { createHash } from "node:crypto";
 import {
-  canvasRuntimeAvailabilitySchema,
-  type CanvasRuntimeAvailability
+  canvasRuntimeExecutionAvailabilitySchema,
+  type CanvasRuntimeExecutionAvailability
 } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import type { CanvasScopeRef } from "@planweave-ai/collaboration-protocol/core/primitives";
+import { canvasRuntimeStatusProjectionSchema } from "@planweave-ai/collaboration-protocol/canvas/status";
 import {
   remoteBlockArtifactReadInputSchema,
   remoteBlockBindingViewSchema,
@@ -116,11 +117,11 @@ export class RemoteHostCanvasRuntimeAdapter
   async readAvailability(
     scopeInput: CanvasScopeRef,
     _capturedAt?: string
-  ): Promise<CanvasRuntimeAvailability> {
+  ): Promise<CanvasRuntimeExecutionAvailability> {
     const scope = canvasRuntimeLogicalScopeSchema.parse(scopeInput);
     const located = this.locator.locate(scope);
     if (located.kind === "unavailable") {
-      return canvasRuntimeAvailabilitySchema.parse({
+      return canvasRuntimeExecutionAvailabilitySchema.parse({
         schemaVersion: "canvas-runtime-availability/v1",
         kind: "unavailable",
         reason: located.reason,
@@ -134,7 +135,7 @@ export class RemoteHostCanvasRuntimeAdapter
     if (response.operation !== "availability") {
       throw new Error("canvas_runtime_response_operation_mismatch");
     }
-    return canvasRuntimeAvailabilitySchema.parse({
+    return canvasRuntimeExecutionAvailabilitySchema.parse({
       schemaVersion: "canvas-runtime-availability/v1",
       ...response.result
     });
@@ -233,7 +234,13 @@ export class RemoteHostCanvasRuntimeAdapter
         throw new Error("canvas_runtime_release_response_invalid");
       }
     });
-    return { runtime, artifacts, release };
+    const readStatus = async () =>
+      parseGenericResult(
+        await call({ operation: "status", runtimeLeaseId }),
+        "status",
+        canvasRuntimeStatusProjectionSchema
+      );
+    return { runtime, artifacts, readStatus, release };
   }
 
   private createRuntimePort(
@@ -401,7 +408,7 @@ export class LocalFirstCanvasRuntimeRouter
     }
     if (this.remote) return this.remote.readAvailability(scope, capturedAt);
     return Promise.resolve(
-      canvasRuntimeAvailabilitySchema.parse({
+      canvasRuntimeExecutionAvailabilitySchema.parse({
         schemaVersion: "canvas-runtime-availability/v1",
         kind: "unavailable",
         reason: "runtime_not_attached"

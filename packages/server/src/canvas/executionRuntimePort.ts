@@ -1,3 +1,4 @@
+import type { CanvasRuntimeStatusProjection } from "@planweave-ai/collaboration-protocol/canvas/status";
 import type { RemoteBlockArtifactSource, RemoteBlockRuntimePort } from "@planweave-ai/runtime";
 
 export type RuntimeCanvasScope = {
@@ -16,6 +17,7 @@ export class CanvasRuntimeUnavailableError extends Error {
 export type CanvasExecutionRuntimeLease = {
   runtime: RemoteBlockRuntimePort;
   artifacts: RemoteBlockArtifactSource;
+  readStatus?(): Promise<CanvasRuntimeStatusProjection>;
   release(): void | Promise<void>;
 };
 

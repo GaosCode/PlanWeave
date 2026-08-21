@@ -1,10 +1,13 @@
-import type { CanvasRuntimeAvailability } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
+import type { CanvasRuntimeExecutionAvailability } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import type { CompleteContentVersion } from "@planweave-ai/collaboration-protocol/content/version";
 import type { CanvasScopeRef } from "@planweave-ai/collaboration-protocol/core/primitives";
 import type { CapturedPackageSnapshot } from "@planweave-ai/runtime";
 
 export type CanvasRuntimeAvailabilityPort = {
-  readAvailability(scope: CanvasScopeRef, capturedAt?: string): Promise<CanvasRuntimeAvailability>;
+  readAvailability(
+    scope: CanvasScopeRef,
+    capturedAt?: string
+  ): Promise<CanvasRuntimeExecutionAvailability>;
 };
 
 export type CanvasInitialContentCapturePort = {

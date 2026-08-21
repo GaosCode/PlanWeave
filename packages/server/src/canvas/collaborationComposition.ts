@@ -12,6 +12,7 @@ import {
   CanvasCommandRepository,
   CanvasCommandService,
   CanvasRuntimeAvailabilityService,
+  CanvasRuntimeStatusRepository,
   CanvasOperationRetentionMaintenance,
   ContentVersionRepository,
   ContentVersionService,
@@ -143,6 +144,7 @@ export async function createCanvasCollaborationComposition(
       workspaceIdentity: options.workspaceIdentity,
       contentVersions,
       runtimeAvailability: options.runtimeAvailability,
+      runtimeStatuses: new CanvasRuntimeStatusRepository(options.database, options.clock),
       clock: options.clock
     });
     operationRetentionMaintenance = new CanvasOperationRetentionMaintenance(

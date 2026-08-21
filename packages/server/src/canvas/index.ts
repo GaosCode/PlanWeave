@@ -54,6 +54,12 @@ export {
   CanvasRuntimeAvailabilityService,
   type CanvasRuntimeAvailabilityServiceOptions
 } from "./runtimeAvailabilityService.js";
+export { CanvasRuntimeStatusRepository } from "./runtimeStatusRepository.js";
+export {
+  AuthoritativeExecutionRuntimeAdapter,
+  type AuthoritativeExecutionRuntimeAdapterOptions,
+  type CanvasRuntimeStatusExecutionStore
+} from "./authoritativeExecutionRuntimeAdapter.js";
 export {
   canvasCommandOutcomeHttpStatus,
   handleCanvasCommandHttpRequest,
