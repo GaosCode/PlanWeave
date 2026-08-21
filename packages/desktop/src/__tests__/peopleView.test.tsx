@@ -391,6 +391,7 @@ describe("PeopleView", () => {
     expect(screen.queryByTestId("content-authority-panel")).not.toBeInTheDocument();
     expect(screen.queryByTestId("canvas-access-panel")).not.toBeInTheDocument();
     expect(screen.queryByTestId("deployment-connection")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("workspace-canvas-sharing")).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByTestId("people-section-workspace"));
     expect(await screen.findByTestId("people-workspace-management")).toBeVisible();
