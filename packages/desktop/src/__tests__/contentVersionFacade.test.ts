@@ -76,8 +76,13 @@ function bootstrapScope(projectId: string, workspaceId = "workspace-test") {
   return { workspaceId, projectId, canvasId: "default" };
 }
 
-function fakeClient(projectId: string) {
+function fakeClient(
+  projectId: string,
+  options: { registered?: boolean; visibility?: "private" | "shared" } = {}
+) {
   let published: AuthoritativeContentVersion | null = null;
+  let registered = options.registered ?? true;
+  const visibility = options.visibility ?? "shared";
   const discoverContentAuthority = vi.fn(
     async (input: {
       localReplica: CompletedContentVersionRef | null;
@@ -201,6 +206,24 @@ function fakeClient(projectId: string) {
     kind: "initialized" as const,
     status: input.status
   }));
+  const canvasRecord = () => ({
+    schemaVersion: "project-access/v1" as const,
+    registry: {
+      projectRegistryId: "project-registry-test",
+      canvasRegistryId: "canvas-registry-test",
+      workspaceId: "workspace-test",
+      projectId,
+      canvasId: "default"
+    },
+    visibility,
+    acl: { revision: 1, updatedAt: "2026-07-28T00:00:00.000Z" },
+    owner: "human-owner",
+    updatedAt: "2026-07-28T00:00:00.000Z"
+  });
+  const registerCanvas = vi.fn(async () => {
+    registered = true;
+    return canvasRecord();
+  });
   return {
     client: {
       projectId,
@@ -212,24 +235,10 @@ function fakeClient(projectId: string) {
       },
       registry: () => ({
         listCanvases: vi.fn(async () => ({
-          items: [
-            {
-              schemaVersion: "project-access/v1",
-              registry: {
-                projectRegistryId: "project-registry-test",
-                canvasRegistryId: "canvas-registry-test",
-                workspaceId: "workspace-test",
-                projectId,
-                canvasId: "default"
-              },
-              visibility: "shared",
-              acl: { revision: 1, updatedAt: "2026-07-28T00:00:00.000Z" },
-              owner: "human-owner",
-              updatedAt: "2026-07-28T00:00:00.000Z"
-            }
-          ],
+          items: registered ? [canvasRecord()] : [],
           nextCursor: null
-        }))
+        })),
+        registerCanvas
       }),
       discoverContentAuthority,
       publishInitialContent,
@@ -246,12 +255,53 @@ function fakeClient(projectId: string) {
       acknowledgeContentVersion,
       reconnectCanvasCommands,
       readRuntimeAvailability,
-      importRuntimeStatus
+      importRuntimeStatus,
+      registerCanvas
     }
   };
 }
 
 describe("ContentVersionFacade", () => {
+  it("distinguishes local-only, uploaded-private, and truly shared canvases", async () => {
+    const workspace = await createTestWorkspace();
+    directories.push(workspace.home, workspace.root);
+    const fake = fakeClient(workspace.init.workspace.id, {
+      registered: false,
+      visibility: "private"
+    });
+    const facade = new ContentVersionFacade(() => fake.client);
+
+    await expect(facade.listWorkspaceCanvasSharingCandidates()).resolves.toEqual([
+      expect.objectContaining({
+        localProjectId: workspace.init.project.id,
+        canvasId: "default",
+        state: "local_only",
+        visibility: null,
+        authority: null
+      })
+    ]);
+
+    await expect(
+      facade.publishWorkspaceCanvas({
+        localProjectId: workspace.init.project.id,
+        canvasId: "default"
+      })
+    ).resolves.toMatchObject({
+      state: "published_private",
+      visibility: "private",
+      authority: { authoritativeHead: expect.any(Object) }
+    });
+    expect(fake.calls.registerCanvas).toHaveBeenCalledWith({
+      projectId: workspace.init.workspace.id,
+      canvasId: "default"
+    });
+    expect(fake.calls.publishInitialContent).toHaveBeenCalledOnce();
+
+    await expect(facade.listWorkspaceCanvasSharingCandidates()).resolves.toEqual([
+      expect.objectContaining({ state: "published_private", visibility: "private" })
+    ]);
+  });
+
   it("imports the exact local working-copy Runtime status without supporting remote bindings", async () => {
     const workspace = await createTestWorkspace();
     directories.push(workspace.home, workspace.root);

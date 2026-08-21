@@ -267,6 +267,7 @@
         "workspaceAccessScopeSelector.test.tsx",
         "workspaceAgentEndpointOwnerFleet.test.tsx",
         "workspaceAgentEndpointRun.test.tsx",
+        "workspaceCanvasSharingPanel.test.tsx",
         "workspaceTabsLazyRoutes.test.tsx"
       ],
       "integration": [

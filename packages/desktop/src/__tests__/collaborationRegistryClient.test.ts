@@ -47,21 +47,42 @@ const authorityWorkItem = { kind: "task", canvasId: "default", taskId: "T-001" }
 
 describe("CollaborationRegistryClient", () => {
   it("builds bounded registry paths without exposing filesystem fields", async () => {
-    const calls: Array<{ method: string; path: string }> = [];
-    const request: RegistryJsonRequest = async (method, path, schema) => {
-      calls.push({ method, path });
-      return schema.parse(page);
+    const calls: Array<{ method: string; path: string; body?: unknown }> = [];
+    const canvas = {
+      schemaVersion: "project-access/v1",
+      registry: {
+        projectRegistryId: "registry-project-a",
+        canvasRegistryId: "registry-canvas-a",
+        workspaceId: "workspace-a",
+        projectId: "project-a",
+        canvasId: "default"
+      },
+      visibility: "private",
+      acl: { revision: 1, updatedAt: "2030-01-01T00:00:00.000Z" },
+      owner: "human-owner",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const request: RegistryJsonRequest = async (method, path, schema, options) => {
+      calls.push({ method, path, body: options?.body });
+      return schema.parse(method === "POST" ? canvas : page);
     };
     const client = new CollaborationRegistryClient(request);
 
     await client.listProjects({ cursor: 2, limit: 3 });
     await client.listCanvases({ projectId: "project-a", cursor: 0, limit: 1 });
+    await client.registerCanvas({ projectId: "project-a", canvasId: "default" });
 
     expect(calls).toEqual([
-      { method: "GET", path: "/api/v1/registry/projects?cursor=2&limit=3" },
+      { method: "GET", path: "/api/v1/registry/projects?cursor=2&limit=3", body: undefined },
       {
         method: "GET",
-        path: "/api/v1/registry/projects/project-a/canvases?cursor=0&limit=1"
+        path: "/api/v1/registry/projects/project-a/canvases?cursor=0&limit=1",
+        body: undefined
+      },
+      {
+        method: "POST",
+        path: "/api/v1/registry/projects/project-a/canvases",
+        body: { projectId: "project-a", canvasId: "default" }
       }
     ]);
     expect(JSON.stringify(calls)).not.toMatch(/projectRoot|packageDir|\/srv/);

@@ -35,6 +35,11 @@ import {
   type CollaborationCanvasBindingInput,
   type RemoteCollaborationCanvasBindingInput
 } from "../../shared/collaboration.js";
+import {
+  workspaceCanvasPublishInputSchema,
+  workspaceCanvasSharingCandidateSchema,
+  type WorkspaceCanvasSharingCandidate
+} from "../../shared/workspaceCanvasSharing.js";
 import type { CollaborationClient } from "./CollaborationClient.js";
 import {
   CollaborationContentReplicaStore,
@@ -173,6 +178,84 @@ export class ContentVersionFacade {
         });
       })
     );
+  }
+
+  async listWorkspaceCanvasSharingCandidates(): Promise<WorkspaceCanvasSharingCandidate[]> {
+    const client = this.requireClient();
+    const [localProjects, registeredCanvases] = await Promise.all([
+      listProjects(),
+      this.listAuthorizedCanvases(client)
+    ]);
+    const registeredByCanvasId = new Map(
+      registeredCanvases
+        .filter((canvas) => canvas.registry.projectId === client.projectId)
+        .map((canvas) => [canvas.registry.canvasId, canvas] as const)
+    );
+    const candidates: WorkspaceCanvasSharingCandidate[] = [];
+    for (const project of localProjects) {
+      const overview = await getProjectOverview(project.rootPath);
+      for (const canvas of overview.taskCanvases) {
+        const workspace = await resolveTaskCanvasWorkspace(overview.rootPath, canvas.canvasId);
+        if (workspace.id !== client.projectId) continue;
+        candidates.push(
+          await this.workspaceCanvasSharingCandidate(
+            client,
+            overview.projectId,
+            overview.name,
+            canvas.canvasId,
+            canvas.name,
+            registeredByCanvasId.get(canvas.canvasId) ?? null
+          )
+        );
+      }
+    }
+    return candidates.sort(
+      (left, right) =>
+        left.projectName.localeCompare(right.projectName) ||
+        left.canvasName.localeCompare(right.canvasName)
+    );
+  }
+
+  async publishWorkspaceCanvas(input: unknown): Promise<WorkspaceCanvasSharingCandidate> {
+    const requested = workspaceCanvasPublishInputSchema.parse(input);
+    const client = this.requireClient();
+    const binding = await this.bindLocal(
+      client,
+      requested.localProjectId,
+      requested.canvasId,
+      requested.canvasId
+    );
+    const registered = await client.registry().registerCanvas({
+      projectId: client.projectId,
+      canvasId: requested.canvasId
+    });
+    this.binding = binding;
+    this.lastModel = null;
+    let authority = await this.refresh();
+    if (!authority.authoritativeHead) {
+      if (!authority.canPublishInitial) {
+        throw unavailable("content_initial_publish_not_available", false);
+      }
+      authority = await this.publishInitial();
+    }
+    const projects = (await listProjects()).filter(
+      (project) => project.projectId === requested.localProjectId
+    );
+    if (projects.length !== 1) throw unavailable("content_local_project_binding_invalid", false);
+    const overview = await getProjectOverview(projects[0]!.rootPath);
+    const canvas = overview.taskCanvases.find(
+      (candidate) => candidate.canvasId === requested.canvasId
+    );
+    if (!canvas) throw unavailable("content_local_canvas_binding_invalid", false);
+    return workspaceCanvasSharingCandidateSchema.parse({
+      localProjectId: overview.projectId,
+      projectName: overview.name,
+      canvasId: canvas.canvasId,
+      canvasName: canvas.name,
+      state: registered.visibility === "shared" ? "published_shared" : "published_private",
+      visibility: registered.visibility,
+      authority
+    });
   }
 
   async bootstrap(input: unknown): Promise<CollaborationContentBootstrapResult> {
@@ -784,6 +867,48 @@ export class ContentVersionFacade {
       if (page.nextCursor === null) return items;
       cursor = page.nextCursor;
     }
+  }
+
+  private async workspaceCanvasSharingCandidate(
+    client: CollaborationClient,
+    localProjectId: string,
+    projectName: string,
+    canvasId: string,
+    canvasName: string,
+    registered: CanvasAccessRecord | null
+  ): Promise<WorkspaceCanvasSharingCandidate> {
+    if (!registered) {
+      return workspaceCanvasSharingCandidateSchema.parse({
+        localProjectId,
+        projectName,
+        canvasId,
+        canvasName,
+        state: "local_only",
+        visibility: null,
+        authority: null
+      });
+    }
+    const discovered = await client.discoverContentAuthority({
+      canvasId,
+      localReplica: null,
+      knownRevision: null
+    });
+    const authority = contentVersionDesktopReadModelSchema.parse(
+      contentVersionAuthorityDiscoveryToDesktopReadModel(discovered)
+    );
+    return workspaceCanvasSharingCandidateSchema.parse({
+      localProjectId,
+      projectName,
+      canvasId,
+      canvasName,
+      state: !authority.authoritativeHead
+        ? "registered_unpublished"
+        : registered.visibility === "shared"
+          ? "published_shared"
+          : "published_private",
+      visibility: registered.visibility,
+      authority
+    });
   }
 
   private async authorizeRemoteCanvas(

@@ -28,6 +28,10 @@ import {
   type CollaborationObserverSignal,
   type CollaborationStatus
 } from "../../shared/collaboration.js";
+import {
+  workspaceCanvasPublishInputSchema,
+  workspaceCanvasSharingCandidateSchema
+} from "../../shared/workspaceCanvasSharing.js";
 import { localCollaborationRegistrationInputSchema } from "../../shared/localCollaborationScopes.js";
 import {
   CollaborationClient,
@@ -479,6 +483,18 @@ export function registerCollaborationHandlers(
   ipcMain.handle(
     collaborationInvokeChannels.bootstrapCollaborationContent,
     (_event, input: unknown) => active.bootstrapContent(input)
+  );
+  ipcMain.handle(collaborationInvokeChannels.listWorkspaceCanvasSharingCandidates, () =>
+    runCollaborationCommand(
+      () => active.listWorkspaceCanvasSharingCandidates(),
+      z.array(workspaceCanvasSharingCandidateSchema)
+    )
+  );
+  ipcMain.handle(collaborationInvokeChannels.publishWorkspaceCanvas, (_event, input: unknown) =>
+    runCollaborationCommand(
+      () => active.publishWorkspaceCanvas(workspaceCanvasPublishInputSchema.parse(input)),
+      workspaceCanvasSharingCandidateSchema
+    )
   );
   ipcMain.handle(collaborationInvokeChannels.getCurrentCanvasAccess, (_event, input: unknown) =>
     active.getCurrentCanvasAccess(input)

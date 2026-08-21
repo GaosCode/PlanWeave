@@ -1,9 +1,12 @@
 import {
+  canvasAccessRecordSchema,
+  canvasAccessRequestSchema,
   canvasAccessPageSchema,
   projectAccessPageSchema,
   projectAccessRequestSchema,
   registryPageQuerySchema,
   type CanvasAccessPage,
+  type CanvasAccessRecord,
   type ProjectAccessPage,
   type RegistryPageQuery
 } from "@planweave-ai/collaboration-protocol/access/project";
@@ -63,6 +66,19 @@ export class CollaborationRegistryClient {
       `/api/v1/registry/projects/${encodeURIComponent(body.projectId)}/canvases?${pageQuery({ cursor: input.cursor, limit: input.limit })}`,
       canvasAccessPageSchema,
       { signal }
+    );
+  }
+
+  async registerCanvas(
+    input: z.input<typeof canvasAccessRequestSchema>,
+    signal?: AbortSignal
+  ): Promise<CanvasAccessRecord> {
+    const body = canvasAccessRequestSchema.parse(input);
+    return this.request(
+      "POST",
+      `/api/v1/registry/projects/${encodeURIComponent(body.projectId)}/canvases`,
+      canvasAccessRecordSchema,
+      { body, signal }
     );
   }
 

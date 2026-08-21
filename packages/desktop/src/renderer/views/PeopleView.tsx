@@ -24,6 +24,7 @@ import { LocalCollaborationServerPanel } from "../collaboration/LocalCollaborati
 import { LocalServerLifecycleControls } from "../collaboration/LocalServerLifecycleControls";
 import { ContentAuthorityPanel } from "../collaboration/ContentAuthorityPanel";
 import { WorkspaceAccessScopeSelector } from "../collaboration/WorkspaceAccessScopeSelector";
+import { WorkspaceCanvasSharingPanel } from "../collaboration/WorkspaceCanvasSharingPanel";
 import { DeploymentConnectionCard } from "../settings/DeploymentConnectionCard";
 import { HostMemberSetupCard } from "../settings/HostMemberSetupCard";
 import { useHostAdministrationController } from "../hooks/useHostAdministrationController";
@@ -527,7 +528,6 @@ export function PeopleView({
                   }}
                   onRefreshDetails={handleRefreshDetails}
                 />
-                {authoritativeCanvasAccess}
               </>
             ) : (
               <WorkspaceManagementPanel
@@ -546,25 +546,34 @@ export function PeopleView({
                   />
                 }
                 hostedCanvases={
-                  canControlLocalServer ? (
-                    <LocalCollaborationServerPanel
-                      api={api}
-                      t={t}
-                      projectId={null}
-                      canvasId={null}
-                      scopeLayout={collaborationScopeLayout}
-                      onScopeLayoutChange={onCollaborationScopeLayoutChange}
-                      copyText={copyText}
-                      showInvitationControls={false}
-                      invitationHandoff={localInvitationHandoff}
-                      onInvitationHandoffChange={setLocalInvitationHandoff}
-                      onStatusChange={handleLocalServerStatusChange}
-                      serverExposure={desktopServerExposure}
-                      scopesRequireRunning
-                      onManageServer={onManageServer}
-                    />
-                  ) : sessionConnected ? (
-                    authoritativeCanvasAccess
+                  sessionConnected ? (
+                    <div className="flex flex-col gap-8">
+                      {canControlLocalServer ? (
+                        <LocalCollaborationServerPanel
+                          api={api}
+                          t={t}
+                          projectId={null}
+                          canvasId={null}
+                          scopeLayout={collaborationScopeLayout}
+                          onScopeLayoutChange={onCollaborationScopeLayoutChange}
+                          copyText={copyText}
+                          showInvitationControls={false}
+                          invitationHandoff={localInvitationHandoff}
+                          onInvitationHandoffChange={setLocalInvitationHandoff}
+                          onStatusChange={handleLocalServerStatusChange}
+                          serverExposure={desktopServerExposure}
+                          scopesRequireRunning
+                          onManageServer={onManageServer}
+                        />
+                      ) : null}
+                      <WorkspaceCanvasSharingPanel
+                        api={api}
+                        connected={sessionConnected}
+                        connectionKey={activeProfile?.profileId ?? null}
+                        t={t}
+                      />
+                      {authoritativeCanvasAccess}
+                    </div>
                   ) : null
                 }
                 contentAuthority={

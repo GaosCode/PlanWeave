@@ -59,6 +59,9 @@ export const collaborationInvokeChannels = {
   listCollaborationContentBootstrapCandidates:
     "planweave-collaboration:listContentBootstrapCandidates",
   bootstrapCollaborationContent: "planweave-collaboration:bootstrapContent",
+  listWorkspaceCanvasSharingCandidates:
+    "planweave-collaboration:listWorkspaceCanvasSharingCandidates",
+  publishWorkspaceCanvas: "planweave-collaboration:publishWorkspaceCanvas",
   getCurrentCanvasAccess: "planweave-collaboration:getCurrentCanvasAccess",
   mutateCurrentCanvasAccess: "planweave-collaboration:mutateCurrentCanvasAccess",
   setCollaborationCurrentSelection: "planweave-collaboration:setCurrentSelection",

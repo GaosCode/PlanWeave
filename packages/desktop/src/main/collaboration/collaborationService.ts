@@ -836,6 +836,14 @@ export class CollaborationService {
     return this.canvasOperations.bootstrapContent(input);
   }
 
+  async listWorkspaceCanvasSharingCandidates() {
+    return this.canvasOperations.listWorkspaceCanvasSharingCandidates();
+  }
+
+  async publishWorkspaceCanvas(input: unknown) {
+    return this.canvasOperations.publishWorkspaceCanvas(input);
+  }
+
   async listMembers(input: unknown = {}): Promise<HumanMemberPage> {
     return this.identityOperations.listMembers(input);
   }

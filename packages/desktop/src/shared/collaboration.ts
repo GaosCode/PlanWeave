@@ -105,6 +105,7 @@ import {
 } from "@planweave-ai/collaboration-protocol/work/assignment";
 import { type CanvasLiveSyncServerMessage } from "@planweave-ai/collaboration-protocol/canvas/live-sync";
 import type { PlanWeaveCollaborationRuntimeAvailabilityApi } from "./collaborationRuntimeAvailability.js";
+import type { WorkspaceCanvasSharingApi } from "./workspaceCanvasSharing.js";
 import {
   type RemoteActionView,
   type RemoteDispatchIntentV3,
@@ -752,7 +753,7 @@ export type {
   ServerDataExportSource
 };
 
-export type PlanWeaveCollaborationApi = {
+export type PlanWeaveCollaborationApi = WorkspaceCanvasSharingApi & {
   getCollaborationStatus: () => Promise<CollaborationStatus>;
   upsertCollaborationProfile: (
     input: CollaborationUpsertProfileInput

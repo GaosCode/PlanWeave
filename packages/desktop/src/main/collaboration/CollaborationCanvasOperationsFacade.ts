@@ -99,6 +99,17 @@ export class CollaborationCanvasOperationsFacade {
     });
   }
 
+  listWorkspaceCanvasSharingCandidates() {
+    return this.run(() => this.options.contentVersions.listWorkspaceCanvasSharingCandidates());
+  }
+
+  publishWorkspaceCanvas(input: unknown) {
+    return this.run(() => {
+      assertNoSmuggledCollaborationSecrets(input, "publishWorkspaceCanvas");
+      return this.options.contentVersions.publishWorkspaceCanvas(input);
+    });
+  }
+
   private run<T>(operation: () => Promise<T>): Promise<T> {
     return this.options.enqueue(async () => {
       this.options.assertOpen();

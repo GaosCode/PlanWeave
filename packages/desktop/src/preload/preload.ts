@@ -46,6 +46,10 @@ import {
   type PlanWeaveCollaborationApi
 } from "../shared/collaboration.js";
 import {
+  workspaceCanvasPublishInputSchema,
+  workspaceCanvasSharingCandidateSchema
+} from "../shared/workspaceCanvasSharing.js";
+import {
   collaborationCanvasBindingReplicaProjectionSchema,
   collaborationCanvasBindingReplicaSignalSchema
 } from "../shared/canvasReplicaIpc.js";
@@ -369,6 +373,19 @@ const collaborationApi: PlanWeaveCollaborationApi = {
     ),
   bootstrapCollaborationContent: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.bootstrapCollaborationContent, input),
+  listWorkspaceCanvasSharingCandidates: async () =>
+    unwrapCollaborationCommandResult(
+      await ipcRenderer.invoke(collaborationInvokeChannels.listWorkspaceCanvasSharingCandidates),
+      z.array(workspaceCanvasSharingCandidateSchema)
+    ),
+  publishWorkspaceCanvas: async (input) =>
+    unwrapCollaborationCommandResult(
+      await ipcRenderer.invoke(
+        collaborationInvokeChannels.publishWorkspaceCanvas,
+        workspaceCanvasPublishInputSchema.parse(input)
+      ),
+      workspaceCanvasSharingCandidateSchema
+    ),
   getCurrentCanvasAccess: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.getCurrentCanvasAccess, input),
   mutateCurrentCanvasAccess: async (input) =>
