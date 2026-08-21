@@ -2,6 +2,7 @@ import { chmod, mkdir, readFile, rename, stat, writeFile } from "node:fs/promise
 import { dirname } from "node:path";
 import {
   canvasRuntimeAvailabilitySchema,
+  canvasRuntimeExecutionAvailabilitySchema,
   type CanvasRuntimeAvailability
 } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import { z } from "zod";
@@ -39,8 +40,25 @@ const recordSchema = z
 
 const documentSchema = z
   .object({
-    version: z.literal(1),
+    version: z.literal(2),
     records: z.array(recordSchema).max(10_000)
+  })
+  .strict();
+
+const legacyRecordSchema = z
+  .object({
+    key: collaborationRuntimeAvailabilityKeySchema,
+    availability: z.union([
+      canvasRuntimeExecutionAvailabilitySchema,
+      canvasRuntimeAvailabilitySchema
+    ])
+  })
+  .strict();
+
+const legacyDocumentSchema = z
+  .object({
+    version: z.literal(1),
+    records: z.array(legacyRecordSchema).max(10_000)
   })
   .strict();
 
@@ -120,7 +138,7 @@ export class CollaborationRuntimeAvailabilityStore
         index >= 0
           ? document.records.map((record, recordIndex) => (recordIndex === index ? parsed : record))
           : [...document.records, parsed];
-      await this.write(documentSchema.parse({ version: 1, records }));
+      await this.write(documentSchema.parse({ version: 2, records }));
       return parsed.availability;
     });
   }
@@ -128,11 +146,20 @@ export class CollaborationRuntimeAvailabilityStore
   private async read(): Promise<z.infer<typeof documentSchema>> {
     if (this.loaded) return this.loaded;
     try {
-      this.loaded = documentSchema.parse(JSON.parse(await readFile(this.path, "utf8")));
-      return this.loaded;
+      const raw = JSON.parse(await readFile(this.path, "utf8"));
+      const current = documentSchema.safeParse(raw);
+      if (current.success) {
+        this.loaded = current.data;
+        return this.loaded;
+      }
+      if (legacyDocumentSchema.safeParse(raw).success) {
+        this.loaded = { version: 2, records: [] };
+        return this.loaded;
+      }
+      throw current.error;
     } catch (error) {
       if (isMissing(error)) {
-        this.loaded = { version: 1, records: [] };
+        this.loaded = { version: 2, records: [] };
         return this.loaded;
       }
       throw new Error("collaboration_runtime_availability_store_invalid", { cause: error });

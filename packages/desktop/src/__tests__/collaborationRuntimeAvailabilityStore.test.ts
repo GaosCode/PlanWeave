@@ -86,6 +86,34 @@ describe("CollaborationRuntimeAvailabilityStore", () => {
     await expect(store.get(key)).resolves.toEqual(unavailable);
   });
 
+  it.each([
+    {
+      name: "execution-only availability",
+      availability: {
+        schemaVersion: "canvas-runtime-availability/v1" as const,
+        kind: "unavailable" as const,
+        reason: "runtime_not_attached" as const
+      }
+    },
+    { name: "transitional runtime view", availability: available }
+  ])("invalidates a valid v1 $name cache before writing v2", async ({ availability }) => {
+    const directory = await mkdtemp(join(tmpdir(), "planweave-runtime-availability-"));
+    directories.push(directory);
+    const path = join(directory, "runtime-availability.json");
+    await writeFile(
+      path,
+      JSON.stringify({ version: 1, records: [{ key, availability }] }, null, 2)
+    );
+
+    const store = new CollaborationRuntimeAvailabilityStore(path);
+    await expect(store.get(key)).resolves.toBeNull();
+    await expect(store.put(key, available)).resolves.toEqual(available);
+    await expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
+      version: 2,
+      records: [{ key, availability: available }]
+    });
+  });
+
   it("fails closed on a damaged or non-strict cache document", async () => {
     const directory = await mkdtemp(join(tmpdir(), "planweave-runtime-availability-"));
     directories.push(directory);
