@@ -202,10 +202,6 @@ describe("GraphView viewport fitting", () => {
     [{ kind: "checking" } as const, "Checking shared state and execution capability"],
     [{ kind: "error", message: "IPC failed" } as const, "Execution capability check failed"],
     [
-      { kind: "unavailable", reason: "runtime_not_attached", statusKnown: true } as const,
-      "Canvas state loaded"
-    ],
-    [
       { kind: "unavailable", reason: "host_offline", statusKnown: true } as const,
       "Execution device is offline"
     ],
@@ -218,6 +214,22 @@ describe("GraphView viewport fitting", () => {
 
     expect(screen.getByTestId("collaboration-runtime-availability")).toHaveTextContent(message);
     expect(screen.queryByTestId("shared-canvas-offline-replica")).not.toBeInTheDocument();
+  });
+
+  it("does not show a banner when canvas state is loaded without a Runtime attachment", () => {
+    render(
+      <GraphView
+        {...defaultProps({
+          runtimeAvailability: {
+            kind: "unavailable",
+            reason: "runtime_not_attached",
+            statusKnown: true
+          }
+        })}
+      />
+    );
+
+    expect(screen.queryByTestId("collaboration-runtime-availability")).not.toBeInTheDocument();
   });
 
   it("does not label a disconnected Server as Runtime not attached", () => {

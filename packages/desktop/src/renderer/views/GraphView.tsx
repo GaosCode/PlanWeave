@@ -139,12 +139,13 @@ function runtimeAvailabilityBanner(
     case "error":
       return t("collaborationRuntimeError").replace("{message}", availability.message);
     case "unavailable":
+      if (availability.reason === "runtime_not_attached") {
+        return null;
+      }
       return t(
-        availability.reason === "runtime_not_attached"
-          ? "collaborationRuntimeNotAttached"
-          : availability.reason === "host_offline"
-            ? "collaborationRuntimeHostOffline"
-            : "collaborationRuntimeContentOutOfSync"
+        availability.reason === "host_offline"
+          ? "collaborationRuntimeHostOffline"
+          : "collaborationRuntimeContentOutOfSync"
       );
   }
 }

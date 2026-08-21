@@ -1652,7 +1652,6 @@ export const zhCnCatalog = {
   collaborationRuntimeStateImporting: "正在同步…",
   collaborationRuntimeStateImported: "本地运行状态已同步到 Server",
   collaborationRuntimeStateWorkingCopyRequired: "请先创建本地工作副本，再同步运行状态。",
-  collaborationRuntimeNotAttached: "画布状态已加载 · 可选择本机或远程 Agent 执行",
   collaborationRuntimeHostOffline: "执行设备已离线 · 仍可查看和编辑",
   collaborationRuntimeContentOutOfSync: "执行设备的项目工作目录与共享内容不同步",
   collaborationRuntimeStatusUnavailable: "Runtime 状态未知",

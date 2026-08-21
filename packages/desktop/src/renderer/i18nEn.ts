@@ -1754,8 +1754,6 @@ export const enCatalog = {
   collaborationRuntimeStateImported: "Local runtime state synchronized to Server",
   collaborationRuntimeStateWorkingCopyRequired:
     "Create a local working copy before synchronizing runtime state.",
-  collaborationRuntimeNotAttached:
-    "Canvas state loaded · choose a local or remote Agent to execute",
   collaborationRuntimeHostOffline:
     "Execution device is offline · viewing and editing remain available",
   collaborationRuntimeContentOutOfSync:
