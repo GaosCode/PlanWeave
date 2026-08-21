@@ -61,6 +61,38 @@ async function registered() {
 }
 
 describe("project access registry", () => {
+  it("registers a private pathless canvas idempotently without creating a trusted path binding", async () => {
+    const { access, database } = await openFixture();
+    access.registerProjectInternal({
+      workspaceId: "w",
+      projectId: "p",
+      projectRoot: "/tmp/planweave-project",
+      ownerHumanPrincipalId: "owner"
+    });
+
+    const first = access.registerPathlessCanvas({
+      workspaceId: "w",
+      projectId: "p",
+      canvasId: "c"
+    });
+    const replay = access.registerPathlessCanvas({
+      workspaceId: "w",
+      projectId: "p",
+      canvasId: "c"
+    });
+
+    expect(first).toEqual(replay);
+    expect(first.visibility).toBe("private");
+    expect(access.registry.canvasInternal("w", "p", "c")?.packageDir).toBeNull();
+    expect(
+      database
+        .prepare(
+          "SELECT COUNT(*) AS count FROM acl_registry_migrations WHERE workspace_id='w' AND project_id='p' AND canvas_id='c'"
+        )
+        .get()
+    ).toEqual({ count: 0 });
+  });
+
   it("uses only active registry rows for identity scope authority", async () => {
     const { access, database } = await registered();
     expect(access.registry.hasActiveProject("p")).toBe(true);

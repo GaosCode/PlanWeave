@@ -340,6 +340,19 @@ function createRegistryService(
         nextCursor: items.length === input.limit ? input.cursor + input.limit : null
       };
     },
+    registerCanvas(input) {
+      projectAccess.policy.assertCapability({
+        workspaceId: input.workspaceId,
+        projectId: input.projectId,
+        actor: input.actor,
+        capability: "administration"
+      });
+      return projectAccess.registerPathlessCanvas({
+        workspaceId: input.workspaceId,
+        projectId: input.projectId,
+        canvasId: input.canvasId
+      });
+    },
     readSnapshot(input) {
       assertCanvasScope(input);
       return packageSnapshots.read(input);

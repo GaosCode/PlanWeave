@@ -147,6 +147,25 @@ describe("project and canvas access contracts", () => {
         limit: 20
       })
     ).toMatchObject({ operation: "list_authorized_canvases", cursor: 10, limit: 20 });
+    expect(
+      registryClientCommandSchema.parse({
+        operation: "register_canvas",
+        projectId: registry.projectId,
+        canvasId: canvasRegistry.canvasId
+      })
+    ).toEqual({
+      operation: "register_canvas",
+      projectId: registry.projectId,
+      canvasId: canvasRegistry.canvasId
+    });
+    expect(() =>
+      registryClientCommandSchema.parse({
+        operation: "register_canvas",
+        projectId: registry.projectId,
+        canvasId: canvasRegistry.canvasId,
+        packageDir: "/srv/private"
+      })
+    ).toThrow();
     expect(() => registryPageQuerySchema.parse({ limit: 101 })).toThrow();
     expect(() => registryPageQuerySchema.parse({ cursor: -1 })).toThrow();
     expect(

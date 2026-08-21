@@ -88,6 +88,19 @@ async function setup() {
         nextCursor: items.length === input.limit ? input.cursor + input.limit : null
       };
     },
+    registerCanvas(input) {
+      access.policy.assertCapability({
+        workspaceId: input.workspaceId,
+        projectId: input.projectId,
+        actor: input.actor,
+        capability: "administration"
+      });
+      return access.registerPathlessCanvas({
+        workspaceId: input.workspaceId,
+        projectId: input.projectId,
+        canvasId: input.canvasId
+      });
+    },
     readSnapshot() {
       throw new Error("snapshot_not_found");
     },
@@ -135,6 +148,52 @@ async function setup() {
 }
 
 describe("registry HTTP boundary", () => {
+  it("registers a private pathless canvas for an owner and rejects a member", async () => {
+    const fixture = await setup();
+    const url = `${fixture.origin}/api/v1/registry/projects/project-a/canvases`;
+    const body = JSON.stringify({ projectId: "project-a", canvasId: "new-canvas" });
+    const ownerResponse = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${fixture.token}`,
+        "content-type": "application/json"
+      },
+      body
+    });
+    const ownerPayload = await ownerResponse.json();
+    expect({ status: ownerResponse.status, payload: ownerPayload }).toMatchObject({
+      status: 200,
+      payload: {
+        visibility: "private",
+        registry: { projectId: "project-a", canvasId: "new-canvas" }
+      }
+    });
+    expect(
+      fixture.access.registry.canvasInternal(fixture.workspaceId, "project-a", "new-canvas")
+        ?.packageDir
+    ).toBeNull();
+
+    const invitation = fixture.identity.createInvitation({
+      projectId: "project-a",
+      createdByHumanPrincipalId: "human-owner"
+    });
+    const member = fixture.identity.consumeInvitation({
+      projectId: "project-a",
+      invitationToken: invitation.invitationToken,
+      displayName: "Member"
+    });
+    const denied = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${member.deviceToken}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({ projectId: "project-a", canvasId: "member-canvas" })
+    });
+    expect(denied.status).toBe(403);
+    expect(await denied.json()).toEqual({ error: "registry_access_denied" });
+  });
+
   it("maps an unavailable Canvas Runtime to 503 after authentication and preserves ACL denial", async () => {
     const fixture = await setup();
     fixture.service.createSnapshot = async (input) => {

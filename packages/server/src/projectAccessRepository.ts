@@ -120,6 +120,9 @@ export class ProjectAccessRepository {
   registerCanvas(input: unknown): CanvasAccessRecord | undefined {
     return this.registry.registerCanvas(input);
   }
+  registerPathlessCanvas(input: unknown): CanvasAccessRecord {
+    return this.registry.registerPathlessCanvas(input);
+  }
   project(workspaceId: string, projectId: string): ProjectAccessRecord | undefined {
     return this.registry.project(workspaceId, projectId);
   }

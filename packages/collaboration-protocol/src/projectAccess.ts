@@ -294,6 +294,7 @@ export type MembershipGrantPage = z.infer<typeof membershipGrantPageSchema>;
 export const registryOperationSchema = z.enum([
   "list_authorized_projects",
   "list_authorized_canvases",
+  "register_canvas",
   "create_snapshot",
   "read_snapshot",
   "restore_snapshot"
@@ -322,6 +323,13 @@ export const registryClientCommandSchema = z.discriminatedUnion("operation", [
       projectId: registryProjectIdSchema,
       cursor: registryCursorSchema.optional(),
       limit: registryLimitSchema.optional()
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("register_canvas"),
+      projectId: registryProjectIdSchema,
+      canvasId: registryCanvasIdSchema
     })
     .strict(),
   z

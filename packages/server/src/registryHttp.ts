@@ -5,11 +5,13 @@ import {
 } from "@planweave-ai/collaboration-protocol/core/primitives";
 import {
   canvasAccessPageSchema,
+  canvasAccessRecordSchema,
   canvasAccessRequestSchema,
   projectAccessPageSchema,
   projectAccessRequestSchema,
   registryPageQuerySchema,
   type CanvasAccessPage,
+  type CanvasAccessRecord,
   type ProjectAccessPage
 } from "@planweave-ai/collaboration-protocol/access/project";
 import {
@@ -43,6 +45,12 @@ export type RegistryListInput = {
 };
 
 export type RegistryCanvasInput = RegistryListInput & { projectId: string };
+export type RegistryCanvasRegistrationInput = {
+  workspaceId: string;
+  actor: ActorRef;
+  projectId: string;
+  canvasId: string;
+};
 
 export type RegistrySnapshotInput = {
   workspaceId: string;
@@ -60,6 +68,7 @@ export type RegistrySnapshotMutationInput = RegistrySnapshotInput & {
 export type RegistryHttpService = {
   listProjects(input: RegistryListInput): ProjectAccessPage;
   listCanvases(input: RegistryCanvasInput): CanvasAccessPage;
+  registerCanvas(input: RegistryCanvasRegistrationInput): CanvasAccessRecord;
   readSnapshot(input: RegistrySnapshotInput): PackageSnapshot;
   createSnapshot(
     input: Omit<RegistrySnapshotMutationInput, "snapshotId">
@@ -78,6 +87,7 @@ export type RegistryHttpOptions = {
 type RegistryRoute =
   | { kind: "projects" }
   | { kind: "canvases"; projectId: string }
+  | { kind: "register_canvas"; projectId: string }
   | { kind: "create_snapshot"; projectId: string; canvasId: string }
   | { kind: "read_snapshot"; projectId: string; canvasId: string; snapshotId: string }
   | { kind: "restore_snapshot"; projectId: string; canvasId: string; snapshotId: string };
@@ -102,8 +112,9 @@ function route(request: IncomingMessage, pathname: string): RegistryRoute | unde
   const projectId = decodeIdentifier(match[1]);
   if (!projectId) return undefined;
   if (!match[2]) {
-    if (request.method !== "GET") return undefined;
-    return { kind: "canvases", projectId };
+    if (request.method === "GET") return { kind: "canvases", projectId };
+    if (request.method === "POST") return { kind: "register_canvas", projectId };
+    return undefined;
   }
   const canvasId = decodeIdentifier(match[2]);
   if (!canvasId) return undefined;
@@ -207,10 +218,16 @@ function safeError(error: unknown): { status: number; code: string } {
     if (error.message === "registry_workspace_scope_forbidden") {
       return { status: 403, code: error.message };
     }
+    if (error.message.startsWith("access_capability_denied:")) {
+      return { status: 403, code: "registry_access_denied" };
+    }
     if (error.message === "registry_unauthorized") {
       return { status: 401, code: error.message };
     }
     if (error.message === "snapshot_stale_acl_revision") {
+      return { status: 409, code: error.message };
+    }
+    if (error.message.includes("registry_conflict") || error.message.includes("registry_revoked")) {
       return { status: 409, code: error.message };
     }
     if (error.message === "canvas_runtime_unavailable") {
@@ -293,7 +310,10 @@ export async function handleRegistryHttpRequest(
       respond(response, 426, { error: "registry_insecure_transport" });
       return true;
     }
-    const mutation = matched.kind === "create_snapshot" || matched.kind === "restore_snapshot";
+    const mutation =
+      matched.kind === "register_canvas" ||
+      matched.kind === "create_snapshot" ||
+      matched.kind === "restore_snapshot";
     if (mutation && options.readiness && options.readiness().status !== "ready") {
       request.resume();
       respond(response, 503, { error: "server_not_accepting_mutations" });
@@ -321,6 +341,17 @@ export async function handleRegistryHttpRequest(
           canvasAccessPageSchema.parse(
             options.service.listCanvases({ ...context, ...project, ...page })
           )
+        );
+        break;
+      }
+      case "register_canvas": {
+        query(url, []);
+        const body = canvasAccessRequestSchema.parse(await readJson(request));
+        if (body.projectId !== matched.projectId) throw new Error("registry_scope_mismatch");
+        respond(
+          response,
+          200,
+          canvasAccessRecordSchema.parse(options.service.registerCanvas({ ...context, ...body }))
         );
         break;
       }

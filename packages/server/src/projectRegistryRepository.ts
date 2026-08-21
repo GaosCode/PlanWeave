@@ -57,6 +57,13 @@ const canvasRegistrationSchema = z
     ownerHumanPrincipalId: identifierSchema.nullable().default(null)
   })
   .strict();
+const pathlessCanvasRegistrationSchema = z
+  .object({
+    workspaceId: identifierSchema,
+    projectId: identifierSchema,
+    canvasId: identifierSchema
+  })
+  .strict();
 
 export class ProjectRegistryRepository {
   constructor(
@@ -264,6 +271,59 @@ export class ProjectRegistryRepository {
   registerCanvas(rawInput: unknown): CanvasAccessRecord | undefined {
     const canvas = this.registerCanvasInternal(rawInput);
     return canvas.ownerHumanPrincipalId ? canvasAccessRecord(canvas) : undefined;
+  }
+
+  registerPathlessCanvas(rawInput: unknown): CanvasAccessRecord {
+    const input = pathlessCanvasRegistrationSchema.parse(rawInput);
+    const at = this.clock().toISOString();
+    const canvasRegistryId = canvasRegistryIdFor(
+      input.workspaceId,
+      input.projectId,
+      input.canvasId
+    );
+    return inWriteTransaction(this.database, () => {
+      const project = this.projectInternal(input.workspaceId, input.projectId);
+      if (!project || project.revokedAt !== null) throw new Error("project_registry_not_found");
+      if (!project.ownerHumanPrincipalId) throw new Error("project_registry_owner_missing");
+      assertNoPendingSnapshotRestore(this.database, input);
+      const existing = this.canvasInternal(input.workspaceId, input.projectId, input.canvasId);
+      if (existing) {
+        if (existing.revokedAt !== null) throw new Error("canvas_registry_revoked");
+        if (
+          existing.canvasRegistryId !== canvasRegistryId ||
+          existing.ownerHumanPrincipalId !== project.ownerHumanPrincipalId
+        ) {
+          throw new Error("canvas_registry_conflict");
+        }
+        return canvasAccessRecord(existing);
+      }
+      if (
+        !activeWorkspacePrincipal(this.database, input.workspaceId, project.ownerHumanPrincipalId)
+      ) {
+        throw new Error("canvas_registry_owner_not_active");
+      }
+      this.database
+        .prepare(
+          `INSERT INTO canvas_registry(canvas_registry_id,project_registry_id,workspace_id,project_id,canvas_id,package_dir_internal,visibility,owner_human_principal_id,acl_revision,created_at,updated_at,revoked_at) VALUES(?,?,?,?,?,NULL,'private',?,0,?,?,NULL)`
+        )
+        .run(
+          canvasRegistryId,
+          project.projectRegistryId,
+          input.workspaceId,
+          input.projectId,
+          input.canvasId,
+          project.ownerHumanPrincipalId,
+          at,
+          at
+        );
+      return canvasAccessRecord(
+        parseCanvas(
+          this.database
+            .prepare("SELECT * FROM canvas_registry WHERE canvas_registry_id=?")
+            .get(canvasRegistryId) as Record<string, unknown>
+        )
+      );
+    });
   }
 
   initializeProjectOwner(
