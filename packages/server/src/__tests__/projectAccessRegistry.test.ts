@@ -93,6 +93,40 @@ describe("project access registry", () => {
     ).toEqual({ count: 0 });
   });
 
+  it("converts a revoked Runtime canvas to a pathless canvas when it is registered again", async () => {
+    const { access, database } = await openFixture();
+    access.registerProjectInternal({
+      workspaceId: "w",
+      projectId: "p",
+      projectRoot: "/tmp/planweave-project",
+      ownerHumanPrincipalId: "owner"
+    });
+    access.registerCanvasInternal({
+      workspaceId: "w",
+      projectId: "p",
+      canvasId: "uploaded",
+      packageDir: "/tmp/stale-client-package",
+      ownerHumanPrincipalId: "owner"
+    });
+    database
+      .prepare(
+        "UPDATE canvas_registry SET revoked_at='2026-01-03T00:00:00.000Z' WHERE workspace_id='w' AND project_id='p' AND canvas_id='uploaded'"
+      )
+      .run();
+
+    const restored = access.registerPathlessCanvas({
+      workspaceId: "w",
+      projectId: "p",
+      canvasId: "uploaded"
+    });
+
+    expect(restored.registry.canvasId).toBe("uploaded");
+    expect(access.registry.canvasInternal("w", "p", "uploaded")).toMatchObject({
+      packageDir: null,
+      revokedAt: null
+    });
+  });
+
   it("uses only active registry rows for identity scope authority", async () => {
     const { access, database } = await registered();
     expect(access.registry.hasActiveProject("p")).toBe(true);

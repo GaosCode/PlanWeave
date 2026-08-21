@@ -176,6 +176,35 @@ describe("distributed server composition", () => {
     const first = await startComposition();
     await first.close();
     compositions.splice(compositions.indexOf(first), 1);
+    const beforeRestart = await openServerDatabase(
+      join(dataDirectory, "planweave-server.sqlite"),
+      5_000
+    );
+    beforeRestart
+      .prepare(
+        "INSERT INTO workspace_principals(workspace_id,human_principal_id,display_name,created_at,revoked_at) VALUES(?,?,?,?,NULL)"
+      )
+      .run("workspace-server", "owner", "Owner", "2026-01-01T00:00:00.000Z");
+    beforeRestart
+      .prepare(
+        "INSERT INTO workspace_memberships(workspace_id,membership_id,human_principal_id,role,revision,created_at,updated_at,revoked_at) VALUES(?,?,?,?,1,?,?,NULL)"
+      )
+      .run(
+        "workspace-server",
+        "owner-membership",
+        "owner",
+        "owner",
+        "2026-01-01T00:00:00.000Z",
+        "2026-01-01T00:00:00.000Z"
+      );
+    const beforeRestartAccess = new ProjectAccessRepository(beforeRestart);
+    beforeRestartAccess.initializeProjectOwner("workspace-server", projectId, "owner");
+    beforeRestartAccess.registerPathlessCanvas({
+      workspaceId: "workspace-server",
+      projectId,
+      canvasId: "uploaded-only"
+    });
+    beforeRestart.close();
     const current = await loadProjectGraph(workspace.root);
     const defaultCanvas = current.manifest.canvases.find((canvas) => canvas.id === "default");
     if (!defaultCanvas) throw new Error("Expected default canvas");
@@ -208,6 +237,13 @@ describe("distributed server composition", () => {
         )
         .get(workspaceId, projectId, "secondary")
     ).toMatchObject({ revoked_at: expect.any(String) });
+    expect(
+      database
+        .prepare(
+          "SELECT revoked_at FROM canvas_registry WHERE workspace_id=? AND project_id=? AND canvas_id=?"
+        )
+        .get(workspaceId, projectId, "uploaded-only")
+    ).toMatchObject({ revoked_at: null });
     const access = new ProjectAccessRepository(database);
     expect(() =>
       access.registry.resolveCanvasPath({

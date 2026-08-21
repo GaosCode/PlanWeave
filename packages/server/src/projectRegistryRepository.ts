@@ -288,12 +288,26 @@ export class ProjectRegistryRepository {
       assertNoPendingSnapshotRestore(this.database, input);
       const existing = this.canvasInternal(input.workspaceId, input.projectId, input.canvasId);
       if (existing) {
-        if (existing.revokedAt !== null) throw new Error("canvas_registry_revoked");
         if (
           existing.canvasRegistryId !== canvasRegistryId ||
           existing.ownerHumanPrincipalId !== project.ownerHumanPrincipalId
         ) {
           throw new Error("canvas_registry_conflict");
+        }
+        if (existing.revokedAt !== null) {
+          const restored = this.database
+            .prepare(
+              "UPDATE canvas_registry SET package_dir_internal=NULL,revoked_at=NULL,updated_at=? WHERE canvas_registry_id=? AND revoked_at IS NOT NULL"
+            )
+            .run(at, existing.canvasRegistryId);
+          if (restored.changes !== 1) throw new Error("canvas_registry_conflict");
+          return canvasAccessRecord(
+            parseCanvas(
+              this.database
+                .prepare("SELECT * FROM canvas_registry WHERE canvas_registry_id=?")
+                .get(existing.canvasRegistryId) as Record<string, unknown>
+            )
+          );
         }
         return canvasAccessRecord(existing);
       }
@@ -668,11 +682,10 @@ export class ProjectRegistryRepository {
     if (!project || !project.projectRoot) throw new Error("runtime_location_unbound");
     const canvases = this.database
       .prepare(
-        "SELECT canvas_id,package_dir_internal FROM canvas_registry WHERE workspace_id=? AND project_id=? AND revoked_at IS NULL ORDER BY canvas_id"
+        "SELECT canvas_id,package_dir_internal FROM canvas_registry WHERE workspace_id=? AND project_id=? AND package_dir_internal IS NOT NULL AND revoked_at IS NULL ORDER BY canvas_id"
       )
       .all(workspaceId, projectId);
-    if (canvases.length === 0 || canvases.some((canvas) => !canvas.package_dir_internal))
-      throw new Error("runtime_canvas_cutover_incomplete");
+    if (canvases.length === 0) throw new Error("runtime_canvas_cutover_incomplete");
     for (const canvas of canvases) {
       const marker = readAclRegistryMigration(this.database, {
         workspaceId,
@@ -729,6 +742,7 @@ export class ProjectRegistryRepository {
           `UPDATE canvas_registry
            SET revoked_at=?,updated_at=?
            WHERE workspace_id=? AND project_id=? AND revoked_at IS NULL
+             AND package_dir_internal IS NOT NULL
              AND canvas_id NOT IN (${placeholders})`
         )
         .run(at, at, workspaceId, projectId, ...canvasIds);
