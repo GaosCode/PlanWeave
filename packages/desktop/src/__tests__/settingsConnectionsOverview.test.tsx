@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTranslator } from "../renderer/i18n";
 import { SettingsConnectionsSection } from "../renderer/settings/SettingsConnectionsSection";
 
-const remoteOrigin = "https://vm-0-3-ubuntu.tailb06a1e.ts.net/";
+const remoteOrigin = "https://planweave.tailnet.ts.net/";
 
 const { useHostAdministrationController } = vi.hoisted(() => ({
   useHostAdministrationController: vi.fn()

@@ -250,10 +250,7 @@ describe("DeploymentConnectionCard", () => {
     expect(onExistingServerChange).toHaveBeenCalledWith(true);
     expect(screen.queryByTestId("deployment-advertised-origin")).not.toBeInTheDocument();
     await user.type(screen.getByTestId("deployment-display-name"), "VPS Server");
-    await user.type(
-      screen.getByTestId("deployment-origin"),
-      "https://vm-0-3-ubuntu.tailb06a1e.ts.net/"
-    );
+    await user.type(screen.getByTestId("deployment-origin"), "https://planweave.tailnet.ts.net/");
     await user.click(screen.getByRole("button", { name: "Validate endpoint" }));
 
     expect(await screen.findByTestId("deployment-connectivity")).toHaveTextContent("Reachable");
@@ -353,7 +350,7 @@ describe("DeploymentConnectionCard", () => {
         profileId: "profile-workspace-001",
         displayName: "Workspace collaboration server",
         workspaceDisplayName: "Configured workspace",
-        serverBaseUrl: "https://vm-0-3-ubuntu.tailb06a1e.ts.net/",
+        serverBaseUrl: "https://planweave.tailnet.ts.net/",
         hasDeviceCredential: true
       }
     ]);
@@ -368,7 +365,7 @@ describe("DeploymentConnectionCard", () => {
     await chooseSelectOption(
       user,
       "deployment-kind",
-      "Configured workspace (vm-0-3-ubuntu.tailb06a1e.ts.net)"
+      "Configured workspace (planweave.tailnet.ts.net)"
     );
     await waitFor(() =>
       expect(collaborationBridge.selectWorkspaceConnection).toHaveBeenCalledWith({
@@ -380,7 +377,7 @@ describe("DeploymentConnectionCard", () => {
       "profile-workspace-001"
     );
     expect(screen.getByTestId("deployment-origin")).toHaveValue(
-      "https://vm-0-3-ubuntu.tailb06a1e.ts.net/"
+      "https://planweave.tailnet.ts.net/"
     );
     await user.click(screen.getByTestId("deployment-kind"));
     expect(await screen.findByRole("option", { name: "Connect another Server" })).toBeVisible();
@@ -402,7 +399,7 @@ describe("DeploymentConnectionCard", () => {
         profileId: "profile-workspace-001",
         displayName: "Workspace collaboration server",
         workspaceDisplayName: "Configured workspace",
-        serverBaseUrl: "https://vm-0-3-ubuntu.tailb06a1e.ts.net/",
+        serverBaseUrl: "https://planweave.tailnet.ts.net/",
         hasDeviceCredential: true
       }
     ]);
@@ -411,7 +408,7 @@ describe("DeploymentConnectionCard", () => {
       profile: {
         profileId: "profile-workspace-001",
         displayName: "Workspace collaboration server",
-        serverBaseUrl: "https://vm-0-3-ubuntu.tailb06a1e.ts.net/"
+        serverBaseUrl: "https://planweave.tailnet.ts.net/"
       },
       workspaceId: "workspace-demo-001",
       workspaceDisplayName: "Configured workspace"
@@ -426,7 +423,7 @@ describe("DeploymentConnectionCard", () => {
     );
     expect(collaborationBridge.selectWorkspaceConnection).not.toHaveBeenCalled();
     expect(screen.getByTestId("deployment-origin")).toHaveValue(
-      "https://vm-0-3-ubuntu.tailb06a1e.ts.net/"
+      "https://planweave.tailnet.ts.net/"
     );
   });
 
@@ -447,7 +444,7 @@ describe("DeploymentConnectionCard", () => {
         profileId: "profile-workspace-001",
         displayName: "Workspace collaboration server",
         workspaceDisplayName: "Configured workspace",
-        serverBaseUrl: "https://vm-0-3-ubuntu.tailb06a1e.ts.net/",
+        serverBaseUrl: "https://planweave.tailnet.ts.net/",
         hasDeviceCredential: true
       }
     ]);
@@ -456,7 +453,7 @@ describe("DeploymentConnectionCard", () => {
       profile: {
         profileId: "profile-workspace-001",
         displayName: "Workspace collaboration server",
-        serverBaseUrl: "https://vm-0-3-ubuntu.tailb06a1e.ts.net/"
+        serverBaseUrl: "https://planweave.tailnet.ts.net/"
       },
       workspaceId: "workspace-demo-001",
       workspaceDisplayName: "Configured workspace"
