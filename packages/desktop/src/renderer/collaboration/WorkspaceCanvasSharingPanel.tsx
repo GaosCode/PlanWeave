@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { ChevronDownIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { PlanWeaveCollaborationApi } from "../../shared/collaboration.js";
 import type { WorkspaceCanvasSharingCandidate } from "../../shared/workspaceCanvasSharing.js";
@@ -27,6 +28,7 @@ export function WorkspaceCanvasSharingPanel({
   t: ReturnType<typeof createTranslator>;
 }) {
   const [candidates, setCandidates] = useState<WorkspaceCanvasSharingCandidate[]>([]);
+  const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -77,32 +79,48 @@ export function WorkspaceCanvasSharingPanel({
   };
 
   return (
-    <section className="border-b border-border/70 pb-8" data-testid="workspace-canvas-sharing">
+    <section data-testid="workspace-canvas-sharing">
       <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-base font-semibold text-text-strong">
-            {t("workspaceCanvasSharingTitle")}
-          </h2>
-          <p className="mt-1 max-w-3xl text-sm leading-6 text-text-muted">
-            {t("workspaceCanvasSharingDescription")}
-          </p>
-        </div>
-        <Button variant="ghost" size="sm" disabled={loading} onClick={() => void load()}>
-          {t("peopleRefresh")}
-        </Button>
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-start justify-between gap-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-expanded={expanded}
+          data-testid="workspace-canvas-sharing-toggle"
+          onClick={() => setExpanded((current) => !current)}
+        >
+          <span>
+            <h2 className="text-base font-semibold text-text-strong">
+              {t("workspaceCanvasSharingTitle")}
+            </h2>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-text-muted">
+              {t("workspaceCanvasSharingDescription")}
+            </p>
+          </span>
+          <ChevronDownIcon
+            className={`mt-1 size-4 shrink-0 text-muted-foreground transition-transform ${
+              expanded ? "rotate-180" : ""
+            }`}
+            aria-hidden="true"
+          />
+        </button>
+        {expanded ? (
+          <Button variant="ghost" size="sm" disabled={loading} onClick={() => void load()}>
+            {t("peopleRefresh")}
+          </Button>
+        ) : null}
       </div>
       {error ? (
         <p className="mt-4 text-xs text-destructive" role="alert">
           {error}
         </p>
       ) : null}
-      {loading && candidates.length === 0 ? (
+      {expanded && loading && candidates.length === 0 ? (
         <p className="mt-5 text-sm text-muted-foreground" role="status">
           {t("workspaceCanvasSharingLoading")}
         </p>
-      ) : candidates.length === 0 ? (
+      ) : expanded && candidates.length === 0 ? (
         <p className="mt-5 text-sm text-muted-foreground">{t("workspaceCanvasSharingEmpty")}</p>
-      ) : (
+      ) : expanded ? (
         <div className="mt-5 divide-y divide-border/70">
           {candidates.map((candidate) => {
             const key = `${candidate.localProjectId}\u0000${candidate.canvasId}`;
@@ -151,10 +169,12 @@ export function WorkspaceCanvasSharingPanel({
             );
           })}
         </div>
-      )}
-      <p className="mt-4 text-xs leading-5 text-muted-foreground">
-        {t("workspaceCanvasSharingVisibilityHint")}
-      </p>
+      ) : null}
+      {expanded ? (
+        <p className="mt-4 text-xs leading-5 text-muted-foreground">
+          {t("workspaceCanvasSharingVisibilityHint")}
+        </p>
+      ) : null}
     </section>
   );
 }

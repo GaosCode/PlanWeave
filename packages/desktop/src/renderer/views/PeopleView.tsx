@@ -528,6 +528,7 @@ export function PeopleView({
                   }}
                   onRefreshDetails={handleRefreshDetails}
                 />
+                {authoritativeCanvasAccess}
               </>
             ) : (
               <WorkspaceManagementPanel
@@ -572,7 +573,6 @@ export function PeopleView({
                         connectionKey={activeProfile?.profileId ?? null}
                         t={t}
                       />
-                      {authoritativeCanvasAccess}
                     </div>
                   ) : null
                 }

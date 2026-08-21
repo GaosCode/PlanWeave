@@ -66,6 +66,17 @@ describe("WorkspaceCanvasSharingPanel", () => {
       />
     );
 
+    await waitFor(() => expect(listWorkspaceCanvasSharingCandidates).toHaveBeenCalledOnce());
+    expect(screen.getByTestId("workspace-canvas-sharing-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "false"
+    );
+    expect(screen.queryByText("Local only")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("workspace-canvas-sharing-toggle"));
+    expect(screen.getByTestId("workspace-canvas-sharing-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "true"
+    );
     expect(await screen.findByText("Local only")).toBeVisible();
     expect(screen.queryByText("Shared")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Upload to Workspace" }));
