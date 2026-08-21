@@ -182,7 +182,9 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
                   onValueChange={(value) => onAgentEndpointChange(task.taskId, value)}
                   selectedEndpointId={selectedAgentEndpointId}
                   selectedUnknownLabel={
-                    selectedAgentEndpointId === "__custom" ? labels.customExecutor : undefined
+                    selectedAgentEndpointId === "__custom"
+                      ? labels.customExecutor
+                      : labels.agentEndpointSelectionUnavailable
                   }
                   triggerClassName="h-7 w-32 border-border/80 bg-surface-base text-xs text-text shadow-none"
                   unavailableLabel={labels.unavailable}

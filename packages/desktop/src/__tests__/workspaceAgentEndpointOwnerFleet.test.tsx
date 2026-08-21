@@ -172,6 +172,9 @@ function renderOwnerFleetRun(input?: {
   getBlockDetail?: ReturnType<typeof vi.fn>;
   withCollaborationRuntime?: boolean;
   remoteCanvasOnly?: boolean;
+  runtimeAvailability?:
+    | { kind: "available" }
+    | { kind: "unavailable"; reason: "runtime_not_attached"; statusKnown: true };
 }) {
   const setError = vi.fn();
   const lifecycle = { onStarted: vi.fn(), onCompleted: vi.fn(), onFailed: vi.fn() };
@@ -236,7 +239,7 @@ function renderOwnerFleetRun(input?: {
         : null,
       selectedCanvasId: "canvas-main",
       selectedProject: input?.remoteCanvasOnly ? null : project,
-      runtimeAvailability: { kind: "available" },
+      runtimeAvailability: input?.runtimeAvailability ?? { kind: "available" },
       operatorProfileId: "profile-a",
       ownerFleetDispatchEnabled: true,
       setError,
@@ -329,39 +332,29 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
     expect(setError).toHaveBeenCalledWith("collaboration_server_disconnected");
   });
 
-  it("blocks owner fleet dispatch before preview when Runtime is unavailable", async () => {
-    const setError = vi.fn();
-    const lifecycle = { onStarted: vi.fn(), onCompleted: vi.fn(), onFailed: vi.fn() };
-    const previewClaimNext = vi.fn();
-    const hook = renderHook(() => {
-      const startWithEndpoint = useWorkspaceAgentEndpointRun({
-        activeProjectId: null,
-        agentEndpoints: [remoteEndpoint],
-        collaborationController: null,
-        graph,
-        preferences: {},
-        selectedCanvasId: "canvas-main",
-        selectedProject: project,
-        runtimeAvailability: {
-          kind: "unavailable",
-          reason: "runtime_not_attached",
-          statusKnown: true
-        },
-        operatorProfileId: "profile-a",
-        ownerFleetDispatchEnabled: true,
-        setError,
-        api: null,
-        previewClaimNext
-      });
-      return (scope: DesktopAutoRunScope) => startWithEndpoint(scope, vi.fn(), lifecycle);
+  it("routes an explicitly selected remote Agent when canvas state is known without an attached Runtime", async () => {
+    const { result, lifecycle, setError } = renderOwnerFleetRun({
+      remoteCanvasOnly: true,
+      runtimeAvailability: {
+        kind: "unavailable",
+        reason: "runtime_not_attached",
+        statusKnown: true
+      }
     });
 
-    await act(() => hook.result.current({ kind: "project" }));
+    await act(() => result.current({ kind: "block", blockRef: "T-001#B-001" }));
 
-    expect(previewClaimNext).not.toHaveBeenCalled();
-    expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).not.toHaveBeenCalled();
-    expect(setError).toHaveBeenCalledWith("collaboration_runtime_runtime_not_attached");
-    expect(lifecycle.onFailed).toHaveBeenCalledWith("collaboration_runtime_runtime_not_attached");
+    expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).toHaveBeenCalledWith({
+      profileId: "profile-a",
+      command: expect.objectContaining({
+        projectId: "project-server",
+        canvasId: "canvas-main",
+        blockRef: "T-001#B-001",
+        agentEndpointId: "endpoint-windows"
+      })
+    });
+    expect(lifecycle.onCompleted).toHaveBeenCalled();
+    expect(setError).not.toHaveBeenCalled();
   });
 
   it("dispatches through owner fleet operator control without collaboration controller", async () => {

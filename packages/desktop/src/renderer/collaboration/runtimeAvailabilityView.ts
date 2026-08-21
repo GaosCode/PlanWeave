@@ -12,7 +12,7 @@ export type CollaborationRuntimeAvailabilityView =
 export function collaborationRuntimeOperationsAllowed(
   availability: CollaborationRuntimeAvailabilityView
 ): boolean {
-  return availability.kind === "not_applicable" || availability.kind === "available";
+  return collaborationRuntimeStatusKnown(availability);
 }
 
 export function collaborationRuntimeStatusKnown(

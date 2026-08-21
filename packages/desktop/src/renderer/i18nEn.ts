@@ -42,6 +42,7 @@ export const enCatalog = {
   title: "Title",
   agent: "Agent",
   customExecutor: "Custom",
+  agentEndpointSelectionUnavailable: "Previously selected device unavailable",
   inheritExecutor: "Inherit",
   loadingProject: "Loading project",
   noProject: "Open a project folder to begin",
@@ -1754,7 +1755,7 @@ export const enCatalog = {
   collaborationRuntimeStateWorkingCopyRequired:
     "Create a local working copy before synchronizing runtime state.",
   collaborationRuntimeNotAttached:
-    "No execution device available · viewing and editing remain available",
+    "Canvas state loaded · choose a local or remote Agent to execute",
   collaborationRuntimeHostOffline:
     "Execution device is offline · viewing and editing remain available",
   collaborationRuntimeContentOutOfSync:

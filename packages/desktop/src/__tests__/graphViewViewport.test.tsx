@@ -203,7 +203,7 @@ describe("GraphView viewport fitting", () => {
     [{ kind: "error", message: "IPC failed" } as const, "Execution capability check failed"],
     [
       { kind: "unavailable", reason: "runtime_not_attached", statusKnown: true } as const,
-      "No execution device available"
+      "Canvas state loaded"
     ],
     [
       { kind: "unavailable", reason: "host_offline", statusKnown: true } as const,

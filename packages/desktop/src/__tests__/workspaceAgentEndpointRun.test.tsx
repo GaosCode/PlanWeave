@@ -347,6 +347,34 @@ function renderRun(input?: {
 }
 
 describe("workspace Agent Endpoint routing", () => {
+  it("starts the selected local Agent when Server state is known without an attached Runtime", async () => {
+    const localEndpoint: AvailableAgentEndpoint = {
+      id: "local:codex",
+      source: "local",
+      executorName: "codex",
+      displayName: "Codex",
+      locationName: "",
+      available: true,
+      unavailableReason: null,
+      capabilities: ["acp.codex"],
+      localExecutorName: "codex"
+    };
+    const { result, dispatch, setError, startLocal } = renderRun({
+      endpoint: localEndpoint,
+      runtimeAvailability: {
+        kind: "unavailable",
+        reason: "runtime_not_attached",
+        statusKnown: true
+      }
+    });
+
+    await act(() => result.current({ kind: "project" }));
+
+    expect(startLocal).toHaveBeenCalledWith({ kind: "project" });
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(setError).not.toHaveBeenCalled();
+  });
+
   it("does not silently replace remote Task endpoints with local Project Auto Run", async () => {
     const { result, dispatch, setError, startLocal, waitForTerminal } = renderRun();
 
