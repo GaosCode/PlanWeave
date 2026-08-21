@@ -20,22 +20,27 @@ const key = {
   localCanvasId: "default"
 };
 const available = {
-  schemaVersion: "canvas-runtime-availability/v1" as const,
-  kind: "available" as const,
-  status: {
-    schemaVersion: "canvas-runtime-status/v2" as const,
-    scope: {
-      workspaceId: "workspace-main",
-      projectId: "remote-project",
-      canvasId: "canvas-main"
-    },
-    packageFingerprint: `pkg-${"a".repeat(64)}`,
-    capturedAt: "2026-08-20T00:00:00.000Z",
-    tasks: [{ taskId: "T-001", status: "implemented" as const, openFeedbackCount: 0 }],
-    blocks: []
+  schemaVersion: "canvas-runtime-view/v1" as const,
+  state: {
+    kind: "initialized" as const,
+    status: {
+      schemaVersion: "canvas-runtime-status/v2" as const,
+      scope: {
+        workspaceId: "workspace-main",
+        projectId: "remote-project",
+        canvasId: "canvas-main"
+      },
+      packageFingerprint: `pkg-${"a".repeat(64)}`,
+      capturedAt: "2026-08-20T00:00:00.000Z",
+      tasks: [{ taskId: "T-001", status: "implemented" as const, openFeedbackCount: 0 }],
+      blocks: []
+    }
   },
-  sourceRevision: "src-revision-001",
-  graphFingerprint: `pkg-${"b".repeat(64)}`
+  execution: {
+    schemaVersion: "canvas-runtime-availability/v1" as const,
+    kind: "unavailable" as const,
+    reason: "host_offline" as const
+  }
 };
 
 describe("CollaborationRuntimeAvailabilityStore", () => {
@@ -68,9 +73,13 @@ describe("CollaborationRuntimeAvailabilityStore", () => {
       join(directory, "runtime-availability.json")
     );
     const unavailable = {
-      schemaVersion: "canvas-runtime-availability/v1" as const,
-      kind: "unavailable" as const,
-      reason: "runtime_not_attached" as const
+      schemaVersion: "canvas-runtime-view/v1" as const,
+      state: { kind: "uninitialized" as const },
+      execution: {
+        schemaVersion: "canvas-runtime-availability/v1" as const,
+        kind: "unavailable" as const,
+        reason: "runtime_not_attached" as const
+      }
     };
 
     await expect(store.put(key, unavailable)).resolves.toEqual(unavailable);

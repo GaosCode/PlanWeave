@@ -12,7 +12,10 @@ import {
   humanRevokeInvitationsResponseSchema
 } from "@planweave-ai/collaboration-protocol/identity/workspace";
 import { collaborationInvitationHandoffResponseSchema } from "@planweave-ai/collaboration-protocol/handoff/invitation";
-import { canvasRuntimeAvailabilitySchema } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
+import {
+  canvasRuntimeAvailabilitySchema,
+  canvasRuntimeStateAvailabilitySchema
+} from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import {
   collaborationCanvasBindingInputSchema,
   collaborationContentBootstrapCandidateSchema,
@@ -430,6 +433,17 @@ export function registerCollaborationHandlers(
         .nullable()
         .parse(
           await active.readCanvasRuntimeAvailability(
+            collaborationCanvasBindingInputSchema.parse(input)
+          )
+        )
+  );
+  ipcMain.handle(
+    collaborationInvokeChannels.importCollaborationLocalRuntimeStatus,
+    async (_event, input: unknown) =>
+      canvasRuntimeStateAvailabilitySchema
+        .nullable()
+        .parse(
+          await active.importLocalCanvasRuntimeStatus(
             collaborationCanvasBindingInputSchema.parse(input)
           )
         )

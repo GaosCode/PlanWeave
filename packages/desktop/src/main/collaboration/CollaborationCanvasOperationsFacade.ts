@@ -57,6 +57,10 @@ export class CollaborationCanvasOperationsFacade {
     return this.run(() => this.options.runtimeAvailability.readRuntimeAvailability(input));
   }
 
+  importLocalRuntimeStatus(input: unknown) {
+    return this.run(() => this.options.runtimeAvailability.importLocalRuntimeStatus(input));
+  }
+
   getReplicaProjection(input: unknown) {
     return this.run(() => this.options.runtimeAvailability.getReplicaProjection(input));
   }

@@ -76,7 +76,8 @@ export function useGraphWorkspaceController({
   presence,
   sharedCanvasOffline,
   sharedCanvasRevision,
-  runtimeAvailability
+  runtimeAvailability,
+  onImportRuntimeState
 }: {
   edges: Edge[];
   edgeTypes: AppEdgeTypes;
@@ -113,6 +114,7 @@ export function useGraphWorkspaceController({
   sharedCanvasOffline: boolean;
   sharedCanvasRevision: number | null;
   runtimeAvailability: CollaborationRuntimeAvailabilityView;
+  onImportRuntimeState?: () => Promise<void>;
 }): GraphWorkspaceController {
   const { visibleTaskIds, visibleTasks } = useVisibleGraphTasks(graph, searchQuery);
 
@@ -149,6 +151,7 @@ export function useGraphWorkspaceController({
     presence,
     sharedCanvasOffline,
     sharedCanvasRevision,
-    runtimeAvailability
+    runtimeAvailability,
+    onImportRuntimeState
   });
 }

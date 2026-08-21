@@ -270,7 +270,12 @@ function renderRun(input?: {
       .mockResolvedValue({ kind: "none", reason: "no_claimable_blocks" });
   const readCanvasRuntimeAvailability = vi.fn(async (...args: unknown[]) => {
     const result = await readRuntimeAvailability(...args);
-    if (!result || "kind" in result) return result;
+    if (
+      !result ||
+      ("schemaVersion" in result && result.schemaVersion === "canvas-runtime-view/v1")
+    ) {
+      return result;
+    }
     return availableRuntime(result);
   });
   // Default: no live remote binding → fresh dispatch (graph snapshot is not authoritative).
@@ -1005,11 +1010,13 @@ describe("workspace Agent Endpoint routing", () => {
         })
       )
       .mockResolvedValue({
-        schemaVersion: "canvas-runtime-availability/v1",
-        kind: "unavailable",
-        reason: "content_out_of_sync",
-        sourceRevision: null,
-        graphFingerprint: null
+        schemaVersion: "canvas-runtime-view/v1",
+        state: { kind: "uninitialized" },
+        execution: {
+          schemaVersion: "canvas-runtime-availability/v1",
+          kind: "unavailable",
+          reason: "content_out_of_sync"
+        }
       });
     const { result, setError, lifecycle } = renderRun({
       previewClaimNext,
@@ -1018,8 +1025,8 @@ describe("workspace Agent Endpoint routing", () => {
 
     await act(() => result.current({ kind: "project" }));
 
-    expect(setError).toHaveBeenCalledWith("collaboration_runtime_content_out_of_sync");
-    expect(lifecycle.onFailed).toHaveBeenCalledWith("collaboration_runtime_content_out_of_sync");
+    expect(setError).toHaveBeenCalledWith("collaboration_runtime_state_uninitialized");
+    expect(lifecycle.onFailed).toHaveBeenCalledWith("collaboration_runtime_state_uninitialized");
   });
 
   it("surfaces collaboration_runtime_block_status_unavailable when block row missing after refresh", async () => {

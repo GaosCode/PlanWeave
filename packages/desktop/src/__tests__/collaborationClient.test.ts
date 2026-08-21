@@ -389,11 +389,15 @@ describe("CollaborationClient", () => {
       expect(req.headers.authorization).toBe(`Bearer ${exampleHumanDeviceToken}`);
       if (req.url?.endsWith("/canvas-available/runtime-availability")) {
         json(res, 200, {
-          schemaVersion: "canvas-runtime-availability/v1",
-          kind: "available",
-          status,
-          sourceRevision: "src-revision-001",
-          graphFingerprint: `pkg-${"b".repeat(64)}`
+          schemaVersion: "canvas-runtime-view/v1",
+          state: { kind: "initialized", status },
+          execution: {
+            schemaVersion: "canvas-runtime-availability/v1",
+            kind: "available",
+            status,
+            sourceRevision: "src-revision-001",
+            graphFingerprint: status.packageFingerprint
+          }
         });
         return;
       }
@@ -401,22 +405,36 @@ describe("CollaborationClient", () => {
         "/api/v1/projects/project-demo-001/canvases/canvas-detached/runtime-availability"
       );
       json(res, 200, {
-        schemaVersion: "canvas-runtime-availability/v1",
-        kind: "unavailable",
-        reason: "runtime_not_attached"
+        schemaVersion: "canvas-runtime-view/v1",
+        state: {
+          kind: "initialized",
+          status: { ...status, scope: { ...status.scope, canvasId: "canvas-detached" } }
+        },
+        execution: {
+          schemaVersion: "canvas-runtime-availability/v1",
+          kind: "unavailable",
+          reason: "runtime_not_attached"
+        }
       });
     });
     cleanups.push(fixture.close);
     const client = clientFor(fixture.origin, { token: exampleHumanDeviceToken });
 
     await expect(client.readRuntimeAvailability("canvas-available")).resolves.toMatchObject({
-      kind: "available",
-      status
+      state: { kind: "initialized", status },
+      execution: { kind: "available" }
     });
     await expect(client.readRuntimeAvailability("canvas-detached")).resolves.toEqual({
-      schemaVersion: "canvas-runtime-availability/v1",
-      kind: "unavailable",
-      reason: "runtime_not_attached"
+      schemaVersion: "canvas-runtime-view/v1",
+      state: {
+        kind: "initialized",
+        status: { ...status, scope: { ...status.scope, canvasId: "canvas-detached" } }
+      },
+      execution: {
+        schemaVersion: "canvas-runtime-availability/v1",
+        kind: "unavailable",
+        reason: "runtime_not_attached"
+      }
     });
     client.dispose();
   });
@@ -424,14 +442,46 @@ describe("CollaborationClient", () => {
   it("rejects an invalid runtime availability response instead of mapping it to unavailable", async () => {
     const fixture = await listen((_req, res) => {
       json(res, 200, {
-        schemaVersion: "canvas-runtime-availability/v1",
-        kind: "unavailable"
+        schemaVersion: "canvas-runtime-view/v1",
+        state: { kind: "uninitialized" },
+        execution: { schemaVersion: "canvas-runtime-availability/v1", kind: "unavailable" }
       });
     });
     cleanups.push(fixture.close);
     const client = clientFor(fixture.origin, { token: exampleHumanDeviceToken });
 
     await expect(client.readRuntimeAvailability("canvas-invalid")).rejects.toBeInstanceOf(Error);
+    client.dispose();
+  });
+
+  it("imports one strict local Runtime status through the dedicated endpoint", async () => {
+    const status = {
+      schemaVersion: "canvas-runtime-status/v2" as const,
+      scope: {
+        workspaceId: "workspace-demo-001",
+        projectId: "project-demo-001",
+        canvasId: "canvas-demo-001"
+      },
+      packageFingerprint: `pkg-${"a".repeat(64)}`,
+      capturedAt: "2026-08-21T00:00:00.000Z",
+      tasks: [],
+      blocks: []
+    };
+    const fixture = await listen(async (req, res) => {
+      expect(req.method).toBe("POST");
+      expect(req.url).toBe(
+        "/api/v1/projects/project-demo-001/canvases/canvas-demo-001/runtime-status/import"
+      );
+      expect(JSON.parse((await readBody(req)).toString("utf8"))).toEqual({ status });
+      json(res, 200, { kind: "initialized", status });
+    });
+    cleanups.push(fixture.close);
+    const client = clientFor(fixture.origin, { token: exampleHumanDeviceToken });
+
+    await expect(client.importRuntimeStatus("canvas-demo-001", { status })).resolves.toEqual({
+      kind: "initialized",
+      status
+    });
     client.dispose();
   });
 

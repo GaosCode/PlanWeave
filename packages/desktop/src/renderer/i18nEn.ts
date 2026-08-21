@@ -1745,11 +1745,20 @@ export const enCatalog = {
   sharedCanvasOfflineRevision: "Offline · read-only · last confirmed revision {revision}",
   collaborationServerDisconnected:
     "Server disconnected · collaboration runtime operations disabled",
-  collaborationRuntimeChecking: "Checking collaboration runtime availability…",
-  collaborationRuntimeError: "Runtime availability check failed: {message}",
-  collaborationRuntimeNotAttached: "Runtime unavailable · no runtime is attached",
-  collaborationRuntimeHostOffline: "Runtime unavailable · host is offline",
-  collaborationRuntimeContentOutOfSync: "Runtime unavailable · content is out of sync",
+  collaborationRuntimeChecking: "Checking shared state and execution capability…",
+  collaborationRuntimeError: "Execution capability check failed: {message}",
+  collaborationRuntimeStateUninitialized: "Runtime state has not been synchronized to Server",
+  collaborationRuntimeStateImport: "Sync local runtime state",
+  collaborationRuntimeStateImporting: "Syncing…",
+  collaborationRuntimeStateImported: "Local runtime state synchronized to Server",
+  collaborationRuntimeStateWorkingCopyRequired:
+    "Create a local working copy before synchronizing runtime state.",
+  collaborationRuntimeNotAttached:
+    "No execution device available · viewing and editing remain available",
+  collaborationRuntimeHostOffline:
+    "Execution device is offline · viewing and editing remain available",
+  collaborationRuntimeContentOutOfSync:
+    "The execution device working directory is out of sync with shared content",
   collaborationRuntimeStatusUnavailable: "Runtime status unknown",
   canvasCommandUnsupportedLocalOnly:
     "This edit is not available while the shared canvas is connected. Disconnect collaboration or use a supported shared command.",

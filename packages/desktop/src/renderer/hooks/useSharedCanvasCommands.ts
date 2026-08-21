@@ -36,9 +36,13 @@ export type SharedCanvasSubmitResult = {
   staleConflict: CanvasCommandControllerSnapshot["lastStaleConflict"];
 };
 
+export type SharedCanvasAuthorityMode = "local" | "resolving" | "shared";
+
 export type SharedCanvasCommandsResult = {
   /** True when shared-mode durable mutations must go through canvas commands. */
   enabled: boolean;
+  /** Exact authority classification for consumers that must not infer it from Server state. */
+  authorityMode: SharedCanvasAuthorityMode;
   snapshot: CanvasCommandControllerSnapshot;
   /** Authoritative in-memory projection used by the shared canvas renderer. */
   projection: CollaborationCanvasBindingReplicaProjection | null;
@@ -164,6 +168,11 @@ export function useSharedCanvasCommands(input: {
     (scopeMayBeShared || currentScope !== null || (!input.sessionConnected && !scopeKnownUnmapped));
   const sessionEnabled = authorityEnabled && input.sessionConnected && currentScope !== null;
   const resolvedSharedAuthority = currentScope !== null;
+  const authorityMode: SharedCanvasAuthorityMode = resolvedSharedAuthority
+    ? "shared"
+    : collaborationConfigured && !scopeKnownUnmapped
+      ? "resolving"
+      : "local";
   const currentProjectionIdentity =
     input.profileId && binding && currentScope
       ? projectionIdentity(input.profileId, binding, currentScope)
@@ -535,6 +544,7 @@ export function useSharedCanvasCommands(input: {
   return useMemo(
     () => ({
       enabled: Boolean(authorityEnabled),
+      authorityMode,
       snapshot,
       projection: visibleProjection,
       offline: Boolean(
@@ -545,6 +555,7 @@ export function useSharedCanvasCommands(input: {
     }),
     [
       authorityEnabled,
+      authorityMode,
       reconnect,
       resolvedSharedAuthority,
       sessionEnabled,

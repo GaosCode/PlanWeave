@@ -26,12 +26,12 @@ const recordSchema = z
   .strict()
   .superRefine((record, context) => {
     if (
-      record.availability.kind === "available" &&
-      record.availability.status.scope.projectId !== record.key.projectId
+      record.availability.state.kind === "initialized" &&
+      record.availability.state.status.scope.projectId !== record.key.projectId
     ) {
       context.addIssue({
         code: "custom",
-        path: ["availability", "status", "scope", "projectId"],
+        path: ["availability", "state", "status", "scope", "projectId"],
         message: "runtime_availability_project_scope_mismatch"
       });
     }

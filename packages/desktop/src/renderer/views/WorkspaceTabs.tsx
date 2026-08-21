@@ -110,6 +110,7 @@ export type WorkspaceTabsShellProps = {
 
 export type WorkspaceTabsGraphWorkspaceProps = {
   runtimeAvailability: CollaborationRuntimeAvailabilityView;
+  onImportRuntimeState?: () => Promise<void>;
   edges: Edge[];
   edgeTypes: AppEdgeTypes;
   executionPlan: DesktopProjectExecutionPlan | null;

@@ -179,18 +179,27 @@ function fakeClient(projectId: string) {
     };
   });
   const readRuntimeAvailability = vi.fn(async () => ({
-    schemaVersion: "canvas-runtime-availability/v1" as const,
-    kind: "available" as const,
-    status: {
-      schemaVersion: "canvas-runtime-status/v2" as const,
-      scope: { workspaceId: "workspace-test", projectId, canvasId: "default" },
-      packageFingerprint: `pkg-${"a".repeat(64)}`,
-      capturedAt: "2026-08-20T00:00:00.000Z",
-      tasks: [],
-      blocks: []
+    schemaVersion: "canvas-runtime-view/v1" as const,
+    state: {
+      kind: "initialized" as const,
+      status: {
+        schemaVersion: "canvas-runtime-status/v2" as const,
+        scope: { workspaceId: "workspace-test", projectId, canvasId: "default" },
+        packageFingerprint: `pkg-${"a".repeat(64)}`,
+        capturedAt: "2026-08-20T00:00:00.000Z",
+        tasks: [],
+        blocks: []
+      }
     },
-    sourceRevision: "src-revision-001",
-    graphFingerprint: `pkg-${"b".repeat(64)}`
+    execution: {
+      schemaVersion: "canvas-runtime-availability/v1" as const,
+      kind: "unavailable" as const,
+      reason: "runtime_not_attached" as const
+    }
+  }));
+  const importRuntimeStatus = vi.fn(async (_canvasId: string, input: { status: unknown }) => ({
+    kind: "initialized" as const,
+    status: input.status
   }));
   return {
     client: {
@@ -227,7 +236,8 @@ function fakeClient(projectId: string) {
       fetchContentVersion,
       acknowledgeContentVersion,
       reconnectCanvasCommands,
-      readRuntimeAvailability
+      readRuntimeAvailability,
+      importRuntimeStatus
     } as unknown as CollaborationClient,
     calls: {
       discoverContentAuthority,
@@ -235,12 +245,48 @@ function fakeClient(projectId: string) {
       fetchContentVersion,
       acknowledgeContentVersion,
       reconnectCanvasCommands,
-      readRuntimeAvailability
+      readRuntimeAvailability,
+      importRuntimeStatus
     }
   };
 }
 
 describe("ContentVersionFacade", () => {
+  it("imports the exact local working-copy Runtime status without supporting remote bindings", async () => {
+    const workspace = await createTestWorkspace();
+    directories.push(workspace.home, workspace.root);
+    const fake = fakeClient(workspace.init.workspace.id);
+    const facade = new ContentVersionFacade(() => fake.client);
+
+    await expect(
+      facade.importLocalRuntimeStatus({
+        kind: "local",
+        localProjectId: workspace.init.project.id,
+        canvasId: "default"
+      })
+    ).resolves.toMatchObject({ kind: "initialized" });
+    expect(fake.calls.importRuntimeStatus).toHaveBeenCalledWith(
+      "default",
+      expect.objectContaining({
+        status: expect.objectContaining({
+          scope: {
+            workspaceId: "workspace-test",
+            projectId: workspace.init.workspace.id,
+            canvasId: "default"
+          }
+        })
+      })
+    );
+    await expect(
+      facade.importLocalRuntimeStatus({
+        kind: "remote",
+        workspaceId: "workspace-test",
+        projectId: workspace.init.workspace.id,
+        canvasId: "default"
+      })
+    ).rejects.toMatchObject({ code: "runtime_status_local_working_copy_required" });
+  });
+
   it("binds an authorized remote canvas with an empty local catalog", async () => {
     const home = await mkdtemp(join(tmpdir(), "planweave-remote-canvas-"));
     directories.push(home);
@@ -410,7 +456,7 @@ describe("ContentVersionFacade", () => {
       localProjectId: workspace.init.project.id,
       canvasId: "default"
     });
-    expect(availability?.kind).toBe("available");
+    expect(availability?.state.kind).toBe("initialized");
     expect(fake.calls.readRuntimeAvailability).toHaveBeenCalledWith("default");
 
     const offline = new ContentVersionFacade(
@@ -436,9 +482,13 @@ describe("ContentVersionFacade", () => {
     directories.push(workspace.home, workspace.root);
     const fake = fakeClient(workspace.init.workspace.id);
     fake.client.readRuntimeAvailability = vi.fn(async () => ({
-      schemaVersion: "canvas-runtime-availability/v1" as const,
-      kind: "unavailable" as const,
-      reason: "runtime_not_attached" as const
+      schemaVersion: "canvas-runtime-view/v1" as const,
+      state: { kind: "uninitialized" as const },
+      execution: {
+        schemaVersion: "canvas-runtime-availability/v1" as const,
+        kind: "unavailable" as const,
+        reason: "runtime_not_attached" as const
+      }
     }));
     const facade = new ContentVersionFacade(() => fake.client);
     await expect(
@@ -447,25 +497,33 @@ describe("ContentVersionFacade", () => {
         localProjectId: workspace.init.project.id,
         canvasId: "default"
       })
-    ).resolves.toMatchObject({ kind: "unavailable", reason: "runtime_not_attached" });
+    ).resolves.toMatchObject({
+      state: { kind: "uninitialized" },
+      execution: { kind: "unavailable", reason: "runtime_not_attached" }
+    });
 
     fake.client.readRuntimeAvailability = vi.fn(async () => ({
-      schemaVersion: "canvas-runtime-availability/v1" as const,
-      kind: "available" as const,
-      status: {
-        schemaVersion: "canvas-runtime-status/v2" as const,
-        scope: {
-          workspaceId: "workspace-other",
-          projectId: workspace.init.workspace.id,
-          canvasId: "default"
-        },
-        packageFingerprint: `pkg-${"a".repeat(64)}`,
-        capturedAt: "2026-08-20T00:00:00.000Z",
-        tasks: [],
-        blocks: []
+      schemaVersion: "canvas-runtime-view/v1" as const,
+      state: {
+        kind: "initialized" as const,
+        status: {
+          schemaVersion: "canvas-runtime-status/v2" as const,
+          scope: {
+            workspaceId: "workspace-other",
+            projectId: workspace.init.workspace.id,
+            canvasId: "default"
+          },
+          packageFingerprint: `pkg-${"a".repeat(64)}`,
+          capturedAt: "2026-08-20T00:00:00.000Z",
+          tasks: [],
+          blocks: []
+        }
       },
-      sourceRevision: "src-revision-001",
-      graphFingerprint: `pkg-${"b".repeat(64)}`
+      execution: {
+        schemaVersion: "canvas-runtime-availability/v1" as const,
+        kind: "unavailable" as const,
+        reason: "runtime_not_attached" as const
+      }
     }));
     await expect(
       facade.readRuntimeAvailability({

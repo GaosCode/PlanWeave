@@ -10,7 +10,10 @@ import {
   type ContentVersionDesktopReadModel
 } from "@planweave-ai/collaboration-protocol/content/authority";
 import { type CanvasAccessRecord } from "@planweave-ai/collaboration-protocol/access/project";
-import type { CanvasRuntimeAvailability } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
+import type {
+  CanvasRuntimeAvailability,
+  CanvasRuntimeStateAvailability
+} from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import {
   captureAuthorizedCanvasContent,
   createManagedProjectFromAuthoritativeContent,
@@ -18,6 +21,7 @@ import {
   listProjects,
   materializeAuthoritativeCanvasContent,
   planManagedProjectFromAuthoritativeContent,
+  readAuthorizedCanvasRuntimeStatus,
   resolveTaskCanvasWorkspace
 } from "@planweave-ai/runtime";
 import {
@@ -513,15 +517,53 @@ export class ContentVersionFacade {
     const scope = await this.resolveCanvasScope(requested);
     if (!scope) return null;
     const availability = await client.readRuntimeAvailability(scope.canvasId);
-    if (
-      availability.kind === "available" &&
-      (availability.status.scope.workspaceId !== scope.workspaceId ||
-        availability.status.scope.projectId !== scope.projectId ||
-        availability.status.scope.canvasId !== scope.canvasId)
-    ) {
-      throw unavailable("runtime_availability_scope_mismatch", false);
+    const statuses = [
+      availability.state.kind === "initialized" ? availability.state.status : null,
+      availability.execution.kind === "available" ? availability.execution.status : null
+    ];
+    for (const status of statuses) {
+      if (
+        status &&
+        (status.scope.workspaceId !== scope.workspaceId ||
+          status.scope.projectId !== scope.projectId ||
+          status.scope.canvasId !== scope.canvasId)
+      ) {
+        throw unavailable("runtime_availability_scope_mismatch", false);
+      }
     }
     return cacheKey ? this.runtimeAvailabilities.put(cacheKey, availability) : availability;
+  }
+
+  async importLocalRuntimeStatus(input: unknown): Promise<CanvasRuntimeStateAvailability> {
+    const requested = collaborationCanvasBindingInputSchema.parse(input);
+    if (requested.kind !== "local") {
+      throw unavailable("runtime_status_local_working_copy_required", false);
+    }
+    const client = this.requireClient();
+    const scope = await this.resolveCanvasScope(requested);
+    if (!scope) throw unavailable("runtime_status_scope_unavailable", false);
+    const mapped = (await this.replicas.list()).find(
+      (replica) =>
+        replica.remote.serverOrigin === this.serverOrigin(client) &&
+        replica.remote.projectId === client.projectId &&
+        replica.remote.canvasId === scope.canvasId &&
+        replica.local.projectId === requested.localProjectId &&
+        replica.local.canvasId === requested.canvasId
+    );
+    const binding = await this.bindLocal(
+      client,
+      requested.localProjectId,
+      requested.canvasId,
+      scope.canvasId,
+      mapped
+    );
+    const status = await readAuthorizedCanvasRuntimeStatus({
+      projectRoot: binding.projectRoot,
+      canvasId: binding.localCanvasId,
+      expectedPackageDir: binding.expectedPackageDir,
+      scope
+    });
+    return client.importRuntimeStatus(scope.canvasId, { status });
   }
 
   async refresh(): Promise<ContentVersionDesktopReadModel> {

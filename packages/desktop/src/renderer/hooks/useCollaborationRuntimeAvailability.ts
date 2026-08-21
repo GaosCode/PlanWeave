@@ -1,8 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type {
-  CanvasRuntimeAvailability,
-  CanvasRuntimeUnavailableReason
-} from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
+import type { CanvasRuntimeAvailability } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import type { CanvasRuntimeStatusProjection } from "@planweave-ai/collaboration-protocol/canvas/status";
 import type { DesktopGraphViewModel } from "@planweave-ai/runtime";
 import type {
@@ -30,11 +27,10 @@ type ResolvedCanvasIdentity = {
 type RemoteAvailabilityState =
   | { kind: "checking" }
   | {
-      kind: "available";
+      kind: "ready";
       identity: ResolvedCanvasIdentity;
-      availability: Extract<CanvasRuntimeAvailability, { kind: "available" }>;
+      availability: CanvasRuntimeAvailability;
     }
-  | { kind: "unavailable"; reason: CanvasRuntimeUnavailableReason }
   | { kind: "error"; message: string };
 
 function errorMessage(caught: unknown): string {
@@ -148,6 +144,7 @@ export function useCollaborationRuntimeAvailability(input: {
   activeProjectId: string | null;
   binding: CollaborationCanvasBindingInput | null;
   graph: DesktopGraphViewModel | null;
+  refreshRevision?: number;
   api?: CollaborationRuntimeAvailabilityBridge | null;
 }): { graph: DesktopGraphViewModel | null; availability: CollaborationRuntimeAvailabilityView } {
   const api = input.api === undefined ? collaborationBridge : input.api;
@@ -176,6 +173,8 @@ export function useCollaborationRuntimeAvailability(input: {
   const graphPackageFingerprint = input.graph?.packageFingerprint ?? null;
   const [remoteState, setRemoteState] = useState<RemoteAvailabilityState>({ kind: "checking" });
 
+  // refreshRevision is an external invalidation signal; its value is intentionally not read.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: changing it must restart the authoritative read.
   useEffect(() => {
     if (!input.enabled || !input.sessionConnected) return undefined;
     if (
@@ -204,12 +203,18 @@ export function useCollaborationRuntimeAvailability(input: {
         if (!active) return;
         if (!next) {
           setRemoteState({ kind: "error", message: "collaboration_runtime_availability_missing" });
-        } else if (next.kind === "unavailable") {
-          setRemoteState({ kind: "unavailable", reason: next.reason });
-        } else if (!matchesResolvedCanvas(next.status, currentIdentity)) {
+        } else if (
+          next.state.kind === "initialized" &&
+          !matchesResolvedCanvas(next.state.status, currentIdentity)
+        ) {
+          setRemoteState({ kind: "error", message: "collaboration_runtime_scope_mismatch" });
+        } else if (
+          next.execution.kind === "available" &&
+          !matchesResolvedCanvas(next.execution.status, currentIdentity)
+        ) {
           setRemoteState({ kind: "error", message: "collaboration_runtime_scope_mismatch" });
         } else {
-          setRemoteState({ kind: "available", identity: currentIdentity, availability: next });
+          setRemoteState({ kind: "ready", identity: currentIdentity, availability: next });
         }
       } catch (caught) {
         if (active) setRemoteState({ kind: "error", message: errorMessage(caught) });
@@ -253,11 +258,12 @@ export function useCollaborationRuntimeAvailability(input: {
     graphPackageFingerprint,
     binding,
     input.profileId,
+    input.refreshRevision,
     input.sessionConnected
   ]);
 
-  const currentAvailableState =
-    remoteState.kind === "available" &&
+  const currentReadyState =
+    remoteState.kind === "ready" &&
     input.profileId &&
     bindingIdentity &&
     input.activeProjectId &&
@@ -272,26 +278,41 @@ export function useCollaborationRuntimeAvailability(input: {
       ? { kind: "not_applicable" }
       : !input.sessionConnected
         ? { kind: "server_disconnected" }
-        : remoteState.kind === "available" && !currentAvailableState
+        : remoteState.kind === "ready" && !currentReadyState
           ? { kind: "checking" }
-          : remoteState.kind === "available"
-            ? { kind: "available" }
-            : remoteState;
+          : remoteState.kind === "ready" && currentReadyState
+            ? currentReadyState.availability.state.kind === "uninitialized"
+              ? { kind: "state_uninitialized" }
+              : currentReadyState.availability.execution.kind === "available"
+                ? { kind: "available" }
+                : {
+                    kind: "unavailable",
+                    reason: currentReadyState.availability.execution.reason,
+                    statusKnown: true
+                  }
+            : remoteState.kind === "checking" || remoteState.kind === "error"
+              ? remoteState
+              : { kind: "checking" };
     const graph = input.graph
       ? availability.kind === "not_applicable"
         ? input.graph
-        : availability.kind === "available" && currentAvailableState
-          ? mergeAvailableCollaborationRuntimeStatus(
-              input.graph,
-              currentAvailableState.availability.status,
-              {
-                workspaceId: currentAvailableState.identity.remoteWorkspaceId,
-                projectId: currentAvailableState.identity.remoteProjectId,
-                canvasId: currentAvailableState.identity.remoteCanvasId
-              }
-            )
+        : currentReadyState?.availability.state.kind === "initialized"
+          ? (() => {
+              const merged = mergeAvailableCollaborationRuntimeStatus(
+                input.graph,
+                currentReadyState.availability.state.status,
+                {
+                  workspaceId: currentReadyState.identity.remoteWorkspaceId,
+                  projectId: currentReadyState.identity.remoteProjectId,
+                  canvasId: currentReadyState.identity.remoteCanvasId
+                }
+              );
+              return availability.kind === "available"
+                ? merged
+                : failClosedCollaborationRuntimeDispatchability(merged);
+            })()
           : failClosedCollaborationRuntimeDispatchability(input.graph)
       : null;
     return { graph, availability };
-  }, [currentAvailableState, input.enabled, input.graph, input.sessionConnected, remoteState]);
+  }, [currentReadyState, input.enabled, input.graph, input.sessionConnected, remoteState]);
 }

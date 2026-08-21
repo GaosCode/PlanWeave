@@ -800,6 +800,10 @@ export class CollaborationService {
     return this.canvasOperations.readRuntimeAvailability(input);
   }
 
+  async importLocalCanvasRuntimeStatus(input: unknown) {
+    return this.canvasOperations.importLocalRuntimeStatus(input);
+  }
+
   async getCanvasReplicaProjection(input: unknown) {
     return this.canvasOperations.getReplicaProjection(input);
   }

@@ -467,11 +467,15 @@ describe("CanvasRuntimeAvailabilityCoordinator", () => {
     blocks: []
   };
   const available = {
-    schemaVersion: "canvas-runtime-availability/v1" as const,
-    kind: "available" as const,
-    status,
-    sourceRevision: "src-revision-001",
-    graphFingerprint: `pkg-${"b".repeat(64)}`
+    schemaVersion: "canvas-runtime-view/v1" as const,
+    state: { kind: "initialized" as const, status },
+    execution: {
+      schemaVersion: "canvas-runtime-availability/v1" as const,
+      kind: "available" as const,
+      status,
+      sourceRevision: "src-revision-001",
+      graphFingerprint: status.packageFingerprint
+    }
   };
 
   function setup(
@@ -480,7 +484,8 @@ describe("CanvasRuntimeAvailabilityCoordinator", () => {
   ) {
     const content: CanvasRuntimeContentPort = {
       resolveCanvasScope: vi.fn(async () => scope),
-      readRuntimeAvailability: vi.fn(async () => initialAvailability)
+      readRuntimeAvailability: vi.fn(async () => initialAvailability),
+      importLocalRuntimeStatus: vi.fn()
     };
     const commands: CanvasRuntimeCommandPort = { projectionForBinding: vi.fn(() => null) };
     const replicas: CanvasRuntimeReplicaPort = {
@@ -519,11 +524,15 @@ describe("CanvasRuntimeAvailabilityCoordinator", () => {
 
   it("clears the resolved replica overlay for unavailable without synthesizing status", async () => {
     const unavailable = {
-      schemaVersion: "canvas-runtime-availability/v1" as const,
-      kind: "unavailable" as const,
-      reason: "host_offline" as const,
-      hostId: "host-1",
-      lastSeenAt: "2026-08-20T00:00:00.000Z"
+      schemaVersion: "canvas-runtime-view/v1" as const,
+      state: { kind: "uninitialized" as const },
+      execution: {
+        schemaVersion: "canvas-runtime-availability/v1" as const,
+        kind: "unavailable" as const,
+        reason: "host_offline" as const,
+        hostId: "host-1",
+        lastSeenAt: "2026-08-20T00:00:00.000Z"
+      }
     };
     const fixture = setup(unavailable);
 

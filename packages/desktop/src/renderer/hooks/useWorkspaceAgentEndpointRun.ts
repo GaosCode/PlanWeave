@@ -411,10 +411,10 @@ export function useWorkspaceAgentEndpointRun(
                 if (!availability) {
                   throw new Error("collaboration_runtime_availability_unavailable");
                 }
-                if (availability.kind === "unavailable") {
-                  throw new Error(`collaboration_runtime_${availability.reason}`);
+                if (availability.state.kind === "uninitialized") {
+                  throw new Error("collaboration_runtime_state_uninitialized");
                 }
-                return availability.status;
+                return availability.state.status;
               };
 
               // refresh: dedicated re-read so claim-none idle cannot use a lagging projection.

@@ -972,10 +972,17 @@ describe("preload bridge invocation", () => {
         channel === collaborationInvokeChannels.readCollaborationCanvasBindingRuntimeAvailability
       ) {
         return {
-          schemaVersion: "canvas-runtime-availability/v1",
-          kind: "unavailable",
-          reason: "runtime_not_attached"
+          schemaVersion: "canvas-runtime-view/v1",
+          state: { kind: "uninitialized" },
+          execution: {
+            schemaVersion: "canvas-runtime-availability/v1",
+            kind: "unavailable",
+            reason: "runtime_not_attached"
+          }
         };
+      }
+      if (channel === collaborationInvokeChannels.importCollaborationLocalRuntimeStatus) {
+        return { kind: "uninitialized" };
       }
       return status;
     });
@@ -1079,6 +1086,11 @@ describe("preload bridge invocation", () => {
     await api.stopCollaborationCanvasLiveSync();
     await api.flushCollaborationCanvasReplicaMaterialization();
     await api.readCollaborationCanvasBindingRuntimeAvailability({
+      kind: "local",
+      localProjectId: "project-1",
+      canvasId: "default"
+    });
+    await api.importCollaborationLocalRuntimeStatus({
       kind: "local",
       localProjectId: "project-1",
       canvasId: "default"
@@ -1246,6 +1258,10 @@ describe("preload bridge invocation", () => {
     );
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
       collaborationInvokeChannels.readCollaborationCanvasBindingRuntimeAvailability,
+      { kind: "local", localProjectId: "project-1", canvasId: "default" }
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      collaborationInvokeChannels.importCollaborationLocalRuntimeStatus,
       { kind: "local", localProjectId: "project-1", canvasId: "default" }
     );
 

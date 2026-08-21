@@ -119,6 +119,7 @@ type GraphViewProps = {
   sharedCanvasOffline: boolean;
   sharedCanvasRevision: number | null;
   runtimeAvailability: CollaborationRuntimeAvailabilityView;
+  onImportRuntimeState?: () => Promise<void>;
 };
 
 function runtimeAvailabilityBanner(
@@ -133,6 +134,8 @@ function runtimeAvailabilityBanner(
       return t("collaborationServerDisconnected");
     case "checking":
       return t("collaborationRuntimeChecking");
+    case "state_uninitialized":
+      return t("collaborationRuntimeStateUninitialized");
     case "error":
       return t("collaborationRuntimeError").replace("{message}", availability.message);
     case "unavailable":
@@ -208,7 +211,8 @@ export function GraphView({
   presence,
   sharedCanvasOffline,
   sharedCanvasRevision,
-  runtimeAvailability
+  runtimeAvailability,
+  onImportRuntimeState
 }: GraphViewProps) {
   const fittedGraphScopeId = useRef<string | null>(null);
   const [localFlowInstance, setLocalFlowInstance] = useState<ReactFlowInstance<
@@ -217,6 +221,7 @@ export function GraphView({
   > | null>(null);
   const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [runtimeStateImporting, setRuntimeStateImporting] = useState(false);
   const dirtyPromptRefs = graph?.dirtyPromptRefs ?? [];
   const dirtyPromptCount = dirtyPromptRefs.length;
   const runtimeBanner = runtimeAvailabilityBanner(runtimeAvailability, t);
@@ -279,6 +284,15 @@ export function GraphView({
     },
     [handleOpenBlockInspector, onTaskPanelSelect, selectedCanvasId, setActiveView]
   );
+  const handleImportRuntimeState = useCallback(async () => {
+    if (!onImportRuntimeState || runtimeStateImporting) return;
+    setRuntimeStateImporting(true);
+    try {
+      await onImportRuntimeState();
+    } finally {
+      setRuntimeStateImporting(false);
+    }
+  }, [onImportRuntimeState, runtimeStateImporting]);
 
   useEffect(() => {
     if (!graph) {
@@ -340,11 +354,25 @@ export function GraphView({
     >
       {runtimeBanner ? (
         <div
-          className="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full border border-border bg-surface/95 px-3 py-1 text-xs text-text-muted shadow-sm"
+          className="absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-surface/95 px-3 py-1 text-xs text-text-muted shadow-sm"
           data-runtime-availability={runtimeAvailability.kind}
           data-testid="collaboration-runtime-availability"
         >
           {runtimeBanner}
+          {runtimeAvailability.kind === "state_uninitialized" && onImportRuntimeState ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-6 rounded-full px-2 text-xs"
+              disabled={runtimeStateImporting}
+              onClick={() => void handleImportRuntimeState()}
+            >
+              {runtimeStateImporting
+                ? t("collaborationRuntimeStateImporting")
+                : t("collaborationRuntimeStateImport")}
+            </Button>
+          ) : null}
         </div>
       ) : sharedCanvasOffline ? (
         <div

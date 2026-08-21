@@ -103,8 +103,8 @@ import {
   type EligibleHostBatchRequest,
   type EligibleHostBatchResponse
 } from "@planweave-ai/collaboration-protocol/work/assignment";
-import { type CanvasRuntimeAvailability } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import { type CanvasLiveSyncServerMessage } from "@planweave-ai/collaboration-protocol/canvas/live-sync";
+import type { PlanWeaveCollaborationRuntimeAvailabilityApi } from "./collaborationRuntimeAvailability.js";
 import {
   type RemoteActionView,
   type RemoteDispatchIntentV3,
@@ -842,9 +842,6 @@ export type PlanWeaveCollaborationApi = {
   resolveCollaborationCanvasBindingScope: (
     input: CollaborationCanvasBindingInput
   ) => Promise<CollaborationCanvasScopeResolution | null>;
-  readCollaborationCanvasBindingRuntimeAvailability: (
-    input: CollaborationCanvasBindingInput
-  ) => Promise<CanvasRuntimeAvailability | null>;
   getCollaborationCanvasBindingReplicaProjection: (
     input: CollaborationCanvasBindingInput
   ) => Promise<CollaborationCanvasBindingReplicaProjection | null>;
@@ -1015,7 +1012,7 @@ export type PlanWeaveCollaborationApi = {
   onCollaborationCanvasBindingReplicaSignal: (
     callback: (signal: CollaborationCanvasBindingReplicaSignal) => void
   ) => () => void;
-};
+} & PlanWeaveCollaborationRuntimeAvailabilityApi;
 
 export const COLLABORATION_SESSION_ONLY_WARNING =
   "Configured credential storage is unavailable, so the collaboration device credential is held only for this PlanWeave process and will not be saved.";

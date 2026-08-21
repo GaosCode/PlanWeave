@@ -342,7 +342,11 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
         preferences: {},
         selectedCanvasId: "canvas-main",
         selectedProject: project,
-        runtimeAvailability: { kind: "unavailable", reason: "runtime_not_attached" },
+        runtimeAvailability: {
+          kind: "unavailable",
+          reason: "runtime_not_attached",
+          statusKnown: true
+        },
         operatorProfileId: "profile-a",
         ownerFleetDispatchEnabled: true,
         setError,

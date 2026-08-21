@@ -34,7 +34,7 @@ import { useSharedResourceHighlight } from "./hooks/useSharedResourceHighlight";
 import { useLerpedNodeDrag } from "./hooks/useLerpedNodeDrag";
 import { useCollaborationSurface } from "./hooks/useCollaborationSurface";
 import { useCollaborationCanvasPresence } from "./hooks/useCollaborationCanvasPresence";
-import { useWorkspaceCollaborationRuntimeAvailability } from "./hooks/useWorkspaceCollaborationRuntimeAvailability";
+import { useWorkspaceRuntimeState } from "./hooks/useWorkspaceRuntimeState";
 import { useSharedCanvasCommands } from "./hooks/useSharedCanvasCommands";
 import { canvasReplicaProjectionToDesktopGraph } from "./collaboration/canvasReplicaGraphAdapter";
 import { buildAppSettingsRouteProps } from "./AppSettingsRouteProps";
@@ -256,13 +256,16 @@ export function ProjectWorkspaceProvider({
   const layout =
     sharedCanvasCommands.projection?.content.layout ??
     (remoteWorkspace.binding ? null : localLayout);
-  const collaborationRuntime = useWorkspaceCollaborationRuntimeAvailability({
+  const collaborationRuntime = useWorkspaceRuntimeState({
     activeProfileId: collaborationSurface.activeProfileId,
     activeProjectId: collaborationSurface.activeProjectId,
     graph: replicaGraph,
-    localOwnerDirectWriteAvailable: collaborationSurface.localOwnerDirectWriteAvailable,
     sessionConnected: collaborationSurface.sessionConnected,
-    binding: canvasBinding
+    binding: canvasBinding,
+    sharedAuthorityMode: sharedCanvasCommands.authorityMode,
+    setError,
+    setSuccessMessage,
+    t
   });
   const graph = collaborationRuntime.graph;
   const ownerControlPlane = useOwnerControlPlaneAvailability();
@@ -1076,7 +1079,8 @@ export function ProjectWorkspaceProvider({
     presence: collaborationPresence,
     sharedCanvasOffline: sharedCanvasCommands.offline,
     sharedCanvasRevision: sharedCanvasCommands.projection?.revision ?? null,
-    runtimeAvailability: collaborationRuntime.availability
+    runtimeAvailability: collaborationRuntime.availability,
+    onImportRuntimeState: collaborationRuntime.onImportRuntimeState
   });
   const review = useMemo<WorkspaceTabsReviewProps>(
     () => ({

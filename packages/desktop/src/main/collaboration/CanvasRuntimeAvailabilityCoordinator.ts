@@ -6,7 +6,7 @@ import type { CanvasReplicaStore } from "./CanvasReplicaStore.js";
 
 export type CanvasRuntimeContentPort = Pick<
   ContentVersionFacade,
-  "resolveCanvasScope" | "readRuntimeAvailability"
+  "resolveCanvasScope" | "readRuntimeAvailability" | "importLocalRuntimeStatus"
 >;
 export type CanvasRuntimeCommandPort = Pick<
   CollaborationCanvasCommandFacade,
@@ -68,10 +68,26 @@ export class CanvasRuntimeAvailabilityCoordinator {
     if (this.canvasReplicas.has(replicaScope)) {
       this.canvasReplicas.setRuntimeStatus(
         replicaScope,
-        availability.kind === "available" ? availability.status : null
+        availability.state.kind === "initialized" ? availability.state.status : null
       );
     }
     return availability;
+  }
+
+  async importLocalRuntimeStatus(input: unknown) {
+    const requested = collaborationCanvasBindingInputSchema.parse(input);
+    const authorityId = this.resolveAuthorityId();
+    if (!this.isOnline() || !authorityId) return null;
+    const scope = await this.contentVersions.resolveCanvasScope(requested);
+    if (!scope) return null;
+    const state = await this.contentVersions.importLocalRuntimeStatus(requested);
+    if (state.kind === "initialized") {
+      const replicaScope = { authorityId, ...scope };
+      if (this.canvasReplicas.has(replicaScope)) {
+        this.canvasReplicas.setRuntimeStatus(replicaScope, state.status);
+      }
+    }
+    return state;
   }
 
   private clearReplicaRuntimeStatus(scope: Parameters<CanvasRuntimeReplicaPort["has"]>[0]): void {

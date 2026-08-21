@@ -1,7 +1,10 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { IpcRendererEvent } from "electron";
 import { z } from "zod";
-import { canvasRuntimeAvailabilitySchema } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
+import {
+  canvasRuntimeAvailabilitySchema,
+  canvasRuntimeStateAvailabilitySchema
+} from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import {
   humanCreateInvitationResponseSchema,
   humanDevicePageSchema,
@@ -323,6 +326,15 @@ const collaborationApi: PlanWeaveCollaborationApi = {
       .parse(
         await ipcRenderer.invoke(
           collaborationInvokeChannels.readCollaborationCanvasBindingRuntimeAvailability,
+          input
+        )
+      ),
+  importCollaborationLocalRuntimeStatus: async (input) =>
+    canvasRuntimeStateAvailabilitySchema
+      .nullable()
+      .parse(
+        await ipcRenderer.invoke(
+          collaborationInvokeChannels.importCollaborationLocalRuntimeStatus,
           input
         )
       ),

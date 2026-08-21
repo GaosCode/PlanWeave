@@ -199,11 +199,20 @@ afterEach(() => {
 describe("GraphView viewport fitting", () => {
   it.each([
     [{ kind: "server_disconnected" } as const, "Server disconnected"],
-    [{ kind: "checking" } as const, "Checking collaboration runtime availability"],
-    [{ kind: "error", message: "IPC failed" } as const, "Runtime availability check failed"],
-    [{ kind: "unavailable", reason: "runtime_not_attached" } as const, "no runtime is attached"],
-    [{ kind: "unavailable", reason: "host_offline" } as const, "host is offline"],
-    [{ kind: "unavailable", reason: "content_out_of_sync" } as const, "content is out of sync"]
+    [{ kind: "checking" } as const, "Checking shared state and execution capability"],
+    [{ kind: "error", message: "IPC failed" } as const, "Execution capability check failed"],
+    [
+      { kind: "unavailable", reason: "runtime_not_attached", statusKnown: true } as const,
+      "No execution device available"
+    ],
+    [
+      { kind: "unavailable", reason: "host_offline", statusKnown: true } as const,
+      "Execution device is offline"
+    ],
+    [
+      { kind: "unavailable", reason: "content_out_of_sync", statusKnown: true } as const,
+      "working directory is out of sync"
+    ]
   ])("shows the mutually exclusive collaboration availability banner", (availability, message) => {
     render(<GraphView {...defaultProps({ runtimeAvailability: availability })} />);
 
@@ -223,7 +232,22 @@ describe("GraphView viewport fitting", () => {
 
     const banner = screen.getByTestId("collaboration-runtime-availability");
     expect(banner).toHaveTextContent("Server disconnected");
-    expect(banner).not.toHaveTextContent("no runtime is attached");
+    expect(banner).not.toHaveTextContent("No execution device available");
+  });
+
+  it("offers a controlled one-time local status sync when Server state is uninitialized", async () => {
+    const onImportRuntimeState = vi.fn().mockResolvedValue(undefined);
+    render(
+      <GraphView
+        {...defaultProps({
+          runtimeAvailability: { kind: "state_uninitialized" },
+          onImportRuntimeState
+        })}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Sync local runtime state" }));
+    await waitFor(() => expect(onImportRuntimeState).toHaveBeenCalledOnce());
   });
 
   it("labels the retained shared replica as offline and read-only", () => {

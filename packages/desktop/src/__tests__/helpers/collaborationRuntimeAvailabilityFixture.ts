@@ -32,10 +32,14 @@ export function availableRuntime(
   })
 ) {
   return {
-    schemaVersion: "canvas-runtime-availability/v1" as const,
-    kind: "available" as const,
-    status,
-    sourceRevision: "source-revision-1",
-    graphFingerprint: `pkg-${"b".repeat(64)}`
+    schemaVersion: "canvas-runtime-view/v1" as const,
+    state: { kind: "initialized" as const, status },
+    execution: {
+      schemaVersion: "canvas-runtime-availability/v1" as const,
+      kind: "available" as const,
+      status,
+      sourceRevision: "source-revision-1",
+      graphFingerprint: status.packageFingerprint
+    }
   };
 }

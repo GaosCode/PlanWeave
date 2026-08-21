@@ -21,7 +21,7 @@ export function useRemoteCanvasWorkspace(
   const sessionConnected = input.sessionConnected ?? isCollaborationSessionConnected(status);
   const registry = useCollaborationRegistryReadModels({
     projectId: sessionConnected ? activeProjectId : null,
-    api: input.api
+    api: sessionConnected ? input.api : null
   });
   const authorizedCanvases = useMemo(
     () => registry.canvases.filter((canvas) => canvas.registry.projectId === activeProjectId),
@@ -30,10 +30,12 @@ export function useRemoteCanvasWorkspace(
   const [binding, setBinding] = useState<RemoteCollaborationCanvasBindingInput | null>(null);
 
   useEffect(() => {
+    if (!binding) {
+      return;
+    }
     if (
       !sessionConnected ||
       input.localProjectId ||
-      !binding ||
       binding.projectId !== activeProjectId ||
       !authorizedCanvases.some(
         (canvas) =>

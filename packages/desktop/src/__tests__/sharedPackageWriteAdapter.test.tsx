@@ -25,6 +25,7 @@ function sharedCanvasMock(
 ): SharedCanvasCommandsResult {
   return {
     enabled: true,
+    authorityMode: "shared",
     snapshot: {
       session: {
         canvasId: "canvas-main",

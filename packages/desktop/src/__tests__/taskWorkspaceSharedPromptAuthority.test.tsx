@@ -86,6 +86,7 @@ function sharedCanvasWithProjection(
 ): SharedCanvasCommandsResult {
   return {
     enabled: true,
+    authorityMode: "shared",
     snapshot: {
       session: {
         canvasId: projection.localCanvasId,

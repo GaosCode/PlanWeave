@@ -74,6 +74,33 @@ describe("useCollaborationRegistryReadModels", () => {
 });
 
 describe("useRemoteCanvasWorkspace", () => {
+  it("does not request registry data without an active collaboration session", async () => {
+    const api = {
+      listCollaborationAuthorizedProjects: vi.fn(async () => {
+        throw new Error("collaboration_session_inactive");
+      }),
+      listCollaborationAuthorizedCanvases: vi.fn(async () => ({ items: [], nextCursor: null }))
+    };
+    const { result } = renderHook(() =>
+      useRemoteCanvasWorkspace({
+        activeProjectId: null,
+        localProjectId: null,
+        sessionConnected: false,
+        api
+      })
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(api.listCollaborationAuthorizedProjects).not.toHaveBeenCalled();
+    expect(api.listCollaborationAuthorizedCanvases).not.toHaveBeenCalled();
+    expect(result.current.phase).toBe("idle");
+    expect(result.current.error).toBeNull();
+  });
+
   it("selects only an authorized canvas with exact remote identity and clears it offline", async () => {
     const api = {
       listCollaborationAuthorizedProjects: vi.fn(async () => ({ items: [], nextCursor: null })),

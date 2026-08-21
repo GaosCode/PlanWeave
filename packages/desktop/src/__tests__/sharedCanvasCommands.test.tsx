@@ -339,6 +339,7 @@ describe("useSharedCanvasCommands", () => {
     );
 
     expect(result.current.enabled).toBe(true);
+    expect(result.current.authorityMode).toBe("resolving");
     expect(result.current.offline).toBe(false);
 
     resolveScope(null);
@@ -535,7 +536,7 @@ describe("useSharedCanvasCommands", () => {
       resolveScope: async () => ({ projectId: "remote-project", canvasId: "remote-canvas" })
     });
 
-    renderHook(() =>
+    const { result } = renderHook(() =>
       useSharedCanvasCommands({
         ...hookInput(bridge.api),
         binding: { kind: "local", localProjectId: "local-replica", canvasId: "default" },
@@ -544,6 +545,7 @@ describe("useSharedCanvasCommands", () => {
     );
     await flushEffects();
 
+    expect(result.current.authorityMode).toBe("shared");
     expect(bridge.bind).toHaveBeenCalledWith({
       kind: "local",
       localProjectId: "local-replica",
@@ -568,6 +570,7 @@ describe("useSharedCanvasCommands", () => {
     await flushEffects();
 
     expect(result.current.enabled).toBe(false);
+    expect(result.current.authorityMode).toBe("local");
     expect(bridge.bind).not.toHaveBeenCalled();
   });
 
