@@ -152,6 +152,40 @@ describe("configured operator session provisioning", () => {
     }
   });
 
+  it("preserves an existing server admin anchor when trusted project order changes", async () => {
+    const database = await openDatabase();
+    try {
+      const identity = new WorkspaceIdentityRepository(database);
+      identity.ensureWorkspaceForLegacyProject("project-a");
+      identity.ensureWorkspaceForLegacyProject("project-b");
+      const first = provision(
+        database,
+        [credential(tokenA, [], true)],
+        ["project-b", "project-a"]
+      )[0];
+
+      const restarted = provision(
+        database,
+        [credential(tokenA, [], true)],
+        ["project-a", "project-b"]
+      )[0];
+
+      expect(restarted).toEqual(first);
+      expect(
+        database.prepare("SELECT COUNT(*) AS count FROM workspace_operator_sessions").get()?.count
+      ).toBe(1);
+      expect(() =>
+        provision(
+          database,
+          [{ ...credential(tokenA, [], true), operatorId: "operator-b" }],
+          ["project-a", "project-b"]
+        )
+      ).toThrow("operator_session_credential_conflict");
+    } finally {
+      database.close();
+    }
+  });
+
   it("allows an explicitly anchored server admin when no collaboration project is trusted", async () => {
     const database = await openDatabase();
     try {

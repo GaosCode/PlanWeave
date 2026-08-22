@@ -64,9 +64,10 @@ function resolveCredentialWorkspace(
 }
 
 function existingSessionMatches(session: OperatorSession, plan: ProvisioningPlan): boolean {
-  return (
-    session.workspaceId === plan.workspaceId && session.operatorId === plan.credential.operatorId
-  );
+  if (session.operatorId !== plan.credential.operatorId) return false;
+  // A server admin's workspace is an issuance anchor, not an authorization scope. Preserve the
+  // durable anchor when the configured collaboration projects change between server restarts.
+  return plan.credential.serverAdmin || session.workspaceId === plan.workspaceId;
 }
 
 /** Provision configured operator digests into durable workspace sessions without secrets. */
