@@ -61,7 +61,6 @@ export type CanvasRuntimeCommandCoordinatorOptions = {
   executionLeases: CanvasExecutionRuntimeLeasePort;
   hasConflictingLease(scope: RuntimeCanvasScope): boolean;
   commitTransaction<T>(action: () => T): T;
-  onRuntimeInvalidated(scope: RuntimeCanvasScope, runtimeRevision: number): void;
 };
 
 function authorizationError(code: string): CanvasRuntimeResetError {
@@ -293,7 +292,6 @@ export class CanvasRuntimeCommandCoordinator {
         if (completed.type !== "canvas.runtime.reset.accepted") {
           throw new Error("canvas_runtime_reset_receipt_outcome_mismatch");
         }
-        this.options.onRuntimeInvalidated(scope, completed.runtimeRevision);
         return completed;
       });
     } catch (error) {

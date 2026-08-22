@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { CanvasRuntimeStatusRepository } from "../canvas/runtimeStatusRepository.js";
+import { HumanObserverJournal } from "../humanObserverJournal.js";
 import { applyMigrations } from "../migrations.js";
 import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
 
@@ -54,5 +55,25 @@ describe("CanvasRuntimeStatusRepository", () => {
 
     const third = status("2026-08-22T00:00:00.000Z");
     expect(statuses.replaceFromExecution(third)).toEqual({ runtimeRevision: 3, status: third });
+  });
+
+  it("rolls back both status and invalidation when the commit listener fails", async () => {
+    const database = await openServerDatabase(":memory:", 5_000);
+    databases.push(database);
+    applyMigrations(database);
+    const journal = new HumanObserverJournal(database, 10);
+    const statuses = new CanvasRuntimeStatusRepository(database, undefined, (snapshot) => {
+      journal.appendInCallerTransaction(
+        { workspaceId: scope.workspaceId, projectId: scope.projectId },
+        { kind: "runtime", canvasId: scope.canvasId, runtimeRevision: snapshot.runtimeRevision }
+      );
+      throw new Error("simulated_invalidation_failure");
+    });
+
+    expect(() => statuses.initialize(status("2026-08-20T00:00:00.000Z"))).toThrow(
+      "simulated_invalidation_failure"
+    );
+    expect(statuses.read(scope)).toBeNull();
+    expect(journal.head({ workspaceId: scope.workspaceId, projectId: scope.projectId })).toBe(0);
   });
 });

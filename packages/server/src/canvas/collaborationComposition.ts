@@ -12,7 +12,6 @@ import {
   CanvasCommandRepository,
   CanvasCommandService,
   CanvasRuntimeAvailabilityService,
-  CanvasRuntimeStatusRepository,
   CanvasOperationRetentionMaintenance,
   ContentVersionRepository,
   ContentVersionService,
@@ -32,6 +31,7 @@ import type {
 } from "./executionRuntimePort.js";
 import { CanvasRuntimeCommandCoordinator } from "./runtimeCommandCoordinator.js";
 import { CanvasRuntimeResetReceiptRepository } from "./runtimeCommandReceipts.js";
+import { createInvalidatingCanvasRuntimeStatusRepository } from "./runtimeStatusInvalidation.js";
 
 export type CanvasRuntimeAttachment = {
   workspaceId: string;
@@ -149,7 +149,11 @@ export async function createCanvasCollaborationComposition(
       onAcceptedEntryUnavailable: (input) => attachedLiveSyncWebSockets.invalidateScope(input),
       clock: options.clock
     });
-    const runtimeStatuses = new CanvasRuntimeStatusRepository(options.database, options.clock);
+    const runtimeStatuses = createInvalidatingCanvasRuntimeStatusRepository({
+      database: options.database,
+      observerJournal: options.observerJournal,
+      clock: options.clock
+    });
     const runtimeAvailabilityService = new CanvasRuntimeAvailabilityService({
       access: options.projectAccess,
       workspaceIdentity: options.workspaceIdentity,
@@ -167,13 +171,7 @@ export async function createCanvasCollaborationComposition(
           receipts: new CanvasRuntimeResetReceiptRepository(options.database, options.clock),
           executionLeases: options.runtimeCommand.executionLeases,
           hasConflictingLease: options.runtimeCommand.hasConflictingLease,
-          commitTransaction: (action) => inWriteTransaction(options.database, action),
-          onRuntimeInvalidated: (scope, runtimeRevision) => {
-            options.observerJournal.appendInCallerTransaction(
-              { workspaceId: scope.workspaceId, projectId: scope.projectId },
-              { kind: "runtime", canvasId: scope.canvasId, runtimeRevision }
-            );
-          }
+          commitTransaction: (action) => inWriteTransaction(options.database, action)
         })
       : undefined;
     operationRetentionMaintenance = new CanvasOperationRetentionMaintenance(

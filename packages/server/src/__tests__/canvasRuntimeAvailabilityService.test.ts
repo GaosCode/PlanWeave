@@ -2,9 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { decodeCanvasReplicaDocument, projectCanvasReplicaDocument } from "@planweave-ai/runtime";
 import {
   CanvasRuntimeAvailabilityService,
-  CanvasRuntimeStatusRepository,
   type CanvasRuntimeAvailabilityPort
 } from "../canvas/index.js";
+import { createInvalidatingCanvasRuntimeStatusRepository } from "../canvas/runtimeStatusInvalidation.js";
+import { HumanObserverJournal } from "../humanObserverJournal.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import {
   actor,
@@ -53,10 +54,11 @@ async function setup(runtimeAvailability?: CanvasRuntimeAvailabilityPort) {
   ).packageFingerprint;
   const port = runtimeAvailability ?? availablePort(fingerprint);
   const readAvailability = vi.spyOn(port, "readAvailability");
-  const runtimeStatuses = new CanvasRuntimeStatusRepository(
-    context.database,
-    () => new Date(capturedAt)
-  );
+  const runtimeStatuses = createInvalidatingCanvasRuntimeStatusRepository({
+    database: context.database,
+    observerJournal: new HumanObserverJournal(context.database, 100),
+    clock: () => new Date(capturedAt)
+  });
   const service = new CanvasRuntimeAvailabilityService({
     access: context.access,
     workspaceIdentity: new WorkspaceIdentityRepository(context.database),
@@ -131,7 +133,7 @@ describe("CanvasRuntimeAvailabilityService", () => {
   });
 
   it("imports an exact status once and never overwrites an initialized Server state", async () => {
-    const { service, fingerprint } = await setup();
+    const { service, fingerprint, database } = await setup();
     const imported = status(fingerprint);
 
     expect(
@@ -150,6 +152,15 @@ describe("CanvasRuntimeAvailabilityService", () => {
         }
       })
     ).toThrow("canvas_runtime_status_already_initialized");
+    expect(
+      database
+        .prepare(
+          `SELECT event_json FROM human_observer_events
+            WHERE json_extract(event_json, '$.kind') = 'runtime'`
+        )
+        .all()
+        .map((row) => JSON.parse(String(row.event_json)))
+    ).toEqual([{ kind: "runtime", canvasId: "default", runtimeRevision: 1 }]);
   });
 
   it("keeps cross-scope and ACL failures outside the Runtime view", async () => {

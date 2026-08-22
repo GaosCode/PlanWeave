@@ -8,9 +8,11 @@ import {
   canvasScopeRefSchema,
   type CanvasScopeRef
 } from "@planweave-ai/collaboration-protocol/core/primitives";
-import type { SqliteDatabase } from "../sqlite.js";
+import { inWriteTransaction, type SqliteDatabase } from "../sqlite.js";
 
 type RuntimeStatusOrigin = "import" | "execution";
+
+type CanvasRuntimeStatusCommittedListener = (snapshot: CanvasRuntimeStatusSnapshot) => void;
 
 function sameScope(left: CanvasScopeRef, right: CanvasScopeRef): boolean {
   return (
@@ -31,7 +33,8 @@ function parseSnapshot(
 export class CanvasRuntimeStatusRepository {
   constructor(
     private readonly database: SqliteDatabase,
-    private readonly clock: () => Date = () => new Date()
+    private readonly clock: () => Date = () => new Date(),
+    private readonly onCommittedInTransaction?: CanvasRuntimeStatusCommittedListener
   ) {}
 
   read(rawScope: CanvasScopeRef): CanvasRuntimeStatusSnapshot | null {
@@ -56,26 +59,33 @@ export class CanvasRuntimeStatusRepository {
 
   initialize(rawStatus: CanvasRuntimeStatusProjection): CanvasRuntimeStatusSnapshot {
     const status = canvasRuntimeStatusProjectionSchema.parse(rawStatus);
-    const existing = this.read(status.scope);
-    if (existing) {
-      if (JSON.stringify(existing.status) !== JSON.stringify(status)) {
-        throw new Error("canvas_runtime_status_already_initialized");
+    return inWriteTransaction(this.database, () => {
+      const existing = this.read(status.scope);
+      if (existing) {
+        if (JSON.stringify(existing.status) !== JSON.stringify(status)) {
+          throw new Error("canvas_runtime_status_already_initialized");
+        }
+        return existing;
       }
-      return existing;
-    }
-    this.write(status, "import", false, 1);
-    const snapshot = this.read(status.scope);
-    if (!snapshot) throw new Error("canvas_runtime_status_snapshot_missing");
-    return snapshot;
+      this.write(status, "import", false, 1);
+      return this.readCommitted(status.scope);
+    });
   }
 
   replaceFromExecution(rawStatus: CanvasRuntimeStatusProjection): CanvasRuntimeStatusSnapshot {
     const status = canvasRuntimeStatusProjectionSchema.parse(rawStatus);
-    const existing = this.read(status.scope);
-    const runtimeRevision = existing ? existing.runtimeRevision + 1 : 1;
-    this.write(status, "execution", true, runtimeRevision);
-    const snapshot = this.read(status.scope);
+    return inWriteTransaction(this.database, () => {
+      const existing = this.read(status.scope);
+      const runtimeRevision = existing ? existing.runtimeRevision + 1 : 1;
+      this.write(status, "execution", true, runtimeRevision);
+      return this.readCommitted(status.scope);
+    });
+  }
+
+  private readCommitted(scope: CanvasScopeRef): CanvasRuntimeStatusSnapshot {
+    const snapshot = this.read(scope);
     if (!snapshot) throw new Error("canvas_runtime_status_snapshot_missing");
+    this.onCommittedInTransaction?.(snapshot);
     return snapshot;
   }
 

@@ -105,7 +105,13 @@ async function setup(options?: {
       }))
   );
   const invalidated = vi.fn();
-  const runtimeStatuses = new CanvasRuntimeStatusRepository(context.database);
+  const runtimeStatuses = new CanvasRuntimeStatusRepository(
+    context.database,
+    undefined,
+    (value) => {
+      invalidated(value.status.scope, value.runtimeRevision);
+    }
+  );
   const receipts = new CanvasRuntimeResetReceiptRepository(context.database);
   const executionLeases: CanvasExecutionRuntimeLeasePort = {
     acquire,
@@ -122,8 +128,7 @@ async function setup(options?: {
     commitTransaction: (action) => {
       if (options?.persistFailure) throw new Error("simulated_persist_failure");
       return inWriteTransaction(context.database, action);
-    },
-    onRuntimeInvalidated: invalidated
+    }
   });
   const body = (operationId: string, overrides: Record<string, unknown> = {}) => ({
     operationId,
@@ -144,8 +149,7 @@ async function setup(options?: {
       commitTransaction: (action) => {
         if (persistFailure) throw new Error("simulated_persist_failure");
         return inWriteTransaction(context.database, action);
-      },
-      onRuntimeInvalidated: invalidated
+      }
     });
   return {
     ...context,
@@ -409,8 +413,7 @@ describe("CanvasRuntimeCommandCoordinator", () => {
       receipts,
       executionLeases: router,
       hasConflictingLease: () => false,
-      commitTransaction: (action) => inWriteTransaction(test.database, action),
-      onRuntimeInvalidated: vi.fn()
+      commitTransaction: (action) => inWriteTransaction(test.database, action)
     });
 
     const recovering = coordinator.reset(actor("owner"), {
@@ -561,7 +564,7 @@ describe("CanvasRuntimeCommandCoordinator", () => {
     expect(routedReset).toHaveBeenCalledTimes(2);
   });
 
-  it("advances Runtime revision monotonically after each distinct successful reset", async () => {
+  it("advances Runtime revision for distinct successful resets", async () => {
     const test = await setup();
     const first = await test.coordinator.reset(actor("owner"), {
       projectId: "p",
