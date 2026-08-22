@@ -7,6 +7,14 @@ import {
 } from "../main/collaboration/CollaborationClient.js";
 import { CollaborationCanvasCommandFacade } from "../main/collaboration/collaborationCanvasCommands.js";
 import { CanvasReplicaStore } from "../main/collaboration/CanvasReplicaStore.js";
+import {
+  workspaceRemoteAuthorityId,
+  workspaceRemoteAuthorityKeyFromProfile
+} from "../main/collaboration/WorkspaceRemoteAuthorityIdentity.js";
+import {
+  type WorkspaceCanvasLocator,
+  workspaceCanvasLocatorToBinding
+} from "../shared/canvasLocator.js";
 import type { CollaborationCanvasReplicaProjection } from "../shared/canvasReplicaIpc.js";
 import {
   configureWorkspaceAccess,
@@ -28,8 +36,8 @@ function waitFor(predicate: () => boolean, detail: string): Promise<void> {
   });
 }
 
-describe("authoritative canvas replica two-client live E2E", () => {
-  it("projects an accepted owner edit into the member replica without reconnect", async () => {
+describe("authoritative workspace canvas two-client live E2E", () => {
+  it("projects an accepted owner edit to the member without reconnect", async () => {
     const fixture = await setupSelfHostedTwoClientFixture();
     const owner = await redeemDesktop({
       home: fixture.home,
@@ -94,38 +102,47 @@ describe("authoritative canvas replica two-client live E2E", () => {
 
       const createFacade = (
         client: CollaborationClient,
-        authorityId: string,
+        locator: WorkspaceCanvasLocator,
         projections: CollaborationCanvasReplicaProjection[]
       ) => {
+        const binding = workspaceCanvasLocatorToBinding(locator);
+        const authorityKey = workspaceRemoteAuthorityKeyFromProfile(
+          locator,
+          client.connectionProfile
+        );
         const facade = new CollaborationCanvasCommandFacade({
           resolveClient: () => client,
-          resolveCanvasBinding: async () => ({
-            kind: "local" as const,
-            localProjectId: fixture.projectId,
-            canvasId: "default",
-            remoteProjectId: fixture.projectId,
-            remoteCanvasId: "default"
+          resolveCanvasBinding: async (requested) => ({
+            ...requested,
+            remoteProjectId: requested.projectId,
+            remoteCanvasId: requested.canvasId
           }),
-          resolveCanvasScope: async () => ({
-            workspaceId: fixture.workspaceId,
-            projectId: fixture.projectId,
-            canvasId: "default"
+          resolveCanvasScope: async (requested) => ({
+            workspaceId: requested.workspaceId,
+            projectId: requested.projectId,
+            canvasId: requested.canvasId
           }),
-          resolveAuthorityId: () => authorityId,
+          resolveAuthorityId: () => workspaceRemoteAuthorityId(authorityKey),
           store: new CanvasReplicaStore((projection) => projections.push(projection))
         });
         facades.push(facade);
-        return facade;
+        return { binding, facade };
       };
-      const ownerFacade = createFacade(ownerClient, "owner-authority", ownerProjections);
-      const memberFacade = createFacade(memberClient, "member-authority", memberProjections);
-      const bindInput = {
-        kind: "local" as const,
-        localProjectId: fixture.projectId,
+      const ownerLocator: WorkspaceCanvasLocator = {
+        kind: "workspace",
+        connectionProfileId: ownerProfileId,
+        workspaceId: fixture.workspaceId,
+        projectId: fixture.projectId,
         canvasId: "default"
       };
-      await ownerFacade.bind(bindInput);
-      await memberFacade.bind(bindInput);
+      const memberLocator: WorkspaceCanvasLocator = {
+        ...ownerLocator,
+        connectionProfileId: memberProfileId
+      };
+      const ownerWorkspace = createFacade(ownerClient, ownerLocator, ownerProjections);
+      const memberWorkspace = createFacade(memberClient, memberLocator, memberProjections);
+      await ownerWorkspace.facade.bind(ownerWorkspace.binding);
+      await memberWorkspace.facade.bind(memberWorkspace.binding);
       await waitFor(
         () =>
           ownerClient.liveSyncState().state === "connected" &&
@@ -138,7 +155,7 @@ describe("authoritative canvas replica two-client live E2E", () => {
         nodes: [{ nodeId: "T-001", x: 321, y: 123 }],
         updatedAt: "2026-08-02T12:00:00.000Z"
       };
-      const result = await ownerFacade.submit({ canvasId: "default", intent });
+      const result = await ownerWorkspace.facade.submit({ canvasId: "default", intent });
       expect(result.outcome.type).toBe("canvas.command.accepted");
       await waitFor(
         () => memberProjections.some((projection) => projection.revision === 1),
