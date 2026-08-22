@@ -44,6 +44,11 @@ export const collaborationInvokeChannels = {
   getCollaborationCanvasCommandSession: "planweave-collaboration:getCanvasCommandSession",
   flushCollaborationCanvasReplicaMaterialization:
     "planweave-collaboration:flushCanvasReplicaMaterialization",
+  openWorkspaceCanvasSession: "planweave-collaboration:openWorkspaceCanvasSession",
+  submitWorkspaceCanvasCommand: "planweave-collaboration:submitWorkspaceCanvasCommand",
+  reconnectWorkspaceCanvasSession: "planweave-collaboration:reconnectWorkspaceCanvasSession",
+  closeWorkspaceCanvasSession: "planweave-collaboration:closeWorkspaceCanvasSession",
+  getWorkspaceCanvasProjection: "planweave-collaboration:getWorkspaceCanvasProjection",
   resolveCollaborationCanvasBindingScope: "planweave-collaboration:resolveCanvasBindingScope",
   readCollaborationCanvasBindingRuntimeAvailability:
     "planweave-collaboration:readCanvasBindingRuntimeAvailability",
@@ -128,3 +133,5 @@ export const collaborationCanvasLiveSyncSignalChannel =
   "planweave-collaboration:canvasLiveSyncSignal";
 export const collaborationCanvasBindingReplicaSignalChannel =
   "planweave-collaboration:canvasBindingReplicaSignal";
+export const workspaceCanvasProjectionSignalChannel =
+  "planweave-collaboration:workspaceCanvasProjection";

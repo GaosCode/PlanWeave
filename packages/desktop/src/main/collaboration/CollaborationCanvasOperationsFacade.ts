@@ -1,4 +1,5 @@
 import { assertNoSmuggledCollaborationSecrets } from "../../shared/collaboration.js";
+import type { WorkspaceCanvasProjection } from "../../shared/workspaceCanvasProjection.js";
 import type {
   CollaborationCanvasCommandFacade,
   CollaborationCanvasCommandSessionView,
@@ -7,6 +8,7 @@ import type {
 } from "./collaborationCanvasCommands.js";
 import type { CanvasRuntimeAvailabilityCoordinator } from "./CanvasRuntimeAvailabilityCoordinator.js";
 import type { ContentVersionFacade } from "./ContentVersionFacade.js";
+import { WorkspaceCanvasSession } from "./WorkspaceCanvasSession.js";
 
 export type CollaborationCanvasOperationsFacadeOptions = {
   enqueue: <T>(operation: () => Promise<T>) => Promise<T>;
@@ -14,11 +16,28 @@ export type CollaborationCanvasOperationsFacadeOptions = {
   commands: CollaborationCanvasCommandFacade;
   runtimeAvailability: CanvasRuntimeAvailabilityCoordinator;
   contentVersions: ContentVersionFacade;
+  resolveConnectedProfileId: () => string | null;
+  onWorkspaceCanvasProjection?: (projection: WorkspaceCanvasProjection) => void;
 };
 
 /** Queue-aware main-process facade for one canvas command/content/runtime surface. */
 export class CollaborationCanvasOperationsFacade {
-  constructor(private readonly options: CollaborationCanvasOperationsFacadeOptions) {}
+  private readonly workspaceSession: WorkspaceCanvasSession;
+
+  constructor(private readonly options: CollaborationCanvasOperationsFacadeOptions) {
+    this.workspaceSession = new WorkspaceCanvasSession({
+      resolveConnectedProfileId: options.resolveConnectedProfileId,
+      commands: {
+        bind: (input) => options.commands.bind(input),
+        submit: (input, submitOptions) => options.commands.submit(input, submitOptions),
+        reconnect: (input) => options.commands.reconnect(input),
+        projectionForBinding: (input) => options.commands.projectionForBinding(input),
+        session: () => options.commands.session(),
+        releaseBinding: () => options.commands.releaseBinding()
+      },
+      onProjection: options.onWorkspaceCanvasProjection
+    });
+  }
 
   async submitCommand(input: unknown): Promise<CollaborationCanvasCommandSubmitResult> {
     let pending: Promise<CollaborationCanvasCommandSubmitResult>;
@@ -47,6 +66,48 @@ export class CollaborationCanvasOperationsFacade {
 
   flushReplicaMaterialization(): Promise<void> {
     return this.run(() => this.options.commands.flushMaterialization());
+  }
+
+  openWorkspaceCanvasSession(input: unknown): Promise<WorkspaceCanvasProjection> {
+    return this.run(() => {
+      assertNoSmuggledCollaborationSecrets(input, "openWorkspaceCanvasSession");
+      return this.workspaceSession.open(input);
+    });
+  }
+
+  submitWorkspaceCanvasCommand(input: unknown): Promise<WorkspaceCanvasProjection> {
+    let pending: Promise<WorkspaceCanvasProjection>;
+    return this.options
+      .enqueue(async () => {
+        this.options.assertOpen();
+        assertNoSmuggledCollaborationSecrets(input, "submitWorkspaceCanvasCommand");
+        pending = this.workspaceSession.submit(input);
+      })
+      .then(() => pending!);
+  }
+
+  reconnectWorkspaceCanvasSession(input: unknown): Promise<WorkspaceCanvasProjection> {
+    return this.run(() => {
+      assertNoSmuggledCollaborationSecrets(input, "reconnectWorkspaceCanvasSession");
+      return this.workspaceSession.reconnect(input);
+    });
+  }
+
+  closeWorkspaceCanvasSession(input?: unknown): Promise<void> {
+    return this.run(() => {
+      if (input !== undefined) {
+        assertNoSmuggledCollaborationSecrets(input, "closeWorkspaceCanvasSession");
+      }
+      return this.workspaceSession.close(input);
+    });
+  }
+
+  getWorkspaceCanvasProjection(): WorkspaceCanvasProjection | null {
+    return this.workspaceSession.current();
+  }
+
+  publishWorkspaceCanvasProjection(): WorkspaceCanvasProjection | null {
+    return this.workspaceSession.publishIfOpen();
   }
 
   resolveScope(input: unknown) {

@@ -35,6 +35,7 @@ import {
   collaborationInvokeChannels,
   collaborationObserverSignalChannel,
   collaborationStatusChangedChannel,
+  workspaceCanvasProjectionSignalChannel,
   type CollaborationStatus,
   type PlanWeaveCollaborationApi
 } from "../shared/collaboration";
@@ -886,6 +887,57 @@ describe("preload bridge invocation", () => {
       expiresAt: "2026-07-26T00:00:00.000Z"
     };
     electronMock.ipcRenderer.invoke.mockImplementation(async (channel: string) => {
+      if (
+        channel === collaborationInvokeChannels.openWorkspaceCanvasSession ||
+        channel === collaborationInvokeChannels.submitWorkspaceCanvasCommand ||
+        channel === collaborationInvokeChannels.reconnectWorkspaceCanvasSession
+      ) {
+        return {
+          locator: {
+            kind: "workspace",
+            connectionProfileId: "profile-1",
+            workspaceId: "workspace-1",
+            projectId: "project-1",
+            canvasId: "default"
+          },
+          status: "accepted",
+          conflict: null,
+          rejectCode: null,
+          replica: {
+            bindingKind: "remote",
+            authorityId: "authority-1",
+            workspaceId: "workspace-1",
+            projectId: "project-1",
+            canvasId: "default",
+            revision: 1,
+            contentDigest: "a".repeat(64),
+            canEdit: true,
+            optimisticOperationIds: [],
+            rejections: [],
+            content: {
+              projectTitle: "Shared",
+              graphVersion: "1",
+              packageFingerprint: `pkg-${"b".repeat(64)}`,
+              tasks: [],
+              edges: [],
+              sharedResourceGroups: [],
+              diagnostics: [],
+              layout: {
+                version: "desktop-layout/v1",
+                projectId: "project-1",
+                nodes: [],
+                updatedAt: "2026-08-02T00:00:00.000Z"
+              },
+              blockDependenciesByRef: {},
+              taskOpenFeedbackCountByTaskId: {},
+              blockPromptMarkdownByRef: {}
+            }
+          }
+        };
+      }
+      if (channel === collaborationInvokeChannels.getWorkspaceCanvasProjection) {
+        return null;
+      }
       if (channel === collaborationInvokeChannels.listCollaborationContentBootstrapCandidates) {
         return { ok: true, value: [] };
       }
@@ -1085,6 +1137,36 @@ describe("preload bridge invocation", () => {
     });
     await api.stopCollaborationCanvasLiveSync();
     await api.flushCollaborationCanvasReplicaMaterialization();
+    await api.openWorkspaceCanvasSession({
+      kind: "workspace",
+      connectionProfileId: "profile-1",
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+      canvasId: "default"
+    });
+    await api.submitWorkspaceCanvasCommand({
+      locator: {
+        kind: "workspace",
+        connectionProfileId: "profile-1",
+        workspaceId: "workspace-1",
+        projectId: "project-1",
+        canvasId: "default"
+      },
+      intent: {
+        kind: "update_layout",
+        nodes: [{ nodeId: "T-001", x: 1, y: 2 }],
+        updatedAt: "2026-08-02T00:00:00.000Z"
+      }
+    });
+    await api.reconnectWorkspaceCanvasSession({
+      kind: "workspace",
+      connectionProfileId: "profile-1",
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+      canvasId: "default"
+    });
+    await api.closeWorkspaceCanvasSession();
+    await api.getWorkspaceCanvasProjection();
     await api.readCollaborationCanvasBindingRuntimeAvailability({
       kind: "local",
       localProjectId: "project-1",
@@ -1120,6 +1202,10 @@ describe("preload bridge invocation", () => {
     const liveSyncSignalCallback = vi.fn();
     const unsubscribeLiveSyncSignal =
       api.onCollaborationCanvasLiveSyncSignal(liveSyncSignalCallback);
+    const workspaceProjectionCallback = vi.fn();
+    const unsubscribeWorkspaceProjection = api.onWorkspaceCanvasProjectionSignal(
+      workspaceProjectionCallback
+    );
 
     expect(Object.keys(api).sort()).toEqual(
       [
@@ -1128,8 +1214,13 @@ describe("preload bridge invocation", () => {
         "onCollaborationObserverSignal",
         "onCollaborationPresenceSignal",
         "onCollaborationCanvasLiveSyncSignal",
-        "onCollaborationCanvasBindingReplicaSignal"
+        "onCollaborationCanvasBindingReplicaSignal",
+        "onWorkspaceCanvasProjectionSignal"
       ].sort()
+    );
+    expect(electronMock.ipcRenderer.on).toHaveBeenCalledWith(
+      workspaceCanvasProjectionSignalChannel,
+      expect.any(Function)
     );
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
       collaborationInvokeChannels.getCollaborationStatus
@@ -1296,6 +1387,7 @@ describe("preload bridge invocation", () => {
     unsubscribeSignal();
     unsubscribePresenceSignal();
     unsubscribeLiveSyncSignal();
+    unsubscribeWorkspaceProjection();
     expect(electronMock.ipcRenderer.off).toHaveBeenCalledWith(
       collaborationObserverSignalChannel,
       signalCall?.[1]

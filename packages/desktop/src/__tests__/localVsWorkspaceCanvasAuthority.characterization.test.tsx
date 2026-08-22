@@ -138,6 +138,7 @@ function writeGate(
       busy: false
     },
     projection: null,
+    projectionStatus: null,
     offline: false,
     submit: vi.fn().mockResolvedValue({ ok: false, error: "not connected", staleConflict: null }),
     reconnect: vi.fn().mockResolvedValue(false),

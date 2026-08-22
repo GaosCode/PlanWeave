@@ -37,10 +37,14 @@ function sharedCanvasMock(
         lastConflict: null,
         lastRejectCode: null
       },
+      connectionPhase: "connected",
       lastError: null,
       lastStaleConflict: null,
       busy: false
     },
+    projection: null,
+    projectionStatus: null,
+    offline: false,
     submit,
     reconnect: vi.fn().mockResolvedValue(true)
   };

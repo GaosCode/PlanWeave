@@ -98,6 +98,7 @@ import { CollaborationSessionLifecycle } from "./CollaborationSessionLifecycle.j
 import { CanvasReplicaStore } from "./CanvasReplicaStore.js";
 import { CanvasReplicaDiskMirror } from "./CanvasReplicaDiskMirror.js";
 import type { CollaborationCanvasBindingReplicaSignal } from "../../shared/canvasReplicaIpc.js";
+import type { WorkspaceCanvasProjection } from "../../shared/workspaceCanvasProjection.js";
 import { resolveCollaborationAuthorityScope } from "./collaborationAuthorityScope.js";
 import { CurrentCanvasAccessFacade } from "./CurrentCanvasAccessFacade.js";
 import { CanvasRuntimeAvailabilityCoordinator } from "./CanvasRuntimeAvailabilityCoordinator.js";
@@ -130,6 +131,7 @@ export class CollaborationService {
   private readonly onCanvasReplicaSignal?: (
     signal: CollaborationCanvasBindingReplicaSignal
   ) => void;
+  private readonly onWorkspaceCanvasProjection?: (projection: WorkspaceCanvasProjection) => void;
   private readonly canvasReplicas: CanvasReplicaStore;
   private readonly canvasReplicaMirror: CanvasReplicaDiskMirror;
   private readonly registryService: CollaborationRegistryService;
@@ -195,10 +197,14 @@ export class CollaborationService {
     this.onPresenceSignal = options.onPresenceSignal;
     this.onCanvasLiveSyncSignal = options.onCanvasLiveSyncSignal;
     this.onCanvasReplicaSignal = options.onCanvasReplicaSignal;
+    this.onWorkspaceCanvasProjection = options.onWorkspaceCanvasProjection;
     this.bindLiveOperatorToOrigin = options.bindLiveOperatorToOrigin;
     this.canvasReplicaMirror = new CanvasReplicaDiskMirror();
     this.canvasReplicas = new CanvasReplicaStore(
-      (projection) => this.onCanvasReplicaSignal?.({ type: "canvas.replica.changed", projection }),
+      (projection) => {
+        this.onCanvasReplicaSignal?.({ type: "canvas.replica.changed", projection });
+        this.canvasOperations?.publishWorkspaceCanvasProjection();
+      },
       (snapshot) => this.canvasReplicaMirror.capture(snapshot)
     );
     this.registryService = new CollaborationRegistryService(() => this.client);
@@ -239,7 +245,9 @@ export class CollaborationService {
       assertOpen: () => this.assertOpen(),
       commands: this.canvasCommands,
       runtimeAvailability: this.canvasRuntimeAvailability,
-      contentVersions: this.contentVersions
+      contentVersions: this.contentVersions,
+      resolveConnectedProfileId: () => this.clientProfileId,
+      onWorkspaceCanvasProjection: (projection) => this.onWorkspaceCanvasProjection?.(projection)
     });
     this.remoteOperations = new CollaborationRemoteOperationsFacade((operation) =>
       this.withActiveClient((client) => operation(client.remoteOperations()))
@@ -790,6 +798,26 @@ export class CollaborationService {
 
   async flushCanvasReplicaMaterialization(): Promise<void> {
     return this.canvasOperations.flushReplicaMaterialization();
+  }
+
+  async openWorkspaceCanvasSession(input: unknown): Promise<WorkspaceCanvasProjection> {
+    return this.canvasOperations.openWorkspaceCanvasSession(input);
+  }
+
+  async submitWorkspaceCanvasCommand(input: unknown): Promise<WorkspaceCanvasProjection> {
+    return this.canvasOperations.submitWorkspaceCanvasCommand(input);
+  }
+
+  async reconnectWorkspaceCanvasSession(input: unknown): Promise<WorkspaceCanvasProjection> {
+    return this.canvasOperations.reconnectWorkspaceCanvasSession(input);
+  }
+
+  async closeWorkspaceCanvasSession(input?: unknown): Promise<void> {
+    return this.canvasOperations.closeWorkspaceCanvasSession(input);
+  }
+
+  getWorkspaceCanvasProjection(): WorkspaceCanvasProjection | null {
+    return this.canvasOperations.getWorkspaceCanvasProjection();
   }
 
   async resolveCanvasScope(input: unknown) {

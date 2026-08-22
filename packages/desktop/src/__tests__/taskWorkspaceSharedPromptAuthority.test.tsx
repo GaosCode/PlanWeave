@@ -98,11 +98,14 @@ function sharedCanvasWithProjection(
         lastConflict: null,
         lastRejectCode: null
       },
+      connectionPhase: "connected",
       lastError: null,
       lastStaleConflict: null,
       busy: false
     },
     projection,
+    projectionStatus: null,
+    offline: false,
     submit: vi.fn().mockResolvedValue({ ok: true, error: null, staleConflict: null }),
     reconnect: vi.fn().mockResolvedValue(true)
   };

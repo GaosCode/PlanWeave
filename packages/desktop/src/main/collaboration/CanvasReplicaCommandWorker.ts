@@ -62,6 +62,8 @@ type Queued = {
   resolve: (outcome: CanvasCommandOutcome) => void;
   reject: (error: Error) => void;
   settled: boolean;
+  /** Workspace sessions surface stale CAS instead of silently retrying the intent. */
+  retryStale: boolean;
 };
 
 type DelayHandle = { cancel: () => void };
@@ -250,7 +252,11 @@ export class CanvasReplicaCommandWorker {
    * Synchronously enqueue optimistic pending + publish, then return a Promise for network outcome.
    * Must not await the network before the optimistic projection is published.
    */
-  submit(scope: CanvasReplicaScope, intent: CanvasCommandIntent): Promise<CanvasCommandOutcome> {
+  submit(
+    scope: CanvasReplicaScope,
+    intent: CanvasCommandIntent,
+    options?: { retryStale?: boolean }
+  ): Promise<CanvasCommandOutcome> {
     if (!this.store.has(scope) || !this.scopes.has(this.key(scope))) {
       return Promise.reject(
         new CollaborationClientError({
@@ -269,7 +275,14 @@ export class CanvasReplicaCommandWorker {
     return new Promise((resolve, reject) => {
       const scopeKey = this.key(scope);
       const queue = this.queues.get(scopeKey) ?? [];
-      queue.push({ operationId, intent, resolve, reject, settled: false });
+      queue.push({
+        operationId,
+        intent,
+        resolve,
+        reject,
+        settled: false,
+        retryStale: options?.retryStale !== false
+      });
       this.queues.set(scopeKey, queue);
       void this.run(scope);
     });
@@ -490,6 +503,13 @@ export class CanvasReplicaCommandWorker {
             if (!this.isCurrent(scopeKey, generation)) {
               settleReject(current, disconnectedError());
               return;
+            }
+            if (!current.retryStale) {
+              this.store.reject(scope, current.operationId, outcome.code);
+              if (queue[0] === current) queue.shift();
+              settleResolve(current, outcome);
+              this.resetBackoff(scopeKey);
+              continue;
             }
             if (current.settled) {
               if (queue[0] === current) queue.shift();

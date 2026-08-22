@@ -24,6 +24,7 @@ import {
   collaborationPresenceSignalChannel,
   collaborationCanvasLiveSyncSignalChannel,
   collaborationCanvasBindingReplicaSignalChannel,
+  workspaceCanvasProjectionSignalChannel,
   collaborationStatusChangedChannel,
   type CollaborationObserverSignal,
   type CollaborationStatus
@@ -39,6 +40,7 @@ import {
 } from "./CollaborationClient.js";
 import { CollaborationService, type CollaborationServiceOptions } from "./collaborationService.js";
 import type { CollaborationCanvasBindingReplicaSignal } from "../../shared/canvasReplicaIpc.js";
+import type { WorkspaceCanvasProjection } from "../../shared/workspaceCanvasProjection.js";
 import { LocalCollaborationCoordinatorControl } from "./CollaborationCoordinatorControl.js";
 import { DeploymentActions } from "./deploymentActions.js";
 import { runCollaborationCommand } from "./collaborationCommandHandler.js";
@@ -112,6 +114,17 @@ function publishCanvasReplicaSignalToRenderers(
   }
 }
 
+function publishWorkspaceCanvasProjectionToRenderers(projection: WorkspaceCanvasProjection): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.webContents.isDestroyed()) {
+      window.webContents.send(workspaceCanvasProjectionSignalChannel, {
+        type: "workspace.canvas.projection",
+        projection
+      });
+    }
+  }
+}
+
 function createDefaultService(options: CollaborationServiceOptions = {}): CollaborationService {
   const userCreateClient = options.createClient;
   return new CollaborationService({
@@ -136,6 +149,8 @@ function createDefaultService(options: CollaborationServiceOptions = {}): Collab
     onCanvasLiveSyncSignal:
       options.onCanvasLiveSyncSignal ?? publishCanvasLiveSyncSignalToRenderers,
     onCanvasReplicaSignal: options.onCanvasReplicaSignal ?? publishCanvasReplicaSignalToRenderers,
+    onWorkspaceCanvasProjection:
+      options.onWorkspaceCanvasProjection ?? publishWorkspaceCanvasProjectionToRenderers,
     bindLiveOperatorToOrigin:
       options.bindLiveOperatorToOrigin ??
       (async (serverBaseUrl) => {
@@ -424,6 +439,24 @@ export function registerCollaborationHandlers(
   );
   ipcMain.handle(collaborationInvokeChannels.flushCollaborationCanvasReplicaMaterialization, () =>
     active.flushCanvasReplicaMaterialization()
+  );
+  ipcMain.handle(collaborationInvokeChannels.openWorkspaceCanvasSession, (_event, input: unknown) =>
+    active.openWorkspaceCanvasSession(input)
+  );
+  ipcMain.handle(
+    collaborationInvokeChannels.submitWorkspaceCanvasCommand,
+    (_event, input: unknown) => active.submitWorkspaceCanvasCommand(input)
+  );
+  ipcMain.handle(
+    collaborationInvokeChannels.reconnectWorkspaceCanvasSession,
+    (_event, input: unknown) => active.reconnectWorkspaceCanvasSession(input)
+  );
+  ipcMain.handle(
+    collaborationInvokeChannels.closeWorkspaceCanvasSession,
+    (_event, input: unknown) => active.closeWorkspaceCanvasSession(input)
+  );
+  ipcMain.handle(collaborationInvokeChannels.getWorkspaceCanvasProjection, () =>
+    active.getWorkspaceCanvasProjection()
   );
   ipcMain.handle(
     collaborationInvokeChannels.resolveCollaborationCanvasBindingScope,

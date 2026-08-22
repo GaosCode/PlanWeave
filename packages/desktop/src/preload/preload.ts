@@ -54,10 +54,15 @@ import {
   collaborationCanvasBindingReplicaSignalSchema
 } from "../shared/canvasReplicaIpc.js";
 import {
+  workspaceCanvasProjectionSchema,
+  workspaceCanvasProjectionSignalSchema
+} from "../shared/workspaceCanvasProjection.js";
+import {
   collaborationInvokeChannels,
   collaborationObserverSignalChannel,
   collaborationCanvasLiveSyncSignalChannel,
   collaborationCanvasBindingReplicaSignalChannel,
+  workspaceCanvasProjectionSignalChannel,
   collaborationPresenceSignalChannel,
   collaborationStatusChangedChannel
 } from "../shared/collaborationIpc.js";
@@ -322,6 +327,24 @@ const collaborationApi: PlanWeaveCollaborationApi = {
     ipcRenderer.invoke(collaborationInvokeChannels.getCollaborationCanvasCommandSession),
   flushCollaborationCanvasReplicaMaterialization: async () =>
     ipcRenderer.invoke(collaborationInvokeChannels.flushCollaborationCanvasReplicaMaterialization),
+  openWorkspaceCanvasSession: async (input) =>
+    workspaceCanvasProjectionSchema.parse(
+      await ipcRenderer.invoke(collaborationInvokeChannels.openWorkspaceCanvasSession, input)
+    ),
+  submitWorkspaceCanvasCommand: async (input) =>
+    workspaceCanvasProjectionSchema.parse(
+      await ipcRenderer.invoke(collaborationInvokeChannels.submitWorkspaceCanvasCommand, input)
+    ),
+  reconnectWorkspaceCanvasSession: async (input) =>
+    workspaceCanvasProjectionSchema.parse(
+      await ipcRenderer.invoke(collaborationInvokeChannels.reconnectWorkspaceCanvasSession, input)
+    ),
+  closeWorkspaceCanvasSession: async (input) =>
+    ipcRenderer.invoke(collaborationInvokeChannels.closeWorkspaceCanvasSession, input),
+  getWorkspaceCanvasProjection: async () =>
+    workspaceCanvasProjectionSchema
+      .nullable()
+      .parse(await ipcRenderer.invoke(collaborationInvokeChannels.getWorkspaceCanvasProjection)),
   resolveCollaborationCanvasBindingScope: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.resolveCollaborationCanvasBindingScope, input),
   readCollaborationCanvasBindingRuntimeAvailability: async (input) =>
@@ -584,6 +607,12 @@ const collaborationApi: PlanWeaveCollaborationApi = {
       callback(collaborationCanvasBindingReplicaSignalSchema.parse(payload));
     ipcRenderer.on(collaborationCanvasBindingReplicaSignalChannel, listener);
     return () => ipcRenderer.off(collaborationCanvasBindingReplicaSignalChannel, listener);
+  },
+  onWorkspaceCanvasProjectionSignal: (callback) => {
+    const listener = (_event: IpcRendererEvent, payload: unknown) =>
+      callback(workspaceCanvasProjectionSignalSchema.parse(payload));
+    ipcRenderer.on(workspaceCanvasProjectionSignalChannel, listener);
+    return () => ipcRenderer.off(workspaceCanvasProjectionSignalChannel, listener);
   }
 };
 

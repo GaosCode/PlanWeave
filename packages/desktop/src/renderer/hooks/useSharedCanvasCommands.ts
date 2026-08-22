@@ -10,9 +10,12 @@ import {
 import type { createTranslator } from "../i18n";
 import type {
   CollaborationCanvasBindingInput,
+  CanvasLocator,
   PlanWeaveCollaborationApi
 } from "../../shared/collaboration";
 import type { CollaborationCanvasBindingReplicaProjection } from "../../shared/canvasReplicaIpc";
+import type { WorkspaceCanvasProjectionStatus } from "../../shared/workspaceCanvasProjection";
+import { useWorkspaceCanvasSession } from "./useWorkspaceCanvasSession";
 
 export type SharedCanvasCommandBridge = CanvasCommandBridge &
   Pick<
@@ -24,7 +27,14 @@ export type SharedCanvasCommandBridge = CanvasCommandBridge &
   Partial<
     Pick<
       PlanWeaveCollaborationApi,
-      "getCollaborationCanvasBindingReplicaProjection" | "onCollaborationCanvasBindingReplicaSignal"
+      | "getCollaborationCanvasBindingReplicaProjection"
+      | "onCollaborationCanvasBindingReplicaSignal"
+      | "openWorkspaceCanvasSession"
+      | "submitWorkspaceCanvasCommand"
+      | "reconnectWorkspaceCanvasSession"
+      | "closeWorkspaceCanvasSession"
+      | "getWorkspaceCanvasProjection"
+      | "onWorkspaceCanvasProjectionSignal"
     >
   >;
 
@@ -46,6 +56,8 @@ export type SharedCanvasCommandsResult = {
   snapshot: CanvasCommandControllerSnapshot;
   /** Authoritative in-memory projection used by the shared canvas renderer. */
   projection: CollaborationCanvasBindingReplicaProjection | null;
+  /** Explicit Workspace command state. Null on the Local Canvas path. */
+  projectionStatus: WorkspaceCanvasProjectionStatus | null;
   /** Shared authority is configured but the command session is currently unavailable. */
   offline: boolean;
   submit: (input: { intent: CanvasCommandIntent }) => Promise<SharedCanvasSubmitResult>;
@@ -88,21 +100,18 @@ function projectionIdentity(
 }
 
 /**
- * Binds shared-mode canvas command session when collaboration is connected
- * for the active profile/project/canvas. Local/offline mode leaves enabled=false
- * so graph hooks keep using direct runtime bridge writes.
+ * Shared-mode canvas commands. Local Canvas keeps the runtime bridge; Workspace uses the session.
  */
 export function useSharedCanvasCommands(input: {
   enabled: boolean;
   sessionConnected: boolean;
   binding: CollaborationCanvasBindingInput | null;
+  locator?: CanvasLocator | null;
   profileId: string | null;
   activeProjectId: string | null;
-  /** This device owns the selected authority, but its Server is not running. */
   localOwnerDirectWriteAvailable: boolean;
   t: ReturnType<typeof createTranslator>;
   api?: SharedCanvasCommandBridge | null;
-  /** Called after accepted mutation or successful reconnect so ReactFlow can refresh. */
   onAuthoritativeChange?: () => void | Promise<void>;
 }): SharedCanvasCommandsResult {
   const api = input.api === undefined ? collaborationBridge : input.api;
@@ -127,21 +136,34 @@ export function useSharedCanvasCommands(input: {
           : null,
     [bindingCanvasId, bindingKind, bindingProjectId, bindingWorkspaceId]
   );
-  const canvasId = binding?.canvasId ?? null;
-  const selectedProjectId = bindingProjectId;
+  const canvasId = binding?.canvasId ?? input.locator?.canvasId ?? null;
+  const selectedProjectId =
+    bindingProjectId ??
+    (input.locator?.kind === "workspace" || input.locator?.kind === "local"
+      ? input.locator.projectId
+      : null);
+  const workspaceLocatorRequested = input.locator?.kind === "workspace" ? input.locator : null;
+  const workspaceLocator =
+    workspaceLocatorRequested &&
+    input.profileId === workspaceLocatorRequested.connectionProfileId &&
+    input.activeProjectId === workspaceLocatorRequested.projectId
+      ? workspaceLocatorRequested
+      : null;
   const currentScope = useMemo(
     () =>
-      binding?.kind === "remote" &&
-      input.activeProjectId !== null &&
-      binding.projectId === input.activeProjectId
-        ? {
-            localProjectId: binding.projectId,
-            localCanvasId: binding.canvasId,
-            remoteProjectId: binding.projectId,
-            remoteCanvasId: binding.canvasId
-          }
-        : null,
-    [binding, input.activeProjectId]
+      workspaceLocatorRequested
+        ? null
+        : binding?.kind === "remote" &&
+            input.activeProjectId !== null &&
+            binding.projectId === input.activeProjectId
+          ? {
+              localProjectId: binding.projectId,
+              localCanvasId: binding.canvasId,
+              remoteProjectId: binding.projectId,
+              remoteCanvasId: binding.canvasId
+            }
+          : null,
+    [binding, input.activeProjectId, workspaceLocatorRequested]
   );
   const collaborationConfigured =
     input.enabled &&
@@ -150,9 +172,14 @@ export function useSharedCanvasCommands(input: {
     input.activeProjectId !== null &&
     canvasId !== null &&
     input.profileId !== null;
-  const resolvedSharedAuthority = currentScope !== null;
+  const resolvedSharedAuthority = workspaceLocatorRequested !== null || currentScope !== null;
   const authorityEnabled = collaborationConfigured && resolvedSharedAuthority;
   const sessionEnabled = authorityEnabled && input.sessionConnected && currentScope !== null;
+  const workspaceSessionEnabled =
+    Boolean(workspaceLocator) &&
+    input.enabled &&
+    !input.localOwnerDirectWriteAvailable &&
+    input.sessionConnected;
   const authorityMode: SharedCanvasAuthorityMode = resolvedSharedAuthority ? "shared" : "local";
   const currentProjectionIdentity =
     input.profileId && binding && currentScope
@@ -201,8 +228,18 @@ export function useSharedCanvasCommands(input: {
     projection: CollaborationCanvasBindingReplicaProjection;
   } | null>(null);
 
+  const workspaceSession = useWorkspaceCanvasSession({
+    api,
+    labels,
+    locator: workspaceLocator,
+    requested: workspaceLocatorRequested,
+    sessionEnabled: workspaceSessionEnabled,
+    sessionConnected: input.sessionConnected
+  });
+
   const refreshAfterMaterialization = useCallback(() => {
-    if (!api || binding?.kind !== "local" || !onChangeRef.current) return;
+    if (!api || binding?.kind !== "local" || workspaceLocatorRequested || !onChangeRef.current)
+      return;
     const generation = ++refreshGenerationRef.current;
     void api
       .flushCollaborationCanvasReplicaMaterialization()
@@ -215,7 +252,7 @@ export function useSharedCanvasCommands(input: {
           controllerRef.current?.reportRefreshFailure(error);
         }
       });
-  }, [api, binding?.kind]);
+  }, [api, binding?.kind, workspaceLocatorRequested]);
 
   useEffect(() => {
     void refreshScopeIdentity;
@@ -225,15 +262,17 @@ export function useSharedCanvasCommands(input: {
   }, [refreshScopeIdentity]);
 
   useEffect(() => {
-    if (!api) {
-      controllerRef.current = null;
-      setSnapshot({
-        session: null,
-        connectionPhase: "idle",
-        lastError: null,
-        lastStaleConflict: null,
-        busy: false
-      });
+    if (!api || workspaceLocatorRequested) {
+      if (!api) {
+        controllerRef.current = null;
+        setSnapshot({
+          session: null,
+          connectionPhase: "idle",
+          lastError: null,
+          lastStaleConflict: null,
+          busy: false
+        });
+      }
       return undefined;
     }
     const controller = new CanvasCommandController({ api, labels });
@@ -244,9 +283,10 @@ export function useSharedCanvasCommands(input: {
       controllerRef.current = null;
       void controller.unbind();
     };
-  }, [api, labels]);
+  }, [api, labels, workspaceLocatorRequested]);
 
   useEffect(() => {
+    if (workspaceLocatorRequested) return undefined;
     const controller = controllerRef.current;
     const localProjectId = currentScope?.localProjectId ?? null;
     const localCanvasId = currentScope?.localCanvasId ?? null;
@@ -394,10 +434,11 @@ export function useSharedCanvasCommands(input: {
     input.localOwnerDirectWriteAvailable,
     input.profileId,
     refreshAfterMaterialization,
-    sessionEnabled
+    sessionEnabled,
+    workspaceLocatorRequested
   ]);
 
-  const submit = useCallback(
+  const bindingSubmit = useCallback(
     async (submitInput: { intent: CanvasCommandIntent }): Promise<SharedCanvasSubmitResult> => {
       const controller = controllerRef.current;
       if (!controller || !sessionEnabled) {
@@ -433,7 +474,7 @@ export function useSharedCanvasCommands(input: {
     [labels.notConnected, refreshAfterMaterialization, sessionEnabled]
   );
 
-  const reconnect = useCallback(async () => {
+  const bindingReconnect = useCallback(async () => {
     const controller = controllerRef.current;
     if (!controller || !sessionEnabled) return false;
     try {
@@ -449,7 +490,11 @@ export function useSharedCanvasCommands(input: {
     }
   }, [refreshAfterMaterialization, sessionEnabled]);
 
+  const submit = workspaceLocatorRequested ? workspaceSession.submit : bindingSubmit;
+  const reconnect = workspaceLocatorRequested ? workspaceSession.reconnect : bindingReconnect;
+
   const visibleProjection = useMemo(() => {
+    if (workspaceLocatorRequested) return workspaceSession.projection;
     if (!currentProjectionIdentity) return null;
     if (!(authorityEnabled && snapshot.connectionPhase === "disconnected")) return projection;
     const confirmed = lastConfirmedProjectionRef.current;
@@ -476,17 +521,24 @@ export function useSharedCanvasCommands(input: {
     input.profileId,
     currentScope,
     projection,
-    snapshot.connectionPhase
+    snapshot.connectionPhase,
+    workspaceLocatorRequested,
+    workspaceSession.projection
   ]);
+  const visibleSnapshot = workspaceLocatorRequested ? workspaceSession.snapshot : snapshot;
 
   return useMemo(
     () => ({
       enabled: Boolean(authorityEnabled),
       authorityMode,
-      snapshot,
+      snapshot: visibleSnapshot,
       projection: visibleProjection,
+      projectionStatus: workspaceLocatorRequested ? workspaceSession.projectionStatus : null,
       offline: Boolean(
-        resolvedSharedAuthority && (!sessionEnabled || snapshot.connectionPhase === "disconnected")
+        resolvedSharedAuthority &&
+          ((!workspaceLocatorRequested && !sessionEnabled) ||
+            (workspaceLocatorRequested && !workspaceSessionEnabled) ||
+            visibleSnapshot.connectionPhase === "disconnected")
       ),
       submit,
       reconnect
@@ -497,9 +549,12 @@ export function useSharedCanvasCommands(input: {
       reconnect,
       resolvedSharedAuthority,
       sessionEnabled,
-      snapshot,
       submit,
-      visibleProjection
+      visibleProjection,
+      visibleSnapshot,
+      workspaceLocatorRequested,
+      workspaceSession.projectionStatus,
+      workspaceSessionEnabled
     ]
   );
 }

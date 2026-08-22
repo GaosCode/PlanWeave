@@ -202,6 +202,21 @@ describe("desktop IPC contract", () => {
     expect(collaborationInvokeChannels.flushCollaborationCanvasReplicaMaterialization).toBe(
       "planweave-collaboration:flushCanvasReplicaMaterialization"
     );
+    expect(collaborationInvokeChannels.openWorkspaceCanvasSession).toBe(
+      "planweave-collaboration:openWorkspaceCanvasSession"
+    );
+    expect(collaborationInvokeChannels.submitWorkspaceCanvasCommand).toBe(
+      "planweave-collaboration:submitWorkspaceCanvasCommand"
+    );
+    expect(collaborationInvokeChannels.reconnectWorkspaceCanvasSession).toBe(
+      "planweave-collaboration:reconnectWorkspaceCanvasSession"
+    );
+    expect(collaborationInvokeChannels.closeWorkspaceCanvasSession).toBe(
+      "planweave-collaboration:closeWorkspaceCanvasSession"
+    );
+    expect(collaborationInvokeChannels.getWorkspaceCanvasProjection).toBe(
+      "planweave-collaboration:getWorkspaceCanvasProjection"
+    );
     expect(collaborationInvokeChannels.redeemCollaborationSetupCode).toBe(
       "planweave-collaboration:redeemSetupCode"
     );

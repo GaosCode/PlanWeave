@@ -81,7 +81,7 @@ function createBridge(options?: {
     api: {
       submitCollaborationCanvasCommand:
         options?.submit ??
-        (async () => {
+        vi.fn(async () => {
           throw new Error("not used by this hook test");
         }),
       reconnectCollaborationCanvas: reconnect,
@@ -100,6 +100,18 @@ function createBridge(options?: {
       },
       getCollaborationCanvasBindingReplicaProjection: async () => null,
       flushCollaborationCanvasReplicaMaterialization: options?.flush ?? (async () => undefined),
+      openWorkspaceCanvasSession: async () => {
+        throw new Error("workspace session not used by this hook test");
+      },
+      submitWorkspaceCanvasCommand: async () => {
+        throw new Error("workspace session not used by this hook test");
+      },
+      reconnectWorkspaceCanvasSession: async () => {
+        throw new Error("workspace session not used by this hook test");
+      },
+      closeWorkspaceCanvasSession: async () => undefined,
+      getWorkspaceCanvasProjection: async () => null,
+      onWorkspaceCanvasProjectionSignal: () => () => undefined,
       onCollaborationCanvasBindingReplicaSignal: (
         listener: (signal: CollaborationCanvasBindingReplicaSignal) => void
       ) => {
@@ -180,6 +192,14 @@ const remoteBinding = {
 const localBinding = {
   kind: "local" as const,
   localProjectId: "project-1",
+  canvasId: "default"
+};
+
+const workspaceLocator = {
+  kind: "workspace" as const,
+  connectionProfileId: "profile-1",
+  workspaceId: "workspace-1",
+  projectId: "project-1",
   canvasId: "default"
 };
 
@@ -432,6 +452,65 @@ describe("useSharedCanvasCommands", () => {
     expect(submitted.ok).toBe(true);
     expect(flush).not.toHaveBeenCalled();
     expect(onAuthoritativeChange).not.toHaveBeenCalled();
+  });
+
+  it("opens a Workspace locator via the session and never flushes a local package", async () => {
+    vi.useFakeTimers();
+    const flush = vi.fn().mockResolvedValue(undefined);
+    const replica = remoteReplicaProjection({ canvasId: "default", revision: 2 });
+    if (!("bindingKind" in replica)) throw new Error("expected remote replica");
+    const projection = {
+      locator: workspaceLocator,
+      status: "accepted" as const,
+      conflict: null,
+      rejectCode: null,
+      replica
+    };
+    const open = vi.fn().mockResolvedValue(projection);
+    const submit = vi.fn().mockResolvedValue({
+      ...projection,
+      status: "accepted" as const
+    });
+    const close = vi.fn().mockResolvedValue(undefined);
+    const bridge = createBridge({ flush });
+    bridge.api.openWorkspaceCanvasSession = open;
+    bridge.api.submitWorkspaceCanvasCommand = submit;
+    bridge.api.closeWorkspaceCanvasSession = close;
+
+    const { result } = renderHook(() =>
+      useSharedCanvasCommands({
+        ...hookInput(bridge.api),
+        locator: workspaceLocator
+      })
+    );
+    await flushEffects();
+
+    expect(open).toHaveBeenCalledWith(workspaceLocator);
+    expect(bridge.bind).not.toHaveBeenCalled();
+    expect(bridge.reconnect).not.toHaveBeenCalled();
+    expect(flush).not.toHaveBeenCalled();
+    expect(result.current.authorityMode).toBe("shared");
+    expect(result.current.projectionStatus).toBe("accepted");
+    expect(result.current.projection?.revision).toBe(2);
+
+    const submitted = await result.current.submit({
+      intent: {
+        kind: "update_layout",
+        nodes: [{ nodeId: "T-001", x: 40, y: 80 }],
+        updatedAt: "2026-08-03T00:00:00.000Z"
+      }
+    });
+    expect(submitted.ok).toBe(true);
+    expect(submit).toHaveBeenCalledWith({
+      locator: workspaceLocator,
+      intent: {
+        kind: "update_layout",
+        nodes: [{ nodeId: "T-001", x: 40, y: 80 }],
+        updatedAt: "2026-08-03T00:00:00.000Z"
+      }
+    });
+    expect(bridge.api.submitCollaborationCanvasCommand).not.toHaveBeenCalled();
+    expect(flush).not.toHaveBeenCalled();
   });
 
   it("polls a remote delta and refreshes the authoritative canvas", async () => {

@@ -309,12 +309,17 @@ export class CollaborationCanvasCommandFacade {
    * Start a submit: validates binding, enqueues optimistic pending synchronously, returns
    * the network Promise without holding callers on disk materialization.
    */
-  submit(input: unknown): Promise<CollaborationCanvasCommandSubmitResult> {
+  submit(
+    input: unknown,
+    options?: { retryStale?: boolean }
+  ): Promise<CollaborationCanvasCommandSubmitResult> {
     try {
       const parsed = collaborationCanvasCommandSubmitInputSchema.parse(input);
       const client = requireClient(this.resolveClient());
       const binding = this.requireBinding(client, parsed.canvasId);
-      const network = this.worker.submit(binding.scope, parsed.intent as CanvasCommandIntent);
+      const network = this.worker.submit(binding.scope, parsed.intent as CanvasCommandIntent, {
+        retryStale: options?.retryStale
+      });
       return network.then((outcome) => ({
         outcome,
         session: client.canvasCommandSession()
@@ -322,6 +327,14 @@ export class CollaborationCanvasCommandFacade {
     } catch (error) {
       return Promise.reject(error);
     }
+  }
+
+  /**
+   * Release live subscription, replica queues, and client command session.
+   * Does not flush local disk and does not delete the Server canvas.
+   */
+  releaseBinding(): void {
+    this.unbindCurrent(this.resolveClient());
   }
 
   async reconnect(input: unknown): Promise<CollaborationCanvasReconnectResult> {

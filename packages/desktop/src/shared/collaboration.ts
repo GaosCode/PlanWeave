@@ -5,6 +5,12 @@ import type {
 } from "./canvasReplicaIpc.js";
 import type { CollaborationCanvasBindingInput } from "./collaborationCanvasBinding.js";
 import type {
+  WorkspaceCanvasCommandSubmitInput,
+  WorkspaceCanvasProjection,
+  WorkspaceCanvasProjectionSignal
+} from "./workspaceCanvasProjection.js";
+import type { WorkspaceCanvasLocator } from "./canvasLocator.js";
+import type {
   ExportServerDataArchiveInput,
   ExportServerDataArchiveResult,
   ListServerDataExportSourcesResult,
@@ -630,6 +636,19 @@ export {
   type LocalCanvasLocator,
   type WorkspaceCanvasLocator
 } from "./canvasLocator.js";
+export {
+  workspaceCanvasCommandSubmitInputSchema,
+  workspaceCanvasConflictSchema,
+  workspaceCanvasProjectionSchema,
+  workspaceCanvasProjectionSignalSchema,
+  workspaceCanvasProjectionStatus,
+  workspaceCanvasProjectionStatusSchema,
+  type WorkspaceCanvasCommandSubmitInput,
+  type WorkspaceCanvasConflict,
+  type WorkspaceCanvasProjection,
+  type WorkspaceCanvasProjectionSignal,
+  type WorkspaceCanvasProjectionStatus
+} from "./workspaceCanvasProjection.js";
 
 export type CollaborationCanvasCommandSessionView = {
   canvasId: string;
@@ -752,6 +771,7 @@ export {
   collaborationInvokeChannels,
   collaborationCanvasLiveSyncSignalChannel,
   collaborationCanvasBindingReplicaSignalChannel,
+  workspaceCanvasProjectionSignalChannel,
   collaborationObserverSignalChannel,
   collaborationPresenceSignalChannel,
   collaborationStatusChangedChannel
@@ -852,6 +872,15 @@ export type PlanWeaveCollaborationApi = WorkspaceCanvasSharingApi & {
   ) => Promise<CollaborationCanvasCommandSessionView | null>;
   getCollaborationCanvasCommandSession: () => Promise<CollaborationCanvasCommandSessionView | null>;
   flushCollaborationCanvasReplicaMaterialization: () => Promise<void>;
+  openWorkspaceCanvasSession: (input: WorkspaceCanvasLocator) => Promise<WorkspaceCanvasProjection>;
+  submitWorkspaceCanvasCommand: (
+    input: WorkspaceCanvasCommandSubmitInput
+  ) => Promise<WorkspaceCanvasProjection>;
+  reconnectWorkspaceCanvasSession: (
+    input: WorkspaceCanvasLocator
+  ) => Promise<WorkspaceCanvasProjection>;
+  closeWorkspaceCanvasSession: (input?: WorkspaceCanvasLocator) => Promise<void>;
+  getWorkspaceCanvasProjection: () => Promise<WorkspaceCanvasProjection | null>;
   resolveCollaborationCanvasBindingScope: (
     input: CollaborationCanvasBindingInput
   ) => Promise<CollaborationCanvasScopeResolution | null>;
@@ -1024,6 +1053,9 @@ export type PlanWeaveCollaborationApi = WorkspaceCanvasSharingApi & {
   ) => () => void;
   onCollaborationCanvasBindingReplicaSignal: (
     callback: (signal: CollaborationCanvasBindingReplicaSignal) => void
+  ) => () => void;
+  onWorkspaceCanvasProjectionSignal: (
+    callback: (signal: WorkspaceCanvasProjectionSignal) => void
   ) => () => void;
 } & PlanWeaveCollaborationRuntimeAvailabilityApi;
 

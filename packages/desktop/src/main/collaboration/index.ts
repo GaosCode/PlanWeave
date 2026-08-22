@@ -32,6 +32,7 @@ export {
   type CollaborationCanvasReconnectResult,
   type CollaborationCanvasCommandSessionView
 } from "./collaborationCanvasCommands.js";
+export { WorkspaceCanvasSession } from "./WorkspaceCanvasSession.js";
 export { CollaborationHttpTransport } from "./collaborationHttpTransport.js";
 export {
   CollaborationWorkspaceClient,

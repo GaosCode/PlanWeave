@@ -269,6 +269,7 @@
         "workspaceAccessScopeSelector.test.tsx",
         "workspaceAgentEndpointOwnerFleet.test.tsx",
         "workspaceAgentEndpointRun.test.tsx",
+        "workspaceCanvasSession.test.ts",
         "workspaceCanvasSharingPanel.test.tsx",
         "workspaceTabsLazyRoutes.test.tsx"
       ],
