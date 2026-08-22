@@ -24,6 +24,7 @@ import type { RemoteBlockRuntimePort } from "@planweave-ai/runtime";
 import type { MailboxMessage } from "./mailbox.js";
 import type { HostCapacityReservation } from "./hostReservations.js";
 import type { RemoteOperation } from "./remoteOperations.js";
+import { remoteRuntimeLocator } from "./remoteBlockCoordinatorPorts.js";
 import {
   DispatchAssignmentError,
   dispatchHostSelectionSnapshotSchema,
@@ -260,7 +261,7 @@ export class RemoteBlockActionCoordinator {
     locator: { workspaceId: string; projectId: string; canvasId: string },
     operation: (runtime: RemoteBlockRuntimePort) => Promise<T>
   ): Promise<T> {
-    const acquired = await this.options.runtimeLeases.acquire(locator);
+    const acquired = await this.options.runtimeLeases.acquire(remoteRuntimeLocator(locator));
     try {
       return await operation(acquired.runtime);
     } finally {

@@ -22,6 +22,7 @@ import type {
   RemoteOperationCandidatePort,
   RemoteRuntimeLocator
 } from "./remoteBlockCoordinatorPorts.js";
+import { remoteRuntimeLocator } from "./remoteBlockCoordinatorPorts.js";
 import type {
   CanvasExecutionRuntimeLease,
   CanvasExecutionRuntimeLeasePort
@@ -166,7 +167,7 @@ export class RemoteBlockCoordinator {
     locator: RemoteRuntimeLocator,
     operation: (runtime: RemoteBlockRuntimePort) => Promise<T>
   ): Promise<T> {
-    const acquired = await this.options.runtimeLeases.acquire(locator);
+    const acquired = await this.options.runtimeLeases.acquire(remoteRuntimeLocator(locator));
     try {
       return await operation(acquired.runtime);
     } finally {
@@ -275,7 +276,7 @@ export class RemoteBlockCoordinator {
     if (["completed", "failed", "cancelled"].includes(operation.state)) {
       return { operation, status: "terminal" };
     }
-    const lease = await this.options.runtimeLeases.acquire(operation);
+    const lease = await this.options.runtimeLeases.acquire(remoteRuntimeLocator(operation));
     try {
       return await this.reenterWithLease(operationId, lease);
     } finally {
@@ -570,7 +571,7 @@ export class RemoteBlockCoordinator {
     for (const operation of this.options.operations.listNonTerminal()) {
       let runtimeLease: CanvasExecutionRuntimeLease | undefined;
       try {
-        runtimeLease = await this.options.runtimeLeases.acquire(operation);
+        runtimeLease = await this.options.runtimeLeases.acquire(remoteRuntimeLocator(operation));
         outcomes.push(await this.reenterWithLease(operation.id, runtimeLease));
       } catch (error) {
         const decision = classifyReenterFailure(error);

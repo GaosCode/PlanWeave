@@ -47,6 +47,15 @@ export type RemoteRuntimeLocator = {
   canvasId: string;
 };
 
+/** Project a domain record onto the exact Runtime lease scope contract. */
+export function remoteRuntimeLocator(locator: RemoteRuntimeLocator): RemoteRuntimeLocator {
+  return {
+    workspaceId: locator.workspaceId,
+    projectId: locator.projectId,
+    canvasId: locator.canvasId
+  };
+}
+
 export interface RemoteOperationCandidatePort {
   get(operationId: string): RemoteBlockDispatchCandidate | undefined;
   record(operationId: string, candidate: RemoteBlockDispatchCandidate): void;

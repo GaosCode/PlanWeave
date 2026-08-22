@@ -14,6 +14,7 @@ import type {
   RemoteDispatchPersistencePort,
   RemoteOperationCandidatePort
 } from "./remoteBlockCoordinatorPorts.js";
+import { remoteRuntimeLocator } from "./remoteBlockCoordinatorPorts.js";
 import { RemoteOperationRepository, type RemoteOperation } from "./remoteOperations.js";
 import {
   diagnosticFromReenterFailure,
@@ -49,7 +50,7 @@ export class RemoteBlockWritebackCoordinator {
       return;
     }
     const operation = this.options.operations.getRequired(operationId);
-    const lease = await this.options.runtimeLeases.acquire(operation);
+    const lease = await this.options.runtimeLeases.acquire(remoteRuntimeLocator(operation));
     try {
       await this.completeWithLease(operationId, lease);
     } finally {
@@ -63,7 +64,7 @@ export class RemoteBlockWritebackCoordinator {
       return;
     }
     const operation = this.options.operations.getRequired(operationId);
-    const lease = await this.options.runtimeLeases.acquire(operation);
+    const lease = await this.options.runtimeLeases.acquire(remoteRuntimeLocator(operation));
     try {
       await this.failWithLease(operationId, lease);
     } finally {
@@ -86,7 +87,9 @@ export class RemoteBlockWritebackCoordinator {
       if (existingLease) {
         await this.sealRejectedWriteback(current, error, existingLease.runtime);
       } else {
-        const runtimeLease = await this.options.runtimeLeases.acquire(current);
+        const runtimeLease = await this.options.runtimeLeases.acquire(
+          remoteRuntimeLocator(current)
+        );
         try {
           await this.sealRejectedWriteback(current, error, runtimeLease.runtime);
         } finally {
