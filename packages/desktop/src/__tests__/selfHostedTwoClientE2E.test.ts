@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { remoteDispatchIntentV3Schema } from "@planweave-ai/collaboration-protocol/remote-run";
 import {
   adminToken,
   configureWorkspaceAccess,
@@ -276,20 +277,21 @@ describe("self-hosted two-Desktop collaboration flow (OSS-006 B-002)", () => {
       )?.endpointId;
       expect(agentEndpointId).toBeTruthy();
 
+      const remoteDispatchIntent = remoteDispatchIntentV3Schema.parse({
+        schemaVersion: "remote-run/v3",
+        projectId: fixture.projectId,
+        canvasId: "default",
+        blockRef: "T-001#B-001",
+        agentEndpointId,
+        idempotencyKey: "two-client-exact-block-dispatch",
+        expectedResponsibilityRevision: 1,
+        expectedReviewerRevision: 1
+      });
       const dispatched = await postJson(
         fixture.origin,
         `/api/v1/projects/${encodeURIComponent(fixture.projectId)}/remote-operations`,
         ownerToken,
-        {
-          schemaVersion: "remote-run/v3",
-          projectId: fixture.projectId,
-          canvasId: "default",
-          blockRef: "T-001#B-001",
-          agentEndpointId,
-          idempotencyKey: "two-client-exact-block-dispatch",
-          expectedResponsibilityRevision: 1,
-          expectedReviewerRevision: 1
-        }
+        remoteDispatchIntent
       );
       const dispatchedBody = await dispatched.json();
       expect(dispatched.status, JSON.stringify(dispatchedBody)).toBe(202);
@@ -303,7 +305,7 @@ describe("self-hosted two-Desktop collaboration flow (OSS-006 B-002)", () => {
       }
       const observed = await fetch(
         `${fixture.origin}/api/v1/projects/${encodeURIComponent(fixture.projectId)}/remote-operations/${encodeURIComponent(dispatchedBody.operationId)}`,
-        { headers: { authorization: `Bearer ${ownerToken}` } }
+        { headers: { authorization: `Bearer ${memberToken}` } }
       );
       expect(observed.status).toBe(200);
       await expect(observed.json()).resolves.toMatchObject({
