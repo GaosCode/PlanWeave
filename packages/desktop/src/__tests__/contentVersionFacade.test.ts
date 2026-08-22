@@ -286,6 +286,7 @@ function fakeClient(
     schemaVersion: "canvas-runtime-view/v1" as const,
     state: {
       kind: "initialized" as const,
+      runtimeRevision: 1,
       status: {
         schemaVersion: "canvas-runtime-status/v2" as const,
         scope: { workspaceId: "workspace-test", projectId, canvasId: "default" },
@@ -303,7 +304,15 @@ function fakeClient(
   }));
   const importRuntimeStatus = vi.fn(async (_canvasId: string, input: { status: unknown }) => ({
     kind: "initialized" as const,
+    runtimeRevision: 1,
     status: input.status
+  }));
+  const resetRuntime = vi.fn(async (_canvasId: string, input: { operationId: string }) => ({
+    type: "canvas.runtime.reset.rejected" as const,
+    operationId: input.operationId,
+    code: "host_offline" as const,
+    detail: "runtime_host_offline",
+    retryable: true
   }));
   const canvasRecord = (canvasId: string) => ({
     schemaVersion: "project-access/v1" as const,
@@ -346,7 +355,8 @@ function fakeClient(
       acknowledgeContentVersion,
       reconnectCanvasCommands,
       readRuntimeAvailability,
-      importRuntimeStatus
+      importRuntimeStatus,
+      resetRuntime
     } as unknown as CollaborationClient,
     calls: {
       discoverContentAuthority,
@@ -357,6 +367,7 @@ function fakeClient(
       reconnectCanvasCommands,
       readRuntimeAvailability,
       importRuntimeStatus,
+      resetRuntime,
       registerCanvas
     }
   };
@@ -944,6 +955,45 @@ describe("ContentVersionFacade", () => {
         canvasId: "default"
       })
     ).rejects.toMatchObject({ code: "runtime_availability_scope_mismatch" });
+  });
+
+  it("derives the reset content revision from the authoritative content head", async () => {
+    const workspace = await createTestWorkspace();
+    directories.push(workspace.home, workspace.root);
+    const fake = fakeClient(workspace.init.workspace.id);
+    const facade = new ContentVersionFacade(() => fake.client);
+    await facade.bind({
+      kind: "local",
+      localProjectId: workspace.init.project.id,
+      canvasId: "default"
+    });
+    await facade.publishInitial();
+
+    await expect(
+      facade.resetRuntime(
+        {
+          kind: "remote",
+          workspaceId: "workspace-test",
+          projectId: workspace.init.workspace.id,
+          canvasId: "default"
+        },
+        {
+          operationId: "reset-authority-revision",
+          expectedSourceRevision: `snapshot:${"b".repeat(64)}`,
+          expectedGraphFingerprint: `pkg-${"a".repeat(64)}`
+        }
+      )
+    ).resolves.toMatchObject({
+      type: "canvas.runtime.reset.rejected",
+      code: "host_offline"
+    });
+    expect(fake.calls.resetRuntime).toHaveBeenCalledWith(
+      "default",
+      expect.objectContaining({
+        operationId: "reset-authority-revision",
+        expectedContentRevision: 1
+      })
+    );
   });
 
   it("resolves only a persisted shared replica while disconnected", async () => {

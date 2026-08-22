@@ -291,6 +291,7 @@ export function ProjectWorkspaceProvider({
     graph: replicaGraph,
     sessionConnected: collaborationSurface.sessionConnected,
     binding: canvasBinding,
+    locator: canvasLocator,
     sharedAuthorityMode: sharedCanvasCommands.authorityMode,
     setError,
     setSuccessMessage,
@@ -502,7 +503,7 @@ export function ProjectWorkspaceProvider({
   const autoRunController = useAutoRunController({
     autoRunState,
     onAutoRunDerivedStateRefresh: refreshGraph,
-    selectedCanvasId,
+    selectedCanvasId: activeCanvasId,
     selectedBlock,
     selectedProject,
     selectedTaskPanelId,
@@ -514,7 +515,9 @@ export function ProjectWorkspaceProvider({
     position: settings.layout.autoRunControl.position,
     onPositionCommit: (position) => updateLayoutSettings({ autoRunControl: { position } }),
     startAutoRunScope: startAutoRunWithSelectedEndpoint,
-    runtimeAvailability: collaborationRuntime.availability
+    runtimeAvailability: collaborationRuntime.availability,
+    canvasLocator,
+    resetWorkspaceRuntime: collaborationRuntime.resetWorkspaceRuntime
   });
   useTaskNodeFocus({
     activeView,

@@ -1,12 +1,26 @@
-import type { CanvasRuntimeAvailability } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
+import {
+  canvasRuntimeAvailabilitySchema,
+  type CanvasRuntimeAvailability
+} from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
+import {
+  canvasRuntimeResetAcceptedSchema,
+  canvasRuntimeResetOutcomeSchema,
+  type CanvasRuntimeResetOutcome
+} from "@planweave-ai/collaboration-protocol/canvas/runtime-control";
 import { collaborationCanvasBindingInputSchema } from "../../shared/collaboration.js";
+import {
+  workspaceCanvasRuntimeResetInputSchema,
+  type WorkspaceCanvasRuntimeResetInput
+} from "../../shared/collaborationRuntimeAvailability.js";
+import { workspaceCanvasLocatorToBinding } from "../../shared/canvasLocator.js";
 import type { ContentVersionFacade } from "./ContentVersionFacade.js";
 import type { CollaborationCanvasCommandFacade } from "./collaborationCanvasCommands.js";
 import type { CanvasReplicaStore } from "./CanvasReplicaStore.js";
+import { CollaborationClientError } from "./collaborationErrors.js";
 
 export type CanvasRuntimeContentPort = Pick<
   ContentVersionFacade,
-  "resolveCanvasScope" | "readRuntimeAvailability" | "importLocalRuntimeStatus"
+  "resolveCanvasScope" | "readRuntimeAvailability" | "importLocalRuntimeStatus" | "resetRuntime"
 >;
 export type CanvasRuntimeCommandPort = Pick<
   CollaborationCanvasCommandFacade,
@@ -88,6 +102,45 @@ export class CanvasRuntimeAvailabilityCoordinator {
       }
     }
     return state;
+  }
+
+  async resetRuntime(input: WorkspaceCanvasRuntimeResetInput): Promise<CanvasRuntimeResetOutcome> {
+    const requested = workspaceCanvasRuntimeResetInputSchema.parse(input);
+    const binding = workspaceCanvasLocatorToBinding(requested.locator);
+    const outcome = canvasRuntimeResetOutcomeSchema.parse(
+      await this.contentVersions.resetRuntime(binding, {
+        operationId: requested.operationId,
+        expectedSourceRevision: requested.expectedSourceRevision,
+        expectedGraphFingerprint: requested.expectedGraphFingerprint,
+        ...(requested.reason === undefined ? {} : { reason: requested.reason })
+      })
+    );
+    if (outcome.operationId !== requested.operationId) {
+      throw new CollaborationClientError({
+        kind: "protocol",
+        code: "runtime_reset_operation_id_mismatch",
+        message: "runtime_reset_operation_id_mismatch",
+        retryable: false
+      });
+    }
+    if (outcome.type === "canvas.runtime.reset.rejected") return outcome;
+
+    const availability = canvasRuntimeAvailabilitySchema.parse(
+      await this.readRuntimeAvailability(binding)
+    );
+    if (
+      availability.state.kind !== "initialized" ||
+      availability.state.runtimeRevision < outcome.runtimeRevision ||
+      JSON.stringify(availability.state.status) !== JSON.stringify(outcome.status)
+    ) {
+      throw new CollaborationClientError({
+        kind: "unknown",
+        code: "runtime_reset_projection_postcondition_failed",
+        message: "runtime_reset_projection_postcondition_failed",
+        retryable: true
+      });
+    }
+    return canvasRuntimeResetAcceptedSchema.parse(outcome);
   }
 
   private clearReplicaRuntimeStatus(scope: Parameters<CanvasRuntimeReplicaPort["has"]>[0]): void {

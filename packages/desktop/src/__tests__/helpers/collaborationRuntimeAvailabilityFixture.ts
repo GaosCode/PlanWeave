@@ -33,7 +33,7 @@ export function availableRuntime(
 ) {
   return {
     schemaVersion: "canvas-runtime-view/v1" as const,
-    state: { kind: "initialized" as const, status },
+    state: { kind: "initialized" as const, runtimeRevision: 1, status },
     execution: {
       schemaVersion: "canvas-runtime-availability/v1" as const,
       kind: "available" as const,

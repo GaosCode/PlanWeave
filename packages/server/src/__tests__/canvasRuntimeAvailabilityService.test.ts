@@ -102,7 +102,7 @@ describe("CanvasRuntimeAvailabilityService", () => {
       service.read(actor("viewer"), { projectId: "p", canvasId: "default" })
     ).resolves.toEqual({
       schemaVersion: "canvas-runtime-view/v1",
-      state: { kind: "initialized", status: status(fingerprint) },
+      state: { kind: "initialized", runtimeRevision: 1, status: status(fingerprint) },
       execution: {
         schemaVersion: "canvas-runtime-availability/v1",
         kind: "unavailable",
@@ -121,7 +121,7 @@ describe("CanvasRuntimeAvailabilityService", () => {
       service.read(actor("viewer"), { projectId: "p", canvasId: "default" })
     ).resolves.toEqual({
       schemaVersion: "canvas-runtime-view/v1",
-      state: { kind: "initialized", status: status(fingerprint) },
+      state: { kind: "initialized", runtimeRevision: 1, status: status(fingerprint) },
       execution: {
         schemaVersion: "canvas-runtime-availability/v1",
         kind: "unavailable",
@@ -140,7 +140,7 @@ describe("CanvasRuntimeAvailabilityService", () => {
         canvasId: "default",
         body: { status: imported }
       })
-    ).toEqual({ kind: "initialized", status: imported });
+    ).toEqual({ kind: "initialized", runtimeRevision: 1, status: imported });
     expect(() =>
       service.importInitial(actor("owner"), {
         projectId: "p",

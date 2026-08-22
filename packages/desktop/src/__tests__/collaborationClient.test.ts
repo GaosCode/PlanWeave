@@ -390,7 +390,7 @@ describe("CollaborationClient", () => {
       if (req.url?.endsWith("/canvas-available/runtime-availability")) {
         json(res, 200, {
           schemaVersion: "canvas-runtime-view/v1",
-          state: { kind: "initialized", status },
+          state: { kind: "initialized", runtimeRevision: 1, status },
           execution: {
             schemaVersion: "canvas-runtime-availability/v1",
             kind: "available",
@@ -408,6 +408,7 @@ describe("CollaborationClient", () => {
         schemaVersion: "canvas-runtime-view/v1",
         state: {
           kind: "initialized",
+          runtimeRevision: 1,
           status: { ...status, scope: { ...status.scope, canvasId: "canvas-detached" } }
         },
         execution: {
@@ -421,13 +422,14 @@ describe("CollaborationClient", () => {
     const client = clientFor(fixture.origin, { token: exampleHumanDeviceToken });
 
     await expect(client.readRuntimeAvailability("canvas-available")).resolves.toMatchObject({
-      state: { kind: "initialized", status },
+      state: { kind: "initialized", runtimeRevision: 1, status },
       execution: { kind: "available" }
     });
     await expect(client.readRuntimeAvailability("canvas-detached")).resolves.toEqual({
       schemaVersion: "canvas-runtime-view/v1",
       state: {
         kind: "initialized",
+        runtimeRevision: 1,
         status: { ...status, scope: { ...status.scope, canvasId: "canvas-detached" } }
       },
       execution: {
@@ -473,14 +475,105 @@ describe("CollaborationClient", () => {
         "/api/v1/projects/project-demo-001/canvases/canvas-demo-001/runtime-status/import"
       );
       expect(JSON.parse((await readBody(req)).toString("utf8"))).toEqual({ status });
-      json(res, 200, { kind: "initialized", status });
+      json(res, 200, { kind: "initialized", runtimeRevision: 1, status });
     });
     cleanups.push(fixture.close);
     const client = clientFor(fixture.origin, { token: exampleHumanDeviceToken });
 
     await expect(client.importRuntimeStatus("canvas-demo-001", { status })).resolves.toEqual({
       kind: "initialized",
+      runtimeRevision: 1,
       status
+    });
+    client.dispose();
+  });
+
+  it("sends one strict Workspace Runtime reset and parses structured failures", async () => {
+    const request = {
+      operationId: "reset-1",
+      expectedContentRevision: 4,
+      expectedSourceRevision: `snapshot:${"b".repeat(64)}`,
+      expectedGraphFingerprint: `pkg-${"a".repeat(64)}`,
+      reason: "Desktop workspace runtime reset requested."
+    };
+    const fixture = await listen(async (req, res) => {
+      expect(req.method).toBe("POST");
+      expect(req.url).toBe(
+        "/api/v1/projects/project-demo-001/canvases/canvas-demo-001/runtime-reset"
+      );
+      expect(JSON.parse((await readBody(req)).toString("utf8"))).toEqual(request);
+      json(res, 503, {
+        type: "canvas.runtime.reset.rejected",
+        operationId: request.operationId,
+        code: "host_offline"
+      });
+    });
+    cleanups.push(fixture.close);
+    const client = clientFor(fixture.origin, { token: exampleHumanDeviceToken });
+
+    await expect(client.resetRuntime("canvas-demo-001", request)).resolves.toEqual({
+      type: "canvas.runtime.reset.rejected",
+      operationId: request.operationId,
+      code: "host_offline"
+    });
+    client.dispose();
+  });
+
+  it.each([
+    [
+      "accepted",
+      200,
+      {
+        type: "canvas.runtime.reset.accepted",
+        operationId: "wrong-operation",
+        runtimeRevision: 5,
+        sourceRevision: `snapshot:${"b".repeat(64)}`,
+        graphFingerprint: `pkg-${"a".repeat(64)}`,
+        status: {
+          schemaVersion: "canvas-runtime-status/v2",
+          scope: {
+            workspaceId: "workspace-demo-001",
+            projectId: "project-demo-001",
+            canvasId: "canvas-demo-001"
+          },
+          packageFingerprint: `pkg-${"a".repeat(64)}`,
+          capturedAt: "2026-08-22T00:00:00.000Z",
+          tasks: [],
+          blocks: []
+        }
+      }
+    ],
+    [
+      "rejected",
+      409,
+      {
+        type: "canvas.runtime.reset.rejected",
+        operationId: "wrong-operation",
+        code: "active_lease"
+      }
+    ],
+    [
+      "unavailable",
+      503,
+      {
+        type: "canvas.runtime.reset.rejected",
+        operationId: "wrong-operation",
+        code: "unavailable"
+      }
+    ]
+  ] as const)("rejects a mismatched operation ID in a %s reset response", async (_kind, status, body) => {
+    const request = {
+      operationId: "expected-operation",
+      expectedContentRevision: 4,
+      expectedSourceRevision: `snapshot:${"b".repeat(64)}`,
+      expectedGraphFingerprint: `pkg-${"a".repeat(64)}`
+    };
+    const fixture = await listen(async (_req, res) => json(res, status, body));
+    cleanups.push(fixture.close);
+    const client = clientFor(fixture.origin, { token: exampleHumanDeviceToken });
+
+    await expect(client.resetRuntime("canvas-demo-001", request)).rejects.toMatchObject({
+      code: "runtime_reset_operation_id_mismatch"
     });
     client.dispose();
   });

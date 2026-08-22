@@ -13,6 +13,7 @@ export const CANVAS_RUNTIME_JSON_MAX_STRING_LENGTH = 16_384 as const;
 export const CANVAS_RUNTIME_JSON_MAX_BYTES = 131_072 as const;
 export const CANVAS_RUNTIME_ERROR_MESSAGE_MAX_LENGTH = 4_096 as const;
 export const CANVAS_RUNTIME_SOURCE_REVISION_MAX_LENGTH = 256 as const;
+export const CANVAS_RUNTIME_RESET_REASON_MAX_LENGTH = 2_000 as const;
 
 const forbiddenJsonKeys = new Set(["__proto__", "constructor", "prototype"]);
 
@@ -174,6 +175,36 @@ function mutationOperationSchema<T extends string>(operation: T) {
     });
 }
 
+export const canvasRuntimeResetInputSchema = z
+  .object({
+    operationId: opaqueIdentifierSchema,
+    sourceRevision: canvasRuntimeSourceRevisionSchema,
+    graphFingerprint: canvasRuntimeGraphFingerprintSchema,
+    reason: z.string().trim().min(1).max(CANVAS_RUNTIME_RESET_REASON_MAX_LENGTH).optional()
+  })
+  .strict();
+
+const resetOperationSchema = z
+  .object({
+    operation: z.literal("reset"),
+    ...leasedOperationShape,
+    evidence: canvasRuntimeSourceEvidenceSchema,
+    input: canvasRuntimeResetInputSchema
+  })
+  .strict()
+  .superRefine((value, context) => {
+    requireMatchingField(value.input, "operationId", value.evidence.operationId, context);
+    requireMatchingField(value.input, "sourceRevision", value.evidence.sourceRevision, context);
+    requireMatchingField(value.input, "graphFingerprint", value.evidence.graphFingerprint, context);
+  });
+
+const resetStatusOperationSchema = z
+  .object({
+    operation: z.literal("reset_status"),
+    operationId: opaqueIdentifierSchema
+  })
+  .strict();
+
 function queryOperationSchema<T extends "query" | "reconcile">(operation: T) {
   return z
     .object({
@@ -218,6 +249,8 @@ export const canvasRuntimeOperationSchema = z.discriminatedUnion("operation", [
   mutationOperationSchema("retry_attempt"),
   mutationOperationSchema("complete"),
   mutationOperationSchema("fail"),
+  resetOperationSchema,
+  resetStatusOperationSchema,
   artifactReadOperationSchema,
   releaseOperationSchema
 ]);
@@ -360,6 +393,38 @@ const genericSuccessOperations = [
   "fail"
 ] as const;
 
+export const canvasRuntimeResetResultSchema = z
+  .object({
+    operationId: opaqueIdentifierSchema,
+    sourceRevision: canvasRuntimeSourceRevisionSchema,
+    graphFingerprint: canvasRuntimeGraphFingerprintSchema,
+    status: canvasRuntimeJsonValueSchema
+  })
+  .strict();
+
+export const canvasRuntimeResetStatusResultSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("not_found") }).strict(),
+  z.object({ kind: z.literal("pending") }).strict(),
+  z
+    .object({
+      kind: z.literal("succeeded"),
+      result: canvasRuntimeResetResultSchema
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("failed"),
+      error: z
+        .object({
+          code: opaqueIdentifierSchema,
+          retryable: z.boolean(),
+          reconcileRequired: z.boolean().optional()
+        })
+        .strict()
+    })
+    .strict()
+]);
+
 const genericSuccessSchemas = genericSuccessOperations.map((operation) =>
   z
     .object({
@@ -386,6 +451,20 @@ export const canvasRuntimeSuccessSchema = z.discriminatedUnion("operation", [
     })
     .strict(),
   ...genericSuccessSchemas,
+  z
+    .object({
+      outcome: z.literal("success"),
+      operation: z.literal("reset"),
+      result: canvasRuntimeResetResultSchema
+    })
+    .strict(),
+  z
+    .object({
+      outcome: z.literal("success"),
+      operation: z.literal("reset_status"),
+      result: canvasRuntimeResetStatusResultSchema
+    })
+    .strict(),
   z
     .object({
       outcome: z.literal("success"),
@@ -429,6 +508,8 @@ export const canvasRuntimeErrorSchema = z
       "retry_attempt",
       "complete",
       "fail",
+      "reset",
+      "reset_status",
       "artifact_read",
       "release",
       "cancel"

@@ -9,6 +9,7 @@ import {
   workItemRefSchema
 } from "./primitives.js";
 import { canvasContentDigestSchema, canvasRevisionSchema } from "./canvasCommands.js";
+import { canvasRuntimeRevisionSchema } from "./runtimeStatus.js";
 
 /**
  * Distinct human observer channel — not Host mailbox, not ACP streams.
@@ -53,7 +54,8 @@ export const humanObserverInvalidateKindSchema = z.enum([
   "attachment",
   "remote_run",
   "project",
-  "canvas"
+  "canvas",
+  "runtime"
 ]);
 
 /**
@@ -76,6 +78,7 @@ export const humanObserverEventSchema = z
     canvasId: opaqueIdentifierSchema.optional(),
     canvasRevision: canvasRevisionSchema.optional(),
     canvasContentDigest: canvasContentDigestSchema.optional(),
+    runtimeRevision: canvasRuntimeRevisionSchema.optional(),
     /** Opaque status token for remote-run progress (not ACP stream content). */
     remoteRunStatus: z
       .enum(["started", "progress", "succeeded", "failed", "interrupted"])
@@ -90,19 +93,60 @@ export const humanObserverEventSchema = z
         path: ["cursor"]
       });
     }
-    const canvasFields = [value.canvasId, value.canvasRevision, value.canvasContentDigest];
-    if (value.kind === "canvas" && canvasFields.some((field) => field === undefined)) {
-      ctx.addIssue({
-        code: "custom",
-        message: "canvas observer event requires canvas id, revision, and content digest",
-        path: ["canvasId"]
-      });
+    if (value.kind === "canvas") {
+      if (
+        value.canvasId === undefined ||
+        value.canvasRevision === undefined ||
+        value.canvasContentDigest === undefined
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          message: "canvas observer event requires canvas id, revision, and content digest",
+          path: ["canvasId"]
+        });
+      }
+      if (value.runtimeRevision !== undefined) {
+        ctx.addIssue({
+          code: "custom",
+          message: "runtimeRevision is only valid for runtime observer events",
+          path: ["runtimeRevision"]
+        });
+      }
+      return;
     }
-    if (value.kind !== "canvas" && canvasFields.some((field) => field !== undefined)) {
+    if (value.kind === "runtime") {
+      if (value.canvasId === undefined || value.runtimeRevision === undefined) {
+        ctx.addIssue({
+          code: "custom",
+          message: "runtime observer event requires canvas id and runtime revision",
+          path: ["runtimeRevision"]
+        });
+      }
+      if (value.canvasRevision !== undefined || value.canvasContentDigest !== undefined) {
+        ctx.addIssue({
+          code: "custom",
+          message: "runtime observer events must not carry content revision fields",
+          path: ["canvasRevision"]
+        });
+      }
+      return;
+    }
+    if (
+      value.canvasId !== undefined ||
+      value.canvasRevision !== undefined ||
+      value.canvasContentDigest !== undefined
+    ) {
       ctx.addIssue({
         code: "custom",
         message: "canvas observer fields are only valid for canvas events",
         path: ["canvasId"]
+      });
+    }
+    if (value.runtimeRevision !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: "runtimeRevision is only valid for runtime observer events",
+        path: ["runtimeRevision"]
       });
     }
   });

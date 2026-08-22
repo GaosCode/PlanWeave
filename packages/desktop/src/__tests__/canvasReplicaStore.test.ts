@@ -468,7 +468,7 @@ describe("CanvasRuntimeAvailabilityCoordinator", () => {
   };
   const available = {
     schemaVersion: "canvas-runtime-view/v1" as const,
-    state: { kind: "initialized" as const, status },
+    state: { kind: "initialized" as const, runtimeRevision: 1, status },
     execution: {
       schemaVersion: "canvas-runtime-availability/v1" as const,
       kind: "available" as const,
@@ -485,7 +485,12 @@ describe("CanvasRuntimeAvailabilityCoordinator", () => {
     const content: CanvasRuntimeContentPort = {
       resolveCanvasScope: vi.fn(async () => scope),
       readRuntimeAvailability: vi.fn(async () => initialAvailability),
-      importLocalRuntimeStatus: vi.fn()
+      importLocalRuntimeStatus: vi.fn(),
+      resetRuntime: vi.fn(async () => ({
+        type: "canvas.runtime.reset.rejected" as const,
+        operationId: "reset-1",
+        code: "host_offline" as const
+      }))
     };
     const commands: CanvasRuntimeCommandPort = { projectionForBinding: vi.fn(() => null) };
     const replicas: CanvasRuntimeReplicaPort = {
@@ -603,5 +608,78 @@ describe("CanvasRuntimeAvailabilityCoordinator", () => {
       { authorityId: "authority-1", ...scope },
       null
     );
+  });
+
+  it("returns reset success only after reading the higher authoritative projection", async () => {
+    const refreshed = { ...available, state: { ...available.state, runtimeRevision: 2 } };
+    const fixture = setup(refreshed);
+    vi.mocked(fixture.content.resetRuntime).mockResolvedValue({
+      type: "canvas.runtime.reset.accepted",
+      operationId: "reset-1",
+      runtimeRevision: 2,
+      sourceRevision: `snapshot:${"b".repeat(64)}`,
+      graphFingerprint: status.packageFingerprint,
+      status
+    });
+
+    await expect(
+      fixture.coordinator.resetRuntime({
+        locator: {
+          kind: "workspace",
+          connectionProfileId: "profile-1",
+          ...scope
+        },
+        operationId: "reset-1",
+        expectedSourceRevision: `snapshot:${"b".repeat(64)}`,
+        expectedGraphFingerprint: status.packageFingerprint
+      })
+    ).resolves.toMatchObject({
+      type: "canvas.runtime.reset.accepted",
+      runtimeRevision: 2
+    });
+    expect(fixture.content.resetRuntime).toHaveBeenCalledWith(
+      { kind: "remote", ...scope },
+      expect.objectContaining({ operationId: "reset-1" })
+    );
+    expect(fixture.content.readRuntimeAvailability).toHaveBeenCalledWith({
+      kind: "remote",
+      ...scope
+    });
+    expect(fixture.replicas.setRuntimeStatus).toHaveBeenCalledWith(
+      { authorityId: "authority-1", ...scope },
+      status
+    );
+  });
+
+  it.each([
+    {
+      type: "canvas.runtime.reset.accepted" as const,
+      operationId: "wrong-operation",
+      runtimeRevision: 2,
+      sourceRevision: `snapshot:${"b".repeat(64)}`,
+      graphFingerprint: status.packageFingerprint,
+      status
+    },
+    {
+      type: "canvas.runtime.reset.rejected" as const,
+      operationId: "wrong-operation",
+      code: "active_lease" as const
+    },
+    {
+      type: "canvas.runtime.reset.rejected" as const,
+      operationId: "wrong-operation",
+      code: "unavailable" as const
+    }
+  ])("rejects mismatched reset response operation IDs at the Main boundary", async (outcome) => {
+    const fixture = setup(available);
+    vi.mocked(fixture.content.resetRuntime).mockResolvedValue(outcome);
+    await expect(
+      fixture.coordinator.resetRuntime({
+        locator: { kind: "workspace", connectionProfileId: "profile-1", ...scope },
+        operationId: "reset-1",
+        expectedSourceRevision: `snapshot:${"b".repeat(64)}`,
+        expectedGraphFingerprint: status.packageFingerprint
+      })
+    ).rejects.toMatchObject({ code: "runtime_reset_operation_id_mismatch" });
   });
 });

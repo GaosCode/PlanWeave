@@ -8,6 +8,10 @@ import {
   canvasRuntimeAvailabilitySchema,
   canvasRuntimeStateAvailabilitySchema
 } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
+import {
+  canvasRuntimeResetOutcomeSchema,
+  type CanvasRuntimeResetOutcome
+} from "@planweave-ai/collaboration-protocol/canvas/runtime-control";
 import { opaqueIdentifierSchema } from "@planweave-ai/agent-host-protocol";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { ZodError } from "zod";
@@ -28,12 +32,17 @@ import {
 } from "./limits.js";
 import { CanvasCommandService } from "./service.js";
 import { CanvasRuntimeAvailabilityService } from "./runtimeAvailabilityService.js";
+import {
+  CanvasRuntimeCommandCoordinator,
+  CanvasRuntimeResetError
+} from "./runtimeCommandCoordinator.js";
 
 type CanvasRoute =
   | { kind: "command"; projectId: string; canvasId: string }
   | { kind: "reconnect"; projectId: string; canvasId: string }
   | { kind: "runtime_availability"; projectId: string; canvasId: string }
   | { kind: "runtime_status_import"; projectId: string; canvasId: string }
+  | { kind: "runtime_reset"; projectId: string; canvasId: string }
   | { kind: "forbidden_feature"; feature: string; projectId?: string };
 
 const CANVAS_COMMAND_RATE_MAX_BUCKETS = 2_000;
@@ -46,6 +55,7 @@ const rateLimiter = new BoundedFixedWindowAdmission<string>({
 export type CanvasCommandHttpOptions = {
   service: CanvasCommandService;
   runtimeAvailabilityService: CanvasRuntimeAvailabilityService;
+  runtimeCommandCoordinator?: CanvasRuntimeCommandCoordinator;
   repository: HumanIdentityRepository;
   workspaceIdentity: WorkspaceIdentityRepository;
   collaborationScopeAuthority: CollaborationScopeAuthority;
@@ -56,6 +66,28 @@ export type CanvasCommandHttpOptions = {
 export function canvasCommandOutcomeHttpStatus(outcome: CanvasCommandOutcome): 200 | 409 | 500 {
   if (outcome.type === "canvas.command.accepted") return 200;
   return outcome.code === "server_error" ? 500 : 409;
+}
+
+function canvasRuntimeResetHttpStatus(outcome: CanvasRuntimeResetOutcome): number {
+  if (outcome.type === "canvas.runtime.reset.accepted") return 200;
+  if (outcome.code === "forbidden") return 403;
+  if (outcome.code === "invalid_request") return 400;
+  if (
+    outcome.code === "host_offline" ||
+    outcome.code === "unavailable" ||
+    outcome.code === "reconcile_required"
+  )
+    return 503;
+  if (outcome.code === "persist_failed") return 500;
+  return 409;
+}
+
+function resetOperationId(body: unknown): string {
+  if (!body || typeof body !== "object" || !("operationId" in body)) {
+    return "invalid-reset-request";
+  }
+  const parsed = opaqueIdentifierSchema.safeParse((body as { operationId: unknown }).operationId);
+  return parsed.success ? parsed.data : "invalid-reset-request";
 }
 
 function decodeIdentifier(value: string): string | undefined {
@@ -96,6 +128,16 @@ export function routeCanvasCommandHttp(
     return projectId && canvasId
       ? { kind: "runtime_status_import", projectId, canvasId }
       : undefined;
+  }
+
+  const runtimeReset = /^\/api\/v1\/projects\/([^/]+)\/canvases\/([^/]+)\/runtime-reset$/.exec(
+    pathname
+  );
+  if (runtimeReset) {
+    if (request.method !== "POST") return undefined;
+    const projectId = decodeIdentifier(runtimeReset[1] ?? "");
+    const canvasId = decodeIdentifier(runtimeReset[2] ?? "");
+    return projectId && canvasId ? { kind: "runtime_reset", projectId, canvasId } : undefined;
   }
 
   const match =
@@ -244,6 +286,7 @@ export async function handleCanvasCommandHttpRequest(
     return true;
   }
 
+  let body: unknown;
   try {
     if (routed.kind === "runtime_availability") {
       const availability = await options.runtimeAvailabilityService.read(context, {
@@ -253,7 +296,42 @@ export async function handleCanvasCommandHttpRequest(
       respond(response, 200, canvasRuntimeAvailabilitySchema.parse(availability));
       return true;
     }
-    const body = await readJson(request);
+    body = await readJson(request);
+    if (routed.kind === "runtime_reset") {
+      if (!options.runtimeCommandCoordinator) {
+        respond(response, 503, {
+          type: "canvas.runtime.reset.rejected",
+          operationId: resetOperationId(body),
+          code: "unavailable"
+        });
+        return true;
+      }
+      try {
+        const outcome = await options.runtimeCommandCoordinator.reset(context, {
+          projectId: routed.projectId,
+          canvasId: routed.canvasId,
+          body
+        });
+        respond(
+          response,
+          canvasRuntimeResetHttpStatus(outcome),
+          canvasRuntimeResetOutcomeSchema.parse(outcome)
+        );
+        return true;
+      } catch (error) {
+        if (error instanceof CanvasRuntimeResetError) {
+          const operationId = resetOperationId(body);
+          const outcome = canvasRuntimeResetOutcomeSchema.parse({
+            type: "canvas.runtime.reset.rejected",
+            operationId,
+            code: error.code
+          });
+          respond(response, canvasRuntimeResetHttpStatus(outcome), outcome);
+          return true;
+        }
+        throw error;
+      }
+    }
     if (routed.kind === "runtime_status_import") {
       const state = options.runtimeAvailabilityService.importInitial(context, {
         projectId: routed.projectId,
@@ -304,6 +382,18 @@ export async function handleCanvasCommandHttpRequest(
     return true;
   } catch (error) {
     if (error instanceof ZodError) {
+      if (routed.kind === "runtime_reset") {
+        respond(
+          response,
+          400,
+          canvasRuntimeResetOutcomeSchema.parse({
+            type: "canvas.runtime.reset.rejected",
+            operationId: resetOperationId(body),
+            code: "invalid_request"
+          })
+        );
+        return true;
+      }
       respond(
         response,
         routed.kind === "runtime_status_import" ? 400 : 500,

@@ -95,7 +95,7 @@ const serverStatus = {
 };
 const availableRuntime = {
   schemaVersion: "canvas-runtime-view/v1" as const,
-  state: { kind: "initialized" as const, status: serverStatus },
+  state: { kind: "initialized" as const, runtimeRevision: 1, status: serverStatus },
   execution: {
     schemaVersion: "canvas-runtime-availability/v1" as const,
     kind: "available" as const,
@@ -197,11 +197,11 @@ describe("current Local vs Workspace canvas authority (characterization)", () =>
     );
   });
 
-  it("has a local Runtime reset IPC and no collaboration Runtime reset channel", () => {
+  it("keeps local Runtime reset IPC separate from workspace Runtime reset IPC", () => {
     expect(desktopBridgeInvokeChannels.resetRuntimeState).toBe("planweave:resetRuntimeState");
     expect("resetRuntimeState" in collaborationInvokeChannels).toBe(false);
-    expect(Object.keys(collaborationInvokeChannels).some((name) => /reset/i.test(name))).toBe(
-      false
+    expect(collaborationInvokeChannels.resetWorkspaceCanvasRuntime).toBe(
+      "planweave-collaboration:resetWorkspaceCanvasRuntime"
     );
   });
 
@@ -329,7 +329,7 @@ describe("current Local vs Workspace canvas authority (characterization)", () =>
     expect(sharedSubmit).toHaveBeenCalledWith({ intent: layoutIntent });
   });
 
-  it("overlays Server node status onto a Workspace graph while reset still hits local Runtime IPC", async () => {
+  it("overlays Server node status and routes Workspace reset without local Runtime IPC", async () => {
     const api = runtimeApi();
     const { result: runtime } = renderHook(() =>
       useCollaborationRuntimeAvailability({
@@ -354,6 +354,7 @@ describe("current Local vs Workspace canvas authority (characterization)", () =>
       stoppedAutoRunIds: []
     });
     const desktopBridge = createDesktopBridgeMock({ resetRuntimeState });
+    const resetWorkspaceRuntime = vi.fn().mockResolvedValue(undefined);
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     stubAutoRunControlBridge(desktopBridge);
     const { useAutoRunControl } = await loadAutoRunControl();
@@ -367,7 +368,13 @@ describe("current Local vs Workspace canvas authority (characterization)", () =>
         runtimeAvailability: { kind: "available" },
         selectedCanvasId: "default",
         selectedBlock: null,
-        selectedProject: project,
+        selectedProject: null,
+        canvasLocator: {
+          kind: "workspace",
+          connectionProfileId: "profile-1",
+          ...scope
+        },
+        resetWorkspaceRuntime,
         selectedTaskPanelId: null,
         setAutoRunState,
         setError: vi.fn(),
@@ -381,17 +388,16 @@ describe("current Local vs Workspace canvas authority (characterization)", () =>
     });
 
     expect(confirm).toHaveBeenCalled();
-    expect(resetRuntimeState).toHaveBeenCalledWith(
-      { projectRoot: project.rootPath, canvasId: "default" },
-      { force: true, reason: "Desktop reset requested." }
-    );
+    expect(resetWorkspaceRuntime).toHaveBeenCalledTimes(1);
+    expect(resetRuntimeState).not.toHaveBeenCalled();
     expect(autoRun.current.autoRunState).toBeNull();
     expect(runtime.current.graph?.tasks[0]?.status).toBe("implemented");
     expect(api.readCollaborationCanvasBindingRuntimeAvailability).toHaveBeenCalled();
   });
 
-  it("no-ops Workspace reset when the selected local project is missing", async () => {
+  it("does not treat a missing local project as authority for Workspace reset", async () => {
     const resetRuntimeState = vi.fn();
+    const resetWorkspaceRuntime = vi.fn().mockResolvedValue(undefined);
     stubAutoRunControlBridge(createDesktopBridgeMock({ resetRuntimeState }));
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     const { useAutoRunControl } = await loadAutoRunControl();
@@ -403,6 +409,12 @@ describe("current Local vs Workspace canvas authority (characterization)", () =>
         selectedCanvasId: "default",
         selectedBlock: null,
         selectedProject: null,
+        canvasLocator: {
+          kind: "workspace",
+          connectionProfileId: "profile-1",
+          ...scope
+        },
+        resetWorkspaceRuntime,
         selectedTaskPanelId: null,
         setAutoRunState: vi.fn(),
         setError: vi.fn(),
@@ -415,7 +427,8 @@ describe("current Local vs Workspace canvas authority (characterization)", () =>
       await result.current.resetRuntimeStateClick();
     });
 
-    expect(confirm).not.toHaveBeenCalled();
+    expect(confirm).toHaveBeenCalled();
+    expect(resetWorkspaceRuntime).toHaveBeenCalledTimes(1);
     expect(resetRuntimeState).not.toHaveBeenCalled();
   });
 });

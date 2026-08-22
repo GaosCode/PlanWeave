@@ -214,7 +214,31 @@ describe("canvas runtime availability HTTP", () => {
     expect(imported.status).toBe(200);
     await expect(imported.json()).resolves.toEqual({
       kind: "initialized",
+      runtimeRevision: 1,
       status: initialStatus
+    });
+
+    const unavailableReset = await fetch(
+      `${fixture.origin}/api/v1/projects/p/canvases/default/runtime-reset`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${fixture.token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          operationId: "reset-unavailable",
+          expectedContentRevision: 1,
+          expectedSourceRevision: `snapshot:${"b".repeat(64)}`,
+          expectedGraphFingerprint: initialStatus.packageFingerprint
+        })
+      }
+    );
+    expect(unavailableReset.status).toBe(503);
+    await expect(unavailableReset.json()).resolves.toEqual({
+      type: "canvas.runtime.reset.rejected",
+      operationId: "reset-unavailable",
+      code: "unavailable"
     });
 
     const conflicting = await fetch(importUrl, {

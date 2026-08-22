@@ -126,14 +126,8 @@ import {
   contentVersionAuthorityDiscoveryResultSchema,
   type ContentVersionAuthorityDiscoveryResult
 } from "@planweave-ai/collaboration-protocol/content/authority";
-import {
-  canvasRuntimeAvailabilitySchema,
-  canvasRuntimeStateAvailabilitySchema,
-  importCanvasRuntimeStatusRequestSchema,
-  type CanvasRuntimeAvailability,
-  type CanvasRuntimeStateAvailability,
-  type ImportCanvasRuntimeStatusRequest
-} from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
+import { type ImportCanvasRuntimeStatusRequest } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
+import { type CanvasRuntimeResetRequest } from "@planweave-ai/collaboration-protocol/canvas/runtime-control";
 import {
   type CanvasCommandOutcome,
   type CanvasRevision
@@ -184,6 +178,7 @@ import {
 } from "./CollaborationRemoteOperationsClient.js";
 import { HumanObserverClient } from "./HumanObserverClient.js";
 import { CollaborationAssignmentClient } from "./CollaborationAssignmentClient.js";
+import { CanvasRuntimeClient } from "./CanvasRuntimeClient.js";
 
 export type {
   CollaborationClientClock,
@@ -207,12 +202,6 @@ export type CollaborationClientOptions = {
   logger?: { warn?(message: string): void; error?(message: string): void };
 };
 
-/**
- * Electron-main human collaboration client.
- *
- * Application-shaped methods only — no raw `request(path)` or socket access for callers.
- * Validates every JSON response/event with collaboration-protocol Zod schemas.
- */
 export class CollaborationClient {
   private readonly transport: CollaborationHttpTransport;
   private readonly clock: CollaborationClientClock;
@@ -226,6 +215,7 @@ export class CollaborationClient {
   private readonly remoteOperationsClient: CollaborationRemoteOperationsClient;
   private readonly assignmentClient: CollaborationAssignmentClient;
   private readonly observer: HumanObserverClient;
+  private readonly runtimeClient: CanvasRuntimeClient;
 
   constructor(private readonly options: CollaborationClientOptions) {
     if (options.profile.endpoint.tlsTrust === "configured_ca") {
@@ -238,6 +228,7 @@ export class CollaborationClient {
       request: options.request,
       clock: options.clock
     });
+    this.runtimeClient = new CanvasRuntimeClient(options.profile.projectId, this.transport);
     this.clock = options.clock ?? systemCollaborationClock;
     this.random = options.random ?? Math.random;
     this.presence = new CanvasPresenceClient({
@@ -1089,33 +1080,17 @@ export class CollaborationClient {
     );
   }
 
-  async readRuntimeAvailability(
-    canvasId: string,
-    signal?: AbortSignal
-  ): Promise<CanvasRuntimeAvailability> {
-    return this.transport.json(
-      "GET",
-      `/api/v1/projects/${encodeURIComponent(this.projectId)}/canvases/${encodeURIComponent(canvasId)}/runtime-availability`,
-      canvasRuntimeAvailabilitySchema,
-      { signal }
-    );
+  async readRuntimeAvailability(canvasId: string, signal?: AbortSignal) {
+    return this.runtimeClient.readAvailability(canvasId, signal);
   }
 
-  async importRuntimeStatus(
-    canvasId: string,
-    input: ImportCanvasRuntimeStatusRequest
-  ): Promise<CanvasRuntimeStateAvailability> {
-    return this.transport.json(
-      "POST",
-      `/api/v1/projects/${encodeURIComponent(this.projectId)}/canvases/${encodeURIComponent(canvasId)}/runtime-status/import`,
-      canvasRuntimeStateAvailabilitySchema,
-      { body: importCanvasRuntimeStatusRequestSchema.parse(input) }
-    );
+  async importRuntimeStatus(canvasId: string, input: ImportCanvasRuntimeStatusRequest) {
+    return this.runtimeClient.importStatus(canvasId, input);
   }
 
-  // ---------------------------------------------------------------------------
-  // Human observer subscription
-  // ---------------------------------------------------------------------------
+  async resetRuntime(canvasId: string, input: CanvasRuntimeResetRequest) {
+    return this.runtimeClient.reset(canvasId, input);
+  }
 
   /**
    * Start the distinct human observer WSS subscription.

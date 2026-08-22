@@ -3,6 +3,7 @@ import type {
   AutoRunStepResult,
   ClaimScope,
   PackageWorkspaceRef,
+  RuntimeResetReceipt,
   RunnerTransport
 } from "../types.js";
 import type { RunnerInteractionObserver } from "../autoRun/runnerInteractionObserver.js";
@@ -115,6 +116,7 @@ export type ResetRuntimeStateOptions = {
   reason?: string;
   sessionId?: string;
   session?: RunSessionState;
+  receipt?: RuntimeResetReceipt;
 };
 
 export type ResetRuntimeStateResult = {

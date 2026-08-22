@@ -34,8 +34,8 @@ describe("CanvasRuntimeStatusRepository", () => {
     const statuses = await repository();
     const initial = status("2026-08-20T00:00:00.000Z");
 
-    expect(statuses.initialize(initial)).toEqual(initial);
-    expect(statuses.initialize(initial)).toEqual(initial);
+    expect(statuses.initialize(initial)).toEqual({ runtimeRevision: 1, status: initial });
+    expect(statuses.initialize(initial)).toEqual({ runtimeRevision: 1, status: initial });
     expect(() => statuses.initialize(status("2026-08-21T00:00:00.000Z"))).toThrow(
       "canvas_runtime_status_already_initialized"
     );
@@ -46,7 +46,13 @@ describe("CanvasRuntimeStatusRepository", () => {
     statuses.initialize(status("2026-08-20T00:00:00.000Z"));
 
     const refreshed = status("2026-08-21T00:00:00.000Z");
-    expect(statuses.replaceFromExecution(refreshed)).toEqual(refreshed);
-    expect(statuses.read(scope)).toEqual(refreshed);
+    expect(statuses.replaceFromExecution(refreshed)).toEqual({
+      runtimeRevision: 2,
+      status: refreshed
+    });
+    expect(statuses.read(scope)).toEqual({ runtimeRevision: 2, status: refreshed });
+
+    const third = status("2026-08-22T00:00:00.000Z");
+    expect(statuses.replaceFromExecution(third)).toEqual({ runtimeRevision: 3, status: third });
   });
 });

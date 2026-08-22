@@ -74,6 +74,8 @@ export const stateSchemaDocument: SchemaDocument<"state"> = {
         }
       }
     },
+    lastResetReceipt:
+      "optional durable operation/source/fingerprint evidence written atomically with a Runtime reset",
     feedback: {
       "[feedbackId]": {
         status: ["open", "in_progress", "resolved", "dismissed"],

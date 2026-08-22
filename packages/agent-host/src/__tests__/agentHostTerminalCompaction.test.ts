@@ -421,7 +421,7 @@ describe("Agent Host terminal state compaction", () => {
     expect(reopened.receive(delivery(1)).stored).toBe(false);
     const inspected = await openAgentHostDatabase(path, 5_000);
     expect(inspected.prepare("SELECT version FROM agent_host_state_schema").get()).toMatchObject({
-      version: 6
+      version: 8
     });
     inspected.close();
   });
@@ -445,7 +445,7 @@ describe("Agent Host terminal state compaction", () => {
     expect(migrated.receive(delivery(1)).stored).toBe(false);
     const inspected = await openAgentHostDatabase(path, 5_000);
     expect(inspected.prepare("SELECT version FROM agent_host_state_schema").get()).toMatchObject({
-      version: 6
+      version: 8
     });
     expect(
       inspected
@@ -454,6 +454,61 @@ describe("Agent Host terminal state compaction", () => {
         )
         .get()
     ).toBeDefined();
+    inspected.close();
+  });
+
+  it("migrates v6 Runtime receipts to durable reset operation identity", async () => {
+    const { path, state } = await setup();
+    state.close();
+    states.pop();
+    const v6 = await openAgentHostDatabase(path, 5_000);
+    v6.exec(`
+      DROP INDEX idx_canvas_runtime_rpc_reset_operation;
+      ALTER TABLE canvas_runtime_rpc_receipts DROP COLUMN operation_id;
+      ALTER TABLE canvas_runtime_rpc_receipts DROP COLUMN operation_digest;
+      ALTER TABLE canvas_runtime_rpc_receipts DROP COLUMN reset_resolution_json;
+      UPDATE agent_host_state_schema SET version=6;
+    `);
+    v6.close();
+
+    const migrated = await openAgentHostState(path);
+    states.push(migrated);
+    const inspected = await openAgentHostDatabase(path, 5_000);
+    expect(inspected.prepare("SELECT version FROM agent_host_state_schema").get()).toMatchObject({
+      version: 8
+    });
+    expect(
+      inspected
+        .prepare("PRAGMA table_info(canvas_runtime_rpc_receipts)")
+        .all()
+        .map((row) => row.name)
+    ).toEqual(expect.arrayContaining(["operation_id", "operation_digest"]));
+    inspected.close();
+  });
+
+  it("migrates v7 Runtime receipts to durable reset resolutions", async () => {
+    const { path, state } = await setup();
+    state.close();
+    states.pop();
+    const v7 = await openAgentHostDatabase(path, 5_000);
+    v7.exec(`
+      ALTER TABLE canvas_runtime_rpc_receipts DROP COLUMN reset_resolution_json;
+      UPDATE agent_host_state_schema SET version=7;
+    `);
+    v7.close();
+
+    const migrated = await openAgentHostState(path);
+    states.push(migrated);
+    const inspected = await openAgentHostDatabase(path, 5_000);
+    expect(inspected.prepare("SELECT version FROM agent_host_state_schema").get()).toMatchObject({
+      version: 8
+    });
+    expect(
+      inspected
+        .prepare("PRAGMA table_info(canvas_runtime_rpc_receipts)")
+        .all()
+        .map((row) => row.name)
+    ).toContain("reset_resolution_json");
     inspected.close();
   });
 

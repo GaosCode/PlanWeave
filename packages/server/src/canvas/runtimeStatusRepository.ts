@@ -1,6 +1,8 @@
 import {
   canvasRuntimeStatusProjectionSchema,
-  type CanvasRuntimeStatusProjection
+  canvasRuntimeStatusSnapshotSchema,
+  type CanvasRuntimeStatusProjection,
+  type CanvasRuntimeStatusSnapshot
 } from "@planweave-ai/collaboration-protocol/canvas/status";
 import {
   canvasScopeRefSchema,
@@ -18,6 +20,13 @@ function sameScope(left: CanvasScopeRef, right: CanvasScopeRef): boolean {
   );
 }
 
+function parseSnapshot(
+  status: CanvasRuntimeStatusProjection,
+  runtimeRevision: number
+): CanvasRuntimeStatusSnapshot {
+  return canvasRuntimeStatusSnapshotSchema.parse({ runtimeRevision, status });
+}
+
 /** Durable Server authority for the shared Runtime status projection. */
 export class CanvasRuntimeStatusRepository {
   constructor(
@@ -25,11 +34,11 @@ export class CanvasRuntimeStatusRepository {
     private readonly clock: () => Date = () => new Date()
   ) {}
 
-  read(rawScope: CanvasScopeRef): CanvasRuntimeStatusProjection | null {
+  read(rawScope: CanvasScopeRef): CanvasRuntimeStatusSnapshot | null {
     const scope = canvasScopeRefSchema.parse(rawScope);
     const row = this.database
       .prepare(
-        `SELECT package_fingerprint,status_json
+        `SELECT package_fingerprint,status_json,runtime_revision
            FROM canvas_runtime_status_snapshots
           WHERE workspace_id=? AND project_id=? AND canvas_id=?`
       )
@@ -42,32 +51,39 @@ export class CanvasRuntimeStatusRepository {
     ) {
       throw new Error("canvas_runtime_status_snapshot_corrupt");
     }
-    return status;
+    return parseSnapshot(status, Number(row.runtime_revision));
   }
 
-  initialize(rawStatus: CanvasRuntimeStatusProjection): CanvasRuntimeStatusProjection {
+  initialize(rawStatus: CanvasRuntimeStatusProjection): CanvasRuntimeStatusSnapshot {
     const status = canvasRuntimeStatusProjectionSchema.parse(rawStatus);
     const existing = this.read(status.scope);
     if (existing) {
-      if (JSON.stringify(existing) !== JSON.stringify(status)) {
+      if (JSON.stringify(existing.status) !== JSON.stringify(status)) {
         throw new Error("canvas_runtime_status_already_initialized");
       }
       return existing;
     }
-    this.write(status, "import", false);
-    return this.read(status.scope)!;
+    this.write(status, "import", false, 1);
+    const snapshot = this.read(status.scope);
+    if (!snapshot) throw new Error("canvas_runtime_status_snapshot_missing");
+    return snapshot;
   }
 
-  replaceFromExecution(rawStatus: CanvasRuntimeStatusProjection): CanvasRuntimeStatusProjection {
+  replaceFromExecution(rawStatus: CanvasRuntimeStatusProjection): CanvasRuntimeStatusSnapshot {
     const status = canvasRuntimeStatusProjectionSchema.parse(rawStatus);
-    this.write(status, "execution", true);
-    return this.read(status.scope)!;
+    const existing = this.read(status.scope);
+    const runtimeRevision = existing ? existing.runtimeRevision + 1 : 1;
+    this.write(status, "execution", true, runtimeRevision);
+    const snapshot = this.read(status.scope);
+    if (!snapshot) throw new Error("canvas_runtime_status_snapshot_missing");
+    return snapshot;
   }
 
   private write(
     status: CanvasRuntimeStatusProjection,
     origin: RuntimeStatusOrigin,
-    replace: boolean
+    replace: boolean,
+    runtimeRevision: number
   ): void {
     const values = [
       status.scope.workspaceId,
@@ -76,14 +92,15 @@ export class CanvasRuntimeStatusRepository {
       status.packageFingerprint,
       JSON.stringify(status),
       origin,
-      this.clock().toISOString()
+      this.clock().toISOString(),
+      runtimeRevision
     ] as const;
     if (!replace) {
       this.database
         .prepare(
           `INSERT INTO canvas_runtime_status_snapshots(
-             workspace_id,project_id,canvas_id,package_fingerprint,status_json,origin,updated_at
-           ) VALUES(?,?,?,?,?,?,?)`
+             workspace_id,project_id,canvas_id,package_fingerprint,status_json,origin,updated_at,runtime_revision
+           ) VALUES(?,?,?,?,?,?,?,?)`
         )
         .run(...values);
       return;
@@ -91,13 +108,14 @@ export class CanvasRuntimeStatusRepository {
     this.database
       .prepare(
         `INSERT INTO canvas_runtime_status_snapshots(
-           workspace_id,project_id,canvas_id,package_fingerprint,status_json,origin,updated_at
-         ) VALUES(?,?,?,?,?,?,?)
+           workspace_id,project_id,canvas_id,package_fingerprint,status_json,origin,updated_at,runtime_revision
+         ) VALUES(?,?,?,?,?,?,?,?)
          ON CONFLICT(workspace_id,project_id,canvas_id) DO UPDATE SET
            package_fingerprint=excluded.package_fingerprint,
            status_json=excluded.status_json,
            origin=excluded.origin,
-           updated_at=excluded.updated_at`
+           updated_at=excluded.updated_at,
+           runtime_revision=excluded.runtime_revision`
       )
       .run(...values);
   }

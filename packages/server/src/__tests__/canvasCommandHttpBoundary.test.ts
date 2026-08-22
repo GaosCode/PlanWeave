@@ -50,13 +50,21 @@ describe("canvas command service (OSS-004 B-002)", () => {
         "/api/v1/projects/p/canvases/default/runtime-status/import"
       )?.kind
     ).toBe("runtime_status_import");
+    expect(
+      routeCanvasCommandHttp(
+        { method: "POST" } as IncomingMessage,
+        "/api/v1/projects/p/canvases/default/runtime-reset"
+      )?.kind
+    ).toBe("runtime_reset");
     for (const [method, path] of [
       ["GET", "/api/v1/projects/p/canvases/default/commands/runtime-availability"],
       ["GET", "/api/v1/projects/p/canvases/default/runtime-availability/extra"],
       ["GET", "/api/v1/projects/p/canvases/default/commands"],
       ["POST", "/api/v1/projects/p/canvases/default/runtime-availability"],
       ["GET", "/api/v1/projects/p/canvases/default/runtime-status/import"],
-      ["POST", "/api/v1/projects/p/canvases/default/runtime-status/import/extra"]
+      ["POST", "/api/v1/projects/p/canvases/default/runtime-status/import/extra"],
+      ["GET", "/api/v1/projects/p/canvases/default/runtime-reset"],
+      ["POST", "/api/v1/projects/p/canvases/default/runtime-reset/extra"]
     ] as const) {
       expect(
         routeCanvasCommandHttp({ method } as IncomingMessage, path),

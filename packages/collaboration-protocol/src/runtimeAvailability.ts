@@ -3,6 +3,7 @@ import { packageSnapshotSourceRevisionSchema } from "./packageSnapshot.js";
 import { agentHostIdSchema, timestampSchema } from "./primitives.js";
 import {
   canvasRuntimePackageFingerprintSchema,
+  canvasRuntimeRevisionSchema,
   canvasRuntimeStatusProjectionSchema
 } from "./runtimeStatus.js";
 
@@ -48,6 +49,7 @@ export const canvasRuntimeStateAvailabilitySchema = z.discriminatedUnion("kind",
   z
     .object({
       kind: z.literal("initialized"),
+      runtimeRevision: canvasRuntimeRevisionSchema,
       status: canvasRuntimeStatusProjectionSchema
     })
     .strict(),

@@ -4,6 +4,7 @@ import {
   canvasRuntimeCancelCommandSchema,
   canvasRuntimeRequestCommandSchema,
   canvasRuntimeResponsePayloadSchema,
+  canvasRuntimeResetStatusResultSchema,
   type CanvasRuntimeCancelCommand,
   type CanvasRuntimeRequestCommand,
   type CanvasRuntimeResponsePayload
@@ -13,6 +14,9 @@ import { AgentHostEventOutbox } from "./agentHostEventOutbox.js";
 import { inWriteTransaction, type SqliteDatabase } from "./sqliteDatabase.js";
 
 type CanvasRuntimeCommand = CanvasRuntimeRequestCommand | CanvasRuntimeCancelCommand;
+type CanvasRuntimeResetCommand = CanvasRuntimeRequestCommand & {
+  operation: Extract<CanvasRuntimeRequestCommand["operation"], { operation: "reset" }>;
+};
 
 export type CanvasRuntimeLeaseRecord = {
   runtimeLeaseId: string;
@@ -31,6 +35,10 @@ export type CanvasRuntimeReceiptAcceptance =
   | { kind: "in_flight" }
   | { kind: "replay"; response: CanvasRuntimeResponsePayload };
 
+export type CanvasRuntimeResetResolution = ReturnType<
+  typeof canvasRuntimeResetStatusResultSchema.parse
+>;
+
 function parseCommand(input: unknown): CanvasRuntimeCommand {
   const request = canvasRuntimeRequestCommandSchema.safeParse(input);
   if (request.success) return request.data;
@@ -45,6 +53,23 @@ function commandLeaseId(command: CanvasRuntimeCommand): string | null {
 
 function commandOperation(command: CanvasRuntimeCommand): string {
   return command.type === "canvas_runtime.cancel" ? "cancel" : command.operation.operation;
+}
+
+function resetOperationIdentity(command: CanvasRuntimeCommand): {
+  operationId: string | null;
+  operationDigest: string | null;
+} {
+  if (command.type !== "canvas_runtime.request" || command.operation.operation !== "reset") {
+    return { operationId: null, operationDigest: null };
+  }
+  return {
+    operationId: command.operation.evidence.operationId,
+    operationDigest: digest({
+      scope: command.scope,
+      evidence: command.operation.evidence,
+      input: command.operation.input
+    })
+  };
 }
 
 function digest(value: unknown): string {
@@ -85,12 +110,33 @@ export class CanvasRuntimeRpcRepository {
       return { kind: "in_flight" };
     }
     const now = new Date().toISOString();
+    const resetIdentity = resetOperationIdentity(command);
+    if (resetIdentity.operationId) {
+      const prior = this.database
+        .prepare(
+          `SELECT operation_digest FROM canvas_runtime_rpc_receipts
+           WHERE workspace_id=? AND project_id=? AND canvas_id=?
+             AND operation='reset' AND operation_id=?`
+        )
+        .get(
+          command.scope.workspaceId,
+          command.scope.projectId,
+          command.scope.canvasId,
+          resetIdentity.operationId
+        );
+      if (prior) {
+        if (String(prior.operation_digest) !== resetIdentity.operationDigest) {
+          throw new Error("canvas_runtime_reset_operation_identity_conflict");
+        }
+        throw new Error("canvas_runtime_reset_operation_already_recorded");
+      }
+    }
     this.database
       .prepare(
         `INSERT INTO canvas_runtime_rpc_receipts(
            request_id,inbox_sequence,lease_id,command_digest,command_json,workspace_id,project_id,canvas_id,
-           operation,status,received_at,updated_at
-         ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`
+           operation,operation_id,operation_digest,status,received_at,updated_at
+         ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       )
       .run(
         command.requestId,
@@ -102,11 +148,122 @@ export class CanvasRuntimeRpcRepository {
         command.scope.projectId,
         command.scope.canvasId,
         commandOperation(command),
+        resetIdentity.operationId,
+        resetIdentity.operationDigest,
         "pending",
         now,
         now
       );
     return { kind: "accepted", command };
+  }
+
+  resetStatus(
+    scope: { workspaceId: string; projectId: string; canvasId: string },
+    operationId: string
+  ) {
+    const row = this.database
+      .prepare(
+        `SELECT status,response_json,reset_resolution_json FROM canvas_runtime_rpc_receipts
+         WHERE workspace_id=? AND project_id=? AND canvas_id=?
+           AND operation='reset' AND operation_id=?`
+      )
+      .get(scope.workspaceId, scope.projectId, scope.canvasId, operationId);
+    if (!row) return canvasRuntimeResetStatusResultSchema.parse({ kind: "not_found" });
+    if (row.reset_resolution_json) {
+      return canvasRuntimeResetStatusResultSchema.parse(
+        JSON.parse(String(row.reset_resolution_json))
+      );
+    }
+    if (!row.response_json) return canvasRuntimeResetStatusResultSchema.parse({ kind: "pending" });
+    const event = parseAgentHostEvent(JSON.parse(String(row.response_json)));
+    if (event.type !== "canvas_runtime.response" || event.response.operation !== "reset") {
+      throw new Error("canvas_runtime_reset_receipt_response_invalid");
+    }
+    if (event.response.outcome === "success") {
+      return canvasRuntimeResetStatusResultSchema.parse({
+        kind: "succeeded",
+        result: event.response.result
+      });
+    }
+    return canvasRuntimeResetStatusResultSchema.parse({
+      kind: "failed",
+      error: {
+        code: event.response.error.code,
+        retryable: event.response.error.retryable,
+        ...(event.response.error.reconcileRequired === undefined
+          ? {}
+          : { reconcileRequired: event.response.error.reconcileRequired })
+      }
+    });
+  }
+
+  resetOperation(
+    scope: { workspaceId: string; projectId: string; canvasId: string },
+    operationId: string
+  ): { requestId: string; command: CanvasRuntimeResetCommand } | undefined {
+    const row = this.database
+      .prepare(
+        `SELECT request_id,command_json FROM canvas_runtime_rpc_receipts
+         WHERE workspace_id=? AND project_id=? AND canvas_id=?
+           AND operation='reset' AND operation_id=?`
+      )
+      .get(scope.workspaceId, scope.projectId, scope.canvasId, operationId);
+    if (!row) return undefined;
+    const command = canvasRuntimeRequestCommandSchema.parse(JSON.parse(String(row.command_json)));
+    if (command.operation.operation !== "reset") {
+      throw new Error("canvas_runtime_reset_receipt_command_invalid");
+    }
+    return {
+      requestId: String(row.request_id),
+      command: { ...command, operation: command.operation }
+    };
+  }
+
+  resolveReset(
+    scope: { workspaceId: string; projectId: string; canvasId: string },
+    operationId: string,
+    resolutionInput: CanvasRuntimeResetResolution
+  ): CanvasRuntimeResetResolution {
+    const resolution = canvasRuntimeResetStatusResultSchema.parse(resolutionInput);
+    if (resolution.kind === "not_found" || resolution.kind === "pending") {
+      throw new Error("canvas_runtime_reset_resolution_not_terminal");
+    }
+    const operation = this.resetOperation(scope, operationId);
+    if (!operation) throw new Error("canvas_runtime_reset_receipt_not_found");
+    if (
+      resolution.kind === "succeeded" &&
+      (resolution.result.operationId !== operationId ||
+        resolution.result.sourceRevision !== operation.command.operation.evidence.sourceRevision ||
+        resolution.result.graphFingerprint !==
+          operation.command.operation.evidence.graphFingerprint)
+    ) {
+      throw new Error("canvas_runtime_reset_resolution_identity_mismatch");
+    }
+    return inWriteTransaction(this.database, () => {
+      const row = this.database
+        .prepare(
+          `SELECT reset_resolution_json FROM canvas_runtime_rpc_receipts
+           WHERE request_id=?`
+        )
+        .get(operation.requestId);
+      if (!row) throw new Error("canvas_runtime_reset_receipt_not_found");
+      if (row.reset_resolution_json) {
+        const stored = canvasRuntimeResetStatusResultSchema.parse(
+          JSON.parse(String(row.reset_resolution_json))
+        );
+        if (canonicalizeJson(stored) !== canonicalizeJson(resolution)) {
+          throw new Error("canvas_runtime_reset_resolution_conflict");
+        }
+        return stored;
+      }
+      this.database
+        .prepare(
+          `UPDATE canvas_runtime_rpc_receipts
+           SET reset_resolution_json=?,updated_at=? WHERE request_id=?`
+        )
+        .run(canonicalizeJson(resolution), new Date().toISOString(), operation.requestId);
+      return resolution;
+    });
   }
 
   begin(requestId: string): boolean {
@@ -226,5 +383,31 @@ export class CanvasRuntimeRpcRepository {
       .prepare(`UPDATE canvas_runtime_leases SET status='released',released_at=? WHERE lease_id=?`)
       .run(releasedAt, runtimeLeaseId);
     return true;
+  }
+
+  activeLeases(scope: {
+    workspaceId: string;
+    projectId: string;
+    canvasId: string;
+  }): CanvasRuntimeLeaseRecord[] {
+    return this.database
+      .prepare(
+        `SELECT lease_id,workspace_id,project_id,canvas_id,source_revision,graph_fingerprint,
+                status,acquired_at,expires_at
+           FROM canvas_runtime_leases
+          WHERE workspace_id=? AND project_id=? AND canvas_id=? AND status='active'`
+      )
+      .all(scope.workspaceId, scope.projectId, scope.canvasId)
+      .map((row) => ({
+        runtimeLeaseId: String(row.lease_id),
+        workspaceId: String(row.workspace_id),
+        projectId: String(row.project_id),
+        canvasId: String(row.canvas_id),
+        sourceRevision: String(row.source_revision),
+        graphFingerprint: String(row.graph_fingerprint),
+        status: "active" as const,
+        acquiredAt: String(row.acquired_at),
+        expiresAt: String(row.expires_at)
+      }));
   }
 }

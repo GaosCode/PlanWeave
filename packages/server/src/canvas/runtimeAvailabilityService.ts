@@ -59,8 +59,12 @@ export class CanvasRuntimeAvailabilityService {
     const contentFingerprint = this.contentFingerprint(scope);
     const stored = this.options.runtimeStatuses.read(scope);
     const state =
-      stored?.packageFingerprint === contentFingerprint
-        ? { kind: "initialized" as const, status: stored }
+      stored?.status.packageFingerprint === contentFingerprint
+        ? {
+            kind: "initialized" as const,
+            runtimeRevision: stored.runtimeRevision,
+            status: stored.status
+          }
         : { kind: "uninitialized" as const };
 
     const observed = canvasRuntimeExecutionAvailabilitySchema.parse(
@@ -93,9 +97,11 @@ export class CanvasRuntimeAvailabilityService {
     if (status.packageFingerprint !== this.contentFingerprint(scope)) {
       throw new Error("canvas_runtime_status_content_out_of_sync");
     }
+    const snapshot = this.options.runtimeStatuses.initialize(status);
     return {
       kind: "initialized",
-      status: this.options.runtimeStatuses.initialize(status)
+      runtimeRevision: snapshot.runtimeRevision,
+      status: snapshot.status
     };
   }
 

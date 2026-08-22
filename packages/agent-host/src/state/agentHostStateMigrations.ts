@@ -2,7 +2,9 @@ import { createHash } from "node:crypto";
 import { parseAgentHostMailboxCommand } from "../protocol.js";
 import { inWriteTransaction, type SqliteDatabase } from "./sqliteDatabase.js";
 
-const CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION = 6;
+const CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION = 8;
+const PRE_RESET_RESULT_SCHEMA_VERSION = 7;
+const PRE_RESET_OPERATION_SCHEMA_VERSION = 6;
 const PRE_CANVAS_RUNTIME_SCHEMA_VERSION = 5;
 const INTERMEDIATE_COMPACTION_SCHEMA_VERSION = 4;
 const PRE_COMPACTION_SCHEMA_VERSION = 3;
@@ -157,6 +159,9 @@ CREATE TABLE IF NOT EXISTS canvas_runtime_rpc_receipts (
   project_id TEXT NOT NULL,
   canvas_id TEXT NOT NULL,
   operation TEXT NOT NULL,
+  operation_id TEXT,
+  operation_digest TEXT,
+  reset_resolution_json TEXT,
   status TEXT NOT NULL CHECK(status IN ('pending','running','terminal','reconcile_required')),
   response_json TEXT,
   received_at TEXT NOT NULL,
@@ -447,12 +452,19 @@ const currentRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
       "project_id",
       "canvas_id",
       "operation",
+      "operation_id",
+      "operation_digest",
+      "reset_resolution_json",
       "status",
       "response_json",
       "received_at",
       "updated_at"
     ],
-    uniqueKeys: [["request_id"], ["inbox_sequence"]]
+    uniqueKeys: [
+      ["request_id"],
+      ["inbox_sequence"],
+      ["workspace_id", "project_id", "canvas_id", "operation_id"]
+    ]
   },
   canvas_runtime_leases: {
     columns: [
@@ -468,6 +480,29 @@ const currentRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
       "released_at"
     ],
     uniqueKeys: [["lease_id"]]
+  }
+};
+
+const versionSevenRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
+  ...currentRequiredTables,
+  canvas_runtime_rpc_receipts: {
+    ...currentRequiredTables.canvas_runtime_rpc_receipts!,
+    columns: currentRequiredTables.canvas_runtime_rpc_receipts!.columns.filter(
+      (column) => column !== "reset_resolution_json"
+    )
+  }
+};
+
+const versionSixRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
+  ...currentRequiredTables,
+  canvas_runtime_rpc_receipts: {
+    columns: currentRequiredTables.canvas_runtime_rpc_receipts!.columns.filter(
+      (column) =>
+        column !== "operation_id" &&
+        column !== "operation_digest" &&
+        column !== "reset_resolution_json"
+    ),
+    uniqueKeys: [["request_id"], ["inbox_sequence"]]
   }
 };
 
@@ -639,6 +674,24 @@ function addInteractionSettlementColumns(database: SqliteDatabase): void {
   }
 }
 
+function addCanvasRuntimeResetOperationColumns(database: SqliteDatabase): void {
+  const receiptColumns = columns(database, "canvas_runtime_rpc_receipts");
+  if (!receiptColumns.has("operation_id")) {
+    database.exec("ALTER TABLE canvas_runtime_rpc_receipts ADD COLUMN operation_id TEXT");
+  }
+  if (!receiptColumns.has("operation_digest")) {
+    database.exec("ALTER TABLE canvas_runtime_rpc_receipts ADD COLUMN operation_digest TEXT");
+  }
+  if (!receiptColumns.has("reset_resolution_json")) {
+    database.exec("ALTER TABLE canvas_runtime_rpc_receipts ADD COLUMN reset_resolution_json TEXT");
+  }
+  database.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_canvas_runtime_rpc_reset_operation
+       ON canvas_runtime_rpc_receipts(workspace_id,project_id,canvas_id,operation_id)
+       WHERE operation='reset' AND operation_id IS NOT NULL`
+  );
+}
+
 function backfillCommandDigests(database: SqliteDatabase): void {
   const rows = database
     .prepare("SELECT sequence,command_json FROM agent_host_inbox WHERE command_digest IS NULL")
@@ -740,6 +793,18 @@ export function initializeAgentHostStateSchema(database: SqliteDatabase): void {
     const priorVersion = storedSchemaVersion(database);
     if (priorVersion === CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION) {
       assertCurrentSchemaComplete(database);
+    } else if (priorVersion === PRE_RESET_RESULT_SCHEMA_VERSION) {
+      assertRequiredTablesAndVersion(
+        database,
+        versionSevenRequiredTables,
+        PRE_RESET_RESULT_SCHEMA_VERSION
+      );
+    } else if (priorVersion === PRE_RESET_OPERATION_SCHEMA_VERSION) {
+      assertRequiredTablesAndVersion(
+        database,
+        versionSixRequiredTables,
+        PRE_RESET_OPERATION_SCHEMA_VERSION
+      );
     } else if (priorVersion === PRE_CANVAS_RUNTIME_SCHEMA_VERSION) {
       assertRequiredTablesAndVersion(
         database,
@@ -759,6 +824,7 @@ export function initializeAgentHostStateSchema(database: SqliteDatabase): void {
     database.exec(baseSchema);
     addLegacyInboxColumns(database);
     addInteractionSettlementColumns(database);
+    addCanvasRuntimeResetOperationColumns(database);
     backfillCommandDigests(database);
     migratePrototypeExecutions(database);
     initializeMailboxCheckpoint(database);

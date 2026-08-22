@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { canvasRuntimeStatusProjectionSchema } from "../runtimeStatus.js";
+import {
+  canvasRuntimeResetRequestSchema,
+  canvasRuntimeResetOutcomeSchema
+} from "../runtimeControl.js";
 
 describe("canvas runtime status projection", () => {
   it("accepts only the redacted task and block execution state needed by replicas", () => {
@@ -71,5 +75,54 @@ describe("canvas runtime status projection", () => {
         ]
       })
     ).toThrow();
+  });
+});
+
+describe("canvas runtime reset control", () => {
+  it("requires operation identity, expected evidence, and a structured outcome", () => {
+    const fingerprint = `pkg-${"a".repeat(64)}`;
+    const request = {
+      operationId: "reset-1",
+      expectedContentRevision: 4,
+      expectedSourceRevision: `snapshot:${"b".repeat(64)}`,
+      expectedGraphFingerprint: fingerprint
+    };
+    expect(canvasRuntimeResetRequestSchema.parse(request)).toEqual(request);
+    expect(
+      canvasRuntimeResetOutcomeSchema.parse({
+        type: "canvas.runtime.reset.accepted",
+        operationId: "reset-1",
+        runtimeRevision: 2,
+        sourceRevision: request.expectedSourceRevision,
+        graphFingerprint: fingerprint,
+        status: {
+          schemaVersion: "canvas-runtime-status/v2",
+          scope: { workspaceId: "workspace-1", projectId: "project-1", canvasId: "default" },
+          packageFingerprint: fingerprint,
+          capturedAt: "2026-08-01T00:00:00.000Z",
+          tasks: [],
+          blocks: []
+        }
+      })
+    ).toMatchObject({ runtimeRevision: 2, operationId: "reset-1" });
+    expect(
+      canvasRuntimeResetOutcomeSchema.parse({
+        type: "canvas.runtime.reset.rejected",
+        operationId: "reset-1",
+        code: "active_lease"
+      })
+    ).toEqual({
+      type: "canvas.runtime.reset.rejected",
+      operationId: "reset-1",
+      code: "active_lease"
+    });
+    expect(() =>
+      canvasRuntimeResetOutcomeSchema.parse({
+        type: "canvas.runtime.reset.accepted",
+        operationId: "reset-1",
+        ok: true
+      })
+    ).toThrow();
+    expect(() => canvasRuntimeResetRequestSchema.parse({ ...request, extra: true })).toThrow();
   });
 });

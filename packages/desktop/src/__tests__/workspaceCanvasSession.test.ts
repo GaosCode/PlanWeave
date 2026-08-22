@@ -294,6 +294,11 @@ function createHarness(options?: {
   });
   const flushMaterialization = vi.spyOn(facade, "flushMaterialization");
   const statuses: string[] = [];
+  const resetRuntime = vi.fn().mockResolvedValue({
+    type: "canvas.runtime.reset.rejected" as const,
+    operationId: "reset-1",
+    code: "host_offline" as const
+  });
   const session = new WorkspaceCanvasSession({
     resolveConnectedProfileId: () =>
       options?.connectedProfileId === undefined ? "profile-1" : options.connectedProfileId,
@@ -305,6 +310,7 @@ function createHarness(options?: {
       session: () => facade.session(),
       releaseBinding: () => facade.releaseBinding()
     },
+    resetRuntime,
     onProjection: (projection) => statuses.push(projection.status)
   });
   return {
@@ -313,6 +319,7 @@ function createHarness(options?: {
     mirror,
     flushMaterialization,
     statuses,
+    resetRuntime,
     content: () => content
   };
 }
@@ -412,6 +419,28 @@ describe("WorkspaceCanvasSession", () => {
     expect(projection.status).toBe("accepted");
     expect(projection.replica.revision).toBe(1);
     expect(harness.flushMaterialization).not.toHaveBeenCalled();
+  });
+
+  it("routes reset only for the currently open Workspace locator", async () => {
+    const harness = createHarness();
+    await harness.session.open(locator);
+    const input = {
+      locator,
+      operationId: "reset-1",
+      expectedSourceRevision: `snapshot:${"b".repeat(64)}`,
+      expectedGraphFingerprint: `pkg-${"a".repeat(64)}`
+    };
+    await expect(harness.session.resetRuntime(input)).resolves.toMatchObject({
+      type: "canvas.runtime.reset.rejected",
+      code: "host_offline"
+    });
+    expect(harness.resetRuntime).toHaveBeenCalledWith(input);
+    await expect(
+      harness.session.resetRuntime({
+        ...input,
+        locator: { ...locator, canvasId: "other-canvas" }
+      })
+    ).rejects.toMatchObject({ code: "workspace_canvas_locator_mismatch" });
   });
 
   it("closes the Desktop session without deleting the Server canvas or flushing a package", async () => {

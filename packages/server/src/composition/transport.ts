@@ -18,6 +18,10 @@ import type {
   CanvasInitialContentCapturePort,
   CanvasRuntimeAvailabilityPort
 } from "../canvas/runtimePort.js";
+import type {
+  CanvasExecutionRuntimeLeasePort,
+  RuntimeCanvasScope
+} from "../canvas/executionRuntimePort.js";
 import type { CanvasRuntimeAttachment } from "../canvas/collaborationComposition.js";
 import type { CanvasRuntimeRpcBroker } from "../canvas/runtimeRpcBroker.js";
 
@@ -40,6 +44,10 @@ export async function createTransportComposition(
     runtimeAttachments: readonly CanvasRuntimeAttachment[];
     initialContentCapture: CanvasInitialContentCapturePort;
     runtimeAvailability: CanvasRuntimeAvailabilityPort;
+    runtimeCommand?: {
+      executionLeases: CanvasExecutionRuntimeLeasePort;
+      hasConflictingLease(scope: RuntimeCanvasScope): boolean;
+    };
     runtimeRpc: CanvasRuntimeRpcBroker;
     workspaceIdentity: WorkspaceIdentityRepository;
     projectAccess: ProjectAccessRepository;
@@ -107,6 +115,7 @@ export async function createTransportComposition(
     runtimeAttachments: input.runtimeAttachments,
     initialContentCapture: input.initialContentCapture,
     runtimeAvailability: input.runtimeAvailability,
+    runtimeCommand: input.runtimeCommand,
     observerJournal: input.humanObserverJournal,
     transportAdmission: input.transportAdmission,
     maxPayloadBytes: input.config.limits.maxWebSocketPayloadBytes,
@@ -139,6 +148,7 @@ export async function createTransportComposition(
     contentVersions: canvasCollaboration.contentVersions,
     canvasCommandService: canvasCollaboration.commandService,
     canvasRuntimeAvailabilityService: canvasCollaboration.runtimeAvailabilityService,
+    canvasRuntimeCommandCoordinator: canvasCollaboration.runtimeCommandCoordinator,
     resolveCommentService: input.resolveCommentService,
     enrollments: input.enrollments,
     setupCodes: input.setupCodes,

@@ -19,6 +19,11 @@ import type {
 } from "./collaborationCanvasCommands.js";
 import { CollaborationClientError } from "./collaborationErrors.js";
 import type { CollaborationCanvasBindingInput } from "../../shared/collaborationCanvasBinding.js";
+import {
+  workspaceCanvasRuntimeResetInputSchema,
+  type WorkspaceCanvasRuntimeResetInput
+} from "../../shared/collaborationRuntimeAvailability.js";
+import type { CanvasRuntimeResetOutcome } from "@planweave-ai/collaboration-protocol/canvas/runtime-control";
 
 export type WorkspaceCanvasSessionCommands = {
   bind(input: CollaborationCanvasBindingInput): Promise<CollaborationCanvasCommandSessionView>;
@@ -37,6 +42,7 @@ export type WorkspaceCanvasSessionCommands = {
 export type WorkspaceCanvasSessionDeps = {
   resolveConnectedProfileId: () => string | null;
   commands: WorkspaceCanvasSessionCommands;
+  resetRuntime(input: WorkspaceCanvasRuntimeResetInput): Promise<CanvasRuntimeResetOutcome>;
   onProjection?: (projection: WorkspaceCanvasProjection) => void;
 };
 
@@ -94,6 +100,13 @@ export class WorkspaceCanvasSession {
     this.assertConnection(locator);
     await this.deps.commands.reconnect({ canvasId: locator.canvasId });
     return this.publishCurrent();
+  }
+
+  async resetRuntime(input: unknown): Promise<CanvasRuntimeResetOutcome> {
+    const parsed = workspaceCanvasRuntimeResetInputSchema.parse(input);
+    const locator = this.requireOpen(parsed.locator);
+    this.assertConnection(locator);
+    return this.deps.resetRuntime(parsed);
   }
 
   async close(input?: unknown): Promise<void> {

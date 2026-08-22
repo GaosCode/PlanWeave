@@ -10,6 +10,10 @@ const compositionRootSource = readFileSync(
   fileURLToPath(new URL("../serverComposition.ts", import.meta.url)),
   "utf8"
 );
+const runtimeRouterSource = readFileSync(
+  fileURLToPath(new URL("../canvas/remoteHostRuntimeAdapter.ts", import.meta.url)),
+  "utf8"
+);
 const removedStatusSurfaceSources = [
   "../canvas/runtimePort.ts",
   "../canvas/localFilesystemRuntimeAdapter.ts",
@@ -39,13 +43,16 @@ describe("Runtime composition boundary", () => {
     expect(compositionRootSource).toContain(
       "const collaborationRuntime = new LocalFirstCanvasRuntimeRouter("
     );
+    expect(compositionRootSource).toContain("executionLeases: collaborationRuntime");
+    expect(runtimeRouterSource).toContain("reconcileReset(");
+    expect(runtimeRouterSource).toContain("return this.remote.reconcileReset(scope, command)");
     expect(compositionRootSource).not.toContain("runtimeStatus: localCanvasRuntime");
   });
 
   it("has no Server API or wiring for the removed Runtime Status surface", () => {
     expect(removedStatusSurfaceSources).not.toContain("CanvasRuntimeStatusPort");
     expect(removedStatusSurfaceSources).not.toContain("readRuntimeStatus");
-    expect(removedStatusSurfaceSources).not.toContain("runtime-status");
+    expect(removedStatusSurfaceSources).not.toContain('kind: "runtime_status_read"');
     expect(removedStatusSurfaceSources).not.toContain("runtimeStatus:");
   });
 });

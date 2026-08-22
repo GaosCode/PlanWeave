@@ -146,7 +146,11 @@ export function useCollaborationRuntimeAvailability(input: {
   graph: DesktopGraphViewModel | null;
   refreshRevision?: number;
   api?: CollaborationRuntimeAvailabilityBridge | null;
-}): { graph: DesktopGraphViewModel | null; availability: CollaborationRuntimeAvailabilityView } {
+}): {
+  graph: DesktopGraphViewModel | null;
+  availability: CollaborationRuntimeAvailabilityView;
+  authoritativeRuntime: CanvasRuntimeAvailability | null;
+} {
   const api = input.api === undefined ? collaborationBridge : input.api;
   const bindingKind = input.binding?.kind ?? null;
   const bindingWorkspaceId = input.binding?.kind === "remote" ? input.binding.workspaceId : null;
@@ -313,6 +317,10 @@ export function useCollaborationRuntimeAvailability(input: {
             })()
           : failClosedCollaborationRuntimeDispatchability(input.graph)
       : null;
-    return { graph, availability };
+    return {
+      graph,
+      availability,
+      authoritativeRuntime: currentReadyState?.availability ?? null
+    };
   }, [currentReadyState, input.enabled, input.graph, input.sessionConnected, remoteState]);
 }

@@ -7,7 +7,7 @@ import type {
 } from "./executionRuntimePort.js";
 
 export type CanvasRuntimeStatusExecutionStore = {
-  replaceFromExecution(status: CanvasRuntimeStatusProjection): CanvasRuntimeStatusProjection;
+  replaceFromExecution(status: CanvasRuntimeStatusProjection): unknown;
 };
 
 export type AuthoritativeExecutionRuntimeAdapterOptions = {
@@ -37,9 +37,11 @@ export class AuthoritativeExecutionRuntimeAdapter implements CanvasExecutionRunt
       }
       this.options.runtimeStatuses.replaceFromExecution(status);
     };
+    const reset = lease.reset;
     return {
       ...lease,
-      runtime: wrapMutations(lease.runtime, persist)
+      runtime: wrapMutations(lease.runtime, persist),
+      ...(reset ? { reset: (command) => reset(command) } : {})
     };
   }
 }

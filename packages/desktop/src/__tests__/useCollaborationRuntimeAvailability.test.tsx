@@ -9,10 +9,14 @@ import {
   useCollaborationRuntimeAvailability
 } from "../renderer/hooks/useCollaborationRuntimeAvailability";
 import { useWorkspaceCollaborationRuntimeAvailability } from "../renderer/hooks/useWorkspaceCollaborationRuntimeAvailability";
+import { useWorkspaceRuntimeState } from "../renderer/hooks/useWorkspaceRuntimeState";
+import { createTranslator } from "../renderer/i18n";
 
 const collaborationBridge = vi.hoisted(() => ({
   readCollaborationCanvasBindingRuntimeAvailability: vi.fn(),
-  resolveCollaborationCanvasBindingScope: vi.fn().mockResolvedValue(null)
+  resolveCollaborationCanvasBindingScope: vi.fn().mockResolvedValue(null),
+  importCollaborationLocalRuntimeStatus: vi.fn(),
+  resetWorkspaceCanvasRuntime: vi.fn()
 }));
 
 vi.mock("../renderer/bridge", () => ({ collaborationBridge }));
@@ -21,6 +25,8 @@ afterEach(() => {
   vi.useRealTimers();
   collaborationBridge.readCollaborationCanvasBindingRuntimeAvailability.mockReset();
   collaborationBridge.resolveCollaborationCanvasBindingScope.mockReset().mockResolvedValue(null);
+  collaborationBridge.importCollaborationLocalRuntimeStatus.mockReset();
+  collaborationBridge.resetWorkspaceCanvasRuntime.mockReset();
 });
 
 const scope = { workspaceId: "w", projectId: "remote-project", canvasId: "default" };
@@ -72,7 +78,7 @@ const status = {
 };
 const available = {
   schemaVersion: "canvas-runtime-view/v1" as const,
-  state: { kind: "initialized" as const, status },
+  state: { kind: "initialized" as const, runtimeRevision: 1, status },
   execution: {
     schemaVersion: "canvas-runtime-availability/v1" as const,
     kind: "available" as const,
@@ -115,6 +121,106 @@ async function settle() {
 }
 
 describe("collaboration runtime availability", () => {
+  it("shows Workspace reset success only after reading a higher Server Runtime projection", async () => {
+    const refreshed = { ...available, state: { ...available.state, runtimeRevision: 2 } };
+    collaborationBridge.resolveCollaborationCanvasBindingScope.mockResolvedValue(scope);
+    collaborationBridge.readCollaborationCanvasBindingRuntimeAvailability
+      .mockResolvedValueOnce(available)
+      .mockResolvedValue(refreshed);
+    collaborationBridge.resetWorkspaceCanvasRuntime.mockResolvedValue({
+      type: "canvas.runtime.reset.accepted",
+      operationId: "reset-workspace-1",
+      runtimeRevision: 2,
+      sourceRevision: available.execution.sourceRevision,
+      graphFingerprint: status.packageFingerprint,
+      status
+    });
+    const setSuccessMessage = vi.fn();
+    const { result } = renderHook(() =>
+      useWorkspaceRuntimeState({
+        activeProfileId: "profile-1",
+        activeProjectId: scope.projectId,
+        graph: graphWithBlock,
+        sessionConnected: true,
+        binding: { kind: "remote", ...scope },
+        locator: {
+          kind: "workspace",
+          connectionProfileId: "profile-1",
+          ...scope
+        },
+        sharedAuthorityMode: "shared",
+        setError: vi.fn(),
+        setSuccessMessage,
+        t: createTranslator("en")
+      })
+    );
+    await settle();
+
+    await act(async () => {
+      await result.current.resetWorkspaceRuntime?.();
+    });
+
+    expect(collaborationBridge.resetWorkspaceCanvasRuntime).toHaveBeenCalledWith(
+      expect.objectContaining({
+        locator: expect.objectContaining({ kind: "workspace", canvasId: scope.canvasId }),
+        expectedSourceRevision: available.execution.sourceRevision,
+        expectedGraphFingerprint: status.packageFingerprint
+      })
+    );
+    expect(
+      collaborationBridge.readCollaborationCanvasBindingRuntimeAvailability
+    ).toHaveBeenCalledTimes(3);
+    expect(setSuccessMessage).toHaveBeenCalledWith(
+      "Runtime state reset from the authoritative Server projection."
+    );
+  });
+
+  it("reuses the pending operation ID until an authoritative reset outcome is readable", async () => {
+    const refreshed = { ...available, state: { ...available.state, runtimeRevision: 2 } };
+    collaborationBridge.resolveCollaborationCanvasBindingScope.mockResolvedValue(scope);
+    collaborationBridge.readCollaborationCanvasBindingRuntimeAvailability
+      .mockResolvedValueOnce(available)
+      .mockResolvedValue(refreshed);
+    collaborationBridge.resetWorkspaceCanvasRuntime
+      .mockResolvedValueOnce({
+        type: "canvas.runtime.reset.rejected",
+        operationId: "ignored-by-bridge-mock",
+        code: "reconcile_required"
+      })
+      .mockImplementationOnce(async (request) => ({
+        type: "canvas.runtime.reset.accepted",
+        operationId: request.operationId,
+        runtimeRevision: 2,
+        sourceRevision: available.execution.sourceRevision,
+        graphFingerprint: status.packageFingerprint,
+        status
+      }));
+    const { result } = renderHook(() =>
+      useWorkspaceRuntimeState({
+        activeProfileId: "profile-1",
+        activeProjectId: scope.projectId,
+        graph: graphWithBlock,
+        sessionConnected: true,
+        binding: { kind: "remote", ...scope },
+        locator: { kind: "workspace", connectionProfileId: "profile-1", ...scope },
+        sharedAuthorityMode: "shared",
+        setError: vi.fn(),
+        setSuccessMessage: vi.fn(),
+        t: createTranslator("en")
+      })
+    );
+    await settle();
+
+    await expect(act(async () => result.current.resetWorkspaceRuntime?.())).rejects.toThrow(
+      "The reset outcome is still being confirmed"
+    );
+    await act(async () => {
+      await result.current.resetWorkspaceRuntime?.();
+    });
+    const [first, second] = collaborationBridge.resetWorkspaceCanvasRuntime.mock.calls;
+    expect(second?.[0]).toEqual(first?.[0]);
+  });
+
   it("keeps an unrelated local canvas on its local Runtime while a Server profile is active", async () => {
     const { result } = renderHook(() =>
       useWorkspaceCollaborationRuntimeAvailability({
@@ -315,7 +421,7 @@ describe("collaboration runtime availability", () => {
     const bridge = api(
       vi.fn().mockResolvedValue({
         schemaVersion: "canvas-runtime-view/v1",
-        state: { kind: "initialized", status },
+        state: { kind: "initialized", runtimeRevision: 1, status },
         execution: {
           schemaVersion: "canvas-runtime-availability/v1",
           kind: "unavailable",
@@ -360,7 +466,7 @@ describe("collaboration runtime availability", () => {
       .mockResolvedValueOnce(available)
       .mockResolvedValueOnce({
         schemaVersion: "canvas-runtime-view/v1",
-        state: { kind: "initialized", status },
+        state: { kind: "initialized", runtimeRevision: 1, status },
         execution: {
           schemaVersion: "canvas-runtime-availability/v1",
           kind: "unavailable",

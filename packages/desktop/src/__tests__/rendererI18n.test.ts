@@ -2,6 +2,11 @@ import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import type { CanvasRuntimeResetFailureCode } from "@planweave-ai/collaboration-protocol/canvas/runtime-control";
+import {
+  presentWorkspaceRuntimeResetError,
+  workspaceRuntimeResetError
+} from "../renderer/collaboration/runtimeResetPresentation";
 import { fileManagerLabelKey } from "../renderer/fileManagerLabels";
 import { createTranslator, resolveLanguage } from "../renderer/i18n";
 import { resources } from "../renderer/i18nCatalog";
@@ -103,6 +108,42 @@ describe("desktop renderer i18n", () => {
     expect(zh("defaultTaskAcceptance")).toBe("Task 完成实现。");
     expect(en("defaultImplementationBlockTitle")).toBe("Implement work");
     expect(en("defaultTaskAcceptance")).toBe("Task is implemented.");
+  });
+
+  it("maps every Runtime reset failure to actionable localized copy", () => {
+    const codes: CanvasRuntimeResetFailureCode[] = [
+      "forbidden",
+      "host_offline",
+      "active_lease",
+      "source_drift",
+      "persist_failed",
+      "reconcile_required",
+      "unavailable",
+      "conflict",
+      "invalid_request"
+    ];
+    for (const language of ["en", "zh-CN"] as const) {
+      const translate = createTranslator(language);
+      for (const code of codes) {
+        const error = workspaceRuntimeResetError(translate, code);
+        expect(error.message.length).toBeGreaterThan(10);
+        expect(error.message).not.toBe(code);
+        expect(error.message).not.toContain("collaboration_runtime_reset_");
+        expect(error.diagnosticCode).toBe(code);
+      }
+      expect(
+        workspaceRuntimeResetError(translate, "projection_postcondition_failed").message.length
+      ).toBeGreaterThan(10);
+      expect(
+        presentWorkspaceRuntimeResetError(
+          translate,
+          new Error("runtime_reset_projection_postcondition_failed")
+        ).diagnosticCode
+      ).toBe("projection_postcondition_failed");
+      expect(translate("resetRuntimeStateSuccess")).toContain(
+        language === "en" ? "authoritative Server projection" : "Server 权威投影"
+      );
+    }
   });
 
   it("distinguishes project collaboration from the Workspace management connection", () => {

@@ -101,6 +101,10 @@
       "types": "./dist/runtimeAvailability.d.ts",
       "import": "./dist/runtimeAvailability.js"
     },
+    "./canvas/runtime-control": {
+      "types": "./dist/runtimeControl.d.ts",
+      "import": "./dist/runtimeControl.js"
+    },
     "./canvas/presence": {
       "types": "./dist/presence.d.ts",
       "import": "./dist/presence.js"

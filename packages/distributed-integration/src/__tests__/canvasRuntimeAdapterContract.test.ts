@@ -11,7 +11,7 @@ import {
   remoteBlockDispatchCandidateSchema,
   remoteBlockInspectInputSchema
 } from "@planweave-ai/runtime";
-import { canvasRuntimeAvailabilitySchema } from "../../../collaboration-protocol/src/runtimeAvailability.js";
+import { canvasRuntimeExecutionAvailabilitySchema } from "../../../collaboration-protocol/src/runtimeAvailability.js";
 import { canvasScopeRefSchema } from "../../../collaboration-protocol/src/primitives.js";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -26,6 +26,7 @@ import type {
   CanvasExecutionRuntimeLease,
   CanvasExecutionRuntimeLeasePort
 } from "../../../server/src/canvas/executionRuntimePort.js";
+import { CanvasRuntimeResetConflictError } from "../../../server/src/canvas/executionRuntimePort.js";
 import { LocalFilesystemExecutionRuntimeAdapter } from "../../../server/src/canvas/localFilesystemExecutionRuntimeAdapter.js";
 import { createLocalFilesystemCanvasRuntimeAdapter } from "../../../server/src/canvas/localFilesystemRuntimeAdapter.js";
 import { RemoteHostCanvasRuntimeAdapter } from "../../../server/src/canvas/remoteHostRuntimeAdapter.js";
@@ -111,6 +112,7 @@ async function createLocalFixture(): Promise<CanvasRuntimeAdapterContractFixture
     },
     releaseDelegateCalls: () => releaseDelegateCalls,
     sourceDriftError: { code: "remote_block_source_changed" },
+    resetDriftError: { code: "source_drift" },
     unavailableAcquireError: { message: "canvas_runtime_unavailable" },
     async close() {
       trusted.close();
@@ -149,7 +151,7 @@ async function createInMemoryFixture(): Promise<CanvasRuntimeAdapterContractFixt
     session: {},
     requiredCapabilities: []
   });
-  const availability = canvasRuntimeAvailabilitySchema.parse({
+  const availability = canvasRuntimeExecutionAvailabilitySchema.parse({
     schemaVersion: "canvas-runtime-availability/v1",
     kind: "available",
     sourceRevision,
@@ -163,6 +165,7 @@ async function createInMemoryFixture(): Promise<CanvasRuntimeAdapterContractFixt
       blocks: []
     }
   });
+  if (availability.kind !== "available") throw new Error("in_memory_runtime_unavailable");
   let attached = true;
   let releaseDelegateCalls = 0;
   const runtime: RemoteBlockRuntimePort = {
@@ -207,7 +210,7 @@ async function createInMemoryFixture(): Promise<CanvasRuntimeAdapterContractFixt
     async readAvailability() {
       return attached
         ? availability
-        : canvasRuntimeAvailabilitySchema.parse({
+        : canvasRuntimeExecutionAvailabilitySchema.parse({
             schemaVersion: "canvas-runtime-availability/v1",
             kind: "unavailable",
             reason: "runtime_not_attached"
@@ -222,6 +225,20 @@ async function createInMemoryFixture(): Promise<CanvasRuntimeAdapterContractFixt
           read: async () => {
             throw new Error("not_implemented");
           }
+        },
+        async reset(command) {
+          if (
+            command.expectedSourceRevision !== sourceRevision ||
+            command.expectedGraphFingerprint !== graphFingerprint
+          ) {
+            throw new CanvasRuntimeResetConflictError("source_drift");
+          }
+          return {
+            operationId: command.operationId,
+            sourceRevision,
+            graphFingerprint,
+            status: availability.status
+          };
         },
         release() {
           if (released) return;
@@ -240,6 +257,7 @@ async function createInMemoryFixture(): Promise<CanvasRuntimeAdapterContractFixt
     },
     releaseDelegateCalls: () => releaseDelegateCalls,
     sourceDriftError: { code: "remote_block_source_changed" },
+    resetDriftError: { code: "source_drift" },
     unavailableAcquireError: { message: "canvas_runtime_unavailable" },
     close() {}
   };
@@ -364,6 +382,20 @@ async function createRemoteFixture(): Promise<RemoteContractFixture> {
           });
           return;
         }
+        if (operation.operation === "reset") {
+          if (!lease.reset) throw new Error("contract_runtime_reset_unavailable");
+          respond(command, {
+            outcome: "success",
+            operation: "reset",
+            result: await lease.reset({
+              operationId: operation.evidence.operationId,
+              expectedSourceRevision: operation.evidence.sourceRevision,
+              expectedGraphFingerprint: operation.evidence.graphFingerprint,
+              ...(operation.input.reason ? { reason: operation.input.reason } : {})
+            })
+          });
+          return;
+        }
         if (operation.operation === "release") {
           await lease.release();
           hostLeases.delete(operation.runtimeLeaseId);
@@ -377,7 +409,9 @@ async function createRemoteFixture(): Promise<RemoteContractFixture> {
         throw new Error("operation_not_supported_by_contract_host");
       } catch (error) {
         const sourceDrift =
-          error instanceof RemoteBlockRuntimeError && error.code === "remote_block_source_changed";
+          (error instanceof RemoteBlockRuntimeError &&
+            error.code === "remote_block_source_changed") ||
+          (error instanceof CanvasRuntimeResetConflictError && error.code === "source_drift");
         respond(command, {
           outcome: "error",
           operation: command.operation.operation,
@@ -401,6 +435,7 @@ async function createRemoteFixture(): Promise<RemoteContractFixture> {
     },
     releaseDelegateCalls: local.releaseDelegateCalls,
     sourceDriftError: { code: "content_out_of_sync" },
+    resetDriftError: { code: "source_drift" },
     unavailableAcquireError: { message: "canvas_runtime_unavailable" },
     async beginPendingClaimAndDetach(lease, candidate) {
       holdMutation = true;

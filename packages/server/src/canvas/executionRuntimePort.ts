@@ -8,16 +8,46 @@ export type RuntimeCanvasScope = {
 };
 
 export class CanvasRuntimeUnavailableError extends Error {
-  constructor() {
+  constructor(readonly reason: "runtime_not_attached" | "host_offline" = "runtime_not_attached") {
     super("canvas_runtime_unavailable");
     this.name = "CanvasRuntimeUnavailableError";
   }
 }
 
+export class CanvasRuntimeResetConflictError extends Error {
+  constructor(readonly code: "active_lease" | "source_drift") {
+    super(`canvas_runtime_reset_${code}`);
+    this.name = "CanvasRuntimeResetConflictError";
+  }
+}
+
+export type CanvasRuntimeResetCommand = {
+  operationId: string;
+  expectedSourceRevision: string;
+  expectedGraphFingerprint: string;
+  reason?: string;
+};
+
+export type CanvasRuntimeResetHostResult = {
+  operationId: string;
+  sourceRevision: string;
+  graphFingerprint: string;
+  status: CanvasRuntimeStatusProjection;
+};
+
+export type CanvasRuntimeResetReconciliation =
+  | { kind: "not_found" | "pending" }
+  | { kind: "succeeded"; result: CanvasRuntimeResetHostResult }
+  | {
+      kind: "failed";
+      error: { code: string; retryable: boolean; reconcileRequired?: boolean };
+    };
+
 export type CanvasExecutionRuntimeLease = {
   runtime: RemoteBlockRuntimePort;
   artifacts: RemoteBlockArtifactSource;
   readStatus?(): Promise<CanvasRuntimeStatusProjection>;
+  reset?(command: CanvasRuntimeResetCommand): Promise<CanvasRuntimeResetHostResult>;
   release(): void | Promise<void>;
 };
 
@@ -25,6 +55,10 @@ export interface CanvasExecutionRuntimeLeasePort {
   acquire(
     scope: RuntimeCanvasScope
   ): CanvasExecutionRuntimeLease | Promise<CanvasExecutionRuntimeLease>;
+  reconcileReset?(
+    scope: RuntimeCanvasScope,
+    command: CanvasRuntimeResetCommand
+  ): Promise<CanvasRuntimeResetReconciliation>;
 }
 
 export interface CanvasRuntimeScopeAvailabilityPort {

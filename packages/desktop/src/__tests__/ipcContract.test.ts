@@ -217,6 +217,9 @@ describe("desktop IPC contract", () => {
     expect(collaborationInvokeChannels.getWorkspaceCanvasProjection).toBe(
       "planweave-collaboration:getWorkspaceCanvasProjection"
     );
+    expect(collaborationInvokeChannels.resetWorkspaceCanvasRuntime).toBe(
+      "planweave-collaboration:resetWorkspaceCanvasRuntime"
+    );
     expect(collaborationInvokeChannels.redeemCollaborationSetupCode).toBe(
       "planweave-collaboration:redeemSetupCode"
     );

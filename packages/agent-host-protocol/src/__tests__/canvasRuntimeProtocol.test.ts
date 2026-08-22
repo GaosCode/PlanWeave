@@ -5,11 +5,13 @@ import {
   CANVAS_RUNTIME_JSON_MAX_BYTES,
   CANVAS_RUNTIME_JSON_MAX_DEPTH,
   CANVAS_RUNTIME_JSON_MAX_STRING_LENGTH,
+  CANVAS_RUNTIME_RESET_REASON_MAX_LENGTH,
   canvasRuntimeArtifactMetadataSchema,
   canvasRuntimeArtifactTransferInputSchema,
   canvasRuntimeCancelCommandSchema,
   canvasRuntimeJsonValueSchema,
   canvasRuntimeRequestCommandSchema,
+  canvasRuntimeResetInputSchema,
   canvasRuntimeResponseEventSchema,
   capabilitySchema,
   hostEventSchema,
@@ -100,6 +102,17 @@ describe("Canvas Runtime control protocol", () => {
         request({ operation, runtimeLeaseId: "runtime-lease-a", evidence, input: { ref: "b" } })
       ),
       request({
+        operation: "reset",
+        runtimeLeaseId: "runtime-lease-a",
+        evidence,
+        input: {
+          operationId: evidence.operationId,
+          sourceRevision: evidence.sourceRevision,
+          graphFingerprint: evidence.graphFingerprint
+        }
+      }),
+      request({ operation: "reset_status", operationId: evidence.operationId }),
+      request({
         operation: "query",
         runtimeLeaseId: "runtime-lease-a",
         operationId: evidence.operationId,
@@ -123,7 +136,7 @@ describe("Canvas Runtime control protocol", () => {
     for (const command of commands) {
       expect(mailboxCommandSchema.parse(command)).toEqual(command);
     }
-    expect(commands).toHaveLength(16);
+    expect(commands).toHaveLength(18);
   });
 
   it("keeps cancellation separate from ACP leases and correlates its durable response", () => {
@@ -292,6 +305,20 @@ describe("Canvas Runtime control protocol", () => {
     ).toThrow("operationId must match");
     expect(() =>
       canvasRuntimeRequestCommandSchema.parse(
+        request({
+          operation: "reset",
+          runtimeLeaseId: "runtime-lease-a",
+          evidence,
+          input: {
+            operationId: evidence.operationId,
+            sourceRevision: evidence.sourceRevision,
+            graphFingerprint: `pkg-${"b".repeat(64)}`
+          }
+        })
+      )
+    ).toThrow("graphFingerprint must match");
+    expect(() =>
+      canvasRuntimeRequestCommandSchema.parse(
         request({ operation: "claim", runtimeLeaseId: "runtime-lease-a", input: {} })
       )
     ).toThrow();
@@ -404,6 +431,94 @@ describe("Canvas Runtime control protocol", () => {
         })
       ).toThrow();
     }
+  });
+
+  it("requires a structured reset success with matching evidence and rejects ok-only results", () => {
+    const resetInput = {
+      operationId: evidence.operationId,
+      sourceRevision: evidence.sourceRevision,
+      graphFingerprint: evidence.graphFingerprint,
+      reason: "r".repeat(CANVAS_RUNTIME_RESET_REASON_MAX_LENGTH)
+    };
+    expect(canvasRuntimeResetInputSchema.parse(resetInput)).toEqual(resetInput);
+    expect(() => canvasRuntimeResetInputSchema.parse({ ...resetInput, extra: true })).toThrow();
+    expect(() =>
+      canvasRuntimeResetInputSchema.parse({
+        ...resetInput,
+        reason: "r".repeat(CANVAS_RUNTIME_RESET_REASON_MAX_LENGTH + 1)
+      })
+    ).toThrow();
+    const status = { phase: "ready", tasks: [] };
+    expect(
+      canvasRuntimeResponseEventSchema.parse(
+        response({
+          outcome: "success",
+          operation: "reset",
+          result: {
+            operationId: evidence.operationId,
+            sourceRevision: evidence.sourceRevision,
+            graphFingerprint: evidence.graphFingerprint,
+            status
+          }
+        })
+      )
+    ).toMatchObject({
+      response: {
+        outcome: "success",
+        operation: "reset",
+        result: { operationId: evidence.operationId, status }
+      }
+    });
+    expect(() =>
+      canvasRuntimeResponseEventSchema.parse(
+        response({ outcome: "success", operation: "reset", result: { ok: true } })
+      )
+    ).toThrow();
+    expect(
+      canvasRuntimeResponseEventSchema.parse(
+        response({
+          outcome: "error",
+          operation: "reset",
+          error: {
+            code: "content_out_of_sync",
+            message: "The Runtime source drifted.",
+            retryable: false
+          }
+        })
+      )
+    ).toMatchObject({ response: { outcome: "error", operation: "reset" } });
+
+    expect(
+      canvasRuntimeRequestCommandSchema.parse({
+        ...request({ operation: "reset_status", operationId: evidence.operationId }),
+        requestId: "request-reset-status"
+      })
+    ).toMatchObject({
+      operation: { operation: "reset_status", operationId: evidence.operationId }
+    });
+    expect(() =>
+      canvasRuntimeRequestCommandSchema.parse({
+        ...request({ operation: "reset_status", operationId: evidence.operationId, extra: true }),
+        requestId: "request-reset-status-extra"
+      })
+    ).toThrow();
+    expect(
+      canvasRuntimeResponseEventSchema.parse(
+        response({
+          outcome: "success",
+          operation: "reset_status",
+          result: {
+            kind: "succeeded",
+            result: {
+              operationId: evidence.operationId,
+              sourceRevision: evidence.sourceRevision,
+              graphFingerprint: evidence.graphFingerprint,
+              status
+            }
+          }
+        })
+      )
+    ).toMatchObject({ response: { operation: "reset_status", result: { kind: "succeeded" } } });
   });
 
   it("adds optional path-free Runtime project readiness without changing old observations", () => {

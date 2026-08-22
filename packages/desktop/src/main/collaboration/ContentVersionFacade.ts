@@ -15,6 +15,11 @@ import type {
   CanvasRuntimeStateAvailability
 } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import {
+  canvasRuntimeResetRequestSchema,
+  type CanvasRuntimeResetOutcome,
+  type CanvasRuntimeResetRequest
+} from "@planweave-ai/collaboration-protocol/canvas/runtime-control";
+import {
   captureAuthorizedCanvasContent,
   createManagedProjectFromAuthoritativeContent,
   getProjectOverview,
@@ -35,6 +40,10 @@ import {
   type CollaborationCanvasBindingInput,
   type RemoteCollaborationCanvasBindingInput
 } from "../../shared/collaboration.js";
+import {
+  type WorkspaceCanvasRuntimeResetRequest,
+  workspaceCanvasRuntimeResetRequestSchema
+} from "../../shared/collaborationRuntimeAvailability.js";
 import {
   workspaceCanvasSharingCandidateSchema,
   type WorkspaceCanvasSharingCandidate,
@@ -533,7 +542,11 @@ export class ContentVersionFacade {
     if (requested.kind === "remote") {
       if (!client || requested.projectId !== client.projectId) return null;
       const canvas = await this.authorizeRemoteCanvas(client, requested);
-      return collaborationCanvasScopeResolutionSchema.parse(canvas.registry);
+      return collaborationCanvasScopeResolutionSchema.parse({
+        workspaceId: canvas.registry.workspaceId,
+        projectId: canvas.registry.projectId,
+        canvasId: canvas.registry.canvasId
+      });
     }
     if (!client) {
       const replica = (await this.replicas.list()).find(
@@ -620,6 +633,41 @@ export class ContentVersionFacade {
       }
     }
     return cacheKey ? this.runtimeAvailabilities.put(cacheKey, availability) : availability;
+  }
+
+  async resetRuntime(
+    input: unknown,
+    request: WorkspaceCanvasRuntimeResetRequest
+  ): Promise<CanvasRuntimeResetOutcome> {
+    const requested = collaborationCanvasBindingInputSchema.parse(input);
+    if (requested.kind !== "remote") {
+      throw unavailable("runtime_reset_workspace_locator_required", false);
+    }
+    const client = this.requireClient();
+    const scope = await this.resolveCanvasScope(requested);
+    if (!scope) throw unavailable("runtime_status_scope_unavailable", false);
+    const authority = await client.discoverContentAuthority({
+      canvasId: scope.canvasId,
+      localReplica: null,
+      knownRevision: null
+    });
+    const head = authority.authoritativeHead;
+    if (!head) throw unavailable("content_authoritative_head_unavailable", false);
+    this.assertRemoteScope(head.scope, {
+      serverOrigin: this.serverOrigin(client),
+      workspaceId: requested.workspaceId,
+      projectId: requested.projectId,
+      canvasId: requested.canvasId
+    });
+    const parsed = workspaceCanvasRuntimeResetRequestSchema.parse(request);
+    const protocolRequest: CanvasRuntimeResetRequest = {
+      ...parsed,
+      expectedContentRevision: head.revision
+    };
+    return client.resetRuntime(
+      scope.canvasId,
+      canvasRuntimeResetRequestSchema.parse(protocolRequest)
+    );
   }
 
   async importLocalRuntimeStatus(input: unknown): Promise<CanvasRuntimeStateAvailability> {

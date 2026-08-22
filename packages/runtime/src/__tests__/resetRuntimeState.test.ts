@@ -2,7 +2,12 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { claimBlock, claimNext } from "../taskManager/index.js";
-import { createRunSession, getRunSession, resetRuntimeState } from "../runSessions/index.js";
+import {
+  createRunSession,
+  getRunSession,
+  readRuntimeResetReceipt,
+  resetRuntimeState
+} from "../runSessions/index.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { readState } from "../state.js";
 import type { RuntimeState } from "../types.js";
@@ -179,6 +184,20 @@ describe("resetRuntimeState", () => {
     const result = await resetRuntimeState({ projectRoot: root, reason: " \t\n" });
 
     expect(result.reason).toBeNull();
+  });
+
+  it("writes durable operation evidence atomically with the reset state", async () => {
+    const { root } = await createTestWorkspace();
+    const receipt = {
+      operationId: "reset-runtime-receipt-1",
+      sourceRevision: `snapshot:${"b".repeat(64)}`,
+      graphFingerprint: `pkg-${"a".repeat(64)}`,
+      committedAt: "2026-08-22T12:00:00.000Z"
+    };
+
+    await resetRuntimeState({ projectRoot: root, receipt });
+
+    await expect(readRuntimeResetReceipt({ projectRoot: root })).resolves.toEqual(receipt);
   });
 
   it("rejects invalid session ids before writing reset state", async () => {

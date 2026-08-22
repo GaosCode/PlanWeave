@@ -28,6 +28,23 @@ export const enCatalog = {
   resetRuntimeState: "Reset runtime state",
   resetRuntimeStateConfirm:
     "Reset runtime state for this canvas? This clears current claims, feedback, and review progress. Existing records stay on disk.",
+  resetRuntimeStateSuccess: "Runtime state reset from the authoritative Server projection.",
+  runtimeResetForbidden: "You do not have permission to reset this canvas runtime.",
+  runtimeResetHostOffline: "The execution device is offline. Reconnect it, then retry the reset.",
+  runtimeResetActiveLease:
+    "Runtime work is still active. Stop the current run, wait for it to settle, then retry.",
+  runtimeResetSourceDrift:
+    "The canvas changed before the reset completed. Refresh the canvas and try again.",
+  runtimeResetPersistFailed:
+    "The Server could not save the reset request. No success was reported; retry shortly.",
+  runtimeResetReconcileRequired:
+    "The reset outcome is still being confirmed. Keep this canvas open and retry to reconcile it.",
+  runtimeResetUnavailable:
+    "Runtime reset is unavailable right now. Check the execution device connection and retry.",
+  runtimeResetConflict: "Another runtime reset is in progress. Wait for it to finish, then retry.",
+  runtimeResetInvalidRequest: "The reset request was invalid. Refresh the canvas and try again.",
+  runtimeResetProjectionPostconditionFailed:
+    "The reset completed, but the authoritative Runtime view is not current yet. Refresh and retry.",
   stopAutoRunBeforeReset:
     "Stop Auto Run and wait for the current step to settle before resetting runtime state.",
   miniRunPanel: "Mini Run Panel",

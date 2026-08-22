@@ -314,6 +314,34 @@ export class RuntimeArtifactGrantRepository {
     });
   }
 
+  hasActiveLease(scope: CanvasRuntimeLogicalScope): boolean {
+    const parsed = canvasRuntimeLogicalScopeSchema.parse(scope);
+    const now = this.clock().getTime();
+    const rows = this.database
+      .prepare(
+        `SELECT runtime_lease_id,host_id,workspace_id,project_id,canvas_id,attachment_version,
+                source_revision,graph_fingerprint,expires_at,status
+           FROM canvas_runtime_leases
+          WHERE workspace_id=? AND project_id=? AND canvas_id=? AND status='active'`
+      )
+      .all(parsed.workspaceId, parsed.projectId, parsed.canvasId);
+    return rows.some((row) => {
+      const lease: ServerCanvasRuntimeLease = {
+        runtimeLeaseId: String(row.runtime_lease_id),
+        hostId: String(row.host_id),
+        workspaceId: String(row.workspace_id),
+        projectId: String(row.project_id),
+        canvasId: String(row.canvas_id),
+        attachmentVersion: Number(row.attachment_version),
+        sourceRevision: String(row.source_revision),
+        graphFingerprint: String(row.graph_fingerprint),
+        expiresAt: String(row.expires_at),
+        status: "active"
+      };
+      return Date.parse(lease.expiresAt) > now && this.options.leaseActive(lease);
+    });
+  }
+
   releaseLease(runtimeLeaseId: string): void {
     const id = canvasRuntimeLeaseIdSchema.parse(runtimeLeaseId);
     const now = this.clock().toISOString();

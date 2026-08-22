@@ -5,6 +5,7 @@ import {
   canvasRuntimeAvailabilitySchema,
   canvasRuntimeStateAvailabilitySchema
 } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
+import { canvasRuntimeResetOutcomeSchema } from "@planweave-ai/collaboration-protocol/canvas/runtime-control";
 import {
   humanCreateInvitationResponseSchema,
   humanDevicePageSchema,
@@ -69,6 +70,7 @@ import {
   collaborationPresenceSignalChannel,
   collaborationStatusChangedChannel
 } from "../shared/collaborationIpc.js";
+import { workspaceCanvasRuntimeResetInputSchema } from "../shared/collaborationRuntimeAvailability.js";
 import { unwrapCollaborationCommandResult } from "../shared/collaborationCommandIpc.js";
 import type {
   PlanWeaveOperatorControlApi,
@@ -368,6 +370,13 @@ const collaborationApi: PlanWeaveCollaborationApi = {
           input
         )
       ),
+  resetWorkspaceCanvasRuntime: async (input) =>
+    canvasRuntimeResetOutcomeSchema.parse(
+      await ipcRenderer.invoke(
+        collaborationInvokeChannels.resetWorkspaceCanvasRuntime,
+        workspaceCanvasRuntimeResetInputSchema.parse(input)
+      )
+    ),
   getCollaborationCanvasBindingReplicaProjection: async (input) =>
     collaborationCanvasBindingReplicaProjectionSchema
       .nullable()

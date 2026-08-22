@@ -16,6 +16,7 @@ import type { WorkspaceAgentEndpointScopeStarter } from "../hooks/useWorkspaceAg
 import { usePackageFileSync } from "../hooks/usePackageFileSync";
 import type { WorkspaceTabsAutoRunProps, WorkspaceTabsFileSyncProps } from "../views/WorkspaceTabs";
 import type { CollaborationRuntimeAvailabilityView } from "../collaboration/runtimeAvailabilityView";
+import type { CanvasLocator } from "../../shared/canvasLocator";
 
 export type AutoRunController = WorkspaceTabsAutoRunProps & {
   startAutoRunWithScope: ReturnType<typeof useAutoRunControl>["startAutoRunWithScope"];
@@ -48,7 +49,9 @@ export function useAutoRunController({
   t,
   tmuxMonitoringEnabled,
   startAutoRunScope,
-  runtimeAvailability
+  runtimeAvailability,
+  canvasLocator,
+  resetWorkspaceRuntime
 }: {
   autoRunState: DesktopAutoRunState | null;
   openRunWorkspace: (locator: {
@@ -69,6 +72,8 @@ export function useAutoRunController({
   tmuxMonitoringEnabled: boolean;
   startAutoRunScope?: WorkspaceAgentEndpointScopeStarter;
   runtimeAvailability: CollaborationRuntimeAvailabilityView;
+  canvasLocator?: CanvasLocator | null;
+  resetWorkspaceRuntime?: () => Promise<void>;
 }): AutoRunController {
   const {
     autoRunControlRef,
@@ -105,7 +110,9 @@ export function useAutoRunController({
     position,
     onPositionCommit,
     startAutoRunScope,
-    runtimeAvailability
+    runtimeAvailability,
+    canvasLocator,
+    resetWorkspaceRuntime
   });
 
   return useMemo(

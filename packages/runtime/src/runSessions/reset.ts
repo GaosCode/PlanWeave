@@ -2,6 +2,7 @@ import { dirname } from "node:path";
 import { withCanvasLock } from "../fs/withCanvasLock.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { createEmptyState, ensureStateForManifest, readState, writeState } from "../state.js";
+import { runtimeResetReceiptSchema } from "../schema/runtimeState.js";
 import type { BlockState, RuntimeState } from "../types.js";
 import { appendRunSessionEvent, assertValidRunSessionId, updateRunSession } from "./repository.js";
 import type {
@@ -95,7 +96,13 @@ export async function resetRuntimeState(
       throw new Error(activeWorkMessage(summary));
     }
 
-    await writeState(workspace.stateFile, ensureStateForManifest(manifest, createEmptyState()));
+    const emptyState = ensureStateForManifest(manifest, createEmptyState());
+    await writeState(
+      workspace.stateFile,
+      options.receipt
+        ? { ...emptyState, lastResetReceipt: runtimeResetReceiptSchema.parse(options.receipt) }
+        : emptyState
+    );
 
     if (sessionId) {
       await appendRunSessionEvent(workspace, sessionId, "reset_completed", {
@@ -116,4 +123,11 @@ export async function resetRuntimeState(
       sessionId
     };
   });
+}
+
+export async function readRuntimeResetReceipt(options: {
+  projectRoot: ResetRuntimeStateOptions["projectRoot"];
+}) {
+  const { workspace } = await loadPackage(options.projectRoot);
+  return (await readState(workspace.stateFile)).lastResetReceipt;
 }

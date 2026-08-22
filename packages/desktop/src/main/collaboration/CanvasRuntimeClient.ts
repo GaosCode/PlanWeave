@@ -1,0 +1,70 @@
+import {
+  canvasRuntimeAvailabilitySchema,
+  canvasRuntimeStateAvailabilitySchema,
+  importCanvasRuntimeStatusRequestSchema,
+  type CanvasRuntimeAvailability,
+  type CanvasRuntimeStateAvailability,
+  type ImportCanvasRuntimeStatusRequest
+} from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
+import {
+  canvasRuntimeResetOutcomeSchema,
+  canvasRuntimeResetRequestSchema,
+  type CanvasRuntimeResetOutcome,
+  type CanvasRuntimeResetRequest
+} from "@planweave-ai/collaboration-protocol/canvas/runtime-control";
+import { CollaborationClientError } from "./collaborationErrors.js";
+import type { CollaborationHttpTransport } from "./collaborationHttpTransport.js";
+
+/** Strict HTTP boundary for Server-authoritative Canvas Runtime operations. */
+export class CanvasRuntimeClient {
+  constructor(
+    private readonly projectId: string,
+    private readonly transport: CollaborationHttpTransport
+  ) {}
+
+  readAvailability(canvasId: string, signal?: AbortSignal): Promise<CanvasRuntimeAvailability> {
+    return this.transport.json(
+      "GET",
+      `/api/v1/projects/${encodeURIComponent(this.projectId)}/canvases/${encodeURIComponent(canvasId)}/runtime-availability`,
+      canvasRuntimeAvailabilitySchema,
+      { signal }
+    );
+  }
+
+  importStatus(
+    canvasId: string,
+    input: ImportCanvasRuntimeStatusRequest
+  ): Promise<CanvasRuntimeStateAvailability> {
+    return this.transport.json(
+      "POST",
+      `/api/v1/projects/${encodeURIComponent(this.projectId)}/canvases/${encodeURIComponent(canvasId)}/runtime-status/import`,
+      canvasRuntimeStateAvailabilitySchema,
+      { body: importCanvasRuntimeStatusRequestSchema.parse(input) }
+    );
+  }
+
+  async reset(
+    canvasId: string,
+    input: CanvasRuntimeResetRequest
+  ): Promise<CanvasRuntimeResetOutcome> {
+    const request = canvasRuntimeResetRequestSchema.parse(input);
+    const outcome = await this.transport.json(
+      "POST",
+      `/api/v1/projects/${encodeURIComponent(this.projectId)}/canvases/${encodeURIComponent(canvasId)}/runtime-reset`,
+      canvasRuntimeResetOutcomeSchema,
+      {
+        body: request,
+        acceptedStatus: [400, 403, 409, 500, 503]
+      }
+    );
+    if (outcome.operationId !== request.operationId) {
+      throw new CollaborationClientError({
+        kind: "protocol",
+        code: "runtime_reset_operation_id_mismatch",
+        message: "runtime_reset_operation_id_mismatch",
+        retryable: false
+      });
+    }
+    return outcome;
+  }
+}

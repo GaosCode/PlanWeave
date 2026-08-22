@@ -17,6 +17,7 @@ const journalEventInputSchema = z
     canvasId: humanObserverEventSchema.shape.canvasId,
     canvasRevision: humanObserverEventSchema.shape.canvasRevision,
     canvasContentDigest: humanObserverEventSchema.shape.canvasContentDigest,
+    runtimeRevision: humanObserverEventSchema.shape.runtimeRevision,
     remoteRunStatus: humanObserverEventSchema.shape.remoteRunStatus
   })
   .strict();

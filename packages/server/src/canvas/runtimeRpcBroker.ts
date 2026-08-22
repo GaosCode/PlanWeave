@@ -36,7 +36,8 @@ const mutationOperations = new Set<CanvasRuntimeOperation["operation"]>([
   "resume_attempt",
   "retry_attempt",
   "complete",
-  "fail"
+  "fail",
+  "reset"
 ]);
 
 export class CanvasRuntimeRpcError extends Error {

@@ -461,6 +461,7 @@ export {
   isPathInsideResultsDir,
   isPrunableArtifactPath,
   listRunSessions,
+  readRuntimeResetReceipt,
   resetRuntimeState,
   runWithSession,
   updateRunSession

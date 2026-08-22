@@ -1102,6 +1102,13 @@ describe("preload bridge invocation", () => {
       if (channel === collaborationInvokeChannels.importCollaborationLocalRuntimeStatus) {
         return { kind: "uninitialized" };
       }
+      if (channel === collaborationInvokeChannels.resetWorkspaceCanvasRuntime) {
+        return {
+          type: "canvas.runtime.reset.rejected",
+          operationId: "reset-1",
+          code: "host_offline"
+        };
+      }
       return status;
     });
 
@@ -1258,6 +1265,22 @@ describe("preload bridge invocation", () => {
       kind: "local",
       localProjectId: "project-1",
       canvasId: "default"
+    });
+    const workspaceResetInput = {
+      locator: {
+        kind: "workspace" as const,
+        connectionProfileId: "profile-1",
+        workspaceId: "workspace-1",
+        projectId: "project-1",
+        canvasId: "default"
+      },
+      operationId: "reset-1",
+      expectedSourceRevision: `snapshot:${"b".repeat(64)}`,
+      expectedGraphFingerprint: `pkg-${"a".repeat(64)}`
+    };
+    await expect(api.resetWorkspaceCanvasRuntime(workspaceResetInput)).resolves.toMatchObject({
+      type: "canvas.runtime.reset.rejected",
+      code: "host_offline"
     });
     await api.listCollaborationMembers({ cursor: 0, limit: 20 });
     await api.updateOwnCollaborationDisplayName({ displayName: "Ada Lovelace" });
@@ -1457,6 +1480,10 @@ describe("preload bridge invocation", () => {
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
       collaborationInvokeChannels.importCollaborationLocalRuntimeStatus,
       { kind: "local", localProjectId: "project-1", canvasId: "default" }
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      collaborationInvokeChannels.resetWorkspaceCanvasRuntime,
+      workspaceResetInput
     );
 
     const statusCall = electronMock.ipcRenderer.on.mock.calls.find(

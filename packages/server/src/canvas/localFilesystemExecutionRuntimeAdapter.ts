@@ -1,7 +1,10 @@
 import {
   createRemoteBlockArtifactSource,
   createRemoteBlockRuntimePort,
+  capturePackageSnapshot,
   readAuthorizedCanvasRuntimeStatus,
+  readRuntimeResetReceipt,
+  resetRuntimeState,
   resolveProjectCanvasWorkspace
 } from "@planweave-ai/runtime";
 import { resolve } from "node:path";
@@ -16,7 +19,10 @@ import type {
   OwnerCanvasRuntimeScopeResolverPort,
   RuntimeCanvasScope
 } from "./executionRuntimePort.js";
-import { CanvasRuntimeUnavailableError } from "./executionRuntimePort.js";
+import {
+  CanvasRuntimeResetConflictError,
+  CanvasRuntimeUnavailableError
+} from "./executionRuntimePort.js";
 
 export class LocalFilesystemExecutionRuntimeAdapter
   implements
@@ -32,6 +38,69 @@ export class LocalFilesystemExecutionRuntimeAdapter
       const location = this.registry.resolveExactCanvasLocation(scope);
       return {
         ...lease,
+        reset: async (command: {
+          operationId: string;
+          expectedSourceRevision: string;
+          expectedGraphFingerprint: string;
+          reason?: string;
+        }) => {
+          if (!location) throw new CanvasRuntimeUnavailableError();
+          const before = await capturePackageSnapshot({
+            projectRoot: location.projectRoot,
+            canvasId: scope.canvasId
+          });
+          if (
+            before.snapshot.sourceRevision !== command.expectedSourceRevision ||
+            before.resolvedPackageDir !== location.packageDir
+          ) {
+            throw new CanvasRuntimeResetConflictError("source_drift");
+          }
+          const statusBeforeReset = await readAuthorizedCanvasRuntimeStatus({
+            projectRoot: location.projectRoot,
+            canvasId: scope.canvasId,
+            expectedPackageDir: location.packageDir,
+            scope: canvasScopeRefSchema.parse(scope)
+          });
+          if (statusBeforeReset.packageFingerprint !== command.expectedGraphFingerprint) {
+            throw new CanvasRuntimeResetConflictError("source_drift");
+          }
+          const workspace = await resolveProjectCanvasWorkspace(
+            location.projectRoot,
+            scope.canvasId
+          );
+          try {
+            await resetRuntimeState({
+              projectRoot: workspace,
+              ...(command.reason ? { reason: command.reason } : {}),
+              receipt: {
+                operationId: command.operationId,
+                sourceRevision: command.expectedSourceRevision,
+                graphFingerprint: command.expectedGraphFingerprint,
+                committedAt: new Date().toISOString()
+              }
+            });
+          } catch (error) {
+            if (error instanceof Error && /active work exists/i.test(error.message)) {
+              throw new CanvasRuntimeResetConflictError("active_lease");
+            }
+            throw error;
+          }
+          const status = await readAuthorizedCanvasRuntimeStatus({
+            projectRoot: location.projectRoot,
+            canvasId: scope.canvasId,
+            expectedPackageDir: location.packageDir,
+            scope: canvasScopeRefSchema.parse(scope)
+          });
+          if (status.packageFingerprint !== command.expectedGraphFingerprint) {
+            throw new CanvasRuntimeResetConflictError("source_drift");
+          }
+          return {
+            operationId: command.operationId,
+            sourceRevision: before.snapshot.sourceRevision,
+            graphFingerprint: status.packageFingerprint,
+            status
+          };
+        },
         ...(location
           ? {
               readStatus: () =>
@@ -48,6 +117,59 @@ export class LocalFilesystemExecutionRuntimeAdapter
       if (isUnavailableRuntimeBinding(error)) throw new CanvasRuntimeUnavailableError();
       throw error;
     }
+  }
+
+  async reconcileReset(
+    scope: RuntimeCanvasScope,
+    command: {
+      operationId: string;
+      expectedSourceRevision: string;
+      expectedGraphFingerprint: string;
+    }
+  ) {
+    const location = this.registry.resolveExactCanvasLocation(scope);
+    if (!location) throw new CanvasRuntimeUnavailableError();
+    const workspace = await resolveProjectCanvasWorkspace(location.projectRoot, scope.canvasId);
+    const receipt = await readRuntimeResetReceipt({ projectRoot: workspace });
+    if (!receipt || receipt.operationId !== command.operationId)
+      return { kind: "not_found" as const };
+    if (
+      receipt.sourceRevision !== command.expectedSourceRevision ||
+      receipt.graphFingerprint !== command.expectedGraphFingerprint
+    ) {
+      return {
+        kind: "failed" as const,
+        error: { code: "content_out_of_sync", retryable: false }
+      };
+    }
+    const snapshot = await capturePackageSnapshot({
+      projectRoot: location.projectRoot,
+      canvasId: scope.canvasId
+    });
+    const status = await readAuthorizedCanvasRuntimeStatus({
+      projectRoot: location.projectRoot,
+      canvasId: scope.canvasId,
+      expectedPackageDir: location.packageDir,
+      scope: canvasScopeRefSchema.parse(scope)
+    });
+    if (
+      snapshot.snapshot.sourceRevision !== command.expectedSourceRevision ||
+      status.packageFingerprint !== command.expectedGraphFingerprint
+    ) {
+      return {
+        kind: "failed" as const,
+        error: { code: "content_out_of_sync", retryable: false }
+      };
+    }
+    return {
+      kind: "succeeded" as const,
+      result: {
+        operationId: command.operationId,
+        sourceRevision: snapshot.snapshot.sourceRevision,
+        graphFingerprint: status.packageFingerprint,
+        status
+      }
+    };
   }
 
   hasRuntimeScope(scope: RuntimeCanvasScope): boolean {

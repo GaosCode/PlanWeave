@@ -262,6 +262,10 @@ export async function createDistributedServerComposition(
       runtimeAttachments: registries.runtimeRegistry.locators,
       initialContentCapture: localCanvasRuntime,
       runtimeAvailability: collaborationRuntime,
+      runtimeCommand: {
+        executionLeases: collaborationRuntime,
+        hasConflictingLease: (scope) => runtimeArtifactGrants.hasActiveLease(scope)
+      },
       runtimeRpc,
       workspaceIdentity,
       projectAccess,

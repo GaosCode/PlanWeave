@@ -26,6 +26,7 @@ import { remoteOperationRetentionMigration } from "./remoteOperationRetention.js
 import { canvasRuntimeHostBindingMigration } from "./canvasRuntimeHostBinding.js";
 import { canvasRuntimeArtifactGrantMigration } from "./canvasRuntimeArtifactGrant.js";
 import { canvasRuntimeStatusMigration } from "./canvasRuntimeStatus.js";
+import { canvasRuntimeRevisionMigration } from "./canvasRuntimeRevision.js";
 import {
   workspaceCanvasPublishLocalSourceMigration,
   workspaceCanvasPublishMigration
@@ -73,6 +74,7 @@ export const migrationModules: readonly MigrationModule[] = [
   { name: "canvas-runtime-host-binding", migrations: [canvasRuntimeHostBindingMigration] },
   { name: "canvas-runtime-artifact-grant", migrations: [canvasRuntimeArtifactGrantMigration] },
   { name: "canvas-runtime-status", migrations: [canvasRuntimeStatusMigration] },
+  { name: "canvas-runtime-revision", migrations: [canvasRuntimeRevisionMigration] },
   {
     name: "workspace-canvas-publish",
     migrations: [workspaceCanvasPublishMigration, workspaceCanvasPublishLocalSourceMigration]

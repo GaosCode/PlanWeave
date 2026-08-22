@@ -53,6 +53,7 @@ export const collaborationInvokeChannels = {
   readCollaborationCanvasBindingRuntimeAvailability:
     "planweave-collaboration:readCanvasBindingRuntimeAvailability",
   importCollaborationLocalRuntimeStatus: "planweave-collaboration:importLocalRuntimeStatus",
+  resetWorkspaceCanvasRuntime: "planweave-collaboration:resetWorkspaceCanvasRuntime",
   getCollaborationCanvasBindingReplicaProjection:
     "planweave-collaboration:getCanvasBindingReplicaProjection",
   bindCollaborationCanvasBindingContentAuthority:

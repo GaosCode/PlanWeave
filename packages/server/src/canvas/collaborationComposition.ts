@@ -4,7 +4,7 @@ import type { WorkspaceIdentityRepository } from "../identity/workspaceRepositor
 import type { TransportAdmissionPolicy } from "../insecureTransport.js";
 import type { HumanObserverJournal } from "../humanObserverJournal.js";
 import type { ProjectAccessRepository } from "../projectAccessRepository.js";
-import type { SqliteDatabase } from "../sqlite.js";
+import { inWriteTransaction, type SqliteDatabase } from "../sqlite.js";
 import type { WebSocketUpgradeRouter } from "../webSocketUpgradeRouter.js";
 import {
   attachCanvasCommandWebSocketServer,
@@ -26,6 +26,12 @@ import type {
   CanvasInitialContentCapturePort,
   CanvasRuntimeAvailabilityPort
 } from "./runtimePort.js";
+import type {
+  CanvasExecutionRuntimeLeasePort,
+  RuntimeCanvasScope
+} from "./executionRuntimePort.js";
+import { CanvasRuntimeCommandCoordinator } from "./runtimeCommandCoordinator.js";
+import { CanvasRuntimeResetReceiptRepository } from "./runtimeCommandReceipts.js";
 
 export type CanvasRuntimeAttachment = {
   workspaceId: string;
@@ -44,6 +50,10 @@ export type CanvasCollaborationCompositionOptions = {
   runtimeAttachments: readonly CanvasRuntimeAttachment[];
   initialContentCapture: CanvasInitialContentCapturePort;
   runtimeAvailability: CanvasRuntimeAvailabilityPort;
+  runtimeCommand?: {
+    executionLeases: CanvasExecutionRuntimeLeasePort;
+    hasConflictingLease(scope: RuntimeCanvasScope): boolean;
+  };
   observerJournal: HumanObserverJournal;
   transportAdmission: TransportAdmissionPolicy;
   maxPayloadBytes: number;
@@ -139,14 +149,33 @@ export async function createCanvasCollaborationComposition(
       onAcceptedEntryUnavailable: (input) => attachedLiveSyncWebSockets.invalidateScope(input),
       clock: options.clock
     });
+    const runtimeStatuses = new CanvasRuntimeStatusRepository(options.database, options.clock);
     const runtimeAvailabilityService = new CanvasRuntimeAvailabilityService({
       access: options.projectAccess,
       workspaceIdentity: options.workspaceIdentity,
       contentVersions,
       runtimeAvailability: options.runtimeAvailability,
-      runtimeStatuses: new CanvasRuntimeStatusRepository(options.database, options.clock),
+      runtimeStatuses,
       clock: options.clock
     });
+    const runtimeCommandCoordinator = options.runtimeCommand
+      ? new CanvasRuntimeCommandCoordinator({
+          access: options.projectAccess,
+          workspaceIdentity: options.workspaceIdentity,
+          contentVersions,
+          runtimeStatuses,
+          receipts: new CanvasRuntimeResetReceiptRepository(options.database, options.clock),
+          executionLeases: options.runtimeCommand.executionLeases,
+          hasConflictingLease: options.runtimeCommand.hasConflictingLease,
+          commitTransaction: (action) => inWriteTransaction(options.database, action),
+          onRuntimeInvalidated: (scope, runtimeRevision) => {
+            options.observerJournal.appendInCallerTransaction(
+              { workspaceId: scope.workspaceId, projectId: scope.projectId },
+              { kind: "runtime", canvasId: scope.canvasId, runtimeRevision }
+            );
+          }
+        })
+      : undefined;
     operationRetentionMaintenance = new CanvasOperationRetentionMaintenance(
       commandRepository.operationRetention,
       (remainingBudget) => commandService.recoverInterrupted(remainingBudget)
@@ -173,6 +202,7 @@ export async function createCanvasCollaborationComposition(
       contentVersionService,
       commandService,
       runtimeAvailabilityService,
+      runtimeCommandCoordinator,
       operationRetentionMaintenance
     };
   } catch (error) {

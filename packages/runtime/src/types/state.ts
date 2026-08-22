@@ -59,6 +59,13 @@ export type FeedbackEnvelopeState = {
   content: string;
 };
 
+export type RuntimeResetReceipt = {
+  operationId: string;
+  sourceRevision: string;
+  graphFingerprint: string;
+  committedAt: string;
+};
+
 export type RuntimeState = {
   currentRefs: string[];
   currentFeedbackId: string | null;
@@ -66,4 +73,5 @@ export type RuntimeState = {
   tasks: Record<string, TaskState>;
   blocks: Record<string, BlockState>;
   feedback: Record<string, FeedbackEnvelopeState>;
+  lastResetReceipt?: RuntimeResetReceipt;
 };

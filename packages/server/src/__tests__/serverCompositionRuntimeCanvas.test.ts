@@ -105,11 +105,15 @@ describe("distributed server composition", () => {
     );
     expect(runtimeAvailability.status).toBe(200);
     await expect(runtimeAvailability.json()).resolves.toMatchObject({
-      schemaVersion: "canvas-runtime-availability/v1",
-      kind: "available",
-      status: {
-        schemaVersion: "canvas-runtime-status/v2",
-        scope: { workspaceId: "workspace-server", projectId, canvasId: "default" }
+      schemaVersion: "canvas-runtime-view/v1",
+      state: { kind: "uninitialized" },
+      execution: {
+        schemaVersion: "canvas-runtime-availability/v1",
+        kind: "available",
+        status: {
+          schemaVersion: "canvas-runtime-status/v2",
+          scope: { workspaceId: "workspace-server", projectId, canvasId: "default" }
+        }
       }
     });
     const legacyRuntimeStatus = await fetch(

@@ -18,6 +18,7 @@ import type { AutoRunScopeMode, FloatingControlDrag, FloatingControlPosition } f
 import { clamp } from "../viewHelpers";
 import type { WorkspaceAgentEndpointScopeStarter } from "./useWorkspaceAgentEndpointRun";
 import type { CollaborationRuntimeAvailabilityView } from "../collaboration/runtimeAvailabilityView";
+import type { CanvasLocator } from "../../shared/canvasLocator";
 import {
   collaborationRuntimeOperationsAllowed,
   collaborationRuntimeUnavailableCode
@@ -44,6 +45,8 @@ type UseAutoRunControlArgs = {
   onPositionCommit?: (position: FloatingControlPosition) => void;
   startAutoRunScope?: WorkspaceAgentEndpointScopeStarter;
   runtimeAvailability: CollaborationRuntimeAvailabilityView;
+  canvasLocator?: CanvasLocator | null;
+  resetWorkspaceRuntime?: () => Promise<void>;
 };
 
 type FloatingControlViewport = {
@@ -156,7 +159,9 @@ export function useAutoRunControl({
   position,
   onPositionCommit,
   startAutoRunScope,
-  runtimeAvailability
+  runtimeAvailability,
+  canvasLocator,
+  resetWorkspaceRuntime
 }: UseAutoRunControlArgs) {
   const [autoRunScopeMode, setAutoRunScopeMode] = useState<AutoRunScopeMode>("project");
   const [endpointScopeRunPhase, setEndpointScopeRunPhase] = useState<
@@ -573,11 +578,12 @@ export function useAutoRunControl({
   }, [applyAutoRunState, autoRunState, runtimeOperationsAllowed, runtimeUnavailableCode, setError]);
 
   const resetRuntimeStateClick = useCallback(async () => {
-    if (!runtimeOperationsAllowed) {
+    const workspaceReset = canvasLocator?.kind === "workspace";
+    if (!workspaceReset && !runtimeOperationsAllowed) {
       setError(runtimeUnavailableCode ?? "collaboration_runtime_unavailable");
       return;
     }
-    if (!bridge || !selectedProject) {
+    if (workspaceReset ? !resetWorkspaceRuntime : !bridge || !selectedProject) {
       return;
     }
     if (isActiveAutoRunState(autoRunState)) {
@@ -589,10 +595,14 @@ export function useAutoRunControl({
     }
     try {
       setMiniRunPanelOpen(true);
-      await bridge.resetRuntimeState(desktopCanvasReference(selectedProject, selectedCanvasId), {
-        force: true,
-        reason: "Desktop reset requested."
-      });
+      if (workspaceReset) {
+        await resetWorkspaceRuntime?.();
+      } else if (bridge && selectedProject) {
+        await bridge.resetRuntimeState(desktopCanvasReference(selectedProject, selectedCanvasId), {
+          force: true,
+          reason: "Desktop reset requested."
+        });
+      }
       setAutoRunState(null);
       setAutoRunRetrospective(null);
       await onAutoRunDerivedStateRefresh?.();
@@ -601,11 +611,13 @@ export function useAutoRunControl({
     }
   }, [
     autoRunState,
+    canvasLocator,
     onAutoRunDerivedStateRefresh,
     selectedCanvasId,
     selectedProject,
     runtimeOperationsAllowed,
     runtimeUnavailableCode,
+    resetWorkspaceRuntime,
     setAutoRunState,
     setError,
     t

@@ -2,6 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   CANVAS_RUNTIME_CAPABILITY,
   canvasRuntimeArtifactTransferInputSchema,
+  canvasRuntimeResetInputSchema,
+  canvasRuntimeResetResultSchema,
   canvasRuntimeResponsePayloadSchema,
   type CanvasRuntimeCancelCommand,
   type CanvasRuntimeRequestCommand,
@@ -12,6 +14,7 @@ import {
   createRemoteBlockArtifactSource,
   createRemoteBlockRuntimePort,
   readAuthorizedCanvasRuntimeStatus,
+  readRuntimeResetReceipt,
   remoteBlockClaimInputSchema,
   remoteBlockCompletionInputSchema,
   remoteBlockFailureInputSchema,
@@ -21,12 +24,14 @@ import {
   remoteBlockRefIdentitySchema,
   remoteBlockRetryAttemptInputSchema,
   remoteBlockArtifactReadInputSchema,
-  RemoteBlockRuntimeError
+  RemoteBlockRuntimeError,
+  resetRuntimeState
 } from "@planweave-ai/runtime";
 import { ZodError } from "zod";
 import { canvasScopeRefSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import type {
   CanvasRuntimeLeaseRecord,
+  CanvasRuntimeResetResolution,
   CanvasRuntimeRpcRepository
 } from "../state/canvasRuntimeRpcRepository.js";
 import {
@@ -123,6 +128,11 @@ export class CanvasRuntimeService {
     for (const receipt of this.options.receipts.incomplete()) {
       if (receipt.status === "pending") {
         void this.handle(receipt.command);
+      } else if (
+        receipt.command.type === "canvas_runtime.request" &&
+        receipt.command.operation.operation === "reset"
+      ) {
+        void this.recoverInterruptedReset(receipt.command);
       } else {
         this.finishError(
           receipt.command,
@@ -227,6 +237,21 @@ export class CanvasRuntimeService {
   }
 
   private async execute(command: CanvasRuntimeRequestCommand, active: ActiveRequest) {
+    if (command.operation.operation === "reset_status") {
+      const stored = this.options.receipts.resetStatus(
+        command.scope,
+        command.operation.operationId
+      );
+      if (
+        stored.kind === "not_found" ||
+        stored.kind === "succeeded" ||
+        (stored.kind === "failed" && !stored.error.reconcileRequired)
+      ) {
+        return stored;
+      }
+      const resolved = await this.options.resolver.resolve(command.scope);
+      return this.resetStatus(command, resolved, stored);
+    }
     const resolved = await this.options.resolver.resolve(command.scope);
     this.assertOpen(command, active);
     switch (command.operation.operation) {
@@ -421,8 +446,165 @@ export class CanvasRuntimeService {
           mediaType: artifact.mediaType
         };
       }
+      case "reset":
+        return this.reset(command, resolved, lease, operation, active);
       default:
         throw new CanvasRuntimeServiceError("unsupported_canvas_runtime_operation");
     }
+  }
+
+  private async reset(
+    command: CanvasRuntimeRequestCommand,
+    resolved: ResolvedCanvasRuntime,
+    lease: CanvasRuntimeLeaseRecord,
+    operation: Extract<CanvasRuntimeRequestCommand["operation"], { operation: "reset" }>,
+    active: ActiveRequest
+  ) {
+    const now = this.now().getTime();
+    const conflicting = this.options.receipts
+      .activeLeases(command.scope)
+      .filter(
+        (candidate) =>
+          candidate.runtimeLeaseId !== lease.runtimeLeaseId && Date.parse(candidate.expiresAt) > now
+      );
+    if (conflicting.length > 0) {
+      throw new CanvasRuntimeServiceError("active_lease");
+    }
+    const available = await this.availability(resolved);
+    if (
+      lease.sourceRevision !== operation.evidence.sourceRevision ||
+      lease.graphFingerprint !== operation.evidence.graphFingerprint ||
+      available.sourceRevision !== operation.evidence.sourceRevision ||
+      available.graphFingerprint !== operation.evidence.graphFingerprint
+    ) {
+      throw new CanvasRuntimeServiceError("content_out_of_sync");
+    }
+    const { reason } = canvasRuntimeResetInputSchema.parse(operation.input);
+    active.committed = true;
+    try {
+      await resetRuntimeState({
+        projectRoot: resolved.canvas,
+        reason,
+        receipt: {
+          operationId: operation.evidence.operationId,
+          sourceRevision: operation.evidence.sourceRevision,
+          graphFingerprint: operation.evidence.graphFingerprint,
+          committedAt: this.now().toISOString()
+        }
+      });
+    } catch (error) {
+      if (error instanceof Error && /active work exists/i.test(error.message)) {
+        throw new CanvasRuntimeServiceError("active_lease");
+      }
+      throw error;
+    }
+    const after = await this.availability(resolved);
+    const result = canvasRuntimeResetResultSchema.parse({
+      operationId: operation.evidence.operationId,
+      sourceRevision: after.sourceRevision,
+      graphFingerprint: after.graphFingerprint,
+      status: after.status
+    });
+    this.options.receipts.resolveReset(command.scope, operation.evidence.operationId, {
+      kind: "succeeded",
+      result
+    });
+    return result;
+  }
+
+  private async resetStatus(
+    command: CanvasRuntimeRequestCommand,
+    resolved: ResolvedCanvasRuntime,
+    status: CanvasRuntimeResetResolution
+  ): Promise<CanvasRuntimeResetResolution> {
+    if (command.operation.operation !== "reset_status") {
+      throw new CanvasRuntimeServiceError("invalid_operation_input");
+    }
+    const operationId = command.operation.operationId;
+    const original = this.options.receipts.resetOperation(command.scope, operationId);
+    if (!original || this.active.has(original.requestId)) return status;
+    return this.resolveInterruptedReset(original.command, resolved);
+  }
+
+  private async recoverInterruptedReset(command: CanvasRuntimeRequestCommand): Promise<void> {
+    if (command.operation.operation !== "reset") return;
+    const resetCommand = { ...command, operation: command.operation };
+    let resolution: CanvasRuntimeResetResolution;
+    try {
+      const resolved = await this.options.resolver.resolve(resetCommand.scope);
+      resolution = await this.resolveInterruptedReset(resetCommand, resolved);
+    } catch {
+      resolution = this.options.receipts.resolveReset(
+        resetCommand.scope,
+        resetCommand.operation.evidence.operationId,
+        {
+          kind: "failed",
+          error: { code: "reset_recovery_unavailable", retryable: false }
+        }
+      );
+    }
+    if (resolution.kind === "succeeded") {
+      this.options.receipts.complete(
+        resetCommand.requestId,
+        canvasRuntimeResponsePayloadSchema.parse({
+          type: "canvas_runtime.response",
+          protocolVersion: 1,
+          requestId: resetCommand.requestId,
+          response: { outcome: "success", operation: "reset", result: resolution.result }
+        })
+      );
+      return;
+    }
+    if (resolution.kind === "failed") {
+      this.finishError(
+        resetCommand,
+        new CanvasRuntimeServiceError(
+          resolution.error.code,
+          resolution.error.retryable,
+          resolution.error.reconcileRequired === true
+        ),
+        resolution.error.reconcileRequired ? "reconcile_required" : "terminal"
+      );
+    }
+  }
+
+  private async resolveInterruptedReset(
+    command: CanvasRuntimeRequestCommand & {
+      operation: Extract<CanvasRuntimeRequestCommand["operation"], { operation: "reset" }>;
+    },
+    resolved: ResolvedCanvasRuntime
+  ): Promise<CanvasRuntimeResetResolution> {
+    const evidence = command.operation.evidence;
+    const marker = await readRuntimeResetReceipt({ projectRoot: resolved.canvas });
+    if (
+      marker?.operationId === evidence.operationId &&
+      marker.sourceRevision === evidence.sourceRevision &&
+      marker.graphFingerprint === evidence.graphFingerprint
+    ) {
+      const after = await this.availability(resolved);
+      if (
+        after.sourceRevision === evidence.sourceRevision &&
+        after.graphFingerprint === evidence.graphFingerprint &&
+        after.status.packageFingerprint === evidence.graphFingerprint
+      ) {
+        return this.options.receipts.resolveReset(command.scope, evidence.operationId, {
+          kind: "succeeded",
+          result: canvasRuntimeResetResultSchema.parse({
+            operationId: evidence.operationId,
+            sourceRevision: after.sourceRevision,
+            graphFingerprint: after.graphFingerprint,
+            status: after.status
+          })
+        });
+      }
+      return this.options.receipts.resolveReset(command.scope, evidence.operationId, {
+        kind: "failed",
+        error: { code: "content_out_of_sync", retryable: false }
+      });
+    }
+    return this.options.receipts.resolveReset(command.scope, evidence.operationId, {
+      kind: "failed",
+      error: { code: "reset_commit_not_observed", retryable: false }
+    });
   }
 }

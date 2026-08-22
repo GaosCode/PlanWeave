@@ -16,6 +16,7 @@ import {
   canvasRuntimeAvailabilitySchema,
   canvasRuntimeStateAvailabilitySchema
 } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
+import { canvasRuntimeResetOutcomeSchema } from "@planweave-ai/collaboration-protocol/canvas/runtime-control";
 import {
   collaborationCanvasBindingInputSchema,
   collaborationContentBootstrapCandidateSchema,
@@ -44,6 +45,7 @@ import {
 import { CollaborationService, type CollaborationServiceOptions } from "./collaborationService.js";
 import type { CollaborationCanvasBindingReplicaSignal } from "../../shared/canvasReplicaIpc.js";
 import type { WorkspaceCanvasProjection } from "../../shared/workspaceCanvasProjection.js";
+import { workspaceCanvasRuntimeResetInputSchema } from "../../shared/collaborationRuntimeAvailability.js";
 import { LocalCollaborationCoordinatorControl } from "./CollaborationCoordinatorControl.js";
 import { DeploymentActions } from "./deploymentActions.js";
 import { runCollaborationCommand } from "./collaborationCommandHandler.js";
@@ -487,6 +489,15 @@ export function registerCollaborationHandlers(
             collaborationCanvasBindingInputSchema.parse(input)
           )
         )
+  );
+  ipcMain.handle(
+    collaborationInvokeChannels.resetWorkspaceCanvasRuntime,
+    async (_event, input: unknown) =>
+      canvasRuntimeResetOutcomeSchema.parse(
+        await active.resetWorkspaceCanvasRuntime(
+          workspaceCanvasRuntimeResetInputSchema.parse(input)
+        )
+      )
   );
   ipcMain.handle(
     collaborationInvokeChannels.getCollaborationCanvasBindingReplicaProjection,

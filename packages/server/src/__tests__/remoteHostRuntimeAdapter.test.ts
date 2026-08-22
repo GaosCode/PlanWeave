@@ -299,9 +299,116 @@ describe("RemoteHostCanvasRuntimeAdapter", () => {
     expect(fixture.deliveries).toHaveLength(3);
   });
 
+  it("routes reset through the acquired Host lease with matching evidence", async () => {
+    const fixture = await setup();
+    const acquiring = fixture.adapter.acquire(scope);
+    const acquireCommand = commandAt(fixture.deliveries, 0);
+    const graphFingerprint = `pkg-${"a".repeat(64)}`;
+    const sourceRevision = `snapshot:${"b".repeat(64)}`;
+    respond(fixture.broker, fixture.host.id, acquireCommand, {
+      outcome: "success",
+      operation: "acquire",
+      result: {
+        runtimeLeaseId: randomUUID(),
+        sourceRevision,
+        graphFingerprint,
+        acquiredAt: "2026-08-20T00:00:00.000Z",
+        expiresAt: "2099-08-20T00:01:00.000Z"
+      }
+    });
+    const lease = await acquiring;
+    if (!lease.reset) throw new Error("remote_reset_expected");
+    const resetting = lease.reset({
+      operationId: "reset-remote-1",
+      expectedSourceRevision: sourceRevision,
+      expectedGraphFingerprint: graphFingerprint,
+      reason: "Remote reset test."
+    });
+    const resetCommand = commandAt(fixture.deliveries, 1);
+    expect(resetCommand.operation).toMatchObject({
+      operation: "reset",
+      evidence: { operationId: "reset-remote-1", sourceRevision, graphFingerprint },
+      input: { operationId: "reset-remote-1", sourceRevision, graphFingerprint }
+    });
+    respond(fixture.broker, fixture.host.id, resetCommand, {
+      outcome: "success",
+      operation: "reset",
+      result: {
+        operationId: "reset-remote-1",
+        sourceRevision,
+        graphFingerprint,
+        status: {
+          schemaVersion: "canvas-runtime-status/v2",
+          scope,
+          packageFingerprint: graphFingerprint,
+          capturedAt: "2026-08-20T00:00:01.000Z",
+          tasks: [],
+          blocks: []
+        }
+      }
+    });
+    await expect(resetting).resolves.toMatchObject({ operationId: "reset-remote-1" });
+  });
+
+  it("queries the durable Host reset receipt without acquiring a second lease", async () => {
+    const fixture = await setup();
+    const router = new LocalFirstCanvasRuntimeRouter(
+      {
+        readAvailability: async () => {
+          throw new Error("local_should_not_run");
+        }
+      },
+      {
+        acquire: async () => {
+          throw new Error("local_should_not_run");
+        }
+      },
+      { hasRuntimeProject: () => false, hasRuntimeScope: () => false }
+    );
+    router.attachRemote(fixture.adapter);
+    const graphFingerprint = `pkg-${"a".repeat(64)}`;
+    const sourceRevision = `snapshot:${"b".repeat(64)}`;
+    const reconciliation = router.reconcileReset(scope, {
+      operationId: "reset-remote-query",
+      expectedSourceRevision: sourceRevision,
+      expectedGraphFingerprint: graphFingerprint
+    });
+    const query = commandAt(fixture.deliveries, 0);
+    expect(query.operation).toEqual({
+      operation: "reset_status",
+      operationId: "reset-remote-query"
+    });
+    respond(fixture.broker, fixture.host.id, query, {
+      outcome: "success",
+      operation: "reset_status",
+      result: {
+        kind: "succeeded",
+        result: {
+          operationId: "reset-remote-query",
+          sourceRevision,
+          graphFingerprint,
+          status: {
+            schemaVersion: "canvas-runtime-status/v2",
+            scope,
+            packageFingerprint: graphFingerprint,
+            capturedAt: "2026-08-20T00:00:01.000Z",
+            tasks: [],
+            blocks: []
+          }
+        }
+      }
+    });
+    await expect(reconciliation).resolves.toMatchObject({
+      kind: "succeeded",
+      result: { operationId: "reset-remote-query" }
+    });
+    expect(fixture.deliveries).toHaveLength(1);
+  });
+
   it("preserves local-first behavior when a local Runtime is attached", async () => {
     const localLease = { runtime: {}, artifacts: {}, release: vi.fn() };
     const localAcquire = vi.fn(() => localLease);
+    const localReconcile = vi.fn(async () => ({ kind: "not_found" as const }));
     const localRead = vi.fn(async () => ({
       schemaVersion: "canvas-runtime-availability/v1" as const,
       kind: "unavailable" as const,
@@ -309,7 +416,7 @@ describe("RemoteHostCanvasRuntimeAdapter", () => {
     }));
     const router = new LocalFirstCanvasRuntimeRouter(
       { readAvailability: localRead },
-      { acquire: localAcquire },
+      { acquire: localAcquire, reconcileReset: localReconcile },
       { hasRuntimeProject: () => true, hasRuntimeScope: () => true }
     );
 
@@ -318,7 +425,15 @@ describe("RemoteHostCanvasRuntimeAdapter", () => {
       reason: "runtime_not_attached"
     });
     await expect(router.acquire(scope)).resolves.toBe(localLease);
+    await expect(
+      router.reconcileReset(scope, {
+        operationId: "local-reset-status",
+        expectedSourceRevision: `snapshot:${"b".repeat(64)}`,
+        expectedGraphFingerprint: `pkg-${"a".repeat(64)}`
+      })
+    ).resolves.toEqual({ kind: "not_found" });
     expect(localRead).toHaveBeenCalledOnce();
     expect(localAcquire).toHaveBeenCalledOnce();
+    expect(localReconcile).toHaveBeenCalledOnce();
   });
 });

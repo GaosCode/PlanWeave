@@ -209,7 +209,8 @@ export function ensureStateForManifest(
     currentReviewBlockRef,
     tasks: {},
     blocks: {},
-    feedback
+    feedback,
+    ...(state.lastResetReceipt ? { lastResetReceipt: state.lastResetReceipt } : {})
   };
 
   for (const ref of graph.blockRefsInManifestOrder) {

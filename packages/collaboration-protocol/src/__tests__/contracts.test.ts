@@ -56,6 +56,7 @@ const productionExportPaths = [
   "./canvas/commands",
   "./canvas/live-sync",
   "./canvas/runtime-availability",
+  "./canvas/runtime-control",
   "./canvas/status",
   "./canvas/presence",
   "./activity/comments",
@@ -314,6 +315,18 @@ describe("collaboration-protocol", () => {
         canvasId: "default"
       })
     ).toThrow();
+    expect(
+      humanObserverEventSchema.parse({
+        type: "human.observer.event",
+        protocolVersion: 1,
+        cursor: 13,
+        previousCursor: 12,
+        occurredAt: "2030-01-01T00:00:00.000Z",
+        kind: "runtime",
+        canvasId: "default",
+        runtimeRevision: 3
+      })
+    ).toMatchObject({ kind: "runtime", runtimeRevision: 3 });
   });
 
   it("maps HTTP statuses to boundary error kinds", () => {

@@ -29,6 +29,18 @@ export const zhCnCatalog = {
   resetRuntimeState: "重置运行状态",
   resetRuntimeStateConfirm:
     "确定要重置当前画布的运行状态吗？这会清空当前 claim、feedback 和 review 进度，已有运行记录会保留在磁盘上。",
+  resetRuntimeStateSuccess: "已从 Server 权威投影重置运行状态。",
+  runtimeResetForbidden: "你没有权限重置此画布的运行状态。",
+  runtimeResetHostOffline: "执行设备当前离线。请重新连接设备后再重试。",
+  runtimeResetActiveLease: "仍有运行任务未结束。请先停止当前运行，等待状态稳定后再重试。",
+  runtimeResetSourceDrift: "重置完成前画布内容已发生变化。请刷新画布后重试。",
+  runtimeResetPersistFailed: "Server 无法保存重置请求，当前未报告成功。请稍后重试。",
+  runtimeResetReconcileRequired: "重置结果仍在确认中。请保持画布打开并重试以完成对账。",
+  runtimeResetUnavailable: "当前无法重置运行状态。请检查执行设备连接后重试。",
+  runtimeResetConflict: "另一个运行状态重置正在处理中。请等待完成后重试。",
+  runtimeResetInvalidRequest: "重置请求无效。请刷新画布后重试。",
+  runtimeResetProjectionPostconditionFailed:
+    "重置已执行，但 Server 权威运行视图尚未更新。请刷新后重试。",
   stopAutoRunBeforeReset: "请先停止 Auto Run，并等待当前 step 结束后再重置运行状态。",
   miniRunPanel: "运行面板",
   todo: "Todo",

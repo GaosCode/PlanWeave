@@ -4,6 +4,9 @@ import {
   canvasRuntimeJsonValueSchema,
   canvasRuntimeLogicalScopeSchema,
   canvasRuntimeGraphFingerprintSchema,
+  canvasRuntimeResetInputSchema,
+  canvasRuntimeResetResultSchema,
+  canvasRuntimeResetStatusResultSchema,
   canvasRuntimeSourceRevisionSchema,
   type CanvasRuntimeOperation,
   type CanvasRuntimeResponsePayload
@@ -40,7 +43,10 @@ import type {
   CanvasRuntimeScopeAvailabilityPort,
   RuntimeCanvasScope
 } from "./executionRuntimePort.js";
-import { CanvasRuntimeUnavailableError } from "./executionRuntimePort.js";
+import {
+  CanvasRuntimeUnavailableError,
+  CanvasRuntimeResetConflictError
+} from "./executionRuntimePort.js";
 import type { CanvasRuntimeAvailabilityPort } from "./runtimePort.js";
 import { CanvasRuntimeHostLocator } from "./runtimeHostLocator.js";
 import { CanvasRuntimeRpcBroker, CanvasRuntimeRpcError } from "./runtimeRpcBroker.js";
@@ -144,7 +150,11 @@ export class RemoteHostCanvasRuntimeAdapter
   async acquire(scopeInput: RuntimeCanvasScope): Promise<CanvasExecutionRuntimeLease> {
     const scope = canvasRuntimeLogicalScopeSchema.parse(scopeInput);
     const located = this.locator.locate(scope);
-    if (located.kind === "unavailable") throw new CanvasRuntimeUnavailableError();
+    if (located.kind === "unavailable") {
+      throw new CanvasRuntimeUnavailableError(
+        located.reason === "host_offline" ? "host_offline" : "runtime_not_attached"
+      );
+    }
     const attachmentVersion = this.broker.attachmentVersion(located.hostId);
     const response = await this.broker.request(
       located.hostId,
@@ -240,7 +250,88 @@ export class RemoteHostCanvasRuntimeAdapter
         "status",
         canvasRuntimeStatusProjectionSchema
       );
-    return { runtime, artifacts, readStatus, release };
+    const reset = async (command: {
+      operationId: string;
+      expectedSourceRevision: string;
+      expectedGraphFingerprint: string;
+      reason?: string;
+    }) => {
+      const response = await call({
+        operation: "reset",
+        runtimeLeaseId,
+        evidence: {
+          operationId: command.operationId,
+          sourceRevision: canvasRuntimeSourceRevisionSchema.parse(command.expectedSourceRevision),
+          graphFingerprint: canvasRuntimeGraphFingerprintSchema.parse(
+            command.expectedGraphFingerprint
+          )
+        },
+        input: canvasRuntimeResetInputSchema.parse({
+          operationId: command.operationId,
+          sourceRevision: command.expectedSourceRevision,
+          graphFingerprint: command.expectedGraphFingerprint,
+          ...(command.reason ? { reason: command.reason } : {})
+        })
+      });
+      if (response.outcome === "error") {
+        if (response.error.code === "content_out_of_sync") {
+          throw new CanvasRuntimeResetConflictError("source_drift");
+        }
+        if (response.error.code === "active_lease") {
+          throw new CanvasRuntimeResetConflictError("active_lease");
+        }
+        throw responseError(response);
+      }
+      if (response.operation !== "reset") {
+        throw new Error("canvas_runtime_response_operation_mismatch");
+      }
+      const result = canvasRuntimeResetResultSchema.parse(response.result);
+      return {
+        operationId: result.operationId,
+        sourceRevision: result.sourceRevision,
+        graphFingerprint: result.graphFingerprint,
+        status: canvasRuntimeStatusProjectionSchema.parse(result.status)
+      };
+    };
+    return { runtime, artifacts, readStatus, reset, release };
+  }
+
+  async reconcileReset(
+    scopeInput: RuntimeCanvasScope,
+    command: {
+      operationId: string;
+      expectedSourceRevision: string;
+      expectedGraphFingerprint: string;
+      reason?: string;
+    }
+  ) {
+    const scope = canvasRuntimeLogicalScopeSchema.parse(scopeInput);
+    const located = this.locator.locate(scope);
+    if (located.kind === "unavailable") {
+      throw new CanvasRuntimeUnavailableError(
+        located.reason === "host_offline" ? "host_offline" : "runtime_not_attached"
+      );
+    }
+    const response = await this.broker.request(located.hostId, scope, {
+      operation: "reset_status",
+      operationId: command.operationId
+    });
+    if (response.outcome === "error") throw responseError(response);
+    if (response.operation !== "reset_status") {
+      throw new Error("canvas_runtime_response_operation_mismatch");
+    }
+    const result = canvasRuntimeResetStatusResultSchema.parse(response.result);
+    if (result.kind !== "succeeded") return result;
+    const reset = canvasRuntimeResetResultSchema.parse(result.result);
+    return {
+      kind: "succeeded" as const,
+      result: {
+        operationId: reset.operationId,
+        sourceRevision: reset.sourceRevision,
+        graphFingerprint: reset.graphFingerprint,
+        status: canvasRuntimeStatusProjectionSchema.parse(reset.status)
+      }
+    };
   }
 
   private createRuntimePort(
@@ -423,6 +514,19 @@ export class LocalFirstCanvasRuntimeRouter
     return Promise.reject(new CanvasRuntimeUnavailableError());
   }
 
+  reconcileReset(
+    scope: RuntimeCanvasScope,
+    command: Parameters<NonNullable<CanvasExecutionRuntimeLeasePort["reconcileReset"]>>[1]
+  ) {
+    if (this.localScopes.hasRuntimeScope(scope)) {
+      const reconcile = this.localLeases.reconcileReset;
+      if (!reconcile) return Promise.resolve({ kind: "not_found" as const });
+      return reconcile.call(this.localLeases, scope, command);
+    }
+    if (this.remote) return this.remote.reconcileReset(scope, command);
+    return Promise.reject(new CanvasRuntimeUnavailableError());
+  }
+
   hasRuntimeScope(scope: RuntimeCanvasScope): boolean {
     return this.localScopes.hasRuntimeScope(scope) || this.remote?.hasRuntimeScope(scope) === true;
   }
@@ -452,6 +556,19 @@ export class LocalFirstCanvasExecutionRuntimeRouter implements CanvasExecutionRu
       return Promise.resolve(this.localLeases.acquire(scope));
     }
     if (this.remote) return this.remote.acquire(scope);
+    return Promise.reject(new CanvasRuntimeUnavailableError());
+  }
+
+  reconcileReset(
+    scope: RuntimeCanvasScope,
+    command: Parameters<NonNullable<CanvasExecutionRuntimeLeasePort["reconcileReset"]>>[1]
+  ) {
+    if (this.localScopes.hasRuntimeScope(scope)) {
+      const reconcile = this.localLeases.reconcileReset;
+      if (!reconcile) return Promise.resolve({ kind: "not_found" as const });
+      return reconcile.call(this.localLeases, scope, command);
+    }
+    if (this.remote) return this.remote.reconcileReset(scope, command);
     return Promise.reject(new CanvasRuntimeUnavailableError());
   }
 }

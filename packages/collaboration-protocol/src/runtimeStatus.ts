@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { COLLABORATION_REVISION_MAX } from "./limits.js";
 import { canvasScopeRefSchema, timestampSchema } from "./primitives.js";
 
 export const canvasRuntimeStatusSchemaVersion = "canvas-runtime-status/v2" as const;
@@ -21,6 +22,12 @@ export const canvasRuntimeBlockStatuses = [
 const runtimeIdentitySchema = z.string().trim().min(1).max(256);
 export const canvasRuntimePackageFingerprintSchema = z.string().regex(/^pkg-[a-f0-9]{64}$/);
 export type CanvasRuntimePackageFingerprint = z.infer<typeof canvasRuntimePackageFingerprintSchema>;
+export const canvasRuntimeRevisionSchema = z
+  .number()
+  .int()
+  .positive()
+  .max(COLLABORATION_REVISION_MAX);
+export type CanvasRuntimeRevision = z.infer<typeof canvasRuntimeRevisionSchema>;
 const taskStatusSchema = z
   .object({
     taskId: runtimeIdentitySchema,
@@ -61,3 +68,11 @@ export const canvasRuntimeStatusProjectionSchema = z
   });
 
 export type CanvasRuntimeStatusProjection = z.infer<typeof canvasRuntimeStatusProjectionSchema>;
+
+export const canvasRuntimeStatusSnapshotSchema = z
+  .object({
+    runtimeRevision: canvasRuntimeRevisionSchema,
+    status: canvasRuntimeStatusProjectionSchema
+  })
+  .strict();
+export type CanvasRuntimeStatusSnapshot = z.infer<typeof canvasRuntimeStatusSnapshotSchema>;

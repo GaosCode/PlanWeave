@@ -828,6 +828,10 @@ export class CollaborationService {
     return this.canvasOperations.readRuntimeAvailability(input);
   }
 
+  async resetWorkspaceCanvasRuntime(input: unknown) {
+    return this.canvasOperations.resetWorkspaceRuntime(input);
+  }
+
   async importLocalCanvasRuntimeStatus(input: unknown) {
     return this.canvasOperations.importLocalRuntimeStatus(input);
   }

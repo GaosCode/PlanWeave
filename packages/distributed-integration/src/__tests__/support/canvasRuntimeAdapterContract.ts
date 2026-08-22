@@ -14,6 +14,7 @@ export type CanvasRuntimeAdapterContractFixture = {
   detach(): void | Promise<void>;
   releaseDelegateCalls(): number;
   sourceDriftError: Readonly<Record<string, unknown>>;
+  resetDriftError: Readonly<Record<string, unknown>>;
   unavailableAcquireError: Readonly<Record<string, unknown>>;
   close(): void | Promise<void>;
 };
@@ -66,6 +67,27 @@ export function registerCanvasRuntimeAdapterContract(
             claimInput(candidate, changedSourceRevision(candidate.sourceRevision))
           )
         ).rejects.toMatchObject(fixture.sourceDriftError);
+
+        if (!lease.reset) throw new Error("contract_runtime_reset_unavailable");
+        await expect(
+          lease.reset({
+            operationId: "operation-contract-reset-drift",
+            expectedSourceRevision: availability.sourceRevision,
+            expectedGraphFingerprint: `pkg-${"f".repeat(64)}`
+          })
+        ).rejects.toMatchObject(fixture.resetDriftError);
+        const reset = await lease.reset({
+          operationId: "operation-contract-reset",
+          expectedSourceRevision: availability.sourceRevision,
+          expectedGraphFingerprint: availability.graphFingerprint,
+          reason: "Canvas Runtime adapter contract reset."
+        });
+        expect(reset).toMatchObject({
+          operationId: "operation-contract-reset",
+          sourceRevision: availability.sourceRevision,
+          graphFingerprint: availability.graphFingerprint,
+          status: { scope: fixture.scope, packageFingerprint: availability.graphFingerprint }
+        });
 
         await lease.release();
         await lease.release();

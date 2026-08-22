@@ -56,6 +56,12 @@ export {
 } from "./runtimeAvailabilityService.js";
 export { CanvasRuntimeStatusRepository } from "./runtimeStatusRepository.js";
 export {
+  CanvasRuntimeCommandCoordinator,
+  CanvasRuntimeResetError,
+  type CanvasRuntimeCommandCoordinatorOptions
+} from "./runtimeCommandCoordinator.js";
+export { CanvasRuntimeResetReceiptRepository } from "./runtimeCommandReceipts.js";
+export {
   AuthoritativeExecutionRuntimeAdapter,
   type AuthoritativeExecutionRuntimeAdapterOptions,
   type CanvasRuntimeStatusExecutionStore

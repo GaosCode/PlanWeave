@@ -84,6 +84,25 @@ const feedbackEnvelopeSchema = z
   })
   .strict();
 
+export const runtimeResetReceiptSchema = z
+  .object({
+    operationId: z
+      .string()
+      .trim()
+      .min(1)
+      .max(128)
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/),
+    sourceRevision: z
+      .string()
+      .trim()
+      .min(1)
+      .max(256)
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/),
+    graphFingerprint: z.string().regex(/^pkg-[a-f0-9]{64}$/),
+    committedAt: z.string().datetime({ offset: true })
+  })
+  .strict();
+
 /**
  * Runtime validation for on-disk `state.json`.
  * Hand-written `RuntimeState` remains the TS source of truth; this schema must stay aligned
@@ -96,6 +115,7 @@ export const runtimeStateSchema = z
     currentReviewBlockRef: z.string().nullable(),
     tasks: z.record(z.string(), taskStateSchema),
     blocks: z.record(z.string(), blockStateSchema),
-    feedback: z.record(z.string(), feedbackEnvelopeSchema)
+    feedback: z.record(z.string(), feedbackEnvelopeSchema),
+    lastResetReceipt: runtimeResetReceiptSchema.optional()
   })
   .strict() satisfies z.ZodType<RuntimeState>;

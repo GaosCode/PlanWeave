@@ -20,6 +20,6 @@ export type {
   PrunePlanItem,
   PrunePlanItemKind
 } from "./retention.js";
-export { resetRuntimeState } from "./reset.js";
+export { readRuntimeResetReceipt, resetRuntimeState } from "./reset.js";
 export { runWithSession } from "./runWithSession.js";
 export type * from "./types.js";

@@ -28,7 +28,7 @@ describe("canvas runtime availability", () => {
   it("keeps authoritative state when the execution device is unavailable", () => {
     const parsed = canvasRuntimeAvailabilitySchema.parse({
       schemaVersion: "canvas-runtime-view/v1",
-      state: { kind: "initialized", status },
+      state: { kind: "initialized", runtimeRevision: 1, status },
       execution: {
         schemaVersion: "canvas-runtime-availability/v1",
         kind: "unavailable",
@@ -38,7 +38,7 @@ describe("canvas runtime availability", () => {
       }
     });
 
-    expect(parsed.state.kind).toBe("initialized");
+    expect(parsed.state).toMatchObject({ kind: "initialized", runtimeRevision: 1 });
     expect(parsed.execution.kind).toBe("unavailable");
   });
 
