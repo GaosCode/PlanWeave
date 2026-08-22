@@ -12,8 +12,7 @@ export function useWorkspaceCollaborationRuntimeAvailability(input: {
   binding: CollaborationCanvasBindingInput | null;
   refreshRevision?: number;
 }) {
-  const collaborationAuthorityApplies =
-    input.binding?.kind === "remote" || input.sharedAuthorityMode === "shared";
+  const collaborationAuthorityApplies = input.binding?.kind === "remote";
   return useCollaborationRuntimeAvailability({
     enabled: Boolean(input.binding) && collaborationAuthorityApplies,
     sessionConnected: input.sessionConnected,

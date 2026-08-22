@@ -91,7 +91,8 @@ const available = {
 function api(read = vi.fn().mockResolvedValue(available)) {
   return {
     readCollaborationCanvasBindingRuntimeAvailability: read,
-    resolveCollaborationCanvasBindingScope: vi.fn().mockResolvedValue(scope)
+    resolveCollaborationCanvasBindingScope: vi.fn().mockResolvedValue(scope),
+    onCollaborationObserverSignal: vi.fn(() => () => undefined)
   };
 }
 
@@ -105,7 +106,7 @@ function hookInput(
     sessionConnected: true,
     profileId: "profile-1",
     activeProjectId: "remote-project",
-    binding: { kind: "local" as const, localProjectId: "local-replica", canvasId: "default" },
+    binding: { kind: "remote" as const, ...scope },
     graph: graphWithBlock,
     api: defaultApi,
     ...override
@@ -243,6 +244,33 @@ describe("collaboration runtime availability", () => {
     ).not.toHaveBeenCalled();
   });
 
+  it("does not read a Workspace Runtime through a different active connection profile", async () => {
+    const { result } = renderHook(() =>
+      useWorkspaceRuntimeState({
+        activeProfileId: "profile-other-origin",
+        activeProjectId: scope.projectId,
+        graph: graphWithBlock,
+        sessionConnected: true,
+        binding: { kind: "remote", ...scope },
+        locator: { kind: "workspace", connectionProfileId: "profile-1", ...scope },
+        sharedAuthorityMode: "shared",
+        setError: vi.fn(),
+        setSuccessMessage: vi.fn(),
+        t: createTranslator("en")
+      })
+    );
+    await settle();
+
+    expect(result.current.availability).toEqual({
+      kind: "error",
+      message: "collaboration_runtime_scope_unavailable"
+    });
+    expect(collaborationBridge.resolveCollaborationCanvasBindingScope).not.toHaveBeenCalled();
+    expect(
+      collaborationBridge.readCollaborationCanvasBindingRuntimeAvailability
+    ).not.toHaveBeenCalled();
+  });
+
   it("queries Workspace Runtime for a remote canvas even while command scope is still resolving", async () => {
     collaborationBridge.resolveCollaborationCanvasBindingScope.mockResolvedValue(scope);
     collaborationBridge.readCollaborationCanvasBindingRuntimeAvailability.mockResolvedValue(
@@ -284,11 +312,7 @@ describe("collaboration runtime availability", () => {
     expect(result.current.graph?.tasks[0]?.blocks[0]?.status).toBe("completed");
   });
 
-  it("queries Workspace Runtime for a local replica after shared authority is resolved", async () => {
-    collaborationBridge.resolveCollaborationCanvasBindingScope.mockResolvedValue(scope);
-    collaborationBridge.readCollaborationCanvasBindingRuntimeAvailability.mockResolvedValue(
-      available
-    );
+  it("does not query Workspace Runtime for a local replica even if legacy authority says shared", async () => {
     const { result } = renderHook(() =>
       useWorkspaceCollaborationRuntimeAvailability({
         activeProfileId: "profile-1",
@@ -301,20 +325,12 @@ describe("collaboration runtime availability", () => {
     );
     await settle();
 
-    expect(collaborationBridge.resolveCollaborationCanvasBindingScope).toHaveBeenCalledWith({
-      kind: "local",
-      localProjectId: "local-replica",
-      canvasId: "default"
-    });
+    expect(result.current.availability).toEqual({ kind: "not_applicable" });
+    expect(result.current.graph).toBe(graphWithBlock);
+    expect(collaborationBridge.resolveCollaborationCanvasBindingScope).not.toHaveBeenCalled();
     expect(
       collaborationBridge.readCollaborationCanvasBindingRuntimeAvailability
-    ).toHaveBeenCalledWith({
-      kind: "local",
-      localProjectId: "local-replica",
-      canvasId: "default"
-    });
-    expect(result.current.availability).toEqual({ kind: "available" });
-    expect(result.current.graph?.tasks[0]?.status).toBe("implemented");
+    ).not.toHaveBeenCalled();
   });
 
   it("keeps a pure remote canvas under collaboration authority before command scope resolves", () => {
@@ -373,6 +389,7 @@ describe("collaboration runtime availability", () => {
 
     expect(bridge.resolveCollaborationCanvasBindingScope).not.toHaveBeenCalled();
     expect(bridge.readCollaborationCanvasBindingRuntimeAvailability).not.toHaveBeenCalled();
+    expect(bridge.onCollaborationObserverSignal).not.toHaveBeenCalled();
     expect(result.current.availability).toEqual({ kind: "not_applicable" });
     expect(result.current.graph).toBe(graphWithBlock);
     expect(result.current.graph?.tasks[0]?.blocks[0]?.dispatchable).toBe(true);

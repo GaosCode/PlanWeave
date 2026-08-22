@@ -257,6 +257,7 @@
         "useCanvasMapHook.test.tsx",
         "useCollaborationCanvasPresence.test.tsx",
         "useCollaborationRuntimeAvailability.test.tsx",
+        "useCollaborationRuntimeObserverRefresh.test.tsx",
         "useCurrentCanvasAccess.test.tsx",
         "useWorkspaceAccessScope.test.tsx",
         "verticalResizeHandle.test.tsx",

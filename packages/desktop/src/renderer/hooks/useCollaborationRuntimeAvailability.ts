@@ -4,8 +4,10 @@ import type { CanvasRuntimeStatusProjection } from "@planweave-ai/collaboration-
 import type { DesktopGraphViewModel } from "@planweave-ai/runtime";
 import type {
   CollaborationCanvasBindingInput,
+  CollaborationStatus,
   PlanWeaveCollaborationApi
 } from "../../shared/collaboration";
+import type { CollaborationObserverSignal } from "../../shared/collaborationReadModels";
 import { collaborationBridge } from "../bridge";
 import type { CollaborationRuntimeAvailabilityView } from "../collaboration/runtimeAvailabilityView";
 
@@ -14,7 +16,13 @@ export const COLLABORATION_RUNTIME_AVAILABILITY_POLL_MS = 3_000;
 export type CollaborationRuntimeAvailabilityBridge = Pick<
   PlanWeaveCollaborationApi,
   "readCollaborationCanvasBindingRuntimeAvailability" | "resolveCollaborationCanvasBindingScope"
->;
+> &
+  Partial<
+    Pick<
+      PlanWeaveCollaborationApi,
+      "onCollaborationObserverSignal" | "onCollaborationStatusChanged"
+    >
+  >;
 
 type ResolvedCanvasIdentity = {
   profileId: string;
@@ -23,6 +31,8 @@ type ResolvedCanvasIdentity = {
   remoteProjectId: string;
   remoteCanvasId: string;
 };
+
+type RemoteCanvasBinding = Extract<CollaborationCanvasBindingInput, { kind: "remote" }>;
 
 type RemoteAvailabilityState =
   | { kind: "checking" }
@@ -56,6 +66,19 @@ function matchesResolvedCanvas(
     status.scope.workspaceId === identity.remoteWorkspaceId &&
     status.scope.projectId === identity.remoteProjectId &&
     status.scope.canvasId === identity.remoteCanvasId
+  );
+}
+
+function runtimeRevision(availability: CanvasRuntimeAvailability): number {
+  return availability.state.kind === "initialized" ? availability.state.runtimeRevision : 0;
+}
+
+function observerTransportAvailable(status: CollaborationStatus, profileId: string): boolean {
+  return (
+    status.activeProfileId === profileId &&
+    status.session.phase === "connected" &&
+    (status.session.detail === "observer:connected" ||
+      status.session.detail === "observer:catching_up")
   );
 }
 
@@ -159,18 +182,16 @@ export function useCollaborationRuntimeAvailability(input: {
       ? input.binding.localProjectId
       : (input.binding?.projectId ?? null);
   const bindingCanvasId = input.binding?.canvasId ?? null;
-  const binding = useMemo<CollaborationCanvasBindingInput | null>(
+  const binding = useMemo<RemoteCanvasBinding | null>(
     () =>
-      bindingKind === "local" && bindingProjectId && bindingCanvasId
-        ? { kind: "local", localProjectId: bindingProjectId, canvasId: bindingCanvasId }
-        : bindingKind === "remote" && bindingWorkspaceId && bindingProjectId && bindingCanvasId
-          ? {
-              kind: "remote",
-              workspaceId: bindingWorkspaceId,
-              projectId: bindingProjectId,
-              canvasId: bindingCanvasId
-            }
-          : null,
+      bindingKind === "remote" && bindingWorkspaceId && bindingProjectId && bindingCanvasId
+        ? {
+            kind: "remote",
+            workspaceId: bindingWorkspaceId,
+            projectId: bindingProjectId,
+            canvasId: bindingCanvasId
+          }
+        : null,
     [bindingCanvasId, bindingKind, bindingProjectId, bindingWorkspaceId]
   );
   const bindingIdentity = binding ? JSON.stringify(binding) : null;
@@ -195,13 +216,62 @@ export function useCollaborationRuntimeAvailability(input: {
     const activeProjectId = input.activeProjectId;
     let active = true;
     let inFlight = false;
+    let inFlightRevision = 0;
+    let pendingRevision = 0;
+    let pendingRefresh = true;
+    let invalidationVersion = 0;
+    let runtimeHighWater = 0;
+    let observerAvailable = false;
+    let recovering = false;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
     let identity: ResolvedCanvasIdentity | null = null;
     setRemoteState({ kind: "checking" });
 
+    const stopFallbackPolling = () => {
+      if (intervalId === null) return;
+      clearInterval(intervalId);
+      intervalId = null;
+    };
+
+    const requestRefresh = (options: { revision?: number; recovery?: boolean } = {}) => {
+      if (!active) return;
+      const revision = options.revision ?? 0;
+      if (revision > Math.max(runtimeHighWater, pendingRevision, inFlightRevision)) {
+        pendingRevision = revision;
+        invalidationVersion += 1;
+      }
+      if (options.recovery && (!recovering || (!inFlight && !pendingRefresh))) {
+        recovering = true;
+        pendingRefresh = true;
+        invalidationVersion += 1;
+      }
+      void refresh();
+    };
+
+    const startFallbackPolling = () => {
+      if (intervalId !== null) return;
+      intervalId = setInterval(() => {
+        pendingRefresh = true;
+        invalidationVersion += 1;
+        void refresh();
+      }, COLLABORATION_RUNTIME_AVAILABILITY_POLL_MS);
+    };
+
+    const updateFallbackPolling = () => {
+      if (observerAvailable && !recovering) stopFallbackPolling();
+      else startFallbackPolling();
+    };
+
     const refresh = async () => {
       if (!active || inFlight || !identity) return;
+      const targetRevision = pendingRevision;
+      const forceRefresh = pendingRefresh;
+      if (!forceRefresh && targetRevision <= runtimeHighWater) return;
       const currentIdentity = identity;
+      const refreshVersion = invalidationVersion;
       inFlight = true;
+      inFlightRevision = targetRevision;
+      pendingRefresh = false;
       try {
         const next = await api.readCollaborationCanvasBindingRuntimeAvailability(binding);
         if (!active) return;
@@ -218,20 +288,83 @@ export function useCollaborationRuntimeAvailability(input: {
         ) {
           setRemoteState({ kind: "error", message: "collaboration_runtime_scope_mismatch" });
         } else {
+          const authoritativeRevision = runtimeRevision(next);
+          runtimeHighWater = Math.max(runtimeHighWater, authoritativeRevision);
+          if (pendingRevision <= runtimeHighWater) pendingRevision = 0;
           setRemoteState({ kind: "ready", identity: currentIdentity, availability: next });
+          if (
+            recovering &&
+            authoritativeRevision >= targetRevision &&
+            refreshVersion === invalidationVersion
+          ) {
+            recovering = false;
+          } else if (authoritativeRevision < targetRevision) {
+            recovering = true;
+          }
         }
       } catch (caught) {
-        if (active) setRemoteState({ kind: "error", message: errorMessage(caught) });
+        if (active) {
+          recovering = true;
+          setRemoteState({ kind: "error", message: errorMessage(caught) });
+        }
       } finally {
         inFlight = false;
+        inFlightRevision = 0;
+        updateFallbackPolling();
+        if (active && invalidationVersion !== refreshVersion) {
+          void refresh();
+        }
       }
     };
+
+    const handleObserverSignal = (signal: CollaborationObserverSignal) => {
+      if (
+        signal.profileId !== profileId ||
+        signal.projectId !== activeProjectId ||
+        binding.projectId !== activeProjectId
+      ) {
+        return;
+      }
+      if (signal.type === "human.observer.cursor") {
+        observerAvailable = true;
+        recovering = false;
+        updateFallbackPolling();
+        return;
+      }
+      if (signal.type === "human.observer.catchup_required") {
+        observerAvailable = true;
+        requestRefresh({ recovery: true });
+        updateFallbackPolling();
+        return;
+      }
+      if (
+        signal.event.kind !== "runtime" ||
+        signal.event.canvasId !== binding.canvasId ||
+        signal.event.runtimeRevision === undefined
+      ) {
+        return;
+      }
+      observerAvailable = true;
+      requestRefresh({ revision: signal.event.runtimeRevision });
+      updateFallbackPolling();
+    };
+
+    const unsubscribeObserver = api.onCollaborationObserverSignal?.(handleObserverSignal);
+    const unsubscribeStatus = api.onCollaborationStatusChanged?.((status) => {
+      observerAvailable = observerTransportAvailable(status, profileId);
+      updateFallbackPolling();
+    });
 
     void api
       .resolveCollaborationCanvasBindingScope(binding)
       .then((resolved) => {
         if (!active) return;
-        if (!resolved || resolved.projectId !== activeProjectId) {
+        if (
+          !resolved ||
+          resolved.workspaceId !== binding.workspaceId ||
+          resolved.projectId !== activeProjectId ||
+          resolved.canvasId !== binding.canvasId
+        ) {
           setRemoteState({ kind: "error", message: "collaboration_runtime_scope_unavailable" });
           return;
         }
@@ -247,13 +380,12 @@ export function useCollaborationRuntimeAvailability(input: {
       .catch((caught: unknown) => {
         if (active) setRemoteState({ kind: "error", message: errorMessage(caught) });
       });
-    const intervalId = setInterval(
-      () => void refresh(),
-      COLLABORATION_RUNTIME_AVAILABILITY_POLL_MS
-    );
+    updateFallbackPolling();
     return () => {
       active = false;
-      clearInterval(intervalId);
+      stopFallbackPolling();
+      unsubscribeObserver?.();
+      unsubscribeStatus?.();
     };
   }, [
     api,

@@ -34,7 +34,11 @@ export function useWorkspaceRuntimeState(input: {
     };
   } | null>(null);
   const runtime = useWorkspaceCollaborationRuntimeAvailability({
-    activeProfileId: input.activeProfileId,
+    activeProfileId:
+      input.locator?.kind === "workspace" &&
+      input.locator.connectionProfileId === input.activeProfileId
+        ? input.activeProfileId
+        : null,
     activeProjectId: input.activeProjectId,
     graph: input.graph,
     sessionConnected: input.sessionConnected,
