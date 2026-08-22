@@ -52,11 +52,22 @@ function documentFixture(): CanvasReplicaDocument {
 
 const baseScope: CanvasReplicaScope = {
   authorityId: "authority-a",
-  localProjectId: "local-project",
-  localCanvasId: "local-canvas",
   projectId: "project-authority",
   canvasId: "default",
   workspaceId: "workspace-authority"
+};
+
+const workspaceLocator = {
+  kind: "remote" as const,
+  workspaceId: baseScope.workspaceId,
+  projectId: baseScope.projectId,
+  canvasId: baseScope.canvasId
+};
+
+const resolvedWorkspaceBinding = {
+  ...workspaceLocator,
+  remoteProjectId: baseScope.projectId,
+  remoteCanvasId: baseScope.canvasId
 };
 
 function layoutIntent(x: number, updatedAt: string): CanvasCommandIntent {
@@ -234,8 +245,8 @@ async function bindWorker(options?: {
   };
 }
 
-describe("Canvas replica live broadcast (Phase 5B)", () => {
-  it("applies a remote accepted move_node/update_layout into the local projection without reload", async () => {
+describe("Workspace canvas live broadcast (Phase 5B)", () => {
+  it("applies a remote accepted move_node/update_layout into the Workspace projection without reload", async () => {
     const harness = await bindWorker();
     const entry = harness.advanceRemote(
       layoutIntent(99, "2026-08-02T12:01:00.000Z"),
@@ -422,7 +433,7 @@ describe("Canvas replica live broadcast (Phase 5B)", () => {
           snapshotContent: snapContent
         };
       }
-      // Delta path fails materialization so installReconnect upgrades to snapshot.
+      // The delta cannot be applied, so reconnect upgrades to the authoritative snapshot.
       return {
         response: {
           type: "canvas.reconnect.delta",
@@ -442,7 +453,7 @@ describe("Canvas replica live broadcast (Phase 5B)", () => {
     };
 
     await harness.worker.applyLiveEntry(baseScope, gapEntry);
-    // Never published the unmaterializable gap digest as committed head.
+    // Never published the unapplied gap digest as the committed head.
     expect(harness.published.some((p) => p.contentDigest === "a".repeat(64))).toBe(false);
     expect(storeSpy.revision(baseScope)).toBe(3);
     expect(storeSpy.digest(baseScope)).toBe(snapContent.canonicalDigest);
@@ -480,7 +491,7 @@ describe("Canvas replica live broadcast (Phase 5B)", () => {
     );
   });
 
-  it("returns recovered materialized head for cursor jump without entry confirmation", async () => {
+  it("returns the recovered snapshot head for cursor jump without entry confirmation", async () => {
     const harness = await bindWorker();
     const gapEntry = journalEntry({
       revision: 5,
@@ -516,14 +527,14 @@ describe("Canvas replica live broadcast (Phase 5B)", () => {
       };
     };
     const result = await harness.worker.applyLiveEntry(baseScope, gapEntry);
-    // Recovery installed a snapshot: entry not confirmed, but head is materialised for cursor.
+    // Recovery installed a snapshot: the entry is not confirmed, but the snapshot head advances the cursor.
     expect(result.entryApplied).toBe(false);
     expect(result.reason).toBe("recovered");
     expect(result.materializedHead?.revision).toBe(5);
     expect(harness.store.revision(baseScope)).toBe(5);
   });
 
-  it("real facade recovery advances live cursor from revision 1 to materialized head 5", async () => {
+  it("real facade recovery advances the live cursor to recovered snapshot head 5", async () => {
     // Production path: CollaborationCanvasCommandFacade.startLiveSubscription →
     // worker.applyLiveEntry (gap) → recovered head → acknowledgeLiveSyncMaterializedHead.
     // Must instantiate the real facade — hand-copied branch tables would pass even if wiring is wrong.
@@ -580,7 +591,7 @@ describe("Canvas replica live broadcast (Phase 5B)", () => {
             snapshotContent: snapContent
           };
         }
-        // Gap delta cannot materialize — installReconnect upgrades to snapshot head 5.
+        // The gap delta cannot be applied, so reconnect upgrades to snapshot head 5.
         return {
           response: {
             type: "canvas.reconnect.delta",
@@ -684,13 +695,7 @@ describe("Canvas replica live broadcast (Phase 5B)", () => {
 
     const facade = new CollaborationCanvasCommandFacade({
       resolveClient: () => client,
-      resolveCanvasBinding: async () => ({
-        kind: "local" as const,
-        localProjectId: baseScope.localProjectId,
-        canvasId: baseScope.localCanvasId,
-        remoteProjectId: baseScope.projectId,
-        remoteCanvasId: baseScope.canvasId
-      }),
+      resolveCanvasBinding: async () => resolvedWorkspaceBinding,
       resolveCanvasScope: async () => ({
         workspaceId: baseScope.workspaceId,
         projectId: baseScope.projectId,
@@ -701,11 +706,7 @@ describe("Canvas replica live broadcast (Phase 5B)", () => {
       transport
     });
 
-    await facade.bind({
-      kind: "local",
-      localProjectId: baseScope.localProjectId,
-      canvasId: baseScope.localCanvasId
-    });
+    await facade.bind(workspaceLocator);
     // Yield so CanvasLiveSyncClient async connect creates the socket.
     await Promise.resolve();
     await Promise.resolve();
@@ -748,7 +749,7 @@ describe("Canvas replica live broadcast (Phase 5B)", () => {
         canvasId: baseScope.canvasId
       })
     ).toBe(5);
-    // Strict +1 would have ignored 1 → 5; only materialized-head ack advances here.
+    // Strict +1 would have ignored 1 → 5; only the recovered snapshot acknowledgement advances here.
     facade.clearAllSessions();
   });
 
