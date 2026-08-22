@@ -618,4 +618,45 @@ describe("ProjectWorkspaceProvider startup authority", () => {
     await waitFor(() => expect(current?.shell.selectedProject?.projectId).toBe(project.projectId));
     expect(Reflect.has(bridges.collaboration.target, "openWorkspaceCanvasSession")).toBe(false);
   });
+
+  it("refreshes the Server-authorized canvas catalog with the Local project catalog", async () => {
+    bridges.status.current = {
+      activeProfileId: locator.connectionProfileId,
+      profiles: [{ profileId: locator.connectionProfileId, projectId: locator.projectId }],
+      session: { phase: "connected" }
+    };
+    bridges.collaboration.target.listCollaborationAuthorizedProjects = vi
+      .fn()
+      .mockResolvedValue({ items: [], nextCursor: null });
+    bridges.collaboration.target.listCollaborationAuthorizedCanvases = vi
+      .fn()
+      .mockResolvedValue({ items: [], nextCursor: null });
+    let current: ProjectWorkspaceValue | null = null;
+    render(
+      <ProviderHarness
+        initialSettings={{ ...workspaceSettings(), lastOpenedWorkspaceLocator: null }}
+        onSettings={vi.fn()}
+        onValue={(value) => {
+          current = value;
+        }}
+      />
+    );
+
+    await waitFor(() =>
+      expect(
+        bridges.collaboration.target.listCollaborationAuthorizedCanvases
+      ).toHaveBeenCalledOnce()
+    );
+    vi.mocked(bridges.desktop.target.listProjects).mockClear();
+    vi.mocked(bridges.collaboration.target.listCollaborationAuthorizedProjects).mockClear();
+    vi.mocked(bridges.collaboration.target.listCollaborationAuthorizedCanvases).mockClear();
+
+    await act(async () => {
+      await current?.projectSidebar.handleRefreshProjects();
+    });
+
+    expect(bridges.desktop.target.listProjects).toHaveBeenCalledOnce();
+    expect(bridges.collaboration.target.listCollaborationAuthorizedProjects).toHaveBeenCalledOnce();
+    expect(bridges.collaboration.target.listCollaborationAuthorizedCanvases).toHaveBeenCalledOnce();
+  });
 });

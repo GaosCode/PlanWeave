@@ -204,6 +204,10 @@ export function ProjectWorkspaceProvider({
     updateProjectPrompt,
     updateProjectPromptPolicy
   } = desktopProject;
+  const refreshProjectCatalogs = useCallback(
+    async () => Promise.all([refreshProjects(), remoteWorkspace.refresh()]),
+    [refreshProjects, remoteWorkspace.refresh]
+  );
   const ownerControlPlane = useOwnerControlPlaneAvailability();
   const agentEndpointCatalog = useWorkspaceAgentEndpointCatalog({
     agentDetections,
@@ -1106,7 +1110,7 @@ export function ProjectWorkspaceProvider({
       handleCopyCanvasToNewProject,
       handleOpenProject: handleOpenLocalProject,
       handleProjectNewGraph,
-      handleRefreshProjects: refreshProjects,
+      handleRefreshProjects: refreshProjectCatalogs,
       handleCopyCanvasAgentPrompt,
       handleDeleteProject,
       handleDeleteTaskCanvas,
@@ -1169,7 +1173,7 @@ export function ProjectWorkspaceProvider({
       projectRefreshing,
       remoteWorkspace.authorizedCanvases,
       remoteWorkspace.binding,
-      refreshProjects,
+      refreshProjectCatalogs,
       resetLayout,
       selectedCanvasId,
       selectedProject,
