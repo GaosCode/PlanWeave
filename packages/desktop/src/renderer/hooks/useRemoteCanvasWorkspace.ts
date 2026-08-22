@@ -31,6 +31,7 @@ export function useRemoteCanvasWorkspace(
     connectionProfileId?: string | null;
     lastOpenedWorkspaceLocator?: WorkspaceCanvasLocator | null;
     localProjectId?: string | null;
+    onWorkspaceLocatorCleared?: () => void;
     onWorkspaceLocatorOpened?: (locator: WorkspaceCanvasLocator) => void;
     sessionConnected?: boolean;
     api?: CollaborationRegistryReadPort | null;
@@ -82,6 +83,7 @@ export function useRemoteCanvasWorkspace(
     ) {
       setLocator(null);
       setExplicitOpen(false);
+      input.onWorkspaceLocatorCleared?.();
       return;
     }
     if (!sessionConnected) {
@@ -103,7 +105,33 @@ export function useRemoteCanvasWorkspace(
     connectionProfileId,
     explicitOpen,
     input.localProjectId,
+    input.onWorkspaceLocatorCleared,
     locator,
+    registry.phase,
+    sessionConnected
+  ]);
+
+  useEffect(() => {
+    if (!sessionConnected || !persistedLocator || explicitOpen) {
+      return;
+    }
+    const identityMatches =
+      persistedLocator.connectionProfileId === connectionProfileId &&
+      persistedLocator.projectId === activeProjectId;
+    if (
+      !identityMatches ||
+      (registry.phase === "ready" &&
+        !locatorMatchesAuthorizedCanvas(persistedLocator, authorizedCanvases))
+    ) {
+      input.onWorkspaceLocatorCleared?.();
+    }
+  }, [
+    activeProjectId,
+    authorizedCanvases,
+    connectionProfileId,
+    explicitOpen,
+    input.onWorkspaceLocatorCleared,
+    persistedLocator,
     registry.phase,
     sessionConnected
   ]);
@@ -167,7 +195,8 @@ export function useRemoteCanvasWorkspace(
   const clear = useCallback(() => {
     setExplicitOpen(false);
     setLocator(null);
-  }, []);
+    input.onWorkspaceLocatorCleared?.();
+  }, [input.onWorkspaceLocatorCleared]);
 
   return {
     ...registry,

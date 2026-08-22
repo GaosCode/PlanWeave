@@ -22,6 +22,7 @@ import { useDesktopRuntimeSubscriptions } from "./useDesktopRuntimeSubscriptions
 export { resolveProjectCanvasId } from "./useDesktopProjectLoader";
 
 export type UseDesktopProjectArgs = {
+  autoSelectInitialProject?: boolean;
   initialProjectPath?: string;
   setError: (message: string | null) => void;
   settingsHydrated?: boolean;
@@ -30,6 +31,7 @@ export type UseDesktopProjectArgs = {
 };
 
 export function useDesktopProject({
+  autoSelectInitialProject = true,
   initialProjectPath = "",
   setError,
   settingsHydrated = true,
@@ -94,6 +96,7 @@ export function useDesktopProject({
     updateProjectPrompt,
     updateProjectPromptPolicy
   } = useDesktopProjectLoader({
+    autoSelectInitialProject,
     applyDesktopProjectSnapshot,
     clearProjectState,
     currentCanvasRef,

@@ -193,6 +193,7 @@
         "preloadCollaborationCommandBridge.test.ts",
         "projectDoctorSettingsSection.test.tsx",
         "projectSidebarInteractions.test.tsx",
+        "projectWorkspaceProviderAuthority.test.tsx",
         "promptDraftsHook.test.tsx",
         "recordWorkspaceNavigation.test.tsx",
         "recordWorkspaceTarget.test.ts",

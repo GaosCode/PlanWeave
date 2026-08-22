@@ -17,7 +17,6 @@ import type { AppFlowNode } from "./types";
 import { useReviewPipeline } from "./hooks/useReviewPipeline";
 import { useGraphPaletteActions } from "./hooks/useGraphPaletteActions";
 import { useSelectedBlock } from "./hooks/useSelectedBlock";
-import { useDesktopProject } from "./hooks/useDesktopProject";
 import { useDesktopProjectSession } from "./hooks/useDesktopProjectSession";
 import { usePromptDrafts } from "./hooks/usePromptDrafts";
 import { useGraphDeleteActions } from "./hooks/useGraphDeleteActions";
@@ -32,11 +31,7 @@ import { useGraphFlowModel } from "./hooks/useGraphFlowModel";
 import { useGraphHistoryActions } from "./hooks/useGraphHistoryActions";
 import { useSharedResourceHighlight } from "./hooks/useSharedResourceHighlight";
 import { useLerpedNodeDrag } from "./hooks/useLerpedNodeDrag";
-import { useCollaborationSurface } from "./hooks/useCollaborationSurface";
 import { useCollaborationCanvasPresence } from "./hooks/useCollaborationCanvasPresence";
-import { useWorkspaceRuntimeState } from "./hooks/useWorkspaceRuntimeState";
-import { useSharedCanvasCommands } from "./hooks/useSharedCanvasCommands";
-import { canvasReplicaProjectionToDesktopGraph } from "./collaboration/canvasReplicaGraphAdapter";
 import { buildAppSettingsRouteProps } from "./AppSettingsRouteProps";
 import { useAutoRunController, useFileSyncController } from "./controllers/AutoRunController";
 import { useGraphWorkspaceController } from "./controllers/GraphWorkspaceController";
@@ -69,13 +64,7 @@ import type {
   RecordAuthorityTarget,
   TaskWorkspaceNavigationTarget
 } from "./taskWorkspaceNavigation";
-import { collaborationSurfaceCanvasIdForView } from "./collaboration/workspaceCollaborationScope";
-import { useRemoteCanvasWorkspace } from "./hooks/useRemoteCanvasWorkspace";
-import {
-  canvasLocatorToCollaborationBinding,
-  type CanvasLocator,
-  type WorkspaceCanvasLocator
-} from "../shared/canvasLocator";
+import { useProjectWorkspaceAuthority } from "./hooks/useProjectWorkspaceAuthority";
 import type { ProjectWorkspaceShellInput } from "./projectWorkspaceShell";
 export type { ProjectWorkspaceShellInput } from "./projectWorkspaceShell";
 
@@ -164,20 +153,35 @@ export function ProjectWorkspaceProvider({
     enabled: !settings.reducedMotion
   });
 
-  const desktopProject = useDesktopProject({
-    initialProjectPath: settings.runtimePath,
-    setError,
+  const {
+    activeCanvasId,
+    canvasBinding,
+    canvasLocator,
+    collaborationRuntime,
+    collaborationSurface,
+    desktopProject,
+    graph,
+    layout,
+    openWorkspaceCanvasLocator,
+    projectLoadingForAuthority: workspaceProjectLoading,
+    remoteWorkspace,
+    selectRemoteCanvas,
+    sharedCanvasCommands
+  } = useProjectWorkspaceAuthority({
+    activeView,
+    settings,
     settingsHydrated,
+    setActiveView,
+    setError,
+    setSuccessMessage,
     t,
     updateSettings
   });
   const {
     expandedProjectId,
     executionPlan,
-    graph: localGraph,
     graphDiagnostics,
     handleOpenProject,
-    layout: localLayout,
     projects,
     pendingImportRecoveries,
     projectLoading,
@@ -194,110 +198,12 @@ export function ProjectWorkspaceProvider({
     removeProject,
     selectedCanvasId,
     selectedProject,
-    setSelectedCanvasId,
-    setSelectedProject,
     setLayout,
     statistics,
     todoGroups,
     updateProjectPrompt,
     updateProjectPromptPolicy
   } = desktopProject;
-
-  const persistWorkspaceLocator = useCallback(
-    (locator: WorkspaceCanvasLocator) => {
-      updateSettings({ lastOpenedWorkspaceLocator: locator });
-    },
-    [updateSettings]
-  );
-  const remoteWorkspace = useRemoteCanvasWorkspace({
-    lastOpenedWorkspaceLocator: settings.lastOpenedWorkspaceLocator,
-    localProjectId: selectedProject?.projectId,
-    onWorkspaceLocatorOpened: persistWorkspaceLocator
-  });
-  const selectRemoteCanvas = useCallback(
-    (canvas: Parameters<typeof remoteWorkspace.select>[0]) => {
-      setSelectedProject(null);
-      setSelectedCanvasId(null);
-      remoteWorkspace.select(canvas);
-      setActiveView("graph");
-    },
-    [remoteWorkspace.select, setActiveView, setSelectedCanvasId, setSelectedProject]
-  );
-  const openWorkspaceCanvasLocator = useCallback(
-    (locator: WorkspaceCanvasLocator) => {
-      setSelectedProject(null);
-      setSelectedCanvasId(null);
-      remoteWorkspace.openLocator(locator);
-      setActiveView("graph");
-    },
-    [remoteWorkspace.openLocator, setActiveView, setSelectedCanvasId, setSelectedProject]
-  );
-  const canvasLocator = useMemo<CanvasLocator | null>(
-    () =>
-      remoteWorkspace.locator ??
-      (selectedProject && selectedCanvasId
-        ? {
-            kind: "local",
-            projectId: selectedProject.projectId,
-            canvasId: selectedCanvasId
-          }
-        : null),
-    [remoteWorkspace.locator, selectedCanvasId, selectedProject]
-  );
-  const canvasBinding = useMemo(
-    () => (canvasLocator ? canvasLocatorToCollaborationBinding(canvasLocator) : null),
-    [canvasLocator]
-  );
-  const activeCanvasId = canvasLocator?.canvasId ?? selectedCanvasId;
-  const workspaceProjectLoading = canvasLocator?.kind === "workspace" ? false : projectLoading;
-  // Shared canvas command session must be available before any durable package write hooks.
-  const collaborationSurface = useCollaborationSurface({
-    binding: canvasBinding,
-    canvasId: collaborationSurfaceCanvasIdForView(activeView, activeCanvasId),
-    localProjectId: selectedProject?.projectId ?? null,
-    t
-  });
-  const sharedCanvasCommands = useSharedCanvasCommands({
-    api: collaborationBridge,
-    binding: canvasBinding,
-    locator: canvasLocator,
-    // A configured shared project remains read-only while offline; package writers must not
-    // fall through to local direct writes merely because its session disconnected.
-    enabled: canvasBinding !== null || canvasLocator?.kind === "workspace",
-    sessionConnected: collaborationSurface.sessionConnected,
-    profileId: remoteWorkspace.connectionProfileId,
-    activeProjectId: remoteWorkspace.activeProjectId,
-    localOwnerDirectWriteAvailable: collaborationSurface.localOwnerDirectWriteAvailable,
-    t,
-    onAuthoritativeChange: async () => {
-      await refreshProjectDerivedState();
-    }
-  });
-  const replicaGraph = useMemo(
-    () =>
-      sharedCanvasCommands.projection
-        ? canvasReplicaProjectionToDesktopGraph(sharedCanvasCommands.projection, localGraph)
-        : remoteWorkspace.binding
-          ? null
-          : localGraph,
-    [localGraph, remoteWorkspace.binding, sharedCanvasCommands.projection]
-  );
-  const layout =
-    sharedCanvasCommands.projection?.content.layout ??
-    (remoteWorkspace.binding ? null : localLayout);
-  const collaborationRuntime = useWorkspaceRuntimeState({
-    activeProfileId: collaborationSurface.activeProfileId,
-    activeProjectId: collaborationSurface.activeProjectId,
-    graph: replicaGraph,
-    sessionConnected: collaborationSurface.sessionConnected,
-    binding: canvasBinding,
-    locator: canvasLocator,
-    sharedAuthorityMode: sharedCanvasCommands.authorityMode,
-    setError,
-    setSuccessMessage,
-    t
-  });
-  const graph = collaborationRuntime.graph;
   const ownerControlPlane = useOwnerControlPlaneAvailability();
   const agentEndpointCatalog = useWorkspaceAgentEndpointCatalog({
     agentDetections,
@@ -386,6 +292,11 @@ export function ProjectWorkspaceProvider({
     },
     [openProjectInSession, remoteWorkspace.clear]
   );
+  const handleOpenLocalProject = useCallback(async () => {
+    if (await handleOpenProject()) {
+      remoteWorkspace.clear();
+    }
+  }, [handleOpenProject, remoteWorkspace.clear]);
 
   const createLocalProjectFromTaskCanvas = useCallback(
     async (project: DesktopProjectSummary, canvasId: string) => {
@@ -431,7 +342,7 @@ export function ProjectWorkspaceProvider({
     flowInstance,
     graph,
     history: appHistory,
-    openProject: openProjectInSession,
+    openProject: openLocalProject,
     projectLoading,
     projects,
     restoreSelection: restoreTaskWorkspaceSourceSelection,
@@ -1021,7 +932,7 @@ export function ProjectWorkspaceProvider({
     projects: orderedProjects,
     selectedCanvasId,
     selectedProject,
-    loadProject: openProjectInSession,
+    loadProject: openLocalProject,
     setActiveView,
     setError,
     settings,
@@ -1038,7 +949,7 @@ export function ProjectWorkspaceProvider({
     () => ({
       activeView,
       assigneeIndex: collaborationSurface.assigneeIndex,
-      handleOpenProject,
+      handleOpenProject: handleOpenLocalProject,
       handleRevealPathInFinder,
       handleRevealTaskCanvas,
       handleRenameTaskCanvas,
@@ -1061,7 +972,7 @@ export function ProjectWorkspaceProvider({
     [
       activeView,
       collaborationSurface.assigneeIndex,
-      handleOpenProject,
+      handleOpenLocalProject,
       handleRevealPathInFinder,
       handleRevealTaskCanvas,
       handleRenameTaskCanvas,
@@ -1180,7 +1091,7 @@ export function ProjectWorkspaceProvider({
       graph,
       handleBindSourceRoot,
       handleCopyCanvasToNewProject,
-      handleOpenProject,
+      handleOpenProject: handleOpenLocalProject,
       handleProjectNewGraph,
       handleRefreshProjects: refreshProjects,
       handleCopyCanvasAgentPrompt,
@@ -1226,7 +1137,7 @@ export function ProjectWorkspaceProvider({
       handleDeleteTaskNode,
       handleDropSourceRoot,
       handleDuplicateTaskCanvas,
-      handleOpenProject,
+      handleOpenLocalProject,
       handleProjectNewGraph,
       handleRenameProject,
       handleRenameTaskCanvas,

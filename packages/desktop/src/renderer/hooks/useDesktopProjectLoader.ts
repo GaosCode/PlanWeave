@@ -22,6 +22,7 @@ import type {
 } from "./useDesktopProjectSnapshot";
 
 type UseDesktopProjectLoaderArgs = {
+  autoSelectInitialProject: boolean;
   applyDesktopProjectSnapshot: (
     snapshot: DesktopProjectSnapshot,
     options?: ApplyDesktopProjectSnapshotOptions
@@ -72,6 +73,7 @@ function errorMessage(caught: unknown): string {
 }
 
 export function useDesktopProjectLoader({
+  autoSelectInitialProject,
   applyDesktopProjectSnapshot,
   clearProjectState,
   currentCanvasRef,
@@ -95,8 +97,10 @@ export function useDesktopProjectLoader({
   updateSettings
 }: UseDesktopProjectLoaderArgs) {
   const initialProjectPathRef = useRef<string | null>(null);
+  const autoSelectInitialProjectRef = useRef<boolean | null>(null);
   if (settingsHydrated && initialProjectPathRef.current === null) {
     initialProjectPathRef.current = initialProjectPath;
+    autoSelectInitialProjectRef.current = autoSelectInitialProject;
   }
 
   const loadProject = useCallback(
@@ -213,6 +217,10 @@ export function useDesktopProjectLoader({
           return;
         }
         setProjects(items);
+        if (autoSelectInitialProjectRef.current === false) {
+          setProjectLoading(false);
+          return;
+        }
         const persistedProject = items.find(
           (item) => item.workspaceRoot === initialProjectPathRef.current
         );
@@ -408,20 +416,22 @@ export function useDesktopProjectLoader({
   const handleOpenProject = useCallback(async () => {
     if (!bridge) {
       setError(t("openProjectBridgeUnavailable"));
-      return;
+      return false;
     }
     try {
       const selectedPath = await bridge.chooseProjectFolder();
       if (!selectedPath) {
-        return;
+        return false;
       }
       const project = await bridge.initOrOpenProject(selectedPath);
       setProjects((items) =>
         items.some((item) => item.projectId === project.projectId) ? items : [...items, project]
       );
       await loadProject(project);
+      return true;
     } catch (caught) {
       setError(`${t("openProjectFailedHint")}\n${errorMessage(caught)}`);
+      return false;
     }
   }, [loadProject, setError, setProjects, t]);
 
