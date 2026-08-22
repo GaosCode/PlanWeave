@@ -458,11 +458,11 @@ describe("CollaborationConnectForm connection diagnostics", () => {
   }
 
   it.each([
-    ["connected", "Identity verified"],
-    ["disconnected", "Configured · identity verification pending"],
-    ["connecting", "Verifying Workspace identity…"],
-    ["reconnecting", "Re-verifying Workspace identity…"]
-  ] as const)("presents %s as a Workspace identity state", (connectionStatus, expectedLabel) => {
+    ["connected", "Connected"],
+    ["disconnected", "Configured · waiting to connect"],
+    ["connecting", "Checking connection…"],
+    ["reconnecting", "Checking connection again…"]
+  ] as const)("presents the %s Workspace connection state", (connectionStatus, expectedLabel) => {
     render(
       <CollaborationConnectForm
         api={joinApi()}
@@ -558,7 +558,7 @@ describe("CollaborationConnectForm connection diagnostics", () => {
     expect(retryWorkspaceConnection).not.toHaveBeenCalled();
   });
 
-  it("shows Workspace identity verification failures without calling them disconnects", () => {
+  it("shows Workspace connection failures without calling them disconnects", () => {
     render(
       <CollaborationConnectForm
         api={joinApi()}
@@ -573,7 +573,7 @@ describe("CollaborationConnectForm connection diagnostics", () => {
     );
 
     expect(screen.getByTestId("people-workspace-identity-status")).toHaveTextContent(
-      "Workspace identity verification failed"
+      "Workspace connection failed"
     );
     expect(screen.getByTestId("people-workspace-connection-error")).toHaveTextContent(
       "The device credential was rejected."
