@@ -58,7 +58,7 @@ export class CanvasRuntimeAvailabilityService {
     const contentFingerprint = this.contentFingerprint(scope);
     const stored = this.options.runtimeStatuses.read(scope);
     const state =
-      stored?.status.packageFingerprint === contentFingerprint
+      contentFingerprint && stored?.status.packageFingerprint === contentFingerprint
         ? {
             kind: "initialized" as const,
             runtimeRevision: stored.runtimeRevision,
@@ -70,6 +70,7 @@ export class CanvasRuntimeAvailabilityService {
       await this.options.runtimeAvailability.readAvailability(scope, this.clock().toISOString())
     );
     const execution =
+      contentFingerprint &&
       observed.kind === "available" &&
       sameScope(observed.status.scope, scope) &&
       observed.status.packageFingerprint === observed.graphFingerprint &&
@@ -107,11 +108,9 @@ export class CanvasRuntimeAvailabilityService {
     workspaceId: string;
     projectId: string;
     canvasId: string;
-  }): string {
+  }): string | undefined {
     try {
-      const fingerprint = readStableCanvasContentFingerprint(this.options.contentVersions, scope);
-      if (!fingerprint) throw new Error("canvas_runtime_status_content_missing");
-      return fingerprint;
+      return readStableCanvasContentFingerprint(this.options.contentVersions, scope);
     } catch (error) {
       if (error instanceof Error && error.message === "canvas_content_head_mismatch") {
         throw new Error("canvas_runtime_availability_content_head_mismatch");
