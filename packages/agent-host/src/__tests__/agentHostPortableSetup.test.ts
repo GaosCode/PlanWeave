@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -123,6 +123,49 @@ describe("portable Agent Host setup", () => {
     });
     expect(config.workspaces).toEqual([]);
     expect(paths.configPath).toContain(join("instances", instanceKey));
+  });
+
+  it("creates the workspace root before enrolling a server-scoped fleet host", async () => {
+    const home = await mkdtemp(join(tmpdir(), "planweave-portable-fleet-enroll-"));
+    directories.push(home);
+    mockedHome.path = home;
+    const server = createServer((request, response) => {
+      let body = "";
+      request.on("data", (chunk) => {
+        body += chunk;
+      });
+      request.on("end", () => {
+        const parsed = JSON.parse(body) as { enrollmentAttemptId: string };
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({
+            type: "host.enrollment.completed",
+            protocolVersion: 1,
+            enrollmentAttemptId: parsed.enrollmentAttemptId,
+            hostId: "host-fleet-portable",
+            credentialExpiresAt: "2030-06-30T00:00:00.000Z",
+            credentialPolicy: { lifetimeDays: 180, renewal: "automatic" }
+          })
+        );
+      });
+    });
+    servers.push(server);
+    const port = await listen(server);
+    const handoff = encodedFleetHandoff({ serverOrigin: `http://127.0.0.1:${port}` });
+    const parsedHandoff = (
+      await import("@planweave-ai/agent-host-protocol")
+    ).parseAgentHostSetupHandoff(handoff, new Date("2029-01-01"));
+    const paths = resolveAgentHostDefaultPaths(handoffInstanceKey(parsedHandoff));
+
+    await expect(
+      new AgentHostOperator(null).enrollHandoff(handoff, { installBackground: false })
+    ).resolves.toMatchObject({
+      state: "ready",
+      credential: "active",
+      background: "disabled"
+    });
+    expect((await stat(paths.workspaceRoot)).isDirectory()).toBe(true);
+    expect((await loadAgentHostConfig(paths.configPath)).workspaces).toEqual([]);
   });
 
   it("parses the single-command handoff and exposure commands", () => {
