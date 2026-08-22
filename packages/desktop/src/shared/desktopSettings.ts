@@ -1,5 +1,9 @@
 import type { BlockType, DesktopAgentKind, ExecutionHost } from "@planweave-ai/runtime";
 import { z } from "zod";
+import {
+  parsePersistedWorkspaceCanvasLocator,
+  type WorkspaceCanvasLocator
+} from "./canvasLocator.js";
 
 export type AppearanceMode = "system" | "light" | "dark";
 export type DesktopSettingsLanguage = "system" | "en" | "zh-CN";
@@ -61,6 +65,7 @@ export type DesktopUiSettings = {
   language: DesktopSettingsLanguage;
   pinnedProjectIds: string[];
   readNotificationIds: string[];
+  lastOpenedWorkspaceLocator: WorkspaceCanvasLocator | null;
   notifications: {
     autoRunFailure: boolean;
     graphExceptions: boolean;
@@ -124,6 +129,7 @@ export type DesktopSettingsPatch = Partial<{
   language: DesktopSettingsLanguage;
   pinnedProjectIds: string[];
   readNotificationIds: string[];
+  lastOpenedWorkspaceLocator: WorkspaceCanvasLocator | null;
   notifications: Partial<DesktopUiSettings["notifications"]>;
   execution: Partial<DesktopUiSettings["execution"]>;
   windowMaterial: Partial<DesktopUiSettings["windowMaterial"]>;
@@ -173,6 +179,7 @@ export const defaultDesktopSettings: DesktopUiSettings = {
   language: "zh-CN",
   pinnedProjectIds: [],
   readNotificationIds: [],
+  lastOpenedWorkspaceLocator: null,
   notifications: {
     autoRunFailure: true,
     graphExceptions: true,
@@ -524,6 +531,11 @@ export function normalizeDesktopSettingsPatch(value: unknown): DesktopSettingsPa
   }
   patch.pinnedProjectIds = stringArray(value.pinnedProjectIds) ?? patch.pinnedProjectIds;
   patch.readNotificationIds = stringArray(value.readNotificationIds) ?? patch.readNotificationIds;
+  if (Object.hasOwn(value, "lastOpenedWorkspaceLocator")) {
+    patch.lastOpenedWorkspaceLocator = parsePersistedWorkspaceCanvasLocator(
+      value.lastOpenedWorkspaceLocator
+    );
+  }
 
   const notifications = booleanField(defaultDesktopSettings.notifications, value.notifications);
   if (notifications) {

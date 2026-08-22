@@ -277,7 +277,7 @@ describe("current Local vs Workspace canvas authority (characterization)", () =>
     expect(api.submitCollaborationCanvasCommand).not.toHaveBeenCalled();
   });
 
-  it("probes shared scope for a local canvas when a Server session is configured, then stays local if unmapped", async () => {
+  it("does not probe Server scope for a never-shared Local Canvas even when a Server session is connected", async () => {
     const api = commandBridge({
       resolveCollaborationCanvasBindingScope: vi.fn().mockResolvedValue(null)
     });
@@ -295,7 +295,7 @@ describe("current Local vs Workspace canvas authority (characterization)", () =>
     );
     await settle();
 
-    expect(api.resolveCollaborationCanvasBindingScope).toHaveBeenCalledWith(localBinding);
+    expect(api.resolveCollaborationCanvasBindingScope).not.toHaveBeenCalled();
     expect(result.current.authorityMode).toBe("local");
     expect(result.current.enabled).toBe(false);
     expect(api.bindCollaborationCanvasBindingSession).not.toHaveBeenCalled();

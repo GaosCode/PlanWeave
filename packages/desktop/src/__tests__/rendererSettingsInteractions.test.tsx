@@ -34,6 +34,7 @@ const settings: DesktopUiSettings = {
   language: "en",
   pinnedProjectIds: [],
   readNotificationIds: [],
+  lastOpenedWorkspaceLocator: null,
   notifications: {
     autoRunFailure: true,
     graphExceptions: true,

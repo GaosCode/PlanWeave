@@ -618,6 +618,18 @@ export {
   type LocalCollaborationCanvasBindingInput,
   type RemoteCollaborationCanvasBindingInput
 } from "./collaborationCanvasBinding.js";
+export {
+  canvasLocatorSchema,
+  canvasLocatorToCollaborationBinding,
+  localCanvasLocatorSchema,
+  localCanvasLocatorToBinding,
+  parsePersistedWorkspaceCanvasLocator,
+  workspaceCanvasLocatorSchema,
+  workspaceCanvasLocatorToBinding,
+  type CanvasLocator,
+  type LocalCanvasLocator,
+  type WorkspaceCanvasLocator
+} from "./canvasLocator.js";
 
 export type CollaborationCanvasCommandSessionView = {
   canvasId: string;

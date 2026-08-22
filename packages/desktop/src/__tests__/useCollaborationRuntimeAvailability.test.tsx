@@ -232,7 +232,7 @@ describe("collaboration runtime availability", () => {
     expect(result.current.graph?.tasks[0]?.blocks[0]?.dispatchable).toBe(false);
   });
 
-  it("fails closed while a local canvas authority mapping is still resolving", () => {
+  it("does not query Workspace Runtime while a local canvas reports a stale resolving mode", () => {
     const { result, rerender } = renderHook(() =>
       useWorkspaceCollaborationRuntimeAvailability({
         activeProfileId: "profile-tiny-notes",
@@ -247,9 +247,14 @@ describe("collaboration runtime availability", () => {
     const initialResult = result.current;
     rerender();
 
-    expect(result.current.availability).toEqual({ kind: "checking" });
-    expect(result.current.graph?.tasks[0]?.blocks[0]?.dispatchable).toBe(false);
+    expect(result.current.availability).toEqual({ kind: "not_applicable" });
+    expect(result.current.graph).toBe(graphWithBlock);
+    expect(result.current.graph?.tasks[0]?.blocks[0]?.dispatchable).toBe(true);
     expect(result.current).toBe(initialResult);
+    expect(collaborationBridge.resolveCollaborationCanvasBindingScope).not.toHaveBeenCalled();
+    expect(
+      collaborationBridge.readCollaborationCanvasBindingRuntimeAvailability
+    ).not.toHaveBeenCalled();
   });
 
   it("keeps local runtime behavior not applicable without calling collaboration APIs", () => {

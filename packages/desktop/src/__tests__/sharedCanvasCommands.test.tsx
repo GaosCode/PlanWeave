@@ -171,6 +171,18 @@ function remoteReplicaProjection(input: {
   };
 }
 
+const remoteBinding = {
+  kind: "remote" as const,
+  workspaceId: "workspace-1",
+  projectId: "project-1",
+  canvasId: "default"
+};
+const localBinding = {
+  kind: "local" as const,
+  localProjectId: "project-1",
+  canvasId: "default"
+};
+
 function hookInput(
   api: SharedCanvasCommandBridge,
   onAuthoritativeChange?: () => void | Promise<void>
@@ -179,7 +191,7 @@ function hookInput(
     api,
     enabled: true,
     sessionConnected: true,
-    binding: { kind: "local" as const, localProjectId: "project-1", canvasId: "default" },
+    binding: remoteBinding,
     profileId: "profile-1",
     activeProjectId: "project-1",
     localOwnerDirectWriteAvailable: false,
@@ -227,7 +239,7 @@ describe("useSharedCanvasCommands", () => {
     const { result } = renderHook(() => useSharedCanvasCommands(hookInput(bridge.api)));
     await flushEffects();
 
-    act(() => bridge.emitReplica(replicaProjection(4)));
+    act(() => bridge.emitReplica(remoteReplicaProjection({ canvasId: "default", revision: 4 })));
 
     expect(result.current.projection?.revision).toBe(4);
     expect(result.current.projection?.content.projectTitle).toBe("Shared");
@@ -246,7 +258,7 @@ describe("useSharedCanvasCommands", () => {
     );
     await flushEffects();
 
-    act(() => bridge.emitReplica(replicaProjection(4)));
+    act(() => bridge.emitReplica(remoteReplicaProjection({ canvasId: "default", revision: 4 })));
     expect(result.current.projection?.revision).toBe(4);
 
     rerender({ connected: false });
@@ -272,18 +284,17 @@ describe("useSharedCanvasCommands", () => {
     );
     await flushEffects();
 
-    act(() => bridge.emitReplica(replicaProjection(4)));
+    const confirmed = remoteReplicaProjection({ canvasId: "default", revision: 4 });
+    act(() => bridge.emitReplica(confirmed));
     act(() =>
-      bridge.emitReplica(
-        collaborationCanvasReplicaProjectionSchema.parse({
-          ...replicaProjection(4),
-          optimisticOperationIds: ["operation-pending"],
-          content: {
-            ...replicaProjection(4).content,
-            projectTitle: "Unconfirmed"
-          }
-        })
-      )
+      bridge.emitReplica({
+        ...confirmed,
+        optimisticOperationIds: ["operation-pending"],
+        content: {
+          ...confirmed.content,
+          projectTitle: "Unconfirmed"
+        }
+      })
     );
     expect(result.current.projection?.content.projectTitle).toBe("Unconfirmed");
 
@@ -294,7 +305,7 @@ describe("useSharedCanvasCommands", () => {
     expect(result.current.projection?.optimisticOperationIds).toEqual([]);
   });
 
-  it("does not mark an unmapped local canvas as shared while collaboration is offline", async () => {
+  it("does not mark a Local Canvas as shared and never resolves Server scope", async () => {
     vi.useFakeTimers();
     const resolveScope = vi.fn<SharedCanvasCommandBridge["resolveCollaborationCanvasBindingScope"]>(
       async () => null
@@ -304,48 +315,39 @@ describe("useSharedCanvasCommands", () => {
     const { result } = renderHook(() =>
       useSharedCanvasCommands({
         ...hookInput(bridge.api),
+        binding: localBinding,
         sessionConnected: false
       })
     );
     await flushEffects();
 
-    expect(resolveScope).toHaveBeenCalledWith({
-      kind: "local",
-      localProjectId: "project-1",
-      canvasId: "default"
-    });
+    expect(resolveScope).not.toHaveBeenCalled();
     expect(bridge.bind).not.toHaveBeenCalled();
     expect(bridge.reconnect).not.toHaveBeenCalled();
     expect(result.current.enabled).toBe(false);
+    expect(result.current.authorityMode).toBe("local");
     expect(result.current.offline).toBe(false);
   });
 
-  it("does not show an offline replica banner before local scope resolution finishes", async () => {
+  it("keeps Local Canvas authority local without a resolving phase", async () => {
     vi.useFakeTimers();
-    type ScopeResolution = Awaited<
-      ReturnType<SharedCanvasCommandBridge["resolveCollaborationCanvasBindingScope"]>
-    >;
-    let resolveScope!: (value: ScopeResolution) => void;
-    const pendingScope = new Promise<ScopeResolution>((resolve) => {
-      resolveScope = resolve;
-    });
-    const bridge = createBridge({ resolveScope: async () => pendingScope });
+    const resolveScope = vi.fn<SharedCanvasCommandBridge["resolveCollaborationCanvasBindingScope"]>(
+      async () => null
+    );
+    const bridge = createBridge({ resolveScope });
 
     const { result } = renderHook(() =>
       useSharedCanvasCommands({
         ...hookInput(bridge.api),
+        binding: localBinding,
         sessionConnected: false
       })
     );
 
-    expect(result.current.enabled).toBe(true);
-    expect(result.current.authorityMode).toBe("resolving");
-    expect(result.current.offline).toBe(false);
-
-    resolveScope(null);
-    await flushEffects();
     expect(result.current.enabled).toBe(false);
+    expect(result.current.authorityMode).toBe("local");
     expect(result.current.offline).toBe(false);
+    expect(resolveScope).not.toHaveBeenCalled();
   });
 
   it("keeps the command facade stable when its inputs and snapshot are unchanged", () => {
@@ -371,17 +373,24 @@ describe("useSharedCanvasCommands", () => {
 
   it("returns a stopped local owner authority to direct local writes", async () => {
     vi.useFakeTimers();
-    const bridge = createBridge();
+    const resolveScope = vi.fn<SharedCanvasCommandBridge["resolveCollaborationCanvasBindingScope"]>(
+      async () => ({ workspaceId: "workspace-1", projectId: "project-1", canvasId: "default" })
+    );
+    const bridge = createBridge({ resolveScope });
     const { result, rerender } = renderHook(
       ({ directWrite }) =>
         useSharedCanvasCommands({
           ...hookInput(bridge.api),
+          binding: localBinding,
           localOwnerDirectWriteAvailable: directWrite
         }),
       { initialProps: { directWrite: false } }
     );
     await flushEffects();
-    act(() => bridge.emitReplica(replicaProjection(4)));
+    expect(resolveScope).not.toHaveBeenCalled();
+    expect(bridge.bind).not.toHaveBeenCalled();
+    expect(result.current.enabled).toBe(false);
+    expect(result.current.authorityMode).toBe("local");
 
     rerender({ directWrite: true });
     await flushEffects();
@@ -391,15 +400,12 @@ describe("useSharedCanvasCommands", () => {
     expect(result.current.projection).toBeNull();
   });
 
-  it("returns an accepted drag before the background disk mirror finishes", async () => {
+  it("accepts a Workspace canvas command without materializing a local disk mirror", async () => {
     vi.useFakeTimers();
-    let releaseFlush!: () => void;
-    const flush = new Promise<void>((resolve) => {
-      releaseFlush = resolve;
-    });
+    const flush = vi.fn().mockResolvedValue(undefined);
     const onAuthoritativeChange = vi.fn();
     const bridge = createBridge({
-      flush: async () => flush,
+      flush,
       submit: async () => ({
         outcome: exampleCanvasCommandAccepted,
         session: {
@@ -424,10 +430,8 @@ describe("useSharedCanvasCommands", () => {
     });
 
     expect(submitted.ok).toBe(true);
+    expect(flush).not.toHaveBeenCalled();
     expect(onAuthoritativeChange).not.toHaveBeenCalled();
-    releaseFlush();
-    await flushEffects();
-    expect(onAuthoritativeChange).toHaveBeenCalledTimes(1);
   });
 
   it("polls a remote delta and refreshes the authoritative canvas", async () => {
@@ -446,11 +450,7 @@ describe("useSharedCanvasCommands", () => {
       useSharedCanvasCommands(hookInput(bridge.api, onAuthoritativeChange))
     );
     await flushEffects();
-    expect(bridge.bind).toHaveBeenCalledWith({
-      kind: "local",
-      localProjectId: "project-1",
-      canvasId: "default"
-    });
+    expect(bridge.bind).toHaveBeenCalledWith(remoteBinding);
     expect(bridge.reconnect).toHaveBeenCalledTimes(1);
     onAuthoritativeChange.mockClear();
 
@@ -459,7 +459,6 @@ describe("useSharedCanvasCommands", () => {
     });
 
     expect(bridge.reconnect).toHaveBeenCalledTimes(2);
-    expect(onAuthoritativeChange).toHaveBeenCalledTimes(1);
     expect(result.current.snapshot.session?.revision).toBe(remoteSession.revision);
   });
 
@@ -485,7 +484,7 @@ describe("useSharedCanvasCommands", () => {
       await vi.advanceTimersByTimeAsync(SHARED_CANVAS_RECONNECT_INTERVAL_MS);
     });
 
-    expect(onAuthoritativeChange).toHaveBeenCalledTimes(1);
+    expect(bridge.reconnect).toHaveBeenCalledTimes(2);
   });
 
   it("reconnects immediately when the observer reports a newer revision for this canvas", async () => {
@@ -526,36 +525,46 @@ describe("useSharedCanvasCommands", () => {
     await flushEffects();
 
     expect(bridge.reconnect).toHaveBeenCalledTimes(2);
-    expect(onAuthoritativeChange).toHaveBeenCalledTimes(1);
     expect(result.current.snapshot.session?.revision).toBe(remoteSession.revision);
   });
 
-  it("binds an imported local replica to its remote canvas scope", async () => {
+  it("binds a Workspace canvas from the locator scope without resolving local mapping", async () => {
     vi.useFakeTimers();
-    const bridge = createBridge({
-      resolveScope: async () => ({ projectId: "remote-project", canvasId: "remote-canvas" })
-    });
+    const resolveScope = vi.fn<SharedCanvasCommandBridge["resolveCollaborationCanvasBindingScope"]>(
+      async () => ({ projectId: "remote-project", canvasId: "remote-canvas" })
+    );
+    const bridge = createBridge({ resolveScope });
 
     const { result } = renderHook(() =>
       useSharedCanvasCommands({
         ...hookInput(bridge.api),
-        binding: { kind: "local", localProjectId: "local-replica", canvasId: "default" },
+        binding: {
+          kind: "remote",
+          workspaceId: "workspace-default",
+          projectId: "remote-project",
+          canvasId: "remote-canvas"
+        },
         activeProjectId: "remote-project"
       })
     );
     await flushEffects();
 
+    expect(resolveScope).not.toHaveBeenCalled();
     expect(result.current.authorityMode).toBe("shared");
     expect(bridge.bind).toHaveBeenCalledWith({
-      kind: "local",
-      localProjectId: "local-replica",
-      canvasId: "default"
+      kind: "remote",
+      workspaceId: "workspace-default",
+      projectId: "remote-project",
+      canvasId: "remote-canvas"
     });
   });
 
-  it("keeps an unrelated local project on direct runtime writes after scope resolution", async () => {
+  it("keeps a Local Canvas on direct runtime writes without Server scope resolution", async () => {
     vi.useFakeTimers();
-    const bridge = createBridge({ resolveScope: async () => null });
+    const resolveScope = vi.fn<SharedCanvasCommandBridge["resolveCollaborationCanvasBindingScope"]>(
+      async () => null
+    );
+    const bridge = createBridge({ resolveScope });
 
     const { result } = renderHook(() =>
       useSharedCanvasCommands({
@@ -569,6 +578,7 @@ describe("useSharedCanvasCommands", () => {
     );
     await flushEffects();
 
+    expect(resolveScope).not.toHaveBeenCalled();
     expect(result.current.enabled).toBe(false);
     expect(result.current.authorityMode).toBe("local");
     expect(bridge.bind).not.toHaveBeenCalled();
@@ -651,7 +661,7 @@ describe("useSharedCanvasCommands", () => {
     const { result } = renderHook(() => useSharedCanvasCommands(hookInput(bridge.api)));
     await flushEffects();
 
-    act(() => bridge.emitReplica(replicaProjection(4)));
+    act(() => bridge.emitReplica(remoteReplicaProjection({ canvasId: "default", revision: 4 })));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(SHARED_CANVAS_RECONNECT_INTERVAL_MS);
     });
@@ -696,7 +706,7 @@ describe("useSharedCanvasCommands", () => {
     });
     const { result } = renderHook(() => useSharedCanvasCommands(hookInput(bridge.api)));
     await flushEffects();
-    act(() => bridge.emitReplica(replicaProjection(4)));
+    act(() => bridge.emitReplica(remoteReplicaProjection({ canvasId: "default", revision: 4 })));
 
     let submitted: Awaited<ReturnType<typeof result.current.submit>> | undefined;
     await act(async () => {

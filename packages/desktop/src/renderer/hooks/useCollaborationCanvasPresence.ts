@@ -110,36 +110,22 @@ export function useCollaborationCanvasPresence(input: {
       !input.enabled ||
       !input.sessionConnected ||
       !input.profileId ||
-      !binding ||
+      binding?.kind !== "remote" ||
       !selectedProjectId ||
       !canvasId ||
-      !input.activeProjectId
+      !input.activeProjectId ||
+      binding.projectId !== input.activeProjectId
     ) {
       setResolvedScope(null);
       return undefined;
     }
-    const localProjectId = selectedProjectId;
-    const localCanvasId = canvasId;
-    const activeProjectId = input.activeProjectId;
-    let active = true;
-    setResolvedScope(null);
-    void api
-      .resolveCollaborationCanvasBindingScope(binding)
-      .then((scope) => {
-        if (!active || !scope || scope.projectId !== activeProjectId) return;
-        setResolvedScope({
-          localProjectId,
-          localCanvasId,
-          remoteProjectId: scope.projectId,
-          remoteCanvasId: scope.canvasId
-        });
-      })
-      .catch((caught: unknown) => {
-        if (active) setError(caught instanceof Error ? caught.message : String(caught));
-      });
-    return () => {
-      active = false;
-    };
+    setResolvedScope({
+      localProjectId: binding.projectId,
+      localCanvasId: binding.canvasId,
+      remoteProjectId: binding.projectId,
+      remoteCanvasId: binding.canvasId
+    });
+    return undefined;
   }, [
     api,
     input.activeProjectId,

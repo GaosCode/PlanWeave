@@ -71,6 +71,11 @@ import type {
 } from "./taskWorkspaceNavigation";
 import { collaborationSurfaceCanvasIdForView } from "./collaboration/workspaceCollaborationScope";
 import { useRemoteCanvasWorkspace } from "./hooks/useRemoteCanvasWorkspace";
+import {
+  canvasLocatorToCollaborationBinding,
+  type CanvasLocator,
+  type WorkspaceCanvasLocator
+} from "../shared/canvasLocator";
 import type { ProjectWorkspaceShellInput } from "./projectWorkspaceShell";
 export type { ProjectWorkspaceShellInput } from "./projectWorkspaceShell";
 
@@ -198,7 +203,17 @@ export function ProjectWorkspaceProvider({
     updateProjectPromptPolicy
   } = desktopProject;
 
-  const remoteWorkspace = useRemoteCanvasWorkspace({ localProjectId: selectedProject?.projectId });
+  const persistWorkspaceLocator = useCallback(
+    (locator: WorkspaceCanvasLocator) => {
+      updateSettings({ lastOpenedWorkspaceLocator: locator });
+    },
+    [updateSettings]
+  );
+  const remoteWorkspace = useRemoteCanvasWorkspace({
+    lastOpenedWorkspaceLocator: settings.lastOpenedWorkspaceLocator,
+    localProjectId: selectedProject?.projectId,
+    onWorkspaceLocatorOpened: persistWorkspaceLocator
+  });
   const selectRemoteCanvas = useCallback(
     (canvas: Parameters<typeof remoteWorkspace.select>[0]) => {
       setSelectedProject(null);
@@ -208,20 +223,24 @@ export function ProjectWorkspaceProvider({
     },
     [remoteWorkspace.select, setActiveView, setSelectedCanvasId, setSelectedProject]
   );
-  const activeCanvasId = remoteWorkspace.binding?.canvasId ?? selectedCanvasId;
-  const workspaceProjectLoading = remoteWorkspace.binding ? false : projectLoading;
-  const canvasBinding = useMemo(
+  const canvasLocator = useMemo<CanvasLocator | null>(
     () =>
-      remoteWorkspace.binding ??
+      remoteWorkspace.locator ??
       (selectedProject && selectedCanvasId
         ? {
-            kind: "local" as const,
-            localProjectId: selectedProject.projectId,
+            kind: "local",
+            projectId: selectedProject.projectId,
             canvasId: selectedCanvasId
           }
         : null),
-    [remoteWorkspace.binding, selectedCanvasId, selectedProject]
+    [remoteWorkspace.locator, selectedCanvasId, selectedProject]
   );
+  const canvasBinding = useMemo(
+    () => (canvasLocator ? canvasLocatorToCollaborationBinding(canvasLocator) : null),
+    [canvasLocator]
+  );
+  const activeCanvasId = canvasLocator?.canvasId ?? selectedCanvasId;
+  const workspaceProjectLoading = canvasLocator?.kind === "workspace" ? false : projectLoading;
   // Shared canvas command session must be available before any durable package write hooks.
   const collaborationSurface = useCollaborationSurface({
     binding: canvasBinding,

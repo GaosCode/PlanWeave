@@ -167,62 +167,8 @@ export function useCollaborationSurface(
         : null,
     [activeProfile, remoteBinding, sessionConnected]
   );
-  const [canvasReadResolution, setCanvasReadResolution] =
-    useState<CollaborationCanvasReadResolution | null>(null);
-
-  useEffect(() => {
-    if (
-      remoteReadBinding ||
-      !api ||
-      !readBinding.profileId ||
-      !readBinding.projectId ||
-      readBinding.canvasId === null ||
-      !args.localProjectId
-    ) {
-      setCanvasReadResolution(null);
-      return undefined;
-    }
-    const localProjectId = args.localProjectId;
-    const localCanvasId = readBinding.canvasId;
-    const remoteProjectId = readBinding.projectId;
-    let active = true;
-    setCanvasReadResolution(null);
-    void api
-      .resolveCollaborationCanvasBindingScope({
-        kind: "local",
-        localProjectId,
-        canvasId: localCanvasId
-      })
-      .then((scope) => {
-        if (!active) return;
-        setCanvasReadResolution(
-          scope && scope.projectId === remoteProjectId
-            ? {
-                localProjectId,
-                localCanvasId,
-                remoteProjectId: scope.projectId,
-                remoteCanvasId: scope.canvasId
-              }
-            : null
-        );
-      })
-      .catch(() => {
-        if (active) setCanvasReadResolution(null);
-      });
-    return () => {
-      active = false;
-    };
-  }, [
-    api,
-    args.localProjectId,
-    remoteReadBinding,
-    readBinding.canvasId,
-    readBinding.profileId,
-    readBinding.projectId
-  ]);
-
   const authorizedReadBinding =
-    remoteReadBinding ?? resolveCollaborationCanvasReadBinding(readBinding, canvasReadResolution);
+    remoteReadBinding ?? resolveCollaborationCanvasReadBinding(readBinding, null);
 
   // Shell is the sole owner of active project/canvas binding on the shared hub.
   const { snapshot, viewModel, controller } = useCollaborationReadModels({

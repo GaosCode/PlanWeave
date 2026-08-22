@@ -91,6 +91,7 @@
         "canvasCommandController.test.ts",
         "canvasDiagnosticSeverity.test.tsx",
         "canvasLiveSyncClient.test.ts",
+        "canvasLocator.test.ts",
         "canvasMapViewLayout.test.tsx",
         "canvasMapVisuals.test.ts",
         "canvasPresenceController.test.ts",

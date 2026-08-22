@@ -117,6 +117,24 @@ describe("DesktopSettingsStore", () => {
     });
   });
 
+  it("persists a last-opened Workspace locator", async () => {
+    const home = await tempHome();
+    const store = testStore(join(home, "config", "desktop-settings.json"));
+    const locator = {
+      kind: "workspace" as const,
+      connectionProfileId: "profile-1",
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+      canvasId: "default"
+    };
+
+    await store.mergePatch({ lastOpenedWorkspaceLocator: locator });
+    await expect(store.read()).resolves.toEqual({
+      ...defaultDesktopSettings,
+      lastOpenedWorkspaceLocator: locator
+    });
+  });
+
   it("persists concrete remote Agent Endpoint preferences separately from executors", async () => {
     const home = await tempHome();
     const store = testStore(join(home, "config", "desktop-settings.json"));

@@ -8,6 +8,17 @@ import type { CanvasPresenceBridge } from "../renderer/collaboration/CanvasPrese
 import type { CollaborationPresenceSignal } from "../shared/collaboration";
 import { createTranslator } from "../renderer/i18n";
 
+const remoteBinding = {
+  kind: "remote" as const,
+  workspaceId: "workspace-1",
+  projectId: "project-1",
+  canvasId: "canvas-main"
+};
+const localBinding = {
+  kind: "local" as const,
+  localProjectId: "project-1",
+  canvasId: "canvas-main"
+};
 const t = createTranslator("en");
 
 afterEach(() => {
@@ -65,7 +76,7 @@ describe("useCollaborationCanvasPresence", () => {
     renderHook(() =>
       useCollaborationCanvasPresence({
         api: fixture.api,
-        binding: { kind: "local", localProjectId: "project-1", canvasId: "canvas-main" },
+        binding: remoteBinding,
         enabled: true,
         sessionConnected: false,
         profileId: "profile-1",
@@ -92,7 +103,7 @@ describe("useCollaborationCanvasPresence", () => {
     const { result } = renderHook(() =>
       useCollaborationCanvasPresence({
         api: fixture.api,
-        binding: { kind: "local", localProjectId: "project-1", canvasId: "canvas-main" },
+        binding: remoteBinding,
         enabled: true,
         sessionConnected: true,
         profileId: "profile-1",
@@ -104,6 +115,7 @@ describe("useCollaborationCanvasPresence", () => {
       await Promise.resolve();
     });
     expect(fixture.api.startCollaborationPresence).toHaveBeenCalled();
+    expect(fixture.api.resolveCollaborationCanvasBindingScope).not.toHaveBeenCalled();
 
     act(() => result.current.onSelectionChange(selection));
     expect(fixture.api.publishCollaborationPresence).toHaveBeenCalledTimes(1);
@@ -139,7 +151,7 @@ describe("useCollaborationCanvasPresence", () => {
       ({ enabled }) =>
         useCollaborationCanvasPresence({
           api: fixture.api,
-          binding: { kind: "local", localProjectId: "project-1", canvasId: "canvas-main" },
+          binding: remoteBinding,
           enabled,
           sessionConnected: true,
           profileId: "profile-1",
@@ -177,20 +189,39 @@ describe("useCollaborationCanvasPresence", () => {
     expect(fixture.api.stopCollaborationPresence).toHaveBeenCalled();
   });
 
-  it("resolves an imported local replica before starting presence", async () => {
+  it("does not start presence or resolve Server scope for a Local Canvas", async () => {
     const fixture = bridgeFixture();
-    vi.mocked(fixture.api.resolveCollaborationCanvasBindingScope).mockResolvedValue({
-      workspaceId: "workspace-1",
-      projectId: "remote-project",
-      canvasId: "remote-canvas"
+    renderHook(() =>
+      useCollaborationCanvasPresence({
+        api: fixture.api,
+        binding: localBinding,
+        enabled: true,
+        sessionConnected: true,
+        profileId: "profile-1",
+        activeProjectId: "remote-project",
+        t
+      })
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
     });
+
+    expect(fixture.api.resolveCollaborationCanvasBindingScope).not.toHaveBeenCalled();
+    expect(fixture.api.startCollaborationPresence).not.toHaveBeenCalled();
+  });
+
+  it("starts Workspace presence from the locator scope without resolving local mapping", async () => {
+    const fixture = bridgeFixture();
     const { result } = renderHook(() =>
       useCollaborationCanvasPresence({
         api: fixture.api,
         binding: {
-          kind: "local",
-          localProjectId: "imported-local-project",
-          canvasId: "default"
+          kind: "remote",
+          workspaceId: "workspace-1",
+          projectId: "remote-project",
+          canvasId: "remote-canvas"
         },
         enabled: true,
         sessionConnected: true,
@@ -201,17 +232,11 @@ describe("useCollaborationCanvasPresence", () => {
     );
 
     await waitFor(() =>
-      expect(fixture.api.resolveCollaborationCanvasBindingScope).toHaveBeenCalledWith({
-        kind: "local",
-        localProjectId: "imported-local-project",
-        canvasId: "default"
-      })
-    );
-    await waitFor(() =>
       expect(fixture.api.startCollaborationPresence).toHaveBeenCalledWith({
         canvasId: "remote-canvas"
       })
     );
+    expect(fixture.api.resolveCollaborationCanvasBindingScope).not.toHaveBeenCalled();
     act(() => result.current.onSelectionChange(selection));
     expect(fixture.api.publishCollaborationPresence).toHaveBeenCalledTimes(1);
   });
@@ -229,7 +254,7 @@ describe("useCollaborationCanvasPresence", () => {
     const { result } = renderHook(() =>
       useCollaborationCanvasPresence({
         api: fixture.api,
-        binding: { kind: "local", localProjectId: "project-1", canvasId: "canvas-main" },
+        binding: remoteBinding,
         enabled: true,
         sessionConnected: true,
         profileId: "profile-1",

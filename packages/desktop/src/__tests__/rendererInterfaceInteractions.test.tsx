@@ -26,6 +26,7 @@ const settings: DesktopUiSettings = {
   reducedMotion: false,
   language: "en",
   readNotificationIds: [],
+  lastOpenedWorkspaceLocator: null,
   notifications: {
     autoRunFailure: true,
     graphExceptions: true,

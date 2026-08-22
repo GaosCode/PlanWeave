@@ -129,33 +129,20 @@ export function useSharedCanvasCommands(input: {
   );
   const canvasId = binding?.canvasId ?? null;
   const selectedProjectId = bindingProjectId;
-  const [scopeResolution, setScopeResolution] = useState<
-    | { phase: "idle" }
-    | { phase: "resolving"; localProjectId: string; localCanvasId: string }
-    | {
-        phase: "resolved";
-        localProjectId: string;
-        localCanvasId: string;
-        remoteProjectId: string;
-        remoteCanvasId: string;
-      }
-    | { phase: "unmapped"; localProjectId: string; localCanvasId: string }
-  >({ phase: "idle" });
-  const currentScope =
-    scopeResolution.phase === "resolved" &&
-    scopeResolution.localProjectId === selectedProjectId &&
-    scopeResolution.localCanvasId === canvasId &&
-    scopeResolution.remoteProjectId === input.activeProjectId
-      ? scopeResolution
-      : null;
-  const scopeMayBeShared =
-    scopeResolution.phase === "resolving" &&
-    scopeResolution.localProjectId === selectedProjectId &&
-    scopeResolution.localCanvasId === canvasId;
-  const scopeKnownUnmapped =
-    scopeResolution.phase === "unmapped" &&
-    scopeResolution.localProjectId === selectedProjectId &&
-    scopeResolution.localCanvasId === canvasId;
+  const currentScope = useMemo(
+    () =>
+      binding?.kind === "remote" &&
+      input.activeProjectId !== null &&
+      binding.projectId === input.activeProjectId
+        ? {
+            localProjectId: binding.projectId,
+            localCanvasId: binding.canvasId,
+            remoteProjectId: binding.projectId,
+            remoteCanvasId: binding.canvasId
+          }
+        : null,
+    [binding, input.activeProjectId]
+  );
   const collaborationConfigured =
     input.enabled &&
     !input.localOwnerDirectWriteAvailable &&
@@ -163,16 +150,10 @@ export function useSharedCanvasCommands(input: {
     input.activeProjectId !== null &&
     canvasId !== null &&
     input.profileId !== null;
-  const authorityEnabled =
-    collaborationConfigured &&
-    (scopeMayBeShared || currentScope !== null || (!input.sessionConnected && !scopeKnownUnmapped));
-  const sessionEnabled = authorityEnabled && input.sessionConnected && currentScope !== null;
   const resolvedSharedAuthority = currentScope !== null;
-  const authorityMode: SharedCanvasAuthorityMode = resolvedSharedAuthority
-    ? "shared"
-    : collaborationConfigured && !scopeKnownUnmapped
-      ? "resolving"
-      : "local";
+  const authorityEnabled = collaborationConfigured && resolvedSharedAuthority;
+  const sessionEnabled = authorityEnabled && input.sessionConnected && currentScope !== null;
+  const authorityMode: SharedCanvasAuthorityMode = resolvedSharedAuthority ? "shared" : "local";
   const currentProjectionIdentity =
     input.profileId && binding && currentScope
       ? projectionIdentity(input.profileId, binding, currentScope)
@@ -242,49 +223,6 @@ export function useSharedCanvasCommands(input: {
       refreshGenerationRef.current += 1;
     };
   }, [refreshScopeIdentity]);
-
-  useEffect(() => {
-    if (
-      !api ||
-      !collaborationConfigured ||
-      !binding ||
-      !selectedProjectId ||
-      !canvasId ||
-      !input.activeProjectId
-    ) {
-      setScopeResolution({ phase: "idle" });
-      return undefined;
-    }
-    const localProjectId = selectedProjectId;
-    const localCanvasId = canvasId;
-    const activeProjectId = input.activeProjectId;
-    let active = true;
-    setScopeResolution({ phase: "resolving", localProjectId, localCanvasId });
-    void api
-      .resolveCollaborationCanvasBindingScope(binding)
-      .then((scope) => {
-        if (!active) return;
-        if (!scope || scope.projectId !== activeProjectId) {
-          setScopeResolution({ phase: "unmapped", localProjectId, localCanvasId });
-          return;
-        }
-        setScopeResolution({
-          phase: "resolved",
-          localProjectId,
-          localCanvasId,
-          remoteProjectId: scope.projectId,
-          remoteCanvasId: scope.canvasId
-        });
-      })
-      .catch(() => {
-        if (active) {
-          setScopeResolution({ phase: "unmapped", localProjectId, localCanvasId });
-        }
-      });
-    return () => {
-      active = false;
-    };
-  }, [api, collaborationConfigured, input.activeProjectId, binding, canvasId, selectedProjectId]);
 
   useEffect(() => {
     if (!api) {
