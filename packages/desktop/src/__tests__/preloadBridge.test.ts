@@ -973,8 +973,7 @@ describe("preload bridge invocation", () => {
               canvasId: "default",
               canvasName: "Default",
               state: "published_private",
-              visibility: "private",
-              authority: null
+              visibility: "private"
             }
           }
         };
@@ -1168,13 +1167,7 @@ describe("preload bridge invocation", () => {
     await api.downloadWorkspaceCanvasFork({
       workspaceId: "workspace-1",
       projectId: "project-1",
-      canvasId: "default",
-      revision: 1,
-      content: {
-        versionId: `version-${"a".repeat(64)}`,
-        canonicalDigest: "a".repeat(64),
-        verification: "complete"
-      }
+      canvasId: "default"
     });
     await api.mutateCurrentCanvasAccess({
       canvasId: "default",
@@ -1190,8 +1183,6 @@ describe("preload bridge invocation", () => {
         visibility: "shared"
       }
     });
-    await api.setCollaborationCurrentSelection({ projectId: "project-1", canvasId: "default" });
-    await api.clearCollaborationCurrentSelection();
     await api.getLocalCollaborationServerStatus();
     await api.getLocalCollaborationScopeCatalog();
     await api.setLocalCollaborationTrustedScopes({
@@ -1293,26 +1284,31 @@ describe("preload bridge invocation", () => {
 
     expect(Object.keys(api).sort()).toEqual(
       [
-        ...Object.keys(collaborationInvokeChannels),
-        "bindCollaborationCanvasBindingContentAuthority",
-        "bindCollaborationCanvasBindingSession",
-        "bootstrapCollaborationContent",
-        "flushCollaborationCanvasReplicaMaterialization",
-        "getCollaborationCanvasBindingReplicaProjection",
-        "getCollaborationCanvasCommandSession",
-        "getCollaborationContentAuthority",
-        "importCollaborationLocalRuntimeStatus",
-        "listCollaborationContentBootstrapCandidates",
-        "materializeCollaborationContentHead",
-        "publishCollaborationInitialContent",
-        "reconnectCollaborationCanvas",
-        "refreshCollaborationContentAuthority",
-        "resolveCollaborationCanvasBindingScope",
-        "submitCollaborationCanvasCommand",
+        ...Object.keys(collaborationInvokeChannels).filter(
+          (key) =>
+            ![
+              "submitCollaborationCanvasCommand",
+              "reconnectCollaborationCanvas",
+              "bindCollaborationCanvasBindingSession",
+              "getCollaborationCanvasCommandSession",
+              "flushCollaborationCanvasReplicaMaterialization",
+              "resolveCollaborationCanvasBindingScope",
+              "importCollaborationLocalRuntimeStatus",
+              "getCollaborationCanvasBindingReplicaProjection",
+              "bindCollaborationCanvasBindingContentAuthority",
+              "getCollaborationContentAuthority",
+              "refreshCollaborationContentAuthority",
+              "publishCollaborationInitialContent",
+              "materializeCollaborationContentHead",
+              "listCollaborationContentBootstrapCandidates",
+              "bootstrapCollaborationContent",
+              "setCollaborationCurrentSelection",
+              "clearCollaborationCurrentSelection"
+            ].includes(key)
+        ),
         "onCollaborationStatusChanged",
         "onCollaborationObserverSignal",
         "onCollaborationPresenceSignal",
-        "onCollaborationCanvasBindingReplicaSignal",
         "onWorkspaceCanvasProjectionSignal"
       ].sort()
     );
@@ -1375,13 +1371,7 @@ describe("preload bridge invocation", () => {
       {
         workspaceId: "workspace-1",
         projectId: "project-1",
-        canvasId: "default",
-        revision: 1,
-        content: {
-          versionId: `version-${"a".repeat(64)}`,
-          canonicalDigest: "a".repeat(64),
-          verification: "complete"
-        }
+        canvasId: "default"
       }
     );
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
@@ -1390,13 +1380,6 @@ describe("preload bridge invocation", () => {
         canvasId: "default",
         request: expect.objectContaining({ operation: "visibility" })
       })
-    );
-    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
-      collaborationInvokeChannels.setCollaborationCurrentSelection,
-      { projectId: "project-1", canvasId: "default" }
-    );
-    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
-      collaborationInvokeChannels.clearCollaborationCurrentSelection
     );
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
       collaborationInvokeChannels.getLocalCollaborationServerStatus
