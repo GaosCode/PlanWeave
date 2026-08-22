@@ -173,6 +173,7 @@
         "liveServerStatus.test.ts",
         "localOperatorBackend.test.ts",
         "localMcpProcess.test.ts",
+        "localVsWorkspaceCanvasAuthority.characterization.test.tsx",
         "notificationController.test.tsx",
         "notificationNavigation.test.ts",
         "notificationsAndUpdates.test.tsx",
