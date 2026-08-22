@@ -49,11 +49,7 @@ describe("downloadWorkspaceCanvasFork", () => {
       projectId: "project-1",
       canvasId: "canvas-1"
     };
-    const discoverContentAuthority = vi.fn(async () => ({
-      authoritativeHead: { scope, revision: 4, content: completed },
-      localReplica: null,
-      replicaStatus: "snapshot_required" as const
-    }));
+    const fetchContentHead = vi.fn(async () => ({ scope, revision: 4, content: completed }));
     const fetchContentVersion = vi.fn(async () => ({ scope, completed, content }));
     vi.mocked(createManagedProjectFromAuthoritativeContent).mockResolvedValue({
       project: {
@@ -75,18 +71,14 @@ describe("downloadWorkspaceCanvasFork", () => {
     });
 
     const result = await downloadWorkspaceCanvasFork({
-      client: { discoverContentAuthority, fetchContentVersion } as CollaborationClient,
+      client: { fetchContentHead, fetchContentVersion } as CollaborationClient,
       rawInput: {
         ...scope,
         projectName: "Downloaded fork"
       }
     });
 
-    expect(discoverContentAuthority).toHaveBeenCalledWith({
-      canvasId: scope.canvasId,
-      localReplica: null,
-      knownRevision: null
-    });
+    expect(fetchContentHead).toHaveBeenCalledWith(scope.canvasId);
     expect(createManagedProjectFromAuthoritativeContent).toHaveBeenCalledWith(
       expect.objectContaining({
         importMode: "fork",

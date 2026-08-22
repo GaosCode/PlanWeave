@@ -545,14 +545,10 @@ describe("distributed server composition", () => {
     const contentHeadUrl = `${origin}/api/v1/projects/${projectId}/canvases/default/content/head`;
     const [headA, headB] = await Promise.all([
       fetch(contentHeadUrl, {
-        method: "POST",
-        headers: jsonHeaders(tokenA),
-        body: JSON.stringify({ localReplica: null, knownRevision: null })
+        headers: { authorization: `Bearer ${tokenA}` }
       }),
       fetch(contentHeadUrl, {
-        method: "POST",
-        headers: jsonHeaders(tokenB),
-        body: JSON.stringify({ localReplica: null, knownRevision: null })
+        headers: { authorization: `Bearer ${tokenB}` }
       })
     ]);
     expect(headA.status).toBe(200);

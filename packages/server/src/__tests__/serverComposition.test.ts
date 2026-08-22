@@ -228,24 +228,11 @@ describe("distributed server composition", () => {
     const head = await fetch(
       `${origin}/api/v1/projects/${restoredProjectId}/canvases/default/content/head`,
       {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${deviceToken}`,
-          "content-type": "application/json"
-        },
-        body: JSON.stringify({
-          projectId: restoredProjectId,
-          canvasId: "default",
-          localReplica: null,
-          knownRevision: null
-        })
+        headers: { Authorization: `Bearer ${deviceToken}` }
       }
     );
     expect(head.status).toBe(200);
-    await expect(head.json()).resolves.toMatchObject({
-      authoritativeHead: null,
-      canPublishInitial: true
-    });
+    await expect(head.json()).resolves.toBeNull();
 
     const runtimeAvailability = await fetch(
       `${origin}/api/v1/projects/${restoredProjectId}/canvases/default/runtime-availability`,

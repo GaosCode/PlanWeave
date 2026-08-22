@@ -178,31 +178,9 @@ describe("self-hosted two-Desktop collaboration flow (OSS-006 B-002)", () => {
         ownerToken
       );
       expect(bootstrapped.status).toBe(200);
-      expect(bootstrapped.body.canPublishInitial).toBe(false);
-      expect(bootstrapped.body.authoritativeHead).toMatchObject({
+      expect(bootstrapped.body).toMatchObject({
         revision: 1,
         content: { canonicalDigest: fixture.initialContent.canonicalDigest }
-      });
-
-      // Wrong second "first publish" must fail closed with a structured rejection body.
-      const duplicateInitial = await postJson(
-        fixture.origin,
-        `/api/v1/projects/${encodeURIComponent(fixture.projectId)}/canvases/default/content/initial-publish`,
-        ownerToken,
-        {
-          expectedHeadRevision: 0,
-          expectedHeadVersionId: null,
-          content: fixture.initialContent
-        }
-      );
-      expect(duplicateInitial.status).toBe(409);
-      await expect(duplicateInitial.json()).resolves.toEqual({
-        outcome: "rejected",
-        reason: "head_already_exists",
-        retryable: false,
-        detail: "initial_publish_already_completed",
-        // Contract: rejected first-publish never advertises a partial head.
-        head: null
       });
 
       const memberCanvases = await fetch(

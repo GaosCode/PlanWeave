@@ -45,25 +45,16 @@ function fakeClient() {
     nextCursor: null
   }));
   const readRuntimeAvailability = vi.fn(async () => availability);
-  const discoverContentAuthority = vi.fn(async () => ({
-    authoritativeHead: {
-      schemaVersion: "content-version/v1" as const,
-      scope,
-      revision: 9,
-      content: {
-        versionId: `version-${"b".repeat(64)}`,
-        canonicalDigest: "b".repeat(64),
-        verification: "complete" as const
-      },
-      advancedAt: "2026-08-22T00:00:00.000Z"
+  const fetchContentHead = vi.fn(async () => ({
+    schemaVersion: "content-version/v1" as const,
+    scope,
+    revision: 9,
+    content: {
+      versionId: `version-${"b".repeat(64)}`,
+      canonicalDigest: "b".repeat(64),
+      verification: "complete" as const
     },
-    localReplica: null,
-    lastAcknowledgement: null,
-    replicaStatus: "snapshot_required" as const,
-    recoveryAction: "fetch_head" as const,
-    canPublishInitial: false,
-    canMaterialize: true,
-    canRecover: true
+    advancedAt: "2026-08-22T00:00:00.000Z"
   }));
   const resetRuntime = vi.fn(async () => ({
     type: "canvas.runtime.reset.rejected" as const,
@@ -80,12 +71,12 @@ function fakeClient() {
     },
     registry: () => ({ listCanvases }),
     readRuntimeAvailability,
-    discoverContentAuthority,
+    fetchContentHead,
     resetRuntime
   } as CollaborationClient;
   return {
     client,
-    calls: { listCanvases, readRuntimeAvailability, discoverContentAuthority, resetRuntime }
+    calls: { listCanvases, readRuntimeAvailability, fetchContentHead, resetRuntime }
   };
 }
 

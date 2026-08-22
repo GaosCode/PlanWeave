@@ -198,6 +198,8 @@ async function fixture() {
           (scope.canvasId === undefined || scope.canvasId === "default")
       },
       transportAdmission: loopbackHttpTransportAdmission
+    }).then((handled) => {
+      if (!handled) response.writeHead(404).end();
     });
   });
   servers.push(server);
@@ -207,6 +209,7 @@ async function fixture() {
   return {
     origin: `http://127.0.0.1:${address.port}`,
     database,
+    contentVersions,
     membership,
     ownerDeviceCredentialId: owner.device.deviceCredentialId,
     ownerToken: owner.deviceToken,
@@ -358,44 +361,25 @@ describe("content version HTTP boundary", () => {
     }
   });
 
-  it("authorizes head discovery, bounded fetch/ack, revocation, and redacted failures", async () => {
-    const { origin, membership, ownerDeviceCredentialId, ownerToken, memberToken } =
-      await fixture();
-    const initial = await fetch(
-      `${origin}/api/v1/projects/p/canvases/default/content/initial-publish`,
-      {
-        method: "POST",
-        headers: headers(ownerToken),
-        body: JSON.stringify({
-          expectedHeadRevision: 0,
-          expectedHeadVersionId: null,
-          content: content()
-        })
-      }
-    );
-    expect(initial.status).toBe(201);
-    const published = (await initial.json()) as { version: { completed: unknown } };
-    const discovery = await fetch(`${origin}/api/v1/projects/p/canvases/default/content/head`, {
-      method: "POST",
-      headers: headers(memberToken),
-      body: JSON.stringify({ localReplica: null, knownRevision: null })
+  it("authorizes direct head reads, bounded fetch, revocation, and redacted failures", async () => {
+    const {
+      origin,
+      contentVersions,
+      membership,
+      ownerDeviceCredentialId,
+      ownerToken,
+      memberToken
+    } = await fixture();
+    const published = contentVersions.publishInitial({
+      scope: { workspaceId: "w", projectId: "p", canvasId: "default" },
+      content: content(),
+      createdBy: { kind: "human", id: "owner" }
     });
-    expect(discovery.status).toBe(200);
-    const discovered = (await discovery.json()) as {
-      authoritativeHead: { content: unknown };
-      replicaStatus: string;
-      recoveryAction: string;
-    };
-    expect(discovered).toMatchObject({
-      replicaStatus: "snapshot_required",
-      recoveryAction: "fetch_head",
-      canPublishInitial: false,
-      canMaterialize: true,
-      canRecover: true,
-      authoritativeHead: { content: published.version.completed }
+    const headResponse = await fetch(`${origin}/api/v1/projects/p/canvases/default/content/head`, {
+      headers: { authorization: `Bearer ${memberToken}` }
     });
-    expect(JSON.stringify(discovered)).not.toContain("members");
-    expect(JSON.stringify(discovered)).not.toContain("packageDir");
+    expect(headResponse.status).toBe(200);
+    expect(await headResponse.json()).toEqual(published.head);
     const fetched = await fetch(`${origin}/api/v1/projects/p/canvases/default/content/fetch`, {
       method: "POST",
       headers: headers(memberToken),
@@ -403,25 +387,6 @@ describe("content version HTTP boundary", () => {
     });
     expect(fetched.status).toBe(200);
     await fetched.text();
-    const acknowledged = await fetch(
-      `${origin}/api/v1/projects/p/canvases/default/content/acknowledgements`,
-      {
-        method: "POST",
-        headers: headers(memberToken),
-        body: JSON.stringify({ content: published.version.completed })
-      }
-    );
-    expect(acknowledged.status).toBe(200);
-    const inSync = await fetch(`${origin}/api/v1/projects/p/canvases/default/content/head`, {
-      method: "POST",
-      headers: headers(memberToken),
-      body: JSON.stringify({ localReplica: published.version.completed, knownRevision: 1 })
-    });
-    expect(await inSync.json()).toMatchObject({
-      replicaStatus: "in_sync",
-      recoveryAction: "none",
-      lastAcknowledgement: { content: published.version.completed }
-    });
     const crossScope = await fetch(`${origin}/api/v1/projects/p/canvases/other/content/fetch`, {
       method: "POST",
       headers: headers(ownerToken),
@@ -429,15 +394,10 @@ describe("content version HTTP boundary", () => {
     });
     expect(crossScope.status).toBe(403);
     expect(JSON.stringify(await crossScope.json())).not.toContain("package");
-    const crossScopeDiscovery = await fetch(
-      `${origin}/api/v1/projects/p/canvases/other/content/head`,
-      {
-        method: "POST",
-        headers: headers(memberToken),
-        body: JSON.stringify({ localReplica: null, knownRevision: null })
-      }
-    );
-    expect(crossScopeDiscovery.status).toBe(403);
+    const crossScopeHead = await fetch(`${origin}/api/v1/projects/p/canvases/other/content/head`, {
+      headers: { authorization: `Bearer ${memberToken}` }
+    });
+    expect(crossScopeHead.status).toBe(403);
     membership.revokeDevice(
       {
         humanPrincipalId: "owner",
@@ -457,6 +417,22 @@ describe("content version HTTP boundary", () => {
     });
     expect(revoked.status).toBe(401);
     expect(await revoked.json()).toEqual({ error: "unauthorized" });
+  });
+
+  it("does not route removed replica authority operations", async () => {
+    const { origin, ownerToken } = await fixture();
+    for (const path of [
+      "/api/v1/projects/p/canvases/default/content/initial-publish",
+      "/api/v1/projects/p/canvases/default/content/acknowledgements",
+      "/api/v1/projects/p/canvases/default/content/head"
+    ]) {
+      const response = await fetch(`${origin}${path}`, {
+        method: "POST",
+        headers: headers(ownerToken),
+        body: JSON.stringify({})
+      });
+      expect(response.status).toBe(404);
+    }
   });
 
   it("atomically publishes a workspace canvas and replays the same operation", async () => {

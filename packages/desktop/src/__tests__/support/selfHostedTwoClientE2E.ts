@@ -164,79 +164,22 @@ export async function postJson(origin: string, path: string, token: string, body
   });
 }
 
-/** Discover authoritative content head for a canvas (POST content/head). */
+/** Read the Server-authoritative content head for a canvas. */
 export async function discoverContentHead(
   origin: string,
   projectId: string,
   canvasId: string,
   token: string
 ) {
-  const response = await postJson(
-    origin,
-    `/api/v1/projects/${encodeURIComponent(projectId)}/canvases/${encodeURIComponent(canvasId)}/content/head`,
-    token,
-    { localReplica: null, knownRevision: null }
+  const response = await fetch(
+    `${origin}/api/v1/projects/${encodeURIComponent(projectId)}/canvases/${encodeURIComponent(canvasId)}/content/head`,
+    { headers: { authorization: `Bearer ${token}` } }
   );
   const body = (await response.json()) as {
-    canPublishInitial?: boolean;
-    authoritativeHead?: {
-      revision: number;
-      content: { versionId: string; canonicalDigest: string };
-    } | null;
-    replicaStatus?: string;
-  };
+    revision: number;
+    content: { versionId: string; canonicalDigest: string };
+  } | null;
   return { status: response.status, body };
-}
-
-/**
- * Remove content head rows for one canvas inside an isolated test database only.
- * Used to exercise HTTP initial-publish against an empty head without mutating user data.
- * Server bootstrap normally publishes trusted canvases at composition time.
- */
-export async function clearIsolatedCanvasContentHead(input: {
-  databasePath: string;
-  workspaceId: string;
-  projectId: string;
-  canvasId: string;
-}): Promise<void> {
-  const database = await openServerDatabase(input.databasePath, 5_000);
-  try {
-    database
-      .prepare(
-        `DELETE FROM canvas_content_journal
-         WHERE workspace_id=? AND project_id=? AND canvas_id=?`
-      )
-      .run(input.workspaceId, input.projectId, input.canvasId);
-    database
-      .prepare(
-        `DELETE FROM canvas_content_acknowledgements
-         WHERE workspace_id=? AND project_id=? AND canvas_id=?`
-      )
-      .run(input.workspaceId, input.projectId, input.canvasId);
-    database
-      .prepare(
-        `DELETE FROM canvas_content_version_members
-         WHERE version_id IN (
-           SELECT version_id FROM canvas_content_versions
-           WHERE workspace_id=? AND project_id=? AND canvas_id=?
-         )`
-      )
-      .run(input.workspaceId, input.projectId, input.canvasId);
-    database
-      .prepare(
-        `DELETE FROM canvas_content_versions
-         WHERE workspace_id=? AND project_id=? AND canvas_id=?`
-      )
-      .run(input.workspaceId, input.projectId, input.canvasId);
-    database
-      .prepare(
-        `DELETE FROM canvas_content_heads
-         WHERE workspace_id=? AND project_id=? AND canvas_id=?`
-      )
-      .run(input.workspaceId, input.projectId, input.canvasId);
-  } finally {
-    database.close();
-  }
 }
 
 export function assertFixturesDoNotShareAcceptanceState(

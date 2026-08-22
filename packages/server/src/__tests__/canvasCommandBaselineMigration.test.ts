@@ -547,15 +547,6 @@ describe("canvas command baseline migration", () => {
             content: exampleCompleteContentVersion,
             completed: authorityHead.content
           };
-        },
-        publishInitial: () => {
-          throw new Error("not called");
-        },
-        acknowledge: () => {
-          throw new Error("not called");
-        },
-        discoverAuthority: () => {
-          throw new Error("not called");
         }
       };
       const repository = new CanvasCommandRepository(database, {

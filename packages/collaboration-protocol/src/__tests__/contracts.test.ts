@@ -43,7 +43,6 @@ const productionExportPaths = [
   "./access/control",
   "./content/snapshot",
   "./content/version",
-  "./content/authority",
   "./content/transfer",
   "./work/assignment",
   "./work/responsibility",

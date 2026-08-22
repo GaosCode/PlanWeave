@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  authorizedContentVersionAcknowledgementSchema,
   authorizedContentVersionFetchSchema,
   authoritativeContentHeadSchema,
   canonicalContentVersionDigestPayload,
@@ -9,20 +8,9 @@ import {
   contentVersionDesktopLayoutMemberPath,
   contentVersionJournalEntrySchema,
   contentVersionMaterializeResultSchema,
-  firstContentVersionPublishRequestSchema,
-  firstContentVersionPublishResultSchema,
-  ownerAuthorizedFirstContentVersionPublishSchema,
   workspaceCanvasInitialPublishRequestSchema,
   workspaceCanvasInitialPublishResultSchema
 } from "../contentVersion.js";
-import {
-  authorizedContentVersionAuthorityDiscoverySchema,
-  contentReplicaStatusSchema,
-  contentVersionAuthorityDiscoveryRequestSchema,
-  contentVersionAuthorityDiscoveryResultSchema,
-  contentVersionAuthorityDiscoveryToDesktopReadModel,
-  contentVersionDesktopReadModelSchema
-} from "../contentAuthority.js";
 import {
   exampleAuthoritativeContentVersion,
   exampleCompleteContentVersion,
@@ -152,39 +140,6 @@ describe("authoritative content-version contracts", () => {
     ).toThrow();
   });
 
-  it("accepts only owner-authorized empty-head CAS publication", () => {
-    const request = firstContentVersionPublishRequestSchema.parse({
-      projectId: scope.projectId,
-      canvasId: scope.canvasId,
-      expectedHeadRevision: 0,
-      expectedHeadVersionId: null,
-      content: exampleCompleteContentVersion
-    });
-    expect(
-      ownerAuthorizedFirstContentVersionPublishSchema.parse({
-        request,
-        scope,
-        owner: "human-owner-001",
-        actor: { kind: "human", id: "human-owner-001" },
-        deviceSessionId: "device-session-001",
-        aclRevision: 1
-      }).request.expectedHeadRevision
-    ).toBe(0);
-    expect(() =>
-      ownerAuthorizedFirstContentVersionPublishSchema.parse({
-        request,
-        scope,
-        owner: "human-owner-001",
-        actor: { kind: "human", id: "human-member-002" },
-        deviceSessionId: "device-session-001",
-        aclRevision: 1
-      })
-    ).toThrow();
-    expect(() =>
-      firstContentVersionPublishRequestSchema.parse({ ...request, expectedHeadRevision: 1 })
-    ).toThrow();
-  });
-
   it("returns workspace scope, revision, operation id, and recovery token for idempotent initial publish", () => {
     const request = workspaceCanvasInitialPublishRequestSchema.parse({
       operationId: "publish-op-1",
@@ -226,27 +181,6 @@ describe("authoritative content-version contracts", () => {
         recoveryToken: null
       }).recoveryToken
     ).toBeNull();
-  });
-
-  it("makes failed first-head verification headless and retryable with an explicit reason", () => {
-    expect(
-      firstContentVersionPublishResultSchema.parse({
-        outcome: "rejected",
-        reason: "content_verification_failed",
-        retryable: true,
-        detail: "canonical digest verification failed",
-        head: null
-      }).outcome
-    ).toBe("rejected");
-    expect(() =>
-      firstContentVersionPublishResultSchema.parse({
-        outcome: "rejected",
-        reason: "head_cas_conflict",
-        retryable: true,
-        detail: "head changed",
-        head
-      })
-    ).toThrow();
   });
 
   it("binds immutable completed versions to heads and contiguous journal entries", () => {
@@ -299,66 +233,6 @@ describe("authoritative content-version contracts", () => {
     ).toThrow();
   });
 
-  it("rejects stale or cross-version acknowledgement replay", () => {
-    const acknowledgement = {
-      scope,
-      deviceSessionId: "device-session-002",
-      content,
-      acknowledgedAt: "2030-01-01T00:01:00.000Z"
-    };
-    expect(
-      authorizedContentVersionAcknowledgementSchema.parse({
-        request: { content },
-        acknowledgement
-      }).acknowledgement.deviceSessionId
-    ).toBe("device-session-002");
-    expect(() =>
-      authorizedContentVersionAcknowledgementSchema.parse({
-        request: { content },
-        acknowledgement: {
-          ...acknowledgement,
-          content: {
-            ...content,
-            canonicalDigest: "f".repeat(64),
-            versionId: `version-${"f".repeat(64)}`
-          }
-        }
-      })
-    ).toThrow();
-  });
-
-  it("accepts authority discovery only after the server supplies scope and device identity", () => {
-    const request = {
-      projectId: scope.projectId,
-      canvasId: scope.canvasId,
-      localReplica: null,
-      knownRevision: null
-    };
-    expect(contentVersionAuthorityDiscoveryRequestSchema.parse(request)).toEqual(request);
-    expect(() =>
-      contentVersionAuthorityDiscoveryRequestSchema.parse({
-        ...request,
-        actor: { kind: "human", id: "owner" }
-      })
-    ).toThrow();
-    expect(
-      authorizedContentVersionAuthorityDiscoverySchema.parse({
-        request,
-        scope,
-        deviceSessionId: "device-session-002",
-        aclRevision: 2
-      }).scope
-    ).toEqual(scope);
-    expect(() =>
-      authorizedContentVersionAuthorityDiscoverySchema.parse({
-        request: { ...request, canvasId: "other" },
-        scope,
-        deviceSessionId: "device-session-002",
-        aclRevision: 2
-      })
-    ).toThrow();
-  });
-
   it("requires explicit materialization failure reasons", () => {
     expect(
       contentVersionMaterializeResultSchema.parse({
@@ -374,104 +248,6 @@ describe("authoritative content-version contracts", () => {
         content,
         retryable: true,
         reason: null
-      })
-    ).toThrow();
-  });
-
-  it("permits exactly the four replica states and keeps recovery fail closed", () => {
-    expect(contentReplicaStatusSchema.options).toEqual([
-      "in_sync",
-      "behind",
-      "diverged",
-      "snapshot_required"
-    ]);
-    expect(
-      contentVersionDesktopReadModelSchema.parse({
-        authoritativeHead: head,
-        localReplica: content,
-        replicaStatus: "in_sync",
-        lastAcknowledgement: null,
-        canPublishInitial: false,
-        canMaterialize: true,
-        canRecover: true,
-        offlineWriteReason: null
-      }).replicaStatus
-    ).toBe("in_sync");
-    expect(() =>
-      contentVersionDesktopReadModelSchema.parse({
-        authoritativeHead: head,
-        localReplica: null,
-        replicaStatus: "snapshot_required",
-        lastAcknowledgement: null,
-        canPublishInitial: false,
-        canMaterialize: true,
-        canRecover: false,
-        offlineWriteReason: "shared offline mode is read-only"
-      })
-    ).toThrow();
-    expect(() => contentReplicaStatusSchema.parse("offline")).toThrow();
-  });
-
-  it("returns only renderer-safe authority metadata and explicit recovery actions", () => {
-    expect(
-      contentVersionAuthorityDiscoveryResultSchema.parse({
-        authoritativeHead: head,
-        localReplica: null,
-        lastAcknowledgement: null,
-        replicaStatus: "snapshot_required",
-        recoveryAction: "fetch_head",
-        canPublishInitial: false,
-        canMaterialize: true,
-        canRecover: true
-      }).authoritativeHead?.content
-    ).toEqual(content);
-    expect(() =>
-      contentVersionAuthorityDiscoveryResultSchema.parse({
-        authoritativeHead: head,
-        localReplica: content,
-        lastAcknowledgement: null,
-        replicaStatus: "in_sync",
-        recoveryAction: "fetch_head",
-        canPublishInitial: false,
-        canMaterialize: true,
-        canRecover: true
-      })
-    ).toThrow();
-    expect(() =>
-      contentVersionAuthorityDiscoveryResultSchema.parse({
-        authoritativeHead: null,
-        localReplica: null,
-        lastAcknowledgement: null,
-        replicaStatus: "snapshot_required",
-        recoveryAction: "fetch_head",
-        canPublishInitial: false,
-        canMaterialize: false,
-        canRecover: false
-      })
-    ).toThrow();
-    const headlessNonOwner = contentVersionAuthorityDiscoveryResultSchema.parse({
-      authoritativeHead: null,
-      localReplica: null,
-      lastAcknowledgement: null,
-      replicaStatus: "snapshot_required",
-      recoveryAction: "await_initial_publish",
-      canPublishInitial: false,
-      canMaterialize: false,
-      canRecover: false
-    });
-    expect(contentVersionAuthorityDiscoveryToDesktopReadModel(headlessNonOwner).canRecover).toBe(
-      false
-    );
-    expect(() =>
-      contentVersionDesktopReadModelSchema.parse({
-        authoritativeHead: head,
-        localReplica: null,
-        replicaStatus: "snapshot_required",
-        lastAcknowledgement: null,
-        canPublishInitial: false,
-        canMaterialize: true,
-        canRecover: false,
-        offlineWriteReason: null
       })
     ).toThrow();
   });
