@@ -160,15 +160,21 @@ function fakeControl(
       registeredAt: "2030-01-01T00:00:01.000Z"
     })
   );
+  const bootstrapOwner = vi.fn(() => ({
+    ...exampleBootstrapResponse,
+    workspaceId: "workspace-2"
+  }));
   return {
     apply,
     releaseStop: () => releaseStop?.(),
     registerTrustedProject,
+    bootstrapOwner,
     control: {
       status: () => status,
       apply,
       listTrustedProjectScopes: () => scopes,
-      registerTrustedProject
+      registerTrustedProject,
+      bootstrapOwner
     }
   };
 }

@@ -17,6 +17,7 @@ import {
   type DistributedServerComposition
 } from "./serverComposition.js";
 import type { TrustedProjectControlPort } from "./trustedProjectControl.js";
+import type { HumanMembershipService } from "./identity/index.js";
 
 export type DistributedServerExposureRuntime = {
   lifecycle: ServerExposureLifecyclePort;
@@ -35,6 +36,8 @@ export type DistributedServerProcess = {
   readonly publicUrl: string;
   /** Main-process-only port; it never exposes paths, tokens, or transport control. */
   readonly trustedProjectControl: TrustedProjectControlPort;
+  /** Main-process-only owner bootstrap authority; never attached to an HTTP route. */
+  readonly localAdminHumanIdentity: Pick<HumanMembershipService, "bootstrapOwner">;
   readiness(): ServerReadiness;
   close(): Promise<void>;
 };
@@ -192,6 +195,7 @@ export async function serveDistributedServer(
     version: serverPackageVersion,
     publicUrl: serverConfigSummary(config).advertisedOrigin,
     trustedProjectControl: activeComposition.trustedProjectControl,
+    localAdminHumanIdentity: activeComposition.localAdminHumanIdentity,
     readiness: () => readiness.readiness(),
     close() {
       closePromise ??= (async () => {

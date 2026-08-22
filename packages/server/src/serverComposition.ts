@@ -2,7 +2,7 @@ import type { Server as HttpServer } from "node:http";
 import { serverConfigSchema, type ServerConfig } from "./config.js";
 import { startRemoteBlockCoordinationServer } from "./distributedCoordination.js";
 import { HostEnrollmentService } from "./hostEnrollment.js";
-import type { HumanIdentityRepository } from "./identity/index.js";
+import type { HumanIdentityRepository, HumanMembershipService } from "./identity/index.js";
 import type { WorkspaceIdentityRepository } from "./identity/workspaceRepository.js";
 import { serverPackageVersion } from "./packageInfo.js";
 import { ServerReadinessController, type ServerReadiness } from "./readiness.js";
@@ -70,6 +70,8 @@ export type DistributedServerCompositionOptions = {
 export type DistributedServerComposition = {
   readonly ownsHttpServer: false;
   readonly trustedProjectControl: TrustedProjectControlPort;
+  /** Main-process-only owner bootstrap authority; never attached to an HTTP route. */
+  readonly localAdminHumanIdentity: Pick<HumanMembershipService, "bootstrapOwner">;
   readonly exposureLeaseStore: ExposureLeaseStorePort;
   readiness(): ServerReadiness;
   beginDrain(): void;
@@ -331,6 +333,7 @@ export async function createDistributedServerComposition(
         runtimeRegistry: registries.runtimeRegistry,
         projectAccess
       }),
+      localAdminHumanIdentity: humanMembership,
       exposureLeaseStore: new SqliteExposureLeaseStore(server.database),
       readiness: () => readiness.readiness(),
       beginDrain,

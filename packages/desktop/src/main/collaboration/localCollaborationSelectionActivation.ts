@@ -17,6 +17,15 @@ type LocalCollaborationCoordinatorPort = {
   clearCurrentSelection(): Promise<void>;
   localProfile(): LocalCollaborationProfile | null;
   localProfileForId(profileId: string): LocalCollaborationProfile | null;
+  bootstrapLocalProfileOwner(
+    profileId: string,
+    request: unknown
+  ): {
+    workspaceId: string;
+    principal: { humanPrincipalId: string };
+    device: { deviceCredentialId: string };
+    deviceToken?: string;
+  };
   registerCurrentProject(actor: { kind: "human"; id: string }): LoopbackProjectRegistrationView;
   registerLocalProfile(
     profileId: string,
@@ -34,10 +43,7 @@ type LocalCollaborationSelectionServicePort = {
   }): Promise<void>;
   setActiveProfile(input: unknown): Promise<unknown>;
   activeHumanPrincipalId(profileId: string): Promise<string | null>;
-  bootstrapOwner(input: unknown): Promise<{
-    workspaceId: string;
-    principal: { humanPrincipalId: string };
-  }>;
+  importDeviceCredential(input: unknown): Promise<unknown>;
   connectSession(input: unknown): Promise<unknown>;
   migrateLegacyLocalOwnerDisplayName(input: unknown): Promise<boolean>;
   clearActiveProfile(): Promise<unknown>;
@@ -56,7 +62,7 @@ type LocalCollaborationServicePort = LocalCollaborationSelectionServicePort & {
 
 type LocalCollaborationActivationCoordinatorPort = Pick<
   LocalCollaborationCoordinatorPort,
-  "localProfile" | "registerCurrentProject"
+  "localProfile" | "registerCurrentProject" | "bootstrapLocalProfileOwner"
 >;
 
 export type LocalCollaborationActivationCommand = {
@@ -83,6 +89,7 @@ export async function activateLocalCollaborationSelection({
   return activateLocalCollaborationProfile({
     profile,
     service,
+    bootstrapOwner: (request) => coordinator.bootstrapLocalProfileOwner(profile.profileId, request),
     registerProject: (actor) => coordinator.registerCurrentProject(actor),
     ownerDisplayName
   });
@@ -91,11 +98,18 @@ export async function activateLocalCollaborationSelection({
 async function activateLocalCollaborationProfile({
   profile,
   service,
+  bootstrapOwner,
   registerProject,
   ownerDisplayName
 }: {
   profile: LocalCollaborationProfile;
   service: LocalCollaborationSelectionServicePort;
+  bootstrapOwner: (request: unknown) => {
+    workspaceId: string;
+    principal: { humanPrincipalId: string };
+    device: { deviceCredentialId: string };
+    deviceToken?: string;
+  };
   registerProject: (actor: { kind: "human"; id: string }) => LoopbackProjectRegistrationView;
   ownerDisplayName: string;
 }): Promise<LoopbackProjectRegistrationView> {
@@ -107,9 +121,15 @@ async function activateLocalCollaborationProfile({
   const persistedPrincipal = humanPrincipalId !== null;
   let authenticatedWorkspaceId: string | null = null;
   if (!humanPrincipalId) {
-    const handoff = await service.bootstrapOwner({
+    const handoff = bootstrapOwner({ displayName: ownerDisplayName });
+    if (!handoff.deviceToken) {
+      throw new Error("local_collaboration_owner_device_credential_missing");
+    }
+    await service.importDeviceCredential({
       profileId: profile.profileId,
-      request: { displayName: ownerDisplayName }
+      deviceToken: handoff.deviceToken,
+      deviceCredentialId: handoff.device.deviceCredentialId,
+      humanPrincipalId: handoff.principal.humanPrincipalId
     });
     humanPrincipalId = handoff.principal.humanPrincipalId;
     authenticatedWorkspaceId = handoff.workspaceId;
@@ -216,6 +236,8 @@ export function createLocalCollaborationActivationCommand({
               return await activateLocalCollaborationProfile({
                 profile: activeProfile,
                 service,
+                bootstrapOwner: (request) =>
+                  coordinator.bootstrapLocalProfileOwner(activeProfile.profileId, request),
                 registerProject: (actor) =>
                   coordinator.registerLocalProfile(activeProfile.profileId, actor),
                 ownerDisplayName: registrationInput.ownerDisplayName ?? defaultLocalOwnerDisplayName
@@ -248,6 +270,8 @@ export function createLocalCollaborationActivationCommand({
           return await activateLocalCollaborationProfile({
             profile: profileToRestore,
             service,
+            bootstrapOwner: (request) =>
+              coordinator.bootstrapLocalProfileOwner(profileToRestore.profileId, request),
             registerProject: (actor) =>
               coordinator.registerLocalProfile(profileToRestore.profileId, actor),
             ownerDisplayName: registrationInput.ownerDisplayName ?? defaultLocalOwnerDisplayName

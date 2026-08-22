@@ -167,6 +167,12 @@ describe("activateLocalCollaborationSelection", () => {
       localProfileForId: vi.fn((profileId: string) =>
         profileId === profile.profileId ? profile : null
       ),
+      bootstrapLocalProfileOwner: vi.fn(() => ({
+        workspaceId: "workspace-1",
+        principal: { humanPrincipalId: "human-restored-owner" },
+        device: { deviceCredentialId: "device-restored-owner" },
+        deviceToken: "pwdv1_restored_owner"
+      })),
       registerCurrentProject: vi.fn(),
       registerLocalProfile: vi.fn(() => registration)
     };
@@ -185,10 +191,8 @@ describe("activateLocalCollaborationSelection", () => {
       migrateLocalProfileCredential: vi.fn(async () => undefined),
       adoptWorkspaceAuthority: vi.fn(async () => undefined),
       activeHumanPrincipalId: vi.fn(async () => null),
-      bootstrapOwner: vi.fn(async () => ({
-        workspaceId: "workspace-1",
-        principal: { humanPrincipalId: "human-restored-owner" }
-      })),
+      importDeviceCredential: vi.fn(async () => undefined),
+      bootstrapOwner: vi.fn(),
       markLastServerConnectionLocal: vi.fn(async () => undefined)
     };
 
@@ -200,6 +204,13 @@ describe("activateLocalCollaborationSelection", () => {
       id: "human-restored-owner"
     });
     expect(coordinator.registerCurrentProject).not.toHaveBeenCalled();
+    expect(service.importDeviceCredential).toHaveBeenCalledWith({
+      profileId: profile.profileId,
+      deviceToken: "pwdv1_restored_owner",
+      deviceCredentialId: "device-restored-owner",
+      humanPrincipalId: "human-restored-owner"
+    });
+    expect(service.bootstrapOwner).not.toHaveBeenCalled();
     expect(service.connectSession).toHaveBeenCalledWith({ profileId: profile.profileId });
     expect(service.markLastServerConnectionLocal).toHaveBeenCalledOnce();
   });
@@ -514,6 +525,12 @@ describe("activateLocalCollaborationSelection", () => {
       clearCurrentSelection: vi.fn(async () => undefined),
       localProfile: vi.fn(() => profile),
       localProfileForId: vi.fn(() => profile),
+      bootstrapLocalProfileOwner: vi.fn(() => ({
+        workspaceId: "workspace-1",
+        principal: { humanPrincipalId: "human-new-owner" },
+        device: { deviceCredentialId: "device-new-owner" },
+        deviceToken: "pwdv1_new_owner"
+      })),
       registerLocalProfile: vi.fn(),
       registerCurrentProject: vi.fn(() => {
         calls.push("register");
@@ -570,6 +587,12 @@ describe("activateLocalCollaborationSelection", () => {
       clearCurrentSelection: vi.fn(async () => undefined),
       localProfile: vi.fn(() => profile),
       localProfileForId: vi.fn(() => profile),
+      bootstrapLocalProfileOwner: vi.fn(() => ({
+        workspaceId: "workspace-1",
+        principal: { humanPrincipalId: "human-new-owner" },
+        device: { deviceCredentialId: "device-new-owner" },
+        deviceToken: "pwdv1_new_owner"
+      })),
       registerLocalProfile: vi.fn(),
       registerCurrentProject: vi.fn(() => ({
         workspaceId: "workspace-1",
@@ -585,10 +608,8 @@ describe("activateLocalCollaborationSelection", () => {
       adoptWorkspaceAuthority: vi.fn(async () => undefined),
       setActiveProfile: vi.fn(async () => undefined),
       activeHumanPrincipalId: vi.fn(async () => null),
-      bootstrapOwner: vi.fn(async () => ({
-        workspaceId: "workspace-1",
-        principal: { humanPrincipalId: "human-new-owner" }
-      })),
+      importDeviceCredential: vi.fn(async () => undefined),
+      bootstrapOwner: vi.fn(),
       connectSession: vi.fn(async () => undefined),
       clearActiveProfile: vi.fn(async () => undefined)
     };
@@ -599,10 +620,16 @@ describe("activateLocalCollaborationSelection", () => {
       ownerDisplayName: "Local owner"
     });
 
-    expect(service.bootstrapOwner).toHaveBeenCalledWith({
-      profileId: profile.profileId,
-      request: { displayName: "Local owner" }
+    expect(coordinator.bootstrapLocalProfileOwner).toHaveBeenCalledWith(profile.profileId, {
+      displayName: "Local owner"
     });
+    expect(service.importDeviceCredential).toHaveBeenCalledWith({
+      profileId: profile.profileId,
+      deviceToken: "pwdv1_new_owner",
+      deviceCredentialId: "device-new-owner",
+      humanPrincipalId: "human-new-owner"
+    });
+    expect(service.bootstrapOwner).not.toHaveBeenCalled();
     expect(coordinator.registerCurrentProject).toHaveBeenCalledWith({
       kind: "human",
       id: "human-new-owner"
@@ -616,6 +643,12 @@ describe("activateLocalCollaborationSelection", () => {
       clearCurrentSelection: vi.fn(async () => undefined),
       localProfile: vi.fn(() => profile),
       localProfileForId: vi.fn(() => profile),
+      bootstrapLocalProfileOwner: vi.fn(() => ({
+        workspaceId: "workspace-bootstrap",
+        principal: { humanPrincipalId: "human-new-owner" },
+        device: { deviceCredentialId: "device-new-owner" },
+        deviceToken: "pwdv1_new_owner"
+      })),
       registerLocalProfile: vi.fn(),
       registerCurrentProject: vi.fn(() => ({
         workspaceId: "workspace-registration",
@@ -631,10 +664,8 @@ describe("activateLocalCollaborationSelection", () => {
       adoptWorkspaceAuthority: vi.fn(async () => undefined),
       setActiveProfile: vi.fn(async () => undefined),
       activeHumanPrincipalId: vi.fn(async () => null),
-      bootstrapOwner: vi.fn(async () => ({
-        workspaceId: "workspace-bootstrap",
-        principal: { humanPrincipalId: "human-new-owner" }
-      })),
+      importDeviceCredential: vi.fn(async () => undefined),
+      bootstrapOwner: vi.fn(),
       connectSession: vi.fn(async () => undefined),
       clearActiveProfile: vi.fn(async () => undefined)
     };

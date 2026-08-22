@@ -82,7 +82,7 @@ type ProjectCatalogPort = {
 
 type LoopbackServerControlPort = Pick<
   LoopbackServerController,
-  "status" | "apply" | "listTrustedProjectScopes" | "registerTrustedProject"
+  "status" | "apply" | "listTrustedProjectScopes" | "registerTrustedProject" | "bootstrapOwner"
 >;
 
 type LocalExposureMode = "local_only" | "private_https" | "lan_http";
@@ -134,6 +134,10 @@ export interface CollaborationCoordinatorControl {
   ownsLocalProfile(profileId: string): boolean;
   recognizesLocalProfile(profileId: string): boolean;
   listActiveTrustedScopes(): readonly LoopbackTrustedProjectScope[];
+  bootstrapLocalProfileOwner(
+    profileId: string,
+    request: unknown
+  ): ReturnType<LoopbackServerController["bootstrapOwner"]>;
   registerCurrentProject(actor: { kind: "human"; id: string }): LoopbackProjectRegistrationView;
   localProfile(): {
     profileId: string;
@@ -727,6 +731,23 @@ export class LocalCollaborationCoordinatorControl implements CollaborationCoordi
     return this.controller!.listTrustedProjectScopes({ profileId: profile.profileId });
   }
 
+  bootstrapLocalProfileOwner(
+    profileId: string,
+    request: unknown
+  ): ReturnType<LoopbackServerController["bootstrapOwner"]> {
+    const profile = this.requireRunningProfile();
+    const scope = this.requireHostedProfileScope(profileId, profile.profileId);
+    return this.controller!.bootstrapOwner(
+      {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        canvasId: scope.canvasId,
+        profileId: profile.profileId
+      },
+      request
+    );
+  }
+
   registerCurrentProject(actor: { kind: "human"; id: string }): LoopbackProjectRegistrationView {
     const selection = this.requireSelection();
     const profile = this.requireRunningProfile();
@@ -785,14 +806,8 @@ export class LocalCollaborationCoordinatorControl implements CollaborationCoordi
     profileId: string,
     actor: { kind: "human"; id: string }
   ): LoopbackProjectRegistrationView {
-    const authorityProjectId = this.authorityProjectIdForLocalProfile(profileId);
-    if (!authorityProjectId) throw new Error("local_collaboration_profile_not_hosted");
     const profile = this.requireRunningProfile();
-    const scopes = this.controller!.listTrustedProjectScopes({ profileId: profile.profileId })
-      .filter((scope) => scope.projectId === authorityProjectId)
-      .sort((left, right) => left.canvasId.localeCompare(right.canvasId));
-    const scope = scopes[0];
-    if (!scope) throw new Error("local_collaboration_profile_not_hosted");
+    const scope = this.requireHostedProfileScope(profileId, profile.profileId);
     return loopbackProjectRegistrationViewSchema.parse(
       this.controller!.registerTrustedProject(actor, {
         workspaceId: scope.workspaceId,
@@ -801,6 +816,20 @@ export class LocalCollaborationCoordinatorControl implements CollaborationCoordi
         profileId: profile.profileId
       })
     );
+  }
+
+  private requireHostedProfileScope(
+    profileId: string,
+    serverProfileId: string
+  ): LoopbackTrustedProjectScope {
+    const authorityProjectId = this.authorityProjectIdForLocalProfile(profileId);
+    if (!authorityProjectId) throw new Error("local_collaboration_profile_not_hosted");
+    const scopes = this.controller!.listTrustedProjectScopes({ profileId: serverProfileId })
+      .filter((scope) => scope.projectId === authorityProjectId)
+      .sort((left, right) => left.canvasId.localeCompare(right.canvasId));
+    const scope = scopes[0];
+    if (!scope) throw new Error("local_collaboration_profile_not_hosted");
+    return scope;
   }
 
   async createSelfHostedDeploymentSource(

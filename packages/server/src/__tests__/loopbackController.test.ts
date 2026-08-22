@@ -86,12 +86,18 @@ const unavailableTrustedProjectControl: TrustedProjectControlPort = {
 
 function process(
   close: () => Promise<void>,
-  trustedProjectControl: TrustedProjectControlPort = unavailableTrustedProjectControl
+  trustedProjectControl: TrustedProjectControlPort = unavailableTrustedProjectControl,
+  localAdminHumanIdentity: DistributedServerProcess["localAdminHumanIdentity"] = {
+    bootstrapOwner: () => {
+      throw new Error("unexpected_local_admin_bootstrap");
+    }
+  }
 ): DistributedServerProcess {
   return {
     version: "test",
     publicUrl: profile.serverBaseUrl,
     trustedProjectControl,
+    localAdminHumanIdentity,
     readiness: () =>
       serverReadinessSchema.parse({
         status: "ready",
@@ -364,5 +370,70 @@ describe("loopback controller", () => {
     expect(() =>
       controller.registerTrustedProject({ kind: "human", id: "owner" }, request)
     ).toThrow("loopback_server_not_running");
+  });
+
+  it("bootstraps an owner only through the running process for an exact trusted scope", async () => {
+    const trustedProjectControl: TrustedProjectControlPort = {
+      listTrustedProjectScopes: () => [{ workspaceId: "w", projectId: "p", canvasId: "c" }],
+      resolveTrustedProjectScope: (rawScope) => {
+        const scope = canvasScopeRefSchema.parse(rawScope);
+        return scope.workspaceId === "w" && scope.projectId === "p" && scope.canvasId === "c"
+          ? scope
+          : undefined;
+      },
+      assertTrustedProjectAdministration: () => {
+        throw new Error("not_used");
+      }
+    };
+    const bootstrapOwner = vi.fn(() => ({
+      workspaceId: "w",
+      principal: {
+        humanPrincipalId: "human-owner",
+        displayName: "Local owner",
+        createdAt: "2026-01-02T00:00:00.000Z"
+      },
+      membership: {
+        membershipId: "membership-owner",
+        projectId: "p",
+        humanPrincipalId: "human-owner",
+        displayName: "Local owner",
+        role: "owner" as const,
+        createdAt: "2026-01-02T00:00:00.000Z",
+        updatedAt: "2026-01-02T00:00:00.000Z"
+      },
+      device: {
+        deviceCredentialId: "device-owner",
+        humanPrincipalId: "human-owner",
+        mintedForProjectId: "p",
+        createdAt: "2026-01-02T00:00:00.000Z"
+      },
+      deviceToken: "pwdv1_secret",
+      created: true
+    }));
+    const controller = new LoopbackServerController({
+      createConfig: () => config(),
+      serve: async () =>
+        process(async () => {}, trustedProjectControl, {
+          bootstrapOwner
+        })
+    });
+    const request = { workspaceId: "w", projectId: "p", canvasId: "c", profileId: "local" };
+
+    expect(() => controller.bootstrapOwner(request, { displayName: "Local owner" })).toThrow(
+      "loopback_server_not_running"
+    );
+    await controller.apply({ action: "start", profile });
+    expect(controller.bootstrapOwner(request, { displayName: "Local owner" })).toMatchObject({
+      workspaceId: "w",
+      created: true
+    });
+    expect(bootstrapOwner).toHaveBeenCalledWith("p", { displayName: "Local owner" });
+    expect(() =>
+      controller.bootstrapOwner({ ...request, canvasId: "other" }, { displayName: "Other" })
+    ).toThrow("loopback_registration_not_trusted");
+    expect(() =>
+      controller.bootstrapOwner({ ...request, profileId: "other" }, { displayName: "Other" })
+    ).toThrow("loopback_profile_mismatch");
+    expect(bootstrapOwner).toHaveBeenCalledOnce();
   });
 });

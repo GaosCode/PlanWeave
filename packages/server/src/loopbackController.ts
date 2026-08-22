@@ -59,6 +59,19 @@ export class LoopbackServerController {
     return scope;
   }
 
+  bootstrapOwner(
+    rawRegistration: unknown,
+    rawRequest: unknown
+  ): ReturnType<DistributedServerProcess["localAdminHumanIdentity"]["bootstrapOwner"]> {
+    const registration = loopbackProjectRegistrationRequestSchema.parse(rawRegistration);
+    const process = this.processForProfile(registration.profileId);
+    const scope = process.trustedProjectControl.resolveTrustedProjectScope(
+      scopeFromRegistration(registration)
+    );
+    if (!scope) throw new Error("loopback_registration_not_trusted");
+    return process.localAdminHumanIdentity.bootstrapOwner(scope.projectId, rawRequest);
+  }
+
   registerTrustedProject(actor: ActorRef, rawRequest: unknown): LoopbackProjectRegistrationView {
     const request = loopbackProjectRegistrationRequestSchema.parse(rawRequest);
     const scope = this.processForProfile(
