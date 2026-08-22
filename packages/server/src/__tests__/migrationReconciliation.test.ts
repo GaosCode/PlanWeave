@@ -7,7 +7,11 @@ import {
   setupCodeHostEnrollmentOutcomeMigration,
   setupCodeMigration
 } from "../migrations/setup.js";
-import { applyMigrations, latestCentralSchemaVersion } from "../migrations.js";
+import {
+  applyMigrations,
+  centralSchemaVersion,
+  latestCentralSchemaVersion
+} from "../migrations.js";
 import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
 
 const databases: SqliteDatabase[] = [];
@@ -27,7 +31,9 @@ async function openDatabaseAtV26(): Promise<SqliteDatabase> {
   applyMigrations(database);
   database.exec("PRAGMA foreign_keys=OFF");
   for (const table of [
+    "canvas_runtime_reset_operations",
     "canvas_runtime_status_snapshots",
+    "canvas_workspace_publish_operations",
     "canvas_runtime_artifact_grants",
     "canvas_runtime_leases",
     "canvas_runtime_host_bindings",
@@ -71,6 +77,18 @@ async function openDatabaseAtV26(): Promise<SqliteDatabase> {
   database.exec(migration17);
   database.prepare("DELETE FROM schema_migrations WHERE version>=27").run();
   database.exec("PRAGMA foreign_keys=ON");
+  return database;
+}
+
+async function openDatabaseAtV53(): Promise<SqliteDatabase> {
+  const database = await openDatabase();
+  applyMigrations(database);
+  database.exec(`
+    DROP TABLE canvas_runtime_reset_operations;
+    DROP TABLE canvas_workspace_publish_operations;
+    ALTER TABLE canvas_runtime_status_snapshots DROP COLUMN runtime_revision;
+    DELETE FROM schema_migrations WHERE version >= 54;
+  `);
   return database;
 }
 
@@ -180,13 +198,88 @@ describe("collaboration migration reconciliation", () => {
       { name: "remote-operation-retention", versions: [49] },
       { name: "canvas-runtime-host-binding", versions: [51] },
       { name: "canvas-runtime-artifact-grant", versions: [52] },
-      { name: "canvas-runtime-status", versions: [53] }
+      { name: "canvas-runtime-status", versions: [53] },
+      { name: "canvas-runtime-revision", versions: [56] },
+      { name: "workspace-canvas-publish", versions: [54, 55] }
     ]);
     expect(latestCentralSchemaVersion).toBe(56);
   });
 
+  it("upgrades a representative v53 database through v56 exactly once", async () => {
+    const database = await openDatabaseAtV53();
+    database
+      .prepare(
+        `INSERT INTO canvas_runtime_status_snapshots(
+          workspace_id,project_id,canvas_id,package_fingerprint,status_json,origin,updated_at
+        ) VALUES(?,?,?,?,?,?,?)`
+      )
+      .run(
+        "workspace-v53",
+        "project-v53",
+        "default",
+        "package-v53",
+        '{"tasks":[],"blocks":[]}',
+        "execution",
+        "2026-08-22T00:00:00.000Z"
+      );
+
+    expect(centralSchemaVersion(database)).toBe(53);
+    expect(tableExists(database, "canvas_workspace_publish_operations")).toBe(false);
+    expect(tableExists(database, "canvas_runtime_reset_operations")).toBe(false);
+    expect(
+      database
+        .prepare(
+          "SELECT 1 FROM pragma_table_info('canvas_runtime_status_snapshots') WHERE name='runtime_revision'"
+        )
+        .get()
+    ).toBeUndefined();
+
+    applyMigrations(database);
+
+    expect(centralSchemaVersion(database)).toBe(56);
+    expect(
+      database
+        .prepare(
+          `SELECT package_fingerprint,status_json,origin,runtime_revision
+           FROM canvas_runtime_status_snapshots
+           WHERE workspace_id=? AND project_id=? AND canvas_id=?`
+        )
+        .get("workspace-v53", "project-v53", "default")
+    ).toEqual({
+      package_fingerprint: "package-v53",
+      status_json: '{"tasks":[],"blocks":[]}',
+      origin: "execution",
+      runtime_revision: 1
+    });
+    expect(
+      database
+        .prepare(
+          "SELECT name FROM pragma_table_info('canvas_workspace_publish_operations') WHERE name IN ('local_project_id','local_canvas_id') ORDER BY name"
+        )
+        .all()
+    ).toEqual([{ name: "local_canvas_id" }, { name: "local_project_id" }]);
+    expect(tableExists(database, "canvas_runtime_reset_operations")).toBe(true);
+    const applied = database
+      .prepare(
+        "SELECT version,applied_at FROM schema_migrations WHERE version >= 54 ORDER BY version"
+      )
+      .all();
+
+    expect(() => applyMigrations(database)).not.toThrow();
+    expect(
+      database
+        .prepare(
+          "SELECT version,applied_at FROM schema_migrations WHERE version >= 54 ORDER BY version"
+        )
+        .all()
+    ).toEqual(applied);
+  });
+
   it("maps a representative v26 project to one stable Workspace and package registry key", async () => {
     const database = await openDatabaseAtV26();
+    expect(tableExists(database, "canvas_workspace_publish_operations")).toBe(false);
+    expect(tableExists(database, "canvas_runtime_status_snapshots")).toBe(false);
+    expect(tableExists(database, "canvas_runtime_reset_operations")).toBe(false);
     const at = "2026-07-28T00:00:00.000Z";
     database
       .prepare(
