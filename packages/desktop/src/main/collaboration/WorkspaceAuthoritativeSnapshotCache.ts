@@ -2,40 +2,22 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { completeContentVersionSchema } from "@planweave-ai/collaboration-protocol/content/version";
-import { workspaceIdSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import { decodeCanvasReplicaDocument } from "@planweave-ai/runtime";
 import { z } from "zod";
 import { desktopHomePaths } from "../planweaveHomePaths.js";
 import type { CanvasReplicaCommittedSnapshot } from "./CanvasReplicaStore.js";
-import type { WorkspaceCanvasLocator } from "../../shared/canvasLocator.js";
+import {
+  type WorkspaceRemoteAuthorityKey,
+  workspaceRemoteAuthorityId,
+  workspaceRemoteAuthorityKeySchema
+} from "./WorkspaceRemoteAuthorityIdentity.js";
 
-const identifierSchema = z.string().trim().min(1).max(256);
 const digestSchema = z.string().regex(/^[a-f0-9]{64}$/);
-const canonicalServerOriginSchema = z
-  .string()
-  .url()
-  .refine(
-    (value) => new URL(value).origin === value,
-    "workspace_snapshot_server_origin_not_canonical"
-  );
-
-export const workspaceAuthoritativeSnapshotCacheKeySchema = z
-  .object({
-    connectionProfileId: identifierSchema,
-    serverOrigin: canonicalServerOriginSchema,
-    workspaceId: workspaceIdSchema,
-    projectId: identifierSchema,
-    canvasId: identifierSchema
-  })
-  .strict();
-export type WorkspaceAuthoritativeSnapshotCacheKey = z.infer<
-  typeof workspaceAuthoritativeSnapshotCacheKeySchema
->;
 
 export const workspaceAuthoritativeSnapshotCacheEntrySchema = z
   .object({
     schemaVersion: z.literal("workspace-authoritative-snapshot-cache/v1"),
-    key: workspaceAuthoritativeSnapshotCacheKeySchema,
+    key: workspaceRemoteAuthorityKeySchema,
     contentRevision: z.number().int().nonnegative(),
     contentDigest: digestSchema,
     contentIdentity: z
@@ -84,10 +66,7 @@ function isMissing(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && "code" in error && error.code === "ENOENT");
 }
 
-function sameKey(
-  left: WorkspaceAuthoritativeSnapshotCacheKey,
-  right: WorkspaceAuthoritativeSnapshotCacheKey
-): boolean {
+function sameKey(left: WorkspaceRemoteAuthorityKey, right: WorkspaceRemoteAuthorityKey): boolean {
   return (
     left.connectionProfileId === right.connectionProfileId &&
     left.serverOrigin === right.serverOrigin &&
@@ -114,34 +93,6 @@ async function withWriteLock<T>(path: string, action: () => Promise<T>): Promise
   }
 }
 
-export function workspaceAuthorityId(
-  input: Pick<
-    WorkspaceAuthoritativeSnapshotCacheKey,
-    "connectionProfileId" | "serverOrigin" | "projectId"
-  >
-): string {
-  return `${input.connectionProfileId}\u0000${input.serverOrigin}\u0000${input.projectId}`;
-}
-
-export function workspaceSnapshotCacheKeyFromProfile(
-  locator: WorkspaceCanvasLocator,
-  profile: { profileId: string; serverBaseUrl: string; projectId: string }
-): WorkspaceAuthoritativeSnapshotCacheKey {
-  if (
-    profile.profileId !== locator.connectionProfileId ||
-    profile.projectId !== locator.projectId
-  ) {
-    throw new Error("workspace_snapshot_cache_profile_identity_mismatch");
-  }
-  return workspaceAuthoritativeSnapshotCacheKeySchema.parse({
-    connectionProfileId: profile.profileId,
-    serverOrigin: new URL(profile.serverBaseUrl).origin,
-    workspaceId: locator.workspaceId,
-    projectId: locator.projectId,
-    canvasId: locator.canvasId
-  });
-}
-
 /**
  * Main-only durable recovery copy of a Server-confirmed Workspace snapshot.
  * Each exact remote authority has an isolated file; invalid files are quarantined and never read.
@@ -158,16 +109,16 @@ export class WorkspaceAuthoritativeSnapshotCache {
     private readonly now: () => Date = () => new Date()
   ) {}
 
-  pathForKey(input: WorkspaceAuthoritativeSnapshotCacheKey): string {
-    const key = workspaceAuthoritativeSnapshotCacheKeySchema.parse(input);
+  pathForKey(input: WorkspaceRemoteAuthorityKey): string {
+    const key = workspaceRemoteAuthorityKeySchema.parse(input);
     const digest = createHash("sha256").update(JSON.stringify(key), "utf8").digest("hex");
     return join(this.directory, `${digest}.json`);
   }
 
   async get(
-    input: WorkspaceAuthoritativeSnapshotCacheKey
+    input: WorkspaceRemoteAuthorityKey
   ): Promise<WorkspaceAuthoritativeSnapshotCacheEntry | null> {
-    const key = workspaceAuthoritativeSnapshotCacheKeySchema.parse(input);
+    const key = workspaceRemoteAuthorityKeySchema.parse(input);
     const path = this.pathForKey(key);
     let text: string;
     try {
@@ -188,7 +139,7 @@ export class WorkspaceAuthoritativeSnapshotCache {
   }
 
   async put(input: {
-    key: WorkspaceAuthoritativeSnapshotCacheKey;
+    key: WorkspaceRemoteAuthorityKey;
     contentRevision: number;
     contentDigest: string;
     content: CanvasReplicaCommittedSnapshot["content"];
@@ -232,17 +183,14 @@ export class WorkspaceAuthoritativeSnapshotCache {
     });
   }
 
-  capture(
-    key: WorkspaceAuthoritativeSnapshotCacheKey,
-    snapshot: CanvasReplicaCommittedSnapshot
-  ): void {
-    const parsedKey = workspaceAuthoritativeSnapshotCacheKeySchema.parse(key);
+  capture(key: WorkspaceRemoteAuthorityKey, snapshot: CanvasReplicaCommittedSnapshot): void {
+    const parsedKey = workspaceRemoteAuthorityKeySchema.parse(key);
     if (
       snapshot.scope.bindingKind !== "remote" ||
       snapshot.scope.workspaceId !== parsedKey.workspaceId ||
       snapshot.scope.projectId !== parsedKey.projectId ||
       snapshot.scope.canvasId !== parsedKey.canvasId ||
-      snapshot.scope.authorityId !== workspaceAuthorityId(parsedKey)
+      snapshot.scope.authorityId !== workspaceRemoteAuthorityId(parsedKey)
     ) {
       throw new Error("workspace_snapshot_cache_capture_scope_mismatch");
     }

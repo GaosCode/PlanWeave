@@ -26,11 +26,11 @@ import { CollaborationClientError } from "./collaborationErrors.js";
 import type { CanvasCommandSessionSnapshot } from "./canvasCommandSession.js";
 import type { CanvasLiveSyncStatus } from "./CanvasLiveSyncClient.js";
 import type { CanvasReplicaDiskMirror } from "./CanvasReplicaDiskMirror.js";
-import type {
-  WorkspaceAuthoritativeSnapshotCacheEntry,
-  WorkspaceAuthoritativeSnapshotCacheKey
-} from "./WorkspaceAuthoritativeSnapshotCache.js";
-import { workspaceAuthorityId } from "./WorkspaceAuthoritativeSnapshotCache.js";
+import type { WorkspaceAuthoritativeSnapshotCacheEntry } from "./WorkspaceAuthoritativeSnapshotCache.js";
+import {
+  type WorkspaceRemoteAuthorityKey,
+  workspaceRemoteAuthorityId
+} from "./WorkspaceRemoteAuthorityIdentity.js";
 
 function isRetryableCatchupError(error: unknown): boolean {
   if (error instanceof CollaborationClientError) {
@@ -445,14 +445,14 @@ export class CollaborationCanvasCommandFacade {
 
   /** Hydrate a strictly validated Server snapshot without creating any local binding or socket. */
   bindCached(input: {
-    key: WorkspaceAuthoritativeSnapshotCacheKey;
+    key: WorkspaceRemoteAuthorityKey;
     entry: WorkspaceAuthoritativeSnapshotCacheEntry;
   }): void {
     const client = this.resolveClient();
     if (this.binding) this.unbindCurrent(client);
     const scope: CanvasReplicaScope = {
       bindingKind: "remote",
-      authorityId: workspaceAuthorityId(input.key),
+      authorityId: workspaceRemoteAuthorityId(input.key),
       workspaceId: input.key.workspaceId,
       projectId: input.key.projectId,
       canvasId: input.key.canvasId

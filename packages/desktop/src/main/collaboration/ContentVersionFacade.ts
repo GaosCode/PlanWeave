@@ -74,7 +74,7 @@ import {
 } from "./WorkspaceCanvasPublishReceiptStore.js";
 import { CollaborationClientError } from "./collaborationErrors.js";
 import type { CanvasReplicaScope } from "./CanvasReplicaStore.js";
-import { workspaceAuthorityId } from "./WorkspaceAuthoritativeSnapshotCache.js";
+import { workspaceRemoteAuthorityId } from "./WorkspaceRemoteAuthorityIdentity.js";
 
 type LocalCanvasBinding = {
   kind: "local";
@@ -877,7 +877,7 @@ export class ContentVersionFacade {
 
   private clientFingerprint(client: CollaborationClient): string {
     const profile = client.connectionProfile;
-    return workspaceAuthorityId({
+    return workspaceRemoteAuthorityId({
       connectionProfileId: profile.profileId,
       serverOrigin: this.serverOrigin(client),
       projectId: client.projectId

@@ -26,14 +26,14 @@ import {
 import type { CanvasRuntimeResetOutcome } from "@planweave-ai/collaboration-protocol/canvas/runtime-control";
 import {
   type WorkspaceAuthoritativeSnapshotCacheEntry,
-  type WorkspaceAuthoritativeSnapshotCacheKey,
   type WorkspaceAuthoritativeSnapshotCache
 } from "./WorkspaceAuthoritativeSnapshotCache.js";
+import type { WorkspaceRemoteAuthorityKey } from "./WorkspaceRemoteAuthorityIdentity.js";
 
 export type WorkspaceCanvasSessionCommands = {
   bind(input: CollaborationCanvasBindingInput): Promise<CollaborationCanvasCommandSessionView>;
   bindCached(input: {
-    key: WorkspaceAuthoritativeSnapshotCacheKey;
+    key: WorkspaceRemoteAuthorityKey;
     entry: WorkspaceAuthoritativeSnapshotCacheEntry;
   }): void;
   submit(
@@ -50,9 +50,7 @@ export type WorkspaceCanvasSessionCommands = {
 
 export type WorkspaceCanvasSessionDeps = {
   resolveConnectedProfileId: () => string | null;
-  resolveSnapshotCacheKey(
-    locator: WorkspaceCanvasLocator
-  ): Promise<WorkspaceAuthoritativeSnapshotCacheKey>;
+  resolveSnapshotCacheKey(locator: WorkspaceCanvasLocator): Promise<WorkspaceRemoteAuthorityKey>;
   snapshotCache: Pick<WorkspaceAuthoritativeSnapshotCache, "get">;
   commands: WorkspaceCanvasSessionCommands;
   resetRuntime(input: WorkspaceCanvasRuntimeResetInput): Promise<CanvasRuntimeResetOutcome>;
@@ -85,7 +83,7 @@ export class WorkspaceCanvasSession {
   private locator: WorkspaceCanvasLocator | null = null;
   private authorityMode: "server_authoritative" | "offline_cache_readonly" = "server_authoritative";
   private recovery: {
-    key: WorkspaceAuthoritativeSnapshotCacheKey;
+    key: WorkspaceRemoteAuthorityKey;
     entry: WorkspaceAuthoritativeSnapshotCacheEntry;
   } | null = null;
 

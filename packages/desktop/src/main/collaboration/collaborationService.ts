@@ -56,6 +56,7 @@ import {
   type CollaborationUpsertProfileInput,
   type RememberedServerConnectionView
 } from "../../shared/collaboration.js";
+import type { WorkspaceCanvasProjection } from "../../shared/workspaceCanvasProjection.js";
 import { CollaborationClient } from "./CollaborationClient.js";
 import { CollaborationRegistryService } from "./CollaborationRegistryService.js";
 import {
@@ -95,24 +96,15 @@ import { CollaborationInvitationVault } from "./collaborationInvitationVault.js"
 import { CollaborationIdentityOperations } from "./CollaborationIdentityOperations.js";
 import { CollaborationProfileLifecycle } from "./CollaborationProfileLifecycle.js";
 import { CollaborationSessionLifecycle } from "./CollaborationSessionLifecycle.js";
-import { CanvasReplicaStore } from "./CanvasReplicaStore.js";
-import { CanvasReplicaDiskMirror } from "./CanvasReplicaDiskMirror.js";
-import type { CollaborationCanvasBindingReplicaSignal } from "../../shared/canvasReplicaIpc.js";
-import type { WorkspaceCanvasProjection } from "../../shared/workspaceCanvasProjection.js";
 import { resolveCollaborationAuthorityScope } from "./collaborationAuthorityScope.js";
 import { CurrentCanvasAccessFacade } from "./CurrentCanvasAccessFacade.js";
-import { CanvasRuntimeAvailabilityCoordinator } from "./CanvasRuntimeAvailabilityCoordinator.js";
-import { CollaborationCanvasOperationsFacade } from "./CollaborationCanvasOperationsFacade.js";
+import type { CollaborationCanvasOperationsFacade } from "./CollaborationCanvasOperationsFacade.js";
 import { CollaborationCanvasRealtimeFacade } from "./CollaborationCanvasRealtimeFacade.js";
 import type {
   CollaborationClientFactory,
   CollaborationServiceOptions
 } from "./collaborationServiceOptions.js";
-import {
-  WorkspaceAuthoritativeSnapshotCache,
-  workspaceAuthoritativeSnapshotCacheKeySchema,
-  workspaceSnapshotCacheKeyFromProfile
-} from "./WorkspaceAuthoritativeSnapshotCache.js";
+import { createWorkspaceCanvasSnapshotSessionComposition } from "./WorkspaceCanvasSnapshotSessionComposition.js";
 export type {
   CollaborationClientFactory,
   CollaborationServiceOptions
@@ -133,13 +125,6 @@ export class CollaborationService {
   private readonly onObserverSignal?: (signal: CollaborationObserverSignal) => void;
   private readonly onPresenceSignal?: (signal: CollaborationPresenceSignal) => void;
   private readonly onCanvasLiveSyncSignal?: (signal: CollaborationCanvasLiveSyncSignal) => void;
-  private readonly onCanvasReplicaSignal?: (
-    signal: CollaborationCanvasBindingReplicaSignal
-  ) => void;
-  private readonly onWorkspaceCanvasProjection?: (projection: WorkspaceCanvasProjection) => void;
-  private readonly canvasReplicas: CanvasReplicaStore;
-  private readonly canvasReplicaMirror: CanvasReplicaDiskMirror;
-  private readonly workspaceSnapshotCache: WorkspaceAuthoritativeSnapshotCache;
   private readonly registryService: CollaborationRegistryService;
   private readonly canvasCommands: CollaborationCanvasCommandFacade;
   private readonly contentVersions: ContentVersionFacade;
@@ -151,7 +136,6 @@ export class CollaborationService {
   private readonly identityOperations: CollaborationIdentityOperations;
   private readonly sessionLifecycle: CollaborationSessionLifecycle;
   private readonly currentCanvasAccess: CurrentCanvasAccessFacade;
-  private readonly canvasRuntimeAvailability: CanvasRuntimeAvailabilityCoordinator;
   private readonly canvasOperations: CollaborationCanvasOperationsFacade;
   private readonly canvasRealtime: CollaborationCanvasRealtimeFacade;
   private readonly bindLiveOperatorToOrigin?: (serverBaseUrl: string) => Promise<void>;
@@ -202,34 +186,7 @@ export class CollaborationService {
     this.onObserverSignal = options.onObserverSignal;
     this.onPresenceSignal = options.onPresenceSignal;
     this.onCanvasLiveSyncSignal = options.onCanvasLiveSyncSignal;
-    this.onCanvasReplicaSignal = options.onCanvasReplicaSignal;
-    this.onWorkspaceCanvasProjection = options.onWorkspaceCanvasProjection;
     this.bindLiveOperatorToOrigin = options.bindLiveOperatorToOrigin;
-    this.canvasReplicaMirror = new CanvasReplicaDiskMirror();
-    this.workspaceSnapshotCache =
-      options.workspaceSnapshotCache ?? new WorkspaceAuthoritativeSnapshotCache();
-    this.canvasReplicas = new CanvasReplicaStore(
-      (projection) => {
-        this.onCanvasReplicaSignal?.({ type: "canvas.replica.changed", projection });
-        this.canvasOperations?.publishWorkspaceCanvasProjection();
-      },
-      (snapshot) => {
-        this.canvasReplicaMirror.capture(snapshot);
-        const client = this.client;
-        if (!client || snapshot.scope.bindingKind !== "remote") return;
-        const profile = client.connectionProfile;
-        this.workspaceSnapshotCache.capture(
-          workspaceAuthoritativeSnapshotCacheKeySchema.parse({
-            connectionProfileId: profile.profileId,
-            serverOrigin: new URL(profile.serverBaseUrl).origin,
-            workspaceId: snapshot.scope.workspaceId,
-            projectId: snapshot.scope.projectId,
-            canvasId: snapshot.scope.canvasId
-          }),
-          snapshot
-        );
-      }
-    );
     this.registryService = new CollaborationRegistryService(() => this.client);
     this.contentVersions = new ContentVersionFacade(
       () => this.client,
@@ -247,38 +204,19 @@ export class CollaborationService {
           : null;
       }
     );
-    this.canvasCommands = new CollaborationCanvasCommandFacade({
+    const canvasComposition = createWorkspaceCanvasSnapshotSessionComposition({
+      snapshotCache: options.workspaceSnapshotCache,
+      contentVersions: this.contentVersions,
       resolveClient: () => this.client,
-      resolveCanvasBinding: (input) => this.contentVersions.resolveCanvasBinding(input),
-      resolveCanvasScope: (input) => this.contentVersions.resolveCanvasScope(input),
-      resolveAuthorityId: () =>
-        this.client ? this.contentVersions.authorityIdForClient(this.client) : null,
-      store: this.canvasReplicas,
-      mirror: this.canvasReplicaMirror,
-      snapshotCache: this.workspaceSnapshotCache
-    });
-    this.canvasRuntimeAvailability = new CanvasRuntimeAvailabilityCoordinator(
-      () => this.client !== null,
-      () => (this.client ? this.contentVersions.authorityIdForClient(this.client) : null),
-      this.contentVersions,
-      this.canvasCommands,
-      this.canvasReplicas
-    );
-    this.canvasOperations = new CollaborationCanvasOperationsFacade({
+      resolveConnectedProfileId: () => this.clientProfileId,
+      resolveProfile: (profileId) => this.profiles.get(profileId),
       enqueue: (operation) => this.enqueue(operation),
       assertOpen: () => this.assertOpen(),
-      commands: this.canvasCommands,
-      runtimeAvailability: this.canvasRuntimeAvailability,
-      contentVersions: this.contentVersions,
-      resolveConnectedProfileId: () => this.clientProfileId,
-      resolveSnapshotCacheKey: async (locator) => {
-        const profile = await this.profiles.get(locator.connectionProfileId);
-        if (!profile) throw new Error("workspace_snapshot_cache_profile_missing");
-        return workspaceSnapshotCacheKeyFromProfile(locator, profile);
-      },
-      snapshotCache: this.workspaceSnapshotCache,
-      onWorkspaceCanvasProjection: (projection) => this.onWorkspaceCanvasProjection?.(projection)
+      onCanvasReplicaSignal: options.onCanvasReplicaSignal,
+      onWorkspaceCanvasProjection: options.onWorkspaceCanvasProjection
     });
+    this.canvasCommands = canvasComposition.commands;
+    this.canvasOperations = canvasComposition.operations;
     this.remoteOperations = new CollaborationRemoteOperationsFacade((operation) =>
       this.withActiveClient((client) => operation(client.remoteOperations()))
     );

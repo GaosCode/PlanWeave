@@ -7,10 +7,13 @@ import { basicManifest } from "../../../runtime/src/__tests__/promptTestHelpers.
 import {
   WorkspaceAuthoritativeSnapshotCache,
   type WorkspaceAuthoritativeSnapshotCacheEntry,
-  type WorkspaceAuthoritativeSnapshotCacheKey,
-  workspaceAuthoritativeSnapshotCacheEntrySchema,
-  workspaceAuthorityId
+  workspaceAuthoritativeSnapshotCacheEntrySchema
 } from "../main/collaboration/WorkspaceAuthoritativeSnapshotCache.js";
+import {
+  type WorkspaceRemoteAuthorityKey,
+  workspaceRemoteAuthorityId,
+  workspaceRemoteAuthorityKeyFromProfile
+} from "../main/collaboration/WorkspaceRemoteAuthorityIdentity.js";
 
 const directories: string[] = [];
 
@@ -24,7 +27,7 @@ async function cacheHarness() {
   return { cache, directory };
 }
 
-const key: WorkspaceAuthoritativeSnapshotCacheKey = {
+const key: WorkspaceRemoteAuthorityKey = {
   connectionProfileId: "profile-1",
   serverOrigin: "https://workspace.example.test",
   workspaceId: "workspace-1",
@@ -59,6 +62,26 @@ afterEach(async () => {
 });
 
 describe("WorkspaceAuthoritativeSnapshotCache", () => {
+  it("canonicalizes profile identity without depending on a local project path", () => {
+    const locator = {
+      kind: "workspace" as const,
+      connectionProfileId: key.connectionProfileId,
+      workspaceId: key.workspaceId,
+      projectId: key.projectId,
+      canvasId: key.canvasId
+    };
+    expect(
+      workspaceRemoteAuthorityKeyFromProfile(locator, {
+        profileId: key.connectionProfileId,
+        serverBaseUrl: "https://workspace.example.test/api",
+        projectId: key.projectId
+      })
+    ).toEqual(key);
+    expect(workspaceRemoteAuthorityId(key)).toBe(
+      "profile-1\u0000https://workspace.example.test\u0000project-1"
+    );
+  });
+
   it("builds, deletes, and rebuilds an exact remote authority cache", async () => {
     const { cache } = await cacheHarness();
     const first = content();
@@ -187,7 +210,7 @@ describe("WorkspaceAuthoritativeSnapshotCache", () => {
     const second = content(30);
     const scope = {
       bindingKind: "remote" as const,
-      authorityId: workspaceAuthorityId(key),
+      authorityId: workspaceRemoteAuthorityId(key),
       workspaceId: key.workspaceId,
       projectId: key.projectId,
       canvasId: key.canvasId

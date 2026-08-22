@@ -10,10 +10,8 @@ import type {
 import type { CanvasRuntimeAvailabilityCoordinator } from "./CanvasRuntimeAvailabilityCoordinator.js";
 import type { ContentVersionFacade } from "./ContentVersionFacade.js";
 import { WorkspaceCanvasSession } from "./WorkspaceCanvasSession.js";
-import type {
-  WorkspaceAuthoritativeSnapshotCache,
-  WorkspaceAuthoritativeSnapshotCacheKey
-} from "./WorkspaceAuthoritativeSnapshotCache.js";
+import type { WorkspaceAuthoritativeSnapshotCache } from "./WorkspaceAuthoritativeSnapshotCache.js";
+import type { WorkspaceRemoteAuthorityKey } from "./WorkspaceRemoteAuthorityIdentity.js";
 import type { WorkspaceCanvasLocator } from "../../shared/canvasLocator.js";
 
 export type CollaborationCanvasOperationsFacadeOptions = {
@@ -23,9 +21,7 @@ export type CollaborationCanvasOperationsFacadeOptions = {
   runtimeAvailability: CanvasRuntimeAvailabilityCoordinator;
   contentVersions: ContentVersionFacade;
   resolveConnectedProfileId: () => string | null;
-  resolveSnapshotCacheKey(
-    locator: WorkspaceCanvasLocator
-  ): Promise<WorkspaceAuthoritativeSnapshotCacheKey>;
+  resolveSnapshotCacheKey(locator: WorkspaceCanvasLocator): Promise<WorkspaceRemoteAuthorityKey>;
   snapshotCache: Pick<WorkspaceAuthoritativeSnapshotCache, "get">;
   onWorkspaceCanvasProjection?: (projection: WorkspaceCanvasProjection) => void;
 };

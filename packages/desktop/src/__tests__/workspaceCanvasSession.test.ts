@@ -20,11 +20,11 @@ import { CollaborationClientError } from "../main/collaboration/collaborationErr
 import { CanvasReplicaStore } from "../main/collaboration/CanvasReplicaStore.js";
 import type { CanvasReplicaCommandTransport } from "../main/collaboration/CanvasReplicaCommandWorker.js";
 import { WorkspaceCanvasSession } from "../main/collaboration/WorkspaceCanvasSession.js";
+import { WorkspaceAuthoritativeSnapshotCache } from "../main/collaboration/WorkspaceAuthoritativeSnapshotCache.js";
 import {
-  WorkspaceAuthoritativeSnapshotCache,
-  type WorkspaceAuthoritativeSnapshotCacheKey,
-  workspaceAuthorityId
-} from "../main/collaboration/WorkspaceAuthoritativeSnapshotCache.js";
+  type WorkspaceRemoteAuthorityKey,
+  workspaceRemoteAuthorityId
+} from "../main/collaboration/WorkspaceRemoteAuthorityIdentity.js";
 import type { CollaborationCanvasCommandSessionView } from "../shared/collaboration.js";
 import type { WorkspaceCanvasLocator } from "../shared/canvasLocator.js";
 
@@ -36,7 +36,7 @@ const locator: WorkspaceCanvasLocator = {
   canvasId: "remote-canvas"
 };
 
-const cacheKey: WorkspaceAuthoritativeSnapshotCacheKey = {
+const cacheKey: WorkspaceRemoteAuthorityKey = {
   connectionProfileId: "profile-1",
   serverOrigin: "http://127.0.0.1:1",
   workspaceId: "workspace-001",
@@ -324,7 +324,7 @@ function createHarness(options?: {
       projectId: locator.projectId,
       canvasId: locator.canvasId
     }),
-    resolveAuthorityId: () => workspaceAuthorityId(cacheKey),
+    resolveAuthorityId: () => workspaceRemoteAuthorityId(cacheKey),
     store,
     mirror,
     transport
