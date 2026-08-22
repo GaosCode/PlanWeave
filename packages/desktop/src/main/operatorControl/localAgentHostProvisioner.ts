@@ -36,6 +36,7 @@ export interface LocalAgentHostOperatorPort {
   ): Promise<AgentExposureMutationResult>;
   listAgents(configPath: string): Promise<PortableEnrollmentResult["agents"]>;
   requireUsableCredential(configPath: string): Promise<void>;
+  resolveWorkspaceId?(configPath: string): Promise<string | undefined>;
   installBackground(
     configPath: string,
     launcher: AgentHostBackgroundLauncher
@@ -240,6 +241,11 @@ function createDefaultLocalAgentHostOperator(): LocalAgentHostOperatorPort {
         join(config.dataDirectory, "credentials.json")
       ).requireUsable();
     },
+    resolveWorkspaceId: async (configPath) => {
+      const config = await loadAgentHostConfig(configPath);
+      const workspaceIds = [...new Set(config.workspaces.map((workspace) => workspace.id))];
+      return workspaceIds.length === 1 ? workspaceIds[0] : undefined;
+    },
     installBackground: (configPath, launcher) => operator.installBackground(configPath, launcher),
     backgroundStatus: (configPath) => operator.backgroundStatus(configPath)
   };
@@ -283,6 +289,14 @@ export class DesktopLocalAgentHostProvisioner implements LocalAgentHostProvision
       }
       throw localAgentHostStageError("local_agent_host_agent_status_read_failed", error);
     }
+    const resolveWorkspaceId = this.operator.resolveWorkspaceId;
+    const workspaceId =
+      registration.workspaceId ??
+      (resolveWorkspaceId
+        ? await withinLocalAgentHostStage("local_agent_host_workspace_status_read_failed", () =>
+            resolveWorkspaceId(configPath)
+          )
+        : undefined);
     try {
       await this.operator.requireUsableCredential(configPath);
     } catch (error) {
@@ -293,7 +307,7 @@ export class DesktopLocalAgentHostProvisioner implements LocalAgentHostProvision
         return operatorLocalAgentHostStatusSchema.parse({
           supported: true,
           state: "not_registered",
-          ...(registration.workspaceId ? { workspaceId: registration.workspaceId } : {}),
+          ...(workspaceId ? { workspaceId } : {}),
           agents: agents.length > 0 ? agents : supportedProfiles()
         });
       }
@@ -307,7 +321,7 @@ export class DesktopLocalAgentHostProvisioner implements LocalAgentHostProvision
     return operatorLocalAgentHostStatusSchema.parse({
       supported: true,
       state: background.state === "running" ? "ready" : "background_setup_required",
-      ...(registration.workspaceId ? { workspaceId: registration.workspaceId } : {}),
+      ...(workspaceId ? { workspaceId } : {}),
       background: background.state,
       serverConnection,
       agents
@@ -365,6 +379,14 @@ export class DesktopLocalAgentHostProvisioner implements LocalAgentHostProvision
       (await this.registrations.latest());
     if (!registration) throw new Error("local_agent_host_registration_missing");
     const configPath = resolveAgentHostDefaultPaths(registration.instanceKey).configPath;
+    const resolveWorkspaceId = this.operator.resolveWorkspaceId;
+    const workspaceId =
+      registration.workspaceId ??
+      (resolveWorkspaceId
+        ? await withinLocalAgentHostStage("local_agent_host_workspace_status_read_failed", () =>
+            resolveWorkspaceId(configPath)
+          )
+        : undefined);
     let agents: OperatorLocalAgentHostStatus["agents"];
     try {
       agents = (
@@ -396,7 +418,7 @@ export class DesktopLocalAgentHostProvisioner implements LocalAgentHostProvision
     return operatorLocalAgentHostStatusSchema.parse({
       supported: true,
       state: background.state === "running" ? "ready" : "background_setup_required",
-      ...(registration.workspaceId ? { workspaceId: registration.workspaceId } : {}),
+      ...(workspaceId ? { workspaceId } : {}),
       background: background.state,
       serverConnection,
       agents

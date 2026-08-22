@@ -386,7 +386,7 @@ describe("Desktop local Agent Host provisioner", () => {
     expect(repaired).not.toHaveProperty("workspaceId");
   });
 
-  it("migrates legacy Workspace registrations to explicit instance identity", async () => {
+  it("migrates legacy registrations without guessing their Workspace identity", async () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-local-agent-host-migration-"));
     roots.push(root);
     const registrationPath = join(root, "registrations.json");
@@ -409,19 +409,88 @@ describe("Desktop local Agent Host provisioner", () => {
       new LocalAgentHostRegistrationStore(registrationPath).get("profile-legacy")
     ).resolves.toMatchObject({
       profileId: "profile-legacy",
-      instanceKey: "workspace-legacy",
-      workspaceId: "workspace-legacy"
+      instanceKey: "workspace-legacy"
     });
+    expect(
+      await new LocalAgentHostRegistrationStore(registrationPath).get("profile-legacy")
+    ).not.toHaveProperty("workspaceId");
     expect(JSON.parse(await readFile(registrationPath, "utf8"))).toMatchObject({
       version: 2,
       registrations: [
         {
           profileId: "profile-legacy",
-          instanceKey: "workspace-legacy",
-          workspaceId: "workspace-legacy"
+          instanceKey: "workspace-legacy"
         }
       ]
     });
+  });
+
+  it.each([
+    { label: "Workspace", resolvedWorkspaceId: "workspace-configured" },
+    { label: "fleet", resolvedWorkspaceId: undefined }
+  ])("restores $label identity for legacy registrations from Agent Host config truth", async ({
+    resolvedWorkspaceId
+  }) => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-local-agent-host-v1-truth-"));
+    roots.push(root);
+    const registrationPath = join(root, "registrations.json");
+    const instanceKey = "legacy-instance-key";
+    await writeFile(
+      registrationPath,
+      `${JSON.stringify({
+        version: 1,
+        registrations: [
+          {
+            profileId: "profile-legacy",
+            workspaceId: instanceKey,
+            updatedAt: "2030-01-01T00:00:00.000Z"
+          }
+        ]
+      })}\n`,
+      "utf8"
+    );
+    const agents = [
+      {
+        profileId: "codex-acp",
+        agentId: "codex",
+        displayName: "Codex",
+        detected: true,
+        exposed: true,
+        ready: true
+      }
+    ];
+    const operator = {
+      listAgents: vi.fn().mockResolvedValue(agents),
+      requireUsableCredential: vi.fn().mockResolvedValue(undefined),
+      resolveWorkspaceId: vi.fn().mockResolvedValue(resolvedWorkspaceId),
+      backgroundStatus: vi
+        .fn()
+        .mockResolvedValue({ state: "running", platform: "windows-user-startup" }),
+      reconcileAgentExposure: vi.fn().mockResolvedValue({ agents, reload: "restarted" }),
+      installBackground: vi.fn().mockResolvedValue({
+        state: "running",
+        platform: "windows-user-startup"
+      })
+    };
+    const provisioner = new DesktopLocalAgentHostProvisioner({
+      platform: "win32",
+      launcher: { executablePath: "C:\\PlanWeave.exe", fixedArgs: ["--agent-host-service"] },
+      operator: operator as never,
+      registrations: new LocalAgentHostRegistrationStore(registrationPath)
+    });
+
+    const status = await provisioner.status("profile-legacy");
+    const repaired = await provisioner.repair("profile-legacy", ["codex-acp"]);
+    if (resolvedWorkspaceId) {
+      expect(status).toMatchObject({ workspaceId: resolvedWorkspaceId });
+      expect(repaired).toMatchObject({ workspaceId: resolvedWorkspaceId });
+    } else {
+      expect(status).not.toHaveProperty("workspaceId");
+      expect(repaired).not.toHaveProperty("workspaceId");
+    }
+    expect(operator.resolveWorkspaceId).toHaveBeenCalledWith(
+      resolveAgentHostDefaultPaths(instanceKey).configPath
+    );
   });
 
   it("reports a sanitized enrollment stage and system code", async () => {

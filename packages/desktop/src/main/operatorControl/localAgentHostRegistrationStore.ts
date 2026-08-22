@@ -83,7 +83,6 @@ export class LocalAgentHostRegistrationStore {
           registrations: legacy.registrations.map((registration) => ({
             profileId: registration.profileId,
             instanceKey: registration.workspaceId,
-            workspaceId: registration.workspaceId,
             updatedAt: registration.updatedAt
           }))
         });
