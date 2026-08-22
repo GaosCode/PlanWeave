@@ -485,7 +485,6 @@ describe("CanvasRuntimeAvailabilityCoordinator", () => {
     const content: CanvasRuntimeContentPort = {
       resolveCanvasScope: vi.fn(async () => scope),
       readRuntimeAvailability: vi.fn(async () => initialAvailability),
-      importLocalRuntimeStatus: vi.fn(),
       resetRuntime: vi.fn(async () => ({
         type: "canvas.runtime.reset.rejected" as const,
         operationId: "reset-1",
@@ -516,9 +515,8 @@ describe("CanvasRuntimeAvailabilityCoordinator", () => {
 
     await expect(
       fixture.coordinator.readRuntimeAvailability({
-        kind: "local",
-        localProjectId: "local-project",
-        canvasId: "default"
+        kind: "remote",
+        ...scope
       })
     ).resolves.toEqual(available);
     expect(fixture.replicas.setRuntimeStatus).toHaveBeenCalledWith(
@@ -543,9 +541,8 @@ describe("CanvasRuntimeAvailabilityCoordinator", () => {
 
     await expect(
       fixture.coordinator.readRuntimeAvailability({
-        kind: "local",
-        localProjectId: "local-project",
-        canvasId: "default"
+        kind: "remote",
+        ...scope
       })
     ).resolves.toEqual(unavailable);
     expect(fixture.replicas.setRuntimeStatus).toHaveBeenCalledWith(
@@ -566,9 +563,8 @@ describe("CanvasRuntimeAvailabilityCoordinator", () => {
     );
 
     const pending = fixture.coordinator.readRuntimeAvailability({
-      kind: "local",
-      localProjectId: "local-project",
-      canvasId: "default"
+      kind: "remote",
+      ...scope
     });
     await vi.waitFor(() => {
       expect(fixture.content.readRuntimeAvailability).toHaveBeenCalledTimes(1);
@@ -595,9 +591,8 @@ describe("CanvasRuntimeAvailabilityCoordinator", () => {
     );
 
     const pending = fixture.coordinator.readRuntimeAvailability({
-      kind: "local",
-      localProjectId: "local-project",
-      canvasId: "default"
+      kind: "remote",
+      ...scope
     });
     online = false;
     resolveScope(scope);
@@ -608,6 +603,20 @@ describe("CanvasRuntimeAvailabilityCoordinator", () => {
       { authorityId: "authority-1", ...scope },
       null
     );
+  });
+
+  it("rejects Local Canvas before resolving or reading collaboration runtime", async () => {
+    const fixture = setup(available);
+
+    await expect(
+      fixture.coordinator.readRuntimeAvailability({
+        kind: "local",
+        localProjectId: "local-project",
+        canvasId: "default"
+      })
+    ).rejects.toMatchObject({ code: "workspace_canvas_remote_binding_required" });
+    expect(fixture.content.resolveCanvasScope).not.toHaveBeenCalled();
+    expect(fixture.content.readRuntimeAvailability).not.toHaveBeenCalled();
   });
 
   it("returns reset success only after reading the higher authoritative projection", async () => {

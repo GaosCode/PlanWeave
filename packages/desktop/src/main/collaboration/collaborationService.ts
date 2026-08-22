@@ -50,7 +50,6 @@ import {
   type CollaborationInvitationCreateView,
   type CollaborationObserverSignal,
   type CollaborationPresenceSignal,
-  type CollaborationCanvasLiveSyncSignal,
   type CollaborationSessionPhase,
   type CollaborationStatus,
   type CollaborationUpsertProfileInput,
@@ -59,16 +58,10 @@ import {
 import type { WorkspaceCanvasProjection } from "../../shared/workspaceCanvasProjection.js";
 import { CollaborationClient } from "./CollaborationClient.js";
 import { CollaborationRegistryService } from "./CollaborationRegistryService.js";
-import {
-  CollaborationCanvasCommandFacade,
-  type CollaborationCanvasCommandSubmitResult,
-  type CollaborationCanvasReconnectResult,
-  type CollaborationCanvasCommandSessionView
-} from "./collaborationCanvasCommands.js";
+import { CollaborationCanvasCommandFacade } from "./collaborationCanvasCommands.js";
 import { ContentVersionFacade } from "./ContentVersionFacade.js";
 import { CollaborationRemoteOperationsFacade } from "./collaborationRemoteOperations.js";
 import { CollaborationPresenceSession } from "./collaborationPresenceSession.js";
-import { CollaborationCanvasLiveSyncSession } from "./collaborationCanvasLiveSyncSession.js";
 import { CollaborationReadMutationsFacade } from "./collaborationReadMutations.js";
 import { CollaborationClientError, collaborationErrorFromUnknown } from "./collaborationErrors.js";
 import {
@@ -124,7 +117,6 @@ export class CollaborationService {
   private readonly onStatusChange?: (status: CollaborationStatus) => void;
   private readonly onObserverSignal?: (signal: CollaborationObserverSignal) => void;
   private readonly onPresenceSignal?: (signal: CollaborationPresenceSignal) => void;
-  private readonly onCanvasLiveSyncSignal?: (signal: CollaborationCanvasLiveSyncSignal) => void;
   private readonly registryService: CollaborationRegistryService;
   private readonly canvasCommands: CollaborationCanvasCommandFacade;
   private readonly contentVersions: ContentVersionFacade;
@@ -148,7 +140,6 @@ export class CollaborationService {
   private lastErrorCode: string | null = null;
   private lastErrorMessage: string | null = null;
   private readonly presenceSession: CollaborationPresenceSession;
-  private readonly canvasLiveSyncSession: CollaborationCanvasLiveSyncSession;
   private disposed = false;
   private queue: Promise<unknown> = Promise.resolve();
   private statusPublicationTransactionDepth = 0;
@@ -185,25 +176,9 @@ export class CollaborationService {
     this.onStatusChange = options.onStatusChange;
     this.onObserverSignal = options.onObserverSignal;
     this.onPresenceSignal = options.onPresenceSignal;
-    this.onCanvasLiveSyncSignal = options.onCanvasLiveSyncSignal;
     this.bindLiveOperatorToOrigin = options.bindLiveOperatorToOrigin;
     this.registryService = new CollaborationRegistryService(() => this.client);
-    this.contentVersions = new ContentVersionFacade(
-      () => this.client,
-      undefined,
-      async () => {
-        const profileId = await this.profiles.getActiveProfileId();
-        if (!profileId) return null;
-        const profile = await this.profiles.get(profileId);
-        return profile
-          ? {
-              profileId,
-              serverOrigin: new URL(profile.serverBaseUrl).origin,
-              projectId: profile.projectId
-            }
-          : null;
-      }
-    );
+    this.contentVersions = new ContentVersionFacade(() => this.client);
     const canvasComposition = createWorkspaceCanvasSnapshotSessionComposition({
       snapshotCache: options.workspaceSnapshotCache,
       contentVersions: this.contentVersions,
@@ -228,19 +203,10 @@ export class CollaborationService {
       clearDeviceCredential: (profileId) => this.vault.clear(profileId),
       publishStatus: () => this.publishStatus()
     });
-    this.canvasLiveSyncSession = new CollaborationCanvasLiveSyncSession({
-      getClient: () => this.client,
-      getClientProfileId: () => this.clientProfileId,
-      resolveCanvasBinding: (input) => this.contentVersions.resolveCanvasBinding(input),
-      publishCanvasLiveSyncSignal: (signal) => this.publishCanvasLiveSyncSignal(signal),
-      clearDeviceCredential: (profileId) => this.vault.clear(profileId),
-      publishStatus: () => this.publishStatus()
-    });
     this.canvasRealtime = new CollaborationCanvasRealtimeFacade({
       enqueue: (operation) => this.enqueue(operation),
       assertOpen: () => this.assertOpen(),
-      presence: this.presenceSession,
-      liveSync: this.canvasLiveSyncSession
+      presence: this.presenceSession
     });
     this.readMutations = new CollaborationReadMutationsFacade(
       (operation) => this.withActiveClient(operation),
@@ -271,7 +237,6 @@ export class CollaborationService {
       profiles: this.profiles,
       vault: this.vault,
       presenceSession: this.presenceSession,
-      canvasLiveSyncSession: this.canvasLiveSyncSession,
       canvasCommands: this.canvasCommands,
       enqueue: (operation) => this.enqueue(operation),
       assertOpen: () => this.assertOpen(),
@@ -736,36 +701,8 @@ export class CollaborationService {
     return this.canvasRealtime.stopPresence();
   }
 
-  async startCanvasLiveSync(input: unknown): Promise<void> {
-    return this.canvasRealtime.startLiveSync(input);
-  }
-
-  async stopCanvasLiveSync(): Promise<void> {
-    return this.canvasRealtime.stopLiveSync();
-  }
-
   async publishPresence(input: unknown): Promise<void> {
     return this.canvasRealtime.publishPresence(input);
-  }
-
-  async submitCanvasCommand(input: unknown): Promise<CollaborationCanvasCommandSubmitResult> {
-    return this.canvasOperations.submitCommand(input);
-  }
-
-  async reconnectCanvas(input: unknown): Promise<CollaborationCanvasReconnectResult> {
-    return this.canvasOperations.reconnect(input);
-  }
-
-  async bindCanvasCommandSession(input: unknown): Promise<CollaborationCanvasCommandSessionView> {
-    return this.canvasOperations.bindCommandSession(input);
-  }
-
-  async getCanvasCommandSession(): Promise<CollaborationCanvasCommandSessionView> {
-    return this.canvasOperations.getCommandSession();
-  }
-
-  async flushCanvasReplicaMaterialization(): Promise<void> {
-    return this.canvasOperations.flushReplicaMaterialization();
   }
 
   async openWorkspaceCanvasSession(input: unknown): Promise<WorkspaceCanvasProjection> {
@@ -788,52 +725,12 @@ export class CollaborationService {
     return this.canvasOperations.getWorkspaceCanvasProjection();
   }
 
-  async resolveCanvasScope(input: unknown) {
-    return this.canvasOperations.resolveScope(input);
-  }
-
   async readCanvasRuntimeAvailability(input: unknown) {
     return this.canvasOperations.readRuntimeAvailability(input);
   }
 
   async resetWorkspaceCanvasRuntime(input: unknown) {
     return this.canvasOperations.resetWorkspaceRuntime(input);
-  }
-
-  async importLocalCanvasRuntimeStatus(input: unknown) {
-    return this.canvasOperations.importLocalRuntimeStatus(input);
-  }
-
-  async getCanvasReplicaProjection(input: unknown) {
-    return this.canvasOperations.getReplicaProjection(input);
-  }
-
-  async bindContentAuthority(input: unknown) {
-    return this.canvasOperations.bindContentAuthority(input);
-  }
-
-  async getContentAuthority() {
-    return this.canvasOperations.getContentAuthority();
-  }
-
-  async refreshContentAuthority() {
-    return this.canvasOperations.refreshContentAuthority();
-  }
-
-  async publishInitialContent() {
-    return this.canvasOperations.publishInitialContent();
-  }
-
-  async materializeContentHead() {
-    return this.canvasOperations.materializeContentHead();
-  }
-
-  async listContentBootstrapCandidates() {
-    return this.canvasOperations.listContentBootstrapCandidates();
-  }
-
-  async bootstrapContent(input: unknown) {
-    return this.canvasOperations.bootstrapContent(input);
   }
 
   async listWorkspaceCanvasSharingCandidates() {
@@ -1041,10 +938,6 @@ export class CollaborationService {
 
   private publishPresenceSignal(signal: CollaborationPresenceSignal): void {
     this.onPresenceSignal?.(signal);
-  }
-
-  private publishCanvasLiveSyncSignal(signal: CollaborationCanvasLiveSyncSignal): void {
-    this.onCanvasLiveSyncSignal?.(signal);
   }
 
   private clearRememberedObserverCursor(profileId?: string | null): void {

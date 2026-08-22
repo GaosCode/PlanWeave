@@ -186,7 +186,6 @@ export class WorkspaceAuthoritativeSnapshotCache {
   capture(key: WorkspaceRemoteAuthorityKey, snapshot: CanvasReplicaCommittedSnapshot): void {
     const parsedKey = workspaceRemoteAuthorityKeySchema.parse(key);
     if (
-      snapshot.scope.bindingKind !== "remote" ||
       snapshot.scope.workspaceId !== parsedKey.workspaceId ||
       snapshot.scope.projectId !== parsedKey.projectId ||
       snapshot.scope.canvasId !== parsedKey.canvasId ||

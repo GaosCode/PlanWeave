@@ -15,24 +15,18 @@ import type {
 import type { CanvasRuntimeStatusProjection } from "@planweave-ai/collaboration-protocol/canvas/status";
 import type { CompleteContentVersion } from "@planweave-ai/collaboration-protocol/content/version";
 import {
-  collaborationCanvasBindingReplicaProjectionSchema,
-  type CollaborationCanvasBindingReplicaProjection
+  collaborationRemoteCanvasReplicaProjectionSchema,
+  type CollaborationRemoteCanvasReplicaProjection
 } from "../../shared/canvasReplicaIpc.js";
 import { CollaborationClientError } from "./collaborationErrors.js";
 
-type CanvasReplicaRemoteScope = {
+export type CanvasReplicaScope = {
   /** Profile/server/project identity — prevents cross-authority replica reuse. */
   authorityId: string;
   projectId: string;
   canvasId: string;
   workspaceId: CanvasRuntimeStatusProjection["scope"]["workspaceId"];
 };
-
-export type CanvasReplicaScope = CanvasReplicaRemoteScope &
-  (
-    | { bindingKind: "local"; localProjectId: string; localCanvasId: string }
-    | { bindingKind: "remote" }
-  );
 
 export type CanvasReplicaPendingOperation = {
   operationId: string;
@@ -91,7 +85,7 @@ export class CanvasReplicaStore {
   private readonly replicas = new Map<string, ReplicaState>();
 
   constructor(
-    private readonly onChange: (projection: CollaborationCanvasBindingReplicaProjection) => void,
+    private readonly onChange: (projection: CollaborationRemoteCanvasReplicaProjection) => void,
     private readonly onCommitted: (snapshot: CanvasReplicaCommittedSnapshot) => void = () =>
       undefined
   ) {}
@@ -160,7 +154,7 @@ export class CanvasReplicaStore {
 
   projection(
     scope: Pick<CanvasReplicaScope, "authorityId" | "workspaceId" | "projectId" | "canvasId">
-  ): CollaborationCanvasBindingReplicaProjection | null {
+  ): CollaborationRemoteCanvasReplicaProjection | null {
     const replica = this.replicas.get(key(scope));
     return replica?.document ? this.toProjection(replica) : null;
   }
@@ -518,7 +512,7 @@ export class CanvasReplicaStore {
     });
   }
 
-  private toProjection(replica: ReplicaState): CollaborationCanvasBindingReplicaProjection {
+  private toProjection(replica: ReplicaState): CollaborationRemoteCanvasReplicaProjection {
     if (!replica.document || !replica.contentDigest) {
       throw replicaError("canvas_replica_baseline_required");
     }
@@ -556,15 +550,10 @@ export class CanvasReplicaStore {
         blockPromptMarkdownByRef: content.blockPromptMarkdownByRef
       }
     };
-    return collaborationCanvasBindingReplicaProjectionSchema.parse(
-      replica.scope.bindingKind === "local"
-        ? {
-            ...projection,
-            localProjectId: replica.scope.localProjectId,
-            localCanvasId: replica.scope.localCanvasId
-          }
-        : { ...projection, bindingKind: "remote" }
-    );
+    return collaborationRemoteCanvasReplicaProjectionSchema.parse({
+      ...projection,
+      bindingKind: "remote"
+    });
   }
 
   private visibleDocument(replica: ReplicaState): CanvasReplicaDocument {

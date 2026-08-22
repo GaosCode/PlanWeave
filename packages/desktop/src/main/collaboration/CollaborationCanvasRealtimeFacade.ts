@@ -1,14 +1,12 @@
-import type { CollaborationCanvasLiveSyncSession } from "./collaborationCanvasLiveSyncSession.js";
 import type { CollaborationPresenceSession } from "./collaborationPresenceSession.js";
 
 export type CollaborationCanvasRealtimeFacadeOptions = {
   enqueue: <T>(operation: () => Promise<T>) => Promise<T>;
   assertOpen: () => void;
   presence: CollaborationPresenceSession;
-  liveSync: CollaborationCanvasLiveSyncSession;
 };
 
-/** Queue-aware facade for ephemeral canvas presence and live-sync sessions. */
+/** Queue-aware facade for ephemeral canvas presence. */
 export class CollaborationCanvasRealtimeFacade {
   constructor(private readonly options: CollaborationCanvasRealtimeFacadeOptions) {}
 
@@ -18,14 +16,6 @@ export class CollaborationCanvasRealtimeFacade {
 
   stopPresence(): Promise<void> {
     return this.run(() => this.options.presence.stop());
-  }
-
-  startLiveSync(input: unknown): Promise<void> {
-    return this.run(() => this.options.liveSync.start(input));
-  }
-
-  stopLiveSync(): Promise<void> {
-    return this.run(async () => this.options.liveSync.stop());
   }
 
   publishPresence(input: unknown): Promise<void> {

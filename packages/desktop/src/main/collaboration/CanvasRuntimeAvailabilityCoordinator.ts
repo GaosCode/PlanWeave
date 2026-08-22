@@ -7,7 +7,10 @@ import {
   canvasRuntimeResetOutcomeSchema,
   type CanvasRuntimeResetOutcome
 } from "@planweave-ai/collaboration-protocol/canvas/runtime-control";
-import { collaborationCanvasBindingInputSchema } from "../../shared/collaboration.js";
+import {
+  collaborationCanvasBindingInputSchema,
+  type RemoteCollaborationCanvasBindingInput
+} from "../../shared/collaboration.js";
 import {
   workspaceCanvasRuntimeResetInputSchema,
   type WorkspaceCanvasRuntimeResetInput
@@ -20,7 +23,7 @@ import { CollaborationClientError } from "./collaborationErrors.js";
 
 export type CanvasRuntimeContentPort = Pick<
   ContentVersionFacade,
-  "resolveCanvasScope" | "readRuntimeAvailability" | "importLocalRuntimeStatus" | "resetRuntime"
+  "resolveCanvasScope" | "readRuntimeAvailability" | "resetRuntime"
 >;
 export type CanvasRuntimeCommandPort = Pick<
   CollaborationCanvasCommandFacade,
@@ -42,11 +45,11 @@ export class CanvasRuntimeAvailabilityCoordinator {
   ) {}
 
   resolveCanvasScope(input: unknown) {
-    return this.contentVersions.resolveCanvasScope(input);
+    return this.contentVersions.resolveCanvasScope(this.requireRemoteBinding(input));
   }
 
   async readRuntimeAvailability(input: unknown): Promise<CanvasRuntimeAvailability | null> {
-    const requested = collaborationCanvasBindingInputSchema.parse(input);
+    const requested = this.requireRemoteBinding(input);
     const authorityId = this.resolveAuthorityId();
     if (!this.isOnline() || !authorityId) return null;
     const scope = await this.contentVersions.resolveCanvasScope(requested);
@@ -86,22 +89,6 @@ export class CanvasRuntimeAvailabilityCoordinator {
       );
     }
     return availability;
-  }
-
-  async importLocalRuntimeStatus(input: unknown) {
-    const requested = collaborationCanvasBindingInputSchema.parse(input);
-    const authorityId = this.resolveAuthorityId();
-    if (!this.isOnline() || !authorityId) return null;
-    const scope = await this.contentVersions.resolveCanvasScope(requested);
-    if (!scope) return null;
-    const state = await this.contentVersions.importLocalRuntimeStatus(requested);
-    if (state.kind === "initialized") {
-      const replicaScope = { authorityId, ...scope };
-      if (this.canvasReplicas.has(replicaScope)) {
-        this.canvasReplicas.setRuntimeStatus(replicaScope, state.status);
-      }
-    }
-    return state;
   }
 
   async resetRuntime(input: WorkspaceCanvasRuntimeResetInput): Promise<CanvasRuntimeResetOutcome> {
@@ -148,7 +135,7 @@ export class CanvasRuntimeAvailabilityCoordinator {
   }
 
   async getReplicaProjection(input: unknown) {
-    const requested = collaborationCanvasBindingInputSchema.parse(input);
+    const requested = this.requireRemoteBinding(input);
     const fromBinding = this.canvasCommands.projectionForBinding(requested);
     if (fromBinding) return fromBinding;
     const authorityId = this.resolveAuthorityId();
@@ -160,5 +147,18 @@ export class CanvasRuntimeAvailabilityCoordinator {
       projectId: scope.projectId,
       canvasId: scope.canvasId
     });
+  }
+
+  private requireRemoteBinding(input: unknown): RemoteCollaborationCanvasBindingInput {
+    const requested = collaborationCanvasBindingInputSchema.parse(input);
+    if (requested.kind !== "remote") {
+      throw new CollaborationClientError({
+        kind: "aborted",
+        code: "workspace_canvas_remote_binding_required",
+        message: "workspace_canvas_remote_binding_required",
+        retryable: false
+      });
+    }
+    return requested;
   }
 }

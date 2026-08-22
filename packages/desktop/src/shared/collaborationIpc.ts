@@ -35,36 +35,15 @@ export const collaborationInvokeChannels = {
   setDesktopServerExposureMode: "planweave-collaboration:setDesktopServerExposureMode",
   startCollaborationPresence: "planweave-collaboration:startPresence",
   stopCollaborationPresence: "planweave-collaboration:stopPresence",
-  startCollaborationCanvasBindingLiveSync: "planweave-collaboration:startCanvasBindingLiveSync",
-  stopCollaborationCanvasLiveSync: "planweave-collaboration:stopCanvasLiveSync",
   publishCollaborationPresence: "planweave-collaboration:publishPresence",
-  submitCollaborationCanvasCommand: "planweave-collaboration:submitCanvasCommand",
-  reconnectCollaborationCanvas: "planweave-collaboration:reconnectCanvas",
-  bindCollaborationCanvasBindingSession: "planweave-collaboration:bindCanvasBindingSession",
-  getCollaborationCanvasCommandSession: "planweave-collaboration:getCanvasCommandSession",
-  flushCollaborationCanvasReplicaMaterialization:
-    "planweave-collaboration:flushCanvasReplicaMaterialization",
   openWorkspaceCanvasSession: "planweave-collaboration:openWorkspaceCanvasSession",
   submitWorkspaceCanvasCommand: "planweave-collaboration:submitWorkspaceCanvasCommand",
   reconnectWorkspaceCanvasSession: "planweave-collaboration:reconnectWorkspaceCanvasSession",
   closeWorkspaceCanvasSession: "planweave-collaboration:closeWorkspaceCanvasSession",
   getWorkspaceCanvasProjection: "planweave-collaboration:getWorkspaceCanvasProjection",
-  resolveCollaborationCanvasBindingScope: "planweave-collaboration:resolveCanvasBindingScope",
   readCollaborationCanvasBindingRuntimeAvailability:
     "planweave-collaboration:readCanvasBindingRuntimeAvailability",
-  importCollaborationLocalRuntimeStatus: "planweave-collaboration:importLocalRuntimeStatus",
   resetWorkspaceCanvasRuntime: "planweave-collaboration:resetWorkspaceCanvasRuntime",
-  getCollaborationCanvasBindingReplicaProjection:
-    "planweave-collaboration:getCanvasBindingReplicaProjection",
-  bindCollaborationCanvasBindingContentAuthority:
-    "planweave-collaboration:bindCanvasBindingContentAuthority",
-  getCollaborationContentAuthority: "planweave-collaboration:getContentAuthority",
-  refreshCollaborationContentAuthority: "planweave-collaboration:refreshContentAuthority",
-  publishCollaborationInitialContent: "planweave-collaboration:publishInitialContent",
-  materializeCollaborationContentHead: "planweave-collaboration:materializeContentHead",
-  listCollaborationContentBootstrapCandidates:
-    "planweave-collaboration:listContentBootstrapCandidates",
-  bootstrapCollaborationContent: "planweave-collaboration:bootstrapContent",
   listWorkspaceCanvasSharingCandidates:
     "planweave-collaboration:listWorkspaceCanvasSharingCandidates",
   publishWorkspaceCanvas: "planweave-collaboration:publishWorkspaceCanvas",
@@ -131,8 +110,6 @@ export const collaborationInvokeChannels = {
 export const collaborationStatusChangedChannel = "planweave-collaboration:statusChanged";
 export const collaborationObserverSignalChannel = "planweave-collaboration:observerSignal";
 export const collaborationPresenceSignalChannel = "planweave-collaboration:presenceSignal";
-export const collaborationCanvasLiveSyncSignalChannel =
-  "planweave-collaboration:canvasLiveSyncSignal";
 export const collaborationCanvasBindingReplicaSignalChannel =
   "planweave-collaboration:canvasBindingReplicaSignal";
 export const workspaceCanvasProjectionSignalChannel =

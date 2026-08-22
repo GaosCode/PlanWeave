@@ -12,18 +12,13 @@ import {
   humanRevokeInvitationsResponseSchema
 } from "@planweave-ai/collaboration-protocol/identity/workspace";
 import { collaborationInvitationHandoffResponseSchema } from "@planweave-ai/collaboration-protocol/handoff/invitation";
-import {
-  canvasRuntimeAvailabilitySchema,
-  canvasRuntimeStateAvailabilitySchema
-} from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
+import { canvasRuntimeAvailabilitySchema } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import { canvasRuntimeResetOutcomeSchema } from "@planweave-ai/collaboration-protocol/canvas/runtime-control";
 import {
   collaborationCanvasBindingInputSchema,
-  collaborationContentBootstrapCandidateSchema,
   collaborationInvokeChannels,
   collaborationObserverSignalChannel,
   collaborationPresenceSignalChannel,
-  collaborationCanvasLiveSyncSignalChannel,
   collaborationCanvasBindingReplicaSignalChannel,
   workspaceCanvasProjectionSignalChannel,
   collaborationStatusChangedChannel,
@@ -99,16 +94,6 @@ function publishPresenceSignalToRenderers(
   }
 }
 
-function publishCanvasLiveSyncSignalToRenderers(
-  signal: Parameters<NonNullable<CollaborationServiceOptions["onCanvasLiveSyncSignal"]>>[0]
-): void {
-  for (const window of BrowserWindow.getAllWindows()) {
-    if (!window.webContents.isDestroyed()) {
-      window.webContents.send(collaborationCanvasLiveSyncSignalChannel, signal);
-    }
-  }
-}
-
 function publishCanvasReplicaSignalToRenderers(
   signal: CollaborationCanvasBindingReplicaSignal
 ): void {
@@ -151,8 +136,6 @@ function createDefaultService(options: CollaborationServiceOptions = {}): Collab
     onStatusChange: options.onStatusChange ?? publishStatusToRenderers,
     onObserverSignal: options.onObserverSignal ?? publishObserverSignalToRenderers,
     onPresenceSignal: options.onPresenceSignal ?? publishPresenceSignalToRenderers,
-    onCanvasLiveSyncSignal:
-      options.onCanvasLiveSyncSignal ?? publishCanvasLiveSyncSignalToRenderers,
     onCanvasReplicaSignal: options.onCanvasReplicaSignal ?? publishCanvasReplicaSignalToRenderers,
     onWorkspaceCanvasProjection:
       options.onWorkspaceCanvasProjection ?? publishWorkspaceCanvasProjectionToRenderers,
@@ -415,35 +398,8 @@ export function registerCollaborationHandlers(
     active.stopPresence()
   );
   ipcMain.handle(
-    collaborationInvokeChannels.startCollaborationCanvasBindingLiveSync,
-    (_event, input: unknown) =>
-      active.startCanvasLiveSync(collaborationCanvasBindingInputSchema.parse(input))
-  );
-  ipcMain.handle(collaborationInvokeChannels.stopCollaborationCanvasLiveSync, () =>
-    active.stopCanvasLiveSync()
-  );
-  ipcMain.handle(
     collaborationInvokeChannels.publishCollaborationPresence,
     (_event, input: unknown) => active.publishPresence(input)
-  );
-  ipcMain.handle(
-    collaborationInvokeChannels.submitCollaborationCanvasCommand,
-    (_event, input: unknown) => active.submitCanvasCommand(input)
-  );
-  ipcMain.handle(
-    collaborationInvokeChannels.reconnectCollaborationCanvas,
-    (_event, input: unknown) => active.reconnectCanvas(input)
-  );
-  ipcMain.handle(
-    collaborationInvokeChannels.bindCollaborationCanvasBindingSession,
-    (_event, input: unknown) =>
-      active.bindCanvasCommandSession(collaborationCanvasBindingInputSchema.parse(input))
-  );
-  ipcMain.handle(collaborationInvokeChannels.getCollaborationCanvasCommandSession, () =>
-    active.getCanvasCommandSession()
-  );
-  ipcMain.handle(collaborationInvokeChannels.flushCollaborationCanvasReplicaMaterialization, () =>
-    active.flushCanvasReplicaMaterialization()
   );
   ipcMain.handle(collaborationInvokeChannels.openWorkspaceCanvasSession, (_event, input: unknown) =>
     active.openWorkspaceCanvasSession(input)
@@ -464,28 +420,12 @@ export function registerCollaborationHandlers(
     active.getWorkspaceCanvasProjection()
   );
   ipcMain.handle(
-    collaborationInvokeChannels.resolveCollaborationCanvasBindingScope,
-    (_event, input: unknown) =>
-      active.resolveCanvasScope(collaborationCanvasBindingInputSchema.parse(input))
-  );
-  ipcMain.handle(
     collaborationInvokeChannels.readCollaborationCanvasBindingRuntimeAvailability,
     async (_event, input: unknown) =>
       canvasRuntimeAvailabilitySchema
         .nullable()
         .parse(
           await active.readCanvasRuntimeAvailability(
-            collaborationCanvasBindingInputSchema.parse(input)
-          )
-        )
-  );
-  ipcMain.handle(
-    collaborationInvokeChannels.importCollaborationLocalRuntimeStatus,
-    async (_event, input: unknown) =>
-      canvasRuntimeStateAvailabilitySchema
-        .nullable()
-        .parse(
-          await active.importLocalCanvasRuntimeStatus(
             collaborationCanvasBindingInputSchema.parse(input)
           )
         )
@@ -498,38 +438,6 @@ export function registerCollaborationHandlers(
           workspaceCanvasRuntimeResetInputSchema.parse(input)
         )
       )
-  );
-  ipcMain.handle(
-    collaborationInvokeChannels.getCollaborationCanvasBindingReplicaProjection,
-    (_event, input: unknown) =>
-      active.getCanvasReplicaProjection(collaborationCanvasBindingInputSchema.parse(input))
-  );
-  ipcMain.handle(
-    collaborationInvokeChannels.bindCollaborationCanvasBindingContentAuthority,
-    (_event, input: unknown) =>
-      active.bindContentAuthority(collaborationCanvasBindingInputSchema.parse(input))
-  );
-  ipcMain.handle(collaborationInvokeChannels.getCollaborationContentAuthority, () =>
-    active.getContentAuthority()
-  );
-  ipcMain.handle(collaborationInvokeChannels.refreshCollaborationContentAuthority, () =>
-    active.refreshContentAuthority()
-  );
-  ipcMain.handle(collaborationInvokeChannels.publishCollaborationInitialContent, () =>
-    active.publishInitialContent()
-  );
-  ipcMain.handle(collaborationInvokeChannels.materializeCollaborationContentHead, () =>
-    active.materializeContentHead()
-  );
-  ipcMain.handle(collaborationInvokeChannels.listCollaborationContentBootstrapCandidates, () =>
-    runCollaborationCommand(
-      () => active.listContentBootstrapCandidates(),
-      z.array(collaborationContentBootstrapCandidateSchema)
-    )
-  );
-  ipcMain.handle(
-    collaborationInvokeChannels.bootstrapCollaborationContent,
-    (_event, input: unknown) => active.bootstrapContent(input)
   );
   ipcMain.handle(collaborationInvokeChannels.listWorkspaceCanvasSharingCandidates, () =>
     runCollaborationCommand(

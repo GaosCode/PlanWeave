@@ -1,10 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { IpcRendererEvent } from "electron";
 import { z } from "zod";
-import {
-  canvasRuntimeAvailabilitySchema,
-  canvasRuntimeStateAvailabilitySchema
-} from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
+import { canvasRuntimeAvailabilitySchema } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import { canvasRuntimeResetOutcomeSchema } from "@planweave-ai/collaboration-protocol/canvas/runtime-control";
 import {
   humanCreateInvitationResponseSchema,
@@ -39,9 +36,7 @@ import {
   runtimeStateChangedChannel
 } from "../shared/ipcChannels.js";
 import {
-  collaborationContentBootstrapCandidateSchema,
   type CollaborationObserverSignal,
-  type CollaborationCanvasLiveSyncSignal,
   type CollaborationPresenceSignal,
   type CollaborationStatus,
   type PlanWeaveCollaborationApi
@@ -53,10 +48,7 @@ import {
   workspaceCanvasPublishResultSchema,
   workspaceCanvasSharingCandidateSchema
 } from "../shared/workspaceCanvasSharing.js";
-import {
-  collaborationCanvasBindingReplicaProjectionSchema,
-  collaborationCanvasBindingReplicaSignalSchema
-} from "../shared/canvasReplicaIpc.js";
+import { collaborationCanvasBindingReplicaSignalSchema } from "../shared/canvasReplicaIpc.js";
 import {
   workspaceCanvasProjectionSchema,
   workspaceCanvasProjectionSignalSchema
@@ -64,7 +56,6 @@ import {
 import {
   collaborationInvokeChannels,
   collaborationObserverSignalChannel,
-  collaborationCanvasLiveSyncSignalChannel,
   collaborationCanvasBindingReplicaSignalChannel,
   workspaceCanvasProjectionSignalChannel,
   collaborationPresenceSignalChannel,
@@ -316,22 +307,23 @@ const collaborationApi: PlanWeaveCollaborationApi = {
     ipcRenderer.invoke(collaborationInvokeChannels.startCollaborationPresence, input),
   stopCollaborationPresence: async () =>
     ipcRenderer.invoke(collaborationInvokeChannels.stopCollaborationPresence),
-  startCollaborationCanvasBindingLiveSync: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.startCollaborationCanvasBindingLiveSync, input),
-  stopCollaborationCanvasLiveSync: async () =>
-    ipcRenderer.invoke(collaborationInvokeChannels.stopCollaborationCanvasLiveSync),
   publishCollaborationPresence: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.publishCollaborationPresence, input),
-  submitCollaborationCanvasCommand: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.submitCollaborationCanvasCommand, input),
-  reconnectCollaborationCanvas: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.reconnectCollaborationCanvas, input),
-  bindCollaborationCanvasBindingSession: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.bindCollaborationCanvasBindingSession, input),
-  getCollaborationCanvasCommandSession: async () =>
-    ipcRenderer.invoke(collaborationInvokeChannels.getCollaborationCanvasCommandSession),
-  flushCollaborationCanvasReplicaMaterialization: async () =>
-    ipcRenderer.invoke(collaborationInvokeChannels.flushCollaborationCanvasReplicaMaterialization),
+  submitCollaborationCanvasCommand: async () => {
+    throw new Error("workspace_canvas_session_api_required");
+  },
+  reconnectCollaborationCanvas: async () => {
+    throw new Error("workspace_canvas_session_api_required");
+  },
+  bindCollaborationCanvasBindingSession: async () => {
+    throw new Error("workspace_canvas_session_api_required");
+  },
+  getCollaborationCanvasCommandSession: async () => {
+    throw new Error("workspace_canvas_session_api_required");
+  },
+  flushCollaborationCanvasReplicaMaterialization: async () => {
+    throw new Error("workspace_canvas_session_api_required");
+  },
   openWorkspaceCanvasSession: async (input) =>
     workspaceCanvasProjectionSchema.parse(
       await ipcRenderer.invoke(collaborationInvokeChannels.openWorkspaceCanvasSession, input)
@@ -350,26 +342,23 @@ const collaborationApi: PlanWeaveCollaborationApi = {
     workspaceCanvasProjectionSchema
       .nullable()
       .parse(await ipcRenderer.invoke(collaborationInvokeChannels.getWorkspaceCanvasProjection)),
-  resolveCollaborationCanvasBindingScope: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.resolveCollaborationCanvasBindingScope, input),
-  readCollaborationCanvasBindingRuntimeAvailability: async (input) =>
-    canvasRuntimeAvailabilitySchema
+  resolveCollaborationCanvasBindingScope: async () => {
+    throw new Error("workspace_canvas_session_api_required");
+  },
+  readCollaborationCanvasBindingRuntimeAvailability: async (input) => {
+    if (input.kind !== "remote") throw new Error("workspace_canvas_remote_binding_required");
+    return canvasRuntimeAvailabilitySchema
       .nullable()
       .parse(
         await ipcRenderer.invoke(
           collaborationInvokeChannels.readCollaborationCanvasBindingRuntimeAvailability,
           input
         )
-      ),
-  importCollaborationLocalRuntimeStatus: async (input) =>
-    canvasRuntimeStateAvailabilitySchema
-      .nullable()
-      .parse(
-        await ipcRenderer.invoke(
-          collaborationInvokeChannels.importCollaborationLocalRuntimeStatus,
-          input
-        )
-      ),
+      );
+  },
+  importCollaborationLocalRuntimeStatus: async () => {
+    throw new Error("local_runtime_collaboration_import_removed");
+  },
   resetWorkspaceCanvasRuntime: async (input) =>
     canvasRuntimeResetOutcomeSchema.parse(
       await ipcRenderer.invoke(
@@ -377,37 +366,30 @@ const collaborationApi: PlanWeaveCollaborationApi = {
         workspaceCanvasRuntimeResetInputSchema.parse(input)
       )
     ),
-  getCollaborationCanvasBindingReplicaProjection: async (input) =>
-    collaborationCanvasBindingReplicaProjectionSchema
-      .nullable()
-      .parse(
-        await ipcRenderer.invoke(
-          collaborationInvokeChannels.getCollaborationCanvasBindingReplicaProjection,
-          input
-        )
-      ),
-  bindCollaborationCanvasBindingContentAuthority: async (input) =>
-    ipcRenderer.invoke(
-      collaborationInvokeChannels.bindCollaborationCanvasBindingContentAuthority,
-      input
-    ),
-  getCollaborationContentAuthority: async () =>
-    ipcRenderer.invoke(collaborationInvokeChannels.getCollaborationContentAuthority),
-  refreshCollaborationContentAuthority: async () =>
-    ipcRenderer.invoke(collaborationInvokeChannels.refreshCollaborationContentAuthority),
-  publishCollaborationInitialContent: async () =>
-    ipcRenderer.invoke(collaborationInvokeChannels.publishCollaborationInitialContent),
-  materializeCollaborationContentHead: async () =>
-    ipcRenderer.invoke(collaborationInvokeChannels.materializeCollaborationContentHead),
-  listCollaborationContentBootstrapCandidates: async () =>
-    unwrapCollaborationCommandResult(
-      await ipcRenderer.invoke(
-        collaborationInvokeChannels.listCollaborationContentBootstrapCandidates
-      ),
-      z.array(collaborationContentBootstrapCandidateSchema)
-    ),
-  bootstrapCollaborationContent: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.bootstrapCollaborationContent, input),
+  getCollaborationCanvasBindingReplicaProjection: async () => {
+    throw new Error("workspace_canvas_session_api_required");
+  },
+  bindCollaborationCanvasBindingContentAuthority: async () => {
+    throw new Error("workspace_canvas_session_api_required");
+  },
+  getCollaborationContentAuthority: async () => {
+    throw new Error("workspace_canvas_session_api_required");
+  },
+  refreshCollaborationContentAuthority: async () => {
+    throw new Error("workspace_canvas_session_api_required");
+  },
+  publishCollaborationInitialContent: async () => {
+    throw new Error("workspace_canvas_session_api_required");
+  },
+  materializeCollaborationContentHead: async () => {
+    throw new Error("workspace_canvas_session_api_required");
+  },
+  listCollaborationContentBootstrapCandidates: async () => {
+    throw new Error("workspace_canvas_session_api_required");
+  },
+  bootstrapCollaborationContent: async () => {
+    throw new Error("workspace_canvas_session_api_required");
+  },
   listWorkspaceCanvasSharingCandidates: async () =>
     unwrapCollaborationCommandResult(
       await ipcRenderer.invoke(collaborationInvokeChannels.listWorkspaceCanvasSharingCandidates),
@@ -615,12 +597,6 @@ const collaborationApi: PlanWeaveCollaborationApi = {
       callback(payload);
     ipcRenderer.on(collaborationPresenceSignalChannel, listener);
     return () => ipcRenderer.off(collaborationPresenceSignalChannel, listener);
-  },
-  onCollaborationCanvasLiveSyncSignal: (callback) => {
-    const listener = (_event: IpcRendererEvent, payload: CollaborationCanvasLiveSyncSignal) =>
-      callback(payload);
-    ipcRenderer.on(collaborationCanvasLiveSyncSignalChannel, listener);
-    return () => ipcRenderer.off(collaborationCanvasLiveSyncSignalChannel, listener);
   },
   onCollaborationCanvasBindingReplicaSignal: (callback) => {
     const listener = (_event: IpcRendererEvent, payload: unknown) =>

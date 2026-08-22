@@ -12,7 +12,6 @@ import {
   type CollaborationObserverStatus
 } from "./CollaborationClient.js";
 import type { CollaborationCanvasCommandFacade } from "./collaborationCanvasCommands.js";
-import type { CollaborationCanvasLiveSyncSession } from "./collaborationCanvasLiveSyncSession.js";
 import type { CollaborationCredentialVault } from "./collaborationCredentialVault.js";
 import {
   COLLABORATION_CONNECTION_ERROR_CODES,
@@ -26,7 +25,6 @@ type CollaborationSessionLifecycleDependencies = {
   profiles: CollaborationProfileStore;
   vault: CollaborationCredentialVault;
   presenceSession: CollaborationPresenceSession;
-  canvasLiveSyncSession: CollaborationCanvasLiveSyncSession;
   canvasCommands: CollaborationCanvasCommandFacade;
   enqueue<T>(operation: () => Promise<T>): Promise<T>;
   assertOpen(): void;
@@ -234,9 +232,8 @@ export class CollaborationSessionLifecycle {
     const profileId = this.dependencies.getClientProfileId();
     this.observerGeneration += 1;
     this.dependencies.presenceSession.reset();
-    this.dependencies.canvasLiveSyncSession.reset();
     try {
-      await this.dependencies.canvasCommands.flushMaterialization();
+      await this.dependencies.canvasCommands.flushSnapshotCache();
     } catch (error) {
       const mapped = collaborationErrorFromUnknown(error);
       this.dependencies.setSession("error", "canvas_replica_persistence_failed", {

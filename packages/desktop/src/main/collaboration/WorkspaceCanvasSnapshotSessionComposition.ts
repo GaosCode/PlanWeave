@@ -1,7 +1,6 @@
 import type { CollaborationCanvasBindingReplicaSignal } from "../../shared/canvasReplicaIpc.js";
 import type { WorkspaceCanvasLocator } from "../../shared/canvasLocator.js";
 import type { WorkspaceCanvasProjection } from "../../shared/workspaceCanvasProjection.js";
-import { CanvasReplicaDiskMirror } from "./CanvasReplicaDiskMirror.js";
 import { CanvasReplicaStore } from "./CanvasReplicaStore.js";
 import { CanvasRuntimeAvailabilityCoordinator } from "./CanvasRuntimeAvailabilityCoordinator.js";
 import type { CollaborationClient } from "./CollaborationClient.js";
@@ -39,7 +38,6 @@ export function createWorkspaceCanvasSnapshotSessionComposition(
   commands: CollaborationCanvasCommandFacade;
   operations: CollaborationCanvasOperationsFacade;
 } {
-  const mirror = new CanvasReplicaDiskMirror();
   const snapshotCache = options.snapshotCache ?? new WorkspaceAuthoritativeSnapshotCache();
   let operations: CollaborationCanvasOperationsFacade | null = null;
   const replicas = new CanvasReplicaStore(
@@ -48,9 +46,8 @@ export function createWorkspaceCanvasSnapshotSessionComposition(
       operations?.publishWorkspaceCanvasProjection();
     },
     (snapshot) => {
-      mirror.capture(snapshot);
       const client = options.resolveClient();
-      if (!client || snapshot.scope.bindingKind !== "remote") return;
+      if (!client) return;
       const profile = client.connectionProfile;
       snapshotCache.capture(
         workspaceRemoteAuthorityKeySchema.parse({
@@ -73,7 +70,6 @@ export function createWorkspaceCanvasSnapshotSessionComposition(
       return client ? options.contentVersions.authorityIdForClient(client) : null;
     },
     store: replicas,
-    mirror,
     snapshotCache
   });
   const runtimeAvailability = new CanvasRuntimeAvailabilityCoordinator(

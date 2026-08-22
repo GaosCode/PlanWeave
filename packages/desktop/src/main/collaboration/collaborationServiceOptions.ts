@@ -10,7 +10,6 @@ import type {
   WorkspaceConnectionProfileStorePaths
 } from "./workspaceConnectionProfileStore.js";
 import type {
-  CollaborationCanvasLiveSyncSignal,
   CollaborationObserverSignal,
   CollaborationPresenceSignal,
   CollaborationStatus
@@ -40,7 +39,6 @@ export type CollaborationServiceOptions = {
   onStatusChange?: (status: CollaborationStatus) => void;
   onObserverSignal?: (signal: CollaborationObserverSignal) => void;
   onPresenceSignal?: (signal: CollaborationPresenceSignal) => void;
-  onCanvasLiveSyncSignal?: (signal: CollaborationCanvasLiveSyncSignal) => void;
   onCanvasReplicaSignal?: (signal: CollaborationCanvasBindingReplicaSignal) => void;
   onWorkspaceCanvasProjection?: (projection: WorkspaceCanvasProjection) => void;
   workspaceSnapshotCache?: WorkspaceAuthoritativeSnapshotCache;

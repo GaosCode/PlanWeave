@@ -109,7 +109,6 @@ import {
   type EligibleHostBatchRequest,
   type EligibleHostBatchResponse
 } from "@planweave-ai/collaboration-protocol/work/assignment";
-import { type CanvasLiveSyncServerMessage } from "@planweave-ai/collaboration-protocol/canvas/live-sync";
 import type { PlanWeaveCollaborationRuntimeAvailabilityApi } from "./collaborationRuntimeAvailability.js";
 import type { WorkspaceCanvasSharingApi } from "./workspaceCanvasSharing.js";
 import {
@@ -574,25 +573,6 @@ export type CollaborationPresenceSignal =
       };
     };
 
-/** Renderer supplies only opaque local scope; main resolves remote IDs and session revision. */
-export const collaborationCanvasLiveSyncInputSchema = z
-  .object({
-    localProjectId: collaborationOpaqueIdSchema,
-    canvasId: collaborationOpaqueIdSchema
-  })
-  .strict();
-export type CollaborationCanvasLiveSyncInput = z.infer<
-  typeof collaborationCanvasLiveSyncInputSchema
->;
-
-/** Validated read-only live-sync signal. No token, header, local path, or disk content crosses IPC. */
-export type CollaborationCanvasLiveSyncSignal = {
-  profileId: string;
-  projectId: string;
-  canvasId: string;
-  message: CanvasLiveSyncServerMessage;
-};
-
 /** Renderer → main: submit one durable canvas command intent (no actor/path/revision override authority). */
 export const collaborationCanvasCommandSubmitInputSchema = z
   .object({
@@ -769,7 +749,6 @@ export type CollaborationCurrentSelectionInput = z.infer<
 
 export {
   collaborationInvokeChannels,
-  collaborationCanvasLiveSyncSignalChannel,
   collaborationCanvasBindingReplicaSignalChannel,
   workspaceCanvasProjectionSignalChannel,
   collaborationObserverSignalChannel,
@@ -856,10 +835,6 @@ export type PlanWeaveCollaborationApi = WorkspaceCanvasSharingApi & {
   ) => Promise<DesktopServerExposureView>;
   startCollaborationPresence: (input: CollaborationPresenceCanvasInput) => Promise<void>;
   stopCollaborationPresence: () => Promise<void>;
-  startCollaborationCanvasBindingLiveSync: (
-    input: CollaborationCanvasBindingInput
-  ) => Promise<void>;
-  stopCollaborationCanvasLiveSync: () => Promise<void>;
   publishCollaborationPresence: (input: CollaborationPresenceUpdateInput) => Promise<void>;
   submitCollaborationCanvasCommand: (
     input: CollaborationCanvasCommandSubmitInput
@@ -1047,9 +1022,6 @@ export type PlanWeaveCollaborationApi = WorkspaceCanvasSharingApi & {
   ) => () => void;
   onCollaborationPresenceSignal: (
     callback: (signal: CollaborationPresenceSignal) => void
-  ) => () => void;
-  onCollaborationCanvasLiveSyncSignal: (
-    callback: (signal: CollaborationCanvasLiveSyncSignal) => void
   ) => () => void;
   onCollaborationCanvasBindingReplicaSignal: (
     callback: (signal: CollaborationCanvasBindingReplicaSignal) => void

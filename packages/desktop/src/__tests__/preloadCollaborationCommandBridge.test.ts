@@ -76,10 +76,33 @@ describe("preload collaboration command bridge", () => {
     for (const operation of [
       api.listCollaborationMembers(),
       api.listCollaborationDevices(),
-      api.listCollaborationInvitations(),
-      api.listCollaborationContentBootstrapCandidates()
+      api.listCollaborationInvitations()
     ]) {
       await expect(operation).rejects.toMatchObject(expectedBoundaryError);
     }
+  });
+
+  it("fails closed for legacy Local Canvas authority methods without invoking IPC", async () => {
+    await import("../preload/preload");
+    const api = electronMock.exposed.get("planweaveCollaboration") as PlanWeaveCollaborationApi;
+    const localBinding = {
+      kind: "local" as const,
+      localProjectId: "project-1",
+      canvasId: "default"
+    };
+
+    await expect(api.resolveCollaborationCanvasBindingScope(localBinding)).rejects.toThrow(
+      "workspace_canvas_session_api_required"
+    );
+    await expect(
+      api.readCollaborationCanvasBindingRuntimeAvailability(localBinding)
+    ).rejects.toThrow("workspace_canvas_remote_binding_required");
+    await expect(api.importCollaborationLocalRuntimeStatus(localBinding)).rejects.toThrow(
+      "local_runtime_collaboration_import_removed"
+    );
+    await expect(api.listCollaborationContentBootstrapCandidates()).rejects.toThrow(
+      "workspace_canvas_session_api_required"
+    );
+    expect(electronMock.ipcRenderer.invoke).not.toHaveBeenCalled();
   });
 });

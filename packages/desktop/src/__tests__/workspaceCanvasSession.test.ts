@@ -326,10 +326,9 @@ function createHarness(options?: {
     }),
     resolveAuthorityId: () => workspaceRemoteAuthorityId(cacheKey),
     store,
-    mirror,
     transport
   });
-  const flushMaterialization = vi.spyOn(facade, "flushMaterialization");
+  const flushSnapshotCache = vi.spyOn(facade, "flushSnapshotCache");
   const statuses: string[] = [];
   const resetRuntime = vi.fn().mockResolvedValue({
     type: "canvas.runtime.reset.rejected" as const,
@@ -357,7 +356,7 @@ function createHarness(options?: {
     session,
     submitted,
     mirror,
-    flushMaterialization,
+    flushSnapshotCache,
     statuses,
     resetRuntime,
     fetchReconnectBaseline,
@@ -375,7 +374,7 @@ describe("WorkspaceCanvasSession", () => {
     expect(projection.replica.bindingKind).toBe("remote");
     expect(projection.replica).not.toHaveProperty("localProjectId");
     expect(harness.mirror.bind).not.toHaveBeenCalled();
-    expect(harness.flushMaterialization).not.toHaveBeenCalled();
+    expect(harness.flushSnapshotCache).not.toHaveBeenCalled();
     expect(harness.resolveSnapshotCacheKey).not.toHaveBeenCalled();
   });
 
@@ -400,7 +399,7 @@ describe("WorkspaceCanvasSession", () => {
     expect(projection.status).toBe("accepted");
     expect(projection.replica.optimisticOperationIds).toEqual([]);
     expect(harness.mirror.flush).not.toHaveBeenCalled();
-    expect(harness.flushMaterialization).not.toHaveBeenCalled();
+    expect(harness.flushSnapshotCache).not.toHaveBeenCalled();
   });
 
   it("rebuilds from reconnect and surfaces a stale conflict instead of writing local files", async () => {
@@ -430,7 +429,7 @@ describe("WorkspaceCanvasSession", () => {
     expect(projection.conflict?.expectedRevision).toBe(1);
     expect(projection.conflict?.authoritativeRevision).toBe(3);
     expect(projection.replica.optimisticOperationIds).toEqual([]);
-    expect(harness.flushMaterialization).not.toHaveBeenCalled();
+    expect(harness.flushSnapshotCache).not.toHaveBeenCalled();
     expect(harness.mirror.bind).not.toHaveBeenCalled();
   });
 
@@ -452,7 +451,7 @@ describe("WorkspaceCanvasSession", () => {
     expect(projection.status).toBe("rejected");
     expect(projection.rejectCode).toBe("forbidden");
     expect(projection.replica.optimisticOperationIds).toEqual([]);
-    expect(harness.flushMaterialization).not.toHaveBeenCalled();
+    expect(harness.flushSnapshotCache).not.toHaveBeenCalled();
   });
 
   it("reconnects by revision without treating local materialization as authority", async () => {
@@ -461,7 +460,7 @@ describe("WorkspaceCanvasSession", () => {
     const projection = await harness.session.reconnect(locator);
     expect(projection.status).toBe("accepted");
     expect(projection.replica.revision).toBe(1);
-    expect(harness.flushMaterialization).not.toHaveBeenCalled();
+    expect(harness.flushSnapshotCache).not.toHaveBeenCalled();
   });
 
   it("routes reset only for the currently open Workspace locator", async () => {
@@ -491,7 +490,7 @@ describe("WorkspaceCanvasSession", () => {
     await harness.session.open(locator);
     await harness.session.close(locator);
     expect(harness.session.current()).toBeNull();
-    expect(harness.flushMaterialization).not.toHaveBeenCalled();
+    expect(harness.flushSnapshotCache).not.toHaveBeenCalled();
     await expect(harness.session.submit({ locator, intent: layoutIntent })).rejects.toMatchObject({
       code: "workspace_canvas_session_closed"
     });
@@ -518,7 +517,7 @@ describe("WorkspaceCanvasSession", () => {
     expect(restarted.fetchReconnectBaseline).not.toHaveBeenCalled();
     expect(restarted.mirror.bind).not.toHaveBeenCalled();
     expect(restarted.mirror.clear).not.toHaveBeenCalled();
-    expect(restarted.flushMaterialization).not.toHaveBeenCalled();
+    expect(restarted.flushSnapshotCache).not.toHaveBeenCalled();
 
     await expect(restarted.session.submit({ locator, intent: layoutIntent })).rejects.toMatchObject(
       { code: "workspace_canvas_offline_readonly" }
