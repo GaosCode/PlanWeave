@@ -45,10 +45,6 @@
       "types": "./dist/contentVersion.d.ts",
       "import": "./dist/contentVersion.js"
     },
-    "./content/authority": {
-      "types": "./dist/contentAuthority.d.ts",
-      "import": "./dist/contentAuthority.js"
-    },
     "./content/transfer": {
       "types": "./dist/contentVersionTransfer.d.ts",
       "import": "./dist/contentVersionTransfer.js"

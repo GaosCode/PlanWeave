@@ -2,10 +2,8 @@ import type { ActorRef } from "@planweave-ai/collaboration-protocol/core/primiti
 import type {
   AuthoritativeContentHead,
   AuthoritativeContentVersion,
-  CompletedContentVersionRef,
-  ContentVersionAcknowledgement
+  CompletedContentVersionRef
 } from "@planweave-ai/collaboration-protocol/content/version";
-import type { ContentVersionAuthorityDiscoveryResult } from "@planweave-ai/collaboration-protocol/content/authority";
 import type { CanvasScopeKey } from "./repository.js";
 
 /**
@@ -24,21 +22,4 @@ export type ContentAuthorityStore = {
     content: CompletedContentVersionRef
   ): AuthoritativeContentVersion;
   head(scope: CanvasScopeKey): AuthoritativeContentHead | null;
-  publishInitial(input: { scope: CanvasScopeKey; content: unknown; createdBy: ActorRef }): {
-    version: AuthoritativeContentVersion;
-    head: AuthoritativeContentHead;
-  };
-  acknowledge(input: {
-    scope: CanvasScopeKey;
-    deviceSessionId: string;
-    content: CompletedContentVersionRef;
-    acknowledgedAt?: string;
-  }): ContentVersionAcknowledgement;
-  discoverAuthority(input: {
-    scope: CanvasScopeKey;
-    deviceSessionId: string;
-    localReplica: CompletedContentVersionRef | null;
-    knownRevision: number | null;
-    isCanvasOwner: boolean;
-  }): ContentVersionAuthorityDiscoveryResult;
 };

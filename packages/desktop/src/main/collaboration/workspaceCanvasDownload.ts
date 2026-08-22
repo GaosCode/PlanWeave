@@ -50,12 +50,7 @@ export async function downloadWorkspaceCanvasFork(input: {
     projectId: requested.projectId,
     canvasId: requested.canvasId
   });
-  const authority = await input.client.discoverContentAuthority({
-    canvasId: scope.canvasId,
-    localReplica: null,
-    knownRevision: null
-  });
-  const head = authority.authoritativeHead;
+  const head = await input.client.fetchContentHead(scope.canvasId);
   if (
     !head ||
     head.scope.workspaceId !== scope.workspaceId ||

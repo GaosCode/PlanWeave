@@ -16,9 +16,7 @@ import { streamContentVersion } from "./contentVersionTransferHttp.js";
 
 type Route =
   | { kind: "workspace_publish"; projectId: string }
-  | { kind: "publish"; projectId: string; canvasId: string }
   | { kind: "fetch"; projectId: string; canvasId: string }
-  | { kind: "ack"; projectId: string; canvasId: string }
   | { kind: "head"; projectId: string; canvasId: string };
 
 export type ContentVersionHttpOptions = {
@@ -31,30 +29,28 @@ export type ContentVersionHttpOptions = {
 };
 
 function route(request: IncomingMessage, pathname: string): Route | undefined {
-  if (request.method !== "POST") return undefined;
-  const workspacePublish = /^\/api\/v1\/projects\/([^/]+)\/workspace-canvases\/publish$/.exec(
-    pathname
-  );
+  const workspacePublish =
+    request.method === "POST"
+      ? /^\/api\/v1\/projects\/([^/]+)\/workspace-canvases\/publish$/.exec(pathname)
+      : null;
   if (workspacePublish) {
     const projectId = opaqueIdentifierSchema.safeParse(decodeURIComponent(workspacePublish[1]!));
     return projectId.success ? { kind: "workspace_publish", projectId: projectId.data } : undefined;
   }
-  const match =
-    /^\/api\/v1\/projects\/([^/]+)\/canvases\/([^/]+)\/content\/(initial-publish|fetch|acknowledgements|head)$/.exec(
-      pathname
-    );
+  const match = /^\/api\/v1\/projects\/([^/]+)\/canvases\/([^/]+)\/content\/(fetch|head)$/.exec(
+    pathname
+  );
   if (!match) return undefined;
   const projectId = opaqueIdentifierSchema.safeParse(decodeURIComponent(match[1]!));
   const canvasId = opaqueIdentifierSchema.safeParse(decodeURIComponent(match[2]!));
   if (!projectId.success || !canvasId.success) return undefined;
-  const kind =
-    match[3] === "initial-publish"
-      ? "publish"
-      : match[3] === "fetch"
-        ? "fetch"
-        : match[3] === "acknowledgements"
-          ? "ack"
-          : "head";
+  const kind = match[3] === "fetch" ? "fetch" : "head";
+  if (
+    (kind === "fetch" && request.method !== "POST") ||
+    (kind === "head" && request.method !== "GET")
+  ) {
+    return undefined;
+  }
   return { kind, projectId: projectId.data, canvasId: canvasId.data };
 }
 
@@ -171,23 +167,8 @@ export async function handleContentVersionHttpRequest(
   }
   const context = authenticated.actor;
   try {
-    const body = await json(request);
-    if (matched.kind === "publish") {
-      const result = options.service.publishInitial(context, {
-        ...(body as object),
-        projectId: matched.projectId,
-        canvasId: matched.canvasId
-      });
-      respond(
-        response,
-        result.outcome === "published"
-          ? 201
-          : result.reason === "head_cas_conflict" || result.reason === "head_already_exists"
-            ? 409
-            : 422,
-        result
-      );
-    } else if (matched.kind === "fetch") {
+    if (matched.kind === "fetch") {
+      const body = await json(request);
       const authorized = options.service.authorizeFetch(context, {
         ...(body as object),
         projectId: matched.projectId,
@@ -199,21 +180,11 @@ export async function handleContentVersionHttpRequest(
         authorized.scope,
         authorized.content
       );
-    } else if (matched.kind === "ack") {
-      respond(
-        response,
-        200,
-        options.service.acknowledge(context, matched.projectId, matched.canvasId, body)
-      );
     } else {
       respond(
         response,
         200,
-        options.service.discoverAuthority(context, {
-          ...(body as object),
-          projectId: matched.projectId,
-          canvasId: matched.canvasId
-        })
+        options.service.readHead(context, matched.projectId, matched.canvasId)
       );
     }
   } catch (error) {

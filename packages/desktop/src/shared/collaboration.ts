@@ -121,10 +121,6 @@ import { type ResponsibilityReadModel } from "@planweave-ai/collaboration-protoc
 import { type ReviewAssignmentReadModel } from "@planweave-ai/collaboration-protocol/work/review";
 import { type WorkAuthorityProjection } from "@planweave-ai/collaboration-protocol/work/authority";
 import {
-  contentVersionDesktopReadModelSchema,
-  type ContentVersionDesktopReadModel
-} from "@planweave-ai/collaboration-protocol/content/authority";
-import {
   type LoopbackProjectRegistrationView,
   type LoopbackTrustedProjectScope
 } from "@planweave-ai/collaboration-protocol/loopback";
@@ -662,54 +658,6 @@ export const collaborationCanvasScopeResolutionSchema = z
 export type CollaborationCanvasScopeResolution = z.infer<
   typeof collaborationCanvasScopeResolutionSchema
 >;
-export type CollaborationContentAuthorityView = ContentVersionDesktopReadModel;
-
-export const collaborationContentBootstrapInputSchema = z
-  .object({
-    workspaceId: collaborationOpaqueIdSchema,
-    projectId: collaborationOpaqueIdSchema,
-    canvasId: collaborationOpaqueIdSchema
-  })
-  .strict();
-export type CollaborationContentBootstrapInput = z.infer<
-  typeof collaborationContentBootstrapInputSchema
->;
-
-const collaborationLocalContentReplicaViewSchema = z
-  .object({
-    projectId: collaborationOpaqueIdSchema,
-    canvasId: collaborationOpaqueIdSchema
-  })
-  .strict();
-
-export const collaborationContentBootstrapCandidateSchema = z
-  .object({
-    workspaceId: collaborationOpaqueIdSchema,
-    projectId: collaborationOpaqueIdSchema,
-    canvasId: collaborationOpaqueIdSchema,
-    visibility: z.enum(["private", "shared"]),
-    authority: contentVersionDesktopReadModelSchema,
-    localReplica: collaborationLocalContentReplicaViewSchema.nullable()
-  })
-  .strict();
-export type CollaborationContentBootstrapCandidate = z.infer<
-  typeof collaborationContentBootstrapCandidateSchema
->;
-
-export const collaborationContentBootstrapResultSchema = z
-  .object({
-    outcome: z.enum(["created", "reused"]),
-    localProjectId: collaborationOpaqueIdSchema,
-    localCanvasId: collaborationOpaqueIdSchema,
-    remoteCanvasId: collaborationOpaqueIdSchema,
-    acknowledgement: z.enum(["acknowledged", "pending"]),
-    authority: contentVersionDesktopReadModelSchema
-  })
-  .strict();
-export type CollaborationContentBootstrapResult = z.infer<
-  typeof collaborationContentBootstrapResultSchema
->;
-
 /** Renderer supplies a selected opaque canvas id; main derives and verifies the full active scope. */
 export const collaborationCurrentCanvasAccessInputSchema = z
   .object({ canvasId: z.string().trim().min(1).max(128) })

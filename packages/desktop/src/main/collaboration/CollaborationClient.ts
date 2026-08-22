@@ -112,20 +112,14 @@ import {
   type WorkAuthorityProjection
 } from "@planweave-ai/collaboration-protocol/work/authority";
 import {
-  contentVersionAcknowledgementSchema,
-  firstContentVersionPublishResultSchema,
+  authoritativeContentHeadSchema,
   workspaceCanvasInitialPublishResultSchema,
+  type AuthoritativeContentHead,
   type AuthoritativeContentVersion,
   type CompleteContentVersion,
   type CompletedContentVersionRef,
-  type ContentVersionAcknowledgement,
-  type FirstContentVersionPublishResult,
   type WorkspaceCanvasInitialPublishResult
 } from "@planweave-ai/collaboration-protocol/content/version";
-import {
-  contentVersionAuthorityDiscoveryResultSchema,
-  type ContentVersionAuthorityDiscoveryResult
-} from "@planweave-ai/collaboration-protocol/content/authority";
 import { type ImportCanvasRuntimeStatusRequest } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import { type CanvasRuntimeResetRequest } from "@planweave-ai/collaboration-protocol/canvas/runtime-control";
 import {
@@ -1005,35 +999,11 @@ export class CollaborationClient {
     );
   }
 
-  async discoverContentAuthority(input: {
-    canvasId: string;
-    localReplica: CompletedContentVersionRef | null;
-    knownRevision: number | null;
-  }): Promise<ContentVersionAuthorityDiscoveryResult> {
+  async fetchContentHead(canvasId: string): Promise<AuthoritativeContentHead | null> {
     return this.transport.json(
-      "POST",
-      `/api/v1/projects/${encodeURIComponent(this.projectId)}/canvases/${encodeURIComponent(input.canvasId)}/content/head`,
-      contentVersionAuthorityDiscoveryResultSchema,
-      { body: input }
-    );
-  }
-
-  async publishInitialContent(input: {
-    canvasId: string;
-    content: CompleteContentVersion;
-  }): Promise<FirstContentVersionPublishResult> {
-    return this.transport.json(
-      "POST",
-      `/api/v1/projects/${encodeURIComponent(this.projectId)}/canvases/${encodeURIComponent(input.canvasId)}/content/initial-publish`,
-      firstContentVersionPublishResultSchema,
-      {
-        body: {
-          expectedHeadRevision: 0,
-          expectedHeadVersionId: null,
-          content: input.content
-        },
-        acceptedStatus: 409
-      }
+      "GET",
+      `/api/v1/projects/${encodeURIComponent(this.projectId)}/canvases/${encodeURIComponent(canvasId)}/content/head`,
+      authoritativeContentHeadSchema.nullable()
     );
   }
 
@@ -1066,18 +1036,6 @@ export class CollaborationClient {
       scope: input.scope,
       content: input.content
     });
-  }
-
-  async acknowledgeContentVersion(input: {
-    canvasId: string;
-    content: CompletedContentVersionRef;
-  }): Promise<ContentVersionAcknowledgement> {
-    return this.transport.json(
-      "POST",
-      `/api/v1/projects/${encodeURIComponent(this.projectId)}/canvases/${encodeURIComponent(input.canvasId)}/content/acknowledgements`,
-      contentVersionAcknowledgementSchema,
-      { body: { content: input.content } }
-    );
   }
 
   async readRuntimeAvailability(canvasId: string, signal?: AbortSignal) {

@@ -10,7 +10,6 @@ import {
   canvasScopeRefSchema,
   contentVersionIdSchema,
   deviceSessionIdSchema,
-  humanPrincipalIdSchema,
   opaqueIdentifierSchema,
   timestampSchema
 } from "./primitives.js";
@@ -263,102 +262,6 @@ export const contentVersionJournalEntrySchema = z
   });
 export type ContentVersionJournalEntry = z.infer<typeof contentVersionJournalEntrySchema>;
 
-export const firstContentVersionPublishRequestSchema = z
-  .object({
-    projectId: z
-      .string()
-      .trim()
-      .min(1)
-      .max(128)
-      .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/),
-    canvasId: z
-      .string()
-      .trim()
-      .min(1)
-      .max(128)
-      .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/),
-    expectedHeadRevision: z.literal(0),
-    expectedHeadVersionId: z.null(),
-    content: completeContentVersionSchema
-  })
-  .strict();
-export type FirstContentVersionPublishRequest = z.infer<
-  typeof firstContentVersionPublishRequestSchema
->;
-
-/** Server-only authorization envelope. The request itself cannot assert an actor or owner role. */
-export const ownerAuthorizedFirstContentVersionPublishSchema = z
-  .object({
-    request: firstContentVersionPublishRequestSchema,
-    scope: canvasScopeRefSchema,
-    owner: humanPrincipalIdSchema,
-    actor: actorRefSchema,
-    deviceSessionId: deviceSessionIdSchema,
-    aclRevision: aclRevisionSchema
-  })
-  .strict()
-  .superRefine((value, context) => {
-    if (
-      value.request.projectId !== value.scope.projectId ||
-      value.request.canvasId !== value.scope.canvasId ||
-      value.actor.kind !== "human" ||
-      value.actor.id !== value.owner
-    ) {
-      context.addIssue({
-        code: "custom",
-        message: "owner_authorized_initial_publish_scope_mismatch"
-      });
-    }
-  });
-export type OwnerAuthorizedFirstContentVersionPublish = z.infer<
-  typeof ownerAuthorizedFirstContentVersionPublishSchema
->;
-
-export const firstContentVersionPublishFailureReasonSchema = z.enum([
-  "head_already_exists",
-  "head_cas_conflict",
-  "content_verification_failed",
-  "authorization_revoked",
-  "device_revoked",
-  "storage_unavailable"
-]);
-export type FirstContentVersionPublishFailureReason = z.infer<
-  typeof firstContentVersionPublishFailureReasonSchema
->;
-
-export const firstContentVersionPublishResultSchema = z.discriminatedUnion("outcome", [
-  z
-    .object({
-      outcome: z.literal("published"),
-      version: authoritativeContentVersionSchema,
-      head: authoritativeContentHeadSchema
-    })
-    .strict()
-    .superRefine((value, context) => {
-      if (
-        value.version.scope.workspaceId !== value.head.scope.workspaceId ||
-        value.version.scope.projectId !== value.head.scope.projectId ||
-        value.version.scope.canvasId !== value.head.scope.canvasId ||
-        value.version.completed.versionId !== value.head.content.versionId
-      ) {
-        context.addIssue({ code: "custom", message: "published_head_must_bind_completed_version" });
-      }
-    }),
-  z
-    .object({
-      outcome: z.literal("rejected"),
-      reason: firstContentVersionPublishFailureReasonSchema,
-      retryable: z.boolean(),
-      detail: z.string().trim().min(1).max(CONTENT_VERSION_MAX_REASON_LENGTH),
-      /** Failed first publication must never advertise a half-authoritative head. */
-      head: z.null()
-    })
-    .strict()
-]);
-export type FirstContentVersionPublishResult = z.infer<
-  typeof firstContentVersionPublishResultSchema
->;
-
 /**
  * Client-generated idempotency key for atomic Workspace canvas creation.
  * Repeat requests with the same identity must not create a second canvas.
@@ -555,40 +458,3 @@ export const contentVersionMaterializeResultSchema = z
     }
   });
 export type ContentVersionMaterializeResult = z.infer<typeof contentVersionMaterializeResultSchema>;
-
-export const contentVersionAcknowledgementSchema = z
-  .object({
-    scope: canvasScopeRefSchema,
-    deviceSessionId: deviceSessionIdSchema,
-    content: completedContentVersionRefSchema,
-    acknowledgedAt: timestampSchema
-  })
-  .strict();
-export type ContentVersionAcknowledgement = z.infer<typeof contentVersionAcknowledgementSchema>;
-
-export const contentVersionAcknowledgementRequestSchema = z
-  .object({
-    content: completedContentVersionRefSchema
-  })
-  .strict();
-export type ContentVersionAcknowledgementRequest = z.infer<
-  typeof contentVersionAcknowledgementRequestSchema
->;
-
-export const authorizedContentVersionAcknowledgementSchema = z
-  .object({
-    request: contentVersionAcknowledgementRequestSchema,
-    acknowledgement: contentVersionAcknowledgementSchema
-  })
-  .strict()
-  .superRefine((value, context) => {
-    if (
-      value.request.content.versionId !== value.acknowledgement.content.versionId ||
-      value.request.content.canonicalDigest !== value.acknowledgement.content.canonicalDigest
-    ) {
-      context.addIssue({ code: "custom", message: "content_version_acknowledgement_mismatch" });
-    }
-  });
-export type AuthorizedContentVersionAcknowledgement = z.infer<
-  typeof authorizedContentVersionAcknowledgementSchema
->;

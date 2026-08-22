@@ -1,26 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { canvasScopeRefSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import {
-  authorizedContentVersionAcknowledgementSchema,
   authorizedContentVersionFetchSchema,
-  contentVersionAcknowledgementRequestSchema,
   contentVersionFetchRequestSchema,
-  firstContentVersionPublishRequestSchema,
-  firstContentVersionPublishResultSchema,
   workspaceCanvasInitialPublishRequestSchema,
   workspaceCanvasInitialPublishResultSchema,
   workspaceCanvasPublishedAuthoritySchema,
-  type ContentVersionAcknowledgement,
-  type FirstContentVersionPublishResult,
+  type AuthoritativeContentHead,
   type WorkspaceCanvasInitialPublishFailureReason,
   type WorkspaceCanvasInitialPublishRequest,
   type WorkspaceCanvasInitialPublishResult
 } from "@planweave-ai/collaboration-protocol/content/version";
-import {
-  authorizedContentVersionAuthorityDiscoverySchema,
-  contentVersionAuthorityDiscoveryRequestSchema,
-  type ContentVersionAuthorityDiscoveryResult
-} from "@planweave-ai/collaboration-protocol/content/authority";
 import type { CollaborationAuthContext } from "../identity/auth.js";
 import type { ProjectAccessRepository } from "../projectAccessRepository.js";
 import type { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
@@ -53,61 +43,9 @@ export type ContentVersionServiceOptions = {
   workspaceIdentity: WorkspaceIdentityRepository;
 };
 
-/** Authorization boundary for immutable content publication, fetch, and device acknowledgement. */
+/** Authorization boundary for immutable content publication and reads. */
 export class ContentVersionService {
   constructor(private readonly options: ContentVersionServiceOptions) {}
-
-  publishInitial(
-    context: CollaborationAuthContext,
-    rawRequest: unknown
-  ): FirstContentVersionPublishResult {
-    const parsed = firstContentVersionPublishRequestSchema.safeParse(rawRequest);
-    if (!parsed.success)
-      return this.rejected("content_verification_failed", false, "initial_publish_invalid");
-    const request = parsed.data;
-    const authorization = authorizeCanvasContent({
-      actor: context,
-      projectId: request.projectId,
-      canvasId: request.canvasId,
-      access: this.options.access,
-      workspaceIdentity: this.options.workspaceIdentity
-    });
-    if (!authorization.ok) {
-      return this.rejected("authorization_revoked", false, "initial_publish_not_authorized");
-    }
-    const canvas = this.options.access.registry.canvasInternal(
-      authorization.scope.workspaceId,
-      request.projectId,
-      request.canvasId
-    );
-    if (!canvas || canvas.ownerHumanPrincipalId !== context.humanPrincipalId) {
-      return this.rejected("authorization_revoked", false, "initial_publish_owner_required");
-    }
-    const head = this.options.repository.head(authorization.scope);
-    if (head)
-      return this.rejected("head_already_exists", false, "initial_publish_already_completed");
-    try {
-      const version = this.options.repository.publishInitial({
-        scope: authorization.scope,
-        content: request.content,
-        createdBy: actor(context)
-      });
-      return firstContentVersionPublishResultSchema.parse({ outcome: "published", ...version });
-    } catch (error) {
-      const code = error instanceof Error ? error.message : "storage_unavailable";
-      return this.rejected(
-        code === "content_version_head_cas_conflict"
-          ? "head_cas_conflict"
-          : code.startsWith("content_version_")
-            ? "content_verification_failed"
-            : "storage_unavailable",
-        code === "content_version_head_cas_conflict" || !code.startsWith("content_version_"),
-        code === "content_version_head_cas_conflict"
-          ? "initial_publish_conflicted"
-          : "initial_publish_failed"
-      );
-    }
-  }
 
   /**
    * Atomically registers a pathless Workspace canvas, publishes the content head,
@@ -225,50 +163,11 @@ export class ContentVersionService {
     return { scope: authorization.scope, content: request.content };
   }
 
-  discoverAuthority(
-    context: CollaborationAuthContext,
-    rawRequest: unknown
-  ): ContentVersionAuthorityDiscoveryResult {
-    const parsed = contentVersionAuthorityDiscoveryRequestSchema.safeParse(rawRequest);
-    if (!parsed.success) throw new Error("content_authority_invalid");
-    const request = parsed.data;
-    const authorization = authorizeCanvasContent({
-      actor: context,
-      projectId: request.projectId,
-      canvasId: request.canvasId,
-      access: this.options.access,
-      workspaceIdentity: this.options.workspaceIdentity
-    });
-    if (!authorization.ok) throw new Error("content_authority_forbidden");
-    authorizedContentVersionAuthorityDiscoverySchema.parse({
-      request,
-      scope: authorization.scope,
-      deviceSessionId: deviceSessionId(context),
-      aclRevision: authorization.aclRevision
-    });
-    const canvas = this.options.access.registry.canvasInternal(
-      authorization.scope.workspaceId,
-      request.projectId,
-      request.canvasId
-    );
-    if (!canvas) throw new Error("content_authority_forbidden");
-    return this.options.repository.discoverAuthority({
-      scope: authorization.scope,
-      deviceSessionId: deviceSessionId(context),
-      localReplica: request.localReplica,
-      knownRevision: request.knownRevision,
-      isCanvasOwner: canvas.ownerHumanPrincipalId === context.humanPrincipalId
-    });
-  }
-
-  acknowledge(
+  readHead(
     context: CollaborationAuthContext,
     projectId: string,
-    canvasId: string,
-    rawRequest: unknown
-  ): ContentVersionAcknowledgement {
-    const parsed = contentVersionAcknowledgementRequestSchema.safeParse(rawRequest);
-    if (!parsed.success) throw new Error("content_ack_invalid");
+    canvasId: string
+  ): AuthoritativeContentHead | null {
     const authorization = authorizeCanvasContent({
       actor: context,
       projectId,
@@ -276,34 +175,8 @@ export class ContentVersionService {
       access: this.options.access,
       workspaceIdentity: this.options.workspaceIdentity
     });
-    if (!authorization.ok) throw new Error("content_ack_forbidden");
-    const acknowledgement = this.options.repository.acknowledge({
-      scope: authorization.scope,
-      deviceSessionId: deviceSessionId(context),
-      content: parsed.data.content
-    });
-    authorizedContentVersionAcknowledgementSchema.parse({ request: parsed.data, acknowledgement });
-    return acknowledgement;
-  }
-
-  private rejected(
-    reason:
-      | "head_already_exists"
-      | "head_cas_conflict"
-      | "content_verification_failed"
-      | "authorization_revoked"
-      | "device_revoked"
-      | "storage_unavailable",
-    retryable: boolean,
-    detail: string
-  ): FirstContentVersionPublishResult {
-    return firstContentVersionPublishResultSchema.parse({
-      outcome: "rejected",
-      reason,
-      retryable,
-      detail,
-      head: null
-    });
+    if (!authorization.ok) throw new Error("content_head_forbidden");
+    return this.options.repository.head(authorization.scope);
   }
 
   private commitWorkspaceCanvasPublish(

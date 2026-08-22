@@ -123,9 +123,7 @@ function requiresAdmission(request: IncomingMessage): boolean {
     /^\/api\/v1\/projects\/[^/]+\/assignments(\/|$)/.test(pathname) ||
     /^\/api\/v1\/projects\/[^/]+\/comments(\/|$)/.test(pathname) ||
     /^\/api\/v1\/projects\/[^/]+\/attachments(\/|$)/.test(pathname) ||
-    /^\/api\/v1\/projects\/[^/]+\/canvases\/[^/]+\/content\/(initial-publish|acknowledgements)$/.test(
-      pathname
-    ) ||
+    /^\/api\/v1\/projects\/[^/]+\/workspace-canvases\/publish$/.test(pathname) ||
     /^\/api\/v1\/registry\/projects\/[^/]+\/canvases\/[^/]+\/snapshots(\/|$)/.test(pathname)
   );
 }

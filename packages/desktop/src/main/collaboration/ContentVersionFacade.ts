@@ -130,12 +130,7 @@ export class ContentVersionFacade {
     const client = this.requireClient();
     const scope = await this.resolveCanvasScope(requested);
     if (!scope) throw unavailable("runtime_status_scope_unavailable", false);
-    const authority = await client.discoverContentAuthority({
-      canvasId: scope.canvasId,
-      localReplica: null,
-      knownRevision: null
-    });
-    const head = authority.authoritativeHead;
+    const head = await client.fetchContentHead(scope.canvasId);
     if (!head) throw unavailable("content_authoritative_head_unavailable", false);
     this.assertRemoteScope(head.scope, requested);
     const parsed = workspaceCanvasRuntimeResetRequestSchema.parse(request);
@@ -280,17 +275,13 @@ export class ContentVersionFacade {
         visibility: null
       });
     }
-    const discovered = await client.discoverContentAuthority({
-      canvasId: serverCanvasId,
-      localReplica: null,
-      knownRevision: null
-    });
+    const head = await client.fetchContentHead(serverCanvasId);
     return workspaceCanvasSharingCandidateSchema.parse({
       localProjectId,
       projectName,
       canvasId,
       canvasName,
-      state: sharingState(visibility, discovered.authoritativeHead !== null),
+      state: sharingState(visibility, head !== null),
       visibility
     });
   }

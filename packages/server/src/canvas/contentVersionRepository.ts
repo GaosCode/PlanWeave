@@ -4,7 +4,6 @@ import {
   compareContentVersionMemberPaths,
   completedContentVersionRefSchema,
   contentVersionMemberSchema,
-  contentVersionAcknowledgementSchema,
   contentVersionJournalEntrySchema,
   workspaceCanvasPublishedAuthoritySchema,
   workspaceCanvasPublishLocalSourceSchema,
@@ -12,7 +11,6 @@ import {
   type AuthoritativeContentVersion,
   type CompleteContentVersion,
   type CompletedContentVersionRef,
-  type ContentVersionAcknowledgement,
   type ContentVersionMember,
   type WorkspaceCanvasPublishedAuthority,
   type WorkspaceCanvasPublishLocalSource
@@ -21,11 +19,6 @@ import {
   canvasScopeRefSchema,
   type ActorRef
 } from "@planweave-ai/collaboration-protocol/core/primitives";
-import {
-  contentVersionAuthorityDiscoveryResultSchema,
-  type ContentReplicaStatus,
-  type ContentVersionAuthorityDiscoveryResult
-} from "@planweave-ai/collaboration-protocol/content/authority";
 import { type ContentVersionTransferHeaderFrame } from "@planweave-ai/collaboration-protocol/content/transfer";
 import { validateAuthoritativeCanvasContent } from "@planweave-ai/runtime";
 import { inWriteTransaction, type SqliteDatabase } from "../sqlite.js";
@@ -364,168 +357,6 @@ export class ContentVersionRepository implements ContentAuthorityStore {
     const head = this.head(input.scope);
     if (!head) throw new Error("content_version_head_missing");
     return { version, head };
-  }
-
-  acknowledge(input: {
-    scope: CanvasScopeKey;
-    deviceSessionId: string;
-    content: CompletedContentVersionRef;
-    acknowledgedAt?: string;
-  }): ContentVersionAcknowledgement {
-    this.readVersion(input.scope, input.content);
-    const acknowledgedAt = input.acknowledgedAt ?? this.clock().toISOString();
-    inWriteTransaction(this.database, () => {
-      this.database
-        .prepare(
-          `INSERT INTO canvas_content_acknowledgements(
-            workspace_id,project_id,canvas_id,device_session_id,version_id,canonical_digest,acknowledged_at
-          ) VALUES(?,?,?,?,?,?,?)
-          ON CONFLICT(workspace_id,project_id,canvas_id,device_session_id) DO UPDATE SET
-            version_id=excluded.version_id,canonical_digest=excluded.canonical_digest,
-            acknowledged_at=excluded.acknowledged_at`
-        )
-        .run(
-          input.scope.workspaceId,
-          input.scope.projectId,
-          input.scope.canvasId,
-          input.deviceSessionId,
-          input.content.versionId,
-          input.content.canonicalDigest,
-          acknowledgedAt
-        );
-    });
-    return contentVersionAcknowledgementSchema.parse({
-      scope: input.scope,
-      deviceSessionId: input.deviceSessionId,
-      content: input.content,
-      acknowledgedAt
-    });
-  }
-
-  lastAcknowledgement(
-    scope: CanvasScopeKey,
-    deviceSessionId: string
-  ): ContentVersionAcknowledgement | null {
-    const row = this.database
-      .prepare(
-        `SELECT version_id,canonical_digest,acknowledged_at
-           FROM canvas_content_acknowledgements
-          WHERE workspace_id=? AND project_id=? AND canvas_id=? AND device_session_id=?`
-      )
-      .get(scope.workspaceId, scope.projectId, scope.canvasId, deviceSessionId) as
-      | VersionRow
-      | undefined;
-    if (!row) return null;
-    const content = completedContentVersionRefSchema.parse({
-      versionId: row.version_id,
-      canonicalDigest: row.canonical_digest,
-      verification: "complete"
-    });
-    if (!this.versionExists(scope, content))
-      throw new Error("content_version_acknowledgement_invalid");
-    return contentVersionAcknowledgementSchema.parse({
-      scope,
-      deviceSessionId,
-      content,
-      acknowledgedAt: row.acknowledged_at
-    });
-  }
-
-  versionExists(scope: CanvasScopeKey, content: CompletedContentVersionRef): boolean {
-    const row = this.database
-      .prepare(
-        `SELECT 1 AS exists_value FROM canvas_content_versions
-          WHERE workspace_id=? AND project_id=? AND canvas_id=? AND version_id=? AND canonical_digest=?`
-      )
-      .get(
-        scope.workspaceId,
-        scope.projectId,
-        scope.canvasId,
-        content.versionId,
-        content.canonicalDigest
-      ) as { exists_value: number } | undefined;
-    return row?.exists_value === 1;
-  }
-
-  private journalRevisionFor(
-    scope: CanvasScopeKey,
-    content: CompletedContentVersionRef
-  ): number | null {
-    const row = this.database
-      .prepare(
-        `SELECT revision FROM canvas_content_journal
-          WHERE workspace_id=? AND project_id=? AND canvas_id=? AND version_id=? AND canonical_digest=?`
-      )
-      .get(
-        scope.workspaceId,
-        scope.projectId,
-        scope.canvasId,
-        content.versionId,
-        content.canonicalDigest
-      ) as { revision: number } | undefined;
-    return row ? Number(row.revision) : null;
-  }
-
-  discoverAuthority(input: {
-    scope: CanvasScopeKey;
-    deviceSessionId: string;
-    localReplica: CompletedContentVersionRef | null;
-    knownRevision: number | null;
-    isCanvasOwner: boolean;
-  }): ContentVersionAuthorityDiscoveryResult {
-    const authoritativeHead = this.head(input.scope);
-    const lastAcknowledgement = this.lastAcknowledgement(input.scope, input.deviceSessionId);
-    const replicaStatus = this.replicaStatus({
-      scope: input.scope,
-      authoritativeHead,
-      localReplica: input.localReplica,
-      knownRevision: input.knownRevision
-    });
-    const canPublishInitial = input.isCanvasOwner && authoritativeHead === null;
-    return contentVersionAuthorityDiscoveryResultSchema.parse({
-      authoritativeHead,
-      localReplica: input.localReplica,
-      lastAcknowledgement,
-      replicaStatus,
-      recoveryAction:
-        replicaStatus === "in_sync"
-          ? "none"
-          : authoritativeHead === null
-            ? "await_initial_publish"
-            : "fetch_head",
-      canPublishInitial,
-      canMaterialize: authoritativeHead !== null,
-      canRecover: (authoritativeHead !== null && replicaStatus !== "in_sync") || canPublishInitial
-    });
-  }
-
-  private replicaStatus(input: {
-    scope: CanvasScopeKey;
-    authoritativeHead: AuthoritativeContentHead | null;
-    localReplica: CompletedContentVersionRef | null;
-    knownRevision: number | null;
-  }): ContentReplicaStatus {
-    if (input.authoritativeHead === null) {
-      return input.localReplica === null ? "snapshot_required" : "diverged";
-    }
-    if (input.localReplica === null) return "snapshot_required";
-    if (input.localReplica.versionId === input.authoritativeHead.content.versionId)
-      return "in_sync";
-
-    const journalRevision = this.journalRevisionFor(input.scope, input.localReplica);
-    if (journalRevision === null) return "diverged";
-    if (input.knownRevision !== null && input.knownRevision !== journalRevision) {
-      return "snapshot_required";
-    }
-    try {
-      this.journalAfter(input.scope, journalRevision);
-      return "behind";
-    } catch (error) {
-      if (error instanceof Error && error.message === "content_version_journal_gap") {
-        return "snapshot_required";
-      }
-      throw error;
-    }
   }
 
   journalAfter(scope: CanvasScopeKey, afterRevision: number) {
