@@ -265,8 +265,8 @@ export function ProjectWorkspaceProvider({
     // fall through to local direct writes merely because its session disconnected.
     enabled: canvasBinding !== null || canvasLocator?.kind === "workspace",
     sessionConnected: collaborationSurface.sessionConnected,
-    profileId: collaborationSurface.activeProfileId,
-    activeProjectId: collaborationSurface.activeProjectId,
+    profileId: remoteWorkspace.connectionProfileId,
+    activeProjectId: remoteWorkspace.activeProjectId,
     localOwnerDirectWriteAvailable: collaborationSurface.localOwnerDirectWriteAvailable,
     t,
     onAuthoritativeChange: async () => {

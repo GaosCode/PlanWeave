@@ -37,12 +37,24 @@ export function useRemoteCanvasWorkspace(
   } = {}
 ) {
   const { status } = useCollaborationStatus();
+  const persistedLocator = useMemo(
+    () => parsePersistedWorkspaceCanvasLocator(input.lastOpenedWorkspaceLocator ?? null),
+    [input.lastOpenedWorkspaceLocator]
+  );
   const activeProfile = status?.profiles.find(
     (profile) => profile.profileId === status.activeProfileId
   );
-  const activeProjectId = input.activeProjectId ?? activeProfile?.projectId ?? null;
-  const connectionProfileId = input.connectionProfileId ?? activeProfile?.profileId ?? null;
   const sessionConnected = input.sessionConnected ?? isCollaborationSessionConnected(status);
+  const activeProjectId =
+    input.activeProjectId ??
+    activeProfile?.projectId ??
+    (!sessionConnected ? persistedLocator?.projectId : null) ??
+    null;
+  const connectionProfileId =
+    input.connectionProfileId ??
+    activeProfile?.profileId ??
+    (!sessionConnected ? persistedLocator?.connectionProfileId : null) ??
+    null;
   const registry = useCollaborationRegistryReadModels({
     projectId: sessionConnected ? activeProjectId : null,
     api: sessionConnected ? input.api : null
@@ -63,7 +75,6 @@ export function useRemoteCanvasWorkspace(
       return;
     }
     if (
-      !sessionConnected ||
       input.localProjectId ||
       !connectionProfileId ||
       locator.connectionProfileId !== connectionProfileId ||
@@ -71,6 +82,9 @@ export function useRemoteCanvasWorkspace(
     ) {
       setLocator(null);
       setExplicitOpen(false);
+      return;
+    }
+    if (!sessionConnected) {
       return;
     }
     if (registry.phase !== "ready") {
@@ -98,31 +112,27 @@ export function useRemoteCanvasWorkspace(
     if (
       locator ||
       input.localProjectId ||
-      !sessionConnected ||
       !connectionProfileId ||
-      registry.phase !== "ready"
+      (sessionConnected && registry.phase !== "ready")
     ) {
       return;
     }
-    const persisted = parsePersistedWorkspaceCanvasLocator(
-      input.lastOpenedWorkspaceLocator ?? null
-    );
     if (
-      !persisted ||
-      persisted.connectionProfileId !== connectionProfileId ||
-      persisted.projectId !== activeProjectId ||
-      !locatorMatchesAuthorizedCanvas(persisted, authorizedCanvases)
+      !persistedLocator ||
+      persistedLocator.connectionProfileId !== connectionProfileId ||
+      persistedLocator.projectId !== activeProjectId ||
+      (sessionConnected && !locatorMatchesAuthorizedCanvas(persistedLocator, authorizedCanvases))
     ) {
       return;
     }
-    setLocator(persisted);
+    setLocator(persistedLocator);
   }, [
     activeProjectId,
     authorizedCanvases,
     connectionProfileId,
-    input.lastOpenedWorkspaceLocator,
     input.localProjectId,
     locator,
+    persistedLocator,
     registry.phase,
     sessionConnected
   ]);
@@ -162,6 +172,7 @@ export function useRemoteCanvasWorkspace(
   return {
     ...registry,
     activeProjectId,
+    connectionProfileId,
     sessionConnected,
     authorizedCanvases,
     locator,

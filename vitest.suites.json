@@ -178,6 +178,7 @@
         "notificationController.test.tsx",
         "notificationNavigation.test.ts",
         "notificationsAndUpdates.test.tsx",
+        "offlineWorkspaceProviderAuthority.test.tsx",
         "packageFileSyncHook.test.tsx",
         "packagedStartupSmoke.test.ts",
         "peoplePanel.test.tsx",

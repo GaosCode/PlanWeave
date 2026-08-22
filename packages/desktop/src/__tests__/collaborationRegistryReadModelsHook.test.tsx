@@ -101,7 +101,7 @@ describe("useRemoteCanvasWorkspace", () => {
     expect(result.current.error).toBeNull();
   });
 
-  it("selects only an authorized canvas with exact remote identity and clears it offline", async () => {
+  it("selects only an authorized canvas with exact remote identity and retains it offline", async () => {
     const api = {
       listCollaborationAuthorizedProjects: vi.fn(async () => ({ items: [], nextCursor: null })),
       listCollaborationAuthorizedCanvases: vi.fn(async () => ({
@@ -144,7 +144,62 @@ describe("useRemoteCanvasWorkspace", () => {
     rerender({ connected: true, localProjectId: null });
     act(() => result.current.select(canvas));
     rerender({ connected: false, localProjectId: null });
-    await waitFor(() => expect(result.current.binding).toBeNull());
+    await waitFor(() =>
+      expect(result.current.binding).toEqual({
+        kind: "remote",
+        workspaceId: "workspace-1",
+        projectId: "project-a",
+        canvasId: "canvas-a"
+      })
+    );
+  });
+
+  it("restores a persisted exact Workspace locator while disconnected, then revalidates online", async () => {
+    const persisted = {
+      kind: "workspace" as const,
+      connectionProfileId: "profile-1",
+      workspaceId: "workspace-1",
+      projectId: "project-a",
+      canvasId: "cached-canvas"
+    };
+    const api = {
+      listCollaborationAuthorizedProjects: vi.fn(async () => ({ items: [], nextCursor: null })),
+      listCollaborationAuthorizedCanvases: vi.fn(async () => ({
+        items: [canvas],
+        nextCursor: null
+      }))
+    };
+    const { result, rerender } = renderHook(
+      ({ connected, activeProjectId, connectionProfileId }) =>
+        useRemoteCanvasWorkspace({
+          activeProjectId,
+          connectionProfileId,
+          lastOpenedWorkspaceLocator: persisted,
+          localProjectId: null,
+          sessionConnected: connected,
+          api
+        }),
+      {
+        initialProps: {
+          connected: false,
+          activeProjectId: undefined as string | undefined,
+          connectionProfileId: undefined as string | undefined
+        }
+      }
+    );
+
+    await waitFor(() => expect(result.current.locator).toEqual(persisted));
+    expect(result.current.connectionProfileId).toBe("profile-1");
+    expect(result.current.activeProjectId).toBe("project-a");
+    expect(api.listCollaborationAuthorizedCanvases).not.toHaveBeenCalled();
+
+    rerender({
+      connected: true,
+      activeProjectId: persisted.projectId,
+      connectionProfileId: persisted.connectionProfileId
+    });
+    await waitFor(() => expect(result.current.phase).toBe("ready"));
+    await waitFor(() => expect(result.current.locator).toBeNull());
   });
 
   it("restores a persisted Workspace locator after the authorized catalog is ready", async () => {
