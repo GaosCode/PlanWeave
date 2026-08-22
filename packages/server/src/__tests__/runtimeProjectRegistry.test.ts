@@ -105,14 +105,7 @@ describe("createTrustedRuntimeRegistry", () => {
         expectedGraphFingerprint: candidate.graphFingerprint,
         reason: "Reset claimed pathless runtime."
       })
-    ).resolves.toMatchObject({
-      operationId: "reset-pathless-runtime",
-      status: {
-        blocks: expect.arrayContaining([
-          expect.objectContaining({ ref: "T-001#B-001", status: "ready" })
-        ])
-      }
-    });
+    ).rejects.toMatchObject({ code: "active_lease" });
     await lease.release();
     const workItem = {
       kind: "block" as const,

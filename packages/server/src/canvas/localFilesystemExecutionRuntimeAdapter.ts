@@ -71,7 +71,6 @@ export class LocalFilesystemExecutionRuntimeAdapter
           try {
             await resetRuntimeState({
               projectRoot: workspace,
-              force: true,
               ...(command.reason ? { reason: command.reason } : {}),
               receipt: {
                 operationId: command.operationId,

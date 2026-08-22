@@ -432,9 +432,6 @@ export function useAutoRunControl({
       setError(runtimeUnavailableCode ?? "collaboration_runtime_unavailable");
       return;
     }
-    if (!bridge || !selectedProject) {
-      return;
-    }
     try {
       setMiniRunPanelOpen(true);
       if (endpointScopeRunPhase === "running") return;
@@ -448,6 +445,10 @@ export function useAutoRunControl({
           return;
         }
         await startAutoRunWithScope(scope);
+        return;
+      }
+      if (!bridge || !selectedProject) {
+        setError(t("bridgeUnavailable"));
         return;
       }
       if (autoRunState.phase === "running") {
@@ -495,10 +496,6 @@ export function useAutoRunControl({
       if (!action.enabled) {
         return;
       }
-      if (!bridge || !selectedProject) {
-        setError(t("bridgeUnavailable"));
-        return;
-      }
       try {
         if (action.command === "start") {
           const scope = selectedAutoRunScope();
@@ -507,6 +504,10 @@ export function useAutoRunControl({
             return;
           }
           await startAutoRunWithScope(scope);
+          return;
+        }
+        if (!bridge || !selectedProject) {
+          setError(t("bridgeUnavailable"));
           return;
         }
         if (action.command === "wait") {

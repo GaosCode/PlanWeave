@@ -60,6 +60,115 @@ describe("auto run control hook actions", () => {
     expect(bridge.startAutoRun).not.toHaveBeenCalled();
   });
 
+  it("starts a remote-only Workspace block without a local project binding", async () => {
+    const bridge = createDesktopBridgeMock({ startAutoRun: vi.fn() });
+    stubAutoRunControlBridge(bridge);
+    const startAutoRunScope = vi.fn().mockResolvedValue(undefined);
+    const { useAutoRunControl } = await loadAutoRunControl();
+    const { result } = renderHook(() =>
+      useAutoRunControl({
+        autoRunState: null,
+        canvasLocator: {
+          kind: "workspace",
+          connectionProfileId: "profile-1",
+          workspaceId: "workspace-1",
+          projectId: "project-server",
+          canvasId: "canvas-main"
+        },
+        openRunWorkspace: vi.fn(),
+        runtimeAvailability: { kind: "available" },
+        selectedCanvasId: "canvas-main",
+        selectedBlock,
+        selectedProject: null,
+        selectedTaskPanelId: null,
+        setAutoRunState: vi.fn(),
+        setError: vi.fn(),
+        t: createTranslator("en"),
+        tmuxMonitoringEnabled: false,
+        startAutoRunScope
+      })
+    );
+
+    await act(async () => {
+      result.current.setAutoRunScopeMode("selectedBlock");
+    });
+    await act(async () => {
+      await result.current.handleAutoRunClick();
+    });
+
+    expect(startAutoRunScope).toHaveBeenCalledWith(
+      { kind: "block", blockRef: selectedBlock.ref },
+      expect.any(Function),
+      expect.objectContaining({
+        onStarted: expect.any(Function),
+        onCompleted: expect.any(Function),
+        onFailed: expect.any(Function)
+      })
+    );
+    expect(bridge.startAutoRun).not.toHaveBeenCalled();
+  });
+
+  it("starts a remote-only Workspace block from the next-action control", async () => {
+    stubAutoRunControlBridge(createDesktopBridgeMock({ startAutoRun: vi.fn() }));
+    const startAutoRunScope = vi.fn().mockResolvedValue(undefined);
+    const { useAutoRunControl } = await loadAutoRunControl();
+    const completedState = autoRunState({
+      phase: "completed",
+      explanation: {
+        phase: "completed",
+        currentRef: null,
+        currentExecutor: null,
+        latestRecordId: null,
+        latestRecordPath: null,
+        latestOutputSummary: "Remote block completed.",
+        error: null,
+        nextAction: {
+          kind: "start",
+          message: "Start another scope.",
+          command: null,
+          targetPath: null,
+          ref: null
+        }
+      }
+    });
+    const { result } = renderHook(() =>
+      useAutoRunControl({
+        autoRunState: completedState,
+        canvasLocator: {
+          kind: "workspace",
+          connectionProfileId: "profile-1",
+          workspaceId: "workspace-1",
+          projectId: "project-server",
+          canvasId: "canvas-main"
+        },
+        openRunWorkspace: vi.fn(),
+        runtimeAvailability: { kind: "available" },
+        selectedCanvasId: "canvas-main",
+        selectedBlock,
+        selectedProject: null,
+        selectedTaskPanelId: null,
+        setAutoRunState: vi.fn(),
+        setError: vi.fn(),
+        t: createTranslator("en"),
+        tmuxMonitoringEnabled: false,
+        startAutoRunScope
+      })
+    );
+
+    await act(async () => {
+      result.current.setAutoRunScopeMode("selectedBlock");
+    });
+    await act(async () => {
+      await result.current.handleAutoRunNextAction(result.current.autoRunNextAction!);
+    });
+
+    expect(startAutoRunScope).toHaveBeenCalledWith(
+      { kind: "block", blockRef: selectedBlock.ref },
+      expect.any(Function),
+      expect.any(Object)
+    );
+  });
+
   it("replaces a stale local Auto Run badge with coordinated Endpoint lifecycle", async () => {
     const bridge = createDesktopBridgeMock();
     stubAutoRunControlBridge(bridge);
