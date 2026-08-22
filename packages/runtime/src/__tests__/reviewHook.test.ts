@@ -6,6 +6,7 @@ import {
   submitReviewResult,
   trustCommand
 } from "../index.js";
+import { spawnManagedProcess, type ManagedProcessTree } from "../process/managedProcessTree.js";
 import { executeReviewHook, runReviewHookProcess } from "../taskManager/reviewHook.js";
 import type { ReviewHookDefinition } from "../types.js";
 import {
@@ -250,22 +251,76 @@ describe("review hook execution boundary", () => {
   });
 
   it("awaits process-tree termination on timeout before rejecting", async () => {
-    const startedAt = Date.now();
-    await expect(
-      runReviewHookProcess({
-        command: process.execPath,
-        args: ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 100);"],
-        cwd: process.cwd(),
-        stdin: "{}",
-        limits: {
-          timeoutMs: 40,
-          stdoutLimitBytes: 1024,
-          stderrLimitBytes: 1024
-        }
-      })
-    ).rejects.toThrow("Review hook timed out after 40ms.");
-    // Grace is 500ms; rejection must not race ahead of force.
-    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(400);
-    expect(Date.now() - startedAt).toBeLessThan(5000);
+    let releaseTermination = (): void => {};
+    const terminationGate = new Promise<void>((resolve) => {
+      releaseTermination = resolve;
+    });
+    let markTerminationStarted = (): void => {};
+    const terminationStarted = new Promise<void>((resolve) => {
+      markTerminationStarted = resolve;
+    });
+    const events: string[] = [];
+    let spawnedTree: ManagedProcessTree | undefined;
+    let outcome: "pending" | "resolved" | "rejected" = "pending";
+
+    const execution = runReviewHookProcess({
+      command: process.execPath,
+      args: ["-e", "setInterval(() => {}, 100);"],
+      cwd: process.cwd(),
+      stdin: "{}",
+      limits: {
+        timeoutMs: 10,
+        stdoutLimitBytes: 1024,
+        stderrLimitBytes: 1024
+      },
+      spawnProcess(spawnOptions) {
+        const managed = spawnManagedProcess(spawnOptions);
+        spawnedTree = managed.tree;
+        return {
+          child: managed.child,
+          tree: {
+            ...managed.tree,
+            async terminate(reason, terminationOptions) {
+              events.push("termination-started");
+              markTerminationStarted();
+              await terminationGate;
+              events.push("termination-released");
+              const result = await managed.tree.terminate(reason, terminationOptions);
+              events.push("termination-completed");
+              return result;
+            }
+          }
+        };
+      }
+    });
+    const observedExecution = execution.then(
+      () => {
+        outcome = "resolved";
+      },
+      () => {
+        outcome = "rejected";
+        events.push("rejected");
+      }
+    );
+
+    try {
+      await terminationStarted;
+      await Promise.resolve();
+      expect(outcome).toBe("pending");
+      expect(events).toEqual(["termination-started"]);
+
+      releaseTermination();
+      await expect(execution).rejects.toThrow("Review hook timed out after 10ms.");
+      await observedExecution;
+      expect(events).toEqual([
+        "termination-started",
+        "termination-released",
+        "termination-completed",
+        "rejected"
+      ]);
+    } finally {
+      releaseTermination();
+      await spawnedTree?.terminate("test-cleanup");
+    }
   });
 });
