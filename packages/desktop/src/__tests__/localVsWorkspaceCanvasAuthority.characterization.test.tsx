@@ -148,6 +148,7 @@ function writeGate(
 
 function runtimeApi(): CollaborationRuntimeAvailabilityBridge {
   return {
+    getCollaborationStatus: vi.fn().mockRejectedValue(new Error("observer_status_unavailable")),
     resolveCollaborationCanvasBindingScope: vi.fn().mockResolvedValue(scope),
     readCollaborationCanvasBindingRuntimeAvailability: vi.fn().mockResolvedValue(availableRuntime)
   };

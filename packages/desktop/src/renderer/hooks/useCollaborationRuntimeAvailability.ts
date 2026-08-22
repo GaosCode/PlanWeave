@@ -15,7 +15,9 @@ export const COLLABORATION_RUNTIME_AVAILABILITY_POLL_MS = 3_000;
 
 export type CollaborationRuntimeAvailabilityBridge = Pick<
   PlanWeaveCollaborationApi,
-  "readCollaborationCanvasBindingRuntimeAvailability" | "resolveCollaborationCanvasBindingScope"
+  | "getCollaborationStatus"
+  | "readCollaborationCanvasBindingRuntimeAvailability"
+  | "resolveCollaborationCanvasBindingScope"
 > &
   Partial<
     Pick<
@@ -73,13 +75,24 @@ function runtimeRevision(availability: CanvasRuntimeAvailability): number {
   return availability.state.kind === "initialized" ? availability.state.runtimeRevision : 0;
 }
 
-function observerTransportAvailable(status: CollaborationStatus, profileId: string): boolean {
-  return (
-    status.activeProfileId === profileId &&
-    status.session.phase === "connected" &&
-    (status.session.detail === "observer:connected" ||
-      status.session.detail === "observer:catching_up")
-  );
+type ObserverTransportHealth = "connected" | "catching_up" | "unavailable";
+
+function observerTransportHealth(
+  status: CollaborationStatus,
+  profileId: string
+): ObserverTransportHealth {
+  if (
+    status.activeProfileId !== profileId ||
+    status.session.activeProfileId !== profileId ||
+    status.session.phase !== "connected"
+  ) {
+    return "unavailable";
+  }
+  if (status.session.detail === "observer:connected") return "connected";
+  if (status.session.detail?.startsWith("observer:catching_up:") === true) {
+    return "catching_up";
+  }
+  return "unavailable";
 }
 
 function hasExactRuntimeIdentity(
@@ -221,7 +234,8 @@ export function useCollaborationRuntimeAvailability(input: {
     let pendingRefresh = true;
     let invalidationVersion = 0;
     let runtimeHighWater = 0;
-    let observerAvailable = false;
+    let observerAvailable: boolean | null = null;
+    let observerStatusVersion = 0;
     let recovering = false;
     let intervalId: ReturnType<typeof setInterval> | null = null;
     let identity: ResolvedCanvasIdentity | null = null;
@@ -258,8 +272,30 @@ export function useCollaborationRuntimeAvailability(input: {
     };
 
     const updateFallbackPolling = () => {
-      if (observerAvailable && !recovering) stopFallbackPolling();
-      else startFallbackPolling();
+      if (recovering || observerAvailable === false) startFallbackPolling();
+      else stopFallbackPolling();
+    };
+
+    const markObserverTransportAvailable = () => {
+      observerAvailable = true;
+      if (recovering || pendingRevision > runtimeHighWater) {
+        requestRefresh({ recovery: true });
+      }
+      updateFallbackPolling();
+    };
+
+    const applyObserverStatus = (status: CollaborationStatus) => {
+      const health = observerTransportHealth(status, profileId);
+      if (health === "connected") {
+        markObserverTransportAvailable();
+      } else if (health === "catching_up") {
+        observerAvailable = true;
+        requestRefresh({ recovery: true });
+        updateFallbackPolling();
+      } else {
+        observerAvailable = false;
+        updateFallbackPolling();
+      }
     };
 
     const refresh = async () => {
@@ -325,10 +361,9 @@ export function useCollaborationRuntimeAvailability(input: {
       ) {
         return;
       }
+      observerStatusVersion += 1;
       if (signal.type === "human.observer.cursor") {
-        observerAvailable = true;
-        recovering = false;
-        updateFallbackPolling();
+        markObserverTransportAvailable();
         return;
       }
       if (signal.type === "human.observer.catchup_required") {
@@ -351,9 +386,21 @@ export function useCollaborationRuntimeAvailability(input: {
 
     const unsubscribeObserver = api.onCollaborationObserverSignal?.(handleObserverSignal);
     const unsubscribeStatus = api.onCollaborationStatusChanged?.((status) => {
-      observerAvailable = observerTransportAvailable(status, profileId);
-      updateFallbackPolling();
+      observerStatusVersion += 1;
+      applyObserverStatus(status);
     });
+    const initialObserverStatusVersion = observerStatusVersion;
+    void api
+      .getCollaborationStatus()
+      .then((status) => {
+        if (!active || observerStatusVersion !== initialObserverStatusVersion) return;
+        applyObserverStatus(status);
+      })
+      .catch(() => {
+        if (!active || observerStatusVersion !== initialObserverStatusVersion) return;
+        observerAvailable = false;
+        updateFallbackPolling();
+      });
 
     void api
       .resolveCollaborationCanvasBindingScope(binding)
@@ -380,7 +427,6 @@ export function useCollaborationRuntimeAvailability(input: {
       .catch((caught: unknown) => {
         if (active) setRemoteState({ kind: "error", message: errorMessage(caught) });
       });
-    updateFallbackPolling();
     return () => {
       active = false;
       stopFallbackPolling();

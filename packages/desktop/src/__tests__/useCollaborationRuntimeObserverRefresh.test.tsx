@@ -2,6 +2,7 @@
 
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { CollaborationStatus } from "../shared/collaboration";
 import type { CollaborationObserverSignal } from "../shared/collaborationReadModels";
 import { graph as graphFixture } from "./helpers/graphFixtures";
 import {
@@ -94,9 +95,40 @@ function runtimeEvent(
   } satisfies CollaborationObserverSignal;
 }
 
-function api(read = vi.fn().mockResolvedValue(available)) {
+function observerStatus(detail: string): CollaborationStatus {
+  return {
+    profiles: [],
+    activeProfileId: "profile-1",
+    credentialStorage: "available",
+    nonPersistenceWarning: null,
+    session: {
+      phase: "connected",
+      activeProfileId: "profile-1",
+      detail,
+      lastErrorCode: null,
+      lastErrorMessage: null
+    },
+    workspaceConnection: {
+      schemaVersion: "workspace-setup/v1",
+      status: "local_only",
+      profile: null,
+      workspaceId: null,
+      workspaceDisplayName: null,
+      connectedAt: null,
+      error: null
+    },
+    workspacePicker: { schemaVersion: "workspace-setup/v1", items: [], nextCursor: null },
+    updatedAt: "2026-08-20T00:00:00.000Z"
+  };
+}
+
+function api(
+  read = vi.fn().mockResolvedValue(available),
+  initialObserverStatus = observerStatus("observer:connected")
+) {
   let observerListener: ((signal: CollaborationObserverSignal) => void) | null = null;
   return {
+    getCollaborationStatus: vi.fn().mockResolvedValue(initialObserverStatus),
     readCollaborationCanvasBindingRuntimeAvailability: read,
     resolveCollaborationCanvasBindingScope: vi.fn().mockResolvedValue(scope),
     onCollaborationObserverSignal: vi.fn(
@@ -138,6 +170,21 @@ afterEach(() => {
 });
 
 describe("Workspace Runtime observer refresh", () => {
+  it("uses the current connected observer snapshot when connection preceded mount", async () => {
+    vi.useFakeTimers();
+    const read = vi.fn().mockResolvedValue(available);
+    const bridge = api(read);
+    renderHook(() => useCollaborationRuntimeAvailability(hookInput(bridge)));
+    await settle();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(COLLABORATION_RUNTIME_AVAILABILITY_POLL_MS * 2);
+    });
+
+    expect(bridge.getCollaborationStatus).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenCalledTimes(1);
+  });
+
   it("refreshes immediately from a scoped runtime event without advancing timers", async () => {
     vi.useFakeTimers();
     const read = vi.fn().mockResolvedValueOnce(available).mockResolvedValueOnce(runtimeView(2));
@@ -236,7 +283,7 @@ describe("Workspace Runtime observer refresh", () => {
       .fn()
       .mockRejectedValueOnce(new Error("observer_unavailable"))
       .mockResolvedValue(available);
-    const bridge = api(read);
+    const bridge = api(read, observerStatus("observer:reconnecting:attempt=1:delay_ms=1000"));
     const { result } = renderHook(() => useCollaborationRuntimeAvailability(hookInput(bridge)));
     await settle();
 
@@ -259,6 +306,41 @@ describe("Workspace Runtime observer refresh", () => {
     });
 
     expect(read).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries a failed runtime revision on cursor recovery before leaving fallback", async () => {
+    vi.useFakeTimers();
+    const read = vi
+      .fn()
+      .mockResolvedValueOnce(available)
+      .mockRejectedValueOnce(new Error("runtime_read_failed"))
+      .mockResolvedValueOnce(runtimeView(2));
+    const bridge = api(read);
+    const { result } = renderHook(() => useCollaborationRuntimeAvailability(hookInput(bridge)));
+    await settle();
+
+    act(() => bridge.emitObserver(runtimeEvent(2)));
+    await settle();
+    expect(result.current.availability).toEqual({ kind: "error", message: "runtime_read_failed" });
+
+    act(() => {
+      const cursor: CollaborationObserverSignal = {
+        type: "human.observer.cursor",
+        profileId: "profile-1",
+        projectId: scope.projectId,
+        cursor: 22
+      };
+      bridge.emitObserver(cursor);
+      bridge.emitObserver(cursor);
+    });
+    await settle();
+
+    expect(read).toHaveBeenCalledTimes(3);
+    expect(result.current.authoritativeRuntime?.state).toMatchObject({ runtimeRevision: 2 });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(COLLABORATION_RUNTIME_AVAILABILITY_POLL_MS * 2);
+    });
+    expect(read).toHaveBeenCalledTimes(3);
   });
 
   it("ignores invalidations from another profile, project, or canvas", async () => {

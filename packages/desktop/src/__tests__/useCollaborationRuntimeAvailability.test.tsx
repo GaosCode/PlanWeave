@@ -13,6 +13,7 @@ import { useWorkspaceRuntimeState } from "../renderer/hooks/useWorkspaceRuntimeS
 import { createTranslator } from "../renderer/i18n";
 
 const collaborationBridge = vi.hoisted(() => ({
+  getCollaborationStatus: vi.fn().mockRejectedValue(new Error("observer_status_unavailable")),
   readCollaborationCanvasBindingRuntimeAvailability: vi.fn(),
   resolveCollaborationCanvasBindingScope: vi.fn().mockResolvedValue(null),
   importCollaborationLocalRuntimeStatus: vi.fn(),
@@ -23,6 +24,9 @@ vi.mock("../renderer/bridge", () => ({ collaborationBridge }));
 
 afterEach(() => {
   vi.useRealTimers();
+  collaborationBridge.getCollaborationStatus
+    .mockReset()
+    .mockRejectedValue(new Error("observer_status_unavailable"));
   collaborationBridge.readCollaborationCanvasBindingRuntimeAvailability.mockReset();
   collaborationBridge.resolveCollaborationCanvasBindingScope.mockReset().mockResolvedValue(null);
   collaborationBridge.importCollaborationLocalRuntimeStatus.mockReset();
@@ -90,6 +94,7 @@ const available = {
 
 function api(read = vi.fn().mockResolvedValue(available)) {
   return {
+    getCollaborationStatus: vi.fn().mockRejectedValue(new Error("observer_status_unavailable")),
     readCollaborationCanvasBindingRuntimeAvailability: read,
     resolveCollaborationCanvasBindingScope: vi.fn().mockResolvedValue(scope),
     onCollaborationObserverSignal: vi.fn(() => () => undefined)
@@ -238,6 +243,7 @@ describe("collaboration runtime availability", () => {
     expect(result.current.availability).toEqual({ kind: "not_applicable" });
     expect(result.current.graph).toBe(graphWithBlock);
     expect(result.current.graph?.tasks[0]?.status).toBe("ready");
+    expect(collaborationBridge.getCollaborationStatus).not.toHaveBeenCalled();
     expect(collaborationBridge.resolveCollaborationCanvasBindingScope).not.toHaveBeenCalled();
     expect(
       collaborationBridge.readCollaborationCanvasBindingRuntimeAvailability
@@ -327,6 +333,7 @@ describe("collaboration runtime availability", () => {
 
     expect(result.current.availability).toEqual({ kind: "not_applicable" });
     expect(result.current.graph).toBe(graphWithBlock);
+    expect(collaborationBridge.getCollaborationStatus).not.toHaveBeenCalled();
     expect(collaborationBridge.resolveCollaborationCanvasBindingScope).not.toHaveBeenCalled();
     expect(
       collaborationBridge.readCollaborationCanvasBindingRuntimeAvailability
@@ -373,6 +380,7 @@ describe("collaboration runtime availability", () => {
     expect(result.current.graph).toBe(graphWithBlock);
     expect(result.current.graph?.tasks[0]?.blocks[0]?.dispatchable).toBe(true);
     expect(result.current).toBe(initialResult);
+    expect(collaborationBridge.getCollaborationStatus).not.toHaveBeenCalled();
     expect(collaborationBridge.resolveCollaborationCanvasBindingScope).not.toHaveBeenCalled();
     expect(
       collaborationBridge.readCollaborationCanvasBindingRuntimeAvailability
@@ -387,6 +395,7 @@ describe("collaboration runtime availability", () => {
       )
     );
 
+    expect(bridge.getCollaborationStatus).not.toHaveBeenCalled();
     expect(bridge.resolveCollaborationCanvasBindingScope).not.toHaveBeenCalled();
     expect(bridge.readCollaborationCanvasBindingRuntimeAvailability).not.toHaveBeenCalled();
     expect(bridge.onCollaborationObserverSignal).not.toHaveBeenCalled();
