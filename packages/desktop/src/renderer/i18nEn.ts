@@ -1470,12 +1470,12 @@ export const enCatalog = {
   accessTitle: "Canvas access",
   workspaceCanvasSharingTitle: "Share canvases",
   workspaceCanvasSharingDescription:
-    "Choose local canvases for Workspace collaboration. After sharing, PlanWeave confirms that members can access them.",
+    "Share a local canvas to Workspace. After sharing, this session switches to the live Workspace canvas. The original local files stay on this computer.",
   workspaceCanvasSharingExpand: "Manage shared canvases",
   workspaceCanvasSharingCollapse: "Collapse shared canvases",
   workspaceCanvasProjectExpand: "Show project canvases",
   workspaceCanvasProjectCollapse: "Hide project canvases",
-  workspaceCanvasSharingLoading: "Comparing local and Workspace canvases…",
+  workspaceCanvasSharingLoading: "Loading canvases…",
   workspaceCanvasSharingEmpty: "No local canvases are available to share to this Workspace.",
   workspaceCanvasStateLocalOnly: "Not shared",
   workspaceCanvasStateUnpublished: "Sharing incomplete",
@@ -1514,6 +1514,10 @@ export const enCatalog = {
   workspaceCanvasShareStagePublish: "Upload canvas",
   workspaceCanvasShareStageVisibility: "Enable member access",
   workspaceCanvasShareStageVerify: "Confirm member access",
+  workspaceCanvasShareStageOpen: "Open Workspace canvas",
+  workspaceCanvasShareRetryOpen:
+    "The canvas is on the Workspace, but this session could not switch to it. Open it again without uploading a second copy.",
+  workspaceCanvasRetryOpen: "Open Workspace canvas",
   workspaceCanvasSharingVisibilityHint:
     "This controls whether the whole Workspace can access a canvas. Use Members for access granted to specific people.",
   accessScopeLabel: "Project and canvas",
@@ -1813,9 +1817,9 @@ export const enCatalog = {
   collaborationRuntimeStatusUnavailable: "Runtime status unknown",
   canvasCommandUnsupportedLocalOnly:
     "This edit is not available while the shared canvas is connected. Disconnect collaboration or use a supported shared command.",
-  contentAuthorityTitle: "Sync to this computer",
+  contentAuthorityTitle: "Workspace canvases",
   contentAuthorityDescription:
-    "Open canvases from the Workspace or check whether the current canvas is in sync.",
+    "Edit live in the Workspace, or download a local copy that will not write back.",
   contentAuthorityRevisionLabel: "Version",
   contentAuthorityStatusLabel: "Sync status",
   contentAuthorityRevision: "Version: {revision}",
@@ -1847,12 +1851,16 @@ export const enCatalog = {
     "The Workspace version is synced to this computer and the project view has been refreshed.",
   contentBootstrapTitle: "Canvases in this Workspace",
   contentBootstrapDescription:
-    "Choose a canvas to use on this computer. The first sync creates its project automatically.",
+    "Download a local copy of a Workspace canvas. The copy is independent and does not write back. Live edits stay on the Workspace canvas.",
   contentBootstrapRevision: "Version {revision}",
   contentBootstrapWaitingForOwner: "Waiting for the canvas to be shared",
   contentBootstrapStoredReplica: "Synced to this computer",
   contentBootstrapOpenLocal: "Open canvas",
   contentBootstrapSync: "Sync to this device",
+  contentAuthorityDownloadLocalCopy: "Download local copy",
+  contentAuthorityDownloadNoWriteback: "No writeback to Workspace",
+  contentAuthorityDownloadSuccess:
+    "A local copy was created and opened. Edits stay on this computer.",
   contentBootstrapSuccess: "The canvas was synced and opened.",
   contentBootstrapAcknowledgementPending:
     "The canvas is synced, but its status has not updated yet. Try again later.",

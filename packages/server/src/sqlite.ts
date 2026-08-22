@@ -29,14 +29,36 @@ export async function openServerDatabase(
   return database;
 }
 
+const writeTransactionDepth = new WeakMap<SqliteDatabase, number>();
+
 export function inWriteTransaction<T>(database: SqliteDatabase, action: () => T): T {
-  database.exec("BEGIN IMMEDIATE");
+  const depth = writeTransactionDepth.get(database) ?? 0;
+  if (depth === 0) {
+    database.exec("BEGIN IMMEDIATE");
+    writeTransactionDepth.set(database, 1);
+    try {
+      const result = action();
+      database.exec("COMMIT");
+      writeTransactionDepth.delete(database);
+      return result;
+    } catch (error) {
+      database.exec("ROLLBACK");
+      writeTransactionDepth.delete(database);
+      throw error;
+    }
+  }
+  const savepoint = `pw_tx_${depth}`;
+  database.exec(`SAVEPOINT ${savepoint}`);
+  writeTransactionDepth.set(database, depth + 1);
   try {
     const result = action();
-    database.exec("COMMIT");
+    database.exec(`RELEASE ${savepoint}`);
+    writeTransactionDepth.set(database, depth);
     return result;
   } catch (error) {
-    database.exec("ROLLBACK");
+    database.exec(`ROLLBACK TO ${savepoint}`);
+    database.exec(`RELEASE ${savepoint}`);
+    writeTransactionDepth.set(database, depth);
     throw error;
   }
 }

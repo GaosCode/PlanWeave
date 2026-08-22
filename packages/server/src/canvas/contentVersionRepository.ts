@@ -6,12 +6,16 @@ import {
   contentVersionMemberSchema,
   contentVersionAcknowledgementSchema,
   contentVersionJournalEntrySchema,
+  workspaceCanvasPublishedAuthoritySchema,
+  workspaceCanvasPublishLocalSourceSchema,
   type AuthoritativeContentHead,
   type AuthoritativeContentVersion,
   type CompleteContentVersion,
   type CompletedContentVersionRef,
   type ContentVersionAcknowledgement,
-  type ContentVersionMember
+  type ContentVersionMember,
+  type WorkspaceCanvasPublishedAuthority,
+  type WorkspaceCanvasPublishLocalSource
 } from "@planweave-ai/collaboration-protocol/content/version";
 import {
   canvasScopeRefSchema,
@@ -29,6 +33,13 @@ import type { ContentAuthorityStore } from "./contentAuthorityStore.js";
 import type { CanvasScopeKey } from "./repository.js";
 
 type VersionRow = Record<string, unknown>;
+
+const workspacePublishOperationSelect = `SELECT operation_id,recovery_token,workspace_id,project_id,canvas_id,local_project_id,local_canvas_id,version_id,canonical_digest,revision,visibility`;
+
+export type WorkspaceCanvasPublishOperationRecord = {
+  authority: WorkspaceCanvasPublishedAuthority;
+  localSource: WorkspaceCanvasPublishLocalSource;
+};
 
 function contentRef(content: CompleteContentVersion): CompletedContentVersionRef {
   return completedContentVersionRefSchema.parse({
@@ -551,5 +562,103 @@ export class ContentVersionRepository implements ContentAuthorityStore {
     }
     if (head && previousRevision !== head.revision) throw new Error("content_version_journal_gap");
     return entries;
+  }
+
+  runInWriteTransaction<T>(action: () => T): T {
+    return inWriteTransaction(this.database, action);
+  }
+
+  readWorkspacePublishOperation(operationId: string): WorkspaceCanvasPublishOperationRecord | null {
+    const row = this.database
+      .prepare(
+        `${workspacePublishOperationSelect} FROM canvas_workspace_publish_operations WHERE operation_id=?`
+      )
+      .get(operationId) as VersionRow | undefined;
+    return row ? this.parseWorkspacePublishOperation(row) : null;
+  }
+
+  readWorkspacePublishOperationByCanvas(
+    scope: CanvasScopeKey
+  ): WorkspaceCanvasPublishOperationRecord | null {
+    const row = this.database
+      .prepare(
+        `${workspacePublishOperationSelect}
+           FROM canvas_workspace_publish_operations
+          WHERE workspace_id=? AND project_id=? AND canvas_id=?`
+      )
+      .get(scope.workspaceId, scope.projectId, scope.canvasId) as VersionRow | undefined;
+    return row ? this.parseWorkspacePublishOperation(row) : null;
+  }
+
+  readWorkspacePublishOperationByLocalSource(
+    workspaceId: string,
+    projectId: string,
+    localSource: WorkspaceCanvasPublishLocalSource
+  ): WorkspaceCanvasPublishOperationRecord | null {
+    const parsed = workspaceCanvasPublishLocalSourceSchema.parse(localSource);
+    const row = this.database
+      .prepare(
+        `${workspacePublishOperationSelect}
+           FROM canvas_workspace_publish_operations
+          WHERE workspace_id=? AND project_id=? AND local_project_id=? AND local_canvas_id=?`
+      )
+      .get(workspaceId, projectId, parsed.localProjectId, parsed.localCanvasId) as
+      | VersionRow
+      | undefined;
+    return row ? this.parseWorkspacePublishOperation(row) : null;
+  }
+
+  recordWorkspacePublishOperation(
+    input: WorkspaceCanvasPublishedAuthority,
+    localSource: WorkspaceCanvasPublishLocalSource
+  ): void {
+    const parsed = workspaceCanvasPublishedAuthoritySchema.parse(input);
+    const source = workspaceCanvasPublishLocalSourceSchema.parse(localSource);
+    this.database
+      .prepare(
+        `INSERT INTO canvas_workspace_publish_operations(
+           operation_id,recovery_token,workspace_id,project_id,canvas_id,
+           local_project_id,local_canvas_id,version_id,canonical_digest,revision,visibility,created_at
+         ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`
+      )
+      .run(
+        parsed.operationId,
+        parsed.recoveryToken,
+        parsed.scope.workspaceId,
+        parsed.scope.projectId,
+        parsed.scope.canvasId,
+        source.localProjectId,
+        source.localCanvasId,
+        parsed.content.versionId,
+        parsed.content.canonicalDigest,
+        parsed.revision,
+        parsed.visibility,
+        this.clock().toISOString()
+      );
+  }
+
+  private parseWorkspacePublishOperation(row: VersionRow): WorkspaceCanvasPublishOperationRecord {
+    return {
+      authority: workspaceCanvasPublishedAuthoritySchema.parse({
+        operationId: row.operation_id,
+        recoveryToken: row.recovery_token,
+        scope: {
+          workspaceId: row.workspace_id,
+          projectId: row.project_id,
+          canvasId: row.canvas_id
+        },
+        revision: Number(row.revision),
+        content: {
+          versionId: row.version_id,
+          canonicalDigest: row.canonical_digest,
+          verification: "complete"
+        },
+        visibility: row.visibility
+      }),
+      localSource: workspaceCanvasPublishLocalSourceSchema.parse({
+        localProjectId: row.local_project_id,
+        localCanvasId: row.local_canvas_id
+      })
+    };
   }
 }

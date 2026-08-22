@@ -1,5 +1,6 @@
 import { assertNoSmuggledCollaborationSecrets } from "../../shared/collaboration.js";
 import type { WorkspaceCanvasProjection } from "../../shared/workspaceCanvasProjection.js";
+import { workspaceCanvasPublishResultSchema } from "../../shared/workspaceCanvasSharing.js";
 import type {
   CollaborationCanvasCommandFacade,
   CollaborationCanvasCommandSessionView,
@@ -165,9 +166,28 @@ export class CollaborationCanvasOperationsFacade {
   }
 
   publishWorkspaceCanvas(input: unknown) {
-    return this.run(() => {
+    return this.run(async () => {
       assertNoSmuggledCollaborationSecrets(input, "publishWorkspaceCanvas");
-      return this.options.contentVersions.publishWorkspaceCanvas(input);
+      const published = await this.options.contentVersions.publishWorkspaceCanvas(input);
+      try {
+        await this.workspaceSession.open(published.locator);
+        return workspaceCanvasPublishResultSchema.parse({
+          ...published,
+          authoritySwitch: "opened"
+        });
+      } catch {
+        return workspaceCanvasPublishResultSchema.parse({
+          ...published,
+          authoritySwitch: "retry_open"
+        });
+      }
+    });
+  }
+
+  downloadWorkspaceCanvasFork(input: unknown) {
+    return this.run(() => {
+      assertNoSmuggledCollaborationSecrets(input, "downloadWorkspaceCanvasFork");
+      return this.options.contentVersions.downloadWorkspaceCanvasFork(input);
     });
   }
 

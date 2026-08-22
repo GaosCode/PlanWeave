@@ -134,6 +134,68 @@ describe("authoritative content materializer", () => {
     const localCanvas = await resolveTaskCanvasWorkspace(created.project.rootPath, "default");
     await expect(readdir(localCanvas.resultsDir)).resolves.toEqual([]);
     await expect(readFile(localCanvas.stateFile, "utf8")).resolves.toContain('"tasks"');
+    expect(created.lineage).toBeNull();
+  });
+
+  it("forks a new local identity with empty runtime and read-only lineage", async () => {
+    const authority = await createTestWorkspace();
+    directories.push(authority.home, authority.root);
+    const content = await contentFromWorkspace(authority.root);
+    const digest = content.canonicalDigest;
+
+    const created = await createManagedProjectFromAuthoritativeContent({
+      authorityProjectId: authority.init.workspace.id,
+      content,
+      importMode: "fork",
+      sourceLineage: {
+        scope: {
+          workspaceId: "workspace-source",
+          projectId: "project-source",
+          canvasId: "canvas-source"
+        },
+        revision: 3,
+        content: {
+          versionId: `version-${digest}`,
+          canonicalDigest: digest,
+          verification: "complete"
+        }
+      }
+    });
+
+    expect(created.project.projectId).not.toBe(authority.init.workspace.id);
+    expect(created.canvasId).toBe("default");
+    expect(created.lineage).toMatchObject({
+      schemaVersion: "workspace-fork-lineage/v1",
+      writeback: false,
+      source: {
+        scope: {
+          workspaceId: "workspace-source",
+          projectId: "project-source",
+          canvasId: "canvas-source"
+        },
+        revision: 3
+      }
+    });
+    const lineageFile = await readFile(
+      join(created.project.rootPath, "workspace-fork-lineage.json"),
+      "utf8"
+    );
+    expect(JSON.parse(lineageFile)).toEqual(created.lineage);
+    const localCanvas = await resolveTaskCanvasWorkspace(created.project.rootPath, "default");
+    await expect(readdir(localCanvas.resultsDir)).resolves.toEqual([]);
+    const state = JSON.parse(await readFile(localCanvas.stateFile, "utf8")) as {
+      tasks: Record<string, unknown>;
+      blocks: Record<string, unknown>;
+    };
+    expect(state.tasks).toEqual({});
+    expect(state.blocks).toEqual({});
+    await expect(
+      createManagedProjectFromAuthoritativeContent({
+        authorityProjectId: authority.init.workspace.id,
+        content,
+        importMode: "fork"
+      })
+    ).rejects.toThrow("content_fork_source_lineage_required");
   });
 
   it("removes only the newly created project when authoritative materialization fails", async () => {

@@ -250,6 +250,12 @@ describe("desktop IPC contract", () => {
     expect(collaborationInvokeChannels.getCurrentCanvasAccess).toBe(
       "planweave-collaboration:getCurrentCanvasAccess"
     );
+    expect(collaborationInvokeChannels.publishWorkspaceCanvas).toBe(
+      "planweave-collaboration:publishWorkspaceCanvas"
+    );
+    expect(collaborationInvokeChannels.downloadWorkspaceCanvasFork).toBe(
+      "planweave-collaboration:downloadWorkspaceCanvasFork"
+    );
     expect(collaborationInvokeChannels.mutateCurrentCanvasAccess).toBe(
       "planweave-collaboration:mutateCurrentCanvasAccess"
     );

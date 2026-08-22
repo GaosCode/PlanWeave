@@ -36,11 +36,18 @@ import {
   type RemoteCollaborationCanvasBindingInput
 } from "../../shared/collaboration.js";
 import {
-  workspaceCanvasPublishInputSchema,
   workspaceCanvasSharingCandidateSchema,
   type WorkspaceCanvasSharingCandidate,
   type WorkspaceCanvasSharingState
 } from "../../shared/workspaceCanvasSharing.js";
+import {
+  downloadWorkspaceCanvasFork,
+  localProjectHasWorkspaceForkLineage
+} from "./workspaceCanvasDownload.js";
+import {
+  publishLocalCanvasToWorkspace,
+  type CommittedWorkspaceCanvasPublish
+} from "./workspaceCanvasPublish.js";
 import type { CollaborationClient } from "./CollaborationClient.js";
 import {
   CollaborationContentReplicaStore,
@@ -51,6 +58,11 @@ import {
   CollaborationRuntimeAvailabilityStore,
   type CollaborationRuntimeAvailabilityStorePort
 } from "./CollaborationRuntimeAvailabilityStore.js";
+import {
+  WorkspaceCanvasPublishReceiptStore,
+  type WorkspaceCanvasPublishReceipt,
+  type WorkspaceCanvasPublishReceiptStorePort
+} from "./WorkspaceCanvasPublishReceiptStore.js";
 import { CollaborationClientError } from "./collaborationErrors.js";
 import type { CanvasReplicaScope } from "./CanvasReplicaStore.js";
 
@@ -98,7 +110,6 @@ function sharingState(
   authority: ContentVersionDesktopReadModel
 ): WorkspaceCanvasSharingState {
   if (!authority.authoritativeHead) return "registered_unpublished";
-  if (authority.replicaStatus !== "in_sync") return "published_outdated";
   return visibility === "shared" ? "published_shared" : "published_private";
 }
 
@@ -114,7 +125,8 @@ export class ContentVersionFacade {
       | CollaborationAuthorityContext
       | null
       | Promise<CollaborationAuthorityContext | null> = () => null,
-    private readonly runtimeAvailabilities: CollaborationRuntimeAvailabilityStorePort = new CollaborationRuntimeAvailabilityStore()
+    private readonly runtimeAvailabilities: CollaborationRuntimeAvailabilityStorePort = new CollaborationRuntimeAvailabilityStore(),
+    private readonly publishReceipts: WorkspaceCanvasPublishReceiptStorePort = new WorkspaceCanvasPublishReceiptStore()
   ) {}
 
   async bind(input: unknown): Promise<ContentVersionDesktopReadModel> {
@@ -204,24 +216,18 @@ export class ContentVersionFacade {
     const candidates: WorkspaceCanvasSharingCandidate[] = [];
     for (const project of localProjects) {
       const overview = await getProjectOverview(project.rootPath);
+      if (await localProjectHasWorkspaceForkLineage(overview.rootPath)) continue;
       for (const canvas of overview.taskCanvases) {
-        const workspace = await resolveTaskCanvasWorkspace(overview.rootPath, canvas.canvasId);
-        if (workspace.id !== client.projectId) continue;
-        const registered = registeredByCanvasId.get(canvas.canvasId) ?? null;
-        const localReplica = registered
-          ? (
-              await this.collect({
-                kind: "local",
-                clientFingerprint: this.clientFingerprint(client),
-                authorityProjectId: client.projectId,
-                remoteCanvasId: canvas.canvasId,
-                projectRoot: overview.rootPath,
-                localProjectId: overview.projectId,
-                localCanvasId: canvas.canvasId,
-                expectedPackageDir: workspace.packageDir
-              })
-            ).ref
-          : null;
+        const receipt = await this.publishReceipts.find({
+          serverOrigin: this.serverOrigin(client),
+          projectId: client.projectId,
+          localProjectId: overview.projectId,
+          localCanvasId: canvas.canvasId
+        });
+        const registeredRecord =
+          receipt?.status === "committed"
+            ? (registeredByCanvasId.get(receipt.canvasId) ?? null)
+            : null;
         candidates.push(
           await this.workspaceCanvasSharingCandidate(
             client,
@@ -229,8 +235,8 @@ export class ContentVersionFacade {
             overview.name,
             canvas.canvasId,
             canvas.name,
-            registered,
-            localReplica
+            registeredRecord,
+            receipt?.status === "committed" ? receipt : null
           )
         );
       }
@@ -242,45 +248,18 @@ export class ContentVersionFacade {
     );
   }
 
-  async publishWorkspaceCanvas(input: unknown): Promise<WorkspaceCanvasSharingCandidate> {
-    const requested = workspaceCanvasPublishInputSchema.parse(input);
-    const client = this.requireClient();
-    const binding = await this.bindLocal(
-      client,
-      requested.localProjectId,
-      requested.canvasId,
-      requested.canvasId
-    );
-    const registered = await client.registry().registerCanvas({
-      projectId: client.projectId,
-      canvasId: requested.canvasId
+  async publishWorkspaceCanvas(input: unknown): Promise<CommittedWorkspaceCanvasPublish> {
+    return publishLocalCanvasToWorkspace({
+      client: this.requireClient(),
+      rawInput: input,
+      receipts: this.publishReceipts
     });
-    this.binding = binding;
-    this.lastModel = null;
-    let authority = await this.refresh();
-    if (!authority.authoritativeHead) {
-      if (!authority.canPublishInitial) {
-        throw unavailable("content_initial_publish_not_available", false);
-      }
-      authority = await this.publishInitial();
-    }
-    const projects = (await listProjects()).filter(
-      (project) => project.projectId === requested.localProjectId
-    );
-    if (projects.length !== 1) throw unavailable("content_local_project_binding_invalid", false);
-    const overview = await getProjectOverview(projects[0]!.rootPath);
-    const canvas = overview.taskCanvases.find(
-      (candidate) => candidate.canvasId === requested.canvasId
-    );
-    if (!canvas) throw unavailable("content_local_canvas_binding_invalid", false);
-    return workspaceCanvasSharingCandidateSchema.parse({
-      localProjectId: overview.projectId,
-      projectName: overview.name,
-      canvasId: canvas.canvasId,
-      canvasName: canvas.name,
-      state: sharingState(registered.visibility, authority),
-      visibility: registered.visibility,
-      authority
+  }
+
+  async downloadWorkspaceCanvasFork(input: unknown) {
+    return downloadWorkspaceCanvasFork({
+      client: this.requireClient(),
+      rawInput: input
     });
   }
 
@@ -902,9 +881,11 @@ export class ContentVersionFacade {
     canvasId: string,
     canvasName: string,
     registered: CanvasAccessRecord | null,
-    localReplica: CompletedContentVersionRef | null
+    receipt: Extract<WorkspaceCanvasPublishReceipt, { status: "committed" }> | null
   ): Promise<WorkspaceCanvasSharingCandidate> {
-    if (!registered) {
+    const serverCanvasId = registered?.registry.canvasId ?? receipt?.canvasId ?? null;
+    const visibility = registered?.visibility ?? receipt?.visibility ?? null;
+    if (serverCanvasId === null || visibility === null) {
       return workspaceCanvasSharingCandidateSchema.parse({
         localProjectId,
         projectName,
@@ -916,8 +897,8 @@ export class ContentVersionFacade {
       });
     }
     const discovered = await client.discoverContentAuthority({
-      canvasId,
-      localReplica,
+      canvasId: serverCanvasId,
+      localReplica: null,
       knownRevision: null
     });
     const authority = contentVersionDesktopReadModelSchema.parse(
@@ -928,8 +909,8 @@ export class ContentVersionFacade {
       projectName,
       canvasId,
       canvasName,
-      state: sharingState(registered.visibility, authority),
-      visibility: registered.visibility,
+      state: sharingState(visibility, authority),
+      visibility,
       authority
     });
   }

@@ -458,4 +458,66 @@ describe("content version HTTP boundary", () => {
     expect(revoked.status).toBe(401);
     expect(await revoked.json()).toEqual({ error: "unauthorized" });
   });
+
+  it("atomically publishes a workspace canvas and replays the same operation", async () => {
+    const { origin, ownerToken, memberToken } = await fixture();
+    const body = {
+      operationId: "publish-http-1",
+      localSource: { localProjectId: "local-project-a", localCanvasId: "default" },
+      content: content()
+    };
+    const first = await fetch(`${origin}/api/v1/projects/p/workspace-canvases/publish`, {
+      method: "POST",
+      headers: headers(ownerToken),
+      body: JSON.stringify(body)
+    });
+    expect(first.status).toBe(201);
+    const published = (await first.json()) as {
+      outcome: string;
+      recoveryToken: string;
+      scope: { canvasId: string };
+    };
+    expect(published).toMatchObject({
+      outcome: "published",
+      operationId: "publish-http-1",
+      recoveryToken: "wp-publish-http-1",
+      scope: { workspaceId: "w", projectId: "p" },
+      visibility: "private"
+    });
+    expect(published.scope.canvasId).toMatch(/^wsc-[0-9a-f-]{36}$/);
+    expect(published.scope.canvasId).not.toBe("default");
+    const replay = await fetch(`${origin}/api/v1/projects/p/workspace-canvases/publish`, {
+      method: "POST",
+      headers: headers(ownerToken),
+      body: JSON.stringify(body)
+    });
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toMatchObject({
+      outcome: "reused",
+      recoveryToken: "wp-publish-http-1",
+      scope: { canvasId: published.scope.canvasId }
+    });
+    const recovered = await fetch(`${origin}/api/v1/projects/p/workspace-canvases/publish`, {
+      method: "POST",
+      headers: headers(ownerToken),
+      body: JSON.stringify({ ...body, operationId: "publish-http-restart" })
+    });
+    expect(recovered.status).toBe(200);
+    expect(await recovered.json()).toMatchObject({
+      outcome: "reused",
+      operationId: "publish-http-1",
+      scope: { canvasId: published.scope.canvasId }
+    });
+    const forbidden = await fetch(`${origin}/api/v1/projects/p/workspace-canvases/publish`, {
+      method: "POST",
+      headers: headers(memberToken),
+      body: JSON.stringify({ ...body, operationId: "publish-http-member" })
+    });
+    expect(forbidden.status).toBe(403);
+    expect(await forbidden.json()).toMatchObject({
+      outcome: "rejected",
+      reason: "authorization_revoked",
+      scope: null
+    });
+  });
 });

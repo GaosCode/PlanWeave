@@ -78,7 +78,7 @@ describe("ContentAuthorityPanel", () => {
       />
     );
 
-    expect(await screen.findByRole("button", { name: "Sync to this device" })).toBeVisible();
+    expect(await screen.findByRole("button", { name: "Download local copy" })).toBeVisible();
     expect(bindCollaborationCanvasBindingContentAuthority).not.toHaveBeenCalled();
     expect(screen.queryByText("content_local_project_scope_mismatch")).not.toBeInTheDocument();
   });
@@ -106,7 +106,7 @@ describe("ContentAuthorityPanel", () => {
     );
 
     expect(await screen.findByTestId("content-authority-canvas-not-hosted")).toBeVisible();
-    expect(await screen.findByRole("button", { name: "Sync to this device" })).toBeVisible();
+    expect(await screen.findByRole("button", { name: "Download local copy" })).toBeVisible();
     expect(bindCollaborationCanvasBindingContentAuthority).not.toHaveBeenCalled();
   });
 
@@ -265,7 +265,7 @@ describe("ContentAuthorityPanel", () => {
       "bg-background"
     );
     expect(screen.queryByTestId("content-authority-section-icon")).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Sync to this computer" })).toHaveClass("text-base");
+    expect(screen.getByRole("heading", { name: "Workspace canvases" })).toHaveClass("text-base");
     expect(screen.getByTestId("content-authority-digest")).toHaveAttribute("title", "a".repeat(64));
     expect(screen.getByTestId("content-authority-local-version")).toHaveTextContent(
       "Not synced to this computer"
@@ -332,16 +332,27 @@ describe("ContentAuthorityPanel", () => {
       localReplica: null
     };
     const result = {
-      outcome: "created" as const,
+      locator: { kind: "local" as const, projectId: "local-project", canvasId: "default" },
       localProjectId: "local-project",
       localCanvasId: "default",
-      remoteCanvasId: "default",
-      acknowledgement: "acknowledged" as const,
-      authority: model
+      lineage: {
+        schemaVersion: "workspace-fork-lineage/v1" as const,
+        writeback: false as const,
+        source: {
+          scope: {
+            workspaceId: "workspace-1",
+            projectId: "project-1",
+            canvasId: "default"
+          },
+          revision: 1,
+          content: model.authoritativeHead!.content
+        }
+      },
+      writeback: false as const
     };
     const api = {
       listCollaborationContentBootstrapCandidates: vi.fn().mockResolvedValue([candidate]),
-      bootstrapCollaborationContent: vi.fn().mockResolvedValue(result)
+      downloadWorkspaceCanvasFork: vi.fn().mockResolvedValue(result)
     } as unknown as PlanWeaveCollaborationApi;
     const onReplicaReady = vi.fn().mockResolvedValue(undefined);
 
@@ -358,17 +369,21 @@ describe("ContentAuthorityPanel", () => {
       />
     );
 
-    await user.click(await screen.findByRole("button", { name: "Sync to this device" }));
+    await user.click(await screen.findByRole("button", { name: "Download local copy" }));
 
     await waitFor(() =>
-      expect(api.bootstrapCollaborationContent).toHaveBeenCalledWith({
+      expect(api.downloadWorkspaceCanvasFork).toHaveBeenCalledWith({
         workspaceId: "workspace-1",
         projectId: "project-1",
-        canvasId: "default"
+        canvasId: "default",
+        revision: 1,
+        content: model.authoritativeHead!.content
       })
     );
     expect(onReplicaReady).toHaveBeenCalledWith(result);
-    expect(await screen.findByText("The canvas was synced and opened.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("A local copy was created and opened. Edits stay on this computer.")
+    ).toBeInTheDocument();
   });
 
   it("keeps the remote workspace active when explicit materialization fails", async () => {
@@ -379,7 +394,7 @@ describe("ContentAuthorityPanel", () => {
       listCollaborationContentBootstrapCandidates: vi
         .fn()
         .mockResolvedValue([hostedCandidate(model, "project-1")]),
-      bootstrapCollaborationContent: vi.fn().mockRejectedValue(new Error("materialization_failed"))
+      downloadWorkspaceCanvasFork: vi.fn().mockRejectedValue(new Error("materialization_failed"))
     } as unknown as PlanWeaveCollaborationApi;
 
     render(
@@ -395,8 +410,8 @@ describe("ContentAuthorityPanel", () => {
       />
     );
 
-    expect(api.bootstrapCollaborationContent).not.toHaveBeenCalled();
-    await user.click(await screen.findByRole("button", { name: "Sync to this device" }));
+    expect(api.downloadWorkspaceCanvasFork).not.toHaveBeenCalled();
+    await user.click(await screen.findByRole("button", { name: "Download local copy" }));
 
     expect(await screen.findByText("materialization_failed")).toBeVisible();
     expect(onReplicaReady).not.toHaveBeenCalled();

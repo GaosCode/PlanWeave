@@ -46,7 +46,10 @@ import {
   type PlanWeaveCollaborationApi
 } from "../shared/collaboration.js";
 import {
+  workspaceCanvasDownloadInputSchema,
+  workspaceCanvasDownloadResultSchema,
   workspaceCanvasPublishInputSchema,
+  workspaceCanvasPublishResultSchema,
   workspaceCanvasSharingCandidateSchema
 } from "../shared/workspaceCanvasSharing.js";
 import {
@@ -407,7 +410,15 @@ const collaborationApi: PlanWeaveCollaborationApi = {
         collaborationInvokeChannels.publishWorkspaceCanvas,
         workspaceCanvasPublishInputSchema.parse(input)
       ),
-      workspaceCanvasSharingCandidateSchema
+      workspaceCanvasPublishResultSchema
+    ),
+  downloadWorkspaceCanvasFork: async (input) =>
+    unwrapCollaborationCommandResult(
+      await ipcRenderer.invoke(
+        collaborationInvokeChannels.downloadWorkspaceCanvasFork,
+        workspaceCanvasDownloadInputSchema.parse(input)
+      ),
+      workspaceCanvasDownloadResultSchema
     ),
   getCurrentCanvasAccess: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.getCurrentCanvasAccess, input),

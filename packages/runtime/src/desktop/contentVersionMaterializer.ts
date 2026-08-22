@@ -12,6 +12,12 @@ import { authoritativeImportReservationFile, initManagedWorkspace } from "../ini
 import { resolvePlanweaveHome } from "../paths.js";
 import { createManagedProjectId } from "../projectId.js";
 import type { DesktopProjectSummary } from "./types.js";
+import {
+  managedContentImportModeSchema,
+  workspaceForkLineagePath,
+  workspaceForkLineageSchema,
+  type WorkspaceForkLineage
+} from "./workspaceForkLineage.js";
 
 type ContentVersionPathOperations = Pick<typeof nodePath, "basename" | "dirname" | "join">;
 
@@ -148,7 +154,30 @@ export async function createManagedProjectFromAuthoritativeContent(input: {
   expectedProjectId?: string;
   resumeReservedProject?: boolean;
   reservationToken?: string;
-}): Promise<{ project: DesktopProjectSummary; canvasId: "default" }> {
+  importMode?: "replica" | "fork";
+  sourceLineage?: WorkspaceForkLineage["source"];
+}): Promise<{
+  project: DesktopProjectSummary;
+  canvasId: "default";
+  lineage: WorkspaceForkLineage | null;
+}> {
+  const importMode = managedContentImportModeSchema.parse(input.importMode ?? "replica");
+  if (importMode === "fork") {
+    if (!input.sourceLineage) {
+      throw fail("content_fork_source_lineage_required");
+    }
+    if (input.reservationToken) {
+      throw fail("content_fork_reservation_forbidden");
+    }
+  }
+  const lineage =
+    importMode === "fork"
+      ? workspaceForkLineageSchema.parse({
+          schemaVersion: "workspace-fork-lineage/v1",
+          writeback: false,
+          source: input.sourceLineage
+        })
+      : null;
   const validated = validateAuthoritativeCanvasContent(input.content);
   const projectName =
     input.projectName ?? (await availableProjectName(validated.manifest.project.title));
@@ -184,9 +213,17 @@ export async function createManagedProjectFromAuthoritativeContent(input: {
       authorityProjectId: input.authorityProjectId,
       content: validated.content
     });
+    if (lineage) {
+      await writeFile(
+        workspaceForkLineagePath(initialized.project.rootPath, join),
+        `${JSON.stringify(lineage, null, 2)}\n`,
+        "utf8"
+      );
+    }
     return {
       project: await getProjectOverview(initialized.project.rootPath),
-      canvasId: "default"
+      canvasId: "default",
+      lineage
     };
   } catch (error) {
     try {

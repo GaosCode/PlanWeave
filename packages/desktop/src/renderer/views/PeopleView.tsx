@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   isLocalCollaborationProfileId,
-  type CollaborationContentBootstrapResult,
   type LocalCollaborationServerStatus,
   type PlanWeaveCollaborationApi
 } from "../../shared/collaboration.js";
+import type { WorkspaceCanvasLocator } from "../../shared/canvasLocator.js";
 import { Button } from "@/components/ui/button";
 import { collaborationBridge } from "../bridge";
 import type { createTranslator } from "../i18n";
@@ -46,7 +46,11 @@ export type PeopleViewProps = {
   api?: PlanWeaveCollaborationApi | null;
   /** Optional clipboard writer; defaults to navigator.clipboard. */
   copyText?: (text: string) => Promise<void>;
-  onContentReplicaReady?: (result: CollaborationContentBootstrapResult) => Promise<void>;
+  onContentReplicaReady?: (result: {
+    localProjectId: string;
+    localCanvasId: string;
+  }) => Promise<void>;
+  onWorkspaceCanvasPublished?: (locator: WorkspaceCanvasLocator) => void;
   onMembershipOutcome?: (outcome: { ok: boolean; message: string }) => void;
   collaborationScopeLayout: DesktopUiSettings["layout"]["collaborationScope"];
   onCollaborationScopeLayoutChange: (
@@ -89,6 +93,7 @@ export function PeopleView({
   api: apiProp,
   copyText = defaultCopyText,
   onContentReplicaReady,
+  onWorkspaceCanvasPublished,
   onMembershipOutcome,
   collaborationScopeLayout,
   onCollaborationScopeLayoutChange,
@@ -571,8 +576,9 @@ export function PeopleView({
                         api={api}
                         connected={sessionConnected}
                         connectionKey={activeProfile?.profileId ?? null}
-                        onPublished={() => {
+                        onPublished={(result) => {
                           void workspaceAccessScope.refreshOptions();
+                          onWorkspaceCanvasPublished?.(result.locator);
                         }}
                         t={t}
                       />

@@ -1,5 +1,6 @@
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -19,6 +20,10 @@ import {
   type CollaborationContentReplicaStorePort
 } from "../main/collaboration/CollaborationContentReplicaStore.js";
 import { CollaborationRuntimeAvailabilityStore } from "../main/collaboration/CollaborationRuntimeAvailabilityStore.js";
+import {
+  WorkspaceCanvasPublishReceiptStore,
+  type WorkspaceCanvasPublishReceiptStorePort
+} from "../main/collaboration/WorkspaceCanvasPublishReceiptStore.js";
 import { CollaborationClientError } from "../main/collaboration/collaborationErrors.js";
 import type { CollaborationClient } from "../main/collaboration/CollaborationClient.js";
 import { createTestWorkspace } from "../../../runtime/src/__tests__/promptTestHelpers.js";
@@ -62,10 +67,10 @@ function acknowledgement(
   };
 }
 
-function head(projectId: string, content: CompletedContentVersionRef) {
+function head(projectId: string, content: CompletedContentVersionRef, canvasId = "default") {
   return {
     schemaVersion: "content-version/v1" as const,
-    scope: { workspaceId: "workspace-test", projectId, canvasId: "default" },
+    scope: { workspaceId: "workspace-test", projectId, canvasId },
     revision: 1,
     content,
     advancedAt: "2026-07-28T00:00:00.000Z"
@@ -78,16 +83,40 @@ function bootstrapScope(projectId: string, workspaceId = "workspace-test") {
 
 function fakeClient(
   projectId: string,
-  options: { registered?: boolean; visibility?: "private" | "shared" } = {}
+  options: {
+    registered?: boolean;
+    visibility?: "private" | "shared";
+    failPublish?: boolean;
+  } = {}
 ) {
   let published: AuthoritativeContentVersion | null = null;
-  let registered = options.registered ?? true;
+  const registeredCanvasIds = options.registered === false ? [] : ["default"];
+  const workspacePublished = new Map<
+    string,
+    {
+      operationId: string;
+      localSource: { localProjectId: string; localCanvasId: string };
+      serverCanvasId: string;
+      version: AuthoritativeContentVersion;
+    }
+  >();
   const visibility = options.visibility ?? "shared";
+  const resolvePublished = (canvasId?: string): AuthoritativeContentVersion | null => {
+    if (canvasId) {
+      const match = [...workspacePublished.values()].find(
+        (entry) => entry.serverCanvasId === canvasId
+      );
+      if (match) return match.version;
+    }
+    return published;
+  };
   const discoverContentAuthority = vi.fn(
     async (input: {
+      canvasId?: string;
       localReplica: CompletedContentVersionRef | null;
     }): Promise<ContentVersionAuthorityDiscoveryResult> => {
-      if (!published) {
+      const version = resolvePublished(input.canvasId);
+      if (!version) {
         return {
           authoritativeHead: null,
           localReplica: input.localReplica,
@@ -101,7 +130,7 @@ function fakeClient(
       }
       if (!input.localReplica) {
         return {
-          authoritativeHead: head(projectId, published.completed),
+          authoritativeHead: head(projectId, version.completed, version.scope.canvasId),
           localReplica: null,
           lastAcknowledgement: null,
           replicaStatus: "snapshot_required",
@@ -111,16 +140,85 @@ function fakeClient(
           canRecover: true
         };
       }
-      const inSync = input.localReplica.versionId === published.completed.versionId;
+      const inSync = input.localReplica.versionId === version.completed.versionId;
       return {
-        authoritativeHead: head(projectId, published.completed),
+        authoritativeHead: head(projectId, version.completed, version.scope.canvasId),
         localReplica: input.localReplica,
-        lastAcknowledgement: acknowledgement(projectId, published.completed),
+        lastAcknowledgement: acknowledgement(projectId, version.completed),
         replicaStatus: inSync ? "in_sync" : "diverged",
         recoveryAction: inSync ? "none" : "fetch_head",
         canPublishInitial: false,
         canMaterialize: true,
         canRecover: true
+      };
+    }
+  );
+  const publishWorkspaceCanvas = vi.fn(
+    async (input: {
+      operationId: string;
+      localSource: { localProjectId: string; localCanvasId: string };
+      content: CompleteContentVersion;
+    }) => {
+      if (options.failPublish) throw new Error("storage_unavailable");
+      const localKey = `${input.localSource.localProjectId}\u0000${input.localSource.localCanvasId}`;
+      const existing = workspacePublished.get(localKey);
+      if (existing) {
+        return {
+          outcome: "reused" as const,
+          operationId: existing.operationId,
+          recoveryToken: `wp-${existing.operationId}`,
+          scope: {
+            workspaceId: "workspace-test",
+            projectId,
+            canvasId: existing.serverCanvasId
+          },
+          revision: 1,
+          content: existing.version.completed,
+          visibility: "private" as const
+        };
+      }
+      if (
+        [...workspacePublished.values()].some((entry) => entry.operationId === input.operationId)
+      ) {
+        return {
+          outcome: "rejected" as const,
+          reason: "operation_conflict" as const,
+          retryable: false,
+          detail: "operation_conflict",
+          scope: null,
+          recoveryToken: null
+        };
+      }
+      const completed = versionRef(input.content);
+      const serverCanvasId = `wsc-${randomUUID()}`;
+      const version: AuthoritativeContentVersion = {
+        schemaVersion: "content-version/v1",
+        scope: { workspaceId: "workspace-test", projectId, canvasId: serverCanvasId },
+        content: input.content,
+        completed,
+        createdAt: "2026-07-28T00:00:00.000Z",
+        createdBy: { kind: "human", id: "human-owner", displayName: "Owner" }
+      };
+      workspacePublished.set(localKey, {
+        operationId: input.operationId,
+        localSource: input.localSource,
+        serverCanvasId,
+        version
+      });
+      published = version;
+      if (!registeredCanvasIds.includes(serverCanvasId)) registeredCanvasIds.push(serverCanvasId);
+      return {
+        outcome: "published" as const,
+        operationId: input.operationId,
+        recoveryToken: `wp-${input.operationId}`,
+        scope: {
+          workspaceId: "workspace-test",
+          projectId,
+          canvasId: serverCanvasId
+        },
+        revision: 1,
+        content: completed,
+        visibility: "private" as const
       };
     }
   );
@@ -207,14 +305,14 @@ function fakeClient(
     kind: "initialized" as const,
     status: input.status
   }));
-  const canvasRecord = () => ({
+  const canvasRecord = (canvasId: string) => ({
     schemaVersion: "project-access/v1" as const,
     registry: {
       projectRegistryId: "project-registry-test",
-      canvasRegistryId: "canvas-registry-test",
+      canvasRegistryId: `canvas-registry-${canvasId}`,
       workspaceId: "workspace-test",
       projectId,
-      canvasId: "default"
+      canvasId
     },
     visibility,
     acl: { revision: 1, updatedAt: "2026-07-28T00:00:00.000Z" },
@@ -222,8 +320,8 @@ function fakeClient(
     updatedAt: "2026-07-28T00:00:00.000Z"
   });
   const registerCanvas = vi.fn(async () => {
-    registered = true;
-    return canvasRecord();
+    if (!registeredCanvasIds.includes("default")) registeredCanvasIds.push("default");
+    return canvasRecord("default");
   });
   return {
     client: {
@@ -236,13 +334,14 @@ function fakeClient(
       },
       registry: () => ({
         listCanvases: vi.fn(async () => ({
-          items: registered ? [canvasRecord()] : [],
+          items: registeredCanvasIds.map((canvasId) => canvasRecord(canvasId)),
           nextCursor: null
         })),
         registerCanvas
       }),
       discoverContentAuthority,
       publishInitialContent,
+      publishWorkspaceCanvas,
       fetchContentVersion,
       acknowledgeContentVersion,
       reconnectCanvasCommands,
@@ -252,6 +351,7 @@ function fakeClient(
     calls: {
       discoverContentAuthority,
       publishInitialContent,
+      publishWorkspaceCanvas,
       fetchContentVersion,
       acknowledgeContentVersion,
       reconnectCanvasCommands,
@@ -263,7 +363,7 @@ function fakeClient(
 }
 
 describe("ContentVersionFacade", () => {
-  it("distinguishes local-only, uploaded-private, and truly shared canvases", async () => {
+  it("publishes a local canvas to a Workspace locator without deleting the local source", async () => {
     const workspace = await createTestWorkspace();
     directories.push(workspace.home, workspace.root);
     const fake = fakeClient(workspace.init.workspace.id, {
@@ -271,6 +371,10 @@ describe("ContentVersionFacade", () => {
       visibility: "private"
     });
     const facade = new ContentVersionFacade(() => fake.client);
+    const originalPrompt = await readFile(
+      join(workspace.init.workspace.packageDir, "nodes/T-001/prompt.md"),
+      "utf8"
+    );
 
     await expect(facade.listWorkspaceCanvasSharingCandidates()).resolves.toEqual([
       expect.objectContaining({
@@ -282,21 +386,29 @@ describe("ContentVersionFacade", () => {
       })
     ]);
 
-    await expect(
-      facade.publishWorkspaceCanvas({
-        localProjectId: workspace.init.project.id,
-        canvasId: "default"
-      })
-    ).resolves.toMatchObject({
-      state: "published_private",
-      visibility: "private",
-      authority: { authoritativeHead: expect.any(Object) }
-    });
-    expect(fake.calls.registerCanvas).toHaveBeenCalledWith({
-      projectId: workspace.init.workspace.id,
+    const published = await facade.publishWorkspaceCanvas({
+      localProjectId: workspace.init.project.id,
       canvasId: "default"
     });
-    expect(fake.calls.publishInitialContent).toHaveBeenCalledOnce();
+    expect(published).toMatchObject({
+      outcome: "published",
+      locator: {
+        kind: "workspace",
+        connectionProfileId: "profile-test",
+        workspaceId: "workspace-test",
+        projectId: workspace.init.workspace.id
+      },
+      localSourceRetained: true,
+      candidate: { state: "published_private", visibility: "private" }
+    });
+    expect(published.locator.canvasId).toMatch(/^wsc-[0-9a-f-]{36}$/);
+    expect(published.locator.canvasId).not.toBe("default");
+    expect(fake.calls.registerCanvas).not.toHaveBeenCalled();
+    expect(fake.calls.publishWorkspaceCanvas).toHaveBeenCalledOnce();
+    expect(fake.calls.publishInitialContent).not.toHaveBeenCalled();
+    await expect(
+      readFile(join(workspace.init.workspace.packageDir, "nodes/T-001/prompt.md"), "utf8")
+    ).resolves.toBe(originalPrompt);
 
     await expect(facade.listWorkspaceCanvasSharingCandidates()).resolves.toEqual([
       expect.objectContaining({ state: "published_private", visibility: "private" })
@@ -308,12 +420,247 @@ describe("ContentVersionFacade", () => {
       "utf8"
     );
     await expect(facade.listWorkspaceCanvasSharingCandidates()).resolves.toEqual([
-      expect.objectContaining({ state: "published_outdated", visibility: "private" })
+      expect.objectContaining({ state: "published_private", visibility: "private" })
     ]);
     expect(fake.calls.discoverContentAuthority).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        localReplica: expect.objectContaining({ verification: "complete" })
+      expect.objectContaining({ localReplica: null, canvasId: published.locator.canvasId })
+    );
+
+    const replayed = await facade.publishWorkspaceCanvas({
+      localProjectId: workspace.init.project.id,
+      canvasId: "default"
+    });
+    expect(replayed.outcome).toBe("reused");
+    expect(replayed.locator.canvasId).toBe(published.locator.canvasId);
+    expect(fake.calls.publishWorkspaceCanvas).toHaveBeenCalledTimes(2);
+    expect(fake.calls.publishWorkspaceCanvas.mock.calls[0]?.[0].operationId).toBe(
+      fake.calls.publishWorkspaceCanvas.mock.calls[1]?.[0].operationId
+    );
+  });
+
+  it("leaves the local canvas unchanged when Server publish fails", async () => {
+    const workspace = await createTestWorkspace();
+    directories.push(workspace.home, workspace.root);
+    const fake = fakeClient(workspace.init.workspace.id, {
+      registered: false,
+      failPublish: true
+    });
+    const facade = new ContentVersionFacade(() => fake.client);
+
+    await expect(
+      facade.publishWorkspaceCanvas({
+        localProjectId: workspace.init.project.id,
+        canvasId: "default"
       })
+    ).rejects.toThrow("storage_unavailable");
+    await expect(facade.listWorkspaceCanvasSharingCandidates()).resolves.toEqual([
+      expect.objectContaining({ state: "local_only", visibility: null })
+    ]);
+    expect(fake.client.registry().listCanvases).toBeDefined();
+    await expect(fake.client.registry().listCanvases()).resolves.toEqual({
+      items: [],
+      nextCursor: null
+    });
+  });
+
+  it("assigns distinct Server canvasIds to two local default canvases", async () => {
+    const workspace = await createTestWorkspace();
+    directories.push(workspace.home, workspace.root);
+    const second = await initManagedWorkspace({ name: "Second Local", projectGraph: true });
+    const fake = fakeClient(workspace.init.workspace.id, {
+      registered: false,
+      visibility: "private"
+    });
+    const facade = new ContentVersionFacade(() => fake.client);
+    const first = await facade.publishWorkspaceCanvas({
+      localProjectId: workspace.init.project.id,
+      canvasId: "default"
+    });
+    const other = await facade.publishWorkspaceCanvas({
+      localProjectId: second.project.id,
+      canvasId: "default"
+    });
+    expect(first.locator.canvasId).toMatch(/^wsc-[0-9a-f-]{36}$/);
+    expect(other.locator.canvasId).toMatch(/^wsc-[0-9a-f-]{36}$/);
+    expect(first.locator.canvasId).not.toBe(other.locator.canvasId);
+    expect(first.locator.canvasId).not.toBe("default");
+    expect(other.locator.canvasId).not.toBe("default");
+  });
+
+  it("reuses the persisted operationId after a new Desktop process instance", async () => {
+    const workspace = await createTestWorkspace();
+    directories.push(workspace.home, workspace.root);
+    const fake = fakeClient(workspace.init.workspace.id, {
+      registered: false,
+      visibility: "private"
+    });
+    const receipts = new WorkspaceCanvasPublishReceiptStore(
+      join(workspace.home, "workspace-canvas-publish-receipts.json")
+    );
+    const first = new ContentVersionFacade(
+      () => fake.client,
+      undefined,
+      undefined,
+      undefined,
+      receipts
+    );
+    const published = await first.publishWorkspaceCanvas({
+      localProjectId: workspace.init.project.id,
+      canvasId: "default"
+    });
+    const restarted = new ContentVersionFacade(
+      () => fake.client,
+      undefined,
+      undefined,
+      undefined,
+      new WorkspaceCanvasPublishReceiptStore(
+        join(workspace.home, "workspace-canvas-publish-receipts.json")
+      )
+    );
+    const replayed = await restarted.publishWorkspaceCanvas({
+      localProjectId: workspace.init.project.id,
+      canvasId: "default"
+    });
+    expect(replayed.outcome).toBe("reused");
+    expect(replayed.locator.canvasId).toBe(published.locator.canvasId);
+    expect(fake.calls.publishWorkspaceCanvas.mock.calls[0]?.[0].operationId).toBe(
+      fake.calls.publishWorkspaceCanvas.mock.calls[1]?.[0].operationId
+    );
+  });
+
+  it("recovers the Workspace locator from Server after a lost local receipt", async () => {
+    const workspace = await createTestWorkspace();
+    directories.push(workspace.home, workspace.root);
+    const fake = fakeClient(workspace.init.workspace.id, {
+      registered: false,
+      visibility: "private"
+    });
+    const published = await new ContentVersionFacade(
+      () => fake.client,
+      undefined,
+      undefined,
+      undefined,
+      new WorkspaceCanvasPublishReceiptStore(join(workspace.home, "first-receipts.json"))
+    ).publishWorkspaceCanvas({
+      localProjectId: workspace.init.project.id,
+      canvasId: "default"
+    });
+    const recovered = await new ContentVersionFacade(
+      () => fake.client,
+      undefined,
+      undefined,
+      undefined,
+      new WorkspaceCanvasPublishReceiptStore(join(workspace.home, "empty-receipts.json"))
+    ).publishWorkspaceCanvas({
+      localProjectId: workspace.init.project.id,
+      canvasId: "default"
+    });
+    expect(recovered.outcome).toBe("reused");
+    expect(recovered.operationId).toBe(published.operationId);
+    expect(recovered.locator.canvasId).toBe(published.locator.canvasId);
+    expect(fake.calls.publishWorkspaceCanvas.mock.calls[0]?.[0].operationId).not.toBe(
+      fake.calls.publishWorkspaceCanvas.mock.calls[1]?.[0].operationId
+    );
+  });
+
+  it("returns the Workspace locator when local receipt commit fails after Server publish", async () => {
+    const workspace = await createTestWorkspace();
+    directories.push(workspace.home, workspace.root);
+    const fake = fakeClient(workspace.init.workspace.id, {
+      registered: false,
+      visibility: "private"
+    });
+    const backing = new WorkspaceCanvasPublishReceiptStore(
+      join(workspace.home, "workspace-canvas-publish-receipts.json")
+    );
+    const commit = vi.fn(async () => {
+      throw new Error("workspace_canvas_publish_receipt_store_invalid");
+    });
+    const receipts: WorkspaceCanvasPublishReceiptStorePort = {
+      find: (key) => backing.find(key),
+      rememberPending: (input) => backing.rememberPending(input),
+      commit
+    };
+    const diagnostics = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const published = await new ContentVersionFacade(
+        () => fake.client,
+        undefined,
+        undefined,
+        undefined,
+        receipts
+      ).publishWorkspaceCanvas({
+        localProjectId: workspace.init.project.id,
+        canvasId: "default"
+      });
+      expect(published.outcome).toBe("published");
+      expect(published.locator).toMatchObject({
+        kind: "workspace",
+        workspaceId: "workspace-test",
+        projectId: workspace.init.workspace.id
+      });
+      expect(published.locator.canvasId).toMatch(/^wsc-[0-9a-f-]{36}$/);
+      expect(commit).toHaveBeenCalledOnce();
+      expect(diagnostics).toHaveBeenCalledWith(
+        "Failed to persist workspace canvas publish receipt.",
+        expect.any(Error)
+      );
+    } finally {
+      diagnostics.mockRestore();
+    }
+  });
+
+  it("downloads a Workspace revision as a new local fork without writeback mapping", async () => {
+    const workspace = await createTestWorkspace();
+    directories.push(workspace.home, workspace.root);
+    const fake = fakeClient(workspace.init.workspace.id, {
+      registered: false,
+      visibility: "private"
+    });
+    const replicas = new CollaborationContentReplicaStore(
+      join(workspace.home, "content-replicas.json")
+    );
+    const facade = new ContentVersionFacade(() => fake.client, replicas);
+    const published = await facade.publishWorkspaceCanvas({
+      localProjectId: workspace.init.project.id,
+      canvasId: "default"
+    });
+
+    const downloaded = await facade.downloadWorkspaceCanvasFork({
+      workspaceId: published.locator.workspaceId,
+      projectId: published.locator.projectId,
+      canvasId: published.locator.canvasId,
+      revision: published.revision,
+      content: published.content
+    });
+
+    expect(downloaded.writeback).toBe(false);
+    expect(downloaded.localProjectId).not.toBe(workspace.init.project.id);
+    expect(downloaded.localCanvasId).toBe("default");
+    expect(downloaded.lineage).toMatchObject({
+      writeback: false,
+      source: {
+        scope: {
+          workspaceId: published.locator.workspaceId,
+          projectId: published.locator.projectId,
+          canvasId: published.locator.canvasId
+        },
+        revision: published.revision
+      }
+    });
+    await expect(replicas.list()).resolves.toEqual([]);
+    await expect(
+      facade.resolveCanvasScope({
+        kind: "local",
+        localProjectId: downloaded.localProjectId,
+        canvasId: downloaded.localCanvasId
+      })
+    ).resolves.toBeNull();
+    await expect(listProjects()).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ projectId: workspace.init.project.id }),
+        expect.objectContaining({ projectId: downloaded.localProjectId })
+      ])
     );
   });
 

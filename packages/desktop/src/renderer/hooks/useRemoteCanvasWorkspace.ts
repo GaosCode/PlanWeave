@@ -52,6 +52,7 @@ export function useRemoteCanvasWorkspace(
     [activeProjectId, registry.canvases]
   );
   const [locator, setLocator] = useState<WorkspaceCanvasLocator | null>(null);
+  const [explicitOpen, setExplicitOpen] = useState(false);
   const binding = useMemo<RemoteCollaborationCanvasBindingInput | null>(
     () => (locator ? workspaceCanvasLocatorToBinding(locator) : null),
     [locator]
@@ -69,18 +70,24 @@ export function useRemoteCanvasWorkspace(
       locator.projectId !== activeProjectId
     ) {
       setLocator(null);
+      setExplicitOpen(false);
       return;
     }
     if (registry.phase !== "ready") {
       return;
     }
-    if (!locatorMatchesAuthorizedCanvas(locator, authorizedCanvases)) {
+    if (locatorMatchesAuthorizedCanvas(locator, authorizedCanvases)) {
+      setExplicitOpen(false);
+      return;
+    }
+    if (!explicitOpen) {
       setLocator(null);
     }
   }, [
     activeProjectId,
     authorizedCanvases,
     connectionProfileId,
+    explicitOpen,
     input.localProjectId,
     locator,
     registry.phase,
@@ -132,12 +139,25 @@ export function useRemoteCanvasWorkspace(
         projectId: canvas.registry.projectId,
         canvasId: canvas.registry.canvasId
       });
+      setExplicitOpen(false);
       setLocator(next);
       input.onWorkspaceLocatorOpened?.(next);
     },
     [connectionProfileId, input.onWorkspaceLocatorOpened]
   );
-  const clear = useCallback(() => setLocator(null), []);
+  const openLocator = useCallback(
+    (next: WorkspaceCanvasLocator) => {
+      const parsed = workspaceCanvasLocatorSchema.parse(next);
+      setExplicitOpen(true);
+      setLocator(parsed);
+      input.onWorkspaceLocatorOpened?.(parsed);
+    },
+    [input.onWorkspaceLocatorOpened]
+  );
+  const clear = useCallback(() => {
+    setExplicitOpen(false);
+    setLocator(null);
+  }, []);
 
   return {
     ...registry,
@@ -147,6 +167,7 @@ export function useRemoteCanvasWorkspace(
     locator,
     binding,
     clear,
+    openLocator,
     select
   };
 }

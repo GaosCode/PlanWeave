@@ -11,10 +11,11 @@ import {
   contentVersionIdSchema,
   deviceSessionIdSchema,
   humanPrincipalIdSchema,
+  opaqueIdentifierSchema,
   timestampSchema
 } from "./primitives.js";
 import { packageSnapshotDigestSchema } from "./packageSnapshot.js";
-import { aclRevisionSchema } from "./projectAccess.js";
+import { aclRevisionSchema, canvasVisibilitySchema } from "./projectAccess.js";
 
 /**
  * Server-authoritative immutable content versions. These records deliberately
@@ -356,6 +357,117 @@ export const firstContentVersionPublishResultSchema = z.discriminatedUnion("outc
 ]);
 export type FirstContentVersionPublishResult = z.infer<
   typeof firstContentVersionPublishResultSchema
+>;
+
+/**
+ * Client-generated idempotency key for atomic Workspace canvas creation.
+ * Repeat requests with the same identity must not create a second canvas.
+ */
+export const workspaceCanvasPublishOperationIdSchema = opaqueIdentifierSchema.brand(
+  "WorkspaceCanvasPublishOperationId"
+);
+export type WorkspaceCanvasPublishOperationId = z.infer<
+  typeof workspaceCanvasPublishOperationIdSchema
+>;
+
+export const workspaceCanvasPublishRecoveryTokenSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(256)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
+export type WorkspaceCanvasPublishRecoveryToken = z.infer<
+  typeof workspaceCanvasPublishRecoveryTokenSchema
+>;
+
+/**
+ * Local canvas identity that requested the Workspace publish. Server assigns a
+ * durable canvasId independent from this local id so two `default` canvases can
+ * share into the same project.
+ */
+export const workspaceCanvasPublishLocalSourceSchema = z
+  .object({
+    localProjectId: opaqueIdentifierSchema,
+    localCanvasId: opaqueIdentifierSchema
+  })
+  .strict();
+export type WorkspaceCanvasPublishLocalSource = z.infer<
+  typeof workspaceCanvasPublishLocalSourceSchema
+>;
+
+/**
+ * Project-scoped atomic initial publish. Server derives workspaceId from auth
+ * and assigns the Workspace canvasId. The request never carries
+ * connectionProfileId or a client-chosen Server canvasId.
+ */
+export const workspaceCanvasInitialPublishRequestSchema = z
+  .object({
+    operationId: workspaceCanvasPublishOperationIdSchema,
+    localSource: workspaceCanvasPublishLocalSourceSchema,
+    content: completeContentVersionSchema
+  })
+  .strict();
+export type WorkspaceCanvasInitialPublishRequest = z.infer<
+  typeof workspaceCanvasInitialPublishRequestSchema
+>;
+
+export const workspaceCanvasPublishedAuthoritySchema = z
+  .object({
+    operationId: workspaceCanvasPublishOperationIdSchema,
+    recoveryToken: workspaceCanvasPublishRecoveryTokenSchema,
+    scope: canvasScopeRefSchema,
+    revision: contentVersionRevisionSchema,
+    content: completedContentVersionRefSchema,
+    visibility: canvasVisibilitySchema
+  })
+  .strict();
+export type WorkspaceCanvasPublishedAuthority = z.infer<
+  typeof workspaceCanvasPublishedAuthoritySchema
+>;
+
+export const workspaceCanvasInitialPublishFailureReasonSchema = z.enum([
+  "authorization_revoked",
+  "content_verification_failed",
+  "storage_unavailable",
+  "canvas_already_exists",
+  "operation_conflict",
+  "canvas_publish_incomplete"
+]);
+export type WorkspaceCanvasInitialPublishFailureReason = z.infer<
+  typeof workspaceCanvasInitialPublishFailureReasonSchema
+>;
+
+const workspaceCanvasInitialPublishAcceptedSchema = z
+  .object({
+    operationId: workspaceCanvasPublishOperationIdSchema,
+    recoveryToken: workspaceCanvasPublishRecoveryTokenSchema,
+    scope: canvasScopeRefSchema,
+    revision: contentVersionRevisionSchema,
+    content: completedContentVersionRefSchema,
+    visibility: canvasVisibilitySchema
+  })
+  .strict();
+
+export const workspaceCanvasInitialPublishResultSchema = z.discriminatedUnion("outcome", [
+  workspaceCanvasInitialPublishAcceptedSchema.extend({
+    outcome: z.literal("published")
+  }),
+  workspaceCanvasInitialPublishAcceptedSchema.extend({
+    outcome: z.literal("reused")
+  }),
+  z
+    .object({
+      outcome: z.literal("rejected"),
+      reason: workspaceCanvasInitialPublishFailureReasonSchema,
+      retryable: z.boolean(),
+      detail: z.string().trim().min(1).max(CONTENT_VERSION_MAX_REASON_LENGTH),
+      scope: z.null(),
+      recoveryToken: z.null()
+    })
+    .strict()
+]);
+export type WorkspaceCanvasInitialPublishResult = z.infer<
+  typeof workspaceCanvasInitialPublishResultSchema
 >;
 
 export const contentVersionFetchRequestSchema = z

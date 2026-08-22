@@ -941,6 +941,72 @@ describe("preload bridge invocation", () => {
       if (channel === collaborationInvokeChannels.listCollaborationContentBootstrapCandidates) {
         return { ok: true, value: [] };
       }
+      if (channel === collaborationInvokeChannels.listWorkspaceCanvasSharingCandidates) {
+        return { ok: true, value: [] };
+      }
+      if (channel === collaborationInvokeChannels.publishWorkspaceCanvas) {
+        return {
+          ok: true,
+          value: {
+            outcome: "published",
+            operationId: "publish-operation-1",
+            recoveryToken: "wp-publish-operation-1",
+            locator: {
+              kind: "workspace",
+              connectionProfileId: "profile-1",
+              workspaceId: "workspace-1",
+              projectId: "project-1",
+              canvasId: "default"
+            },
+            revision: 1,
+            content: {
+              versionId: `version-${"a".repeat(64)}`,
+              canonicalDigest: "a".repeat(64),
+              verification: "complete"
+            },
+            visibility: "private",
+            authoritySwitch: "opened",
+            localSourceRetained: true,
+            candidate: {
+              localProjectId: "project-1",
+              projectName: "Project",
+              canvasId: "default",
+              canvasName: "Default",
+              state: "published_private",
+              visibility: "private",
+              authority: null
+            }
+          }
+        };
+      }
+      if (channel === collaborationInvokeChannels.downloadWorkspaceCanvasFork) {
+        return {
+          ok: true,
+          value: {
+            locator: { kind: "local", projectId: "fork-project", canvasId: "default" },
+            localProjectId: "fork-project",
+            localCanvasId: "default",
+            lineage: {
+              schemaVersion: "workspace-fork-lineage/v1",
+              writeback: false,
+              source: {
+                scope: {
+                  workspaceId: "workspace-1",
+                  projectId: "project-1",
+                  canvasId: "default"
+                },
+                revision: 1,
+                content: {
+                  versionId: `version-${"a".repeat(64)}`,
+                  canonicalDigest: "a".repeat(64),
+                  verification: "complete"
+                }
+              }
+            },
+            writeback: false
+          }
+        };
+      }
       if (channel === collaborationInvokeChannels.listCollaborationMembers) {
         return { ok: true, value: { items: [], nextCursor: null } };
       }
@@ -1095,6 +1161,22 @@ describe("preload bridge invocation", () => {
       workspaceId: "workspace-1",
       projectId: "project-1",
       canvasId: "default"
+    });
+    await api.listWorkspaceCanvasSharingCandidates();
+    await api.publishWorkspaceCanvas({
+      localProjectId: "project-1",
+      canvasId: "default"
+    });
+    await api.downloadWorkspaceCanvasFork({
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+      canvasId: "default",
+      revision: 1,
+      content: {
+        versionId: `version-${"a".repeat(64)}`,
+        canonicalDigest: "a".repeat(64),
+        verification: "complete"
+      }
     });
     await api.mutateCurrentCanvasAccess({
       canvasId: "default",
@@ -1271,6 +1353,27 @@ describe("preload bridge invocation", () => {
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
       collaborationInvokeChannels.bootstrapCollaborationContent,
       { workspaceId: "workspace-1", projectId: "project-1", canvasId: "default" }
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      collaborationInvokeChannels.listWorkspaceCanvasSharingCandidates
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      collaborationInvokeChannels.publishWorkspaceCanvas,
+      { localProjectId: "project-1", canvasId: "default" }
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      collaborationInvokeChannels.downloadWorkspaceCanvasFork,
+      {
+        workspaceId: "workspace-1",
+        projectId: "project-1",
+        canvasId: "default",
+        revision: 1,
+        content: {
+          versionId: `version-${"a".repeat(64)}`,
+          canonicalDigest: "a".repeat(64),
+          verification: "complete"
+        }
+      }
     );
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
       collaborationInvokeChannels.mutateCurrentCanvasAccess,

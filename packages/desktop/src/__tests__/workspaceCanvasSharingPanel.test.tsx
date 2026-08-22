@@ -5,12 +5,67 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PlanWeaveCollaborationApi } from "../shared/collaboration.js";
-import type { WorkspaceCanvasSharingCandidate } from "../shared/workspaceCanvasSharing.js";
+import type {
+  WorkspaceCanvasPublishResult,
+  WorkspaceCanvasSharingCandidate
+} from "../shared/workspaceCanvasSharing.js";
 import { WorkspaceCanvasSharingPanel } from "../renderer/collaboration/WorkspaceCanvasSharingPanel";
 import { createTranslator } from "../renderer/i18n";
 import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
 
 afterEach(() => cleanupRendererTestEnvironment());
+
+const publishedCandidate: WorkspaceCanvasSharingCandidate = {
+  localProjectId: "project-local",
+  projectName: "Local project",
+  canvasId: "default",
+  canvasName: "Default canvas",
+  state: "published_private",
+  visibility: "private",
+  authority: {
+    authoritativeHead: {
+      schemaVersion: "content-version/v1",
+      scope: { workspaceId: "workspace-a", projectId: "project-a", canvasId: "default" },
+      revision: 1,
+      content: {
+        versionId: "version-a",
+        canonicalDigest: "a".repeat(64),
+        verification: "complete"
+      },
+      advancedAt: "2030-01-01T00:00:00.000Z"
+    },
+    localReplica: null,
+    lastAcknowledgement: null,
+    replicaStatus: "snapshot_required",
+    canPublishInitial: false,
+    canMaterialize: true,
+    canRecover: true,
+    offlineWriteReason: null
+  }
+};
+
+const publishedResult: WorkspaceCanvasPublishResult = {
+  outcome: "published",
+  operationId: "publish-operation-1",
+  recoveryToken: "wp-publish-operation-1",
+  locator: {
+    kind: "workspace",
+    connectionProfileId: "profile-a",
+    workspaceId: "workspace-a",
+    projectId: "project-a",
+    canvasId: "default"
+  },
+  revision: 1,
+  content: {
+    versionId: "version-a",
+    canonicalDigest: "a".repeat(64),
+    verification: "complete"
+  },
+  visibility: "private",
+  authoritySwitch: "opened",
+  localSourceRetained: true,
+  candidate: publishedCandidate
+};
 
 describe("WorkspaceCanvasSharingPanel", () => {
   it("does not call a local canvas shared until upload and visibility both say so", async () => {
@@ -54,34 +109,7 @@ describe("WorkspaceCanvasSharingPanel", () => {
             : candidate
         )
       );
-    const publishWorkspaceCanvas = vi.fn().mockResolvedValue({
-      localProjectId: "project-local",
-      projectName: "Local project",
-      canvasId: "default",
-      canvasName: "Default canvas",
-      state: "published_private",
-      visibility: "private",
-      authority: {
-        authoritativeHead: {
-          schemaVersion: "content-version/v1",
-          scope: { workspaceId: "workspace-a", projectId: "project-a", canvasId: "default" },
-          revision: 1,
-          content: {
-            versionId: "version-a",
-            canonicalDigest: "a".repeat(64),
-            verification: "complete"
-          },
-          advancedAt: "2030-01-01T00:00:00.000Z"
-        },
-        localReplica: null,
-        lastAcknowledgement: null,
-        replicaStatus: "snapshot_required",
-        recoveryAction: "fetch_head",
-        canPublishInitial: false,
-        canMaterialize: true,
-        canRecover: true
-      }
-    });
+    const publishWorkspaceCanvas = vi.fn().mockResolvedValue(publishedResult);
     const getCurrentCanvasAccess = vi.fn().mockResolvedValue({
       scope: {
         scopeKind: "canvas",
@@ -165,7 +193,7 @@ describe("WorkspaceCanvasSharingPanel", () => {
       }
     });
     await waitFor(() => expect(localProject.getAllByText("Shared")).not.toHaveLength(0));
-    expect(onPublished).toHaveBeenCalledOnce();
+    expect(onPublished).toHaveBeenCalledWith(publishedResult);
   });
 
   it("ignores a stale candidate response after switching Workspace connections", async () => {
@@ -269,5 +297,81 @@ describe("WorkspaceCanvasSharingPanel", () => {
     expect(within(alert).getByText("registry_request_failed")).toBeVisible();
     expect(within(alert).getByText("default")).toBeVisible();
     expect(api.listWorkspaceCanvasSharingCandidates).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries opening the Workspace locator after Server commit without republishing", async () => {
+    const onPublished = vi.fn();
+    const candidate: WorkspaceCanvasSharingCandidate = {
+      localProjectId: "project-local",
+      projectName: "Local project",
+      canvasId: "default",
+      canvasName: "Default canvas",
+      state: "local_only",
+      visibility: null,
+      authority: null
+    };
+    const publishWorkspaceCanvas = vi.fn().mockResolvedValue({
+      ...publishedResult,
+      authoritySwitch: "retry_open"
+    });
+    const openWorkspaceCanvasSession = vi.fn().mockResolvedValue({
+      locator: publishedResult.locator,
+      status: "accepted",
+      conflict: null,
+      rejectCode: null,
+      replica: null
+    });
+    const api = {
+      listWorkspaceCanvasSharingCandidates: vi
+        .fn()
+        .mockResolvedValueOnce([candidate])
+        .mockResolvedValue([{ ...candidate, state: "published_shared", visibility: "shared" }]),
+      publishWorkspaceCanvas,
+      openWorkspaceCanvasSession,
+      getCurrentCanvasAccess: vi.fn().mockResolvedValue({
+        scope: {
+          scopeKind: "canvas",
+          workspaceId: "workspace-a",
+          projectId: "project-a",
+          canvasId: "default"
+        },
+        projectAclRevision: 3,
+        canvasAclRevision: 4
+      }),
+      mutateCurrentCanvasAccess: vi.fn().mockResolvedValue({
+        status: "applied",
+        aclRevision: 5,
+        updatedAt: "2030-01-01T00:00:00.000Z"
+      })
+    } as unknown as PlanWeaveCollaborationApi;
+
+    render(
+      <WorkspaceCanvasSharingPanel
+        api={api}
+        connected
+        connectionKey="profile-a"
+        onPublished={onPublished}
+        t={createTranslator("en")}
+      />
+    );
+
+    await waitFor(() => expect(api.listWorkspaceCanvasSharingCandidates).toHaveBeenCalledOnce());
+    await userEvent.click(screen.getByTestId("workspace-canvas-sharing-toggle"));
+    await userEvent.click(screen.getByRole("button", { name: "Share canvas" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Open it again without uploading a second copy.");
+    expect(publishWorkspaceCanvas).toHaveBeenCalledOnce();
+    expect(onPublished).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Open Workspace canvas" }));
+    await waitFor(() =>
+      expect(openWorkspaceCanvasSession).toHaveBeenCalledWith(publishedResult.locator)
+    );
+    expect(publishWorkspaceCanvas).toHaveBeenCalledOnce();
+    expect(onPublished).toHaveBeenCalledWith({
+      ...publishedResult,
+      authoritySwitch: "opened"
+    });
   });
 });

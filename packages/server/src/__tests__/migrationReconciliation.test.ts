@@ -182,7 +182,7 @@ describe("collaboration migration reconciliation", () => {
       { name: "canvas-runtime-artifact-grant", versions: [52] },
       { name: "canvas-runtime-status", versions: [53] }
     ]);
-    expect(latestCentralSchemaVersion).toBe(53);
+    expect(latestCentralSchemaVersion).toBe(55);
   });
 
   it("maps a representative v26 project to one stable Workspace and package registry key", async () => {

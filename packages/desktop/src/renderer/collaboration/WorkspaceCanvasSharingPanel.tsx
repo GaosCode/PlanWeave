@@ -2,7 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangleIcon, CheckIcon, ChevronDownIcon, LockIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { PlanWeaveCollaborationApi } from "../../shared/collaboration.js";
-import type { WorkspaceCanvasSharingCandidate } from "../../shared/workspaceCanvasSharing.js";
+import type {
+  WorkspaceCanvasPublishResult,
+  WorkspaceCanvasSharingCandidate
+} from "../../shared/workspaceCanvasSharing.js";
 import type { createTranslator } from "../i18n";
 import { WorkspaceSectionHeader } from "../team/WorkspaceSectionHeader";
 import {
@@ -11,7 +14,7 @@ import {
   logCollaborationRendererError
 } from "./formatCollaborationError";
 
-type WorkspaceCanvasShareStage = "publish" | "visibility" | "verify";
+type WorkspaceCanvasShareStage = "publish" | "visibility" | "verify" | "open";
 
 type WorkspaceCanvasShareError = {
   candidateKey: string;
@@ -27,6 +30,7 @@ function shareStageLabel(
 ): string {
   if (stage === "publish") return t("workspaceCanvasShareStagePublish");
   if (stage === "visibility") return t("workspaceCanvasShareStageVisibility");
+  if (stage === "open") return t("workspaceCanvasShareStageOpen");
   return t("workspaceCanvasShareStageVerify");
 }
 
@@ -36,6 +40,7 @@ function shareStageMessage(
 ): string {
   if (stage === "publish") return t("workspaceCanvasShareFailedPublish");
   if (stage === "visibility") return t("workspaceCanvasShareFailedVisibility");
+  if (stage === "open") return t("workspaceCanvasShareRetryOpen");
   return t("workspaceCanvasShareFailedVerify");
 }
 
@@ -73,7 +78,7 @@ export function WorkspaceCanvasSharingPanel({
   api: PlanWeaveCollaborationApi | null;
   connected: boolean;
   connectionKey: string | null;
-  onPublished?: (candidate: WorkspaceCanvasSharingCandidate) => void;
+  onPublished?: (result: WorkspaceCanvasPublishResult) => void;
   t: ReturnType<typeof createTranslator>;
 }) {
   const [candidates, setCandidates] = useState<WorkspaceCanvasSharingCandidate[]>([]);
@@ -83,6 +88,7 @@ export function WorkspaceCanvasSharingPanel({
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [shareError, setShareError] = useState<WorkspaceCanvasShareError | null>(null);
+  const [pendingOpen, setPendingOpen] = useState<WorkspaceCanvasPublishResult | null>(null);
   const loadRequestIdRef = useRef(0);
 
   const load = useCallback(async (): Promise<WorkspaceCanvasSharingCandidate[]> => {
@@ -111,6 +117,7 @@ export function WorkspaceCanvasSharingPanel({
     setCandidates([]);
     setLoadError(null);
     setShareError(null);
+    setPendingOpen(null);
     void load();
     return () => {
       loadRequestIdRef.current += 1;
@@ -148,17 +155,27 @@ export function WorkspaceCanvasSharingPanel({
     setShareError(null);
     try {
       let updated = candidate;
+      let published: WorkspaceCanvasPublishResult | null = null;
       if (candidate.state === "local_only" || candidate.state === "registered_unpublished") {
-        updated = await api.publishWorkspaceCanvas({
+        published = await api.publishWorkspaceCanvas({
           localProjectId: candidate.localProjectId,
           canvasId: candidate.canvasId
         });
+        updated = published.candidate;
+        if (published.authoritySwitch === "retry_open") {
+          setPendingOpen(published);
+        } else {
+          onPublished?.(published);
+        }
       }
       if (updated.state !== "published_shared") {
         stage = "visibility";
-        const access = await api.getCurrentCanvasAccess({ canvasId: candidate.canvasId });
+        const canvasId =
+          published?.locator.canvasId ?? candidate.authority?.authoritativeHead?.scope.canvasId;
+        if (!canvasId) throw new Error("workspace_canvas_server_identity_missing");
+        const access = await api.getCurrentCanvasAccess({ canvasId });
         const result = await api.mutateCurrentCanvasAccess({
-          canvasId: candidate.canvasId,
+          canvasId,
           request: {
             operation: "visibility",
             scope: access.scope,
@@ -167,6 +184,10 @@ export function WorkspaceCanvasSharingPanel({
           }
         });
         if (result.status !== "applied") throw new Error(result.reason);
+      }
+      if (published?.authoritySwitch === "retry_open") {
+        stage = "open";
+        throw new Error("workspace_canvas_authority_switch_retry");
       }
       stage = "verify";
       const refreshed = await load();
@@ -177,7 +198,6 @@ export function WorkspaceCanvasSharingPanel({
       if (!verified || verified.state !== "published_shared") {
         throw new Error("workspace_canvas_share_not_verified");
       }
-      onPublished?.(verified);
     } catch (cause) {
       logCollaborationRendererError(`workspace_canvas_share.${stage}`, cause);
       await load();
@@ -190,6 +210,30 @@ export function WorkspaceCanvasSharingPanel({
       });
     } finally {
       setBusyKey(null);
+    }
+  };
+
+  const retryOpen = async (candidate: WorkspaceCanvasSharingCandidate): Promise<void> => {
+    if (!api || !pendingOpen) return;
+    const key = `${candidate.localProjectId}\u0000${candidate.canvasId}`;
+    setBusyKey(key);
+    setShareError(null);
+    try {
+      await api.openWorkspaceCanvasSession(pendingOpen.locator);
+      onPublished?.({ ...pendingOpen, authoritySwitch: "opened" });
+      setPendingOpen(null);
+      await load();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "unknown error";
+      setShareError({
+        candidateKey: key,
+        canvasId: candidate.canvasId,
+        canvasName: candidate.canvasName,
+        stage: "open",
+        code: message
+      });
+    } finally {
+      setBusyKey((current) => (current === key ? null : current));
     }
   };
 
@@ -436,6 +480,16 @@ export function WorkspaceCanvasSharingPanel({
                               </dd>
                             </dl>
                           </details>
+                          {shareError.stage === "open" && pendingOpen ? (
+                            <Button
+                              size="sm"
+                              className="mt-2"
+                              disabled={busyKey !== null}
+                              onClick={() => void retryOpen(candidate)}
+                            >
+                              {t("workspaceCanvasRetryOpen")}
+                            </Button>
+                          ) : null}
                         </div>
                       ) : null}
                     </div>

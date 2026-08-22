@@ -47,6 +47,7 @@ import type {
   NotificationItem
 } from "../types";
 import type { CollaborationCanvasPresenceResult } from "../hooks/useCollaborationCanvasPresence";
+import type { WorkspaceCanvasLocator } from "../../shared/canvasLocator";
 import { useProjectWorkspace } from "../ProjectWorkspaceProvider";
 import { queueSettingsConnectionsTab } from "../settings/settingsEntry";
 import type { CollaborationRuntimeAvailabilityView } from "../collaboration/runtimeAvailabilityView";
@@ -90,6 +91,7 @@ export type WorkspaceTabsShellProps = {
     currentName: string
   ) => Promise<void>;
   loadProject: (project: DesktopProjectSummary, canvasId?: string | null) => Promise<void>;
+  openWorkspaceCanvasLocator: (locator: WorkspaceCanvasLocator) => void;
   refreshProjects: (options?: {
     selectProjectId?: string;
     selectCanvasId?: string;
@@ -317,6 +319,9 @@ function PeopleRoute({
           selectCanvasId: result.localCanvasId
         })
       }
+      onWorkspaceCanvasPublished={(locator) => {
+        shell.openWorkspaceCanvasLocator(locator);
+      }}
       collaborationScopeLayout={shell.collaborationScopeLayout}
       onCollaborationScopeLayoutChange={shell.updateCollaborationScopeLayout}
       localInvitationHandoff={localInvitationHandoff}

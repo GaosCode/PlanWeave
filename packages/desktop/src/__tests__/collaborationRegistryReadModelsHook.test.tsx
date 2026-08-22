@@ -287,4 +287,34 @@ describe("useRemoteCanvasWorkspace", () => {
       canvasId: "canvas-a"
     });
   });
+
+  it("keeps an explicitly opened locator before the registry lists the new canvas", async () => {
+    const onWorkspaceLocatorOpened = vi.fn();
+    const api = {
+      listCollaborationAuthorizedProjects: vi.fn(async () => ({ items: [], nextCursor: null })),
+      listCollaborationAuthorizedCanvases: vi.fn(async () => ({ items: [], nextCursor: null }))
+    };
+    const locator = {
+      kind: "workspace" as const,
+      connectionProfileId: "profile-1",
+      workspaceId: "workspace-1",
+      projectId: "project-a",
+      canvasId: "canvas-new"
+    };
+    const { result } = renderHook(() =>
+      useRemoteCanvasWorkspace({
+        activeProjectId: "project-a",
+        connectionProfileId: "profile-1",
+        localProjectId: null,
+        onWorkspaceLocatorOpened,
+        sessionConnected: true,
+        api
+      })
+    );
+
+    await waitFor(() => expect(result.current.phase).toBe("ready"));
+    act(() => result.current.openLocator(locator));
+    expect(result.current.locator).toEqual(locator);
+    expect(onWorkspaceLocatorOpened).toHaveBeenCalledWith(locator);
+  });
 });

@@ -75,6 +75,12 @@ describe("DesktopSettingsStore", () => {
         "collaboration",
         "runtime-availability.json"
       ),
+      collaborationWorkspaceCanvasPublishReceiptsFile: join(
+        home,
+        "desktop",
+        "collaboration",
+        "workspace-canvas-publish-receipts.json"
+      ),
       localCollaborationScopesFile: join(home, "desktop", "collaboration", "local-scopes.json"),
       localCollaborationNetworkFile: join(home, "desktop", "collaboration", "local-network.json"),
       exportedServerDataIdentityFile: join(

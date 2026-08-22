@@ -4,9 +4,9 @@ import { DownloadIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type {
   CollaborationContentBootstrapCandidate,
-  CollaborationContentBootstrapResult,
   PlanWeaveCollaborationApi
 } from "../../shared/collaboration.js";
+import type { WorkspaceCanvasDownloadResult } from "../../shared/workspaceCanvasSharing.js";
 import type { createTranslator } from "../i18n";
 import { WorkspaceSectionHeader } from "../team/WorkspaceSectionHeader";
 import {
@@ -115,7 +115,7 @@ export function ContentAuthorityPanel({
   appearance?: "flat" | "settings";
   diagnosticsEnabled?: boolean;
   onMaterialized?: () => Promise<void>;
-  onReplicaReady?: (result: CollaborationContentBootstrapResult) => Promise<void>;
+  onReplicaReady?: (result: { localProjectId: string; localCanvasId: string }) => Promise<void>;
   t: ReturnType<typeof createTranslator>;
 }) {
   const [model, setModel] = useState<ContentVersionDesktopReadModel | null>(null);
@@ -291,7 +291,10 @@ export function ContentAuthorityPanel({
       ) {
         return;
       }
-      await onReplicaReady?.(result);
+      await onReplicaReady?.({
+        localProjectId: result.localProjectId,
+        localCanvasId: result.localCanvasId
+      });
       setModel(result.authority);
       setInfo(
         result.acknowledgement === "acknowledged"
@@ -305,6 +308,44 @@ export function ContentAuthorityPanel({
         expectedConnectionKey === connectionKeyRef.current
       ) {
         logCollaborationRendererError("contentAuthority.bootstrap", cause);
+        setError(formatContentAuthorityError(t, cause, diagnosticsEnabled));
+      }
+    } finally {
+      if (operation === operationRef.current) setBusy(false);
+    }
+  };
+  const downloadFork = async (candidate: CollaborationContentBootstrapCandidate) => {
+    if (!api) return;
+    const head = candidate.authority.authoritativeHead;
+    if (!head) return;
+    const operation = ++operationRef.current;
+    const expectedConnectionKey = connectionKeyRef.current;
+    setBusy(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const result: WorkspaceCanvasDownloadResult = await api.downloadWorkspaceCanvasFork({
+        workspaceId: candidate.workspaceId,
+        projectId: candidate.projectId,
+        canvasId: candidate.canvasId,
+        revision: head.revision,
+        content: head.content
+      });
+      if (
+        operation !== operationRef.current ||
+        expectedConnectionKey !== connectionKeyRef.current
+      ) {
+        return;
+      }
+      await onReplicaReady?.(result);
+      setInfo(t("contentAuthorityDownloadSuccess"));
+      await loadCandidates();
+    } catch (cause) {
+      if (
+        operation === operationRef.current &&
+        expectedConnectionKey === connectionKeyRef.current
+      ) {
+        logCollaborationRendererError("contentAuthority.downloadFork", cause);
         setError(formatContentAuthorityError(t, cause, diagnosticsEnabled));
       }
     } finally {
@@ -387,19 +428,23 @@ export function ContentAuthorityPanel({
                           String(candidate.authority.authoritativeHead.revision)
                         )
                       : t("contentBootstrapWaitingForOwner")}
-                    {candidate.localReplica ? ` · ${t("contentBootstrapStoredReplica")}` : ""}
+                    {candidate.localReplica
+                      ? ` · ${t("contentBootstrapStoredReplica")}`
+                      : ` · ${t("contentAuthorityDownloadNoWriteback")}`}
                   </p>
                 </div>
                 <Button
                   size="sm"
                   variant={candidate.localReplica ? "outline" : "default"}
                   disabled={busy || !candidate.authority.authoritativeHead}
-                  onClick={() => void bootstrap(candidate)}
+                  onClick={() =>
+                    void (candidate.localReplica ? bootstrap(candidate) : downloadFork(candidate))
+                  }
                 >
                   <DownloadIcon className="mr-1.5 size-3.5" aria-hidden="true" />
                   {candidate.localReplica
                     ? t("contentBootstrapOpenLocal")
-                    : t("contentBootstrapSync")}
+                    : t("contentAuthorityDownloadLocalCopy")}
                 </Button>
               </div>
             ))}

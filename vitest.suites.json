@@ -270,6 +270,7 @@
         "workspaceAgentEndpointOwnerFleet.test.tsx",
         "workspaceAgentEndpointRun.test.tsx",
         "workspaceCanvasSession.test.ts",
+        "workspaceCanvasPublishAuthority.test.ts",
         "workspaceCanvasSharingPanel.test.tsx",
         "workspaceTabsLazyRoutes.test.tsx"
       ],
@@ -294,6 +295,7 @@
         "collaborationIpcTrustMatrix.test.ts",
         "collaborationRemoteOperationsProcess.test.ts",
         "collaborationRuntimeAvailabilityStore.test.ts",
+        "workspaceCanvasPublishReceiptStore.test.ts",
         "collaborationSecurityBoundary.test.ts",
         "collaborationServerE2E.test.ts",
         "contentVersionFacade.test.ts",
@@ -800,6 +802,7 @@
         "containerPrepare.test.ts",
         "contentVersionHttp.test.ts",
         "contentVersionRepository.test.ts",
+        "workspaceCanvasPublish.test.ts",
         "dispatches.test.ts",
         "distributedPackageArtifacts.test.ts",
         "exposureLeaseRepository.test.ts",

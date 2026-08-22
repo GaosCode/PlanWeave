@@ -223,6 +223,15 @@ export function ProjectWorkspaceProvider({
     },
     [remoteWorkspace.select, setActiveView, setSelectedCanvasId, setSelectedProject]
   );
+  const openWorkspaceCanvasLocator = useCallback(
+    (locator: WorkspaceCanvasLocator) => {
+      setSelectedProject(null);
+      setSelectedCanvasId(null);
+      remoteWorkspace.openLocator(locator);
+      setActiveView("graph");
+    },
+    [remoteWorkspace.openLocator, setActiveView, setSelectedCanvasId, setSelectedProject]
+  );
   const canvasLocator = useMemo<CanvasLocator | null>(
     () =>
       remoteWorkspace.locator ??
@@ -1031,6 +1040,7 @@ export function ProjectWorkspaceProvider({
       handleRevealTaskCanvas,
       handleRenameTaskCanvas,
       loadProject: openLocalProject,
+      openWorkspaceCanvasLocator,
       refreshProjects,
       projectLoading: workspaceProjectLoading,
       selectedCanvasId: activeCanvasId,
@@ -1053,6 +1063,7 @@ export function ProjectWorkspaceProvider({
       handleRevealTaskCanvas,
       handleRenameTaskCanvas,
       openLocalProject,
+      openWorkspaceCanvasLocator,
       workspaceProjectLoading,
       refreshProjects,
       activeCanvasId,

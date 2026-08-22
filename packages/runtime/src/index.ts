@@ -169,6 +169,12 @@ export {
   materializeAuthoritativeCanvasContent,
   planManagedProjectFromAuthoritativeContent
 } from "./desktop/contentVersionMaterializer.js";
+export {
+  workspaceForkLineageFileName,
+  workspaceForkLineagePath,
+  workspaceForkLineageSchema,
+  type WorkspaceForkLineage
+} from "./desktop/workspaceForkLineage.js";
 export { validateAuthoritativeCanvasContent } from "./desktop/contentVersionValidation.js";
 export type { ValidatedAuthoritativeCanvasContent } from "./desktop/contentVersionValidation.js";
 export {

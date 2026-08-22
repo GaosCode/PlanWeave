@@ -872,6 +872,10 @@ export class CollaborationService {
     return this.canvasOperations.publishWorkspaceCanvas(input);
   }
 
+  async downloadWorkspaceCanvasFork(input: unknown) {
+    return this.canvasOperations.downloadWorkspaceCanvasFork(input);
+  }
+
   async listMembers(input: unknown = {}): Promise<HumanMemberPage> {
     return this.identityOperations.listMembers(input);
   }

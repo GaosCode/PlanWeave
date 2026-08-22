@@ -114,11 +114,13 @@ import {
 import {
   contentVersionAcknowledgementSchema,
   firstContentVersionPublishResultSchema,
+  workspaceCanvasInitialPublishResultSchema,
   type AuthoritativeContentVersion,
   type CompleteContentVersion,
   type CompletedContentVersionRef,
   type ContentVersionAcknowledgement,
-  type FirstContentVersionPublishResult
+  type FirstContentVersionPublishResult,
+  type WorkspaceCanvasInitialPublishResult
 } from "@planweave-ai/collaboration-protocol/content/version";
 import {
   contentVersionAuthorityDiscoveryResultSchema,
@@ -1040,6 +1042,26 @@ export class CollaborationClient {
           content: input.content
         },
         acceptedStatus: 409
+      }
+    );
+  }
+
+  async publishWorkspaceCanvas(input: {
+    operationId: string;
+    localSource: { localProjectId: string; localCanvasId: string };
+    content: CompleteContentVersion;
+  }): Promise<WorkspaceCanvasInitialPublishResult> {
+    return this.transport.json(
+      "POST",
+      `/api/v1/projects/${encodeURIComponent(this.projectId)}/workspace-canvases/publish`,
+      workspaceCanvasInitialPublishResultSchema,
+      {
+        body: {
+          operationId: input.operationId,
+          localSource: input.localSource,
+          content: input.content
+        },
+        acceptedStatus: [403, 409, 422]
       }
     );
   }

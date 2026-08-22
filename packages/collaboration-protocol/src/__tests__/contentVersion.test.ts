@@ -11,7 +11,9 @@ import {
   contentVersionMaterializeResultSchema,
   firstContentVersionPublishRequestSchema,
   firstContentVersionPublishResultSchema,
-  ownerAuthorizedFirstContentVersionPublishSchema
+  ownerAuthorizedFirstContentVersionPublishSchema,
+  workspaceCanvasInitialPublishRequestSchema,
+  workspaceCanvasInitialPublishResultSchema
 } from "../contentVersion.js";
 import {
   authorizedContentVersionAuthorityDiscoverySchema,
@@ -181,6 +183,49 @@ describe("authoritative content-version contracts", () => {
     expect(() =>
       firstContentVersionPublishRequestSchema.parse({ ...request, expectedHeadRevision: 1 })
     ).toThrow();
+  });
+
+  it("returns workspace scope, revision, operation id, and recovery token for idempotent initial publish", () => {
+    const request = workspaceCanvasInitialPublishRequestSchema.parse({
+      operationId: "publish-op-1",
+      localSource: { localProjectId: "local-project-1", localCanvasId: "default" },
+      content: exampleCompleteContentVersion
+    });
+    expect(request).not.toHaveProperty("canvasId");
+    expect(() =>
+      workspaceCanvasInitialPublishRequestSchema.parse({
+        operationId: "publish-op-1",
+        canvasId: scope.canvasId,
+        content: exampleCompleteContentVersion
+      })
+    ).toThrow();
+    const published = workspaceCanvasInitialPublishResultSchema.parse({
+      outcome: "published",
+      operationId: request.operationId,
+      recoveryToken: "wp-publish-op-1",
+      scope,
+      revision: 1,
+      content,
+      visibility: "private"
+    });
+    expect(published.scope).toEqual(scope);
+    expect(published).not.toHaveProperty("connectionProfileId");
+    expect(
+      workspaceCanvasInitialPublishResultSchema.parse({
+        ...published,
+        outcome: "reused"
+      }).outcome
+    ).toBe("reused");
+    expect(
+      workspaceCanvasInitialPublishResultSchema.parse({
+        outcome: "rejected",
+        reason: "storage_unavailable",
+        retryable: true,
+        detail: "initial_publish_failed",
+        scope: null,
+        recoveryToken: null
+      }).recoveryToken
+    ).toBeNull();
   });
 
   it("makes failed first-head verification headless and retryable with an explicit reason", () => {
