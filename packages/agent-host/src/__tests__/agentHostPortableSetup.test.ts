@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   agentHostSetupHandoffSchema,
@@ -156,6 +156,12 @@ describe("portable Agent Host setup", () => {
       await import("@planweave-ai/agent-host-protocol")
     ).parseAgentHostSetupHandoff(handoff, new Date("2029-01-01"));
     const paths = resolveAgentHostDefaultPaths(handoffInstanceKey(parsedHandoff));
+    const config = configFromAgentHostSetupHandoff(parsedHandoff, {
+      paths,
+      hostDisplayName: "Interrupted fleet host"
+    });
+    await mkdir(dirname(paths.configPath), { recursive: true, mode: 0o700 });
+    await writeFile(paths.configPath, `${JSON.stringify(config)}\n`, { mode: 0o600 });
 
     await expect(
       new AgentHostOperator(null).enrollHandoff(handoff, { installBackground: false })

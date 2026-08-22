@@ -324,7 +324,6 @@ export class AgentHostOperator {
         hostDisplayName: hostname(),
         caCertificatePath: options.caCertificatePath
       });
-      await mkdir(config.workspaceRoot, { recursive: true, mode: 0o700 });
       if (handoff.workspaceId !== undefined) {
         await mkdir(join(config.workspaceRoot, handoff.workspaceId), {
           recursive: true,
@@ -334,6 +333,7 @@ export class AgentHostOperator {
       await writePrivateJsonFile(paths.configPath, config);
       await writeExposedAgentProfileIds(config, []);
     }
+    await mkdir(config.workspaceRoot, { recursive: true, mode: 0o700 });
 
     if (handoff.endpoint.tlsTrust === "configured_ca" && !config.coordinator.caCertificatePath) {
       return {
