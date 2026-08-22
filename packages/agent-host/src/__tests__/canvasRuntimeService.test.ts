@@ -462,7 +462,12 @@ describe("Canvas Runtime Host service", () => {
 
   it("resets Runtime state and rereads the empty-state projection", async () => {
     const { state } = await setup();
-    const workspace = await createTestWorkspace(basicManifest());
+    const manifest = basicManifest();
+    manifest.execution.defaultExecutor = "codex-acp";
+    manifest.executors = {
+      "codex-acp": { adapter: "agent", agent: "codex", runner: { transport: "acp" } }
+    };
+    const workspace = await createTestWorkspace(manifest);
     directories.push(workspace.home, workspace.root);
     const service = new CanvasRuntimeService({
       resolver: resolverWith(async () => ({
@@ -490,6 +495,15 @@ describe("Canvas Runtime Host service", () => {
     if (available.response.result.kind !== "available") {
       throw new Error("reset_availability_required");
     }
+    const runtime = createRemoteBlockRuntimePort({ projectRoot: workspace.init.workspace });
+    const candidate = await runtime.inspect({ ref: "T-001#B-001" });
+    await runtime.claim({
+      ref: "T-001#B-001",
+      operationId: "operation-before-reset",
+      controlPlane: "collaboration",
+      sourceRevision: candidate.sourceRevision,
+      graphFingerprint: candidate.graphFingerprint
+    });
     const evidence = {
       operationId: "operation-reset-1",
       sourceRevision: available.response.result.sourceRevision,
@@ -538,7 +552,10 @@ describe("Canvas Runtime Host service", () => {
     }
     expect(resetResponse.response.result.status).toMatchObject({
       packageFingerprint: evidence.graphFingerprint,
-      scope
+      scope,
+      blocks: expect.arrayContaining([
+        expect.objectContaining({ ref: "T-001#B-001", status: "ready" })
+      ])
     });
     const statusQuery = request("request-reset-status", {
       operation: "reset_status",

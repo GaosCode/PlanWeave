@@ -484,6 +484,7 @@ export class CanvasRuntimeService {
     try {
       await resetRuntimeState({
         projectRoot: resolved.canvas,
+        force: true,
         reason,
         receipt: {
           operationId: operation.evidence.operationId,

@@ -13,7 +13,7 @@ import {
   projectCanvasWorkspace,
   writeProjectGraph
 } from "../../../runtime/src/projectGraph/index.js";
-import { createRemoteBlockRuntimePort } from "@planweave-ai/runtime";
+import { capturePackageSnapshot, createRemoteBlockRuntimePort } from "@planweave-ai/runtime";
 import { writeJsonFile } from "../../../runtime/src/json.js";
 import { createTrustedRuntimeRegistry } from "../runtimeProjectRegistry.js";
 import { createLocalFilesystemCanvasRuntimeAdapter } from "../canvas/localFilesystemRuntimeAdapter.js";
@@ -81,10 +81,37 @@ describe("createTrustedRuntimeRegistry", () => {
     const work = new LocalFilesystemWorkRuntimeFactsAdapter(trusted);
 
     const lease = await execution.acquire(scope);
-    await expect(lease.runtime.inspect({ ref: "T-001#B-001" })).resolves.toMatchObject({
+    const candidate = await lease.runtime.inspect({ ref: "T-001#B-001" });
+    expect(candidate).toMatchObject({
       workspaceId: scope.workspaceId,
       projectId: scope.projectId,
       canvasId: scope.canvasId
+    });
+    await lease.runtime.claim({
+      ref: "T-001#B-001",
+      operationId: "operation-pathless-reset",
+      controlPlane: "collaboration",
+      sourceRevision: candidate.sourceRevision,
+      graphFingerprint: candidate.graphFingerprint
+    });
+    const content = await capturePackageSnapshot({
+      projectRoot: workspace.root,
+      canvasId: scope.canvasId
+    });
+    await expect(
+      lease.reset?.({
+        operationId: "reset-pathless-runtime",
+        expectedSourceRevision: content.snapshot.sourceRevision,
+        expectedGraphFingerprint: candidate.graphFingerprint,
+        reason: "Reset claimed pathless runtime."
+      })
+    ).resolves.toMatchObject({
+      operationId: "reset-pathless-runtime",
+      status: {
+        blocks: expect.arrayContaining([
+          expect.objectContaining({ ref: "T-001#B-001", status: "ready" })
+        ])
+      }
     });
     await lease.release();
     const workItem = {
