@@ -283,9 +283,9 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
   });
 
   it.each([
-    "local",
-    "remote"
-  ] as const)("blocks %s endpoint work before preview or dispatch when the Server is disconnected", async (source) => {
+    ["local", true],
+    ["remote", false]
+  ] as const)("routes %s endpoint work by its plan when the Server is disconnected", async (source, runsLocally) => {
     const setError = vi.fn();
     const lifecycle = { onStarted: vi.fn(), onCompleted: vi.fn(), onFailed: vi.fn() };
     const previewClaimNext = vi.fn();
@@ -307,7 +307,16 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
         agentEndpoints: [endpoint],
         collaborationController: { ensureWorkAuthority: vi.fn() },
         graph,
-        preferences: {},
+        preferences:
+          source === "remote"
+            ? {
+                [agentEndpointPreferenceKey({
+                  projectRoot: project.rootPath,
+                  canvasId: "canvas-main",
+                  scope: { kind: "task", taskId: "T-001" }
+                })]: { kind: "remote", remoteEndpointId: "endpoint-windows" }
+              }
+            : {},
         selectedCanvasId: "canvas-main",
         selectedProject: project,
         runtimeAvailability: { kind: "server_disconnected" },
@@ -327,9 +336,17 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
     await act(() => hook.result.current({ kind: "project" }));
 
     expect(previewClaimNext).not.toHaveBeenCalled();
-    expect(startLocal).not.toHaveBeenCalled();
+    if (runsLocally) {
+      expect(startLocal).toHaveBeenCalledWith({ kind: "project" });
+    } else {
+      expect(startLocal).not.toHaveBeenCalled();
+    }
     expect(dispatchCollaborationRemoteOperation).not.toHaveBeenCalled();
-    expect(setError).toHaveBeenCalledWith("collaboration_server_disconnected");
+    if (runsLocally) {
+      expect(setError).not.toHaveBeenCalled();
+    } else {
+      expect(setError).toHaveBeenCalledWith("collaboration_server_disconnected");
+    }
   });
 
   it("routes an explicitly selected remote Agent when canvas state is known without an attached Runtime", async () => {

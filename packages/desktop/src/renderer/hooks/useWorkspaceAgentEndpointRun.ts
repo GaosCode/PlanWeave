@@ -154,18 +154,6 @@ export function useWorkspaceAgentEndpointRun(
   return useCallback(
     async (scope: DesktopAutoRunScope, startLocal: LocalAutoRunScopeStarter, lifecycle) => {
       if (!input.graph || !input.selectedCanvasId) return;
-      if (input.selectedProject && !input.canvasBinding) {
-        await startLocal(scope);
-        return;
-      }
-      if (!collaborationRuntimeOperationsAllowed(input.runtimeAvailability)) {
-        const message =
-          collaborationRuntimeUnavailableCode(input.runtimeAvailability) ??
-          "collaboration_runtime_unavailable";
-        input.setError(message);
-        lifecycle?.onFailed(message);
-        return;
-      }
       const plan = createAgentEndpointRunPlan({
         graph: input.graph,
         scope,
@@ -192,6 +180,14 @@ export function useWorkspaceAgentEndpointRun(
           return;
         }
         await startLocal(plan.scope);
+        return;
+      }
+      if (!collaborationRuntimeOperationsAllowed(input.runtimeAvailability)) {
+        const message =
+          collaborationRuntimeUnavailableCode(input.runtimeAvailability) ??
+          "collaboration_runtime_unavailable";
+        input.setError(message);
+        lifecycle?.onFailed(message);
         return;
       }
       const usesRemoteEndpoint =

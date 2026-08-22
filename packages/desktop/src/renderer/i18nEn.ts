@@ -1829,7 +1829,7 @@ export const enCatalog = {
   collaborationRuntimeHostOffline:
     "Workspace execution is offline · viewing and editing remain available",
   collaborationRuntimeContentOutOfSync: "Workspace execution content is not current",
-  collaborationRuntimeStatusUnavailable: "Workspace execution status unknown",
+  collaborationRuntimeStatusUnavailable: "Runtime status unknown",
   canvasCommandUnsupportedLocalOnly:
     "This edit is not available for a Workspace Canvas. Use a supported Workspace command.",
   localServerTitle: "Canvases hosted on this computer",

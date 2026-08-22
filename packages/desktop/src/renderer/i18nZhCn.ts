@@ -1717,7 +1717,7 @@ export const zhCnCatalog = {
   collaborationRuntimeStateUninitialized: "Workspace 执行状态尚未初始化",
   collaborationRuntimeHostOffline: "Workspace 执行已离线 · 仍可查看和编辑",
   collaborationRuntimeContentOutOfSync: "Workspace 执行内容不是最新版本",
-  collaborationRuntimeStatusUnavailable: "Workspace 执行状态未知",
+  collaborationRuntimeStatusUnavailable: "运行状态未知",
   canvasCommandUnsupportedLocalOnly: "Workspace 画布不支持此编辑。请改用受支持的 Workspace 命令。",
   localServerTitle: "本机托管画布",
   localServerDescription: "配置由这台电脑提供的画布；此操作不会把画布发布到远程 Workspace Server。",
