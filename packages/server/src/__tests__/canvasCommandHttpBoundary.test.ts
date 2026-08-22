@@ -48,8 +48,8 @@ describe("canvas command service (OSS-004 B-002)", () => {
       routeCanvasCommandHttp(
         { method: "POST" } as IncomingMessage,
         "/api/v1/projects/p/canvases/default/runtime-status/import"
-      )?.kind
-    ).toBe("runtime_status_import");
+      )
+    ).toBeUndefined();
     expect(
       routeCanvasCommandHttp(
         { method: "POST" } as IncomingMessage,

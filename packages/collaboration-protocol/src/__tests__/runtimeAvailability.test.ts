@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   canvasRuntimeAvailabilitySchema,
-  canvasRuntimeExecutionAvailabilitySchema,
-  importCanvasRuntimeStatusRequestSchema
+  canvasRuntimeExecutionAvailabilitySchema
 } from "../runtimeAvailability.js";
 
 const fingerprint = `pkg-${"a".repeat(64)}`;
@@ -42,7 +41,7 @@ describe("canvas runtime availability", () => {
     expect(parsed.execution.kind).toBe("unavailable");
   });
 
-  it("represents a legacy canvas whose Server state has not been imported", () => {
+  it("represents a canvas whose Server state has not been initialized", () => {
     expect(
       canvasRuntimeAvailabilitySchema.parse({
         schemaVersion: "canvas-runtime-view/v1",
@@ -66,14 +65,6 @@ describe("canvas runtime availability", () => {
         graphFingerprint: fingerprint
       })
     ).toMatchObject({ kind: "available", graphFingerprint: fingerprint });
-  });
-
-  it("accepts a strict first-import request and rejects path leakage", () => {
-    expect(importCanvasRuntimeStatusRequestSchema.parse({ status })).toEqual({ status });
-    expect(
-      importCanvasRuntimeStatusRequestSchema.safeParse({ status, projectRoot: "/private/project" })
-        .success
-    ).toBe(false);
   });
 
   it("rejects an execution-only payload as the shared Runtime view", () => {

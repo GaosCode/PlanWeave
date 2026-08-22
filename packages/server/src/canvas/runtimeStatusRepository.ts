@@ -10,8 +10,6 @@ import {
 } from "@planweave-ai/collaboration-protocol/core/primitives";
 import { inWriteTransaction, type SqliteDatabase } from "../sqlite.js";
 
-type RuntimeStatusOrigin = "import" | "execution";
-
 type CanvasRuntimeStatusCommittedListener = (snapshot: CanvasRuntimeStatusSnapshot) => void;
 
 function sameScope(left: CanvasScopeRef, right: CanvasScopeRef): boolean {
@@ -57,27 +55,12 @@ export class CanvasRuntimeStatusRepository {
     return parseSnapshot(status, Number(row.runtime_revision));
   }
 
-  initialize(rawStatus: CanvasRuntimeStatusProjection): CanvasRuntimeStatusSnapshot {
-    const status = canvasRuntimeStatusProjectionSchema.parse(rawStatus);
-    return inWriteTransaction(this.database, () => {
-      const existing = this.read(status.scope);
-      if (existing) {
-        if (JSON.stringify(existing.status) !== JSON.stringify(status)) {
-          throw new Error("canvas_runtime_status_already_initialized");
-        }
-        return existing;
-      }
-      this.write(status, "import", false, 1);
-      return this.readCommitted(status.scope);
-    });
-  }
-
   replaceFromExecution(rawStatus: CanvasRuntimeStatusProjection): CanvasRuntimeStatusSnapshot {
     const status = canvasRuntimeStatusProjectionSchema.parse(rawStatus);
     return inWriteTransaction(this.database, () => {
       const existing = this.read(status.scope);
       const runtimeRevision = existing ? existing.runtimeRevision + 1 : 1;
-      this.write(status, "execution", true, runtimeRevision);
+      this.write(status, runtimeRevision);
       return this.readCommitted(status.scope);
     });
   }
@@ -89,32 +72,17 @@ export class CanvasRuntimeStatusRepository {
     return snapshot;
   }
 
-  private write(
-    status: CanvasRuntimeStatusProjection,
-    origin: RuntimeStatusOrigin,
-    replace: boolean,
-    runtimeRevision: number
-  ): void {
+  private write(status: CanvasRuntimeStatusProjection, runtimeRevision: number): void {
     const values = [
       status.scope.workspaceId,
       status.scope.projectId,
       status.scope.canvasId,
       status.packageFingerprint,
       JSON.stringify(status),
-      origin,
+      "execution",
       this.clock().toISOString(),
       runtimeRevision
     ] as const;
-    if (!replace) {
-      this.database
-        .prepare(
-          `INSERT INTO canvas_runtime_status_snapshots(
-             workspace_id,project_id,canvas_id,package_fingerprint,status_json,origin,updated_at,runtime_revision
-           ) VALUES(?,?,?,?,?,?,?,?)`
-        )
-        .run(...values);
-      return;
-    }
     this.database
       .prepare(
         `INSERT INTO canvas_runtime_status_snapshots(

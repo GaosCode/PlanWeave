@@ -74,10 +74,3 @@ export const canvasRuntimeAvailabilitySchema = z
   })
   .strict();
 export type CanvasRuntimeAvailability = z.infer<typeof canvasRuntimeAvailabilitySchema>;
-
-export const importCanvasRuntimeStatusRequestSchema = z
-  .object({ status: canvasRuntimeStatusProjectionSchema })
-  .strict();
-export type ImportCanvasRuntimeStatusRequest = z.infer<
-  typeof importCanvasRuntimeStatusRequestSchema
->;

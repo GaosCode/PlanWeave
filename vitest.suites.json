@@ -860,7 +860,6 @@
         "runtimeArtifactGrantRepository.test.ts",
         "runtimeCompositionBoundary.test.ts",
         "runtimeHostLocator.test.ts",
-        "runtimeInvalidationComposition.test.ts",
         "runtimeProjectRegistry.test.ts",
         "runtimeRpcBroker.test.ts",
         "runtimeRpcWebSocket.test.ts",

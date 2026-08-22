@@ -1,7 +1,6 @@
 import {
   canvasRuntimeAvailabilitySchema,
   canvasRuntimeExecutionAvailabilitySchema,
-  importCanvasRuntimeStatusRequestSchema,
   type CanvasRuntimeAvailability,
   type CanvasRuntimeExecutionAvailability
 } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
@@ -10,7 +9,7 @@ import type { CollaborationAuthContext } from "../identity/auth.js";
 import type { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import type { ProjectAccessRepository } from "../projectAccessRepository.js";
 import type { ContentAuthorityStore } from "./contentAuthorityStore.js";
-import { authorizeCanvasCommand, authorizeCanvasContent } from "./policy.js";
+import { authorizeCanvasContent } from "./policy.js";
 import type { CanvasRuntimeAvailabilityPort } from "./runtimePort.js";
 import { readStableCanvasContentFingerprint } from "./contentFingerprint.js";
 import type { CanvasRuntimeStatusRepository } from "./runtimeStatusRepository.js";
@@ -55,7 +54,7 @@ export class CanvasRuntimeAvailabilityService {
     actor: CollaborationAuthContext,
     input: { projectId: string; canvasId: string }
   ): Promise<CanvasRuntimeAvailability> {
-    const scope = this.authorize(actor, input, false);
+    const scope = this.authorize(actor, input);
     const contentFingerprint = this.contentFingerprint(scope);
     const stored = this.options.runtimeStatuses.read(scope);
     const state =
@@ -87,30 +86,11 @@ export class CanvasRuntimeAvailabilityService {
     });
   }
 
-  importInitial(
-    actor: CollaborationAuthContext,
-    input: { projectId: string; canvasId: string; body: unknown }
-  ): CanvasRuntimeAvailability["state"] {
-    const scope = this.authorize(actor, input, true);
-    const { status } = importCanvasRuntimeStatusRequestSchema.parse(input.body);
-    if (!sameScope(status.scope, scope)) throw new Error("canvas_runtime_status_scope_mismatch");
-    if (status.packageFingerprint !== this.contentFingerprint(scope)) {
-      throw new Error("canvas_runtime_status_content_out_of_sync");
-    }
-    const snapshot = this.options.runtimeStatuses.initialize(status);
-    return {
-      kind: "initialized",
-      runtimeRevision: snapshot.runtimeRevision,
-      status: snapshot.status
-    };
-  }
-
   private authorize(
     actor: CollaborationAuthContext,
-    input: { projectId: string; canvasId: string },
-    write: boolean
+    input: { projectId: string; canvasId: string }
   ) {
-    const authorization = (write ? authorizeCanvasCommand : authorizeCanvasContent)({
+    const authorization = authorizeCanvasContent({
       actor,
       projectId: input.projectId,
       canvasId: input.canvasId,

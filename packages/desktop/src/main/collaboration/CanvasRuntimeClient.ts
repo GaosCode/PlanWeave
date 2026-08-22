@@ -1,10 +1,6 @@
 import {
   canvasRuntimeAvailabilitySchema,
-  canvasRuntimeStateAvailabilitySchema,
-  importCanvasRuntimeStatusRequestSchema,
-  type CanvasRuntimeAvailability,
-  type CanvasRuntimeStateAvailability,
-  type ImportCanvasRuntimeStatusRequest
+  type CanvasRuntimeAvailability
 } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import {
   canvasRuntimeResetOutcomeSchema,
@@ -28,18 +24,6 @@ export class CanvasRuntimeClient {
       `/api/v1/projects/${encodeURIComponent(this.projectId)}/canvases/${encodeURIComponent(canvasId)}/runtime-availability`,
       canvasRuntimeAvailabilitySchema,
       { signal }
-    );
-  }
-
-  importStatus(
-    canvasId: string,
-    input: ImportCanvasRuntimeStatusRequest
-  ): Promise<CanvasRuntimeStateAvailability> {
-    return this.transport.json(
-      "POST",
-      `/api/v1/projects/${encodeURIComponent(this.projectId)}/canvases/${encodeURIComponent(canvasId)}/runtime-status/import`,
-      canvasRuntimeStateAvailabilitySchema,
-      { body: importCanvasRuntimeStatusRequestSchema.parse(input) }
     );
   }
 

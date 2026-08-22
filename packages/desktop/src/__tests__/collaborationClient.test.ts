@@ -456,38 +456,6 @@ describe("CollaborationClient", () => {
     client.dispose();
   });
 
-  it("imports one strict local Runtime status through the dedicated endpoint", async () => {
-    const status = {
-      schemaVersion: "canvas-runtime-status/v2" as const,
-      scope: {
-        workspaceId: "workspace-demo-001",
-        projectId: "project-demo-001",
-        canvasId: "canvas-demo-001"
-      },
-      packageFingerprint: `pkg-${"a".repeat(64)}`,
-      capturedAt: "2026-08-21T00:00:00.000Z",
-      tasks: [],
-      blocks: []
-    };
-    const fixture = await listen(async (req, res) => {
-      expect(req.method).toBe("POST");
-      expect(req.url).toBe(
-        "/api/v1/projects/project-demo-001/canvases/canvas-demo-001/runtime-status/import"
-      );
-      expect(JSON.parse((await readBody(req)).toString("utf8"))).toEqual({ status });
-      json(res, 200, { kind: "initialized", runtimeRevision: 1, status });
-    });
-    cleanups.push(fixture.close);
-    const client = clientFor(fixture.origin, { token: exampleHumanDeviceToken });
-
-    await expect(client.importRuntimeStatus("canvas-demo-001", { status })).resolves.toEqual({
-      kind: "initialized",
-      runtimeRevision: 1,
-      status
-    });
-    client.dispose();
-  });
-
   it("sends one strict Workspace Runtime reset and parses structured failures", async () => {
     const request = {
       operationId: "reset-1",

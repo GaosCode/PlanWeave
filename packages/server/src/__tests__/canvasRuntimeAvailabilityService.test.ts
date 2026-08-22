@@ -71,7 +71,7 @@ async function setup(runtimeAvailability?: CanvasRuntimeAvailabilityPort) {
 }
 
 describe("CanvasRuntimeAvailabilityService", () => {
-  it("keeps shared state uninitialized until an explicit import", async () => {
+  it("keeps shared state uninitialized until an authoritative execution result", async () => {
     const { service, fingerprint, readAvailability } = await setup();
 
     await expect(
@@ -98,7 +98,7 @@ describe("CanvasRuntimeAvailabilityService", () => {
         };
       }
     });
-    runtimeStatuses.initialize(status(fingerprint));
+    runtimeStatuses.replaceFromExecution(status(fingerprint));
 
     await expect(
       service.read(actor("viewer"), { projectId: "p", canvasId: "default" })
@@ -117,7 +117,7 @@ describe("CanvasRuntimeAvailabilityService", () => {
     const { service, fingerprint, runtimeStatuses } = await setup(
       availablePort(`pkg-${"c".repeat(64)}`)
     );
-    runtimeStatuses.initialize(status(fingerprint));
+    runtimeStatuses.replaceFromExecution(status(fingerprint));
 
     await expect(
       service.read(actor("viewer"), { projectId: "p", canvasId: "default" })
@@ -130,37 +130,6 @@ describe("CanvasRuntimeAvailabilityService", () => {
         reason: "content_out_of_sync"
       }
     });
-  });
-
-  it("imports an exact status once and never overwrites an initialized Server state", async () => {
-    const { service, fingerprint, database } = await setup();
-    const imported = status(fingerprint);
-
-    expect(
-      service.importInitial(actor("owner"), {
-        projectId: "p",
-        canvasId: "default",
-        body: { status: imported }
-      })
-    ).toEqual({ kind: "initialized", runtimeRevision: 1, status: imported });
-    expect(() =>
-      service.importInitial(actor("owner"), {
-        projectId: "p",
-        canvasId: "default",
-        body: {
-          status: { ...imported, capturedAt: "2026-01-03T00:00:00.000Z" }
-        }
-      })
-    ).toThrow("canvas_runtime_status_already_initialized");
-    expect(
-      database
-        .prepare(
-          `SELECT event_json FROM human_observer_events
-            WHERE json_extract(event_json, '$.kind') = 'runtime'`
-        )
-        .all()
-        .map((row) => JSON.parse(String(row.event_json)))
-    ).toEqual([{ kind: "runtime", canvasId: "default", runtimeRevision: 1 }]);
   });
 
   it("keeps cross-scope and ACL failures outside the Runtime view", async () => {

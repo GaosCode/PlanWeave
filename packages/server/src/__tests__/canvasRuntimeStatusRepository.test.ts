@@ -31,20 +31,10 @@ async function repository() {
 }
 
 describe("CanvasRuntimeStatusRepository", () => {
-  it("initializes idempotently but refuses a different legacy snapshot", async () => {
-    const statuses = await repository();
-    const initial = status("2026-08-20T00:00:00.000Z");
-
-    expect(statuses.initialize(initial)).toEqual({ runtimeRevision: 1, status: initial });
-    expect(statuses.initialize(initial)).toEqual({ runtimeRevision: 1, status: initial });
-    expect(() => statuses.initialize(status("2026-08-21T00:00:00.000Z"))).toThrow(
-      "canvas_runtime_status_already_initialized"
-    );
-  });
-
   it("allows an execution result to replace the authoritative projection", async () => {
     const statuses = await repository();
-    statuses.initialize(status("2026-08-20T00:00:00.000Z"));
+    const initial = status("2026-08-20T00:00:00.000Z");
+    expect(statuses.replaceFromExecution(initial)).toEqual({ runtimeRevision: 1, status: initial });
 
     const refreshed = status("2026-08-21T00:00:00.000Z");
     expect(statuses.replaceFromExecution(refreshed)).toEqual({
@@ -70,7 +60,7 @@ describe("CanvasRuntimeStatusRepository", () => {
       throw new Error("simulated_invalidation_failure");
     });
 
-    expect(() => statuses.initialize(status("2026-08-20T00:00:00.000Z"))).toThrow(
+    expect(() => statuses.replaceFromExecution(status("2026-08-20T00:00:00.000Z"))).toThrow(
       "simulated_invalidation_failure"
     );
     expect(statuses.read(scope)).toBeNull();
