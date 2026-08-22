@@ -1,13 +1,10 @@
-import type {
-  CanvasRuntimeAvailability,
-  CanvasRuntimeStateAvailability
-} from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
+import type { CanvasRuntimeAvailability } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import {
   canvasRuntimeResetRequestSchema,
   type CanvasRuntimeResetOutcome
 } from "@planweave-ai/collaboration-protocol/canvas/runtime-control";
 import { z } from "zod";
-import type { CollaborationCanvasBindingInput } from "./collaborationCanvasBinding.js";
+import type { RemoteCollaborationCanvasBindingInput } from "./collaborationCanvasBinding.js";
 import { workspaceCanvasLocatorSchema } from "./canvasLocator.js";
 
 export const workspaceCanvasRuntimeResetRequestSchema = canvasRuntimeResetRequestSchema.omit({
@@ -29,11 +26,8 @@ export type WorkspaceCanvasRuntimeResetInput = z.infer<
 
 export type PlanWeaveCollaborationRuntimeAvailabilityApi = {
   readCollaborationCanvasBindingRuntimeAvailability: (
-    input: CollaborationCanvasBindingInput
+    input: RemoteCollaborationCanvasBindingInput
   ) => Promise<CanvasRuntimeAvailability | null>;
-  importCollaborationLocalRuntimeStatus: (
-    input: CollaborationCanvasBindingInput
-  ) => Promise<CanvasRuntimeStateAvailability | null>;
   resetWorkspaceCanvasRuntime: (
     input: WorkspaceCanvasRuntimeResetInput
   ) => Promise<CanvasRuntimeResetOutcome>;

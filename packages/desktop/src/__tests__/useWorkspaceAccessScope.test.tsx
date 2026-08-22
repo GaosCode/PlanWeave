@@ -54,38 +54,43 @@ const accessView: CurrentCanvasAccessView = {
 describe("useWorkspaceAccessScope", () => {
   it("loads a Workspace scope independently of the sidebar selection", async () => {
     const getCurrentCanvasAccess = vi.fn().mockResolvedValue(accessView);
+    const updatedAt = "2026-08-22T00:00:00.000Z";
     const api: WorkspaceAccessScopeApi = {
-      listCollaborationContentBootstrapCandidates: vi.fn().mockResolvedValue([
-        {
-          workspaceId: "workspace-1",
-          projectId: "remote-project",
-          canvasId: "remote-canvas",
-          visibility: "shared",
-          authority: {
-            authoritativeHead: null,
-            localReplica: null,
-            replicaStatus: "snapshot_required"
-          },
-          localReplica: { projectId: "local-project", canvasId: "local-canvas" }
-        }
-      ]),
-      getLocalCollaborationScopeCatalog: vi.fn().mockResolvedValue({
-        projects: [
+      listCollaborationAuthorizedProjects: vi.fn().mockResolvedValue({
+        items: [
           {
-            projectId: "local-project",
-            name: "PlanWeave",
-            selectedCanvasCount: 1,
-            canvases: [
-              {
-                canvasId: "local-canvas",
-                name: "Task canvas",
-                selected: true,
-                current: false
-              }
-            ]
+            schemaVersion: "project-access/v1",
+            registry: {
+              projectRegistryId: "registry-project-1",
+              workspaceId: "workspace-1",
+              projectId: "remote-project"
+            },
+            visibility: "private",
+            acl: { revision: 1, updatedAt },
+            owner: "principal-1",
+            updatedAt
           }
         ],
-        selectedCount: 1
+        nextCursor: null
+      }),
+      listCollaborationAuthorizedCanvases: vi.fn().mockResolvedValue({
+        items: [
+          {
+            schemaVersion: "project-access/v1",
+            registry: {
+              projectRegistryId: "registry-project-1",
+              canvasRegistryId: "registry-canvas-1",
+              workspaceId: "workspace-1",
+              projectId: "remote-project",
+              canvasId: "remote-canvas"
+            },
+            visibility: "shared",
+            acl: { revision: 2, updatedAt },
+            owner: "principal-1",
+            updatedAt
+          }
+        ],
+        nextCursor: null
       }),
       getCurrentCanvasAccess,
       mutateCurrentCanvasAccess: vi.fn()
@@ -96,6 +101,7 @@ describe("useWorkspaceAccessScope", () => {
         api,
         connectionKey: "profile-1",
         status: {
+          profiles: [{ profileId: "profile-1", projectId: "remote-project" }],
           session: { phase: "connected" },
           workspaceConnection: { status: "connected" }
         }
@@ -109,8 +115,8 @@ describe("useWorkspaceAccessScope", () => {
         key: "remote-project\0remote-canvas",
         projectId: "remote-project",
         canvasId: "remote-canvas",
-        projectLabel: "PlanWeave",
-        canvasLabel: "Task canvas"
+        projectLabel: "remote-project",
+        canvasLabel: "remote-canvas"
       }
     ]);
     expect(result.current.selectedKey).toBe("remote-project\0remote-canvas");

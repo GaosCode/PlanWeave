@@ -2,7 +2,7 @@ import type { DesktopBridgeApi, RunnerRecordReadModel } from "@planweave-ai/runt
 import { useCallback, useMemo, useState } from "react";
 import { vi } from "vitest";
 import type { AppViewHistoryController } from "../../renderer/hooks/useAppViewHistory";
-import type { SharedCanvasCommandsResult } from "../../renderer/hooks/useSharedCanvasCommands";
+import type { WorkspaceCanvasCommandsResult } from "../../renderer/hooks/useWorkspaceCanvasCommands";
 import {
   taskWorkspaceNavigationIdentity,
   type TaskWorkspaceNavigationIdentity,
@@ -197,7 +197,7 @@ function controllerApi(options: { readModel: (recordId: string) => RunnerRecordR
 function useControllerHarness(
   api: ReturnType<typeof controllerApi>["api"],
   initialNavigation = navigation(),
-  sharedCanvas: SharedCanvasCommandsResult | null = null,
+  workspaceCanvas: WorkspaceCanvasCommandsResult | null = null,
   endpoints: readonly AvailableAgentEndpoint[] = agentEndpointCatalog
 ) {
   const [currentNavigation, setCurrentNavigation] = useState(initialNavigation);
@@ -225,7 +225,7 @@ function useControllerHarness(
     api,
     history,
     saveAgentEndpointPreference,
-    sharedCanvas
+    workspaceCanvas
   });
 }
 

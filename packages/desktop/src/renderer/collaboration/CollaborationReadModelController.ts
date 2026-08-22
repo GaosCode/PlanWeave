@@ -738,7 +738,7 @@ export class CollaborationReadModelController {
         }
         return "applied";
       case "canvas":
-        // Durable canvas reconciliation is owned by useSharedCanvasCommands.
+        // Durable canvas reconciliation is owned by useWorkspaceCanvasCommands.
         return "applied";
       default:
         return "applied";

@@ -7,8 +7,8 @@ import type { CollaborationObserverSignal } from "../shared/collaborationReadMod
 import { graph as graphFixture } from "./helpers/graphFixtures";
 import {
   COLLABORATION_RUNTIME_AVAILABILITY_POLL_MS,
-  useCollaborationRuntimeAvailability
-} from "../renderer/hooks/useCollaborationRuntimeAvailability";
+  useWorkspaceRuntimeAvailability
+} from "../renderer/hooks/useWorkspaceRuntimeAvailability";
 
 const scope = { workspaceId: "w", projectId: "remote-project", canvasId: "default" };
 const graph = {
@@ -130,7 +130,6 @@ function api(
   return {
     getCollaborationStatus: vi.fn().mockResolvedValue(initialObserverStatus),
     readCollaborationCanvasBindingRuntimeAvailability: read,
-    resolveCollaborationCanvasBindingScope: vi.fn().mockResolvedValue(scope),
     onCollaborationObserverSignal: vi.fn(
       (listener: (signal: CollaborationObserverSignal) => void) => {
         observerListener = listener;
@@ -174,7 +173,7 @@ describe("Workspace Runtime observer refresh", () => {
     vi.useFakeTimers();
     const read = vi.fn().mockResolvedValue(available);
     const bridge = api(read);
-    renderHook(() => useCollaborationRuntimeAvailability(hookInput(bridge)));
+    renderHook(() => useWorkspaceRuntimeAvailability(hookInput(bridge)));
     await settle();
 
     await act(async () => {
@@ -189,7 +188,7 @@ describe("Workspace Runtime observer refresh", () => {
     vi.useFakeTimers();
     const read = vi.fn().mockResolvedValueOnce(available).mockResolvedValueOnce(runtimeView(2));
     const bridge = api(read);
-    const { result } = renderHook(() => useCollaborationRuntimeAvailability(hookInput(bridge)));
+    const { result } = renderHook(() => useWorkspaceRuntimeAvailability(hookInput(bridge)));
     await settle();
 
     act(() => bridge.emitObserver(runtimeEvent(2)));
@@ -210,7 +209,7 @@ describe("Workspace Runtime observer refresh", () => {
       .mockResolvedValueOnce(runtimeView(2))
       .mockResolvedValueOnce(runtimeView(3));
     const bridge = api(read);
-    renderHook(() => useCollaborationRuntimeAvailability(hookInput(bridge)));
+    renderHook(() => useWorkspaceRuntimeAvailability(hookInput(bridge)));
     await settle();
 
     act(() => bridge.emitObserver(runtimeEvent(2)));
@@ -233,7 +232,7 @@ describe("Workspace Runtime observer refresh", () => {
     });
     const read = vi.fn().mockResolvedValueOnce(available).mockReturnValueOnce(pendingRead);
     const bridge = api(read);
-    const { result } = renderHook(() => useCollaborationRuntimeAvailability(hookInput(bridge)));
+    const { result } = renderHook(() => useWorkspaceRuntimeAvailability(hookInput(bridge)));
     await settle();
 
     act(() => bridge.emitObserver(runtimeEvent(2)));
@@ -253,7 +252,7 @@ describe("Workspace Runtime observer refresh", () => {
     vi.useFakeTimers();
     const read = vi.fn().mockResolvedValue(available);
     const bridge = api(read);
-    renderHook(() => useCollaborationRuntimeAvailability(hookInput(bridge)));
+    renderHook(() => useWorkspaceRuntimeAvailability(hookInput(bridge)));
     await settle();
 
     act(() => {
@@ -284,7 +283,7 @@ describe("Workspace Runtime observer refresh", () => {
       .mockRejectedValueOnce(new Error("observer_unavailable"))
       .mockResolvedValue(available);
     const bridge = api(read, observerStatus("observer:reconnecting:attempt=1:delay_ms=1000"));
-    const { result } = renderHook(() => useCollaborationRuntimeAvailability(hookInput(bridge)));
+    const { result } = renderHook(() => useWorkspaceRuntimeAvailability(hookInput(bridge)));
     await settle();
 
     await act(async () => {
@@ -316,7 +315,7 @@ describe("Workspace Runtime observer refresh", () => {
       .mockRejectedValueOnce(new Error("runtime_read_failed"))
       .mockResolvedValueOnce(runtimeView(2));
     const bridge = api(read);
-    const { result } = renderHook(() => useCollaborationRuntimeAvailability(hookInput(bridge)));
+    const { result } = renderHook(() => useWorkspaceRuntimeAvailability(hookInput(bridge)));
     await settle();
 
     act(() => bridge.emitObserver(runtimeEvent(2)));
@@ -346,7 +345,7 @@ describe("Workspace Runtime observer refresh", () => {
   it("ignores invalidations from another profile, project, or canvas", async () => {
     const read = vi.fn().mockResolvedValue(available);
     const bridge = api(read);
-    renderHook(() => useCollaborationRuntimeAvailability(hookInput(bridge)));
+    renderHook(() => useWorkspaceRuntimeAvailability(hookInput(bridge)));
     await settle();
 
     act(() => {

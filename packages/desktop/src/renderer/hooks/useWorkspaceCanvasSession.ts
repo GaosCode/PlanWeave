@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CanvasCommandIntent } from "@planweave-ai/collaboration-protocol/canvas/commands";
-import type { CanvasCommandLabels } from "../collaboration/CanvasCommandController";
-import type { CanvasCommandControllerSnapshot } from "../collaboration/CanvasCommandController";
+import type {
+  WorkspaceCanvasCommandLabels,
+  WorkspaceCanvasCommandSnapshot
+} from "../collaboration/workspaceCanvasCommandView";
 import type { CollaborationCanvasBindingReplicaProjection } from "../../shared/canvasReplicaIpc";
 import type { WorkspaceCanvasLocator } from "../../shared/canvasLocator";
 import type {
@@ -9,9 +11,9 @@ import type {
   WorkspaceCanvasProjectionStatus
 } from "../../shared/workspaceCanvasProjection";
 import type {
-  SharedCanvasCommandBridge,
-  SharedCanvasSubmitResult
-} from "./useSharedCanvasCommands";
+  WorkspaceCanvasCommandBridge,
+  WorkspaceCanvasSubmitResult
+} from "./useWorkspaceCanvasCommands";
 
 export function workspaceLocatorEquals(
   left: WorkspaceCanvasLocator,
@@ -27,9 +29,9 @@ export function workspaceLocatorEquals(
 
 export function snapshotFromWorkspaceProjection(
   projection: WorkspaceCanvasProjection,
-  labels: CanvasCommandLabels,
-  connectionPhase: CanvasCommandControllerSnapshot["connectionPhase"]
-): CanvasCommandControllerSnapshot {
+  labels: WorkspaceCanvasCommandLabels,
+  connectionPhase: WorkspaceCanvasCommandSnapshot["connectionPhase"]
+): WorkspaceCanvasCommandSnapshot {
   const conflict = projection.status === "conflicted" ? projection.conflict : null;
   const effectiveConnectionPhase =
     projection.authorityMode === "offline_cache_readonly" ? "disconnected" : connectionPhase;
@@ -58,14 +60,14 @@ export function snapshotFromWorkspaceProjection(
 }
 
 export type WorkspaceCanvasSessionView = {
-  snapshot: CanvasCommandControllerSnapshot;
+  snapshot: WorkspaceCanvasCommandSnapshot;
   projection: CollaborationCanvasBindingReplicaProjection | null;
   projectionStatus: WorkspaceCanvasProjectionStatus | null;
-  submit: (input: { intent: CanvasCommandIntent }) => Promise<SharedCanvasSubmitResult>;
+  submit: (input: { intent: CanvasCommandIntent }) => Promise<WorkspaceCanvasSubmitResult>;
   reconnect: () => Promise<boolean>;
 };
 
-const IDLE_SNAPSHOT: CanvasCommandControllerSnapshot = {
+const IDLE_SNAPSHOT: WorkspaceCanvasCommandSnapshot = {
   session: null,
   connectionPhase: "idle",
   lastError: null,
@@ -78,29 +80,24 @@ const IDLE_SNAPSHOT: CanvasCommandControllerSnapshot = {
  * Durable reconnect/idempotency stay in main; this hook only opens, displays, and submits.
  */
 export function useWorkspaceCanvasSession(input: {
-  api: SharedCanvasCommandBridge | null;
-  labels: CanvasCommandLabels;
+  api: WorkspaceCanvasCommandBridge | null;
+  labels: WorkspaceCanvasCommandLabels;
   locator: WorkspaceCanvasLocator | null;
-  requested: WorkspaceCanvasLocator | null;
-  sessionEnabled: boolean;
   sessionConnected: boolean;
 }): WorkspaceCanvasSessionView {
   const [workspaceView, setWorkspaceView] = useState<{
     projection: WorkspaceCanvasProjection;
   } | null>(null);
-  const [snapshot, setSnapshot] = useState<CanvasCommandControllerSnapshot>(IDLE_SNAPSHOT);
+  const [snapshot, setSnapshot] = useState<WorkspaceCanvasCommandSnapshot>(IDLE_SNAPSHOT);
 
   useEffect(() => {
-    if (!input.api || !input.locator || !input.sessionEnabled) {
+    if (!input.api || !input.locator) {
       setWorkspaceView(null);
-      if (!input.sessionEnabled && input.requested) {
+      if (input.locator) {
         setSnapshot({
           ...IDLE_SNAPSHOT,
           connectionPhase: input.sessionConnected ? "idle" : "disconnected"
         });
-      }
-      if (input.api && input.requested && !input.sessionEnabled) {
-        void input.api.closeWorkspaceCanvasSession?.(input.requested);
       }
       return undefined;
     }
@@ -114,7 +111,7 @@ export function useWorkspaceCanvasSession(input: {
       setSnapshot(snapshotFromWorkspaceProjection(projection, labels, "connected"));
     };
     const unsubscribe =
-      activeApi.onWorkspaceCanvasProjectionSignal?.((signal) => {
+      activeApi.onWorkspaceCanvasProjectionSignal((signal) => {
         applyProjection(signal.projection);
       }) ?? null;
     setSnapshot({
@@ -123,7 +120,7 @@ export function useWorkspaceCanvasSession(input: {
       busy: true
     });
     void activeApi
-      .openWorkspaceCanvasSession?.(locator)
+      .openWorkspaceCanvasSession(locator)
       .then((projection) => {
         applyProjection(projection);
       })
@@ -140,18 +137,11 @@ export function useWorkspaceCanvasSession(input: {
       unsubscribe?.();
       void activeApi.closeWorkspaceCanvasSession?.(locator);
     };
-  }, [
-    input.api,
-    input.labels,
-    input.locator,
-    input.requested,
-    input.sessionConnected,
-    input.sessionEnabled
-  ]);
+  }, [input.api, input.labels, input.locator, input.sessionConnected]);
 
   const submit = useCallback(
-    async (submitInput: { intent: CanvasCommandIntent }): Promise<SharedCanvasSubmitResult> => {
-      if (!input.api?.submitWorkspaceCanvasCommand || !input.locator || !input.sessionEnabled) {
+    async (submitInput: { intent: CanvasCommandIntent }): Promise<WorkspaceCanvasSubmitResult> => {
+      if (!input.api || !input.locator) {
         return { ok: false, error: input.labels.notConnected, staleConflict: null };
       }
       if (snapshot.connectionPhase === "disconnected") {
@@ -186,14 +176,13 @@ export function useWorkspaceCanvasSession(input: {
       input.api,
       input.labels,
       input.locator,
-      input.sessionEnabled,
       snapshot.connectionPhase,
       workspaceView?.projection.readOnly
     ]
   );
 
   const reconnect = useCallback(async () => {
-    if (!input.api?.reconnectWorkspaceCanvasSession || !input.locator || !input.sessionEnabled) {
+    if (!input.api || !input.locator) {
       return false;
     }
     try {
@@ -204,7 +193,7 @@ export function useWorkspaceCanvasSession(input: {
     } catch {
       return false;
     }
-  }, [input.api, input.labels, input.locator, input.sessionEnabled]);
+  }, [input.api, input.labels, input.locator]);
 
   const replica = workspaceView?.projection.replica ?? null;
   const projection =

@@ -105,17 +105,11 @@ export {
   type StagedAttachment
 } from "./attachmentUpload.js";
 export {
-  CanvasCommandController,
-  type CanvasCommandBridge,
-  type CanvasCommandControllerSnapshot,
-  type CanvasCommandLabels
-} from "./CanvasCommandController.js";
-export {
   runDurablePackageWrite,
   runLocalOnlyWhenOffline,
   submitSharedPackageIntent,
   type DurablePackageWriteResult,
-  type SharedPackageWriteGate
+  type WorkspacePackageWriteGate
 } from "./packageWriteAdapter.js";
 export {
   adaptRemoteAcpEvents,

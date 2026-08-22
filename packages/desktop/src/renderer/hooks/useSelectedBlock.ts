@@ -11,7 +11,7 @@ import { autoRunEventMatchesCanvas } from "../autoRunEvents";
 import { bridge, desktopCanvasReference } from "../bridge";
 import { runDurablePackageWrite } from "../collaboration/packageWriteAdapter";
 import type { AppView } from "../types";
-import type { SharedCanvasCommandsResult } from "./useSharedCanvasCommands";
+import type { WorkspaceCanvasCommandsResult } from "./useWorkspaceCanvasCommands";
 
 type UseSelectedBlockArgs = {
   refreshGraph: () => Promise<void>;
@@ -19,8 +19,8 @@ type UseSelectedBlockArgs = {
   selectedProject: DesktopProjectSummary | null;
   setActiveView: (view: AppView) => void;
   setError: (message: string | null) => void;
-  /** When enabled, durable block field/prompt writes go through shared canvas commands. */
-  sharedCanvas?: SharedCanvasCommandsResult | null;
+  /** When enabled, durable block field/prompt writes go through Workspace Canvas commands. */
+  workspaceCanvas?: WorkspaceCanvasCommandsResult | null;
 };
 
 export function useSelectedBlock({
@@ -29,7 +29,7 @@ export function useSelectedBlock({
   selectedProject,
   setActiveView,
   setError,
-  sharedCanvas = null
+  workspaceCanvas = null
 }: UseSelectedBlockArgs) {
   const [selectedBlock, setSelectedBlock] = useState<DesktopBlockDetail | null>(null);
   const [blockRunRecords, setBlockRunRecords] = useState<DesktopBlockRunRecordSummary[]>([]);
@@ -171,7 +171,7 @@ export function useSelectedBlock({
     }
     try {
       const mode = await runDurablePackageWrite({
-        sharedCanvas,
+        workspaceCanvas,
         intent: {
           kind: "update_block_fields",
           blockRef: selectedBlock.ref,
@@ -192,7 +192,7 @@ export function useSelectedBlock({
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [refreshGraph, selectedBlock, selectedCanvasId, selectedProject, setError, sharedCanvas]);
+  }, [refreshGraph, selectedBlock, selectedCanvasId, selectedProject, setError, workspaceCanvas]);
 
   const saveSelectedBlockPrompt = useCallback(async () => {
     if (!selectedProject || !selectedBlock) {
@@ -200,7 +200,7 @@ export function useSelectedBlock({
     }
     try {
       const mode = await runDurablePackageWrite({
-        sharedCanvas,
+        workspaceCanvas,
         intent: {
           kind: "update_block_prompt",
           blockRef: selectedBlock.ref,
@@ -236,7 +236,7 @@ export function useSelectedBlock({
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [refreshGraph, selectedBlock, selectedCanvasId, selectedProject, setError, sharedCanvas]);
+  }, [refreshGraph, selectedBlock, selectedCanvasId, selectedProject, setError, workspaceCanvas]);
 
   return {
     blockFeedbackRecords,

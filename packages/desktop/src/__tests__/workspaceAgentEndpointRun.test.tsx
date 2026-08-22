@@ -223,6 +223,7 @@ function renderRun(input?: {
   resolveLiveRemoteBinding?: ReturnType<typeof vi.fn>;
   activeProjectId?: string | null;
   remoteTerminal?: RemoteOperationObservation;
+  localCanvas?: boolean;
 }) {
   const dispatch = vi.fn(async () => operation("running"));
   const observe = vi.fn(async () => operation("running"));
@@ -291,6 +292,14 @@ function renderRun(input?: {
         input?.activeProjectId === undefined ? "project-server" : input.activeProjectId,
       agentEndpoints: input?.endpoints ?? [input?.endpoint ?? remoteEndpoint],
       collaborationController: { ensureWorkAuthority },
+      canvasBinding: input?.localCanvas
+        ? null
+        : {
+            kind: "remote",
+            workspaceId: "workspace-1",
+            projectId: "project-server",
+            canvasId: "canvas-main"
+          },
       graph: input?.graph ?? graph,
       preferences:
         input?.preferences ??
@@ -361,6 +370,7 @@ describe("workspace Agent Endpoint routing", () => {
     };
     const { result, dispatch, setError, startLocal } = renderRun({
       endpoint: localEndpoint,
+      localCanvas: true,
       runtimeAvailability: {
         kind: "unavailable",
         reason: "runtime_not_attached",

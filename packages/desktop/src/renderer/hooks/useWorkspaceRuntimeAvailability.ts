@@ -3,9 +3,9 @@ import type { CanvasRuntimeAvailability } from "@planweave-ai/collaboration-prot
 import type { CanvasRuntimeStatusProjection } from "@planweave-ai/collaboration-protocol/canvas/status";
 import type { DesktopGraphViewModel } from "@planweave-ai/runtime";
 import type {
-  CollaborationCanvasBindingInput,
   CollaborationStatus,
-  PlanWeaveCollaborationApi
+  PlanWeaveCollaborationApi,
+  RemoteCollaborationCanvasBindingInput
 } from "../../shared/collaboration";
 import type { CollaborationObserverSignal } from "../../shared/collaborationReadModels";
 import { collaborationBridge } from "../bridge";
@@ -13,11 +13,9 @@ import type { CollaborationRuntimeAvailabilityView } from "../collaboration/runt
 
 export const COLLABORATION_RUNTIME_AVAILABILITY_POLL_MS = 3_000;
 
-export type CollaborationRuntimeAvailabilityBridge = Pick<
+export type WorkspaceRuntimeAvailabilityBridge = Pick<
   PlanWeaveCollaborationApi,
-  | "getCollaborationStatus"
-  | "readCollaborationCanvasBindingRuntimeAvailability"
-  | "resolveCollaborationCanvasBindingScope"
+  "getCollaborationStatus" | "readCollaborationCanvasBindingRuntimeAvailability"
 > &
   Partial<
     Pick<
@@ -33,8 +31,6 @@ type ResolvedCanvasIdentity = {
   remoteProjectId: string;
   remoteCanvasId: string;
 };
-
-type RemoteCanvasBinding = Extract<CollaborationCanvasBindingInput, { kind: "remote" }>;
 
 type RemoteAvailabilityState =
   | { kind: "checking" }
@@ -173,31 +169,27 @@ export function mergeAvailableCollaborationRuntimeStatus(
   };
 }
 
-export function useCollaborationRuntimeAvailability(input: {
+export function useWorkspaceRuntimeAvailability(input: {
   enabled: boolean;
   sessionConnected: boolean;
   profileId: string | null;
   activeProjectId: string | null;
-  binding: CollaborationCanvasBindingInput | null;
+  binding: RemoteCollaborationCanvasBindingInput | null;
   graph: DesktopGraphViewModel | null;
   refreshRevision?: number;
-  api?: CollaborationRuntimeAvailabilityBridge | null;
+  api?: WorkspaceRuntimeAvailabilityBridge | null;
 }): {
   graph: DesktopGraphViewModel | null;
   availability: CollaborationRuntimeAvailabilityView;
   authoritativeRuntime: CanvasRuntimeAvailability | null;
 } {
   const api = input.api === undefined ? collaborationBridge : input.api;
-  const bindingKind = input.binding?.kind ?? null;
-  const bindingWorkspaceId = input.binding?.kind === "remote" ? input.binding.workspaceId : null;
-  const bindingProjectId =
-    input.binding?.kind === "local"
-      ? input.binding.localProjectId
-      : (input.binding?.projectId ?? null);
+  const bindingWorkspaceId = input.binding?.workspaceId ?? null;
+  const bindingProjectId = input.binding?.projectId ?? null;
   const bindingCanvasId = input.binding?.canvasId ?? null;
-  const binding = useMemo<RemoteCanvasBinding | null>(
+  const binding = useMemo<RemoteCollaborationCanvasBindingInput | null>(
     () =>
-      bindingKind === "remote" && bindingWorkspaceId && bindingProjectId && bindingCanvasId
+      bindingWorkspaceId && bindingProjectId && bindingCanvasId
         ? {
             kind: "remote",
             workspaceId: bindingWorkspaceId,
@@ -205,7 +197,7 @@ export function useCollaborationRuntimeAvailability(input: {
             canvasId: bindingCanvasId
           }
         : null,
-    [bindingCanvasId, bindingKind, bindingProjectId, bindingWorkspaceId]
+    [bindingCanvasId, bindingProjectId, bindingWorkspaceId]
   );
   const bindingIdentity = binding ? JSON.stringify(binding) : null;
   const graphPackageFingerprint = input.graph?.packageFingerprint ?? null;
@@ -402,31 +394,14 @@ export function useCollaborationRuntimeAvailability(input: {
         updateFallbackPolling();
       });
 
-    void api
-      .resolveCollaborationCanvasBindingScope(binding)
-      .then((resolved) => {
-        if (!active) return;
-        if (
-          !resolved ||
-          resolved.workspaceId !== binding.workspaceId ||
-          resolved.projectId !== activeProjectId ||
-          resolved.canvasId !== binding.canvasId
-        ) {
-          setRemoteState({ kind: "error", message: "collaboration_runtime_scope_unavailable" });
-          return;
-        }
-        identity = {
-          profileId,
-          bindingIdentity: JSON.stringify(binding),
-          remoteWorkspaceId: resolved.workspaceId,
-          remoteProjectId: resolved.projectId,
-          remoteCanvasId: resolved.canvasId
-        };
-        void refresh();
-      })
-      .catch((caught: unknown) => {
-        if (active) setRemoteState({ kind: "error", message: errorMessage(caught) });
-      });
+    identity = {
+      profileId,
+      bindingIdentity: JSON.stringify(binding),
+      remoteWorkspaceId: binding.workspaceId,
+      remoteProjectId: binding.projectId,
+      remoteCanvasId: binding.canvasId
+    };
+    void refresh();
     return () => {
       active = false;
       stopFallbackPolling();

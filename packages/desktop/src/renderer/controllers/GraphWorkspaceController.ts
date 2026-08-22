@@ -74,10 +74,10 @@ export function useGraphWorkspaceController({
   onResourcePin,
   clearPinnedResource,
   presence,
-  sharedCanvasOffline,
-  sharedCanvasRevision,
-  runtimeAvailability,
-  onImportRuntimeState
+  workspaceCanvasOffline,
+  workspaceCanvasRevision,
+  onDownloadWorkspaceFork,
+  runtimeAvailability
 }: {
   edges: Edge[];
   edgeTypes: AppEdgeTypes;
@@ -111,10 +111,10 @@ export function useGraphWorkspaceController({
   onResourcePin: (name: string | null) => void;
   clearPinnedResource: () => void;
   presence?: CollaborationCanvasPresenceResult;
-  sharedCanvasOffline: boolean;
-  sharedCanvasRevision: number | null;
+  workspaceCanvasOffline: boolean;
+  workspaceCanvasRevision: number | null;
+  onDownloadWorkspaceFork?: () => Promise<void>;
   runtimeAvailability: CollaborationRuntimeAvailabilityView;
-  onImportRuntimeState?: () => Promise<void>;
 }): GraphWorkspaceController {
   const { visibleTaskIds, visibleTasks } = useVisibleGraphTasks(graph, searchQuery);
 
@@ -149,9 +149,9 @@ export function useGraphWorkspaceController({
     onResourcePin,
     clearPinnedResource,
     presence,
-    sharedCanvasOffline,
-    sharedCanvasRevision,
-    runtimeAvailability,
-    onImportRuntimeState
+    workspaceCanvasOffline,
+    workspaceCanvasRevision,
+    onDownloadWorkspaceFork,
+    runtimeAvailability
   });
 }

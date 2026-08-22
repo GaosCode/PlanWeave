@@ -13,7 +13,7 @@ import type { CollaborationReadModelSnapshot } from "../../shared/collaborationR
 import {
   isLocalCollaborationProfileId,
   type CollaborationStatus,
-  type CollaborationCanvasBindingInput,
+  type RemoteCollaborationCanvasBindingInput,
   type LocalCollaborationServerStatus,
   type PlanWeaveCollaborationApi
 } from "../../shared/collaboration.js";
@@ -22,7 +22,7 @@ import { useCollaborationStatus } from "./useCollaborationStatus";
 import { isCollaborationSessionConnected } from "../collaboration/sessionState";
 
 export type UseCollaborationSurfaceArgs = {
-  binding?: CollaborationCanvasBindingInput | null;
+  binding?: RemoteCollaborationCanvasBindingInput | null;
   /** Active local canvas id (filters assignment pages when set). */
   canvasId?: string | null;
   /** Active local package project id, used to prevent cross-project Workspace reads. */
@@ -155,7 +155,7 @@ export function useCollaborationSurface(
     localProjectId: args.localProjectId ?? null,
     canvasId: args.canvasId ?? null
   });
-  const remoteBinding = args.binding?.kind === "remote" ? args.binding : null;
+  const remoteBinding = args.binding ?? null;
   const remoteReadBinding = useMemo(
     () =>
       remoteBinding && sessionConnected && activeProfile?.projectId === remoteBinding.projectId

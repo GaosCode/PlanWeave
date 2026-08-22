@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import type { DesktopBridgeApi } from "@planweave-ai/runtime";
 import { runDurablePackageWrite } from "../collaboration/packageWriteAdapter";
-import type { SharedCanvasCommandsResult } from "../hooks/useSharedCanvasCommands";
+import type { WorkspaceCanvasCommandsResult } from "../hooks/useWorkspaceCanvasCommands";
 import type { TaskWorkspaceNavigationIdentity } from "../taskWorkspaceNavigation";
 
 type TaskWorkspaceExecutorApi = Pick<
@@ -22,12 +22,12 @@ export function useTaskWorkspaceExecutorActions(options: {
   api: TaskWorkspaceExecutorApi | null | undefined;
   navigation: TaskWorkspaceNavigationIdentity | null;
   onSaved: () => void;
-  sharedCanvas?: SharedCanvasCommandsResult | null;
+  workspaceCanvas?: WorkspaceCanvasCommandsResult | null;
 }): {
   saveBlockExecutor: (blockRef: string, executorName: string | null) => Promise<void>;
   saveTaskExecutor: (executorName: string | null) => Promise<void>;
 } {
-  const { api, navigation, onSaved, sharedCanvas = null } = options;
+  const { api, navigation, onSaved, workspaceCanvas = null } = options;
 
   const saveTaskExecutor = useCallback(
     async (executorName: string | null) => {
@@ -46,7 +46,7 @@ export function useTaskWorkspaceExecutorActions(options: {
       }
       let sharedError: string | null = null;
       const mode = await runDurablePackageWrite({
-        sharedCanvas,
+        workspaceCanvas,
         intent: {
           kind: "update_task_fields",
           taskId: navigation.taskId,
@@ -67,7 +67,7 @@ export function useTaskWorkspaceExecutorActions(options: {
       }
       onSaved();
     },
-    [api, navigation, onSaved, sharedCanvas]
+    [api, navigation, onSaved, workspaceCanvas]
   );
 
   const saveBlockExecutor = useCallback(
@@ -87,7 +87,7 @@ export function useTaskWorkspaceExecutorActions(options: {
       }
       let sharedError: string | null = null;
       const mode = await runDurablePackageWrite({
-        sharedCanvas,
+        workspaceCanvas,
         intent: {
           kind: "update_block_fields",
           blockRef,
@@ -108,7 +108,7 @@ export function useTaskWorkspaceExecutorActions(options: {
       }
       onSaved();
     },
-    [api, navigation, onSaved, sharedCanvas]
+    [api, navigation, onSaved, workspaceCanvas]
   );
 
   return { saveBlockExecutor, saveTaskExecutor };

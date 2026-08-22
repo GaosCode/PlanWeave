@@ -80,12 +80,11 @@ vi.mock("../renderer/hooks/useCollaborationSurface", () => ({
   })
 }));
 
-vi.mock("../renderer/hooks/useWorkspaceRuntimeState", () => ({
-  useWorkspaceRuntimeState: ({ graph }: { graph: unknown }) => ({
+vi.mock("../renderer/hooks/useWorkspaceRuntime", () => ({
+  useWorkspaceRuntime: ({ graph }: { graph: unknown }) => ({
     graph,
     availability: { kind: "unavailable" },
-    resetWorkspaceRuntime: undefined,
-    onImportRuntimeState: undefined
+    resetWorkspaceRuntime: undefined
   })
 }));
 
@@ -290,13 +289,13 @@ vi.mock("../renderer/controllers/GraphWorkspaceController", () => ({
   useGraphWorkspaceController: (input: {
     graph: unknown;
     runtimeAvailability: unknown;
-    sharedCanvasOffline: boolean;
-    sharedCanvasRevision: number | null;
+    workspaceCanvasOffline: boolean;
+    workspaceCanvasRevision: number | null;
   }) => ({
     graph: input.graph,
     runtimeAvailability: input.runtimeAvailability,
-    sharedCanvasOffline: input.sharedCanvasOffline,
-    sharedCanvasRevision: input.sharedCanvasRevision
+    workspaceCanvasOffline: input.workspaceCanvasOffline,
+    workspaceCanvasRevision: input.workspaceCanvasRevision
   })
 }));
 
@@ -468,8 +467,8 @@ describe("ProjectWorkspaceProvider startup authority", () => {
     await waitFor(() =>
       expect(current?.graphWorkspace.graph?.projectTitle).toBe("Cached Workspace")
     );
-    expect(current?.graphWorkspace.sharedCanvasOffline).toBe(true);
-    expect(current?.graphWorkspace.runtimeAvailability).toMatchObject({ kind: "unavailable" });
+    expect(current?.graphWorkspace.workspaceCanvasOffline).toBe(true);
+    expect(current?.graphWorkspace.runtimeAvailability).toEqual({ kind: "unavailable" });
     expect(bridges.desktop.target.listProjects).toHaveBeenCalled();
     expect(bridges.desktop.target.getDesktopProjectSnapshot).not.toHaveBeenCalled();
     expect(bridges.collaboration.target.openWorkspaceCanvasSession).toHaveBeenCalledWith(locator);
@@ -529,7 +528,7 @@ describe("ProjectWorkspaceProvider startup authority", () => {
         }}
       />
     );
-    await waitFor(() => expect(current?.graphWorkspace.sharedCanvasOffline).toBe(true));
+    await waitFor(() => expect(current?.graphWorkspace.workspaceCanvasOffline).toBe(true));
 
     await act(async () => {
       await current?.shell.loadProject(project, "canvas-main");
@@ -584,7 +583,7 @@ describe("ProjectWorkspaceProvider startup authority", () => {
       }
     };
     const mounted = render(<ProviderHarness {...props} />);
-    await waitFor(() => expect(current?.graphWorkspace.sharedCanvasOffline).toBe(true));
+    await waitFor(() => expect(current?.graphWorkspace.workspaceCanvasOffline).toBe(true));
 
     bridges.status.current = {
       activeProfileId: locator.connectionProfileId,

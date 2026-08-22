@@ -112,7 +112,6 @@ export type WorkspaceTabsShellProps = {
 
 export type WorkspaceTabsGraphWorkspaceProps = {
   runtimeAvailability: CollaborationRuntimeAvailabilityView;
-  onImportRuntimeState?: () => Promise<void>;
   edges: Edge[];
   edgeTypes: AppEdgeTypes;
   executionPlan: DesktopProjectExecutionPlan | null;
@@ -146,8 +145,9 @@ export type WorkspaceTabsGraphWorkspaceProps = {
   onResourcePin: (name: string | null) => void;
   clearPinnedResource: () => void;
   presence?: CollaborationCanvasPresenceResult;
-  sharedCanvasOffline: boolean;
-  sharedCanvasRevision: number | null;
+  workspaceCanvasOffline: boolean;
+  workspaceCanvasRevision: number | null;
+  onDownloadWorkspaceFork?: () => Promise<void>;
 };
 
 export type WorkspaceTabsAutoRunProps = {
@@ -313,12 +313,6 @@ function PeopleRoute({
     <PeopleView
       t={shell.t}
       diagnosticsEnabled={shell.developerMode}
-      onContentReplicaReady={(result) =>
-        shell.refreshProjects({
-          selectProjectId: result.localProjectId,
-          selectCanvasId: result.localCanvasId
-        })
-      }
       onWorkspaceCanvasPublished={(locator) => {
         shell.openWorkspaceCanvasLocator(locator);
       }}

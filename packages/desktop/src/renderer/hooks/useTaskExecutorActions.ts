@@ -2,15 +2,15 @@ import { useCallback } from "react";
 import type { DesktopProjectSummary } from "@planweave-ai/runtime";
 import { bridge, desktopCanvasReference } from "../bridge";
 import { runDurablePackageWrite } from "../collaboration/packageWriteAdapter";
-import type { SharedCanvasCommandsResult } from "./useSharedCanvasCommands";
+import type { WorkspaceCanvasCommandsResult } from "./useWorkspaceCanvasCommands";
 
 type UseTaskExecutorActionsArgs = {
   refreshGraph: () => Promise<void>;
   selectedCanvasId: string | null;
   selectedProject: DesktopProjectSummary | null;
   setError: (message: string | null) => void;
-  /** When enabled, task executor writes go through shared canvas commands. */
-  sharedCanvas?: SharedCanvasCommandsResult | null;
+  /** When enabled, task executor writes go through Workspace Canvas commands. */
+  workspaceCanvas?: WorkspaceCanvasCommandsResult | null;
 };
 
 export function useTaskExecutorActions({
@@ -18,7 +18,7 @@ export function useTaskExecutorActions({
   selectedCanvasId,
   selectedProject,
   setError,
-  sharedCanvas = null
+  workspaceCanvas = null
 }: UseTaskExecutorActionsArgs) {
   const handleTaskExecutorChange = useCallback(
     async (taskId: string, executorName: string | null) => {
@@ -27,7 +27,7 @@ export function useTaskExecutorActions({
       }
       try {
         const mode = await runDurablePackageWrite({
-          sharedCanvas,
+          workspaceCanvas,
           intent: {
             kind: "update_task_fields",
             taskId,
@@ -56,7 +56,7 @@ export function useTaskExecutorActions({
         return false;
       }
     },
-    [refreshGraph, selectedCanvasId, selectedProject, setError, sharedCanvas]
+    [refreshGraph, selectedCanvasId, selectedProject, setError, workspaceCanvas]
   );
 
   return { handleTaskExecutorChange };

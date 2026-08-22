@@ -162,7 +162,6 @@ describe("PeopleView", () => {
         lanServerBaseUrl: null
       }),
       onCollaborationObserverSignal: vi.fn(() => () => undefined),
-      listCollaborationContentBootstrapCandidates: vi.fn().mockResolvedValue([]),
       ...peopleIdentityReads()
     } as unknown as PlanWeaveCollaborationApi;
 
@@ -271,7 +270,6 @@ describe("PeopleView", () => {
         lanServerBaseUrl: null
       }),
       onCollaborationObserverSignal: vi.fn(() => () => undefined),
-      listCollaborationContentBootstrapCandidates: vi.fn().mockResolvedValue([]),
       ...peopleIdentityReads()
     } as unknown as PlanWeaveCollaborationApi;
 
@@ -343,7 +341,6 @@ describe("PeopleView", () => {
       getCollaborationStatus,
       onCollaborationStatusChanged: vi.fn(() => () => undefined),
       onCollaborationObserverSignal: vi.fn(() => () => undefined),
-      listCollaborationContentBootstrapCandidates: vi.fn().mockResolvedValue([]),
       getDesktopServerExposure: vi.fn().mockResolvedValue({
         mode: "lan_http",
         topology: "lan_http",
@@ -419,7 +416,7 @@ describe("PeopleView", () => {
     expect(screen.queryByTestId("local-collaboration-server-panel")).not.toBeInTheDocument();
     expect(screen.queryByTestId("canvas-access-panel")).not.toBeInTheDocument();
     expect(screen.getByTestId("workspace-canvas-sharing")).toBeVisible();
-    expect(screen.getByTestId("content-authority-panel")).toBeVisible();
+    expect(screen.queryByTestId("content-authority-panel")).not.toBeInTheDocument();
     expect(screen.queryByTestId("people-panel")).not.toBeInTheDocument();
     expect(screen.queryByTestId("current-canvas-access-panel")).not.toBeInTheDocument();
     expect(
@@ -498,7 +495,6 @@ describe("PeopleView", () => {
       }),
       onCollaborationStatusChanged: vi.fn(() => () => undefined),
       onCollaborationObserverSignal: vi.fn(() => () => undefined),
-      listCollaborationContentBootstrapCandidates: vi.fn().mockResolvedValue([]),
       getLocalCollaborationServerStatus: vi.fn().mockResolvedValue({
         profile: null,
         state: "stopped",
@@ -577,7 +573,6 @@ describe("PeopleView", () => {
       getCollaborationStatus: vi.fn().mockResolvedValue(restoredStatus),
       onCollaborationStatusChanged: vi.fn(() => () => undefined),
       onCollaborationObserverSignal: vi.fn(() => () => undefined),
-      listCollaborationContentBootstrapCandidates: vi.fn().mockResolvedValue([]),
       getDesktopServerExposure: vi.fn().mockResolvedValue({
         mode: "lan_http",
         topology: "lan_http",
@@ -686,7 +681,6 @@ describe("PeopleView", () => {
       getCollaborationStatus: vi.fn().mockResolvedValue(connectedStatus),
       onCollaborationStatusChanged: vi.fn(() => () => undefined),
       onCollaborationObserverSignal: vi.fn(() => () => undefined),
-      listCollaborationContentBootstrapCandidates: vi.fn().mockResolvedValue([]),
       getDesktopServerExposure: vi.fn().mockResolvedValue({
         mode: "lan_http",
         topology: "lan_http",
@@ -933,7 +927,6 @@ describe("PeopleView", () => {
         .mockResolvedValue([
           { workspaceId: "workspace-1", projectId: "project-1", canvasId: "canvas-1" }
         ]),
-      listCollaborationContentBootstrapCandidates: vi.fn().mockResolvedValue([]),
       ...peopleIdentityReads()
     } as unknown as PlanWeaveCollaborationApi;
 
@@ -1087,7 +1080,6 @@ describe("PeopleView", () => {
       }),
       onCollaborationStatusChanged: vi.fn(() => () => undefined),
       onCollaborationObserverSignal: vi.fn(() => () => undefined),
-      listCollaborationContentBootstrapCandidates: vi.fn().mockResolvedValue([]),
       getLocalCollaborationServerStatus: vi.fn().mockResolvedValue({
         profile: null,
         state: "stopped",
@@ -1179,7 +1171,6 @@ describe("PeopleView", () => {
       connectCollaborationSession,
       onCollaborationStatusChanged: vi.fn(() => () => undefined),
       onCollaborationObserverSignal: vi.fn(() => () => undefined),
-      listCollaborationContentBootstrapCandidates: vi.fn().mockResolvedValue([]),
       getLocalCollaborationServerStatus: vi.fn().mockResolvedValue({
         profile: null,
         state: "stopped",

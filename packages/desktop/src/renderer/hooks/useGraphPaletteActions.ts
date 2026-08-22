@@ -22,7 +22,7 @@ import type {
   PaletteDropPosition
 } from "../types";
 import { defaultBlockTitleForUi } from "../viewHelpers";
-import type { SharedCanvasCommandsResult } from "./useSharedCanvasCommands";
+import type { WorkspaceCanvasCommandsResult } from "./useWorkspaceCanvasCommands";
 
 type UseGraphPaletteActionsArgs = {
   flowInstance: ReactFlowInstance<AppFlowNode, Edge> | null;
@@ -42,7 +42,7 @@ type UseGraphPaletteActionsArgs = {
   settings: DesktopUiSettings;
   t: ReturnType<typeof createTranslator>;
   /** When enabled, durable graph writes go through server-authoritative canvas commands. */
-  sharedCanvas?: SharedCanvasCommandsResult | null;
+  workspaceCanvas?: WorkspaceCanvasCommandsResult | null;
 };
 
 function nextClientTaskId(graph: DesktopGraphViewModel | null): string {
@@ -66,11 +66,11 @@ function nextClientBlockId(
 }
 
 async function submitSharedIntent(
-  sharedCanvas: SharedCanvasCommandsResult,
+  workspaceCanvas: WorkspaceCanvasCommandsResult,
   intent: CanvasCommandIntent,
   setError: (message: string | null) => void
 ): Promise<boolean> {
-  const result = await sharedCanvas.submit({ intent });
+  const result = await workspaceCanvas.submit({ intent });
   if (!result.ok) {
     setError(result.error);
   }
@@ -114,7 +114,7 @@ export function useGraphPaletteActions({
   selectTaskPanel,
   settings,
   t,
-  sharedCanvas = null
+  workspaceCanvas = null
 }: UseGraphPaletteActionsArgs) {
   const getPersistableLayoutNodes = useCallback(
     (dragStopNode?: Node) => getLayoutNodes?.(dragStopNode) ?? nodes,
@@ -131,10 +131,10 @@ export function useGraphPaletteActions({
         x: item.id === node.id && !getLayoutNodes ? node.position.x : item.position.x,
         y: item.id === node.id && !getLayoutNodes ? node.position.y : item.position.y
       }));
-      if (sharedCanvas?.enabled) {
+      if (workspaceCanvas?.enabled) {
         const updatedAt = new Date().toISOString();
         const ok = await submitSharedIntent(
-          sharedCanvas,
+          workspaceCanvas,
           { kind: "update_layout", nodes: layoutNodes, updatedAt },
           setError
         );
@@ -167,7 +167,7 @@ export function useGraphPaletteActions({
       selectedProject,
       setError,
       setLayout,
-      sharedCanvas
+      workspaceCanvas
     ]
   );
 
@@ -175,8 +175,8 @@ export function useGraphPaletteActions({
     if (!selectedProject) {
       return;
     }
-    if (sharedCanvas?.enabled) {
-      // Shared mode has no reset_layout intent; materialize default grid positions via update_layout.
+    if (workspaceCanvas?.enabled) {
+      // Workspace commands have no reset_layout intent; write default grid positions via update_layout.
       const layoutNodes =
         graph && graph.tasks.length > 0
           ? graph.tasks.map((task, index) => ({
@@ -202,7 +202,7 @@ export function useGraphPaletteActions({
       }
       const updatedAt = new Date().toISOString();
       const ok = await submitSharedIntent(
-        sharedCanvas,
+        workspaceCanvas,
         { kind: "update_layout", nodes: layoutNodes, updatedAt },
         setError
       );
@@ -230,7 +230,7 @@ export function useGraphPaletteActions({
     selectedProject,
     setError,
     setLayout,
-    sharedCanvas
+    workspaceCanvas
   ]);
 
   const handleConnect = useCallback(
@@ -240,9 +240,9 @@ export function useGraphPaletteActions({
         return;
       }
       try {
-        if (sharedCanvas?.enabled) {
+        if (workspaceCanvas?.enabled) {
           const ok = await submitSharedIntent(
-            sharedCanvas,
+            workspaceCanvas,
             {
               kind: "add_task_dependency",
               fromTaskId: manifestEdge.from,
@@ -278,7 +278,7 @@ export function useGraphPaletteActions({
       selectedCanvasId,
       selectedProject,
       setError,
-      sharedCanvas
+      workspaceCanvas
     ]
   );
 
@@ -290,9 +290,9 @@ export function useGraphPaletteActions({
       for (const edge of deletedEdges) {
         const manifestEdge = dependencyDisplayEdgeToManifestEndpoints(edge);
         if (!manifestEdge) continue;
-        if (sharedCanvas?.enabled) {
+        if (workspaceCanvas?.enabled) {
           const ok = await submitSharedIntent(
-            sharedCanvas,
+            workspaceCanvas,
             {
               kind: "remove_task_dependency",
               fromTaskId: manifestEdge.from,
@@ -326,7 +326,7 @@ export function useGraphPaletteActions({
       selectedCanvasId,
       selectedProject,
       setError,
-      sharedCanvas
+      workspaceCanvas
     ]
   );
 
@@ -338,9 +338,9 @@ export function useGraphPaletteActions({
         return;
       }
       try {
-        if (sharedCanvas?.enabled) {
+        if (workspaceCanvas?.enabled) {
           const ok = await submitSharedIntent(
-            sharedCanvas,
+            workspaceCanvas,
             {
               kind: "reconnect_task_dependency",
               fromTaskId: oldManifestEdge.from,
@@ -381,7 +381,7 @@ export function useGraphPaletteActions({
       selectedCanvasId,
       selectedProject,
       setError,
-      sharedCanvas
+      workspaceCanvas
     ]
   );
 
@@ -391,11 +391,11 @@ export function useGraphPaletteActions({
         return;
       }
       try {
-        if (sharedCanvas?.enabled) {
+        if (workspaceCanvas?.enabled) {
           if (type === "task") {
             const taskId = nextClientTaskId(graph);
             const ok = await submitSharedIntent(
-              sharedCanvas,
+              workspaceCanvas,
               {
                 kind: "add_task",
                 taskId,
@@ -426,7 +426,7 @@ export function useGraphPaletteActions({
           }
           const blockId = nextClientBlockId(graph, targetTaskId, type);
           const ok = await submitSharedIntent(
-            sharedCanvas,
+            workspaceCanvas,
             {
               kind: "add_block",
               taskId: targetTaskId,
@@ -500,7 +500,7 @@ export function useGraphPaletteActions({
       setError,
       selectTaskPanel,
       settings,
-      sharedCanvas,
+      workspaceCanvas,
       t
     ]
   );

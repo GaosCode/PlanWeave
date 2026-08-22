@@ -7,9 +7,9 @@ import type { WorkspaceCanvasLocator } from "../shared/canvasLocator.js";
 import { createTranslator } from "../renderer/i18n.js";
 import { useRemoteCanvasWorkspace } from "../renderer/hooks/useRemoteCanvasWorkspace.js";
 import {
-  type SharedCanvasCommandBridge,
-  useSharedCanvasCommands
-} from "../renderer/hooks/useSharedCanvasCommands.js";
+  type WorkspaceCanvasCommandBridge,
+  useWorkspaceCanvasCommands
+} from "../renderer/hooks/useWorkspaceCanvasCommands.js";
 
 const locator: WorkspaceCanvasLocator = {
   kind: "workspace",
@@ -54,54 +54,32 @@ function cachedProjection() {
 }
 
 function createBridge(
-  openWorkspaceCanvasSession: SharedCanvasCommandBridge["openWorkspaceCanvasSession"]
+  openWorkspaceCanvasSession: WorkspaceCanvasCommandBridge["openWorkspaceCanvasSession"]
 ) {
-  const bindCollaborationCanvasBindingSession = vi.fn(async () => {
-    throw new Error("local_or_legacy_binding_must_not_run");
-  });
   const submitWorkspaceCanvasCommand = vi.fn();
   const api = {
-    bindCollaborationCanvasBindingSession,
-    submitCollaborationCanvasCommand: vi.fn(async () => {
-      throw new Error("local_canvas_command_must_not_run");
-    }),
-    reconnectCollaborationCanvas: vi.fn(async () => {
-      throw new Error("legacy_reconnect_must_not_run");
-    }),
-    getCollaborationCanvasCommandSession: vi.fn(async () => null),
-    resolveCollaborationCanvasBindingScope: vi.fn(async () => {
-      throw new Error("local_scope_resolution_must_not_run");
-    }),
-    onCollaborationObserverSignal: vi.fn(() => () => undefined),
-    flushCollaborationCanvasReplicaMaterialization: vi.fn(async () => undefined),
     openWorkspaceCanvasSession,
     submitWorkspaceCanvasCommand,
     reconnectWorkspaceCanvasSession: vi.fn(async () => {
       throw new Error("offline_reconnect_must_not_run");
     }),
     closeWorkspaceCanvasSession: vi.fn(async () => undefined),
-    getWorkspaceCanvasProjection: vi.fn(async () => null),
     onWorkspaceCanvasProjectionSignal: vi.fn(() => () => undefined)
-  } satisfies SharedCanvasCommandBridge;
-  return { api, bindCollaborationCanvasBindingSession, submitWorkspaceCanvasCommand };
+  } satisfies WorkspaceCanvasCommandBridge;
+  return { api, submitWorkspaceCanvasCommand };
 }
 
-function useOfflineWorkspaceProviderPipeline(api: SharedCanvasCommandBridge) {
+function useOfflineWorkspaceProviderPipeline(api: WorkspaceCanvasCommandBridge) {
   const remoteWorkspace = useRemoteCanvasWorkspace({
     lastOpenedWorkspaceLocator: locator,
     localProjectId: null,
     sessionConnected: false,
     api: null
   });
-  const commands = useSharedCanvasCommands({
+  const commands = useWorkspaceCanvasCommands({
     api,
-    binding: remoteWorkspace.binding,
     locator: remoteWorkspace.locator,
-    enabled: remoteWorkspace.binding !== null || remoteWorkspace.locator?.kind === "workspace",
     sessionConnected: false,
-    profileId: remoteWorkspace.connectionProfileId,
-    activeProjectId: remoteWorkspace.activeProjectId,
-    localOwnerDirectWriteAvailable: false,
     t: translator
   });
   return { remoteWorkspace, commands };
@@ -127,7 +105,6 @@ describe("offline Workspace Provider authority", () => {
     await waitFor(() => expect(result.current.commands.projection?.revision).toBe(4));
     expect(result.current.commands).toMatchObject({ offline: true, enabled: true });
     expect(result.current.commands.projection?.canEdit).toBe(false);
-    expect(bridge.bindCollaborationCanvasBindingSession).not.toHaveBeenCalled();
 
     await act(async () => {
       await expect(
@@ -157,6 +134,5 @@ describe("offline Workspace Provider authority", () => {
       )
     );
     expect(result.current.commands.projection).toBeNull();
-    expect(bridge.bindCollaborationCanvasBindingSession).not.toHaveBeenCalled();
   });
 });

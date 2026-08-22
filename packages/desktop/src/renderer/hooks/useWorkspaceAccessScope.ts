@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ActiveWorkspaceConnectionStatus } from "@planweave-ai/collaboration-protocol/connection";
 import type {
   CollaborationSessionPhase,
@@ -6,12 +6,13 @@ import type {
 } from "../../shared/collaboration.js";
 import { collaborationErrorMessage } from "../collaboration/formatCollaborationError";
 import { isCollaborationSessionConnected } from "../collaboration/sessionState";
+import { useCollaborationRegistryReadModels } from "./useCollaborationRegistryReadModels";
 import { type CurrentCanvasAccessApi, useCurrentCanvasAccess } from "./useCurrentCanvasAccess";
 
 export type WorkspaceAccessScopeApi = CurrentCanvasAccessApi &
   Pick<
     PlanWeaveCollaborationApi,
-    "listCollaborationContentBootstrapCandidates" | "getLocalCollaborationScopeCatalog"
+    "listCollaborationAuthorizedProjects" | "listCollaborationAuthorizedCanvases"
   >;
 
 export type WorkspaceAccessScopeOption = {
@@ -23,6 +24,7 @@ export type WorkspaceAccessScopeOption = {
 };
 
 type WorkspaceAccessScopeStatus = {
+  profiles: Array<{ profileId: string; projectId: string }>;
   session: { phase: CollaborationSessionPhase };
   workspaceConnection: { status: ActiveWorkspaceConnectionStatus };
 };
@@ -40,80 +42,38 @@ export function useWorkspaceAccessScope({
   connectionKey: string | null;
   status: WorkspaceAccessScopeStatus | null;
 }) {
-  const [options, setOptions] = useState<WorkspaceAccessScopeOption[]>([]);
-  const [optionsConnectionKey, setOptionsConnectionKey] = useState<string | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const generationRef = useRef(0);
   const connected = isCollaborationSessionConnected(status);
-
-  const refreshOptions = useCallback(async () => {
-    const generation = generationRef.current + 1;
-    generationRef.current = generation;
-    if (!api || !connectionKey || !connected) {
-      setOptions([]);
-      setOptionsConnectionKey(null);
-      setSelectedKey(null);
-      setLoading(false);
-      setError(null);
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-    try {
-      const [candidates, catalog] = await Promise.all([
-        api.listCollaborationContentBootstrapCandidates(),
-        api.getLocalCollaborationScopeCatalog()
-      ]);
-      if (generationRef.current !== generation) return;
-
-      const nextOptions = candidates.map((candidate) => {
-        const localProject = candidate.localReplica
-          ? catalog.projects.find(
-              (project) => project.projectId === candidate.localReplica?.projectId
-            )
-          : null;
-        const localCanvas = candidate.localReplica
-          ? localProject?.canvases.find(
-              (canvas) => canvas.canvasId === candidate.localReplica?.canvasId
-            )
-          : null;
-        return {
-          key: scopeKey(candidate.projectId, candidate.canvasId),
-          projectId: candidate.projectId,
-          canvasId: candidate.canvasId,
-          projectLabel: localProject?.name ?? candidate.projectId,
-          canvasLabel: localCanvas?.name ?? candidate.canvasId
-        };
-      });
-      setOptions(nextOptions);
-      setOptionsConnectionKey(connectionKey);
-      setSelectedKey((current) =>
-        current && nextOptions.some((option) => option.key === current)
-          ? current
-          : (nextOptions[0]?.key ?? null)
-      );
-    } catch (cause) {
-      if (generationRef.current !== generation) return;
-      setOptions([]);
-      setOptionsConnectionKey(null);
-      setSelectedKey(null);
-      setError(collaborationErrorMessage(cause));
-    } finally {
-      if (generationRef.current === generation) setLoading(false);
-    }
-  }, [api, connected, connectionKey]);
+  const projectId =
+    status && connectionKey
+      ? (status.profiles.find((profile) => profile.profileId === connectionKey)?.projectId ?? null)
+      : null;
+  const registry = useCollaborationRegistryReadModels({
+    api: connected ? api : null,
+    projectId,
+    refreshKey: connectionKey ?? undefined
+  });
+  const options = useMemo<WorkspaceAccessScopeOption[]>(
+    () =>
+      registry.canvases.map((canvas) => ({
+        key: scopeKey(canvas.registry.projectId, canvas.registry.canvasId),
+        projectId: canvas.registry.projectId,
+        canvasId: canvas.registry.canvasId,
+        projectLabel: canvas.registry.projectId,
+        canvasLabel: canvas.registry.canvasId
+      })),
+    [registry.canvases]
+  );
 
   useEffect(() => {
-    void refreshOptions();
-    return () => {
-      generationRef.current += 1;
-    };
-  }, [refreshOptions]);
+    setSelectedKey((current) =>
+      current && options.some((option) => option.key === current)
+        ? current
+        : (options[0]?.key ?? null)
+    );
+  }, [options]);
 
-  const visibleOptions = optionsConnectionKey === connectionKey ? options : [];
+  const visibleOptions = connected && connectionKey ? options : [];
   const selectedOption = useMemo(
     () => visibleOptions.find((option) => option.key === selectedKey) ?? null,
     [selectedKey, visibleOptions]
@@ -129,9 +89,9 @@ export function useWorkspaceAccessScope({
     selectedKey,
     selectedOption,
     select: setSelectedKey,
-    loading,
-    error,
-    refreshOptions,
+    loading: registry.phase === "loading",
+    error: registry.error ? collaborationErrorMessage(registry.error) : null,
+    refreshOptions: registry.refresh,
     access
   };
 }

@@ -3,9 +3,9 @@ import { WebSocket } from "ws";
 import { afterEach, describe, expect, it } from "vitest";
 import { CollaborationClient } from "../main/collaboration/CollaborationClient.js";
 import {
-  CanvasPresenceController,
+  WorkspaceCanvasPresenceController,
   type CanvasPresenceBridge
-} from "../renderer/collaboration/CanvasPresenceController.js";
+} from "../renderer/collaboration/WorkspaceCanvasPresenceController.js";
 import type { CollaborationPresenceSignal } from "../shared/collaboration.js";
 import {
   cleanupProxyHarness,
@@ -114,11 +114,11 @@ describe("Tailscale proxy with two Desktop clients", () => {
     };
     const ownerClient = createClient("proxy-owner-desktop", fixture.ownerToken);
     const memberClient = createClient("proxy-member-desktop", fixture.memberToken);
-    const ownerPresence = new CanvasPresenceController({
+    const ownerPresence = new WorkspaceCanvasPresenceController({
       api: bridgeFor(ownerClient, "proxy-owner-desktop"),
       labels: { error: (code) => `presence:${code}` }
     });
-    const memberPresence = new CanvasPresenceController({
+    const memberPresence = new WorkspaceCanvasPresenceController({
       api: bridgeFor(memberClient, "proxy-member-desktop"),
       labels: { error: (code) => `presence:${code}` }
     });

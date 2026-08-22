@@ -6,7 +6,7 @@ import type {
   DesktopRunRecord
 } from "@planweave-ai/runtime";
 import { bridge, desktopCanvasReference } from "../bridge";
-import type { SharedCanvasCommandsResult } from "./useSharedCanvasCommands";
+import type { WorkspaceCanvasCommandsResult } from "./useWorkspaceCanvasCommands";
 
 type UseGraphDeleteActionsArgs = {
   clearReviewTaskSelection: (taskId?: string | null) => void;
@@ -24,7 +24,7 @@ type UseGraphDeleteActionsArgs = {
   setError: (message: string | null) => void;
   setSelectedBlock: Dispatch<SetStateAction<DesktopBlockDetail | null>>;
   setSelectedRunRecord: Dispatch<SetStateAction<DesktopRunRecord | null>>;
-  sharedCanvas?: SharedCanvasCommandsResult | null;
+  workspaceCanvas?: WorkspaceCanvasCommandsResult | null;
 };
 
 export function useGraphDeleteActions({
@@ -43,7 +43,7 @@ export function useGraphDeleteActions({
   setError,
   setSelectedBlock,
   setSelectedRunRecord,
-  sharedCanvas = null
+  workspaceCanvas = null
 }: UseGraphDeleteActionsArgs) {
   const clearBlockSelection = useCallback(() => {
     setSelectedBlock(null);
@@ -58,8 +58,8 @@ export function useGraphDeleteActions({
         return;
       }
       try {
-        if (sharedCanvas?.enabled) {
-          const result = await sharedCanvas.submit({
+        if (workspaceCanvas?.enabled) {
+          const result = await workspaceCanvas.submit({
             intent: { kind: "remove_task", taskId }
           });
           if (!result.ok) {
@@ -98,7 +98,7 @@ export function useGraphDeleteActions({
       selectedProject,
       selectedTaskPanelId,
       setError,
-      sharedCanvas
+      workspaceCanvas
     ]
   );
 
@@ -108,8 +108,8 @@ export function useGraphDeleteActions({
         return;
       }
       try {
-        if (sharedCanvas?.enabled) {
-          const result = await sharedCanvas.submit({
+        if (workspaceCanvas?.enabled) {
+          const result = await workspaceCanvas.submit({
             intent: { kind: "remove_block", blockRef: ref }
           });
           if (!result.ok) {
@@ -143,7 +143,7 @@ export function useGraphDeleteActions({
       selectedCanvasId,
       selectedProject,
       setError,
-      sharedCanvas
+      workspaceCanvas
     ]
   );
 

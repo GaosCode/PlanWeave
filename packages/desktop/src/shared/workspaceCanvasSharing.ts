@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { canvasVisibilitySchema } from "@planweave-ai/collaboration-protocol/access/project";
-import { contentVersionDesktopReadModelSchema } from "@planweave-ai/collaboration-protocol/content/authority";
 import {
   completedContentVersionRefSchema,
   contentVersionRevisionSchema,
@@ -20,7 +19,6 @@ const opaqueIdSchema = z
 export const workspaceCanvasSharingStateSchema = z.enum([
   "local_only",
   "registered_unpublished",
-  "published_outdated",
   "published_private",
   "published_shared"
 ]);
@@ -33,8 +31,7 @@ export const workspaceCanvasSharingCandidateSchema = z
     canvasId: opaqueIdSchema,
     canvasName: z.string().trim().min(1).max(256),
     state: workspaceCanvasSharingStateSchema,
-    visibility: canvasVisibilitySchema.nullable(),
-    authority: contentVersionDesktopReadModelSchema.nullable()
+    visibility: canvasVisibilitySchema.nullable()
   })
   .strict();
 export type WorkspaceCanvasSharingCandidate = z.infer<typeof workspaceCanvasSharingCandidateSchema>;
@@ -75,8 +72,6 @@ export const workspaceCanvasDownloadInputSchema = z
     workspaceId: opaqueIdSchema,
     projectId: opaqueIdSchema,
     canvasId: opaqueIdSchema,
-    revision: contentVersionRevisionSchema,
-    content: completedContentVersionRefSchema,
     projectName: z.string().trim().min(1).max(256).optional()
   })
   .strict();

@@ -5,12 +5,10 @@ import { WorkspaceSectionHeader } from "./WorkspaceSectionHeader";
 export function WorkspaceManagementPanel({
   connection,
   hostedCanvases,
-  contentAuthority,
   t
 }: {
   connection: ReactNode;
   hostedCanvases: ReactNode;
-  contentAuthority: ReactNode;
   t: ReturnType<typeof createTranslator>;
 }) {
   return (
@@ -33,7 +31,6 @@ export function WorkspaceManagementPanel({
       <div className="mt-8" data-testid="people-workspace-hosting-section">
         {hostedCanvases}
       </div>
-      <div data-testid="people-workspace-content-section">{contentAuthority}</div>
     </section>
   );
 }

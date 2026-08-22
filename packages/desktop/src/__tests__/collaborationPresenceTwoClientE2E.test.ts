@@ -25,10 +25,10 @@ import {
   type CollaborationWebSocketConstructor
 } from "../main/collaboration/CollaborationClient.js";
 import {
-  CanvasPresenceController,
+  WorkspaceCanvasPresenceController,
   type CanvasPresenceBridge,
   type CanvasPresenceLabels
-} from "../renderer/collaboration/CanvasPresenceController.js";
+} from "../renderer/collaboration/WorkspaceCanvasPresenceController.js";
 import type { CollaborationPresenceSignal } from "../shared/collaboration.js";
 
 const directories: string[] = [];
@@ -269,15 +269,15 @@ describe("real Desktop canvas presence clients", () => {
       otherProfileId,
       otherOwner.deviceToken
     );
-    const ownerController = new CanvasPresenceController({
+    const ownerController = new WorkspaceCanvasPresenceController({
       api: bridgeFor(ownerClient, ownerProfileId),
       labels
     });
-    const memberController = new CanvasPresenceController({
+    const memberController = new WorkspaceCanvasPresenceController({
       api: bridgeFor(memberClient, memberProfileId),
       labels
     });
-    const otherController = new CanvasPresenceController({
+    const otherController = new WorkspaceCanvasPresenceController({
       api: bridgeFor(otherClient, otherProfileId),
       labels
     });
@@ -340,11 +340,11 @@ describe("real Desktop canvas presence clients", () => {
       memberProfileId,
       member.deviceToken
     );
-    const ownerController = new CanvasPresenceController({
+    const ownerController = new WorkspaceCanvasPresenceController({
       api: bridgeFor(ownerClient, ownerProfileId),
       labels
     });
-    const memberController = new CanvasPresenceController({
+    const memberController = new WorkspaceCanvasPresenceController({
       api: bridgeFor(memberClient, memberProfileId),
       labels
     });

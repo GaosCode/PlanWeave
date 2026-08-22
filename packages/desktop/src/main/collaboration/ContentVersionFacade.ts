@@ -5,11 +5,6 @@ import {
   type CanvasRuntimeResetOutcome,
   type CanvasRuntimeResetRequest
 } from "@planweave-ai/collaboration-protocol/canvas/runtime-control";
-import {
-  contentVersionAuthorityDiscoveryToDesktopReadModel,
-  contentVersionDesktopReadModelSchema,
-  type ContentVersionDesktopReadModel
-} from "@planweave-ai/collaboration-protocol/content/authority";
 import { getProjectOverview, listProjects } from "@planweave-ai/runtime";
 import {
   collaborationCanvasBindingInputSchema,
@@ -54,9 +49,9 @@ function unavailable(code: string, retryable = false): CollaborationClientError 
 
 function sharingState(
   visibility: CanvasAccessRecord["visibility"],
-  authority: ContentVersionDesktopReadModel
+  published: boolean
 ): WorkspaceCanvasSharingState {
-  if (!authority.authoritativeHead) return "registered_unpublished";
+  if (!published) return "registered_unpublished";
   return visibility === "shared" ? "published_shared" : "published_private";
 }
 
@@ -282,8 +277,7 @@ export class ContentVersionFacade {
         canvasId,
         canvasName,
         state: "local_only",
-        visibility: null,
-        authority: null
+        visibility: null
       });
     }
     const discovered = await client.discoverContentAuthority({
@@ -291,17 +285,13 @@ export class ContentVersionFacade {
       localReplica: null,
       knownRevision: null
     });
-    const authority = contentVersionDesktopReadModelSchema.parse(
-      contentVersionAuthorityDiscoveryToDesktopReadModel(discovered)
-    );
     return workspaceCanvasSharingCandidateSchema.parse({
       localProjectId,
       projectName,
       canvasId,
       canvasName,
-      state: sharingState(visibility, authority),
-      visibility,
-      authority
+      state: sharingState(visibility, discovered.authoritativeHead !== null),
+      visibility
     });
   }
 

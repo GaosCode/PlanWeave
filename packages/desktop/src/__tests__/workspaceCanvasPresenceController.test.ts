@@ -1,9 +1,9 @@
 import type { CanvasPresenceServerMessage } from "@planweave-ai/collaboration-protocol/canvas/presence";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  CanvasPresenceController,
+  WorkspaceCanvasPresenceController,
   type CanvasPresenceBridge
-} from "../renderer/collaboration/CanvasPresenceController";
+} from "../renderer/collaboration/WorkspaceCanvasPresenceController";
 import type { CollaborationPresenceSignal } from "../shared/collaboration";
 import { createTranslator } from "../renderer/i18n";
 
@@ -48,12 +48,12 @@ function createBridge() {
   };
 }
 
-describe("CanvasPresenceController", () => {
+describe("WorkspaceCanvasPresenceController", () => {
   beforeEach(() => vi.useRealTimers());
 
   it("flushes the latest local cursor after the presence handshake completes", async () => {
     const transport = createBridge();
-    const controller = new CanvasPresenceController({
+    const controller = new WorkspaceCanvasPresenceController({
       api: transport.bridge,
       labels: labels("en")
     });
@@ -83,8 +83,14 @@ describe("CanvasPresenceController", () => {
 
   it("keeps two client read models scoped, validated, and remote-only", async () => {
     const transport = createBridge();
-    const first = new CanvasPresenceController({ api: transport.bridge, labels: labels("en") });
-    const second = new CanvasPresenceController({ api: transport.bridge, labels: labels("en") });
+    const first = new WorkspaceCanvasPresenceController({
+      api: transport.bridge,
+      labels: labels("en")
+    });
+    const second = new WorkspaceCanvasPresenceController({
+      api: transport.bridge,
+      labels: labels("en")
+    });
     await first.start({
       profileId: "profile-1",
       canvasId: "canvas-main"
@@ -153,7 +159,7 @@ describe("CanvasPresenceController", () => {
 
   it("keeps a quiet session until the server sends leave and ignores another canvas", async () => {
     const transport = createBridge();
-    const controller = new CanvasPresenceController({
+    const controller = new WorkspaceCanvasPresenceController({
       api: transport.bridge,
       labels: labels("zh-CN")
     });
@@ -195,7 +201,7 @@ describe("CanvasPresenceController", () => {
 
   it("re-publishes the last local pointer after disconnect reset + reconnect snapshot", async () => {
     const transport = createBridge();
-    const controller = new CanvasPresenceController({
+    const controller = new WorkspaceCanvasPresenceController({
       api: transport.bridge,
       labels: labels("en")
     });
@@ -246,7 +252,7 @@ describe("CanvasPresenceController", () => {
 
   it("drops stale signals after canvas/profile generation changes", async () => {
     const transport = createBridge();
-    const controller = new CanvasPresenceController({
+    const controller = new WorkspaceCanvasPresenceController({
       api: transport.bridge,
       labels: labels("en")
     });

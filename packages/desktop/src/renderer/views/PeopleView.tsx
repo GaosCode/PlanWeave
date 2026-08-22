@@ -5,7 +5,6 @@ import {
   type PlanWeaveCollaborationApi
 } from "../../shared/collaboration.js";
 import type { WorkspaceCanvasLocator } from "../../shared/canvasLocator.js";
-import { Button } from "@/components/ui/button";
 import { collaborationBridge } from "../bridge";
 import type { createTranslator } from "../i18n";
 import { useCollaborationReadModels } from "../hooks/useCollaborationReadModels";
@@ -22,7 +21,6 @@ import {
 } from "../collaboration/CurrentCanvasAccessPanel";
 import { LocalCollaborationServerPanel } from "../collaboration/LocalCollaborationServerPanel";
 import { LocalServerLifecycleControls } from "../collaboration/LocalServerLifecycleControls";
-import { ContentAuthorityPanel } from "../collaboration/ContentAuthorityPanel";
 import { WorkspaceAccessScopeSelector } from "../collaboration/WorkspaceAccessScopeSelector";
 import { WorkspaceCanvasSharingPanel } from "../collaboration/WorkspaceCanvasSharingPanel";
 import { DeploymentConnectionCard } from "../settings/DeploymentConnectionCard";
@@ -46,10 +44,6 @@ export type PeopleViewProps = {
   api?: PlanWeaveCollaborationApi | null;
   /** Optional clipboard writer; defaults to navigator.clipboard. */
   copyText?: (text: string) => Promise<void>;
-  onContentReplicaReady?: (result: {
-    localProjectId: string;
-    localCanvasId: string;
-  }) => Promise<void>;
   onWorkspaceCanvasPublished?: (locator: WorkspaceCanvasLocator) => void;
   onMembershipOutcome?: (outcome: { ok: boolean; message: string }) => void;
   collaborationScopeLayout: DesktopUiSettings["layout"]["collaborationScope"];
@@ -92,7 +86,6 @@ export function PeopleView({
   diagnosticsEnabled = false,
   api: apiProp,
   copyText = defaultCopyText,
-  onContentReplicaReady,
   onWorkspaceCanvasPublished,
   onMembershipOutcome,
   collaborationScopeLayout,
@@ -584,45 +577,6 @@ export function PeopleView({
                       />
                     </div>
                   ) : null
-                }
-                contentAuthority={
-                  sessionConnected ? (
-                    <ContentAuthorityPanel
-                      api={api ?? null}
-                      connectionKey={activeProfile?.profileId ?? null}
-                      authorityProjectId={activeProfile?.projectId ?? null}
-                      localProjectId={null}
-                      canvasId={null}
-                      connected={sessionConnected}
-                      diagnosticsEnabled={diagnosticsEnabled}
-                      onReplicaReady={onContentReplicaReady}
-                      t={t}
-                    />
-                  ) : (
-                    <div className="flex flex-col items-start gap-3 py-1">
-                      <div>
-                        <h2 className="text-base font-semibold text-text-strong">
-                          {t("contentAuthorityTitle")}
-                        </h2>
-                        <p className="mt-1 max-w-3xl text-sm leading-6 text-text-muted">
-                          {t("settingsServerContentNeedsSession")}
-                        </p>
-                      </div>
-                      {activeProfile?.hasDeviceCredential ? (
-                        <Button
-                          type="button"
-                          size="sm"
-                          disabled={reconnectPending}
-                          onClick={() => void handleRefreshDetails()}
-                          data-testid="people-workspace-reconnect-session"
-                        >
-                          {reconnectPending
-                            ? t("settingsServerReconnectSessionBusy")
-                            : t("settingsServerReconnectSession")}
-                        </Button>
-                      ) : null}
-                    </div>
-                  )
                 }
               />
             )}

@@ -1,5 +1,5 @@
 import { ViewportPortal, type Edge, type Node } from "@xyflow/react";
-import type { CanvasPresenceRemoteSession } from "../collaboration/CanvasPresenceController";
+import type { CanvasPresenceRemoteSession } from "../collaboration/WorkspaceCanvasPresenceController";
 import type { createTranslator } from "../i18n";
 
 const presenceColors = [

@@ -2,7 +2,7 @@
 
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { SharedCanvasCommandsResult } from "../renderer/hooks/useSharedCanvasCommands";
+import type { WorkspaceCanvasCommandsResult } from "../renderer/hooks/useWorkspaceCanvasCommands";
 import {
   collaborationCanvasReplicaProjectionSchema,
   type CollaborationCanvasReplicaProjection
@@ -81,9 +81,9 @@ function sharedPromptProjection(): CollaborationCanvasReplicaProjection {
   });
 }
 
-function sharedCanvasWithProjection(
+function workspaceCanvasWithProjection(
   projection = sharedPromptProjection()
-): SharedCanvasCommandsResult {
+): WorkspaceCanvasCommandsResult {
   return {
     enabled: true,
     authorityMode: "shared",
@@ -114,8 +114,8 @@ function sharedCanvasWithProjection(
 describe("Task Workspace shared prompt authority", () => {
   it("uses shared prompts after reopening instead of stale local package prompts", async () => {
     const { api } = controllerApi({ readModel: () => null });
-    const sharedCanvas = sharedCanvasWithProjection();
-    const { result } = renderHook(() => useControllerHarness(api, navigation(), sharedCanvas));
+    const workspaceCanvas = workspaceCanvasWithProjection();
+    const { result } = renderHook(() => useControllerHarness(api, navigation(), workspaceCanvas));
     await waitFor(() => expect(result.current.status).toBe("ready"));
 
     expect(result.current.workspace?.task.promptMarkdown).toBe("# Shared Task workspace");
@@ -134,14 +134,14 @@ describe("Task Workspace shared prompt authority", () => {
 
     expect(api.getTaskDetail).not.toHaveBeenCalled();
     expect(api.getBlockDetail).not.toHaveBeenCalled();
-    expect(sharedCanvas.submit).toHaveBeenNthCalledWith(1, {
+    expect(workspaceCanvas.submit).toHaveBeenNthCalledWith(1, {
       intent: {
         kind: "update_task_prompt",
         taskId: "T-001",
         promptMarkdown: "# Shared Task workspace updated"
       }
     });
-    expect(sharedCanvas.submit).toHaveBeenNthCalledWith(2, {
+    expect(workspaceCanvas.submit).toHaveBeenNthCalledWith(2, {
       intent: {
         kind: "update_block_prompt",
         blockRef: "T-001#B-001",

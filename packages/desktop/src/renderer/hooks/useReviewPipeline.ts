@@ -9,7 +9,7 @@ import { bridge, desktopCanvasReference } from "../bridge";
 import { runLocalOnlyWhenOffline } from "../collaboration/packageWriteAdapter";
 import type { createTranslator } from "../i18n";
 import { normalizeReviewPipelineDraft } from "./reviewPipelineDraft";
-import type { SharedCanvasCommandsResult } from "./useSharedCanvasCommands";
+import type { WorkspaceCanvasCommandsResult } from "./useWorkspaceCanvasCommands";
 
 type UseReviewPipelineArgs = {
   graph: DesktopGraphViewModel | null;
@@ -23,7 +23,7 @@ type UseReviewPipelineArgs = {
    * Review pipeline has no canvas command intent yet.
    * While shared is enabled, refuse local package writes (fail closed).
    */
-  sharedCanvas?: SharedCanvasCommandsResult | null;
+  workspaceCanvas?: WorkspaceCanvasCommandsResult | null;
 };
 
 function missingReviewTaskError(caught: unknown, taskId: string): boolean {
@@ -46,7 +46,7 @@ export function useReviewPipeline({
   selectedProject,
   setError,
   t,
-  sharedCanvas = null
+  workspaceCanvas = null
 }: UseReviewPipelineArgs) {
   const [reviewTaskId, setReviewTaskId] = useState<string | null>(null);
   const [reviewPipeline, setReviewPipeline] = useState<DesktopReviewPipeline | null>(null);
@@ -187,7 +187,7 @@ export function useReviewPipeline({
     try {
       const canvas = desktopCanvasReference(selectedProject, selectedCanvasId);
       const mode = await runLocalOnlyWhenOffline({
-        sharedCanvas,
+        workspaceCanvas,
         onError: setError,
         unsupportedMessage: t("canvasCommandUnsupportedLocalOnly"),
         localWrite: async () => {
@@ -232,7 +232,7 @@ export function useReviewPipeline({
     selectedCanvasId,
     selectedProject,
     setError,
-    sharedCanvas,
+    workspaceCanvas,
     t
   ]);
 

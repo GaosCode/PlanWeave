@@ -2,18 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DesktopAutoRunEvent } from "@planweave-ai/runtime";
 import type { DesktopGraphViewModel, DesktopTaskDetail } from "@planweave-ai/runtime";
 import { autoRunEventMatchesCanvas } from "./autoRunEvents";
-import { bridge, collaborationBridge } from "./bridge";
+import { bridge } from "./bridge";
 import { runDurablePackageWrite } from "./collaboration/packageWriteAdapter";
 import { createTranslator, type Language } from "./i18n";
 import { TaskInspector } from "./inspector/TaskInspector";
-import { useCollaborationStatus } from "./hooks/useCollaborationStatus";
 import { useDetectedAgents } from "./hooks/useDetectedAgents";
 import { useDesktopSettingsBridge } from "./hooks/useDesktopSettingsBridge";
-import { useSharedCanvasCommands } from "./hooks/useSharedCanvasCommands";
 import { useTaskAgentEndpointSelection } from "./hooks/useTaskAgentEndpointSelection";
 import { useOwnerControlPlaneAvailability } from "./hooks/useOwnerControlPlaneAvailability";
 import { useWorkspaceAgentEndpointCatalog } from "./hooks/useWorkspaceAgentEndpointCatalog";
-import { isCollaborationSessionConnected } from "./collaboration/sessionState";
 
 function supportedLanguage(value: string | null): Language {
   return value === "en" || value === "zh-CN" ? value : "zh-CN";
@@ -98,39 +95,7 @@ export function TaskInspectorWindow() {
     [canvasId, projectRoot, taskId]
   );
 
-  const { status: collaborationStatus } = useCollaborationStatus({ api: collaborationBridge });
-  const activeCollaborationProfile = useMemo(() => {
-    if (!collaborationStatus?.activeProfileId) return null;
-    return (
-      collaborationStatus.profiles.find(
-        (profile) => profile.profileId === collaborationStatus.activeProfileId
-      ) ?? null
-    );
-  }, [collaborationStatus]);
-  const sessionConnected = isCollaborationSessionConnected(collaborationStatus);
-  const sharedProjectId = activeCollaborationProfile?.projectId ?? null;
-  const graphProjectId = graph?.projectId ?? null;
-  const sharedCanvasEnabled =
-    sessionConnected &&
-    sharedProjectId !== null &&
-    graphProjectId !== null &&
-    sharedProjectId === graphProjectId;
-  const sharedCanvas = useSharedCanvasCommands({
-    api: collaborationBridge,
-    binding:
-      sharedProjectId && canvasId
-        ? { kind: "local", localProjectId: sharedProjectId, canvasId }
-        : null,
-    enabled: sharedCanvasEnabled,
-    sessionConnected,
-    profileId: activeCollaborationProfile?.profileId ?? null,
-    activeProjectId: sharedProjectId,
-    localOwnerDirectWriteAvailable: false,
-    t,
-    onAuthoritativeChange: async () => {
-      await loadTask();
-    }
-  });
+  const workspaceCanvas = null;
   const ownerControlPlane = useOwnerControlPlaneAvailability();
   const agentEndpointCatalog = useWorkspaceAgentEndpointCatalog({
     agentDetections,
@@ -167,7 +132,7 @@ export function TaskInspectorWindow() {
     }
     try {
       const mode = await runDurablePackageWrite({
-        sharedCanvas,
+        workspaceCanvas,
         intent: {
           kind: "update_task_fields",
           taskId: selectedTask.taskId,
@@ -191,7 +156,7 @@ export function TaskInspectorWindow() {
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [canvasId, loadTask, projectRoot, selectedTask, sharedCanvas]);
+  }, [canvasId, loadTask, projectRoot, selectedTask]);
 
   const changeLogicalExecutor = useCallback(
     async (targetTaskId: string, executorName: string) => {
@@ -200,7 +165,7 @@ export function TaskInspectorWindow() {
       }
       try {
         const mode = await runDurablePackageWrite({
-          sharedCanvas,
+          workspaceCanvas,
           intent: {
             kind: "update_task_fields",
             taskId: targetTaskId,
@@ -229,7 +194,7 @@ export function TaskInspectorWindow() {
         return false;
       }
     },
-    [canvasId, loadTask, projectRoot, sharedCanvas]
+    [canvasId, loadTask, projectRoot]
   );
 
   const taskAgentEndpointSelection = useTaskAgentEndpointSelection({
@@ -248,7 +213,7 @@ export function TaskInspectorWindow() {
     }
     try {
       const mode = await runDurablePackageWrite({
-        sharedCanvas,
+        workspaceCanvas,
         intent: {
           kind: "update_task_prompt",
           taskId: selectedTask.taskId,
@@ -276,7 +241,7 @@ export function TaskInspectorWindow() {
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [canvasId, loadTask, projectRoot, selectedTask, sharedCanvas]);
+  }, [canvasId, loadTask, projectRoot, selectedTask]);
 
   const selectedEndpointId = selectedTask
     ? taskAgentEndpointSelection.selectedEndpointId(

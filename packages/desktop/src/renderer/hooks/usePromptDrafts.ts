@@ -3,7 +3,7 @@ import type { DesktopGraphViewModel, DesktopProjectSummary } from "@planweave-ai
 import { bridge, desktopCanvasReference } from "../bridge";
 import { runDurablePackageWrite } from "../collaboration/packageWriteAdapter";
 import type { TaskNodeData } from "../types";
-import type { SharedCanvasCommandsResult } from "./useSharedCanvasCommands";
+import type { WorkspaceCanvasCommandsResult } from "./useWorkspaceCanvasCommands";
 
 type UsePromptDraftsArgs = {
   graph: DesktopGraphViewModel | null;
@@ -11,8 +11,8 @@ type UsePromptDraftsArgs = {
   selectedCanvasId: string | null;
   selectedProject: DesktopProjectSummary | null;
   setError: (message: string | null) => void;
-  /** When enabled, task title/prompt writes go through shared canvas commands. */
-  sharedCanvas?: SharedCanvasCommandsResult | null;
+  /** When enabled, task title/prompt writes go through Workspace Canvas commands. */
+  workspaceCanvas?: WorkspaceCanvasCommandsResult | null;
 };
 
 export type PromptConflictRef = {
@@ -32,7 +32,7 @@ export function usePromptDrafts({
   selectedCanvasId,
   selectedProject,
   setError,
-  sharedCanvas = null
+  workspaceCanvas = null
 }: UsePromptDraftsArgs) {
   const draftScopeId = useRef<string | null>(null);
   const [titleDrafts, setTitleDrafts] = useState<Record<string, string>>({});
@@ -216,7 +216,7 @@ export function usePromptDrafts({
       try {
         const title = titleDrafts[taskId] ?? "";
         const mode = await runDurablePackageWrite({
-          sharedCanvas,
+          workspaceCanvas,
           intent: {
             kind: "update_task_fields",
             taskId,
@@ -238,7 +238,7 @@ export function usePromptDrafts({
         setError(caught instanceof Error ? caught.message : String(caught));
       }
     },
-    [refreshGraph, selectedCanvasId, selectedProject, setError, sharedCanvas, titleDrafts]
+    [refreshGraph, selectedCanvasId, selectedProject, setError, workspaceCanvas, titleDrafts]
   );
 
   const handlePromptChange = useCallback((taskId: string, value: string) => {
@@ -269,7 +269,7 @@ export function usePromptDrafts({
             : undefined);
         const markdown = promptDrafts[taskId] ?? "";
         const mode = await runDurablePackageWrite({
-          sharedCanvas,
+          workspaceCanvas,
           intent: {
             kind: "update_task_prompt",
             taskId,
@@ -342,7 +342,7 @@ export function usePromptDrafts({
       selectedCanvasId,
       selectedProject,
       setError,
-      sharedCanvas
+      workspaceCanvas
     ]
   );
 
@@ -401,7 +401,7 @@ export function usePromptDrafts({
     }
     for (const conflict of Object.values(promptConflicts)) {
       const mode = await runDurablePackageWrite({
-        sharedCanvas,
+        workspaceCanvas,
         intent: {
           kind: "update_task_prompt",
           taskId: conflict.taskId,
@@ -424,7 +424,7 @@ export function usePromptDrafts({
     }
     setPromptConflicts({});
     await refreshGraph();
-  }, [promptConflicts, refreshGraph, selectedCanvasId, selectedProject, setError, sharedCanvas]);
+  }, [promptConflicts, refreshGraph, selectedCanvasId, selectedProject, setError, workspaceCanvas]);
 
   useEffect(() => {
     if (!bridge || !selectedProject || !graph) {

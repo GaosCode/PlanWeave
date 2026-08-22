@@ -24,7 +24,6 @@ export type CanvasPresenceBridge = Pick<
   | "stopCollaborationPresence"
   | "publishCollaborationPresence"
   | "onCollaborationPresenceSignal"
-  | "resolveCollaborationCanvasBindingScope"
 >;
 
 export type CanvasPresenceRemoteSession = {
@@ -103,7 +102,7 @@ function toErrorMessage(
  * are flushed when the next snapshot (or peer update) proves the socket is live.
  * Main-process CollaborationPresenceSession must not also re-publish last state.
  */
-export class CanvasPresenceController {
+export class WorkspaceCanvasPresenceController {
   private readonly api: CanvasPresenceBridge;
   private readonly labels: CanvasPresenceLabels;
   private scope: CanvasPresenceScope | null = null;

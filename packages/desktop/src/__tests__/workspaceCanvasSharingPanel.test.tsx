@@ -21,27 +21,7 @@ const publishedCandidate: WorkspaceCanvasSharingCandidate = {
   canvasId: "default",
   canvasName: "Default canvas",
   state: "published_private",
-  visibility: "private",
-  authority: {
-    authoritativeHead: {
-      schemaVersion: "content-version/v1",
-      scope: { workspaceId: "workspace-a", projectId: "project-a", canvasId: "default" },
-      revision: 1,
-      content: {
-        versionId: "version-a",
-        canonicalDigest: "a".repeat(64),
-        verification: "complete"
-      },
-      advancedAt: "2030-01-01T00:00:00.000Z"
-    },
-    localReplica: null,
-    lastAcknowledgement: null,
-    replicaStatus: "snapshot_required",
-    canPublishInitial: false,
-    canMaterialize: true,
-    canRecover: true,
-    offlineWriteReason: null
-  }
+  visibility: "private"
 };
 
 const publishedResult: WorkspaceCanvasPublishResult = {
@@ -77,8 +57,7 @@ describe("WorkspaceCanvasSharingPanel", () => {
         canvasId: "default",
         canvasName: "Default canvas",
         state: "local_only",
-        visibility: null,
-        authority: null
+        visibility: null
       },
       {
         localProjectId: "project-local",
@@ -86,8 +65,7 @@ describe("WorkspaceCanvasSharingPanel", () => {
         canvasId: "planning",
         canvasName: "Planning canvas",
         state: "published_shared",
-        visibility: "shared",
-        authority: null
+        visibility: "shared"
       },
       {
         localProjectId: "project-other",
@@ -95,8 +73,7 @@ describe("WorkspaceCanvasSharingPanel", () => {
         canvasId: "default",
         canvasName: "Other canvas",
         state: "published_private",
-        visibility: "private",
-        authority: null
+        visibility: "private"
       }
     ];
     const listWorkspaceCanvasSharingCandidates = vi
@@ -236,8 +213,7 @@ describe("WorkspaceCanvasSharingPanel", () => {
         canvasId: "canvas-b",
         canvasName: "Workspace B canvas",
         state: "local_only",
-        visibility: null,
-        authority: null
+        visibility: null
       }
     ]);
     await userEvent.click(screen.getByTestId("workspace-canvas-sharing-toggle"));
@@ -250,8 +226,7 @@ describe("WorkspaceCanvasSharingPanel", () => {
         canvasId: "canvas-a",
         canvasName: "Stale Workspace A canvas",
         state: "local_only",
-        visibility: null,
-        authority: null
+        visibility: null
       }
     ]);
     await waitFor(() => expect(screen.queryByText("Stale Workspace A canvas")).toBeNull());
@@ -265,8 +240,7 @@ describe("WorkspaceCanvasSharingPanel", () => {
       canvasId: "default",
       canvasName: "Default canvas",
       state: "local_only",
-      visibility: null,
-      authority: null
+      visibility: null
     };
     const api = {
       listWorkspaceCanvasSharingCandidates: vi.fn().mockResolvedValue([candidate]),
@@ -307,8 +281,7 @@ describe("WorkspaceCanvasSharingPanel", () => {
       canvasId: "default",
       canvasName: "Default canvas",
       state: "local_only",
-      visibility: null,
-      authority: null
+      visibility: null
     };
     const publishWorkspaceCanvas = vi.fn().mockResolvedValue({
       ...publishedResult,

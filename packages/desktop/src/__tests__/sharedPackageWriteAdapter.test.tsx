@@ -12,17 +12,17 @@ import type { AppFlowNode, DesktopUiSettings } from "../renderer/types";
 import { layout, project } from "./helpers/desktopProjectFixtures";
 import { graph } from "./helpers/graphFixtures";
 import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
-import type { SharedCanvasCommandsResult } from "../renderer/hooks/useSharedCanvasCommands";
+import type { WorkspaceCanvasCommandsResult } from "../renderer/hooks/useWorkspaceCanvasCommands";
 
 afterEach(cleanupRendererTestEnvironment);
 
-function sharedCanvasMock(
-  submit: SharedCanvasCommandsResult["submit"] = vi.fn().mockResolvedValue({
+function workspaceCanvasMock(
+  submit: WorkspaceCanvasCommandsResult["submit"] = vi.fn().mockResolvedValue({
     ok: true,
     error: null,
     staleConflict: null
   })
-): SharedCanvasCommandsResult {
+): WorkspaceCanvasCommandsResult {
   return {
     enabled: true,
     authorityMode: "shared",
@@ -77,7 +77,7 @@ describe("shared-mode package write gate", () => {
         selectedCanvasId: "canvas-main",
         selectedProject: project,
         setError: vi.fn(),
-        sharedCanvas: sharedCanvasMock(submit)
+        workspaceCanvas: workspaceCanvasMock(submit)
       })
     );
 
@@ -139,7 +139,7 @@ describe("shared-mode package write gate", () => {
         selectedProject: project,
         setActiveView: vi.fn(),
         setError: vi.fn(),
-        sharedCanvas: sharedCanvasMock(submit)
+        workspaceCanvas: workspaceCanvasMock(submit)
       })
     );
 
@@ -192,7 +192,7 @@ describe("shared-mode package write gate", () => {
         selectedCanvasId: "canvas-main",
         selectedProject: project,
         setError: vi.fn(),
-        sharedCanvas: sharedCanvasMock(submit)
+        workspaceCanvas: workspaceCanvasMock(submit)
       })
     );
 
@@ -228,7 +228,7 @@ describe("shared-mode package write gate", () => {
         selectedProject: project,
         setError,
         t: createTranslator("en"),
-        sharedCanvas: sharedCanvasMock(submit)
+        workspaceCanvas: workspaceCanvasMock(submit)
       })
     );
 
@@ -271,7 +271,7 @@ describe("shared-mode package write gate", () => {
         selectTaskPanel: vi.fn(),
         settings: paletteSettings,
         t: createTranslator("en"),
-        sharedCanvas: sharedCanvasMock(submit)
+        workspaceCanvas: workspaceCanvasMock(submit)
       })
     );
 
@@ -324,7 +324,7 @@ describe("shared-mode package write gate", () => {
           taskId: "T-ALPHA"
         },
         onSaved: vi.fn(),
-        sharedCanvas: sharedCanvasMock(submit)
+        workspaceCanvas: workspaceCanvasMock(submit)
       })
     );
 

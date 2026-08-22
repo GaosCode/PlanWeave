@@ -4,13 +4,13 @@ import { CANVAS_PRESENCE_MAX_SELECTION_IDS } from "@planweave-ai/collaboration-p
 import { canvasPresenceSelectionIdSchema } from "@planweave-ai/collaboration-protocol/canvas/presence";
 import { collaborationBridge } from "../bridge";
 import {
-  CanvasPresenceController,
+  WorkspaceCanvasPresenceController,
   type CanvasPresenceBridge,
   type CanvasPresenceLabels,
   type CanvasPresenceRemoteSession
-} from "../collaboration/CanvasPresenceController";
+} from "../collaboration/WorkspaceCanvasPresenceController";
 import type { createTranslator } from "../i18n";
-import type { CollaborationCanvasBindingInput } from "../../shared/collaboration.js";
+import type { RemoteCollaborationCanvasBindingInput } from "../../shared/collaboration.js";
 
 const POINTER_INTERVAL_MS = 50;
 
@@ -42,58 +42,27 @@ function normalizeSelectionIds(selection: OnSelectionChangeParams): string[] {
 export function useCollaborationCanvasPresence(input: {
   enabled: boolean;
   sessionConnected: boolean;
-  binding: CollaborationCanvasBindingInput | null;
+  binding: RemoteCollaborationCanvasBindingInput | null;
   profileId: string | null;
   activeProjectId: string | null;
   t: ReturnType<typeof createTranslator>;
   api?: CanvasPresenceBridge | null;
 }): CollaborationCanvasPresenceResult {
   const api = input.api === undefined ? collaborationBridge : input.api;
-  const bindingKind = input.binding?.kind ?? null;
-  const bindingWorkspaceId = input.binding?.kind === "remote" ? input.binding.workspaceId : null;
-  const bindingProjectId =
-    input.binding?.kind === "local"
-      ? input.binding.localProjectId
-      : (input.binding?.projectId ?? null);
-  const bindingCanvasId = input.binding?.canvasId ?? null;
-  const binding = useMemo<CollaborationCanvasBindingInput | null>(
-    () =>
-      bindingKind === "local" && bindingProjectId && bindingCanvasId
-        ? { kind: "local", localProjectId: bindingProjectId, canvasId: bindingCanvasId }
-        : bindingKind === "remote" && bindingWorkspaceId && bindingProjectId && bindingCanvasId
-          ? {
-              kind: "remote",
-              workspaceId: bindingWorkspaceId,
-              projectId: bindingProjectId,
-              canvasId: bindingCanvasId
-            }
-          : null,
-    [bindingCanvasId, bindingKind, bindingProjectId, bindingWorkspaceId]
-  );
-  const selectedProjectId = bindingProjectId;
-  const canvasId = binding?.canvasId ?? null;
-  const [resolvedScope, setResolvedScope] = useState<{
-    localProjectId: string;
-    localCanvasId: string;
-    remoteProjectId: string;
-    remoteCanvasId: string;
-  } | null>(null);
-  const currentScope =
-    resolvedScope &&
-    resolvedScope.localProjectId === selectedProjectId &&
-    resolvedScope.localCanvasId === canvasId &&
-    resolvedScope.remoteProjectId === input.activeProjectId
-      ? resolvedScope
-      : null;
+  const binding = input.binding;
   const scopeEnabled =
-    input.enabled && input.sessionConnected && input.profileId !== null && currentScope !== null;
+    input.enabled &&
+    input.sessionConnected &&
+    input.profileId !== null &&
+    binding !== null &&
+    binding.projectId === input.activeProjectId;
   const labels = useMemo<CanvasPresenceLabels>(
     () => ({
       error: (code) => input.t("canvasPresenceError").replace("{code}", code)
     }),
     [input.t]
   );
-  const controllerRef = useRef<CanvasPresenceController | null>(null);
+  const controllerRef = useRef<WorkspaceCanvasPresenceController | null>(null);
   const desiredPointerRef = useRef<XYPosition | null>(null);
   const desiredSelectionRef = useRef<string[]>([]);
   const lastPublishedRef = useRef<{ pointer: XYPosition | null; selectionIds: string[] } | null>(
@@ -105,46 +74,13 @@ export function useCollaborationCanvasPresence(input: {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (
-      !api ||
-      !input.enabled ||
-      !input.sessionConnected ||
-      !input.profileId ||
-      binding?.kind !== "remote" ||
-      !selectedProjectId ||
-      !canvasId ||
-      !input.activeProjectId ||
-      binding.projectId !== input.activeProjectId
-    ) {
-      setResolvedScope(null);
-      return undefined;
-    }
-    setResolvedScope({
-      localProjectId: binding.projectId,
-      localCanvasId: binding.canvasId,
-      remoteProjectId: binding.projectId,
-      remoteCanvasId: binding.canvasId
-    });
-    return undefined;
-  }, [
-    api,
-    input.activeProjectId,
-    binding,
-    input.enabled,
-    input.profileId,
-    canvasId,
-    selectedProjectId,
-    input.sessionConnected
-  ]);
-
-  useEffect(() => {
     if (!api) {
       controllerRef.current = null;
       setRemoteSessions([]);
       setError(null);
       return undefined;
     }
-    const controller = new CanvasPresenceController({ api, labels });
+    const controller = new WorkspaceCanvasPresenceController({ api, labels });
     controllerRef.current = controller;
     const unsubscribe = controller.subscribe((snapshot) => {
       setRemoteSessions(snapshot.sessions);
@@ -163,7 +99,7 @@ export function useCollaborationCanvasPresence(input: {
     };
   }, [api, labels]);
 
-  const remoteCanvasId = currentScope?.remoteCanvasId ?? null;
+  const remoteCanvasId = binding?.canvasId ?? null;
 
   useEffect(() => {
     const controller = controllerRef.current;
@@ -198,7 +134,7 @@ export function useCollaborationCanvasPresence(input: {
 
   const publish = useCallback(
     (pointer: XYPosition | null, selectionIds: string[]) => {
-      if (!scopeEnabled || !currentScope || !input.profileId) return;
+      if (!scopeEnabled || !binding || !input.profileId) return;
       const controller = controllerRef.current;
       if (!controller) return;
       const previous = lastPublishedRef.current;
@@ -217,7 +153,7 @@ export function useCollaborationCanvasPresence(input: {
           setError(caught instanceof Error ? caught.message : String(caught))
         );
     },
-    [currentScope, input.profileId, scopeEnabled]
+    [binding, input.profileId, scopeEnabled]
   );
 
   const flushPointer = useCallback(() => {

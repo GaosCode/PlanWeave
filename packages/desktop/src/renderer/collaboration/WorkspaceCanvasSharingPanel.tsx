@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangleIcon, CheckIcon, ChevronDownIcon, LockIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, LockIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { PlanWeaveCollaborationApi } from "../../shared/collaboration.js";
 import type {
@@ -49,7 +49,6 @@ function statusLabel(
   t: ReturnType<typeof createTranslator>
 ): string {
   if (candidate.state === "published_shared") return t("workspaceCanvasStateShared");
-  if (candidate.state === "published_outdated") return t("workspaceCanvasStateOutdated");
   if (candidate.state === "published_private") return t("workspaceCanvasStatePrivate");
   if (candidate.state === "registered_unpublished") return t("workspaceCanvasStateUnpublished");
   return t("workspaceCanvasStateLocalOnly");
@@ -60,7 +59,6 @@ function statusDescription(
   t: ReturnType<typeof createTranslator>
 ): string {
   if (candidate.state === "published_shared") return t("workspaceCanvasSharedDescription");
-  if (candidate.state === "published_outdated") return t("workspaceCanvasOutdatedDescription");
   if (candidate.state === "published_private") return t("workspaceCanvasPrivateDescription");
   if (candidate.state === "registered_unpublished") {
     return t("workspaceCanvasIncompleteDescription");
@@ -170,8 +168,7 @@ export function WorkspaceCanvasSharingPanel({
       }
       if (updated.state !== "published_shared") {
         stage = "visibility";
-        const canvasId =
-          published?.locator.canvasId ?? candidate.authority?.authoritativeHead?.scope.canvasId;
+        const canvasId = published?.locator.canvasId ?? candidate.canvasId;
         if (!canvasId) throw new Error("workspace_canvas_server_identity_missing");
         const access = await api.getCurrentCanvasAccess({ canvasId });
         const result = await api.mutateCurrentCanvasAccess({
@@ -294,10 +291,7 @@ export function WorkspaceCanvasSharingPanel({
             [
               t("workspaceCanvasSummaryLocal"),
               candidates.filter(
-                (item) =>
-                  item.state === "local_only" ||
-                  item.state === "registered_unpublished" ||
-                  item.state === "published_outdated"
+                (item) => item.state === "local_only" || item.state === "registered_unpublished"
               ).length
             ],
             [
@@ -412,8 +406,6 @@ export function WorkspaceCanvasSharingPanel({
                         >
                           {candidate.state === "published_shared" ? (
                             <CheckIcon className="size-3.5 shrink-0" aria-hidden="true" />
-                          ) : candidate.state === "published_outdated" ? (
-                            <AlertTriangleIcon className="size-3.5 shrink-0" aria-hidden="true" />
                           ) : (
                             <LockIcon className="size-3.5 shrink-0" aria-hidden="true" />
                           )}
@@ -424,11 +416,7 @@ export function WorkspaceCanvasSharingPanel({
                         </p>
                       </div>
                       <div className="flex min-w-[8.5rem] justify-end">
-                        {candidate.state === "published_outdated" ? (
-                          <span className="text-xs font-medium text-amber-700">
-                            {t("workspaceCanvasNeedsAttention")}
-                          </span>
-                        ) : candidate.state !== "published_shared" ? (
+                        {candidate.state !== "published_shared" ? (
                           <Button
                             size="sm"
                             variant="outline"

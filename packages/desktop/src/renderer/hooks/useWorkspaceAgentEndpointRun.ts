@@ -10,7 +10,7 @@ import type { WorkItemRef } from "@planweave-ai/collaboration-protocol/core/prim
 import type { RemoteOperationObservation } from "@planweave-ai/collaboration-protocol/remote-run";
 import { useCallback, useEffect, useRef } from "react";
 import type { PlanWeaveCollaborationApi } from "../../shared/collaboration";
-import type { CollaborationCanvasBindingInput } from "../../shared/collaboration";
+import type { RemoteCollaborationCanvasBindingInput } from "../../shared/collaboration";
 import type { DesktopUiSettings } from "../../shared/desktopSettings";
 import {
   bridge,
@@ -74,7 +74,7 @@ type WorkspaceAgentEndpointRunInput = {
       revisions: { responsibilityRevision: number; reviewerRevision: number };
     } | null>;
   } | null;
-  canvasBinding?: CollaborationCanvasBindingInput | null;
+  canvasBinding?: RemoteCollaborationCanvasBindingInput | null;
   graph: DesktopGraphViewModel | null;
   preferences: DesktopUiSettings["execution"]["agentEndpointPreferences"];
   selectedCanvasId: string | null;
@@ -153,6 +153,11 @@ export function useWorkspaceAgentEndpointRun(
 
   return useCallback(
     async (scope: DesktopAutoRunScope, startLocal: LocalAutoRunScopeStarter, lifecycle) => {
+      if (!input.graph || !input.selectedCanvasId) return;
+      if (input.selectedProject && !input.canvasBinding) {
+        await startLocal(scope);
+        return;
+      }
       if (!collaborationRuntimeOperationsAllowed(input.runtimeAvailability)) {
         const message =
           collaborationRuntimeUnavailableCode(input.runtimeAvailability) ??
@@ -161,14 +166,13 @@ export function useWorkspaceAgentEndpointRun(
         lifecycle?.onFailed(message);
         return;
       }
-      if (!input.graph || !input.selectedCanvasId) return;
       const plan = createAgentEndpointRunPlan({
         graph: input.graph,
         scope,
         endpoints: input.agentEndpoints,
         preferences: input.preferences,
         project: input.selectedProject,
-        remoteCanvas: input.canvasBinding?.kind === "remote" ? input.canvasBinding : null,
+        remoteCanvas: input.canvasBinding,
         canvasId: input.selectedCanvasId
       });
       if (plan.kind === "noop") return;
@@ -176,7 +180,7 @@ export function useWorkspaceAgentEndpointRun(
         input.setError(plan.reason);
         return;
       }
-      const remoteBinding = input.canvasBinding?.kind === "remote" ? input.canvasBinding : null;
+      const remoteBinding = input.canvasBinding ?? null;
       const remoteCanvasOnly = !input.selectedProject && remoteBinding !== null;
       if (remoteCanvasOnly && remoteBinding.canvasId !== input.selectedCanvasId) {
         input.setError("collaboration_canvas_binding_scope_mismatch");
@@ -403,11 +407,11 @@ export function useWorkspaceAgentEndpointRun(
               }
               const readStatus = async () => {
                 if (!api) throw new Error("collaboration_runtime_availability_unavailable");
-                const availability = await api.readCollaborationCanvasBindingRuntimeAvailability({
-                  kind: "local",
-                  localProjectId: selectedProject.projectId,
-                  canvasId: selectedCanvasId
-                });
+                if (!remoteBinding) {
+                  throw new Error("collaboration_runtime_availability_unavailable");
+                }
+                const availability =
+                  await api.readCollaborationCanvasBindingRuntimeAvailability(remoteBinding);
                 if (!availability) {
                   throw new Error("collaboration_runtime_availability_unavailable");
                 }

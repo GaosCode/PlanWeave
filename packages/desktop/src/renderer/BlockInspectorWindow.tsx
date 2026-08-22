@@ -12,7 +12,7 @@ import type {
   DesktopTerminalAppId
 } from "@planweave-ai/runtime";
 import { autoRunEventMatchesCanvas } from "./autoRunEvents";
-import { bridge, collaborationBridge } from "./bridge";
+import { bridge } from "./bridge";
 import { runDurablePackageWrite } from "./collaboration/packageWriteAdapter";
 import {
   agentEndpointPreferenceKey,
@@ -24,13 +24,10 @@ import { inheritAgentEndpointValue } from "./collaboration/AgentEndpointSelect";
 import { changeAgentEndpointSelection } from "./collaboration/changeAgentEndpoint";
 import { createTranslator, type Language } from "./i18n";
 import { BlockInspector } from "./inspector/BlockInspector";
-import { useCollaborationStatus } from "./hooks/useCollaborationStatus";
 import { useDetectedAgents } from "./hooks/useDetectedAgents";
 import { useDesktopSettingsBridge } from "./hooks/useDesktopSettingsBridge";
 import { useOwnerControlPlaneAvailability } from "./hooks/useOwnerControlPlaneAvailability";
 import { useWorkspaceAgentEndpointCatalog } from "./hooks/useWorkspaceAgentEndpointCatalog";
-import { useSharedCanvasCommands } from "./hooks/useSharedCanvasCommands";
-import { isCollaborationSessionConnected } from "./collaboration/sessionState";
 
 function supportedLanguage(value: string | null): Language {
   return value === "en" || value === "zh-CN" ? value : "zh-CN";
@@ -197,39 +194,7 @@ export function BlockInspectorWindow() {
     await loadBlock(blockRef);
   }, [blockRef, loadBlock]);
 
-  const { status: collaborationStatus } = useCollaborationStatus({ api: collaborationBridge });
-  const activeCollaborationProfile = useMemo(() => {
-    if (!collaborationStatus?.activeProfileId) return null;
-    return (
-      collaborationStatus.profiles.find(
-        (profile) => profile.profileId === collaborationStatus.activeProfileId
-      ) ?? null
-    );
-  }, [collaborationStatus]);
-  const sessionConnected = isCollaborationSessionConnected(collaborationStatus);
-  const sharedProjectId = activeCollaborationProfile?.projectId ?? null;
-  const graphProjectId = graph?.projectId ?? null;
-  const sharedCanvasEnabled =
-    sessionConnected &&
-    sharedProjectId !== null &&
-    graphProjectId !== null &&
-    sharedProjectId === graphProjectId;
-  const sharedCanvas = useSharedCanvasCommands({
-    api: collaborationBridge,
-    binding:
-      sharedProjectId && canvasId
-        ? { kind: "local", localProjectId: sharedProjectId, canvasId }
-        : null,
-    enabled: sharedCanvasEnabled,
-    sessionConnected,
-    profileId: activeCollaborationProfile?.profileId ?? null,
-    activeProjectId: sharedProjectId,
-    localOwnerDirectWriteAvailable: false,
-    t,
-    onAuthoritativeChange: async () => {
-      await refreshBlock();
-    }
-  });
+  const workspaceCanvas = null;
   const ownerControlPlane = useOwnerControlPlaneAvailability();
   const agentEndpointCatalog = useWorkspaceAgentEndpointCatalog({
     agentDetections,
@@ -392,7 +357,7 @@ export function BlockInspectorWindow() {
     }
     try {
       const mode = await runDurablePackageWrite({
-        sharedCanvas,
+        workspaceCanvas,
         intent: {
           kind: "update_block_fields",
           blockRef: selectedBlock.ref,
@@ -416,7 +381,7 @@ export function BlockInspectorWindow() {
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [canvasId, projectRoot, refreshBlock, selectedBlock, sharedCanvas]);
+  }, [canvasId, projectRoot, refreshBlock, selectedBlock]);
 
   const saveSelectedBlockExecutor = useCallback(
     async (executorName: string | null) => {
@@ -425,7 +390,7 @@ export function BlockInspectorWindow() {
       }
       try {
         const mode = await runDurablePackageWrite({
-          sharedCanvas,
+          workspaceCanvas,
           intent: {
             kind: "update_block_fields",
             blockRef: selectedBlock.ref,
@@ -454,7 +419,7 @@ export function BlockInspectorWindow() {
         return false;
       }
     },
-    [canvasId, projectRoot, refreshBlock, selectedBlock, sharedCanvas]
+    [canvasId, projectRoot, refreshBlock, selectedBlock]
   );
 
   const changeEndpoint = useCallback(
@@ -483,7 +448,7 @@ export function BlockInspectorWindow() {
     }
     try {
       const mode = await runDurablePackageWrite({
-        sharedCanvas,
+        workspaceCanvas,
         intent: {
           kind: "update_block_prompt",
           blockRef: selectedBlock.ref,
@@ -511,7 +476,7 @@ export function BlockInspectorWindow() {
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [canvasId, projectRoot, refreshBlock, selectedBlock, sharedCanvas]);
+  }, [canvasId, projectRoot, refreshBlock, selectedBlock]);
 
   return (
     <BlockInspector

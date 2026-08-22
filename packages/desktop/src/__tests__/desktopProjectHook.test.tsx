@@ -120,7 +120,7 @@ describe("desktop renderer hook interfaces", () => {
     expect(updateSettings).toHaveBeenCalledWith({ runtimePath: project.workspaceRoot });
   });
 
-  it("does not clear the committed collaboration selection while projects are restoring", async () => {
+  it("keeps Local project restoration off the collaboration bridge", async () => {
     const projectsResult = deferred<(typeof project)[]>();
     const bridge = createDesktopBridgeMock({
       listProjects: vi.fn(() => projectsResult.promise),
@@ -130,12 +130,7 @@ describe("desktop renderer hook interfaces", () => {
         .mockResolvedValue({ diagnostics: [], dirtyPromptRefs: [] }),
       watchPackageFiles: vi.fn().mockResolvedValue(undefined)
     });
-    const collaboration = {
-      setCollaborationCurrentSelection: vi.fn().mockResolvedValue(undefined),
-      clearCollaborationCurrentSelection: vi.fn().mockResolvedValue(undefined)
-    };
     vi.stubGlobal("planweave", bridge);
-    vi.stubGlobal("planweaveCollaboration", collaboration);
     vi.resetModules();
     const { useDesktopProject } = await import("../renderer/hooks/useDesktopProject");
 
@@ -148,15 +143,8 @@ describe("desktop renderer hook interfaces", () => {
     );
 
     await waitFor(() => expect(bridge.listProjects).toHaveBeenCalledOnce());
-    expect(collaboration.clearCollaborationCurrentSelection).not.toHaveBeenCalled();
 
     projectsResult.resolve([project]);
-    await waitFor(() =>
-      expect(collaboration.setCollaborationCurrentSelection).toHaveBeenCalledWith({
-        projectId: project.projectId,
-        canvasId: "canvas-main"
-      })
-    );
-    expect(collaboration.clearCollaborationCurrentSelection).not.toHaveBeenCalled();
+    await waitFor(() => expect(bridge.getDesktopProjectSnapshot).toHaveBeenCalled());
   });
 });

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, type Dispatch, type SetStateAction } from "react";
 import {
-  canvasLocatorToCollaborationBinding,
   parsePersistedWorkspaceCanvasLocator,
   type CanvasLocator,
   type WorkspaceCanvasLocator
@@ -13,8 +12,8 @@ import type { AppView, DesktopSettingsUpdate, DesktopUiSettings } from "../types
 import { useCollaborationSurface } from "./useCollaborationSurface";
 import { useDesktopProject } from "./useDesktopProject";
 import { useRemoteCanvasWorkspace } from "./useRemoteCanvasWorkspace";
-import { useSharedCanvasCommands } from "./useSharedCanvasCommands";
-import { useWorkspaceRuntimeState } from "./useWorkspaceRuntimeState";
+import { useWorkspaceCanvasCommands } from "./useWorkspaceCanvasCommands";
+import { useWorkspaceRuntime } from "./useWorkspaceRuntime";
 
 type UseProjectWorkspaceAuthorityInput = {
   activeView: AppView;
@@ -45,7 +44,6 @@ export function useProjectWorkspaceAuthority(input: UseProjectWorkspaceAuthority
     graph: localGraph,
     layout: localLayout,
     projectLoading,
-    refreshProjectDerivedState,
     selectedCanvasId,
     selectedProject,
     setSelectedCanvasId,
@@ -98,7 +96,15 @@ export function useProjectWorkspaceAuthority(input: UseProjectWorkspaceAuthority
     [remoteWorkspace.locator, selectedCanvasId, selectedProject]
   );
   const canvasBinding = useMemo(
-    () => (canvasLocator ? canvasLocatorToCollaborationBinding(canvasLocator) : null),
+    () =>
+      canvasLocator?.kind === "workspace"
+        ? {
+            kind: "remote" as const,
+            workspaceId: canvasLocator.workspaceId,
+            projectId: canvasLocator.projectId,
+            canvasId: canvasLocator.canvasId
+          }
+        : null,
     [canvasLocator]
   );
   const activeCanvasId = canvasLocator?.canvasId ?? selectedCanvasId;
@@ -109,45 +115,36 @@ export function useProjectWorkspaceAuthority(input: UseProjectWorkspaceAuthority
     localProjectId: selectedProject?.projectId ?? null,
     t: input.t
   });
-  const sharedCanvasCommands = useSharedCanvasCommands({
+  const workspaceCanvasCommands = useWorkspaceCanvasCommands({
     api: collaborationBridge,
-    binding: canvasBinding,
-    locator: canvasLocator,
-    enabled: canvasBinding !== null || canvasLocator?.kind === "workspace",
+    locator: canvasLocator?.kind === "workspace" ? canvasLocator : null,
     sessionConnected: collaborationSurface.sessionConnected,
-    profileId: remoteWorkspace.connectionProfileId,
-    activeProjectId: remoteWorkspace.activeProjectId,
-    localOwnerDirectWriteAvailable: collaborationSurface.localOwnerDirectWriteAvailable,
-    t: input.t,
-    onAuthoritativeChange: async () => {
-      await refreshProjectDerivedState();
-    }
+    t: input.t
   });
   useEffect(() => {
-    if (canvasLocator?.kind === "workspace" && sharedCanvasCommands.snapshot.lastError) {
-      input.setError(sharedCanvasCommands.snapshot.lastError);
+    if (canvasLocator?.kind === "workspace" && workspaceCanvasCommands.snapshot.lastError) {
+      input.setError(workspaceCanvasCommands.snapshot.lastError);
     }
-  }, [canvasLocator?.kind, input.setError, sharedCanvasCommands.snapshot.lastError]);
+  }, [canvasLocator?.kind, input.setError, workspaceCanvasCommands.snapshot.lastError]);
   const graph = useMemo(
     () =>
-      sharedCanvasCommands.projection
-        ? canvasReplicaProjectionToDesktopGraph(sharedCanvasCommands.projection, localGraph)
+      workspaceCanvasCommands.projection
+        ? canvasReplicaProjectionToDesktopGraph(workspaceCanvasCommands.projection, localGraph)
         : remoteWorkspace.binding
           ? null
           : localGraph,
-    [localGraph, remoteWorkspace.binding, sharedCanvasCommands.projection]
+    [localGraph, remoteWorkspace.binding, workspaceCanvasCommands.projection]
   );
   const layout =
-    sharedCanvasCommands.projection?.content.layout ??
+    workspaceCanvasCommands.projection?.content.layout ??
     (remoteWorkspace.binding ? null : localLayout);
-  const collaborationRuntime = useWorkspaceRuntimeState({
+  const collaborationRuntime = useWorkspaceRuntime({
     activeProfileId: collaborationSurface.activeProfileId,
     activeProjectId: collaborationSurface.activeProjectId,
     graph,
     sessionConnected: collaborationSurface.sessionConnected,
     binding: canvasBinding,
     locator: canvasLocator,
-    sharedAuthorityMode: sharedCanvasCommands.authorityMode,
     setError: input.setError,
     setSuccessMessage: input.setSuccessMessage,
     t: input.t
@@ -166,6 +163,6 @@ export function useProjectWorkspaceAuthority(input: UseProjectWorkspaceAuthority
     projectLoadingForAuthority,
     remoteWorkspace,
     selectRemoteCanvas,
-    sharedCanvasCommands
+    workspaceCanvasCommands: workspaceCanvasCommands
   };
 }

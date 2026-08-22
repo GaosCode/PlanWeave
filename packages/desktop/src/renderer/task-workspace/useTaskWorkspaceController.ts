@@ -26,7 +26,7 @@ import { inheritAgentEndpointValue } from "../collaboration/AgentEndpointSelect"
 import { changeAgentEndpointSelection } from "../collaboration/changeAgentEndpoint";
 import { runDurablePackageWrite } from "../collaboration/packageWriteAdapter";
 import type { AppViewHistoryController } from "../hooks/useAppViewHistory";
-import type { SharedCanvasCommandsResult } from "../hooks/useSharedCanvasCommands";
+import type { WorkspaceCanvasCommandsResult } from "../hooks/useWorkspaceCanvasCommands";
 import { useRunnerRecordMonitor } from "../hooks/useRunnerRecordMonitor";
 import { taskWorkspaceNavigationTargetSchema } from "../taskWorkspaceNavigation";
 import type { TaskWorkspaceController, TaskWorkspaceLiveStatus } from "./contracts";
@@ -123,8 +123,8 @@ export function useTaskWorkspaceController(options: {
     key: string,
     endpoint: AvailableAgentEndpoint | null
   ) => Promise<void>;
-  /** When enabled, task/block prompt and executor writes use shared canvas commands. */
-  sharedCanvas?: SharedCanvasCommandsResult | null;
+  /** When enabled, task/block prompt and executor writes use Workspace Canvas commands. */
+  workspaceCanvas?: WorkspaceCanvasCommandsResult | null;
 }): TaskWorkspaceController {
   const {
     agentEndpointCatalog,
@@ -135,7 +135,7 @@ export function useTaskWorkspaceController(options: {
     operatorProfileId = null,
     history,
     saveAgentEndpointPreference,
-    sharedCanvas = null
+    workspaceCanvas = null
   } = options;
   const navigation = history.taskWorkspaceNavigation;
   const [refreshVersion, setRefreshVersion] = useState(0);
@@ -382,9 +382,9 @@ export function useTaskWorkspaceController(options: {
   const workspace = useMemo(
     () =>
       loadedWorkspace
-        ? projectSharedTaskWorkspace(loadedWorkspace, sharedCanvas?.projection ?? null)
+        ? projectSharedTaskWorkspace(loadedWorkspace, workspaceCanvas?.projection ?? null)
         : null,
-    [loadedWorkspace, sharedCanvas?.projection]
+    [loadedWorkspace, workspaceCanvas?.projection]
   );
   const packageExecutorNames = workspaceLoad.key === key ? workspaceLoad.packageExecutorNames : [];
   const routedSelectedRun = useMemo(() => {
@@ -730,13 +730,13 @@ export function useTaskWorkspaceController(options: {
         projectRoot: navigation.projectRoot,
         canvasId: navigation.canvasId
       };
-      const sharedPrompt = sharedCanvas?.enabled
-        ? sharedTaskPromptMarkdown(sharedCanvas.projection, workspace, navigation.taskId)
+      const sharedPrompt = workspaceCanvas?.enabled
+        ? sharedTaskPromptMarkdown(workspaceCanvas.projection, workspace, navigation.taskId)
         : null;
-      const current = sharedCanvas?.enabled
+      const current = workspaceCanvas?.enabled
         ? null
         : await api.getTaskDetail(canvasRef, navigation.taskId);
-      if (sharedCanvas?.enabled && sharedPrompt === null) {
+      if (workspaceCanvas?.enabled && sharedPrompt === null) {
         throw new Error("The shared Task prompt authority is unavailable.");
       }
       if (current && current.taskId !== navigation.taskId) {
@@ -754,7 +754,7 @@ export function useTaskWorkspaceController(options: {
       }
       let sharedError: string | null = null;
       const mode = await runDurablePackageWrite({
-        sharedCanvas,
+        workspaceCanvas,
         intent: {
           kind: "update_task_prompt",
           taskId: navigation.taskId,
@@ -783,7 +783,7 @@ export function useTaskWorkspaceController(options: {
         refresh();
       }
     },
-    [api, navigation, refresh, sharedCanvas, workspace]
+    [api, navigation, refresh, workspaceCanvas, workspace]
   );
 
   const saveBlockPrompt = useCallback<TaskWorkspaceController["saveBlockPrompt"]>(
@@ -795,11 +795,13 @@ export function useTaskWorkspaceController(options: {
         projectRoot: navigation.projectRoot,
         canvasId: navigation.canvasId
       };
-      const sharedPrompt = sharedCanvas?.enabled
-        ? sharedBlockPromptMarkdown(sharedCanvas.projection, workspace, blockRef)
+      const sharedPrompt = workspaceCanvas?.enabled
+        ? sharedBlockPromptMarkdown(workspaceCanvas.projection, workspace, blockRef)
         : null;
-      const current = sharedCanvas?.enabled ? null : await api.getBlockDetail(canvasRef, blockRef);
-      if (sharedCanvas?.enabled && sharedPrompt === null) {
+      const current = workspaceCanvas?.enabled
+        ? null
+        : await api.getBlockDetail(canvasRef, blockRef);
+      if (workspaceCanvas?.enabled && sharedPrompt === null) {
         throw new Error("The shared Block prompt authority is unavailable.");
       }
       if (current && (current.ref !== blockRef || current.taskId !== navigation.taskId)) {
@@ -817,7 +819,7 @@ export function useTaskWorkspaceController(options: {
       }
       let sharedError: string | null = null;
       const mode = await runDurablePackageWrite({
-        sharedCanvas,
+        workspaceCanvas,
         intent: {
           kind: "update_block_prompt",
           blockRef,
@@ -846,14 +848,14 @@ export function useTaskWorkspaceController(options: {
         refresh();
       }
     },
-    [api, navigation, refresh, sharedCanvas, workspace]
+    [api, navigation, refresh, workspaceCanvas, workspace]
   );
 
   const { saveBlockExecutor, saveTaskExecutor } = useTaskWorkspaceExecutorActions({
     api,
     navigation,
     onSaved: refresh,
-    sharedCanvas
+    workspaceCanvas
   });
 
   const agentEndpointsForTask = useMemo(

@@ -178,8 +178,8 @@ function defaultProps(
     startAutoRunControlDrag: vi.fn(),
     stopAutoRunClick: vi.fn().mockResolvedValue(undefined),
     stopAutoRunControlDrag: vi.fn(),
-    sharedCanvasOffline: false,
-    sharedCanvasRevision: null,
+    workspaceCanvasOffline: false,
+    workspaceCanvasRevision: null,
     t: createTranslator("en"),
     visibleTaskIds: new Set(["T-001"]),
     visibleTasks: undefined,
@@ -199,21 +199,21 @@ afterEach(() => {
 describe("GraphView viewport fitting", () => {
   it.each([
     [{ kind: "server_disconnected" } as const, "Server disconnected"],
-    [{ kind: "checking" } as const, "Checking shared state and execution capability"],
+    [{ kind: "checking" } as const, "Checking Workspace execution capability"],
     [{ kind: "error", message: "IPC failed" } as const, "Execution capability check failed"],
     [
       { kind: "unavailable", reason: "host_offline", statusKnown: true } as const,
-      "Execution device is offline"
+      "Workspace execution is offline"
     ],
     [
       { kind: "unavailable", reason: "content_out_of_sync", statusKnown: true } as const,
-      "working directory is out of sync"
+      "Workspace execution content is not current"
     ]
   ])("shows the mutually exclusive collaboration availability banner", (availability, message) => {
     render(<GraphView {...defaultProps({ runtimeAvailability: availability })} />);
 
     expect(screen.getByTestId("collaboration-runtime-availability")).toHaveTextContent(message);
-    expect(screen.queryByTestId("shared-canvas-offline-replica")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("workspace-canvas-offline-cache")).not.toBeInTheDocument();
   });
 
   it("does not show a banner when canvas state is loaded without a Runtime attachment", () => {
@@ -237,7 +237,7 @@ describe("GraphView viewport fitting", () => {
       <GraphView
         {...defaultProps({
           runtimeAvailability: { kind: "server_disconnected" },
-          sharedCanvasOffline: true
+          workspaceCanvasOffline: true
         })}
       />
     );
@@ -247,26 +247,13 @@ describe("GraphView viewport fitting", () => {
     expect(banner).not.toHaveTextContent("No execution device available");
   });
 
-  it("offers a controlled one-time local status sync when Server state is uninitialized", async () => {
-    const onImportRuntimeState = vi.fn().mockResolvedValue(undefined);
+  it("labels a remote cached Workspace snapshot as offline and read-only", () => {
     render(
-      <GraphView
-        {...defaultProps({
-          runtimeAvailability: { kind: "state_uninitialized" },
-          onImportRuntimeState
-        })}
-      />
+      <GraphView {...defaultProps({ workspaceCanvasOffline: true, workspaceCanvasRevision: 4 })} />
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Sync local runtime state" }));
-    await waitFor(() => expect(onImportRuntimeState).toHaveBeenCalledOnce());
-  });
-
-  it("labels the retained shared replica as offline and read-only", () => {
-    render(<GraphView {...defaultProps({ sharedCanvasOffline: true, sharedCanvasRevision: 4 })} />);
-
-    expect(screen.getByTestId("shared-canvas-offline-replica")).toHaveTextContent(
-      "Offline · read-only · last confirmed revision 4"
+    expect(screen.getByTestId("workspace-canvas-offline-cache")).toHaveTextContent(
+      "Offline · remote cached read-only snapshot · revision 4"
     );
   });
 

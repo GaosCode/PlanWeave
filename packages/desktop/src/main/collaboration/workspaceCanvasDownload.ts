@@ -50,16 +50,30 @@ export async function downloadWorkspaceCanvasFork(input: {
     projectId: requested.projectId,
     canvasId: requested.canvasId
   });
+  const authority = await input.client.discoverContentAuthority({
+    canvasId: scope.canvasId,
+    localReplica: null,
+    knownRevision: null
+  });
+  const head = authority.authoritativeHead;
+  if (
+    !head ||
+    head.scope.workspaceId !== scope.workspaceId ||
+    head.scope.projectId !== scope.projectId ||
+    head.scope.canvasId !== scope.canvasId
+  ) {
+    throw unavailable("content_authoritative_head_mismatch", false);
+  }
   const fetched = await input.client.fetchContentVersion({
     scope,
-    content: requested.content
+    content: head.content
   });
   if (
     fetched.scope.workspaceId !== scope.workspaceId ||
     fetched.scope.projectId !== scope.projectId ||
     fetched.scope.canvasId !== scope.canvasId ||
-    fetched.completed.versionId !== requested.content.versionId ||
-    fetched.content.canonicalDigest !== requested.content.canonicalDigest
+    fetched.completed.versionId !== head.content.versionId ||
+    fetched.content.canonicalDigest !== head.content.canonicalDigest
   ) {
     throw unavailable("content_authoritative_head_mismatch", false);
   }
@@ -70,7 +84,7 @@ export async function downloadWorkspaceCanvasFork(input: {
     importMode: "fork",
     sourceLineage: {
       scope: fetched.scope,
-      revision: requested.revision,
+      revision: head.revision,
       content: fetched.completed
     }
   });

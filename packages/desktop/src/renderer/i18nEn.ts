@@ -158,6 +158,12 @@ export const enCatalog = {
   warning: "Warning",
   resetLayout: "Reset layout",
   remoteCanvases: "Workspace canvases",
+  downloadWorkspaceFork: "Download Local fork",
+  downloadWorkspaceForkDescription:
+    "Download this Workspace Canvas as an independent Local Canvas with no writeback.",
+  downloadWorkspaceForkSuccess: "Independent Local fork downloaded.",
+  downloadWorkspaceForkUnavailable:
+    "Reconnect to download this Workspace Canvas as an independent Local fork.",
   undoGraphCommand: "Undo graph change",
   redoGraphCommand: "Redo graph change",
   searchPlaceholder: "Search tasks, blocks, prompts",
@@ -555,8 +561,6 @@ export const enCatalog = {
     "Run the local PlanWeave MCP server and connect it to ChatGPT through OpenAI Secure MCP Tunnel.",
   settingsServerHint:
     "Host the collaboration Server on this computer, or paste connection details to join one that already exists.",
-  settingsServerContentNeedsSession:
-    "Syncing Workspace content requires a connected collaboration session. Reconnect with this device's credential, or finish connecting the Workspace first.",
   settingsServerOpenPeople: "Open Members to connect",
   settingsServerReconnectSession: "Reconnect session",
   settingsServerReconnectSessionBusy: "Reconnecting…",
@@ -1425,7 +1429,7 @@ export const enCatalog = {
     "This legacy profile needs a new invitation or deployment connection before it can connect.",
   peopleRemoteWorkspaceTitle: "Workspace management",
   peopleRemoteWorkspaceDescription:
-    "Manage the Workspace connected to this computer, share local canvases, or sync Workspace canvases here. Manage member access from Members.",
+    "Manage the connected Workspace, publish selected Local Canvases, and open Workspace Canvases. Manage member access from Members.",
   peopleWorkspaceIdentityTitle: "Current Workspace",
   peopleWorkspaceIdentityDescription:
     "See which Workspace this computer is connected to, or switch to another Workspace.",
@@ -1488,8 +1492,8 @@ export const enCatalog = {
   workspaceCanvasSharingTitle: "Share canvases",
   workspaceCanvasSharingDescription:
     "Share a local canvas to Workspace. After sharing, this session switches to the live Workspace canvas. The original local files stay on this computer.",
-  workspaceCanvasSharingExpand: "Manage shared canvases",
-  workspaceCanvasSharingCollapse: "Collapse shared canvases",
+  workspaceCanvasSharingExpand: "Manage published canvases",
+  workspaceCanvasSharingCollapse: "Collapse published canvases",
   workspaceCanvasProjectExpand: "Show project canvases",
   workspaceCanvasProjectCollapse: "Hide project canvases",
   workspaceCanvasSharingLoading: "Loading canvases…",
@@ -1814,73 +1818,20 @@ export const enCatalog = {
   canvasCommandRejected: "Canvas command rejected: {code}",
   canvasCommandReconnectFailed: "Canvas reconnect failed: {code}",
   canvasCommandNotConnected:
-    "This shared canvas is offline and cannot be edited. Start or check the Server, then go to Members and select Refresh to reconnect.",
-  sharedCanvasOfflineReplica: "Offline · read-only local replica",
-  sharedCanvasOfflineRevision: "Offline · read-only · last confirmed revision {revision}",
-  collaborationServerDisconnected:
-    "Server disconnected · collaboration runtime operations disabled",
-  collaborationRuntimeChecking: "Checking shared state and execution capability…",
+    "This Workspace Canvas is offline and cannot be edited. Start or check the Server, then go to Members and select Refresh to reconnect.",
+  workspaceCanvasOfflineCache: "Offline · remote cached read-only snapshot",
+  workspaceCanvasOfflineCacheRevision:
+    "Offline · remote cached read-only snapshot · revision {revision}",
+  collaborationServerDisconnected: "Server disconnected · Workspace execution disabled",
+  collaborationRuntimeChecking: "Checking Workspace execution capability…",
   collaborationRuntimeError: "Execution capability check failed: {message}",
-  collaborationRuntimeStateUninitialized: "Runtime state has not been synchronized to Server",
-  collaborationRuntimeStateImport: "Sync local runtime state",
-  collaborationRuntimeStateImporting: "Syncing…",
-  collaborationRuntimeStateImported: "Local runtime state synchronized to Server",
-  collaborationRuntimeStateWorkingCopyRequired:
-    "Create a local working copy before synchronizing runtime state.",
+  collaborationRuntimeStateUninitialized: "Workspace execution state is not initialized",
   collaborationRuntimeHostOffline:
-    "Execution device is offline · viewing and editing remain available",
-  collaborationRuntimeContentOutOfSync:
-    "The execution device working directory is out of sync with shared content",
-  collaborationRuntimeStatusUnavailable: "Runtime status unknown",
+    "Workspace execution is offline · viewing and editing remain available",
+  collaborationRuntimeContentOutOfSync: "Workspace execution content is not current",
+  collaborationRuntimeStatusUnavailable: "Workspace execution status unknown",
   canvasCommandUnsupportedLocalOnly:
-    "This edit is not available while the shared canvas is connected. Disconnect collaboration or use a supported shared command.",
-  contentAuthorityTitle: "Workspace canvases",
-  contentAuthorityDescription:
-    "Edit live in the Workspace, or download a local copy that will not write back.",
-  contentAuthorityRevisionLabel: "Version",
-  contentAuthorityStatusLabel: "Sync status",
-  contentAuthorityRevision: "Version: {revision}",
-  contentAuthorityStatus: "Sync status: {status}",
-  contentAuthorityAcknowledged: "This computer is synced to the current version.",
-  contentAuthorityVersionId: "Workspace version",
-  contentAuthorityDigest: "Content digest",
-  contentAuthorityAdvancedAt: "Updated at",
-  contentAuthorityLocalVersion: "Local version",
-  contentAuthorityAcknowledgedAt: "Synced on this computer",
-  contentAuthorityCanvas: "Canvas",
-  contentAuthorityWriteBlocked: "Offline write blocked: {reason}",
-  contentAuthorityNoLocalReplica: "Not synced to this computer",
-  contentAuthorityStatusInSync: "In sync",
-  contentAuthorityStatusBehind: "New version available",
-  contentAuthorityStatusDiverged: "Local and Workspace content differ",
-  contentAuthorityStatusSnapshotRequired: "Sync again",
-  contentAuthorityWaiting: "waiting to be shared",
-  contentAuthorityOffline: "offline",
-  contentAuthorityRetry: "Retry",
-  contentAuthorityForbidden:
-    "This account cannot sync the selected Server canvas. Ask a Workspace owner to grant access. [forbidden]",
-  contentAuthorityCanvasNotHosted:
-    "This canvas has not been shared to the Workspace yet. Share it before syncing.",
-  contentAuthorityPublish: "Share canvas",
-  contentAuthorityMaterialize: "Sync to this device",
-  contentAuthorityRecover: "Restore Workspace version",
-  contentAuthorityMaterializedSuccess:
-    "The Workspace version is synced to this computer and the project view has been refreshed.",
-  contentBootstrapTitle: "Canvases in this Workspace",
-  contentBootstrapDescription:
-    "Download a local copy of a Workspace canvas. The copy is independent and does not write back. Live edits stay on the Workspace canvas.",
-  contentBootstrapRevision: "Version {revision}",
-  contentBootstrapWaitingForOwner: "Waiting for the canvas to be shared",
-  contentBootstrapStoredReplica: "Synced to this computer",
-  contentBootstrapOpenLocal: "Open canvas",
-  contentBootstrapSync: "Sync to this device",
-  contentAuthorityDownloadLocalCopy: "Download local copy",
-  contentAuthorityDownloadNoWriteback: "No writeback to Workspace",
-  contentAuthorityDownloadSuccess:
-    "A local copy was created and opened. Edits stay on this computer.",
-  contentBootstrapSuccess: "The canvas was synced and opened.",
-  contentBootstrapAcknowledgementPending:
-    "The canvas is synced, but its status has not updated yet. Try again later.",
+    "This edit is not available for a Workspace Canvas. Use a supported Workspace command.",
   localServerTitle: "Canvases hosted on this computer",
   localServerDescription:
     "Configure the canvases served by this computer. This does not publish them to a remote Workspace Server.",

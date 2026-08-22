@@ -4,7 +4,7 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { OnSelectionChangeParams } from "@xyflow/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useCollaborationCanvasPresence } from "../renderer/hooks/useCollaborationCanvasPresence";
-import type { CanvasPresenceBridge } from "../renderer/collaboration/CanvasPresenceController";
+import type { CanvasPresenceBridge } from "../renderer/collaboration/WorkspaceCanvasPresenceController";
 import type { CollaborationPresenceSignal } from "../shared/collaboration";
 import { createTranslator } from "../renderer/i18n";
 
@@ -30,11 +30,6 @@ afterEach(() => {
 function bridgeFixture() {
   let onSignal: ((signal: CollaborationPresenceSignal) => void) | null = null;
   const api: CanvasPresenceBridge = {
-    resolveCollaborationCanvasBindingScope: vi.fn(async (input) => ({
-      workspaceId: "workspace-1",
-      projectId: input.kind === "local" ? input.localProjectId : input.projectId,
-      canvasId: input.canvasId
-    })),
     startCollaborationPresence: vi.fn(async ({ canvasId }) => {
       queueMicrotask(() =>
         onSignal?.({
@@ -115,7 +110,6 @@ describe("useCollaborationCanvasPresence", () => {
       await Promise.resolve();
     });
     expect(fixture.api.startCollaborationPresence).toHaveBeenCalled();
-    expect(fixture.api.resolveCollaborationCanvasBindingScope).not.toHaveBeenCalled();
 
     act(() => result.current.onSelectionChange(selection));
     expect(fixture.api.publishCollaborationPresence).toHaveBeenCalledTimes(1);
@@ -208,7 +202,6 @@ describe("useCollaborationCanvasPresence", () => {
       await Promise.resolve();
     });
 
-    expect(fixture.api.resolveCollaborationCanvasBindingScope).not.toHaveBeenCalled();
     expect(fixture.api.startCollaborationPresence).not.toHaveBeenCalled();
   });
 
@@ -236,7 +229,6 @@ describe("useCollaborationCanvasPresence", () => {
         canvasId: "remote-canvas"
       })
     );
-    expect(fixture.api.resolveCollaborationCanvasBindingScope).not.toHaveBeenCalled();
     act(() => result.current.onSelectionChange(selection));
     expect(fixture.api.publishCollaborationPresence).toHaveBeenCalledTimes(1);
   });

@@ -116,10 +116,10 @@ type GraphViewProps = {
   onResourcePin: (name: string | null) => void;
   clearPinnedResource: () => void;
   presence?: CollaborationCanvasPresenceResult;
-  sharedCanvasOffline: boolean;
-  sharedCanvasRevision: number | null;
+  workspaceCanvasOffline: boolean;
+  workspaceCanvasRevision: number | null;
+  onDownloadWorkspaceFork?: () => Promise<void>;
   runtimeAvailability: CollaborationRuntimeAvailabilityView;
-  onImportRuntimeState?: () => Promise<void>;
 };
 
 function runtimeAvailabilityBanner(
@@ -210,10 +210,10 @@ export function GraphView({
   onResourcePin,
   clearPinnedResource,
   presence,
-  sharedCanvasOffline,
-  sharedCanvasRevision,
-  runtimeAvailability,
-  onImportRuntimeState
+  workspaceCanvasOffline,
+  workspaceCanvasRevision,
+  onDownloadWorkspaceFork,
+  runtimeAvailability
 }: GraphViewProps) {
   const fittedGraphScopeId = useRef<string | null>(null);
   const [localFlowInstance, setLocalFlowInstance] = useState<ReactFlowInstance<
@@ -222,7 +222,6 @@ export function GraphView({
   > | null>(null);
   const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
-  const [runtimeStateImporting, setRuntimeStateImporting] = useState(false);
   const dirtyPromptRefs = graph?.dirtyPromptRefs ?? [];
   const dirtyPromptCount = dirtyPromptRefs.length;
   const runtimeBanner = runtimeAvailabilityBanner(runtimeAvailability, t);
@@ -285,16 +284,6 @@ export function GraphView({
     },
     [handleOpenBlockInspector, onTaskPanelSelect, selectedCanvasId, setActiveView]
   );
-  const handleImportRuntimeState = useCallback(async () => {
-    if (!onImportRuntimeState || runtimeStateImporting) return;
-    setRuntimeStateImporting(true);
-    try {
-      await onImportRuntimeState();
-    } finally {
-      setRuntimeStateImporting(false);
-    }
-  }, [onImportRuntimeState, runtimeStateImporting]);
-
   useEffect(() => {
     if (!graph) {
       return undefined;
@@ -360,30 +349,37 @@ export function GraphView({
           data-testid="collaboration-runtime-availability"
         >
           {runtimeBanner}
-          {runtimeAvailability.kind === "state_uninitialized" && onImportRuntimeState ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-6 rounded-full px-2 text-xs"
-              disabled={runtimeStateImporting}
-              onClick={() => void handleImportRuntimeState()}
-            >
-              {runtimeStateImporting
-                ? t("collaborationRuntimeStateImporting")
-                : t("collaborationRuntimeStateImport")}
-            </Button>
-          ) : null}
         </div>
-      ) : sharedCanvasOffline ? (
+      ) : workspaceCanvasOffline ? (
         <div
           className="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full border border-border bg-surface/95 px-3 py-1 text-xs text-text-muted shadow-sm"
-          data-testid="shared-canvas-offline-replica"
+          data-testid="workspace-canvas-offline-cache"
         >
-          {sharedCanvasRevision === null
-            ? t("sharedCanvasOfflineReplica")
-            : t("sharedCanvasOfflineRevision").replace("{revision}", String(sharedCanvasRevision))}
+          {workspaceCanvasRevision === null
+            ? t("workspaceCanvasOfflineCache")
+            : t("workspaceCanvasOfflineCacheRevision").replace(
+                "{revision}",
+                String(workspaceCanvasRevision)
+              )}
         </div>
+      ) : null}
+      {onDownloadWorkspaceFork ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="absolute right-3 top-3 z-20 h-8 bg-surface/95 text-xs shadow-sm"
+          disabled={workspaceCanvasOffline}
+          title={
+            workspaceCanvasOffline
+              ? t("downloadWorkspaceForkUnavailable")
+              : t("downloadWorkspaceForkDescription")
+          }
+          data-testid="download-workspace-local-fork"
+          onClick={() => void onDownloadWorkspaceFork()}
+        >
+          {t("downloadWorkspaceFork")}
+        </Button>
       ) : null}
       {!graph ? (
         <div className="flex h-full items-center justify-center p-6">

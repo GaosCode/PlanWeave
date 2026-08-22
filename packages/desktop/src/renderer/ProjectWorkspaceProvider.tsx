@@ -166,7 +166,7 @@ export function ProjectWorkspaceProvider({
     projectLoadingForAuthority: workspaceProjectLoading,
     remoteWorkspace,
     selectRemoteCanvas,
-    sharedCanvasCommands
+    workspaceCanvasCommands
   } = useProjectWorkspaceAuthority({
     activeView,
     settings,
@@ -253,7 +253,7 @@ export function ProjectWorkspaceProvider({
     selectedProject,
     setActiveView,
     setError,
-    sharedCanvas: sharedCanvasCommands
+    workspaceCanvas: workspaceCanvasCommands
   });
 
   const {
@@ -297,26 +297,38 @@ export function ProjectWorkspaceProvider({
       remoteWorkspace.clear();
     }
   }, [handleOpenProject, remoteWorkspace.clear]);
+  const downloadWorkspaceFork = useCallback(async () => {
+    if (!collaborationBridge || canvasLocator?.kind !== "workspace") return;
+    try {
+      const result = await collaborationBridge.downloadWorkspaceCanvasFork({
+        workspaceId: canvasLocator.workspaceId,
+        projectId: canvasLocator.projectId,
+        canvasId: canvasLocator.canvasId,
+        ...(graph?.projectTitle ? { projectName: graph.projectTitle } : {})
+      });
+      remoteWorkspace.clear();
+      await refreshProjects({
+        selectProjectId: result.localProjectId,
+        selectCanvasId: result.localCanvasId
+      });
+      setSuccessMessage(t("downloadWorkspaceForkSuccess"));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }, [
+    canvasLocator,
+    graph?.projectTitle,
+    refreshProjects,
+    remoteWorkspace.clear,
+    setError,
+    setSuccessMessage,
+    t
+  ]);
 
   const createLocalProjectFromTaskCanvas = useCallback(
-    async (project: DesktopProjectSummary, canvasId: string) => {
-      const isCurrentSharedCanvas =
-        sharedCanvasCommands.enabled &&
-        selectedProject?.projectId === project.projectId &&
-        selectedCanvasId === canvasId;
-      if (isCurrentSharedCanvas) {
-        if (!collaborationBridge) throw new Error(t("bridgeUnavailable"));
-        await collaborationBridge.flushCollaborationCanvasReplicaMaterialization();
-      }
-      return createProjectFromTaskCanvasInSession(project, canvasId);
-    },
-    [
-      createProjectFromTaskCanvasInSession,
-      selectedCanvasId,
-      selectedProject?.projectId,
-      sharedCanvasCommands.enabled,
-      t
-    ]
+    (project: DesktopProjectSummary, canvasId: string) =>
+      createProjectFromTaskCanvasInSession(project, canvasId),
+    [createProjectFromTaskCanvasInSession]
   );
 
   const restoreTaskWorkspaceSourceSelection = useCallback(
@@ -356,7 +368,7 @@ export function ProjectWorkspaceProvider({
     history: appHistory,
     operatorProfileId: ownerControlPlane.operatorProfileId,
     saveAgentEndpointPreference: agentEndpointCatalog.savePreference,
-    sharedCanvas: sharedCanvasCommands
+    workspaceCanvas: workspaceCanvasCommands
   });
   const currentRouteRef = useRef(appHistory.route);
   currentRouteRef.current = appHistory.route;
@@ -555,7 +567,7 @@ export function ProjectWorkspaceProvider({
     selectedProject,
     setError,
     t,
-    sharedCanvas: sharedCanvasCommands
+    workspaceCanvas: workspaceCanvasCommands
   });
 
   const { handleDeleteBlock, handleDeleteTaskNode } = useGraphDeleteActions({
@@ -574,7 +586,7 @@ export function ProjectWorkspaceProvider({
     setError,
     setSelectedBlock,
     setSelectedRunRecord,
-    sharedCanvas: sharedCanvasCommands
+    workspaceCanvas: workspaceCanvasCommands
   });
 
   const {
@@ -595,7 +607,7 @@ export function ProjectWorkspaceProvider({
     selectedCanvasId,
     selectedProject,
     setError,
-    sharedCanvas: sharedCanvasCommands
+    workspaceCanvas: workspaceCanvasCommands
   });
 
   const {
@@ -627,7 +639,7 @@ export function ProjectWorkspaceProvider({
     selectedCanvasId,
     selectedProject,
     setError,
-    sharedCanvas: sharedCanvasCommands
+    workspaceCanvas: workspaceCanvasCommands
   });
   const taskAgentEndpointSelection = useTaskAgentEndpointSelection({
     agentEndpoints: agentEndpointCatalog.endpoints,
@@ -884,7 +896,7 @@ export function ProjectWorkspaceProvider({
     selectTaskPanel: handleTaskPanelSelect,
     settings,
     t,
-    sharedCanvas: sharedCanvasCommands
+    workspaceCanvas: workspaceCanvasCommands
   });
   const fileSyncController = useFileSyncController({
     projectDiagnostics: visibleProjectDiagnostics,
@@ -1022,10 +1034,11 @@ export function ProjectWorkspaceProvider({
     onResourcePin,
     clearPinnedResource,
     presence: collaborationPresence,
-    sharedCanvasOffline: sharedCanvasCommands.offline,
-    sharedCanvasRevision: sharedCanvasCommands.projection?.revision ?? null,
-    runtimeAvailability: collaborationRuntime.availability,
-    onImportRuntimeState: collaborationRuntime.onImportRuntimeState
+    workspaceCanvasOffline: workspaceCanvasCommands.offline,
+    workspaceCanvasRevision: workspaceCanvasCommands.projection?.revision ?? null,
+    onDownloadWorkspaceFork:
+      canvasLocator?.kind === "workspace" ? downloadWorkspaceFork : undefined,
+    runtimeAvailability: collaborationRuntime.availability
   });
   const review = useMemo<WorkspaceTabsReviewProps>(
     () => ({

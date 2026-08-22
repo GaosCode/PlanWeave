@@ -98,23 +98,7 @@ export async function publishLocalCanvasToWorkspace(input: {
     canvasId: canvas.canvasId,
     canvasName: canvas.name,
     state: published.visibility === "shared" ? "published_shared" : "published_private",
-    visibility: published.visibility,
-    authority: {
-      authoritativeHead: {
-        schemaVersion: "content-version/v1",
-        scope: published.scope,
-        revision: published.revision,
-        content: published.content,
-        advancedAt: new Date().toISOString()
-      },
-      localReplica: null,
-      replicaStatus: "snapshot_required",
-      lastAcknowledgement: null,
-      canPublishInitial: false,
-      canMaterialize: true,
-      canRecover: true,
-      offlineWriteReason: null
-    }
+    visibility: published.visibility
   } satisfies WorkspaceCanvasSharingCandidate);
   return workspaceCanvasPublishResultSchema.omit({ authoritySwitch: true }).parse({
     outcome: published.outcome,
