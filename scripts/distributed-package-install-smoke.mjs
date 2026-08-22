@@ -55,7 +55,6 @@ const collaborationProtocolModules = [
   ["access/control", "accessControl"],
   ["content/snapshot", "packageSnapshot"],
   ["content/version", "contentVersion"],
-  ["content/authority", "contentAuthority"],
   ["content/transfer", "contentVersionTransfer"],
   ["work/assignment", "assignment"],
   ["work/responsibility", "responsibility"],

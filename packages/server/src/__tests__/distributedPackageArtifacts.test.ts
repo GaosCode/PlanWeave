@@ -75,6 +75,7 @@ describe("distributed package artifact contracts", () => {
     expect(smokeScript).toContain('policy: "zero-vulnerabilities"');
     expect(smokeScript).toContain('auditLevel: "info"');
     expect(smokeScript).toContain('"--audit-level=info"');
+    expect(smokeScript).not.toContain('["content/authority", "contentAuthority"]');
   });
 
   it("pins engines, bins, licenses, and publish metadata for shippable packages", () => {
@@ -110,6 +111,7 @@ describe("distributed package artifact contracts", () => {
     expect(contracts.main).toBeUndefined();
     expect(contracts.types).toBeUndefined();
     expect(contracts.exports?.["."]).toBeUndefined();
+    expect(contracts.exports?.["./content/authority"]).toBeUndefined();
     expect(contracts.exports?.["./core/primitives"]).toEqual({
       types: "./dist/primitives.d.ts",
       import: "./dist/primitives.js"
