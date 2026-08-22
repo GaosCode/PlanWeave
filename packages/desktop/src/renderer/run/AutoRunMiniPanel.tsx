@@ -43,6 +43,7 @@ type AutoRunMiniPanelProps = {
   preflightExecutor: string | null;
   resetRuntimeStateClick: () => Promise<void>;
   runtimeOperationsAllowed: boolean;
+  runtimeResetAllowed?: boolean;
   selectedProject: DesktopProjectSummary | null;
   setMiniRunPanelOpen: Dispatch<SetStateAction<boolean>>;
   stopAutoRunClick: () => Promise<void>;
@@ -269,6 +270,7 @@ export function AutoRunMiniPanel({
   preflightExecutor,
   resetRuntimeStateClick,
   runtimeOperationsAllowed,
+  runtimeResetAllowed = runtimeOperationsAllowed,
   selectedProject,
   setMiniRunPanelOpen,
   stopAutoRunClick,
@@ -449,7 +451,7 @@ export function AutoRunMiniPanel({
             <Button
               size="sm"
               variant="outline"
-              disabled={!hasProject || !runtimeOperationsAllowed}
+              disabled={!hasProject || !runtimeResetAllowed}
               onClick={() => void resetRuntimeStateClick()}
             >
               <RotateCcwIcon data-icon="inline-start" />

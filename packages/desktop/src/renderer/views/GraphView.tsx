@@ -83,6 +83,7 @@ type GraphViewProps = {
   handleRevealPathInFinder: (path: string | null | undefined) => Promise<void>;
   resetRuntimeStateClick: () => Promise<void>;
   runtimeOperationsAllowed: boolean;
+  runtimeResetAllowed: boolean;
   handleUndoGraph: () => Promise<void>;
   miniRunPanelOpen: boolean;
   moveAutoRunControl: (event: PointerEvent<HTMLButtonElement>) => void;
@@ -177,6 +178,7 @@ export function GraphView({
   handleRevealPathInFinder,
   resetRuntimeStateClick,
   runtimeOperationsAllowed,
+  runtimeResetAllowed,
   handleUndoGraph,
   miniRunPanelOpen,
   moveAutoRunControl,
@@ -584,9 +586,11 @@ export function GraphView({
         watcherRefreshElapsedMs={fileSyncResult?.watcherRefreshElapsedMs}
         resetRuntimeStateClick={resetRuntimeStateClick}
         runtimeOperationsAllowed={runtimeOperationsAllowed}
+        runtimeResetAllowed={runtimeResetAllowed}
         selectedBlockPresent={selectedBlockPresent}
         selectedCanvasId={selectedCanvasId}
         selectedProject={selectedProject}
+        workspaceCanvasSelected={Boolean(onDownloadWorkspaceFork)}
         selectedTaskPanelId={selectedTaskPanelId}
         setAutoRunScopeMode={setAutoRunScopeMode}
         setError={setError}

@@ -164,6 +164,7 @@ export type WorkspaceTabsAutoRunProps = {
   moveAutoRunControl: (event: PointerEvent<HTMLButtonElement>) => void;
   resetRuntimeStateClick: () => Promise<void>;
   runtimeOperationsAllowed: boolean;
+  runtimeResetAllowed: boolean;
   setAutoRunScopeMode: Dispatch<SetStateAction<AutoRunScopeMode>>;
   setMiniRunPanelOpen: Dispatch<SetStateAction<boolean>>;
   startAutoRunControlDrag: (event: PointerEvent<HTMLButtonElement>) => void;

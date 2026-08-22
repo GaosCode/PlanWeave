@@ -57,6 +57,7 @@ type FloatingAutoRunControlProps = {
   watcherRefreshElapsedMs?: number;
   resetRuntimeStateClick: () => Promise<void>;
   runtimeOperationsAllowed: boolean;
+  runtimeResetAllowed?: boolean;
   selectedBlockPresent: boolean;
   selectedCanvasId?: string | null;
   selectedProject: DesktopProjectSummary | null;
@@ -69,6 +70,7 @@ type FloatingAutoRunControlProps = {
   stopAutoRunControlDrag: (event: PointerEvent<HTMLButtonElement>) => void;
   style: CSSProperties;
   t: ReturnType<typeof createTranslator>;
+  workspaceCanvasSelected?: boolean;
 };
 
 function uniqueStrings(values: string[]): string[] {
@@ -121,6 +123,7 @@ export function FloatingAutoRunControl({
   watcherRefreshElapsedMs,
   resetRuntimeStateClick,
   runtimeOperationsAllowed,
+  runtimeResetAllowed = runtimeOperationsAllowed,
   selectedBlockPresent,
   selectedCanvasId = null,
   selectedProject,
@@ -132,12 +135,14 @@ export function FloatingAutoRunControl({
   stopAutoRunClick,
   stopAutoRunControlDrag,
   style,
-  t
+  t,
+  workspaceCanvasSelected = false
 }: FloatingAutoRunControlProps) {
   const canStop = autoRunState
     ? ["running", "pausing", "paused", "manual"].includes(autoRunState.phase)
     : false;
-  const hasProject = Boolean(selectedProject);
+  const hasLocalProject = Boolean(selectedProject);
+  const hasRunnableCanvas = hasLocalProject || workspaceCanvasSelected;
   const explanation = autoRunState?.explanation ?? null;
   const currentExecutor = explanation?.currentExecutor ?? null;
   const startupPreflightExecutor =
@@ -217,7 +222,7 @@ export function FloatingAutoRunControl({
         affectedTasks={fileSyncAffectedTasks}
         diagnostics={diagnostics}
         dirtyPromptRefs={fileSyncDirtyRefs}
-        disabled={!hasProject}
+        disabled={!hasLocalProject}
         issueCount={fileSyncIssueCount}
         onOpenChange={setFileSyncPopoverOpen}
         onOpenFileSyncRef={onOpenFileSyncRef}
@@ -234,7 +239,7 @@ export function FloatingAutoRunControl({
       <DesktopDiagnosticsPopover
         actionContext={diagnosticActionContext}
         diagnostics={projectDiagnostics}
-        disabled={!hasProject}
+        disabled={!hasLocalProject}
         t={t}
       />
       <ContextMenu>
@@ -249,11 +254,12 @@ export function FloatingAutoRunControl({
               handleAutoRunClick={handleAutoRunClick}
               handleAutoRunNextAction={handleAutoRunNextAction}
               handleRevealPathInFinder={handleRevealPathInFinder}
-              hasProject={hasProject}
+              hasProject={hasRunnableCanvas}
               miniRunPanelOpen={miniRunPanelOpen}
               preflightExecutor={preflightExecutor}
               resetRuntimeStateClick={resetRuntimeStateClick}
               runtimeOperationsAllowed={runtimeOperationsAllowed}
+              runtimeResetAllowed={runtimeResetAllowed}
               selectedProject={selectedProject}
               setMiniRunPanelOpen={setMiniRunPanelOpen}
               stopAutoRunClick={stopAutoRunClick}
@@ -263,7 +269,7 @@ export function FloatingAutoRunControl({
         </ContextMenuTrigger>
         <AutoRunScopeContextMenu
           autoRunScopeMode={autoRunScopeMode}
-          hasProject={hasProject}
+          hasProject={hasRunnableCanvas}
           selectedBlockPresent={selectedBlockPresent}
           selectedTaskPanelId={selectedTaskPanelId}
           setAutoRunScopeMode={setAutoRunScopeMode}
@@ -288,19 +294,19 @@ export function FloatingAutoRunControl({
         variant="outline"
         aria-label={t("resetRuntimeState")}
         title={t("resetRuntimeState")}
-        disabled={!hasProject || !runtimeOperationsAllowed}
+        disabled={!hasRunnableCanvas || !runtimeResetAllowed}
         onClick={() => void resetRuntimeStateClick()}
       >
         <RotateCcwIcon data-icon="inline-start" />
       </Button>
-      {!hasProject ? (
+      {!hasRunnableCanvas ? (
         <span className="max-w-[180px] text-xs text-muted-foreground">
           {t("autoRunNoProjectHint")}
         </span>
       ) : null}
       <AutoRunScopeControl
         autoRunScopeMode={autoRunScopeMode}
-        hasProject={hasProject}
+        hasProject={hasRunnableCanvas}
         selectedBlockPresent={selectedBlockPresent}
         selectedTaskPanelId={selectedTaskPanelId}
         setAutoRunScopeMode={setAutoRunScopeMode}

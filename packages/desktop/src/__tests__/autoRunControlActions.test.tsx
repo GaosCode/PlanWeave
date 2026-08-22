@@ -421,6 +421,39 @@ describe("auto run control hook actions", () => {
     expect(onAutoRunDerivedStateRefresh).toHaveBeenCalledTimes(1);
   });
 
+  it("allows a Workspace reset to initialize an uninitialized runtime projection", async () => {
+    stubAutoRunControlBridge(createDesktopBridgeMock());
+    const { useAutoRunControl } = await loadAutoRunControl();
+    const resetWorkspaceRuntime = vi.fn().mockResolvedValue(undefined);
+
+    const { result } = renderHook(() =>
+      useAutoRunControl({
+        autoRunState: null,
+        canvasLocator: {
+          kind: "workspace",
+          connectionProfileId: "profile-1",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          canvasId: "canvas-main"
+        },
+        openRunWorkspace: vi.fn(),
+        resetWorkspaceRuntime,
+        runtimeAvailability: { kind: "state_uninitialized" },
+        selectedCanvasId: "canvas-main",
+        selectedBlock: null,
+        selectedProject: null,
+        selectedTaskPanelId: null,
+        setAutoRunState: vi.fn(),
+        setError: vi.fn(),
+        t: createTranslator("en"),
+        tmuxMonitoringEnabled: false
+      })
+    );
+
+    expect(result.current.runtimeOperationsAllowed).toBe(false);
+    expect(result.current.runtimeResetAllowed).toBe(true);
+  });
+
   it("blocks runtime reset while an Auto Run step is active", async () => {
     const runningState = autoRunState({ phase: "running" });
     const resetRuntimeState = vi.fn();

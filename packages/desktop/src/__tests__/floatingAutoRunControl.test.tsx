@@ -449,6 +449,56 @@ describe("FloatingAutoRunControl", () => {
     expect(screen.getByRole("button", { name: "View desktop diagnostics" })).toBeDisabled();
   });
 
+  it("enables only runtime reset while a Workspace Canvas runtime is uninitialized", async () => {
+    const resetRuntimeStateClick = vi.fn().mockResolvedValue(undefined);
+    render(
+      <FloatingAutoRunControl
+        affectedTasks={[]}
+        autoRunNextAction={null}
+        autoRunRetrospective={null}
+        autoRunScopeMode="project"
+        runtimeOperationsAllowed={false}
+        runtimeResetAllowed={true}
+        autoRunState={null}
+        diagnostics={[]}
+        projectDiagnostics={[]}
+        dirtyPromptRefs={[]}
+        dirtyPromptCount={0}
+        autoRunPreflightExecutorHint={null}
+        handleAutoRunClick={vi.fn().mockResolvedValue(undefined)}
+        handleAutoRunNextAction={vi.fn().mockResolvedValue(undefined)}
+        handleRevealPathInFinder={vi.fn().mockResolvedValue(undefined)}
+        miniRunPanelOpen={false}
+        moveAutoRunControl={vi.fn()}
+        onOpenFileSyncRef={vi.fn()}
+        refreshPackageFiles={vi.fn().mockResolvedValue(undefined)}
+        refreshedPromptCount={0}
+        refreshConcurrency={null}
+        resetRuntimeStateClick={resetRuntimeStateClick}
+        selectedBlockPresent={false}
+        selectedProject={null}
+        selectedTaskPanelId={null}
+        setAutoRunScopeMode={vi.fn()}
+        setMiniRunPanelOpen={vi.fn()}
+        startAutoRunControlDrag={vi.fn()}
+        stopAutoRunClick={vi.fn().mockResolvedValue(undefined)}
+        stopAutoRunControlDrag={vi.fn()}
+        style={{ right: 24, bottom: 24 }}
+        t={t}
+        workspaceCanvasSelected={true}
+      />
+    );
+
+    expect(screen.queryByText("Open a project before running Auto Run.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Auto Run" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Reset runtime state" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "View file sync changes" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "View desktop diagnostics" })).toBeDisabled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Reset runtime state" }));
+    expect(resetRuntimeStateClick).toHaveBeenCalledOnce();
+  });
+
   it("does not count performance diagnostics as file sync unread changes", async () => {
     installPointerMocks();
     render(

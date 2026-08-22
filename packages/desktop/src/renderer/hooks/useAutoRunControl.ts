@@ -316,6 +316,11 @@ export function useAutoRunControl({
   }, [autoRunScopeMode, selectedBlock, selectedTaskPanelId]);
 
   const runtimeOperationsAllowed = collaborationRuntimeOperationsAllowed(runtimeAvailability);
+  const runtimeResetAllowed =
+    runtimeOperationsAllowed ||
+    (canvasLocator?.kind === "workspace" &&
+      runtimeAvailability.kind === "state_uninitialized" &&
+      Boolean(resetWorkspaceRuntime));
   const runtimeUnavailableCode = collaborationRuntimeUnavailableCode(runtimeAvailability);
   const baseAutoRunNextAction = buildAutoRunNextActionDescriptor({
     labels: {
@@ -725,6 +730,7 @@ export function useAutoRunControl({
     setMiniRunPanelOpen,
     resetRuntimeStateClick,
     runtimeOperationsAllowed,
+    runtimeResetAllowed,
     startAutoRunWithScope,
     startAutoRunControlDrag,
     stopAutoRunClick,
