@@ -35,6 +35,7 @@ type ReviewHookProcessOptions = {
   cwd: string;
   stdin: string;
   limits: ReviewHookProcessLimits;
+  spawnProcess?: typeof spawnManagedProcess;
 };
 
 function appendLimitedChunk(options: {
@@ -71,7 +72,7 @@ function withReviewHookTerminationCause(primary: Error, terminationError: unknow
 
 export async function runReviewHookProcess(options: ReviewHookProcessOptions): Promise<string> {
   return new Promise<string>((resolve, reject) => {
-    const { child, tree } = spawnManagedProcess({
+    const { child, tree } = (options.spawnProcess ?? spawnManagedProcess)({
       command: options.command,
       args: options.args,
       cwd: options.cwd,
