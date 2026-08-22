@@ -272,7 +272,7 @@ export class DesktopLocalAgentHostProvisioner implements LocalAgentHostProvision
     if (!registration) {
       return notRegisteredStatus();
     }
-    const configPath = resolveAgentHostDefaultPaths(registration.workspaceId).configPath;
+    const configPath = resolveAgentHostDefaultPaths(registration.instanceKey).configPath;
     let agents: PortableEnrollmentResult["agents"];
     try {
       agents = await this.operator.listAgents(configPath);
@@ -293,7 +293,7 @@ export class DesktopLocalAgentHostProvisioner implements LocalAgentHostProvision
         return operatorLocalAgentHostStatusSchema.parse({
           supported: true,
           state: "not_registered",
-          workspaceId: registration.workspaceId,
+          ...(registration.workspaceId ? { workspaceId: registration.workspaceId } : {}),
           agents: agents.length > 0 ? agents : supportedProfiles()
         });
       }
@@ -307,7 +307,7 @@ export class DesktopLocalAgentHostProvisioner implements LocalAgentHostProvision
     return operatorLocalAgentHostStatusSchema.parse({
       supported: true,
       state: background.state === "running" ? "ready" : "background_setup_required",
-      workspaceId: registration.workspaceId,
+      ...(registration.workspaceId ? { workspaceId: registration.workspaceId } : {}),
       background: background.state,
       serverConnection,
       agents
@@ -331,7 +331,10 @@ export class DesktopLocalAgentHostProvisioner implements LocalAgentHostProvision
     );
     const instanceKey = resolveEnrollmentInstanceKey(enrollment, handoff);
     await withinLocalAgentHostStage("local_agent_host_registration_store_failed", () =>
-      this.registrations.upsert(profileId ?? instanceKey, instanceKey)
+      this.registrations.upsert(profileId ?? instanceKey, {
+        instanceKey,
+        ...(enrollment.workspaceId ? { workspaceId: enrollment.workspaceId } : {})
+      })
     );
     const agents = (
       await withinLocalAgentHostStage("local_agent_host_agent_exposure_failed", () =>
@@ -346,7 +349,7 @@ export class DesktopLocalAgentHostProvisioner implements LocalAgentHostProvision
     return operatorLocalAgentHostStatusSchema.parse({
       supported: true,
       state: background.state === "running" ? "ready" : "background_setup_required",
-      workspaceId: enrollment.workspaceId,
+      ...(enrollment.workspaceId ? { workspaceId: enrollment.workspaceId } : {}),
       background: background.state,
       serverConnection,
       agents
@@ -361,7 +364,7 @@ export class DesktopLocalAgentHostProvisioner implements LocalAgentHostProvision
       (profileId ? await this.registrations.get(profileId) : null) ??
       (await this.registrations.latest());
     if (!registration) throw new Error("local_agent_host_registration_missing");
-    const configPath = resolveAgentHostDefaultPaths(registration.workspaceId).configPath;
+    const configPath = resolveAgentHostDefaultPaths(registration.instanceKey).configPath;
     let agents: OperatorLocalAgentHostStatus["agents"];
     try {
       agents = (
@@ -393,7 +396,7 @@ export class DesktopLocalAgentHostProvisioner implements LocalAgentHostProvision
     return operatorLocalAgentHostStatusSchema.parse({
       supported: true,
       state: background.state === "running" ? "ready" : "background_setup_required",
-      workspaceId: registration.workspaceId,
+      ...(registration.workspaceId ? { workspaceId: registration.workspaceId } : {}),
       background: background.state,
       serverConnection,
       agents

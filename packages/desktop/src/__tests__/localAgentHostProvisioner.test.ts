@@ -1,12 +1,30 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveAgentHostDefaultPaths, writeHostConnectionStatus } from "@planweave-ai/agent-host";
+import { serializeAgentHostSetupHandoff } from "@planweave-ai/agent-host-protocol";
 import { DesktopLocalAgentHostProvisioner } from "../main/operatorControl/localAgentHostProvisioner.js";
 import { LocalAgentHostRegistrationStore } from "../main/operatorControl/localAgentHostRegistrationStore.js";
 
 const roots: string[] = [];
+
+function fleetHandoff(): string {
+  return serializeAgentHostSetupHandoff({
+    version: "agent-host-setup/v2",
+    endpoint: {
+      topology: "private_https",
+      serverOrigin: "https://planweave.example.test",
+      allowedClientOrigins: ["https://planweave.example.test"],
+      tlsTrust: "system_ca"
+    },
+    enrollmentCode: `pw_enroll_${"a".repeat(43)}`,
+    expiresAt: "2030-01-01T00:00:00.000Z",
+    credentialExpiresAt: "2030-06-30T00:00:00.000Z",
+    credentialPolicy: { lifetimeDays: 180, renewal: "automatic" },
+    display: { workspaceName: "Owner fleet", serverName: "Private server" }
+  });
+}
 
 afterEach(async () => {
   vi.unstubAllEnvs();
@@ -197,7 +215,10 @@ describe("Desktop local Agent Host provisioner", () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-local-agent-host-repair-"));
     roots.push(root);
     const registrations = new LocalAgentHostRegistrationStore(join(root, "registrations.json"));
-    await registrations.upsert("profile-a", "workspace-repair");
+    await registrations.upsert("profile-a", {
+      instanceKey: "workspace-repair",
+      workspaceId: "workspace-repair"
+    });
     const configPath = resolveAgentHostDefaultPaths("workspace-repair").configPath;
     const agents = [
       {
@@ -284,11 +305,122 @@ describe("Desktop local Agent Host provisioner", () => {
     await provisioner.register(undefined, "opaque-handoff", ["codex-acp"]);
 
     await expect(registrations.get("workspace-handoff")).resolves.toMatchObject({
+      instanceKey: "workspace-handoff",
       workspaceId: "workspace-handoff"
     });
     await expect(provisioner.status()).resolves.toMatchObject({
       state: "ready",
       workspaceId: "workspace-handoff"
+    });
+  });
+
+  it("keeps fleet instance identity separate from Workspace identity after restart and repair", async () => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-local-agent-host-fleet-"));
+    roots.push(root);
+    const registrationPath = join(root, "registrations.json");
+    const agents = [
+      {
+        profileId: "codex-acp",
+        agentId: "codex",
+        displayName: "Codex",
+        detected: true,
+        exposed: true,
+        ready: true
+      }
+    ];
+    const operator = {
+      enrollHandoff: vi.fn().mockResolvedValue({
+        state: "ready",
+        credential: "active",
+        background: "running",
+        configPath: "C:\\private\\fleet.json",
+        agents,
+        nextSteps: {}
+      }),
+      reconcileAgentExposure: vi.fn().mockResolvedValue({ agents, reload: "restarted" }),
+      installBackground: vi.fn().mockResolvedValue({
+        state: "running",
+        platform: "windows-user-startup"
+      }),
+      listAgents: vi.fn().mockResolvedValue(agents),
+      requireUsableCredential: vi.fn().mockResolvedValue(undefined),
+      backgroundStatus: vi
+        .fn()
+        .mockResolvedValue({ state: "running", platform: "windows-user-startup" })
+    };
+    const launcher = {
+      executablePath: "C:\\PlanWeave.exe",
+      fixedArgs: ["--agent-host-service"]
+    };
+    const provisioner = new DesktopLocalAgentHostProvisioner({
+      platform: "win32",
+      launcher,
+      operator,
+      registrations: new LocalAgentHostRegistrationStore(registrationPath)
+    });
+
+    const registered = await provisioner.register("profile-fleet", fleetHandoff(), ["codex-acp"]);
+    expect(registered).not.toHaveProperty("workspaceId");
+    const registration = await new LocalAgentHostRegistrationStore(registrationPath).get(
+      "profile-fleet"
+    );
+    expect(registration).toMatchObject({
+      profileId: "profile-fleet",
+      instanceKey: expect.stringMatching(/^fleet-/)
+    });
+    expect(registration).not.toHaveProperty("workspaceId");
+    if (!registration) throw new Error("Expected fleet registration");
+
+    const restarted = new DesktopLocalAgentHostProvisioner({
+      platform: "win32",
+      launcher,
+      operator,
+      registrations: new LocalAgentHostRegistrationStore(registrationPath)
+    });
+    const status = await restarted.status("profile-fleet");
+    expect(status).not.toHaveProperty("workspaceId");
+    expect(operator.listAgents).toHaveBeenLastCalledWith(
+      resolveAgentHostDefaultPaths(registration.instanceKey).configPath
+    );
+    const repaired = await restarted.repair("profile-fleet", ["codex-acp"]);
+    expect(repaired).not.toHaveProperty("workspaceId");
+  });
+
+  it("migrates legacy Workspace registrations to explicit instance identity", async () => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-local-agent-host-migration-"));
+    roots.push(root);
+    const registrationPath = join(root, "registrations.json");
+    await writeFile(
+      registrationPath,
+      `${JSON.stringify({
+        version: 1,
+        registrations: [
+          {
+            profileId: "profile-legacy",
+            workspaceId: "workspace-legacy",
+            updatedAt: "2030-01-01T00:00:00.000Z"
+          }
+        ]
+      })}\n`,
+      "utf8"
+    );
+
+    await expect(
+      new LocalAgentHostRegistrationStore(registrationPath).get("profile-legacy")
+    ).resolves.toMatchObject({
+      profileId: "profile-legacy",
+      instanceKey: "workspace-legacy",
+      workspaceId: "workspace-legacy"
+    });
+    expect(JSON.parse(await readFile(registrationPath, "utf8"))).toMatchObject({
+      version: 2,
+      registrations: [
+        {
+          profileId: "profile-legacy",
+          instanceKey: "workspace-legacy",
+          workspaceId: "workspace-legacy"
+        }
+      ]
     });
   });
 
@@ -313,7 +445,10 @@ describe("Desktop local Agent Host provisioner", () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-local-agent-host-status-"));
     roots.push(root);
     const registrations = new LocalAgentHostRegistrationStore(join(root, "registrations.json"));
-    await registrations.upsert("workspace-status", "workspace-status");
+    await registrations.upsert("workspace-status", {
+      instanceKey: "workspace-status",
+      workspaceId: "workspace-status"
+    });
     const operator = {
       listAgents: vi.fn().mockResolvedValue([]),
       requireUsableCredential: vi.fn().mockResolvedValue(undefined),
@@ -335,7 +470,10 @@ describe("Desktop local Agent Host provisioner", () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-local-agent-host-orphaned-"));
     roots.push(root);
     const registrations = new LocalAgentHostRegistrationStore(join(root, "registrations.json"));
-    await registrations.upsert("workspace-orphaned", "workspace-orphaned");
+    await registrations.upsert("workspace-orphaned", {
+      instanceKey: "workspace-orphaned",
+      workspaceId: "workspace-orphaned"
+    });
     const missingConfigError = Object.assign(new Error("private missing config path"), {
       code: "ENOENT"
     });
@@ -364,7 +502,10 @@ describe("Desktop local Agent Host provisioner", () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-local-agent-host-credential-"));
     roots.push(root);
     const registrations = new LocalAgentHostRegistrationStore(join(root, "registrations.json"));
-    await registrations.upsert("profile-a", "workspace-credential");
+    await registrations.upsert("profile-a", {
+      instanceKey: "workspace-credential",
+      workspaceId: "workspace-credential"
+    });
     const configPath = resolveAgentHostDefaultPaths("workspace-credential").configPath;
     const operator = {
       listAgents: vi.fn().mockResolvedValue([
@@ -408,7 +549,10 @@ describe("Desktop local Agent Host provisioner", () => {
     expect(operator.backgroundStatus).not.toHaveBeenCalled();
     await expect(registrations.get("profile-a")).resolves.toBeNull();
 
-    await registrations.upsert("profile-a", "workspace-credential");
+    await registrations.upsert("profile-a", {
+      instanceKey: "workspace-credential",
+      workspaceId: "workspace-credential"
+    });
     await expect(provisioner.repair("profile-a", ["pi-acp"])).resolves.toMatchObject({
       supported: true,
       state: "not_registered"
@@ -468,7 +612,7 @@ describe("Desktop local Agent Host provisioner", () => {
     );
 
     const registrations = new LocalAgentHostRegistrationStore(join(home, "registrations.json"));
-    await registrations.upsert("profile-a", workspaceId);
+    await registrations.upsert("profile-a", { instanceKey: workspaceId, workspaceId });
     const agents = [
       {
         profileId: "codex-acp",
@@ -538,7 +682,7 @@ describe("Desktop local Agent Host provisioner", () => {
     });
 
     const registrations = new LocalAgentHostRegistrationStore(join(home, "registrations.json"));
-    await registrations.upsert("profile-a", workspaceId);
+    await registrations.upsert("profile-a", { instanceKey: workspaceId, workspaceId });
     const operator = {
       listAgents: vi.fn().mockResolvedValue([]),
       requireUsableCredential: vi.fn().mockResolvedValue(undefined),

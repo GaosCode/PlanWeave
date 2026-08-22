@@ -3,33 +3,57 @@ import { dirname } from "node:path";
 import { z } from "zod";
 import { desktopHomePaths } from "../planweaveHomePaths.js";
 
+const registrationIdentifierSchema = z.string().trim().min(1).max(128);
+
 const registrationSchema = z
   .object({
-    profileId: z.string().trim().min(1).max(128),
-    workspaceId: z.string().trim().min(1).max(128),
+    profileId: registrationIdentifierSchema,
+    instanceKey: registrationIdentifierSchema,
+    workspaceId: registrationIdentifierSchema.optional(),
     updatedAt: z.iso.datetime()
   })
   .strict();
 
+const legacyRegistrationSchema = z
+  .object({
+    profileId: registrationIdentifierSchema,
+    workspaceId: registrationIdentifierSchema,
+    updatedAt: z.iso.datetime()
+  })
+  .strict();
+
+function rejectDuplicateProfiles(
+  value: { registrations: readonly { profileId: string }[] },
+  context: z.RefinementCtx
+) {
+  const seen = new Set<string>();
+  for (const [index, registration] of value.registrations.entries()) {
+    if (seen.has(registration.profileId)) {
+      context.addIssue({
+        code: "custom",
+        message: "duplicate local Agent Host profile",
+        path: ["registrations", index, "profileId"]
+      });
+    }
+    seen.add(registration.profileId);
+  }
+}
+
 const documentSchema = z
   .object({
-    version: z.literal(1),
+    version: z.literal(2),
     registrations: z.array(registrationSchema).max(128)
   })
   .strict()
-  .superRefine((value, context) => {
-    const seen = new Set<string>();
-    for (const [index, registration] of value.registrations.entries()) {
-      if (seen.has(registration.profileId)) {
-        context.addIssue({
-          code: "custom",
-          message: "duplicate local Agent Host profile",
-          path: ["registrations", index, "profileId"]
-        });
-      }
-      seen.add(registration.profileId);
-    }
-  });
+  .superRefine(rejectDuplicateProfiles);
+
+const legacyDocumentSchema = z
+  .object({
+    version: z.literal(1),
+    registrations: z.array(legacyRegistrationSchema).max(128)
+  })
+  .strict()
+  .superRefine(rejectDuplicateProfiles);
 
 export type LocalAgentHostRegistration = z.infer<typeof registrationSchema>;
 
@@ -48,11 +72,28 @@ export class LocalAgentHostRegistrationStore {
   private async readDocument(): Promise<z.infer<typeof documentSchema>> {
     if (this.loaded) return this.loaded;
     try {
-      this.loaded = documentSchema.parse(JSON.parse(await readFile(this.filePath, "utf8")));
+      const input = JSON.parse(await readFile(this.filePath, "utf8"));
+      const current = documentSchema.safeParse(input);
+      if (current.success) {
+        this.loaded = current.data;
+      } else {
+        const legacy = legacyDocumentSchema.parse(input);
+        const migrated = documentSchema.parse({
+          version: 2,
+          registrations: legacy.registrations.map((registration) => ({
+            profileId: registration.profileId,
+            instanceKey: registration.workspaceId,
+            workspaceId: registration.workspaceId,
+            updatedAt: registration.updatedAt
+          }))
+        });
+        await this.writeDocument(migrated);
+        this.loaded = migrated;
+      }
     } catch (error) {
       if (!isMissingFile(error))
         throw new Error("local_agent_host_store_invalid", { cause: error });
-      this.loaded = { version: 1, registrations: [] };
+      this.loaded = { version: 2, registrations: [] };
     }
     return this.loaded;
   }
@@ -67,15 +108,19 @@ export class LocalAgentHostRegistrationStore {
     return (await this.readDocument()).registrations.at(-1) ?? null;
   }
 
-  async upsert(profileId: string, workspaceId: string): Promise<LocalAgentHostRegistration> {
+  async upsert(
+    profileId: string,
+    input: { instanceKey: string; workspaceId?: string }
+  ): Promise<LocalAgentHostRegistration> {
     const current = await this.readDocument();
     const registration = registrationSchema.parse({
       profileId,
-      workspaceId,
+      instanceKey: input.instanceKey,
+      ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
       updatedAt: this.clock.now().toISOString()
     });
     const document = documentSchema.parse({
-      version: 1,
+      version: 2,
       registrations: [
         ...current.registrations.filter((item) => item.profileId !== profileId),
         registration
@@ -90,7 +135,7 @@ export class LocalAgentHostRegistrationStore {
     if (!current.registrations.some((item) => item.profileId === profileId)) return;
     await this.writeDocument(
       documentSchema.parse({
-        version: 1,
+        version: 2,
         registrations: current.registrations.filter((item) => item.profileId !== profileId)
       })
     );
