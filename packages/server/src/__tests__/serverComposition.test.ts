@@ -240,9 +240,13 @@ describe("distributed server composition", () => {
     );
     expect(runtimeAvailability.status).toBe(200);
     await expect(runtimeAvailability.json()).resolves.toEqual({
-      schemaVersion: "canvas-runtime-availability/v1",
-      kind: "unavailable",
-      reason: "runtime_not_attached"
+      schemaVersion: "canvas-runtime-view/v1",
+      state: { kind: "uninitialized" },
+      execution: {
+        schemaVersion: "canvas-runtime-availability/v1",
+        kind: "unavailable",
+        reason: "runtime_not_attached"
+      }
     });
 
     const reconnect = await fetch(
