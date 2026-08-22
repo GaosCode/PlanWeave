@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckIcon, ChevronDownIcon, LockIcon } from "lucide-react";
+import { ChevronDownIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from "@/components/ui/select";
 import type { PlanWeaveCollaborationApi } from "../../shared/collaboration.js";
 import type {
   WorkspaceCanvasPublishResult,
@@ -13,58 +20,12 @@ import {
   collaborationErrorMessage,
   logCollaborationRendererError
 } from "./formatCollaborationError";
-
-type WorkspaceCanvasShareStage = "publish" | "visibility" | "verify" | "open";
-
-type WorkspaceCanvasShareError = {
-  candidateKey: string;
-  canvasId: string;
-  canvasName: string;
-  code: string | null;
-  stage: WorkspaceCanvasShareStage;
-};
-
-function shareStageLabel(
-  stage: WorkspaceCanvasShareStage,
-  t: ReturnType<typeof createTranslator>
-): string {
-  if (stage === "publish") return t("workspaceCanvasShareStagePublish");
-  if (stage === "visibility") return t("workspaceCanvasShareStageVisibility");
-  if (stage === "open") return t("workspaceCanvasShareStageOpen");
-  return t("workspaceCanvasShareStageVerify");
-}
-
-function shareStageMessage(
-  stage: WorkspaceCanvasShareStage,
-  t: ReturnType<typeof createTranslator>
-): string {
-  if (stage === "publish") return t("workspaceCanvasShareFailedPublish");
-  if (stage === "visibility") return t("workspaceCanvasShareFailedVisibility");
-  if (stage === "open") return t("workspaceCanvasShareRetryOpen");
-  return t("workspaceCanvasShareFailedVerify");
-}
-
-function statusLabel(
-  candidate: WorkspaceCanvasSharingCandidate,
-  t: ReturnType<typeof createTranslator>
-): string {
-  if (candidate.state === "published_shared") return t("workspaceCanvasStateShared");
-  if (candidate.state === "published_private") return t("workspaceCanvasStatePrivate");
-  if (candidate.state === "registered_unpublished") return t("workspaceCanvasStateUnpublished");
-  return t("workspaceCanvasStateLocalOnly");
-}
-
-function statusDescription(
-  candidate: WorkspaceCanvasSharingCandidate,
-  t: ReturnType<typeof createTranslator>
-): string {
-  if (candidate.state === "published_shared") return t("workspaceCanvasSharedDescription");
-  if (candidate.state === "published_private") return t("workspaceCanvasPrivateDescription");
-  if (candidate.state === "registered_unpublished") {
-    return t("workspaceCanvasIncompleteDescription");
-  }
-  return t("workspaceCanvasLocalDescription");
-}
+import {
+  WorkspaceCanvasSharingProjectPanel,
+  type WorkspaceCanvasProjectGroup,
+  type WorkspaceCanvasShareError,
+  type WorkspaceCanvasShareStage
+} from "./WorkspaceCanvasSharingProjectPanel";
 
 export function WorkspaceCanvasSharingPanel({
   api,
@@ -81,13 +42,29 @@ export function WorkspaceCanvasSharingPanel({
 }) {
   const [candidates, setCandidates] = useState<WorkspaceCanvasSharingCandidate[]>([]);
   const [expanded, setExpanded] = useState(false);
-  const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(() => new Set());
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [selectedCanvasId, setSelectedCanvasId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [shareError, setShareError] = useState<WorkspaceCanvasShareError | null>(null);
-  const [pendingOpen, setPendingOpen] = useState<WorkspaceCanvasPublishResult | null>(null);
+  const [pendingAuthoritySwitch, setPendingAuthoritySwitch] =
+    useState<WorkspaceCanvasPublishResult | null>(null);
   const loadRequestIdRef = useRef(0);
+  const operationContextRef = useRef({ api, connected, connectionKey, epoch: 0 });
+  const currentOperationContext = operationContextRef.current;
+  if (
+    currentOperationContext.api !== api ||
+    currentOperationContext.connected !== connected ||
+    currentOperationContext.connectionKey !== connectionKey
+  ) {
+    operationContextRef.current = {
+      api,
+      connected,
+      connectionKey,
+      epoch: currentOperationContext.epoch + 1
+    };
+  }
 
   const load = useCallback(async (): Promise<WorkspaceCanvasSharingCandidate[]> => {
     const requestId = ++loadRequestIdRef.current;
@@ -113,20 +90,20 @@ export function WorkspaceCanvasSharingPanel({
 
   useEffect(() => {
     setCandidates([]);
+    setSelectedProjectId(null);
+    setSelectedCanvasId(null);
     setLoadError(null);
     setShareError(null);
-    setPendingOpen(null);
+    setPendingAuthoritySwitch(null);
+    setBusyKey(null);
     void load();
     return () => {
       loadRequestIdRef.current += 1;
     };
   }, [load]);
 
-  const projectGroups = useMemo(() => {
-    const groups = new Map<
-      string,
-      { localProjectId: string; projectName: string; canvases: WorkspaceCanvasSharingCandidate[] }
-    >();
+  const projectGroups = useMemo<WorkspaceCanvasProjectGroup[]>(() => {
+    const groups = new Map<string, WorkspaceCanvasProjectGroup>();
     for (const candidate of candidates) {
       const group = groups.get(candidate.localProjectId);
       if (group) {
@@ -142,8 +119,43 @@ export function WorkspaceCanvasSharingPanel({
     return [...groups.values()];
   }, [candidates]);
 
+  useEffect(() => {
+    setSelectedProjectId((current) => {
+      if (current && projectGroups.some((group) => group.localProjectId === current)) {
+        return current;
+      }
+      return projectGroups[0]?.localProjectId ?? null;
+    });
+  }, [projectGroups]);
+
+  const selectedProject = useMemo(
+    () => projectGroups.find((group) => group.localProjectId === selectedProjectId) ?? null,
+    [projectGroups, selectedProjectId]
+  );
+  const sharedCanvases = useMemo(
+    () =>
+      selectedProject?.canvases.filter((candidate) => candidate.state === "published_shared") ?? [],
+    [selectedProject]
+  );
+  const shareableCanvases = useMemo(
+    () =>
+      selectedProject?.canvases.filter((candidate) => candidate.state !== "published_shared") ?? [],
+    [selectedProject]
+  );
+
+  useEffect(() => {
+    if (
+      selectedCanvasId &&
+      !shareableCanvases.some((candidate) => candidate.canvasId === selectedCanvasId)
+    ) {
+      setSelectedCanvasId(null);
+    }
+  }, [selectedCanvasId, shareableCanvases]);
+
   const share = async (candidate: WorkspaceCanvasSharingCandidate) => {
-    if (!api) return;
+    if (!api || !connected || !connectionKey) return;
+    const operationEpoch = operationContextRef.current.epoch;
+    const isCurrentOperation = () => operationContextRef.current.epoch === operationEpoch;
     const key = `${candidate.localProjectId}\u0000${candidate.canvasId}`;
     let stage: WorkspaceCanvasShareStage =
       candidate.state === "local_only" || candidate.state === "registered_unpublished"
@@ -152,25 +164,32 @@ export function WorkspaceCanvasSharingPanel({
     setBusyKey(key);
     setShareError(null);
     try {
-      let updated = candidate;
-      let published: WorkspaceCanvasPublishResult | null = null;
-      if (candidate.state === "local_only" || candidate.state === "registered_unpublished") {
+      const recoverablePublish =
+        pendingAuthoritySwitch?.candidate.localProjectId === candidate.localProjectId &&
+        pendingAuthoritySwitch.candidate.canvasId === candidate.canvasId
+          ? pendingAuthoritySwitch
+          : null;
+      if (pendingAuthoritySwitch && !recoverablePublish) return;
+      let published = recoverablePublish;
+      let updated = recoverablePublish?.candidate ?? candidate;
+      if (
+        !published &&
+        (candidate.state === "local_only" || candidate.state === "registered_unpublished")
+      ) {
         published = await api.publishWorkspaceCanvas({
           localProjectId: candidate.localProjectId,
           canvasId: candidate.canvasId
         });
+        if (!isCurrentOperation()) return;
         updated = published.candidate;
-        if (published.authoritySwitch === "retry_open") {
-          setPendingOpen(published);
-        } else {
-          onPublished?.(published);
-        }
+        setPendingAuthoritySwitch(published);
       }
       if (updated.state !== "published_shared") {
         stage = "visibility";
-        const canvasId = published?.locator.canvasId ?? candidate.canvasId;
-        if (!canvasId) throw new Error("workspace_canvas_server_identity_missing");
+        const canvasId = updated.workspaceCanvasId;
+        if (canvasId === null) throw new Error("workspace_canvas_server_identity_missing");
         const access = await api.getCurrentCanvasAccess({ canvasId });
+        if (!isCurrentOperation()) return;
         const result = await api.mutateCurrentCanvasAccess({
           canvasId,
           request: {
@@ -180,14 +199,13 @@ export function WorkspaceCanvasSharingPanel({
             visibility: "shared"
           }
         });
+        if (!isCurrentOperation()) return;
         if (result.status !== "applied") throw new Error(result.reason);
       }
-      if (published?.authoritySwitch === "retry_open") {
-        stage = "open";
-        throw new Error("workspace_canvas_authority_switch_retry");
-      }
       stage = "verify";
+      if (!isCurrentOperation()) return;
       const refreshed = await load();
+      if (!isCurrentOperation()) return;
       const verified = refreshed.find(
         (item) =>
           item.localProjectId === candidate.localProjectId && item.canvasId === candidate.canvasId
@@ -195,55 +213,63 @@ export function WorkspaceCanvasSharingPanel({
       if (!verified || verified.state !== "published_shared") {
         throw new Error("workspace_canvas_share_not_verified");
       }
+      if (published?.authoritySwitch === "retry_open") {
+        stage = "open";
+        throw new Error("workspace_canvas_authority_switch_retry");
+      }
+      setSelectedCanvasId(null);
+      if (published) {
+        setPendingAuthoritySwitch(null);
+        onPublished?.(published);
+      }
     } catch (cause) {
+      if (!isCurrentOperation()) return;
       logCollaborationRendererError(`workspace_canvas_share.${stage}`, cause);
-      await load();
+      if (stage !== "open") {
+        await load();
+        if (!isCurrentOperation()) return;
+      }
       setShareError({
         candidateKey: key,
+        localProjectId: candidate.localProjectId,
         canvasId: candidate.canvasId,
         canvasName: candidate.canvasName,
         code: collaborationErrorCode(cause),
         stage
       });
     } finally {
-      setBusyKey(null);
+      if (isCurrentOperation()) setBusyKey(null);
     }
   };
 
-  const retryOpen = async (candidate: WorkspaceCanvasSharingCandidate): Promise<void> => {
-    if (!api || !pendingOpen) return;
-    const key = `${candidate.localProjectId}\u0000${candidate.canvasId}`;
+  const retryOpen = async (): Promise<void> => {
+    if (!api || !connected || !connectionKey || !pendingAuthoritySwitch || !shareError) return;
+    const operationEpoch = operationContextRef.current.epoch;
+    const isCurrentOperation = () => operationContextRef.current.epoch === operationEpoch;
+    const key = shareError.candidateKey;
+    const failedOpen = shareError;
     setBusyKey(key);
     setShareError(null);
     try {
-      await api.openWorkspaceCanvasSession(pendingOpen.locator);
-      onPublished?.({ ...pendingOpen, authoritySwitch: "opened" });
-      setPendingOpen(null);
-      await load();
+      await api.openWorkspaceCanvasSession(pendingAuthoritySwitch.locator);
+      if (!isCurrentOperation()) return;
+      const opened = { ...pendingAuthoritySwitch, authoritySwitch: "opened" as const };
+      setPendingAuthoritySwitch(null);
+      onPublished?.(opened);
     } catch (error) {
+      if (!isCurrentOperation()) return;
       const message = error instanceof Error ? error.message : "unknown error";
-      setShareError({
-        candidateKey: key,
-        canvasId: candidate.canvasId,
-        canvasName: candidate.canvasName,
-        stage: "open",
-        code: message
-      });
+      setShareError({ ...failedOpen, stage: "open", code: message });
     } finally {
-      setBusyKey((current) => (current === key ? null : current));
+      if (isCurrentOperation()) {
+        setBusyKey((current) => (current === key ? null : current));
+      }
     }
   };
 
-  const toggleProject = (localProjectId: string) => {
-    setCollapsedProjectIds((current) => {
-      const next = new Set(current);
-      if (next.has(localProjectId)) {
-        next.delete(localProjectId);
-      } else {
-        next.add(localProjectId);
-      }
-      return next;
-    });
+  const retryShare = (): void => {
+    if (!pendingAuthoritySwitch) return;
+    void share(pendingAuthoritySwitch.candidate);
   };
 
   return (
@@ -285,31 +311,6 @@ export function WorkspaceCanvasSharingPanel({
           ) : null
         }
       />
-      {expanded && candidates.length > 0 ? (
-        <div className="mt-5 grid grid-cols-3 divide-x divide-border/70 rounded-lg border border-border/70 bg-muted/20 py-3">
-          {[
-            [
-              t("workspaceCanvasSummaryLocal"),
-              candidates.filter(
-                (item) => item.state === "local_only" || item.state === "registered_unpublished"
-              ).length
-            ],
-            [
-              t("workspaceCanvasSummaryPrivate"),
-              candidates.filter((item) => item.state === "published_private").length
-            ],
-            [
-              t("workspaceCanvasSummaryShared"),
-              candidates.filter((item) => item.state === "published_shared").length
-            ]
-          ].map(([label, value]) => (
-            <div key={String(label)} className="px-4">
-              <p className="text-lg font-semibold tabular-nums text-text-strong">{value}</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">{label}</p>
-            </div>
-          ))}
-        </div>
-      ) : null}
       {loadError ? (
         <p className="mt-4 text-xs text-destructive" role="alert">
           {loadError}
@@ -322,170 +323,63 @@ export function WorkspaceCanvasSharingPanel({
       ) : expanded && candidates.length === 0 ? (
         <p className="mt-5 text-sm text-muted-foreground">{t("workspaceCanvasSharingEmpty")}</p>
       ) : expanded ? (
-        <div className="mt-5 flex flex-col gap-4">
-          {projectGroups.map((group) => (
-            <section
-              key={group.localProjectId}
-              aria-labelledby={`workspace-sharing-project-${group.localProjectId}`}
-              data-testid={`workspace-canvas-sharing-project-${group.localProjectId}`}
+        <div className="mt-5 flex flex-col gap-6">
+          <div className="max-w-xl">
+            <label
+              id="workspace-canvas-project-label"
+              htmlFor="workspace-canvas-project-select"
+              className="text-xs font-semibold text-text-strong"
             >
-              <div className="group relative rounded-lg border border-border/70 bg-background px-4 py-3 transition-colors hover:bg-muted/20">
-                <button
-                  type="button"
-                  className="absolute inset-0 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  aria-expanded={!collapsedProjectIds.has(group.localProjectId)}
-                  aria-controls={`workspace-sharing-canvases-${group.localProjectId}`}
-                  aria-label={`${t(
-                    collapsedProjectIds.has(group.localProjectId)
-                      ? "workspaceCanvasProjectExpand"
-                      : "workspaceCanvasProjectCollapse"
-                  )}: ${group.projectName}`}
-                  data-testid={`workspace-canvas-project-toggle-${group.localProjectId}`}
-                  onClick={() => toggleProject(group.localProjectId)}
-                />
-                <div className="pointer-events-none relative flex min-w-0 items-center justify-between gap-4">
-                  <div className="min-w-0">
-                    <h3
-                      id={`workspace-sharing-project-${group.localProjectId}`}
-                      className="truncate text-sm font-semibold text-text-strong"
-                    >
-                      {group.projectName}
-                    </h3>
-                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                      {group.localProjectId}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-3">
-                    <span className="text-xs tabular-nums text-muted-foreground">
-                      {t("workspaceCanvasProjectCount").replace(
-                        "{count}",
-                        String(group.canvases.length)
-                      )}
-                    </span>
-                    <span className="grid size-7 place-items-center rounded-md text-muted-foreground transition-colors group-hover:bg-muted group-hover:text-text-strong">
-                      <ChevronDownIcon
-                        className={`size-4 transition-transform ${
-                          collapsedProjectIds.has(group.localProjectId) ? "" : "rotate-180"
-                        }`}
-                        aria-hidden="true"
-                      />
-                    </span>
-                  </div>
-                </div>
-              </div>
-              <div
-                id={`workspace-sharing-canvases-${group.localProjectId}`}
-                className="mx-3 divide-y divide-border/60 border-x border-b border-border/60 px-3"
-                hidden={collapsedProjectIds.has(group.localProjectId)}
+              {t("workspaceCanvasProjectLabel")}
+            </label>
+            <Select
+              value={selectedProjectId ?? ""}
+              disabled={pendingAuthoritySwitch !== null}
+              onValueChange={(value) => {
+                setSelectedProjectId(value);
+                setSelectedCanvasId(null);
+              }}
+            >
+              <SelectTrigger
+                id="workspace-canvas-project-select"
+                className="mt-2 h-10 w-full bg-background"
+                aria-labelledby="workspace-canvas-project-label"
+                data-testid="workspace-canvas-project-select"
+                data-value={selectedProjectId ?? ""}
               >
-                {group.canvases.map((candidate) => {
-                  const key = `${candidate.localProjectId}\u0000${candidate.canvasId}`;
-                  return (
-                    <div
-                      key={key}
-                      className="grid grid-cols-[minmax(0,1fr)_minmax(13rem,0.72fr)_auto] items-center gap-5 py-4"
-                      data-testid={`workspace-canvas-sharing-${candidate.canvasId}`}
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-text-strong">
-                          {candidate.canvasName}
-                        </p>
-                        <p className="mt-1 truncate text-xs text-muted-foreground">
-                          {candidate.canvasId}
-                        </p>
-                      </div>
-                      <div className="min-w-0">
-                        <span
-                          className={`inline-flex min-w-0 items-center gap-2 text-xs font-semibold ${
-                            candidate.state === "published_shared"
-                              ? "text-emerald-700"
-                              : "text-muted-foreground"
-                          }`}
-                          data-testid={`workspace-canvas-state-${candidate.canvasId}`}
-                          title={statusLabel(candidate, t)}
-                        >
-                          {candidate.state === "published_shared" ? (
-                            <CheckIcon className="size-3.5 shrink-0" aria-hidden="true" />
-                          ) : (
-                            <LockIcon className="size-3.5 shrink-0" aria-hidden="true" />
-                          )}
-                          <span className="truncate">{statusLabel(candidate, t)}</span>
-                        </span>
-                        <p className="mt-1 truncate text-xs text-muted-foreground">
-                          {statusDescription(candidate, t)}
-                        </p>
-                      </div>
-                      <div className="flex min-w-[8.5rem] justify-end">
-                        {candidate.state !== "published_shared" ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={busyKey !== null}
-                            onClick={() => void share(candidate)}
-                          >
-                            {busyKey === key
-                              ? t("workspaceCanvasSharing")
-                              : candidate.state === "published_private"
-                                ? t("workspaceCanvasMakeShared")
-                                : t("workspaceCanvasShare")}
-                          </Button>
-                        ) : (
-                          <span className="inline-flex h-7 items-center justify-center rounded-lg px-2.5 text-xs font-medium text-emerald-700">
-                            {t("workspaceCanvasVerified")}
-                          </span>
-                        )}
-                      </div>
-                      {shareError?.candidateKey === key ? (
-                        <div
-                          className="col-span-full rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2.5"
-                          role="alert"
-                        >
-                          <p className="text-xs font-semibold text-destructive">
-                            {t("workspaceCanvasShareFailedTitle").replace(
-                              "{canvas}",
-                              shareError.canvasName
-                            )}
-                          </p>
-                          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                            {shareStageMessage(shareError.stage, t)}
-                          </p>
-                          <details className="mt-2 text-xs text-muted-foreground">
-                            <summary className="w-fit cursor-pointer font-medium text-text-strong marker:text-muted-foreground">
-                              {t("workspaceCanvasShareDiagnostics")}
-                            </summary>
-                            <dl className="mt-2 grid gap-x-5 gap-y-1.5 border-t border-destructive/15 pt-2 sm:grid-cols-[auto_1fr]">
-                              <dt>{t("workspaceCanvasShareDiagnosticStep")}</dt>
-                              <dd className="font-medium text-text-strong">
-                                {shareStageLabel(shareError.stage, t)}
-                              </dd>
-                              <dt>{t("workspaceCanvasShareDiagnosticCode")}</dt>
-                              <dd className="break-all font-mono text-text-strong">
-                                {shareError.code ?? t("workspaceCanvasShareDiagnosticUnavailable")}
-                              </dd>
-                              <dt>{t("workspaceCanvasShareDiagnosticCanvas")}</dt>
-                              <dd className="break-all font-mono text-text-strong">
-                                {shareError.canvasId}
-                              </dd>
-                            </dl>
-                          </details>
-                          {shareError.stage === "open" && pendingOpen ? (
-                            <Button
-                              size="sm"
-                              className="mt-2"
-                              disabled={busyKey !== null}
-                              onClick={() => void retryOpen(candidate)}
-                            >
-                              {t("workspaceCanvasRetryOpen")}
-                            </Button>
-                          ) : null}
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          ))}
+                <SelectValue placeholder={t("workspaceCanvasProjectPlaceholder")} />
+              </SelectTrigger>
+              <SelectContent position="popper" align="start">
+                {projectGroups.map((group) => (
+                  <SelectItem key={group.localProjectId} value={group.localProjectId}>
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium">{group.projectName}</span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {group.localProjectId}
+                      </span>
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {selectedProject ? (
+            <WorkspaceCanvasSharingProjectPanel
+              project={selectedProject}
+              sharedCanvases={sharedCanvases}
+              shareableCanvases={shareableCanvases}
+              selectedCanvasId={selectedCanvasId}
+              busyKey={busyKey}
+              shareError={shareError}
+              pendingAuthoritySwitch={pendingAuthoritySwitch !== null}
+              t={t}
+              onSelectCanvas={setSelectedCanvasId}
+              onShare={(candidate) => void share(candidate)}
+              onRetryShare={retryShare}
+              onRetryOpen={() => void retryOpen()}
+            />
+          ) : null}
         </div>
       ) : null}
       {expanded ? (

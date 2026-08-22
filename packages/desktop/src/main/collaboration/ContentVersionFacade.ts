@@ -272,6 +272,7 @@ export class ContentVersionFacade {
         canvasId,
         canvasName,
         state: "local_only",
+        workspaceCanvasId: null,
         visibility: null
       });
     }
@@ -282,6 +283,7 @@ export class ContentVersionFacade {
       canvasId,
       canvasName,
       state: sharingState(visibility, head !== null),
+      workspaceCanvasId: serverCanvasId,
       visibility
     });
   }

@@ -24,16 +24,43 @@ export const workspaceCanvasSharingStateSchema = z.enum([
 ]);
 export type WorkspaceCanvasSharingState = z.infer<typeof workspaceCanvasSharingStateSchema>;
 
-export const workspaceCanvasSharingCandidateSchema = z
-  .object({
-    localProjectId: opaqueIdSchema,
-    projectName: z.string().trim().min(1).max(256),
-    canvasId: opaqueIdSchema,
-    canvasName: z.string().trim().min(1).max(256),
-    state: workspaceCanvasSharingStateSchema,
-    visibility: canvasVisibilitySchema.nullable()
-  })
-  .strict();
+const workspaceCanvasSharingCandidateBaseSchema = z.object({
+  localProjectId: opaqueIdSchema,
+  projectName: z.string().trim().min(1).max(256),
+  canvasId: opaqueIdSchema,
+  canvasName: z.string().trim().min(1).max(256)
+});
+
+export const workspaceCanvasSharingCandidateSchema = z.discriminatedUnion("state", [
+  workspaceCanvasSharingCandidateBaseSchema
+    .extend({
+      state: z.literal("local_only"),
+      workspaceCanvasId: z.null(),
+      visibility: z.null()
+    })
+    .strict(),
+  workspaceCanvasSharingCandidateBaseSchema
+    .extend({
+      state: z.literal("registered_unpublished"),
+      workspaceCanvasId: opaqueIdSchema,
+      visibility: canvasVisibilitySchema
+    })
+    .strict(),
+  workspaceCanvasSharingCandidateBaseSchema
+    .extend({
+      state: z.literal("published_private"),
+      workspaceCanvasId: opaqueIdSchema,
+      visibility: z.literal("private")
+    })
+    .strict(),
+  workspaceCanvasSharingCandidateBaseSchema
+    .extend({
+      state: z.literal("published_shared"),
+      workspaceCanvasId: opaqueIdSchema,
+      visibility: z.literal("shared")
+    })
+    .strict()
+]);
 export type WorkspaceCanvasSharingCandidate = z.infer<typeof workspaceCanvasSharingCandidateSchema>;
 
 export const workspaceCanvasPublishInputSchema = z

@@ -31,6 +31,7 @@ const committed: CommittedWorkspaceCanvasPublish = {
     canvasId: "default",
     canvasName: "Default canvas",
     state: "published_private",
+    workspaceCanvasId: "default",
     visibility: "private"
   }
 };

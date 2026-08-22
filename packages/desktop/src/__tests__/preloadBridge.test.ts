@@ -973,6 +973,7 @@ describe("preload bridge invocation", () => {
               canvasId: "default",
               canvasName: "Default",
               state: "published_private",
+              workspaceCanvasId: "default",
               visibility: "private"
             }
           }

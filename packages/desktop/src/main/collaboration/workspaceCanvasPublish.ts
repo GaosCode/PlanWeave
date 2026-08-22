@@ -92,14 +92,18 @@ export async function publishLocalCanvasToWorkspace(input: {
     projectId: published.scope.projectId,
     canvasId: published.scope.canvasId
   });
-  const candidate = workspaceCanvasSharingCandidateSchema.parse({
+  const candidateBase = {
     localProjectId: overview.projectId,
     projectName: overview.name,
     canvasId: canvas.canvasId,
     canvasName: canvas.name,
-    state: published.visibility === "shared" ? "published_shared" : "published_private",
-    visibility: published.visibility
-  } satisfies WorkspaceCanvasSharingCandidate);
+    workspaceCanvasId: published.scope.canvasId
+  };
+  const candidate = workspaceCanvasSharingCandidateSchema.parse(
+    published.visibility === "shared"
+      ? { ...candidateBase, state: "published_shared", visibility: "shared" }
+      : { ...candidateBase, state: "published_private", visibility: "private" }
+  ) satisfies WorkspaceCanvasSharingCandidate;
   return workspaceCanvasPublishResultSchema.omit({ authoritySwitch: true }).parse({
     outcome: published.outcome,
     operationId: published.operationId,
