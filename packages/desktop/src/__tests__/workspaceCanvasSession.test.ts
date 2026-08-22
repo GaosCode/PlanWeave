@@ -1,4 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   CanvasCommandOutcome,
   CanvasReconnectResponse
@@ -13,9 +16,15 @@ import {
 import { basicManifest } from "../../../runtime/src/__tests__/promptTestHelpers.js";
 import type { CollaborationClient } from "../main/collaboration/CollaborationClient.js";
 import { CollaborationCanvasCommandFacade } from "../main/collaboration/collaborationCanvasCommands.js";
+import { CollaborationClientError } from "../main/collaboration/collaborationErrors.js";
 import { CanvasReplicaStore } from "../main/collaboration/CanvasReplicaStore.js";
 import type { CanvasReplicaCommandTransport } from "../main/collaboration/CanvasReplicaCommandWorker.js";
 import { WorkspaceCanvasSession } from "../main/collaboration/WorkspaceCanvasSession.js";
+import {
+  WorkspaceAuthoritativeSnapshotCache,
+  type WorkspaceAuthoritativeSnapshotCacheKey,
+  workspaceAuthorityId
+} from "../main/collaboration/WorkspaceAuthoritativeSnapshotCache.js";
 import type { CollaborationCanvasCommandSessionView } from "../shared/collaboration.js";
 import type { WorkspaceCanvasLocator } from "../shared/canvasLocator.js";
 
@@ -26,6 +35,22 @@ const locator: WorkspaceCanvasLocator = {
   projectId: "remote-project",
   canvasId: "remote-canvas"
 };
+
+const cacheKey: WorkspaceAuthoritativeSnapshotCacheKey = {
+  connectionProfileId: "profile-1",
+  serverOrigin: "http://127.0.0.1:1",
+  workspaceId: "workspace-001",
+  projectId: "remote-project",
+  canvasId: "remote-canvas"
+};
+
+const temporaryDirectories: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(
+    temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true }))
+  );
+});
 
 const remoteSession: CollaborationCanvasCommandSessionView = {
   canvasId: "remote-canvas",
@@ -212,19 +237,29 @@ function makeClient(overrides: Partial<CollaborationClient> = {}) {
 function createHarness(options?: {
   submit?: CanvasReplicaCommandTransport["submit"];
   reconnect?: CanvasReplicaCommandTransport["reconnect"];
+  fetchReconnectBaseline?: CanvasReplicaCommandTransport["fetchReconnectBaseline"];
   connectedProfileId?: string | null;
+  snapshotCache?: WorkspaceAuthoritativeSnapshotCache;
 }) {
   let content = fixtureContent();
-  const store = new CanvasReplicaStore(() => undefined);
+  const store = new CanvasReplicaStore(
+    () => undefined,
+    (snapshot) => options?.snapshotCache?.capture(cacheKey, snapshot)
+  );
   const submitted: Array<{
     expectedRevision: number;
     operationId: string;
     payload: unknown;
   }> = [];
+  const fetchReconnectBaseline = vi.fn(
+    options?.fetchReconnectBaseline ??
+      (async () => ({
+        response: snapshotResponse(content, 1),
+        content
+      }))
+  );
   const transport: CanvasReplicaCommandTransport = {
-    async fetchReconnectBaseline() {
-      return { response: snapshotResponse(content, 1), content };
-    },
+    fetchReconnectBaseline,
     reconnect:
       options?.reconnect ??
       (async (_scope, input) => ({
@@ -267,13 +302,15 @@ function createHarness(options?: {
       })
   };
   const client = makeClient();
+  const connectedProfileId =
+    options?.connectedProfileId === undefined ? "profile-1" : options.connectedProfileId;
   const mirror = {
     bind: vi.fn().mockRejectedValue(new Error("workspace session must not bind a local package")),
     flush: vi.fn().mockRejectedValue(new Error("workspace session must not flush a local package")),
     clear: vi.fn()
   };
   const facade = new CollaborationCanvasCommandFacade({
-    resolveClient: () => client,
+    resolveClient: () => (connectedProfileId ? client : null),
     resolveCanvasBinding: async () => ({
       kind: "remote",
       workspaceId: locator.workspaceId,
@@ -287,7 +324,7 @@ function createHarness(options?: {
       projectId: locator.projectId,
       canvasId: locator.canvasId
     }),
-    resolveAuthorityId: () => "authority-1",
+    resolveAuthorityId: () => workspaceAuthorityId(cacheKey),
     store,
     mirror,
     transport
@@ -299,17 +336,20 @@ function createHarness(options?: {
     operationId: "reset-1",
     code: "host_offline" as const
   });
+  const resolveSnapshotCacheKey = vi.fn(async () => cacheKey);
   const session = new WorkspaceCanvasSession({
-    resolveConnectedProfileId: () =>
-      options?.connectedProfileId === undefined ? "profile-1" : options.connectedProfileId,
+    resolveConnectedProfileId: () => connectedProfileId,
     commands: {
       bind: (input) => facade.bind(input),
+      bindCached: (input) => facade.bindCached(input),
       submit: (input, submitOptions) => facade.submit(input, submitOptions),
       reconnect: (input) => facade.reconnect(input),
       projectionForBinding: (input) => facade.projectionForBinding(input),
       session: () => facade.session(),
       releaseBinding: () => facade.releaseBinding()
     },
+    resolveSnapshotCacheKey,
+    snapshotCache: options?.snapshotCache ?? { get: vi.fn().mockResolvedValue(null) },
     resetRuntime,
     onProjection: (projection) => statuses.push(projection.status)
   });
@@ -320,6 +360,8 @@ function createHarness(options?: {
     flushMaterialization,
     statuses,
     resetRuntime,
+    fetchReconnectBaseline,
+    resolveSnapshotCacheKey,
     content: () => content
   };
 }
@@ -334,6 +376,7 @@ describe("WorkspaceCanvasSession", () => {
     expect(projection.replica).not.toHaveProperty("localProjectId");
     expect(harness.mirror.bind).not.toHaveBeenCalled();
     expect(harness.flushMaterialization).not.toHaveBeenCalled();
+    expect(harness.resolveSnapshotCacheKey).not.toHaveBeenCalled();
   });
 
   it("selects the Desktop connection from connectionProfileId and never forwards it", async () => {
@@ -452,5 +495,99 @@ describe("WorkspaceCanvasSession", () => {
     await expect(harness.session.submit({ locator, intent: layoutIntent })).rejects.toMatchObject({
       code: "workspace_canvas_session_closed"
     });
+  });
+
+  it("restores a Server-confirmed snapshot after restart as offline read-only", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "planweave-workspace-session-cache-"));
+    temporaryDirectories.push(directory);
+    const snapshotCache = new WorkspaceAuthoritativeSnapshotCache(directory);
+    const online = createHarness({ snapshotCache });
+    const onlineProjection = await online.session.open(locator);
+    expect(onlineProjection.authorityMode).toBe("server_authoritative");
+    await snapshotCache.flush();
+    await online.session.close(locator);
+
+    const restarted = createHarness({ connectedProfileId: null, snapshotCache });
+    const recovered = await restarted.session.open(locator);
+    expect(recovered).toMatchObject({
+      authorityMode: "offline_cache_readonly",
+      readOnly: true,
+      cachedAt: expect.any(String),
+      replica: { canEdit: false, bindingKind: "remote" }
+    });
+    expect(restarted.fetchReconnectBaseline).not.toHaveBeenCalled();
+    expect(restarted.mirror.bind).not.toHaveBeenCalled();
+    expect(restarted.mirror.clear).not.toHaveBeenCalled();
+    expect(restarted.flushMaterialization).not.toHaveBeenCalled();
+
+    await expect(restarted.session.submit({ locator, intent: layoutIntent })).rejects.toMatchObject(
+      { code: "workspace_canvas_offline_readonly" }
+    );
+    await expect(
+      restarted.session.resetRuntime({
+        locator,
+        operationId: "reset-offline",
+        expectedSourceRevision: `snapshot:${"b".repeat(64)}`,
+        expectedGraphFingerprint: `pkg-${"a".repeat(64)}`
+      })
+    ).rejects.toMatchObject({ code: "workspace_canvas_offline_execution_disabled" });
+    expect(restarted.resetRuntime).not.toHaveBeenCalled();
+  });
+
+  it("advances the durable recovery snapshot only after a confirmed content revision", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "planweave-workspace-session-cache-"));
+    temporaryDirectories.push(directory);
+    const snapshotCache = new WorkspaceAuthoritativeSnapshotCache(directory);
+    const harness = createHarness({ snapshotCache });
+    await harness.session.open(locator);
+    await snapshotCache.flush();
+    expect((await snapshotCache.get(cacheKey))?.contentRevision).toBe(1);
+
+    const projection = await harness.session.submit({ locator, intent: layoutIntent });
+    await snapshotCache.flush();
+    const cached = await snapshotCache.get(cacheKey);
+    expect(cached).toMatchObject({
+      contentRevision: 2,
+      contentDigest: projection.replica.contentDigest
+    });
+  });
+
+  it("fails truthfully when offline restart has no authoritative snapshot cache", async () => {
+    const harness = createHarness({ connectedProfileId: null });
+    await expect(harness.session.open(locator)).rejects.toMatchObject({
+      code: "workspace_canvas_offline_cache_unavailable"
+    });
+    expect(harness.fetchReconnectBaseline).not.toHaveBeenCalled();
+    expect(harness.mirror.bind).not.toHaveBeenCalled();
+  });
+
+  it("does not hide a Server protocol failure behind a cached projection", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "planweave-workspace-session-cache-"));
+    temporaryDirectories.push(directory);
+    const snapshotCache = new WorkspaceAuthoritativeSnapshotCache(directory);
+    const snapshot = fixtureContent();
+    await snapshotCache.put({
+      key: cacheKey,
+      contentRevision: 1,
+      contentDigest: snapshot.canonicalDigest,
+      content: snapshot
+    });
+    const get = vi.spyOn(snapshotCache, "get");
+    const harness = createHarness({
+      snapshotCache,
+      fetchReconnectBaseline: async () => {
+        throw new CollaborationClientError({
+          kind: "protocol",
+          code: "canvas_snapshot_invalid",
+          message: "canvas_snapshot_invalid",
+          retryable: false
+        });
+      }
+    });
+
+    await expect(harness.session.open(locator)).rejects.toMatchObject({
+      code: "canvas_snapshot_invalid"
+    });
+    expect(get).not.toHaveBeenCalled();
   });
 });

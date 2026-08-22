@@ -21,6 +21,12 @@ export const workspaceCanvasConflictSchema = z
   .strict();
 export type WorkspaceCanvasConflict = z.infer<typeof workspaceCanvasConflictSchema>;
 
+export const workspaceCanvasAuthorityModeSchema = z.enum([
+  "server_authoritative",
+  "offline_cache_readonly"
+]);
+export type WorkspaceCanvasAuthorityMode = z.infer<typeof workspaceCanvasAuthorityModeSchema>;
+
 /**
  * Renderer-facing Workspace Canvas view. `locator.connectionProfileId` is Desktop-only identity.
  * `replica` is the in-memory Server projection; pending ops are never a Local Canvas write.
@@ -29,11 +35,34 @@ export const workspaceCanvasProjectionSchema = z
   .object({
     locator: workspaceCanvasLocatorSchema,
     status: workspaceCanvasProjectionStatusSchema,
+    authorityMode: workspaceCanvasAuthorityModeSchema,
+    readOnly: z.boolean(),
+    cachedAt: z.string().datetime().nullable(),
     conflict: workspaceCanvasConflictSchema.nullable(),
     rejectCode: z.string().nullable(),
     replica: collaborationRemoteCanvasReplicaProjectionSchema
   })
-  .strict();
+  .strict()
+  .superRefine((projection, context) => {
+    const cached = projection.authorityMode === "offline_cache_readonly";
+    if (
+      projection.readOnly !== cached ||
+      (cached ? projection.cachedAt === null : projection.cachedAt !== null)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["authorityMode"],
+        message: "workspace_canvas_authority_mode_inconsistent"
+      });
+    }
+    if (cached && projection.replica.canEdit) {
+      context.addIssue({
+        code: "custom",
+        path: ["replica", "canEdit"],
+        message: "workspace_canvas_offline_cache_must_be_readonly"
+      });
+    }
+  });
 export type WorkspaceCanvasProjection = z.infer<typeof workspaceCanvasProjectionSchema>;
 
 export const workspaceCanvasProjectionSignalSchema = z

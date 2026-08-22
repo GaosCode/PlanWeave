@@ -901,6 +901,9 @@ describe("preload bridge invocation", () => {
             canvasId: "default"
           },
           status: "accepted",
+          authorityMode: "server_authoritative",
+          readOnly: false,
+          cachedAt: null,
           conflict: null,
           rejectCode: null,
           replica: {

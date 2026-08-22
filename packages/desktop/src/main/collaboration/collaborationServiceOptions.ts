@@ -17,6 +17,7 @@ import type {
 } from "../../shared/collaboration.js";
 import type { CollaborationCanvasBindingReplicaSignal } from "../../shared/canvasReplicaIpc.js";
 import type { WorkspaceCanvasProjection } from "../../shared/workspaceCanvasProjection.js";
+import type { WorkspaceAuthoritativeSnapshotCache } from "./WorkspaceAuthoritativeSnapshotCache.js";
 
 export type CollaborationClientFactory = (
   options: CollaborationClientOptions
@@ -42,5 +43,6 @@ export type CollaborationServiceOptions = {
   onCanvasLiveSyncSignal?: (signal: CollaborationCanvasLiveSyncSignal) => void;
   onCanvasReplicaSignal?: (signal: CollaborationCanvasBindingReplicaSignal) => void;
   onWorkspaceCanvasProjection?: (projection: WorkspaceCanvasProjection) => void;
+  workspaceSnapshotCache?: WorkspaceAuthoritativeSnapshotCache;
   bindLiveOperatorToOrigin?: (serverBaseUrl: string) => Promise<void>;
 };

@@ -10,6 +10,11 @@ import type {
 import type { CanvasRuntimeAvailabilityCoordinator } from "./CanvasRuntimeAvailabilityCoordinator.js";
 import type { ContentVersionFacade } from "./ContentVersionFacade.js";
 import { WorkspaceCanvasSession } from "./WorkspaceCanvasSession.js";
+import type {
+  WorkspaceAuthoritativeSnapshotCache,
+  WorkspaceAuthoritativeSnapshotCacheKey
+} from "./WorkspaceAuthoritativeSnapshotCache.js";
+import type { WorkspaceCanvasLocator } from "../../shared/canvasLocator.js";
 
 export type CollaborationCanvasOperationsFacadeOptions = {
   enqueue: <T>(operation: () => Promise<T>) => Promise<T>;
@@ -18,6 +23,10 @@ export type CollaborationCanvasOperationsFacadeOptions = {
   runtimeAvailability: CanvasRuntimeAvailabilityCoordinator;
   contentVersions: ContentVersionFacade;
   resolveConnectedProfileId: () => string | null;
+  resolveSnapshotCacheKey(
+    locator: WorkspaceCanvasLocator
+  ): Promise<WorkspaceAuthoritativeSnapshotCacheKey>;
+  snapshotCache: Pick<WorkspaceAuthoritativeSnapshotCache, "get">;
   onWorkspaceCanvasProjection?: (projection: WorkspaceCanvasProjection) => void;
 };
 
@@ -28,8 +37,11 @@ export class CollaborationCanvasOperationsFacade {
   constructor(private readonly options: CollaborationCanvasOperationsFacadeOptions) {
     this.workspaceSession = new WorkspaceCanvasSession({
       resolveConnectedProfileId: options.resolveConnectedProfileId,
+      resolveSnapshotCacheKey: options.resolveSnapshotCacheKey,
+      snapshotCache: options.snapshotCache,
       commands: {
         bind: (input) => options.commands.bind(input),
+        bindCached: (input) => options.commands.bindCached(input),
         submit: (input, submitOptions) => options.commands.submit(input, submitOptions),
         reconnect: (input) => options.commands.reconnect(input),
         projectionForBinding: (input) => options.commands.projectionForBinding(input),

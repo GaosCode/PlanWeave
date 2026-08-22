@@ -24,9 +24,18 @@ import {
   type WorkspaceCanvasRuntimeResetInput
 } from "../../shared/collaborationRuntimeAvailability.js";
 import type { CanvasRuntimeResetOutcome } from "@planweave-ai/collaboration-protocol/canvas/runtime-control";
+import {
+  type WorkspaceAuthoritativeSnapshotCacheEntry,
+  type WorkspaceAuthoritativeSnapshotCacheKey,
+  type WorkspaceAuthoritativeSnapshotCache
+} from "./WorkspaceAuthoritativeSnapshotCache.js";
 
 export type WorkspaceCanvasSessionCommands = {
   bind(input: CollaborationCanvasBindingInput): Promise<CollaborationCanvasCommandSessionView>;
+  bindCached(input: {
+    key: WorkspaceAuthoritativeSnapshotCacheKey;
+    entry: WorkspaceAuthoritativeSnapshotCacheEntry;
+  }): void;
   submit(
     input: unknown,
     options?: { retryStale?: boolean }
@@ -41,6 +50,10 @@ export type WorkspaceCanvasSessionCommands = {
 
 export type WorkspaceCanvasSessionDeps = {
   resolveConnectedProfileId: () => string | null;
+  resolveSnapshotCacheKey(
+    locator: WorkspaceCanvasLocator
+  ): Promise<WorkspaceAuthoritativeSnapshotCacheKey>;
+  snapshotCache: Pick<WorkspaceAuthoritativeSnapshotCache, "get">;
   commands: WorkspaceCanvasSessionCommands;
   resetRuntime(input: WorkspaceCanvasRuntimeResetInput): Promise<CanvasRuntimeResetOutcome>;
   onProjection?: (projection: WorkspaceCanvasProjection) => void;
@@ -70,21 +83,48 @@ function locatorsEqual(left: WorkspaceCanvasLocator, right: WorkspaceCanvasLocat
  */
 export class WorkspaceCanvasSession {
   private locator: WorkspaceCanvasLocator | null = null;
+  private authorityMode: "server_authoritative" | "offline_cache_readonly" = "server_authoritative";
+  private recovery: {
+    key: WorkspaceAuthoritativeSnapshotCacheKey;
+    entry: WorkspaceAuthoritativeSnapshotCacheEntry;
+  } | null = null;
 
   constructor(private readonly deps: WorkspaceCanvasSessionDeps) {}
 
   async open(input: unknown): Promise<WorkspaceCanvasProjection> {
     const locator = this.requireLocator(input);
-    this.assertConnection(locator);
     const binding = workspaceCanvasLocatorToBinding(locator);
-    await this.deps.commands.bind(binding);
+    const connectedProfileId = this.deps.resolveConnectedProfileId();
+    if (connectedProfileId && connectedProfileId !== locator.connectionProfileId) {
+      throw sessionError("workspace_canvas_connection_mismatch");
+    }
+    if (connectedProfileId) {
+      try {
+        await this.deps.commands.bind(binding);
+        this.locator = locator;
+        this.authorityMode = "server_authoritative";
+        this.recovery = null;
+        return this.publishCurrent();
+      } catch (error) {
+        if (!this.cacheRecoveryAllowed(error)) throw error;
+      }
+    }
+    const key = await this.deps.resolveSnapshotCacheKey(locator);
+    const entry = await this.deps.snapshotCache.get(key);
+    if (!entry) throw sessionError("workspace_canvas_offline_cache_unavailable", true);
+    this.deps.commands.bindCached({ key, entry });
     this.locator = locator;
+    this.authorityMode = "offline_cache_readonly";
+    this.recovery = { key, entry };
     return this.publishCurrent();
   }
 
   async submit(input: unknown): Promise<WorkspaceCanvasProjection> {
     const parsed = workspaceCanvasCommandSubmitInputSchema.parse(input);
     const locator = this.requireOpen(parsed.locator);
+    if (this.authorityMode === "offline_cache_readonly") {
+      throw sessionError("workspace_canvas_offline_readonly");
+    }
     this.assertConnection(locator);
     const network = this.deps.commands.submit(
       { canvasId: locator.canvasId, intent: parsed.intent as CanvasCommandIntent },
@@ -98,19 +138,37 @@ export class WorkspaceCanvasSession {
   async reconnect(input: unknown = this.locator): Promise<WorkspaceCanvasProjection> {
     const locator = this.requireOpen(input);
     this.assertConnection(locator);
-    await this.deps.commands.reconnect({ canvasId: locator.canvasId });
+    if (this.authorityMode === "offline_cache_readonly") {
+      const recovery = this.recovery;
+      if (!recovery) throw sessionError("workspace_canvas_offline_cache_unavailable", true);
+      try {
+        await this.deps.commands.bind(workspaceCanvasLocatorToBinding(locator));
+        this.authorityMode = "server_authoritative";
+        this.recovery = null;
+      } catch (error) {
+        this.deps.commands.bindCached(recovery);
+        throw error;
+      }
+    } else {
+      await this.deps.commands.reconnect({ canvasId: locator.canvasId });
+    }
     return this.publishCurrent();
   }
 
   async resetRuntime(input: unknown): Promise<CanvasRuntimeResetOutcome> {
     const parsed = workspaceCanvasRuntimeResetInputSchema.parse(input);
     const locator = this.requireOpen(parsed.locator);
+    if (this.authorityMode === "offline_cache_readonly") {
+      throw sessionError("workspace_canvas_offline_execution_disabled");
+    }
     this.assertConnection(locator);
     return this.deps.resetRuntime(parsed);
   }
 
   async close(input?: unknown): Promise<void> {
     if (this.locator === null) {
+      this.authorityMode = "server_authoritative";
+      this.recovery = null;
       this.deps.commands.releaseBinding();
       return;
     }
@@ -118,6 +176,8 @@ export class WorkspaceCanvasSession {
       this.requireOpen(input);
     }
     this.locator = null;
+    this.authorityMode = "server_authoritative";
+    this.recovery = null;
     this.deps.commands.releaseBinding();
   }
 
@@ -159,6 +219,13 @@ export class WorkspaceCanvasSession {
     if (connectedProfileId !== locator.connectionProfileId) {
       throw sessionError("workspace_canvas_connection_mismatch");
     }
+  }
+
+  private cacheRecoveryAllowed(error: unknown): boolean {
+    return (
+      error instanceof CollaborationClientError &&
+      (error.kind === "offline" || error.kind === "timeout")
+    );
   }
 
   private projectionFromSubmit(
@@ -226,6 +293,9 @@ export class WorkspaceCanvasSession {
         conflict,
         rejectCode
       }),
+      authorityMode: this.authorityMode,
+      readOnly: this.authorityMode === "offline_cache_readonly",
+      cachedAt: this.recovery?.entry.cachedAt ?? null,
       conflict,
       rejectCode,
       replica

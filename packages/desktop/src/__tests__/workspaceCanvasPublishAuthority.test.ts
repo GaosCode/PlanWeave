@@ -51,7 +51,9 @@ function createFacade(contentVersions: Pick<ContentVersionFacade, "publishWorksp
     } as never,
     runtimeAvailability: {} as never,
     contentVersions: contentVersions as ContentVersionFacade,
-    resolveConnectedProfileId: () => "profile-1"
+    resolveConnectedProfileId: () => "profile-1",
+    resolveSnapshotCacheKey: vi.fn(),
+    snapshotCache: { get: vi.fn() }
   });
 }
 
@@ -65,6 +67,9 @@ describe("workspace canvas publish authority switch", () => {
     const open = vi.spyOn(WorkspaceCanvasSession.prototype, "open").mockResolvedValue({
       locator,
       status: "accepted",
+      authorityMode: "server_authoritative",
+      readOnly: false,
+      cachedAt: null,
       conflict: null,
       rejectCode: null,
       replica: {} as never

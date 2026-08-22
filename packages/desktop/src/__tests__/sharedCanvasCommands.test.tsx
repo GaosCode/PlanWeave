@@ -462,6 +462,9 @@ describe("useSharedCanvasCommands", () => {
     const projection = {
       locator: workspaceLocator,
       status: "accepted" as const,
+      authorityMode: "server_authoritative" as const,
+      readOnly: false,
+      cachedAt: null,
       conflict: null,
       rejectCode: null,
       replica
@@ -511,6 +514,50 @@ describe("useSharedCanvasCommands", () => {
     });
     expect(bridge.api.submitCollaborationCanvasCommand).not.toHaveBeenCalled();
     expect(flush).not.toHaveBeenCalled();
+  });
+
+  it("opens an offline Workspace cache as read-only and blocks renderer mutations", async () => {
+    vi.useFakeTimers();
+    const replica = remoteReplicaProjection({ canvasId: "default", revision: 2 });
+    if (!("bindingKind" in replica)) throw new Error("expected remote replica");
+    const open = vi.fn().mockResolvedValue({
+      locator: workspaceLocator,
+      status: "accepted" as const,
+      authorityMode: "offline_cache_readonly" as const,
+      readOnly: true,
+      cachedAt: "2026-08-22T00:00:00.000Z",
+      conflict: null,
+      rejectCode: null,
+      replica: { ...replica, canEdit: false }
+    });
+    const submit = vi.fn();
+    const bridge = createBridge();
+    bridge.api.openWorkspaceCanvasSession = open;
+    bridge.api.submitWorkspaceCanvasCommand = submit;
+
+    const { result } = renderHook(() =>
+      useSharedCanvasCommands({
+        ...hookInput(bridge.api),
+        locator: workspaceLocator,
+        sessionConnected: false
+      })
+    );
+    await flushEffects();
+
+    expect(open).toHaveBeenCalledWith(workspaceLocator);
+    expect(result.current.offline).toBe(true);
+    expect(result.current.projection?.canEdit).toBe(false);
+    expect(result.current.snapshot.connectionPhase).toBe("disconnected");
+    await expect(
+      result.current.submit({
+        intent: {
+          kind: "update_layout",
+          nodes: [{ nodeId: "T-001", x: 1, y: 2 }],
+          updatedAt: "2026-08-22T00:00:00.000Z"
+        }
+      })
+    ).resolves.toMatchObject({ ok: false });
+    expect(submit).not.toHaveBeenCalled();
   });
 
   it("polls a remote delta and refreshes the authoritative canvas", async () => {

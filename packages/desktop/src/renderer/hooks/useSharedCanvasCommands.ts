@@ -176,10 +176,7 @@ export function useSharedCanvasCommands(input: {
   const authorityEnabled = collaborationConfigured && resolvedSharedAuthority;
   const sessionEnabled = authorityEnabled && input.sessionConnected && currentScope !== null;
   const workspaceSessionEnabled =
-    Boolean(workspaceLocator) &&
-    input.enabled &&
-    !input.localOwnerDirectWriteAvailable &&
-    input.sessionConnected;
+    Boolean(workspaceLocator) && input.enabled && !input.localOwnerDirectWriteAvailable;
   const authorityMode: SharedCanvasAuthorityMode = resolvedSharedAuthority ? "shared" : "local";
   const currentProjectionIdentity =
     input.profileId && binding && currentScope

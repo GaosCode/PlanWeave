@@ -31,6 +31,8 @@ export function snapshotFromWorkspaceProjection(
   connectionPhase: CanvasCommandControllerSnapshot["connectionPhase"]
 ): CanvasCommandControllerSnapshot {
   const conflict = projection.status === "conflicted" ? projection.conflict : null;
+  const effectiveConnectionPhase =
+    projection.authorityMode === "offline_cache_readonly" ? "disconnected" : connectionPhase;
   const lastError =
     projection.status === "conflicted" && conflict
       ? labels.staleRevision(conflict.expectedRevision, conflict.authoritativeRevision)
@@ -48,7 +50,7 @@ export function snapshotFromWorkspaceProjection(
       lastConflict: conflict,
       lastRejectCode: projection.status === "rejected" ? projection.rejectCode : null
     },
-    connectionPhase,
+    connectionPhase: effectiveConnectionPhase,
     lastError,
     lastStaleConflict: conflict,
     busy: projection.status === "pending"
@@ -155,6 +157,9 @@ export function useWorkspaceCanvasSession(input: {
       if (snapshot.connectionPhase === "disconnected") {
         return { ok: false, error: null, staleConflict: null };
       }
+      if (workspaceView?.projection.readOnly) {
+        return { ok: false, error: input.labels.notConnected, staleConflict: null };
+      }
       try {
         const projection = await input.api.submitWorkspaceCanvasCommand({
           locator: input.locator,
@@ -177,7 +182,14 @@ export function useWorkspaceCanvasSession(input: {
         return { ok: false, error: message, staleConflict: null };
       }
     },
-    [input.api, input.labels, input.locator, input.sessionEnabled, snapshot.connectionPhase]
+    [
+      input.api,
+      input.labels,
+      input.locator,
+      input.sessionEnabled,
+      snapshot.connectionPhase,
+      workspaceView?.projection.readOnly
+    ]
   );
 
   const reconnect = useCallback(async () => {

@@ -108,6 +108,11 @@ import type {
   CollaborationClientFactory,
   CollaborationServiceOptions
 } from "./collaborationServiceOptions.js";
+import {
+  WorkspaceAuthoritativeSnapshotCache,
+  workspaceAuthoritativeSnapshotCacheKeySchema,
+  workspaceSnapshotCacheKeyFromProfile
+} from "./WorkspaceAuthoritativeSnapshotCache.js";
 export type {
   CollaborationClientFactory,
   CollaborationServiceOptions
@@ -134,6 +139,7 @@ export class CollaborationService {
   private readonly onWorkspaceCanvasProjection?: (projection: WorkspaceCanvasProjection) => void;
   private readonly canvasReplicas: CanvasReplicaStore;
   private readonly canvasReplicaMirror: CanvasReplicaDiskMirror;
+  private readonly workspaceSnapshotCache: WorkspaceAuthoritativeSnapshotCache;
   private readonly registryService: CollaborationRegistryService;
   private readonly canvasCommands: CollaborationCanvasCommandFacade;
   private readonly contentVersions: ContentVersionFacade;
@@ -200,12 +206,29 @@ export class CollaborationService {
     this.onWorkspaceCanvasProjection = options.onWorkspaceCanvasProjection;
     this.bindLiveOperatorToOrigin = options.bindLiveOperatorToOrigin;
     this.canvasReplicaMirror = new CanvasReplicaDiskMirror();
+    this.workspaceSnapshotCache =
+      options.workspaceSnapshotCache ?? new WorkspaceAuthoritativeSnapshotCache();
     this.canvasReplicas = new CanvasReplicaStore(
       (projection) => {
         this.onCanvasReplicaSignal?.({ type: "canvas.replica.changed", projection });
         this.canvasOperations?.publishWorkspaceCanvasProjection();
       },
-      (snapshot) => this.canvasReplicaMirror.capture(snapshot)
+      (snapshot) => {
+        this.canvasReplicaMirror.capture(snapshot);
+        const client = this.client;
+        if (!client || snapshot.scope.bindingKind !== "remote") return;
+        const profile = client.connectionProfile;
+        this.workspaceSnapshotCache.capture(
+          workspaceAuthoritativeSnapshotCacheKeySchema.parse({
+            connectionProfileId: profile.profileId,
+            serverOrigin: new URL(profile.serverBaseUrl).origin,
+            workspaceId: snapshot.scope.workspaceId,
+            projectId: snapshot.scope.projectId,
+            canvasId: snapshot.scope.canvasId
+          }),
+          snapshot
+        );
+      }
     );
     this.registryService = new CollaborationRegistryService(() => this.client);
     this.contentVersions = new ContentVersionFacade(
@@ -231,7 +254,8 @@ export class CollaborationService {
       resolveAuthorityId: () =>
         this.client ? this.contentVersions.authorityIdForClient(this.client) : null,
       store: this.canvasReplicas,
-      mirror: this.canvasReplicaMirror
+      mirror: this.canvasReplicaMirror,
+      snapshotCache: this.workspaceSnapshotCache
     });
     this.canvasRuntimeAvailability = new CanvasRuntimeAvailabilityCoordinator(
       () => this.client !== null,
@@ -247,6 +271,12 @@ export class CollaborationService {
       runtimeAvailability: this.canvasRuntimeAvailability,
       contentVersions: this.contentVersions,
       resolveConnectedProfileId: () => this.clientProfileId,
+      resolveSnapshotCacheKey: async (locator) => {
+        const profile = await this.profiles.get(locator.connectionProfileId);
+        if (!profile) throw new Error("workspace_snapshot_cache_profile_missing");
+        return workspaceSnapshotCacheKeyFromProfile(locator, profile);
+      },
+      snapshotCache: this.workspaceSnapshotCache,
       onWorkspaceCanvasProjection: (projection) => this.onWorkspaceCanvasProjection?.(projection)
     });
     this.remoteOperations = new CollaborationRemoteOperationsFacade((operation) =>

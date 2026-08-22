@@ -26,6 +26,11 @@ import { CollaborationClientError } from "./collaborationErrors.js";
 import type { CanvasCommandSessionSnapshot } from "./canvasCommandSession.js";
 import type { CanvasLiveSyncStatus } from "./CanvasLiveSyncClient.js";
 import type { CanvasReplicaDiskMirror } from "./CanvasReplicaDiskMirror.js";
+import type {
+  WorkspaceAuthoritativeSnapshotCacheEntry,
+  WorkspaceAuthoritativeSnapshotCacheKey
+} from "./WorkspaceAuthoritativeSnapshotCache.js";
+import { workspaceAuthorityId } from "./WorkspaceAuthoritativeSnapshotCache.js";
 
 function isRetryableCatchupError(error: unknown): boolean {
   if (error instanceof CollaborationClientError) {
@@ -119,6 +124,7 @@ export type CollaborationCanvasCommandFacadeDeps = {
   resolveAuthorityId: () => string | null;
   store: CanvasReplicaStore;
   mirror?: Pick<CanvasReplicaDiskMirror, "bind" | "flush" | "clear">;
+  snapshotCache?: { flush(): Promise<void> };
   worker?: CanvasReplicaCommandWorker;
   transport?: CanvasReplicaCommandTransport;
 };
@@ -293,6 +299,7 @@ export class CollaborationCanvasCommandFacade {
   private readonly resolveCanvasScope: CollaborationCanvasCommandFacadeDeps["resolveCanvasScope"];
   private readonly resolveAuthorityId: () => string | null;
   private readonly mirror: CollaborationCanvasCommandFacadeDeps["mirror"];
+  private readonly snapshotCache: CollaborationCanvasCommandFacadeDeps["snapshotCache"];
 
   constructor(deps: CollaborationCanvasCommandFacadeDeps) {
     this.resolveClient = deps.resolveClient;
@@ -300,6 +307,7 @@ export class CollaborationCanvasCommandFacade {
     this.resolveCanvasScope = deps.resolveCanvasScope;
     this.resolveAuthorityId = deps.resolveAuthorityId;
     this.mirror = deps.mirror;
+    this.snapshotCache = deps.snapshotCache;
     this.store = deps.store;
     const transport = deps.transport ?? createDefaultTransport(deps.resolveClient);
     this.worker = deps.worker ?? new CanvasReplicaCommandWorker(deps.store, transport);
@@ -435,6 +443,34 @@ export class CollaborationCanvasCommandFacade {
     }
   }
 
+  /** Hydrate a strictly validated Server snapshot without creating any local binding or socket. */
+  bindCached(input: {
+    key: WorkspaceAuthoritativeSnapshotCacheKey;
+    entry: WorkspaceAuthoritativeSnapshotCacheEntry;
+  }): void {
+    const client = this.resolveClient();
+    if (this.binding) this.unbindCurrent(client);
+    const scope: CanvasReplicaScope = {
+      bindingKind: "remote",
+      authorityId: workspaceAuthorityId(input.key),
+      workspaceId: input.key.workspaceId,
+      projectId: input.key.projectId,
+      canvasId: input.key.canvasId
+    };
+    this.store.bind(scope);
+    this.store.installBaseline(scope, {
+      content: input.entry.content,
+      revision: input.entry.contentRevision,
+      contentDigest: input.entry.contentDigest
+    });
+    this.store.setCanEdit(scope, false);
+    this.binding = {
+      scope,
+      remoteProjectId: scope.projectId,
+      remoteCanvasId: scope.canvasId
+    };
+  }
+
   session(): CollaborationCanvasCommandSessionView {
     const client = this.resolveClient();
     return client?.canvasCommandSession() ?? null;
@@ -466,7 +502,7 @@ export class CollaborationCanvasCommandFacade {
   }
 
   async flushMaterialization(): Promise<void> {
-    await this.mirror?.flush();
+    await Promise.all([this.mirror?.flush(), this.snapshotCache?.flush()]);
   }
 
   /**
