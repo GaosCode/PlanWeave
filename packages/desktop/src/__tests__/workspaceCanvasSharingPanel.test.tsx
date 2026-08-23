@@ -61,7 +61,7 @@ async function expandCanvasAdder(): Promise<void> {
 }
 
 describe("WorkspaceCanvasSharingPanel", () => {
-  it("does not assign an unlinked Server-shared canvas to a local project", async () => {
+  it("shows every shared canvas in the matching Workspace project without inventing local provenance", async () => {
     const api = {
       listWorkspaceCanvasSharingCandidates: vi.fn().mockResolvedValue([
         {
@@ -87,6 +87,48 @@ describe("WorkspaceCanvasSharingPanel", () => {
             },
             visibility: "shared",
             acl: { revision: 3, updatedAt: "2030-01-01T00:00:00.000Z" },
+            owner: "human-owner",
+            updatedAt: "2030-01-01T00:00:00.000Z"
+          },
+          {
+            schemaVersion: "project-access/v1",
+            registry: {
+              projectRegistryId: "project-registry-a",
+              canvasRegistryId: "canvas-registry-b",
+              workspaceId: "workspace-a",
+              projectId: "project-local",
+              canvasId: "acp-runner-validation"
+            },
+            visibility: "shared",
+            acl: { revision: 5, updatedAt: "2030-01-01T00:00:00.000Z" },
+            owner: "human-owner",
+            updatedAt: "2030-01-01T00:00:00.000Z"
+          },
+          {
+            schemaVersion: "project-access/v1",
+            registry: {
+              projectRegistryId: "project-registry-a",
+              canvasRegistryId: "canvas-registry-c",
+              workspaceId: "workspace-a",
+              projectId: "project-local",
+              canvasId: "acp-test-pi-opencode-grok"
+            },
+            visibility: "shared",
+            acl: { revision: 6, updatedAt: "2030-01-01T00:00:00.000Z" },
+            owner: "human-owner",
+            updatedAt: "2030-01-01T00:00:00.000Z"
+          },
+          {
+            schemaVersion: "project-access/v1",
+            registry: {
+              projectRegistryId: "project-registry-a",
+              canvasRegistryId: "canvas-registry-d",
+              workspaceId: "workspace-a",
+              projectId: "project-local",
+              canvasId: "canvas-a7fcb01d"
+            },
+            visibility: "shared",
+            acl: { revision: 7, updatedAt: "2030-01-01T00:00:00.000Z" },
             owner: "human-owner",
             updatedAt: "2030-01-01T00:00:00.000Z"
           },
@@ -122,11 +164,18 @@ describe("WorkspaceCanvasSharingPanel", () => {
     await waitFor(() => expect(api.listWorkspaceCanvasSharingCandidates).toHaveBeenCalledOnce());
     await userEvent.click(screen.getByTestId("workspace-canvas-sharing-toggle"));
 
-    expect(await screen.findByText("No shared canvases yet")).toBeVisible();
-    expect(screen.queryByText("Default canvas")).not.toBeInTheDocument();
-    expect(screen.queryByText("1 shared")).not.toBeInTheDocument();
+    expect(await screen.findByText("4 shared")).toBeVisible();
+    expect(screen.getByTestId("workspace-canvas-sharing-default")).toBeVisible();
+    expect(screen.getByTestId("workspace-canvas-sharing-acp-runner-validation")).toBeVisible();
+    expect(screen.getByTestId("workspace-canvas-sharing-acp-test-pi-opencode-grok")).toBeVisible();
+    expect(screen.getByTestId("workspace-canvas-sharing-canvas-a7fcb01d")).toBeVisible();
     expect(screen.queryByText("private-canvas")).not.toBeInTheDocument();
     expect(screen.getByTestId("workspace-canvas-add-toggle")).toBeVisible();
+    await expandCanvasAdder();
+    await userEvent.click(screen.getByTestId("workspace-canvas-add-select"));
+    expect(
+      await screen.findByRole("option", { name: "Default canvas · Not shared" })
+    ).toBeVisible();
   });
 
   it("removes a stale local shared state when the Server record is private", async () => {
@@ -256,6 +305,55 @@ describe("WorkspaceCanvasSharingPanel", () => {
 
     expect(screen.getByText("No shared canvases yet")).toBeVisible();
     expect(screen.getByTestId("workspace-canvas-add-toggle")).toBeVisible();
+  });
+
+  it("ignores an authorized canvas from another Workspace project without hiding the local candidate", async () => {
+    const api = {
+      listWorkspaceCanvasSharingCandidates: vi.fn().mockResolvedValue([
+        {
+          localProjectId: "project-local",
+          projectName: "Local project",
+          canvasId: "default",
+          canvasName: "Default canvas",
+          state: "local_only",
+          workspaceCanvasId: null,
+          visibility: null
+        }
+      ]),
+      listCollaborationAuthorizedCanvases: vi.fn().mockResolvedValue({
+        items: [
+          {
+            registry: {
+              workspaceId: "workspace-a",
+              projectId: "other-project",
+              canvasId: "default"
+            },
+            visibility: "shared"
+          }
+        ],
+        nextCursor: null
+      })
+    } as unknown as PlanWeaveCollaborationApi;
+
+    render(
+      <WorkspaceCanvasSharingPanel
+        api={api}
+        connected
+        connectionKey="profile-a"
+        workspaceProjectId="project-local"
+        t={createTranslator("en")}
+      />
+    );
+
+    await waitFor(() => expect(api.listCollaborationAuthorizedCanvases).toHaveBeenCalledOnce());
+    await userEvent.click(screen.getByTestId("workspace-canvas-sharing-toggle"));
+
+    expect(screen.getByText("No shared canvases yet")).toBeVisible();
+    await expandCanvasAdder();
+    await userEvent.click(screen.getByTestId("workspace-canvas-add-select"));
+    expect(
+      await screen.findByRole("option", { name: "Default canvas · Not shared" })
+    ).toBeVisible();
   });
 
   it("does not continue an old Workspace pagination request after switching connections", async () => {

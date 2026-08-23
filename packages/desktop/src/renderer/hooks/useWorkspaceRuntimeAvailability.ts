@@ -207,14 +207,12 @@ export function useWorkspaceRuntimeAvailability(input: {
   // biome-ignore lint/correctness/useExhaustiveDependencies: changing it must restart the authoritative read.
   useEffect(() => {
     if (!input.enabled || !input.sessionConnected) return undefined;
-    if (
-      !api ||
-      !input.profileId ||
-      !input.activeProjectId ||
-      !binding ||
-      !graphPackageFingerprint
-    ) {
+    if (!api || !input.profileId || !input.activeProjectId || !binding) {
       setRemoteState({ kind: "error", message: "collaboration_runtime_scope_unavailable" });
+      return undefined;
+    }
+    if (!graphPackageFingerprint) {
+      setRemoteState({ kind: "checking" });
       return undefined;
     }
     const profileId = input.profileId;
@@ -453,22 +451,24 @@ export function useWorkspaceRuntimeAvailability(input: {
     const graph = input.graph
       ? availability.kind === "not_applicable"
         ? input.graph
-        : currentReadyState?.availability.state.kind === "initialized"
-          ? (() => {
-              const merged = mergeAvailableCollaborationRuntimeStatus(
-                input.graph,
-                currentReadyState.availability.state.status,
-                {
-                  workspaceId: currentReadyState.identity.remoteWorkspaceId,
-                  projectId: currentReadyState.identity.remoteProjectId,
-                  canvasId: currentReadyState.identity.remoteCanvasId
-                }
-              );
-              return availability.kind === "available"
-                ? merged
-                : failClosedCollaborationRuntimeDispatchability(merged);
-            })()
-          : failClosedCollaborationRuntimeDispatchability(input.graph)
+        : availability.kind === "checking"
+          ? input.graph
+          : currentReadyState?.availability.state.kind === "initialized"
+            ? (() => {
+                const merged = mergeAvailableCollaborationRuntimeStatus(
+                  input.graph,
+                  currentReadyState.availability.state.status,
+                  {
+                    workspaceId: currentReadyState.identity.remoteWorkspaceId,
+                    projectId: currentReadyState.identity.remoteProjectId,
+                    canvasId: currentReadyState.identity.remoteCanvasId
+                  }
+                );
+                return availability.kind === "available"
+                  ? merged
+                  : failClosedCollaborationRuntimeDispatchability(merged);
+              })()
+            : failClosedCollaborationRuntimeDispatchability(input.graph)
       : null;
     return {
       graph,

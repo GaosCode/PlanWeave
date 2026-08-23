@@ -86,6 +86,39 @@ describe("useWorkspaceRuntimeAvailability", () => {
     expect(result.current.authoritativeRuntime?.state).toMatchObject({ runtimeRevision: 1 });
   });
 
+  it("keeps an accepted Workspace graph stable while execution capability is checking", async () => {
+    let resolveAvailability: ((value: ReturnType<typeof runtimeView>) => void) | null = null;
+    const pendingAvailability = new Promise<ReturnType<typeof runtimeView>>((resolve) => {
+      resolveAvailability = resolve;
+    });
+    const fixture = createApi();
+    fixture.read.mockReset();
+    fixture.read.mockReturnValue(pendingAvailability);
+    const { result } = renderHook(() => useWorkspaceRuntimeAvailability(input(fixture.api)));
+
+    await waitFor(() => expect(fixture.read).toHaveBeenCalledOnce());
+    expect(result.current.availability).toEqual({ kind: "checking" });
+    expect(result.current.graph).toBe(graph);
+
+    act(() => resolveAvailability?.(runtimeView(1)));
+    await waitFor(() => expect(result.current.availability).toEqual({ kind: "available" }));
+  });
+
+  it("treats a pending Workspace projection as checking instead of a scope failure", async () => {
+    const fixture = createApi();
+    const { result, rerender } = renderHook(
+      ({ currentGraph }) =>
+        useWorkspaceRuntimeAvailability({ ...input(fixture.api), graph: currentGraph }),
+      { initialProps: { currentGraph: null as typeof graph | null } }
+    );
+
+    expect(result.current.availability).toEqual({ kind: "checking" });
+    expect(fixture.read).not.toHaveBeenCalled();
+
+    rerender({ currentGraph: graph });
+    await waitFor(() => expect(result.current.availability).toEqual({ kind: "available" }));
+  });
+
   it("refreshes Workspace execution through the runtime observer event path", async () => {
     const fixture = createApi();
     const { result } = renderHook(() => useWorkspaceRuntimeAvailability(input(fixture.api)));

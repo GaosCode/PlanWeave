@@ -1,8 +1,11 @@
-import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
+import { ChevronRightIcon, GitBranchIcon, WorkflowIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { CanvasAccessRecord } from "@planweave-ai/collaboration-protocol/access/project";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import type { createTranslator } from "../i18n";
+import { AnimatedTreeRegion } from "./AnimatedTreeRegion";
 
 type WorkspaceCanvasCatalogProps = {
   canvases: CanvasAccessRecord[];
@@ -54,47 +57,72 @@ export function WorkspaceCanvasCatalog({
         {groups.map((group) => {
           const collapsed = collapsedProjectIds.has(group.projectId);
           return (
-            <div key={group.projectId}>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs font-medium text-text-muted hover:bg-surface-muted hover:text-text-strong"
-                aria-expanded={!collapsed}
-                onClick={() => toggleProject(group.projectId)}
+            <div className="flex min-w-0 flex-col" key={group.projectId}>
+              <div className="grid min-w-0 grid-cols-[1.75rem_minmax(0,1fr)] items-center gap-1">
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant="ghost"
+                  className="relative z-10 size-7 shrink-0 border-0 bg-transparent text-text-faint shadow-none hover:bg-surface-muted hover:text-text-strong focus-visible:ring-ring/40"
+                  aria-expanded={!collapsed}
+                  aria-label={`${t(collapsed ? "expandProject" : "collapseProject")}: ${group.projectId}`}
+                  onClick={() => toggleProject(group.projectId)}
+                >
+                  <ChevronRightIcon
+                    className={cn(
+                      "size-4 transition-transform duration-[var(--motion-duration-panel)] ease-[var(--motion-ease-emphasized)]",
+                      collapsed ? "rotate-0" : "rotate-90"
+                    )}
+                  />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  aria-label={group.projectId}
+                  aria-expanded={!collapsed}
+                  className="h-8 min-w-0 justify-between gap-2 overflow-hidden rounded-md px-2 text-left text-sm text-text-muted hover:bg-surface-muted hover:text-text-strong [&_svg]:size-4"
+                  onClick={() => toggleProject(group.projectId)}
+                >
+                  <span className="flex min-w-0 flex-1 items-center gap-2">
+                    <GitBranchIcon className="shrink-0" data-icon="inline-start" />
+                    <span className="truncate">{group.projectId}</span>
+                  </span>
+                  <Badge className="shrink-0" variant="outline">
+                    {group.canvases.length}
+                  </Badge>
+                </Button>
+              </div>
+              <AnimatedTreeRegion
+                expanded={!collapsed}
+                unmountOnExit
+                className="ml-3 flex flex-col gap-0.5 border-l border-border/60 pt-1 pl-4"
               >
-                {collapsed ? (
-                  <ChevronRightIcon className="size-3.5 shrink-0" />
-                ) : (
-                  <ChevronDownIcon className="size-3.5 shrink-0" />
-                )}
-                <span className="min-w-0 flex-1 truncate">{group.projectId}</span>
-                <span className="tabular-nums text-text-faint">{group.canvases.length}</span>
-              </button>
-              {!collapsed ? (
-                <div className="ml-4 flex flex-col gap-0.5 border-l border-border/60 pl-2">
-                  {group.canvases.map((canvas) => (
-                    <Button
-                      key={`${canvas.registry.workspaceId}:${canvas.registry.projectId}:${canvas.registry.canvasId}`}
-                      size="sm"
-                      variant={
-                        selectedCanvas?.projectId === canvas.registry.projectId &&
-                        selectedCanvas.canvasId === canvas.registry.canvasId
-                          ? "secondary"
-                          : "ghost"
-                      }
-                      aria-current={
-                        selectedCanvas?.projectId === canvas.registry.projectId &&
-                        selectedCanvas.canvasId === canvas.registry.canvasId
-                          ? "page"
-                          : undefined
-                      }
-                      className="h-8 min-w-0 justify-start px-2 text-xs font-normal"
-                      onClick={() => onSelect?.(canvas)}
-                    >
+                {group.canvases.map((canvas) => (
+                  <Button
+                    key={`${canvas.registry.workspaceId}:${canvas.registry.projectId}:${canvas.registry.canvasId}`}
+                    size="sm"
+                    variant={
+                      selectedCanvas?.projectId === canvas.registry.projectId &&
+                      selectedCanvas.canvasId === canvas.registry.canvasId
+                        ? "secondary"
+                        : "ghost"
+                    }
+                    aria-current={
+                      selectedCanvas?.projectId === canvas.registry.projectId &&
+                      selectedCanvas.canvasId === canvas.registry.canvasId
+                        ? "page"
+                        : undefined
+                    }
+                    className="h-8 min-w-0 justify-between gap-2 overflow-hidden rounded-md px-2 text-xs font-normal text-text-muted hover:bg-surface-muted hover:text-text-strong data-[variant=secondary]:border-state-selected/25 data-[variant=secondary]:bg-state-selected-surface data-[variant=secondary]:text-text-strong data-[variant=secondary]:shadow-sm [&_svg]:size-4"
+                    onClick={() => onSelect?.(canvas)}
+                  >
+                    <span className="flex min-w-0 flex-1 items-center gap-2">
+                      <WorkflowIcon className="shrink-0" data-icon="inline-start" />
                       <span className="truncate">{canvas.registry.canvasId}</span>
-                    </Button>
-                  ))}
-                </div>
-              ) : null}
+                    </span>
+                  </Button>
+                ))}
+              </AnimatedTreeRegion>
             </div>
           );
         })}

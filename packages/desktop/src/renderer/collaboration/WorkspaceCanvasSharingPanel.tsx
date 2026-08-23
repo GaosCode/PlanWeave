@@ -50,6 +50,15 @@ async function listAuthorizedCanvases(
   }
 }
 
+function authorizedCanvasesForProject(
+  canvases: CanvasAccessRecord[],
+  workspaceProjectId: string | null
+): CanvasAccessRecord[] {
+  return workspaceProjectId === null
+    ? canvases
+    : canvases.filter((record) => record.registry.projectId === workspaceProjectId);
+}
+
 type WorkspaceCanvasSharingSnapshot = {
   candidates: WorkspaceCanvasSharingCandidate[];
   authorizedCanvases: CanvasAccessRecord[];
@@ -184,10 +193,14 @@ export function WorkspaceCanvasSharingPanel({
     () => projectGroups.find((group) => group.localProjectId === selectedProjectId) ?? null,
     [projectGroups, selectedProjectId]
   );
+  const authoritativeAuthorizedCanvases = useMemo(
+    () => authorizedCanvasesForProject(authorizedCanvases, workspaceProjectId),
+    [authorizedCanvases, workspaceProjectId]
+  );
   const reconciledSelectedCanvases = useMemo(() => {
     if (!selectedProject || workspaceProjectId === null) return selectedProject?.canvases ?? [];
     const authorizedByCanvasId = new Map(
-      authorizedCanvases.map((record) => [record.registry.canvasId, record] as const)
+      authoritativeAuthorizedCanvases.map((record) => [record.registry.canvasId, record] as const)
     );
     return selectedProject.canvases.map((candidate): WorkspaceCanvasSharingCandidate => {
       if (candidate.state !== "published_shared" || candidate.workspaceCanvasId === null) {
@@ -202,14 +215,43 @@ export function WorkspaceCanvasSharingPanel({
       }
       return candidate;
     });
-  }, [authorizedCanvases, selectedProject, workspaceProjectId]);
+  }, [authoritativeAuthorizedCanvases, selectedProject, workspaceProjectId]);
   const sharedCanvases = useMemo<WorkspaceSharedCanvasListItem[]>(() => {
-    return reconciledSelectedCanvases.flatMap((candidate) =>
-      candidate.state === "published_shared" && candidate.workspaceCanvasId !== null
-        ? [{ canvasId: candidate.workspaceCanvasId, canvasName: candidate.canvasName }]
-        : []
+    if (!selectedProject) return [];
+    const candidatesByWorkspaceCanvasId = new Map(
+      reconciledSelectedCanvases.flatMap((candidate) =>
+        candidate.workspaceCanvasId === null
+          ? []
+          : ([[candidate.workspaceCanvasId, candidate]] as const)
+      )
     );
-  }, [reconciledSelectedCanvases]);
+    const shared = new Map<string, WorkspaceSharedCanvasListItem>();
+    for (const candidate of reconciledSelectedCanvases) {
+      if (candidate.state === "published_shared" && candidate.workspaceCanvasId !== null) {
+        shared.set(candidate.workspaceCanvasId, {
+          canvasId: candidate.workspaceCanvasId,
+          canvasName: candidate.canvasName
+        });
+      }
+    }
+    for (const record of authoritativeAuthorizedCanvases) {
+      if (record.visibility !== "shared") continue;
+      const linkedCandidate = candidatesByWorkspaceCanvasId.get(record.registry.canvasId);
+      if (selectedProject.localProjectId !== workspaceProjectId && linkedCandidate === undefined) {
+        continue;
+      }
+      shared.set(record.registry.canvasId, {
+        canvasId: record.registry.canvasId,
+        canvasName: linkedCandidate?.canvasName ?? record.registry.canvasId
+      });
+    }
+    return [...shared.values()];
+  }, [
+    authoritativeAuthorizedCanvases,
+    reconciledSelectedCanvases,
+    selectedProject,
+    workspaceProjectId
+  ]);
   const sharedWorkspaceCanvasIds = useMemo(
     () => new Set(sharedCanvases.map((canvas) => canvas.canvasId)),
     [sharedCanvases]
@@ -297,7 +339,7 @@ export function WorkspaceCanvasSharingPanel({
         workspaceProjectId === null
           ? verifiedCandidate?.state === "published_shared"
           : workspaceCanvasId !== null &&
-            refreshed.authorizedCanvases.some(
+            authorizedCanvasesForProject(refreshed.authorizedCanvases, workspaceProjectId).some(
               (record) =>
                 record.registry.projectId === workspaceProjectId &&
                 record.registry.canvasId === workspaceCanvasId &&

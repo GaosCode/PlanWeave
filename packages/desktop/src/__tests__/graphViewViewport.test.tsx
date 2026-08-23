@@ -199,7 +199,6 @@ afterEach(() => {
 describe("GraphView viewport fitting", () => {
   it.each([
     [{ kind: "server_disconnected" } as const, "Server disconnected"],
-    [{ kind: "checking" } as const, "Checking Workspace execution capability"],
     [{ kind: "error", message: "IPC failed" } as const, "Execution capability check failed"],
     [
       { kind: "unavailable", reason: "host_offline", statusKnown: true } as const,
@@ -214,6 +213,12 @@ describe("GraphView viewport fitting", () => {
 
     expect(screen.getByTestId("collaboration-runtime-availability")).toHaveTextContent(message);
     expect(screen.queryByTestId("workspace-canvas-offline-cache")).not.toBeInTheDocument();
+  });
+
+  it("keeps execution capability checking in the controls instead of blocking the canvas", () => {
+    render(<GraphView {...defaultProps({ runtimeAvailability: { kind: "checking" } })} />);
+
+    expect(screen.queryByTestId("collaboration-runtime-availability")).not.toBeInTheDocument();
   });
 
   it("does not show a banner when canvas state is loaded without a Runtime attachment", () => {

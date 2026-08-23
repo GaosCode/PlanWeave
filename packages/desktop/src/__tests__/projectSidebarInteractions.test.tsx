@@ -103,7 +103,10 @@ describe("desktop renderer component interactions", () => {
     expect(screen.queryByTestId("remote-canvas-catalog")).not.toBeInTheDocument();
     expect(screen.getByTestId("workspace-canvas-catalog")).toBeVisible();
     expect(screen.getByText("Workspace 画布")).toBeVisible();
-    expect(screen.getByRole("button", { name: /project-a/ })).toBeVisible();
+    const projectRow = screen.getByRole("button", { name: "project-a" });
+    expect(projectRow).toBeVisible();
+    expect(projectRow).toHaveAttribute("aria-expanded", "true");
+    expect(projectRow.querySelector('[data-slot="badge"]')).toHaveTextContent("1");
     expect(screen.getAllByRole("button", { name: "canvas-alpha" })).toHaveLength(2);
     expect(screen.getAllByRole("button", { name: "canvas-alpha" })[0]).toHaveAttribute(
       "aria-current",
@@ -115,6 +118,9 @@ describe("desktop renderer component interactions", () => {
 
     await userEvent.click(screen.getAllByRole("button", { name: "canvas-alpha" })[0]);
     expect(onRemoteCanvasSelect).toHaveBeenCalledWith(remoteCanvas);
+
+    await userEvent.click(projectRow);
+    expect(projectRow).toHaveAttribute("aria-expanded", "false");
   });
 
   it("keeps sidebar tree labels visible while right-side controls collapse rows", async () => {

@@ -134,7 +134,7 @@ function runtimeAvailabilityBanner(
     case "server_disconnected":
       return t("collaborationServerDisconnected");
     case "checking":
-      return t("collaborationRuntimeChecking");
+      return null;
     case "state_uninitialized":
       return t("collaborationRuntimeStateUninitialized");
     case "error":
