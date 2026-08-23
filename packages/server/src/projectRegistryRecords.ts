@@ -6,6 +6,10 @@ import {
   type CanvasAccessRecord,
   type ProjectAccessRecord
 } from "@planweave-ai/collaboration-protocol/access/project";
+import {
+  workspaceCanvasPublishLocalSourceSchema,
+  type WorkspaceCanvasPublishLocalSource
+} from "@planweave-ai/collaboration-protocol/content/version";
 
 export type InternalProjectRecord = {
   projectRegistryId: string;
@@ -85,7 +89,10 @@ export function projectAccessRecord(project: InternalProjectRecord): ProjectAcce
   });
 }
 
-export function canvasAccessRecord(canvas: InternalCanvasRecord): CanvasAccessRecord {
+export function canvasAccessRecord(
+  canvas: InternalCanvasRecord,
+  publishSource?: WorkspaceCanvasPublishLocalSource | null
+): CanvasAccessRecord {
   if (!canvas.ownerHumanPrincipalId) throw new Error("canvas_registry_owner_missing");
   return canvasAccessRecordSchema.parse({
     schemaVersion: "project-access/v1",
@@ -99,6 +106,12 @@ export function canvasAccessRecord(canvas: InternalCanvasRecord): CanvasAccessRe
     visibility: canvas.visibility,
     acl: { revision: canvas.aclRevision, updatedAt: canvas.updatedAt },
     owner: canvas.ownerHumanPrincipalId,
+    ...(publishSource === undefined
+      ? {}
+      : {
+          publishSource:
+            publishSource && workspaceCanvasPublishLocalSourceSchema.parse(publishSource)
+        }),
     updatedAt: canvas.updatedAt
   });
 }

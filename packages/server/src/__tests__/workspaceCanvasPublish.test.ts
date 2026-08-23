@@ -143,6 +143,33 @@ const owner = {
 };
 
 describe("workspace canvas atomic publish", () => {
+  it("does not infer a publish source from matching shared registry ids", async () => {
+    const { access } = await fixture();
+    access.registerCanvasInternal({
+      workspaceId: "w",
+      projectId: "p",
+      canvasId: "default",
+      packageDir: "/srv/p/canvases/default",
+      visibility: "shared",
+      ownerHumanPrincipalId: "owner"
+    });
+
+    const canvases = access.listAuthorizedCanvases({
+      workspaceId: "w",
+      projectId: "p",
+      actor: { kind: "human", id: "member" },
+      limit: 20,
+      offset: 0
+    });
+
+    expect(canvases).toHaveLength(1);
+    expect(canvases[0]).toMatchObject({
+      registry: { projectId: "p", canvasId: "default" },
+      visibility: "shared",
+      publishSource: null
+    });
+  });
+
   it("assigns a durable Server canvasId independent from the local canvasId", async () => {
     const { access, repository, service, database } = await fixture();
     const result = service.publishWorkspaceCanvas(owner, "p", {
@@ -167,6 +194,20 @@ describe("workspace canvas atomic publish", () => {
     expect(canvas?.packageDir).toBeNull();
     expect(repository.head(result.scope)?.revision).toBe(1);
     expect(new CanvasRuntimeStatusRepository(database).read(result.scope)).toBeNull();
+    expect(
+      access.listAuthorizedCanvases({
+        workspaceId: "w",
+        projectId: "p",
+        actor: { kind: "human", id: "owner" },
+        limit: 20,
+        offset: 0
+      })
+    ).toMatchObject([
+      {
+        registry: { canvasId: result.scope.canvasId },
+        publishSource: { localProjectId: "local-project-a", localCanvasId: "default" }
+      }
+    ]);
   });
 
   it("lets two local default canvases publish into the same Workspace project", async () => {

@@ -16,6 +16,7 @@ import {
   timestampSchema,
   workspaceIdSchema
 } from "./primitives.js";
+import { workspaceCanvasPublishLocalSourceSchema } from "./workspaceCanvasPublishSource.js";
 
 export const projectAccessSchemaVersion = "project-access/v1" as const;
 export const projectAccessSchemaVersionSchema = z.literal(projectAccessSchemaVersion);
@@ -172,6 +173,7 @@ export const canvasAccessRecordSchema = z
     visibility: canvasVisibilitySchema,
     acl: aclRevisionRecordSchema,
     owner: humanPrincipalIdSchema,
+    publishSource: workspaceCanvasPublishLocalSourceSchema.nullable().optional(),
     updatedAt: timestampSchema
   })
   .strict();

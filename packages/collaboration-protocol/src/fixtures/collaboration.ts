@@ -148,6 +148,10 @@ export const exampleCanvasAccessRecord = canvasAccessRecordSchema.parse({
   visibility: "shared",
   acl: { revision: 2, updatedAt: "2030-01-01T00:00:00.000Z" },
   owner: "human-owner-001",
+  publishSource: {
+    localProjectId: "local-project-demo-001",
+    localCanvasId: "canvas-default"
+  },
   updatedAt: "2030-01-01T00:00:00.000Z"
 });
 

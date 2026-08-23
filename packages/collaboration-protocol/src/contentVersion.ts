@@ -15,6 +15,11 @@ import {
 } from "./primitives.js";
 import { packageSnapshotDigestSchema } from "./packageSnapshot.js";
 import { aclRevisionSchema, canvasVisibilitySchema } from "./projectAccess.js";
+export {
+  workspaceCanvasPublishLocalSourceSchema,
+  type WorkspaceCanvasPublishLocalSource
+} from "./workspaceCanvasPublishSource.js";
+import { workspaceCanvasPublishLocalSourceSchema } from "./workspaceCanvasPublishSource.js";
 
 /**
  * Server-authoritative immutable content versions. These records deliberately
@@ -281,21 +286,6 @@ export const workspaceCanvasPublishRecoveryTokenSchema = z
   .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
 export type WorkspaceCanvasPublishRecoveryToken = z.infer<
   typeof workspaceCanvasPublishRecoveryTokenSchema
->;
-
-/**
- * Local canvas identity that requested the Workspace publish. Server assigns a
- * durable canvasId independent from this local id so two `default` canvases can
- * share into the same project.
- */
-export const workspaceCanvasPublishLocalSourceSchema = z
-  .object({
-    localProjectId: opaqueIdentifierSchema,
-    localCanvasId: opaqueIdentifierSchema
-  })
-  .strict();
-export type WorkspaceCanvasPublishLocalSource = z.infer<
-  typeof workspaceCanvasPublishLocalSourceSchema
 >;
 
 /**

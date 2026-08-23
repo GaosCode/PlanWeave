@@ -17,6 +17,7 @@ import {
   type ProjectAccessRecord,
   type CanvasAccessRecord
 } from "@planweave-ai/collaboration-protocol/access/project";
+import { workspaceCanvasPublishLocalSourceSchema } from "@planweave-ai/collaboration-protocol/content/version";
 import type { SqliteDatabase } from "./sqlite.js";
 import {
   activeWorkspacePrincipal,
@@ -275,12 +276,18 @@ export class ProjectAccessPolicy {
     if (input.actor.kind !== "human") return [];
     const rows = this.database
       .prepare(`
-      SELECT c.*
+      SELECT c.*,
+             publish.local_project_id AS publish_local_project_id,
+             publish.local_canvas_id AS publish_local_canvas_id
       FROM canvas_registry c
       JOIN project_registry p
         ON p.workspace_id=c.workspace_id
        AND p.project_id=c.project_id
        AND p.project_registry_id=c.project_registry_id
+      LEFT JOIN canvas_workspace_publish_operations publish
+        ON publish.workspace_id=c.workspace_id
+       AND publish.project_id=c.project_id
+       AND publish.canvas_id=c.canvas_id
       WHERE c.workspace_id=?
         AND c.project_id=?
         AND c.revoked_at IS NULL
@@ -329,7 +336,17 @@ export class ProjectAccessPolicy {
         limit,
         offset
       ) as Array<Record<string, unknown>>;
-    return rows.map((row) => canvasAccessRecord(rowToCanvas(row)));
+    return rows.map((row) =>
+      canvasAccessRecord(
+        rowToCanvas(row),
+        row.publish_local_project_id === null && row.publish_local_canvas_id === null
+          ? null
+          : workspaceCanvasPublishLocalSourceSchema.parse({
+              localProjectId: row.publish_local_project_id,
+              localCanvasId: row.publish_local_canvas_id
+            })
+      )
+    );
   }
 
   assertCanManage(input: {

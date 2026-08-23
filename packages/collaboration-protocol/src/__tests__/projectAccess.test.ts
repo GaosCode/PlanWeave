@@ -73,6 +73,10 @@ describe("project and canvas access contracts", () => {
   it("distinguishes private/shared records and explicit denial states", () => {
     expect(exampleProjectAccessRecord.visibility).toBe("private");
     expect(exampleCanvasAccessRecord.visibility).toBe("shared");
+    expect(exampleCanvasAccessRecord.publishSource).toEqual({
+      localProjectId: "local-project-demo-001",
+      localCanvasId: "canvas-default"
+    });
     expect(
       projectAccessRecordSchema.parse({
         schemaVersion: "project-access/v1",
@@ -90,9 +94,10 @@ describe("project and canvas access contracts", () => {
         visibility: "shared",
         acl: { revision: 2, updatedAt: "2030-01-01T00:00:00.000Z" },
         owner: actor.id,
+        publishSource: null,
         updatedAt: "2030-01-01T00:00:00.000Z"
-      }).visibility
-    ).toBe("shared");
+      })
+    ).toMatchObject({ visibility: "shared", publishSource: null });
     expect(
       projectAccessDecisionSchema.parse({ decision: "deny", reason: "revoked", aclRevision: 4 })
     ).toEqual({
