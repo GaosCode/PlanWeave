@@ -4,6 +4,7 @@ import type { CollaborationCanvasBindingReplicaProjection } from "../../shared/c
 import type { WorkspaceCanvasLocator } from "../../shared/canvasLocator";
 import type { PlanWeaveCollaborationApi } from "../../shared/collaboration";
 import type { WorkspaceCanvasProjectionStatus } from "../../shared/workspaceCanvasProjection";
+import type { CanvasRuntimeAvailability } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import { collaborationBridge } from "../bridge";
 import type {
   WorkspaceCanvasCommandLabels,
@@ -33,6 +34,7 @@ export type WorkspaceCanvasCommandsResult = {
   snapshot: WorkspaceCanvasCommandSnapshot;
   projection: CollaborationCanvasBindingReplicaProjection | null;
   projectionStatus: WorkspaceCanvasProjectionStatus | null;
+  initialRuntimeAvailability: CanvasRuntimeAvailability | null;
   offline: boolean;
   submit: (input: { intent: CanvasCommandIntent }) => Promise<WorkspaceCanvasSubmitResult>;
   reconnect: () => Promise<boolean>;
@@ -72,6 +74,7 @@ export function useWorkspaceCanvasCommands(input: {
       snapshot: session.snapshot,
       projection: session.projection,
       projectionStatus: session.projectionStatus,
+      initialRuntimeAvailability: session.initialRuntimeAvailability,
       offline:
         input.locator !== null &&
         (!input.sessionConnected || session.snapshot.connectionPhase === "disconnected"),

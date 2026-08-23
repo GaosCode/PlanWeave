@@ -444,6 +444,7 @@ export function ProjectWorkspaceProvider({
     startAutoRunScope: startAutoRunWithSelectedEndpoint,
     runtimeAvailability: collaborationRuntime.availability,
     canvasLocator,
+    initializeWorkspaceRuntime: collaborationRuntime.initializeWorkspaceRuntime,
     resetWorkspaceRuntime: collaborationRuntime.resetWorkspaceRuntime
   });
   useTaskNodeFocus({

@@ -60,6 +60,10 @@ export {
   CanvasRuntimeResetError,
   type CanvasRuntimeCommandCoordinatorOptions
 } from "./runtimeCommandCoordinator.js";
+export {
+  CanvasRuntimeInitializationCoordinator,
+  type CanvasRuntimeInitializationCoordinatorOptions
+} from "./runtimeInitializationCoordinator.js";
 export { CanvasRuntimeResetReceiptRepository } from "./runtimeCommandReceipts.js";
 export {
   AuthoritativeExecutionRuntimeAdapter,

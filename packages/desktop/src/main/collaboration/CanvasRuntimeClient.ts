@@ -3,6 +3,10 @@ import {
   type CanvasRuntimeAvailability
 } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import {
+  canvasRuntimeInitializeOutcomeSchema,
+  canvasRuntimeInitializeRequestSchema,
+  type CanvasRuntimeInitializeOutcome,
+  type CanvasRuntimeInitializeRequest,
   canvasRuntimeResetOutcomeSchema,
   canvasRuntimeResetRequestSchema,
   type CanvasRuntimeResetOutcome,
@@ -25,6 +29,31 @@ export class CanvasRuntimeClient {
       canvasRuntimeAvailabilitySchema,
       { signal }
     );
+  }
+
+  async initialize(
+    canvasId: string,
+    input: CanvasRuntimeInitializeRequest
+  ): Promise<CanvasRuntimeInitializeOutcome> {
+    const request = canvasRuntimeInitializeRequestSchema.parse(input);
+    const outcome = await this.transport.json(
+      "POST",
+      `/api/v1/projects/${encodeURIComponent(this.projectId)}/canvases/${encodeURIComponent(canvasId)}/runtime-initialize`,
+      canvasRuntimeInitializeOutcomeSchema,
+      {
+        body: request,
+        acceptedStatus: [400, 403, 409, 500, 503]
+      }
+    );
+    if (outcome.operationId !== request.operationId) {
+      throw new CollaborationClientError({
+        kind: "protocol",
+        code: "runtime_initialize_operation_id_mismatch",
+        message: "runtime_initialize_operation_id_mismatch",
+        retryable: false
+      });
+    }
+    return outcome;
   }
 
   async reset(

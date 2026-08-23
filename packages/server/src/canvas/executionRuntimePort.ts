@@ -43,10 +43,17 @@ export type CanvasRuntimeResetReconciliation =
       error: { code: string; retryable: boolean; reconcileRequired?: boolean };
     };
 
+export type CanvasRuntimeInitializationEvidence = {
+  sourceRevision: string;
+  graphFingerprint: string;
+  status: CanvasRuntimeStatusProjection;
+};
+
 export type CanvasExecutionRuntimeLease = {
   runtime: RemoteBlockRuntimePort;
   artifacts: RemoteBlockArtifactSource;
   readStatus?(): Promise<CanvasRuntimeStatusProjection>;
+  readInitializationEvidence?(): Promise<CanvasRuntimeInitializationEvidence>;
   reset?(command: CanvasRuntimeResetCommand): Promise<CanvasRuntimeResetHostResult>;
   release(): void | Promise<void>;
 };

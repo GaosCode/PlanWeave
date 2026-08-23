@@ -2,8 +2,9 @@ import { z } from "zod";
 import { canvasCommandSubmissionIntentSchema } from "@planweave-ai/collaboration-protocol/canvas/commands";
 import { workspaceCanvasLocatorSchema } from "./canvasLocator.js";
 import { collaborationRemoteCanvasReplicaProjectionSchema } from "./canvasReplicaIpc.js";
+import { canvasRuntimeAvailabilitySchema } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 
-/** Command result for one Workspace Canvas. Not mixed with Runtime availability. */
+/** Command result for one Workspace Canvas. */
 export const workspaceCanvasProjectionStatusSchema = z.enum([
   "pending",
   "accepted",
@@ -40,6 +41,7 @@ export const workspaceCanvasProjectionSchema = z
     cachedAt: z.string().datetime().nullable(),
     conflict: workspaceCanvasConflictSchema.nullable(),
     rejectCode: z.string().nullable(),
+    initialRuntimeAvailability: canvasRuntimeAvailabilitySchema.nullable(),
     replica: collaborationRemoteCanvasReplicaProjectionSchema
   })
   .strict()

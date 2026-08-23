@@ -27,6 +27,7 @@ import {
 } from "../main/collaboration/WorkspaceRemoteAuthorityIdentity.js";
 import type { CollaborationCanvasCommandSessionView } from "../shared/collaboration.js";
 import type { WorkspaceCanvasLocator } from "../shared/canvasLocator.js";
+import type { CanvasRuntimeAvailability } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 
 const locator: WorkspaceCanvasLocator = {
   kind: "workspace",
@@ -240,6 +241,7 @@ function createHarness(options?: {
   fetchReconnectBaseline?: CanvasReplicaCommandTransport["fetchReconnectBaseline"];
   connectedProfileId?: string | null;
   snapshotCache?: WorkspaceAuthoritativeSnapshotCache;
+  readRuntimeAvailability?: () => Promise<CanvasRuntimeAvailability | null>;
 }) {
   let content = fixtureContent();
   const store = new CanvasReplicaStore(
@@ -324,12 +326,30 @@ function createHarness(options?: {
     transport
   });
   const flushSnapshotCache = vi.spyOn(facade, "flushSnapshotCache");
+  const releaseBinding = vi.spyOn(facade, "releaseBinding");
   const statuses: string[] = [];
   const resetRuntime = vi.fn().mockResolvedValue({
     type: "canvas.runtime.reset.rejected" as const,
     operationId: "reset-1",
     code: "host_offline" as const
   });
+  const initializeRuntime = vi.fn().mockResolvedValue({
+    type: "canvas.runtime.initialize.rejected" as const,
+    operationId: "initialize-1",
+    code: "host_offline" as const
+  });
+  const readRuntimeAvailability = vi.fn(
+    options?.readRuntimeAvailability ??
+      (async () => ({
+        schemaVersion: "canvas-runtime-view/v1" as const,
+        state: { kind: "uninitialized" as const },
+        execution: {
+          schemaVersion: "canvas-runtime-availability/v1" as const,
+          kind: "unavailable" as const,
+          reason: "runtime_not_attached" as const
+        }
+      }))
+  );
   const resolveSnapshotCacheKey = vi.fn(async () => cacheKey);
   const session = new WorkspaceCanvasSession({
     resolveConnectedProfileId: () => connectedProfileId,
@@ -344,6 +364,8 @@ function createHarness(options?: {
     },
     resolveSnapshotCacheKey,
     snapshotCache: options?.snapshotCache ?? { get: vi.fn().mockResolvedValue(null) },
+    readRuntimeAvailability,
+    initializeRuntime,
     resetRuntime,
     onProjection: (projection) => statuses.push(projection.status)
   });
@@ -353,6 +375,9 @@ function createHarness(options?: {
     mirror,
     flushSnapshotCache,
     statuses,
+    initializeRuntime,
+    readRuntimeAvailability,
+    releaseBinding,
     resetRuntime,
     fetchReconnectBaseline,
     resolveSnapshotCacheKey,
@@ -367,10 +392,39 @@ describe("WorkspaceCanvasSession", () => {
     expect(projection.status).toBe("accepted");
     expect(projection.locator).toEqual(locator);
     expect(projection.replica.bindingKind).toBe("remote");
+    expect(projection.initialRuntimeAvailability).toMatchObject({
+      state: { kind: "uninitialized" },
+      execution: { kind: "unavailable", reason: "runtime_not_attached" }
+    });
+    expect(harness.readRuntimeAvailability).toHaveBeenCalledWith({
+      kind: "remote",
+      workspaceId: locator.workspaceId,
+      projectId: locator.projectId,
+      canvasId: locator.canvasId
+    });
     expect(projection.replica).not.toHaveProperty("localProjectId");
     expect(harness.mirror.bind).not.toHaveBeenCalled();
     expect(harness.flushSnapshotCache).not.toHaveBeenCalled();
     expect(harness.resolveSnapshotCacheKey).not.toHaveBeenCalled();
+  });
+
+  it("releases a newly opened binding when the initial Runtime projection fails", async () => {
+    const harness = createHarness({
+      readRuntimeAvailability: async () => {
+        throw new CollaborationClientError({
+          kind: "protocol",
+          code: "canvas_runtime_availability_invalid",
+          message: "canvas_runtime_availability_invalid",
+          retryable: false
+        });
+      }
+    });
+
+    await expect(harness.session.open(locator)).rejects.toMatchObject({
+      code: "canvas_runtime_availability_invalid"
+    });
+    expect(harness.releaseBinding).toHaveBeenCalledOnce();
+    expect(harness.session.current()).toBeNull();
   });
 
   it("selects the Desktop connection from connectionProfileId and never forwards it", async () => {
@@ -480,6 +534,30 @@ describe("WorkspaceCanvasSession", () => {
     ).rejects.toMatchObject({ code: "workspace_canvas_locator_mismatch" });
   });
 
+  it("routes initialization separately from reset for the currently open Workspace locator", async () => {
+    const harness = createHarness();
+    await harness.session.open(locator);
+    const input = {
+      locator,
+      operationId: "initialize-1",
+      expectedSourceRevision: `snapshot:${"b".repeat(64)}`,
+      expectedGraphFingerprint: `pkg-${"a".repeat(64)}`
+    };
+
+    await expect(harness.session.initializeRuntime(input)).resolves.toMatchObject({
+      type: "canvas.runtime.initialize.rejected",
+      code: "host_offline"
+    });
+    expect(harness.initializeRuntime).toHaveBeenCalledWith(input);
+    expect(harness.resetRuntime).not.toHaveBeenCalled();
+    await expect(
+      harness.session.initializeRuntime({
+        ...input,
+        locator: { ...locator, canvasId: "other-canvas" }
+      })
+    ).rejects.toMatchObject({ code: "workspace_canvas_locator_mismatch" });
+  });
+
   it("closes the Desktop session without deleting the Server canvas or flushing a package", async () => {
     const harness = createHarness();
     await harness.session.open(locator);
@@ -507,6 +585,7 @@ describe("WorkspaceCanvasSession", () => {
       authorityMode: "offline_cache_readonly",
       readOnly: true,
       cachedAt: expect.any(String),
+      initialRuntimeAvailability: null,
       replica: { canEdit: false, bindingKind: "remote" }
     });
     expect(restarted.fetchReconnectBaseline).not.toHaveBeenCalled();

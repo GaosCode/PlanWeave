@@ -89,6 +89,11 @@ function fakeClient() {
     operationId: "reset-1",
     code: "host_offline" as const
   }));
+  const initializeRuntime = vi.fn(async () => ({
+    type: "canvas.runtime.initialize.rejected" as const,
+    operationId: "initialize-1",
+    code: "host_offline" as const
+  }));
   const client = {
     projectId: binding.projectId,
     connectionProfile: {
@@ -100,11 +105,18 @@ function fakeClient() {
     registry: () => ({ listCanvases }),
     readRuntimeAvailability,
     fetchContentHead,
+    initializeRuntime,
     resetRuntime
   } as CollaborationClient;
   return {
     client,
-    calls: { listCanvases, readRuntimeAvailability, fetchContentHead, resetRuntime }
+    calls: {
+      listCanvases,
+      readRuntimeAvailability,
+      fetchContentHead,
+      initializeRuntime,
+      resetRuntime
+    }
   };
 }
 
@@ -352,7 +364,7 @@ describe("ContentVersionFacade remote authority", () => {
     expect(fake.calls.listCanvases).not.toHaveBeenCalled();
   });
 
-  it("reads remote Runtime availability and derives reset content revision from Server head", async () => {
+  it("reads remote Runtime availability and derives initialize/reset revisions from Server head", async () => {
     const fake = fakeClient();
     const facade = new ContentVersionFacade(() => fake.client);
 
@@ -362,6 +374,20 @@ describe("ContentVersionFacade remote authority", () => {
       availability
     );
     expect(fake.calls.listCanvases).toHaveBeenCalledOnce();
+    await expect(
+      facade.initializeRuntime(binding, {
+        operationId: "initialize-1",
+        expectedSourceRevision: "source-1",
+        expectedGraphFingerprint: packageFingerprint
+      })
+    ).resolves.toMatchObject({
+      type: "canvas.runtime.initialize.rejected",
+      code: "host_offline"
+    });
+    expect(fake.calls.initializeRuntime).toHaveBeenCalledWith(
+      binding.canvasId,
+      expect.objectContaining({ expectedContentRevision: 9 })
+    );
     await expect(
       facade.resetRuntime(binding, {
         operationId: "reset-1",
@@ -376,6 +402,6 @@ describe("ContentVersionFacade remote authority", () => {
       binding.canvasId,
       expect.objectContaining({ expectedContentRevision: 9 })
     );
-    expect(fake.calls.listCanvases).toHaveBeenCalledTimes(2);
+    expect(fake.calls.listCanvases).toHaveBeenCalledTimes(3);
   });
 });

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { canvasRuntimeStatusProjectionSchema } from "../runtimeStatus.js";
 import {
+  canvasRuntimeInitializeOutcomeSchema,
+  canvasRuntimeInitializeRequestSchema,
   canvasRuntimeResetRequestSchema,
   canvasRuntimeResetOutcomeSchema
 } from "../runtimeControl.js";
@@ -73,6 +75,45 @@ describe("canvas runtime status projection", () => {
             dispatchable: false
           }
         ]
+      })
+    ).toThrow();
+  });
+});
+
+describe("canvas runtime initialize control", () => {
+  it("uses a distinct strict request and outcome from reset", () => {
+    const fingerprint = `pkg-${"a".repeat(64)}`;
+    const request = {
+      operationId: "initialize-1",
+      expectedContentRevision: 4,
+      expectedSourceRevision: `snapshot:${"b".repeat(64)}`,
+      expectedGraphFingerprint: fingerprint
+    };
+    expect(canvasRuntimeInitializeRequestSchema.parse(request)).toEqual(request);
+    expect(
+      canvasRuntimeInitializeOutcomeSchema.parse({
+        type: "canvas.runtime.initialize.accepted",
+        operationId: request.operationId,
+        runtimeRevision: 1,
+        sourceRevision: request.expectedSourceRevision,
+        graphFingerprint: fingerprint,
+        status: {
+          schemaVersion: "canvas-runtime-status/v2",
+          scope: { workspaceId: "workspace-1", projectId: "project-1", canvasId: "default" },
+          packageFingerprint: fingerprint,
+          capturedAt: "2026-08-01T00:00:00.000Z",
+          tasks: [],
+          blocks: []
+        }
+      })
+    ).toMatchObject({ type: "canvas.runtime.initialize.accepted", runtimeRevision: 1 });
+    expect(() =>
+      canvasRuntimeInitializeRequestSchema.parse({ ...request, reason: "reset-like mutation" })
+    ).toThrow();
+    expect(() =>
+      canvasRuntimeInitializeOutcomeSchema.parse({
+        type: "canvas.runtime.reset.accepted",
+        operationId: request.operationId
       })
     ).toThrow();
   });

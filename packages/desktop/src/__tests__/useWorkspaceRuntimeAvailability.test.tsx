@@ -15,11 +15,11 @@ const graph = {
   tasks: graphFixture.tasks.map((task) => ({ ...task, blocks: [], blockPreview: [] }))
 };
 
-function runtimeView(runtimeRevision: number) {
+function runtimeView(runtimeRevision: number, packageFingerprint = graph.packageFingerprint) {
   const status = {
     schemaVersion: "canvas-runtime-status/v2" as const,
     scope,
-    packageFingerprint: graph.packageFingerprint,
+    packageFingerprint,
     capturedAt: "2026-08-22T00:00:00.000Z",
     tasks: graph.tasks.map((task) => ({
       taskId: task.taskId,
@@ -36,7 +36,7 @@ function runtimeView(runtimeRevision: number) {
       kind: "available" as const,
       status,
       sourceRevision: `source-${runtimeRevision}`,
-      graphFingerprint: graph.packageFingerprint
+      graphFingerprint: packageFingerprint
     }
   };
 }
@@ -89,6 +89,79 @@ describe("useWorkspaceRuntimeAvailability", () => {
     await waitFor(() => expect(result.current.availability).toEqual({ kind: "available" }));
     expect(fixture.read).toHaveBeenCalledWith({ kind: "remote", ...scope });
     expect(result.current.authoritativeRuntime?.state).toMatchObject({ runtimeRevision: 1 });
+  });
+
+  it("uses the Workspace session runtime seed without a duplicate cold-open read", () => {
+    const fixture = createApi();
+    const seeded = runtimeView(7);
+    const { result } = renderHook(() =>
+      useWorkspaceRuntimeAvailability({
+        ...input(fixture.api),
+        initialRuntimeAvailability: seeded
+      })
+    );
+
+    expect(result.current.availability).toEqual({ kind: "available" });
+    expect(result.current.authoritativeRuntime).toEqual(seeded);
+    expect(fixture.read).not.toHaveBeenCalled();
+  });
+
+  it("consumes the session seed once and keeps the previous ready state during an explicit refresh", async () => {
+    const fixture = createApi();
+    fixture.read.mockReset().mockResolvedValue(runtimeView(2));
+    const seeded = runtimeView(1);
+    const { result, rerender } = renderHook(
+      ({ refreshRevision }) =>
+        useWorkspaceRuntimeAvailability({
+          ...input(fixture.api),
+          initialRuntimeAvailability: seeded,
+          refreshRevision
+        }),
+      { initialProps: { refreshRevision: 0 } }
+    );
+
+    expect(result.current.authoritativeRuntime?.state).toMatchObject({ runtimeRevision: 1 });
+    expect(fixture.read).not.toHaveBeenCalled();
+
+    rerender({ refreshRevision: 1 });
+    expect(result.current.availability).toEqual({ kind: "available" });
+    expect(result.current.authoritativeRuntime?.state).toMatchObject({ runtimeRevision: 1 });
+    await waitFor(() =>
+      expect(result.current.authoritativeRuntime?.state).toMatchObject({ runtimeRevision: 2 })
+    );
+    expect(fixture.read).toHaveBeenCalledOnce();
+  });
+
+  it("does not reuse the session seed when the accepted graph fingerprint changes", async () => {
+    let resolveAvailability: ((value: ReturnType<typeof runtimeView>) => void) | null = null;
+    const pendingAvailability = new Promise<ReturnType<typeof runtimeView>>((resolve) => {
+      resolveAvailability = resolve;
+    });
+    const fixture = createApi();
+    fixture.read.mockReset().mockReturnValue(pendingAvailability);
+    const seeded = runtimeView(1);
+    const { result, rerender } = renderHook(
+      ({ currentGraph }) =>
+        useWorkspaceRuntimeAvailability({
+          ...input(fixture.api),
+          graph: currentGraph,
+          initialRuntimeAvailability: seeded
+        }),
+      { initialProps: { currentGraph: graph } }
+    );
+
+    expect(result.current.authoritativeRuntime).toEqual(seeded);
+    expect(fixture.read).not.toHaveBeenCalled();
+
+    const nextFingerprint = `pkg-${"c".repeat(64)}`;
+    rerender({ currentGraph: { ...graph, packageFingerprint: nextFingerprint } });
+    await waitFor(() => expect(fixture.read).toHaveBeenCalledOnce());
+    expect(result.current.authoritativeRuntime).toEqual(seeded);
+
+    act(() => resolveAvailability?.(runtimeView(2, nextFingerprint)));
+    await waitFor(() =>
+      expect(result.current.authoritativeRuntime?.state).toMatchObject({ runtimeRevision: 2 })
+    );
   });
 
   it("keeps an accepted Workspace graph stable while execution capability is checking", async () => {

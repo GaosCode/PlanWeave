@@ -904,6 +904,7 @@ describe("preload bridge invocation", () => {
           authorityMode: "server_authoritative",
           readOnly: false,
           cachedAt: null,
+          initialRuntimeAvailability: null,
           conflict: null,
           rejectCode: null,
           replica: {
@@ -1106,6 +1107,13 @@ describe("preload bridge invocation", () => {
           code: "host_offline"
         };
       }
+      if (channel === collaborationInvokeChannels.initializeWorkspaceCanvasRuntime) {
+        return {
+          type: "canvas.runtime.initialize.rejected",
+          operationId: "initialize-1",
+          code: "host_offline"
+        };
+      }
       return status;
     });
 
@@ -1254,6 +1262,16 @@ describe("preload bridge invocation", () => {
     };
     await expect(api.resetWorkspaceCanvasRuntime(workspaceResetInput)).resolves.toMatchObject({
       type: "canvas.runtime.reset.rejected",
+      code: "host_offline"
+    });
+    const workspaceInitializeInput = {
+      ...workspaceResetInput,
+      operationId: "initialize-1"
+    };
+    await expect(
+      api.initializeWorkspaceCanvasRuntime(workspaceInitializeInput)
+    ).resolves.toMatchObject({
+      type: "canvas.runtime.initialize.rejected",
       code: "host_offline"
     });
     await api.listCollaborationMembers({ cursor: 0, limit: 20 });

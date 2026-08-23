@@ -39,6 +39,9 @@ export class CollaborationCanvasOperationsFacade {
         session: () => options.commands.session(),
         releaseBinding: () => options.commands.releaseBinding()
       },
+      readRuntimeAvailability: (input) =>
+        options.runtimeAvailability.readRuntimeAvailability(input),
+      initializeRuntime: (input) => options.runtimeAvailability.initializeRuntime(input),
       resetRuntime: (input) => options.runtimeAvailability.resetRuntime(input),
       onProjection: options.onWorkspaceCanvasProjection
     });
@@ -94,6 +97,13 @@ export class CollaborationCanvasOperationsFacade {
     return this.run(() => {
       assertNoSmuggledCollaborationSecrets(input, "resetWorkspaceCanvasRuntime");
       return this.workspaceSession.resetRuntime(input);
+    });
+  }
+
+  initializeWorkspaceRuntime(input: unknown) {
+    return this.run(() => {
+      assertNoSmuggledCollaborationSecrets(input, "initializeWorkspaceCanvasRuntime");
+      return this.workspaceSession.initializeRuntime(input);
     });
   }
 

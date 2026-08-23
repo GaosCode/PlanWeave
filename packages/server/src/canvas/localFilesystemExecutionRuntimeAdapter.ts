@@ -36,6 +36,15 @@ export class LocalFilesystemExecutionRuntimeAdapter
     try {
       const lease = await this.registry.registry.acquire(scope);
       const location = this.registry.resolveExactCanvasLocation(scope);
+      const readStatus = location
+        ? () =>
+            readAuthorizedCanvasRuntimeStatus({
+              projectRoot: location.projectRoot,
+              canvasId: scope.canvasId,
+              expectedPackageDir: location.packageDir,
+              scope: canvasScopeRefSchema.parse(scope)
+            })
+        : undefined;
       return {
         ...lease,
         reset: async (command: {
@@ -103,13 +112,32 @@ export class LocalFilesystemExecutionRuntimeAdapter
         },
         ...(location
           ? {
-              readStatus: () =>
-                readAuthorizedCanvasRuntimeStatus({
+              readStatus,
+              readInitializationEvidence: async () => {
+                const before = await capturePackageSnapshot({
                   projectRoot: location.projectRoot,
-                  canvasId: scope.canvasId,
-                  expectedPackageDir: location.packageDir,
-                  scope: canvasScopeRefSchema.parse(scope)
-                })
+                  canvasId: scope.canvasId
+                });
+                if (before.resolvedPackageDir !== location.packageDir || !readStatus) {
+                  throw new CanvasRuntimeResetConflictError("source_drift");
+                }
+                const status = await readStatus();
+                const after = await capturePackageSnapshot({
+                  projectRoot: location.projectRoot,
+                  canvasId: scope.canvasId
+                });
+                if (
+                  after.resolvedPackageDir !== location.packageDir ||
+                  after.snapshot.sourceRevision !== before.snapshot.sourceRevision
+                ) {
+                  throw new CanvasRuntimeResetConflictError("source_drift");
+                }
+                return {
+                  sourceRevision: after.snapshot.sourceRevision,
+                  graphFingerprint: status.packageFingerprint,
+                  status
+                };
+              }
             }
           : {})
       };

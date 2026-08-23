@@ -6,6 +6,8 @@ import {
 } from "@planweave-ai/collaboration-protocol/canvas/commands";
 import { canvasRuntimeAvailabilitySchema } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import {
+  canvasRuntimeInitializeOutcomeSchema,
+  type CanvasRuntimeInitializeOutcome,
   canvasRuntimeResetOutcomeSchema,
   type CanvasRuntimeResetOutcome
 } from "@planweave-ai/collaboration-protocol/canvas/runtime-control";
@@ -33,11 +35,13 @@ import {
   CanvasRuntimeCommandCoordinator,
   CanvasRuntimeResetError
 } from "./runtimeCommandCoordinator.js";
+import type { CanvasRuntimeInitializationCoordinator } from "./runtimeInitializationCoordinator.js";
 
 type CanvasRoute =
   | { kind: "command"; projectId: string; canvasId: string }
   | { kind: "reconnect"; projectId: string; canvasId: string }
   | { kind: "runtime_availability"; projectId: string; canvasId: string }
+  | { kind: "runtime_initialize"; projectId: string; canvasId: string }
   | { kind: "runtime_reset"; projectId: string; canvasId: string }
   | { kind: "forbidden_feature"; feature: string; projectId?: string };
 
@@ -52,6 +56,7 @@ export type CanvasCommandHttpOptions = {
   service: CanvasCommandService;
   runtimeAvailabilityService: CanvasRuntimeAvailabilityService;
   runtimeCommandCoordinator?: CanvasRuntimeCommandCoordinator;
+  runtimeInitializationCoordinator?: CanvasRuntimeInitializationCoordinator;
   repository: HumanIdentityRepository;
   workspaceIdentity: WorkspaceIdentityRepository;
   collaborationScopeAuthority: CollaborationScopeAuthority;
@@ -78,12 +83,29 @@ function canvasRuntimeResetHttpStatus(outcome: CanvasRuntimeResetOutcome): numbe
   return 409;
 }
 
+function canvasRuntimeInitializeHttpStatus(outcome: CanvasRuntimeInitializeOutcome): number {
+  if (outcome.type === "canvas.runtime.initialize.accepted") return 200;
+  if (outcome.code === "forbidden") return 403;
+  if (outcome.code === "invalid_request") return 400;
+  if (outcome.code === "host_offline" || outcome.code === "unavailable") return 503;
+  if (outcome.code === "persist_failed") return 500;
+  return 409;
+}
+
 function resetOperationId(body: unknown): string {
   if (!body || typeof body !== "object" || !("operationId" in body)) {
     return "invalid-reset-request";
   }
   const parsed = opaqueIdentifierSchema.safeParse((body as { operationId: unknown }).operationId);
   return parsed.success ? parsed.data : "invalid-reset-request";
+}
+
+function initializeOperationId(body: unknown): string {
+  if (!body || typeof body !== "object" || !("operationId" in body)) {
+    return "invalid-initialize-request";
+  }
+  const parsed = opaqueIdentifierSchema.safeParse((body as { operationId: unknown }).operationId);
+  return parsed.success ? parsed.data : "invalid-initialize-request";
 }
 
 function decodeIdentifier(value: string): string | undefined {
@@ -123,6 +145,15 @@ export function routeCanvasCommandHttp(
     const projectId = decodeIdentifier(runtimeReset[1] ?? "");
     const canvasId = decodeIdentifier(runtimeReset[2] ?? "");
     return projectId && canvasId ? { kind: "runtime_reset", projectId, canvasId } : undefined;
+  }
+
+  const runtimeInitialize =
+    /^\/api\/v1\/projects\/([^/]+)\/canvases\/([^/]+)\/runtime-initialize$/.exec(pathname);
+  if (runtimeInitialize) {
+    if (request.method !== "POST") return undefined;
+    const projectId = decodeIdentifier(runtimeInitialize[1] ?? "");
+    const canvasId = decodeIdentifier(runtimeInitialize[2] ?? "");
+    return projectId && canvasId ? { kind: "runtime_initialize", projectId, canvasId } : undefined;
   }
 
   const match =
@@ -282,6 +313,27 @@ export async function handleCanvasCommandHttpRequest(
       return true;
     }
     body = await readJson(request);
+    if (routed.kind === "runtime_initialize") {
+      if (!options.runtimeInitializationCoordinator) {
+        respond(response, 503, {
+          type: "canvas.runtime.initialize.rejected",
+          operationId: initializeOperationId(body),
+          code: "unavailable"
+        });
+        return true;
+      }
+      const outcome = await options.runtimeInitializationCoordinator.initialize(context, {
+        projectId: routed.projectId,
+        canvasId: routed.canvasId,
+        body
+      });
+      respond(
+        response,
+        canvasRuntimeInitializeHttpStatus(outcome),
+        canvasRuntimeInitializeOutcomeSchema.parse(outcome)
+      );
+      return true;
+    }
     if (routed.kind === "runtime_reset") {
       if (!options.runtimeCommandCoordinator) {
         respond(response, 503, {
@@ -358,6 +410,18 @@ export async function handleCanvasCommandHttpRequest(
     return true;
   } catch (error) {
     if (error instanceof ZodError) {
+      if (routed.kind === "runtime_initialize") {
+        respond(
+          response,
+          400,
+          canvasRuntimeInitializeOutcomeSchema.parse({
+            type: "canvas.runtime.initialize.rejected",
+            operationId: initializeOperationId(body),
+            code: "invalid_request"
+          })
+        );
+        return true;
+      }
       if (routed.kind === "runtime_reset") {
         respond(
           response,

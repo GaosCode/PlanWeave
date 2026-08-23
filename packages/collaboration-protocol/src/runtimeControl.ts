@@ -58,3 +58,54 @@ export const canvasRuntimeResetOutcomeSchema = z.discriminatedUnion("type", [
   canvasRuntimeResetRejectedSchema
 ]);
 export type CanvasRuntimeResetOutcome = z.infer<typeof canvasRuntimeResetOutcomeSchema>;
+
+export const canvasRuntimeInitializeFailureCodeSchema = z.enum([
+  "forbidden",
+  "host_offline",
+  "active_lease",
+  "source_drift",
+  "persist_failed",
+  "unavailable",
+  "conflict",
+  "invalid_request"
+]);
+export type CanvasRuntimeInitializeFailureCode = z.infer<
+  typeof canvasRuntimeInitializeFailureCodeSchema
+>;
+
+export const canvasRuntimeInitializeRequestSchema = z
+  .object({
+    operationId: opaqueIdentifierSchema,
+    expectedContentRevision: z.number().int().positive().max(COLLABORATION_REVISION_MAX),
+    expectedSourceRevision: packageSnapshotSourceRevisionSchema,
+    expectedGraphFingerprint: canvasRuntimePackageFingerprintSchema
+  })
+  .strict();
+export type CanvasRuntimeInitializeRequest = z.infer<typeof canvasRuntimeInitializeRequestSchema>;
+
+export const canvasRuntimeInitializeAcceptedSchema = z
+  .object({
+    type: z.literal("canvas.runtime.initialize.accepted"),
+    operationId: opaqueIdentifierSchema,
+    runtimeRevision: canvasRuntimeRevisionSchema,
+    sourceRevision: packageSnapshotSourceRevisionSchema,
+    graphFingerprint: canvasRuntimePackageFingerprintSchema,
+    status: canvasRuntimeStatusProjectionSchema
+  })
+  .strict();
+export type CanvasRuntimeInitializeAccepted = z.infer<typeof canvasRuntimeInitializeAcceptedSchema>;
+
+export const canvasRuntimeInitializeRejectedSchema = z
+  .object({
+    type: z.literal("canvas.runtime.initialize.rejected"),
+    operationId: opaqueIdentifierSchema,
+    code: canvasRuntimeInitializeFailureCodeSchema
+  })
+  .strict();
+export type CanvasRuntimeInitializeRejected = z.infer<typeof canvasRuntimeInitializeRejectedSchema>;
+
+export const canvasRuntimeInitializeOutcomeSchema = z.discriminatedUnion("type", [
+  canvasRuntimeInitializeAcceptedSchema,
+  canvasRuntimeInitializeRejectedSchema
+]);
+export type CanvasRuntimeInitializeOutcome = z.infer<typeof canvasRuntimeInitializeOutcomeSchema>;

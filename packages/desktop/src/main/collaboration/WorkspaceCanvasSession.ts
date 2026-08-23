@@ -20,10 +20,16 @@ import type {
 import { CollaborationClientError } from "./collaborationErrors.js";
 import type { CollaborationCanvasBindingInput } from "../../shared/collaborationCanvasBinding.js";
 import {
+  workspaceCanvasRuntimeInitializeInputSchema,
+  type WorkspaceCanvasRuntimeInitializeInput,
   workspaceCanvasRuntimeResetInputSchema,
   type WorkspaceCanvasRuntimeResetInput
 } from "../../shared/collaborationRuntimeAvailability.js";
-import type { CanvasRuntimeResetOutcome } from "@planweave-ai/collaboration-protocol/canvas/runtime-control";
+import type {
+  CanvasRuntimeInitializeOutcome,
+  CanvasRuntimeResetOutcome
+} from "@planweave-ai/collaboration-protocol/canvas/runtime-control";
+import type { CanvasRuntimeAvailability } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import {
   type WorkspaceAuthoritativeSnapshotCacheEntry,
   type WorkspaceAuthoritativeSnapshotCache
@@ -53,6 +59,12 @@ export type WorkspaceCanvasSessionDeps = {
   resolveSnapshotCacheKey(locator: WorkspaceCanvasLocator): Promise<WorkspaceRemoteAuthorityKey>;
   snapshotCache: Pick<WorkspaceAuthoritativeSnapshotCache, "get">;
   commands: WorkspaceCanvasSessionCommands;
+  readRuntimeAvailability(
+    input: CollaborationCanvasBindingInput
+  ): Promise<CanvasRuntimeAvailability | null>;
+  initializeRuntime(
+    input: WorkspaceCanvasRuntimeInitializeInput
+  ): Promise<CanvasRuntimeInitializeOutcome>;
   resetRuntime(input: WorkspaceCanvasRuntimeResetInput): Promise<CanvasRuntimeResetOutcome>;
   onProjection?: (projection: WorkspaceCanvasProjection) => void;
 };
@@ -86,6 +98,7 @@ export class WorkspaceCanvasSession {
     key: WorkspaceRemoteAuthorityKey;
     entry: WorkspaceAuthoritativeSnapshotCacheEntry;
   } | null = null;
+  private initialRuntimeAvailability: CanvasRuntimeAvailability | null = null;
 
   constructor(private readonly deps: WorkspaceCanvasSessionDeps) {}
 
@@ -97,13 +110,24 @@ export class WorkspaceCanvasSession {
       throw sessionError("workspace_canvas_connection_mismatch");
     }
     if (connectedProfileId) {
+      let bindingOpened = false;
       try {
         await this.deps.commands.bind(binding);
+        bindingOpened = true;
+        const runtimeAvailability = await this.deps.readRuntimeAvailability(binding);
         this.locator = locator;
         this.authorityMode = "server_authoritative";
         this.recovery = null;
+        this.initialRuntimeAvailability = runtimeAvailability;
         return this.publishCurrent();
       } catch (error) {
+        if (bindingOpened) {
+          this.deps.commands.releaseBinding();
+          this.locator = null;
+          this.authorityMode = "server_authoritative";
+          this.recovery = null;
+          this.initialRuntimeAvailability = null;
+        }
         if (!this.cacheRecoveryAllowed(error)) throw error;
       }
     }
@@ -114,6 +138,7 @@ export class WorkspaceCanvasSession {
     this.locator = locator;
     this.authorityMode = "offline_cache_readonly";
     this.recovery = { key, entry };
+    this.initialRuntimeAvailability = null;
     return this.publishCurrent();
   }
 
@@ -140,7 +165,9 @@ export class WorkspaceCanvasSession {
       const recovery = this.recovery;
       if (!recovery) throw sessionError("workspace_canvas_offline_cache_unavailable", true);
       try {
-        await this.deps.commands.bind(workspaceCanvasLocatorToBinding(locator));
+        const binding = workspaceCanvasLocatorToBinding(locator);
+        await this.deps.commands.bind(binding);
+        this.initialRuntimeAvailability = await this.deps.readRuntimeAvailability(binding);
         this.authorityMode = "server_authoritative";
         this.recovery = null;
       } catch (error) {
@@ -149,6 +176,9 @@ export class WorkspaceCanvasSession {
       }
     } else {
       await this.deps.commands.reconnect({ canvasId: locator.canvasId });
+      this.initialRuntimeAvailability = await this.deps.readRuntimeAvailability(
+        workspaceCanvasLocatorToBinding(locator)
+      );
     }
     return this.publishCurrent();
   }
@@ -163,10 +193,21 @@ export class WorkspaceCanvasSession {
     return this.deps.resetRuntime(parsed);
   }
 
+  async initializeRuntime(input: unknown): Promise<CanvasRuntimeInitializeOutcome> {
+    const parsed = workspaceCanvasRuntimeInitializeInputSchema.parse(input);
+    const locator = this.requireOpen(parsed.locator);
+    if (this.authorityMode === "offline_cache_readonly") {
+      throw sessionError("workspace_canvas_offline_execution_disabled");
+    }
+    this.assertConnection(locator);
+    return this.deps.initializeRuntime(parsed);
+  }
+
   async close(input?: unknown): Promise<void> {
     if (this.locator === null) {
       this.authorityMode = "server_authoritative";
       this.recovery = null;
+      this.initialRuntimeAvailability = null;
       this.deps.commands.releaseBinding();
       return;
     }
@@ -176,6 +217,7 @@ export class WorkspaceCanvasSession {
     this.locator = null;
     this.authorityMode = "server_authoritative";
     this.recovery = null;
+    this.initialRuntimeAvailability = null;
     this.deps.commands.releaseBinding();
   }
 
@@ -296,6 +338,7 @@ export class WorkspaceCanvasSession {
       cachedAt: this.recovery?.entry.cachedAt ?? null,
       conflict,
       rejectCode,
+      initialRuntimeAvailability: this.initialRuntimeAvailability,
       replica
     });
   }

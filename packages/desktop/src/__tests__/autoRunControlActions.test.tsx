@@ -530,9 +530,10 @@ describe("auto run control hook actions", () => {
     expect(onAutoRunDerivedStateRefresh).toHaveBeenCalledTimes(1);
   });
 
-  it("allows a Workspace reset to initialize an uninitialized runtime projection", async () => {
+  it("offers Workspace initialization without routing it through reset", async () => {
     stubAutoRunControlBridge(createDesktopBridgeMock());
     const { useAutoRunControl } = await loadAutoRunControl();
+    const initializeWorkspaceRuntime = vi.fn().mockResolvedValue(undefined);
     const resetWorkspaceRuntime = vi.fn().mockResolvedValue(undefined);
 
     const { result } = renderHook(() =>
@@ -545,6 +546,7 @@ describe("auto run control hook actions", () => {
           projectId: "project-1",
           canvasId: "canvas-main"
         },
+        initializeWorkspaceRuntime,
         openRunWorkspace: vi.fn(),
         resetWorkspaceRuntime,
         runtimeAvailability: { kind: "state_uninitialized" },
@@ -560,7 +562,15 @@ describe("auto run control hook actions", () => {
     );
 
     expect(result.current.runtimeOperationsAllowed).toBe(false);
-    expect(result.current.runtimeResetAllowed).toBe(true);
+    expect(result.current.runtimeInitializeAllowed).toBe(true);
+    expect(result.current.runtimeResetAllowed).toBe(false);
+
+    await act(async () => {
+      await result.current.initializeRuntimeStateClick();
+    });
+
+    expect(initializeWorkspaceRuntime).toHaveBeenCalledOnce();
+    expect(resetWorkspaceRuntime).not.toHaveBeenCalled();
   });
 
   it("blocks runtime reset while an Auto Run step is active", async () => {

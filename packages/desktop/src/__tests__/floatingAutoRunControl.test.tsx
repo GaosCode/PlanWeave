@@ -449,7 +449,8 @@ describe("FloatingAutoRunControl", () => {
     expect(screen.getByRole("button", { name: "View desktop diagnostics" })).toBeDisabled();
   });
 
-  it("enables only runtime reset while a Workspace Canvas runtime is uninitialized", async () => {
+  it("offers initialization instead of reset while a Workspace Canvas runtime is uninitialized", async () => {
+    const initializeRuntimeStateClick = vi.fn().mockResolvedValue(undefined);
     const resetRuntimeStateClick = vi.fn().mockResolvedValue(undefined);
     render(
       <FloatingAutoRunControl
@@ -458,7 +459,9 @@ describe("FloatingAutoRunControl", () => {
         autoRunRetrospective={null}
         autoRunScopeMode="project"
         runtimeOperationsAllowed={false}
-        runtimeResetAllowed={true}
+        runtimeInitializeAllowed={true}
+        runtimeResetAllowed={false}
+        runtimeStateUninitialized={true}
         autoRunState={null}
         diagnostics={[]}
         projectDiagnostics={[]}
@@ -467,6 +470,7 @@ describe("FloatingAutoRunControl", () => {
         autoRunPreflightExecutorHint={null}
         handleAutoRunClick={vi.fn().mockResolvedValue(undefined)}
         handleAutoRunNextAction={vi.fn().mockResolvedValue(undefined)}
+        initializeRuntimeStateClick={initializeRuntimeStateClick}
         handleRevealPathInFinder={vi.fn().mockResolvedValue(undefined)}
         miniRunPanelOpen={false}
         moveAutoRunControl={vi.fn()}
@@ -491,12 +495,14 @@ describe("FloatingAutoRunControl", () => {
 
     expect(screen.queryByText("Open a project before running Auto Run.")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Auto Run" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Reset runtime state" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Initialize runtime state" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Reset runtime state" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "View file sync changes" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "View desktop diagnostics" })).toBeDisabled();
 
-    await userEvent.click(screen.getByRole("button", { name: "Reset runtime state" }));
-    expect(resetRuntimeStateClick).toHaveBeenCalledOnce();
+    await userEvent.click(screen.getByRole("button", { name: "Initialize runtime state" }));
+    expect(initializeRuntimeStateClick).toHaveBeenCalledOnce();
+    expect(resetRuntimeStateClick).not.toHaveBeenCalled();
   });
 
   it("does not count performance diagnostics as file sync unread changes", async () => {

@@ -149,6 +149,7 @@ export async function createTransportComposition(
     canvasCommandService: canvasCollaboration.commandService,
     canvasRuntimeAvailabilityService: canvasCollaboration.runtimeAvailabilityService,
     canvasRuntimeCommandCoordinator: canvasCollaboration.runtimeCommandCoordinator,
+    canvasRuntimeInitializationCoordinator: canvasCollaboration.runtimeInitializationCoordinator,
     resolveCommentService: input.resolveCommentService,
     enrollments: input.enrollments,
     setupCodes: input.setupCodes,

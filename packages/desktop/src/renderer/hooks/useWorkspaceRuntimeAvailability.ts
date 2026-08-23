@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CanvasRuntimeAvailability } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import type { CanvasRuntimeStatusProjection } from "@planweave-ai/collaboration-protocol/canvas/status";
 import type { DesktopGraphViewModel } from "@planweave-ai/runtime";
@@ -176,6 +176,7 @@ export function useWorkspaceRuntimeAvailability(input: {
   activeProjectId: string | null;
   binding: RemoteCollaborationCanvasBindingInput | null;
   graph: DesktopGraphViewModel | null;
+  initialRuntimeAvailability?: CanvasRuntimeAvailability | null;
   refreshRevision?: number;
   api?: WorkspaceRuntimeAvailabilityBridge | null;
 }): {
@@ -201,6 +202,42 @@ export function useWorkspaceRuntimeAvailability(input: {
   );
   const bindingIdentity = binding ? JSON.stringify(binding) : null;
   const graphPackageFingerprint = input.graph?.packageFingerprint ?? null;
+  const initialRuntimeAvailabilityKey = input.initialRuntimeAvailability
+    ? JSON.stringify({
+        profileId: input.profileId,
+        bindingIdentity,
+        state:
+          input.initialRuntimeAvailability.state.kind === "initialized"
+            ? {
+                kind: "initialized",
+                revision: input.initialRuntimeAvailability.state.runtimeRevision,
+                capturedAt: input.initialRuntimeAvailability.state.status.capturedAt
+              }
+            : { kind: "uninitialized" },
+        execution:
+          input.initialRuntimeAvailability.execution.kind === "available"
+            ? {
+                kind: "available",
+                sourceRevision: input.initialRuntimeAvailability.execution.sourceRevision,
+                capturedAt: input.initialRuntimeAvailability.execution.status.capturedAt
+              }
+            : input.initialRuntimeAvailability.execution
+      })
+    : null;
+  const consumedInitialRuntimeAvailabilityKeyRef = useRef<string | null>(null);
+  const initialRuntimeAvailabilityRef = useRef<{
+    key: string | null;
+    value: CanvasRuntimeAvailability | null;
+  }>({ key: null, value: null });
+  if (initialRuntimeAvailabilityKey === null) {
+    consumedInitialRuntimeAvailabilityKeyRef.current = null;
+  }
+  if (initialRuntimeAvailabilityRef.current.key !== initialRuntimeAvailabilityKey) {
+    initialRuntimeAvailabilityRef.current = {
+      key: initialRuntimeAvailabilityKey,
+      value: input.initialRuntimeAvailability ?? null
+    };
+  }
   const [remoteState, setRemoteState] = useState<RemoteAvailabilityState>({ kind: "checking" });
 
   // refreshRevision is an external invalidation signal; its value is intentionally not read.
@@ -217,19 +254,48 @@ export function useWorkspaceRuntimeAvailability(input: {
     }
     const profileId = input.profileId;
     const activeProjectId = input.activeProjectId;
+    const initialRuntimeAvailability =
+      initialRuntimeAvailabilityKey !== null &&
+      consumedInitialRuntimeAvailabilityKeyRef.current !== initialRuntimeAvailabilityKey &&
+      initialRuntimeAvailabilityRef.current.key === initialRuntimeAvailabilityKey
+        ? initialRuntimeAvailabilityRef.current.value
+        : null;
+    if (initialRuntimeAvailability) {
+      consumedInitialRuntimeAvailabilityKeyRef.current = initialRuntimeAvailabilityKey;
+    }
     let active = true;
     let inFlight = false;
     let inFlightRevision = 0;
     let pendingRevision = 0;
-    let pendingRefresh = true;
+    let pendingRefresh = initialRuntimeAvailability === null;
     let invalidationVersion = 0;
-    let runtimeHighWater = 0;
+    let runtimeHighWater = initialRuntimeAvailability
+      ? runtimeRevision(initialRuntimeAvailability)
+      : 0;
     let observerAvailable: boolean | null = null;
     let observerStatusVersion = 0;
     let recovering = false;
     let intervalId: ReturnType<typeof setInterval> | null = null;
-    let identity: ResolvedCanvasIdentity | null = null;
-    setRemoteState({ kind: "checking" });
+    const identity: ResolvedCanvasIdentity = {
+      profileId,
+      bindingIdentity: JSON.stringify(binding),
+      remoteWorkspaceId: binding.workspaceId,
+      remoteProjectId: binding.projectId,
+      remoteCanvasId: binding.canvasId
+    };
+    setRemoteState((current) => {
+      if (initialRuntimeAvailability) {
+        return { kind: "ready", identity, availability: initialRuntimeAvailability };
+      }
+      if (
+        current.kind === "ready" &&
+        current.identity.profileId === identity.profileId &&
+        current.identity.bindingIdentity === identity.bindingIdentity
+      ) {
+        return current;
+      }
+      return { kind: "checking" };
+    });
 
     const stopFallbackPolling = () => {
       if (intervalId === null) return;
@@ -289,7 +355,7 @@ export function useWorkspaceRuntimeAvailability(input: {
     };
 
     const refresh = async () => {
-      if (!active || inFlight || !identity) return;
+      if (!active || inFlight) return;
       const targetRevision = pendingRevision;
       const forceRefresh = pendingRefresh;
       if (!forceRefresh && targetRevision <= runtimeHighWater) return;
@@ -396,13 +462,6 @@ export function useWorkspaceRuntimeAvailability(input: {
         updateFallbackPolling();
       });
 
-    identity = {
-      profileId,
-      bindingIdentity: JSON.stringify(binding),
-      remoteWorkspaceId: binding.workspaceId,
-      remoteProjectId: binding.projectId,
-      remoteCanvasId: binding.canvasId
-    };
     void refresh();
     return () => {
       active = false;
@@ -418,7 +477,8 @@ export function useWorkspaceRuntimeAvailability(input: {
     binding,
     input.profileId,
     input.refreshRevision,
-    input.sessionConnected
+    input.sessionConnected,
+    initialRuntimeAvailabilityKey
   ]);
 
   const currentReadyState =

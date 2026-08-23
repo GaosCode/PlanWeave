@@ -2,7 +2,10 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { IpcRendererEvent } from "electron";
 import { z } from "zod";
 import { canvasRuntimeAvailabilitySchema } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
-import { canvasRuntimeResetOutcomeSchema } from "@planweave-ai/collaboration-protocol/canvas/runtime-control";
+import {
+  canvasRuntimeInitializeOutcomeSchema,
+  canvasRuntimeResetOutcomeSchema
+} from "@planweave-ai/collaboration-protocol/canvas/runtime-control";
 import {
   humanCreateInvitationResponseSchema,
   humanDevicePageSchema,
@@ -59,7 +62,10 @@ import {
   collaborationPresenceSignalChannel,
   collaborationStatusChangedChannel
 } from "../shared/collaborationIpc.js";
-import { workspaceCanvasRuntimeResetInputSchema } from "../shared/collaborationRuntimeAvailability.js";
+import {
+  workspaceCanvasRuntimeInitializeInputSchema,
+  workspaceCanvasRuntimeResetInputSchema
+} from "../shared/collaborationRuntimeAvailability.js";
 import { unwrapCollaborationCommandResult } from "../shared/collaborationCommandIpc.js";
 import type {
   PlanWeaveOperatorControlApi,
@@ -336,6 +342,13 @@ const collaborationApi: PlanWeaveCollaborationApi = {
         )
       );
   },
+  initializeWorkspaceCanvasRuntime: async (input) =>
+    canvasRuntimeInitializeOutcomeSchema.parse(
+      await ipcRenderer.invoke(
+        collaborationInvokeChannels.initializeWorkspaceCanvasRuntime,
+        workspaceCanvasRuntimeInitializeInputSchema.parse(input)
+      )
+    ),
   resetWorkspaceCanvasRuntime: async (input) =>
     canvasRuntimeResetOutcomeSchema.parse(
       await ipcRenderer.invoke(

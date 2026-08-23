@@ -30,6 +30,7 @@ import type {
   RuntimeCanvasScope
 } from "./executionRuntimePort.js";
 import { CanvasRuntimeCommandCoordinator } from "./runtimeCommandCoordinator.js";
+import { CanvasRuntimeInitializationCoordinator } from "./runtimeInitializationCoordinator.js";
 import { CanvasRuntimeResetReceiptRepository } from "./runtimeCommandReceipts.js";
 import { createInvalidatingCanvasRuntimeStatusRepository } from "./runtimeStatusInvalidation.js";
 
@@ -174,6 +175,17 @@ export async function createCanvasCollaborationComposition(
           commitTransaction: (action) => inWriteTransaction(options.database, action)
         })
       : undefined;
+    const runtimeInitializationCoordinator = options.runtimeCommand
+      ? new CanvasRuntimeInitializationCoordinator({
+          access: options.projectAccess,
+          workspaceIdentity: options.workspaceIdentity,
+          contentVersions,
+          runtimeStatuses,
+          executionLeases: options.runtimeCommand.executionLeases,
+          hasConflictingLease: options.runtimeCommand.hasConflictingLease,
+          commitTransaction: (action) => inWriteTransaction(options.database, action)
+        })
+      : undefined;
     operationRetentionMaintenance = new CanvasOperationRetentionMaintenance(
       commandRepository.operationRetention,
       (remainingBudget) => commandService.recoverInterrupted(remainingBudget)
@@ -201,6 +213,7 @@ export async function createCanvasCollaborationComposition(
       commandService,
       runtimeAvailabilityService,
       runtimeCommandCoordinator,
+      runtimeInitializationCoordinator,
       operationRetentionMaintenance
     };
   } catch (error) {

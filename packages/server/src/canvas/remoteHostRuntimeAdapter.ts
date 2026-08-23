@@ -250,6 +250,17 @@ export class RemoteHostCanvasRuntimeAdapter
         "status",
         canvasRuntimeStatusProjectionSchema
       );
+    const readInitializationEvidence = async () => {
+      const status = await readStatus();
+      if (status.packageFingerprint !== response.result.graphFingerprint) {
+        throw new CanvasRuntimeResetConflictError("source_drift");
+      }
+      return {
+        sourceRevision: response.result.sourceRevision,
+        graphFingerprint: response.result.graphFingerprint,
+        status
+      };
+    };
     const reset = async (command: {
       operationId: string;
       expectedSourceRevision: string;
@@ -293,7 +304,7 @@ export class RemoteHostCanvasRuntimeAdapter
         status: canvasRuntimeStatusProjectionSchema.parse(result.status)
       };
     };
-    return { runtime, artifacts, readStatus, reset, release };
+    return { runtime, artifacts, readStatus, readInitializationEvidence, reset, release };
   }
 
   async reconcileReset(

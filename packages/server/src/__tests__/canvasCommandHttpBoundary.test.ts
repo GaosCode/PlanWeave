@@ -53,6 +53,12 @@ describe("canvas command service (OSS-004 B-002)", () => {
     expect(
       routeCanvasCommandHttp(
         { method: "POST" } as IncomingMessage,
+        "/api/v1/projects/p/canvases/default/runtime-initialize"
+      )?.kind
+    ).toBe("runtime_initialize");
+    expect(
+      routeCanvasCommandHttp(
+        { method: "POST" } as IncomingMessage,
         "/api/v1/projects/p/canvases/default/runtime-reset"
       )?.kind
     ).toBe("runtime_reset");
@@ -63,6 +69,8 @@ describe("canvas command service (OSS-004 B-002)", () => {
       ["POST", "/api/v1/projects/p/canvases/default/runtime-availability"],
       ["GET", "/api/v1/projects/p/canvases/default/runtime-status/import"],
       ["POST", "/api/v1/projects/p/canvases/default/runtime-status/import/extra"],
+      ["GET", "/api/v1/projects/p/canvases/default/runtime-initialize"],
+      ["POST", "/api/v1/projects/p/canvases/default/runtime-initialize/extra"],
       ["GET", "/api/v1/projects/p/canvases/default/runtime-reset"],
       ["POST", "/api/v1/projects/p/canvases/default/runtime-reset/extra"]
     ] as const) {

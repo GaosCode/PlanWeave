@@ -3,6 +3,9 @@ import {
   type CanvasRuntimeAvailability
 } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import {
+  canvasRuntimeInitializeAcceptedSchema,
+  canvasRuntimeInitializeOutcomeSchema,
+  type CanvasRuntimeInitializeOutcome,
   canvasRuntimeResetAcceptedSchema,
   canvasRuntimeResetOutcomeSchema,
   type CanvasRuntimeResetOutcome
@@ -12,6 +15,8 @@ import {
   type RemoteCollaborationCanvasBindingInput
 } from "../../shared/collaboration.js";
 import {
+  workspaceCanvasRuntimeInitializeInputSchema,
+  type WorkspaceCanvasRuntimeInitializeInput,
   workspaceCanvasRuntimeResetInputSchema,
   type WorkspaceCanvasRuntimeResetInput
 } from "../../shared/collaborationRuntimeAvailability.js";
@@ -23,7 +28,7 @@ import { CollaborationClientError } from "./collaborationErrors.js";
 
 export type CanvasRuntimeContentPort = Pick<
   ContentVersionFacade,
-  "resolveCanvasScope" | "readResolvedRuntimeAvailability" | "resetRuntime"
+  "resolveCanvasScope" | "readResolvedRuntimeAvailability" | "initializeRuntime" | "resetRuntime"
 >;
 export type CanvasRuntimeCommandPort = Pick<
   CollaborationCanvasCommandFacade,
@@ -128,6 +133,46 @@ export class CanvasRuntimeAvailabilityCoordinator {
       });
     }
     return canvasRuntimeResetAcceptedSchema.parse(outcome);
+  }
+
+  async initializeRuntime(
+    input: WorkspaceCanvasRuntimeInitializeInput
+  ): Promise<CanvasRuntimeInitializeOutcome> {
+    const requested = workspaceCanvasRuntimeInitializeInputSchema.parse(input);
+    const binding = workspaceCanvasLocatorToBinding(requested.locator);
+    const outcome = canvasRuntimeInitializeOutcomeSchema.parse(
+      await this.contentVersions.initializeRuntime(binding, {
+        operationId: requested.operationId,
+        expectedSourceRevision: requested.expectedSourceRevision,
+        expectedGraphFingerprint: requested.expectedGraphFingerprint
+      })
+    );
+    if (outcome.operationId !== requested.operationId) {
+      throw new CollaborationClientError({
+        kind: "protocol",
+        code: "runtime_initialize_operation_id_mismatch",
+        message: "runtime_initialize_operation_id_mismatch",
+        retryable: false
+      });
+    }
+    if (outcome.type === "canvas.runtime.initialize.rejected") return outcome;
+
+    const availability = canvasRuntimeAvailabilitySchema.parse(
+      await this.readRuntimeAvailability(binding)
+    );
+    if (
+      availability.state.kind !== "initialized" ||
+      availability.state.runtimeRevision < outcome.runtimeRevision ||
+      JSON.stringify(availability.state.status) !== JSON.stringify(outcome.status)
+    ) {
+      throw new CollaborationClientError({
+        kind: "unknown",
+        code: "runtime_initialize_projection_postcondition_failed",
+        message: "runtime_initialize_projection_postcondition_failed",
+        retryable: true
+      });
+    }
+    return canvasRuntimeInitializeAcceptedSchema.parse(outcome);
   }
 
   private clearReplicaRuntimeStatus(scope: Parameters<CanvasRuntimeReplicaPort["has"]>[0]): void {

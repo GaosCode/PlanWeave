@@ -733,6 +733,10 @@ export class CollaborationService {
     return this.canvasOperations.resetWorkspaceRuntime(input);
   }
 
+  async initializeWorkspaceCanvasRuntime(input: unknown) {
+    return this.canvasOperations.initializeWorkspaceRuntime(input);
+  }
+
   async listWorkspaceCanvasSharingCandidates() {
     return this.canvasOperations.listWorkspaceCanvasSharingCandidates();
   }

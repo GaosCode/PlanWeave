@@ -120,7 +120,10 @@ import {
   type CompletedContentVersionRef,
   type WorkspaceCanvasInitialPublishResult
 } from "@planweave-ai/collaboration-protocol/content/version";
-import { type CanvasRuntimeResetRequest } from "@planweave-ai/collaboration-protocol/canvas/runtime-control";
+import type {
+  CanvasRuntimeInitializeRequest,
+  CanvasRuntimeResetRequest
+} from "@planweave-ai/collaboration-protocol/canvas/runtime-control";
 import {
   type CanvasCommandOutcome,
   type CanvasRevision
@@ -1039,6 +1042,10 @@ export class CollaborationClient {
 
   async readRuntimeAvailability(canvasId: string, signal?: AbortSignal) {
     return this.runtimeClient.readAvailability(canvasId, signal);
+  }
+
+  async initializeRuntime(canvasId: string, input: CanvasRuntimeInitializeRequest) {
+    return this.runtimeClient.initialize(canvasId, input);
   }
 
   async resetRuntime(canvasId: string, input: CanvasRuntimeResetRequest) {

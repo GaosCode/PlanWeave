@@ -18,6 +18,7 @@ import {
   type ContentVersionService
 } from "./canvas/index.js";
 import type { CanvasRuntimeCommandCoordinator } from "./canvas/runtimeCommandCoordinator.js";
+import type { CanvasRuntimeInitializationCoordinator } from "./canvas/runtimeInitializationCoordinator.js";
 import { handleCommentActivityHttpRequest } from "./comments/index.js";
 import type { CommentService } from "./comments/service.js";
 import type { DispatchService } from "./dispatches.js";
@@ -75,6 +76,7 @@ export type DistributedHttpRequestListenerOptions = {
   canvasCommandService: CanvasCommandService;
   canvasRuntimeAvailabilityService: CanvasRuntimeAvailabilityService;
   canvasRuntimeCommandCoordinator?: CanvasRuntimeCommandCoordinator;
+  canvasRuntimeInitializationCoordinator?: CanvasRuntimeInitializationCoordinator;
   resolveCommentService(workspaceId: string, projectId: string): CommentService | undefined;
   enrollments: HostEnrollmentService;
   setupCodes: SetupCodeService;
@@ -216,6 +218,7 @@ export function createDistributedHttpRequestListener(
           service: options.canvasCommandService,
           runtimeAvailabilityService: options.canvasRuntimeAvailabilityService,
           runtimeCommandCoordinator: options.canvasRuntimeCommandCoordinator,
+          runtimeInitializationCoordinator: options.canvasRuntimeInitializationCoordinator,
           repository: options.humanIdentity,
           workspaceIdentity: options.workspaceIdentity,
           collaborationScopeAuthority: options.collaborationScopeAuthority,

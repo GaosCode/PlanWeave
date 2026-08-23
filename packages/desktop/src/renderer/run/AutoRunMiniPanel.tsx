@@ -11,6 +11,7 @@ import {
   FolderOpenIcon,
   PauseIcon,
   PlayIcon,
+  PowerIcon,
   RefreshCwIcon,
   RotateCcwIcon,
   SquareIcon
@@ -41,9 +42,12 @@ type AutoRunMiniPanelProps = {
   hasProject: boolean;
   miniRunPanelOpen: boolean;
   preflightExecutor: string | null;
+  initializeRuntimeStateClick?: () => Promise<void>;
   resetRuntimeStateClick: () => Promise<void>;
   runtimeOperationsAllowed: boolean;
+  runtimeInitializeAllowed?: boolean;
   runtimeResetAllowed?: boolean;
+  runtimeStateUninitialized?: boolean;
   selectedProject: DesktopProjectSummary | null;
   setMiniRunPanelOpen: Dispatch<SetStateAction<boolean>>;
   stopAutoRunClick: () => Promise<void>;
@@ -268,9 +272,12 @@ export function AutoRunMiniPanel({
   hasProject,
   miniRunPanelOpen,
   preflightExecutor,
+  initializeRuntimeStateClick,
   resetRuntimeStateClick,
   runtimeOperationsAllowed,
+  runtimeInitializeAllowed = false,
   runtimeResetAllowed = runtimeOperationsAllowed,
+  runtimeStateUninitialized = false,
   selectedProject,
   setMiniRunPanelOpen,
   stopAutoRunClick,
@@ -448,15 +455,27 @@ export function AutoRunMiniPanel({
             </DisclosureSection>
           ) : null}
           <div className="flex justify-end gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={!hasProject || !runtimeResetAllowed}
-              onClick={() => void resetRuntimeStateClick()}
-            >
-              <RotateCcwIcon data-icon="inline-start" />
-              {t("resetRuntimeState")}
-            </Button>
+            {runtimeStateUninitialized ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!hasProject || !runtimeInitializeAllowed}
+                onClick={() => void initializeRuntimeStateClick?.()}
+              >
+                <PowerIcon data-icon="inline-start" />
+                {t("initializeRuntimeState")}
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!hasProject || !runtimeResetAllowed}
+                onClick={() => void resetRuntimeStateClick()}
+              >
+                <RotateCcwIcon data-icon="inline-start" />
+                {t("resetRuntimeState")}
+              </Button>
+            )}
             {displayedRecordPath ? (
               <Button
                 data-record-path={displayedRecordPath}

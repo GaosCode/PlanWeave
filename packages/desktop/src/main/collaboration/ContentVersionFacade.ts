@@ -1,6 +1,9 @@
 import { type CanvasAccessRecord } from "@planweave-ai/collaboration-protocol/access/project";
 import type { CanvasRuntimeAvailability } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import {
+  canvasRuntimeInitializeRequestSchema,
+  type CanvasRuntimeInitializeOutcome,
+  type CanvasRuntimeInitializeRequest,
   canvasRuntimeResetRequestSchema,
   type CanvasRuntimeResetOutcome,
   type CanvasRuntimeResetRequest
@@ -13,6 +16,8 @@ import {
   type RemoteCollaborationCanvasBindingInput
 } from "../../shared/collaboration.js";
 import {
+  type WorkspaceCanvasRuntimeInitializeRequest,
+  workspaceCanvasRuntimeInitializeRequestSchema,
   type WorkspaceCanvasRuntimeResetRequest,
   workspaceCanvasRuntimeResetRequestSchema
 } from "../../shared/collaborationRuntimeAvailability.js";
@@ -150,6 +155,28 @@ export class ContentVersionFacade {
     return client.resetRuntime(
       scope.canvasId,
       canvasRuntimeResetRequestSchema.parse(protocolRequest)
+    );
+  }
+
+  async initializeRuntime(
+    input: unknown,
+    request: WorkspaceCanvasRuntimeInitializeRequest
+  ): Promise<CanvasRuntimeInitializeOutcome> {
+    const requested = this.requireRemoteBinding(input);
+    const client = this.requireClient();
+    const scope = await this.resolveCanvasScope(requested);
+    if (!scope) throw unavailable("runtime_status_scope_unavailable", false);
+    const head = await client.fetchContentHead(scope.canvasId);
+    if (!head) throw unavailable("content_authoritative_head_unavailable", false);
+    this.assertRemoteScope(head.scope, requested);
+    const parsed = workspaceCanvasRuntimeInitializeRequestSchema.parse(request);
+    const protocolRequest: CanvasRuntimeInitializeRequest = {
+      ...parsed,
+      expectedContentRevision: head.revision
+    };
+    return client.initializeRuntime(
+      scope.canvasId,
+      canvasRuntimeInitializeRequestSchema.parse(protocolRequest)
     );
   }
 

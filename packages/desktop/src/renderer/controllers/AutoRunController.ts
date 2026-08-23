@@ -51,6 +51,7 @@ export function useAutoRunController({
   startAutoRunScope,
   runtimeAvailability,
   canvasLocator,
+  initializeWorkspaceRuntime,
   resetWorkspaceRuntime
 }: {
   autoRunState: DesktopAutoRunState | null;
@@ -73,6 +74,7 @@ export function useAutoRunController({
   startAutoRunScope?: WorkspaceAgentEndpointScopeStarter;
   runtimeAvailability: CollaborationRuntimeAvailabilityView;
   canvasLocator?: CanvasLocator | null;
+  initializeWorkspaceRuntime?: () => Promise<void>;
   resetWorkspaceRuntime?: () => Promise<void>;
 }): AutoRunController {
   const {
@@ -87,9 +89,12 @@ export function useAutoRunController({
     handleAutoRunNextAction,
     miniRunPanelOpen,
     moveAutoRunControl,
+    initializeRuntimeStateClick,
     resetRuntimeStateClick,
     runtimeOperationsAllowed,
+    runtimeInitializeAllowed,
     runtimeResetAllowed,
+    runtimeStateUninitialized,
     setAutoRunScopeMode,
     setMiniRunPanelOpen,
     startAutoRunControlDrag,
@@ -113,6 +118,7 @@ export function useAutoRunController({
     startAutoRunScope,
     runtimeAvailability,
     canvasLocator,
+    initializeWorkspaceRuntime,
     resetWorkspaceRuntime
   });
 
@@ -130,9 +136,12 @@ export function useAutoRunController({
         handleAutoRunNextAction,
         miniRunPanelOpen,
         moveAutoRunControl,
+        initializeRuntimeStateClick,
         resetRuntimeStateClick,
         runtimeOperationsAllowed,
+        runtimeInitializeAllowed,
         runtimeResetAllowed,
+        runtimeStateUninitialized,
         setAutoRunScopeMode,
         setMiniRunPanelOpen,
         startAutoRunControlDrag,
@@ -152,9 +161,12 @@ export function useAutoRunController({
       handleAutoRunNextAction,
       miniRunPanelOpen,
       moveAutoRunControl,
+      initializeRuntimeStateClick,
       resetRuntimeStateClick,
       runtimeOperationsAllowed,
+      runtimeInitializeAllowed,
       runtimeResetAllowed,
+      runtimeStateUninitialized,
       setAutoRunScopeMode,
       setMiniRunPanelOpen,
       startAutoRunControlDrag,

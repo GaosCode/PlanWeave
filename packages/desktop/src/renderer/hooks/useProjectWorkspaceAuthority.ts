@@ -144,6 +144,7 @@ export function useProjectWorkspaceAuthority(input: UseProjectWorkspaceAuthority
     graph,
     sessionConnected: collaborationSurface.sessionConnected,
     binding: canvasBinding,
+    initialRuntimeAvailability: workspaceCanvasCommands.initialRuntimeAvailability,
     locator: canvasLocator,
     setError: input.setError,
     setSuccessMessage: input.setSuccessMessage,

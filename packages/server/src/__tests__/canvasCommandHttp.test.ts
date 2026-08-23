@@ -11,6 +11,8 @@ import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js"
 import { loopbackHttpTransportAdmission } from "./support/transportAdmission.js";
 import { canvasCommandServiceFixture } from "./support/canvasCommandServiceFixture.js";
 import type { CanvasRuntimeAvailabilityPort } from "../canvas/runtimePort.js";
+import { CanvasRuntimeInitializationCoordinator } from "../canvas/runtimeInitializationCoordinator.js";
+import { inWriteTransaction } from "../sqlite.js";
 
 const servers: HttpServer[] = [];
 
@@ -22,9 +24,15 @@ afterEach(async () => {
 });
 
 async function setup(clock: () => Date, runtimeAvailability?: CanvasRuntimeAvailabilityPort) {
-  const { service, runtimeAvailabilityService, database } = await canvasCommandServiceFixture({
-    runtimeAvailability
-  });
+  const fixture = await canvasCommandServiceFixture({ runtimeAvailability });
+  const {
+    service,
+    runtimeAvailabilityService,
+    database,
+    access,
+    contentVersions,
+    runtimeStatuses
+  } = fixture;
   const repository = new HumanIdentityRepository(database);
   const workspaceIdentity = new WorkspaceIdentityRepository(database);
   const token = mintHumanDeviceToken();
@@ -48,10 +56,24 @@ async function setup(clock: () => Date, runtimeAvailability?: CanvasRuntimeAvail
     hasScope: (scope: { workspaceId: string; projectId: string; canvasId?: string }) =>
       scope.workspaceId === "w" && scope.projectId === "p" && scope.canvasId === "default"
   };
+  const runtimeInitializationCoordinator = new CanvasRuntimeInitializationCoordinator({
+    access,
+    workspaceIdentity,
+    contentVersions,
+    runtimeStatuses,
+    executionLeases: {
+      acquire() {
+        throw new Error("unexpected_runtime_initialize_acquire");
+      }
+    },
+    hasConflictingLease: () => false,
+    commitTransaction: (action) => inWriteTransaction(database, action)
+  });
   const server = createServer((request, response) => {
     void handleCanvasCommandHttpRequest(request, response, {
       service,
       runtimeAvailabilityService,
+      runtimeInitializationCoordinator,
       repository,
       workspaceIdentity,
       collaborationScopeAuthority,
@@ -180,6 +202,30 @@ describe("canvas runtime availability HTTP", () => {
         kind: "unavailable",
         reason: "content_out_of_sync"
       }
+    });
+  });
+});
+
+describe("canvas runtime initialization HTTP", () => {
+  it("returns the typed invalid_request outcome for an invalid initialization body", async () => {
+    const fixture = await setup(() => new Date("2026-08-16T00:00:00.000Z"));
+    const response = await fetch(
+      `${fixture.origin}/api/v1/projects/p/canvases/default/runtime-initialize`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${fixture.token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ operationId: "initialize-invalid" })
+      }
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      type: "canvas.runtime.initialize.rejected",
+      operationId: "initialize-invalid",
+      code: "invalid_request"
     });
   });
 });

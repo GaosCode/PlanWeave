@@ -26,6 +26,7 @@ function projection(readOnly = false): WorkspaceCanvasProjection {
     authorityMode: readOnly ? "offline_cache_readonly" : "server_authoritative",
     readOnly,
     cachedAt: readOnly ? "2026-08-22T00:00:00.000Z" : null,
+    initialRuntimeAvailability: null,
     conflict: null,
     rejectCode: null,
     replica: {
@@ -57,6 +58,23 @@ function projection(readOnly = false): WorkspaceCanvasProjection {
         taskOpenFeedbackCountByTaskId: {},
         blockPromptMarkdownByRef: {}
       }
+    }
+  };
+}
+
+function projectionForLocator(
+  nextLocator: WorkspaceCanvasProjection["locator"],
+  initialRuntimeAvailability: WorkspaceCanvasProjection["initialRuntimeAvailability"] = null
+): WorkspaceCanvasProjection {
+  return {
+    ...projection(),
+    locator: nextLocator,
+    initialRuntimeAvailability,
+    replica: {
+      ...projection().replica,
+      workspaceId: nextLocator.workspaceId,
+      projectId: nextLocator.projectId,
+      canvasId: nextLocator.canvasId
     }
   };
 }
@@ -149,5 +167,44 @@ describe("useWorkspaceCanvasCommands", () => {
       })
     ).resolves.toMatchObject({ ok: false });
     expect(port.submitWorkspaceCanvasCommand).not.toHaveBeenCalled();
+  });
+
+  it("does not expose the previous Workspace projection while a new locator is opening", async () => {
+    const nextLocator = { ...locator, canvasId: "canvas-2" };
+    let resolveNext: ((value: WorkspaceCanvasProjection) => void) | null = null;
+    const nextProjection = new Promise<WorkspaceCanvasProjection>((resolve) => {
+      resolveNext = resolve;
+    });
+    const seed = {
+      schemaVersion: "canvas-runtime-view/v1" as const,
+      state: { kind: "uninitialized" as const },
+      execution: {
+        schemaVersion: "canvas-runtime-availability/v1" as const,
+        kind: "unavailable" as const,
+        reason: "runtime_not_attached" as const
+      }
+    };
+    const api = bridge(projection()).api;
+    vi.mocked(api.openWorkspaceCanvasSession).mockImplementation(async (requested) =>
+      requested.canvasId === locator.canvasId ? projectionForLocator(locator, seed) : nextProjection
+    );
+    const { result, rerender } = renderHook(
+      ({ selectedLocator }) =>
+        useWorkspaceCanvasCommands({
+          api,
+          locator: selectedLocator,
+          sessionConnected: true,
+          t
+        }),
+      { initialProps: { selectedLocator: locator } }
+    );
+    await waitFor(() => expect(result.current.initialRuntimeAvailability).toEqual(seed));
+
+    rerender({ selectedLocator: nextLocator });
+    expect(result.current.projection).toBeNull();
+    expect(result.current.initialRuntimeAvailability).toBeNull();
+
+    act(() => resolveNext?.(projectionForLocator(nextLocator)));
+    await waitFor(() => expect(result.current.projection?.canvasId).toBe(nextLocator.canvasId));
   });
 });

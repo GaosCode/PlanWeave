@@ -46,6 +46,7 @@ type UseAutoRunControlArgs = {
   startAutoRunScope?: WorkspaceAgentEndpointScopeStarter;
   runtimeAvailability: CollaborationRuntimeAvailabilityView;
   canvasLocator?: CanvasLocator | null;
+  initializeWorkspaceRuntime?: () => Promise<void>;
   resetWorkspaceRuntime?: () => Promise<void>;
 };
 
@@ -161,6 +162,7 @@ export function useAutoRunControl({
   startAutoRunScope,
   runtimeAvailability,
   canvasLocator,
+  initializeWorkspaceRuntime,
   resetWorkspaceRuntime
 }: UseAutoRunControlArgs) {
   const [autoRunScopeMode, setAutoRunScopeMode] = useState<AutoRunScopeMode>("project");
@@ -316,11 +318,10 @@ export function useAutoRunControl({
   }, [autoRunScopeMode, selectedBlock, selectedTaskPanelId]);
 
   const runtimeOperationsAllowed = collaborationRuntimeOperationsAllowed(runtimeAvailability);
-  const runtimeResetAllowed =
-    runtimeOperationsAllowed ||
-    (canvasLocator?.kind === "workspace" &&
-      runtimeAvailability.kind === "state_uninitialized" &&
-      Boolean(resetWorkspaceRuntime));
+  const runtimeStateUninitialized =
+    canvasLocator?.kind === "workspace" && runtimeAvailability.kind === "state_uninitialized";
+  const runtimeInitializeAllowed = runtimeStateUninitialized && Boolean(initializeWorkspaceRuntime);
+  const runtimeResetAllowed = runtimeOperationsAllowed;
   const runtimeUnavailableCode = collaborationRuntimeUnavailableCode(runtimeAvailability);
   const baseAutoRunNextAction = buildAutoRunNextActionDescriptor({
     labels: {
@@ -629,6 +630,25 @@ export function useAutoRunControl({
     t
   ]);
 
+  const initializeRuntimeStateClick = useCallback(async () => {
+    if (!runtimeInitializeAllowed || !initializeWorkspaceRuntime) {
+      setError(runtimeUnavailableCode ?? "collaboration_runtime_initialize_unavailable");
+      return;
+    }
+    try {
+      await initializeWorkspaceRuntime();
+      await onAutoRunDerivedStateRefresh?.();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }, [
+    initializeWorkspaceRuntime,
+    onAutoRunDerivedStateRefresh,
+    runtimeInitializeAllowed,
+    runtimeUnavailableCode,
+    setError
+  ]);
+
   const startAutoRunControlDrag = useCallback(
     (event: React.PointerEvent<HTMLButtonElement>) => {
       const control = event.currentTarget.closest("[data-auto-run-control]");
@@ -730,8 +750,11 @@ export function useAutoRunControl({
     setAutoRunState,
     setMiniRunPanelOpen,
     resetRuntimeStateClick,
+    initializeRuntimeStateClick,
     runtimeOperationsAllowed,
+    runtimeInitializeAllowed,
     runtimeResetAllowed,
+    runtimeStateUninitialized,
     startAutoRunWithScope,
     startAutoRunControlDrag,
     stopAutoRunClick,

@@ -13,7 +13,10 @@ import {
 } from "@planweave-ai/collaboration-protocol/identity/workspace";
 import { collaborationInvitationHandoffResponseSchema } from "@planweave-ai/collaboration-protocol/handoff/invitation";
 import { canvasRuntimeAvailabilitySchema } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
-import { canvasRuntimeResetOutcomeSchema } from "@planweave-ai/collaboration-protocol/canvas/runtime-control";
+import {
+  canvasRuntimeInitializeOutcomeSchema,
+  canvasRuntimeResetOutcomeSchema
+} from "@planweave-ai/collaboration-protocol/canvas/runtime-control";
 import {
   collaborationCanvasBindingInputSchema,
   collaborationInvokeChannels,
@@ -40,7 +43,10 @@ import {
 import { CollaborationService, type CollaborationServiceOptions } from "./collaborationService.js";
 import type { CollaborationCanvasBindingReplicaSignal } from "../../shared/canvasReplicaIpc.js";
 import type { WorkspaceCanvasProjection } from "../../shared/workspaceCanvasProjection.js";
-import { workspaceCanvasRuntimeResetInputSchema } from "../../shared/collaborationRuntimeAvailability.js";
+import {
+  workspaceCanvasRuntimeInitializeInputSchema,
+  workspaceCanvasRuntimeResetInputSchema
+} from "../../shared/collaborationRuntimeAvailability.js";
 import { LocalCollaborationCoordinatorControl } from "./CollaborationCoordinatorControl.js";
 import { DeploymentActions } from "./deploymentActions.js";
 import { runCollaborationCommand } from "./collaborationCommandHandler.js";
@@ -429,6 +435,15 @@ export function registerCollaborationHandlers(
             collaborationCanvasBindingInputSchema.parse(input)
           )
         )
+  );
+  ipcMain.handle(
+    collaborationInvokeChannels.initializeWorkspaceCanvasRuntime,
+    async (_event, input: unknown) =>
+      canvasRuntimeInitializeOutcomeSchema.parse(
+        await active.initializeWorkspaceCanvasRuntime(
+          workspaceCanvasRuntimeInitializeInputSchema.parse(input)
+        )
+      )
   );
   ipcMain.handle(
     collaborationInvokeChannels.resetWorkspaceCanvasRuntime,

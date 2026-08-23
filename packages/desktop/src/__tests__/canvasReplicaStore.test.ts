@@ -487,6 +487,11 @@ describe("CanvasRuntimeAvailabilityCoordinator", () => {
     const content: CanvasRuntimeContentPort = {
       resolveCanvasScope: vi.fn(async () => scope),
       readResolvedRuntimeAvailability: vi.fn(async () => initialAvailability),
+      initializeRuntime: vi.fn(async () => ({
+        type: "canvas.runtime.initialize.rejected" as const,
+        operationId: "initialize-1",
+        code: "host_offline" as const
+      })),
       resetRuntime: vi.fn(async () => ({
         type: "canvas.runtime.reset.rejected" as const,
         operationId: "reset-1",
@@ -653,6 +658,44 @@ describe("CanvasRuntimeAvailabilityCoordinator", () => {
       expect.objectContaining({ operationId: "reset-1" })
     );
     expect(fixture.content.readResolvedRuntimeAvailability).toHaveBeenCalledWith(scope);
+    expect(fixture.replicas.setRuntimeStatus).toHaveBeenCalledWith(
+      { authorityId: "authority-1", ...scope },
+      status
+    );
+  });
+
+  it("initializes through the distinct command and publishes only its authoritative projection", async () => {
+    const initialized = { ...available, state: { ...available.state, runtimeRevision: 1 } };
+    const fixture = setup(initialized);
+    vi.mocked(fixture.content.initializeRuntime).mockResolvedValue({
+      type: "canvas.runtime.initialize.accepted",
+      operationId: "initialize-1",
+      runtimeRevision: 1,
+      sourceRevision: `snapshot:${"b".repeat(64)}`,
+      graphFingerprint: status.packageFingerprint,
+      status
+    });
+
+    await expect(
+      fixture.coordinator.initializeRuntime({
+        locator: {
+          kind: "workspace",
+          connectionProfileId: "profile-1",
+          ...scope
+        },
+        operationId: "initialize-1",
+        expectedSourceRevision: `snapshot:${"b".repeat(64)}`,
+        expectedGraphFingerprint: status.packageFingerprint
+      })
+    ).resolves.toMatchObject({
+      type: "canvas.runtime.initialize.accepted",
+      runtimeRevision: 1
+    });
+    expect(fixture.content.initializeRuntime).toHaveBeenCalledWith(
+      { kind: "remote", ...scope },
+      expect.objectContaining({ operationId: "initialize-1" })
+    );
+    expect(fixture.content.resetRuntime).not.toHaveBeenCalled();
     expect(fixture.replicas.setRuntimeStatus).toHaveBeenCalledWith(
       { authorityId: "authority-1", ...scope },
       status

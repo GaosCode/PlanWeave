@@ -25,6 +25,25 @@ export const enCatalog = {
   pause: "Pause",
   resume: "Resume",
   stop: "Stop",
+  initializeRuntimeState: "Initialize runtime state",
+  initializeRuntimeStateSuccess: "Runtime state initialized from the execution device.",
+  runtimeInitializeForbidden: "You do not have permission to initialize this canvas runtime.",
+  runtimeInitializeHostOffline:
+    "The execution device is offline. Reconnect it, then initialize runtime state.",
+  runtimeInitializeActiveLease:
+    "Runtime work is still active. Wait for it to settle before initializing the Server view.",
+  runtimeInitializeSourceDrift:
+    "The canvas changed before initialization completed. Refresh the canvas and try again.",
+  runtimeInitializePersistFailed:
+    "The Server could not save the initial Runtime view. No success was reported; retry shortly.",
+  runtimeInitializeUnavailable:
+    "Runtime initialization is unavailable right now. Check the execution device connection and retry.",
+  runtimeInitializeConflict:
+    "Another Runtime initialization is in progress. Wait for it to finish, then retry.",
+  runtimeInitializeInvalidRequest:
+    "The initialization request was invalid. Refresh the canvas and try again.",
+  runtimeInitializeProjectionPostconditionFailed:
+    "Initialization completed, but the authoritative Runtime view is not current yet. Refresh and retry.",
   resetRuntimeState: "Reset runtime state",
   resetRuntimeStateConfirm:
     "Reset runtime state for this canvas? This clears current claims, feedback, and review progress. Existing records stay on disk.",
@@ -1835,7 +1854,8 @@ export const enCatalog = {
   collaborationServerDisconnected: "Server disconnected · Workspace execution disabled",
   collaborationRuntimeChecking: "Checking Workspace execution capability…",
   collaborationRuntimeError: "Execution capability check failed: {message}",
-  collaborationRuntimeStateUninitialized: "Workspace execution state is not initialized",
+  collaborationRuntimeStateUninitialized:
+    "Workspace execution state is not initialized. Initialize it before running.",
   collaborationRuntimeHostOffline:
     "Workspace execution is offline · viewing and editing remain available",
   collaborationRuntimeContentOutOfSync: "Workspace execution content is not current",

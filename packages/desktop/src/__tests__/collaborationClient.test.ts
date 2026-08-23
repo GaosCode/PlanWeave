@@ -487,6 +487,38 @@ describe("CollaborationClient", () => {
     client.dispose();
   });
 
+  it("sends Workspace Runtime initialization through its distinct endpoint without a reset reason", async () => {
+    const request = {
+      operationId: "initialize-1",
+      expectedContentRevision: 4,
+      expectedSourceRevision: `snapshot:${"b".repeat(64)}`,
+      expectedGraphFingerprint: `pkg-${"a".repeat(64)}`
+    };
+    const fixture = await listen(async (req, res) => {
+      expect(req.method).toBe("POST");
+      expect(req.url).toBe(
+        "/api/v1/projects/project-demo-001/canvases/canvas-demo-001/runtime-initialize"
+      );
+      const body = JSON.parse((await readBody(req)).toString("utf8"));
+      expect(body).toEqual(request);
+      expect(body).not.toHaveProperty("reason");
+      json(res, 503, {
+        type: "canvas.runtime.initialize.rejected",
+        operationId: request.operationId,
+        code: "host_offline"
+      });
+    });
+    cleanups.push(fixture.close);
+    const client = clientFor(fixture.origin, { token: exampleHumanDeviceToken });
+
+    await expect(client.initializeRuntime("canvas-demo-001", request)).resolves.toEqual({
+      type: "canvas.runtime.initialize.rejected",
+      operationId: request.operationId,
+      code: "host_offline"
+    });
+    client.dispose();
+  });
+
   it.each([
     [
       "accepted",
