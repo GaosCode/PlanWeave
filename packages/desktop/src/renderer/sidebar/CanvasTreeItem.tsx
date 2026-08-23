@@ -1,6 +1,5 @@
 import {
   AlertTriangleIcon,
-  ChevronRightIcon,
   ClipboardIcon,
   CopyIcon,
   FolderOpenIcon,
@@ -13,8 +12,6 @@ import {
 import { useEffect, useRef, useState } from "react";
 import type { DesktopGraphViewModel, DesktopProjectSummary } from "@planweave-ai/runtime";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -25,8 +22,12 @@ import {
 } from "@/components/ui/context-menu";
 import { fileManagerLabel } from "../fileManagerLabels";
 import type { createTranslator } from "../i18n";
-import { statusVariant } from "../viewHelpers";
 import { AnimatedTreeRegion } from "./AnimatedTreeRegion";
+import {
+  CanvasTreeSelectButton,
+  CanvasTreeToggleButton,
+  TaskTreeSelectButton
+} from "./CanvasTreePresentation";
 
 type TaskCanvasSummary = DesktopProjectSummary["taskCanvases"][number];
 
@@ -162,33 +163,29 @@ export function CanvasTreeItem({
         ) : (
           <ContextMenu>
             <ContextMenuTrigger asChild>
-              <Button
-                aria-label={
+              <CanvasTreeSelectButton
+                ariaLabel={
                   firstError ? `${canvasLabel} ${t("error")}: ${firstError.message}` : undefined
                 }
-                aria-current={isGraphCanvas ? "page" : undefined}
-                className="h-8 w-full min-w-0 max-w-full flex-1 justify-between gap-2 overflow-hidden rounded-md px-2 text-xs text-text-muted hover:bg-surface-muted hover:text-text-strong data-[variant=secondary]:border-state-selected/25 data-[variant=secondary]:bg-state-selected-surface data-[variant=secondary]:text-text-strong data-[variant=secondary]:shadow-sm [&_svg]:size-4"
-                data-canvas-id={canvas.canvasId}
-                data-testid={`canvas-select-${canvas.canvasId}`}
+                canvasId={canvas.canvasId}
+                label={canvasLabel}
+                selected={isGraphCanvas}
+                testId={`canvas-select-${canvas.canvasId}`}
                 title={firstError ? firstError.message : undefined}
-                variant={isGraphCanvas ? "secondary" : "ghost"}
+                trailing={
+                  firstError ? (
+                    <Badge className="shrink-0 gap-1" variant="destructive">
+                      <AlertTriangleIcon className="size-3" aria-hidden="true" />
+                      {t("error")}
+                    </Badge>
+                  ) : (
+                    <Badge className="shrink-0" variant="outline">
+                      {displayedTaskCount}
+                    </Badge>
+                  )
+                }
                 onClick={() => onCanvasSelect(project, canvas.canvasId)}
-              >
-                <span className="flex min-w-0 flex-1 items-center gap-2 truncate">
-                  <WorkflowIcon className="shrink-0" data-icon="inline-start" />
-                  <span className="truncate">{canvasLabel}</span>
-                </span>
-                {firstError ? (
-                  <Badge className="shrink-0 gap-1" variant="destructive">
-                    <AlertTriangleIcon className="size-3" aria-hidden="true" />
-                    {t("error")}
-                  </Badge>
-                ) : (
-                  <Badge className="shrink-0" variant="outline">
-                    {displayedTaskCount}
-                  </Badge>
-                )}
-              </Button>
+              />
             </ContextMenuTrigger>
             <ContextMenuContent className="w-52">
               <ContextMenuLabel>{canvas.name || t("taskCanvas")}</ContextMenuLabel>
@@ -235,25 +232,15 @@ export function CanvasTreeItem({
             </ContextMenuContent>
           </ContextMenu>
         )}
-        <Button
-          aria-expanded={isExpandedCanvas}
-          aria-label={isExpandedCanvas ? t("collapseTaskCanvas") : t("expandTaskCanvas")}
-          className="relative z-10 h-8 w-7 shrink-0 border-0 bg-transparent text-text-faint shadow-none opacity-100 hover:bg-surface-muted hover:text-text-strong focus-visible:ring-ring/40"
-          data-testid={`canvas-toggle-${canvas.canvasId}`}
-          size="icon-sm"
-          variant="ghost"
-          onClick={(event) => {
+        <CanvasTreeToggleButton
+          expanded={isExpandedCanvas}
+          t={t}
+          testId={`canvas-toggle-${canvas.canvasId}`}
+          onToggle={(event) => {
             event.stopPropagation();
             onCanvasToggle(project, canvas.canvasId, isGraphCanvas);
           }}
-        >
-          <ChevronRightIcon
-            className={cn(
-              "size-4 transition-transform duration-[var(--motion-duration-panel)] ease-[var(--motion-ease-emphasized)]",
-              isExpandedCanvas ? "rotate-90" : "rotate-0"
-            )}
-          />
-        </Button>
+        />
       </div>
       <AnimatedTreeRegion
         expanded={isExpandedCanvas && graph !== null}
@@ -264,23 +251,11 @@ export function CanvasTreeItem({
           ? graph.tasks.map((task) => (
               <ContextMenu key={task.taskId}>
                 <ContextMenuTrigger asChild>
-                  <Button
-                    className="h-8 w-full min-w-0 max-w-full shrink justify-start gap-2 overflow-hidden rounded-md bg-surface-muted/60 px-2 text-xs text-text hover:bg-surface-muted hover:text-text-strong data-[variant=secondary]:border-state-selected/25 data-[variant=secondary]:bg-state-selected-surface data-[variant=secondary]:text-text-strong data-[variant=secondary]:shadow-sm"
-                    variant={selectedTaskPanelId === task.taskId ? "secondary" : "ghost"}
-                    onClick={() => handleTaskPanelSelect(task.taskId)}
-                  >
-                    <span className="min-w-0 flex-1 truncate text-left text-sm font-medium">
-                      {task.title}
-                    </span>
-                    <Badge
-                      className="ml-auto shrink-0 border-border/80 bg-surface-raised text-xs text-text"
-                      variant={
-                        task.exceptions.length > 0 ? "destructive" : statusVariant[task.status]
-                      }
-                    >
-                      {task.taskId}
-                    </Badge>
-                  </Button>
+                  <TaskTreeSelectButton
+                    selected={selectedTaskPanelId === task.taskId}
+                    task={task}
+                    onSelect={() => handleTaskPanelSelect(task.taskId)}
+                  />
                 </ContextMenuTrigger>
                 <ContextMenuContent className="w-48">
                   <ContextMenuLabel>{task.title}</ContextMenuLabel>

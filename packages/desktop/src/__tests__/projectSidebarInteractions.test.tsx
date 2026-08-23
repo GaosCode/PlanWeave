@@ -10,6 +10,8 @@ import { ProjectSidebar } from "../renderer/sidebar/ProjectSidebar";
 import { orderProjectsByPinnedIds } from "../renderer/settings";
 import type { DesktopGraphViewModel, DesktopProjectSummary } from "@planweave-ai/runtime";
 import type { CanvasAccessRecord } from "@planweave-ai/collaboration-protocol/access/project";
+import type { WorkspaceCanvasProjection } from "../shared/workspaceCanvasProjection";
+import { WorkspaceCanvasCatalog } from "../renderer/sidebar/WorkspaceCanvasCatalog";
 import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
 
 afterEach(cleanupRendererTestEnvironment);
@@ -33,6 +35,133 @@ function replaceNavigatorForTest(value: {
 }
 
 describe("desktop renderer component interactions", () => {
+  it("shows Workspace canvas names and expands the active canvas tasks with the local tree pattern", async () => {
+    const project: DesktopProjectSummary = {
+      projectId: "local-project-1",
+      name: "tiny-notes-agent-board",
+      rootPath: "/tmp/tiny-notes-agent-board",
+      workspaceRoot: "/tmp/tiny-notes-agent-board",
+      activeCanvasId: "default",
+      taskCanvases: [
+        {
+          canvasId: "default",
+          name: "Tiny Notes Agent Board",
+          taskCount: 1,
+          diagnostics: [],
+          createdAt: "2026-08-23T00:00:00.000Z",
+          updatedAt: "2026-08-23T00:00:00.000Z"
+        }
+      ]
+    };
+    const remoteCanvas = {
+      schemaVersion: "project-access/v1",
+      registry: {
+        projectRegistryId: "project-registry-1",
+        canvasRegistryId: "canvas-registry-1",
+        workspaceId: "workspace-1",
+        projectId: "workspace-project-1",
+        canvasId: "default"
+      },
+      visibility: "shared",
+      acl: { revision: 1, updatedAt: "2026-08-23T00:00:00.000Z" },
+      owner: "human-1",
+      publishSource: {
+        localProjectId: project.projectId,
+        localCanvasId: "default"
+      },
+      updatedAt: "2026-08-23T00:00:00.000Z"
+    } as CanvasAccessRecord;
+    const workspaceProjection = {
+      locator: {
+        kind: "workspace",
+        connectionProfileId: "profile-1",
+        workspaceId: "workspace-1",
+        projectId: "workspace-project-1",
+        canvasId: "default"
+      },
+      status: "accepted",
+      authorityMode: "server_authoritative",
+      readOnly: false,
+      cachedAt: null,
+      conflict: null,
+      rejectCode: null,
+      initialRuntimeAvailability: null,
+      replica: {
+        authorityId: "workspace:workspace-1:workspace-project-1:default",
+        bindingKind: "remote",
+        workspaceId: "workspace-1",
+        projectId: "workspace-project-1",
+        canvasId: "default",
+        revision: 4,
+        contentDigest: "a".repeat(64),
+        canEdit: true,
+        optimisticOperationIds: [],
+        rejections: [],
+        content: {
+          projectTitle: "Tiny Notes Agent Board",
+          graphVersion: "1",
+          packageFingerprint: `pkg-${"b".repeat(64)}`,
+          tasks: [
+            {
+              taskId: "T-001",
+              title: "Create JavaScript",
+              status: "ready",
+              executor: null,
+              executorLabel: "inherit",
+              promptMarkdown: "# Create JavaScript",
+              promptMissing: false,
+              promptPreview: "Create JavaScript",
+              sharedResources: [],
+              blocks: [],
+              blockPreview: [],
+              hiddenBlockRefs: [],
+              overflowBlockCount: 0,
+              exceptions: []
+            }
+          ],
+          edges: [],
+          sharedResourceGroups: [],
+          diagnostics: [],
+          layout: {
+            version: "desktop-layout/v1",
+            projectId: "workspace-project-1",
+            nodes: [],
+            updatedAt: "2026-08-23T00:00:00.000Z"
+          },
+          blockDependenciesByRef: {},
+          taskOpenFeedbackCountByTaskId: {},
+          blockPromptMarkdownByRef: {}
+        }
+      }
+    } satisfies WorkspaceCanvasProjection;
+    const onTaskSelect = vi.fn();
+
+    render(
+      <WorkspaceCanvasCatalog
+        canvases={[remoteCanvas]}
+        localProjects={[project]}
+        selectedCanvas={remoteCanvas.registry}
+        selectedTaskId={null}
+        workspaceCanvasReplica={workspaceProjection.replica}
+        onTaskSelect={onTaskSelect}
+        t={createTranslator("zh-CN")}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "tiny-notes-agent-board" })).toBeVisible();
+    expect(screen.getByRole("button", { name: /Tiny Notes Agent Board\s*1/ })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "default" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Create JavaScript\s*T-001/ })).toBeVisible();
+
+    await userEvent.click(screen.getByRole("button", { name: /Create JavaScript\s*T-001/ }));
+    expect(onTaskSelect).toHaveBeenCalledWith("T-001");
+
+    await userEvent.click(screen.getByRole("button", { name: "收起任务画布" }));
+    expect(
+      screen.queryByRole("button", { name: /Create JavaScript\s*T-001/ })
+    ).not.toBeInTheDocument();
+  });
+
   it("groups Workspace canvases inside the project area instead of a standalone remote section", async () => {
     class ResizeObserverMock {
       disconnect = vi.fn();
@@ -64,6 +193,7 @@ describe("desktop renderer component interactions", () => {
       }
     } as CanvasAccessRecord;
     const onRemoteCanvasSelect = vi.fn();
+    const handleTaskPanelSelect = vi.fn();
 
     render(
       <ProjectSidebar
@@ -80,7 +210,7 @@ describe("desktop renderer component interactions", () => {
         handleRefreshProjects={vi.fn().mockResolvedValue(undefined)}
         handleRenameTaskCanvas={vi.fn().mockResolvedValue(undefined)}
         handleRevealProject={vi.fn().mockResolvedValue(undefined)}
-        handleTaskPanelSelect={vi.fn()}
+        handleTaskPanelSelect={handleTaskPanelSelect}
         loadProject={vi.fn().mockResolvedValue(undefined)}
         notificationItems={[]}
         onRemoteCanvasSelect={onRemoteCanvasSelect}
@@ -117,6 +247,7 @@ describe("desktop renderer component interactions", () => {
     );
 
     await userEvent.click(screen.getAllByRole("button", { name: "canvas-alpha" })[0]);
+    expect(handleTaskPanelSelect).toHaveBeenCalledWith(null);
     expect(onRemoteCanvasSelect).toHaveBeenCalledWith(remoteCanvas);
 
     await userEvent.click(projectRow);

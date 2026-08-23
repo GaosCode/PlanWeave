@@ -15,6 +15,7 @@ import { VerticalResizeHandle } from "../components/VerticalResizeHandle";
 import { ProjectTree } from "./ProjectTree";
 import { SidebarNav } from "./SidebarNav";
 import type { CanvasAccessRecord } from "@planweave-ai/collaboration-protocol/access/project";
+import type { CollaborationCanvasBindingReplicaProjection } from "../../shared/canvasReplicaIpc";
 
 type TaskCanvasSummary = DesktopProjectSummary["taskCanvases"][number];
 
@@ -71,6 +72,7 @@ type ProjectSidebarProps = {
   selectedTaskPanelId: string | null;
   remoteCanvases?: CanvasAccessRecord[];
   selectedWorkspaceCanvas?: Pick<CanvasAccessRecord["registry"], "projectId" | "canvasId"> | null;
+  workspaceCanvasReplica?: CollaborationCanvasBindingReplicaProjection | null;
   onRemoteCanvasSelect?: (canvas: CanvasAccessRecord) => void;
   setActiveView: Dispatch<SetStateAction<AppView>>;
   t: ReturnType<typeof createTranslator>;
@@ -116,6 +118,7 @@ export function ProjectSidebar({
   selectedTaskPanelId,
   remoteCanvases = [],
   selectedWorkspaceCanvas = null,
+  workspaceCanvasReplica = null,
   onRemoteCanvasSelect,
   setActiveView,
   t,
@@ -178,6 +181,11 @@ export function ProjectSidebar({
       handleTaskPanelSelect(null);
       setActiveView("graph");
     });
+  };
+
+  const handleWorkspaceCanvasSelect = (canvas: CanvasAccessRecord) => {
+    handleTaskPanelSelect(null);
+    onRemoteCanvasSelect?.(canvas);
   };
 
   const handleProjectToggle = (project: DesktopProjectSummary, isSelectedProject: boolean) => {
@@ -270,9 +278,10 @@ export function ProjectSidebar({
         selectedCanvasId={selectedCanvasId}
         selectedProject={selectedProject}
         selectedWorkspaceCanvas={selectedWorkspaceCanvas}
+        workspaceCanvasReplica={workspaceCanvasReplica}
         selectedTaskPanelId={selectedTaskPanelId}
         setRenamingProjectId={setRenamingProjectId}
-        onRemoteCanvasSelect={onRemoteCanvasSelect}
+        onRemoteCanvasSelect={handleWorkspaceCanvasSelect}
         t={t}
       />
       <Separator className="bg-border/80" />

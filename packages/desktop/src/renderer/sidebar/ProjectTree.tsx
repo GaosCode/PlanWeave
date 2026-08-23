@@ -4,6 +4,7 @@ import type { DesktopGraphViewModel, DesktopProjectSummary } from "@planweave-ai
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { CanvasAccessRecord } from "@planweave-ai/collaboration-protocol/access/project";
+import type { CollaborationCanvasBindingReplicaProjection } from "../../shared/canvasReplicaIpc";
 import type { createTranslator } from "../i18n";
 import { ProjectTreeItem } from "./ProjectTreeItem";
 import { WorkspaceCanvasCatalog } from "./WorkspaceCanvasCatalog";
@@ -61,6 +62,7 @@ type ProjectTreeProps = {
   remoteCanvases: CanvasAccessRecord[];
   renamingProjectId: string | null;
   selectedWorkspaceCanvas: Pick<CanvasAccessRecord["registry"], "projectId" | "canvasId"> | null;
+  workspaceCanvasReplica?: CollaborationCanvasBindingReplicaProjection | null;
   onRemoteCanvasSelect?: (canvas: CanvasAccessRecord) => void;
   selectedProject: DesktopProjectSummary | null;
   selectedCanvasId: string | null;
@@ -105,6 +107,7 @@ export function ProjectTree({
   remoteCanvases,
   renamingProjectId,
   selectedWorkspaceCanvas,
+  workspaceCanvasReplica,
   onRemoteCanvasSelect,
   selectedProject,
   selectedCanvasId,
@@ -202,9 +205,13 @@ export function ProjectTree({
           })}
           <WorkspaceCanvasCatalog
             canvases={remoteCanvases}
+            localProjects={projects}
             selectedCanvas={selectedWorkspaceCanvas}
+            selectedTaskId={selectedTaskPanelId}
             onSelect={onRemoteCanvasSelect}
+            onTaskSelect={handleTaskPanelSelect}
             t={t}
+            workspaceCanvasReplica={workspaceCanvasReplica}
           />
         </div>
       </ScrollArea>

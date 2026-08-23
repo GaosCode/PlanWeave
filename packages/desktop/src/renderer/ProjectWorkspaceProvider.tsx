@@ -1139,6 +1139,7 @@ export function ProjectWorkspaceProvider({
       selectedTaskPanelId,
       remoteCanvases: remoteWorkspace.authorizedCanvases,
       selectedWorkspaceCanvas: remoteWorkspace.binding,
+      workspaceCanvasReplica: workspaceCanvasCommands.projection,
       onRemoteCanvasSelect: selectRemoteCanvas,
       setActiveView,
       t
@@ -1174,6 +1175,7 @@ export function ProjectWorkspaceProvider({
       projectRefreshing,
       remoteWorkspace.authorizedCanvases,
       remoteWorkspace.binding,
+      workspaceCanvasCommands.projection,
       refreshProjectCatalogs,
       resetLayout,
       selectedCanvasId,
