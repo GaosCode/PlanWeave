@@ -41,7 +41,9 @@ export type TaskNodeLabels = {
   taskPrompt: string;
   title: string;
   agent: string;
+  agentEndpointSelectionRequired: string;
   agentEndpointSelectionUnavailable: string;
+  agentEndpointUnavailableReason: (reason: string | null) => string;
   unavailable: string;
   blockExecutionSummary: string;
   latestRun: string;

@@ -275,6 +275,7 @@ export function useWorkspaceRuntimeAvailability(input: {
     let observerAvailable: boolean | null = null;
     let observerStatusVersion = 0;
     let recovering = false;
+    let executionUnavailable = initialRuntimeAvailability?.execution.kind === "unavailable";
     let intervalId: ReturnType<typeof setInterval> | null = null;
     const identity: ResolvedCanvasIdentity = {
       profileId,
@@ -328,8 +329,9 @@ export function useWorkspaceRuntimeAvailability(input: {
     };
 
     const updateFallbackPolling = () => {
-      if (recovering || observerAvailable === false) startFallbackPolling();
-      else stopFallbackPolling();
+      if (recovering || observerAvailable === false || executionUnavailable) {
+        startFallbackPolling();
+      } else stopFallbackPolling();
     };
 
     const markObserverTransportAvailable = () => {
@@ -381,6 +383,7 @@ export function useWorkspaceRuntimeAvailability(input: {
         ) {
           setRemoteState({ kind: "error", message: "collaboration_runtime_scope_mismatch" });
         } else {
+          executionUnavailable = next.execution.kind === "unavailable";
           const authoritativeRevision = runtimeRevision(next);
           const requiredRevision = Math.max(targetRevision, pendingRevision);
           if (

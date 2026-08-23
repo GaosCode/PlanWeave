@@ -20,6 +20,7 @@ export function AgentEndpointSelect({
   selectedEndpointId,
   selectedUnknownLabel,
   unavailableLabel,
+  unavailableReasonLabel,
   triggerClassName
 }: {
   ariaLabel: string;
@@ -30,6 +31,7 @@ export function AgentEndpointSelect({
   selectedEndpointId: string;
   selectedUnknownLabel?: string;
   unavailableLabel: string;
+  unavailableReasonLabel?: (reason: string | null) => string;
   triggerClassName?: string;
 }) {
   const selectedKnown =
@@ -44,7 +46,7 @@ export function AgentEndpointSelect({
         <span>{agentEndpointDisplayLabel(endpoint)}</span>
         {!endpoint.available ? (
           <span className="text-xs text-muted-foreground">
-            {endpoint.unavailableReason ?? unavailableLabel}
+            {unavailableReasonLabel?.(endpoint.unavailableReason) ?? unavailableLabel}
           </span>
         ) : null}
       </span>

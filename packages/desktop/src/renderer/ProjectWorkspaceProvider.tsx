@@ -655,13 +655,19 @@ export function ProjectWorkspaceProvider({
     setError,
     workspaceCanvas: workspaceCanvasCommands
   });
+  const currentTaskExecutorName = useCallback(
+    (taskId: string) => graph?.tasks.find((task) => task.taskId === taskId)?.executor ?? null,
+    [graph]
+  );
   const taskAgentEndpointSelection = useTaskAgentEndpointSelection({
     agentEndpoints: canvasAgentEndpoints,
     canvasId: selectedCanvasId,
     changeLogicalExecutor: handleTaskExecutorChange,
+    currentLogicalExecutorName: currentTaskExecutorName,
     preferences: settings.execution.agentEndpointPreferences,
     projectRoot: selectedProject?.rootPath ?? null,
     remoteCanvas: remoteWorkspace.binding,
+    requireExplicitEndpoint: canvasLocator?.kind === "workspace",
     savePreference: agentEndpointCatalog.savePreference,
     setError
   });

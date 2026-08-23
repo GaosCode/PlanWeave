@@ -1,5 +1,6 @@
 import { inheritAgentEndpointValue } from "./AgentEndpointSelect";
 import type { AvailableAgentEndpoint } from "./agentEndpointViewModel";
+import { canonicalBuiltinExecutorName } from "@planweave-ai/runtime/browser";
 
 /**
  * Atomic executor selection: write manifest logical executor (package semantics)
@@ -9,6 +10,7 @@ export async function changeAgentEndpointSelection(input: {
   endpointId: string;
   endpoints: readonly AvailableAgentEndpoint[];
   preferenceKey: string | null;
+  currentLogicalExecutorName?: string | null;
   allowInherit?: boolean;
   changeLogicalExecutor: (executorName: string | null) => Promise<boolean>;
   savePreference: (key: string, endpoint: AvailableAgentEndpoint | null) => Promise<void>;
@@ -18,6 +20,7 @@ export async function changeAgentEndpointSelection(input: {
     endpointId,
     endpoints,
     preferenceKey,
+    currentLogicalExecutorName,
     allowInherit = false,
     changeLogicalExecutor,
     savePreference,
@@ -35,6 +38,11 @@ export async function changeAgentEndpointSelection(input: {
     setError(endpoint?.unavailableReason ?? "agent_endpoint_selection_unavailable");
     return;
   }
-  if (!(await changeLogicalExecutor(endpoint.executorName))) return;
+  const executorAlreadyMatches =
+    currentLogicalExecutorName !== null &&
+    currentLogicalExecutorName !== undefined &&
+    canonicalBuiltinExecutorName(currentLogicalExecutorName) ===
+      canonicalBuiltinExecutorName(endpoint.executorName);
+  if (!executorAlreadyMatches && !(await changeLogicalExecutor(endpoint.executorName))) return;
   await savePreference(preferenceKey, endpoint);
 }

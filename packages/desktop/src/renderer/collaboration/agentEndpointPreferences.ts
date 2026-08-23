@@ -9,7 +9,10 @@ export type AgentEndpointPreferenceScope =
 export type EndpointSelection =
   | { kind: "endpoint"; id: string }
   | { kind: "default_local"; id: string }
+  | { kind: "unassigned"; executorName: string }
   | { kind: "mismatch"; detail: string };
+
+export const unassignedAgentEndpointSelectionPrefix = "unassigned:";
 
 export function agentEndpointPreferenceKey(input: {
   projectRoot: string;
@@ -42,7 +45,14 @@ export function agentEndpointSelectionId(selection: EndpointSelection): string {
   if (selection.kind === "mismatch") {
     return `mismatch:${selection.detail}`;
   }
+  if (selection.kind === "unassigned") {
+    return `${unassignedAgentEndpointSelectionPrefix}${selection.executorName}`;
+  }
   return selection.id;
+}
+
+export function isUnassignedAgentEndpointSelectionId(value: string): boolean {
+  return value.startsWith(unassignedAgentEndpointSelectionPrefix);
 }
 
 function findRemoteEndpoint(
@@ -65,9 +75,13 @@ export function selectedAgentEndpointId(input: {
   executorName: string;
   preference: DesktopAgentEndpointPreference | undefined;
   endpoints: readonly AvailableAgentEndpoint[];
+  defaultMode?: "local" | "unassigned";
 }): EndpointSelection {
   const executorName = canonicalBuiltinExecutorName(input.executorName);
   if (!input.preference) {
+    if (input.defaultMode === "unassigned") {
+      return { kind: "unassigned", executorName };
+    }
     return { kind: "default_local", id: `local:${executorName}` };
   }
 

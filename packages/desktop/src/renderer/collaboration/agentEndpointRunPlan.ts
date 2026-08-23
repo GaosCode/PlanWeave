@@ -124,8 +124,15 @@ export function createAgentEndpointRunPlan(input: {
       const selection = selectedAgentEndpointId({
         executorName,
         preference,
-        endpoints: input.endpoints
+        endpoints: input.endpoints,
+        defaultMode: !input.project && input.remoteCanvas ? "unassigned" : "local"
       });
+      if (selection.kind === "unassigned") {
+        return {
+          kind: "rejected",
+          reason: `agent_endpoint_selection_missing:${block.ref}`
+        };
+      }
       if (selection.kind === "mismatch") {
         return rejectedForMismatch(block.ref, selection);
       }

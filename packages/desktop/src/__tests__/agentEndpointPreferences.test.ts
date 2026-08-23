@@ -134,6 +134,17 @@ describe("selectedAgentEndpointId", () => {
     ).toEqual({ kind: "default_local", id: "local:codex" });
   });
 
+  it("returns unassigned for a pure Workspace canvas without an Endpoint preference", () => {
+    expect(
+      selectedAgentEndpointId({
+        executorName: "codex",
+        preference: undefined,
+        endpoints: [remoteGrok],
+        defaultMode: "unassigned"
+      })
+    ).toEqual({ kind: "unassigned", executorName: "codex" });
+  });
+
   it("returns endpoint for a valid remote preference that matches manifest executor", () => {
     expect(
       selectedAgentEndpointId({

@@ -34,6 +34,7 @@ import {
   PopoverTrigger
 } from "@/components/ui/popover";
 import { AgentEndpointSelect } from "../collaboration/AgentEndpointSelect";
+import { isUnassignedAgentEndpointSelectionId } from "../collaboration/agentEndpointPreferences";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type { TaskFlowNode } from "../types";
@@ -182,12 +183,15 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
                   onValueChange={(value) => onAgentEndpointChange(task.taskId, value)}
                   selectedEndpointId={selectedAgentEndpointId}
                   selectedUnknownLabel={
-                    selectedAgentEndpointId === "__custom"
-                      ? labels.customExecutor
-                      : labels.agentEndpointSelectionUnavailable
+                    isUnassignedAgentEndpointSelectionId(selectedAgentEndpointId)
+                      ? labels.agentEndpointSelectionRequired
+                      : selectedAgentEndpointId === "__custom"
+                        ? labels.customExecutor
+                        : labels.agentEndpointSelectionUnavailable
                   }
                   triggerClassName="h-7 w-32 border-border/80 bg-surface-base text-xs text-text shadow-none"
                   unavailableLabel={labels.unavailable}
+                  unavailableReasonLabel={labels.agentEndpointUnavailableReason}
                 />
                 {agentEndpointFleetCatalogError ? (
                   <p

@@ -1,6 +1,7 @@
 import type { createTranslator } from "../i18n";
 import type { TaskNodeLabels } from "../types";
 import { fileManagerLabel } from "../fileManagerLabels";
+import { formatAgentEndpointUnavailableReason } from "../collaboration/formatAgentEndpointUnavailableReason";
 
 export function taskNodeLabels(t: ReturnType<typeof createTranslator>): TaskNodeLabels {
   return {
@@ -19,7 +20,9 @@ export function taskNodeLabels(t: ReturnType<typeof createTranslator>): TaskNode
     taskPrompt: t("taskPrompt"),
     title: t("title"),
     agent: t("agent"),
+    agentEndpointSelectionRequired: t("agentEndpointSelectionRequired"),
     agentEndpointSelectionUnavailable: t("agentEndpointSelectionUnavailable"),
+    agentEndpointUnavailableReason: (reason) => formatAgentEndpointUnavailableReason(reason, t),
     unavailable: t("unavailable"),
     blockExecutionSummary: t("blockExecutionSummary"),
     latestRun: t("latestRun"),

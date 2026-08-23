@@ -7,6 +7,7 @@ import { parseCollaborationSetupHandoffV1 } from "@planweave-ai/collaboration-pr
 import { serializeAgentHostSetupHandoff } from "@planweave-ai/agent-host-protocol";
 import {
   registerOperatorControlHandlers,
+  resolveDesktopAgentHostLauncher,
   shutdownOperatorControlService
 } from "../main/operatorControl/operatorControlHandlers.js";
 import { operatorControlInvokeChannels } from "../shared/operatorControl.js";
@@ -42,6 +43,25 @@ vi.mock("electron", () => ({
 }));
 
 const roots: string[] = [];
+
+describe("operator control Agent Host launcher", () => {
+  it("resolves the development Electron main entry to an absolute path", () => {
+    expect(
+      resolveDesktopAgentHostLauncher({
+        executablePath: "/Applications/Electron.app/Contents/MacOS/Electron",
+        isPackaged: false,
+        mainModulePath: "dist/main/main.js",
+        workingDirectory: "/Users/test/PlanWeave/packages/desktop"
+      })
+    ).toEqual({
+      executablePath: "/Applications/Electron.app/Contents/MacOS/Electron",
+      fixedArgs: [
+        "/Users/test/PlanWeave/packages/desktop/dist/main/main.js",
+        "--agent-host-service"
+      ]
+    });
+  });
+});
 
 beforeEach(() => {
   electronMock.handlers.clear();

@@ -201,6 +201,8 @@ export function TaskInspectorWindow() {
     agentEndpoints: agentEndpointCatalog.endpoints,
     canvasId: canvasId ?? "default",
     changeLogicalExecutor,
+    currentLogicalExecutorName: (taskId) =>
+      selectedTask?.taskId === taskId ? selectedTask.executor : null,
     preferences: settings.execution.agentEndpointPreferences,
     projectRoot: projectRoot || null,
     savePreference: agentEndpointCatalog.savePreference,

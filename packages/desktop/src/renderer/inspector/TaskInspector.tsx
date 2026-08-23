@@ -23,6 +23,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { AgentEndpointFleetCatalogHint } from "../collaboration/AgentEndpointFleetCatalogHint";
 import { AgentEndpointSelect } from "../collaboration/AgentEndpointSelect";
+import { isUnassignedAgentEndpointSelectionId } from "../collaboration/agentEndpointPreferences";
+import { formatAgentEndpointUnavailableReason } from "../collaboration/formatAgentEndpointUnavailableReason";
 import type { AvailableAgentEndpoint } from "../collaboration/agentEndpointViewModel";
 import { useExecutorPreflight } from "../hooks/useExecutorPreflight";
 import type { createTranslator } from "../i18n";
@@ -233,7 +235,13 @@ export function TaskInspector({
                 endpoints={agentEndpoints}
                 onValueChange={(value) => onAgentEndpointChange?.(value)}
                 selectedEndpointId={endpointSelectValue}
+                selectedUnknownLabel={
+                  isUnassignedAgentEndpointSelectionId(endpointSelectValue)
+                    ? t("agentEndpointSelectionRequired")
+                    : undefined
+                }
                 unavailableLabel={t("unavailable")}
+                unavailableReasonLabel={(reason) => formatAgentEndpointUnavailableReason(reason, t)}
               />
               <AgentEndpointFleetCatalogHint errorCode={agentEndpointCatalogErrorCode} t={t} />
               <div className="flex min-h-7 items-center gap-2 text-xs text-muted-foreground">

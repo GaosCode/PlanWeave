@@ -210,6 +210,38 @@ describe("shared-mode package write gate", () => {
     });
   });
 
+  it("routes pathless Workspace task executor changes through shared intents", async () => {
+    const submit = vi.fn().mockResolvedValue({ ok: true, error: null, staleConflict: null });
+    const bridge = createDesktopBridgeMock({
+      updateTaskExecutor: vi.fn().mockResolvedValue({ ok: true, diagnostics: [] })
+    });
+    vi.stubGlobal("planweave", bridge);
+    vi.resetModules();
+    const { useTaskExecutorActions } = await import("../renderer/hooks/useTaskExecutorActions");
+    const { result } = renderHook(() =>
+      useTaskExecutorActions({
+        refreshGraph: vi.fn().mockResolvedValue(undefined),
+        selectedCanvasId: null,
+        selectedProject: null,
+        setError: vi.fn(),
+        workspaceCanvas: workspaceCanvasMock(submit)
+      })
+    );
+
+    await act(async () => {
+      await result.current.handleTaskExecutorChange("T-ALPHA", "opencode-acp");
+    });
+
+    expect(bridge.updateTaskExecutor).not.toHaveBeenCalled();
+    expect(submit).toHaveBeenCalledWith({
+      intent: {
+        kind: "update_task_fields",
+        taskId: "T-ALPHA",
+        fields: { executor: "opencode-acp" }
+      }
+    });
+  });
+
   it("refuses review-pipeline local writes while shared is enabled", async () => {
     const submit = vi.fn().mockResolvedValue({ ok: true, error: null, staleConflict: null });
     const bridge = createDesktopBridgeMock({

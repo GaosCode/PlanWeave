@@ -128,6 +128,29 @@ describe("createAgentEndpointRunPlan preference routing", () => {
     ).toMatchObject({ kind: "coordinated_block" });
   });
 
+  it("requires an explicit Workspace Endpoint when a remote-only canvas has no preference", () => {
+    const remoteCanvas = {
+      workspaceId: "workspace-1",
+      projectId: "project-server",
+      canvasId: "canvas-main"
+    };
+
+    expect(
+      createAgentEndpointRunPlan({
+        graph: graphWithExecutor("grok"),
+        scope: { kind: "block", blockRef: "T-001#B-001" },
+        endpoints: [remoteGrok],
+        preferences: {},
+        project: null,
+        remoteCanvas,
+        canvasId: "canvas-main"
+      })
+    ).toEqual({
+      kind: "rejected",
+      reason: "agent_endpoint_selection_missing:T-001#B-001"
+    });
+  });
+
   it("rejects mismatch with blockRef, endpoint agent, and manifest executor", () => {
     const plan = createAgentEndpointRunPlan({
       graph: graphWithExecutor("codex"),

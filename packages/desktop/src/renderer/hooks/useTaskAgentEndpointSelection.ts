@@ -13,9 +13,11 @@ export function useTaskAgentEndpointSelection(input: {
   agentEndpoints: readonly AvailableAgentEndpoint[];
   canvasId: string | null;
   changeLogicalExecutor: (taskId: string, executorName: string) => Promise<boolean>;
+  currentLogicalExecutorName: (taskId: string) => string | null;
   preferences: DesktopUiSettings["execution"]["agentEndpointPreferences"];
   projectRoot: string | null;
   remoteCanvas?: { workspaceId: string; projectId: string; canvasId: string } | null;
+  requireExplicitEndpoint?: boolean;
   savePreference: (key: string, endpoint: AvailableAgentEndpoint | null) => Promise<void>;
   setError: (message: string | null) => void;
 }) {
@@ -42,11 +44,12 @@ export function useTaskAgentEndpointSelection(input: {
         selectedAgentEndpointId({
           executorName,
           preference: key ? input.preferences[key] : undefined,
-          endpoints: input.agentEndpoints
+          endpoints: input.agentEndpoints,
+          defaultMode: input.requireExplicitEndpoint ? "unassigned" : "local"
         })
       );
     },
-    [input.agentEndpoints, input.preferences, preferenceKey]
+    [input.agentEndpoints, input.preferences, input.requireExplicitEndpoint, preferenceKey]
   );
   const changeEndpoint = useCallback(
     async (taskId: string, endpointId: string) => {
@@ -54,6 +57,7 @@ export function useTaskAgentEndpointSelection(input: {
         endpointId,
         endpoints: input.agentEndpoints,
         preferenceKey: preferenceKey(taskId),
+        currentLogicalExecutorName: input.currentLogicalExecutorName(taskId),
         changeLogicalExecutor: async (executorName) => {
           if (executorName === null) return false;
           return input.changeLogicalExecutor(taskId, executorName);
@@ -65,6 +69,7 @@ export function useTaskAgentEndpointSelection(input: {
     [
       input.agentEndpoints,
       input.changeLogicalExecutor,
+      input.currentLogicalExecutorName,
       input.savePreference,
       input.setError,
       preferenceKey

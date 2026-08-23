@@ -22,7 +22,7 @@ export function useTaskExecutorActions({
 }: UseTaskExecutorActionsArgs) {
   const handleTaskExecutorChange = useCallback(
     async (taskId: string, executorName: string | null) => {
-      if (!selectedProject) {
+      if (!selectedProject && !workspaceCanvas?.enabled) {
         return false;
       }
       try {
@@ -35,7 +35,7 @@ export function useTaskExecutorActions({
           },
           onError: setError,
           localWrite: async () => {
-            if (!bridge) return;
+            if (!bridge || !selectedProject) return;
             const result = await bridge.updateTaskExecutor(
               desktopCanvasReference(selectedProject, selectedCanvasId),
               taskId,

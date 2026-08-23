@@ -9,7 +9,10 @@ import userEvent from "@testing-library/user-event";
 import type { DesktopBlockDetail, DesktopTaskDetail } from "@planweave-ai/runtime";
 import { changeAgentEndpointSelection } from "../renderer/collaboration/changeAgentEndpoint";
 import type { AvailableAgentEndpoint } from "../renderer/collaboration/agentEndpointViewModel";
-import { inheritAgentEndpointValue } from "../renderer/collaboration/AgentEndpointSelect";
+import {
+  AgentEndpointSelect,
+  inheritAgentEndpointValue
+} from "../renderer/collaboration/AgentEndpointSelect";
 import { TaskInspector } from "../renderer/inspector/TaskInspector";
 import { BlockInspector } from "../renderer/inspector/BlockInspector";
 import { createTranslator } from "../renderer/i18n";
@@ -56,6 +59,18 @@ const remoteGrok: AvailableAgentEndpoint = {
   remoteEndpointId: "endpoint-grok"
 };
 
+const incompatibleRemotePi: AvailableAgentEndpoint = {
+  id: "remote:endpoint-pi",
+  source: "remote",
+  executorName: "pi",
+  displayName: "Pi",
+  locationName: "VM-0-3-ubuntu",
+  available: false,
+  unavailableReason: "agent_endpoint_incompatible",
+  capabilities: ["acp.pi"],
+  remoteEndpointId: "endpoint-pi"
+};
+
 function walkTsFiles(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
@@ -90,6 +105,24 @@ describe("changeAgentEndpointSelection", () => {
     expect(changeLogicalExecutor).toHaveBeenCalledWith("grok");
     expect(savePreference).toHaveBeenCalledWith('["/proj","default","task","T-001"]', remoteGrok);
     expect(setError).not.toHaveBeenCalled();
+  });
+
+  it("keeps an equivalent ACP executor unchanged when only the endpoint location changes", async () => {
+    const changeLogicalExecutor = vi.fn().mockResolvedValue(true);
+    const savePreference = vi.fn().mockResolvedValue(undefined);
+
+    await changeAgentEndpointSelection({
+      endpointId: localGrok.id,
+      endpoints: [localGrok],
+      preferenceKey: '["remote","w","p","c","task","T-001"]',
+      currentLogicalExecutorName: "grok-acp",
+      changeLogicalExecutor,
+      savePreference,
+      setError: vi.fn()
+    });
+
+    expect(changeLogicalExecutor).not.toHaveBeenCalled();
+    expect(savePreference).toHaveBeenCalledWith('["remote","w","p","c","task","T-001"]', localGrok);
   });
 
   it("clears block executor and block preference when inheriting the task", async () => {
@@ -131,6 +164,30 @@ describe("changeAgentEndpointSelection", () => {
 });
 
 describe("inspector endpoint picker uniqueness", () => {
+  it("shows an unassigned Workspace placeholder and never exposes internal reason codes", async () => {
+    stubSelectLayoutApis();
+
+    render(
+      <AgentEndpointSelect
+        ariaLabel="Agent Endpoint"
+        endpoints={[incompatibleRemotePi]}
+        onValueChange={vi.fn()}
+        selectedEndpointId="unassigned:codex"
+        selectedUnknownLabel="Choose a Workspace execution device"
+        unavailableLabel="Unavailable"
+      />
+    );
+
+    expect(screen.getByRole("combobox", { name: "Agent Endpoint" })).toHaveTextContent(
+      "Choose a Workspace execution device"
+    );
+    await userEvent.click(screen.getByRole("combobox", { name: "Agent Endpoint" }));
+    expect(await screen.findByRole("option", { name: /Pi · VM-0-3-ubuntu/i })).toHaveTextContent(
+      "Unavailable"
+    );
+    expect(screen.queryByText("agent_endpoint_incompatible")).not.toBeInTheDocument();
+  });
+
   it("renders TaskInspector executor choice as a single Agent Endpoint selector", async () => {
     stubSelectLayoutApis();
     const onAgentEndpointChange = vi.fn();

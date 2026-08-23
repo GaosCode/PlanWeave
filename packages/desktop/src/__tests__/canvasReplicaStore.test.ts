@@ -148,6 +148,37 @@ describe("CanvasReplicaStore", () => {
     expect(graph.dirtyPromptRefs).toEqual([]);
   });
 
+  it("derives the executor catalog from a pathless Workspace replica", () => {
+    const store = new CanvasReplicaStore(() => undefined);
+    const installed = install(store);
+    const localProjection = store.projection(installed.scope)!;
+    const remoteProjection = {
+      ...localProjection,
+      bindingKind: "remote" as const,
+      content: {
+        ...localProjection.content,
+        tasks: localProjection.content.tasks.map((task, index) =>
+          index === 0
+            ? {
+                ...task,
+                executor: "codex-acp",
+                executorLabel: "codex-acp",
+                blocks: task.blocks.map((block) => ({ ...block, executor: "codex-acp" })),
+                blockPreview: task.blockPreview.map((block) => ({
+                  ...block,
+                  executor: "codex-acp"
+                }))
+              }
+            : task
+        )
+      }
+    };
+    const graph = canvasReplicaProjectionToDesktopGraph(remoteProjection, null);
+
+    expect(graph.executorOptions).toEqual(["codex-acp"]);
+    expect(graph.packageExecutorNames).toEqual(["codex-acp"]);
+  });
+
   it("publishes only committed content to the durable replica listener", () => {
     const committed: Array<{ revision: number; contentDigest: string }> = [];
     const store = new CanvasReplicaStore(

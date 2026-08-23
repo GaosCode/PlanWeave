@@ -1,4 +1,5 @@
 import { app, BrowserWindow, clipboard, ipcMain, safeStorage } from "electron";
+import { isAbsolute, resolve } from "node:path";
 import {
   assertNoSmuggledOperatorSecrets,
   operatorControlInvokeChannels,
@@ -14,6 +15,29 @@ import {
 import { DesktopLocalAgentHostProvisioner } from "./localAgentHostProvisioner.js";
 
 let service: OperatorControlService | null = null;
+
+const desktopAgentHostServiceFlag = "--agent-host-service";
+
+export function resolveDesktopAgentHostLauncher(input: {
+  executablePath: string;
+  isPackaged: boolean;
+  mainModulePath?: string;
+  workingDirectory?: string;
+}) {
+  if (input.isPackaged || !input.mainModulePath) {
+    return {
+      executablePath: input.executablePath,
+      fixedArgs: [desktopAgentHostServiceFlag]
+    };
+  }
+  const mainModulePath = isAbsolute(input.mainModulePath)
+    ? input.mainModulePath
+    : resolve(input.workingDirectory ?? process.cwd(), input.mainModulePath);
+  return {
+    executablePath: input.executablePath,
+    fixedArgs: [mainModulePath, desktopAgentHostServiceFlag]
+  };
+}
 
 export type OperatorControlHandlerOptions = OperatorControlServiceOptions & {
   readOperatorToken?: () => string;
@@ -38,13 +62,11 @@ function createDefaultService(options: OperatorControlServiceOptions = {}): Oper
     localAgentHost:
       options.localAgentHost ??
       new DesktopLocalAgentHostProvisioner({
-        launcher: {
+        launcher: resolveDesktopAgentHostLauncher({
           executablePath: process.execPath,
-          fixedArgs:
-            app.isPackaged || !process.argv[1]
-              ? ["--agent-host-service"]
-              : [process.argv[1], "--agent-host-service"]
-        }
+          isPackaged: app.isPackaged,
+          mainModulePath: process.argv[1]
+        })
       }),
     onStatusChange: options.onStatusChange ?? publishStatusToRenderers
   });

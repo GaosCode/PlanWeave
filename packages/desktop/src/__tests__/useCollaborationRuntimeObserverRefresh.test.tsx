@@ -69,6 +69,16 @@ const available = {
   }
 };
 
+const runtimeNotAttached = {
+  schemaVersion: "canvas-runtime-view/v1" as const,
+  state: { kind: "uninitialized" as const },
+  execution: {
+    schemaVersion: "canvas-runtime-availability/v1" as const,
+    kind: "unavailable" as const,
+    reason: "runtime_not_attached" as const
+  }
+};
+
 function runtimeView(revision: number) {
   return { ...available, state: { ...available.state, runtimeRevision: revision } };
 }
@@ -182,6 +192,26 @@ describe("Workspace Runtime observer refresh", () => {
 
     expect(bridge.getCollaborationStatus).toHaveBeenCalledTimes(1);
     expect(read).toHaveBeenCalledTimes(1);
+  });
+
+  it("polls an unavailable execution binding until the Host becomes ready", async () => {
+    vi.useFakeTimers();
+    const read = vi.fn().mockResolvedValueOnce(runtimeNotAttached).mockResolvedValue(available);
+    const bridge = api(read);
+    const { result } = renderHook(() => useWorkspaceRuntimeAvailability(hookInput(bridge)));
+    await settle();
+
+    expect(result.current.availability).toEqual({ kind: "state_uninitialized" });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(COLLABORATION_RUNTIME_AVAILABILITY_POLL_MS);
+    });
+
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(result.current.availability).toEqual({ kind: "available" });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(COLLABORATION_RUNTIME_AVAILABILITY_POLL_MS * 2);
+    });
+    expect(read).toHaveBeenCalledTimes(2);
   });
 
   it("refreshes immediately from a scoped runtime event without advancing timers", async () => {
