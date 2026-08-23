@@ -2,6 +2,17 @@ import { describe, expect, it, vi } from "vitest";
 import { ContentVersionFacade } from "../main/collaboration/ContentVersionFacade.js";
 import type { CollaborationClient } from "../main/collaboration/CollaborationClient.js";
 
+const runtime = vi.hoisted(() => ({
+  listProjects: vi.fn(),
+  getProjectOverview: vi.fn()
+}));
+
+vi.mock("@planweave-ai/runtime", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@planweave-ai/runtime")>()),
+  listProjects: runtime.listProjects,
+  getProjectOverview: runtime.getProjectOverview
+}));
+
 const binding = {
   kind: "remote" as const,
   workspaceId: "workspace-1",
@@ -81,6 +92,39 @@ function fakeClient() {
 }
 
 describe("ContentVersionFacade remote authority", () => {
+  it("reconciles a legacy Server canvas by exact project and canvas identity without a receipt", async () => {
+    runtime.listProjects.mockResolvedValueOnce([
+      { projectId: "project-1", rootPath: "/tmp/nonexistent-planweave-sharing" }
+    ]);
+    runtime.getProjectOverview.mockResolvedValueOnce({
+      rootPath: "/tmp/nonexistent-planweave-sharing",
+      projectId: "project-1",
+      name: "Local project",
+      taskCanvases: [{ canvasId: "canvas-1", name: "Default canvas" }]
+    });
+    const fake = fakeClient();
+    fake.calls.listCanvases.mockResolvedValueOnce({
+      items: [{ registry: scope, visibility: "private" }],
+      nextCursor: null
+    });
+    vi.mocked(fake.client.fetchContentHead).mockResolvedValueOnce({ scope } as never);
+    const facade = new ContentVersionFacade(() => fake.client, {
+      find: vi.fn().mockResolvedValue(null)
+    } as never);
+
+    await expect(facade.listWorkspaceCanvasSharingCandidates()).resolves.toEqual([
+      {
+        localProjectId: "project-1",
+        projectName: "Local project",
+        canvasId: "canvas-1",
+        canvasName: "Default canvas",
+        state: "published_private",
+        workspaceCanvasId: "canvas-1",
+        visibility: "private"
+      }
+    ]);
+  });
+
   it("derives Workspace scope only from the explicit remote binding", async () => {
     const fake = fakeClient();
     const facade = new ContentVersionFacade(() => fake.client);

@@ -569,6 +569,7 @@ export function PeopleView({
                         api={api}
                         connected={sessionConnected}
                         connectionKey={activeProfile?.profileId ?? null}
+                        workspaceProjectId={activeProfile?.projectId ?? null}
                         onPublished={(result) => {
                           void workspaceAccessScope.refreshOptions();
                           onWorkspaceCanvasPublished?.(result.locator);

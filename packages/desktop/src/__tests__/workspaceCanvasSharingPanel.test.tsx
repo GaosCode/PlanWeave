@@ -61,6 +61,258 @@ async function expandCanvasAdder(): Promise<void> {
 }
 
 describe("WorkspaceCanvasSharingPanel", () => {
+  it("shows a Server-shared canvas even when this Desktop has no publish receipt", async () => {
+    const api = {
+      listWorkspaceCanvasSharingCandidates: vi.fn().mockResolvedValue([
+        {
+          localProjectId: "project-local",
+          projectName: "Local project",
+          canvasId: "default",
+          canvasName: "Default canvas",
+          state: "local_only",
+          workspaceCanvasId: null,
+          visibility: null
+        }
+      ]),
+      listCollaborationAuthorizedCanvases: vi.fn().mockResolvedValue({
+        items: [
+          {
+            schemaVersion: "project-access/v1",
+            registry: {
+              projectRegistryId: "project-registry-a",
+              canvasRegistryId: "canvas-registry-a",
+              workspaceId: "workspace-a",
+              projectId: "project-local",
+              canvasId: "default"
+            },
+            visibility: "shared",
+            acl: { revision: 3, updatedAt: "2030-01-01T00:00:00.000Z" },
+            owner: "human-owner",
+            updatedAt: "2030-01-01T00:00:00.000Z"
+          },
+          {
+            schemaVersion: "project-access/v1",
+            registry: {
+              projectRegistryId: "project-registry-a",
+              canvasRegistryId: "canvas-registry-private",
+              workspaceId: "workspace-a",
+              projectId: "project-local",
+              canvasId: "private-canvas"
+            },
+            visibility: "private",
+            acl: { revision: 4, updatedAt: "2030-01-01T00:00:00.000Z" },
+            owner: "human-owner",
+            updatedAt: "2030-01-01T00:00:00.000Z"
+          }
+        ],
+        nextCursor: null
+      })
+    } as unknown as PlanWeaveCollaborationApi;
+
+    render(
+      <WorkspaceCanvasSharingPanel
+        api={api}
+        connected
+        connectionKey="profile-a"
+        workspaceProjectId="project-local"
+        t={createTranslator("en")}
+      />
+    );
+
+    await waitFor(() => expect(api.listWorkspaceCanvasSharingCandidates).toHaveBeenCalledOnce());
+    await userEvent.click(screen.getByTestId("workspace-canvas-sharing-toggle"));
+
+    expect(await screen.findByText("Default canvas")).toBeVisible();
+    expect(screen.getByText("1 shared")).toBeVisible();
+    expect(screen.queryByText("No shared canvases yet")).not.toBeInTheDocument();
+    expect(screen.queryByText("private-canvas")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("workspace-canvas-add-toggle")).not.toBeInTheDocument();
+  });
+
+  it("removes a stale local shared state when the Server record is private", async () => {
+    const privateRecord = {
+      registry: {
+        workspaceId: "workspace-a",
+        projectId: "project-local",
+        canvasId: "server-default"
+      },
+      visibility: "private" as const
+    };
+    const mutateCurrentCanvasAccess = vi.fn().mockResolvedValue({
+      status: "applied",
+      aclRevision: 5,
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    });
+    const api = {
+      listWorkspaceCanvasSharingCandidates: vi.fn().mockResolvedValue([
+        {
+          localProjectId: "project-local",
+          projectName: "Local project",
+          canvasId: "default",
+          canvasName: "Default canvas",
+          state: "published_shared",
+          workspaceCanvasId: "server-default",
+          visibility: "shared"
+        }
+      ]),
+      listCollaborationAuthorizedCanvases: vi
+        .fn()
+        .mockResolvedValueOnce({ items: [privateRecord], nextCursor: null })
+        .mockResolvedValue({
+          items: [{ ...privateRecord, visibility: "shared" }],
+          nextCursor: null
+        }),
+      publishWorkspaceCanvas: vi.fn(),
+      getCurrentCanvasAccess: vi.fn().mockResolvedValue({
+        scope: {
+          scopeKind: "canvas",
+          workspaceId: "workspace-a",
+          projectId: "project-local",
+          canvasId: "server-default"
+        },
+        projectAclRevision: 3,
+        canvasAclRevision: 4
+      }),
+      mutateCurrentCanvasAccess
+    } as unknown as PlanWeaveCollaborationApi;
+
+    render(
+      <WorkspaceCanvasSharingPanel
+        api={api}
+        connected
+        connectionKey="profile-a"
+        workspaceProjectId="project-local"
+        t={createTranslator("en")}
+      />
+    );
+
+    await waitFor(() => expect(api.listCollaborationAuthorizedCanvases).toHaveBeenCalledOnce());
+    await userEvent.click(screen.getByTestId("workspace-canvas-sharing-toggle"));
+
+    expect(screen.getByText("No shared canvases yet")).toBeVisible();
+    expect(screen.queryByText("Default canvas")).not.toBeInTheDocument();
+    expect(screen.getByTestId("workspace-canvas-add-toggle")).toBeVisible();
+    await expandCanvasAdder();
+    await userEvent.click(screen.getByTestId("workspace-canvas-add-select"));
+    await userEvent.click(await screen.findByRole("option", { name: "Default canvas · Only you" }));
+    await userEvent.click(screen.getByRole("button", { name: "Add to shared canvases" }));
+
+    await waitFor(() => expect(mutateCurrentCanvasAccess).toHaveBeenCalledOnce());
+    expect(api.publishWorkspaceCanvas).not.toHaveBeenCalled();
+    expect(await screen.findByText("1 shared")).toBeVisible();
+  });
+
+  it("does not match an active Workspace canvas to another local project with the same canvas id", async () => {
+    const api = {
+      listWorkspaceCanvasSharingCandidates: vi.fn().mockResolvedValue([
+        {
+          localProjectId: "project-a",
+          projectName: "Project A",
+          canvasId: "default",
+          canvasName: "Project A canvas",
+          state: "local_only",
+          workspaceCanvasId: null,
+          visibility: null
+        },
+        {
+          localProjectId: "project-b",
+          projectName: "Project B",
+          canvasId: "default",
+          canvasName: "Project B canvas",
+          state: "local_only",
+          workspaceCanvasId: null,
+          visibility: null
+        }
+      ]),
+      listCollaborationAuthorizedCanvases: vi.fn().mockResolvedValue({
+        items: [
+          {
+            registry: {
+              workspaceId: "workspace-a",
+              projectId: "project-a",
+              canvasId: "default"
+            },
+            visibility: "shared"
+          }
+        ],
+        nextCursor: null
+      })
+    } as unknown as PlanWeaveCollaborationApi;
+
+    render(
+      <WorkspaceCanvasSharingPanel
+        api={api}
+        connected
+        connectionKey="profile-a"
+        workspaceProjectId="project-a"
+        t={createTranslator("en")}
+      />
+    );
+
+    await waitFor(() => expect(api.listCollaborationAuthorizedCanvases).toHaveBeenCalledOnce());
+    await userEvent.click(screen.getByTestId("workspace-canvas-sharing-toggle"));
+    await userEvent.click(screen.getByTestId("workspace-canvas-project-select"));
+    await userEvent.click(await screen.findByRole("option", { name: /Project B/ }));
+
+    expect(screen.getByText("No shared canvases yet")).toBeVisible();
+    expect(screen.getByTestId("workspace-canvas-add-toggle")).toBeVisible();
+  });
+
+  it("does not continue an old Workspace pagination request after switching connections", async () => {
+    let resolveOldPage: ((value: { items: []; nextCursor: number | null }) => void) | undefined;
+    const oldPage = new Promise<{ items: []; nextCursor: number | null }>((resolve) => {
+      resolveOldPage = resolve;
+    });
+    const listCollaborationAuthorizedCanvases = vi.fn(
+      ({ projectId, cursor }: { projectId: string; cursor?: number }) =>
+        projectId === "project-a" && cursor === 0
+          ? oldPage
+          : Promise.resolve({ items: [], nextCursor: null })
+    );
+    const api = {
+      listWorkspaceCanvasSharingCandidates: vi.fn().mockResolvedValue([
+        {
+          localProjectId: "project-a",
+          projectName: "Project A",
+          canvasId: "default",
+          canvasName: "Default canvas",
+          state: "local_only",
+          workspaceCanvasId: null,
+          visibility: null
+        }
+      ]),
+      listCollaborationAuthorizedCanvases
+    } as unknown as PlanWeaveCollaborationApi;
+    const { rerender } = render(
+      <WorkspaceCanvasSharingPanel
+        api={api}
+        connected
+        connectionKey="profile-a"
+        workspaceProjectId="project-a"
+        t={createTranslator("en")}
+      />
+    );
+
+    await waitFor(() => expect(listCollaborationAuthorizedCanvases).toHaveBeenCalledOnce());
+    rerender(
+      <WorkspaceCanvasSharingPanel
+        api={api}
+        connected
+        connectionKey="profile-b"
+        workspaceProjectId="project-b"
+        t={createTranslator("en")}
+      />
+    );
+    await waitFor(() => expect(listCollaborationAuthorizedCanvases).toHaveBeenCalledTimes(2));
+    resolveOldPage?.({ items: [], nextCursor: 1 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(listCollaborationAuthorizedCanvases).not.toHaveBeenCalledWith({
+      projectId: "project-a",
+      cursor: 1,
+      limit: 100
+    });
+  });
+
   it("does not call a local canvas shared until upload and visibility both say so", async () => {
     const onPublished = vi.fn();
     const initialCandidates = [
@@ -135,6 +387,7 @@ describe("WorkspaceCanvasSharingPanel", () => {
         api={api}
         connected
         connectionKey="profile-a"
+        workspaceProjectId={null}
         onPublished={onPublished}
         t={createTranslator("en")}
       />
@@ -237,6 +490,7 @@ describe("WorkspaceCanvasSharingPanel", () => {
         api={api}
         connected
         connectionKey="profile-a"
+        workspaceProjectId={null}
         t={createTranslator("en")}
       />
     );
@@ -271,6 +525,7 @@ describe("WorkspaceCanvasSharingPanel", () => {
         api={api}
         connected
         connectionKey="workspace-a"
+        workspaceProjectId={null}
         t={createTranslator("en")}
       />
     );
@@ -281,6 +536,7 @@ describe("WorkspaceCanvasSharingPanel", () => {
         api={api}
         connected
         connectionKey="workspace-b"
+        workspaceProjectId={null}
         t={createTranslator("en")}
       />
     );
@@ -364,6 +620,7 @@ describe("WorkspaceCanvasSharingPanel", () => {
         api={api}
         connected
         connectionKey="workspace-a"
+        workspaceProjectId={null}
         onPublished={onPublished}
         t={createTranslator("en")}
       />
@@ -384,6 +641,7 @@ describe("WorkspaceCanvasSharingPanel", () => {
         api={api}
         connected
         connectionKey="workspace-b"
+        workspaceProjectId={null}
         onPublished={onPublished}
         t={createTranslator("en")}
       />
@@ -442,6 +700,7 @@ describe("WorkspaceCanvasSharingPanel", () => {
         api={api}
         connected
         connectionKey="profile-a"
+        workspaceProjectId={null}
         t={createTranslator("en")}
       />
     );
@@ -520,6 +779,7 @@ describe("WorkspaceCanvasSharingPanel", () => {
         api={api}
         connected
         connectionKey="profile-a"
+        workspaceProjectId={null}
         onPublished={onPublished}
         t={createTranslator("en")}
       />
@@ -572,6 +832,7 @@ describe("WorkspaceCanvasSharingPanel", () => {
         api={api}
         connected
         connectionKey="profile-a"
+        workspaceProjectId={null}
         t={createTranslator("en")}
       />
     );
@@ -656,6 +917,7 @@ describe("WorkspaceCanvasSharingPanel", () => {
         api={api}
         connected
         connectionKey="profile-a"
+        workspaceProjectId={null}
         onPublished={onPublished}
         t={createTranslator("en")}
       />

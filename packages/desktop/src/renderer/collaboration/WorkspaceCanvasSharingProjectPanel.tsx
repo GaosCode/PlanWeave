@@ -28,6 +28,11 @@ export type WorkspaceCanvasProjectGroup = {
   canvases: WorkspaceCanvasSharingCandidate[];
 };
 
+export type WorkspaceSharedCanvasListItem = {
+  canvasId: string;
+  canvasName: string;
+};
+
 function statusLabel(
   candidate: WorkspaceCanvasSharingCandidate,
   t: ReturnType<typeof createTranslator>
@@ -85,7 +90,7 @@ export function WorkspaceCanvasSharingProjectPanel({
   onRetryOpen
 }: {
   project: WorkspaceCanvasProjectGroup;
-  sharedCanvases: WorkspaceCanvasSharingCandidate[];
+  sharedCanvases: WorkspaceSharedCanvasListItem[];
   shareableCanvases: WorkspaceCanvasSharingCandidate[];
   selectedCanvasId: string | null;
   busyKey: string | null;
@@ -132,21 +137,19 @@ export function WorkspaceCanvasSharingProjectPanel({
         </div>
       ) : (
         <div className="mt-1 divide-y divide-border/60">
-          {sharedCanvases.map((candidate) => (
+          {sharedCanvases.map((canvas) => (
             <div
-              key={`${candidate.localProjectId}\u0000${candidate.canvasId}`}
+              key={canvas.canvasId}
               className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-5 py-4"
-              data-testid={`workspace-canvas-sharing-${candidate.canvasId}`}
+              data-testid={`workspace-canvas-sharing-${canvas.canvasId}`}
             >
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-text-strong">
-                  {candidate.canvasName}
-                </p>
-                <p className="mt-1 truncate text-xs text-muted-foreground">{candidate.canvasId}</p>
+                <p className="truncate text-sm font-medium text-text-strong">{canvas.canvasName}</p>
+                <p className="mt-1 truncate text-xs text-muted-foreground">{canvas.canvasId}</p>
               </div>
               <span
                 className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-700"
-                data-testid={`workspace-canvas-state-${candidate.canvasId}`}
+                data-testid={`workspace-canvas-state-${canvas.canvasId}`}
               >
                 <span className="grid size-6 place-items-center rounded-full bg-emerald-500/10">
                   <CheckIcon className="size-3.5" aria-hidden="true" />

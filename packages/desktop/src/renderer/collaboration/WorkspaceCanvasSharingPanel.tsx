@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDownIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import type { CanvasAccessRecord } from "@planweave-ai/collaboration-protocol/access/project";
 import {
   Select,
   SelectContent,
@@ -23,24 +24,59 @@ import {
 import {
   WorkspaceCanvasSharingProjectPanel,
   type WorkspaceCanvasProjectGroup,
+  type WorkspaceSharedCanvasListItem,
   type WorkspaceCanvasShareError,
   type WorkspaceCanvasShareStage
 } from "./WorkspaceCanvasSharingProjectPanel";
+
+async function listAuthorizedCanvases(
+  api: PlanWeaveCollaborationApi,
+  projectId: string | null,
+  isCurrent: () => boolean
+): Promise<CanvasAccessRecord[]> {
+  if (!projectId) return [];
+  const canvases: CanvasAccessRecord[] = [];
+  const visitedCursors = new Set<number>();
+  let cursor = 0;
+  while (true) {
+    if (!isCurrent()) return [];
+    if (visitedCursors.has(cursor)) throw new Error("collaboration_registry_pagination_invalid");
+    visitedCursors.add(cursor);
+    const page = await api.listCollaborationAuthorizedCanvases({ projectId, cursor, limit: 100 });
+    if (!isCurrent()) return [];
+    canvases.push(...page.items);
+    if (page.nextCursor === null) return canvases;
+    cursor = page.nextCursor;
+  }
+}
+
+type WorkspaceCanvasSharingSnapshot = {
+  candidates: WorkspaceCanvasSharingCandidate[];
+  authorizedCanvases: CanvasAccessRecord[];
+};
+
+const EMPTY_SHARING_SNAPSHOT: WorkspaceCanvasSharingSnapshot = {
+  candidates: [],
+  authorizedCanvases: []
+};
 
 export function WorkspaceCanvasSharingPanel({
   api,
   connected,
   connectionKey,
+  workspaceProjectId,
   onPublished,
   t
 }: {
   api: PlanWeaveCollaborationApi | null;
   connected: boolean;
   connectionKey: string | null;
+  workspaceProjectId: string | null;
   onPublished?: (result: WorkspaceCanvasPublishResult) => void;
   t: ReturnType<typeof createTranslator>;
 }) {
   const [candidates, setCandidates] = useState<WorkspaceCanvasSharingCandidate[]>([]);
+  const [authorizedCanvases, setAuthorizedCanvases] = useState<CanvasAccessRecord[]>([]);
   const [expanded, setExpanded] = useState(false);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedCanvasId, setSelectedCanvasId] = useState<string | null>(null);
@@ -51,45 +87,61 @@ export function WorkspaceCanvasSharingPanel({
   const [pendingAuthoritySwitch, setPendingAuthoritySwitch] =
     useState<WorkspaceCanvasPublishResult | null>(null);
   const loadRequestIdRef = useRef(0);
-  const operationContextRef = useRef({ api, connected, connectionKey, epoch: 0 });
+  const operationContextRef = useRef({
+    api,
+    connected,
+    connectionKey,
+    workspaceProjectId,
+    epoch: 0
+  });
   const currentOperationContext = operationContextRef.current;
   if (
     currentOperationContext.api !== api ||
     currentOperationContext.connected !== connected ||
-    currentOperationContext.connectionKey !== connectionKey
+    currentOperationContext.connectionKey !== connectionKey ||
+    currentOperationContext.workspaceProjectId !== workspaceProjectId
   ) {
     operationContextRef.current = {
       api,
       connected,
       connectionKey,
+      workspaceProjectId,
       epoch: currentOperationContext.epoch + 1
     };
   }
 
-  const load = useCallback(async (): Promise<WorkspaceCanvasSharingCandidate[]> => {
+  const load = useCallback(async (): Promise<WorkspaceCanvasSharingSnapshot> => {
     const requestId = ++loadRequestIdRef.current;
+    const operationEpoch = operationContextRef.current.epoch;
+    const isCurrentOperation = () => operationContextRef.current.epoch === operationEpoch;
     if (!api || !connected || !connectionKey) {
       setCandidates([]);
-      return [];
+      setAuthorizedCanvases([]);
+      return EMPTY_SHARING_SNAPSHOT;
     }
     setLoading(true);
     setLoadError(null);
     try {
-      const nextCandidates = await api.listWorkspaceCanvasSharingCandidates();
-      if (requestId !== loadRequestIdRef.current) return [];
+      const [nextCandidates, nextAuthorizedCanvases] = await Promise.all([
+        api.listWorkspaceCanvasSharingCandidates(),
+        listAuthorizedCanvases(api, workspaceProjectId, isCurrentOperation)
+      ]);
+      if (requestId !== loadRequestIdRef.current) return EMPTY_SHARING_SNAPSHOT;
       setCandidates(nextCandidates);
-      return nextCandidates;
+      setAuthorizedCanvases(nextAuthorizedCanvases);
+      return { candidates: nextCandidates, authorizedCanvases: nextAuthorizedCanvases };
     } catch (cause) {
-      if (requestId !== loadRequestIdRef.current) return [];
+      if (requestId !== loadRequestIdRef.current) return EMPTY_SHARING_SNAPSHOT;
       setLoadError(collaborationErrorMessage(cause));
-      return [];
+      return EMPTY_SHARING_SNAPSHOT;
     } finally {
       if (requestId === loadRequestIdRef.current) setLoading(false);
     }
-  }, [api, connected, connectionKey]);
+  }, [api, connected, connectionKey, workspaceProjectId]);
 
   useEffect(() => {
     setCandidates([]);
+    setAuthorizedCanvases([]);
     setSelectedProjectId(null);
     setSelectedCanvasId(null);
     setLoadError(null);
@@ -132,15 +184,79 @@ export function WorkspaceCanvasSharingPanel({
     () => projectGroups.find((group) => group.localProjectId === selectedProjectId) ?? null,
     [projectGroups, selectedProjectId]
   );
-  const sharedCanvases = useMemo(
-    () =>
-      selectedProject?.canvases.filter((candidate) => candidate.state === "published_shared") ?? [],
-    [selectedProject]
+  const reconciledSelectedCanvases = useMemo(() => {
+    if (!selectedProject || workspaceProjectId === null) return selectedProject?.canvases ?? [];
+    const authorizedByCanvasId = new Map(
+      authorizedCanvases.map((record) => [record.registry.canvasId, record] as const)
+    );
+    return selectedProject.canvases.map((candidate): WorkspaceCanvasSharingCandidate => {
+      if (candidate.state !== "published_shared" || candidate.workspaceCanvasId === null) {
+        return candidate;
+      }
+      const authoritative = authorizedByCanvasId.get(candidate.workspaceCanvasId);
+      if (authoritative?.visibility === "private") {
+        return { ...candidate, state: "published_private", visibility: "private" };
+      }
+      if (!authoritative) {
+        return { ...candidate, state: "registered_unpublished" };
+      }
+      return candidate;
+    });
+  }, [authorizedCanvases, selectedProject, workspaceProjectId]);
+  const sharedCanvases = useMemo<WorkspaceSharedCanvasListItem[]>(() => {
+    if (!selectedProject) return [];
+    const sharedByCanvasId = new Map<string, WorkspaceSharedCanvasListItem>();
+    if (workspaceProjectId === null) {
+      for (const candidate of reconciledSelectedCanvases) {
+        if (candidate.state !== "published_shared" || candidate.workspaceCanvasId === null) {
+          continue;
+        }
+        sharedByCanvasId.set(candidate.workspaceCanvasId, {
+          canvasId: candidate.workspaceCanvasId,
+          canvasName: candidate.canvasName
+        });
+      }
+    } else {
+      for (const record of authorizedCanvases) {
+        if (record.registry.projectId !== workspaceProjectId || record.visibility !== "shared") {
+          continue;
+        }
+        const localMatch = reconciledSelectedCanvases.find(
+          (candidate) =>
+            candidate.workspaceCanvasId === record.registry.canvasId ||
+            (selectedProject.localProjectId === workspaceProjectId &&
+              candidate.canvasId === record.registry.canvasId)
+        );
+        if (localMatch || selectedProject.localProjectId === workspaceProjectId) {
+          sharedByCanvasId.set(record.registry.canvasId, {
+            canvasId: record.registry.canvasId,
+            canvasName: localMatch?.canvasName ?? record.registry.canvasId
+          });
+        }
+      }
+    }
+    return [...sharedByCanvasId.values()];
+  }, [authorizedCanvases, reconciledSelectedCanvases, selectedProject, workspaceProjectId]);
+  const sharedWorkspaceCanvasIds = useMemo(
+    () => new Set(sharedCanvases.map((canvas) => canvas.canvasId)),
+    [sharedCanvases]
   );
   const shareableCanvases = useMemo(
     () =>
-      selectedProject?.canvases.filter((candidate) => candidate.state !== "published_shared") ?? [],
-    [selectedProject]
+      reconciledSelectedCanvases.filter((candidate) => {
+        if (workspaceProjectId === null) return candidate.state !== "published_shared";
+        if (
+          candidate.workspaceCanvasId !== null &&
+          sharedWorkspaceCanvasIds.has(candidate.workspaceCanvasId)
+        ) {
+          return false;
+        }
+        return !(
+          selectedProject?.localProjectId === workspaceProjectId &&
+          sharedWorkspaceCanvasIds.has(candidate.canvasId)
+        );
+      }) ?? [],
+    [reconciledSelectedCanvases, selectedProject, sharedWorkspaceCanvasIds, workspaceProjectId]
   );
 
   useEffect(() => {
@@ -206,11 +322,22 @@ export function WorkspaceCanvasSharingPanel({
       if (!isCurrentOperation()) return;
       const refreshed = await load();
       if (!isCurrentOperation()) return;
-      const verified = refreshed.find(
+      const verifiedCandidate = refreshed.candidates.find(
         (item) =>
           item.localProjectId === candidate.localProjectId && item.canvasId === candidate.canvasId
       );
-      if (!verified || verified.state !== "published_shared") {
+      const workspaceCanvasId = updated.workspaceCanvasId;
+      const verified =
+        workspaceProjectId === null
+          ? verifiedCandidate?.state === "published_shared"
+          : workspaceCanvasId !== null &&
+            refreshed.authorizedCanvases.some(
+              (record) =>
+                record.registry.projectId === workspaceProjectId &&
+                record.registry.canvasId === workspaceCanvasId &&
+                record.visibility === "shared"
+            );
+      if (!verified) {
         throw new Error("workspace_canvas_share_not_verified");
       }
       if (published?.authoritySwitch === "retry_open") {

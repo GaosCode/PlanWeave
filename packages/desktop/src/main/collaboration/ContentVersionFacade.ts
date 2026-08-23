@@ -169,7 +169,9 @@ export class ContentVersionFacade {
         const registeredRecord =
           receipt?.status === "committed"
             ? (registeredByCanvasId.get(receipt.canvasId) ?? null)
-            : null;
+            : overview.projectId === client.projectId
+              ? (registeredByCanvasId.get(canvas.canvasId) ?? null)
+              : null;
         candidates.push(
           await this.workspaceCanvasSharingCandidate(
             client,
