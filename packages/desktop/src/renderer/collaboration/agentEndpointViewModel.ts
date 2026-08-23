@@ -13,6 +13,15 @@ export type AvailableAgentEndpoint = {
   remoteEndpointId?: string;
 };
 
+export function agentEndpointsForCanvasAuthority(
+  endpoints: readonly AvailableAgentEndpoint[],
+  authority: "local" | "workspace"
+): AvailableAgentEndpoint[] {
+  return authority === "workspace"
+    ? endpoints.filter((endpoint) => endpoint.source === "remote")
+    : [...endpoints];
+}
+
 /** Hosts that can never accept work again — omit from the executor picker entirely. */
 const REMOTE_ENDPOINT_TERMINAL_HOST_REASONS = new Set(["host_revoked", "host_credential_expired"]);
 

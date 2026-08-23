@@ -7,7 +7,10 @@ import {
   selectedAgentEndpointId,
   updateAgentEndpointPreferences
 } from "../renderer/collaboration/agentEndpointPreferences";
-import type { AvailableAgentEndpoint } from "../renderer/collaboration/agentEndpointViewModel";
+import {
+  agentEndpointsForCanvasAuthority,
+  type AvailableAgentEndpoint
+} from "../renderer/collaboration/agentEndpointViewModel";
 import {
   desktopAgentEndpointPreferenceSchema,
   normalizeDesktopSettings
@@ -44,6 +47,15 @@ const remoteUnavailable: AvailableAgentEndpoint = {
   available: false,
   unavailableReason: "host_offline"
 };
+
+describe("Agent Endpoint canvas authority", () => {
+  it("does not expose ordinary local Agents for a pure Workspace canvas", () => {
+    const endpoints = [localCodex, remoteGrok];
+
+    expect(agentEndpointsForCanvasAuthority(endpoints, "workspace")).toEqual([remoteGrok]);
+    expect(agentEndpointsForCanvasAuthority(endpoints, "local")).toEqual(endpoints);
+  });
+});
 
 describe("desktopAgentEndpointPreferenceSchema", () => {
   it("keys remote preferences by logical canvas identity without a filesystem path", () => {

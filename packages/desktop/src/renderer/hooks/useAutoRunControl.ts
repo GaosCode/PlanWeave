@@ -412,7 +412,8 @@ export function useAutoRunControl({
             setEndpointScopeRunPhase("running");
           },
           onCompleted: () => setEndpointScopeRunPhase("completed"),
-          onFailed: () => setEndpointScopeRunPhase("failed")
+          onFailed: () => setEndpointScopeRunPhase("failed"),
+          onCancelled: () => setEndpointScopeRunPhase(null)
         });
         return;
       }

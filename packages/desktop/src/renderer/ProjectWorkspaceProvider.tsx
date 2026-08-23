@@ -26,6 +26,7 @@ import { useTaskAgentEndpointSelection } from "./hooks/useTaskAgentEndpointSelec
 import { useOwnerControlPlaneAvailability } from "./hooks/useOwnerControlPlaneAvailability";
 import { useWorkspaceAgentEndpointCatalog } from "./hooks/useWorkspaceAgentEndpointCatalog";
 import { useWorkspaceAgentEndpointRun } from "./hooks/useWorkspaceAgentEndpointRun";
+import { agentEndpointsForCanvasAuthority } from "./collaboration/agentEndpointViewModel";
 import { useDesktopProjectActions } from "./hooks/useDesktopProjectActions";
 import { useGraphFlowModel } from "./hooks/useGraphFlowModel";
 import { useGraphHistoryActions } from "./hooks/useGraphHistoryActions";
@@ -218,6 +219,14 @@ export function ProjectWorkspaceProvider({
     operatorProfileId: ownerControlPlane.operatorProfileId,
     updateSettingsAndWait
   });
+  const canvasAgentEndpoints = useMemo(
+    () =>
+      agentEndpointsForCanvasAuthority(
+        agentEndpointCatalog.endpoints,
+        canvasLocator?.kind === "workspace" ? "workspace" : "local"
+      ),
+    [agentEndpointCatalog.endpoints, canvasLocator?.kind]
+  );
 
   const pinnedProjectIds = useMemo(
     () => new Set(settings.pinnedProjectIds),
@@ -367,7 +376,7 @@ export function ProjectWorkspaceProvider({
     setError
   });
   const taskWorkspace = useTaskWorkspaceController({
-    agentEndpointCatalog: agentEndpointCatalog.endpoints,
+    agentEndpointCatalog: canvasAgentEndpoints,
     agentEndpointPreferences: settings.execution.agentEndpointPreferences,
     history: appHistory,
     operatorProfileId: ownerControlPlane.operatorProfileId,
@@ -414,7 +423,7 @@ export function ProjectWorkspaceProvider({
 
   const startAutoRunWithSelectedEndpoint = useWorkspaceAgentEndpointRun({
     activeProjectId: collaborationSurface.activeProjectId,
-    agentEndpoints: agentEndpointCatalog.endpoints,
+    agentEndpoints: canvasAgentEndpoints,
     collaborationController: collaborationSurface.controller,
     canvasBinding,
     graph,
@@ -647,7 +656,7 @@ export function ProjectWorkspaceProvider({
     workspaceCanvas: workspaceCanvasCommands
   });
   const taskAgentEndpointSelection = useTaskAgentEndpointSelection({
-    agentEndpoints: agentEndpointCatalog.endpoints,
+    agentEndpoints: canvasAgentEndpoints,
     canvasId: selectedCanvasId,
     changeLogicalExecutor: handleTaskExecutorChange,
     preferences: settings.execution.agentEndpointPreferences,
@@ -842,7 +851,7 @@ export function ProjectWorkspaceProvider({
     },
     source: {
       agentEndpointCatalogErrorCode: agentEndpointCatalog.errorCode,
-      agentEndpoints: agentEndpointCatalog.endpoints,
+      agentEndpoints: canvasAgentEndpoints,
       selectedAgentEndpointIdForTask: taskAgentEndpointSelection.selectedEndpointId,
       graph,
       layout,

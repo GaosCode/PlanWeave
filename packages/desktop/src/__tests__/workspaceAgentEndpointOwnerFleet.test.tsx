@@ -8,12 +8,14 @@ import type {
   DesktopProjectSummary
 } from "@planweave-ai/runtime";
 import type { RemoteOperationObservation } from "@planweave-ai/collaboration-protocol/remote-run";
+import type { CanvasRuntimeStatusProjection } from "@planweave-ai/collaboration-protocol/canvas/status";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   agentEndpointPreferenceKey,
   remoteAgentEndpointPreferenceKey
 } from "../renderer/collaboration/agentEndpointPreferences";
 import type { AvailableAgentEndpoint } from "../renderer/collaboration/agentEndpointViewModel";
+import { runWorkspaceRemoteScope } from "../renderer/collaboration/workspaceRemoteScopeScheduler";
 import { useWorkspaceAgentEndpointRun } from "../renderer/hooks/useWorkspaceAgentEndpointRun";
 
 const operatorControlBridgeMock = vi.hoisted(() => ({
@@ -196,9 +198,23 @@ function renderOwnerFleetRun(input?: {
   const getBlockDetail =
     input?.getBlockDetail ??
     vi.fn(async () => ({ ref: "T-001#B-001", status: "ready" as const, remoteExecution: null }));
-  const readCollaborationCanvasBindingRuntimeAvailability = vi.fn(async () => {
-    throw new Error("collaboration_runtime_availability_unavailable");
-  });
+  const readCollaborationCanvasBindingRuntimeAvailability = vi.fn(async () => ({
+    schemaVersion: "canvas-runtime-view/v1" as const,
+    state: {
+      kind: "initialized" as const,
+      runtimeRevision: 1,
+      status: remoteScopeStatus([
+        operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation.mock.calls.length > 0
+          ? { ref: "T-001#B-001", status: "completed", dispatchable: false }
+          : { ref: "T-001#B-001", status: "ready", dispatchable: true }
+      ])
+    },
+    execution: {
+      schemaVersion: "canvas-runtime-availability/v1" as const,
+      kind: "unavailable" as const,
+      reason: "runtime_not_attached" as const
+    }
+  }));
   const dispatchCollaborationRemoteOperation = vi.fn();
   const ensureWorkAuthority = vi.fn();
   bridgeMock.getBlockDetail.mockImplementation(getBlockDetail);
@@ -243,15 +259,16 @@ function renderOwnerFleetRun(input?: {
       operatorProfileId: "profile-a",
       ownerFleetDispatchEnabled: true,
       setError,
-      api: input?.withCollaborationRuntime
-        ? {
-            dispatchCollaborationRemoteOperation,
-            observeCollaborationRemoteOperation: vi.fn(),
-            executeCollaborationRemoteOperationAction: vi.fn(),
-            onCollaborationObserverSignal: vi.fn(() => () => undefined),
-            readCollaborationCanvasBindingRuntimeAvailability
-          }
-        : null,
+      api:
+        input?.withCollaborationRuntime || input?.remoteCanvasOnly
+          ? {
+              dispatchCollaborationRemoteOperation,
+              observeCollaborationRemoteOperation: vi.fn(),
+              executeCollaborationRemoteOperationAction: vi.fn(),
+              onCollaborationObserverSignal: vi.fn(() => () => undefined),
+              readCollaborationCanvasBindingRuntimeAvailability
+            }
+          : null,
       createId: () => "operation-fleet-1",
       localAutoRunApi: {
         getAutoRunState: vi.fn(async () => localRunState("paused")),
@@ -417,17 +434,96 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
     expect(setError).not.toHaveBeenCalled();
   });
 
-  it("keeps remote Task Auto Run disabled until a working copy is bound", async () => {
-    const { result, previewClaimNext, setError, startLocal } = renderOwnerFleetRun({
+  it("rejects an ordinary local Agent preference for a pure Workspace canvas", async () => {
+    const setError = vi.fn();
+    const startLocal = vi.fn();
+    const localEndpoint: AvailableAgentEndpoint = {
+      ...remoteEndpoint,
+      id: "local:codex",
+      source: "local",
+      locationName: "",
+      remoteEndpointId: undefined,
+      localExecutorName: "codex"
+    };
+    const hook = renderHook(() =>
+      useWorkspaceAgentEndpointRun({
+        activeProjectId: "project-server",
+        agentEndpoints: [localEndpoint, remoteEndpoint],
+        collaborationController: null,
+        canvasBinding: {
+          kind: "remote",
+          workspaceId: "workspace-1",
+          projectId: "project-server",
+          canvasId: "canvas-main"
+        },
+        graph,
+        preferences: {
+          [remoteAgentEndpointPreferenceKey({
+            workspaceId: "workspace-1",
+            projectId: "project-server",
+            canvasId: "canvas-main",
+            scope: { kind: "task", taskId: "T-001" }
+          })]: { kind: "local", executorName: "codex" }
+        },
+        selectedCanvasId: "canvas-main",
+        selectedProject: null,
+        runtimeAvailability: { kind: "available" },
+        operatorProfileId: "profile-a",
+        ownerFleetDispatchEnabled: true,
+        setError,
+        api: null
+      })
+    );
+
+    await act(() => hook.result.current({ kind: "block", blockRef: "T-001#B-001" }, startLocal));
+
+    expect(startLocal).not.toHaveBeenCalled();
+    expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).not.toHaveBeenCalled();
+    expect(setError).toHaveBeenCalledWith(
+      "agent_endpoint_unavailable:T-001#B-001:local:codex:agent_endpoint_unknown"
+    );
+  });
+
+  it("runs a remote Task without a local working copy", async () => {
+    const { result, lifecycle, previewClaimNext, setError, startLocal } = renderOwnerFleetRun({
       remoteCanvasOnly: true
     });
 
     await act(() => result.current({ kind: "task", taskId: "T-001" }));
 
-    expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).not.toHaveBeenCalled();
+    expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).toHaveBeenCalledWith({
+      profileId: "profile-a",
+      command: expect.objectContaining({
+        projectId: "project-server",
+        canvasId: "canvas-main",
+        blockRef: "T-001#B-001"
+      })
+    });
     expect(previewClaimNext).not.toHaveBeenCalled();
     expect(startLocal).not.toHaveBeenCalled();
-    expect(setError).toHaveBeenCalledWith("content_local_canvas_binding_required");
+    expect(lifecycle.onCompleted).toHaveBeenCalledTimes(1);
+    expect(setError).not.toHaveBeenCalled();
+  });
+
+  it("runs a remote Project without a local working copy", async () => {
+    const { result, lifecycle, previewClaimNext, setError, startLocal } = renderOwnerFleetRun({
+      remoteCanvasOnly: true
+    });
+
+    await act(() => result.current({ kind: "project" }));
+
+    expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).toHaveBeenCalledWith({
+      profileId: "profile-a",
+      command: expect.objectContaining({
+        projectId: "project-server",
+        canvasId: "canvas-main",
+        blockRef: "T-001#B-001"
+      })
+    });
+    expect(previewClaimNext).not.toHaveBeenCalled();
+    expect(startLocal).not.toHaveBeenCalled();
+    expect(lifecycle.onCompleted).toHaveBeenCalledTimes(1);
+    expect(setError).not.toHaveBeenCalled();
   });
 
   it("keeps owner fleet authority when collaboration availability is present", async () => {
@@ -481,5 +577,382 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
     });
     expect(lifecycle.onCompleted).toHaveBeenCalled();
     expect(setError).not.toHaveBeenCalledWith(expect.stringContaining("claim_bus_idle"));
+  });
+
+  it("cancels Workspace scope coordination when the selected canvas changes", async () => {
+    const setError = vi.fn();
+    const lifecycle = {
+      onStarted: vi.fn(),
+      onCompleted: vi.fn(),
+      onFailed: vi.fn(),
+      onCancelled: vi.fn()
+    };
+    const startLocal = vi.fn();
+    const onCollaborationObserverSignal = vi.fn(() => () => undefined);
+    const readCollaborationCanvasBindingRuntimeAvailability = vi.fn(async () => ({
+      schemaVersion: "canvas-runtime-view/v1" as const,
+      state: {
+        kind: "initialized" as const,
+        runtimeRevision: 1,
+        status: remoteScopeStatus([
+          { ref: "T-001#B-001", status: "in_progress", dispatchable: false }
+        ])
+      },
+      execution: {
+        schemaVersion: "canvas-runtime-availability/v1" as const,
+        kind: "available" as const,
+        runtimeDeviceId: "runtime-device-1"
+      }
+    }));
+    const { result, rerender } = renderHook(
+      ({ canvasId }: { canvasId: string }) => {
+        const binding = {
+          kind: "remote" as const,
+          workspaceId: "workspace-1",
+          projectId: "project-server",
+          canvasId
+        };
+        return useWorkspaceAgentEndpointRun({
+          activeProjectId: "project-server",
+          agentEndpoints: [remoteEndpoint],
+          collaborationController: null,
+          canvasBinding: binding,
+          graph,
+          preferences: {
+            [remoteAgentEndpointPreferenceKey({
+              ...binding,
+              scope: { kind: "task", taskId: "T-001" }
+            })]: { kind: "remote", remoteEndpointId: "endpoint-windows" }
+          },
+          selectedCanvasId: canvasId,
+          selectedProject: null,
+          runtimeAvailability: { kind: "available" },
+          operatorProfileId: "profile-a",
+          ownerFleetDispatchEnabled: true,
+          setError,
+          api: {
+            dispatchCollaborationRemoteOperation: vi.fn(),
+            observeCollaborationRemoteOperation: vi.fn(),
+            executeCollaborationRemoteOperationAction: vi.fn(),
+            onCollaborationObserverSignal,
+            readCollaborationCanvasBindingRuntimeAvailability
+          }
+        });
+      },
+      { initialProps: { canvasId: "canvas-main" } }
+    );
+
+    let running: Promise<void> | undefined;
+    act(() => {
+      running = result.current({ kind: "task", taskId: "T-001" }, startLocal, lifecycle);
+    });
+    await vi.waitFor(() => expect(onCollaborationObserverSignal).toHaveBeenCalledTimes(1));
+    rerender({ canvasId: "canvas-next" });
+    await act(async () => running);
+
+    expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).not.toHaveBeenCalled();
+    expect(lifecycle.onCompleted).not.toHaveBeenCalled();
+    expect(lifecycle.onFailed).not.toHaveBeenCalled();
+    expect(lifecycle.onCancelled).toHaveBeenCalledTimes(1);
+    expect(setError).not.toHaveBeenCalled();
+  });
+
+  it("does not stale-complete a Workspace Block when its dispatch returns after a canvas switch", async () => {
+    let resolveDispatch: ((value: RemoteOperationObservation) => void) | undefined;
+    const dispatch = new Promise<RemoteOperationObservation>((resolve) => {
+      resolveDispatch = resolve;
+    });
+    operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation.mockReturnValue(dispatch);
+    const setError = vi.fn();
+    const lifecycle = {
+      onStarted: vi.fn(),
+      onCompleted: vi.fn(),
+      onFailed: vi.fn(),
+      onCancelled: vi.fn()
+    };
+    const { result, rerender } = renderHook(
+      ({ canvasId }: { canvasId: string }) => {
+        const binding = {
+          kind: "remote" as const,
+          workspaceId: "workspace-1",
+          projectId: "project-server",
+          canvasId
+        };
+        return useWorkspaceAgentEndpointRun({
+          activeProjectId: "project-server",
+          agentEndpoints: [remoteEndpoint],
+          collaborationController: null,
+          canvasBinding: binding,
+          graph,
+          preferences: {
+            [remoteAgentEndpointPreferenceKey({
+              ...binding,
+              scope: { kind: "task", taskId: "T-001" }
+            })]: { kind: "remote", remoteEndpointId: "endpoint-windows" }
+          },
+          selectedCanvasId: canvasId,
+          selectedProject: null,
+          runtimeAvailability: { kind: "available" },
+          operatorProfileId: "profile-a",
+          ownerFleetDispatchEnabled: true,
+          setError,
+          api: null
+        });
+      },
+      { initialProps: { canvasId: "canvas-main" } }
+    );
+
+    let running: Promise<void> | undefined;
+    act(() => {
+      running = result.current({ kind: "block", blockRef: "T-001#B-001" }, vi.fn(), lifecycle);
+    });
+    await vi.waitFor(() =>
+      expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).toHaveBeenCalledTimes(1)
+    );
+    rerender({ canvasId: "canvas-next" });
+    resolveDispatch?.(operation("completed"));
+    await act(async () => running);
+
+    expect(lifecycle.onCompleted).not.toHaveBeenCalled();
+    expect(lifecycle.onFailed).not.toHaveBeenCalled();
+    expect(lifecycle.onCancelled).toHaveBeenCalledTimes(1);
+    expect(setError).not.toHaveBeenCalled();
+  });
+});
+
+function remoteScopeStatus(
+  rows: Array<{
+    ref: string;
+    status:
+      | "planned"
+      | "ready"
+      | "in_progress"
+      | "completed"
+      | "needs_changes"
+      | "blocked"
+      | "diverged";
+    dispatchable: boolean;
+  }>,
+  packageFingerprint = graph.packageFingerprint
+): CanvasRuntimeStatusProjection {
+  return {
+    schemaVersion: "canvas-runtime-status/v2",
+    scope: { workspaceId: "workspace-1", projectId: "project-server", canvasId: "canvas-main" },
+    packageFingerprint,
+    capturedAt: "2026-08-23T00:00:00.000Z",
+    tasks: [{ taskId: "T-001", status: "ready", openFeedbackCount: 0 }],
+    blocks: rows.map((row) => ({
+      ...row,
+      completionReason: row.status === "completed" ? "passed" : null,
+      blockedReason: null,
+      divergenceReason: null
+    }))
+  };
+}
+
+describe("Workspace remote scope scheduling", () => {
+  const dependencyGraph: DesktopGraphViewModel = {
+    ...graph,
+    tasks: [
+      {
+        ...graph.tasks[0]!,
+        blocks: [
+          graph.tasks[0]!.blocks[0]!,
+          {
+            ...graph.tasks[0]!.blocks[0]!,
+            ref: "T-001#B-002",
+            blockId: "B-002",
+            title: "Second",
+            status: "planned",
+            dispatchable: false
+          }
+        ]
+      }
+    ]
+  };
+
+  it("advances a Task run from authoritative dispatchable state", async () => {
+    let phase = 0;
+    const execute = vi.fn(async () => {
+      phase += 1;
+    });
+    const readStatus = vi.fn(async () =>
+      phase === 0
+        ? remoteScopeStatus([
+            { ref: "T-001#B-001", status: "ready", dispatchable: true },
+            { ref: "T-001#B-002", status: "planned", dispatchable: false }
+          ])
+        : phase === 1
+          ? remoteScopeStatus([
+              { ref: "T-001#B-001", status: "completed", dispatchable: false },
+              { ref: "T-001#B-002", status: "ready", dispatchable: true }
+            ])
+          : remoteScopeStatus([
+              { ref: "T-001#B-001", status: "completed", dispatchable: false },
+              { ref: "T-001#B-002", status: "completed", dispatchable: false }
+            ])
+    );
+
+    await runWorkspaceRemoteScope({
+      graph: dependencyGraph,
+      scope: { kind: "task", taskId: "T-001" },
+      readStatus,
+      execute
+    });
+
+    expect(execute.mock.calls.map(([ref]) => ref)).toEqual(["T-001#B-001", "T-001#B-002"]);
+  });
+
+  it("fails loudly when incomplete scope has no Server-dispatchable Block", async () => {
+    await expect(
+      runWorkspaceRemoteScope({
+        graph: dependencyGraph,
+        scope: { kind: "task", taskId: "T-001" },
+        readStatus: async () =>
+          remoteScopeStatus([
+            { ref: "T-001#B-001", status: "blocked", dispatchable: false },
+            { ref: "T-001#B-002", status: "planned", dispatchable: false }
+          ]),
+        execute: vi.fn()
+      })
+    ).rejects.toThrow("workspace_remote_scope_blocked:T-001#B-001:blocked");
+  });
+
+  it("does not redispatch a Block while the Server projection is lagging", async () => {
+    const ready = remoteScopeStatus([
+      { ref: "T-001#B-001", status: "ready", dispatchable: true },
+      { ref: "T-001#B-002", status: "planned", dispatchable: false }
+    ]);
+    const completed = remoteScopeStatus([
+      { ref: "T-001#B-001", status: "completed", dispatchable: false },
+      { ref: "T-001#B-002", status: "completed", dispatchable: false }
+    ]);
+    const readStatus = vi
+      .fn()
+      .mockResolvedValueOnce(ready)
+      .mockResolvedValueOnce(ready)
+      .mockResolvedValueOnce(completed);
+    const execute = vi.fn(async () => undefined);
+    const waitForStatusChange = vi.fn(async () => undefined);
+
+    await runWorkspaceRemoteScope({
+      graph: dependencyGraph,
+      scope: { kind: "task", taskId: "T-001" },
+      readStatus,
+      execute,
+      waitForStatusChange
+    });
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(execute).toHaveBeenCalledWith("T-001#B-001", undefined);
+    expect(waitForStatusChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits for an existing remote operation to leave in-progress after reconnect", async () => {
+    const readStatus = vi
+      .fn()
+      .mockResolvedValueOnce(
+        remoteScopeStatus([
+          { ref: "T-001#B-001", status: "in_progress", dispatchable: false },
+          { ref: "T-001#B-002", status: "planned", dispatchable: false }
+        ])
+      )
+      .mockResolvedValueOnce(
+        remoteScopeStatus([
+          { ref: "T-001#B-001", status: "completed", dispatchable: false },
+          { ref: "T-001#B-002", status: "completed", dispatchable: false }
+        ])
+      );
+    const execute = vi.fn();
+    const waitForStatusChange = vi.fn(async () => undefined);
+
+    await runWorkspaceRemoteScope({
+      graph: dependencyGraph,
+      scope: { kind: "task", taskId: "T-001" },
+      readStatus,
+      execute,
+      waitForStatusChange
+    });
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(waitForStatusChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-reads Server readiness after each dispatch instead of using a stale batch", async () => {
+    let dispatched = false;
+    const execute = vi.fn(async () => {
+      dispatched = true;
+    });
+    const readStatus = vi.fn(async () =>
+      dispatched
+        ? remoteScopeStatus([
+            { ref: "T-001#B-001", status: "completed", dispatchable: false },
+            { ref: "T-001#B-002", status: "planned", dispatchable: false }
+          ])
+        : remoteScopeStatus([
+            { ref: "T-001#B-001", status: "ready", dispatchable: true },
+            { ref: "T-001#B-002", status: "ready", dispatchable: true }
+          ])
+    );
+
+    await expect(
+      runWorkspaceRemoteScope({
+        graph: dependencyGraph,
+        scope: { kind: "task", taskId: "T-001" },
+        readStatus,
+        execute
+      })
+    ).rejects.toThrow("workspace_remote_scope_idle:no_dispatchable_blocks");
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(execute).toHaveBeenCalledWith("T-001#B-001", undefined);
+    expect(readStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails closed when Runtime status belongs to another content version", async () => {
+    const execute = vi.fn();
+
+    await expect(
+      runWorkspaceRemoteScope({
+        graph: dependencyGraph,
+        scope: { kind: "task", taskId: "T-001" },
+        readStatus: async () =>
+          remoteScopeStatus(
+            [
+              { ref: "T-001#B-001", status: "ready", dispatchable: true },
+              { ref: "T-001#B-002", status: "planned", dispatchable: false }
+            ],
+            "another-package-version"
+          ),
+        execute
+      })
+    ).rejects.toThrow("workspace_remote_scope_content_mismatch");
+
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("does not report completion when the scope is cancelled during a status read", async () => {
+    let resolveStatus: ((status: CanvasRuntimeStatusProjection) => void) | undefined;
+    const pendingStatus = new Promise<CanvasRuntimeStatusProjection>((resolve) => {
+      resolveStatus = resolve;
+    });
+    const controller = new AbortController();
+    const run = runWorkspaceRemoteScope({
+      graph: dependencyGraph,
+      scope: { kind: "task", taskId: "T-001" },
+      readStatus: () => pendingStatus,
+      execute: vi.fn(),
+      signal: controller.signal
+    });
+
+    controller.abort();
+    resolveStatus?.(
+      remoteScopeStatus([
+        { ref: "T-001#B-001", status: "completed", dispatchable: false },
+        { ref: "T-001#B-002", status: "completed", dispatchable: false }
+      ])
+    );
+
+    await expect(run).rejects.toThrow("workspace_remote_scope_cancelled");
   });
 });

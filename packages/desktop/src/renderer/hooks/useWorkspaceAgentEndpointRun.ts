@@ -11,6 +11,7 @@ import type { RemoteOperationObservation } from "@planweave-ai/collaboration-pro
 import { useCallback, useEffect, useRef } from "react";
 import type { PlanWeaveCollaborationApi } from "../../shared/collaboration";
 import type { RemoteCollaborationCanvasBindingInput } from "../../shared/collaboration";
+import type { CollaborationObserverSignal } from "../../shared/collaborationReadModels";
 import type { DesktopUiSettings } from "../../shared/desktopSettings";
 import {
   bridge,
@@ -26,6 +27,7 @@ import { createOwnerFleetRemoteDispatchApi } from "../collaboration/ownerFleetRe
 import { createAgentEndpointRunPlan } from "../collaboration/agentEndpointRunPlan";
 import type { AvailableAgentEndpoint } from "../collaboration/agentEndpointViewModel";
 import { createRemoteEndpointDispatchGate } from "../collaboration/remoteEndpointDispatchGate";
+import { runWorkspaceRemoteScopeFromAvailability } from "../collaboration/workspaceRemoteScopeScheduler";
 import {
   type LocalAutoRunObserver,
   runClaimBusLocalAutoRunUnit,
@@ -45,6 +47,57 @@ const OWNER_FLEET_TERMINAL_OPERATION_STATES = new Set<RemoteOperationObservation
   "failed",
   "cancelled"
 ]);
+
+function waitForWorkspaceRuntimeProjectionChange(input: {
+  api: Pick<PlanWeaveCollaborationApi, "onCollaborationObserverSignal">;
+  binding: RemoteCollaborationCanvasBindingInput;
+  signal?: AbortSignal;
+  fallbackRefreshMs?: number;
+}): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let unsubscribe: (() => void) | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const cleanup = () => {
+      if (settled) return;
+      settled = true;
+      unsubscribe?.();
+      if (timer) clearTimeout(timer);
+      input.signal?.removeEventListener("abort", cancel);
+    };
+    const finish = () => {
+      cleanup();
+      resolve();
+    };
+    const cancel = () => {
+      cleanup();
+      reject(new Error("workspace_remote_scope_cancelled"));
+    };
+    const matchesRuntimeScope = (signal: CollaborationObserverSignal) => {
+      if (signal.projectId !== input.binding.projectId) return false;
+      if (signal.type === "human.observer.catchup_required") return true;
+      return (
+        signal.type === "human.observer.event" &&
+        signal.event.kind === "runtime" &&
+        signal.event.canvasId === input.binding.canvasId
+      );
+    };
+    unsubscribe = input.api.onCollaborationObserverSignal((signal) => {
+      if (matchesRuntimeScope(signal)) finish();
+    });
+    if (settled) {
+      unsubscribe();
+      return;
+    }
+    timer = setTimeout(finish, input.fallbackRefreshMs ?? 1_000);
+
+    if (input.signal?.aborted) {
+      cancel();
+      return;
+    }
+    input.signal?.addEventListener("abort", cancel, { once: true });
+  });
+}
 
 function createDispatchId(): string {
   return crypto.randomUUID();
@@ -118,14 +171,17 @@ export type LocalAutoRunScopeStarter = (
   options?: { stepLimit?: number }
 ) => Promise<DesktopAutoRunState | null | undefined>;
 
+type WorkspaceAgentEndpointScopeLifecycle = {
+  onStarted: () => void;
+  onCompleted: () => void;
+  onFailed: (message: string) => void;
+  onCancelled?: () => void;
+};
+
 export type WorkspaceAgentEndpointScopeStarter = (
   scope: DesktopAutoRunScope,
   startLocal: LocalAutoRunScopeStarter,
-  lifecycle?: {
-    onStarted: () => void;
-    onCompleted: () => void;
-    onFailed: (message: string) => void;
-  }
+  lifecycle?: WorkspaceAgentEndpointScopeLifecycle
 ) => Promise<void>;
 
 function scopeTaskIds(
@@ -143,6 +199,17 @@ export function useWorkspaceAgentEndpointRun(
   const api = input.api === undefined ? collaborationBridge : input.api;
   const createId = input.createId ?? createDispatchId;
   const activeEndpointScopeRun = useRef<AbortController | null>(null);
+  const executionScopeIdentity = input.canvasBinding
+    ? `${input.canvasBinding.workspaceId}:${input.canvasBinding.projectId}:${input.canvasBinding.canvasId}`
+    : `${input.selectedProject?.rootPath ?? "no-project"}:${input.selectedCanvasId ?? "no-canvas"}`;
+  const previousExecutionScopeIdentity = useRef(executionScopeIdentity);
+
+  useEffect(() => {
+    if (previousExecutionScopeIdentity.current !== executionScopeIdentity) {
+      previousExecutionScopeIdentity.current = executionScopeIdentity;
+      activeEndpointScopeRun.current?.abort();
+    }
+  }, [executionScopeIdentity]);
 
   useEffect(
     () => () => {
@@ -151,13 +218,22 @@ export function useWorkspaceAgentEndpointRun(
     []
   );
 
-  return useCallback(
-    async (scope: DesktopAutoRunScope, startLocal: LocalAutoRunScopeStarter, lifecycle) => {
+  const startScope = useCallback(
+    async (
+      scope: DesktopAutoRunScope,
+      startLocal: LocalAutoRunScopeStarter,
+      lifecycle?: WorkspaceAgentEndpointScopeLifecycle
+    ) => {
       if (!input.graph || !input.selectedCanvasId) return;
+      const remoteBinding = input.canvasBinding ?? null;
+      const remoteCanvasOnly = !input.selectedProject && remoteBinding !== null;
+      const endpoints = remoteCanvasOnly
+        ? input.agentEndpoints.filter((endpoint) => endpoint.source === "remote")
+        : input.agentEndpoints;
       const plan = createAgentEndpointRunPlan({
         graph: input.graph,
         scope,
-        endpoints: input.agentEndpoints,
+        endpoints,
         preferences: input.preferences,
         project: input.selectedProject,
         remoteCanvas: input.canvasBinding,
@@ -168,8 +244,6 @@ export function useWorkspaceAgentEndpointRun(
         input.setError(plan.reason);
         return;
       }
-      const remoteBinding = input.canvasBinding ?? null;
-      const remoteCanvasOnly = !input.selectedProject && remoteBinding !== null;
       if (remoteCanvasOnly && remoteBinding.canvasId !== input.selectedCanvasId) {
         input.setError("collaboration_canvas_binding_scope_mismatch");
         return;
@@ -211,9 +285,11 @@ export function useWorkspaceAgentEndpointRun(
       if (
         !input.selectedProject &&
         (!remoteCanvasOnly ||
-          scope.kind !== "block" ||
-          plan.kind !== "coordinated_block" ||
-          plan.selection.endpoint.source !== "remote")
+          (plan.kind === "coordinated_block"
+            ? plan.selection.endpoint.source !== "remote"
+            : [...plan.selectionByBlockRef.values()].some(
+                (selection) => selection.endpoint.source !== "remote"
+              )))
       ) {
         input.setError("content_local_canvas_binding_required");
         return;
@@ -246,6 +322,10 @@ export function useWorkspaceAgentEndpointRun(
 
       const controller = new AbortController();
       activeEndpointScopeRun.current = controller;
+      const completeLifecycle = () => {
+        if (controller.signal.aborted) throw new Error("workspace_remote_scope_cancelled");
+        lifecycle?.onCompleted();
+      };
       const ownerFleetOperationsByBlockRef = new Map<string, string>();
       const remoteDispatchGate = createRemoteEndpointDispatchGate();
       lifecycle?.onStarted();
@@ -303,9 +383,32 @@ export function useWorkspaceAgentEndpointRun(
           waitForRemoteTerminal: input.waitForTerminal
         });
 
-        if (remoteCanvasOnly && plan.kind === "coordinated_block") {
-          await executeBlock(plan.selection.task, plan.selection.block, controller.signal);
-          lifecycle?.onCompleted();
+        const executeSelectionByRef = async (ref: string, signal?: AbortSignal) => {
+          const selection = selectionByBlockRef.get(ref);
+          if (!selection) throw new Error(`agent_endpoint_selection_missing:${ref}`);
+          await executeBlock(selection.task, selection.block, signal);
+        };
+
+        if (remoteCanvasOnly) {
+          if (plan.kind === "coordinated_block") {
+            await executeSelectionByRef(plan.selection.block.ref, controller.signal);
+          } else {
+            if (!api || !remoteBinding) {
+              throw new Error("collaboration_runtime_availability_unavailable");
+            }
+            await runWorkspaceRemoteScopeFromAvailability({
+              graph: input.graph,
+              scope,
+              binding: remoteBinding,
+              readAvailability: () =>
+                api.readCollaborationCanvasBindingRuntimeAvailability(remoteBinding),
+              execute: executeSelectionByRef,
+              waitForStatusChange: (signal) =>
+                waitForWorkspaceRuntimeProjectionChange({ api, binding: remoteBinding, signal }),
+              signal: controller.signal
+            });
+          }
+          completeLifecycle();
           return;
         }
 
@@ -446,10 +549,15 @@ export function useWorkspaceAgentEndpointRun(
           },
           signal: controller.signal
         });
-        lifecycle?.onCompleted();
+        completeLifecycle();
       } catch (caught) {
-        controller.abort();
+        const cancelled = controller.signal.aborted;
+        if (!cancelled) controller.abort();
         const message = caught instanceof Error ? caught.message : String(caught);
+        if (cancelled) {
+          lifecycle?.onCancelled?.();
+          return;
+        }
         input.setError(message);
         lifecycle?.onFailed(message);
       } finally {
@@ -479,4 +587,6 @@ export function useWorkspaceAgentEndpointRun(
       input.waitForTerminal
     ]
   );
+
+  return startScope;
 }
