@@ -61,7 +61,7 @@ async function expandCanvasAdder(): Promise<void> {
 }
 
 describe("WorkspaceCanvasSharingPanel", () => {
-  it("shows a Server-shared canvas even when this Desktop has no publish receipt", async () => {
+  it("does not assign an unlinked Server-shared canvas to a local project", async () => {
     const api = {
       listWorkspaceCanvasSharingCandidates: vi.fn().mockResolvedValue([
         {
@@ -122,11 +122,11 @@ describe("WorkspaceCanvasSharingPanel", () => {
     await waitFor(() => expect(api.listWorkspaceCanvasSharingCandidates).toHaveBeenCalledOnce());
     await userEvent.click(screen.getByTestId("workspace-canvas-sharing-toggle"));
 
-    expect(await screen.findByText("Default canvas")).toBeVisible();
-    expect(screen.getByText("1 shared")).toBeVisible();
-    expect(screen.queryByText("No shared canvases yet")).not.toBeInTheDocument();
+    expect(await screen.findByText("No shared canvases yet")).toBeVisible();
+    expect(screen.queryByText("Default canvas")).not.toBeInTheDocument();
+    expect(screen.queryByText("1 shared")).not.toBeInTheDocument();
     expect(screen.queryByText("private-canvas")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("workspace-canvas-add-toggle")).not.toBeInTheDocument();
+    expect(screen.getByTestId("workspace-canvas-add-toggle")).toBeVisible();
   });
 
   it("removes a stale local shared state when the Server record is private", async () => {

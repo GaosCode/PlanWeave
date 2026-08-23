@@ -2,6 +2,8 @@ import { chmod, mkdir, readFile, rename, stat, writeFile } from "node:fs/promise
 import { dirname } from "node:path";
 import { canvasVisibilitySchema } from "@planweave-ai/collaboration-protocol/access/project";
 import {
+  completedContentVersionRefSchema,
+  contentVersionRevisionSchema,
   workspaceCanvasPublishOperationIdSchema,
   workspaceCanvasPublishRecoveryTokenSchema
 } from "@planweave-ai/collaboration-protocol/content/version";
@@ -45,9 +47,24 @@ const committedReceiptSchema = workspaceCanvasPublishReceiptKeySchema.extend({
   updatedAt: z.string().datetime()
 });
 
+const adoptedReceiptSchema = workspaceCanvasPublishReceiptKeySchema
+  .extend({
+    status: z.literal("adopted"),
+    workspaceId: identifierSchema,
+    canvasId: identifierSchema,
+    visibility: canvasVisibilitySchema,
+    revision: contentVersionRevisionSchema,
+    content: completedContentVersionRefSchema,
+    adoptedAt: z.string().datetime(),
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime()
+  })
+  .strict();
+
 export const workspaceCanvasPublishReceiptSchema = z.discriminatedUnion("status", [
   pendingReceiptSchema.strict(),
-  committedReceiptSchema.strict()
+  committedReceiptSchema.strict(),
+  adoptedReceiptSchema
 ]);
 export type WorkspaceCanvasPublishReceipt = z.infer<typeof workspaceCanvasPublishReceiptSchema>;
 
@@ -72,6 +89,18 @@ export type WorkspaceCanvasPublishReceiptStorePort = {
       visibility: "private" | "shared";
     }
   ): Promise<WorkspaceCanvasPublishReceipt>;
+  adopt(
+    input: WorkspaceCanvasPublishReceiptKey & {
+      workspaceId: string;
+      canvasId: string;
+      visibility: "private" | "shared";
+      revision: number;
+      content: { versionId: string; canonicalDigest: string; verification: "complete" };
+    }
+  ): Promise<WorkspaceCanvasPublishReceipt>;
+  invalidateAdoption(
+    input: Extract<WorkspaceCanvasPublishReceipt, { status: "adopted" }>
+  ): Promise<boolean>;
 };
 
 const writeLocks = new Map<string, Promise<void>>();
@@ -98,6 +127,33 @@ function sameKey(
     left.projectId === right.projectId &&
     left.localProjectId === right.localProjectId &&
     left.localCanvasId === right.localCanvasId
+  );
+}
+
+function sameAdoptionBinding(
+  left: Extract<WorkspaceCanvasPublishReceipt, { status: "adopted" }>,
+  right: Extract<WorkspaceCanvasPublishReceipt, { status: "adopted" }>
+): boolean {
+  return (
+    sameKey(left, right) &&
+    left.workspaceId === right.workspaceId &&
+    left.canvasId === right.canvasId &&
+    left.visibility === right.visibility &&
+    left.revision === right.revision &&
+    left.content.versionId === right.content.versionId &&
+    left.content.canonicalDigest === right.content.canonicalDigest
+  );
+}
+
+function sameAdoption(
+  left: Extract<WorkspaceCanvasPublishReceipt, { status: "adopted" }>,
+  right: Extract<WorkspaceCanvasPublishReceipt, { status: "adopted" }>
+): boolean {
+  return (
+    sameAdoptionBinding(left, right) &&
+    left.adoptedAt === right.adoptedAt &&
+    left.createdAt === right.createdAt &&
+    left.updatedAt === right.updatedAt
   );
 }
 
@@ -141,7 +197,7 @@ export class WorkspaceCanvasPublishReceiptStore implements WorkspaceCanvasPublis
     return withWriteLock(this.path, async () => {
       const document = await this.read();
       const existing = document.receipts.find((receipt) => sameKey(receipt, key));
-      if (existing?.status === "committed") return existing;
+      if (existing?.status === "committed" || existing?.status === "adopted") return existing;
       const now = new Date().toISOString();
       const pending = workspaceCanvasPublishReceiptSchema.parse({
         status: "pending",
@@ -182,6 +238,57 @@ export class WorkspaceCanvasPublishReceiptStore implements WorkspaceCanvasPublis
       });
       await this.write(this.upsert(document.receipts, committed));
       return committed;
+    });
+  }
+
+  async adopt(
+    input: WorkspaceCanvasPublishReceiptKey & {
+      workspaceId: string;
+      canvasId: string;
+      visibility: "private" | "shared";
+      revision: number;
+      content: { versionId: string; canonicalDigest: string; verification: "complete" };
+    }
+  ): Promise<WorkspaceCanvasPublishReceipt> {
+    const key = receiptKey(input);
+    const now = new Date().toISOString();
+    return withWriteLock(this.path, async () => {
+      const document = await this.read();
+      const existing = document.receipts.find((receipt) => sameKey(receipt, key));
+      if (existing?.status === "committed") return existing;
+      const adopted = adoptedReceiptSchema.parse({
+        status: "adopted",
+        ...key,
+        workspaceId: input.workspaceId,
+        canvasId: input.canvasId,
+        visibility: input.visibility,
+        revision: input.revision,
+        content: input.content,
+        adoptedAt: existing?.status === "adopted" ? existing.adoptedAt : now,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now
+      });
+      if (existing?.status === "adopted") {
+        if (!sameAdoptionBinding(existing, adopted)) {
+          throw new Error("workspace_canvas_adoption_conflict");
+        }
+        return existing;
+      }
+      await this.write(this.upsert(document.receipts, adopted));
+      return adopted;
+    });
+  }
+
+  async invalidateAdoption(
+    input: Extract<WorkspaceCanvasPublishReceipt, { status: "adopted" }>
+  ): Promise<boolean> {
+    const expected = adoptedReceiptSchema.parse(input);
+    return withWriteLock(this.path, async () => {
+      const document = await this.read();
+      const existing = document.receipts.find((receipt) => sameKey(receipt, expected));
+      if (existing?.status !== "adopted" || !sameAdoption(existing, expected)) return false;
+      await this.write(document.receipts.filter((receipt) => !sameKey(receipt, expected)));
+      return true;
     });
   }
 

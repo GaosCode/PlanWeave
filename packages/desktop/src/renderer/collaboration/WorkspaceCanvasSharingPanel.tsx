@@ -204,59 +204,25 @@ export function WorkspaceCanvasSharingPanel({
     });
   }, [authorizedCanvases, selectedProject, workspaceProjectId]);
   const sharedCanvases = useMemo<WorkspaceSharedCanvasListItem[]>(() => {
-    if (!selectedProject) return [];
-    const sharedByCanvasId = new Map<string, WorkspaceSharedCanvasListItem>();
-    if (workspaceProjectId === null) {
-      for (const candidate of reconciledSelectedCanvases) {
-        if (candidate.state !== "published_shared" || candidate.workspaceCanvasId === null) {
-          continue;
-        }
-        sharedByCanvasId.set(candidate.workspaceCanvasId, {
-          canvasId: candidate.workspaceCanvasId,
-          canvasName: candidate.canvasName
-        });
-      }
-    } else {
-      for (const record of authorizedCanvases) {
-        if (record.registry.projectId !== workspaceProjectId || record.visibility !== "shared") {
-          continue;
-        }
-        const localMatch = reconciledSelectedCanvases.find(
-          (candidate) =>
-            candidate.workspaceCanvasId === record.registry.canvasId ||
-            (selectedProject.localProjectId === workspaceProjectId &&
-              candidate.canvasId === record.registry.canvasId)
-        );
-        if (localMatch || selectedProject.localProjectId === workspaceProjectId) {
-          sharedByCanvasId.set(record.registry.canvasId, {
-            canvasId: record.registry.canvasId,
-            canvasName: localMatch?.canvasName ?? record.registry.canvasId
-          });
-        }
-      }
-    }
-    return [...sharedByCanvasId.values()];
-  }, [authorizedCanvases, reconciledSelectedCanvases, selectedProject, workspaceProjectId]);
+    return reconciledSelectedCanvases.flatMap((candidate) =>
+      candidate.state === "published_shared" && candidate.workspaceCanvasId !== null
+        ? [{ canvasId: candidate.workspaceCanvasId, canvasName: candidate.canvasName }]
+        : []
+    );
+  }, [reconciledSelectedCanvases]);
   const sharedWorkspaceCanvasIds = useMemo(
     () => new Set(sharedCanvases.map((canvas) => canvas.canvasId)),
     [sharedCanvases]
   );
   const shareableCanvases = useMemo(
     () =>
-      reconciledSelectedCanvases.filter((candidate) => {
-        if (workspaceProjectId === null) return candidate.state !== "published_shared";
-        if (
-          candidate.workspaceCanvasId !== null &&
-          sharedWorkspaceCanvasIds.has(candidate.workspaceCanvasId)
-        ) {
-          return false;
-        }
-        return !(
-          selectedProject?.localProjectId === workspaceProjectId &&
-          sharedWorkspaceCanvasIds.has(candidate.canvasId)
-        );
-      }) ?? [],
-    [reconciledSelectedCanvases, selectedProject, sharedWorkspaceCanvasIds, workspaceProjectId]
+      reconciledSelectedCanvases.filter(
+        (candidate) =>
+          candidate.state !== "published_shared" &&
+          (candidate.workspaceCanvasId === null ||
+            !sharedWorkspaceCanvasIds.has(candidate.workspaceCanvasId))
+      ) ?? [],
+    [reconciledSelectedCanvases, sharedWorkspaceCanvasIds]
   );
 
   useEffect(() => {

@@ -40,10 +40,16 @@ export async function publishLocalCanvasToWorkspace(input: {
     localCanvasId: requested.canvasId
   };
   const existing = await input.receipts.find(receiptKey);
+  if (existing?.status === "adopted") {
+    throw unavailable("content_workspace_publish_source_already_adopted", false);
+  }
   const remembered = await input.receipts.rememberPending({
     ...receiptKey,
     operationId: requested.operationId ?? existing?.operationId ?? `publish-${randomUUID()}`
   });
+  if (remembered.status === "adopted") {
+    throw unavailable("content_workspace_publish_source_already_adopted", false);
+  }
   const operationId = remembered.operationId;
   const projects = (await listProjects()).filter(
     (project) => project.projectId === requested.localProjectId

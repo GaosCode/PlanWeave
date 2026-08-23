@@ -43,6 +43,8 @@ export type ResolvedCollaborationCanvasBinding = RemoteCollaborationCanvasBindin
   remoteCanvasId: string;
 };
 
+type LinkedWorkspaceCanvasReceipt = Exclude<WorkspaceCanvasPublishReceipt, { status: "pending" }>;
+
 function unavailable(code: string, retryable = false): CollaborationClientError {
   return new CollaborationClientError({ kind: "unknown", code, message: code, retryable });
 }
@@ -53,6 +55,10 @@ function sharingState(
 ): WorkspaceCanvasSharingState {
   if (!published) return "registered_unpublished";
   return visibility === "shared" ? "published_shared" : "published_private";
+}
+
+function localSourceKey(localProjectId: string, localCanvasId: string): string {
+  return `${localProjectId}\u0000${localCanvasId}`;
 }
 
 /**
@@ -155,6 +161,21 @@ export class ContentVersionFacade {
         .filter((canvas) => canvas.registry.projectId === client.projectId)
         .map((canvas) => [canvas.registry.canvasId, canvas] as const)
     );
+    const registeredByLocalSource = new Map(
+      registeredCanvases.flatMap((canvas) =>
+        canvas.registry.projectId === client.projectId && canvas.publishSource
+          ? [
+              [
+                localSourceKey(
+                  canvas.publishSource.localProjectId,
+                  canvas.publishSource.localCanvasId
+                ),
+                canvas
+              ] as const
+            ]
+          : []
+      )
+    );
     const candidates: WorkspaceCanvasSharingCandidate[] = [];
     for (const project of localProjects) {
       const overview = await getProjectOverview(project.rootPath);
@@ -166,12 +187,20 @@ export class ContentVersionFacade {
           localProjectId: overview.projectId,
           localCanvasId: canvas.canvasId
         });
-        const registeredRecord =
-          receipt?.status === "committed"
-            ? (registeredByCanvasId.get(receipt.canvasId) ?? null)
-            : overview.projectId === client.projectId
-              ? (registeredByCanvasId.get(canvas.canvasId) ?? null)
-              : null;
+        const linkedReceipt: LinkedWorkspaceCanvasReceipt | null =
+          receipt?.status === "committed" || receipt?.status === "adopted" ? receipt : null;
+        const publishedRecord =
+          registeredByLocalSource.get(localSourceKey(overview.projectId, canvas.canvasId)) ?? null;
+        const receiptRecord =
+          linkedReceipt !== null
+            ? (registeredByCanvasId.get(linkedReceipt.canvasId) ?? null)
+            : null;
+        const registeredRecord = publishedRecord ?? receiptRecord;
+        const adoptedReceipt =
+          publishedRecord === null && linkedReceipt?.status === "adopted" ? linkedReceipt : null;
+        if (adoptedReceipt !== null && receiptRecord === null) {
+          await this.publishReceipts.invalidateAdoption(adoptedReceipt);
+        }
         candidates.push(
           await this.workspaceCanvasSharingCandidate(
             client,
@@ -180,7 +209,7 @@ export class ContentVersionFacade {
             canvas.canvasId,
             canvas.name,
             registeredRecord,
-            receipt?.status === "committed" ? receipt : null
+            adoptedReceipt
           )
         );
       }
@@ -263,12 +292,10 @@ export class ContentVersionFacade {
     canvasId: string,
     canvasName: string,
     registered: CanvasAccessRecord | null,
-    receipt: Extract<WorkspaceCanvasPublishReceipt, { status: "committed" }> | null
+    adoptedReceipt: Extract<WorkspaceCanvasPublishReceipt, { status: "adopted" }> | null
   ): Promise<WorkspaceCanvasSharingCandidate> {
-    const serverCanvasId = registered?.registry.canvasId ?? receipt?.canvasId ?? null;
-    const visibility = registered?.visibility ?? receipt?.visibility ?? null;
-    if (serverCanvasId === null || visibility === null) {
-      return workspaceCanvasSharingCandidateSchema.parse({
+    const localOnly = () =>
+      workspaceCanvasSharingCandidateSchema.parse({
         localProjectId,
         projectName,
         canvasId,
@@ -277,8 +304,25 @@ export class ContentVersionFacade {
         workspaceCanvasId: null,
         visibility: null
       });
-    }
+    if (registered === null) return localOnly();
+    const serverCanvasId = registered.registry.canvasId;
+    const visibility = registered.visibility;
     const head = await client.fetchContentHead(serverCanvasId);
+    if (
+      adoptedReceipt !== null &&
+      (head === null ||
+        head.scope.workspaceId !== registered.registry.workspaceId ||
+        head.scope.projectId !== registered.registry.projectId ||
+        head.scope.canvasId !== serverCanvasId ||
+        adoptedReceipt.workspaceId !== registered.registry.workspaceId ||
+        adoptedReceipt.canvasId !== serverCanvasId ||
+        adoptedReceipt.revision !== head.revision ||
+        adoptedReceipt.content.versionId !== head.content.versionId ||
+        adoptedReceipt.content.canonicalDigest !== head.content.canonicalDigest)
+    ) {
+      await this.publishReceipts.invalidateAdoption(adoptedReceipt);
+      return localOnly();
+    }
     return workspaceCanvasSharingCandidateSchema.parse({
       localProjectId,
       projectName,

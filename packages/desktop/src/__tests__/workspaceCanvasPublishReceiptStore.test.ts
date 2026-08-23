@@ -84,4 +84,120 @@ describe("WorkspaceCanvasPublishReceiptStore", () => {
       await expect(store.find(isolated)).resolves.toBeNull();
     }
   });
+
+  it("records an explicitly verified legacy adoption without inventing publish credentials", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "planweave-workspace-publish-receipts-"));
+    directories.push(directory);
+    const path = join(directory, "workspace-canvas-publish-receipts.json");
+    const store = new WorkspaceCanvasPublishReceiptStore(path);
+    const adopted = await store.adopt({
+      ...key,
+      workspaceId: "workspace-1",
+      canvasId: "default",
+      visibility: "shared",
+      revision: 206,
+      content: {
+        versionId: `version-${"b".repeat(64)}`,
+        canonicalDigest: "b".repeat(64),
+        verification: "complete"
+      }
+    });
+
+    expect(adopted).toMatchObject({
+      status: "adopted",
+      canvasId: "default",
+      revision: 206
+    });
+    const serialized = await readFile(path, "utf8");
+    expect(serialized).not.toContain("operationId");
+    expect(serialized).not.toContain("recoveryToken");
+  });
+
+  it("keeps an identical legacy adoption idempotent", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "planweave-workspace-publish-receipts-"));
+    directories.push(directory);
+    const store = new WorkspaceCanvasPublishReceiptStore(
+      join(directory, "workspace-canvas-publish-receipts.json")
+    );
+    const input = {
+      ...key,
+      workspaceId: "workspace-1",
+      canvasId: "default",
+      visibility: "shared" as const,
+      revision: 206,
+      content: {
+        versionId: `version-${"b".repeat(64)}`,
+        canonicalDigest: "b".repeat(64),
+        verification: "complete" as const
+      }
+    };
+    const first = await store.adopt(input);
+    await expect(store.adopt(input)).resolves.toEqual(first);
+  });
+
+  it("rejects redirecting an existing legacy adoption", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "planweave-workspace-publish-receipts-"));
+    directories.push(directory);
+    const store = new WorkspaceCanvasPublishReceiptStore(
+      join(directory, "workspace-canvas-publish-receipts.json")
+    );
+    const input = {
+      ...key,
+      workspaceId: "workspace-1",
+      canvasId: "default",
+      visibility: "shared" as const,
+      revision: 206,
+      content: {
+        versionId: `version-${"b".repeat(64)}`,
+        canonicalDigest: "b".repeat(64),
+        verification: "complete" as const
+      }
+    };
+    await store.adopt(input);
+    await expect(store.adopt({ ...input, canvasId: "other" })).rejects.toThrow(
+      "workspace_canvas_adoption_conflict"
+    );
+    await expect(
+      store.adopt({
+        ...input,
+        content: {
+          ...input.content,
+          versionId: `version-${"c".repeat(64)}`,
+          canonicalDigest: "c".repeat(64)
+        }
+      })
+    ).rejects.toThrow("workspace_canvas_adoption_conflict");
+  });
+
+  it("invalidates only the exact stale adoption and permits a new publish operation", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "planweave-workspace-publish-receipts-"));
+    directories.push(directory);
+    const store = new WorkspaceCanvasPublishReceiptStore(
+      join(directory, "workspace-canvas-publish-receipts.json")
+    );
+    const adopted = await store.adopt({
+      ...key,
+      workspaceId: "workspace-1",
+      canvasId: "default",
+      visibility: "shared",
+      revision: 206,
+      content: {
+        versionId: `version-${"b".repeat(64)}`,
+        canonicalDigest: "b".repeat(64),
+        verification: "complete"
+      }
+    });
+    if (adopted.status !== "adopted") throw new Error("expected adopted receipt");
+
+    await expect(
+      store.invalidateAdoption({ ...adopted, updatedAt: "2026-08-23T00:00:00.000Z" })
+    ).resolves.toBe(false);
+    await expect(store.invalidateAdoption(adopted)).resolves.toBe(true);
+    await expect(
+      store.rememberPending({ ...key, operationId: "publish-after-adoption-invalidated" })
+    ).resolves.toMatchObject({
+      status: "pending",
+      operationId: "publish-after-adoption-invalidated"
+    });
+  });
 });

@@ -44,6 +44,33 @@ const availability = {
     graphFingerprint: packageFingerprint
   }
 };
+const head = {
+  schemaVersion: "content-version/v1" as const,
+  scope,
+  revision: 9,
+  content: {
+    versionId: `version-${"b".repeat(64)}`,
+    canonicalDigest: "b".repeat(64),
+    verification: "complete" as const
+  },
+  advancedAt: "2026-08-22T00:00:00.000Z"
+};
+
+const adoptedReceipt = {
+  status: "adopted" as const,
+  serverOrigin: "https://server.example.test",
+  projectId: "project-1",
+  localProjectId: "project-1",
+  localCanvasId: "canvas-1",
+  workspaceId: "workspace-1",
+  canvasId: "canvas-1",
+  visibility: "shared" as const,
+  revision: head.revision,
+  content: head.content,
+  adoptedAt: "2026-08-22T00:00:00.000Z",
+  createdAt: "2026-08-22T00:00:00.000Z",
+  updatedAt: "2026-08-22T00:00:00.000Z"
+};
 
 function fakeClient() {
   const listCanvases = vi.fn(async () => ({
@@ -56,17 +83,7 @@ function fakeClient() {
     nextCursor: null
   }));
   const readRuntimeAvailability = vi.fn(async () => availability);
-  const fetchContentHead = vi.fn(async () => ({
-    schemaVersion: "content-version/v1" as const,
-    scope,
-    revision: 9,
-    content: {
-      versionId: `version-${"b".repeat(64)}`,
-      canonicalDigest: "b".repeat(64),
-      verification: "complete" as const
-    },
-    advancedAt: "2026-08-22T00:00:00.000Z"
-  }));
+  const fetchContentHead = vi.fn(async () => head);
   const resetRuntime = vi.fn(async () => ({
     type: "canvas.runtime.reset.rejected" as const,
     operationId: "reset-1",
@@ -92,7 +109,7 @@ function fakeClient() {
 }
 
 describe("ContentVersionFacade remote authority", () => {
-  it("reconciles a legacy Server canvas by exact project and canvas identity without a receipt", async () => {
+  it("reconciles a Server canvas from its authoritative publish source without a receipt", async () => {
     runtime.listProjects.mockResolvedValueOnce([
       { projectId: "project-1", rootPath: "/tmp/nonexistent-planweave-sharing" }
     ]);
@@ -104,7 +121,13 @@ describe("ContentVersionFacade remote authority", () => {
     });
     const fake = fakeClient();
     fake.calls.listCanvases.mockResolvedValueOnce({
-      items: [{ registry: scope, visibility: "private" }],
+      items: [
+        {
+          registry: scope,
+          visibility: "private",
+          publishSource: { localProjectId: "project-1", localCanvasId: "canvas-1" }
+        }
+      ],
       nextCursor: null
     });
     vi.mocked(fake.client.fetchContentHead).mockResolvedValueOnce({ scope } as never);
@@ -123,6 +146,183 @@ describe("ContentVersionFacade remote authority", () => {
         visibility: "private"
       }
     ]);
+  });
+
+  it("does not infer a local source from matching project and canvas ids", async () => {
+    runtime.listProjects.mockResolvedValueOnce([
+      { projectId: "project-1", rootPath: "/tmp/nonexistent-planweave-sharing" }
+    ]);
+    runtime.getProjectOverview.mockResolvedValueOnce({
+      rootPath: "/tmp/nonexistent-planweave-sharing",
+      projectId: "project-1",
+      name: "Local project",
+      taskCanvases: [{ canvasId: "canvas-1", name: "Default canvas" }]
+    });
+    const fake = fakeClient();
+    const facade = new ContentVersionFacade(() => fake.client, {
+      find: vi.fn().mockResolvedValue(null)
+    } as never);
+
+    await expect(facade.listWorkspaceCanvasSharingCandidates()).resolves.toEqual([
+      {
+        localProjectId: "project-1",
+        projectName: "Local project",
+        canvasId: "canvas-1",
+        canvasName: "Default canvas",
+        state: "local_only",
+        workspaceCanvasId: null,
+        visibility: null
+      }
+    ]);
+    expect(fake.calls.fetchContentHead).not.toHaveBeenCalled();
+  });
+
+  it("uses an explicitly adopted legacy source after Server authorization is rechecked", async () => {
+    runtime.listProjects.mockResolvedValueOnce([
+      { projectId: "project-1", rootPath: "/tmp/nonexistent-planweave-sharing" }
+    ]);
+    runtime.getProjectOverview.mockResolvedValueOnce({
+      rootPath: "/tmp/nonexistent-planweave-sharing",
+      projectId: "project-1",
+      name: "Local project",
+      taskCanvases: [{ canvasId: "canvas-1", name: "Default canvas" }]
+    });
+    const fake = fakeClient();
+    const facade = new ContentVersionFacade(() => fake.client, {
+      find: vi.fn().mockResolvedValue(adoptedReceipt),
+      invalidateAdoption: vi.fn().mockResolvedValue(true)
+    } as never);
+
+    await expect(facade.listWorkspaceCanvasSharingCandidates()).resolves.toEqual([
+      {
+        localProjectId: "project-1",
+        projectName: "Local project",
+        canvasId: "canvas-1",
+        canvasName: "Default canvas",
+        state: "published_shared",
+        workspaceCanvasId: "canvas-1",
+        visibility: "shared"
+      }
+    ]);
+    expect(fake.calls.fetchContentHead).toHaveBeenCalledWith("canvas-1");
+  });
+
+  it("ignores an adopted source after Server authorization is revoked", async () => {
+    runtime.listProjects.mockResolvedValueOnce([
+      { projectId: "project-1", rootPath: "/tmp/nonexistent-planweave-sharing" }
+    ]);
+    runtime.getProjectOverview.mockResolvedValueOnce({
+      rootPath: "/tmp/nonexistent-planweave-sharing",
+      projectId: "project-1",
+      name: "Local project",
+      taskCanvases: [{ canvasId: "canvas-1", name: "Default canvas" }]
+    });
+    const fake = fakeClient();
+    fake.calls.listCanvases.mockResolvedValueOnce({ items: [], nextCursor: null });
+    const invalidateAdoption = vi.fn().mockResolvedValue(true);
+    const facade = new ContentVersionFacade(() => fake.client, {
+      find: vi.fn().mockResolvedValue(adoptedReceipt),
+      invalidateAdoption
+    } as never);
+
+    await expect(facade.listWorkspaceCanvasSharingCandidates()).resolves.toEqual([
+      expect.objectContaining({
+        state: "local_only",
+        workspaceCanvasId: null,
+        visibility: null
+      })
+    ]);
+    expect(fake.calls.fetchContentHead).not.toHaveBeenCalled();
+    expect(invalidateAdoption).toHaveBeenCalledWith(adoptedReceipt);
+  });
+
+  it("ignores an adopted source when the verified Server head no longer matches", async () => {
+    runtime.listProjects.mockResolvedValueOnce([
+      { projectId: "project-1", rootPath: "/tmp/nonexistent-planweave-sharing" }
+    ]);
+    runtime.getProjectOverview.mockResolvedValueOnce({
+      rootPath: "/tmp/nonexistent-planweave-sharing",
+      projectId: "project-1",
+      name: "Local project",
+      taskCanvases: [{ canvasId: "canvas-1", name: "Default canvas" }]
+    });
+    const fake = fakeClient();
+    fake.calls.fetchContentHead.mockResolvedValueOnce({
+      ...head,
+      revision: 10,
+      content: { ...head.content, canonicalDigest: "c".repeat(64) }
+    });
+    const invalidateAdoption = vi.fn().mockResolvedValue(true);
+    const facade = new ContentVersionFacade(() => fake.client, {
+      find: vi.fn().mockResolvedValue(adoptedReceipt),
+      invalidateAdoption
+    } as never);
+
+    await expect(facade.listWorkspaceCanvasSharingCandidates()).resolves.toEqual([
+      expect.objectContaining({
+        state: "local_only",
+        workspaceCanvasId: null,
+        visibility: null
+      })
+    ]);
+    expect(invalidateAdoption).toHaveBeenCalledWith(adoptedReceipt);
+  });
+
+  it("uses current Server visibility for a verified adopted source", async () => {
+    runtime.listProjects.mockResolvedValueOnce([
+      { projectId: "project-1", rootPath: "/tmp/nonexistent-planweave-sharing" }
+    ]);
+    runtime.getProjectOverview.mockResolvedValueOnce({
+      rootPath: "/tmp/nonexistent-planweave-sharing",
+      projectId: "project-1",
+      name: "Local project",
+      taskCanvases: [{ canvasId: "canvas-1", name: "Default canvas" }]
+    });
+    const fake = fakeClient();
+    fake.calls.listCanvases.mockResolvedValueOnce({
+      items: [{ registry: scope, visibility: "private" }],
+      nextCursor: null
+    });
+    const facade = new ContentVersionFacade(() => fake.client, {
+      find: vi.fn().mockResolvedValue(adoptedReceipt),
+      invalidateAdoption: vi.fn().mockResolvedValue(true)
+    } as never);
+
+    await expect(facade.listWorkspaceCanvasSharingCandidates()).resolves.toEqual([
+      expect.objectContaining({
+        state: "published_private",
+        workspaceCanvasId: "canvas-1",
+        visibility: "private"
+      })
+    ]);
+  });
+
+  it("ignores an adopted source when its Server head is missing", async () => {
+    runtime.listProjects.mockResolvedValueOnce([
+      { projectId: "project-1", rootPath: "/tmp/nonexistent-planweave-sharing" }
+    ]);
+    runtime.getProjectOverview.mockResolvedValueOnce({
+      rootPath: "/tmp/nonexistent-planweave-sharing",
+      projectId: "project-1",
+      name: "Local project",
+      taskCanvases: [{ canvasId: "canvas-1", name: "Default canvas" }]
+    });
+    const fake = fakeClient();
+    fake.calls.fetchContentHead.mockResolvedValueOnce(null);
+    const invalidateAdoption = vi.fn().mockResolvedValue(true);
+    const facade = new ContentVersionFacade(() => fake.client, {
+      find: vi.fn().mockResolvedValue(adoptedReceipt),
+      invalidateAdoption
+    } as never);
+
+    await expect(facade.listWorkspaceCanvasSharingCandidates()).resolves.toEqual([
+      expect.objectContaining({
+        state: "local_only",
+        workspaceCanvasId: null,
+        visibility: null
+      })
+    ]);
+    expect(invalidateAdoption).toHaveBeenCalledWith(adoptedReceipt);
   });
 
   it("derives Workspace scope only from the explicit remote binding", async () => {
