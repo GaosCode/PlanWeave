@@ -324,7 +324,7 @@ export function WorkspaceCanvasSharingPanel({
         <p className="mt-5 text-sm text-muted-foreground">{t("workspaceCanvasSharingEmpty")}</p>
       ) : expanded ? (
         <div className="mt-5 flex flex-col gap-6">
-          <div className="max-w-xl">
+          <div className="max-w-md">
             <label
               id="workspace-canvas-project-label"
               htmlFor="workspace-canvas-project-select"
@@ -342,21 +342,22 @@ export function WorkspaceCanvasSharingPanel({
             >
               <SelectTrigger
                 id="workspace-canvas-project-select"
-                className="mt-2 h-10 w-full bg-background"
+                className="mt-2 w-full shadow-none"
                 aria-labelledby="workspace-canvas-project-label"
                 data-testid="workspace-canvas-project-select"
                 data-value={selectedProjectId ?? ""}
               >
-                <SelectValue placeholder={t("workspaceCanvasProjectPlaceholder")} />
+                <SelectValue placeholder={t("workspaceCanvasProjectPlaceholder")}>
+                  {selectedProject
+                    ? `${selectedProject.projectName} · ${selectedProject.localProjectId}`
+                    : undefined}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent position="popper" align="start">
                 {projectGroups.map((group) => (
                   <SelectItem key={group.localProjectId} value={group.localProjectId}>
-                    <span className="min-w-0">
-                      <span className="block truncate font-medium">{group.projectName}</span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {group.localProjectId}
-                      </span>
+                    <span className="truncate font-medium">
+                      {group.projectName} · {group.localProjectId}
                     </span>
                   </SelectItem>
                 ))}
@@ -366,6 +367,7 @@ export function WorkspaceCanvasSharingPanel({
 
           {selectedProject ? (
             <WorkspaceCanvasSharingProjectPanel
+              key={selectedProject.localProjectId}
               project={selectedProject}
               sharedCanvases={sharedCanvases}
               shareableCanvases={shareableCanvases}

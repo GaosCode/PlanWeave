@@ -53,6 +53,13 @@ const publishedResult: WorkspaceCanvasPublishResult = {
   candidate: publishedCandidate
 };
 
+async function expandCanvasAdder(): Promise<void> {
+  const toggle = screen.getByTestId("workspace-canvas-add-toggle");
+  expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await userEvent.click(toggle);
+  expect(toggle).toHaveAttribute("aria-expanded", "true");
+}
+
 describe("WorkspaceCanvasSharingPanel", () => {
   it("does not call a local canvas shared until upload and visibility both say so", async () => {
     const onPublished = vi.fn();
@@ -144,11 +151,14 @@ describe("WorkspaceCanvasSharingPanel", () => {
     await userEvent.click(sharingToggle);
     expect(sharingToggle).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByTestId("workspace-canvas-project-select")).toHaveTextContent(
-      "Local project"
+      "Local project · project-local"
     );
+    expect(screen.getByTestId("workspace-canvas-project-select")).not.toHaveClass("h-10");
     const localProject = within(
       screen.getByTestId("workspace-canvas-sharing-project-project-local")
     );
+    expect(screen.getByTestId("workspace-canvas-shared-list-header")).not.toHaveClass("border-b");
+    expect(screen.queryByTestId("workspace-canvas-add-select")).not.toBeInTheDocument();
     expect(localProject.getByText("Planning canvas")).toBeVisible();
     expect(localProject.queryByText("Default canvas")).not.toBeInTheDocument();
     expect(screen.queryByText("Other canvas")).not.toBeInTheDocument();
@@ -156,14 +166,19 @@ describe("WorkspaceCanvasSharingPanel", () => {
     await userEvent.click(screen.getByTestId("workspace-canvas-project-select"));
     await userEvent.click(await screen.findByRole("option", { name: /Other project/ }));
     expect(screen.getByTestId("workspace-canvas-project-select")).toHaveTextContent(
-      "Other project"
+      "Other project · project-other"
     );
     expect(screen.getByText("No shared canvases yet")).toBeVisible();
+    expect(screen.getByTestId("workspace-canvas-shared-empty")).not.toHaveClass("border-dashed");
     expect(screen.queryByText("Planning canvas")).not.toBeInTheDocument();
+    await expandCanvasAdder();
+    expect(screen.getByTestId("workspace-canvas-add-select")).toBeVisible();
 
     await userEvent.click(screen.getByTestId("workspace-canvas-project-select"));
     await userEvent.click(await screen.findByRole("option", { name: /Local project/ }));
     expect(screen.getByText("Planning canvas")).toBeVisible();
+    expect(screen.queryByTestId("workspace-canvas-add-select")).not.toBeInTheDocument();
+    await expandCanvasAdder();
     await userEvent.click(screen.getByTestId("workspace-canvas-add-select"));
     await userEvent.click(
       await screen.findByRole("option", { name: "Default canvas · Not shared" })
@@ -191,6 +206,50 @@ describe("WorkspaceCanvasSharingPanel", () => {
     expect(listWorkspaceCanvasSharingCandidates.mock.invocationCallOrder[1]).toBeLessThan(
       onPublished.mock.invocationCallOrder[0]!
     );
+  });
+
+  it("keeps same-name projects distinguishable in the compact project picker", async () => {
+    const api = {
+      listWorkspaceCanvasSharingCandidates: vi.fn().mockResolvedValue([
+        {
+          localProjectId: "project-clone-a",
+          projectName: "Cloned project",
+          canvasId: "canvas-a",
+          canvasName: "Canvas A",
+          state: "local_only",
+          workspaceCanvasId: null,
+          visibility: null
+        },
+        {
+          localProjectId: "project-clone-b",
+          projectName: "Cloned project",
+          canvasId: "canvas-b",
+          canvasName: "Canvas B",
+          state: "local_only",
+          workspaceCanvasId: null,
+          visibility: null
+        }
+      ])
+    } as unknown as PlanWeaveCollaborationApi;
+
+    render(
+      <WorkspaceCanvasSharingPanel
+        api={api}
+        connected
+        connectionKey="profile-a"
+        t={createTranslator("en")}
+      />
+    );
+
+    await waitFor(() => expect(api.listWorkspaceCanvasSharingCandidates).toHaveBeenCalledOnce());
+    await userEvent.click(screen.getByTestId("workspace-canvas-sharing-toggle"));
+    await userEvent.click(screen.getByTestId("workspace-canvas-project-select"));
+    expect(
+      await screen.findByRole("option", { name: "Cloned project · project-clone-a" })
+    ).toBeVisible();
+    expect(
+      await screen.findByRole("option", { name: "Cloned project · project-clone-b" })
+    ).toBeVisible();
   });
 
   it("ignores a stale candidate response after switching Workspace connections", async () => {
@@ -241,6 +300,7 @@ describe("WorkspaceCanvasSharingPanel", () => {
     expect(await screen.findByTestId("workspace-canvas-project-select")).toHaveTextContent(
       "Workspace B project"
     );
+    await expandCanvasAdder();
     await userEvent.click(screen.getByTestId("workspace-canvas-add-select"));
     expect(
       await screen.findByRole("option", { name: "Workspace B canvas · Not shared" })
@@ -311,6 +371,7 @@ describe("WorkspaceCanvasSharingPanel", () => {
 
     await waitFor(() => expect(api.listWorkspaceCanvasSharingCandidates).toHaveBeenCalledOnce());
     await userEvent.click(screen.getByTestId("workspace-canvas-sharing-toggle"));
+    await expandCanvasAdder();
     await userEvent.click(screen.getByTestId("workspace-canvas-add-select"));
     await userEvent.click(
       await screen.findByRole("option", { name: "Workspace A canvas · Not shared" })
@@ -387,6 +448,7 @@ describe("WorkspaceCanvasSharingPanel", () => {
 
     await waitFor(() => expect(api.listWorkspaceCanvasSharingCandidates).toHaveBeenCalledOnce());
     await userEvent.click(screen.getByTestId("workspace-canvas-sharing-toggle"));
+    await expandCanvasAdder();
     await userEvent.click(screen.getByTestId("workspace-canvas-add-select"));
     await userEvent.click(await screen.findByRole("option", { name: "Default canvas · Only you" }));
     await userEvent.click(screen.getByRole("button", { name: "Add to shared canvases" }));
@@ -465,6 +527,7 @@ describe("WorkspaceCanvasSharingPanel", () => {
 
     await waitFor(() => expect(api.listWorkspaceCanvasSharingCandidates).toHaveBeenCalledOnce());
     await userEvent.click(screen.getByTestId("workspace-canvas-sharing-toggle"));
+    await expandCanvasAdder();
     await userEvent.click(screen.getByTestId("workspace-canvas-add-select"));
     await userEvent.click(
       await screen.findByRole("option", { name: "Default canvas · Not shared" })
@@ -477,6 +540,11 @@ describe("WorkspaceCanvasSharingPanel", () => {
     expect(onPublished).not.toHaveBeenCalled();
     expect(screen.getByTestId("workspace-canvas-project-select")).toBeDisabled();
     expect(screen.getByTestId("workspace-canvas-add-select")).toBeDisabled();
+    expect(screen.getByTestId("workspace-canvas-add-toggle")).toBeDisabled();
+    expect(screen.getByTestId("workspace-canvas-add-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "true"
+    );
 
     await userEvent.click(screen.getByRole("button", { name: "Continue sharing" }));
     await waitFor(() => expect(onPublished).toHaveBeenCalledWith(publishedResult));
@@ -510,6 +578,7 @@ describe("WorkspaceCanvasSharingPanel", () => {
 
     await waitFor(() => expect(api.listWorkspaceCanvasSharingCandidates).toHaveBeenCalledOnce());
     await userEvent.click(screen.getByTestId("workspace-canvas-sharing-toggle"));
+    await expandCanvasAdder();
     await userEvent.click(screen.getByTestId("workspace-canvas-add-select"));
     await userEvent.click(
       await screen.findByRole("option", { name: "Default canvas · Not shared" })
@@ -594,6 +663,7 @@ describe("WorkspaceCanvasSharingPanel", () => {
 
     await waitFor(() => expect(api.listWorkspaceCanvasSharingCandidates).toHaveBeenCalledOnce());
     await userEvent.click(screen.getByTestId("workspace-canvas-sharing-toggle"));
+    await expandCanvasAdder();
     await userEvent.click(screen.getByTestId("workspace-canvas-add-select"));
     await userEvent.click(
       await screen.findByRole("option", { name: "Default canvas · Not shared" })
