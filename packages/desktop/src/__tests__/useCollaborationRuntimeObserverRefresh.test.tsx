@@ -276,6 +276,43 @@ describe("Workspace Runtime observer refresh", () => {
     expect(read).toHaveBeenCalledTimes(2);
   });
 
+  it("finishes recovery when an in-flight response covers a newer runtime event", async () => {
+    vi.useFakeTimers();
+    let resolveRead: ((value: ReturnType<typeof runtimeView>) => void) | null = null;
+    const pendingRead = new Promise<ReturnType<typeof runtimeView>>((resolve) => {
+      resolveRead = resolve;
+    });
+    const read = vi.fn().mockResolvedValueOnce(available).mockReturnValueOnce(pendingRead);
+    const bridge = api(read);
+    const { result } = renderHook(() => useWorkspaceRuntimeAvailability(hookInput(bridge)));
+    await settle();
+
+    act(() => {
+      bridge.emitObserver({
+        type: "human.observer.catchup_required",
+        profileId: "profile-1",
+        projectId: scope.projectId,
+        reason: "retention_gap",
+        resumeCursor: 20,
+        droppedThroughCursor: 19
+      });
+    });
+    await settle();
+    act(() => bridge.emitObserver(runtimeEvent(2)));
+    await act(async () => {
+      resolveRead?.(runtimeView(2));
+      await pendingRead;
+    });
+    await settle();
+
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(result.current.authoritativeRuntime?.state).toMatchObject({ runtimeRevision: 2 });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(COLLABORATION_RUNTIME_AVAILABILITY_POLL_MS * 2);
+    });
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
   it("polls while observer refresh is unavailable and stops after observer recovery", async () => {
     vi.useFakeTimers();
     const read = vi

@@ -154,24 +154,20 @@ function createFacade(input?: {
     }
   };
   const clientFixture = makeClient();
+  const resolveCanvasBinding = vi.fn(async () => ({
+    ...remoteBinding,
+    remoteProjectId: remoteBinding.projectId,
+    remoteCanvasId: remoteBinding.canvasId
+  }));
   const facade = new CollaborationCanvasCommandFacade({
     resolveClient: () => clientFixture.client,
-    resolveCanvasBinding: vi.fn(async () => ({
-      ...remoteBinding,
-      remoteProjectId: remoteBinding.projectId,
-      remoteCanvasId: remoteBinding.canvasId
-    })),
-    resolveCanvasScope: vi.fn(async () => ({
-      workspaceId: remoteBinding.workspaceId,
-      projectId: remoteBinding.projectId,
-      canvasId: remoteBinding.canvasId
-    })),
+    resolveCanvasBinding,
     resolveAuthorityId: () => replicaScope.authorityId,
     store,
     transport,
     snapshotCache: input?.snapshotCache
   });
-  return { facade, store, content, ...clientFixture };
+  return { facade, store, content, resolveCanvasBinding, ...clientFixture };
 }
 
 describe("CollaborationCanvasCommandFacade", () => {
@@ -230,6 +226,7 @@ describe("CollaborationCanvasCommandFacade", () => {
     await expect(fixture.facade.bind(remoteBinding)).resolves.toMatchObject({
       canvasId: remoteBinding.canvasId
     });
+    expect(fixture.resolveCanvasBinding).toHaveBeenCalledOnce();
     expect(fixture.client.bindCanvasCommandSession).toHaveBeenCalledWith(remoteBinding.canvasId);
     expect(fixture.store.projection(replicaScope)).toMatchObject({
       bindingKind: "remote",

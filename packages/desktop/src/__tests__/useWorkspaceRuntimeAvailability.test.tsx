@@ -41,6 +41,11 @@ function runtimeView(runtimeRevision: number) {
   };
 }
 
+function uninitializedRuntimeView() {
+  const view = runtimeView(1);
+  return { ...view, state: { kind: "uninitialized" as const } };
+}
+
 function createApi() {
   let observer: ((signal: CollaborationObserverSignal) => void) | null = null;
   const read = vi.fn().mockResolvedValueOnce(runtimeView(1)).mockResolvedValue(runtimeView(2));
@@ -144,6 +149,43 @@ describe("useWorkspaceRuntimeAvailability", () => {
       expect(result.current.authoritativeRuntime?.state).toMatchObject({ runtimeRevision: 2 })
     );
     expect(fixture.read).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not publish an uninitialized response invalidated while it was in flight", async () => {
+    let resolveFirst: ((value: ReturnType<typeof uninitializedRuntimeView>) => void) | null = null;
+    let resolveSecond: ((value: ReturnType<typeof runtimeView>) => void) | null = null;
+    const first = new Promise<ReturnType<typeof uninitializedRuntimeView>>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const second = new Promise<ReturnType<typeof runtimeView>>((resolve) => {
+      resolveSecond = resolve;
+    });
+    const fixture = createApi();
+    fixture.read.mockReset();
+    fixture.read.mockReturnValueOnce(first).mockReturnValueOnce(second);
+    const { result } = renderHook(() => useWorkspaceRuntimeAvailability(input(fixture.api)));
+
+    await waitFor(() => expect(fixture.read).toHaveBeenCalledOnce());
+    act(() => {
+      fixture.emit({
+        type: "human.observer.event",
+        profileId: "profile-1",
+        projectId: scope.projectId,
+        event: {
+          kind: "runtime",
+          sequence: 2,
+          canvasId: scope.canvasId,
+          runtimeRevision: 2
+        }
+      });
+      resolveFirst?.(uninitializedRuntimeView());
+    });
+
+    await waitFor(() => expect(fixture.read).toHaveBeenCalledTimes(2));
+    expect(result.current.availability).toEqual({ kind: "checking" });
+
+    act(() => resolveSecond?.(runtimeView(2)));
+    await waitFor(() => expect(result.current.availability).toEqual({ kind: "available" }));
   });
 
   it("fails closed while the Workspace session is disconnected", () => {

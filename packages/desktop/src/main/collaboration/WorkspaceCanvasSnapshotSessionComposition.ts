@@ -64,7 +64,6 @@ export function createWorkspaceCanvasSnapshotSessionComposition(
   const commands = new CollaborationCanvasCommandFacade({
     resolveClient: options.resolveClient,
     resolveCanvasBinding: (input) => options.contentVersions.resolveCanvasBinding(input),
-    resolveCanvasScope: (input) => options.contentVersions.resolveCanvasScope(input),
     resolveAuthorityId: () => {
       const client = options.resolveClient();
       return client ? options.contentVersions.authorityIdForClient(client) : null;

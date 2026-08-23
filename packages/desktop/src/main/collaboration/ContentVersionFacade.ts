@@ -105,11 +105,14 @@ export class ContentVersionFacade {
     });
   }
 
-  async readRuntimeAvailability(input: unknown): Promise<CanvasRuntimeAvailability | null> {
-    const requested = this.requireRemoteBinding(input);
+  async readResolvedRuntimeAvailability(
+    input: CollaborationCanvasScopeResolution
+  ): Promise<CanvasRuntimeAvailability> {
+    const scope = collaborationCanvasScopeResolutionSchema.parse(input);
     const client = this.requireClient();
-    const scope = await this.resolveCanvasScope(requested);
-    if (!scope) return null;
+    if (scope.projectId !== client.projectId) {
+      throw unavailable("runtime_availability_project_profile_mismatch", false);
+    }
     const availability = await client.readRuntimeAvailability(scope.canvasId);
     const statuses = [
       availability.state.kind === "initialized" ? availability.state.status : null,

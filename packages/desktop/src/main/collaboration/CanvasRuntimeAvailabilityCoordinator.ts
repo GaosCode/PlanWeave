@@ -23,7 +23,7 @@ import { CollaborationClientError } from "./collaborationErrors.js";
 
 export type CanvasRuntimeContentPort = Pick<
   ContentVersionFacade,
-  "resolveCanvasScope" | "readRuntimeAvailability" | "resetRuntime"
+  "resolveCanvasScope" | "readResolvedRuntimeAvailability" | "resetRuntime"
 >;
 export type CanvasRuntimeCommandPort = Pick<
   CollaborationCanvasCommandFacade,
@@ -66,7 +66,7 @@ export class CanvasRuntimeAvailabilityCoordinator {
     }
     let availability: CanvasRuntimeAvailability | null;
     try {
-      availability = await this.contentVersions.readRuntimeAvailability(requested);
+      availability = await this.contentVersions.readResolvedRuntimeAvailability(scope);
     } catch (error) {
       if (!this.isOnline()) {
         this.clearReplicaRuntimeStatus(replicaScope);

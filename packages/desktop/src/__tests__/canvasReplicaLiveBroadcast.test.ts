@@ -696,11 +696,6 @@ describe("Workspace canvas live broadcast (Phase 5B)", () => {
     const facade = new CollaborationCanvasCommandFacade({
       resolveClient: () => client,
       resolveCanvasBinding: async () => resolvedWorkspaceBinding,
-      resolveCanvasScope: async () => ({
-        workspaceId: baseScope.workspaceId,
-        projectId: baseScope.projectId,
-        canvasId: baseScope.canvasId
-      }),
       resolveAuthorityId: () => baseScope.authorityId,
       store,
       transport

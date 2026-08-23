@@ -319,11 +319,6 @@ function createHarness(options?: {
       remoteProjectId: locator.projectId,
       remoteCanvasId: locator.canvasId
     }),
-    resolveCanvasScope: async () => ({
-      workspaceId: locator.workspaceId,
-      projectId: locator.projectId,
-      canvasId: locator.canvasId
-    }),
     resolveAuthorityId: () => workspaceRemoteAuthorityId(cacheKey),
     store,
     transport

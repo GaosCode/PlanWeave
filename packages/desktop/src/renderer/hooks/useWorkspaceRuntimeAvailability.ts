@@ -302,6 +302,7 @@ export function useWorkspaceRuntimeAvailability(input: {
         const next = await api.readCollaborationCanvasBindingRuntimeAvailability(binding);
         if (!active) return;
         if (!next) {
+          if (invalidationVersion !== refreshVersion) return;
           setRemoteState({ kind: "error", message: "collaboration_runtime_availability_missing" });
         } else if (
           next.state.kind === "initialized" &&
@@ -315,21 +316,24 @@ export function useWorkspaceRuntimeAvailability(input: {
           setRemoteState({ kind: "error", message: "collaboration_runtime_scope_mismatch" });
         } else {
           const authoritativeRevision = runtimeRevision(next);
+          const requiredRevision = Math.max(targetRevision, pendingRevision);
+          if (
+            invalidationVersion !== refreshVersion &&
+            (pendingRefresh || authoritativeRevision < pendingRevision)
+          ) {
+            return;
+          }
           runtimeHighWater = Math.max(runtimeHighWater, authoritativeRevision);
           if (pendingRevision <= runtimeHighWater) pendingRevision = 0;
           setRemoteState({ kind: "ready", identity: currentIdentity, availability: next });
-          if (
-            recovering &&
-            authoritativeRevision >= targetRevision &&
-            refreshVersion === invalidationVersion
-          ) {
+          if (recovering && !pendingRefresh && authoritativeRevision >= requiredRevision) {
             recovering = false;
-          } else if (authoritativeRevision < targetRevision) {
+          } else if (authoritativeRevision < requiredRevision) {
             recovering = true;
           }
         }
       } catch (caught) {
-        if (active) {
+        if (active && invalidationVersion === refreshVersion) {
           recovering = true;
           setRemoteState({ kind: "error", message: errorMessage(caught) });
         }

@@ -118,9 +118,6 @@ export type CollaborationCanvasCommandFacadeDeps = {
   resolveCanvasBinding: (
     input: RemoteCollaborationCanvasBindingInput
   ) => Promise<ResolvedCollaborationCanvasBinding | null>;
-  resolveCanvasScope: (
-    input: RemoteCollaborationCanvasBindingInput
-  ) => Promise<CollaborationCanvasScopeResolution | null>;
   resolveAuthorityId: () => string | null;
   store: CanvasReplicaStore;
   snapshotCache?: { flush(): Promise<void> };
@@ -295,14 +292,12 @@ export class CollaborationCanvasCommandFacade {
   private readonly worker: CanvasReplicaCommandWorker;
   private readonly resolveClient: () => CanvasCommandClientPort | null;
   private readonly resolveCanvasBinding: CollaborationCanvasCommandFacadeDeps["resolveCanvasBinding"];
-  private readonly resolveCanvasScope: CollaborationCanvasCommandFacadeDeps["resolveCanvasScope"];
   private readonly resolveAuthorityId: () => string | null;
   private readonly snapshotCache: CollaborationCanvasCommandFacadeDeps["snapshotCache"];
 
   constructor(deps: CollaborationCanvasCommandFacadeDeps) {
     this.resolveClient = deps.resolveClient;
     this.resolveCanvasBinding = deps.resolveCanvasBinding;
-    this.resolveCanvasScope = deps.resolveCanvasScope;
     this.resolveAuthorityId = deps.resolveAuthorityId;
     this.snapshotCache = deps.snapshotCache;
     this.store = deps.store;
@@ -395,20 +390,11 @@ export class CollaborationCanvasCommandFacade {
         retryable: false
       });
     }
-    const remoteScope = await this.resolveCanvasScope(parsed);
-    if (
-      !remoteScope ||
-      remoteScope.projectId !== resolved.remoteProjectId ||
-      remoteScope.canvasId !== resolved.remoteCanvasId
-    ) {
-      this.unbindCurrent(client);
-      throw new CollaborationClientError({
-        kind: "aborted",
-        code: "collaboration_canvas_scope_unmapped",
-        message: "collaboration_canvas_scope_unmapped",
-        retryable: false
-      });
-    }
+    const remoteScope: CollaborationCanvasScopeResolution = {
+      workspaceId: resolved.workspaceId,
+      projectId: resolved.remoteProjectId,
+      canvasId: resolved.remoteCanvasId
+    };
 
     // Drop the previous binding immediately so a failed rebind cannot leave the
     // facade pointing at a cleared scope.

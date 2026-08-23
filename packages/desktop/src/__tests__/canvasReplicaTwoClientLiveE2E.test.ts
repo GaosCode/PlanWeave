@@ -117,11 +117,6 @@ describe("authoritative workspace canvas two-client live E2E", () => {
             remoteProjectId: requested.projectId,
             remoteCanvasId: requested.canvasId
           }),
-          resolveCanvasScope: async (requested) => ({
-            workspaceId: requested.workspaceId,
-            projectId: requested.projectId,
-            canvasId: requested.canvasId
-          }),
           resolveAuthorityId: () => workspaceRemoteAuthorityId(authorityKey),
           store: new CanvasReplicaStore((projection) => projections.push(projection))
         });

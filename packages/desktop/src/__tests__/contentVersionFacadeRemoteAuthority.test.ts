@@ -356,7 +356,12 @@ describe("ContentVersionFacade remote authority", () => {
     const fake = fakeClient();
     const facade = new ContentVersionFacade(() => fake.client);
 
-    await expect(facade.readRuntimeAvailability(binding)).resolves.toEqual(availability);
+    const resolvedScope = await facade.resolveCanvasScope(binding);
+    if (!resolvedScope) throw new Error("expected resolved scope");
+    await expect(facade.readResolvedRuntimeAvailability(resolvedScope)).resolves.toEqual(
+      availability
+    );
+    expect(fake.calls.listCanvases).toHaveBeenCalledOnce();
     await expect(
       facade.resetRuntime(binding, {
         operationId: "reset-1",
@@ -371,5 +376,6 @@ describe("ContentVersionFacade remote authority", () => {
       binding.canvasId,
       expect.objectContaining({ expectedContentRevision: 9 })
     );
+    expect(fake.calls.listCanvases).toHaveBeenCalledTimes(2);
   });
 });

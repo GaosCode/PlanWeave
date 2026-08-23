@@ -479,12 +479,14 @@ describe("CanvasRuntimeAvailabilityCoordinator", () => {
   };
 
   function setup(
-    initialAvailability: Awaited<ReturnType<CanvasRuntimeContentPort["readRuntimeAvailability"]>>,
+    initialAvailability: Awaited<
+      ReturnType<CanvasRuntimeContentPort["readResolvedRuntimeAvailability"]>
+    >,
     isOnline: () => boolean = () => true
   ) {
     const content: CanvasRuntimeContentPort = {
       resolveCanvasScope: vi.fn(async () => scope),
-      readRuntimeAvailability: vi.fn(async () => initialAvailability),
+      readResolvedRuntimeAvailability: vi.fn(async () => initialAvailability),
       resetRuntime: vi.fn(async () => ({
         type: "canvas.runtime.reset.rejected" as const,
         operationId: "reset-1",
@@ -555,7 +557,7 @@ describe("CanvasRuntimeAvailabilityCoordinator", () => {
     let online = true;
     let resolveAvailability!: (value: typeof available) => void;
     const fixture = setup(available, () => online);
-    vi.mocked(fixture.content.readRuntimeAvailability).mockImplementation(
+    vi.mocked(fixture.content.readResolvedRuntimeAvailability).mockImplementation(
       () =>
         new Promise((resolve) => {
           resolveAvailability = resolve;
@@ -567,7 +569,7 @@ describe("CanvasRuntimeAvailabilityCoordinator", () => {
       ...scope
     });
     await vi.waitFor(() => {
-      expect(fixture.content.readRuntimeAvailability).toHaveBeenCalledTimes(1);
+      expect(fixture.content.readResolvedRuntimeAvailability).toHaveBeenCalledTimes(1);
     });
     online = false;
     resolveAvailability(available);
@@ -598,7 +600,7 @@ describe("CanvasRuntimeAvailabilityCoordinator", () => {
     resolveScope(scope);
 
     await expect(pending).resolves.toBeNull();
-    expect(fixture.content.readRuntimeAvailability).not.toHaveBeenCalled();
+    expect(fixture.content.readResolvedRuntimeAvailability).not.toHaveBeenCalled();
     expect(fixture.replicas.setRuntimeStatus).toHaveBeenCalledWith(
       { authorityId: "authority-1", ...scope },
       null
@@ -616,7 +618,7 @@ describe("CanvasRuntimeAvailabilityCoordinator", () => {
       })
     ).rejects.toMatchObject({ code: "workspace_canvas_remote_binding_required" });
     expect(fixture.content.resolveCanvasScope).not.toHaveBeenCalled();
-    expect(fixture.content.readRuntimeAvailability).not.toHaveBeenCalled();
+    expect(fixture.content.readResolvedRuntimeAvailability).not.toHaveBeenCalled();
   });
 
   it("returns reset success only after reading the higher authoritative projection", async () => {
@@ -650,10 +652,7 @@ describe("CanvasRuntimeAvailabilityCoordinator", () => {
       { kind: "remote", ...scope },
       expect.objectContaining({ operationId: "reset-1" })
     );
-    expect(fixture.content.readRuntimeAvailability).toHaveBeenCalledWith({
-      kind: "remote",
-      ...scope
-    });
+    expect(fixture.content.readResolvedRuntimeAvailability).toHaveBeenCalledWith(scope);
     expect(fixture.replicas.setRuntimeStatus).toHaveBeenCalledWith(
       { authorityId: "authority-1", ...scope },
       status
