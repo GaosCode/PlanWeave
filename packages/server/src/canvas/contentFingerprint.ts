@@ -1,20 +1,15 @@
 import { decodeCanvasReplicaDocument, projectCanvasReplicaDocument } from "@planweave-ai/runtime";
+import { canvasRuntimeContentTargetSchema } from "@planweave-ai/collaboration-protocol/content/version";
 import type { ContentAuthorityStore } from "./contentAuthorityStore.js";
 
-export function readStableCanvasContentFingerprint(
+export function readStableCanvasRuntimeContentTarget(
   contentVersions: ContentAuthorityStore,
   scope: { workspaceId: string; projectId: string; canvasId: string }
-): string | undefined {
+) {
   const head = contentVersions.head(scope);
-  if (!head) return undefined;
+  if (!head) throw new Error("canvas_content_head_missing");
   const authoritative = contentVersions.readVersion(scope, head.content);
-  if (
-    authoritative.completed.versionId !== head.content.versionId ||
-    authoritative.content.canonicalDigest !== head.content.canonicalDigest
-  ) {
-    throw new Error("canvas_content_head_mismatch");
-  }
-  const fingerprint = projectCanvasReplicaDocument(
+  const graphFingerprint = projectCanvasReplicaDocument(
     decodeCanvasReplicaDocument(authoritative.content)
   ).packageFingerprint;
   const currentHead = contentVersions.head(scope);
@@ -24,7 +19,24 @@ export function readStableCanvasContentFingerprint(
     currentHead.content.versionId !== head.content.versionId ||
     currentHead.content.canonicalDigest !== head.content.canonicalDigest
   ) {
-    return undefined;
+    throw new Error("canvas_content_head_changed");
   }
-  return fingerprint;
+  return canvasRuntimeContentTargetSchema.parse({
+    revision: head.revision,
+    content: head.content,
+    graphFingerprint
+  });
+}
+
+export function readStableCanvasContentFingerprint(
+  contentVersions: ContentAuthorityStore,
+  scope: { workspaceId: string; projectId: string; canvasId: string }
+): string | undefined {
+  if (!contentVersions.head(scope)) return undefined;
+  try {
+    return readStableCanvasRuntimeContentTarget(contentVersions, scope).graphFingerprint;
+  } catch (error) {
+    if (error instanceof Error && error.message === "canvas_content_head_changed") return undefined;
+    throw error;
+  }
 }

@@ -15,6 +15,7 @@ import type {
 } from "./runtimePort.js";
 import { WorkRuntimeUnavailableError } from "./runtimePort.js";
 import { factsLease } from "./runtimeFactsAdapters.js";
+import type { CanvasRuntimeContentTarget } from "@planweave-ai/collaboration-protocol/content/version";
 
 const contentDriftErrorCodes = new Set([
   "runtime_canvas_not_found",
@@ -30,7 +31,10 @@ const contentDriftErrorCodes = new Set([
 export class RemoteHostWorkRuntimeFactsAdapter implements WorkRuntimePackageFactsPort {
   constructor(
     private readonly locator: CanvasRuntimeHostLocator,
-    private readonly broker: CanvasRuntimeRpcBroker
+    private readonly broker: CanvasRuntimeRpcBroker,
+    private readonly contentTargets: {
+      read(scope: WorkRuntimeFactsRequest["scope"]): CanvasRuntimeContentTarget;
+    }
   ) {}
 
   async acquireFacts(input: WorkRuntimeFactsRequest): Promise<WorkRuntimeFactsLease | undefined> {
@@ -53,6 +57,7 @@ export class RemoteHostWorkRuntimeFactsAdapter implements WorkRuntimePackageFact
         input.scope,
         {
           operation: "resolve_work_items",
+          contentTarget: this.contentTargets.read(input.scope),
           input: canvasRuntimeJsonValueSchema.parse(request)
         },
         this.broker.attachmentVersion(located.hostId)

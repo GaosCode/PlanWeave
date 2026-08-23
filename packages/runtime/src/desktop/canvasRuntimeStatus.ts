@@ -4,13 +4,15 @@ import {
 } from "@planweave-ai/collaboration-protocol/canvas/status";
 import { loadPlanGraphPackage } from "../plangraph/index.js";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
+import { resolvePackageWorkspace } from "../package/loadPackage.js";
+import type { PackageWorkspaceRef } from "../types.js";
 import {
   loadDesktopGraphViewModelContext,
   type DesktopGraphViewModelContext
 } from "./graph/readModel.js";
 
 export type ReadAuthorizedCanvasRuntimeStatusInput = {
-  projectRoot: string;
+  projectRoot: PackageWorkspaceRef;
   canvasId: string;
   expectedPackageDir: string;
   scope: CanvasRuntimeStatusProjection["scope"];
@@ -25,7 +27,10 @@ export type ReadAuthorizedCanvasRuntimeStatusInput = {
 export async function readAuthorizedCanvasRuntimeStatus(
   input: ReadAuthorizedCanvasRuntimeStatusInput
 ): Promise<CanvasRuntimeStatusProjection> {
-  const workspace = await resolveTaskCanvasWorkspace(input.projectRoot, input.canvasId);
+  const workspace =
+    typeof input.projectRoot === "string"
+      ? await resolveTaskCanvasWorkspace(input.projectRoot, input.canvasId)
+      : await resolvePackageWorkspace(input.projectRoot);
   if (workspace.packageDir !== input.expectedPackageDir) {
     throw new Error("runtime_package_location_mismatch");
   }

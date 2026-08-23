@@ -29,6 +29,15 @@ const scope = canvasScopeRefSchema.parse({
   projectId: "project-remote-adapter",
   canvasId: "default"
 });
+const runtimeContentTarget = {
+  revision: 1,
+  content: {
+    versionId: `version-${"c".repeat(64)}`,
+    canonicalDigest: "c".repeat(64),
+    verification: "complete" as const
+  },
+  graphFingerprint: `pkg-${"a".repeat(64)}`
+};
 
 afterEach(() => {
   for (const database of databases.splice(0)) database.close();
@@ -76,11 +85,12 @@ async function setup() {
       broker.isActive(lease.hostId) &&
       broker.attachmentVersion(lease.hostId) === lease.attachmentVersion
   });
-  const adapter = new RemoteHostCanvasRuntimeAdapter(locator, broker, {
+  const contentTargets = { read: () => runtimeContentTarget };
+  const adapter = new RemoteHostCanvasRuntimeAdapter(locator, broker, contentTargets, {
     grants,
     artifacts: new ArtifactStore(database, "/not-observed", 1024 * 1024)
   });
-  const factsAdapter = new RemoteHostWorkRuntimeFactsAdapter(locator, broker);
+  const factsAdapter = new RemoteHostWorkRuntimeFactsAdapter(locator, broker, contentTargets);
   return {
     adapter,
     factsAdapter,
@@ -171,6 +181,7 @@ describe("RemoteHostCanvasRuntimeAdapter", () => {
     const command = commandAt(fixture.deliveries, 0);
     expect(command.operation).toEqual({
       operation: "resolve_work_items",
+      contentTarget: runtimeContentTarget,
       input: { workItems }
     });
     const graphFingerprint = `pkg-${"a".repeat(64)}`;
@@ -228,6 +239,10 @@ describe("RemoteHostCanvasRuntimeAdapter", () => {
 
     const pending = router.readAvailability(scope, "2026-08-20T00:00:00.000Z");
     const command = commandAt(fixture.deliveries, 0);
+    expect(command.operation).toMatchObject({
+      operation: "availability",
+      contentTarget: runtimeContentTarget
+    });
     const graphFingerprint = `pkg-${"a".repeat(64)}`;
     respond(fixture.broker, fixture.host.id, command, {
       outcome: "success",
@@ -258,6 +273,10 @@ describe("RemoteHostCanvasRuntimeAdapter", () => {
     const fixture = await setup();
     const acquiring = fixture.adapter.acquire(scope);
     const acquireCommand = commandAt(fixture.deliveries, 0);
+    expect(acquireCommand.operation).toMatchObject({
+      operation: "acquire",
+      contentTarget: runtimeContentTarget
+    });
     respond(fixture.broker, fixture.host.id, acquireCommand, {
       outcome: "success",
       operation: "acquire",

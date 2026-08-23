@@ -4,9 +4,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CANVAS_RUNTIME_CAPABILITY } from "@planweave-ai/agent-host-protocol";
+import { canvasRuntimeContentTargetSchema } from "../../../collaboration-protocol/src/contentVersion.js";
+import { canvasScopeRefSchema } from "../../../collaboration-protocol/src/primitives.js";
 import {
   AgentHostClient,
   CanvasRuntimeArtifactTransfer,
+  CanvasRuntimeContentTransfer,
   CanvasRuntimeService,
   openAgentHostState,
   type AgentHostExecutor,
@@ -19,11 +22,15 @@ import {
 import {
   remoteBlockClaimInputSchema,
   remoteBlockRefIdentitySchema,
+  captureAuthorizedCanvasContent,
+  readAuthorizedCanvasRuntimeStatus,
   type PlanPackageManifest
 } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ArtifactStore } from "../../../server/src/artifacts.js";
 import { handleCanvasRuntimeArtifactRequest } from "../../../server/src/canvas/runtimeArtifactHttp.js";
+import { ContentVersionRepository } from "../../../server/src/canvas/contentVersionRepository.js";
+import { handleCanvasRuntimeContentRequest } from "../../../server/src/canvas/runtimeContentHttp.js";
 import { RuntimeArtifactGrantRepository } from "../../../server/src/canvas/runtimeArtifactGrantRepository.js";
 import { CanvasRuntimeHostLocator } from "../../../server/src/canvas/runtimeHostLocator.js";
 import { RemoteHostCanvasRuntimeAdapter } from "../../../server/src/canvas/remoteHostRuntimeAdapter.js";
@@ -38,11 +45,11 @@ import {
 } from "../../../server/src/wsServer.js";
 import { loopbackHttpTransportAdmission } from "../../../server/src/__tests__/support/transportAdmission.js";
 
-const scope = {
+const scope = canvasScopeRefSchema.parse({
   workspaceId: "workspace-runtime-loopback",
   projectId: "project-runtime-loopback",
   canvasId: "default"
-};
+});
 const directories: string[] = [];
 const servers: PlanweaveServer[] = [];
 const httpServers: HttpServer[] = [];
@@ -153,6 +160,7 @@ async function setup() {
     broker,
     projectAccess
   );
+  const contentVersions = new ContentVersionRepository(server.database);
   const grants = new RuntimeArtifactGrantRepository(server.database, {
     maxArtifactBytes: artifacts.maxArtifactBytes,
     leaseActive: (lease) => {
@@ -170,18 +178,27 @@ async function setup() {
     }
   });
   const hostRegistration = coordination.hosts.register("Canvas Runtime Loopback Host");
+  coordination.hosts.bindToWorkspace(hostRegistration.host.id, scope.workspaceId);
   const httpServer = createServer((request, response) => {
-    void handleCanvasRuntimeArtifactRequest(request, response, {
-      hosts: coordination.hosts,
-      grants,
-      artifacts,
-      transportAdmission: loopbackHttpTransportAdmission
-    }).then((handled) => {
-      if (!handled) {
+    void (async () => {
+      const contentHandled = await handleCanvasRuntimeContentRequest(request, response, {
+        hosts: coordination.hosts,
+        locator,
+        contentVersions,
+        transportAdmission: loopbackHttpTransportAdmission
+      });
+      if (contentHandled) return;
+      const artifactHandled = await handleCanvasRuntimeArtifactRequest(request, response, {
+        hosts: coordination.hosts,
+        grants,
+        artifacts,
+        transportAdmission: loopbackHttpTransportAdmission
+      });
+      if (!artifactHandled) {
         response.writeHead(404);
         response.end();
       }
-    });
+    })();
   });
   httpServers.push(httpServer);
   const transport = attachAgentHostWebSocketServer({
@@ -209,6 +226,33 @@ async function setup() {
     hostId: hostRegistration.host.id,
     token: hostRegistration.token
   });
+  const contentTransfer = new CanvasRuntimeContentTransfer({
+    baseUrl: new URL(origin),
+    hostId: hostRegistration.host.id,
+    token: hostRegistration.token
+  });
+  const runtimeStatus = await readAuthorizedCanvasRuntimeStatus({
+    projectRoot: workspace.init.workspace,
+    canvasId: scope.canvasId,
+    expectedPackageDir: workspace.init.workspace.packageDir,
+    scope
+  });
+  const captured = await captureAuthorizedCanvasContent({
+    projectRoot: workspace.init.workspace,
+    canvasId: scope.canvasId,
+    expectedPackageDir: workspace.init.workspace.packageDir,
+    authorityProjectId: scope.projectId
+  });
+  const published = contentVersions.publishInitial({
+    scope,
+    content: captured.content,
+    createdBy: { kind: "system", id: "runtime-loopback" }
+  });
+  const contentTarget = canvasRuntimeContentTargetSchema.parse({
+    revision: published.head.revision,
+    content: published.head.content,
+    graphFingerprint: runtimeStatus.packageFingerprint
+  });
   const canvasRuntime = new CanvasRuntimeService({
     resolver: {
       configured: () => true,
@@ -227,7 +271,8 @@ async function setup() {
     },
     receipts: hostState.canvasRuntime,
     capabilities: [CANVAS_RUNTIME_CAPABILITY],
-    artifactTransfer: transfer
+    artifactTransfer: transfer,
+    contentTransfer
   });
   const executor: AgentHostExecutor = { execute: vi.fn() };
   const client = new AgentHostClient({
@@ -252,10 +297,21 @@ async function setup() {
   client.start();
   await waitUntil(() => broker.isActive(hostRegistration.host.id));
   return {
-    adapter: new RemoteHostCanvasRuntimeAdapter(locator, broker, { grants, artifacts }),
+    adapter: new RemoteHostCanvasRuntimeAdapter(
+      locator,
+      broker,
+      { read: () => contentTarget },
+      {
+        grants,
+        artifacts
+      }
+    ),
     artifacts,
     grants,
     hostRegistration,
+    contentTarget,
+    contentVersions,
+    coordination,
     origin,
     server,
     workspace
@@ -347,5 +403,56 @@ describe("Canvas Runtime artifact loopback", () => {
     expect(uploaded.artifactRef).toBe(report.ref);
     expect(await fixture.artifacts.read(report.ref)).toEqual(reportBytes);
     await secondLease.release();
+  });
+
+  it("protects authoritative content downloads by Host credential, scope, binding, and head", async () => {
+    const fixture = await setup();
+    const contentPath =
+      `${fixture.origin}/agent-hosts/${fixture.hostRegistration.host.id}/canvas-runtime/content/` +
+      `${scope.projectId}/${scope.canvasId}/${fixture.contentTarget.content.versionId}`;
+    const contentUrl = new URL(contentPath);
+    contentUrl.searchParams.set("workspaceId", scope.workspaceId);
+    contentUrl.searchParams.set("canonicalDigest", fixture.contentTarget.content.canonicalDigest);
+
+    const badToken = await fetch(contentUrl, {
+      headers: { Authorization: `Bearer pw_host_${"x".repeat(43)}` }
+    });
+    expect(badToken.status).toBe(401);
+    expect(await badToken.json()).toEqual({ error: "runtime_content_unauthorized" });
+
+    const wrongWorkspace = new URL(contentUrl);
+    wrongWorkspace.searchParams.set("workspaceId", "workspace-other");
+    const crossScope = await fetch(wrongWorkspace, {
+      headers: { Authorization: `Bearer ${fixture.hostRegistration.token}` }
+    });
+    expect(crossScope.status).toBe(401);
+    expect(await crossScope.json()).toEqual({ error: "runtime_content_unauthorized" });
+
+    const staleTarget = new URL(contentUrl);
+    staleTarget.searchParams.set("canonicalDigest", "f".repeat(64));
+    const stale = await fetch(staleTarget, {
+      headers: { Authorization: `Bearer ${fixture.hostRegistration.token}` }
+    });
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toEqual({ error: "runtime_content_target_stale" });
+
+    vi.spyOn(fixture.contentVersions, "head").mockImplementationOnce(() => {
+      throw new Error("simulated_repository_failure");
+    });
+    const internalFailure = await fetch(contentUrl, {
+      headers: { Authorization: `Bearer ${fixture.hostRegistration.token}` }
+    });
+    expect(internalFailure.status).toBe(500);
+    expect(await internalFailure.json()).toEqual({ error: "runtime_content_internal_error" });
+
+    fixture.coordination.hosts.runtimeBindings.synchronizeReadiness(
+      fixture.hostRegistration.host.id,
+      []
+    );
+    const unbound = await fetch(contentUrl, {
+      headers: { Authorization: `Bearer ${fixture.hostRegistration.token}` }
+    });
+    expect(unbound.status).toBe(403);
+    expect(await unbound.json()).toEqual({ error: "runtime_content_scope_forbidden" });
   });
 });

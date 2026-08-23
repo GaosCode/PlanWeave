@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
+import { access, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
   CANVAS_RUNTIME_CAPABILITY,
   canvasRuntimeArtifactTransferInputSchema,
@@ -6,6 +8,7 @@ import {
   canvasRuntimeResetResultSchema,
   canvasRuntimeResponsePayloadSchema,
   type CanvasRuntimeCancelCommand,
+  type CanvasRuntimeLogicalScope,
   type CanvasRuntimeRequestCommand,
   type CanvasRuntimeResponsePayload
 } from "@planweave-ai/agent-host-protocol";
@@ -25,10 +28,17 @@ import {
   remoteBlockRetryAttemptInputSchema,
   remoteBlockArtifactReadInputSchema,
   RemoteBlockRuntimeError,
+  materializeAuthoritativeCanvasWorkspace,
+  recoverPendingAuthoritativeCanvasMaterialization,
+  withAuthoritativeCanvasWorkspaceLock,
   resetRuntimeState
 } from "@planweave-ai/runtime";
 import { ZodError } from "zod";
 import { canvasScopeRefSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
+import {
+  canvasRuntimeContentTargetSchema,
+  type CanvasRuntimeContentTarget
+} from "@planweave-ai/collaboration-protocol/content/version";
 import type {
   CanvasRuntimeLeaseRecord,
   CanvasRuntimeResetResolution,
@@ -41,6 +51,7 @@ import {
 } from "./canvasRuntimeResolver.js";
 import type { CanvasRuntimeArtifactTransferPort } from "../artifacts/canvasRuntimeArtifactTransfer.js";
 import { resolveCanvasRuntimeWorkItems } from "./canvasRuntimeWorkItemFacts.js";
+import type { CanvasRuntimeContentTransferPort } from "./canvasRuntimeContentTransfer.js";
 
 type CanvasRuntimeCommand = CanvasRuntimeRequestCommand | CanvasRuntimeCancelCommand;
 type ResponseOperation = CanvasRuntimeResponsePayload["response"]["operation"];
@@ -70,6 +81,18 @@ function scopeMatches(command: CanvasRuntimeCommand, lease: CanvasRuntimeLeaseRe
   );
 }
 
+function contentTargetMatches(
+  left: CanvasRuntimeContentTarget | undefined,
+  right: CanvasRuntimeContentTarget
+): boolean {
+  return (
+    left?.revision === right.revision &&
+    left.content.versionId === right.content.versionId &&
+    left.content.canonicalDigest === right.content.canonicalDigest &&
+    left.graphFingerprint === right.graphFingerprint
+  );
+}
+
 function errorCode(error: unknown): CanvasRuntimeServiceError {
   if (error instanceof CanvasRuntimeServiceError) return error;
   if (error instanceof CanvasRuntimeResolutionError) {
@@ -90,12 +113,14 @@ export type CanvasRuntimeServiceOptions = {
   receipts: CanvasRuntimeRpcRepository;
   capabilities: readonly string[];
   artifactTransfer: CanvasRuntimeArtifactTransferPort;
+  contentTransfer: CanvasRuntimeContentTransferPort;
   now?: () => Date;
   leaseDurationMs?: number;
 };
 
 export class CanvasRuntimeService {
   private readonly active = new Map<string, ActiveRequest>();
+  private readonly materializationLocks = new Map<string, Promise<void>>();
   private readonly localNow: () => Date;
   private readonly leaseDurationMs: number;
   private serverClockOffsetMs = 0;
@@ -111,6 +136,7 @@ export class CanvasRuntimeService {
 
   updateCredentialToken(token: string): void {
     this.options.artifactTransfer.updateCredentialToken(token);
+    this.options.contentTransfer.updateCredentialToken(token);
   }
 
   synchronizeServerTime(serverTime: string, localNow = this.localNow()): void {
@@ -254,19 +280,160 @@ export class CanvasRuntimeService {
     }
     const resolved = await this.options.resolver.resolve(command.scope);
     this.assertOpen(command, active);
-    switch (command.operation.operation) {
-      case "availability":
+    const operation = command.operation;
+    if (operation.operation === "availability") {
+      const target = canvasRuntimeContentTargetSchema.parse(operation.contentTarget);
+      return this.withMaterializationLock(command.scope, resolved, async () => {
+        await this.ensureMaterialized(command, resolved, target, active);
         return this.availability(resolved);
-      case "resolve_work_items":
-        return resolveCanvasRuntimeWorkItems(resolved, command.operation.input);
-      case "acquire":
+      });
+    }
+    if (operation.operation === "resolve_work_items") {
+      const target = canvasRuntimeContentTargetSchema.parse(operation.contentTarget);
+      return this.withMaterializationLock(command.scope, resolved, async () => {
+        await this.ensureMaterialized(command, resolved, target, active);
+        return resolveCanvasRuntimeWorkItems(resolved, operation.input);
+      });
+    }
+    if (operation.operation === "acquire") {
+      const target = canvasRuntimeContentTargetSchema.parse(operation.contentTarget);
+      return this.withMaterializationLock(command.scope, resolved, async () => {
+        await this.ensureMaterialized(command, resolved, target, active);
         return this.acquire(command, resolved);
+      });
+    }
+    switch (operation.operation) {
       case "release": {
-        this.requireLease(command, command.operation.runtimeLeaseId, true);
-        return { released: this.options.receipts.releaseLease(command.operation.runtimeLeaseId) };
+        const { runtimeLeaseId } = operation;
+        return this.withScopeLane(command.scope, async () => {
+          this.requireLease(command, runtimeLeaseId, true);
+          return {
+            released: this.options.receipts.releaseLease(runtimeLeaseId)
+          };
+        });
       }
       default:
-        return this.executeLeased(command, resolved, active);
+        return this.withScopeLane(command.scope, () =>
+          this.executeLeased(command, resolved, active)
+        );
+    }
+  }
+
+  private async ensureMaterialized(
+    command: CanvasRuntimeRequestCommand,
+    resolved: ResolvedCanvasRuntime,
+    target: CanvasRuntimeContentTarget,
+    active: ActiveRequest
+  ): Promise<void> {
+    await recoverPendingAuthoritativeCanvasMaterialization(resolved.canvas);
+    const receiptFile = join(resolved.canvas.workspaceRoot, "authority-content-target.json");
+    const materializedTarget = await this.readMaterializedContentTarget(receiptFile);
+    let currentFingerprint: string | undefined;
+    let manifestExists = true;
+    try {
+      await access(resolved.canvas.manifestFile);
+    } catch (error) {
+      if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ENOENT") {
+        throw error;
+      }
+      manifestExists = false;
+    }
+    if (manifestExists) {
+      currentFingerprint = (await this.availability(resolved)).graphFingerprint;
+    }
+    if (
+      !contentTargetMatches(materializedTarget, target) ||
+      currentFingerprint !== target.graphFingerprint
+    ) {
+      const hasLiveLease = this.options.receipts
+        .activeLeases(command.scope)
+        .some((lease) => Date.parse(lease.expiresAt) > this.now().getTime());
+      if (hasLiveLease) throw new CanvasRuntimeServiceError("content_out_of_sync");
+      const authoritative = await this.options.contentTransfer.fetch(
+        command.scope,
+        target,
+        active.controller.signal
+      );
+      this.assertOpen(command, active);
+      await materializeAuthoritativeCanvasWorkspace({
+        workspace: resolved.canvas,
+        authorityProjectId: command.scope.projectId,
+        content: authoritative.content
+      });
+      await this.writeMaterializedContentTarget(receiptFile, target);
+    }
+    const materialized = await this.availability(resolved);
+    if (
+      materialized.graphFingerprint !== target.graphFingerprint ||
+      materialized.status.packageFingerprint !== target.graphFingerprint
+    ) {
+      throw new CanvasRuntimeServiceError("content_out_of_sync");
+    }
+  }
+
+  private async readMaterializedContentTarget(
+    path: string
+  ): Promise<CanvasRuntimeContentTarget | undefined> {
+    try {
+      return canvasRuntimeContentTargetSchema.parse(JSON.parse(await readFile(path, "utf8")));
+    } catch (error) {
+      if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+        return undefined;
+      }
+      throw error;
+    }
+  }
+
+  private async writeMaterializedContentTarget(
+    path: string,
+    target: CanvasRuntimeContentTarget
+  ): Promise<void> {
+    const temporary = `${path}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporary, `${JSON.stringify(target, null, 2)}\n`, {
+        encoding: "utf8",
+        flag: "wx",
+        mode: 0o600
+      });
+      await rename(temporary, path);
+    } finally {
+      await rm(temporary, { force: true });
+    }
+  }
+
+  private async withMaterializationLock<T>(
+    scope: CanvasRuntimeLogicalScope,
+    resolved: ResolvedCanvasRuntime,
+    operation: () => Promise<T>
+  ): Promise<T> {
+    return this.withScopeLane(scope, () =>
+      withAuthoritativeCanvasWorkspaceLock(resolved.canvas, operation)
+    );
+  }
+
+  private async withScopeLane<T>(
+    scope: CanvasRuntimeLogicalScope,
+    operation: () => Promise<T>
+  ): Promise<T> {
+    const key = `${scope.workspaceId}\u0000${scope.projectId}\u0000${scope.canvasId}`;
+    const previous = this.materializationLocks.get(key) ?? Promise.resolve();
+    let release: (() => void) | undefined;
+    const turn = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const current = previous.then(
+      () => turn,
+      () => turn
+    );
+    this.materializationLocks.set(key, current);
+    await previous.catch(() => undefined);
+    try {
+      return await operation();
+    } finally {
+      release?.();
+      if (this.materializationLocks.get(key) === current) {
+        this.materializationLocks.delete(key);
+      }
     }
   }
 
@@ -274,7 +441,7 @@ export class CanvasRuntimeService {
     const [{ snapshot }, status] = await Promise.all([
       capturePackageSnapshot({ projectRoot: resolved.canvas }),
       readAuthorizedCanvasRuntimeStatus({
-        projectRoot: resolved.project.rootPath,
+        projectRoot: resolved.canvas,
         canvasId: resolved.scope.canvasId,
         expectedPackageDir: resolved.canvas.packageDir,
         scope: canvasScopeRefSchema.parse(resolved.scope)

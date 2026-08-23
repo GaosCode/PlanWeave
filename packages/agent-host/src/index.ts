@@ -83,6 +83,10 @@ export {
 } from "./runtime/canvasRuntimeService.js";
 export { resolveCanvasRuntimeWorkItems } from "./runtime/canvasRuntimeWorkItemFacts.js";
 export {
+  CanvasRuntimeContentTransfer,
+  type CanvasRuntimeContentTransferPort
+} from "./runtime/canvasRuntimeContentTransfer.js";
+export {
   CanvasRuntimeArtifactTransfer,
   type CanvasRuntimeArtifactTransferOptions,
   type CanvasRuntimeArtifactTransferPort

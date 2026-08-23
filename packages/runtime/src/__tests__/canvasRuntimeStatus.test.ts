@@ -70,6 +70,27 @@ describe("authorized canvas runtime status", () => {
     ).rejects.toThrow("runtime_package_location_mismatch");
   });
 
+  it("reads an explicit managed workspace without resolving its source cwd", async () => {
+    const fixture = await createTestWorkspace();
+    directories.push(fixture.home, fixture.root);
+    const explicitWorkspace = {
+      ...fixture.init.workspace,
+      rootPath: "/source-cwd-must-not-be-resolved",
+      sourceRoot: "/source-cwd-must-not-be-resolved"
+    };
+
+    await expect(
+      readAuthorizedCanvasRuntimeStatus({
+        projectRoot: explicitWorkspace,
+        canvasId: "default",
+        expectedPackageDir: explicitWorkspace.packageDir,
+        scope: { workspaceId: "w", projectId: "p", canvasId: "default" }
+      })
+    ).resolves.toMatchObject({
+      scope: { workspaceId: "w", projectId: "p", canvasId: "default" }
+    });
+  });
+
   it("keeps runtime status and package fingerprint on one captured graph snapshot", async () => {
     const fixture = await createTestWorkspace();
     directories.push(fixture.home, fixture.root);

@@ -28,6 +28,15 @@ const evidence = {
   sourceRevision: "revision-a",
   graphFingerprint: `pkg-${"a".repeat(64)}`
 };
+const contentTarget = {
+  revision: 1,
+  content: {
+    versionId: `version-${"c".repeat(64)}`,
+    canonicalDigest: "c".repeat(64),
+    verification: "complete"
+  },
+  graphFingerprint: evidence.graphFingerprint
+};
 
 function request(operation: Record<string, unknown>) {
   return {
@@ -82,15 +91,17 @@ describe("Canvas Runtime control protocol", () => {
       "fail"
     ] as const;
     const commands = [
-      request({ operation: "availability" }),
+      request({ operation: "availability", contentTarget }),
       request({
         operation: "resolve_work_items",
+        contentTarget,
         input: {
           workItems: [{ kind: "task", canvasId: scope.canvasId, taskId: "task-a" }]
         }
       }),
       request({
         operation: "acquire",
+        contentTarget,
         expectedEvidence: {
           sourceRevision: evidence.sourceRevision,
           graphFingerprint: evidence.graphFingerprint

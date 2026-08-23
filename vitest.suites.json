@@ -684,6 +684,7 @@
       "root": "packages/agent-host/src/__tests__",
       "unit": [
         "agentHostPackage.test.ts",
+        "canvasRuntimeContentTransfer.test.ts",
         "protocolConformance.test.ts",
         "reconnectBackoff.test.ts"
       ],

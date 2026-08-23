@@ -24,6 +24,7 @@ import type {
 } from "../canvas/executionRuntimePort.js";
 import type { CanvasRuntimeAttachment } from "../canvas/collaborationComposition.js";
 import type { CanvasRuntimeRpcBroker } from "../canvas/runtimeRpcBroker.js";
+import type { CanvasRuntimeHostLocator } from "../canvas/runtimeHostLocator.js";
 
 type Coordination = Awaited<ReturnType<typeof startRemoteBlockCoordinationServer>>["coordination"];
 type HttpListenerOptions = Omit<
@@ -49,6 +50,7 @@ export async function createTransportComposition(
       hasConflictingLease(scope: RuntimeCanvasScope): boolean;
     };
     runtimeRpc: CanvasRuntimeRpcBroker;
+    runtimeHostLocator: CanvasRuntimeHostLocator;
     workspaceIdentity: WorkspaceIdentityRepository;
     projectAccess: ProjectAccessRepository;
     humanIdentity: HumanIdentityRepository;
@@ -159,6 +161,7 @@ export async function createTransportComposition(
     artifactAuthorization: input.artifactAuthorization,
     artifacts: input.artifacts,
     runtimeArtifactGrants: input.runtimeArtifactGrants,
+    runtimeHostLocator: input.runtimeHostLocator,
     humanMembership: input.humanMembership,
     commentAttachments: input.commentAttachments,
     operatorControl,

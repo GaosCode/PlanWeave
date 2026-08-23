@@ -135,16 +135,20 @@ function requireMatchingField(
   }
 }
 
-const availabilityOperationSchema = z.object({ operation: z.literal("availability") }).strict();
+const availabilityOperationSchema = z
+  .object({ operation: z.literal("availability"), contentTarget: canvasRuntimeJsonValueSchema })
+  .strict();
 const resolveWorkItemsOperationSchema = z
   .object({
     operation: z.literal("resolve_work_items"),
+    contentTarget: canvasRuntimeJsonValueSchema,
     input: canvasRuntimeJsonValueSchema
   })
   .strict();
 const acquireOperationSchema = z
   .object({
     operation: z.literal("acquire"),
+    contentTarget: canvasRuntimeJsonValueSchema,
     expectedEvidence: canvasRuntimeSourceEvidenceSchema.omit({ operationId: true }).optional()
   })
   .strict();

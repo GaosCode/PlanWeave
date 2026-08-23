@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -242,15 +242,45 @@ describe("Agent Host configuration", () => {
       ]
     });
     const resolver = new ConfiguredCanvasRuntimeResolver(config);
-    await expect(
-      resolver.resolve({
-        workspaceId: "workspace-a",
-        projectId: first.project.id,
-        canvasId: "default"
-      })
-    ).resolves.toMatchObject({
+    const scope = {
+      workspaceId: "workspace-a",
+      projectId: first.project.id,
+      canvasId: "default"
+    };
+    const localManifestBefore = await readFile(first.workspace.manifestFile, "utf8");
+    const resolved = await resolver.resolve(scope);
+    expect(resolved).toMatchObject({
       scope: { workspaceId: "workspace-a", projectId: first.project.id, canvasId: "default" }
     });
+    expect(resolved.project.rootPath).toBe(await realpath(first.workspace.rootPath));
+    expect(resolved.canvas.workspaceRoot).toBe(
+      join(
+        await realpath(config.dataDirectory),
+        "runtime-canvases",
+        "workspace-a",
+        first.project.id,
+        "default"
+      )
+    );
+    expect(resolved.canvas.packageDir).toBe(join(resolved.canvas.workspaceRoot, "package"));
+    expect(await readFile(first.workspace.manifestFile, "utf8")).toBe(localManifestBefore);
+
+    const preservedState = `${JSON.stringify({ marker: "state-preserved" })}\n`;
+    const preservedResult = join(resolved.canvas.resultsDir, "preserved.txt");
+    await writeFile(resolved.canvas.stateFile, preservedState, "utf8");
+    await writeFile(preservedResult, "result-preserved\n", "utf8");
+    const resolvedAgain = await resolver.resolve(scope);
+    expect(await readFile(resolvedAgain.canvas.stateFile, "utf8")).toBe(preservedState);
+    expect(await readFile(preservedResult, "utf8")).toBe("result-preserved\n");
+    expect(await readFile(first.workspace.manifestFile, "utf8")).toBe(localManifestBefore);
+
+    await expect(
+      resolver.resolve({ ...scope, canvasId: "../../../../outside-runtime-canvases" })
+    ).rejects.toThrow("runtime_project_escape");
+    await rm(resolved.canvas.workspaceRoot, { recursive: true, force: true });
+    await symlink(first.workspace.workspaceRoot, resolved.canvas.workspaceRoot);
+    await expect(resolver.resolve(scope)).rejects.toThrow("runtime_project_escape");
+    expect(await readFile(first.workspace.manifestFile, "utf8")).toBe(localManifestBefore);
     await expect(
       resolver.resolve({
         workspaceId: "workspace-b",

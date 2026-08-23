@@ -381,13 +381,28 @@ describe("CanvasRuntimeCommandCoordinator", () => {
     const deliveries: MailboxMessage[] = [];
     mailbox.subscribe(host.id, (message) => deliveries.push(message));
     const locator = new CanvasRuntimeHostLocator(hosts.runtimeBindings, hosts, broker, test.access);
-    const remote = new RemoteHostCanvasRuntimeAdapter(locator, broker, {
-      grants: new RuntimeArtifactGrantRepository(test.database, {
-        maxArtifactBytes: 1_024,
-        leaseActive: () => true
-      }),
-      artifacts: new ArtifactStore(test.database, "/not-observed", 1_024)
-    });
+    const remote = new RemoteHostCanvasRuntimeAdapter(
+      locator,
+      broker,
+      {
+        read: () => ({
+          revision: 1,
+          content: {
+            versionId: `version-${"c".repeat(64)}`,
+            canonicalDigest: "c".repeat(64),
+            verification: "complete"
+          },
+          graphFingerprint: test.fingerprint
+        })
+      },
+      {
+        grants: new RuntimeArtifactGrantRepository(test.database, {
+          maxArtifactBytes: 1_024,
+          leaseActive: () => true
+        }),
+        artifacts: new ArtifactStore(test.database, "/not-observed", 1_024)
+      }
+    );
     const router = new LocalFirstCanvasRuntimeRouter(
       {
         readAvailability: async () => {

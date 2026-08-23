@@ -52,6 +52,7 @@ import { CanvasRuntimeHostLocator } from "./runtimeHostLocator.js";
 import { CanvasRuntimeRpcBroker, CanvasRuntimeRpcError } from "./runtimeRpcBroker.js";
 import type { ArtifactStore } from "../artifacts.js";
 import type { RuntimeArtifactGrantRepository } from "./runtimeArtifactGrantRepository.js";
+import type { CanvasRuntimeContentTarget } from "@planweave-ai/collaboration-protocol/content/version";
 
 type RuntimeResponse = CanvasRuntimeResponsePayload["response"];
 
@@ -102,6 +103,9 @@ export class RemoteHostCanvasRuntimeAdapter
   constructor(
     private readonly locator: CanvasRuntimeHostLocator,
     private readonly broker: CanvasRuntimeRpcBroker,
+    private readonly contentTargets: {
+      read(scope: RuntimeCanvasScope): CanvasRuntimeContentTarget;
+    },
     private readonly artifactDataPlane: {
       grants: RuntimeArtifactGrantRepository;
       artifacts: ArtifactStore;
@@ -135,7 +139,8 @@ export class RemoteHostCanvasRuntimeAdapter
       });
     }
     const response = await this.broker.request(located.hostId, scope, {
-      operation: "availability"
+      operation: "availability",
+      contentTarget: this.contentTargets.read(scope)
     });
     if (response.outcome === "error") throw responseError(response);
     if (response.operation !== "availability") {
@@ -159,7 +164,10 @@ export class RemoteHostCanvasRuntimeAdapter
     const response = await this.broker.request(
       located.hostId,
       scope,
-      { operation: "acquire" },
+      {
+        operation: "acquire",
+        contentTarget: this.contentTargets.read(scope)
+      },
       attachmentVersion
     );
     if (response.outcome === "error") throw responseError(response);

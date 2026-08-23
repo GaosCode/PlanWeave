@@ -56,6 +56,7 @@ import { RuntimeArtifactGrantRepository } from "./canvas/runtimeArtifactGrantRep
 import { AuthoritativeExecutionRuntimeAdapter } from "./canvas/authoritativeExecutionRuntimeAdapter.js";
 import { ContentVersionRepository } from "./canvas/contentVersionRepository.js";
 import { readStableCanvasContentFingerprint } from "./canvas/contentFingerprint.js";
+import { readStableCanvasRuntimeContentTarget } from "./canvas/contentFingerprint.js";
 import { createInvalidatingCanvasRuntimeStatusRepository } from "./canvas/runtimeStatusInvalidation.js";
 
 export type DistributedServerCompositionOptions = {
@@ -208,14 +209,24 @@ export async function createDistributedServerComposition(
       }
     });
     runtimeArtifactGrants.revokeActiveAfterRestart();
-    const remoteCanvasRuntime = new RemoteHostCanvasRuntimeAdapter(runtimeHostLocator, runtimeRpc, {
-      grants: runtimeArtifactGrants,
-      artifacts: initializedActivity.artifactStore
-    });
+    const contentVersions = new ContentVersionRepository(server.database, clock);
+    const runtimeContentTargets = {
+      read: (scope: { workspaceId: string; projectId: string; canvasId: string }) =>
+        readStableCanvasRuntimeContentTarget(contentVersions, scope)
+    };
+    const remoteCanvasRuntime = new RemoteHostCanvasRuntimeAdapter(
+      runtimeHostLocator,
+      runtimeRpc,
+      runtimeContentTargets,
+      {
+        grants: runtimeArtifactGrants,
+        artifacts: initializedActivity.artifactStore
+      }
+    );
     collaborationRuntime.attachRemote(remoteCanvasRuntime);
     executionRuntime.attachRemote(remoteCanvasRuntime);
     workRuntimeFacts.attachRemote(
-      new RemoteHostWorkRuntimeFactsAdapter(runtimeHostLocator, runtimeRpc)
+      new RemoteHostWorkRuntimeFactsAdapter(runtimeHostLocator, runtimeRpc, runtimeContentTargets)
     );
     const identityServices = createIdentityServices({
       database: server.database,
@@ -273,6 +284,7 @@ export async function createDistributedServerComposition(
         hasConflictingLease: (scope) => runtimeArtifactGrants.hasActiveLease(scope)
       },
       runtimeRpc,
+      runtimeHostLocator,
       workspaceIdentity,
       projectAccess,
       humanIdentity,

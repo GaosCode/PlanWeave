@@ -6,11 +6,17 @@ import { getProjectOverview, listProjects, removeProject } from "./projectApi.js
 import { layoutPathForWorkspace, parseDesktopLayoutForPackage } from "./layoutStore.js";
 import { validateAuthoritativeCanvasContent } from "./contentVersionValidation.js";
 import { ImportTransaction } from "../package/importTransaction.js";
+import {
+  listPendingImportTransactions,
+  rollbackPendingImportTransaction
+} from "../package/importRecovery.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { resolvePackagePath } from "../package/resolvePackagePath.js";
 import { authoritativeImportReservationFile, initManagedWorkspace } from "../initWorkspace.js";
 import { resolvePlanweaveHome } from "../paths.js";
 import { createManagedProjectId } from "../projectId.js";
+import type { ProjectWorkspace } from "../types.js";
+import { withCanvasLock } from "../fs/withCanvasLock.js";
 import type { DesktopProjectSummary } from "./types.js";
 import {
   managedContentImportModeSchema,
@@ -92,12 +98,64 @@ export async function materializeAuthoritativeCanvasContent(input: {
   authorityProjectId?: string;
   content: CompleteContentVersion;
 }): Promise<void> {
-  const validated = validateAuthoritativeCanvasContent(input.content);
-  const content = validated.content;
+  const content = validateAuthoritativeCanvasContent(input.content).content;
   const workspace = await resolveTaskCanvasWorkspace(input.projectRoot, input.canvasId);
   if (input.expectedPackageDir && workspace.packageDir !== input.expectedPackageDir) {
     throw fail("runtime_package_location_mismatch");
   }
+  await materializeAuthoritativeCanvasWorkspace({
+    workspace,
+    authorityProjectId: input.authorityProjectId,
+    content
+  });
+}
+
+/**
+ * Atomically replaces authoritative package and layout content in an explicitly
+ * resolved canvas workspace while preserving its runtime state and results.
+ */
+export async function materializeAuthoritativeCanvasWorkspace(input: {
+  workspace: ProjectWorkspace;
+  authorityProjectId?: string;
+  content: CompleteContentVersion;
+}): Promise<void> {
+  return withAuthoritativeCanvasWorkspaceLock(input.workspace, async () => {
+    await recoverPendingAuthoritativeCanvasMaterialization(input.workspace);
+    await materializeAuthoritativeCanvasWorkspaceUnlocked(input);
+  });
+}
+
+/** Serializes Server-authority reads and replacements with every Runtime canvas mutation. */
+export async function withAuthoritativeCanvasWorkspaceLock<T>(
+  workspace: ProjectWorkspace,
+  operation: () => Promise<T>
+): Promise<T> {
+  return withCanvasLock(nodePath.dirname(workspace.stateFile), operation, {
+    operation: "workspace-authority-materialization"
+  });
+}
+
+/** Restores the last committed package/layout pair before any authority fast-path check. */
+export async function recoverPendingAuthoritativeCanvasMaterialization(
+  workspace: ProjectWorkspace
+): Promise<void> {
+  const pendingTransactions = await listPendingImportTransactions(workspace.workspaceRoot);
+  for (const pending of pendingTransactions) {
+    await rollbackPendingImportTransaction({
+      workspaceRoot: workspace.workspaceRoot,
+      transactionId: pending.transactionId
+    });
+  }
+}
+
+async function materializeAuthoritativeCanvasWorkspaceUnlocked(input: {
+  workspace: ProjectWorkspace;
+  authorityProjectId?: string;
+  content: CompleteContentVersion;
+}): Promise<void> {
+  const validated = validateAuthoritativeCanvasContent(input.content);
+  const content = validated.content;
+  const { workspace } = input;
   const packageMembers = content.members.filter((member) => member.kind !== "desktop_layout");
   const staging = await mkdtemp(join(dirname(workspace.packageDir), ".planweave-content-version-"));
   const transaction = await ImportTransaction.create({ workspaceRoot: workspace.workspaceRoot });

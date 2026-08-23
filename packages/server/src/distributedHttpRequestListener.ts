@@ -4,6 +4,8 @@ import { handleAgentEndpointHttpRequest } from "./agentEndpointHttp.js";
 import type { AgentEndpointCatalog } from "./agentEndpointCatalog.js";
 import { handleAgentHostArtifactRequest } from "./artifactHttp.js";
 import { handleCanvasRuntimeArtifactRequest } from "./canvas/runtimeArtifactHttp.js";
+import { handleCanvasRuntimeContentRequest } from "./canvas/runtimeContentHttp.js";
+import type { CanvasRuntimeHostLocator } from "./canvas/runtimeHostLocator.js";
 import type { RuntimeArtifactGrantRepository } from "./canvas/runtimeArtifactGrantRepository.js";
 import type { ArtifactAuthorizationRepository } from "./artifactAuthorization.js";
 import type { ArtifactStore } from "./artifacts.js";
@@ -86,6 +88,7 @@ export type DistributedHttpRequestListenerOptions = {
   artifactAuthorization: ArtifactAuthorizationRepository;
   artifacts: ArtifactStore;
   runtimeArtifactGrants: RuntimeArtifactGrantRepository;
+  runtimeHostLocator: CanvasRuntimeHostLocator;
   humanMembership: HumanMembershipService;
   commentAttachments: CommentAttachmentService;
   operatorControl: OperatorControlPort;
@@ -257,6 +260,15 @@ export function createDistributedHttpRequestListener(
         await handleSetupCodeHttpRequest(request, response, {
           service: options.setupCodes,
           authorization: options.authorization,
+          transportAdmission: options.transportAdmission
+        })
+      )
+        return;
+      if (
+        await handleCanvasRuntimeContentRequest(request, response, {
+          hosts: options.hosts,
+          locator: options.runtimeHostLocator,
+          contentVersions: options.contentVersions,
           transportAdmission: options.transportAdmission
         })
       )

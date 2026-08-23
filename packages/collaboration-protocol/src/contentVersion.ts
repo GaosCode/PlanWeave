@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { canvasRuntimePackageFingerprintSchema } from "./runtimeStatus.js";
 import {
   CONTENT_VERSION_MAX_MEMBER_BYTES,
   CONTENT_VERSION_MAX_MEMBERS,
@@ -244,6 +245,16 @@ export const authoritativeContentHeadSchema = z
   })
   .strict();
 export type AuthoritativeContentHead = z.infer<typeof authoritativeContentHeadSchema>;
+
+/** Immutable Server authority that a Runtime Host must materialize before reading Runtime facts. */
+export const canvasRuntimeContentTargetSchema = z
+  .object({
+    revision: contentVersionRevisionSchema,
+    content: completedContentVersionRefSchema,
+    graphFingerprint: canvasRuntimePackageFingerprintSchema
+  })
+  .strict();
+export type CanvasRuntimeContentTarget = z.infer<typeof canvasRuntimeContentTargetSchema>;
 
 /** Journal records can only point at a completed immutable content object. */
 export const contentVersionJournalEntrySchema = z

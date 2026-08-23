@@ -1,9 +1,12 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CANVAS_RUNTIME_CAPABILITY } from "@planweave-ai/agent-host-protocol";
 import {
   createRemoteBlockRuntimePort,
+  captureAuthorizedCanvasContent,
+  capturePackageSnapshot,
+  readAuthorizedCanvasRuntimeStatus,
   readRuntimeResetReceipt,
   resetRuntimeState,
   type ProjectWorkspace
@@ -13,6 +16,7 @@ import {
   basicManifest,
   createTestWorkspace
 } from "../../../runtime/src/__tests__/promptTestHelpers.js";
+import { ImportTransaction } from "../../../runtime/src/package/importTransaction.js";
 import type {
   CanvasRuntimeResolverPort,
   ResolvedCanvasRuntime
@@ -47,19 +51,44 @@ const artifactTransfer = {
   download: vi.fn(async () => new Uint8Array([1])),
   upload: vi.fn(async () => {})
 };
+const contentTransfer = {
+  updateCredentialToken: vi.fn(),
+  fetch: vi.fn(async () => {
+    throw new Error("unexpected_content_transfer");
+  })
+};
+
+function contentTarget(fingerprint = graphFingerprint) {
+  const canonicalDigest = "c".repeat(64);
+  return {
+    revision: 1,
+    content: {
+      versionId: `version-${canonicalDigest}`,
+      canonicalDigest,
+      verification: "complete" as const
+    },
+    graphFingerprint: fingerprint
+  };
+}
 
 function request(
   requestId: string,
   operation: Record<string, unknown> = { operation: "availability" },
   deadline = "2099-01-01T00:00:00.000Z"
 ) {
+  const materializingOperation =
+    operation.operation === "availability" ||
+    operation.operation === "resolve_work_items" ||
+    operation.operation === "acquire"
+      ? { ...operation, contentTarget: operation.contentTarget ?? contentTarget() }
+      : operation;
   return {
     type: "canvas_runtime.request" as const,
     protocolVersion: 1 as const,
     requestId,
     scope,
     deadline,
-    operation
+    operation: materializingOperation
   };
 }
 
@@ -133,7 +162,318 @@ function createLease(state: AgentHostState, runtimeLeaseId = "runtime-lease-1") 
   });
 }
 
+async function writeContentTargetReceipt(
+  workspace: ProjectWorkspace,
+  target: ReturnType<typeof contentTarget>
+): Promise<void> {
+  await writeFile(
+    join(workspace.workspaceRoot, "authority-content-target.json"),
+    `${JSON.stringify(target, null, 2)}\n`,
+    "utf8"
+  );
+}
+
 describe("Canvas Runtime Host service", () => {
+  it("materializes Server content only into the resolved managed canvas", async () => {
+    const { state } = await setup();
+    const source = await createTestWorkspace(basicManifest());
+    const managed = await createTestWorkspace(basicManifest());
+    const authority = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
+    directories.push(
+      source.home,
+      source.root,
+      managed.home,
+      managed.root,
+      authority.home,
+      authority.root
+    );
+    const sourceBefore = await capturePackageSnapshot({ projectRoot: source.init.workspace });
+    const stateBefore = await readFile(managed.init.workspace.stateFile, "utf8");
+    const preservedResult = join(managed.init.workspace.resultsDir, "preserved.txt");
+    await writeFile(preservedResult, "preserved-result\n", "utf8");
+    const captured = await captureAuthorizedCanvasContent({
+      projectRoot: authority.init.workspace,
+      authorityProjectId: scope.projectId
+    });
+    const authoritativeStatus = await readAuthorizedCanvasRuntimeStatus({
+      projectRoot: authority.init.workspace,
+      canvasId: scope.canvasId,
+      expectedPackageDir: authority.init.workspace.packageDir,
+      scope
+    });
+    const target = contentTarget(authoritativeStatus.packageFingerprint);
+    target.content.canonicalDigest = captured.content.canonicalDigest;
+    target.content.versionId = `version-${captured.content.canonicalDigest}`;
+    let transferContent = captured.content;
+    let transferCompleted = target.content;
+    let releaseFetch: (() => void) | undefined;
+    const fetchStarted = new Promise<void>((resolve) => {
+      releaseFetch = resolve;
+    });
+    let allowFetchToFinish: (() => void) | undefined;
+    const fetchCanFinish = new Promise<void>((resolve) => {
+      allowFetchToFinish = resolve;
+    });
+    const transfer = {
+      updateCredentialToken: vi.fn(),
+      fetch: vi.fn(async () => {
+        releaseFetch?.();
+        await fetchCanFinish;
+        return {
+          schemaVersion: "content-version/v1" as const,
+          scope,
+          content: transferContent,
+          completed: transferCompleted,
+          createdAt: "2030-01-01T00:00:00.000Z",
+          createdBy: { kind: "system" as const, id: "server" }
+        };
+      })
+    };
+    const service = new CanvasRuntimeService({
+      resolver: resolverWith(async () => ({
+        scope,
+        project: source.init.workspace,
+        canvas: managed.init.workspace
+      })),
+      receipts: state.canvasRuntime,
+      capabilities: [CANVAS_RUNTIME_CAPABILITY],
+      artifactTransfer,
+      contentTransfer: transfer
+    });
+    const secondService = new CanvasRuntimeService({
+      resolver: resolverWith(async () => ({
+        scope,
+        project: source.init.workspace,
+        canvas: managed.init.workspace
+      })),
+      receipts: state.canvasRuntime,
+      capabilities: [CANVAS_RUNTIME_CAPABILITY],
+      artifactTransfer,
+      contentTransfer: transfer
+    });
+    const command = request("request-managed-materialization", {
+      operation: "availability",
+      contentTarget: target
+    });
+    const concurrent = request("request-managed-materialization-concurrent", {
+      operation: "availability",
+      contentTarget: target
+    });
+    state.receive(delivery(1, command));
+    state.receive(delivery(2, concurrent));
+    const first = service.handle(command);
+    const second = secondService.handle(concurrent);
+    await fetchStarted;
+    expect(transfer.fetch).toHaveBeenCalledOnce();
+    allowFetchToFinish?.();
+    await Promise.all([first, second]);
+
+    expect(response(state, command.requestId)).toMatchObject({
+      response: {
+        outcome: "success",
+        operation: "availability",
+        result: { graphFingerprint: authoritativeStatus.packageFingerprint }
+      }
+    });
+    expect(response(state, concurrent.requestId)).toMatchObject({
+      response: {
+        outcome: "success",
+        operation: "availability",
+        result: { graphFingerprint: authoritativeStatus.packageFingerprint }
+      }
+    });
+    expect(transfer.fetch).toHaveBeenCalledOnce();
+    expect(await capturePackageSnapshot({ projectRoot: source.init.workspace })).toEqual(
+      sourceBefore
+    );
+    expect(await readFile(managed.init.workspace.stateFile, "utf8")).toBe(stateBefore);
+    expect(await readFile(preservedResult, "utf8")).toBe("preserved-result\n");
+    await expect(
+      readAuthorizedCanvasRuntimeStatus({
+        projectRoot: managed.init.workspace,
+        canvasId: scope.canvasId,
+        expectedPackageDir: managed.init.workspace.packageDir,
+        scope
+      })
+    ).resolves.toMatchObject({ packageFingerprint: authoritativeStatus.packageFingerprint });
+
+    const authorityLayoutDirectory = join(authority.init.workspace.workspaceRoot, "desktop");
+    await mkdir(authorityLayoutDirectory, { recursive: true });
+    await writeFile(
+      join(authorityLayoutDirectory, "layout.json"),
+      `${JSON.stringify(
+        {
+          version: "desktop-layout/v1",
+          projectId: authority.init.workspace.id,
+          nodes: [],
+          updatedAt: "2031-01-01T00:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    const layoutOnlyUpdate = await captureAuthorizedCanvasContent({
+      projectRoot: authority.init.workspace,
+      authorityProjectId: scope.projectId
+    });
+    const layoutOnlyTarget = contentTarget(authoritativeStatus.packageFingerprint);
+    layoutOnlyTarget.revision = 2;
+    layoutOnlyTarget.content.canonicalDigest = layoutOnlyUpdate.content.canonicalDigest;
+    layoutOnlyTarget.content.versionId = `version-${layoutOnlyUpdate.content.canonicalDigest}`;
+    expect(layoutOnlyTarget.graphFingerprint).toBe(target.graphFingerprint);
+    expect(layoutOnlyTarget.content.canonicalDigest).not.toBe(target.content.canonicalDigest);
+    transferContent = layoutOnlyUpdate.content;
+    transferCompleted = layoutOnlyTarget.content;
+    const layoutOnlyCommand = request("request-managed-layout-only-materialization", {
+      operation: "availability",
+      contentTarget: layoutOnlyTarget
+    });
+    state.receive(delivery(3, layoutOnlyCommand));
+    await service.handle(layoutOnlyCommand);
+
+    expect(response(state, layoutOnlyCommand.requestId)).toMatchObject({
+      response: { outcome: "success", operation: "availability" }
+    });
+    expect(transfer.fetch).toHaveBeenCalledTimes(2);
+    await expect(
+      readFile(join(managed.init.workspace.workspaceRoot, "desktop/layout.json"), "utf8")
+    ).resolves.toContain("2031-01-01T00:00:00.000Z");
+  });
+
+  it("refuses to replace managed content while a live Runtime lease exists", async () => {
+    const { state } = await setup();
+    const workspace = await createTestWorkspace(basicManifest());
+    directories.push(workspace.home, workspace.root);
+    const transfer = {
+      updateCredentialToken: vi.fn(),
+      fetch: vi.fn(async () => {
+        throw new Error("unexpected_content_transfer");
+      })
+    };
+    const service = new CanvasRuntimeService({
+      resolver: resolverWith(async () => ({
+        scope,
+        project: workspace.init.workspace,
+        canvas: workspace.init.workspace
+      })),
+      receipts: state.canvasRuntime,
+      capabilities: [CANVAS_RUNTIME_CAPABILITY],
+      artifactTransfer,
+      contentTransfer: transfer
+    });
+    createLease(state);
+    const command = request("request-materialization-with-live-lease", {
+      operation: "availability",
+      contentTarget: contentTarget(`pkg-${"d".repeat(64)}`)
+    });
+    state.receive(delivery(1, command));
+    await service.handle(command);
+
+    expect(response(state, command.requestId)).toMatchObject({
+      response: { outcome: "error", error: { code: "content_out_of_sync" } }
+    });
+    expect(transfer.fetch).not.toHaveBeenCalled();
+  });
+
+  it("recovers an interrupted layout replacement before trusting a matching receipt", async () => {
+    const { state } = await setup();
+    const workspace = await createTestWorkspace(basicManifest());
+    directories.push(workspace.home, workspace.root);
+    const status = await readAuthorizedCanvasRuntimeStatus({
+      projectRoot: workspace.init.workspace,
+      canvasId: scope.canvasId,
+      expectedPackageDir: workspace.init.workspace.packageDir,
+      scope
+    });
+    const target = contentTarget(status.packageFingerprint);
+    await writeContentTargetReceipt(workspace.init.workspace, target);
+    const layoutPath = join(workspace.init.workspace.workspaceRoot, "desktop", "layout.json");
+    await mkdir(join(workspace.init.workspace.workspaceRoot, "desktop"), { recursive: true });
+    await writeFile(
+      layoutPath,
+      `${JSON.stringify(
+        {
+          version: "desktop-layout/v1",
+          projectId: workspace.init.workspace.id,
+          nodes: [],
+          updatedAt: "2026-01-01T00:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    const originalLayout = await readFile(layoutPath, "utf8");
+    const interruptedLayout = join(
+      workspace.init.workspace.workspaceRoot,
+      "interrupted-layout.json"
+    );
+    await writeFile(interruptedLayout, originalLayout.replace("2026-01-01", "2039-01-01"), "utf8");
+    const transaction = await ImportTransaction.create({
+      workspaceRoot: workspace.init.workspace.workspaceRoot,
+      transactionId: "interrupted-layout-fast-path"
+    });
+    await transaction.replacePath(layoutPath, interruptedLayout);
+    expect(await readFile(layoutPath, "utf8")).not.toBe(originalLayout);
+
+    const transfer = {
+      updateCredentialToken: vi.fn(),
+      fetch: vi.fn(async () => {
+        throw new Error("unexpected_content_transfer");
+      })
+    };
+    const service = new CanvasRuntimeService({
+      resolver: resolverWith(async () => ({
+        scope,
+        project: workspace.init.workspace,
+        canvas: workspace.init.workspace
+      })),
+      receipts: state.canvasRuntime,
+      capabilities: [CANVAS_RUNTIME_CAPABILITY],
+      artifactTransfer,
+      contentTransfer: transfer
+    });
+    const command = request("request-recover-layout-fast-path", {
+      operation: "availability",
+      contentTarget: target
+    });
+    state.receive(delivery(1, command));
+    await service.handle(command);
+
+    expect(response(state, command.requestId)).toMatchObject({
+      response: { outcome: "success", operation: "availability" }
+    });
+    expect(await readFile(layoutPath, "utf8")).toBe(originalLayout);
+    expect(transfer.fetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed materialization targets before reading Runtime facts", async () => {
+    const { state } = await setup();
+    const resolve = vi.fn(async () => {
+      const workspace = unusedWorkspace();
+      return { scope, project: workspace, canvas: workspace };
+    });
+    const service = new CanvasRuntimeService({
+      resolver: resolverWith(resolve),
+      receipts: state.canvasRuntime,
+      capabilities: [CANVAS_RUNTIME_CAPABILITY],
+      artifactTransfer,
+      contentTransfer
+    });
+    const command = request("request-malformed-content-target", {
+      operation: "availability",
+      contentTarget: { revision: "not-a-revision" }
+    });
+    state.receive(delivery(1, command));
+    await service.handle(command);
+
+    expect(response(state, command.requestId)).toMatchObject({
+      response: { outcome: "error", error: { code: "invalid_operation_input" } }
+    });
+    expect(resolve).toHaveBeenCalledOnce();
+  });
+
   it("dispatches bounded work facts without creating an execution lease", async () => {
     const { state } = await setup();
     const workspace = await createTestWorkspace(basicManifest());
@@ -147,11 +487,19 @@ describe("Canvas Runtime Host service", () => {
       resolver: resolverWith(resolve),
       receipts: state.canvasRuntime,
       capabilities: [CANVAS_RUNTIME_CAPABILITY],
-      artifactTransfer
+      artifactTransfer,
+      contentTransfer
     });
     const createRuntimeLease = vi.spyOn(state.canvasRuntime, "createLease");
+    const status = await readAuthorizedCanvasRuntimeStatus({
+      projectRoot: workspace.init.workspace.rootPath,
+      canvasId: scope.canvasId,
+      expectedPackageDir: workspace.init.workspace.packageDir,
+      scope
+    });
     const command = request("request-work-facts", {
       operation: "resolve_work_items",
+      contentTarget: contentTarget(status.packageFingerprint),
       input: {
         workItems: [
           { kind: "task", canvasId: scope.canvasId, taskId: "T-001" },
@@ -159,6 +507,10 @@ describe("Canvas Runtime Host service", () => {
         ]
       }
     });
+    await writeContentTargetReceipt(
+      workspace.init.workspace,
+      contentTarget(status.packageFingerprint)
+    );
     state.receive(delivery(1, command));
     await service.handle(command);
 
@@ -195,7 +547,8 @@ describe("Canvas Runtime Host service", () => {
       })),
       receipts: state.canvasRuntime,
       capabilities: [CANVAS_RUNTIME_CAPABILITY],
-      artifactTransfer
+      artifactTransfer,
+      contentTransfer
     });
     createLease(state);
     const candidate = await createRemoteBlockRuntimePort({
@@ -235,7 +588,8 @@ describe("Canvas Runtime Host service", () => {
       resolver,
       receipts: state.canvasRuntime,
       capabilities: [],
-      artifactTransfer
+      artifactTransfer,
+      contentTransfer
     }).handle(capabilityRequest);
     expect(response(state, "request-capability")).toMatchObject({
       response: { outcome: "error", error: { code: "capability_not_negotiated" } }
@@ -251,7 +605,8 @@ describe("Canvas Runtime Host service", () => {
       resolver,
       receipts: state.canvasRuntime,
       capabilities: [CANVAS_RUNTIME_CAPABILITY],
-      artifactTransfer
+      artifactTransfer,
+      contentTransfer
     }).handle(deadlineRequest);
     expect(response(state, "request-deadline")).toMatchObject({
       response: { outcome: "error", error: { code: "deadline_exceeded" } }
@@ -268,6 +623,7 @@ describe("Canvas Runtime Host service", () => {
       receipts: state.canvasRuntime,
       capabilities: [CANVAS_RUNTIME_CAPABILITY],
       artifactTransfer,
+      contentTransfer,
       now: () => new Date("2026-01-01T00:00:00.000Z")
     });
     skewedService.synchronizeServerTime(
@@ -301,7 +657,8 @@ describe("Canvas Runtime Host service", () => {
       resolver,
       receipts: state.canvasRuntime,
       capabilities: [CANVAS_RUNTIME_CAPABILITY],
-      artifactTransfer
+      artifactTransfer,
+      contentTransfer
     });
     const target = request("request-target");
     const cancellation = cancel("request-cancel", "request-target");
@@ -332,7 +689,8 @@ describe("Canvas Runtime Host service", () => {
       resolver: resolverWith(() => blocked),
       receipts: state.canvasRuntime,
       capabilities: [CANVAS_RUNTIME_CAPABILITY],
-      artifactTransfer
+      artifactTransfer,
+      contentTransfer
     });
     const target = request("request-disconnect");
     state.receive(delivery(1, target));
@@ -354,7 +712,8 @@ describe("Canvas Runtime Host service", () => {
       resolver: resolverWith(async () => ({ scope, project: workspace, canvas: workspace })),
       receipts: state.canvasRuntime,
       capabilities: [CANVAS_RUNTIME_CAPABILITY],
-      artifactTransfer
+      artifactTransfer,
+      contentTransfer
     });
     createLease(state);
     const inspect = request("request-invalid-inspect", {
@@ -397,7 +756,8 @@ describe("Canvas Runtime Host service", () => {
       resolver: resolverWith(async () => ({ scope, project: workspace, canvas: workspace })),
       receipts: state.canvasRuntime,
       capabilities: [CANVAS_RUNTIME_CAPABILITY],
-      artifactTransfer
+      artifactTransfer,
+      contentTransfer
     });
     createLease(state);
     for (const [sequence, requestId] of [
@@ -450,7 +810,8 @@ describe("Canvas Runtime Host service", () => {
       }),
       receipts: state.canvasRuntime,
       capabilities: [CANVAS_RUNTIME_CAPABILITY],
-      artifactTransfer
+      artifactTransfer,
+      contentTransfer
     }).recover();
     expect(response(state, command.requestId)).toMatchObject({
       response: {
@@ -477,9 +838,23 @@ describe("Canvas Runtime Host service", () => {
       })),
       receipts: state.canvasRuntime,
       capabilities: [CANVAS_RUNTIME_CAPABILITY],
-      artifactTransfer
+      artifactTransfer,
+      contentTransfer
     });
-    const availabilityRequest = request("request-reset-availability");
+    const beforeReset = await readAuthorizedCanvasRuntimeStatus({
+      projectRoot: workspace.init.workspace.rootPath,
+      canvasId: scope.canvasId,
+      expectedPackageDir: workspace.init.workspace.packageDir,
+      scope
+    });
+    const availabilityRequest = request("request-reset-availability", {
+      operation: "availability",
+      contentTarget: contentTarget(beforeReset.packageFingerprint)
+    });
+    await writeContentTargetReceipt(
+      workspace.init.workspace,
+      contentTarget(beforeReset.packageFingerprint)
+    );
     state.receive(delivery(1, availabilityRequest));
     await service.handle(availabilityRequest);
     const available = response(state, availabilityRequest.requestId);
@@ -568,7 +943,8 @@ describe("Canvas Runtime Host service", () => {
       }),
       receipts: state.canvasRuntime,
       capabilities: [CANVAS_RUNTIME_CAPABILITY],
-      artifactTransfer
+      artifactTransfer,
+      contentTransfer
     }).handle(statusQuery);
     expect(response(state, statusQuery.requestId)).toMatchObject({
       response: {
@@ -595,9 +971,23 @@ describe("Canvas Runtime Host service", () => {
       resolver,
       receipts: state.canvasRuntime,
       capabilities: [CANVAS_RUNTIME_CAPABILITY],
-      artifactTransfer
+      artifactTransfer,
+      contentTransfer
     });
-    const availabilityRequest = request("request-recovery-availability");
+    const beforeRecovery = await readAuthorizedCanvasRuntimeStatus({
+      projectRoot: workspace.init.workspace.rootPath,
+      canvasId: scope.canvasId,
+      expectedPackageDir: workspace.init.workspace.packageDir,
+      scope
+    });
+    const availabilityRequest = request("request-recovery-availability", {
+      operation: "availability",
+      contentTarget: contentTarget(beforeRecovery.packageFingerprint)
+    });
+    await writeContentTargetReceipt(
+      workspace.init.workspace,
+      contentTarget(beforeRecovery.packageFingerprint)
+    );
     state.receive(delivery(1, availabilityRequest));
     await initialService.handle(availabilityRequest);
     const available = response(state, availabilityRequest.requestId);
@@ -645,7 +1035,8 @@ describe("Canvas Runtime Host service", () => {
       resolver,
       receipts: state.canvasRuntime,
       capabilities: [CANVAS_RUNTIME_CAPABILITY],
-      artifactTransfer
+      artifactTransfer,
+      contentTransfer
     }).recover();
     await vi.waitFor(() =>
       expect(response(state, reset.requestId)).toMatchObject({
@@ -677,7 +1068,8 @@ describe("Canvas Runtime Host service", () => {
       })),
       receipts: state.canvasRuntime,
       capabilities: [CANVAS_RUNTIME_CAPABILITY],
-      artifactTransfer
+      artifactTransfer,
+      contentTransfer
     });
     createLease(state, "runtime-lease-drift");
     const reset = request("request-reset-drift", {

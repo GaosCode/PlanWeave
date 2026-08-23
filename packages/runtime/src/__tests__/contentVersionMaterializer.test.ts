@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join, win32 } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   canonicalContentVersionDigestPayload,
   completeContentVersionSchema,
@@ -14,17 +14,20 @@ import {
   getDesktopLayout,
   listProjects,
   materializeAuthoritativeCanvasContent,
+  materializeAuthoritativeCanvasWorkspace,
   resolveTaskCanvasWorkspace,
   saveDesktopLayout
 } from "../index.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
 import { resolveStagedContentVersionLayoutPath } from "../desktop/contentVersionMaterializer.js";
+import { ImportTransaction } from "../package/importTransaction.js";
 
 const directories: string[] = [];
 const originalHome = process.env.PLANWEAVE_HOME;
 const originalSettingsFile = process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE;
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   if (originalHome === undefined) delete process.env.PLANWEAVE_HOME;
   else process.env.PLANWEAVE_HOME = originalHome;
   if (originalSettingsFile === undefined) delete process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE;
@@ -260,6 +263,114 @@ describe("authoritative content materializer", () => {
     await expect(getDesktopLayout(workspace.root)).resolves.toMatchObject({
       nodes: [{ nodeId: "T-001", x: 120, y: 240 }]
     });
+  });
+
+  it("materializes into an explicit workspace without replacing runtime state or results", async () => {
+    const workspace = await createTestWorkspace();
+    directories.push(workspace.home, workspace.root);
+    await saveDesktopLayout(workspace.root, {
+      version: "desktop-layout/v1",
+      projectId: workspace.init.workspace.id,
+      nodes: [{ nodeId: "T-001", x: 120, y: 240 }],
+      updatedAt: "2026-07-28T00:00:00.000Z"
+    });
+    const authoritative = await contentFromWorkspace(workspace.root);
+    const canvas = await resolveTaskCanvasWorkspace(workspace.root, "default");
+    const promptPath = join(canvas.packageDir, "nodes", "T-001", "prompt.md");
+    const resultPath = join(canvas.resultsDir, "preserved-result.json");
+    const preservedState = await readFile(canvas.stateFile, "utf8");
+    await writeFile(promptPath, "# local divergent prompt\n", "utf8");
+    await writeFile(resultPath, '{"preserved":true}\n', "utf8");
+    await saveDesktopLayout(workspace.root, {
+      version: "desktop-layout/v1",
+      projectId: workspace.init.workspace.id,
+      nodes: [{ nodeId: "T-001", x: 1, y: 2 }],
+      updatedAt: "2026-07-28T00:01:00.000Z"
+    });
+
+    await materializeAuthoritativeCanvasWorkspace({
+      workspace: canvas,
+      authorityProjectId: workspace.init.workspace.id,
+      content: authoritative
+    });
+
+    await expect(readFile(promptPath, "utf8")).resolves.toBe("# T-001 task prompt\n");
+    await expect(getDesktopLayout(workspace.root)).resolves.toMatchObject({
+      nodes: [{ nodeId: "T-001", x: 120, y: 240 }]
+    });
+    await expect(readFile(canvas.stateFile, "utf8")).resolves.toBe(preservedState);
+    await expect(readFile(resultPath, "utf8")).resolves.toBe('{"preserved":true}\n');
+  });
+
+  it("rolls back an interrupted package-layout transaction before materializing authority", async () => {
+    const local = await createTestWorkspace();
+    const authority = await createTestWorkspace();
+    directories.push(local.home, local.root, authority.home, authority.root);
+    const localCanvas = await resolveTaskCanvasWorkspace(local.root, "default");
+    const authorityCanvas = await resolveTaskCanvasWorkspace(authority.root, "default");
+    await writeFile(
+      join(authorityCanvas.packageDir, "nodes", "T-001", "prompt.md"),
+      "# Server authority after recovery\n",
+      "utf8"
+    );
+    const content = await contentFromWorkspace(authority.root);
+    const interruptedPackage = join(localCanvas.workspaceRoot, "interrupted-package");
+    await mkdir(interruptedPackage, { recursive: true });
+    await writeFile(join(interruptedPackage, "partial.txt"), "partial\n", "utf8");
+    const interrupted = await ImportTransaction.create({
+      workspaceRoot: localCanvas.workspaceRoot,
+      transactionId: "interrupted-authority-materialization"
+    });
+    await interrupted.replacePath(localCanvas.packageDir, interruptedPackage);
+
+    await materializeAuthoritativeCanvasWorkspace({
+      workspace: localCanvas,
+      authorityProjectId: authorityCanvas.id,
+      content
+    });
+
+    await expect(
+      readFile(join(localCanvas.packageDir, "nodes", "T-001", "prompt.md"), "utf8")
+    ).resolves.toBe("# Server authority after recovery\n");
+    await expect(
+      readdir(join(localCanvas.workspaceRoot, "desktop", "recovery", "package-import"))
+    ).resolves.toEqual([]);
+  });
+
+  it("rolls back explicit workspace package replacement when layout replacement fails", async () => {
+    const workspace = await createTestWorkspace();
+    directories.push(workspace.home, workspace.root);
+    const canvas = await resolveTaskCanvasWorkspace(workspace.root, "default");
+    const authoritative = await contentFromWorkspace(workspace.root);
+    const promptPath = join(canvas.packageDir, "nodes", "T-001", "prompt.md");
+    await writeFile(promptPath, "# preserve this prompt\n", "utf8");
+    await saveDesktopLayout(workspace.root, {
+      version: "desktop-layout/v1",
+      projectId: workspace.init.workspace.id,
+      nodes: [{ nodeId: "T-001", x: 9, y: 8 }],
+      updatedAt: "2026-07-28T00:02:00.000Z"
+    });
+    const layoutPath = join(canvas.workspaceRoot, "desktop", "layout.json");
+    const preservedLayout = await readFile(layoutPath, "utf8");
+    const replacePath = ImportTransaction.prototype.replacePath;
+    let replacementCount = 0;
+    vi.spyOn(ImportTransaction.prototype, "replacePath").mockImplementation(async function (
+      ...args
+    ) {
+      replacementCount += 1;
+      if (replacementCount === 2) throw new Error("layout_replace_failed");
+      return replacePath.apply(this, args);
+    });
+
+    await expect(
+      materializeAuthoritativeCanvasWorkspace({
+        workspace: canvas,
+        content: authoritative
+      })
+    ).rejects.toThrow("layout_replace_failed");
+
+    await expect(readFile(promptPath, "utf8")).resolves.toBe("# preserve this prompt\n");
+    await expect(readFile(layoutPath, "utf8")).resolves.toBe(preservedLayout);
   });
 
   it("fails closed on a member digest mismatch without replacing either local artifact", async () => {
