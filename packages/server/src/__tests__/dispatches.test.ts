@@ -323,7 +323,31 @@ describe("DispatchService (test-only thin stack)", () => {
       }
     ]);
     expect(renewed).toHaveLength(1);
-    expect(renewed[0]?.leaseExpiresAt >= previousExpiry).toBe(true);
+    expect(renewed[0]?.leaseExpiresAt).toBe(previousExpiry);
+    expect(
+      server.database
+        .prepare("SELECT COUNT(*) AS count FROM dispatch_events WHERE dispatch_id=? AND type=?")
+        .get(dispatch.id, "lease.renewed")
+    ).toEqual({ count: 0 });
+
+    const renewalTime = new Date(new Date(previousExpiry).getTime() - 30_000);
+    const activityRenewal = coordination.dispatches.renewLeaseForActivity(
+      registration.host.id,
+      {
+        dispatchId: dispatch.id,
+        leaseId: dispatch.leaseId,
+        executionAttemptId: dispatch.executionAttemptId
+      },
+      renewalTime
+    );
+    expect(activityRenewal?.leaseExpiresAt).toBe(
+      new Date(renewalTime.getTime() + 60_000).toISOString()
+    );
+    expect(
+      server.database
+        .prepare("SELECT COUNT(*) AS count FROM dispatch_events WHERE dispatch_id=? AND type=?")
+        .get(dispatch.id, "lease.renewed")
+    ).toEqual({ count: 1 });
 
     const result = {
       summary: "Block completed.",

@@ -669,12 +669,6 @@ describe("agent host WebSocket transport", () => {
       })
     );
     await expect(firstEvents.next()).resolves.toMatchObject({
-      type: "lease.renewed",
-      dispatchId: dispatch.id,
-      leaseId: dispatch.leaseId,
-      executionAttemptId: dispatch.executionAttemptId
-    });
-    await expect(firstEvents.next()).resolves.toMatchObject({
       type: "host.event_ack",
       messageId: "acp-observation-1"
     });

@@ -339,6 +339,8 @@ export class DispatchService {
     ) {
       return undefined;
     }
+    const remainingLeaseMs = new Date(dispatch.leaseExpiresAt).getTime() - now.getTime();
+    if (remainingLeaseMs > this.options.leaseDurationMs / 2) return undefined;
     const leaseExpiresAt = new Date(now.getTime() + this.options.leaseDurationMs).toISOString();
     this.database
       .prepare("UPDATE dispatches SET lease_expires_at=? WHERE id=? AND lease_id=?")
