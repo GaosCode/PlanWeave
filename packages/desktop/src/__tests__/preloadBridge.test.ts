@@ -34,6 +34,7 @@ import {
 import {
   collaborationInvokeChannels,
   collaborationObserverSignalChannel,
+  collaborationOperationDiagnosticsChangedChannel,
   collaborationStatusChangedChannel,
   workspaceCanvasProjectionSignalChannel,
   type CollaborationStatus,
@@ -1114,6 +1115,19 @@ describe("preload bridge invocation", () => {
           code: "host_offline"
         };
       }
+      if (channel === collaborationInvokeChannels.getCollaborationOperationDiagnostics) {
+        return {
+          schemaVersion: "planweave.collaboration.operations/v1",
+          capturedAt: "2026-08-24T00:00:00.000Z",
+          startup: {
+            phase: "ready",
+            startedAt: "2026-08-24T00:00:00.000Z",
+            settledAt: "2026-08-24T00:00:01.000Z",
+            errorCode: null
+          },
+          coordinationQueue: { active: null, queued: [], recent: [], depth: 0 }
+        };
+      }
       return status;
     });
 
@@ -1122,6 +1136,8 @@ describe("preload bridge invocation", () => {
     const callback = vi.fn();
 
     await api.getCollaborationStatus();
+    const operationDiagnostics = await api.getCollaborationOperationDiagnostics();
+    expect(operationDiagnostics.startup.phase).toBe("ready");
     await api.upsertCollaborationProfile({
       profileId: "profile-1",
       displayName: "Demo",
@@ -1292,6 +1308,10 @@ describe("preload bridge invocation", () => {
       digestSha256: "a".repeat(64)
     });
     const unsubscribe = api.onCollaborationStatusChanged(callback);
+    const operationDiagnosticsCallback = vi.fn();
+    const unsubscribeOperationDiagnostics = api.onCollaborationOperationDiagnosticsChanged(
+      operationDiagnosticsCallback
+    );
     const signalCallback = vi.fn();
     const unsubscribeSignal = api.onCollaborationObserverSignal(signalCallback);
     const presenceSignalCallback = vi.fn();
@@ -1326,6 +1346,7 @@ describe("preload bridge invocation", () => {
             ].includes(key)
         ),
         "onCollaborationStatusChanged",
+        "onCollaborationOperationDiagnosticsChanged",
         "onCollaborationObserverSignal",
         "onCollaborationPresenceSignal",
         "onWorkspaceCanvasProjectionSignal"
@@ -1337,6 +1358,9 @@ describe("preload bridge invocation", () => {
     );
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
       collaborationInvokeChannels.getCollaborationStatus
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      collaborationInvokeChannels.getCollaborationOperationDiagnostics
     );
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
       collaborationInvokeChannels.upsertCollaborationProfile,
@@ -1484,6 +1508,17 @@ describe("preload bridge invocation", () => {
     expect(electronMock.ipcRenderer.off).toHaveBeenCalledWith(
       collaborationStatusChangedChannel,
       statusCall?.[1]
+    );
+
+    const operationDiagnosticsCall = electronMock.ipcRenderer.on.mock.calls.find(
+      (call) => call[0] === collaborationOperationDiagnosticsChangedChannel
+    ) as [string, IpcRendererListener] | undefined;
+    operationDiagnosticsCall?.[1]({}, operationDiagnostics);
+    expect(operationDiagnosticsCallback).toHaveBeenCalledWith(operationDiagnostics);
+    unsubscribeOperationDiagnostics();
+    expect(electronMock.ipcRenderer.off).toHaveBeenCalledWith(
+      collaborationOperationDiagnosticsChangedChannel,
+      operationDiagnosticsCall?.[1]
     );
 
     const signalCall = electronMock.ipcRenderer.on.mock.calls.find(

@@ -108,6 +108,7 @@
         "collaborationConnectionErrorFormatting.test.ts",
         "collaborationCoordinationQueue.test.ts",
         "collaborationDiagnosticsVisibility.test.tsx",
+        "collaborationOperationDiagnosticsPopover.test.tsx",
         "collaborationHandlerLifecycle.test.ts",
         "collaborationIntegrationScenarios.test.tsx",
         "collaborationInvitationHandoffCoordinator.test.ts",

@@ -246,6 +246,7 @@ function GraphWorkspaceRoute() {
       setActiveView={shell.setActiveView}
       t={shell.t}
       presence={graphWorkspace.presence}
+      developerMode={shell.developerMode}
     />
   );
 }

@@ -40,10 +40,12 @@ import {
 } from "../shared/ipcChannels.js";
 import {
   type CollaborationObserverSignal,
+  type CollaborationOperationDiagnostics,
   type CollaborationPresenceSignal,
   type CollaborationStatus,
   type PlanWeaveCollaborationApi
 } from "../shared/collaboration.js";
+import { collaborationOperationDiagnosticsSchema } from "../shared/collaborationOperationDiagnostics.js";
 import {
   workspaceCanvasDownloadInputSchema,
   workspaceCanvasDownloadResultSchema,
@@ -58,6 +60,7 @@ import {
 import {
   collaborationInvokeChannels,
   collaborationObserverSignalChannel,
+  collaborationOperationDiagnosticsChangedChannel,
   workspaceCanvasProjectionSignalChannel,
   collaborationPresenceSignalChannel,
   collaborationStatusChangedChannel
@@ -249,6 +252,10 @@ contextBridge.exposeInMainWorld("planweaveMcpTunnel", mcpTunnelApi);
 const collaborationApi: PlanWeaveCollaborationApi = {
   getCollaborationStatus: async () =>
     ipcRenderer.invoke(collaborationInvokeChannels.getCollaborationStatus),
+  getCollaborationOperationDiagnostics: async () =>
+    collaborationOperationDiagnosticsSchema.parse(
+      await ipcRenderer.invoke(collaborationInvokeChannels.getCollaborationOperationDiagnostics)
+    ),
   upsertCollaborationProfile: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.upsertCollaborationProfile, input),
   removeCollaborationProfile: async (input) =>
@@ -547,6 +554,12 @@ const collaborationApi: PlanWeaveCollaborationApi = {
     const listener = (_event: IpcRendererEvent, payload: CollaborationStatus) => callback(payload);
     ipcRenderer.on(collaborationStatusChangedChannel, listener);
     return () => ipcRenderer.off(collaborationStatusChangedChannel, listener);
+  },
+  onCollaborationOperationDiagnosticsChanged: (callback) => {
+    const listener = (_event: IpcRendererEvent, payload: CollaborationOperationDiagnostics) =>
+      callback(collaborationOperationDiagnosticsSchema.parse(payload));
+    ipcRenderer.on(collaborationOperationDiagnosticsChangedChannel, listener);
+    return () => ipcRenderer.off(collaborationOperationDiagnosticsChangedChannel, listener);
   },
   onCollaborationObserverSignal: (callback) => {
     const listener = (_event: IpcRendererEvent, payload: CollaborationObserverSignal) =>

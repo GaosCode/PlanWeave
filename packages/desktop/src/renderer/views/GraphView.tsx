@@ -55,8 +55,10 @@ import type { AutoRunNextActionDescriptor } from "../run/autoRunNextActions";
 import type { AppFlowNode, AutoRunScopeMode } from "../types";
 import type { CollaborationCanvasPresenceResult } from "../hooks/useCollaborationCanvasPresence";
 import type { CollaborationRuntimeAvailabilityView } from "../collaboration/runtimeAvailabilityView";
+import { CollaborationOperationDiagnosticsPopover } from "../collaboration/CollaborationOperationDiagnosticsPopover";
 
 type GraphViewProps = {
+  developerMode?: boolean;
   autoRunControlStyle: CSSProperties;
   autoRunControlRef: Ref<HTMLDivElement>;
   autoRunNextAction: AutoRunNextActionDescriptor | null;
@@ -155,6 +157,7 @@ function runtimeAvailabilityBanner(
 }
 
 export function GraphView({
+  developerMode = false,
   autoRunControlStyle,
   autoRunControlRef,
   autoRunNextAction,
@@ -350,6 +353,7 @@ export function GraphView({
       onMouseMove={graph ? handleGraphPointerMove : undefined}
       onMouseLeave={graph ? handleGraphPointerLeave : undefined}
     >
+      <CollaborationOperationDiagnosticsPopover enabled={developerMode} />
       {runtimeBanner ? (
         <div
           className="absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-surface/95 px-3 py-1 text-xs text-text-muted shadow-sm"

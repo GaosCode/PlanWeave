@@ -692,12 +692,14 @@ export type CollaborationCurrentSelectionInput = z.infer<
 
 export {
   collaborationInvokeChannels,
+  collaborationOperationDiagnosticsChangedChannel,
   collaborationCanvasBindingReplicaSignalChannel,
   workspaceCanvasProjectionSignalChannel,
   collaborationObserverSignalChannel,
   collaborationPresenceSignalChannel,
   collaborationStatusChangedChannel
 } from "./collaborationIpc.js";
+export type { CollaborationOperationDiagnostics } from "./collaborationOperationDiagnostics.js";
 export type {
   ExportServerDataArchiveInput,
   ExportServerDataArchiveResult,
@@ -709,6 +711,9 @@ export type {
 
 export type PlanWeaveCollaborationApi = WorkspaceCanvasSharingApi & {
   getCollaborationStatus: () => Promise<CollaborationStatus>;
+  getCollaborationOperationDiagnostics: () => Promise<
+    import("./collaborationOperationDiagnostics.js").CollaborationOperationDiagnostics
+  >;
   upsertCollaborationProfile: (
     input: CollaborationUpsertProfileInput
   ) => Promise<CollaborationStatus>;
@@ -928,6 +933,11 @@ export type PlanWeaveCollaborationApi = WorkspaceCanvasSharingApi & {
     settlement: RemoteInteractionResponse;
   }) => Promise<RemoteInteractionView>;
   onCollaborationStatusChanged: (callback: (status: CollaborationStatus) => void) => () => void;
+  onCollaborationOperationDiagnosticsChanged: (
+    callback: (
+      diagnostics: import("./collaborationOperationDiagnostics.js").CollaborationOperationDiagnostics
+    ) => void
+  ) => () => void;
   onCollaborationObserverSignal: (
     callback: (signal: CollaborationObserverSignal) => void
   ) => () => void;

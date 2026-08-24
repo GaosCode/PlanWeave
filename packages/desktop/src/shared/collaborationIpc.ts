@@ -4,6 +4,7 @@
  */
 export const collaborationInvokeChannels = {
   getCollaborationStatus: "planweave-collaboration:getStatus",
+  getCollaborationOperationDiagnostics: "planweave-collaboration:getOperationDiagnostics",
   upsertCollaborationProfile: "planweave-collaboration:upsertProfile",
   removeCollaborationProfile: "planweave-collaboration:removeProfile",
   setActiveCollaborationProfile: "planweave-collaboration:setActiveProfile",
@@ -109,6 +110,8 @@ export const collaborationInvokeChannels = {
 } as const;
 
 export const collaborationStatusChangedChannel = "planweave-collaboration:statusChanged";
+export const collaborationOperationDiagnosticsChangedChannel =
+  "planweave-collaboration:operationDiagnosticsChanged";
 export const collaborationObserverSignalChannel = "planweave-collaboration:observerSignal";
 export const collaborationPresenceSignalChannel = "planweave-collaboration:presenceSignal";
 export const collaborationCanvasBindingReplicaSignalChannel =
