@@ -12,7 +12,10 @@ import {
   OperatorControlService,
   type OperatorControlServiceOptions
 } from "./operatorControlService.js";
-import { DesktopLocalAgentHostProvisioner } from "./localAgentHostProvisioner.js";
+import {
+  DesktopLocalAgentHostProvisioner,
+  unavailableLocalAgentHostProvisioner
+} from "./localAgentHostProvisioner.js";
 
 let service: OperatorControlService | null = null;
 
@@ -21,21 +24,26 @@ const desktopAgentHostServiceFlag = "--agent-host-service";
 export function resolveDesktopAgentHostLauncher(input: {
   executablePath: string;
   isPackaged: boolean;
-  mainModulePath?: string;
+  developmentNodeExecutablePath?: string;
+  developmentAgentHostCliPath?: string;
   workingDirectory?: string;
 }) {
-  if (input.isPackaged || !input.mainModulePath) {
+  if (input.isPackaged) {
     return {
       executablePath: input.executablePath,
       fixedArgs: [desktopAgentHostServiceFlag]
     };
   }
-  const mainModulePath = isAbsolute(input.mainModulePath)
-    ? input.mainModulePath
-    : resolve(input.workingDirectory ?? process.cwd(), input.mainModulePath);
+  if (!input.developmentNodeExecutablePath || !input.developmentAgentHostCliPath) return null;
+  const nodeExecutablePath = isAbsolute(input.developmentNodeExecutablePath)
+    ? input.developmentNodeExecutablePath
+    : resolve(input.workingDirectory ?? process.cwd(), input.developmentNodeExecutablePath);
+  const agentHostCliPath = isAbsolute(input.developmentAgentHostCliPath)
+    ? input.developmentAgentHostCliPath
+    : resolve(input.workingDirectory ?? process.cwd(), input.developmentAgentHostCliPath);
   return {
-    executablePath: input.executablePath,
-    fixedArgs: [mainModulePath, desktopAgentHostServiceFlag]
+    executablePath: nodeExecutablePath,
+    fixedArgs: [agentHostCliPath]
   };
 }
 
@@ -52,6 +60,12 @@ function publishStatusToRenderers(status: OperatorControlStatus): void {
 }
 
 function createDefaultService(options: OperatorControlServiceOptions = {}): OperatorControlService {
+  const agentHostLauncher = resolveDesktopAgentHostLauncher({
+    executablePath: process.execPath,
+    isPackaged: app.isPackaged,
+    developmentNodeExecutablePath: process.env.PLANWEAVE_DESKTOP_NODE_EXECUTABLE,
+    developmentAgentHostCliPath: process.env.PLANWEAVE_DESKTOP_AGENT_HOST_CLI_PATH
+  });
   return new OperatorControlService({
     ...options,
     safeStorage: options.safeStorage ?? {
@@ -61,13 +75,9 @@ function createDefaultService(options: OperatorControlServiceOptions = {}): Oper
     },
     localAgentHost:
       options.localAgentHost ??
-      new DesktopLocalAgentHostProvisioner({
-        launcher: resolveDesktopAgentHostLauncher({
-          executablePath: process.execPath,
-          isPackaged: app.isPackaged,
-          mainModulePath: process.argv[1]
-        })
-      }),
+      (agentHostLauncher
+        ? new DesktopLocalAgentHostProvisioner({ launcher: agentHostLauncher })
+        : unavailableLocalAgentHostProvisioner()),
     onStatusChange: options.onStatusChange ?? publishStatusToRenderers
   });
 }

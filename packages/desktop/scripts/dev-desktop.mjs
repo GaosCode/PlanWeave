@@ -12,6 +12,7 @@ import {
 } from "./electron-build.mjs";
 
 const rendererPort = 5173;
+const agentHostCliPath = resolve(desktopPackageRoot, "..", "agent-host", "dist", "bin.js");
 let electronProcess = null;
 let electronRestartRequested = false;
 let restartTimer = null;
@@ -26,7 +27,9 @@ function launchElectron(rendererUrl) {
     cwd: desktopPackageRoot,
     env: {
       ...process.env,
-      PLANWEAVE_DESKTOP_DEV_SERVER_URL: rendererUrl
+      PLANWEAVE_DESKTOP_DEV_SERVER_URL: rendererUrl,
+      PLANWEAVE_DESKTOP_NODE_EXECUTABLE: process.execPath,
+      PLANWEAVE_DESKTOP_AGENT_HOST_CLI_PATH: agentHostCliPath
     },
     stdio: "inherit"
   });

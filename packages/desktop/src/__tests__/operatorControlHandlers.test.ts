@@ -45,21 +45,40 @@ vi.mock("electron", () => ({
 const roots: string[] = [];
 
 describe("operator control Agent Host launcher", () => {
-  it("resolves the development Electron main entry to an absolute path", () => {
+  it("uses the Node Agent Host CLI instead of Electron for the development background service", () => {
     expect(
       resolveDesktopAgentHostLauncher({
         executablePath: "/Applications/Electron.app/Contents/MacOS/Electron",
         isPackaged: false,
-        mainModulePath: "dist/main/main.js",
+        developmentNodeExecutablePath: "/opt/homebrew/bin/node",
+        developmentAgentHostCliPath: "../agent-host/dist/bin.js",
         workingDirectory: "/Users/test/PlanWeave/packages/desktop"
       })
     ).toEqual({
-      executablePath: "/Applications/Electron.app/Contents/MacOS/Electron",
-      fixedArgs: [
-        "/Users/test/PlanWeave/packages/desktop/dist/main/main.js",
-        "--agent-host-service"
-      ]
+      executablePath: "/opt/homebrew/bin/node",
+      fixedArgs: ["/Users/test/PlanWeave/packages/agent-host/dist/bin.js"]
     });
+  });
+
+  it("keeps the packaged PlanWeave service-mode launcher", () => {
+    expect(
+      resolveDesktopAgentHostLauncher({
+        executablePath: "/Applications/PlanWeave.app/Contents/MacOS/PlanWeave",
+        isPackaged: true
+      })
+    ).toEqual({
+      executablePath: "/Applications/PlanWeave.app/Contents/MacOS/PlanWeave",
+      fixedArgs: ["--agent-host-service"]
+    });
+  });
+
+  it("does not fall back to a bare Electron background service in development", () => {
+    expect(
+      resolveDesktopAgentHostLauncher({
+        executablePath: "/Applications/Electron.app/Contents/MacOS/Electron",
+        isPackaged: false
+      })
+    ).toBeNull();
   });
 });
 
