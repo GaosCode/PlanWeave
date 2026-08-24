@@ -428,8 +428,10 @@ describe("Canvas Runtime artifact loopback", () => {
     expect(crossScope.status).toBe(401);
     expect(await crossScope.json()).toEqual({ error: "runtime_content_unauthorized" });
 
+    const staleDigest = "f".repeat(64);
     const staleTarget = new URL(contentUrl);
-    staleTarget.searchParams.set("canonicalDigest", "f".repeat(64));
+    staleTarget.pathname = staleTarget.pathname.replace(/\/[^/]+$/u, `/version-${staleDigest}`);
+    staleTarget.searchParams.set("canonicalDigest", staleDigest);
     const stale = await fetch(staleTarget, {
       headers: { Authorization: `Bearer ${fixture.hostRegistration.token}` }
     });

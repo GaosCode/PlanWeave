@@ -6,10 +6,20 @@ import {
   agentHostProtocolGoldenFixtures,
   exampleExecuteDelivery
 } from "@planweave-ai/agent-host-protocol";
+import { canvasRuntimeContentTargetSchema } from "@planweave-ai/collaboration-protocol/content/version";
 import { openAgentHostState, type AgentHostState } from "../state/agentHostState.js";
 
 const directories: string[] = [];
 const states: AgentHostState[] = [];
+const canvasRuntimeContentTarget = canvasRuntimeContentTargetSchema.parse({
+  revision: 1,
+  content: {
+    versionId: `version-${"c".repeat(64)}`,
+    canonicalDigest: "c".repeat(64),
+    verification: "complete"
+  },
+  graphFingerprint: `pkg-${"a".repeat(64)}`
+});
 
 afterEach(async () => {
   for (const state of states.splice(0)) state.close();
@@ -82,7 +92,7 @@ function canvasRuntimeMessage(sequence = 1) {
       requestId: "runtime-request-1",
       scope: { workspaceId: "workspace-1", projectId: "project-1", canvasId: "default" },
       deadline: "2030-01-01T00:00:00.000Z",
-      operation: { operation: "availability" as const }
+      operation: { operation: "availability" as const, contentTarget: canvasRuntimeContentTarget }
     }
   };
 }
