@@ -1,5 +1,6 @@
 import { RemoteBlockRuntimeError, RemoteOwnershipConflictError } from "@planweave-ai/runtime";
 import { AgentEndpointCatalogError } from "./agentEndpointCatalog.js";
+import { CanvasRuntimeUnavailableError } from "./canvas/executionRuntimePort.js";
 
 /**
  * Startup / batch reenter policy for a single remote operation.
@@ -45,6 +46,9 @@ export function diagnosticFromReenterFailure(error: unknown): { code: string; me
   if (error instanceof AgentEndpointCatalogError) {
     return { code: error.code, message: error.message };
   }
+  if (error instanceof CanvasRuntimeUnavailableError) {
+    return { code: error.message, message: error.message };
+  }
   if (error instanceof RemoteBlockRuntimeError || error instanceof RemoteOwnershipConflictError) {
     return { code: error.code, message: error.message };
   }
@@ -63,7 +67,12 @@ export function diagnosticFromReenterFailure(error: unknown): { code: string; me
  * Checkpoint / crash-injection failures remain fatal so restart can continue from a consistent cut.
  */
 export function classifyReenterFailure(error: unknown): ReenterFailureDecision {
-  if (error instanceof AgentEndpointCatalogError) return "defer_host";
+  if (
+    error instanceof AgentEndpointCatalogError ||
+    error instanceof CanvasRuntimeUnavailableError
+  ) {
+    return "defer_host";
+  }
 
   const message = errorMessage(error);
   if (message.startsWith("injected_crash:")) return "fatal";

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { RemoteBlockRuntimeError, RemoteOwnershipConflictError } from "@planweave-ai/runtime";
 import { AgentEndpointCatalogError } from "../agentEndpointCatalog.js";
+import { CanvasRuntimeUnavailableError } from "../canvas/executionRuntimePort.js";
 import {
   classifyReenterFailure,
   diagnosticFromReenterFailure,
@@ -13,6 +14,16 @@ describe("remoteReenterRecovery", () => {
     expect(
       classifyReenterFailure(new AgentEndpointCatalogError("agent_endpoint_unavailable"))
     ).toBe("defer_host");
+  });
+
+  it("defers recovery until the Canvas Runtime reconnects", () => {
+    const error = new CanvasRuntimeUnavailableError("host_offline");
+
+    expect(classifyReenterFailure(error)).toBe("defer_host");
+    expect(diagnosticFromReenterFailure(error)).toEqual({
+      code: "canvas_runtime_unavailable",
+      message: "canvas_runtime_unavailable"
+    });
   });
 
   it("seals any writeback domain failure, not only one code", () => {
