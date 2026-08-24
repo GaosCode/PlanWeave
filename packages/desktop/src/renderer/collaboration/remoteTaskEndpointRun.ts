@@ -38,6 +38,7 @@ export function waitForRemoteOperationTerminal(input: {
   return new Promise((resolve, reject) => {
     let settled = false;
     let refreshInFlight = false;
+    let refreshQueued = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     const cleanup = () => {
@@ -59,7 +60,11 @@ export function waitForRemoteOperationTerminal(input: {
       timer = setTimeout(() => void refresh(), input.fallbackRefreshMs ?? 10_000);
     };
     const refresh = async () => {
-      if (settled || refreshInFlight) return;
+      if (settled) return;
+      if (refreshInFlight) {
+        refreshQueued = true;
+        return;
+      }
       refreshInFlight = true;
       if (timer) {
         clearTimeout(timer);
@@ -78,6 +83,10 @@ export function waitForRemoteOperationTerminal(input: {
         fail(caught);
       } finally {
         refreshInFlight = false;
+        if (refreshQueued && !settled) {
+          refreshQueued = false;
+          void refresh();
+        }
       }
     };
     const onAbort = () => fail(new Error("remote_task_run_cancelled"));

@@ -3,6 +3,7 @@ import {
   type RemoteOperationObservation
 } from "@planweave-ai/collaboration-protocol/remote-run";
 import { describe, expect, it, vi } from "vitest";
+import type { CollaborationObserverSignal } from "../../shared/collaborationReadModels";
 import { waitForRemoteOperationTerminal } from "./remoteTaskEndpointRun";
 
 function operation(
@@ -63,6 +64,52 @@ describe("waitForRemoteOperationTerminal", () => {
     expect(observeCollaborationRemoteOperation).toHaveBeenCalledWith({
       operationId: "operation-T-001:B-001"
     });
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it("queues a refresh when a terminal observer event arrives during an in-flight read", async () => {
+    const unsubscribe = vi.fn();
+    let emitSignal: ((signal: CollaborationObserverSignal) => void) | undefined;
+    let resolveFirstRead: ((value: RemoteOperationObservation) => void) | undefined;
+    const firstRead = new Promise<RemoteOperationObservation>((resolve) => {
+      resolveFirstRead = resolve;
+    });
+    const observeCollaborationRemoteOperation = vi
+      .fn()
+      .mockImplementationOnce(() => firstRead)
+      .mockResolvedValueOnce(operation("T-001#B-001", "completed"));
+
+    const terminal = waitForRemoteOperationTerminal({
+      api: {
+        observeCollaborationRemoteOperation,
+        onCollaborationObserverSignal: vi.fn((listener) => {
+          emitSignal = listener;
+          return unsubscribe;
+        })
+      },
+      initial: operation("T-001#B-001", "running")
+    });
+
+    await vi.waitFor(() => expect(observeCollaborationRemoteOperation).toHaveBeenCalledTimes(1));
+    emitSignal?.({
+      type: "human.observer.event",
+      profileId: "profile-1",
+      projectId: "project-1",
+      event: {
+        type: "human.observer.event",
+        protocolVersion: 1,
+        cursor: 2,
+        previousCursor: 1,
+        occurredAt: "2026-08-05T00:00:02.000Z",
+        kind: "remote_run",
+        dispatchId: "dispatch-T-001:B-001",
+        remoteRunStatus: "succeeded"
+      }
+    });
+    resolveFirstRead?.(operation("T-001#B-001", "running"));
+
+    await expect(terminal).resolves.toMatchObject({ state: "completed" });
+    expect(observeCollaborationRemoteOperation).toHaveBeenCalledTimes(2);
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 
