@@ -219,6 +219,7 @@ function renderRun(input?: {
   >;
   readRuntimeAvailability?: ReturnType<typeof vi.fn>;
   runtimeAvailability?: CollaborationRuntimeAvailabilityView;
+  ensureWorkspaceRuntimeInitialized?: ReturnType<typeof vi.fn>;
   previewClaimNext?: ReturnType<typeof vi.fn>;
   resolveLiveRemoteBinding?: ReturnType<typeof vi.fn>;
   activeProjectId?: string | null;
@@ -314,6 +315,7 @@ function renderRun(input?: {
       selectedCanvasId: "canvas-main",
       selectedProject: project,
       runtimeAvailability: input?.runtimeAvailability ?? { kind: "available" },
+      ensureWorkspaceRuntimeInitialized: input?.ensureWorkspaceRuntimeInitialized,
       setError,
       api: {
         dispatchCollaborationRemoteOperation: dispatch,
@@ -356,6 +358,32 @@ function renderRun(input?: {
 }
 
 describe("workspace Agent Endpoint routing", () => {
+  it("prepares an uninitialized Workspace runtime automatically before running", async () => {
+    const ensureWorkspaceRuntimeInitialized = vi.fn().mockResolvedValue(undefined);
+    const { result, lifecycle, setError } = renderRun({
+      runtimeAvailability: { kind: "state_uninitialized" },
+      ensureWorkspaceRuntimeInitialized
+    });
+
+    await act(() => result.current({ kind: "project" }));
+
+    expect(ensureWorkspaceRuntimeInitialized).toHaveBeenCalledOnce();
+    expect(lifecycle.onCompleted).toHaveBeenCalledOnce();
+    expect(setError).not.toHaveBeenCalledWith("collaboration_runtime_state_uninitialized");
+  });
+
+  it("fresh-checks Server runtime authority before every Workspace run", async () => {
+    const ensureWorkspaceRuntimeInitialized = vi.fn().mockResolvedValue(undefined);
+    const { result } = renderRun({
+      runtimeAvailability: { kind: "available" },
+      ensureWorkspaceRuntimeInitialized
+    });
+
+    await act(() => result.current({ kind: "block", blockRef: "T-001#B-001" }));
+
+    expect(ensureWorkspaceRuntimeInitialized).toHaveBeenCalledOnce();
+  });
+
   it("starts the selected local Agent when Server state is known without an attached Runtime", async () => {
     const localEndpoint: AvailableAgentEndpoint = {
       id: "local:codex",

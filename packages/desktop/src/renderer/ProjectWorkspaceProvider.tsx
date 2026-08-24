@@ -433,6 +433,8 @@ export function ProjectWorkspaceProvider({
     operatorProfileId: ownerControlPlane.operatorProfileId,
     ownerFleetDispatchEnabled: ownerControlPlane.fleetCatalogEnabled,
     runtimeAvailability: collaborationRuntime.availability,
+    workspaceRuntimeAuthorityKey: collaborationRuntime.workspaceRuntimeAuthorityKey,
+    ensureWorkspaceRuntimeInitialized: collaborationRuntime.ensureWorkspaceRuntimeInitialized,
     setError
   });
 
@@ -453,7 +455,6 @@ export function ProjectWorkspaceProvider({
     startAutoRunScope: startAutoRunWithSelectedEndpoint,
     runtimeAvailability: collaborationRuntime.availability,
     canvasLocator,
-    initializeWorkspaceRuntime: collaborationRuntime.initializeWorkspaceRuntime,
     resetWorkspaceRuntime: collaborationRuntime.resetWorkspaceRuntime
   });
   useTaskNodeFocus({

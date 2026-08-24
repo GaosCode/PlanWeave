@@ -26,7 +26,7 @@ import {
 import { displayEdgeManifestData, executionFlowEndpoints } from "./dependencyEdges";
 import type { CollaborationRuntimeAvailabilityView } from "../collaboration/runtimeAvailabilityView";
 import {
-  collaborationRuntimeOperationsAllowed,
+  collaborationRuntimeStartAllowed,
   collaborationRuntimeStatusKnown
 } from "../collaboration/runtimeAvailabilityView";
 
@@ -309,7 +309,7 @@ export function graphNodes(
               t: commentUi.t
             }
           : null,
-        runtimeOperationsAllowed: collaborationRuntimeOperationsAllowed(runtimeAvailability),
+        runtimeOperationsAllowed: collaborationRuntimeStartAllowed(runtimeAvailability),
         runtimeStatusKnown: collaborationRuntimeStatusKnown(runtimeAvailability),
         onTitleChange,
         onTitleSave,

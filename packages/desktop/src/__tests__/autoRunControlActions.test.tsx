@@ -530,11 +530,16 @@ describe("auto run control hook actions", () => {
     expect(onAutoRunDerivedStateRefresh).toHaveBeenCalledTimes(1);
   });
 
-  it("offers Workspace initialization without routing it through reset", async () => {
+  it("starts an uninitialized Workspace canvas and leaves initialization to the run path", async () => {
     stubAutoRunControlBridge(createDesktopBridgeMock());
     const { useAutoRunControl } = await loadAutoRunControl();
-    const initializeWorkspaceRuntime = vi.fn().mockResolvedValue(undefined);
     const resetWorkspaceRuntime = vi.fn().mockResolvedValue(undefined);
+    const startAutoRunScope = vi.fn<WorkspaceAgentEndpointScopeStarter>(
+      async (_scope, _startLocal, lifecycle) => {
+        lifecycle?.onStarted();
+        lifecycle?.onCompleted();
+      }
+    );
 
     const { result } = renderHook(() =>
       useAutoRunControl({
@@ -546,7 +551,6 @@ describe("auto run control hook actions", () => {
           projectId: "project-1",
           canvasId: "canvas-main"
         },
-        initializeWorkspaceRuntime,
         openRunWorkspace: vi.fn(),
         resetWorkspaceRuntime,
         runtimeAvailability: { kind: "state_uninitialized" },
@@ -556,20 +560,24 @@ describe("auto run control hook actions", () => {
         selectedTaskPanelId: null,
         setAutoRunState: vi.fn(),
         setError: vi.fn(),
+        startAutoRunScope,
         t: createTranslator("en"),
         tmuxMonitoringEnabled: false
       })
     );
 
-    expect(result.current.runtimeOperationsAllowed).toBe(false);
-    expect(result.current.runtimeInitializeAllowed).toBe(true);
+    expect(result.current.runtimeOperationsAllowed).toBe(true);
     expect(result.current.runtimeResetAllowed).toBe(false);
 
     await act(async () => {
-      await result.current.initializeRuntimeStateClick();
+      await result.current.handleAutoRunClick();
     });
 
-    expect(initializeWorkspaceRuntime).toHaveBeenCalledOnce();
+    expect(startAutoRunScope).toHaveBeenCalledWith(
+      { kind: "project" },
+      expect.any(Function),
+      expect.any(Object)
+    );
     expect(resetWorkspaceRuntime).not.toHaveBeenCalled();
   });
 

@@ -19,6 +19,15 @@ export function collaborationRuntimeOperationsAllowed(
   );
 }
 
+export function collaborationRuntimeStartAllowed(
+  availability: CollaborationRuntimeAvailabilityView
+): boolean {
+  return (
+    collaborationRuntimeOperationsAllowed(availability) ||
+    availability.kind === "state_uninitialized"
+  );
+}
+
 export function collaborationRuntimeStatusKnown(
   availability: CollaborationRuntimeAvailabilityView
 ): boolean {

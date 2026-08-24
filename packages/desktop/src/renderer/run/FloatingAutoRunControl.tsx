@@ -14,7 +14,7 @@ import type {
   DesktopProjectSummary,
   ValidationIssue
 } from "@planweave-ai/runtime";
-import { MoveIcon, PowerIcon, RotateCcwIcon, SquareIcon } from "lucide-react";
+import { MoveIcon, RotateCcwIcon, SquareIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
@@ -55,12 +55,9 @@ type FloatingAutoRunControlProps = {
   watcherBackendKind?: "native" | "polling";
   watcherChangedPathCount?: number;
   watcherRefreshElapsedMs?: number;
-  initializeRuntimeStateClick?: () => Promise<void>;
   resetRuntimeStateClick: () => Promise<void>;
   runtimeOperationsAllowed: boolean;
-  runtimeInitializeAllowed?: boolean;
   runtimeResetAllowed?: boolean;
-  runtimeStateUninitialized?: boolean;
   selectedBlockPresent: boolean;
   selectedCanvasId?: string | null;
   selectedProject: DesktopProjectSummary | null;
@@ -124,12 +121,9 @@ export function FloatingAutoRunControl({
   watcherBackendKind,
   watcherChangedPathCount,
   watcherRefreshElapsedMs,
-  initializeRuntimeStateClick,
   resetRuntimeStateClick,
   runtimeOperationsAllowed,
-  runtimeInitializeAllowed = false,
   runtimeResetAllowed = runtimeOperationsAllowed,
-  runtimeStateUninitialized = false,
   selectedBlockPresent,
   selectedCanvasId = null,
   selectedProject,
@@ -263,12 +257,9 @@ export function FloatingAutoRunControl({
               hasProject={hasRunnableCanvas}
               miniRunPanelOpen={miniRunPanelOpen}
               preflightExecutor={preflightExecutor}
-              initializeRuntimeStateClick={initializeRuntimeStateClick}
               resetRuntimeStateClick={resetRuntimeStateClick}
               runtimeOperationsAllowed={runtimeOperationsAllowed}
-              runtimeInitializeAllowed={runtimeInitializeAllowed}
               runtimeResetAllowed={runtimeResetAllowed}
-              runtimeStateUninitialized={runtimeStateUninitialized}
               selectedProject={selectedProject}
               setMiniRunPanelOpen={setMiniRunPanelOpen}
               stopAutoRunClick={stopAutoRunClick}
@@ -298,29 +289,16 @@ export function FloatingAutoRunControl({
           <SquareIcon data-icon="inline-start" />
         </Button>
       ) : null}
-      {runtimeStateUninitialized ? (
-        <Button
-          size="icon-sm"
-          variant="outline"
-          aria-label={t("initializeRuntimeState")}
-          title={t("initializeRuntimeState")}
-          disabled={!hasRunnableCanvas || !runtimeInitializeAllowed}
-          onClick={() => void initializeRuntimeStateClick?.()}
-        >
-          <PowerIcon data-icon="inline-start" />
-        </Button>
-      ) : (
-        <Button
-          size="icon-sm"
-          variant="outline"
-          aria-label={t("resetRuntimeState")}
-          title={t("resetRuntimeState")}
-          disabled={!hasRunnableCanvas || !runtimeResetAllowed}
-          onClick={() => void resetRuntimeStateClick()}
-        >
-          <RotateCcwIcon data-icon="inline-start" />
-        </Button>
-      )}
+      <Button
+        size="icon-sm"
+        variant="outline"
+        aria-label={t("resetRuntimeState")}
+        title={t("resetRuntimeState")}
+        disabled={!hasRunnableCanvas || !runtimeResetAllowed}
+        onClick={() => void resetRuntimeStateClick()}
+      >
+        <RotateCcwIcon data-icon="inline-start" />
+      </Button>
       {!hasRunnableCanvas ? (
         <span className="max-w-[180px] text-xs text-muted-foreground">
           {t("autoRunNoProjectHint")}

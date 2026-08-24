@@ -77,7 +77,11 @@ describe("desktop graph flow model", () => {
       vi.fn(),
       vi.fn(),
       vi.fn(),
-      vi.fn()
+      vi.fn(),
+      undefined,
+      null,
+      null,
+      { kind: "state_uninitialized" }
     );
 
     expect(nodes.find((node) => node.id === "T-002")?.position).toEqual({ x: 999, y: 888 });
@@ -89,6 +93,7 @@ describe("desktop graph flow model", () => {
     expect(nodes.find((node) => node.id === "T-001")?.data).not.toHaveProperty(
       "blockFeedbackRecords"
     );
+    expect(nodes.find((node) => node.id === "T-001")?.data.runtimeOperationsAllowed).toBe(true);
   });
 
   it("threads shared-resource hints without creating scheduling state", () => {

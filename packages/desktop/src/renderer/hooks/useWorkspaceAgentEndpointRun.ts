@@ -135,6 +135,8 @@ type WorkspaceAgentEndpointRunInput = {
   operatorProfileId?: string | null;
   ownerFleetDispatchEnabled?: boolean;
   runtimeAvailability: CollaborationRuntimeAvailabilityView;
+  workspaceRuntimeAuthorityKey?: string | null;
+  ensureWorkspaceRuntimeInitialized?: () => Promise<void>;
   setError: (message: string | null) => void;
   api?: Pick<
     PlanWeaveCollaborationApi,
@@ -200,9 +202,12 @@ export function useWorkspaceAgentEndpointRun(
   const createId = input.createId ?? createDispatchId;
   const activeEndpointScopeRun = useRef<AbortController | null>(null);
   const executionScopeIdentity = input.canvasBinding
-    ? `${input.canvasBinding.workspaceId}:${input.canvasBinding.projectId}:${input.canvasBinding.canvasId}`
+    ? (input.workspaceRuntimeAuthorityKey ??
+      `${input.canvasBinding.workspaceId}:${input.canvasBinding.projectId}:${input.canvasBinding.canvasId}`)
     : `${input.selectedProject?.rootPath ?? "no-project"}:${input.selectedCanvasId ?? "no-canvas"}`;
   const previousExecutionScopeIdentity = useRef(executionScopeIdentity);
+  const activeExecutionScopeIdentity = useRef(executionScopeIdentity);
+  activeExecutionScopeIdentity.current = executionScopeIdentity;
 
   useEffect(() => {
     if (previousExecutionScopeIdentity.current !== executionScopeIdentity) {
@@ -225,6 +230,7 @@ export function useWorkspaceAgentEndpointRun(
       lifecycle?: WorkspaceAgentEndpointScopeLifecycle
     ) => {
       if (!input.graph || !input.selectedCanvasId) return;
+      const requestedExecutionScopeIdentity = executionScopeIdentity;
       const remoteBinding = input.canvasBinding ?? null;
       const remoteCanvasOnly = !input.selectedProject && remoteBinding !== null;
       const endpoints = remoteCanvasOnly
@@ -248,6 +254,20 @@ export function useWorkspaceAgentEndpointRun(
         input.setError("collaboration_canvas_binding_scope_mismatch");
         return;
       }
+      let workspaceRuntimePrepared = false;
+      if (remoteBinding && input.ensureWorkspaceRuntimeInitialized) {
+        try {
+          await input.ensureWorkspaceRuntimeInitialized();
+        } catch (caught) {
+          if (activeExecutionScopeIdentity.current !== requestedExecutionScopeIdentity) return;
+          const message = caught instanceof Error ? caught.message : String(caught);
+          input.setError(message);
+          lifecycle?.onFailed(message);
+          return;
+        }
+        if (activeExecutionScopeIdentity.current !== requestedExecutionScopeIdentity) return;
+        workspaceRuntimePrepared = true;
+      }
       if (plan.kind === "local_scope") {
         if (remoteCanvasOnly) {
           input.setError("content_local_canvas_binding_required");
@@ -256,7 +276,10 @@ export function useWorkspaceAgentEndpointRun(
         await startLocal(plan.scope);
         return;
       }
-      if (!collaborationRuntimeOperationsAllowed(input.runtimeAvailability)) {
+      if (
+        !workspaceRuntimePrepared &&
+        !collaborationRuntimeOperationsAllowed(input.runtimeAvailability)
+      ) {
         const message =
           collaborationRuntimeUnavailableCode(input.runtimeAvailability) ??
           "collaboration_runtime_unavailable";
@@ -568,11 +591,13 @@ export function useWorkspaceAgentEndpointRun(
     [
       api,
       createId,
+      executionScopeIdentity,
       input.activeProjectId,
       input.agentEndpoints,
       input.collaborationController,
       input.canvasBinding,
       input.graph,
+      input.ensureWorkspaceRuntimeInitialized,
       input.localAutoRunApi,
       input.preferences,
       input.previewClaimNext,

@@ -83,12 +83,9 @@ type GraphViewProps = {
   handleOpenProject: () => Promise<void>;
   handleRedoGraph: () => Promise<void>;
   handleRevealPathInFinder: (path: string | null | undefined) => Promise<void>;
-  initializeRuntimeStateClick: () => Promise<void>;
   resetRuntimeStateClick: () => Promise<void>;
   runtimeOperationsAllowed: boolean;
-  runtimeInitializeAllowed: boolean;
   runtimeResetAllowed: boolean;
-  runtimeStateUninitialized: boolean;
   handleUndoGraph: () => Promise<void>;
   miniRunPanelOpen: boolean;
   moveAutoRunControl: (event: PointerEvent<HTMLButtonElement>) => void;
@@ -141,7 +138,7 @@ function runtimeAvailabilityBanner(
     case "checking":
       return null;
     case "state_uninitialized":
-      return t("collaborationRuntimeStateUninitialized");
+      return null;
     case "error":
       return t("collaborationRuntimeError").replace("{message}", availability.message);
     case "unavailable":
@@ -182,12 +179,9 @@ export function GraphView({
   handleOpenProject,
   handleRedoGraph,
   handleRevealPathInFinder,
-  initializeRuntimeStateClick,
   resetRuntimeStateClick,
   runtimeOperationsAllowed,
-  runtimeInitializeAllowed,
   runtimeResetAllowed,
-  runtimeStateUninitialized,
   handleUndoGraph,
   miniRunPanelOpen,
   moveAutoRunControl,
@@ -594,12 +588,9 @@ export function GraphView({
         watcherBackendKind={fileSyncResult?.watcherBackendKind}
         watcherChangedPathCount={fileSyncResult?.watcherChangedPathCount}
         watcherRefreshElapsedMs={fileSyncResult?.watcherRefreshElapsedMs}
-        initializeRuntimeStateClick={initializeRuntimeStateClick}
         resetRuntimeStateClick={resetRuntimeStateClick}
         runtimeOperationsAllowed={runtimeOperationsAllowed}
-        runtimeInitializeAllowed={runtimeInitializeAllowed}
         runtimeResetAllowed={runtimeResetAllowed}
-        runtimeStateUninitialized={runtimeStateUninitialized}
         selectedBlockPresent={selectedBlockPresent}
         selectedCanvasId={selectedCanvasId}
         selectedProject={selectedProject}
