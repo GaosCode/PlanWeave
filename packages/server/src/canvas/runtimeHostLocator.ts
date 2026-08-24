@@ -118,7 +118,11 @@ export class CanvasRuntimeHostLocator {
   ) {}
 
   locate(scopeInput: RuntimeCanvasScope): LocatedCanvasRuntimeHost {
-    const scope = canvasScopeRefSchema.parse(scopeInput);
+    const scope = canvasScopeRefSchema.parse({
+      workspaceId: scopeInput.workspaceId,
+      projectId: scopeInput.projectId,
+      canvasId: scopeInput.canvasId
+    });
     const project = this.projectAccess.registry.projectInternal(scope.workspaceId, scope.projectId);
     const canvas = this.projectAccess.registry.canvasInternal(
       scope.workspaceId,

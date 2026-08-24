@@ -90,6 +90,25 @@ describe("CanvasRuntimeHostLocator", () => {
     expect(fixture.locator.locate(scope)).toEqual({ kind: "available", hostId: host.id });
   });
 
+  it("projects a Runtime lease to its logical canvas scope before validation", async () => {
+    const fixture = await setup();
+    const host = fixture.hosts.register("Remote Runtime").host;
+    fixture.report(host.id);
+    fixture.active.add(host.id);
+    const lease = {
+      ...scope,
+      runtimeLeaseId: "runtime-lease-a",
+      hostId: host.id,
+      attachmentVersion: 0,
+      sourceRevision: "source-a",
+      graphFingerprint: `pkg-${"a".repeat(64)}`,
+      expiresAt: "2026-08-20T01:05:00.000Z",
+      status: "active" as const
+    };
+
+    expect(fixture.locator.locate(lease)).toEqual({ kind: "available", hostId: host.id });
+  });
+
   it("keeps the logical relationship but fails closed after readiness loss or revoke", async () => {
     const fixture = await setup();
     const host = fixture.hosts.register("Remote Runtime").host;
