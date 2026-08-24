@@ -661,6 +661,75 @@ describe("auto run control hook actions", () => {
     expect(resetRuntimeState).not.toHaveBeenCalled();
   });
 
+  it("blocks Workspace runtime reset while an Endpoint scope run is active", async () => {
+    stubAutoRunControlBridge(createDesktopBridgeMock());
+    const { useAutoRunControl } = await loadAutoRunControl();
+    const resetWorkspaceRuntime = vi.fn().mockResolvedValue(undefined);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const setError = vi.fn();
+    let finishRun: (() => void) | undefined;
+    const runFinished = new Promise<void>((resolve) => {
+      finishRun = resolve;
+    });
+    const startAutoRunScope = vi.fn<WorkspaceAgentEndpointScopeStarter>(
+      async (_scope, _startLocal, lifecycle) => {
+        lifecycle?.onStarted();
+        await runFinished;
+        lifecycle?.onCompleted();
+      }
+    );
+
+    const { result } = renderHook(() =>
+      useAutoRunControl({
+        autoRunState: null,
+        canvasLocator: {
+          kind: "workspace",
+          connectionProfileId: "profile-1",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          canvasId: "canvas-main"
+        },
+        openRunWorkspace: vi.fn(),
+        resetWorkspaceRuntime,
+        runtimeAvailability: { kind: "available" },
+        selectedCanvasId: "canvas-main",
+        selectedBlock: null,
+        selectedProject: null,
+        selectedTaskPanelId: null,
+        setAutoRunState: vi.fn(),
+        setError,
+        startAutoRunScope,
+        t: createTranslator("en"),
+        tmuxMonitoringEnabled: false
+      })
+    );
+
+    let runPromise: Promise<void> | undefined;
+    act(() => {
+      runPromise = result.current.handleAutoRunClick();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.endpointScopeRunPhase).toBe("running");
+
+    await act(async () => {
+      await result.current.resetRuntimeStateClick();
+    });
+
+    expect(setError).toHaveBeenCalledWith(
+      "Stop Auto Run and wait for the current step to settle before resetting runtime state."
+    );
+    expect(confirm).not.toHaveBeenCalled();
+    expect(resetWorkspaceRuntime).not.toHaveBeenCalled();
+    expect(result.current.endpointScopeRunPhase).toBe("running");
+
+    finishRun?.();
+    await act(async () => {
+      await runPromise;
+    });
+  });
+
   it("opens an internal run record before falling back to revealing the record path", async () => {
     const failedState = autoRunState({
       projectRoot: "/tmp/authority-project",

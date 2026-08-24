@@ -594,7 +594,7 @@ export function useAutoRunControl({
     if (workspaceReset ? !resetWorkspaceRuntime : !bridge || !selectedProject) {
       return;
     }
-    if (isActiveAutoRunState(autoRunState)) {
+    if (isActiveAutoRunState(autoRunState) || endpointScopeRunPhase === "running") {
       setError(t("stopAutoRunBeforeReset"));
       return;
     }
@@ -623,6 +623,7 @@ export function useAutoRunControl({
   }, [
     autoRunState,
     canvasLocator,
+    endpointScopeRunPhase,
     onAutoRunDerivedStateRefresh,
     selectedCanvasId,
     selectedProject,
