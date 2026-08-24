@@ -2,7 +2,7 @@ import type { CanvasRuntimeUnavailableReason } from "@planweave-ai/collaboration
 
 export type CollaborationRuntimeAvailabilityView =
   | { kind: "not_applicable" }
-  | { kind: "server_disconnected" }
+  | { kind: "server_disconnected"; statusKnown: boolean }
   | { kind: "checking" }
   | { kind: "available" }
   | { kind: "unavailable"; reason: CanvasRuntimeUnavailableReason; statusKnown: boolean }
@@ -12,7 +12,11 @@ export type CollaborationRuntimeAvailabilityView =
 export function collaborationRuntimeOperationsAllowed(
   availability: CollaborationRuntimeAvailabilityView
 ): boolean {
-  return collaborationRuntimeStatusKnown(availability);
+  return (
+    availability.kind === "not_applicable" ||
+    availability.kind === "available" ||
+    (availability.kind === "unavailable" && availability.statusKnown)
+  );
 }
 
 export function collaborationRuntimeStatusKnown(
@@ -21,6 +25,7 @@ export function collaborationRuntimeStatusKnown(
   return (
     availability.kind === "not_applicable" ||
     availability.kind === "available" ||
+    (availability.kind === "server_disconnected" && availability.statusKnown) ||
     (availability.kind === "unavailable" && availability.statusKnown)
   );
 }

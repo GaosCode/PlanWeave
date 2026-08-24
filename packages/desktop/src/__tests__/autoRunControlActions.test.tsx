@@ -573,6 +573,46 @@ describe("auto run control hook actions", () => {
     expect(resetWorkspaceRuntime).not.toHaveBeenCalled();
   });
 
+  it("does not refresh the unrelated local graph after a Workspace runtime reset", async () => {
+    stubAutoRunControlBridge(createDesktopBridgeMock());
+    const { useAutoRunControl } = await loadAutoRunControl();
+    const resetWorkspaceRuntime = vi.fn().mockResolvedValue(undefined);
+    const onAutoRunDerivedStateRefresh = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    const { result } = renderHook(() =>
+      useAutoRunControl({
+        autoRunState: null,
+        canvasLocator: {
+          kind: "workspace",
+          connectionProfileId: "profile-1",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          canvasId: "canvas-main"
+        },
+        onAutoRunDerivedStateRefresh,
+        openRunWorkspace: vi.fn(),
+        resetWorkspaceRuntime,
+        runtimeAvailability: { kind: "available" },
+        selectedCanvasId: "canvas-main",
+        selectedBlock: null,
+        selectedProject: null,
+        selectedTaskPanelId: null,
+        setAutoRunState: vi.fn(),
+        setError: vi.fn(),
+        t: createTranslator("en"),
+        tmuxMonitoringEnabled: false
+      })
+    );
+
+    await act(async () => {
+      await result.current.resetRuntimeStateClick();
+    });
+
+    expect(resetWorkspaceRuntime).toHaveBeenCalledOnce();
+    expect(onAutoRunDerivedStateRefresh).not.toHaveBeenCalled();
+  });
+
   it("blocks runtime reset while an Auto Run step is active", async () => {
     const runningState = autoRunState({ phase: "running" });
     const resetRuntimeState = vi.fn();

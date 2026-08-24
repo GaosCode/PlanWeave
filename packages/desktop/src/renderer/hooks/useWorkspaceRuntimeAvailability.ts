@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CanvasRuntimeAvailability } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import type { CanvasRuntimeStatusProjection } from "@planweave-ai/collaboration-protocol/canvas/status";
 import type { DesktopGraphViewModel } from "@planweave-ai/runtime";
@@ -69,6 +69,58 @@ function matchesResolvedCanvas(
 
 function runtimeRevision(availability: CanvasRuntimeAvailability): number {
   return availability.state.kind === "initialized" ? availability.state.runtimeRevision : 0;
+}
+
+function workspaceRuntimeAvailabilitySeedKey(
+  profileId: string | null,
+  binding: RemoteCollaborationCanvasBindingInput | null,
+  availability: CanvasRuntimeAvailability | null | undefined
+): string | null {
+  if (!availability) return null;
+  return JSON.stringify({
+    profileId,
+    binding,
+    state:
+      availability.state.kind === "initialized"
+        ? {
+            kind: "initialized",
+            revision: availability.state.runtimeRevision,
+            capturedAt: availability.state.status.capturedAt
+          }
+        : { kind: "uninitialized" },
+    execution:
+      availability.execution.kind === "available"
+        ? {
+            kind: "available",
+            sourceRevision: availability.execution.sourceRevision,
+            capturedAt: availability.execution.status.capturedAt
+          }
+        : availability.execution
+  });
+}
+
+function commitRemoteAvailability(
+  current: RemoteAvailabilityState,
+  identity: ResolvedCanvasIdentity,
+  availability: CanvasRuntimeAvailability,
+  source: "server" | "accepted"
+): RemoteAvailabilityState {
+  if (
+    current.kind !== "ready" ||
+    current.identity.profileId !== identity.profileId ||
+    current.identity.bindingIdentity !== identity.bindingIdentity
+  ) {
+    return { kind: "ready", identity, availability };
+  }
+  const currentRevision = runtimeRevision(current.availability);
+  const nextRevision = runtimeRevision(availability);
+  if (
+    currentRevision > nextRevision ||
+    (source === "accepted" && currentRevision === nextRevision)
+  ) {
+    return current;
+  }
+  return { kind: "ready", identity, availability };
 }
 
 type ObserverTransportHealth = "connected" | "catching_up" | "unavailable";
@@ -183,6 +235,7 @@ export function useWorkspaceRuntimeAvailability(input: {
   graph: DesktopGraphViewModel | null;
   availability: CollaborationRuntimeAvailabilityView;
   authoritativeRuntime: CanvasRuntimeAvailability | null;
+  applyAcceptedRuntimeProjection: (availability: CanvasRuntimeAvailability) => void;
 } {
   const api = input.api === undefined ? collaborationBridge : input.api;
   const bindingWorkspaceId = input.binding?.workspaceId ?? null;
@@ -202,28 +255,11 @@ export function useWorkspaceRuntimeAvailability(input: {
   );
   const bindingIdentity = binding ? JSON.stringify(binding) : null;
   const graphPackageFingerprint = input.graph?.packageFingerprint ?? null;
-  const initialRuntimeAvailabilityKey = input.initialRuntimeAvailability
-    ? JSON.stringify({
-        profileId: input.profileId,
-        bindingIdentity,
-        state:
-          input.initialRuntimeAvailability.state.kind === "initialized"
-            ? {
-                kind: "initialized",
-                revision: input.initialRuntimeAvailability.state.runtimeRevision,
-                capturedAt: input.initialRuntimeAvailability.state.status.capturedAt
-              }
-            : { kind: "uninitialized" },
-        execution:
-          input.initialRuntimeAvailability.execution.kind === "available"
-            ? {
-                kind: "available",
-                sourceRevision: input.initialRuntimeAvailability.execution.sourceRevision,
-                capturedAt: input.initialRuntimeAvailability.execution.status.capturedAt
-              }
-            : input.initialRuntimeAvailability.execution
-      })
-    : null;
+  const initialRuntimeAvailabilityKey = workspaceRuntimeAvailabilitySeedKey(
+    input.profileId,
+    binding,
+    input.initialRuntimeAvailability
+  );
   const consumedInitialRuntimeAvailabilityKeyRef = useRef<string | null>(null);
   const initialRuntimeAvailabilityRef = useRef<{
     key: string | null;
@@ -286,7 +322,7 @@ export function useWorkspaceRuntimeAvailability(input: {
     };
     setRemoteState((current) => {
       if (initialRuntimeAvailability) {
-        return { kind: "ready", identity, availability: initialRuntimeAvailability };
+        return commitRemoteAvailability(current, identity, initialRuntimeAvailability, "server");
       }
       if (
         current.kind === "ready" &&
@@ -394,7 +430,9 @@ export function useWorkspaceRuntimeAvailability(input: {
           }
           runtimeHighWater = Math.max(runtimeHighWater, authoritativeRevision);
           if (pendingRevision <= runtimeHighWater) pendingRevision = 0;
-          setRemoteState({ kind: "ready", identity: currentIdentity, availability: next });
+          setRemoteState((current) =>
+            commitRemoteAvailability(current, currentIdentity, next, "server")
+          );
           if (recovering && !pendingRefresh && authoritativeRevision >= requiredRevision) {
             recovering = false;
           } else if (authoritativeRevision < requiredRevision) {
@@ -495,11 +533,41 @@ export function useWorkspaceRuntimeAvailability(input: {
       ? remoteState
       : null;
 
+  const applyAcceptedRuntimeProjection = useCallback(
+    (availability: CanvasRuntimeAvailability) => {
+      if (!input.profileId || !input.activeProjectId || !binding || !bindingIdentity) {
+        throw new Error("collaboration_runtime_scope_unavailable");
+      }
+      const identity: ResolvedCanvasIdentity = {
+        profileId: input.profileId,
+        bindingIdentity,
+        remoteWorkspaceId: binding.workspaceId,
+        remoteProjectId: binding.projectId,
+        remoteCanvasId: binding.canvasId
+      };
+      if (
+        (availability.state.kind === "initialized" &&
+          !matchesResolvedCanvas(availability.state.status, identity)) ||
+        (availability.execution.kind === "available" &&
+          !matchesResolvedCanvas(availability.execution.status, identity))
+      ) {
+        throw new Error("collaboration_runtime_scope_mismatch");
+      }
+      setRemoteState((current) =>
+        commitRemoteAvailability(current, identity, availability, "accepted")
+      );
+    },
+    [binding, bindingIdentity, input.activeProjectId, input.profileId]
+  );
+
   return useMemo(() => {
     const availability: CollaborationRuntimeAvailabilityView = !input.enabled
       ? { kind: "not_applicable" }
       : !input.sessionConnected
-        ? { kind: "server_disconnected" }
+        ? {
+            kind: "server_disconnected",
+            statusKnown: currentReadyState?.availability.state.kind === "initialized"
+          }
         : remoteState.kind === "ready" && !currentReadyState
           ? { kind: "checking" }
           : remoteState.kind === "ready" && currentReadyState
@@ -540,7 +608,15 @@ export function useWorkspaceRuntimeAvailability(input: {
     return {
       graph,
       availability,
-      authoritativeRuntime: currentReadyState?.availability ?? null
+      authoritativeRuntime: currentReadyState?.availability ?? null,
+      applyAcceptedRuntimeProjection
     };
-  }, [currentReadyState, input.enabled, input.graph, input.sessionConnected, remoteState]);
+  }, [
+    applyAcceptedRuntimeProjection,
+    currentReadyState,
+    input.enabled,
+    input.graph,
+    input.sessionConnected,
+    remoteState
+  ]);
 }

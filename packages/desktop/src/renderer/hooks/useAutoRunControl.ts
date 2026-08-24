@@ -613,7 +613,9 @@ export function useAutoRunControl({
       }
       setAutoRunState(null);
       setAutoRunRetrospective(null);
-      await onAutoRunDerivedStateRefresh?.();
+      if (!workspaceReset) {
+        await onAutoRunDerivedStateRefresh?.();
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
@@ -638,17 +640,10 @@ export function useAutoRunControl({
     }
     try {
       await initializeWorkspaceRuntime();
-      await onAutoRunDerivedStateRefresh?.();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [
-    initializeWorkspaceRuntime,
-    onAutoRunDerivedStateRefresh,
-    runtimeInitializeAllowed,
-    runtimeUnavailableCode,
-    setError
-  ]);
+  }, [initializeWorkspaceRuntime, runtimeInitializeAllowed, runtimeUnavailableCode, setError]);
 
   const startAutoRunControlDrag = useCallback(
     (event: React.PointerEvent<HTMLButtonElement>) => {

@@ -341,7 +341,7 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
             : {},
         selectedCanvasId: "canvas-main",
         selectedProject: project,
-        runtimeAvailability: { kind: "server_disconnected" },
+        runtimeAvailability: { kind: "server_disconnected", statusKnown: false },
         setError,
         api: {
           dispatchCollaborationRemoteOperation,

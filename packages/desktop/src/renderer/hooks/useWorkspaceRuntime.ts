@@ -1,11 +1,19 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef } from "react";
 import type { DesktopGraphViewModel } from "@planweave-ai/runtime";
-import type { RemoteCollaborationCanvasBindingInput } from "../../shared/collaboration";
+import type {
+  CanvasRuntimeInitializeAccepted,
+  CanvasRuntimeResetAccepted
+} from "@planweave-ai/collaboration-protocol/canvas/runtime-control";
+import type {
+  PlanWeaveCollaborationApi,
+  RemoteCollaborationCanvasBindingInput
+} from "../../shared/collaboration";
 import type { CanvasRuntimeAvailability } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import type { CanvasLocator } from "../../shared/canvasLocator";
 import { collaborationBridge } from "../bridge";
 import type { ProjectWorkspaceShellInput } from "../projectWorkspaceShell";
 import { useWorkspaceRuntimeAvailability } from "./useWorkspaceRuntimeAvailability";
+import type { WorkspaceRuntimeAvailabilityBridge } from "./useWorkspaceRuntimeAvailability";
 import {
   presentWorkspaceRuntimeResetError,
   workspaceRuntimeResetError
@@ -14,6 +22,37 @@ import {
   presentWorkspaceRuntimeInitializeError,
   workspaceRuntimeInitializeError
 } from "../collaboration/runtimeInitializePresentation";
+
+export type WorkspaceRuntimeBridge = WorkspaceRuntimeAvailabilityBridge &
+  Pick<
+    PlanWeaveCollaborationApi,
+    "initializeWorkspaceCanvasRuntime" | "resetWorkspaceCanvasRuntime"
+  >;
+
+type AcceptedRuntimeControlOutcome = CanvasRuntimeInitializeAccepted | CanvasRuntimeResetAccepted;
+
+function runtimeAvailabilityAfterAcceptedControl(
+  current: CanvasRuntimeAvailability,
+  outcome: AcceptedRuntimeControlOutcome
+): CanvasRuntimeAvailability {
+  return {
+    ...current,
+    state: {
+      kind: "initialized",
+      runtimeRevision: outcome.runtimeRevision,
+      status: outcome.status
+    },
+    execution:
+      current.execution.kind === "available"
+        ? {
+            ...current.execution,
+            sourceRevision: outcome.sourceRevision,
+            graphFingerprint: outcome.graphFingerprint,
+            status: outcome.status
+          }
+        : current.execution
+  };
+}
 
 export function useWorkspaceRuntime(input: {
   activeProfileId: string | null;
@@ -26,8 +65,15 @@ export function useWorkspaceRuntime(input: {
   setError: ProjectWorkspaceShellInput["setError"];
   setSuccessMessage: ProjectWorkspaceShellInput["setSuccessMessage"];
   t: ProjectWorkspaceShellInput["t"];
+  api?: WorkspaceRuntimeBridge | null;
 }) {
-  const [refreshRevision, setRefreshRevision] = useState(0);
+  const api = input.api === undefined ? collaborationBridge : input.api;
+  const activeScopeKey =
+    input.locator?.kind === "workspace"
+      ? `${input.locator.connectionProfileId}\u0000${input.locator.workspaceId}\u0000${input.locator.projectId}\u0000${input.locator.canvasId}`
+      : null;
+  const activeScopeKeyRef = useRef(activeScopeKey);
+  activeScopeKeyRef.current = activeScopeKey;
   const pendingResetOperation = useRef<{
     scopeKey: string;
     request: {
@@ -57,7 +103,7 @@ export function useWorkspaceRuntime(input: {
     sessionConnected: input.sessionConnected,
     binding: input.binding,
     initialRuntimeAvailability: input.initialRuntimeAvailability,
-    refreshRevision
+    api
   });
   const resetWorkspaceRuntime = useCallback(async () => {
     if (
@@ -67,7 +113,8 @@ export function useWorkspaceRuntime(input: {
     ) {
       throw workspaceRuntimeResetError(input.t, "unavailable");
     }
-    if (!collaborationBridge) throw new Error(input.t("bridgeUnavailable"));
+    if (!api) throw new Error(input.t("bridgeUnavailable"));
+    const currentRuntime = runtime.authoritativeRuntime;
     const previousRuntimeRevision =
       runtime.authoritativeRuntime.state.kind === "initialized"
         ? runtime.authoritativeRuntime.state.runtimeRevision
@@ -84,9 +131,9 @@ export function useWorkspaceRuntime(input: {
             reason: "Desktop workspace runtime reset requested."
           };
     pendingResetOperation.current = { scopeKey, request };
-    let outcome: Awaited<ReturnType<typeof collaborationBridge.resetWorkspaceCanvasRuntime>>;
+    let outcome: Awaited<ReturnType<typeof api.resetWorkspaceCanvasRuntime>>;
     try {
-      outcome = await collaborationBridge.resetWorkspaceCanvasRuntime({
+      outcome = await api.resetWorkspaceCanvasRuntime({
         locator: input.locator,
         ...request
       });
@@ -94,36 +141,36 @@ export function useWorkspaceRuntime(input: {
       throw presentWorkspaceRuntimeResetError(input.t, caught);
     }
     if (outcome.type === "canvas.runtime.reset.rejected") {
-      if (outcome.code !== "reconcile_required") pendingResetOperation.current = null;
+      if (
+        outcome.code !== "reconcile_required" &&
+        pendingResetOperation.current?.scopeKey === scopeKey &&
+        pendingResetOperation.current.request.operationId === request.operationId
+      ) {
+        pendingResetOperation.current = null;
+      }
       throw workspaceRuntimeResetError(input.t, outcome.code);
     }
-    let authoritative: Awaited<
-      ReturnType<typeof collaborationBridge.readCollaborationCanvasBindingRuntimeAvailability>
-    >;
-    try {
-      authoritative = await collaborationBridge.readCollaborationCanvasBindingRuntimeAvailability(
-        input.binding
-      );
-    } catch (caught) {
-      throw presentWorkspaceRuntimeResetError(input.t, caught);
-    }
-    if (
-      !authoritative ||
-      authoritative.state.kind !== "initialized" ||
-      authoritative.state.runtimeRevision <= previousRuntimeRevision ||
-      authoritative.state.runtimeRevision < outcome.runtimeRevision ||
-      JSON.stringify(authoritative.state.status) !== JSON.stringify(outcome.status)
-    ) {
+    if (outcome.runtimeRevision <= previousRuntimeRevision) {
       throw workspaceRuntimeResetError(input.t, "projection_postcondition_failed");
     }
-    pendingResetOperation.current = null;
-    setRefreshRevision((revision) => revision + 1);
+    if (
+      pendingResetOperation.current?.scopeKey === scopeKey &&
+      pendingResetOperation.current.request.operationId === request.operationId
+    ) {
+      pendingResetOperation.current = null;
+    }
+    if (activeScopeKeyRef.current !== scopeKey) return;
+    runtime.applyAcceptedRuntimeProjection(
+      runtimeAvailabilityAfterAcceptedControl(currentRuntime, outcome)
+    );
     input.setSuccessMessage(input.t("resetRuntimeStateSuccess"));
   }, [
+    api,
     input.binding,
     input.locator,
     input.setSuccessMessage,
     input.t,
+    runtime.applyAcceptedRuntimeProjection,
     runtime.authoritativeRuntime
   ]);
 
@@ -136,10 +183,11 @@ export function useWorkspaceRuntime(input: {
     ) {
       throw workspaceRuntimeInitializeError(input.t, "unavailable");
     }
-    if (!collaborationBridge) throw new Error(input.t("bridgeUnavailable"));
-    const scopeKey = `${input.locator.connectionProfileId}\u0000${input.locator.workspaceId}\u0000${input.locator.projectId}\u0000${input.locator.canvasId}`;
+    if (!api) throw new Error(input.t("bridgeUnavailable"));
+    const currentRuntime = runtime.authoritativeRuntime;
+    const currentScopeKey = `${input.locator.connectionProfileId}\u0000${input.locator.workspaceId}\u0000${input.locator.projectId}\u0000${input.locator.canvasId}`;
     const request =
-      pendingInitializeOperation.current?.scopeKey === scopeKey
+      pendingInitializeOperation.current?.scopeKey === currentScopeKey
         ? pendingInitializeOperation.current.request
         : {
             operationId: crypto.randomUUID(),
@@ -147,10 +195,10 @@ export function useWorkspaceRuntime(input: {
             expectedGraphFingerprint:
               runtime.authoritativeRuntime.execution.status.packageFingerprint
           };
-    pendingInitializeOperation.current = { scopeKey, request };
-    let outcome: Awaited<ReturnType<typeof collaborationBridge.initializeWorkspaceCanvasRuntime>>;
+    pendingInitializeOperation.current = { scopeKey: currentScopeKey, request };
+    let outcome: Awaited<ReturnType<typeof api.initializeWorkspaceCanvasRuntime>>;
     try {
-      outcome = await collaborationBridge.initializeWorkspaceCanvasRuntime({
+      outcome = await api.initializeWorkspaceCanvasRuntime({
         locator: input.locator,
         ...request
       });
@@ -158,17 +206,32 @@ export function useWorkspaceRuntime(input: {
       throw presentWorkspaceRuntimeInitializeError(input.t, caught);
     }
     if (outcome.type === "canvas.runtime.initialize.rejected") {
-      pendingInitializeOperation.current = null;
+      if (
+        pendingInitializeOperation.current?.scopeKey === currentScopeKey &&
+        pendingInitializeOperation.current.request.operationId === request.operationId
+      ) {
+        pendingInitializeOperation.current = null;
+      }
       throw workspaceRuntimeInitializeError(input.t, outcome.code);
     }
-    pendingInitializeOperation.current = null;
-    setRefreshRevision((revision) => revision + 1);
+    if (
+      pendingInitializeOperation.current?.scopeKey === currentScopeKey &&
+      pendingInitializeOperation.current.request.operationId === request.operationId
+    ) {
+      pendingInitializeOperation.current = null;
+    }
+    if (activeScopeKeyRef.current !== currentScopeKey) return;
+    runtime.applyAcceptedRuntimeProjection(
+      runtimeAvailabilityAfterAcceptedControl(currentRuntime, outcome)
+    );
     input.setSuccessMessage(input.t("initializeRuntimeStateSuccess"));
   }, [
+    api,
     input.binding,
     input.locator,
     input.setSuccessMessage,
     input.t,
+    runtime.applyAcceptedRuntimeProjection,
     runtime.authoritativeRuntime
   ]);
 

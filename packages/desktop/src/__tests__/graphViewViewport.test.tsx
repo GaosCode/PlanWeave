@@ -198,7 +198,7 @@ afterEach(() => {
 
 describe("GraphView viewport fitting", () => {
   it.each([
-    [{ kind: "server_disconnected" } as const, "Server disconnected"],
+    [{ kind: "server_disconnected", statusKnown: false } as const, "Server disconnected"],
     [{ kind: "error", message: "IPC failed" } as const, "Execution capability check failed"],
     [
       { kind: "unavailable", reason: "host_offline", statusKnown: true } as const,
@@ -241,7 +241,7 @@ describe("GraphView viewport fitting", () => {
     render(
       <GraphView
         {...defaultProps({
-          runtimeAvailability: { kind: "server_disconnected" },
+          runtimeAvailability: { kind: "server_disconnected", statusKnown: false },
           workspaceCanvasOffline: true
         })}
       />

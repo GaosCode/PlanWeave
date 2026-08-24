@@ -8,25 +8,74 @@ import {
   type WorkspaceRuntimeAvailabilityBridge,
   useWorkspaceRuntimeAvailability
 } from "../renderer/hooks/useWorkspaceRuntimeAvailability";
+import {
+  type WorkspaceRuntimeBridge,
+  useWorkspaceRuntime
+} from "../renderer/hooks/useWorkspaceRuntime";
+import {
+  collaborationRuntimeOperationsAllowed,
+  collaborationRuntimeStatusKnown
+} from "../renderer/collaboration/runtimeAvailabilityView";
+import { createTranslator } from "../renderer/i18n";
 
 const scope = { workspaceId: "workspace-1", projectId: "project-1", canvasId: "canvas-1" };
 const graph = {
   ...graphFixture,
   tasks: graphFixture.tasks.map((task) => ({ ...task, blocks: [], blockPreview: [] }))
 };
+const graphWithDispatchableBlock = {
+  ...graph,
+  tasks: graph.tasks.map((task, index) =>
+    index === 0
+      ? {
+          ...task,
+          blocks: [
+            {
+              ref: `${task.taskId}#B-001`,
+              blockId: "B-001",
+              type: "implementation" as const,
+              title: "Implementation",
+              status: "ready" as const,
+              executor: null,
+              requiredCapabilities: [],
+              promptMissing: false,
+              exceptionReason: null,
+              dispatchable: true,
+              remoteExecution: null
+            }
+          ],
+          blockPreview: []
+        }
+      : task
+  )
+};
 
-function runtimeView(runtimeRevision: number, packageFingerprint = graph.packageFingerprint) {
+function runtimeView(
+  runtimeRevision: number,
+  packageFingerprint = graph.packageFingerprint,
+  taskStatus: "implemented" | "ready" | null = null,
+  currentGraph = graph
+) {
   const status = {
     schemaVersion: "canvas-runtime-status/v2" as const,
     scope,
     packageFingerprint,
     capturedAt: "2026-08-22T00:00:00.000Z",
-    tasks: graph.tasks.map((task) => ({
+    tasks: currentGraph.tasks.map((task) => ({
       taskId: task.taskId,
-      status: task.status,
+      status: taskStatus ?? task.status,
       openFeedbackCount: 0
     })),
-    blocks: []
+    blocks: currentGraph.tasks.flatMap((task) =>
+      task.blocks.map((block) => ({
+        ref: block.ref,
+        status: block.status,
+        completionReason: null,
+        blockedReason: null,
+        divergenceReason: null,
+        dispatchable: block.dispatchable
+      }))
+    )
   };
   return {
     schemaVersion: "canvas-runtime-view/v1" as const,
@@ -38,6 +87,20 @@ function runtimeView(runtimeRevision: number, packageFingerprint = graph.package
       sourceRevision: `source-${runtimeRevision}`,
       graphFingerprint: packageFingerprint
     }
+  };
+}
+
+function runtimeViewForScope(
+  runtimeRevision: number,
+  nextScope: typeof scope,
+  taskStatus: "implemented" | "ready"
+) {
+  const view = runtimeView(runtimeRevision, graph.packageFingerprint, taskStatus);
+  const status = { ...view.state.status, scope: nextScope };
+  return {
+    ...view,
+    state: { ...view.state, status },
+    execution: { ...view.execution, status }
   };
 }
 
@@ -267,10 +330,413 @@ describe("useWorkspaceRuntimeAvailability", () => {
       useWorkspaceRuntimeAvailability({ ...input(fixture.api), sessionConnected: false })
     );
 
-    expect(result.current.availability).toEqual({ kind: "server_disconnected" });
+    expect(result.current.availability).toEqual({
+      kind: "server_disconnected",
+      statusKnown: false
+    });
     expect(
       result.current.graph?.tasks.every((task) => task.blocks.every((block) => !block.dispatchable))
     ).toBe(true);
     expect(fixture.read).not.toHaveBeenCalled();
+  });
+
+  it("keeps the last authoritative runtime status visible across a transient disconnect", async () => {
+    const fixture = createApi();
+    fixture.read
+      .mockReset()
+      .mockResolvedValue(
+        runtimeView(1, graph.packageFingerprint, "implemented", graphWithDispatchableBlock)
+      );
+    const { result, rerender } = renderHook(
+      ({ sessionConnected }) =>
+        useWorkspaceRuntimeAvailability({
+          ...input(fixture.api),
+          graph: graphWithDispatchableBlock,
+          sessionConnected
+        }),
+      { initialProps: { sessionConnected: true } }
+    );
+
+    await waitFor(() => expect(result.current.availability).toEqual({ kind: "available" }));
+
+    rerender({ sessionConnected: false });
+
+    expect(result.current.availability).toEqual({
+      kind: "server_disconnected",
+      statusKnown: true
+    });
+    expect(collaborationRuntimeStatusKnown(result.current.availability)).toBe(true);
+    expect(collaborationRuntimeOperationsAllowed(result.current.availability)).toBe(false);
+    expect(result.current.graph?.tasks.every((task) => task.status === "implemented")).toBe(true);
+    expect(result.current.graph?.tasks[0]?.blocks).toHaveLength(1);
+    expect(result.current.graph?.tasks[0]?.blocks[0]?.dispatchable).toBe(false);
+  });
+});
+
+describe("useWorkspaceRuntime", () => {
+  it("projects an accepted reset immediately without a duplicate availability read", async () => {
+    const initialRuntime = runtimeView(1, graph.packageFingerprint, "implemented");
+    const resetRuntime = runtimeView(2, graph.packageFingerprint, "ready");
+    const readRuntimeAvailability = vi.fn();
+    const resetWorkspaceCanvasRuntime = vi.fn().mockResolvedValue({
+      type: "canvas.runtime.reset.accepted" as const,
+      operationId: "operation-1",
+      runtimeRevision: 2,
+      sourceRevision: "source-2",
+      graphFingerprint: graph.packageFingerprint,
+      status: resetRuntime.execution.status
+    });
+    const api = {
+      getCollaborationStatus: vi.fn().mockRejectedValue(new Error("observer unavailable")),
+      readCollaborationCanvasBindingRuntimeAvailability: readRuntimeAvailability,
+      initializeWorkspaceCanvasRuntime: vi.fn(),
+      resetWorkspaceCanvasRuntime
+    } satisfies WorkspaceRuntimeBridge;
+    const setSuccessMessage = vi.fn();
+    const setError = vi.fn();
+    const { result } = renderHook(() =>
+      useWorkspaceRuntime({
+        activeProfileId: "profile-1",
+        activeProjectId: scope.projectId,
+        graph,
+        sessionConnected: true,
+        binding: { kind: "remote", ...scope },
+        initialRuntimeAvailability: initialRuntime,
+        locator: {
+          kind: "workspace",
+          connectionProfileId: "profile-1",
+          ...scope
+        },
+        setError,
+        setSuccessMessage,
+        t: createTranslator("en"),
+        api
+      })
+    );
+
+    expect(result.current.graph?.tasks.every((task) => task.status === "implemented")).toBe(true);
+    expect(readRuntimeAvailability).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await result.current.resetWorkspaceRuntime?.();
+    });
+
+    await waitFor(() =>
+      expect(result.current.authoritativeRuntime?.state).toMatchObject({
+        kind: "initialized",
+        runtimeRevision: 2
+      })
+    );
+    expect(result.current.graph?.tasks.every((task) => task.status === "ready")).toBe(true);
+    expect(resetWorkspaceCanvasRuntime).toHaveBeenCalledOnce();
+    expect(readRuntimeAvailability).not.toHaveBeenCalled();
+    expect(setSuccessMessage).toHaveBeenCalledWith(
+      "Runtime state reset from the authoritative Server projection."
+    );
+    expect(setError).not.toHaveBeenCalled();
+  });
+
+  it("does not reuse an accepted projection after leaving and reopening the Workspace canvas", async () => {
+    const initialRuntime = runtimeView(1, graph.packageFingerprint, "implemented");
+    const resetRuntime = runtimeView(2, graph.packageFingerprint, "ready");
+    const reopenedRuntime = runtimeView(3, graph.packageFingerprint, "implemented");
+    const resetWorkspaceCanvasRuntime = vi.fn().mockResolvedValue({
+      type: "canvas.runtime.reset.accepted" as const,
+      operationId: "operation-1",
+      runtimeRevision: 2,
+      sourceRevision: "source-2",
+      graphFingerprint: graph.packageFingerprint,
+      status: resetRuntime.execution.status
+    });
+    const api = {
+      getCollaborationStatus: vi.fn().mockRejectedValue(new Error("observer unavailable")),
+      readCollaborationCanvasBindingRuntimeAvailability: vi.fn(),
+      initializeWorkspaceCanvasRuntime: vi.fn(),
+      resetWorkspaceCanvasRuntime
+    } satisfies WorkspaceRuntimeBridge;
+    const workspaceProps = {
+      activeProfileId: "profile-1",
+      activeProjectId: scope.projectId,
+      graph,
+      sessionConnected: true,
+      binding: { kind: "remote" as const, ...scope },
+      initialRuntimeAvailability: initialRuntime,
+      locator: {
+        kind: "workspace" as const,
+        connectionProfileId: "profile-1",
+        ...scope
+      }
+    };
+    const { result, rerender } = renderHook(
+      ({ props }) =>
+        useWorkspaceRuntime({
+          ...props,
+          setError: vi.fn(),
+          setSuccessMessage: vi.fn(),
+          t: createTranslator("en"),
+          api
+        }),
+      { initialProps: { props: workspaceProps } }
+    );
+
+    await act(async () => {
+      await result.current.resetWorkspaceRuntime?.();
+    });
+    expect(result.current.authoritativeRuntime?.state).toMatchObject({ runtimeRevision: 2 });
+
+    rerender({
+      props: {
+        ...workspaceProps,
+        activeProfileId: null,
+        activeProjectId: null,
+        binding: null,
+        initialRuntimeAvailability: null,
+        locator: null
+      }
+    });
+    rerender({
+      props: {
+        ...workspaceProps,
+        initialRuntimeAvailability: reopenedRuntime
+      }
+    });
+
+    await waitFor(() =>
+      expect(result.current.authoritativeRuntime?.state).toMatchObject({ runtimeRevision: 3 })
+    );
+    expect(result.current.graph?.tasks.every((task) => task.status === "implemented")).toBe(true);
+  });
+
+  it("does not let a late accepted response overwrite a newer Server revision", async () => {
+    let observer: ((signal: CollaborationObserverSignal) => void) | null = null;
+    let resolveReset:
+      | ((
+          value: Awaited<ReturnType<WorkspaceRuntimeBridge["resetWorkspaceCanvasRuntime"]>>
+        ) => void)
+      | null = null;
+    const resetOutcome = new Promise<
+      Awaited<ReturnType<WorkspaceRuntimeBridge["resetWorkspaceCanvasRuntime"]>>
+    >((resolve) => {
+      resolveReset = resolve;
+    });
+    let resolveRead: ((value: ReturnType<typeof runtimeView>) => void) | null = null;
+    const readOutcome = new Promise<ReturnType<typeof runtimeView>>((resolve) => {
+      resolveRead = resolve;
+    });
+    const initialRuntime = runtimeView(1, graph.packageFingerprint, "implemented");
+    const newerRuntime = runtimeView(3, graph.packageFingerprint, "ready");
+    const resetRuntime = runtimeView(2, graph.packageFingerprint, "implemented");
+    const api = {
+      getCollaborationStatus: vi.fn().mockRejectedValue(new Error("observer unavailable")),
+      readCollaborationCanvasBindingRuntimeAvailability: vi.fn().mockReturnValue(readOutcome),
+      onCollaborationObserverSignal: vi.fn((listener) => {
+        observer = listener;
+        return () => undefined;
+      }),
+      initializeWorkspaceCanvasRuntime: vi.fn(),
+      resetWorkspaceCanvasRuntime: vi.fn().mockReturnValue(resetOutcome)
+    } satisfies WorkspaceRuntimeBridge;
+    const baseProps = {
+      activeProfileId: "profile-1",
+      activeProjectId: scope.projectId,
+      graph,
+      sessionConnected: true,
+      binding: { kind: "remote" as const, ...scope },
+      locator: {
+        kind: "workspace" as const,
+        connectionProfileId: "profile-1",
+        ...scope
+      }
+    };
+    const { result } = renderHook(() =>
+      useWorkspaceRuntime({
+        ...baseProps,
+        initialRuntimeAvailability: initialRuntime,
+        setError: vi.fn(),
+        setSuccessMessage: vi.fn(),
+        t: createTranslator("en"),
+        api
+      })
+    );
+
+    let pendingReset: Promise<void> | undefined;
+    act(() => {
+      pendingReset = result.current.resetWorkspaceRuntime?.();
+    });
+    act(() => {
+      observer?.({
+        type: "human.observer.event",
+        profileId: "profile-1",
+        projectId: scope.projectId,
+        event: {
+          kind: "runtime",
+          sequence: 3,
+          canvasId: scope.canvasId,
+          runtimeRevision: 3
+        }
+      });
+    });
+    await waitFor(() =>
+      expect(api.readCollaborationCanvasBindingRuntimeAvailability).toHaveBeenCalledOnce()
+    );
+
+    await act(async () => {
+      resolveRead?.(newerRuntime);
+      resolveReset?.({
+        type: "canvas.runtime.reset.accepted",
+        operationId: "operation-1",
+        runtimeRevision: 2,
+        sourceRevision: "source-2",
+        graphFingerprint: graph.packageFingerprint,
+        status: resetRuntime.execution.status
+      });
+      await pendingReset;
+    });
+
+    expect(result.current.authoritativeRuntime?.state).toMatchObject({ runtimeRevision: 3 });
+    expect(result.current.graph?.tasks.every((task) => task.status === "ready")).toBe(true);
+  });
+
+  it("does not let a stale Server read overwrite a newer accepted revision", async () => {
+    let observer: ((signal: CollaborationObserverSignal) => void) | null = null;
+    let resolveRead: ((value: ReturnType<typeof runtimeView>) => void) | null = null;
+    const readOutcome = new Promise<ReturnType<typeof runtimeView>>((resolve) => {
+      resolveRead = resolve;
+    });
+    const initialRuntime = runtimeView(1, graph.packageFingerprint, "implemented");
+    const staleRuntime = runtimeView(2, graph.packageFingerprint, "implemented");
+    const resetRuntime = runtimeView(3, graph.packageFingerprint, "ready");
+    const api = {
+      getCollaborationStatus: vi.fn().mockRejectedValue(new Error("observer unavailable")),
+      readCollaborationCanvasBindingRuntimeAvailability: vi.fn().mockReturnValue(readOutcome),
+      onCollaborationObserverSignal: vi.fn((listener) => {
+        observer = listener;
+        return () => undefined;
+      }),
+      initializeWorkspaceCanvasRuntime: vi.fn(),
+      resetWorkspaceCanvasRuntime: vi.fn().mockResolvedValue({
+        type: "canvas.runtime.reset.accepted" as const,
+        operationId: "operation-1",
+        runtimeRevision: 3,
+        sourceRevision: "source-3",
+        graphFingerprint: graph.packageFingerprint,
+        status: resetRuntime.execution.status
+      })
+    } satisfies WorkspaceRuntimeBridge;
+    const { result } = renderHook(() =>
+      useWorkspaceRuntime({
+        activeProfileId: "profile-1",
+        activeProjectId: scope.projectId,
+        graph,
+        sessionConnected: true,
+        binding: { kind: "remote", ...scope },
+        initialRuntimeAvailability: initialRuntime,
+        locator: {
+          kind: "workspace",
+          connectionProfileId: "profile-1",
+          ...scope
+        },
+        setError: vi.fn(),
+        setSuccessMessage: vi.fn(),
+        t: createTranslator("en"),
+        api
+      })
+    );
+
+    act(() => {
+      observer?.({
+        type: "human.observer.event",
+        profileId: "profile-1",
+        projectId: scope.projectId,
+        event: {
+          kind: "runtime",
+          sequence: 2,
+          canvasId: scope.canvasId,
+          runtimeRevision: 2
+        }
+      });
+    });
+    await waitFor(() =>
+      expect(api.readCollaborationCanvasBindingRuntimeAvailability).toHaveBeenCalledOnce()
+    );
+    await act(async () => {
+      await result.current.resetWorkspaceRuntime?.();
+    });
+    expect(result.current.authoritativeRuntime?.state).toMatchObject({ runtimeRevision: 3 });
+
+    await act(async () => {
+      resolveRead?.(staleRuntime);
+    });
+
+    expect(result.current.authoritativeRuntime?.state).toMatchObject({ runtimeRevision: 3 });
+    expect(result.current.graph?.tasks.every((task) => task.status === "ready")).toBe(true);
+  });
+
+  it("ignores an accepted response after switching to another Workspace canvas", async () => {
+    let resolveReset:
+      | ((
+          value: Awaited<ReturnType<WorkspaceRuntimeBridge["resetWorkspaceCanvasRuntime"]>>
+        ) => void)
+      | null = null;
+    const resetOutcome = new Promise<
+      Awaited<ReturnType<WorkspaceRuntimeBridge["resetWorkspaceCanvasRuntime"]>>
+    >((resolve) => {
+      resolveReset = resolve;
+    });
+    const scopeB = { ...scope, canvasId: "canvas-2" };
+    const runtimeA = runtimeViewForScope(1, scope, "implemented");
+    const runtimeB = runtimeViewForScope(5, scopeB, "ready");
+    const resetRuntimeA = runtimeViewForScope(2, scope, "ready");
+    const api = {
+      getCollaborationStatus: vi.fn().mockRejectedValue(new Error("observer unavailable")),
+      readCollaborationCanvasBindingRuntimeAvailability: vi.fn(),
+      initializeWorkspaceCanvasRuntime: vi.fn(),
+      resetWorkspaceCanvasRuntime: vi.fn().mockReturnValue(resetOutcome)
+    } satisfies WorkspaceRuntimeBridge;
+    const { result, rerender } = renderHook(
+      ({ currentScope, initialRuntimeAvailability }) =>
+        useWorkspaceRuntime({
+          activeProfileId: "profile-1",
+          activeProjectId: currentScope.projectId,
+          graph,
+          sessionConnected: true,
+          binding: { kind: "remote", ...currentScope },
+          initialRuntimeAvailability,
+          locator: {
+            kind: "workspace",
+            connectionProfileId: "profile-1",
+            ...currentScope
+          },
+          setError: vi.fn(),
+          setSuccessMessage: vi.fn(),
+          t: createTranslator("en"),
+          api
+        }),
+      { initialProps: { currentScope: scope, initialRuntimeAvailability: runtimeA } }
+    );
+
+    let pendingReset: Promise<void> | undefined;
+    act(() => {
+      pendingReset = result.current.resetWorkspaceRuntime?.();
+    });
+    rerender({ currentScope: scopeB, initialRuntimeAvailability: runtimeB });
+    await waitFor(() =>
+      expect(result.current.authoritativeRuntime?.state).toMatchObject({ runtimeRevision: 5 })
+    );
+
+    resolveReset?.({
+      type: "canvas.runtime.reset.accepted",
+      operationId: "operation-1",
+      runtimeRevision: 2,
+      sourceRevision: "source-2",
+      graphFingerprint: graph.packageFingerprint,
+      status: resetRuntimeA.execution.status
+    });
+    await act(async () => {
+      await pendingReset;
+    });
+
+    expect(result.current.authoritativeRuntime?.state).toMatchObject({ runtimeRevision: 5 });
+    expect(result.current.graph?.tasks.every((task) => task.status === "ready")).toBe(true);
   });
 });
