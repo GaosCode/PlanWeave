@@ -14,8 +14,13 @@ import { z } from "zod";
 import {
   collaborationRemoteActionInputSchema,
   collaborationRemoteInteractionRespondInputSchema,
-  collaborationRemoteOperationIdInputSchema
+  collaborationRemoteOperationLookupInputSchema,
+  collaborationRemoteOperationIdInputSchema,
+  collaborationWorkspaceRemoteEventReplayInputSchema,
+  collaborationWorkspaceRemoteOperationIdInputSchema,
+  collaborationWorkspaceRemoteOperationLookupInputSchema
 } from "../../shared/collaborationReadModels.js";
+import type { WorkspaceCanvasLocator } from "../../shared/canvasLocator.js";
 import type { CollaborationRemoteOperationsPort } from "./CollaborationRemoteOperationsClient.js";
 import { CollaborationClientError } from "./collaborationErrors.js";
 
@@ -26,6 +31,10 @@ import { CollaborationClientError } from "./collaborationErrors.js";
 export class CollaborationRemoteOperationsFacade {
   constructor(
     private readonly withActiveClient: <T>(
+      operation: (client: CollaborationRemoteOperationsPort) => Promise<T>
+    ) => Promise<T>,
+    private readonly withWorkspaceClient: <T>(
+      locator: WorkspaceCanvasLocator,
       operation: (client: CollaborationRemoteOperationsPort) => Promise<T>
     ) => Promise<T>
   ) {}
@@ -42,6 +51,43 @@ export class CollaborationRemoteOperationsFacade {
   async observe(input: unknown): Promise<RemoteOperationObservation> {
     const { operationId } = collaborationRemoteOperationIdInputSchema.parse(input);
     return this.withActiveClient((client) => client.observeRemoteOperation(operationId));
+  }
+
+  async lookup(input: unknown): Promise<RemoteOperationObservation | null> {
+    const query = collaborationRemoteOperationLookupInputSchema.parse(input);
+    return this.withActiveClient((client) => client.lookupRemoteOperation(query));
+  }
+
+  async lookupWorkspace(input: unknown): Promise<RemoteOperationObservation | null> {
+    const { locator, blockRef, operationId } =
+      collaborationWorkspaceRemoteOperationLookupInputSchema.parse(input);
+    const observation = await this.withWorkspaceClient(locator, (client) =>
+      client.lookupRemoteOperation({
+        canvasId: locator.canvasId,
+        blockRef,
+        ...(operationId ? { operationId } : {})
+      })
+    );
+    return observation ? assertWorkspaceOperation(locator, blockRef, observation) : null;
+  }
+
+  async observeWorkspace(input: unknown): Promise<RemoteOperationObservation> {
+    const { locator, blockRef, operationId } =
+      collaborationWorkspaceRemoteOperationIdInputSchema.parse(input);
+    const observation = await this.withWorkspaceClient(locator, (client) =>
+      client.observeRemoteOperation(operationId)
+    );
+    return assertWorkspaceOperation(locator, blockRef, observation);
+  }
+
+  async replayWorkspaceEvents(input: unknown): Promise<RemoteEventReplay> {
+    const { locator, blockRef, operationId, query } =
+      collaborationWorkspaceRemoteEventReplayInputSchema.parse(input);
+    return this.withWorkspaceClient(locator, async (client) => {
+      const observation = await client.observeRemoteOperation(operationId);
+      assertWorkspaceOperation(locator, blockRef, observation);
+      return client.replayRemoteOperationEvents(operationId, query ?? {});
+    });
   }
 
   async executeAction(input: unknown): Promise<RemoteActionView> {
@@ -84,6 +130,21 @@ export class CollaborationRemoteOperationsFacade {
       client.settleRemoteOperationInteraction(operationId, settlement)
     );
   }
+}
+
+function assertWorkspaceOperation(
+  locator: WorkspaceCanvasLocator,
+  blockRef: string,
+  observation: RemoteOperationObservation
+): RemoteOperationObservation {
+  if (
+    observation.projectId !== locator.projectId ||
+    observation.canvasId !== locator.canvasId ||
+    observation.blockRef !== blockRef
+  ) {
+    throw new Error("workspace_remote_operation_authority_mismatch");
+  }
+  return observation;
 }
 
 export function requireActiveCollaborationClient(

@@ -364,6 +364,7 @@ export function ProjectWorkspaceProvider({
     ]
   );
   const taskWorkspaceNavigation = useTaskWorkspaceGraphNavigation({
+    canvasLocator,
     flowInstance,
     graph,
     history: appHistory,

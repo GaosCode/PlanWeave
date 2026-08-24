@@ -2,7 +2,10 @@ import { useCallback } from "react";
 import type { DesktopBridgeApi } from "@planweave-ai/runtime";
 import { runDurablePackageWrite } from "../collaboration/packageWriteAdapter";
 import type { WorkspaceCanvasCommandsResult } from "../hooks/useWorkspaceCanvasCommands";
-import type { TaskWorkspaceNavigationIdentity } from "../taskWorkspaceNavigation";
+import {
+  isWorkspaceTaskWorkspaceNavigation,
+  type TaskWorkspaceNavigationIdentity
+} from "../taskWorkspaceNavigation";
 
 type TaskWorkspaceExecutorApi = Pick<
   DesktopBridgeApi,
@@ -36,12 +39,12 @@ export function useTaskWorkspaceExecutorActions(options: {
           "Cannot save a Task executor without a Task Workspace bridge and identity."
         );
       }
-      const canvasRef = {
-        projectRoot: navigation.projectRoot,
-        canvasId: navigation.canvasId
-      };
-      const current = await api.getTaskDetail(canvasRef, navigation.taskId);
-      if (current.taskId !== navigation.taskId) {
+      const localNavigation = isWorkspaceTaskWorkspaceNavigation(navigation) ? null : navigation;
+      const canvasRef = localNavigation
+        ? { projectRoot: localNavigation.projectRoot, canvasId: localNavigation.canvasId }
+        : null;
+      const current = canvasRef ? await api.getTaskDetail(canvasRef, navigation.taskId) : null;
+      if (current && current.taskId !== navigation.taskId) {
         throw new Error("The loaded Task does not match this Task Workspace.");
       }
       let sharedError: string | null = null;
@@ -56,6 +59,9 @@ export function useTaskWorkspaceExecutorActions(options: {
           sharedError = message;
         },
         localWrite: async () => {
+          if (!canvasRef) {
+            throw new Error("The local Task executor authority is unavailable.");
+          }
           const result = await api.updateTaskExecutor(canvasRef, navigation.taskId, executorName);
           if (!result.ok) {
             throw new Error(graphEditError(result));
@@ -77,12 +83,12 @@ export function useTaskWorkspaceExecutorActions(options: {
           "Cannot save a Block executor without a Task Workspace bridge and identity."
         );
       }
-      const canvasRef = {
-        projectRoot: navigation.projectRoot,
-        canvasId: navigation.canvasId
-      };
-      const current = await api.getBlockDetail(canvasRef, blockRef);
-      if (current.ref !== blockRef || current.taskId !== navigation.taskId) {
+      const localNavigation = isWorkspaceTaskWorkspaceNavigation(navigation) ? null : navigation;
+      const canvasRef = localNavigation
+        ? { projectRoot: localNavigation.projectRoot, canvasId: localNavigation.canvasId }
+        : null;
+      const current = canvasRef ? await api.getBlockDetail(canvasRef, blockRef) : null;
+      if (current && (current.ref !== blockRef || current.taskId !== navigation.taskId)) {
         throw new Error("The loaded Block does not belong to this Task Workspace.");
       }
       let sharedError: string | null = null;
@@ -97,6 +103,9 @@ export function useTaskWorkspaceExecutorActions(options: {
           sharedError = message;
         },
         localWrite: async () => {
+          if (!canvasRef) {
+            throw new Error("The local Block executor authority is unavailable.");
+          }
           const result = await api.updateBlockExecutor(canvasRef, blockRef, executorName);
           if (!result.ok) {
             throw new Error(graphEditError(result));

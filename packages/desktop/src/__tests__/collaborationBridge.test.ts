@@ -239,6 +239,73 @@ describe("CollaborationService IPC trust boundary", () => {
     expect(profileB?.hasDeviceCredential).toBe(false);
   });
 
+  it("fails closed before the remote operation request when a Workspace locator differs from its profile authority", async () => {
+    const root = await tempDir("planweave-workspace-remote-authority-");
+    const safeStorage = mockSafeStorage();
+    const workspaceProfiles = new WorkspaceConnectionProfileStore({
+      profilesPath: join(root, "workspace-profiles.json")
+    });
+    await workspaceProfiles.upsert({
+      profile: {
+        schemaVersion: "workspace-identity/v1",
+        profileId: "profile-workspace",
+        displayName: "Workspace One",
+        serverBaseUrl: "https://workspace.example.test/",
+        workspaceId: "workspace-one",
+        allowInsecureTransport: false
+      },
+      workspaceDisplayName: "Workspace One",
+      membershipRole: "owner",
+      membershipActive: true
+    });
+    const remoteLookup = vi.fn(async () => null);
+    const createClient = vi.fn(
+      () =>
+        ({
+          remoteOperations: () => ({ lookupRemoteOperation: remoteLookup })
+        }) as never
+    );
+    const service = new CollaborationService({
+      profileStore: new CollaborationProfileStore({ profilesPath: join(root, "profiles.json") }),
+      vault: new CollaborationCredentialVault({
+        paths: { credentialsPath: join(root, "credentials.json") },
+        safeStorage
+      }),
+      workspaceProfileStore: workspaceProfiles,
+      safeStorage,
+      createClient
+    });
+    await service.upsertProfile({
+      profileId: "profile-workspace",
+      displayName: "Workspace One project",
+      serverBaseUrl: "https://workspace.example.test/",
+      projectId: "project-one",
+      allowInsecureTransport: false,
+      endpoint: publicEndpoint("https://workspace.example.test/")
+    });
+    await service.importDeviceCredential({
+      profileId: "profile-workspace",
+      deviceToken: exampleHumanDeviceToken,
+      deviceCredentialId: "device-workspace",
+      humanPrincipalId: "human-workspace"
+    });
+
+    await expect(
+      service.lookupWorkspaceRemoteOperation({
+        locator: {
+          kind: "workspace",
+          connectionProfileId: "profile-workspace",
+          workspaceId: "workspace-two",
+          projectId: "project-one",
+          canvasId: "default"
+        },
+        blockRef: "T-001#B-001"
+      })
+    ).rejects.toMatchObject({ code: "collaboration_workspace_connection_mismatch" });
+    expect(createClient).not.toHaveBeenCalled();
+    expect(remoteLookup).not.toHaveBeenCalled();
+  });
+
   it("publishes only the final non-empty profile during a nested activation transaction", async () => {
     const root = await tempDir("planweave-collab-activation-publication-");
     const publishedActiveProfileIds: Array<string | null> = [];

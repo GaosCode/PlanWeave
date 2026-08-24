@@ -198,7 +198,8 @@ function useControllerHarness(
   api: ReturnType<typeof controllerApi>["api"],
   initialNavigation = navigation(),
   workspaceCanvas: WorkspaceCanvasCommandsResult | null = null,
-  endpoints: readonly AvailableAgentEndpoint[] = agentEndpointCatalog
+  endpoints: readonly AvailableAgentEndpoint[] = agentEndpointCatalog,
+  collaborationApi: Parameters<typeof useTaskWorkspaceController>[0]["collaborationApi"] = null
 ) {
   const [currentNavigation, setCurrentNavigation] = useState(initialNavigation);
   const replaceTaskWorkspaceTarget = useCallback(
@@ -223,6 +224,7 @@ function useControllerHarness(
     agentEndpointCatalog: endpoints,
     agentEndpointPreferences: {},
     api,
+    collaborationApi,
     history,
     saveAgentEndpointPreference,
     workspaceCanvas

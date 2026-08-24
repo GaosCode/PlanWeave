@@ -34,7 +34,7 @@ type ConversationApi = Partial<
 export function TaskWorkspaceConversation(
   props: TaskWorkspaceConversationSlotProps & {
     api?: ConversationApi | null;
-    canvasRef: DesktopCanvasReference;
+    canvasRef: DesktopCanvasReference | null;
     t: ReturnType<typeof createTranslator>;
   }
 ) {
@@ -43,6 +43,10 @@ export function TaskWorkspaceConversation(
 
   if (props.remoteConversation) {
     return <RemoteAcpRunConversation conversation={props.remoteConversation} t={t} />;
+  }
+
+  if (!canvasRef) {
+    return <ConversationState message={t("taskWorkspaceNoConversation")} />;
   }
 
   if (!selectedRun) {

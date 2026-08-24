@@ -533,6 +533,12 @@ const collaborationApi: PlanWeaveCollaborationApi = {
     ipcRenderer.invoke(collaborationInvokeChannels.dispatchCollaborationRemoteOperation, input),
   observeCollaborationRemoteOperation: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.observeCollaborationRemoteOperation, input),
+  lookupCollaborationRemoteOperation: async (input) =>
+    ipcRenderer.invoke(collaborationInvokeChannels.lookupCollaborationRemoteOperation, input),
+  lookupWorkspaceRemoteOperation: async (input) =>
+    ipcRenderer.invoke(collaborationInvokeChannels.lookupWorkspaceRemoteOperation, input),
+  observeWorkspaceRemoteOperation: async (input) =>
+    ipcRenderer.invoke(collaborationInvokeChannels.observeWorkspaceRemoteOperation, input),
   executeCollaborationRemoteOperationAction: async (input) =>
     ipcRenderer.invoke(
       collaborationInvokeChannels.executeCollaborationRemoteOperationAction,
@@ -540,6 +546,8 @@ const collaborationApi: PlanWeaveCollaborationApi = {
     ),
   replayCollaborationRemoteOperationEvents: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.replayCollaborationRemoteOperationEvents, input),
+  replayWorkspaceRemoteOperationEvents: async (input) =>
+    ipcRenderer.invoke(collaborationInvokeChannels.replayWorkspaceRemoteOperationEvents, input),
   listCollaborationRemoteOperationInteractions: async (input) =>
     ipcRenderer.invoke(
       collaborationInvokeChannels.listCollaborationRemoteOperationInteractions,

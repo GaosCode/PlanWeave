@@ -91,6 +91,7 @@ import {
   type RemoteInteractionPage,
   type RemoteInteractionResponse,
   type RemoteInteractionView,
+  type RemoteOperationLookupQuery,
   type RemoteOperationObservation
 } from "@planweave-ai/collaboration-protocol/remote-run";
 import type { RemoteAgentEndpointList } from "@planweave-ai/collaboration-protocol/agent-endpoint";
@@ -739,6 +740,13 @@ export class CollaborationClient {
     signal?: AbortSignal
   ): Promise<RemoteOperationObservation> {
     return this.remoteOperationsClient.observeRemoteOperation(operationId, signal);
+  }
+
+  async lookupRemoteOperation(
+    query: RemoteOperationLookupQuery,
+    signal?: AbortSignal
+  ): Promise<RemoteOperationObservation | null> {
+    return this.remoteOperationsClient.lookupRemoteOperation(query, signal);
   }
 
   async executeRemoteOperationAction(

@@ -29,6 +29,17 @@ const blockRefSchema = z
   .max(257)
   .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*#[A-Za-z0-9][A-Za-z0-9._:-]*$/);
 const timestampSchema = z.iso.datetime();
+const remoteOperationScopeSchema = z
+  .object({
+    workspaceId: workspaceIdSchema,
+    projectId: opaqueIdentifierSchema,
+    canvasId: opaqueIdentifierSchema,
+    blockRef: blockRefSchema
+  })
+  .strict();
+const remoteOperationIdScopeSchema = remoteOperationScopeSchema.extend({
+  operationId: opaqueIdentifierSchema
+});
 
 export const remoteOperationStateSchema = z.enum([
   "preparing",
@@ -553,6 +564,40 @@ export class RemoteOperationRepository {
     const operation = this.getInWorkspace(workspaceId, operationId);
     if (!operation) throw new Error("remote_operation_not_found");
     return operation;
+  }
+
+  findLatestByScope(rawScope: {
+    workspaceId: string;
+    projectId: string;
+    canvasId: string;
+    blockRef: string;
+  }): RemoteOperation | undefined {
+    const scope = remoteOperationScopeSchema.parse(rawScope);
+    const row = this.database
+      .prepare(
+        `SELECT id FROM remote_operations
+         WHERE workspace_id=? AND project_id=? AND canvas_id=? AND block_ref=?
+         ORDER BY created_at DESC,rowid DESC LIMIT 1`
+      )
+      .get(scope.workspaceId, scope.projectId, scope.canvasId, scope.blockRef);
+    return typeof row?.id === "string" ? this.getRequired(row.id) : undefined;
+  }
+
+  findByOperationIdInScope(rawScope: {
+    workspaceId: string;
+    projectId: string;
+    canvasId: string;
+    blockRef: string;
+    operationId: string;
+  }): RemoteOperation | undefined {
+    const scope = remoteOperationIdScopeSchema.parse(rawScope);
+    const row = this.database
+      .prepare(
+        `SELECT id FROM remote_operations
+         WHERE workspace_id=? AND project_id=? AND canvas_id=? AND block_ref=? AND id=?`
+      )
+      .get(scope.workspaceId, scope.projectId, scope.canvasId, scope.blockRef, scope.operationId);
+    return typeof row?.id === "string" ? this.getRequired(row.id) : undefined;
   }
 
   getByDispatchId(dispatchId: string): RemoteOperation | undefined {

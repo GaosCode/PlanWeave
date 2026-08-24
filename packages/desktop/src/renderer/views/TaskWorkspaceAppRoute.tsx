@@ -27,10 +27,16 @@ import {
   taskWorkspaceUsageLabels
 } from "../task-workspace/labels";
 import { TaskWorkspaceTimeline } from "../task-workspace/timeline";
+import { isWorkspaceTaskWorkspaceNavigation } from "../taskWorkspaceNavigation";
 
 export function TaskWorkspaceAppRoute() {
   const { shell, taskWorkspace } = useProjectWorkspace();
   const navigation = taskWorkspace.navigation;
+  const localNavigation =
+    navigation && !isWorkspaceTaskWorkspaceNavigation(navigation) ? navigation : null;
+  const localCanvasRef = localNavigation
+    ? { canvasId: localNavigation.canvasId, projectRoot: localNavigation.projectRoot }
+    : null;
   const repositoryRoot =
     shell.selectedProject?.sourceRoot ??
     (shell.selectedProject?.kind === "external" ? shell.selectedProject.rootPath : null);
@@ -45,9 +51,7 @@ export function TaskWorkspaceAppRoute() {
   return (
     <TaskWorkspaceCancelRunControllerScope
       api={bridge}
-      canvasRef={
-        navigation ? { canvasId: navigation.canvasId, projectRoot: navigation.projectRoot } : null
-      }
+      canvasRef={localCanvasRef}
       model={taskWorkspace.runnerModel}
       selectedRun={taskWorkspace.selectedRun}
     >
@@ -65,10 +69,7 @@ export function TaskWorkspaceAppRoute() {
                     />
                   }
                   api={bridge}
-                  canvasRef={{
-                    canvasId: navigation.canvasId,
-                    projectRoot: navigation.projectRoot
-                  }}
+                  canvasRef={localCanvasRef}
                   cancelController={cancelController}
                   t={shell.t}
                 />
@@ -77,7 +78,7 @@ export function TaskWorkspaceAppRoute() {
                 <TaskWorkspaceConversation
                   {...props}
                   api={bridge}
-                  canvasRef={{ canvasId: navigation.canvasId, projectRoot: navigation.projectRoot }}
+                  canvasRef={localCanvasRef}
                   t={shell.t}
                 />
               ),

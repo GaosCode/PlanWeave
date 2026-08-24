@@ -85,6 +85,60 @@ describe("Task Workspace conversation", () => {
     expect(onTerminal).not.toHaveBeenCalled();
   });
 
+  it("replays a completed remote ACP conversation before reporting terminal state", async () => {
+    const onTerminal = vi.fn();
+    const api = {
+      observe: vi.fn(async () => ({
+        operationId: "operation-remote-done",
+        projectId: "project-server",
+        canvasId: "canvas-main",
+        blockRef: "T-001#B-001",
+        state: "completed" as const,
+        dispatchId: "dispatch-remote-done",
+        executionAttemptId: "attempt-remote-done",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        terminalAt: timestamp,
+        attempt: {
+          executionAttemptId: "attempt-remote-done",
+          dispatchId: "dispatch-remote-done",
+          status: "completed" as const,
+          stateVersion: 4
+        },
+        runtime: { ref: "T-001#B-001", status: "completed" as const }
+      })),
+      replay: vi.fn(async () => ({
+        executionAttemptId: "attempt-remote-done",
+        afterCursor: 0,
+        cursor: 1,
+        highWatermark: 1,
+        hasMore: false,
+        events: [
+          {
+            cursor: 1,
+            kind: "agent_message" as const,
+            text: "Remote execution completed."
+          }
+        ]
+      }))
+    };
+
+    const { result } = renderHook(() =>
+      useRemoteTaskWorkspaceConversation({
+        api,
+        blockRef: "T-001#B-001",
+        operationId: "operation-remote-done",
+        onTerminal
+      })
+    );
+
+    await waitFor(() => expect(result.current?.state).toBe("completed"));
+    expect(result.current?.timeline).toEqual([
+      expect.objectContaining({ content: "Remote execution completed." })
+    ]);
+    expect(onTerminal).toHaveBeenCalledTimes(1);
+  });
+
   it("shows the active remote ACP timeline instead of a stale local run", () => {
     render(
       <TaskWorkspaceConversation

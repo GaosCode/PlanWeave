@@ -24,18 +24,19 @@ import {
 } from "../collaboration/agentEndpointViewModel";
 import { inheritAgentEndpointValue } from "../collaboration/AgentEndpointSelect";
 import { changeAgentEndpointSelection } from "../collaboration/changeAgentEndpoint";
-import { runDurablePackageWrite } from "../collaboration/packageWriteAdapter";
 import type { AppViewHistoryController } from "../hooks/useAppViewHistory";
 import type { WorkspaceCanvasCommandsResult } from "../hooks/useWorkspaceCanvasCommands";
 import { useRunnerRecordMonitor } from "../hooks/useRunnerRecordMonitor";
-import { taskWorkspaceNavigationTargetSchema } from "../taskWorkspaceNavigation";
-import type { TaskWorkspaceController, TaskWorkspaceLiveStatus } from "./contracts";
 import {
-  projectSharedTaskWorkspace,
-  sharedBlockPromptMarkdown,
-  sharedTaskPromptMarkdown
-} from "./taskWorkspaceSharedProjection";
+  isWorkspaceTaskWorkspaceNavigation,
+  taskWorkspaceNavigationTargetSchema,
+  type TaskWorkspaceNavigationIdentity,
+  type TaskWorkspaceNavigationTarget
+} from "../taskWorkspaceNavigation";
+import type { TaskWorkspaceController, TaskWorkspaceLiveStatus } from "./contracts";
+import { projectSharedTaskWorkspace } from "./taskWorkspaceSharedProjection";
 import { useTaskWorkspaceExecutorActions } from "./useTaskWorkspaceExecutorActions";
+import { useTaskWorkspacePromptActions } from "./useTaskWorkspacePromptActions";
 import {
   type TaskWorkspaceRecordLoad,
   useTaskWorkspaceRecordCache
@@ -96,10 +97,27 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function graphEditError(result: Awaited<ReturnType<DesktopBridgeApi["updateTaskPrompt"]>>): string {
-  return (
-    result.diagnostics.map((diagnostic) => diagnostic.message).join("\n") ||
-    "The graph edit could not be saved."
+function navigationTargetWithSelection(
+  navigation: TaskWorkspaceNavigationIdentity,
+  selection: { blockRef?: string; recordId?: string }
+): TaskWorkspaceNavigationTarget {
+  return taskWorkspaceNavigationTargetSchema.parse(
+    isWorkspaceTaskWorkspaceNavigation(navigation)
+      ? {
+          authority: "workspace",
+          connectionProfileId: navigation.connectionProfileId,
+          workspaceId: navigation.workspaceId,
+          projectId: navigation.projectId,
+          canvasId: navigation.canvasId,
+          taskId: navigation.taskId,
+          ...selection
+        }
+      : {
+          projectRoot: navigation.projectRoot,
+          canvasId: navigation.canvasId,
+          taskId: navigation.taskId,
+          ...selection
+        }
   );
 }
 
@@ -109,9 +127,13 @@ export function useTaskWorkspaceController(options: {
   api?: TaskWorkspaceApi | null;
   collaborationApi?: Pick<
     PlanWeaveCollaborationApi,
+    | "lookupCollaborationRemoteOperation"
+    | "lookupWorkspaceRemoteOperation"
     | "observeCollaborationRemoteOperation"
+    | "observeWorkspaceRemoteOperation"
     | "onCollaborationObserverSignal"
     | "replayCollaborationRemoteOperationEvents"
+    | "replayWorkspaceRemoteOperationEvents"
   > | null;
   operatorApi?: Pick<
     PlanWeaveOperatorControlApi,
@@ -157,9 +179,12 @@ export function useTaskWorkspaceController(options: {
   const navigationRef = useRef(navigation);
   navigationRef.current = navigation;
   const key = navigation ? taskWorkspaceAuthorityKey(navigation) : "";
-  const navigationProjectRoot = navigation?.projectRoot ?? null;
+  const localNavigation =
+    navigation && !isWorkspaceTaskWorkspaceNavigation(navigation) ? navigation : null;
+  const workspaceNavigation =
+    navigation && isWorkspaceTaskWorkspaceNavigation(navigation) ? navigation : null;
+  const navigationProjectRoot = localNavigation?.projectRoot ?? null;
   const navigationCanvasId = navigation?.canvasId ?? null;
-  const navigationTaskId = navigation?.taskId ?? null;
 
   useEffect(() => {
     void key;
@@ -183,7 +208,10 @@ export function useTaskWorkspaceController(options: {
     if (!requestedNavigation) {
       return;
     }
-    if (!api) {
+    const requestedWorkspaceNavigation = isWorkspaceTaskWorkspaceNavigation(requestedNavigation)
+      ? requestedNavigation
+      : null;
+    if (!requestedWorkspaceNavigation && !api) {
       setWorkspaceLoad({
         error: "Task Workspace bridge is unavailable.",
         key,
@@ -209,6 +237,73 @@ export function useTaskWorkspaceController(options: {
         workspace: null
       };
     });
+    if (requestedWorkspaceNavigation) {
+      const projection = workspaceCanvas?.projection ?? null;
+      if (!projection) return;
+      void import("./workspaceTaskWorkspaceProjection")
+        .then(({ loadWorkspaceTaskWorkspace }) =>
+          loadWorkspaceTaskWorkspace({
+            navigation: requestedWorkspaceNavigation,
+            projection,
+            lookupOperation: (input) => {
+              if (!collaborationApi) {
+                return Promise.reject(new Error("Collaboration operation lookup is unavailable."));
+              }
+              return collaborationApi.lookupWorkspaceRemoteOperation(input);
+            }
+          })
+        )
+        .then((loaded) => {
+          if (workspaceRequest.current !== request) return;
+          const currentNavigation = navigationRef.current;
+          if (
+            !currentNavigation ||
+            !isWorkspaceTaskWorkspaceNavigation(currentNavigation) ||
+            taskWorkspaceAuthorityKey(currentNavigation) !== key
+          ) {
+            return;
+          }
+          const selected = initialTaskWorkspaceRun(loaded.workspace, currentNavigation);
+          if (!currentNavigation.recordId && selected && !overviewSelectedRef.current) {
+            history.replaceTaskWorkspaceTarget(
+              navigationTargetWithSelection(currentNavigation, {
+                blockRef: selected.block.ref,
+                recordId: selected.item.run.record.recordId
+              })
+            );
+          }
+          runItemsRef.current = [];
+          nextCursorRef.current = null;
+          setHasMoreRuns(false);
+          setLoadMoreRunsError(null);
+          setLoadingMoreRuns(false);
+          loadingMoreRef.current = false;
+          setWorkspaceLoad({
+            error: null,
+            key,
+            packageExecutorNames: loaded.packageExecutorNames,
+            requiredCapabilitiesByBlockRef: loaded.requiredCapabilitiesByBlockRef,
+            taskRequiredCapabilities: loaded.taskRequiredCapabilities,
+            status: "ready",
+            workspace: loaded.workspace
+          });
+        })
+        .catch((error: unknown) => {
+          if (workspaceRequest.current !== request) return;
+          setWorkspaceLoad({
+            error: errorMessage(error),
+            key,
+            packageExecutorNames: [],
+            requiredCapabilitiesByBlockRef: {},
+            taskRequiredCapabilities: [],
+            status: "error",
+            workspace: null
+          });
+        });
+      return;
+    }
+    if (!api) return;
+    if (isWorkspaceTaskWorkspaceNavigation(requestedNavigation)) return;
     const canvasRef = {
       projectRoot: requestedNavigation.projectRoot,
       canvasId: requestedNavigation.canvasId
@@ -231,7 +326,11 @@ export function useTaskWorkspaceController(options: {
           return;
         }
         const currentNavigation = navigationRef.current;
-        if (!currentNavigation || taskWorkspaceAuthorityKey(currentNavigation) !== key) {
+        if (
+          !currentNavigation ||
+          isWorkspaceTaskWorkspaceNavigation(currentNavigation) ||
+          taskWorkspaceAuthorityKey(currentNavigation) !== key
+        ) {
           return;
         }
         const graphTask = graph.tasks.find((task) => task.taskId === currentNavigation.taskId);
@@ -376,7 +475,14 @@ export function useTaskWorkspaceController(options: {
           workspace: null
         });
       });
-  }, [api, history.replaceTaskWorkspaceTarget, key, refreshVersion]);
+  }, [
+    api,
+    collaborationApi,
+    history.replaceTaskWorkspaceTarget,
+    key,
+    refreshVersion,
+    workspaceCanvas?.projection
+  ]);
 
   const loadedWorkspace = workspaceLoad.key === key ? workspaceLoad.workspace : null;
   const workspace = useMemo(
@@ -421,44 +527,51 @@ export function useTaskWorkspaceController(options: {
             controlPlane: selectedRemoteControlPlane,
             collaborationApi,
             operatorApi,
-            operatorProfileId
+            operatorProfileId,
+            ...(workspaceNavigation && selectedBlockRef
+              ? {
+                  workspaceScope: {
+                    locator: {
+                      kind: "workspace" as const,
+                      connectionProfileId: workspaceNavigation.connectionProfileId,
+                      workspaceId: workspaceNavigation.workspaceId,
+                      projectId: workspaceNavigation.projectId,
+                      canvasId: workspaceNavigation.canvasId
+                    },
+                    blockRef: selectedBlockRef
+                  }
+                }
+              : {})
           })
         : null,
-    [collaborationApi, operatorApi, operatorProfileId, selectedRemoteControlPlane]
+    [
+      collaborationApi,
+      operatorApi,
+      operatorProfileId,
+      selectedBlockRef,
+      selectedRemoteControlPlane,
+      workspaceNavigation
+    ]
   );
   const remoteConversation = useRemoteTaskWorkspaceConversation({
     api: remoteConversationApi,
     blockRef: selectedBlockRef || null,
-    operationId:
-      selectedRemoteExecution &&
-      (selectedRemoteExecution.phase !== "terminal" || selectedRemoteExecution.status === "failed")
-        ? selectedRemoteExecution.identity.operationId
-        : null,
+    operationId: selectedRemoteExecution?.identity.operationId ?? null,
     onTerminal: refresh
   });
 
   const recordIdentity = useMemo(
     () =>
-      navigationProjectRoot === null ||
-      navigationCanvasId === null ||
-      navigationTaskId === null ||
-      !selectedRecordKey ||
-      !selectedBlockRef
+      localNavigation === null || !selectedRecordKey || !selectedBlockRef
         ? null
         : {
             blockRef: selectedBlockRef,
-            canvasId: navigationCanvasId,
-            projectRoot: navigationProjectRoot,
+            canvasId: localNavigation.canvasId,
+            projectRoot: localNavigation.projectRoot,
             recordId: selectedRecordKey,
-            taskId: navigationTaskId
+            taskId: localNavigation.taskId
           },
-    [
-      navigationCanvasId,
-      navigationProjectRoot,
-      navigationTaskId,
-      selectedBlockRef,
-      selectedRecordKey
-    ]
+    [localNavigation, selectedBlockRef, selectedRecordKey]
   );
   const syntheticRecordLoad = useMemo<TaskWorkspaceRecordLoad | null>(() => {
     void remoteExecutionVersion;
@@ -649,10 +762,7 @@ export function useTaskWorkspaceController(options: {
       setOverviewSelected(false);
       setSelectedAnnotationIdentity(null);
       history.replaceTaskWorkspaceTarget(
-        taskWorkspaceNavigationTargetSchema.parse({
-          projectRoot: navigation.projectRoot,
-          canvasId: navigation.canvasId,
-          taskId: navigation.taskId,
+        navigationTargetWithSelection(navigation, {
           blockRef: selection.blockRef,
           recordId: selection.recordId
         })
@@ -668,7 +778,7 @@ export function useTaskWorkspaceController(options: {
   }, []);
 
   const loadMoreRuns = useCallback(async () => {
-    if (!api || !navigation || !nextCursorRef.current || loadingMoreRef.current) {
+    if (!api || !localNavigation || !nextCursorRef.current || loadingMoreRef.current) {
       return;
     }
     const cursor = nextCursorRef.current;
@@ -678,15 +788,15 @@ export function useTaskWorkspaceController(options: {
     setLoadMoreRunsError(null);
     try {
       const page = await api.listTaskWorkspaceRuns({
-        projectRoot: navigation.projectRoot,
-        canvasId: navigation.canvasId,
-        taskId: navigation.taskId,
+        projectRoot: localNavigation.projectRoot,
+        canvasId: localNavigation.canvasId,
+        taskId: localNavigation.taskId,
         cursor
       });
       if (workspaceRequest.current !== request) {
         return;
       }
-      const selectedHint = navigation.recordId ?? null;
+      const selectedHint = localNavigation.recordId ?? null;
       const existingIds = new Set(runItemsRef.current.map((item) => item.run.record.recordId));
       const appended: TaskWorkspaceRunListItem[] = page.items
         .filter((item) => !existingIds.has(item.run.record.recordId))
@@ -719,137 +829,15 @@ export function useTaskWorkspaceController(options: {
         setLoadingMoreRuns(false);
       }
     }
-  }, [api, key, navigation]);
+  }, [api, key, localNavigation]);
 
-  const saveTaskPrompt = useCallback<TaskWorkspaceController["saveTaskPrompt"]>(
-    async ({ baseMarkdown, markdown }) => {
-      if (!api || !navigation || !workspace) {
-        throw new Error("Cannot save a Task prompt without a Task Workspace bridge and identity.");
-      }
-      const canvasRef = {
-        projectRoot: navigation.projectRoot,
-        canvasId: navigation.canvasId
-      };
-      const sharedPrompt = workspaceCanvas?.enabled
-        ? sharedTaskPromptMarkdown(workspaceCanvas.projection, workspace, navigation.taskId)
-        : null;
-      const current = workspaceCanvas?.enabled
-        ? null
-        : await api.getTaskDetail(canvasRef, navigation.taskId);
-      if (workspaceCanvas?.enabled && sharedPrompt === null) {
-        throw new Error("The shared Task prompt authority is unavailable.");
-      }
-      if (current && current.taskId !== navigation.taskId) {
-        throw new Error("The loaded Task prompt does not match this Task Workspace.");
-      }
-      if ((sharedPrompt ?? current?.promptMarkdown) !== baseMarkdown) {
-        throw new Error(
-          "The Task prompt changed outside this editor. Reload the page and merge your changes before saving."
-        );
-      }
-      if (current && (current.graphVersion === undefined || current.promptHash === undefined)) {
-        throw new Error(
-          "The Task prompt cannot be saved safely because its revision is unavailable."
-        );
-      }
-      let sharedError: string | null = null;
-      const mode = await runDurablePackageWrite({
-        workspaceCanvas,
-        intent: {
-          kind: "update_task_prompt",
-          taskId: navigation.taskId,
-          promptMarkdown: markdown
-        },
-        onError: (message) => {
-          sharedError = message;
-        },
-        localWrite: async () => {
-          if (!current) {
-            throw new Error("The local Task prompt revision is unavailable.");
-          }
-          const result = await api.updateTaskPrompt(canvasRef, navigation.taskId, markdown, {
-            baseGraphVersion: current.graphVersion,
-            basePromptHash: current.promptHash
-          });
-          if (!result.ok) {
-            throw new Error(graphEditError(result));
-          }
-        }
-      });
-      if (mode === "failed") {
-        throw new Error(sharedError ?? "Shared canvas command failed.");
-      }
-      if (mode === "local") {
-        refresh();
-      }
-    },
-    [api, navigation, refresh, workspaceCanvas, workspace]
-  );
-
-  const saveBlockPrompt = useCallback<TaskWorkspaceController["saveBlockPrompt"]>(
-    async (blockRef, { baseMarkdown, markdown }) => {
-      if (!api || !navigation || !workspace) {
-        throw new Error("Cannot save a Block prompt without a Task Workspace bridge and identity.");
-      }
-      const canvasRef = {
-        projectRoot: navigation.projectRoot,
-        canvasId: navigation.canvasId
-      };
-      const sharedPrompt = workspaceCanvas?.enabled
-        ? sharedBlockPromptMarkdown(workspaceCanvas.projection, workspace, blockRef)
-        : null;
-      const current = workspaceCanvas?.enabled
-        ? null
-        : await api.getBlockDetail(canvasRef, blockRef);
-      if (workspaceCanvas?.enabled && sharedPrompt === null) {
-        throw new Error("The shared Block prompt authority is unavailable.");
-      }
-      if (current && (current.ref !== blockRef || current.taskId !== navigation.taskId)) {
-        throw new Error("The loaded Block prompt does not belong to this Task Workspace.");
-      }
-      if ((sharedPrompt ?? current?.promptMarkdown) !== baseMarkdown) {
-        throw new Error(
-          "The Block prompt changed outside this editor. Reload the page and merge your changes before saving."
-        );
-      }
-      if (current && (current.graphVersion === undefined || current.promptHash === undefined)) {
-        throw new Error(
-          "The Block prompt cannot be saved safely because its revision is unavailable."
-        );
-      }
-      let sharedError: string | null = null;
-      const mode = await runDurablePackageWrite({
-        workspaceCanvas,
-        intent: {
-          kind: "update_block_prompt",
-          blockRef,
-          promptMarkdown: markdown
-        },
-        onError: (message) => {
-          sharedError = message;
-        },
-        localWrite: async () => {
-          if (!current) {
-            throw new Error("The local Block prompt revision is unavailable.");
-          }
-          const result = await api.updateBlockPrompt(canvasRef, blockRef, markdown, {
-            baseGraphVersion: current.graphVersion,
-            basePromptHash: current.promptHash
-          });
-          if (!result.ok) {
-            throw new Error(graphEditError(result));
-          }
-        }
-      });
-      if (mode === "failed") {
-        throw new Error(sharedError ?? "Shared canvas command failed.");
-      }
-      if (mode === "local") {
-        refresh();
-      }
-    },
-    [api, navigation, refresh, workspaceCanvas, workspace]
-  );
+  const { saveBlockPrompt, saveTaskPrompt } = useTaskWorkspacePromptActions({
+    api,
+    navigation,
+    onLocalSaved: refresh,
+    workspace,
+    workspaceCanvas
+  });
 
   const { saveBlockExecutor, saveTaskExecutor } = useTaskWorkspaceExecutorActions({
     api,
@@ -876,11 +864,11 @@ export function useTaskWorkspaceController(options: {
       ),
     [agentEndpointCatalog, key, workspaceLoad]
   );
-  const taskEndpointPreferenceKey = navigation
+  const taskEndpointPreferenceKey = localNavigation
     ? agentEndpointPreferenceKey({
-        projectRoot: navigation.projectRoot,
-        canvasId: navigation.canvasId,
-        scope: { kind: "task", taskId: navigation.taskId }
+        projectRoot: localNavigation.projectRoot,
+        canvasId: localNavigation.canvasId,
+        scope: { kind: "task", taskId: localNavigation.taskId }
       })
     : null;
   const effectiveTaskExecutors = new Set(
@@ -907,10 +895,10 @@ export function useTaskWorkspaceController(options: {
   const selectedAgentEndpointIdForBlock = useCallback(
     (blockRef: string): string | null => {
       const block = workspace?.blocks.find((candidate) => candidate.ref === blockRef);
-      if (!block || !navigation || !block.executor) return null;
+      if (!block || !localNavigation || !block.executor) return null;
       const preferenceKey = agentEndpointPreferenceKey({
-        projectRoot: navigation.projectRoot,
-        canvasId: navigation.canvasId,
+        projectRoot: localNavigation.projectRoot,
+        canvasId: localNavigation.canvasId,
         scope: { kind: "block", blockRef }
       });
       return agentEndpointSelectionId(
@@ -921,7 +909,7 @@ export function useTaskWorkspaceController(options: {
         })
       );
     },
-    [agentEndpointPreferences, agentEndpointsForBlock, navigation, workspace]
+    [agentEndpointPreferences, agentEndpointsForBlock, localNavigation, workspace]
   );
   const saveTaskAgentEndpoint = useCallback<TaskWorkspaceController["saveTaskAgentEndpoint"]>(
     async (endpointId) => {
@@ -956,12 +944,12 @@ export function useTaskWorkspaceController(options: {
   );
   const saveBlockAgentEndpoint = useCallback<TaskWorkspaceController["saveBlockAgentEndpoint"]>(
     async (blockRef, endpointId) => {
-      if (!navigation) {
+      if (!localNavigation) {
         throw new Error("Cannot save an Agent Endpoint without a Task Workspace identity.");
       }
       const preferenceKey = agentEndpointPreferenceKey({
-        projectRoot: navigation.projectRoot,
-        canvasId: navigation.canvasId,
+        projectRoot: localNavigation.projectRoot,
+        canvasId: localNavigation.canvasId,
         scope: { kind: "block", blockRef }
       });
       let selectionError: string | null = null;
@@ -983,11 +971,16 @@ export function useTaskWorkspaceController(options: {
         throw new Error(selectionError);
       }
     },
-    [agentEndpointsForBlock, navigation, saveAgentEndpointPreference, saveBlockExecutor]
+    [agentEndpointsForBlock, localNavigation, saveAgentEndpointPreference, saveBlockExecutor]
   );
 
   const liveStatus = useMemo<TaskWorkspaceLiveStatus>(() => {
     if (overviewSelected || !selectedRecordKey) return "idle";
+    if (navigation && isWorkspaceTaskWorkspaceNavigation(navigation)) {
+      if (!remoteConversation) return "loading";
+      if (remoteConversation.error) return "error";
+      return remoteConversation.state === "loading" ? "loading" : "live";
+    }
     if (visibleRecordLoad.status === "loading") return "loading";
     if (visibleRecordLoad.status === "error") {
       return "error";
@@ -1001,7 +994,9 @@ export function useTaskWorkspaceController(options: {
   }, [
     liveProjection,
     monitor.subscriptionError,
+    navigation,
     overviewSelected,
+    remoteConversation,
     visibleRecordLoad.status,
     selectedRecord,
     selectedRecordKey

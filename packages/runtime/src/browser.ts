@@ -26,7 +26,8 @@ export { composeTaskWorkspaceRuns } from "./desktop/taskWorkspaceCompose.js";
 export { projectRemoteAcpTimeline } from "./autoRun/remoteAcpEventProjection.js";
 export {
   taskWorkspaceInputSchema,
-  taskWorkspaceRunItemSchema
+  taskWorkspaceRunItemSchema,
+  taskWorkspaceSchema
 } from "./desktop/types/taskWorkspaceAggregateTypes.js";
 export {
   builtinExecutorNames,

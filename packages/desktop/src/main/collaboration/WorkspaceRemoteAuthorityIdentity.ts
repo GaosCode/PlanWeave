@@ -27,13 +27,16 @@ export function workspaceRemoteAuthorityId(
 
 export function workspaceRemoteAuthorityKeyFromProfile(
   locator: WorkspaceCanvasLocator,
-  profile: { profileId: string; serverBaseUrl: string; projectId: string }
+  profile: { profileId: string; serverBaseUrl: string; projectId: string; workspaceId?: string }
 ): WorkspaceRemoteAuthorityKey {
   if (
     profile.profileId !== locator.connectionProfileId ||
     profile.projectId !== locator.projectId
   ) {
     throw new Error("workspace_remote_authority_profile_identity_mismatch");
+  }
+  if (profile.workspaceId !== undefined && profile.workspaceId !== locator.workspaceId) {
+    throw new Error("workspace_remote_authority_workspace_mismatch");
   }
   return workspaceRemoteAuthorityKeySchema.parse({
     connectionProfileId: profile.profileId,

@@ -4,12 +4,19 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceCanvasCommandsResult } from "../renderer/hooks/useWorkspaceCanvasCommands";
 import {
+  taskWorkspaceNavigationIdentity,
+  workspaceBlockWorkspaceTarget,
+  type TaskWorkspaceNavigationIdentity
+} from "../renderer/taskWorkspaceNavigation";
+import {
   collaborationCanvasReplicaProjectionSchema,
   type CollaborationCanvasReplicaProjection
 } from "../shared/canvasReplicaIpc";
 import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
 import { controllerApi, useControllerHarness } from "./helpers/taskWorkspaceControllerHarness";
 import { navigation } from "./helpers/taskWorkspaceControllerModelFixture";
+import { taskWorkspaceSource } from "./helpers/taskWorkspaceControllerModelFixture";
+import "../renderer/task-workspace/workspaceTaskWorkspaceProjection";
 
 afterEach(cleanupRendererTestEnvironment);
 
@@ -112,6 +119,92 @@ function workspaceCanvasWithProjection(
 }
 
 describe("Task Workspace shared prompt authority", () => {
+  it("opens a pure Workspace Block and loads its existing remote execution record", async () => {
+    const { api } = controllerApi({ readModel: () => null });
+    const workspaceCanvas = workspaceCanvasWithProjection();
+    const workspaceNavigation: TaskWorkspaceNavigationIdentity = taskWorkspaceNavigationIdentity(
+      workspaceBlockWorkspaceTarget({
+        authority: "workspace",
+        connectionProfileId: "profile-workspace",
+        workspaceId: "workspace-1",
+        projectId: "project-1",
+        canvasId: "canvas-main",
+        taskId: "T-001",
+        blockRef: "T-001#B-001"
+      }),
+      taskWorkspaceSource
+    );
+    const operation = {
+      operationId: "operation-1",
+      projectId: "project-1",
+      canvasId: "canvas-main",
+      blockRef: "T-001#B-001",
+      state: "running" as const,
+      dispatchId: "dispatch-1",
+      executionAttemptId: "attempt-1",
+      createdAt: "2026-08-24T00:01:00.000Z",
+      updatedAt: "2026-08-24T00:02:00.000Z",
+      attempt: {
+        executionAttemptId: "attempt-1",
+        dispatchId: "dispatch-1",
+        status: "running" as const,
+        stateVersion: 3
+      },
+      agentEndpoint: null,
+      runtime: null
+    };
+    const collaborationApi = {
+      lookupCollaborationRemoteOperation: vi.fn().mockResolvedValue(operation),
+      lookupWorkspaceRemoteOperation: vi.fn().mockResolvedValue(operation),
+      observeCollaborationRemoteOperation: vi.fn().mockResolvedValue(operation),
+      observeWorkspaceRemoteOperation: vi.fn().mockResolvedValue(operation),
+      onCollaborationObserverSignal: vi.fn(() => () => undefined),
+      replayCollaborationRemoteOperationEvents: vi.fn().mockResolvedValue({
+        operationId: "operation-1",
+        cursor: 0,
+        events: [],
+        hasMore: false,
+        floorCursor: 0
+      }),
+      replayWorkspaceRemoteOperationEvents: vi.fn().mockResolvedValue({
+        operationId: "operation-1",
+        cursor: 0,
+        events: [],
+        hasMore: false,
+        floorCursor: 0
+      })
+    };
+
+    const { result } = renderHook(() =>
+      useControllerHarness(api, workspaceNavigation, workspaceCanvas, undefined, collaborationApi)
+    );
+
+    await waitFor(() => expect(collaborationApi.lookupWorkspaceRemoteOperation).toHaveBeenCalled());
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    await waitFor(() => expect(result.current.remoteConversation?.state).toBe("running"));
+    expect(result.current.error).toBeNull();
+    expect(result.current.workspace?.project).toEqual({
+      authority: "workspace",
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+      canvasId: "canvas-main"
+    });
+    expect(result.current.selectedRun?.block.ref).toBe("T-001#B-001");
+    expect(api.getTaskWorkspace).not.toHaveBeenCalled();
+    expect(api.getTaskWorkspaceRunDetail).not.toHaveBeenCalled();
+    expect(collaborationApi.lookupWorkspaceRemoteOperation).toHaveBeenCalledWith({
+      locator: {
+        kind: "workspace",
+        connectionProfileId: "profile-workspace",
+        workspaceId: "workspace-1",
+        projectId: "project-1",
+        canvasId: "canvas-main"
+      },
+      blockRef: "T-001#B-001"
+    });
+    expect(collaborationApi.lookupCollaborationRemoteOperation).not.toHaveBeenCalled();
+  });
+
   it("uses shared prompts after reopening instead of stale local package prompts", async () => {
     const { api } = controllerApi({ readModel: () => null });
     const workspaceCanvas = workspaceCanvasWithProjection();

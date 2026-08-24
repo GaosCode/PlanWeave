@@ -156,6 +156,15 @@ export default defineConfig({
               priority: 12
             },
             {
+              // Task Workspace state is shared by the shell and its lazy detail route.
+              // Keep that feature boundary out of the renderer entry without duplicating it.
+              name: "task-workspace",
+              test: (id) =>
+                id.includes("/renderer/task-workspace/") ||
+                id.endsWith("/renderer/taskWorkspaceNavigation.ts"),
+              priority: 13
+            },
+            {
               // Settings is a secondary route with several independent administration
               // surfaces. Keep it out of the startup shell while preserving its lazy
               // Host administration boundary.

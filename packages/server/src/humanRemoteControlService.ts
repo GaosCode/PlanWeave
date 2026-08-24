@@ -9,7 +9,9 @@ import {
   remoteInteractionResponseSchema,
   remoteInteractionViewSchema,
   remoteEndpointOperationObservationSchema,
-  remoteOperationObservationSchema
+  remoteOperationLookupQuerySchema,
+  remoteOperationObservationSchema,
+  type RemoteRuntimeBindingProjection
 } from "@planweave-ai/collaboration-protocol/remote-run";
 import type {
   AuthenticatedCollaborationScope,
@@ -120,8 +122,10 @@ export class HumanRemoteControlService {
 
   async observeOperation(scope: AuthenticatedCollaborationScope, operationId: string) {
     const operation = this.operationFor(scope, operationId);
-    const runtime = await this.options.coordinator.query(operation.id);
     const dispatch = this.options.dispatches.get(operation.dispatchId);
+    const runtime = isTerminalOperation(operation)
+      ? terminalRuntimeProjection(operation)
+      : await this.options.coordinator.query(operation.id);
     const observation = {
       operationId: operation.id,
       projectId: operation.projectId,
@@ -182,6 +186,31 @@ export class HumanRemoteControlService {
     return operation.endpointSelection
       ? remoteEndpointOperationObservationSchema.parse(observation)
       : remoteOperationObservationSchema.parse(observation);
+  }
+
+  async lookupLatestOperation(scope: AuthenticatedCollaborationScope, rawQuery: unknown) {
+    const { actor: context, projectId, workspaceId } = scope;
+    this.authorize(context, projectId);
+    const query = remoteOperationLookupQuerySchema.parse(rawQuery);
+    if (!query.canvasId || !query.blockRef) {
+      throw new HumanRemoteControlError("human_remote_operation_scope_required");
+    }
+    this.options.authorizeCanvas?.(context, { workspaceId, projectId, canvasId: query.canvasId });
+    const operation = query.operationId
+      ? this.options.operations.findByOperationIdInScope({
+          workspaceId,
+          projectId,
+          canvasId: query.canvasId,
+          blockRef: query.blockRef,
+          operationId: query.operationId
+        })
+      : this.options.operations.findLatestByScope({
+          workspaceId,
+          projectId,
+          canvasId: query.canvasId,
+          blockRef: query.blockRef
+        });
+    return operation ? this.observeOperation(scope, operation.id) : null;
   }
 
   async executeAction(
@@ -287,6 +316,38 @@ export class HumanRemoteControlService {
     });
     return operation;
   }
+}
+
+function isTerminalOperation(operation: RemoteOperation): boolean {
+  return (
+    operation.state === "completed" ||
+    operation.state === "failed" ||
+    operation.state === "cancelled"
+  );
+}
+
+function terminalRuntimeProjection(operation: RemoteOperation): RemoteRuntimeBindingProjection {
+  if (!isTerminalOperation(operation)) {
+    throw new Error("terminal_runtime_projection_requires_terminal_operation");
+  }
+  return {
+    ref: operation.blockRef,
+    status:
+      operation.state === "completed"
+        ? "completed"
+        : operation.state === "failed"
+          ? "blocked"
+          : "cancelled",
+    terminalReceipt: {
+      operationId: operation.id,
+      outcome:
+        operation.state === "completed"
+          ? "completed"
+          : operation.state === "failed"
+            ? "failed"
+            : "cancelled"
+    }
+  };
 }
 
 function toHumanInteractionView(interaction: ReturnType<RemoteInteractionService["getRequired"]>) {

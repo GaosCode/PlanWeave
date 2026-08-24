@@ -5,6 +5,14 @@ function matchesWorkspace(
   workspace: TaskWorkspace,
   projection: CollaborationCanvasBindingReplicaProjection
 ): boolean {
+  if ("authority" in workspace.project) {
+    return (
+      workspace.project.authority === "workspace" &&
+      projection.workspaceId === workspace.project.workspaceId &&
+      projection.projectId === workspace.project.projectId &&
+      projection.canvasId === workspace.project.canvasId
+    );
+  }
   return (
     !("bindingKind" in projection) &&
     projection.localProjectId === workspace.project.projectId &&

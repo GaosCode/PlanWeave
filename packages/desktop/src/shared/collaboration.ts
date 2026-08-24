@@ -138,7 +138,11 @@ import type {
   CollaborationPageQueryInput,
   CollaborationRemoteEventQueryInput,
   CollaborationRemoteInteractionPageQueryInput,
+  CollaborationRemoteOperationLookupInput,
   CollaborationRemoteOperationIdInput,
+  CollaborationWorkspaceRemoteEventReplayInput,
+  CollaborationWorkspaceRemoteOperationIdInput,
+  CollaborationWorkspaceRemoteOperationLookupInput,
   CollaborationResponsibilityUpdateInput,
   CollaborationReviewerUpdateInput,
   CollaborationWorkAuthorityScopeInput,
@@ -916,6 +920,15 @@ export type PlanWeaveCollaborationApi = WorkspaceCanvasSharingApi & {
   observeCollaborationRemoteOperation: (
     input: CollaborationRemoteOperationIdInput
   ) => Promise<RemoteOperationObservation>;
+  lookupCollaborationRemoteOperation: (
+    input: CollaborationRemoteOperationLookupInput
+  ) => Promise<RemoteOperationObservation | null>;
+  lookupWorkspaceRemoteOperation: (
+    input: CollaborationWorkspaceRemoteOperationLookupInput
+  ) => Promise<RemoteOperationObservation | null>;
+  observeWorkspaceRemoteOperation: (
+    input: CollaborationWorkspaceRemoteOperationIdInput
+  ) => Promise<RemoteOperationObservation>;
   executeCollaborationRemoteOperationAction: (input: {
     operationId: string;
     action: RemoteHumanExecutionActionCommand;
@@ -924,6 +937,9 @@ export type PlanWeaveCollaborationApi = WorkspaceCanvasSharingApi & {
     operationId: string;
     query?: CollaborationRemoteEventQueryInput;
   }) => Promise<RemoteEventReplay>;
+  replayWorkspaceRemoteOperationEvents: (
+    input: CollaborationWorkspaceRemoteEventReplayInput
+  ) => Promise<RemoteEventReplay>;
   listCollaborationRemoteOperationInteractions: (input: {
     operationId: string;
     query?: CollaborationRemoteInteractionPageQueryInput;
@@ -966,6 +982,10 @@ export type {
   CollaborationPageQueryInput,
   CollaborationResponsibilityUpdateInput,
   CollaborationReviewerUpdateInput,
+  CollaborationRemoteOperationLookupInput,
+  CollaborationWorkspaceRemoteOperationLookupInput,
+  CollaborationWorkspaceRemoteOperationIdInput,
+  CollaborationWorkspaceRemoteEventReplayInput,
   CollaborationWorkAuthorityScopeInput,
   CollaborationWorkItemInput
 } from "./collaborationReadModels.js";

@@ -101,8 +101,13 @@ export const collaborationInvokeChannels = {
   listCollaborationAgentEndpoints: "planweave-collaboration:listAgentEndpoints",
   dispatchCollaborationRemoteOperation: "planweave-collaboration:dispatchRemoteOperation",
   observeCollaborationRemoteOperation: "planweave-collaboration:observeRemoteOperation",
+  lookupCollaborationRemoteOperation: "planweave-collaboration:lookupRemoteOperation",
+  lookupWorkspaceRemoteOperation: "planweave-collaboration:lookupWorkspaceRemoteOperation",
+  observeWorkspaceRemoteOperation: "planweave-collaboration:observeWorkspaceRemoteOperation",
   executeCollaborationRemoteOperationAction: "planweave-collaboration:executeRemoteOperationAction",
   replayCollaborationRemoteOperationEvents: "planweave-collaboration:replayRemoteOperationEvents",
+  replayWorkspaceRemoteOperationEvents:
+    "planweave-collaboration:replayWorkspaceRemoteOperationEvents",
   listCollaborationRemoteOperationInteractions:
     "planweave-collaboration:listRemoteOperationInteractions",
   settleCollaborationRemoteOperationInteraction:

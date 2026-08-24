@@ -286,16 +286,27 @@ export const taskWorkspaceCostAccountingSchema = z
   })
   .strict();
 
+const localTaskWorkspaceProjectSchema = z
+  .object({
+    projectId: nonEmptyStringSchema.max(256),
+    projectRoot: nonEmptyStringSchema,
+    canvasId: canvasIdSchema
+  })
+  .strict();
+
+const workspaceTaskWorkspaceProjectSchema = z
+  .object({
+    authority: z.literal("workspace"),
+    workspaceId: nonEmptyStringSchema.max(256),
+    projectId: nonEmptyStringSchema.max(256),
+    canvasId: canvasIdSchema
+  })
+  .strict();
+
 export const taskWorkspaceSchema = z
   .object({
     version: z.literal("planweave.task-workspace/v1"),
-    project: z
-      .object({
-        projectId: nonEmptyStringSchema.max(256),
-        projectRoot: nonEmptyStringSchema,
-        canvasId: canvasIdSchema
-      })
-      .strict(),
+    project: z.union([localTaskWorkspaceProjectSchema, workspaceTaskWorkspaceProjectSchema]),
     task: z
       .object({
         taskId: taskIdSchema,

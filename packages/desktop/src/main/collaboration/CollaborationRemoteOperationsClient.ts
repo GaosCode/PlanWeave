@@ -9,6 +9,7 @@ import {
   remoteInteractionResponseSchema,
   remoteInteractionViewSchema,
   remoteEndpointOperationObservationSchema,
+  remoteOperationLookupQuerySchema,
   remoteOperationObservationSchema,
   type RemoteActionView,
   type RemoteDispatchIntentV3,
@@ -17,6 +18,7 @@ import {
   type RemoteInteractionPage,
   type RemoteInteractionResponse,
   type RemoteInteractionView,
+  type RemoteOperationLookupQuery,
   type RemoteOperationObservation
 } from "@planweave-ai/collaboration-protocol/remote-run";
 import {
@@ -45,6 +47,10 @@ export interface CollaborationRemoteOperationsPort {
     operationId: string,
     signal?: AbortSignal
   ): Promise<RemoteOperationObservation>;
+  lookupRemoteOperation(
+    query: RemoteOperationLookupQuery,
+    signal?: AbortSignal
+  ): Promise<RemoteOperationObservation | null>;
   executeRemoteOperationAction(
     operationId: string,
     action: RemoteHumanExecutionActionCommand,
@@ -103,6 +109,24 @@ export class CollaborationRemoteOperationsClient implements CollaborationRemoteO
       "GET",
       `/api/v1/projects/${encodeURIComponent(this.projectId)}/remote-operations/${encodeURIComponent(operationId)}`,
       remoteOperationObservationSchema,
+      { signal }
+    );
+  }
+
+  lookupRemoteOperation(
+    query: RemoteOperationLookupQuery,
+    signal?: AbortSignal
+  ): Promise<RemoteOperationObservation | null> {
+    const parsed = remoteOperationLookupQuerySchema.parse(query);
+    if (!parsed.canvasId || !parsed.blockRef) {
+      throw new Error("remote_operation_lookup_scope_required");
+    }
+    const params = new URLSearchParams({ canvasId: parsed.canvasId, blockRef: parsed.blockRef });
+    if (parsed.operationId) params.set("operationId", parsed.operationId);
+    return this.transport.json(
+      "GET",
+      `/api/v1/projects/${encodeURIComponent(this.projectId)}/remote-operations?${params}`,
+      remoteOperationObservationSchema.nullable(),
       { signal }
     );
   }

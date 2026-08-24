@@ -5,13 +5,19 @@ import {
   taskWorkspaceInputSchema
 } from "@planweave-ai/runtime/browser";
 import { z } from "zod";
+import { workspaceCanvasLocatorSchema } from "../shared/canvasLocator";
 import { graphAppViewSchema, nonGraphRegularAppViewSchema } from "./appViewContract";
 
 const projectRootSchema = taskWorkspaceInputSchema.shape.projectRoot;
 const recordIdSchema = taskWorkspaceInputSchema.shape.selectedRecordId.unwrap().unwrap();
-const navigationTargetBaseShape = {
+const localNavigationTargetBaseShape = {
   projectRoot: projectRootSchema,
   canvasId: canvasIdSchema,
+  taskId: taskIdSchema
+};
+const workspaceNavigationTargetBaseShape = {
+  authority: z.literal("workspace"),
+  ...workspaceCanvasLocatorSchema.omit({ kind: true }).shape,
   taskId: taskIdSchema
 };
 
@@ -70,9 +76,9 @@ export const graphNavigationSnapshotSchema = z
     }
   });
 
-export const taskWorkspaceNavigationTargetSchema = z
+const localTaskWorkspaceNavigationTargetSchema = z
   .object({
-    ...navigationTargetBaseShape,
+    ...localNavigationTargetBaseShape,
     blockRef: claimRefSchema.optional(),
     // recordId selects a read model; executable actions require runtime capability identities.
     recordId: recordIdSchema.optional()
@@ -80,11 +86,25 @@ export const taskWorkspaceNavigationTargetSchema = z
   .strict()
   .superRefine(validateBlockOwnership);
 
-export const taskWorkspaceTaskTargetSchema = z.object(navigationTargetBaseShape).strict();
+const workspaceTaskWorkspaceNavigationTargetSchema = z
+  .object({
+    ...workspaceNavigationTargetBaseShape,
+    blockRef: claimRefSchema.optional(),
+    recordId: recordIdSchema.optional()
+  })
+  .strict()
+  .superRefine(validateBlockOwnership);
+
+export const taskWorkspaceNavigationTargetSchema = z.union([
+  localTaskWorkspaceNavigationTargetSchema,
+  workspaceTaskWorkspaceNavigationTargetSchema
+]);
+
+export const taskWorkspaceTaskTargetSchema = z.object(localNavigationTargetBaseShape).strict();
 
 export const blockWorkspaceTargetSchema = z
   .object({
-    ...navigationTargetBaseShape,
+    ...localNavigationTargetBaseShape,
     blockRef: claimRefSchema
   })
   .strict()
@@ -92,7 +112,7 @@ export const blockWorkspaceTargetSchema = z
 
 export const runWorkspaceTargetSchema = z
   .object({
-    ...navigationTargetBaseShape,
+    ...localNavigationTargetBaseShape,
     blockRef: claimRefSchema.optional(),
     recordId: recordIdSchema
   })
@@ -101,7 +121,7 @@ export const runWorkspaceTargetSchema = z
 
 export const recordAuthorityTargetSchema = z
   .object({
-    ...navigationTargetBaseShape,
+    ...localNavigationTargetBaseShape,
     blockRef: claimRefSchema,
     recordId: recordIdSchema
   })
@@ -118,28 +138,61 @@ export const taskWorkspaceNavigationSourceSchema = z.discriminatedUnion("view", 
   z.object({ view: nonGraphRegularAppViewSchema }).strict()
 ]);
 
-export const taskWorkspaceNavigationIdentitySchema = taskWorkspaceNavigationTargetSchema
-  .safeExtend({
+export const workspaceBlockWorkspaceTargetSchema = z
+  .object({
+    ...workspaceNavigationTargetBaseShape,
+    blockRef: claimRefSchema
+  })
+  .strict()
+  .superRefine(validateBlockOwnership);
+
+export const workspaceTaskWorkspaceTargetSchema = z
+  .object(workspaceNavigationTargetBaseShape)
+  .strict();
+
+export const taskWorkspaceNavigationIdentitySchema = z.union([
+  localTaskWorkspaceNavigationTargetSchema.safeExtend({
+    source: taskWorkspaceNavigationSourceSchema
+  }),
+  workspaceTaskWorkspaceNavigationTargetSchema.safeExtend({
     source: taskWorkspaceNavigationSourceSchema
   })
-  .strict();
+]);
 
 export type GraphViewport = z.output<typeof graphViewportSchema>;
 export type GraphNavigationSnapshot = z.output<typeof graphNavigationSnapshotSchema>;
 export type GraphNavigationSnapshotInput = z.input<typeof graphNavigationSnapshotSchema>;
 export type TaskWorkspaceNavigationTarget = z.output<typeof taskWorkspaceNavigationTargetSchema>;
+export type LocalTaskWorkspaceNavigationTarget = z.output<
+  typeof localTaskWorkspaceNavigationTargetSchema
+>;
+export type WorkspaceTaskWorkspaceNavigationTarget = z.output<
+  typeof workspaceTaskWorkspaceNavigationTargetSchema
+>;
 export type TaskWorkspaceNavigationTargetInput = z.input<
   typeof taskWorkspaceNavigationTargetSchema
 >;
 export type TaskWorkspaceTargetInput = z.input<typeof taskWorkspaceTaskTargetSchema>;
 export type BlockWorkspaceTargetInput = z.input<typeof blockWorkspaceTargetSchema>;
 export type RunWorkspaceTargetInput = z.input<typeof runWorkspaceTargetSchema>;
+export type WorkspaceBlockWorkspaceTargetInput = z.input<
+  typeof workspaceBlockWorkspaceTargetSchema
+>;
+export type WorkspaceTaskWorkspaceTargetInput = z.input<typeof workspaceTaskWorkspaceTargetSchema>;
 export type TaskWorkspaceNavigationSource = z.output<typeof taskWorkspaceNavigationSourceSchema>;
 export type TaskWorkspaceNavigationSourceInput = z.input<
   typeof taskWorkspaceNavigationSourceSchema
 >;
 export type TaskWorkspaceNavigationIdentity = z.output<
   typeof taskWorkspaceNavigationIdentitySchema
+>;
+export type LocalTaskWorkspaceNavigationIdentity = Exclude<
+  TaskWorkspaceNavigationIdentity,
+  { authority: "workspace" }
+>;
+export type WorkspaceTaskWorkspaceNavigationIdentity = Extract<
+  TaskWorkspaceNavigationIdentity,
+  { authority: "workspace" }
 >;
 export type TaskWorkspaceNavigationIdentityInput = z.input<
   typeof taskWorkspaceNavigationIdentitySchema
@@ -162,6 +215,47 @@ export function runWorkspaceTarget(input: RunWorkspaceTargetInput): TaskWorkspac
   return taskWorkspaceNavigationTargetSchema.parse(runWorkspaceTargetSchema.parse(input));
 }
 
+export function workspaceBlockWorkspaceTarget(
+  input: WorkspaceBlockWorkspaceTargetInput
+): TaskWorkspaceNavigationTarget {
+  return taskWorkspaceNavigationTargetSchema.parse(
+    workspaceBlockWorkspaceTargetSchema.parse(input)
+  );
+}
+
+export function workspaceTaskWorkspaceTarget(
+  input: WorkspaceTaskWorkspaceTargetInput
+): TaskWorkspaceNavigationTarget {
+  return taskWorkspaceNavigationTargetSchema.parse(workspaceTaskWorkspaceTargetSchema.parse(input));
+}
+
+export function isWorkspaceTaskWorkspaceNavigation(
+  target: TaskWorkspaceNavigationIdentity
+): target is WorkspaceTaskWorkspaceNavigationIdentity;
+export function isWorkspaceTaskWorkspaceNavigation(
+  target: TaskWorkspaceNavigationTarget
+): target is WorkspaceTaskWorkspaceNavigationTarget;
+export function isWorkspaceTaskWorkspaceNavigation(
+  target: TaskWorkspaceNavigationTarget | TaskWorkspaceNavigationIdentity
+): boolean {
+  return "authority" in target && target.authority === "workspace";
+}
+
+export function taskWorkspaceNavigationAuthorityKey(
+  target: TaskWorkspaceNavigationTarget | TaskWorkspaceNavigationIdentity
+): string {
+  return isWorkspaceTaskWorkspaceNavigation(target)
+    ? JSON.stringify([
+        "workspace",
+        target.connectionProfileId,
+        target.workspaceId,
+        target.projectId,
+        target.canvasId,
+        target.taskId
+      ])
+    : JSON.stringify(["local", target.projectRoot, target.canvasId, target.taskId]);
+}
+
 export function taskWorkspaceNavigationIdentity(
   target: TaskWorkspaceNavigationTarget,
   source: TaskWorkspaceNavigationSourceInput
@@ -174,22 +268,20 @@ export function sameTaskWorkspaceNavigationIdentity(
   right: TaskWorkspaceNavigationIdentity
 ): boolean {
   return (
-    left.projectRoot === right.projectRoot &&
-    left.canvasId === right.canvasId &&
-    left.taskId === right.taskId &&
+    taskWorkspaceNavigationAuthorityKey(left) === taskWorkspaceNavigationAuthorityKey(right) &&
     left.blockRef === right.blockRef &&
     left.recordId === right.recordId
   );
 }
 
-type ProjectAuthorityTarget = Pick<TaskWorkspaceNavigationTarget, "projectRoot">;
-type CanvasAuthorityTarget = Pick<TaskWorkspaceNavigationTarget, "projectRoot" | "canvasId">;
+type ProjectAuthorityTarget = Pick<LocalTaskWorkspaceNavigationTarget, "projectRoot">;
+type CanvasAuthorityTarget = Pick<LocalTaskWorkspaceNavigationTarget, "projectRoot" | "canvasId">;
 type TaskAuthorityTarget = Pick<
-  TaskWorkspaceNavigationTarget,
+  LocalTaskWorkspaceNavigationTarget,
   "projectRoot" | "canvasId" | "taskId"
 >;
 type BlockAuthorityTarget = Pick<
-  TaskWorkspaceNavigationTarget,
+  LocalTaskWorkspaceNavigationTarget,
   "projectRoot" | "canvasId" | "taskId"
 > & { blockRef: string };
 
@@ -230,6 +322,9 @@ export function resolveTaskWorkspaceNavigation(
     };
   }
   const navigation = parsed.data;
+  if (isWorkspaceTaskWorkspaceNavigation(navigation)) {
+    return { status: "valid", navigation };
+  }
   const { projectRoot, canvasId, taskId, blockRef, recordId } = navigation;
   if (!authority.hasProject({ projectRoot })) {
     return {

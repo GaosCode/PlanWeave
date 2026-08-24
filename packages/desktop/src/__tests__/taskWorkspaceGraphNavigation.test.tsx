@@ -126,6 +126,48 @@ describe("Task Workspace graph navigation", () => {
     expect(setError).not.toHaveBeenCalled();
   });
 
+  it("opens a Block workspace from Server authority without requiring a local project path", () => {
+    const history = historyController();
+    const setError = vi.fn();
+    const { result } = renderHook(() =>
+      useTaskWorkspaceGraphNavigation({
+        canvasLocator: {
+          kind: "workspace",
+          connectionProfileId: "profile-workspace",
+          workspaceId: "workspace-demo",
+          projectId: "project-demo",
+          canvasId: "canvas-main"
+        },
+        flowInstance: flowInstance(),
+        graph: graphWithBlock,
+        history,
+        openProject: vi.fn(),
+        projectLoading: false,
+        projects: [project],
+        restoreSelection: vi.fn(),
+        selectedCanvasId: null,
+        selectedProject: null,
+        setError
+      })
+    );
+
+    act(() => result.current.openBlockWorkspace("T-ALPHA#B-001"));
+
+    expect(history.openTaskWorkspace).toHaveBeenCalledWith(
+      {
+        authority: "workspace",
+        connectionProfileId: "profile-workspace",
+        workspaceId: "workspace-demo",
+        projectId: "project-demo",
+        canvasId: "canvas-main",
+        taskId: "T-ALPHA",
+        blockRef: "T-ALPHA#B-001"
+      },
+      { view: "graph" }
+    );
+    expect(setError).not.toHaveBeenCalled();
+  });
+
   it("keeps source selection empty when a cross-authority run target reuses local refs", () => {
     const history = historyController();
     const { result } = renderHook(() =>

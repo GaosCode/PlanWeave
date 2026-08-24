@@ -8,6 +8,7 @@ import { TaskWorkspaceAnnotationDetail } from "./TaskWorkspaceAnnotationDetail";
 import { TaskWorkspaceShell, TaskWorkspaceStateShell } from "./TaskWorkspaceShell";
 import { TaskWorkspaceOverviewPanel } from "./timeline/TaskWorkspaceOverview";
 import { useTaskWorkspaceLayout } from "./useTaskWorkspaceLayout";
+import { taskWorkspaceNavigationAuthorityKey } from "../taskWorkspaceNavigation";
 
 function EmptySlot({ description, title }: { description: string; title: string }) {
   return (
@@ -126,12 +127,12 @@ export function TaskWorkspaceRoute({
   slots = {}
 }: TaskWorkspaceRouteProps) {
   const sessionKey = controller.navigation
-    ? `${controller.navigation.projectRoot}\0${controller.navigation.canvasId}\0${controller.navigation.taskId}`
+    ? taskWorkspaceNavigationAuthorityKey(controller.navigation)
     : "task-workspace-unavailable";
   const layout = useTaskWorkspaceLayout(sessionKey);
   const directTargetKey =
     controller.navigation && !controller.navigation.recordId
-      ? `${controller.navigation.projectRoot}\0${controller.navigation.canvasId}\0${controller.navigation.taskId}\0${controller.navigation.blockRef ?? "task"}`
+      ? `${taskWorkspaceNavigationAuthorityKey(controller.navigation)}\0${controller.navigation.blockRef ?? "task"}`
       : null;
   const pendingDirectTargetRef = useRef<string | null>(null);
   const openedDirectTargetRef = useRef<string | null>(null);

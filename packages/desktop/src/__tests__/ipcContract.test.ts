@@ -369,11 +369,23 @@ describe("desktop IPC contract", () => {
     expect(collaborationInvokeChannels.observeCollaborationRemoteOperation).toBe(
       "planweave-collaboration:observeRemoteOperation"
     );
+    expect(collaborationInvokeChannels.lookupCollaborationRemoteOperation).toBe(
+      "planweave-collaboration:lookupRemoteOperation"
+    );
+    expect(collaborationInvokeChannels.lookupWorkspaceRemoteOperation).toBe(
+      "planweave-collaboration:lookupWorkspaceRemoteOperation"
+    );
+    expect(collaborationInvokeChannels.observeWorkspaceRemoteOperation).toBe(
+      "planweave-collaboration:observeWorkspaceRemoteOperation"
+    );
     expect(collaborationInvokeChannels.executeCollaborationRemoteOperationAction).toBe(
       "planweave-collaboration:executeRemoteOperationAction"
     );
     expect(collaborationInvokeChannels.replayCollaborationRemoteOperationEvents).toBe(
       "planweave-collaboration:replayRemoteOperationEvents"
+    );
+    expect(collaborationInvokeChannels.replayWorkspaceRemoteOperationEvents).toBe(
+      "planweave-collaboration:replayWorkspaceRemoteOperationEvents"
     );
     expect(collaborationInvokeChannels.listCollaborationRemoteOperationInteractions).toBe(
       "planweave-collaboration:listRemoteOperationInteractions"

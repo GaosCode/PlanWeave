@@ -98,6 +98,9 @@ import type {
   CollaborationServiceOptions
 } from "./collaborationServiceOptions.js";
 import { createWorkspaceCanvasSnapshotSessionComposition } from "./WorkspaceCanvasSnapshotSessionComposition.js";
+import { workspaceRemoteAuthorityKeyFromProfile } from "./WorkspaceRemoteAuthorityIdentity.js";
+import type { WorkspaceCanvasLocator } from "../../shared/canvasLocator.js";
+import { resolveWorkspaceRemoteAuthorityProfile } from "./workspaceRemoteAuthorityProfile.js";
 export type {
   CollaborationClientFactory,
   CollaborationServiceOptions
@@ -184,7 +187,7 @@ export class CollaborationService {
       contentVersions: this.contentVersions,
       resolveClient: () => this.client,
       resolveConnectedProfileId: () => this.clientProfileId,
-      resolveProfile: (profileId) => this.profiles.get(profileId),
+      resolveProfile: (profileId) => this.resolveWorkspaceRemoteAuthorityProfile(profileId),
       enqueue: (operation) => this.enqueue(operation),
       assertOpen: () => this.assertOpen(),
       onCanvasReplicaSignal: options.onCanvasReplicaSignal,
@@ -192,8 +195,9 @@ export class CollaborationService {
     });
     this.canvasCommands = canvasComposition.commands;
     this.canvasOperations = canvasComposition.operations;
-    this.remoteOperations = new CollaborationRemoteOperationsFacade((operation) =>
-      this.withActiveClient((client) => operation(client.remoteOperations()))
+    this.remoteOperations = new CollaborationRemoteOperationsFacade(
+      (operation) => this.withActiveClient((client) => operation(client.remoteOperations())),
+      (locator, operation) => this.withWorkspaceClient(locator, operation)
     );
     this.presenceSession = new CollaborationPresenceSession({
       getClient: () => this.client,
@@ -884,12 +888,28 @@ export class CollaborationService {
     return this.remoteOperations.observe(input);
   }
 
+  async lookupRemoteOperation(input: unknown): Promise<RemoteOperationObservation | null> {
+    return this.remoteOperations.lookup(input);
+  }
+
+  async lookupWorkspaceRemoteOperation(input: unknown): Promise<RemoteOperationObservation | null> {
+    return this.remoteOperations.lookupWorkspace(input);
+  }
+
+  async observeWorkspaceRemoteOperation(input: unknown): Promise<RemoteOperationObservation> {
+    return this.remoteOperations.observeWorkspace(input);
+  }
+
   async executeRemoteOperationAction(input: unknown): Promise<RemoteActionView> {
     return this.remoteOperations.executeAction(input);
   }
 
   async replayRemoteOperationEvents(input: unknown): Promise<RemoteEventReplay> {
     return this.remoteOperations.replayEvents(input);
+  }
+
+  async replayWorkspaceRemoteOperationEvents(input: unknown): Promise<RemoteEventReplay> {
+    return this.remoteOperations.replayWorkspaceEvents(input);
   }
 
   async listRemoteOperationInteractions(input: unknown): Promise<RemoteInteractionPage> {
@@ -926,6 +946,68 @@ export class CollaborationService {
     } catch (error) {
       throw collaborationErrorFromUnknown(error);
     }
+  }
+
+  private async withWorkspaceClient<T>(
+    locator: WorkspaceCanvasLocator,
+    operation: (
+      client: import("./CollaborationRemoteOperationsClient.js").CollaborationRemoteOperationsPort
+    ) => Promise<T>
+  ): Promise<T> {
+    this.assertOpen();
+    try {
+      const authorityProfile = await this.resolveWorkspaceRemoteAuthorityProfile(
+        locator.connectionProfileId
+      );
+      if (!authorityProfile) {
+        throw new CollaborationClientError({
+          kind: "forbidden",
+          code: "collaboration_workspace_connection_mismatch",
+          message:
+            "The requested Workspace profile is not an active authorized Workspace authority.",
+          retryable: false
+        });
+      }
+      if (
+        authorityProfile.profileId !== locator.connectionProfileId ||
+        authorityProfile.workspaceId !== locator.workspaceId ||
+        authorityProfile.projectId !== locator.projectId
+      ) {
+        throw new CollaborationClientError({
+          kind: "forbidden",
+          code: "collaboration_workspace_connection_mismatch",
+          message:
+            "The requested Workspace locator does not match the profile Workspace authority.",
+          retryable: false
+        });
+      }
+      workspaceRemoteAuthorityKeyFromProfile(locator, authorityProfile);
+      const { client, profile } = await this.clientForProfile(locator.connectionProfileId, true);
+      if (
+        profile.profileId !== authorityProfile.profileId ||
+        profile.projectId !== authorityProfile.projectId ||
+        new URL(profile.serverBaseUrl).origin !== new URL(authorityProfile.serverBaseUrl).origin
+      ) {
+        throw new Error("workspace_remote_authority_profile_changed");
+      }
+      return await operation(client.remoteOperations());
+    } catch (error) {
+      throw collaborationErrorFromUnknown(error);
+    }
+  }
+
+  private async resolveWorkspaceRemoteAuthorityProfile(profileId: string): Promise<{
+    profileId: string;
+    serverBaseUrl: string;
+    workspaceId: string;
+    projectId: string;
+  } | null> {
+    return resolveWorkspaceRemoteAuthorityProfile({
+      profileId,
+      getCollaborationProfile: (requestedProfileId) => this.profiles.get(requestedProfileId),
+      getWorkspaceProfile: (requestedProfileId) =>
+        this.workspaceConnection.getStoredProfile(requestedProfileId)
+    });
   }
 
   /**

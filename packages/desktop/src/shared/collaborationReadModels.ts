@@ -45,6 +45,7 @@ import {
   remoteHumanExecutionActionCommandSchema,
   remoteInteractionPageQuerySchema,
   remoteInteractionResponseSchema,
+  remoteOperationLookupQuerySchema,
   type RemoteActionView,
   type RemoteEventReplay,
   type RemoteHumanExecutionActionCommand,
@@ -54,6 +55,7 @@ import {
   type RemoteOperationObservation
 } from "@planweave-ai/collaboration-protocol/remote-run";
 import { type WorkAuthorityProjection } from "@planweave-ai/collaboration-protocol/work/authority";
+import { workspaceCanvasLocatorSchema } from "./canvasLocator.js";
 
 /**
  * Renderer-facing collaboration sync lifecycle.
@@ -258,6 +260,46 @@ export const collaborationRemoteOperationIdInputSchema = z
   .strict();
 export type CollaborationRemoteOperationIdInput = z.infer<
   typeof collaborationRemoteOperationIdInputSchema
+>;
+
+export const collaborationRemoteOperationLookupInputSchema =
+  remoteOperationLookupQuerySchema.refine(
+    (value) => value.canvasId !== undefined && value.blockRef !== undefined,
+    { message: "Remote operation block lookup requires canvasId and blockRef." }
+  );
+export type CollaborationRemoteOperationLookupInput = z.infer<
+  typeof collaborationRemoteOperationLookupInputSchema
+>;
+
+const collaborationWorkspaceRemoteOperationScopeSchema = z
+  .object({
+    locator: workspaceCanvasLocatorSchema,
+    blockRef: remoteOperationLookupQuerySchema.shape.blockRef.unwrap()
+  })
+  .strict();
+
+export const collaborationWorkspaceRemoteOperationLookupInputSchema =
+  collaborationWorkspaceRemoteOperationScopeSchema
+    .extend({ operationId: opaqueIdentifierSchema.optional() })
+    .strict();
+export type CollaborationWorkspaceRemoteOperationLookupInput = z.infer<
+  typeof collaborationWorkspaceRemoteOperationLookupInputSchema
+>;
+
+export const collaborationWorkspaceRemoteOperationIdInputSchema =
+  collaborationWorkspaceRemoteOperationScopeSchema
+    .extend({ operationId: opaqueIdentifierSchema })
+    .strict();
+export type CollaborationWorkspaceRemoteOperationIdInput = z.infer<
+  typeof collaborationWorkspaceRemoteOperationIdInputSchema
+>;
+
+export const collaborationWorkspaceRemoteEventReplayInputSchema =
+  collaborationWorkspaceRemoteOperationIdInputSchema
+    .extend({ query: remoteEventQuerySchema.optional() })
+    .strict();
+export type CollaborationWorkspaceRemoteEventReplayInput = z.infer<
+  typeof collaborationWorkspaceRemoteEventReplayInputSchema
 >;
 
 export const collaborationRemoteEventQueryInputSchema = remoteEventQuerySchema;

@@ -1,10 +1,13 @@
 import type { TaskWorkspace } from "@planweave-ai/runtime";
-import type { TaskWorkspaceNavigationIdentity } from "../taskWorkspaceNavigation";
+import {
+  taskWorkspaceNavigationAuthorityKey,
+  type TaskWorkspaceNavigationIdentity
+} from "../taskWorkspaceNavigation";
 import type { TaskWorkspaceSelectedRun } from "./contracts";
 import { isRemoteLiveRecordId, remoteLiveRecordId } from "./remoteLiveRun";
 
 export function taskWorkspaceAuthorityKey(navigation: TaskWorkspaceNavigationIdentity): string {
-  return JSON.stringify([navigation.projectRoot, navigation.canvasId, navigation.taskId]);
+  return taskWorkspaceNavigationAuthorityKey(navigation);
 }
 
 export function findTaskWorkspaceRun(

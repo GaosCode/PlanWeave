@@ -51,6 +51,81 @@ const operationInput = {
 } as const;
 
 describe("RemoteOperationRepository", () => {
+  it("finds only the latest operation in the exact workspace, project, canvas, and block scope", async () => {
+    const server = await setup();
+    let now = new Date("2030-01-01T00:00:00.000Z");
+    const repository = new RemoteOperationRepository(server.database, () => now);
+
+    const first = repository.create(operationInput);
+    now = new Date("2030-01-01T00:01:00.000Z");
+    const latest = repository.create({ ...operationInput, idempotencyKey: "request-2" });
+    repository.create({ ...operationInput, canvasId: "canvas-other", idempotencyKey: "request-3" });
+    repository.create({ ...operationInput, blockRef: "RC-002#B-002", idempotencyKey: "request-4" });
+    repository.create({
+      ...operationInput,
+      workspaceId: "workspace-b",
+      idempotencyKey: "request-5"
+    });
+
+    expect(
+      repository.findLatestByScope({
+        workspaceId: operationInput.workspaceId,
+        projectId: operationInput.projectId,
+        canvasId: operationInput.canvasId,
+        blockRef: operationInput.blockRef
+      })
+    ).toEqual(latest);
+    expect(latest.id).not.toBe(first.id);
+    expect(
+      repository.findLatestByScope({
+        workspaceId: operationInput.workspaceId,
+        projectId: operationInput.projectId,
+        canvasId: operationInput.canvasId,
+        blockRef: "RC-002#B-missing"
+      })
+    ).toBeUndefined();
+  });
+
+  it("finds an operation by ID only when every remote scope field matches", async () => {
+    const server = await setup();
+    const repository = new RemoteOperationRepository(server.database);
+    const operation = repository.create(operationInput);
+    const scope = {
+      workspaceId: operation.workspaceId,
+      projectId: operation.projectId,
+      canvasId: operation.canvasId,
+      blockRef: operation.blockRef,
+      operationId: operation.id
+    };
+
+    expect(repository.findByOperationIdInScope(scope)).toEqual(operation);
+    expect(
+      repository.findByOperationIdInScope({ ...scope, blockRef: "RC-002#B-002" })
+    ).toBeUndefined();
+    expect(
+      repository.findByOperationIdInScope({ ...scope, operationId: "operation-not-found" })
+    ).toBeUndefined();
+  });
+
+  it("uses insertion order when scoped operations share the same timestamp", async () => {
+    const server = await setup();
+    const repository = new RemoteOperationRepository(
+      server.database,
+      () => new Date("2030-01-01T00:00:00.000Z")
+    );
+    repository.create(operationInput);
+    const second = repository.create({ ...operationInput, idempotencyKey: "request-2" });
+
+    expect(
+      repository.findLatestByScope({
+        workspaceId: operationInput.workspaceId,
+        projectId: operationInput.projectId,
+        canvasId: operationInput.canvasId,
+        blockRef: operationInput.blockRef
+      })
+    ).toEqual(second);
+  });
+
   it("persists an endpoint selection across reload and binds it to idempotency", async () => {
     const server = await setup();
     const repository = new RemoteOperationRepository(server.database);

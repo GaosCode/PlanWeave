@@ -799,12 +799,28 @@ export function registerCollaborationHandlers(
     (_event, input: unknown) => active.observeRemoteOperation(input)
   );
   ipcMain.handle(
+    collaborationInvokeChannels.lookupCollaborationRemoteOperation,
+    (_event, input: unknown) => active.lookupRemoteOperation(input)
+  );
+  ipcMain.handle(
+    collaborationInvokeChannels.lookupWorkspaceRemoteOperation,
+    (_event, input: unknown) => active.lookupWorkspaceRemoteOperation(input)
+  );
+  ipcMain.handle(
+    collaborationInvokeChannels.observeWorkspaceRemoteOperation,
+    (_event, input: unknown) => active.observeWorkspaceRemoteOperation(input)
+  );
+  ipcMain.handle(
     collaborationInvokeChannels.executeCollaborationRemoteOperationAction,
     (_event, input: unknown) => active.executeRemoteOperationAction(input)
   );
   ipcMain.handle(
     collaborationInvokeChannels.replayCollaborationRemoteOperationEvents,
     (_event, input: unknown) => active.replayRemoteOperationEvents(input)
+  );
+  ipcMain.handle(
+    collaborationInvokeChannels.replayWorkspaceRemoteOperationEvents,
+    (_event, input: unknown) => active.replayWorkspaceRemoteOperationEvents(input)
   );
   ipcMain.handle(
     collaborationInvokeChannels.listCollaborationRemoteOperationInteractions,

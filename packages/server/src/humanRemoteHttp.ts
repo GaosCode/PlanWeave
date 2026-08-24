@@ -31,7 +31,7 @@ export type HumanRemoteHttpOptions = {
 };
 
 type HumanRemoteRoute =
-  | { kind: "dispatch"; projectId: string }
+  | { kind: "dispatch" | "lookup"; projectId: string }
   | {
       kind: "get" | "action" | "events" | "interactions" | "settle_interaction";
       projectId: string;
@@ -55,6 +55,7 @@ function route(request: IncomingMessage, pathname: string): HumanRemoteRoute | u
   const projectId = decodeIdentifier(match[1]);
   if (!projectId) return undefined;
   if (request.method === "POST" && !match[2]) return { kind: "dispatch", projectId };
+  if (request.method === "GET" && !match[2]) return { kind: "lookup", projectId };
   const operationId = match[2] ? decodeIdentifier(match[2]) : undefined;
   if (!operationId) return undefined;
   if (request.method === "GET" && !match[3]) return { kind: "get", projectId, operationId };
@@ -149,6 +150,12 @@ function safeError(error: unknown): { status: number; code: string } {
     return { status: 404, code: "human_remote_block_not_found" };
   }
   if (!(error instanceof Error)) return { status: 500, code: "human_remote_request_failed" };
+  if (
+    error.message === "authority_scope_forbidden" ||
+    error.message === "authority_workspace_mismatch"
+  ) {
+    return { status: 403, code: error.message };
+  }
   if (error.message === "remote_runtime_locator_candidate_mismatch") {
     return { status: 409, code: "human_remote_scope_conflict" };
   }
@@ -223,6 +230,11 @@ export async function handleHumanRemoteHttpRequest(
         query(url, []);
         respond(response, 202, await options.service.dispatch(scope, await readJson(request)));
         break;
+      case "lookup": {
+        const parameters = query(url, ["canvasId", "blockRef", "operationId"]);
+        respond(response, 200, await options.service.lookupLatestOperation(scope, parameters));
+        break;
+      }
       case "get":
         query(url, []);
         respond(response, 200, await options.service.observeOperation(scope, matched.operationId));

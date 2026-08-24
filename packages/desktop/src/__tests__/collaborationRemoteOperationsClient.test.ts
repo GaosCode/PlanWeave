@@ -2,9 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import type { ZodType } from "zod";
 import {
   CollaborationRemoteOperationsClient,
+  type CollaborationRemoteOperationsPort,
   type CollaborationRemoteOperationsTransportPort
 } from "../main/collaboration/CollaborationRemoteOperationsClient.js";
 import type { JsonMethod } from "../main/collaboration/collaborationHttpTransport.js";
+import { CollaborationRemoteOperationsFacade } from "../main/collaboration/collaborationRemoteOperations.js";
+import { remoteOperationObservationSchema } from "@planweave-ai/collaboration-protocol/remote-run";
 
 const endpoint = {
   schemaVersion: "agent-endpoint/v1",
@@ -53,6 +56,23 @@ function fixture(response: unknown) {
   return { client: new CollaborationRemoteOperationsClient("project-demo-001", transport), json };
 }
 
+function remoteOperationsPort(response: unknown): CollaborationRemoteOperationsPort {
+  const parsed = remoteOperationObservationSchema.parse(response);
+  const unused = async (): Promise<never> => {
+    throw new Error("unused_remote_operation_port_method");
+  };
+  return {
+    listAgentEndpoints: unused,
+    dispatchRemoteOperation: unused,
+    observeRemoteOperation: vi.fn(async () => parsed),
+    lookupRemoteOperation: vi.fn(async () => parsed),
+    executeRemoteOperationAction: unused,
+    replayRemoteOperationEvents: unused,
+    listRemoteOperationInteractions: unused,
+    settleRemoteOperationInteraction: unused
+  };
+}
+
 const v3Command = {
   schemaVersion: "remote-run/v3" as const,
   projectId: "project-demo-001",
@@ -95,6 +115,37 @@ describe("CollaborationRemoteOperationsClient", () => {
     await expect(client.dispatchRemoteOperation(v3Command)).rejects.toThrow();
   });
 
+  it("looks up the latest block operation and permits an explicit null result", async () => {
+    const present = fixture(observation());
+    await expect(
+      present.client.lookupRemoteOperation({ canvasId: "default", blockRef: "T-1#B-1" })
+    ).resolves.toMatchObject({ operationId: "operation-v3" });
+    expect(present.json).toHaveBeenCalledWith(
+      "GET",
+      "/api/v1/projects/project-demo-001/remote-operations?canvasId=default&blockRef=T-1%23B-1",
+      expect.anything(),
+      { signal: undefined }
+    );
+
+    const absent = fixture(null);
+    await expect(
+      absent.client.lookupRemoteOperation({ canvasId: "default", blockRef: "T-1#B-1" })
+    ).resolves.toBeNull();
+
+    const exact = fixture(observation({ operationId: "operation-exact" }));
+    await exact.client.lookupRemoteOperation({
+      canvasId: "default",
+      blockRef: "T-1#B-1",
+      operationId: "operation-exact"
+    });
+    expect(exact.json).toHaveBeenCalledWith(
+      "GET",
+      "/api/v1/projects/project-demo-001/remote-operations?canvasId=default&blockRef=T-1%23B-1&operationId=operation-exact",
+      expect.anything(),
+      { signal: undefined }
+    );
+  });
+
   it("rejects a v3 response that leaks attempt.hostId", async () => {
     const leaked = observation({
       attempt: { ...observation().attempt, hostId: "host-internal" },
@@ -104,6 +155,66 @@ describe("CollaborationRemoteOperationsClient", () => {
     await expect(client.dispatchRemoteOperation(v3Command)).rejects.toThrow(
       "endpoint_observation_must_redact_host_id"
     );
+  });
+
+  it("reads Workspace history from the route profile instead of the active profile", async () => {
+    const activePort = remoteOperationsPort(
+      observation({ operationId: "operation-active", projectId: "project-active" })
+    );
+    const workspacePort = remoteOperationsPort(
+      observation({ operationId: "operation-workspace", projectId: "project-workspace" })
+    );
+    const routedProfiles: string[] = [];
+    const facade = new CollaborationRemoteOperationsFacade(
+      (operation) => operation(activePort),
+      (locator, operation) => {
+        routedProfiles.push(locator.connectionProfileId);
+        return operation(workspacePort);
+      }
+    );
+    const locator = {
+      kind: "workspace" as const,
+      connectionProfileId: "profile-workspace",
+      workspaceId: "workspace-1",
+      projectId: "project-workspace",
+      canvasId: "default"
+    };
+
+    await expect(
+      facade.lookupWorkspace({
+        locator,
+        blockRef: "T-1#B-1",
+        operationId: "operation-workspace"
+      })
+    ).resolves.toMatchObject({ operationId: "operation-workspace" });
+    expect(routedProfiles).toEqual(["profile-workspace"]);
+    expect(workspacePort.lookupRemoteOperation).toHaveBeenCalledWith({
+      canvasId: "default",
+      blockRef: "T-1#B-1",
+      operationId: "operation-workspace"
+    });
+    expect(activePort.lookupRemoteOperation).not.toHaveBeenCalled();
+  });
+
+  it("rejects a Workspace operation returned outside the routed canvas scope", async () => {
+    const mismatched = remoteOperationsPort(observation({ canvasId: "foreign-canvas" }));
+    const facade = new CollaborationRemoteOperationsFacade(
+      (operation) => operation(mismatched),
+      (_locator, operation) => operation(mismatched)
+    );
+
+    await expect(
+      facade.lookupWorkspace({
+        locator: {
+          kind: "workspace",
+          connectionProfileId: "profile-workspace",
+          workspaceId: "workspace-1",
+          projectId: "project-demo-001",
+          canvasId: "default"
+        },
+        blockRef: "T-1#B-1"
+      })
+    ).rejects.toThrow("workspace_remote_operation_authority_mismatch");
   });
 
   it("rejects legacy dispatch commands before transport", async () => {

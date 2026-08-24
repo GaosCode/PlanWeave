@@ -481,6 +481,7 @@ export type RemoteInteractionResponse = z.infer<typeof remoteInteractionResponse
 /** Optional lookup helper when UI knows WorkItemRef + optional operationId. */
 export const remoteOperationLookupQuerySchema = z
   .object({
+    canvasId: opaqueIdentifierSchema.optional(),
     workItem: workItemRefSchema.optional(),
     blockRef: blockRefSchema.optional(),
     operationId: opaqueIdentifierSchema.optional(),

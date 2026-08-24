@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from "react";
 export type RemoteTaskWorkspaceConversationApi = {
   observe(operationId: string): Promise<RemoteOperationObservation>;
   replay(operationId: string, afterCursor: number): Promise<RemoteEventReplay>;
+  replayTerminal?: boolean;
   subscribe?(refresh: () => void): () => void;
 };
 
@@ -77,12 +78,22 @@ export function useRemoteTaskWorkspaceConversation(input: {
         const observation = await api.observe(operationId);
         if (disposed) return;
         if (terminalStates.has(observation.state)) {
+          let events: RemoteEventReplay["events"] = [];
+          let replayError: string | null = null;
+          if (api.replayTerminal !== false) {
+            try {
+              events = await replayAll(api, operationId);
+            } catch (error) {
+              replayError = error instanceof Error ? error.message : String(error);
+            }
+          }
+          if (disposed) return;
           setSnapshot({
             key,
             error: observation.failure
               ? `${observation.failure.message} (${observation.failure.code})`
-              : null,
-            events: [],
+              : replayError,
+            events,
             state: observation.state
           });
           input.onTerminal();

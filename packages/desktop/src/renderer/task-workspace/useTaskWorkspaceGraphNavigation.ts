@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Edge, ReactFlowInstance } from "@xyflow/react";
 import type { DesktopGraphViewModel, DesktopProjectSummary } from "@planweave-ai/runtime";
+import type { CanvasLocator } from "../../shared/canvasLocator";
 import type { AppViewHistoryController } from "../hooks/useAppViewHistory";
 import {
   blockWorkspaceTarget,
   graphNavigationSnapshotSchema,
   resolveGraphNavigationSnapshot,
   runWorkspaceTarget,
-  taskWorkspaceTarget
+  taskWorkspaceTarget,
+  isWorkspaceTaskWorkspaceNavigation,
+  workspaceBlockWorkspaceTarget,
+  workspaceTaskWorkspaceTarget
 } from "../taskWorkspaceNavigation";
 import type {
   RunWorkspaceTargetInput,
@@ -33,6 +37,7 @@ function sameRestoreAttempt(left: RestoreAttempt | null, right: RestoreAttempt):
 }
 
 export function useTaskWorkspaceGraphNavigation(options: {
+  canvasLocator?: CanvasLocator | null;
   flowInstance: ReactFlowInstance<AppFlowNode, Edge> | null;
   graph: DesktopGraphViewModel | null;
   history: AppViewHistoryController;
@@ -45,6 +50,7 @@ export function useTaskWorkspaceGraphNavigation(options: {
   setError: (message: string | null) => void;
 }) {
   const {
+    canvasLocator = null,
     flowInstance,
     graph,
     history,
@@ -75,6 +81,10 @@ export function useTaskWorkspaceGraphNavigation(options: {
 
   const openWorkspaceTarget = useCallback(
     (navigationTarget: TaskWorkspaceNavigationTarget) => {
+      if (isWorkspaceTaskWorkspaceNavigation(navigationTarget)) {
+        history.openTaskWorkspace(navigationTarget, { view: "graph" });
+        return;
+      }
       if (!(selectedProject && selectedCanvasId && flowInstance && graph)) {
         setError("Task Workspace requires an open project canvas and graph viewport.");
         return;
@@ -103,6 +113,31 @@ export function useTaskWorkspaceGraphNavigation(options: {
   );
   const openTaskWorkspace = useCallback(
     (target: { taskId: string; blockRef?: string }) => {
+      if (canvasLocator?.kind === "workspace") {
+        const task = graph?.tasks.find((candidate) => candidate.taskId === target.taskId);
+        if (!task) {
+          setError(`Cannot open Task Workspace: task '${target.taskId}' is unavailable.`);
+          return;
+        }
+        if (target.blockRef && !task.blocks.some((block) => block.ref === target.blockRef)) {
+          setError(`Cannot open Task Workspace: block '${target.blockRef}' is unavailable.`);
+          return;
+        }
+        const authority = {
+          authority: "workspace" as const,
+          connectionProfileId: canvasLocator.connectionProfileId,
+          workspaceId: canvasLocator.workspaceId,
+          projectId: canvasLocator.projectId,
+          canvasId: canvasLocator.canvasId,
+          taskId: target.taskId
+        };
+        openWorkspaceTarget(
+          target.blockRef
+            ? workspaceBlockWorkspaceTarget({ ...authority, blockRef: target.blockRef })
+            : workspaceTaskWorkspaceTarget(authority)
+        );
+        return;
+      }
       if (!(selectedProject && selectedCanvasId)) {
         setError("Task Workspace requires an open project canvas and graph viewport.");
         return;
@@ -122,7 +157,7 @@ export function useTaskWorkspaceGraphNavigation(options: {
             })
       );
     },
-    [openWorkspaceTarget, selectedCanvasId, selectedProject, setError]
+    [canvasLocator, graph, openWorkspaceTarget, selectedCanvasId, selectedProject, setError]
   );
 
   useEffect(() => {

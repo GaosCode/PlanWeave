@@ -32,6 +32,11 @@ function assertTaskWorkspaceResponseIdentity(
   input: TaskWorkspaceInput,
   result: TaskWorkspace
 ): void {
+  if (!("projectRoot" in result.project)) {
+    throw new Error(
+      "invalid Runtime response identity: local Task Workspace returned remote authority."
+    );
+  }
   const identityFields = [
     ["project.projectRoot", result.project.projectRoot, input.projectRoot],
     ["project.canvasId", result.project.canvasId, input.canvasId],

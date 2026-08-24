@@ -7,7 +7,7 @@ import {
   createRemoteBlockRuntimePort,
   type PlanPackageManifest
 } from "@planweave-ai/runtime";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   basicManifest,
   createTestWorkspace
@@ -154,7 +154,16 @@ async function setup(options: { runtimeAvailable?: boolean } = {}) {
     coordinator: coordination.coordinator,
     events: coordination.acpEvents,
     interactions: coordination.interactions,
-    runtimeAvailable: () => options.runtimeAvailable ?? true
+    runtimeAvailable: () => options.runtimeAvailable ?? true,
+    authorizeCanvas: (_context, scope) => {
+      if (
+        scope.workspaceId !== workspaceId ||
+        scope.projectId !== projectId ||
+        scope.canvasId !== canvasId
+      ) {
+        throw new Error("authority_scope_forbidden");
+      }
+    }
   });
   let acceptingMutations = true;
 
@@ -374,6 +383,9 @@ describe("human remote operation HTTP", () => {
         retryable: false
       }
     );
+    const runtimeQuery = vi
+      .spyOn(fixture.coordination.coordinator, "query")
+      .mockRejectedValue(new Error("remote_ownership_not_active"));
 
     const observed = await fetch(`${collection}/${operation.operationId}`, {
       headers: { Authorization: `Bearer ${token}` }
@@ -391,6 +403,83 @@ describe("human remote operation HTTP", () => {
         }
       }
     });
+    expect(runtimeQuery).not.toHaveBeenCalled();
+  });
+
+  it("looks up the latest remote operation for an authorized canvas block and returns null when absent", async () => {
+    const fixture = await setup();
+    const token = await bootstrap(fixture.origin, fixture.projectId, "block-operation-reader");
+    const collection = `${fixture.origin}/api/v1/projects/${fixture.projectId}/remote-operations`;
+    const dispatched = await fetch(collection, {
+      method: "POST",
+      headers: headers(token),
+      body: JSON.stringify(remoteDispatchBody(fixture, "block-operation-lookup"))
+    });
+    const operation = (await dispatched.json()) as { operationId: string };
+    expect(dispatched.status).toBe(202);
+
+    const lookup = await fetch(
+      `${collection}?${new URLSearchParams({
+        canvasId: fixture.canvasId,
+        blockRef: fixture.blockRef
+      })}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    expect(lookup.status).toBe(200);
+    await expect(lookup.json()).resolves.toMatchObject({ operationId: operation.operationId });
+
+    const exact = await fetch(
+      `${collection}?${new URLSearchParams({
+        canvasId: fixture.canvasId,
+        blockRef: fixture.blockRef,
+        operationId: operation.operationId
+      })}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    expect(exact.status).toBe(200);
+    await expect(exact.json()).resolves.toMatchObject({ operationId: operation.operationId });
+
+    const outsideScope = await fetch(
+      `${collection}?${new URLSearchParams({
+        canvasId: fixture.canvasId,
+        blockRef: "T-001#B-002",
+        operationId: operation.operationId
+      })}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    expect(outsideScope.status).toBe(200);
+    await expect(outsideScope.json()).resolves.toBeNull();
+
+    const unknownOperation = await fetch(
+      `${collection}?${new URLSearchParams({
+        canvasId: fixture.canvasId,
+        blockRef: "T-001#B-002",
+        operationId: "operation-not-found"
+      })}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    expect(unknownOperation.status).toBe(200);
+    await expect(unknownOperation.json()).resolves.toBeNull();
+
+    const absent = await fetch(
+      `${collection}?${new URLSearchParams({
+        canvasId: fixture.canvasId,
+        blockRef: "T-001#B-002"
+      })}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    expect(absent.status).toBe(200);
+    await expect(absent.json()).resolves.toBeNull();
+
+    const foreignCanvas = await fetch(
+      `${collection}?${new URLSearchParams({
+        canvasId: "foreign-canvas",
+        blockRef: fixture.blockRef
+      })}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    expect(foreignCanvas.status).toBe(403);
+    await expect(foreignCanvas.json()).resolves.toEqual({ error: "authority_scope_forbidden" });
   });
 
   it("returns a stable conflict when a selected Agent Endpoint no longer exists", async () => {

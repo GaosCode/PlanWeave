@@ -5,6 +5,7 @@ import {
   remoteDispatchIntentV3Schema,
   remoteDispatchVersionedIntentSchema,
   remoteEndpointOperationObservationSchema,
+  remoteOperationLookupQuerySchema,
   remoteOperationObservationSchema
 } from "../remoteRun.js";
 
@@ -31,6 +32,15 @@ describe("remote-run/v3 dispatch contract", () => {
     ]) {
       expect(() => remoteDispatchIntentV3Schema.parse({ ...v3, ...forbidden })).toThrow();
     }
+  });
+
+  it("accepts a canvas and block scoped operation lookup without execution inputs", () => {
+    expect(
+      remoteOperationLookupQuerySchema.parse({
+        canvasId: "default",
+        blockRef: "T-001#B-001"
+      })
+    ).toEqual({ canvasId: "default", blockRef: "T-001#B-001" });
   });
 
   it("rejects endpoint observations that mix in an internal Host ID", () => {

@@ -747,8 +747,12 @@ export class CollaborationWorkspaceConnection {
     return this.activeProfileId;
   }
 
+  async getStoredProfile(profileId: string): Promise<StoredWorkspaceConnectionProfile | null> {
+    return this.store.get(profileId);
+  }
+
   async getActiveStoredProfile(): Promise<StoredWorkspaceConnectionProfile | null> {
     if (!this.activeProfileId) return null;
-    return this.store.get(this.activeProfileId);
+    return this.getStoredProfile(this.activeProfileId);
   }
 }

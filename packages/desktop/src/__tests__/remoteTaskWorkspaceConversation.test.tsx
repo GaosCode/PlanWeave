@@ -101,7 +101,8 @@ describe("remote Task Workspace conversation", () => {
       observe: vi.fn(async () => observation),
       replay: vi.fn(async () => {
         throw new Error("operator_resource_not_found");
-      })
+      }),
+      replayTerminal: false
     };
     const onTerminal = vi.fn();
 
@@ -117,5 +118,35 @@ describe("remote Task Workspace conversation", () => {
     await waitFor(() => expect(onTerminal).toHaveBeenCalledOnce());
     expect(api.replay).not.toHaveBeenCalled();
     expect(result.current).toMatchObject({ error: null, state: "completed" });
+  });
+
+  it("preserves a durable terminal state when its event replay is unavailable", async () => {
+    const api = {
+      observe: vi.fn(async () => ({
+        operationId: "operation-workspace-001",
+        state: "failed" as const
+      })),
+      replay: vi.fn(async () => {
+        throw new Error("collaboration_event_replay_unavailable");
+      }),
+      replayTerminal: true
+    };
+    const onTerminal = vi.fn();
+
+    const { result } = renderHook(() =>
+      useRemoteTaskWorkspaceConversation({
+        api,
+        blockRef: "T-001#B-001",
+        operationId: "operation-workspace-001",
+        onTerminal
+      })
+    );
+
+    await waitFor(() => expect(onTerminal).toHaveBeenCalledOnce());
+    expect(result.current).toMatchObject({
+      error: "collaboration_event_replay_unavailable",
+      state: "failed",
+      timeline: []
+    });
   });
 });
