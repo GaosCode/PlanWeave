@@ -274,7 +274,8 @@ export function useWorkspaceAgentEndpointRun(
         Boolean(input.ownerFleetDispatchEnabled) &&
         Boolean(input.operatorProfileId) &&
         Boolean(operatorControlBridge);
-      const usesOwnerFleetDispatch = usesRemoteEndpoint && ownerFleetReady;
+      const usesOwnerFleetDispatch =
+        remoteBinding === null && usesRemoteEndpoint && ownerFleetReady;
       const collaborationReady = Boolean(
         input.collaborationController && api && input.activeProjectId
       );
