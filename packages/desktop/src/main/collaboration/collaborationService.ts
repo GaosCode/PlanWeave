@@ -339,7 +339,14 @@ export class CollaborationService {
       registryProjects,
       preferredProjectId: existing?.projectId ?? null
     });
-    if (!projectId) return;
+    if (!projectId) {
+      throw new CollaborationClientError({
+        kind: "not_found",
+        code: "live_registry_project_unavailable",
+        message: "No collaboration project is available for the connected Workspace.",
+        retryable: false
+      });
+    }
     await this.profiles.upsert(
       buildLiveCollaborationProfile({
         profileId: live.profileId,

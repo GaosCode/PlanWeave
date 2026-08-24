@@ -29,6 +29,16 @@ describe("live Server binding", () => {
     ).toBe("project-first");
   });
 
+  it("does not bind a project from another Workspace", () => {
+    expect(
+      pickLiveProjectId({
+        workspaceId: "workspace-a",
+        preferredProjectId: "project-other-workspace",
+        registryProjects: [{ projectId: "project-other-workspace", workspaceId: "workspace-b" }]
+      })
+    ).toBeNull();
+  });
+
   it("builds an HTTPS endpoint for a remote Server origin", () => {
     expect(collaborationEndpointForServerOrigin("https://vm.example.test/", false)).toMatchObject({
       topology: "public_https",

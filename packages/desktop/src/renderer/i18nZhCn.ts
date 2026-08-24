@@ -583,7 +583,7 @@ export const zhCnCatalog = {
   settingsServerReplaceConnectionHint: "切换后会断开当前连接。",
   settingsServerConnected: "已连接",
   settingsServerLocalConnected: "本机连接",
-  settingsServerRemoteConnected: "远程连接",
+  settingsServerRemoteConnected: "远程 Server 已连接",
   settingsServerRemoteConnecting: "正在连接远程",
   settingsServerRemoteError: "远程连接失败",
   settingsServerNotConnected: "未连接",

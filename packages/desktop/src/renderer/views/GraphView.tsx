@@ -136,8 +136,8 @@ function runtimeAvailabilityBanner(
     case "not_applicable":
     case "available":
       return null;
-    case "server_disconnected":
-      return t("collaborationServerDisconnected");
+    case "session_disconnected":
+      return t("peopleProjectSessionDisconnected");
     case "checking":
       return null;
     case "state_uninitialized":

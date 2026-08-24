@@ -609,7 +609,7 @@ export const enCatalog = {
   settingsServerReplaceConnectionHint: "Switching disconnects the current Server.",
   settingsServerConnected: "Connected",
   settingsServerLocalConnected: "Connected locally",
-  settingsServerRemoteConnected: "Connected remotely",
+  settingsServerRemoteConnected: "Remote Server connected",
   settingsServerRemoteConnecting: "Connecting remotely",
   settingsServerRemoteError: "Remote connection failed",
   settingsServerNotConnected: "Not connected",

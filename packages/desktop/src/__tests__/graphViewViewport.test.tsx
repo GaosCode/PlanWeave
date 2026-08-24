@@ -198,7 +198,10 @@ afterEach(() => {
 
 describe("GraphView viewport fitting", () => {
   it.each([
-    [{ kind: "server_disconnected", statusKnown: false } as const, "Server disconnected"],
+    [
+      { kind: "session_disconnected", statusKnown: false } as const,
+      "Project collaboration disconnected"
+    ],
     [{ kind: "error", message: "IPC failed" } as const, "Execution capability check failed"],
     [
       { kind: "unavailable", reason: "host_offline", statusKnown: true } as const,
@@ -237,18 +240,21 @@ describe("GraphView viewport fitting", () => {
     expect(screen.queryByTestId("collaboration-runtime-availability")).not.toBeInTheDocument();
   });
 
-  it("does not label a disconnected Server as Runtime not attached", () => {
+  it("does not infer a disconnected Server from an unavailable Workspace session", () => {
     render(
       <GraphView
         {...defaultProps({
-          runtimeAvailability: { kind: "server_disconnected", statusKnown: false },
+          runtimeAvailability: {
+            kind: "session_disconnected",
+            statusKnown: false
+          },
           workspaceCanvasOffline: true
         })}
       />
     );
 
     const banner = screen.getByTestId("collaboration-runtime-availability");
-    expect(banner).toHaveTextContent("Server disconnected");
+    expect(banner).toHaveTextContent("Project collaboration disconnected");
     expect(banner).not.toHaveTextContent("No execution device available");
   });
 

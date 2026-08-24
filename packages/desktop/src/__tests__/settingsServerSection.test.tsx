@@ -244,7 +244,7 @@ describe("SettingsServerSection", () => {
     render(<SettingsServerSection t={createTranslator("en")} />);
 
     expect(await screen.findByTestId("local-server-lifecycle-status")).toHaveTextContent(
-      "Connected remotely"
+      "Remote Server connected"
     );
     expect(screen.getByTestId("settings-server-status-detail")).toHaveTextContent(remoteOrigin);
     expect(screen.getByTestId("deployment-kind")).toHaveAttribute("data-value", "profile-remote");
@@ -252,7 +252,7 @@ describe("SettingsServerSection", () => {
     await chooseSelectOption(user, "deployment-kind", "This computer");
 
     expect(screen.getByTestId("local-server-lifecycle-status")).toHaveTextContent(
-      "Connected remotely"
+      "Remote Server connected"
     );
     expect(screen.getByTestId("settings-server-status-detail")).toHaveTextContent(remoteOrigin);
     expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();

@@ -1503,6 +1503,20 @@ describe("CollaborationService live Server binding", () => {
     const staleToken = `pw_hdev_${"B".repeat(43)}`;
     const connectedOrigins: string[] = [];
     const liveOperatorOrigins: string[] = [];
+    let registryProjects = [
+      {
+        schemaVersion: "project-access/v1" as const,
+        registry: {
+          projectRegistryId: "registry-project-live",
+          workspaceId: localWorkspaceId,
+          projectId: "project-live-001"
+        },
+        visibility: "private" as const,
+        acl: { revision: 1, updatedAt: "2030-01-01T00:00:00.000Z" },
+        owner: "human-owner-001",
+        updatedAt: "2030-01-01T00:00:00.000Z"
+      }
+    ];
     const server = await listen(async (req, res) => {
       const authorization = String(req.headers.authorization ?? "");
       if (authorization === `Bearer ${staleToken}`) {
@@ -1533,20 +1547,7 @@ describe("CollaborationService live Server binding", () => {
       }
       if (url.pathname === "/api/v1/registry/projects") {
         json(res, 200, {
-          items: [
-            {
-              schemaVersion: "project-access/v1",
-              registry: {
-                projectRegistryId: "registry-project-live",
-                workspaceId: localWorkspaceId,
-                projectId: "project-live-001"
-              },
-              visibility: "private",
-              acl: { revision: 1, updatedAt: "2030-01-01T00:00:00.000Z" },
-              owner: "human-owner-001",
-              updatedAt: "2030-01-01T00:00:00.000Z"
-            }
-          ],
+          items: registryProjects,
           nextCursor: null
         });
         return;
@@ -1626,6 +1627,21 @@ describe("CollaborationService live Server binding", () => {
     await service.setActiveProfile({ profileId: "planweave-local-d5e342216f40e0632c512d0d" });
 
     const status = await service.connectExistingServerByOrigin({ serverBaseUrl: server.origin });
+    registryProjects = [
+      {
+        schemaVersion: "project-access/v1",
+        registry: {
+          projectRegistryId: "registry-project-other-workspace",
+          workspaceId: "workspace-other",
+          projectId: "project-other-workspace"
+        },
+        visibility: "private",
+        acl: { revision: 1, updatedAt: "2030-01-01T00:00:00.000Z" },
+        owner: "human-owner-001",
+        updatedAt: "2030-01-01T00:00:00.000Z"
+      }
+    ];
+    const missingProjectStatus = await service.retryWorkspaceConnection();
     await server.close();
 
     expect(status.workspaceConnection.status).toBe("connected");
@@ -1633,11 +1649,17 @@ describe("CollaborationService live Server binding", () => {
     expect(status.activeProfileId).toBe("profile-remote-origin");
     expect(status.session.phase).toBe("connected");
     expect(connectedOrigins).toEqual([server.origin]);
-    expect(liveOperatorOrigins).toEqual([server.origin]);
+    expect(liveOperatorOrigins).toEqual([server.origin, server.origin]);
     const liveProfile = status.profiles.find(
       (profile) => profile.profileId === "profile-remote-origin"
     );
     expect(liveProfile?.projectId).toBe("project-live-001");
     expect(liveProfile?.serverBaseUrl).toBe(server.origin);
+    expect(missingProjectStatus.workspaceConnection.status).toBe("connected");
+    expect(missingProjectStatus.session).toMatchObject({
+      phase: "error",
+      detail: "live_session_bind_failed",
+      lastErrorCode: "live_registry_project_unavailable"
+    });
   });
 });

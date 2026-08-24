@@ -142,7 +142,7 @@ describe("LocalServerLifecycleControls", () => {
 
     expect(await screen.findByText("Server status")).toBeVisible();
     expect(screen.getByTestId("local-server-lifecycle-status")).toHaveTextContent(
-      "Connected remotely"
+      "Remote Server connected"
     );
     expect(screen.getByTestId("settings-server-status-detail")).toHaveTextContent(
       "https://vm.example.test/"
@@ -178,6 +178,37 @@ describe("LocalServerLifecycleControls", () => {
     expect(onRetried).toHaveBeenCalledOnce();
     expect(screen.queryByRole("button", { name: "Start" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the Server connected while exposing and retrying a failed Workspace session", async () => {
+    const retryWorkspaceConnection = vi.fn().mockResolvedValue(undefined);
+    render(
+      <LocalServerLifecycleControls
+        api={api({ retryWorkspaceConnection })}
+        t={createTranslator("en")}
+        workspace={{
+          status: "connected",
+          serverBaseUrl: "https://vm.example.test/",
+          displayName: "Configured workspace"
+        }}
+        session={{
+          phase: "error",
+          activeProfileId: "profile-remote",
+          detail: "live_session_bind_failed",
+          lastErrorCode: "live_registry_project_unavailable",
+          lastErrorMessage: "No collaboration project is available."
+        }}
+      />
+    );
+
+    expect(await screen.findByTestId("local-server-lifecycle-status")).toHaveTextContent(
+      "Remote Server connected"
+    );
+    expect(screen.getByTestId("settings-server-session-status")).toHaveTextContent(
+      "Project collaboration connection error · live_registry_project_unavailable"
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(retryWorkspaceConnection).toHaveBeenCalledOnce());
   });
 
   it("hides start when idle start is disabled", async () => {

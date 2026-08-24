@@ -58,7 +58,7 @@ export function useWorkspaceRuntime(input: {
   activeProfileId: string | null;
   activeProjectId: string | null;
   graph: DesktopGraphViewModel | null;
-  sessionConnected: boolean;
+  sessionConnected: boolean | null;
   binding: RemoteCollaborationCanvasBindingInput | null;
   initialRuntimeAvailability: CanvasRuntimeAvailability | null;
   locator: CanvasLocator | null;

@@ -142,7 +142,8 @@ export function useProjectWorkspaceAuthority(input: UseProjectWorkspaceAuthority
     activeProfileId: collaborationSurface.activeProfileId,
     activeProjectId: collaborationSurface.activeProjectId,
     graph,
-    sessionConnected: collaborationSurface.sessionConnected,
+    sessionConnected:
+      collaborationSurface.status === null ? null : collaborationSurface.sessionConnected,
     binding: canvasBinding,
     initialRuntimeAvailability: workspaceCanvasCommands.initialRuntimeAvailability,
     locator: canvasLocator,

@@ -20,14 +20,13 @@ export function pickLiveProjectId(input: {
   const inWorkspace = input.registryProjects.filter(
     (project) => project.workspaceId === input.workspaceId
   );
-  const pool = inWorkspace.length > 0 ? inWorkspace : input.registryProjects;
   if (
     input.preferredProjectId &&
-    pool.some((project) => project.projectId === input.preferredProjectId)
+    inWorkspace.some((project) => project.projectId === input.preferredProjectId)
   ) {
     return input.preferredProjectId;
   }
-  return pool[0]?.projectId ?? null;
+  return inWorkspace[0]?.projectId ?? null;
 }
 
 export function buildLiveCollaborationProfile(input: {

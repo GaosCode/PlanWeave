@@ -223,7 +223,7 @@ export function mergeAvailableCollaborationRuntimeStatus(
 
 export function useWorkspaceRuntimeAvailability(input: {
   enabled: boolean;
-  sessionConnected: boolean;
+  sessionConnected: boolean | null;
   profileId: string | null;
   activeProjectId: string | null;
   binding: RemoteCollaborationCanvasBindingInput | null;
@@ -279,7 +279,9 @@ export function useWorkspaceRuntimeAvailability(input: {
   // refreshRevision is an external invalidation signal; its value is intentionally not read.
   // biome-ignore lint/correctness/useExhaustiveDependencies: changing it must restart the authoritative read.
   useEffect(() => {
-    if (!input.enabled || !input.sessionConnected) return undefined;
+    if (!input.enabled || input.sessionConnected !== true) {
+      return undefined;
+    }
     if (!api || !input.profileId || !input.activeProjectId || !binding) {
       setRemoteState({ kind: "error", message: "collaboration_runtime_scope_unavailable" });
       return undefined;
@@ -563,26 +565,28 @@ export function useWorkspaceRuntimeAvailability(input: {
   return useMemo(() => {
     const availability: CollaborationRuntimeAvailabilityView = !input.enabled
       ? { kind: "not_applicable" }
-      : !input.sessionConnected
-        ? {
-            kind: "server_disconnected",
-            statusKnown: currentReadyState?.availability.state.kind === "initialized"
-          }
-        : remoteState.kind === "ready" && !currentReadyState
-          ? { kind: "checking" }
-          : remoteState.kind === "ready" && currentReadyState
-            ? currentReadyState.availability.state.kind === "uninitialized"
-              ? { kind: "state_uninitialized" }
-              : currentReadyState.availability.execution.kind === "available"
-                ? { kind: "available" }
-                : {
-                    kind: "unavailable",
-                    reason: currentReadyState.availability.execution.reason,
-                    statusKnown: true
-                  }
-            : remoteState.kind === "checking" || remoteState.kind === "error"
-              ? remoteState
-              : { kind: "checking" };
+      : input.sessionConnected === null
+        ? { kind: "checking" }
+        : !input.sessionConnected
+          ? {
+              kind: "session_disconnected",
+              statusKnown: currentReadyState?.availability.state.kind === "initialized"
+            }
+          : remoteState.kind === "ready" && !currentReadyState
+            ? { kind: "checking" }
+            : remoteState.kind === "ready" && currentReadyState
+              ? currentReadyState.availability.state.kind === "uninitialized"
+                ? { kind: "state_uninitialized" }
+                : currentReadyState.availability.execution.kind === "available"
+                  ? { kind: "available" }
+                  : {
+                      kind: "unavailable",
+                      reason: currentReadyState.availability.execution.reason,
+                      statusKnown: true
+                    }
+              : remoteState.kind === "checking" || remoteState.kind === "error"
+                ? remoteState
+                : { kind: "checking" };
     const graph = input.graph
       ? availability.kind === "not_applicable"
         ? input.graph

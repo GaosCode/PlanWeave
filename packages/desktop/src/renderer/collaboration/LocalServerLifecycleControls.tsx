@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ServerIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type {
+  CollaborationSessionView,
   LocalCollaborationServerStatus,
   PlanWeaveCollaborationApi
 } from "../../shared/collaboration.js";
@@ -15,6 +16,7 @@ export function LocalServerLifecycleControls({
   onStatusChange,
   onRetried,
   workspace,
+  session,
   showIdleStart = true,
   refreshToken = 0
 }: {
@@ -23,6 +25,7 @@ export function LocalServerLifecycleControls({
   onStatusChange?: (status: LocalCollaborationServerStatus) => void;
   onRetried?: () => void | Promise<void>;
   workspace?: LiveWorkspaceSnapshot | null;
+  session?: CollaborationSessionView | null;
   showIdleStart?: boolean;
   refreshToken?: number;
 }) {
@@ -86,11 +89,21 @@ export function LocalServerLifecycleControls({
   const failedRemote =
     live.kind === "remote" &&
     (workspace?.status === "error" || workspace?.status === "disconnected");
+  const sessionUnavailable =
+    live.kind === "remote" && workspace?.status === "connected" && session?.phase === "error";
+  const sessionConnecting =
+    live.kind === "remote" &&
+    workspace?.status === "connected" &&
+    session !== null &&
+    session !== undefined &&
+    session.phase !== "connected" &&
+    !sessionUnavailable;
   const ready = live.kind === "local" || (live.kind === "remote" && !live.pending && !failedRemote);
   const pending = live.kind === "remote" && live.pending;
   const showStop = live.kind === "local";
   const showStart = live.kind === "idle" && showIdleStart;
-  const showRetry = failedRemote && typeof api?.retryWorkspaceConnection === "function";
+  const showRetry =
+    (failedRemote || sessionUnavailable) && typeof api?.retryWorkspaceConnection === "function";
 
   const runAction = async (action: "start" | "stop" | "retry") => {
     setBusy(true);
@@ -192,6 +205,17 @@ export function LocalServerLifecycleControls({
             <div className="truncate font-medium text-text-strong">{live.name}</div>
           ) : null}
           {live.url ? <div className="truncate">{live.url}</div> : null}
+        </div>
+      ) : null}
+      {sessionUnavailable || sessionConnecting ? (
+        <div
+          className={`pl-6 text-xs leading-5 ${sessionUnavailable ? "text-destructive" : "text-text-muted"}`}
+          data-testid="settings-server-session-status"
+        >
+          {sessionUnavailable
+            ? t("peopleProjectSessionError")
+            : t("peopleProjectSessionConnecting")}
+          {session?.lastErrorCode ? ` · ${session.lastErrorCode}` : ""}
         </div>
       ) : null}
       {error ? (

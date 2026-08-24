@@ -324,14 +324,17 @@ describe("useWorkspaceRuntimeAvailability", () => {
     await waitFor(() => expect(result.current.availability).toEqual({ kind: "available" }));
   });
 
-  it("fails closed while the Workspace session is disconnected", () => {
+  it("fails closed without inferring the Server transport state from a disconnected session", () => {
     const fixture = createApi();
     const { result } = renderHook(() =>
-      useWorkspaceRuntimeAvailability({ ...input(fixture.api), sessionConnected: false })
+      useWorkspaceRuntimeAvailability({
+        ...input(fixture.api),
+        sessionConnected: false
+      })
     );
 
     expect(result.current.availability).toEqual({
-      kind: "server_disconnected",
+      kind: "session_disconnected",
       statusKnown: false
     });
     expect(
@@ -354,7 +357,7 @@ describe("useWorkspaceRuntimeAvailability", () => {
           graph: graphWithDispatchableBlock,
           sessionConnected
         }),
-      { initialProps: { sessionConnected: true } }
+      { initialProps: { sessionConnected: true as boolean | null } }
     );
 
     await waitFor(() => expect(result.current.availability).toEqual({ kind: "available" }));
@@ -362,7 +365,7 @@ describe("useWorkspaceRuntimeAvailability", () => {
     rerender({ sessionConnected: false });
 
     expect(result.current.availability).toEqual({
-      kind: "server_disconnected",
+      kind: "session_disconnected",
       statusKnown: true
     });
     expect(collaborationRuntimeStatusKnown(result.current.availability)).toBe(true);
@@ -370,6 +373,19 @@ describe("useWorkspaceRuntimeAvailability", () => {
     expect(result.current.graph?.tasks.every((task) => task.status === "implemented")).toBe(true);
     expect(result.current.graph?.tasks[0]?.blocks).toHaveLength(1);
     expect(result.current.graph?.tasks[0]?.blocks[0]?.dispatchable).toBe(false);
+  });
+
+  it("does not flash a disconnect while connection status is still loading", () => {
+    const fixture = createApi();
+    const { result } = renderHook(() =>
+      useWorkspaceRuntimeAvailability({
+        ...input(fixture.api),
+        sessionConnected: null
+      })
+    );
+
+    expect(result.current.availability).toEqual({ kind: "checking" });
+    expect(fixture.read).not.toHaveBeenCalled();
   });
 });
 

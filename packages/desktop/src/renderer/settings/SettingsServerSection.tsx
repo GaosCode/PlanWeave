@@ -58,6 +58,7 @@ export function SettingsServerSection({ t, showHeader = true }: SettingsServerSe
             api={collaborationBridge}
             t={t}
             workspace={workspaceSnapshot(status)}
+            session={status?.session ?? null}
             showIdleStart={!existingServer}
             refreshToken={statusEpoch}
             onRetried={handleConnectionApplied}

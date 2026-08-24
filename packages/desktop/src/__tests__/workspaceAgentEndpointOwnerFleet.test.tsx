@@ -341,7 +341,10 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
             : {},
         selectedCanvasId: "canvas-main",
         selectedProject: project,
-        runtimeAvailability: { kind: "server_disconnected", statusKnown: false },
+        runtimeAvailability: {
+          kind: "session_disconnected",
+          statusKnown: false
+        },
         setError,
         api: {
           dispatchCollaborationRemoteOperation,
@@ -367,7 +370,7 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
     if (runsLocally) {
       expect(setError).not.toHaveBeenCalled();
     } else {
-      expect(setError).toHaveBeenCalledWith("collaboration_server_disconnected");
+      expect(setError).toHaveBeenCalledWith("collaboration_session_disconnected");
     }
   });
 
