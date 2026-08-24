@@ -113,6 +113,33 @@ describe("waitForRemoteOperationTerminal", () => {
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 
+  it("settles cleanup once when cancellation races an in-flight terminal read", async () => {
+    const unsubscribe = vi.fn();
+    const controller = new AbortController();
+    let resolveRead: ((value: RemoteOperationObservation) => void) | undefined;
+    const pendingRead = new Promise<RemoteOperationObservation>((resolve) => {
+      resolveRead = resolve;
+    });
+    const observeCollaborationRemoteOperation = vi.fn(() => pendingRead);
+
+    const terminal = waitForRemoteOperationTerminal({
+      api: {
+        observeCollaborationRemoteOperation,
+        onCollaborationObserverSignal: vi.fn(() => unsubscribe)
+      },
+      initial: operation("T-001#B-001", "running"),
+      signal: controller.signal
+    });
+
+    await vi.waitFor(() => expect(observeCollaborationRemoteOperation).toHaveBeenCalledTimes(1));
+    controller.abort();
+    await expect(terminal).rejects.toThrow("remote_task_run_cancelled");
+    resolveRead?.(operation("T-001#B-001", "completed"));
+    await Promise.resolve();
+
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
   it("resolves immediately when the initial observation is already terminal", async () => {
     const observeCollaborationRemoteOperation = vi.fn();
     const result = await waitForRemoteOperationTerminal({

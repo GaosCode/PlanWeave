@@ -42,16 +42,19 @@ export function waitForRemoteOperationTerminal(input: {
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     const cleanup = () => {
-      settled = true;
       unsubscribe();
       if (timer) clearTimeout(timer);
       input.signal?.removeEventListener("abort", onAbort);
     };
     const finish = (observation: RemoteOperationObservation) => {
+      if (settled) return;
+      settled = true;
       cleanup();
       resolve(observation);
     };
     const fail = (reason: unknown) => {
+      if (settled) return;
+      settled = true;
       cleanup();
       reject(reason);
     };
