@@ -28,7 +28,8 @@ export type DesktopHomePaths = {
 
 export function desktopHomePaths(): DesktopHomePaths {
   const planweaveHome = resolvePlanweaveHome();
-  const desktopSettingsHome = join(homedir(), ".planweave");
+  const desktopSettingsHome =
+    process.env.PLANWEAVE_DESKTOP_SMOKE_USER_DATA_DIR ?? join(homedir(), ".planweave");
   const mcpTunnelDir = join(planweaveHome, "desktop", "mcp-tunnel");
   const collaborationDir = join(planweaveHome, "desktop", "collaboration");
   const operatorControlDir = join(planweaveHome, "desktop", "operator-control");

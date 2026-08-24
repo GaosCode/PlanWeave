@@ -18,6 +18,7 @@ import {
 
 const tempRoots: string[] = [];
 const originalPlanweaveHome = process.env.PLANWEAVE_HOME;
+const originalSmokeUserDataDir = process.env.PLANWEAVE_DESKTOP_SMOKE_USER_DATA_DIR;
 
 async function tempHome(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "planweave-desktop-settings-"));
@@ -43,6 +44,11 @@ afterEach(async () => {
     delete process.env.PLANWEAVE_HOME;
   } else {
     process.env.PLANWEAVE_HOME = originalPlanweaveHome;
+  }
+  if (originalSmokeUserDataDir === undefined) {
+    delete process.env.PLANWEAVE_DESKTOP_SMOKE_USER_DATA_DIR;
+  } else {
+    process.env.PLANWEAVE_DESKTOP_SMOKE_USER_DATA_DIR = originalSmokeUserDataDir;
   }
   await Promise.all(tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
@@ -100,6 +106,17 @@ describe("DesktopSettingsStore", () => {
         "local-agent-hosts.json"
       )
     });
+  });
+
+  it("isolates desktop settings inside the Electron smoke user data directory", async () => {
+    const home = await tempHome();
+    const smokeUserData = await tempHome();
+    process.env.PLANWEAVE_HOME = home;
+    process.env.PLANWEAVE_DESKTOP_SMOKE_USER_DATA_DIR = smokeUserData;
+
+    expect(desktopHomePaths().desktopSettingsFile).toBe(
+      join(smokeUserData, "config", "desktop-settings.json")
+    );
   });
 
   it("returns default settings when the store file does not exist", async () => {
