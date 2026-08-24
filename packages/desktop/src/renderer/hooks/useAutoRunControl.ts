@@ -612,6 +612,7 @@ export function useAutoRunControl({
         });
       }
       setAutoRunState(null);
+      setEndpointScopeRunPhase(null);
       setAutoRunRetrospective(null);
       if (!workspaceReset) {
         await onAutoRunDerivedStateRefresh?.();

@@ -578,6 +578,12 @@ describe("auto run control hook actions", () => {
     const { useAutoRunControl } = await loadAutoRunControl();
     const resetWorkspaceRuntime = vi.fn().mockResolvedValue(undefined);
     const onAutoRunDerivedStateRefresh = vi.fn().mockResolvedValue(undefined);
+    const startAutoRunScope = vi.fn<WorkspaceAgentEndpointScopeStarter>(
+      async (_scope, _startLocal, lifecycle) => {
+        lifecycle?.onStarted();
+        lifecycle?.onCompleted();
+      }
+    );
     vi.spyOn(window, "confirm").mockReturnValue(true);
 
     const { result } = renderHook(() =>
@@ -600,10 +606,16 @@ describe("auto run control hook actions", () => {
         selectedTaskPanelId: null,
         setAutoRunState: vi.fn(),
         setError: vi.fn(),
+        startAutoRunScope,
         t: createTranslator("en"),
         tmuxMonitoringEnabled: false
       })
     );
+
+    await act(async () => {
+      await result.current.handleAutoRunClick();
+    });
+    expect(result.current.endpointScopeRunPhase).toBe("completed");
 
     await act(async () => {
       await result.current.resetRuntimeStateClick();
@@ -611,6 +623,7 @@ describe("auto run control hook actions", () => {
 
     expect(resetWorkspaceRuntime).toHaveBeenCalledOnce();
     expect(onAutoRunDerivedStateRefresh).not.toHaveBeenCalled();
+    expect(result.current.endpointScopeRunPhase).toBeNull();
   });
 
   it("blocks runtime reset while an Auto Run step is active", async () => {
