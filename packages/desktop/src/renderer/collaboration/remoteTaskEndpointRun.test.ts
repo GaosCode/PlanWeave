@@ -113,6 +113,301 @@ describe("waitForRemoteOperationTerminal", () => {
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 
+  it("recovers when the initial observer read hangs but a terminal event arrives", async () => {
+    const unsubscribe = vi.fn();
+    let emitSignal: ((signal: CollaborationObserverSignal) => void) | undefined;
+    const neverSettles = new Promise<RemoteOperationObservation>(() => undefined);
+    const observeCollaborationRemoteOperation = vi
+      .fn()
+      .mockImplementationOnce(() => neverSettles)
+      .mockResolvedValueOnce(operation("T-001#B-001", "completed"));
+
+    const terminal = waitForRemoteOperationTerminal({
+      api: {
+        observeCollaborationRemoteOperation,
+        onCollaborationObserverSignal: vi.fn((listener) => {
+          emitSignal = listener;
+          return unsubscribe;
+        })
+      },
+      initial: operation("T-001#B-001", "running"),
+      fallbackRefreshMs: 60_000
+    });
+
+    await vi.waitFor(() => expect(observeCollaborationRemoteOperation).toHaveBeenCalledTimes(1));
+    emitSignal?.({
+      type: "human.observer.event",
+      profileId: "profile-1",
+      projectId: "project-1",
+      event: {
+        type: "human.observer.event",
+        protocolVersion: 1,
+        cursor: 2,
+        previousCursor: 1,
+        occurredAt: "2026-08-05T00:00:02.000Z",
+        kind: "remote_run",
+        dispatchId: "dispatch-T-001:B-001",
+        remoteRunStatus: "succeeded"
+      }
+    });
+
+    await expect(terminal).resolves.toMatchObject({ state: "completed" });
+    expect(observeCollaborationRemoteOperation).toHaveBeenCalledTimes(2);
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let a stale read failure override a newer terminal recovery read", async () => {
+    const unsubscribe = vi.fn();
+    let emitSignal: ((signal: CollaborationObserverSignal) => void) | undefined;
+    let rejectInitial: ((reason: unknown) => void) | undefined;
+    let resolveRecovery: ((value: RemoteOperationObservation) => void) | undefined;
+    const initialRead = new Promise<RemoteOperationObservation>((_resolve, reject) => {
+      rejectInitial = reject;
+    });
+    const recoveryRead = new Promise<RemoteOperationObservation>((resolve) => {
+      resolveRecovery = resolve;
+    });
+    const observeCollaborationRemoteOperation = vi
+      .fn()
+      .mockImplementationOnce(() => initialRead)
+      .mockImplementationOnce(() => recoveryRead);
+
+    const terminal = waitForRemoteOperationTerminal({
+      api: {
+        observeCollaborationRemoteOperation,
+        onCollaborationObserverSignal: vi.fn((listener) => {
+          emitSignal = listener;
+          return unsubscribe;
+        })
+      },
+      initial: operation("T-001#B-001", "running"),
+      fallbackRefreshMs: 60_000
+    });
+    let settled = false;
+    void terminal.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      }
+    );
+
+    await vi.waitFor(() => expect(observeCollaborationRemoteOperation).toHaveBeenCalledTimes(1));
+    emitSignal?.({
+      type: "human.observer.event",
+      profileId: "profile-1",
+      projectId: "project-1",
+      event: {
+        type: "human.observer.event",
+        protocolVersion: 1,
+        cursor: 2,
+        previousCursor: 1,
+        occurredAt: "2026-08-05T00:00:02.000Z",
+        kind: "remote_run",
+        dispatchId: "dispatch-T-001:B-001",
+        remoteRunStatus: "succeeded"
+      }
+    });
+    await vi.waitFor(() => expect(observeCollaborationRemoteOperation).toHaveBeenCalledTimes(2));
+
+    rejectInitial?.(new Error("stale_observer_timeout"));
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    resolveRecovery?.(operation("T-001#B-001", "completed"));
+    await expect(terminal).resolves.toMatchObject({ state: "completed" });
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores an older read failure after a newer nonterminal recovery succeeds", async () => {
+    const unsubscribe = vi.fn();
+    let emitSignal: ((signal: CollaborationObserverSignal) => void) | undefined;
+    let rejectInitial: ((reason: unknown) => void) | undefined;
+    const initialRead = new Promise<RemoteOperationObservation>((_resolve, reject) => {
+      rejectInitial = reject;
+    });
+    const observeCollaborationRemoteOperation = vi
+      .fn()
+      .mockImplementationOnce(() => initialRead)
+      .mockResolvedValueOnce(operation("T-001#B-001", "running"))
+      .mockResolvedValueOnce(operation("T-001#B-001", "completed"));
+    const matchingSignal: CollaborationObserverSignal = {
+      type: "human.observer.event",
+      profileId: "profile-1",
+      projectId: "project-1",
+      event: {
+        type: "human.observer.event",
+        protocolVersion: 1,
+        cursor: 2,
+        previousCursor: 1,
+        occurredAt: "2026-08-05T00:00:02.000Z",
+        kind: "remote_run",
+        dispatchId: "dispatch-T-001:B-001",
+        remoteRunStatus: "succeeded"
+      }
+    };
+
+    const terminal = waitForRemoteOperationTerminal({
+      api: {
+        observeCollaborationRemoteOperation,
+        onCollaborationObserverSignal: vi.fn((listener) => {
+          emitSignal = listener;
+          return unsubscribe;
+        })
+      },
+      initial: operation("T-001#B-001", "running"),
+      fallbackRefreshMs: 60_000
+    });
+    let settled = false;
+    void terminal.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      }
+    );
+
+    await vi.waitFor(() => expect(observeCollaborationRemoteOperation).toHaveBeenCalledTimes(1));
+    emitSignal?.(matchingSignal);
+    await vi.waitFor(() => expect(observeCollaborationRemoteOperation).toHaveBeenCalledTimes(2));
+    await Promise.resolve();
+
+    rejectInitial?.(new Error("stale_observer_timeout"));
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    emitSignal?.(matchingSignal);
+    await expect(terminal).resolves.toMatchObject({ state: "completed" });
+    expect(observeCollaborationRemoteOperation).toHaveBeenCalledTimes(3);
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it("continues after a newer recovery fails but an older read succeeds", async () => {
+    const unsubscribe = vi.fn();
+    let emitSignal: ((signal: CollaborationObserverSignal) => void) | undefined;
+    let resolveInitial: ((value: RemoteOperationObservation) => void) | undefined;
+    const initialRead = new Promise<RemoteOperationObservation>((resolve) => {
+      resolveInitial = resolve;
+    });
+    const observeCollaborationRemoteOperation = vi
+      .fn()
+      .mockImplementationOnce(() => initialRead)
+      .mockRejectedValueOnce(new Error("transient_recovery_failure"))
+      .mockResolvedValueOnce(operation("T-001#B-001", "completed"));
+    const matchingSignal: CollaborationObserverSignal = {
+      type: "human.observer.event",
+      profileId: "profile-1",
+      projectId: "project-1",
+      event: {
+        type: "human.observer.event",
+        protocolVersion: 1,
+        cursor: 2,
+        previousCursor: 1,
+        occurredAt: "2026-08-05T00:00:02.000Z",
+        kind: "remote_run",
+        dispatchId: "dispatch-T-001:B-001",
+        remoteRunStatus: "succeeded"
+      }
+    };
+
+    const terminal = waitForRemoteOperationTerminal({
+      api: {
+        observeCollaborationRemoteOperation,
+        onCollaborationObserverSignal: vi.fn((listener) => {
+          emitSignal = listener;
+          return unsubscribe;
+        })
+      },
+      initial: operation("T-001#B-001", "running"),
+      fallbackRefreshMs: 60_000
+    });
+    let settled = false;
+    void terminal.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      }
+    );
+
+    await vi.waitFor(() => expect(observeCollaborationRemoteOperation).toHaveBeenCalledTimes(1));
+    emitSignal?.(matchingSignal);
+    await vi.waitFor(() => expect(observeCollaborationRemoteOperation).toHaveBeenCalledTimes(2));
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    resolveInitial?.(operation("T-001#B-001", "running"));
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    emitSignal?.(matchingSignal);
+    await expect(terminal).resolves.toMatchObject({ state: "completed" });
+    expect(observeCollaborationRemoteOperation).toHaveBeenCalledTimes(3);
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it("caps concurrent recovery reads and stops refreshing after terminal", async () => {
+    const unsubscribe = vi.fn();
+    let emitSignal: ((signal: CollaborationObserverSignal) => void) | undefined;
+    const resolvers: Array<(value: RemoteOperationObservation) => void> = [];
+    const observeCollaborationRemoteOperation = vi.fn(
+      () =>
+        new Promise<RemoteOperationObservation>((resolve) => {
+          resolvers.push(resolve);
+        })
+    );
+    const matchingSignal: CollaborationObserverSignal = {
+      type: "human.observer.event",
+      profileId: "profile-1",
+      projectId: "project-1",
+      event: {
+        type: "human.observer.event",
+        protocolVersion: 1,
+        cursor: 2,
+        previousCursor: 1,
+        occurredAt: "2026-08-05T00:00:02.000Z",
+        kind: "remote_run",
+        dispatchId: "dispatch-T-001:B-001",
+        remoteRunStatus: "succeeded"
+      }
+    };
+
+    const terminal = waitForRemoteOperationTerminal({
+      api: {
+        observeCollaborationRemoteOperation,
+        onCollaborationObserverSignal: vi.fn((listener) => {
+          emitSignal = listener;
+          return unsubscribe;
+        })
+      },
+      initial: operation("T-001#B-001", "running"),
+      fallbackRefreshMs: 60_000
+    });
+
+    await vi.waitFor(() => expect(observeCollaborationRemoteOperation).toHaveBeenCalledTimes(1));
+    emitSignal?.(matchingSignal);
+    emitSignal?.(matchingSignal);
+    emitSignal?.(matchingSignal);
+    await vi.waitFor(() => expect(observeCollaborationRemoteOperation).toHaveBeenCalledTimes(2));
+
+    resolvers[0]?.(operation("T-001#B-001", "running"));
+    await vi.waitFor(() => expect(observeCollaborationRemoteOperation).toHaveBeenCalledTimes(3));
+    emitSignal?.(matchingSignal);
+    expect(observeCollaborationRemoteOperation).toHaveBeenCalledTimes(3);
+
+    resolvers[2]?.(operation("T-001#B-001", "completed"));
+    await expect(terminal).resolves.toMatchObject({ state: "completed" });
+    resolvers[1]?.(operation("T-001#B-001", "running"));
+    emitSignal?.(matchingSignal);
+    await Promise.resolve();
+
+    expect(observeCollaborationRemoteOperation).toHaveBeenCalledTimes(3);
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
   it("settles cleanup once when cancellation races an in-flight terminal read", async () => {
     const unsubscribe = vi.fn();
     const controller = new AbortController();

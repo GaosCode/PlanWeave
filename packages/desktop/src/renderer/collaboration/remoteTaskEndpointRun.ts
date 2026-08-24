@@ -37,8 +37,11 @@ export function waitForRemoteOperationTerminal(input: {
 
   return new Promise((resolve, reject) => {
     let settled = false;
-    let refreshInFlight = false;
+    let refreshesInFlight = 0;
     let refreshQueued = false;
+    let nextRefreshGeneration = 0;
+    let latestSuccessfulGeneration = 0;
+    let pendingRefreshError: { generation: number; reason: unknown } | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     const cleanup = () => {
@@ -60,35 +63,49 @@ export function waitForRemoteOperationTerminal(input: {
     };
     const scheduleFallback = () => {
       if (settled) return;
-      timer = setTimeout(() => void refresh(), input.fallbackRefreshMs ?? 10_000);
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => void refresh(true), input.fallbackRefreshMs ?? 10_000);
     };
-    const refresh = async () => {
+    const refresh = async (allowConcurrent = false) => {
       if (settled) return;
-      if (refreshInFlight) {
+      if ((!allowConcurrent && refreshesInFlight > 0) || refreshesInFlight >= 2) {
         refreshQueued = true;
         return;
       }
-      refreshInFlight = true;
+      const generation = ++nextRefreshGeneration;
+      refreshesInFlight += 1;
       if (timer) {
         clearTimeout(timer);
         timer = null;
       }
+      // Keep one bounded recovery read available when the current IPC/HTTP read
+      // never settles. Observer signals can use the same second slot immediately.
+      scheduleFallback();
       try {
         const observation = await input.api.observeCollaborationRemoteOperation({
           operationId: input.initial.operationId
         });
+        latestSuccessfulGeneration = Math.max(latestSuccessfulGeneration, generation);
+        pendingRefreshError = null;
         if (isRemoteOperationWaitTerminal(observation)) {
           finish(observation);
           return;
         }
         scheduleFallback();
       } catch (caught) {
-        fail(caught);
+        if (
+          generation > latestSuccessfulGeneration &&
+          (pendingRefreshError === null || generation > pendingRefreshError.generation)
+        ) {
+          pendingRefreshError = { generation, reason: caught };
+        }
       } finally {
-        refreshInFlight = false;
-        if (refreshQueued && !settled) {
+        refreshesInFlight -= 1;
+        if (refreshQueued && !settled && refreshesInFlight < 2) {
           refreshQueued = false;
-          void refresh();
+          void refresh(true);
+        } else if (refreshesInFlight === 0 && pendingRefreshError !== null) {
+          fail(pendingRefreshError.reason);
         }
       }
     };
@@ -99,7 +116,7 @@ export function waitForRemoteOperationTerminal(input: {
         signal.event.kind === "remote_run" &&
         signal.event.dispatchId === input.initial.dispatchId
       ) {
-        void refresh();
+        void refresh(true);
       }
     });
 

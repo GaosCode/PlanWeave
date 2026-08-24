@@ -110,6 +110,7 @@
         "collaborationDiagnosticsVisibility.test.tsx",
         "collaborationOperationDiagnosticsPopover.test.tsx",
         "collaborationHandlerLifecycle.test.ts",
+        "collaborationHttpTransport.test.ts",
         "collaborationIntegrationScenarios.test.tsx",
         "collaborationInvitationHandoffCoordinator.test.ts",
         "collaborationReadModelHub.test.ts",

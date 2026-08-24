@@ -115,13 +115,12 @@ export class CollaborationHttpTransport {
     if (options.auth !== false) {
       await this.applyAuth(headers);
     }
-    const response = await this.send(path, {
+    const { response, text } = await this.readJsonResponse(path, {
       method,
       headers,
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
       signal: options.signal
     });
-    const text = await this.readTextLimited(response);
     const accepted = normalizeAccepted(options.acceptedStatus);
     if (!response.ok && !accepted.has(response.status)) {
       throw collaborationErrorFromHttp(response.status, text, response.headers.get("retry-after"));
@@ -179,13 +178,12 @@ export class CollaborationHttpTransport {
     if (options.auth !== false) {
       await this.applyAuth(headers);
     }
-    const response = await this.send(path, {
+    const { response, text } = await this.readJsonResponse(path, {
       method,
       headers,
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
       signal: options.signal
     });
-    const text = await this.readTextLimited(response);
     if (!response.ok) {
       throw collaborationErrorFromHttp(response.status, text, response.headers.get("retry-after"));
     }
@@ -224,42 +222,12 @@ export class CollaborationHttpTransport {
     const headers: Record<string, string> = { accept: options.accept };
     if (options.body !== undefined) headers["content-type"] = "application/json; charset=utf-8";
     await this.applyAuth(headers);
-    const url = new URL(path, this.serverBaseUrl);
-    const timeout = new AbortController();
-    const timer = this.clock.setTimeout(() => timeout.abort(), this.limits.requestTimeoutMs);
-    const signals = [this.rootController.signal, timeout.signal];
-    if (options.signal) signals.push(options.signal);
-    const signal = AbortSignal.any(signals);
-    try {
-      const response = await this.fetchImpl(url, {
-        method,
-        headers,
-        body: options.body === undefined ? undefined : JSON.stringify(options.body),
-        signal
-      });
-      let released = false;
-      return {
-        response,
-        timedOut: () => timeout.signal.aborted && !this.rootController.signal.aborted,
-        release: () => {
-          if (released) return;
-          released = true;
-          this.clock.clearTimeout(timer);
-        }
-      };
-    } catch (error) {
-      this.clock.clearTimeout(timer);
-      if (signal.aborted && timeout.signal.aborted && !this.rootController.signal.aborted) {
-        throw new CollaborationClientError({
-          kind: "timeout",
-          code: "collaboration_timeout",
-          message: "Collaboration request timed out.",
-          retryable: true,
-          cause: error
-        });
-      }
-      throw collaborationErrorFromUnknown(error);
-    }
+    return this.startRequest(path, {
+      method,
+      headers,
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      signal: options.signal
+    });
   }
 
   async readBoundedError(response: Response): Promise<string> {
@@ -314,6 +282,51 @@ export class CollaborationHttpTransport {
       signal?: AbortSignal;
     }
   ): Promise<Response> {
+    const stream = await this.startRequest(path, init);
+    stream.release();
+    return stream.response;
+  }
+
+  private async readJsonResponse(
+    path: string,
+    init: {
+      method: string;
+      headers: Record<string, string>;
+      body?: string | Uint8Array;
+      signal?: AbortSignal;
+    }
+  ): Promise<{ response: Response; text: string }> {
+    const stream = await this.startRequest(path, init);
+    try {
+      return {
+        response: stream.response,
+        text: await this.readTextLimited(stream.response)
+      };
+    } catch (error) {
+      if (stream.timedOut()) {
+        throw new CollaborationClientError({
+          kind: "timeout",
+          code: "collaboration_timeout",
+          message: "Collaboration request timed out.",
+          retryable: true,
+          cause: error
+        });
+      }
+      throw error;
+    } finally {
+      stream.release();
+    }
+  }
+
+  private async startRequest(
+    path: string,
+    init: {
+      method: string;
+      headers: Record<string, string>;
+      body?: string | Uint8Array;
+      signal?: AbortSignal;
+    }
+  ): Promise<CollaborationHttpStream> {
     const url = new URL(path, this.serverBaseUrl);
     const timeout = new AbortController();
     const timer = this.clock.setTimeout(() => timeout.abort(), this.limits.requestTimeoutMs);
@@ -327,13 +340,24 @@ export class CollaborationHttpTransport {
           : typeof init.body === "string"
             ? init.body
             : Buffer.from(init.body);
-      return await this.fetchImpl(url, {
+      const response = await this.fetchImpl(url, {
         method: init.method,
         headers: init.headers,
         body,
         signal
       });
+      let released = false;
+      return {
+        response,
+        timedOut: () => timeout.signal.aborted && !this.rootController.signal.aborted,
+        release: () => {
+          if (released) return;
+          released = true;
+          this.clock.clearTimeout(timer);
+        }
+      };
     } catch (error) {
+      this.clock.clearTimeout(timer);
       if (signal.aborted && timeout.signal.aborted && !this.rootController.signal.aborted) {
         throw new CollaborationClientError({
           kind: "timeout",
@@ -344,8 +368,6 @@ export class CollaborationHttpTransport {
         });
       }
       throw collaborationErrorFromUnknown(error);
-    } finally {
-      this.clock.clearTimeout(timer);
     }
   }
 
