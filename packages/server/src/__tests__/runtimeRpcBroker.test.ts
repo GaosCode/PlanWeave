@@ -13,6 +13,16 @@ import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
 
 const databases: SqliteDatabase[] = [];
 const scope = { workspaceId: "workspace-rpc", projectId: "project-rpc", canvasId: "default" };
+const contentTarget = {
+  revision: 1,
+  content: {
+    versionId: `version-${"c".repeat(64)}`,
+    canonicalDigest: "c".repeat(64),
+    verification: "complete" as const
+  },
+  graphFingerprint: `pkg-${"a".repeat(64)}`
+};
+const availabilityOperation = { operation: "availability" as const, contentTarget };
 
 afterEach(() => {
   vi.useRealTimers();
@@ -65,8 +75,8 @@ function availabilityResponse(
 describe("CanvasRuntimeRpcBroker", () => {
   it("correlates responses while mailbox ACK alone does not complete a request", async () => {
     const fixture = await setup();
-    const first = fixture.broker.request(fixture.host.id, scope, { operation: "availability" });
-    const second = fixture.broker.request(fixture.host.id, scope, { operation: "availability" });
+    const first = fixture.broker.request(fixture.host.id, scope, availabilityOperation);
+    const second = fixture.broker.request(fixture.host.id, scope, availabilityOperation);
     expect(fixture.broker.pendingCount()).toBe(2);
 
     const firstCommand = requestCommand(fixture.deliveries[0]!);
@@ -100,7 +110,7 @@ describe("CanvasRuntimeRpcBroker", () => {
         requestId: randomUUID(),
         scope,
         deadline: "2026-08-20T00:01:00.000Z",
-        operation: { operation: "availability" }
+        operation: availabilityOperation
       },
       "runtime_not_attached"
     );
@@ -113,7 +123,7 @@ describe("CanvasRuntimeRpcBroker", () => {
   it("cleans deadline state and marks unknown mutation outcome for reconciliation", async () => {
     vi.useFakeTimers();
     const fixture = await setup(50);
-    const deadline = fixture.broker.request(fixture.host.id, scope, { operation: "availability" });
+    const deadline = fixture.broker.request(fixture.host.id, scope, availabilityOperation);
     const deadlineAssertion = expect(deadline).rejects.toMatchObject({
       code: "canvas_runtime_rpc_deadline_exceeded",
       reconcileRequired: false
@@ -144,7 +154,7 @@ describe("CanvasRuntimeRpcBroker", () => {
     ["revoked", "canvas_runtime_host_revoked"]
   ] as const)("rejects pending work when a Host is %s", async (reason, code) => {
     const fixture = await setup();
-    const pending = fixture.broker.request(fixture.host.id, scope, { operation: "availability" });
+    const pending = fixture.broker.request(fixture.host.id, scope, availabilityOperation);
 
     fixture.broker.detachHost(fixture.host.id, reason);
 
@@ -158,12 +168,7 @@ describe("CanvasRuntimeRpcBroker", () => {
     fixture.broker.detachHost(fixture.host.id, "disconnected");
 
     await expect(
-      fixture.broker.request(
-        fixture.host.id,
-        scope,
-        { operation: "availability" },
-        attachmentVersion
-      )
+      fixture.broker.request(fixture.host.id, scope, availabilityOperation, attachmentVersion)
     ).rejects.toMatchObject({ code: "canvas_runtime_host_offline" });
     expect(fixture.deliveries).toHaveLength(0);
   });
@@ -173,7 +178,7 @@ describe("CanvasRuntimeRpcBroker", () => {
     const other = fixture.hosts.register("Other Runtime Host").host;
     fixture.hosts.reportOnline(other.id, [CANVAS_RUNTIME_CAPABILITY], 1);
     fixture.active.add(other.id);
-    const pending = fixture.broker.request(fixture.host.id, scope, { operation: "availability" });
+    const pending = fixture.broker.request(fixture.host.id, scope, availabilityOperation);
     const response = availabilityResponse(
       requestCommand(fixture.deliveries[0]!),
       "runtime_not_attached"
@@ -188,7 +193,10 @@ describe("CanvasRuntimeRpcBroker", () => {
 
   it("fails closed and clears pending state for a mismatched response operation", async () => {
     const fixture = await setup();
-    const pending = fixture.broker.request(fixture.host.id, scope, { operation: "acquire" });
+    const pending = fixture.broker.request(fixture.host.id, scope, {
+      operation: "acquire",
+      contentTarget
+    });
     const command = requestCommand(fixture.deliveries[0]!);
 
     expect(

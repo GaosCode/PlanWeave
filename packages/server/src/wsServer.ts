@@ -75,6 +75,22 @@ function sendMailboxMessage(socket: WebSocket, message: MailboxMessage): void {
   });
 }
 
+function logDeferredWritebackFailure(input: {
+  hostId: string;
+  dispatchId: string;
+  error: unknown;
+}): void {
+  console.error(
+    JSON.stringify({
+      scope: "agent-host-ws",
+      event: "terminal_writeback_failed",
+      hostId: input.hostId,
+      dispatchId: input.dispatchId,
+      error: input.error instanceof Error ? input.error.message : String(input.error)
+    })
+  );
+}
+
 export function attachAgentHostWebSocketServer(
   options: AgentHostWebSocketOptions
 ): AgentHostWebSocketServer {
@@ -82,7 +98,28 @@ export function attachAgentHostWebSocketServer(
     noServer: true,
     maxPayload: options.maxPayloadBytes ?? 256 * 1024
   });
-  const sessions = new Map<string, { socket: WebSocket; initialized: boolean }>();
+  type HostSession = {
+    socket: WebSocket;
+    initialized: boolean;
+    processing: Promise<void>;
+  };
+  const sessions = new Map<string, HostSession>();
+  const openSessions = new Set<HostSession>();
+  const pendingWritebacks = new Map<string, Promise<void>>();
+  let acceptingWritebacks = true;
+  const continueWriteback = (hostId: string, dispatchId: string): void => {
+    if (!acceptingWritebacks || pendingWritebacks.has(dispatchId)) return;
+    const pending = options.dispatches
+      .continuePendingWriteback(dispatchId)
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        logDeferredWritebackFailure({ hostId, dispatchId, error });
+      })
+      .finally(() => {
+        if (pendingWritebacks.get(dispatchId) === pending) pendingWritebacks.delete(dispatchId);
+      });
+    pendingWritebacks.set(dispatchId, pending);
+  };
   options.runtimeRpc?.attachSessionLookup({
     isActive(hostId) {
       const session = sessions.get(hostId);
@@ -93,6 +130,7 @@ export function attachAgentHostWebSocketServer(
   if (!Number.isSafeInteger(shutdownTimeoutMs) || shutdownTimeoutMs < 100) {
     throw new Error("agent_host_websocket_shutdown_timeout_invalid");
   }
+  let closing = false;
 
   const handleConnection = (socket: WebSocket, hostId: string) => {
     const prior = sessions.get(hostId);
@@ -100,13 +138,13 @@ export function attachAgentHostWebSocketServer(
       options.runtimeRpc?.detachHost(hostId, "superseded");
       prior.socket.close(4001, "superseded");
     }
-    const session = { socket, initialized: false };
+    const session = { socket, initialized: false, processing: Promise.resolve() };
     sessions.set(hostId, session);
+    openSessions.add(session);
 
     let initialized = false;
     let alive = true;
     let unsubscribe = () => {};
-    let processing = Promise.resolve();
     const helloTimeout = setTimeout(() => socket.close(4002, "host.hello required"), 10_000);
     const pingTimer = setInterval(() => {
       if (!alive) {
@@ -122,6 +160,7 @@ export function attachAgentHostWebSocketServer(
     });
 
     const handleHostEvent = async (event: HostEvent): Promise<void> => {
+      let deferredWriteback: { dispatchId: string } | undefined;
       switch (event.type) {
         case "mailbox.ack":
           options.actions.acknowledgeMailbox(
@@ -166,14 +205,20 @@ export function attachAgentHostWebSocketServer(
           options.dispatches.interrupt(hostId, event.messageId, event);
           break;
         case "dispatch.completed":
-          await options.dispatches.complete(
-            hostId,
-            event.messageId,
-            event.dispatchId,
-            event.leaseId,
-            event.executionAttemptId,
-            event.result
-          );
+          {
+            const recorded = options.dispatches.recordCompleted(
+              hostId,
+              event.messageId,
+              event.dispatchId,
+              event.leaseId,
+              event.executionAttemptId,
+              event.result
+            );
+            deferredWriteback =
+              recorded.writebackRequired && recorded.dispatch?.status === "awaiting_writeback"
+                ? { dispatchId: event.dispatchId }
+                : undefined;
+          }
           options.actions.settleAttemptCommands({
             dispatchId: event.dispatchId,
             executionAttemptId: event.executionAttemptId,
@@ -181,14 +226,20 @@ export function attachAgentHostWebSocketServer(
           });
           break;
         case "dispatch.failed":
-          await options.dispatches.fail(
-            hostId,
-            event.messageId,
-            event.dispatchId,
-            event.leaseId,
-            event.executionAttemptId,
-            event.failure
-          );
+          {
+            const recorded = options.dispatches.recordFailed(
+              hostId,
+              event.messageId,
+              event.dispatchId,
+              event.leaseId,
+              event.executionAttemptId,
+              event.failure
+            );
+            deferredWriteback =
+              recorded.writebackRequired && recorded.dispatch?.status === "awaiting_writeback"
+                ? { dispatchId: event.dispatchId }
+                : undefined;
+          }
           options.actions.settleAttemptCommands({
             dispatchId: event.dispatchId,
             executionAttemptId: event.executionAttemptId,
@@ -229,10 +280,12 @@ export function attachAgentHostWebSocketServer(
         protocolVersion: agentHostProtocolVersion,
         messageId: event.messageId
       });
+      if (deferredWriteback) continueWriteback(hostId, deferredWriteback.dispatchId);
     };
 
     socket.on("message", (data, isBinary) => {
-      processing = processing
+      if (closing) return;
+      session.processing = session.processing
         .then(async () => {
           if (isBinary) throw new Error("binary_messages_not_supported");
           let input: unknown;
@@ -289,6 +342,7 @@ export function attachAgentHostWebSocketServer(
       clearTimeout(helloTimeout);
       clearInterval(pingTimer);
       unsubscribe();
+      openSessions.delete(session);
       if (sessions.get(hostId) === session) {
         sessions.delete(hostId);
         options.runtimeRpc?.detachHost(hostId, "disconnected");
@@ -337,28 +391,44 @@ export function attachAgentHostWebSocketServer(
     },
     close: () => {
       closePromise ??= (async () => {
+        closing = true;
         unregisterUpgrade();
-        for (const { socket } of sessions.values()) socket.close(1001, "server shutdown");
+        const shutdownDeadline = Date.now() + shutdownTimeoutMs;
+        const waitWithinShutdownBudget = async (work: Promise<unknown>): Promise<boolean> => {
+          const remainingMs = shutdownDeadline - Date.now();
+          if (remainingMs <= 0) return false;
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const outcome = await Promise.race([
+            work.then(() => "settled" as const),
+            new Promise<"timed_out">((resolve) => {
+              timer = setTimeout(() => resolve("timed_out"), remainingMs);
+            })
+          ]);
+          if (timer) clearTimeout(timer);
+          return outcome === "settled";
+        };
+        const closingSessions = [...openSessions];
+        const processingDrained = await waitWithinShutdownBudget(
+          Promise.allSettled(closingSessions.map(({ processing }) => processing))
+        );
+        if (!processingDrained) acceptingWritebacks = false;
+        for (const { socket } of closingSessions) socket.close(1001, "server shutdown");
         let closeError: Error | undefined;
-        let timer: ReturnType<typeof setTimeout> | undefined;
         const graceful = new Promise<void>((resolve) => {
           webSocketServer.close((error) => {
             closeError = error;
             resolve();
           });
         });
-        const timeout = new Promise<void>((resolve) => {
-          timer = setTimeout(() => {
-            for (const { socket } of sessions.values()) socket.terminate();
-            resolve();
-          }, shutdownTimeoutMs);
-        });
-        await Promise.race([graceful, timeout]);
-        if (timer) clearTimeout(timer);
-        if (sessions.size > 0) {
-          for (const { socket } of sessions.values()) socket.terminate();
-        }
-        await graceful;
+        const socketsClosed = await waitWithinShutdownBudget(graceful);
+        if (!socketsClosed) for (const { socket } of closingSessions) socket.terminate();
+        const drainPendingWritebacks = async (): Promise<void> => {
+          while (pendingWritebacks.size > 0) {
+            await Promise.allSettled([...pendingWritebacks.values()]);
+          }
+        };
+        await waitWithinShutdownBudget(drainPendingWritebacks());
+        acceptingWritebacks = false;
         if (closeError) throw closeError;
       })();
       return closePromise;

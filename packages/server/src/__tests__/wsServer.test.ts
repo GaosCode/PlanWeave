@@ -2,6 +2,7 @@ import { createServer, type Server as HttpServer } from "node:http";
 import { loopbackHttpTransportAdmission } from "./support/transportAdmission.js";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
+import { CANVAS_RUNTIME_CAPABILITY } from "@planweave-ai/agent-host-protocol";
 import {
   createRemoteBlockArtifactSource,
   createRemoteBlockRuntimePort,
@@ -11,6 +12,7 @@ import { WebSocket } from "ws";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRemoteBlockCoordination } from "../distributedCoordination.js";
 import { canonicalRemoteRuntimePort } from "../canonicalRemoteRuntimePort.js";
+import { CanvasRuntimeRpcBroker } from "../canvas/runtimeRpcBroker.js";
 import { RemoteRuntimePortRegistry } from "../remoteRuntimeLocator.js";
 import { HostEnrollmentService } from "../hostEnrollment.js";
 import { hashOperatorToken, OperatorTokenRegistry } from "../operatorAuth.js";
@@ -35,6 +37,15 @@ const databases: PlanweaveServer[] = [];
 const httpServers: HttpServer[] = [];
 const webSocketServers: AgentHostWebSocketServer[] = [];
 const sockets: WebSocket[] = [];
+const runtimeContentTarget = {
+  revision: 1,
+  content: {
+    versionId: `version-${"c".repeat(64)}`,
+    canonicalDigest: "c".repeat(64),
+    verification: "complete" as const
+  },
+  graphFingerprint: `pkg-${"a".repeat(64)}`
+};
 
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -360,7 +371,8 @@ describe("agent host WebSocket transport", () => {
   });
 
   it("settles fresh-lease resume acceptance and terminalizes cancellation after load interruption", async () => {
-    const { coordination, locator, workspaceIdentity, workspaceId } = await createWsCoordination();
+    const { database, coordination, locator, workspaceIdentity, workspaceId } =
+      await createWsCoordination();
     const registration = coordination.hosts.register("Action Lifecycle Host");
     workspaceIdentity.bindHostToWorkspace(registration.host.id, workspaceId);
     const httpServer = createServer();
@@ -368,6 +380,12 @@ describe("agent host WebSocket transport", () => {
     await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
     const address = httpServer.address();
     if (!address || typeof address === "string") throw new Error("Expected an HTTP port.");
+    const runtimeRpc = new CanvasRuntimeRpcBroker(
+      database.database,
+      coordination.hosts,
+      coordination.mailbox,
+      { requestTimeoutMs: 1_000 }
+    );
     webSocketServers.push(
       attachAgentHostWebSocketServer({
         server: httpServer,
@@ -377,6 +395,7 @@ describe("agent host WebSocket transport", () => {
         acpEvents: coordination.acpEvents,
         interactions: coordination.interactions,
         actions: coordination.actions,
+        runtimeRpc,
         heartbeatIntervalMs: 30_000,
         leaseDurationMs: 60_000,
         transportAdmission: loopbackHttpTransportAdmission
@@ -393,7 +412,7 @@ describe("agent host WebSocket transport", () => {
         type: "host.hello",
         protocolVersion: 1,
         lastAcknowledgedSequence: 0,
-        capabilities: ["acp.codex"],
+        capabilities: ["acp.codex", CANVAS_RUNTIME_CAPABILITY],
         capacity: 1,
         readiness: readyObservation(workspaceId)
       })
@@ -505,6 +524,18 @@ describe("agent host WebSocket transport", () => {
       status: "interrupted",
       interruption: { reason: "acp_session_lost", resumable: false }
     });
+    const continuePendingWriteback = coordination.dispatches.continuePendingWriteback.bind(
+      coordination.dispatches
+    );
+    vi.spyOn(coordination.dispatches, "continuePendingWriteback").mockImplementation(
+      async (dispatchId) => {
+        await runtimeRpc.request(registration.host.id, locator, {
+          operation: "availability",
+          contentTarget: runtimeContentTarget
+        });
+        return continuePendingWriteback(dispatchId);
+      }
+    );
     socket.send(
       JSON.stringify({
         type: "dispatch.failed",
@@ -516,9 +547,39 @@ describe("agent host WebSocket transport", () => {
         failure: { code: "execution_cancelled", message: "Cancelled.", retryable: false }
       })
     );
-    await events.next();
+    await expect(events.next()).resolves.toMatchObject({
+      type: "host.event_ack",
+      messageId: "cancel-terminal"
+    });
     expect(coordination.actions.getRequired(cancel.messageId).state).toBe("settled");
-    expect(coordination.dispatches.getRequired(dispatch.id).status).toBe("cancelled");
+    expect(coordination.dispatches.getRequired(dispatch.id).status).toBe("awaiting_writeback");
+    const runtimeRequest = await events.next();
+    if (
+      runtimeRequest.type !== "mailbox.message" ||
+      runtimeRequest.command.type !== "canvas_runtime.request"
+    ) {
+      throw new Error("Expected Canvas Runtime request mailbox message.");
+    }
+    socket.send(
+      JSON.stringify({
+        type: "canvas_runtime.response",
+        protocolVersion: 1,
+        messageId: "cancel-terminal-runtime-response",
+        requestId: runtimeRequest.command.requestId,
+        response: {
+          outcome: "success",
+          operation: "availability",
+          result: { kind: "unavailable", reason: "runtime_not_attached" }
+        }
+      })
+    );
+    await expect(events.next()).resolves.toMatchObject({
+      type: "host.event_ack",
+      messageId: "cancel-terminal-runtime-response"
+    });
+    await vi.waitFor(() => {
+      expect(coordination.dispatches.getRequired(dispatch.id).status).toBe("cancelled");
+    });
   });
 
   it("authenticates a host and replays unacknowledged mailbox messages", async () => {

@@ -58,6 +58,11 @@ export type DispatchRecord = {
   interruption?: DispatchInterruption;
 };
 
+type RecordedTerminalDispatch = {
+  dispatch: DispatchRecord | undefined;
+  writebackRequired: boolean;
+};
+
 export type DispatchWriteback = {
   complete(input: {
     dispatchId: string;
@@ -455,14 +460,14 @@ export class DispatchService {
     return this.get(event.dispatchId);
   }
 
-  async complete(
+  recordCompleted(
     hostId: string,
     messageId: string,
     dispatchId: string,
     leaseId: string,
     executionAttemptId: string,
     result: DispatchResult
-  ): Promise<DispatchRecord | undefined> {
+  ): RecordedTerminalDispatch {
     const parsedResult = dispatchResultSchema.parse(result);
     let dropReason: DispatchEventDropReason | undefined;
     this.inbox.process(
@@ -513,9 +518,30 @@ export class DispatchService {
         leaseId,
         executionAttemptId
       });
-      return this.get(dispatchId);
+      return { dispatch: this.get(dispatchId), writebackRequired: false };
     }
-    return this.writeBack(dispatchId);
+    return { dispatch: this.get(dispatchId), writebackRequired: true };
+  }
+
+  async complete(
+    hostId: string,
+    messageId: string,
+    dispatchId: string,
+    leaseId: string,
+    executionAttemptId: string,
+    result: DispatchResult
+  ): Promise<DispatchRecord | undefined> {
+    const recorded = this.recordCompleted(
+      hostId,
+      messageId,
+      dispatchId,
+      leaseId,
+      executionAttemptId,
+      result
+    );
+    return recorded.writebackRequired && recorded.dispatch
+      ? this.continuePendingWriteback(recorded.dispatch.id)
+      : recorded.dispatch;
   }
 
   private hasPendingCancellation(dispatch: DispatchRecord): boolean {
@@ -535,14 +561,14 @@ export class DispatchService {
       });
   }
 
-  async fail(
+  recordFailed(
     hostId: string,
     messageId: string,
     dispatchId: string,
     leaseId: string,
     executionAttemptId: string,
     failure: DispatchFailure
-  ): Promise<DispatchRecord | undefined> {
+  ): RecordedTerminalDispatch {
     const parsedFailure = dispatchFailureSchema.parse(failure);
     let dropReason: DispatchEventDropReason | undefined;
     this.inbox.process(
@@ -586,8 +612,33 @@ export class DispatchService {
         leaseId,
         executionAttemptId
       });
-      return this.get(dispatchId);
+      return { dispatch: this.get(dispatchId), writebackRequired: false };
     }
+    return { dispatch: this.get(dispatchId), writebackRequired: true };
+  }
+
+  async fail(
+    hostId: string,
+    messageId: string,
+    dispatchId: string,
+    leaseId: string,
+    executionAttemptId: string,
+    failure: DispatchFailure
+  ): Promise<DispatchRecord | undefined> {
+    const recorded = this.recordFailed(
+      hostId,
+      messageId,
+      dispatchId,
+      leaseId,
+      executionAttemptId,
+      failure
+    );
+    return recorded.writebackRequired && recorded.dispatch
+      ? this.continuePendingWriteback(recorded.dispatch.id)
+      : recorded.dispatch;
+  }
+
+  continuePendingWriteback(dispatchId: string): Promise<DispatchRecord> {
     return this.writeBack(dispatchId);
   }
 

@@ -16,6 +16,16 @@ const databases: PlanweaveServer[] = [];
 const httpServers: HttpServer[] = [];
 const transports: AgentHostWebSocketServer[] = [];
 const sockets: WebSocket[] = [];
+const contentTarget = {
+  revision: 1,
+  content: {
+    versionId: `version-${"c".repeat(64)}`,
+    canonicalDigest: "c".repeat(64),
+    verification: "complete" as const
+  },
+  graphFingerprint: `pkg-${"a".repeat(64)}`
+};
+const availabilityOperation = { operation: "availability" as const, contentTarget };
 
 afterEach(async () => {
   for (const socket of sockets.splice(0)) socket.terminate();
@@ -128,7 +138,7 @@ describe("Canvas Runtime RPC WebSocket lifecycle", () => {
     const superseded = fixture.broker.request(
       fixture.registration.host.id,
       { workspaceId: "workspace-rpc", projectId: "project-rpc", canvasId: "default" },
-      { operation: "availability" }
+      availabilityOperation
     );
     const supersededAssertion = expect(superseded).rejects.toMatchObject({
       code: "canvas_runtime_host_superseded"
@@ -141,7 +151,7 @@ describe("Canvas Runtime RPC WebSocket lifecycle", () => {
     const revoked = fixture.broker.request(
       fixture.registration.host.id,
       { workspaceId: "workspace-rpc", projectId: "project-rpc", canvasId: "default" },
-      { operation: "availability" }
+      availabilityOperation
     );
     const revokedAssertion = expect(revoked).rejects.toMatchObject({
       code: "canvas_runtime_host_revoked"
@@ -158,7 +168,7 @@ describe("Canvas Runtime RPC WebSocket lifecycle", () => {
     const pending = fixture.broker.request(
       fixture.registration.host.id,
       { workspaceId: "workspace-rpc", projectId: "project-rpc", canvasId: "default" },
-      { operation: "availability" }
+      availabilityOperation
     );
     const assertion = expect(pending).rejects.toMatchObject({
       code: "canvas_runtime_host_disconnected"
