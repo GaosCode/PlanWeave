@@ -4,6 +4,7 @@ import electronPath from "electron";
 import { context } from "esbuild";
 import { resolve } from "node:path";
 import { createServer } from "vite";
+import { createDesktopDevelopmentLaunchEnvironment } from "./desktop-launch-environment.mjs";
 import {
   desktopPackageRoot,
   electronBuildOptions,
@@ -12,7 +13,6 @@ import {
 } from "./electron-build.mjs";
 
 const rendererPort = 5173;
-const agentHostCliPath = resolve(desktopPackageRoot, "..", "agent-host", "dist", "bin.js");
 let electronProcess = null;
 let electronRestartRequested = false;
 let restartTimer = null;
@@ -25,12 +25,7 @@ let preloadContext;
 function launchElectron(rendererUrl) {
   const child = spawn(electronPath, [resolve(desktopPackageRoot, "dist", "main", "main.js")], {
     cwd: desktopPackageRoot,
-    env: {
-      ...process.env,
-      PLANWEAVE_DESKTOP_DEV_SERVER_URL: rendererUrl,
-      PLANWEAVE_DESKTOP_NODE_EXECUTABLE: process.execPath,
-      PLANWEAVE_DESKTOP_AGENT_HOST_CLI_PATH: agentHostCliPath
-    },
+    env: createDesktopDevelopmentLaunchEnvironment(rendererUrl),
     stdio: "inherit"
   });
   electronProcess = child;
