@@ -1,6 +1,7 @@
 import { mkdir, readFile, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { writePrivateTextFile } from "../config/privateConfigWriter.js";
 import type {
   AgentHostBackgroundIdentity,
@@ -89,13 +90,20 @@ function isMissingFile(error: unknown): boolean {
   return processErrorCode(error) === "ENOENT";
 }
 
+function isTransientBootstrapFailure(error: unknown): boolean {
+  return processErrorCode(error) === 5;
+}
+
+const launchAgentReplacementBootstrapRetries = 19;
+
 export class MacosLaunchAgentService implements AgentHostBackgroundService {
   private readonly logDirectories = new Map<string, string>();
 
   constructor(
     private readonly runner: FixedArgvRunner = runFixedArgv,
     private readonly launchAgentsDirectory = join(homedir(), "Library", "LaunchAgents"),
-    private readonly getUid: () => number | undefined = () => process.getuid?.()
+    private readonly getUid: () => number | undefined = () => process.getuid?.(),
+    private readonly waitForReplacement: () => Promise<void> = () => delay(100)
   ) {}
 
   async install(input: AgentHostBackgroundInstall): Promise<AgentHostBackgroundResult> {
@@ -106,13 +114,15 @@ export class MacosLaunchAgentService implements AgentHostBackgroundService {
     await writePrivateTextFile(path, launchAgentPlist(input));
     this.logDirectories.set(input.workspaceId, input.privateDirectory);
     try {
+      let replacedExistingService = false;
       try {
         await this.runner("launchctl", ["print", `${domain}/${label}`]);
         await this.runner("launchctl", ["bootout", `${domain}/${label}`]);
+        replacedExistingService = true;
       } catch (error) {
         if (!isMissingService(error)) throw error;
       }
-      await this.runner("launchctl", ["bootstrap", domain, path]);
+      await this.bootstrap(domain, path, replacedExistingService);
       await this.runner("launchctl", ["kickstart", "-k", `${domain}/${label}`]);
       return { state: "running", platform: "macos-launch-agent" };
     } catch (error) {
@@ -196,6 +206,26 @@ export class MacosLaunchAgentService implements AgentHostBackgroundService {
       throw new AgentHostBackgroundSetupError("check_launch_agent_permissions");
     }
     return `gui/${uid}`;
+  }
+
+  private async bootstrap(domain: string, path: string, replacedExistingService: boolean) {
+    let retriesRemaining = launchAgentReplacementBootstrapRetries;
+    for (;;) {
+      try {
+        await this.runner("launchctl", ["bootstrap", domain, path]);
+        return;
+      } catch (error) {
+        if (
+          !replacedExistingService ||
+          !isTransientBootstrapFailure(error) ||
+          retriesRemaining === 0
+        ) {
+          throw error;
+        }
+        retriesRemaining -= 1;
+        await this.waitForReplacement();
+      }
+    }
   }
 }
 

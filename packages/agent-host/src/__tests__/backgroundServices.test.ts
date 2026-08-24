@@ -74,6 +74,41 @@ describe("Agent Host background adapters", () => {
     ]);
   });
 
+  it("retries bootstrap while launchd retires an existing macOS LaunchAgent", async () => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-launch-agent-replace-"));
+    directories.push(root);
+    const transientBootstrapError = Object.assign(new Error("bootstrap still in progress"), {
+      code: 5
+    });
+    const runner = vi
+      .fn()
+      .mockResolvedValueOnce({ stdout: "state = running\n", stderr: "" })
+      .mockResolvedValueOnce({ stdout: "", stderr: "" })
+      .mockRejectedValueOnce(transientBootstrapError)
+      .mockRejectedValueOnce(transientBootstrapError)
+      .mockResolvedValueOnce({ stdout: "", stderr: "" })
+      .mockResolvedValueOnce({ stdout: "", stderr: "" });
+    const waitForReplacement = vi.fn().mockResolvedValue(undefined);
+    const service = new MacosLaunchAgentService(runner, root, () => 501, waitForReplacement);
+
+    await expect(service.install(install)).resolves.toEqual({
+      state: "running",
+      platform: "macos-launch-agent"
+    });
+
+    const label = macosAgentHostLaunchAgentLabel(install.workspaceId);
+    const path = join(root, `${label}.plist`);
+    expect(runner.mock.calls).toEqual([
+      ["launchctl", ["print", `gui/501/${label}`]],
+      ["launchctl", ["bootout", `gui/501/${label}`]],
+      ["launchctl", ["bootstrap", "gui/501", path]],
+      ["launchctl", ["bootstrap", "gui/501", path]],
+      ["launchctl", ["bootstrap", "gui/501", path]],
+      ["launchctl", ["kickstart", "-k", `gui/501/${label}`]]
+    ]);
+    expect(waitForReplacement).toHaveBeenCalledTimes(2);
+  });
+
   it("escapes macOS plist argv and exposes file-backed diagnostics", async () => {
     const root = await mkdtemp(join(tmpdir(), "planweave-launch-agent-logs-"));
     directories.push(root);
