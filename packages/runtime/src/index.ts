@@ -256,6 +256,7 @@ export type {
 } from "./package/packageDraftImport.js";
 export type { PendingImportTransaction } from "./package/importRecovery.js";
 export {
+  canonicalProjectCanvasNode,
   compileProjectGraph,
   createCanvasWorkspace,
   createProjectCanvas,

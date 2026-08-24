@@ -2,8 +2,10 @@ import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
+  compileProjectGraph,
   DEFAULT_ACP_SHUTDOWN_POLICY,
   initManagedWorkspace,
+  loadProjectGraphForWorkspace,
   resolveAgentProcessEnvironment
 } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -15,6 +17,7 @@ import {
 import { observeHostReadiness } from "../config/readiness.js";
 import { parseAgentHostConfig } from "../config/schema.js";
 import { ConfiguredCanvasRuntimeResolver } from "../runtime/canvasRuntimeResolver.js";
+import { commandCanvasIdForWorkspace } from "../../../runtime/src/taskManager/canvasCommandScope.js";
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -245,12 +248,12 @@ describe("Agent Host configuration", () => {
     const scope = {
       workspaceId: "workspace-a",
       projectId: first.project.id,
-      canvasId: "default"
+      canvasId: "shared-canvas"
     };
     const localManifestBefore = await readFile(first.workspace.manifestFile, "utf8");
     const resolved = await resolver.resolve(scope);
     expect(resolved).toMatchObject({
-      scope: { workspaceId: "workspace-a", projectId: first.project.id, canvasId: "default" }
+      scope: { workspaceId: "workspace-a", projectId: first.project.id, canvasId: "shared-canvas" }
     });
     expect(resolved.project.rootPath).toBe(await realpath(first.workspace.rootPath));
     expect(resolved.canvas.workspaceRoot).toBe(
@@ -258,11 +261,18 @@ describe("Agent Host configuration", () => {
         await realpath(config.dataDirectory),
         "runtime-canvases",
         "workspace-a",
+        "shared-canvas",
+        "projects",
         first.project.id,
-        "default"
+        "canvases",
+        "shared-canvas"
       )
     );
     expect(resolved.canvas.packageDir).toBe(join(resolved.canvas.workspaceRoot, "package"));
+    await writeFile(resolved.canvas.manifestFile, localManifestBefore, "utf8");
+    const loadedRuntimeProject = await loadProjectGraphForWorkspace(resolved.canvas);
+    expect((await compileProjectGraph(loadedRuntimeProject)).diagnostics.errors).toEqual([]);
+    await expect(commandCanvasIdForWorkspace(resolved.canvas)).resolves.toBe("shared-canvas");
     expect(await readFile(first.workspace.manifestFile, "utf8")).toBe(localManifestBefore);
 
     const preservedState = `${JSON.stringify({ marker: "state-preserved" })}\n`;

@@ -1,7 +1,12 @@
 import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
+  canonicalProjectCanvasNode,
   createEmptyState,
+  projectCanvasWorkspace,
+  projectGraphManifestSchema,
+  projectGraphPath,
+  projectGraphVersion,
   projectWorkspacePaths,
   resolveProjectWorkspace,
   type ProjectWorkspace
@@ -92,39 +97,76 @@ export class ConfiguredCanvasRuntimeResolver implements CanvasRuntimeResolverPor
     const dataDirectoryRoot = await realpath(this.config.dataDirectory);
     const runtimeCanvasesRoot = resolve(dataDirectoryRoot, "runtime-canvases");
     await this.ensureManagedDirectory(runtimeCanvasesRoot);
-    let managedRoot = runtimeCanvasesRoot;
-    for (const segment of [scope.workspaceId, scope.projectId, scope.canvasId]) {
+    let runtimeHome = runtimeCanvasesRoot;
+    for (const segment of [scope.workspaceId, scope.canvasId]) {
+      runtimeHome = join(runtimeHome, segment);
+      if (!contained(runtimeCanvasesRoot, runtimeHome)) {
+        throw new CanvasRuntimeResolutionError("runtime_project_escape");
+      }
+      await this.ensureManagedDirectory(runtimeHome);
+    }
+    let managedRoot = runtimeHome;
+    for (const segment of ["projects", scope.projectId, "canvases", scope.canvasId]) {
       managedRoot = join(managedRoot, segment);
       if (!contained(runtimeCanvasesRoot, managedRoot)) {
         throw new CanvasRuntimeResolutionError("runtime_project_escape");
       }
       await this.ensureManagedDirectory(managedRoot);
     }
-    const [resolvedRuntimeRoot, resolvedManagedRoot] = await Promise.all([
-      realpath(runtimeCanvasesRoot),
-      realpath(managedRoot)
-    ]);
-    if (!contained(resolvedRuntimeRoot, resolvedManagedRoot)) {
+    const projectRoot = join(runtimeHome, "projects", scope.projectId);
+    const [resolvedRuntimeRoot, resolvedRuntimeHome, resolvedProjectRoot, resolvedManagedRoot] =
+      await Promise.all([
+        realpath(runtimeCanvasesRoot),
+        realpath(runtimeHome),
+        realpath(projectRoot),
+        realpath(managedRoot)
+      ]);
+    if (
+      !contained(resolvedRuntimeRoot, resolvedRuntimeHome) ||
+      !contained(resolvedRuntimeHome, resolvedProjectRoot) ||
+      !contained(resolvedProjectRoot, resolvedManagedRoot)
+    ) {
       throw new CanvasRuntimeResolutionError("runtime_project_escape");
     }
-    const baseCanvas = projectWorkspacePaths({
+    const runtimeProject = projectWorkspacePaths({
       id: scope.projectId,
-      kind: "managed",
-      rootPath: managedRoot,
-      sourceRoot: project.rootPath,
-      planweaveHome: this.config.dataDirectory,
-      workspaceRoot: managedRoot
+      kind: project.kind,
+      rootPath: project.rootPath,
+      sourceRoot: project.sourceRoot,
+      planweaveHome: resolvedRuntimeHome,
+      workspaceRoot: resolvedProjectRoot
     });
-    const canvas: ProjectWorkspace = {
-      ...baseCanvas,
-      packageDir: join(managedRoot, "package"),
-      manifestFile: join(managedRoot, "package", "manifest.json"),
-      stateFile: join(managedRoot, "state.json"),
-      resultsDir: join(managedRoot, "results"),
-      projectPromptFile: join(managedRoot, "policy", "project-prompt.md")
-    };
+    const canvasNode = canonicalProjectCanvasNode({
+      id: scope.canvasId,
+      title: scope.canvasId
+    });
+    const canvas = projectCanvasWorkspace(runtimeProject, canvasNode);
+    await this.ensureProjectGraph(runtimeProject, canvasNode);
     await this.ensureManagedCanvas(canvas);
     return { scope, project, canvas };
+  }
+
+  private async ensureProjectGraph(
+    project: ProjectWorkspace,
+    canvas: ReturnType<typeof canonicalProjectCanvasNode>
+  ): Promise<void> {
+    const expected = projectGraphManifestSchema.parse({
+      version: projectGraphVersion,
+      canvases: [canvas],
+      edges: [],
+      crossTaskEdges: []
+    });
+    const path = projectGraphPath(project);
+    await this.writeOnce(path, `${JSON.stringify(expected, null, 2)}\n`);
+    let stored: unknown;
+    try {
+      stored = projectGraphManifestSchema.parse(JSON.parse(await readFile(path, "utf8")));
+    } catch {
+      throw new CanvasRuntimeResolutionError("runtime_project_identity_mismatch");
+    }
+    if (JSON.stringify(stored) !== JSON.stringify(expected)) {
+      throw new CanvasRuntimeResolutionError("runtime_project_identity_mismatch");
+    }
   }
 
   private async ensureManagedCanvas(canvas: ProjectWorkspace): Promise<void> {
