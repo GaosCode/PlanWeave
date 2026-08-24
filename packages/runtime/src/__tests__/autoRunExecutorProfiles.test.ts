@@ -3,7 +3,7 @@ import { access, chmod, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { listExecutorProfiles, testExecutorProfile } from "../index.js";
-import { builtinExecutorNames } from "../executorNames.js";
+import { builtinExecutorNames, isBuiltinAcpProfileForAgent } from "../executorNames.js";
 import { writeJsonFile } from "../json.js";
 import { manifestSchema } from "../schema/manifest.js";
 import { validatePackage } from "../validatePackage.js";
@@ -15,6 +15,26 @@ import { createContractCodexExecAdapter, runContractAutoRunStep } from "./autoRu
 describe("Auto Run executor profiles", () => {
   it("keeps the reserved executor names aligned with the built-in profile registry", () => {
     expect([...builtinExecutorNames].sort()).toEqual(Object.keys(builtinExecutorProfiles).sort());
+  });
+
+  it.each([
+    ["codex-acp", "codex"],
+    ["opencode-acp", "opencode"],
+    ["claude-code-acp", "claude-code"],
+    ["pi-acp", "pi"],
+    ["grok-acp", "grok"]
+  ])("recognizes the built-in ACP profile %s for agent %s", (profileId, agentId) => {
+    expect(isBuiltinAcpProfileForAgent(profileId, agentId)).toBe(true);
+  });
+
+  it.each([
+    ["codex-auto", "codex"],
+    ["manual", "manual"],
+    ["default", "manual"],
+    ["codex-acp", "opencode"],
+    ["custom-codex-acp", "codex"]
+  ])("rejects non-standard ACP profile pair %s / %s", (profileId, agentId) => {
+    expect(isBuiltinAcpProfileForAgent(profileId, agentId)).toBe(false);
   });
 
   it("accepts executor profiles and task/block executor inheritance in Plan Package manifests", () => {

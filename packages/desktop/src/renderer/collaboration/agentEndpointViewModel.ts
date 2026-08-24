@@ -1,4 +1,5 @@
 import type { RemoteAgentEndpoint } from "@planweave-ai/collaboration-protocol/agent-endpoint";
+import { isBuiltinAcpProfileForAgent } from "@planweave-ai/runtime/browser";
 
 export type AvailableAgentEndpoint = {
   id: string;
@@ -107,6 +108,16 @@ function remoteLogicalExecutor(
   );
 }
 
+function isBuiltinRemoteProfile(
+  endpoint: RemoteAgentEndpoint,
+  logicalExecutors: readonly LogicalAgentEndpointInput[]
+): boolean {
+  return (
+    !logicalExecutors.some((executor) => executor.profileId === endpoint.profileId) &&
+    isBuiltinAcpProfileForAgent(endpoint.profileId, endpoint.agentId)
+  );
+}
+
 /**
  * Single source for a remote Endpoint's logical executorName.
  * Match profile+agent, then non-custom agent family; otherwise fall back to agentId.
@@ -204,16 +215,18 @@ export function buildAgentEndpointCatalog(input: {
     .filter(isSelectableRemoteAgentEndpoint)
     .map((endpoint): AvailableAgentEndpoint => {
       const logicalExecutor = remoteLogicalExecutor(endpoint, input.logicalExecutors);
+      const hasLogicalExecutor =
+        logicalExecutor !== null || isBuiltinRemoteProfile(endpoint, input.logicalExecutors);
       return {
         id: `remote:${endpoint.endpointId}`,
         source: "remote",
         executorName: remoteAgentEndpointExecutorName(endpoint, input.logicalExecutors),
         displayName: endpoint.displayName,
         locationName: endpoint.hostDisplayName,
-        available: endpoint.status === "available" && logicalExecutor !== null,
+        available: endpoint.status === "available" && hasLogicalExecutor,
         unavailableReason:
           endpoint.status === "available"
-            ? logicalExecutor
+            ? hasLogicalExecutor
               ? null
               : "agent_endpoint_incompatible"
             : (endpoint.unavailableReason ?? "agent_endpoint_unavailable"),

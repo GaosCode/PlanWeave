@@ -37,3 +37,11 @@ export function canonicalBuiltinExecutorName(name: string): string {
 export function isBuiltinExecutorName(name: string): boolean {
   return builtinExecutorNameSet.has(name);
 }
+
+export function isBuiltinAcpProfileForAgent(profileId: string, agentId: string): boolean {
+  return (
+    profileId.endsWith("-acp") &&
+    isBuiltinExecutorName(profileId) &&
+    canonicalBuiltinExecutorName(profileId) === agentId
+  );
+}

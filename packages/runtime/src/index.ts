@@ -126,6 +126,7 @@ export { createManagedProjectId, createProjectId } from "./projectId.js";
 export {
   builtinExecutorNames,
   canonicalBuiltinExecutorName,
+  isBuiltinAcpProfileForAgent,
   isBuiltinExecutorName
 } from "./executorNames.js";
 export {

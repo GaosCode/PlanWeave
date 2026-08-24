@@ -31,5 +31,6 @@ export {
 export {
   builtinExecutorNames,
   canonicalBuiltinExecutorName,
+  isBuiltinAcpProfileForAgent,
   isBuiltinExecutorName
 } from "./executorNames.js";

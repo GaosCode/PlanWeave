@@ -138,6 +138,110 @@ describe("buildAgentEndpointCatalog", () => {
       unavailableReason: "agent_endpoint_incompatible"
     });
   });
+
+  it("allows a registered built-in Endpoint before that executor appears in a Workspace canvas", () => {
+    const endpoints = buildAgentEndpointCatalog({
+      logicalExecutors: [
+        {
+          executorName: "pi",
+          profileId: "pi",
+          agentId: "pi",
+          displayName: "Pi",
+          capabilities: ["acp.pi"],
+          available: true,
+          unavailableReason: null,
+          custom: false
+        }
+      ],
+      remote: [
+        {
+          schemaVersion: "agent-endpoint/v1",
+          endpointId: "endpoint-mac-codex",
+          profileId: "codex-acp",
+          agentId: "codex",
+          displayName: "Codex",
+          hostDisplayName: "Mac",
+          status: "available",
+          capabilities: ["acp.codex"]
+        },
+        {
+          schemaVersion: "agent-endpoint/v1",
+          endpointId: "endpoint-mac-opencode",
+          profileId: "opencode-acp",
+          agentId: "opencode",
+          displayName: "OpenCode",
+          hostDisplayName: "Mac",
+          status: "available",
+          capabilities: ["acp.opencode"]
+        }
+      ]
+    });
+
+    expect(endpoints.slice(1)).toEqual([
+      expect.objectContaining({
+        id: "remote:endpoint-mac-codex",
+        executorName: "codex",
+        available: true,
+        unavailableReason: null
+      }),
+      expect.objectContaining({
+        id: "remote:endpoint-mac-opencode",
+        executorName: "opencode",
+        available: true,
+        unavailableReason: null
+      })
+    ]);
+  });
+
+  it("keeps an unmapped custom remote profile disabled", () => {
+    const endpoints = buildAgentEndpointCatalog({
+      logicalExecutors: [],
+      remote: [
+        {
+          schemaVersion: "agent-endpoint/v1",
+          endpointId: "endpoint-custom-review",
+          profileId: "custom-codex-review",
+          agentId: "codex",
+          displayName: "Codex Review",
+          hostDisplayName: "Mac",
+          status: "available",
+          capabilities: ["acp.codex"]
+        }
+      ]
+    });
+
+    expect(endpoints[0]).toMatchObject({
+      executorName: "codex",
+      available: false,
+      unavailableReason: "agent_endpoint_incompatible"
+    });
+  });
+
+  it.each([
+    ["codex-auto", "codex"],
+    ["manual", "manual"]
+  ])("keeps non-ACP built-in alias %s / %s disabled without a logical mapping", (profileId, agentId) => {
+    const endpoints = buildAgentEndpointCatalog({
+      logicalExecutors: [],
+      remote: [
+        {
+          schemaVersion: "agent-endpoint/v1",
+          endpointId: `endpoint-${profileId}`,
+          profileId,
+          agentId,
+          displayName: agentId,
+          hostDisplayName: "Mac",
+          status: "available",
+          capabilities: []
+        }
+      ]
+    });
+
+    expect(endpoints[0]).toMatchObject({
+      available: false,
+      unavailableReason: "agent_endpoint_incompatible"
+    });
+  });
 });
 
 describe("buildLocalAgentEndpoint", () => {

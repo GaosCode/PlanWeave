@@ -5,7 +5,10 @@ import {
   remoteAgentEndpointPreferenceKey
 } from "../renderer/collaboration/agentEndpointPreferences";
 import { createAgentEndpointRunPlan } from "../renderer/collaboration/agentEndpointRunPlan";
-import type { AvailableAgentEndpoint } from "../renderer/collaboration/agentEndpointViewModel";
+import {
+  buildAgentEndpointCatalog,
+  type AvailableAgentEndpoint
+} from "../renderer/collaboration/agentEndpointViewModel";
 
 const project: DesktopProjectSummary = {
   projectId: "project-local",
@@ -48,7 +51,10 @@ const remoteOffline: AvailableAgentEndpoint = {
   unavailableReason: "host_offline"
 };
 
-function graphWithExecutor(executorLabel: string): DesktopGraphViewModel {
+function graphWithExecutor(
+  executorLabel: string,
+  requiredCapabilities: readonly string[] = []
+): DesktopGraphViewModel {
   return {
     projectId: "project-local",
     projectTitle: "Project",
@@ -75,7 +81,7 @@ function graphWithExecutor(executorLabel: string): DesktopGraphViewModel {
             title: "Block",
             status: "ready",
             executor: null,
-            requiredCapabilities: [],
+            requiredCapabilities: [...requiredCapabilities],
             promptMissing: false,
             exceptionReason: null,
             dispatchable: true,
@@ -148,6 +154,50 @@ describe("createAgentEndpointRunPlan preference routing", () => {
     ).toEqual({
       kind: "rejected",
       reason: "agent_endpoint_selection_missing:T-001#B-001"
+    });
+  });
+
+  it("rejects a fallback built-in Endpoint when the Block capabilities do not match", () => {
+    const remoteCanvas = {
+      workspaceId: "workspace-1",
+      projectId: "project-server",
+      canvasId: "canvas-main"
+    };
+    const remoteKey = remoteAgentEndpointPreferenceKey({
+      ...remoteCanvas,
+      scope: { kind: "task", taskId: "T-001" }
+    });
+    const [remoteCodex] = buildAgentEndpointCatalog({
+      logicalExecutors: [],
+      remote: [
+        {
+          schemaVersion: "agent-endpoint/v1",
+          endpointId: "endpoint-codex",
+          profileId: "codex-acp",
+          agentId: "codex",
+          displayName: "Codex",
+          hostDisplayName: "Mac",
+          status: "available",
+          capabilities: ["acp.codex"]
+        }
+      ]
+    });
+
+    expect(
+      createAgentEndpointRunPlan({
+        graph: graphWithExecutor("codex", ["acp.pi"]),
+        scope: { kind: "task", taskId: "T-001" },
+        endpoints: remoteCodex ? [remoteCodex] : [],
+        preferences: {
+          [remoteKey]: { kind: "remote", remoteEndpointId: "endpoint-codex" }
+        },
+        project: null,
+        remoteCanvas,
+        canvasId: "canvas-main"
+      })
+    ).toEqual({
+      kind: "rejected",
+      reason: "agent_endpoint_unavailable:T-001#B-001:Codex:agent_endpoint_incompatible"
     });
   });
 
