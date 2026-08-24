@@ -6,7 +6,7 @@ import { OUTPUT_MAX_ARTIFACT_BYTES } from "./limits.js";
 import { agentHostProtocolVersionSchema } from "./version.js";
 
 export const CANVAS_RUNTIME_JSON_MAX_DEPTH = 8 as const;
-export const CANVAS_RUNTIME_JSON_MAX_ARRAY_ITEMS = 256 as const;
+export const CANVAS_RUNTIME_JSON_MAX_ARRAY_ITEMS = 100_000 as const;
 export const CANVAS_RUNTIME_JSON_MAX_OBJECT_KEYS = 128 as const;
 export const CANVAS_RUNTIME_JSON_MAX_KEY_LENGTH = 128 as const;
 export const CANVAS_RUNTIME_JSON_MAX_STRING_LENGTH = 16_384 as const;

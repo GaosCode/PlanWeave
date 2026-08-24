@@ -423,6 +423,13 @@ describe("Canvas Runtime control protocol", () => {
         transfer
       })
     ).toMatchObject({ transfer });
+    const transcriptEvents = Array.from({ length: 257 }, (_, cursor) => ({ cursor }));
+    expect(
+      canvasRuntimeArtifactTransferInputSchema.parse({
+        domainInput: { transcript: { events: transcriptEvents } },
+        transfer
+      })
+    ).toMatchObject({ domainInput: { transcript: { events: transcriptEvents } } });
     expect(() =>
       canvasRuntimeArtifactTransferInputSchema.parse({
         domainInput: {},
