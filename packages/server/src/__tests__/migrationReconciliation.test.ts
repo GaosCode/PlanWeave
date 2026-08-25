@@ -207,9 +207,9 @@ describe("collaboration migration reconciliation", () => {
       { name: "canvas-runtime-status", versions: [53] },
       { name: "canvas-runtime-revision", versions: [56] },
       { name: "workspace-canvas-publish", versions: [54, 55] },
-      { name: "remote-agent-registry", versions: [57, 58, 59, 60] }
+      { name: "remote-agent-registry", versions: [57, 58, 59, 60, 61] }
     ]);
-    expect(latestCentralSchemaVersion).toBe(60);
+    expect(latestCentralSchemaVersion).toBe(61);
   });
 
   it("upgrades a representative v53 database through v58 exactly once", async () => {
@@ -243,7 +243,7 @@ describe("collaboration migration reconciliation", () => {
 
     applyMigrations(database);
 
-    expect(centralSchemaVersion(database)).toBe(60);
+    expect(centralSchemaVersion(database)).toBe(61);
     expect(
       database
         .prepare(

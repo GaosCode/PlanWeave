@@ -38,6 +38,7 @@ import {
   type CollaborationScopeAuthority
 } from "./identity/index.js";
 import { handleSetupCodeHttpRequest } from "./identity/setupCodeHttp.js";
+import { handleHumanIdentityCredentialHttpRequest } from "./identity/humanIdentityCredentialHttp.js";
 import type { SetupCodeService } from "./identity/setupCodeService.js";
 import { handleWorkspaceConnectionHttpRequest } from "./identity/workspaceConnectionHttp.js";
 import type { WorkspaceIdentityRepository } from "./identity/workspaceRepository.js";
@@ -122,6 +123,9 @@ function requiresAdmission(request: IncomingMessage): boolean {
     /^\/agent-hosts\/[^/]+\/credential-renewal$/.test(pathname) ||
     pathname === "/api/v1/host-enrollments" ||
     pathname === "/api/v1/setup-codes/redeem" ||
+    pathname === "/api/v1/human-identity/renew" ||
+    pathname === "/api/v1/human-identity/revoke" ||
+    pathname === "/api/v1/human-identity/merge" ||
     (pathname.startsWith("/api/v1/workspaces/") && pathname.includes("/setup-codes")) ||
     pathname === "/api/v1/remote-operations" ||
     /^\/api\/v1\/remote-operations\/[^/]+\/actions$/.test(pathname) ||
@@ -263,6 +267,13 @@ export function createDistributedHttpRequestListener(
         await handleSetupCodeHttpRequest(request, response, {
           service: options.setupCodes,
           authorization: options.authorization,
+          transportAdmission: options.transportAdmission
+        })
+      )
+        return;
+      if (
+        await handleHumanIdentityCredentialHttpRequest(request, response, {
+          store: options.setupCodes.identityCredentialStore,
           transportAdmission: options.transportAdmission
         })
       )

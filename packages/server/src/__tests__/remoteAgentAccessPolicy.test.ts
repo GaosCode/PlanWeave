@@ -17,6 +17,7 @@ import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
 import type { RemoteAgentAuthorizationErrorCode } from "../remoteAgent/schema.js";
 import { ProjectAccessRepository } from "../projectAccessRepository.js";
 import { ownHostRemoteAgents } from "./support/remoteAgentOwnerFixture.js";
+import { HumanIdentityCredentialStore } from "../identity/humanIdentityCredentialStore.js";
 
 const now = new Date("2026-08-03T08:00:00.000Z");
 const databases: SqliteDatabase[] = [];
@@ -626,5 +627,84 @@ describe("authorizeRemoteAgentUse", () => {
         ),
       "remote_agent_workspace_grant_missing"
     );
+  });
+
+  it("owner unrestricted on workspace B does not require a grant or workspace host mapping", async () => {
+    const state = await fixture();
+    expect(state.repo.listGrants(state.endpointId)).toEqual([]);
+    state.coordination.hosts.reportOnline(state.host.id, ["acp.codex", "host-only"], 2, {
+      workspaceMappings: [{ workspaceId: state.workspaceA, status: "ready" }],
+      acpProfiles: [
+        {
+          profileId: "profile-main",
+          agentId: "codex",
+          displayName: "Codex",
+          status: "ready",
+          capabilities: ["acp.codex"]
+        }
+      ]
+    });
+    addWorkspaceMember(state.database, state.workspaceB, "owner-human-1", "member");
+    const listed = listAuthorizedRemoteAgentEndpoints({
+      policy: state.policy,
+      catalog: state.catalog,
+      principal: { humanPrincipalId: "owner-human-1" },
+      target: workspaceCanvas(state.workspaceB, "project-b")
+    });
+    expect(listed.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ endpointId: state.endpointId, status: "available" })
+      ])
+    );
+    const authorized = authorize(
+      state.policy,
+      "owner-human-1",
+      state.endpointId,
+      workspaceCanvas(state.workspaceB, "project-b"),
+      state.workspaceB
+    );
+    expect(authorizedRemoteAgentUseSchema.parse(authorized)).toMatchObject({
+      runtimeAuthority: { kind: "workspace_canvas", workspaceId: state.workspaceB },
+      agentAccessAuthority: {
+        kind: "agent_owner",
+        ownerHumanPrincipalId: "owner-human-1"
+      }
+    });
+  });
+
+  it("historical split principals cannot own an agent until dual-token merge", async () => {
+    const state = await fixture();
+    insertHuman(state.database, "human-split-b", "Split B");
+    addWorkspaceMember(state.database, state.workspaceB, "human-split-b", "member");
+    expectAuthorizationCode(
+      () =>
+        authorize(
+          state.policy,
+          "human-split-b",
+          state.endpointId,
+          workspaceCanvas(state.workspaceB, "project-b"),
+          state.workspaceB
+        ),
+      "remote_agent_workspace_grant_missing"
+    );
+    const identities = new HumanIdentityCredentialStore(state.database, () => now);
+    const tokenA = identities.issue("owner-human-1");
+    const tokenB = identities.issue("human-split-b");
+    identities.merge(tokenB.identityToken, tokenA.identityToken);
+    const authorized = authorize(
+      state.policy,
+      "human-split-b",
+      state.endpointId,
+      workspaceCanvas(state.workspaceB, "project-b"),
+      state.workspaceB
+    );
+    expect(authorized.agentAccessAuthority).toMatchObject({
+      kind: "agent_owner",
+      ownerHumanPrincipalId: "owner-human-1"
+    });
+    expect(authorized.runtimeAuthority).toEqual({
+      kind: "workspace_canvas",
+      workspaceId: state.workspaceB
+    });
   });
 });

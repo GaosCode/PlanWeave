@@ -817,6 +817,7 @@
         "hosts.test.ts",
         "stockHostFleetMigration.test.ts",
         "hostReservations.test.ts",
+        "humanIdentityCredential.test.ts",
         "humanIdentityHttp.test.ts",
         "humanIdentityRepository.test.ts",
         "humanDisplayNameHttp.test.ts",

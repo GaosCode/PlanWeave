@@ -35,6 +35,7 @@ import { remoteAgentRegistryMigration } from "./remoteAgentRegistry.js";
 import { remoteAgentEnrollmentDefaultsMigration } from "./remoteAgentEnrollmentDefaults.js";
 import { remoteAgentAccessSnapshotMigration } from "./remoteAgentAccessSnapshot.js";
 import { humanPrincipalWorkspaceBackfillMigration } from "./humanPrincipalWorkspaceBackfill.js";
+import { humanIdentityCredentialsMigration } from "./humanIdentityCredentials.js";
 import type { Migration, MigrationModule } from "./types.js";
 
 const identityModule: MigrationModule = { name: "identity", migrations: identityMigrations };
@@ -89,7 +90,8 @@ export const migrationModules: readonly MigrationModule[] = [
       remoteAgentRegistryMigration,
       remoteAgentEnrollmentDefaultsMigration,
       remoteAgentAccessSnapshotMigration,
-      humanPrincipalWorkspaceBackfillMigration
+      humanPrincipalWorkspaceBackfillMigration,
+      humanIdentityCredentialsMigration
     ]
   }
 ];

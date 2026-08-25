@@ -5,6 +5,11 @@ export {
   HUMAN_DEVICE_MAX_TTL_MS,
   HUMAN_DEVICE_MIN_TTL_MS,
   HUMAN_DEVICE_TOKEN_PREFIX,
+  HUMAN_IDENTITY_DEFAULT_TTL_MS,
+  HUMAN_IDENTITY_MAX_TTL_MS,
+  HUMAN_IDENTITY_MIN_TTL_MS,
+  HUMAN_IDENTITY_TOKEN_PREFIX,
+  HUMAN_MAX_IDENTITY_CREDENTIALS_PER_PRINCIPAL,
   HUMAN_DISPLAY_NAME_MAX_LENGTH,
   HUMAN_DISPLAY_NAME_MIN_LENGTH,
   HUMAN_MAX_DEVICES_LISTED_PER_PAGE,
@@ -192,6 +197,15 @@ export {
   handleSetupCodeHttpRequest,
   type SetupCodeHttpOptions
 } from "./setupCodeHttp.js";
+export {
+  HumanIdentityCredentialError,
+  HumanIdentityCredentialStore,
+  type HumanIdentityCredentialRecord
+} from "./humanIdentityCredentialStore.js";
+export {
+  handleHumanIdentityCredentialHttpRequest,
+  type HumanIdentityCredentialHttpOptions
+} from "./humanIdentityCredentialHttp.js";
 export { SetupCodeStore, toSetupCodeGrantView, type SetupCodeIssuer } from "./setupCodeStore.js";
 export {
   hashSetupCode,

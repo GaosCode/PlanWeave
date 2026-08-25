@@ -46,6 +46,8 @@ import { WorkspaceIdentityRepository } from "./workspaceRepository.js";
 import { DeviceCredentialStore } from "./deviceCredentialStore.js";
 import { evaluateDeviceUsability } from "./schemas.js";
 import { MembershipStore } from "./membershipStore.js";
+import { HumanIdentityCredentialStore } from "./humanIdentityCredentialStore.js";
+import { HUMAN_IDENTITY_DEFAULT_TTL_MS } from "./limits.js";
 
 const DEFAULT_DEVICE_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
 const DEFAULT_OPERATOR_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
@@ -68,6 +70,7 @@ export class SetupCodeError extends Error {
       | "setup_code_malformed"
       | "setup_code_forbidden_capability"
       | "setup_code_existing_identity_invalid"
+      | "setup_code_existing_identity_conflict"
       | "workspace_not_found"
       | "workspace_identity_read_cutover_incomplete",
     message?: string
@@ -85,6 +88,7 @@ export type SetupCodeServiceOptions = {
   deviceSessionTtlMs?: number;
   operatorSessionTtlMs?: number;
   hostCredentialTtlMs?: number;
+  identityCredentialTtlMs?: number;
   onWorkspaceDeviceMembershipCreated?: (input: {
     workspaceId: string;
     humanPrincipalId: string;
@@ -104,6 +108,7 @@ export class SetupCodeService {
   private readonly deviceSessionTtlMs: number;
   private readonly operatorSessionTtlMs: number;
   private readonly hostCredentialTtlMs: number;
+  private readonly identityCredentials: HumanIdentityCredentialStore;
   private readonly onWorkspaceDeviceMembershipCreated: SetupCodeServiceOptions["onWorkspaceDeviceMembershipCreated"];
 
   constructor(options: SetupCodeServiceOptions) {
@@ -118,6 +123,11 @@ export class SetupCodeService {
     this.deviceSessionTtlMs = options.deviceSessionTtlMs ?? DEFAULT_DEVICE_TTL_MS;
     this.operatorSessionTtlMs = options.operatorSessionTtlMs ?? DEFAULT_OPERATOR_SESSION_TTL_MS;
     this.hostCredentialTtlMs = options.hostCredentialTtlMs ?? DEFAULT_HOST_CREDENTIAL_TTL_MS;
+    this.identityCredentials = new HumanIdentityCredentialStore(
+      options.database,
+      this.clock,
+      options.identityCredentialTtlMs ?? HUMAN_IDENTITY_DEFAULT_TTL_MS
+    );
     this.onWorkspaceDeviceMembershipCreated = options.onWorkspaceDeviceMembershipCreated;
     this.assertTransportPolicy(this.serverBaseUrl, this.allowInsecureTransport);
   }
@@ -215,6 +225,10 @@ export class SetupCodeService {
     return inWriteTransaction(this.database, () => this.redeemLocked(request));
   }
 
+  get identityCredentialStore(): HumanIdentityCredentialStore {
+    return this.identityCredentials;
+  }
+
   private redeemLocked(
     request: ReturnType<typeof setupCodeRedeemRequestSchema.parse>
   ): SetupCodeRedeemResponse {
@@ -272,6 +286,7 @@ export class SetupCodeService {
     const workspace = this.workspaceIdentity.workspaceView(grant.workspaceId);
     const displayName = request.displayName;
     const humanPrincipalId = this.resolveRedeemedHumanPrincipal(
+      request.existingIdentityToken,
       request.existingDeviceToken,
       displayName
     );
@@ -332,6 +347,7 @@ export class SetupCodeService {
     }
     this.store.markRedeemed(grant.setupCodeId, deviceSessionId);
 
+    const identity = this.identityCredentials.issue(humanPrincipalId);
     const connectionProfile = this.connectionProfile(grant.workspaceId, workspace.displayName);
     const response = setupCodeRedeemDeviceResponseSchema.parse({
       schemaVersion: "workspace-setup/v1",
@@ -344,7 +360,10 @@ export class SetupCodeService {
       role,
       deviceSessionId,
       deviceToken,
-      deviceExpiresAt: expiresAt
+      deviceExpiresAt: expiresAt,
+      identityCredentialId: identity.record.identityCredentialId,
+      identityToken: identity.identityToken,
+      identityExpiresAt: identity.record.expiresAt
     });
     assertSetupViewRedacted({
       schemaVersion: response.schemaVersion,
@@ -356,7 +375,9 @@ export class SetupCodeService {
       membershipId: response.membershipId,
       role: response.role,
       deviceSessionId: response.deviceSessionId,
-      deviceExpiresAt: response.deviceExpiresAt
+      deviceExpiresAt: response.deviceExpiresAt,
+      identityCredentialId: response.identityCredentialId,
+      identityExpiresAt: response.identityExpiresAt
     });
     return response;
   }
@@ -592,15 +613,26 @@ export class SetupCodeService {
   }
 
   private resolveRedeemedHumanPrincipal(
+    existingIdentityToken: string | undefined,
     existingDeviceToken: string | undefined,
     displayName: string
   ): string {
     const principals = new MembershipStore(this.database, this.clock);
+    if (existingIdentityToken !== undefined) {
+      const identity = this.identityCredentials.authenticate(existingIdentityToken);
+      if (!identity) throw new SetupCodeError("setup_code_existing_identity_invalid");
+      const existingId = this.identityCredentials.resolveCanonicalHumanPrincipalId(
+        identity.humanPrincipalId
+      );
+      principals.insertPrincipal(existingId, displayName);
+      return existingId;
+    }
     if (existingDeviceToken !== undefined) {
       const existingId = this.lookupExistingHumanPrincipal(existingDeviceToken);
       if (!existingId) throw new SetupCodeError("setup_code_existing_identity_invalid");
-      principals.insertPrincipal(existingId, displayName);
-      return existingId;
+      const canonical = this.identityCredentials.resolveCanonicalHumanPrincipalId(existingId);
+      principals.insertPrincipal(canonical, displayName);
+      return canonical;
     }
     const humanPrincipalId = `human-${randomUUID()}`;
     principals.insertPrincipal(humanPrincipalId, displayName);

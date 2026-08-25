@@ -126,6 +126,7 @@ describe("setup code issue/redeem/revoke", () => {
     if (redeemed.purpose !== "device_session") throw new Error("expected device");
     expect(redeemed.role).toBe("owner");
     expect(redeemed.deviceToken).toMatch(/^pw_hdev_/);
+    expect(redeemed.identityToken).toMatch(/^pw_hid_/);
     expect(redeemed.connectionProfile.workspaceId).toBe(workspaceId);
     expect(
       database
@@ -201,6 +202,7 @@ describe("setup code issue/redeem/revoke", () => {
     if (second.purpose !== "device_session") throw new Error("expected device");
     expect(second.humanPrincipalId).toBe(first.humanPrincipalId);
     expect(second.workspaceId).toBe(workspaceB);
+    expect(second.identityToken).toMatch(/^pw_hid_/);
     expect(
       database
         .prepare(
@@ -221,6 +223,160 @@ describe("setup code issue/redeem/revoke", () => {
         existingDeviceToken: `pw_hdev_${"A".repeat(43)}`
       })
     ).toThrow(SetupCodeError);
+  });
+
+  it("reuses a global principal via identity token after workspace membership is revoked", async () => {
+    const database = await openDatabase();
+    const workspaceA = ensureWorkspace(database, "project-setup");
+    const workspaceB = ensureWorkspace(database, "project-setup-b");
+    provisionConfiguredOperatorSessions({
+      database,
+      credentials: [
+        {
+          operatorId: "operator-admin",
+          tokenSha256: hashOperatorToken(adminToken),
+          projectIds: [],
+          serverAdmin: true
+        }
+      ],
+      trustedProjectIds: ["project-setup", "project-setup-b"],
+      workspaceForProject: (id) =>
+        new WorkspaceIdentityRepository(database).workspaceForLegacyProject(id),
+      operatorSessionTtlMs: 30 * 24 * 60 * 60 * 1_000
+    });
+    const setup = service(database);
+    const admin = new OperatorTokenRegistry(database, [
+      {
+        operatorId: "operator-admin",
+        tokenSha256: hashOperatorToken(adminToken),
+        projectIds: [],
+        serverAdmin: true
+      }
+    ]).authenticate(`Bearer ${adminToken}`);
+    if (!admin) throw new Error("missing principal");
+    const first = setup.redeem({
+      schemaVersion: "workspace-setup/v1",
+      purpose: "device_session",
+      setupCode: setup.issue(admin, {
+        schemaVersion: "workspace-setup/v1",
+        workspaceId: workspaceA,
+        purpose: "device_session"
+      }).setupCode,
+      displayName: "Owner Device"
+    });
+    if (first.purpose !== "device_session") throw new Error("expected device");
+    database
+      .prepare(
+        `UPDATE workspace_memberships SET revoked_at=?
+         WHERE workspace_id=? AND human_principal_id=? AND revoked_at IS NULL`
+      )
+      .run(new Date().toISOString(), workspaceA, first.humanPrincipalId);
+    expect(() =>
+      setup.redeem({
+        schemaVersion: "workspace-setup/v1",
+        purpose: "device_session",
+        setupCode: setup.issue(admin, {
+          schemaVersion: "workspace-setup/v1",
+          workspaceId: workspaceB,
+          purpose: "device_session"
+        }).setupCode,
+        displayName: "Owner Device",
+        existingDeviceToken: first.deviceToken
+      })
+    ).toThrow(SetupCodeError);
+    const second = setup.redeem({
+      schemaVersion: "workspace-setup/v1",
+      purpose: "device_session",
+      setupCode: setup.issue(admin, {
+        schemaVersion: "workspace-setup/v1",
+        workspaceId: workspaceB,
+        purpose: "device_session"
+      }).setupCode,
+      displayName: "Owner Device",
+      existingIdentityToken: first.identityToken
+    });
+    if (second.purpose !== "device_session") throw new Error("expected device");
+    expect(second.humanPrincipalId).toBe(first.humanPrincipalId);
+    expect(second.workspaceId).toBe(workspaceB);
+  });
+
+  it("rejects an expired identity token and recovers from a still-valid workspace session", async () => {
+    const database = await openDatabase();
+    const workspaceA = ensureWorkspace(database, "project-setup");
+    const workspaceB = ensureWorkspace(database, "project-setup-b");
+    provisionConfiguredOperatorSessions({
+      database,
+      credentials: [
+        {
+          operatorId: "operator-admin",
+          tokenSha256: hashOperatorToken(adminToken),
+          projectIds: [],
+          serverAdmin: true
+        }
+      ],
+      trustedProjectIds: ["project-setup", "project-setup-b"],
+      workspaceForProject: (id) =>
+        new WorkspaceIdentityRepository(database).workspaceForLegacyProject(id),
+      operatorSessionTtlMs: 30 * 24 * 60 * 60 * 1_000
+    });
+    let now = new Date("2030-01-01T00:00:00.000Z");
+    const setup = new SetupCodeService({
+      database,
+      serverBaseUrl: "http://127.0.0.1:7443/",
+      allowInsecureTransport: true,
+      clock: () => now,
+      identityCredentialTtlMs: 60_000,
+      deviceSessionTtlMs: 30 * 24 * 60 * 60 * 1_000
+    });
+    const admin = new OperatorTokenRegistry(database, [
+      {
+        operatorId: "operator-admin",
+        tokenSha256: hashOperatorToken(adminToken),
+        projectIds: [],
+        serverAdmin: true
+      }
+    ]).authenticate(`Bearer ${adminToken}`);
+    if (!admin) throw new Error("missing principal");
+    const first = setup.redeem({
+      schemaVersion: "workspace-setup/v1",
+      purpose: "device_session",
+      setupCode: setup.issue(admin, {
+        schemaVersion: "workspace-setup/v1",
+        workspaceId: workspaceA,
+        purpose: "device_session"
+      }).setupCode,
+      displayName: "Owner Device"
+    });
+    if (first.purpose !== "device_session") throw new Error("expected device");
+    now = new Date("2030-01-01T00:02:00.000Z");
+    expect(() =>
+      setup.redeem({
+        schemaVersion: "workspace-setup/v1",
+        purpose: "device_session",
+        setupCode: setup.issue(admin, {
+          schemaVersion: "workspace-setup/v1",
+          workspaceId: workspaceB,
+          purpose: "device_session"
+        }).setupCode,
+        displayName: "Owner Device",
+        existingIdentityToken: first.identityToken
+      })
+    ).toThrow(SetupCodeError);
+    const recovered = setup.redeem({
+      schemaVersion: "workspace-setup/v1",
+      purpose: "device_session",
+      setupCode: setup.issue(admin, {
+        schemaVersion: "workspace-setup/v1",
+        workspaceId: workspaceB,
+        purpose: "device_session"
+      }).setupCode,
+      displayName: "Owner Device",
+      existingDeviceToken: first.deviceToken
+    });
+    if (recovered.purpose !== "device_session") throw new Error("expected device");
+    expect(recovered.humanPrincipalId).toBe(first.humanPrincipalId);
+    expect(recovered.identityToken).toMatch(/^pw_hid_/);
+    expect(recovered.identityToken).not.toBe(first.identityToken);
   });
 
   it("redeems operator and host purposes with credential-type isolation", async () => {

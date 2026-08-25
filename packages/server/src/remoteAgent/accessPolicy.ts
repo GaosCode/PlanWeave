@@ -10,6 +10,7 @@ import { activeWorkspacePrincipal } from "../projectRegistryRepository.js";
 import type { SqliteDatabase } from "../sqlite.js";
 import { controlPlaneForTarget } from "./dispatchTarget.js";
 import { RemoteAgentAuthorizationError } from "./errors.js";
+import { HumanIdentityCredentialStore } from "../identity/humanIdentityCredentialStore.js";
 import { RemoteAgentRepository } from "./repository.js";
 import {
   authorizedRemoteAgentUseSchema,
@@ -81,9 +82,11 @@ function mappingWorkspaceId(target: RemoteAgentUseTarget, runtimeWorkspaceId: st
 
 export class RemoteAgentAccessPolicy {
   private readonly clock: () => Date;
+  private readonly identityCredentials: HumanIdentityCredentialStore;
 
   constructor(private readonly options: RemoteAgentAccessPolicyOptions) {
     this.clock = options.clock ?? (() => new Date());
+    this.identityCredentials = new HumanIdentityCredentialStore(options.database, this.clock);
   }
 
   evaluateAccess(rawInput: EvaluateRemoteAgentAccessInput): EvaluatedRemoteAgentAccess {
@@ -125,7 +128,7 @@ export class RemoteAgentAccessPolicy {
       expectedReviewerRevision: input.expectedReviewerRevision,
       controlPlane: controlPlaneForTarget(input.target)
     });
-    const resolved = this.resolveAvailability(input, access.agent);
+    const resolved = this.resolveAvailability(input, access.agent, access.agentAccessAuthority);
     return authorizedRemoteAgentUseSchema.parse({
       remoteAgent: {
         endpointId: resolved.endpointId,
@@ -167,7 +170,7 @@ export class RemoteAgentAccessPolicy {
     humanPrincipalId: string,
     target: RemoteAgentUseTarget
   ): AgentAccessAuthority {
-    const isOwner = agent.ownerHumanPrincipalId === humanPrincipalId;
+    const isOwner = this.sameHumanPrincipal(agent.ownerHumanPrincipalId, humanPrincipalId);
     if (isOwner) {
       return this.ownerAccessAuthority(agent, target);
     }
@@ -228,15 +231,28 @@ export class RemoteAgentAccessPolicy {
       .find((grant) => grant.workspaceId === workspaceId && grant.revokedAt === null);
   }
 
+  private sameHumanPrincipal(left: string | null, right: string): boolean {
+    if (left === null) return false;
+    return (
+      this.identityCredentials.resolveCanonicalHumanPrincipalId(left) ===
+      this.identityCredentials.resolveCanonicalHumanPrincipalId(right)
+    );
+  }
+
   private resolveAvailability(
     input: z.infer<typeof authorizeRemoteAgentUseInputSchema>,
-    agent: RemoteAgentRecord
+    agent: RemoteAgentRecord,
+    agentAccessAuthority: AgentAccessAuthority
   ): ResolvedAgentEndpoint {
+    const runtimeScope =
+      agent.accessMode === "unrestricted" && agentAccessAuthority.kind === "agent_owner"
+        ? "owner_canvas"
+        : input.target.kind;
     const resolved = this.options.catalog.resolveForRun(
       input.endpointId,
       mappingWorkspaceId(input.target, input.runtimeWorkspaceId),
       input.requiredCapabilities,
-      input.target.kind
+      runtimeScope
     );
     if (
       resolved.endpointId !== agent.endpointId ||

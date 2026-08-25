@@ -26,16 +26,24 @@ export function listAuthorizedRemoteAgentEndpoints(
     input.target.kind === "owner_canvas"
       ? input.catalog.listVisibleFleet()
       : input.catalog.listVisible(input.target.workspaceId);
-  const items = listed.items.filter((endpoint) => {
+  const fleetById = new Map(
+    input.catalog.listVisibleFleet().items.map((endpoint) => [endpoint.endpointId, endpoint])
+  );
+  const items = listed.items.flatMap((endpoint) => {
     try {
-      input.policy.evaluateAccess({
+      const access = input.policy.evaluateAccess({
         principal: input.principal,
         endpointId: endpoint.endpointId,
         target: input.target
       });
-      return true;
+      const listedEndpoint =
+        access.agent.accessMode === "unrestricted" &&
+        access.agentAccessAuthority.kind === "agent_owner"
+          ? (fleetById.get(endpoint.endpointId) ?? endpoint)
+          : endpoint;
+      return [listedEndpoint];
     } catch (error) {
-      if (error instanceof RemoteAgentAuthorizationError) return false;
+      if (error instanceof RemoteAgentAuthorizationError) return [];
       throw error;
     }
   });

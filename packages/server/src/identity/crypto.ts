@@ -1,6 +1,8 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { humanIdentityTokenSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import {
   HUMAN_DEVICE_TOKEN_PREFIX,
+  HUMAN_IDENTITY_TOKEN_PREFIX,
   HUMAN_TOKEN_SECRET_CHAR_LENGTH,
   PROJECT_INVITATION_TOKEN_PREFIX
 } from "./limits.js";
@@ -35,6 +37,14 @@ export function mintHumanDeviceToken(): string {
     throw new Error("human_device_token_entropy_invalid");
   }
   return humanDeviceTokenSchema.parse(`${HUMAN_DEVICE_TOKEN_PREFIX}${secret}`);
+}
+
+export function mintHumanIdentityToken(): string {
+  const secret = randomBytes(32).toString("base64url");
+  if (secret.length !== HUMAN_TOKEN_SECRET_CHAR_LENGTH) {
+    throw new Error("human_identity_token_entropy_invalid");
+  }
+  return humanIdentityTokenSchema.parse(`${HUMAN_IDENTITY_TOKEN_PREFIX}${secret}`);
 }
 
 export function mintProjectInvitationToken(): string {
