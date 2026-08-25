@@ -4,6 +4,7 @@ import {
   opaqueIdentifierSchema
 } from "@planweave-ai/agent-host-protocol/browser";
 import { z } from "zod";
+import { workspaceIdSchema } from "./primitives.js";
 
 export const agentEndpointUnavailableReasonSchema = z.enum([
   "host_offline",
@@ -65,6 +66,34 @@ export const agentEndpointErrorResponseSchema = z
   .object({ error: agentEndpointErrorCodeSchema })
   .strict();
 
+/**
+ * Authorization failures for Remote Agent use. Separate from
+ * `agentEndpointErrorCodeSchema` so current HTTP error bodies stay valid.
+ */
+export const remoteAgentAuthorizationErrorCodeSchema = z.enum([
+  "remote_agent_not_found",
+  "remote_agent_revoked",
+  "remote_agent_owner_required",
+  "remote_agent_workspace_grant_missing",
+  "remote_agent_workspace_scope_forbidden",
+  "remote_agent_ownership_repair_required",
+  "remote_agent_policy_revision_conflict",
+  "remote_agent_grant_revision_conflict"
+]);
+
+export const remoteAgentAccessBasisSchema = z.enum(["agent_owner", "workspace_grant"]);
+
+/** Future catalog access projection. Not a required field on `remoteAgentEndpointSchema`. */
+export const remoteAgentEndpointAccessViewSchema = z.discriminatedUnion("basis", [
+  z.object({ basis: z.literal("agent_owner") }).strict(),
+  z
+    .object({
+      basis: z.literal("workspace_grant"),
+      workspaceId: workspaceIdSchema
+    })
+    .strict()
+]);
+
 const forbiddenEndpointKeys = new Set([
   "hostid",
   "host_id",
@@ -101,5 +130,10 @@ export type RemoteAgentEndpoint = z.infer<typeof remoteAgentEndpointSchema>;
 export type RemoteAgentEndpointList = z.infer<typeof remoteAgentEndpointListSchema>;
 export type AgentEndpointErrorCode = z.infer<typeof agentEndpointErrorCodeSchema>;
 export type AgentEndpointErrorResponse = z.infer<typeof agentEndpointErrorResponseSchema>;
+export type RemoteAgentAuthorizationErrorCode = z.infer<
+  typeof remoteAgentAuthorizationErrorCodeSchema
+>;
+export type RemoteAgentAccessBasis = z.infer<typeof remoteAgentAccessBasisSchema>;
+export type RemoteAgentEndpointAccessView = z.infer<typeof remoteAgentEndpointAccessViewSchema>;
 
 export { capabilitiesSchema as agentEndpointCapabilitiesSchema };

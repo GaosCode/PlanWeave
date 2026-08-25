@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  agentEndpointErrorCodeSchema,
   assertRemoteAgentEndpointRedacted,
+  remoteAgentAuthorizationErrorCodeSchema,
+  remoteAgentEndpointAccessViewSchema,
   remoteAgentEndpointListSchema,
   remoteAgentEndpointSchema
 } from "../agentEndpoint.js";
@@ -59,6 +62,45 @@ describe("agent endpoint protocol", () => {
       expect(() =>
         assertRemoteAgentEndpointRedacted({ ...endpoint, [sensitive]: "secret" })
       ).toThrow("agent_endpoint_projection_not_redacted");
+    }
+  });
+
+  it("keeps current wire endpoints free of access/basis fields", () => {
+    expect(() =>
+      remoteAgentEndpointSchema.parse({ ...endpoint, access: { basis: "agent_owner" } })
+    ).toThrow();
+    expect(() => remoteAgentEndpointSchema.parse({ ...endpoint, basis: "agent_owner" })).toThrow();
+  });
+
+  it("parses a strict future access view without changing current error bodies", () => {
+    expect(remoteAgentEndpointAccessViewSchema.parse({ basis: "agent_owner" })).toEqual({
+      basis: "agent_owner"
+    });
+    expect(
+      remoteAgentEndpointAccessViewSchema.parse({
+        basis: "workspace_grant",
+        workspaceId: "workspace-a"
+      })
+    ).toEqual({ basis: "workspace_grant", workspaceId: "workspace-a" });
+    expect(() =>
+      remoteAgentEndpointAccessViewSchema.parse({
+        basis: "agent_owner",
+        workspaceId: "workspace-a"
+      })
+    ).toThrow();
+    expect(() => remoteAgentEndpointAccessViewSchema.parse({ basis: "workspace_grant" })).toThrow();
+    expect([...remoteAgentAuthorizationErrorCodeSchema.options]).toEqual([
+      "remote_agent_not_found",
+      "remote_agent_revoked",
+      "remote_agent_owner_required",
+      "remote_agent_workspace_grant_missing",
+      "remote_agent_workspace_scope_forbidden",
+      "remote_agent_ownership_repair_required",
+      "remote_agent_policy_revision_conflict",
+      "remote_agent_grant_revision_conflict"
+    ]);
+    for (const code of remoteAgentAuthorizationErrorCodeSchema.options) {
+      expect(agentEndpointErrorCodeSchema.safeParse(code).success).toBe(false);
     }
   });
 });

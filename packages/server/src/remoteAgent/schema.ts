@@ -1,0 +1,111 @@
+import { opaqueIdentifierSchema } from "@planweave-ai/agent-host-protocol";
+import {
+  remoteAgentAuthorizationErrorCodeSchema,
+  remoteAgentEndpointAccessViewSchema,
+  type RemoteAgentAuthorizationErrorCode,
+  type RemoteAgentEndpointAccessView
+} from "@planweave-ai/collaboration-protocol/agent-endpoint";
+import {
+  agentHostIdSchema,
+  humanPrincipalIdSchema,
+  timestampSchema,
+  workspaceIdSchema
+} from "@planweave-ai/collaboration-protocol/core/primitives";
+import { z } from "zod";
+
+export const remoteAgentAccessModeSchema = z.enum(["unrestricted", "workspace_restricted"]);
+
+/** Durable policy version. 0 is absence and is never stored. */
+export const remoteAgentPolicyRevisionSchema = z.number().int().min(1);
+
+/** Durable grant version. 0 is absence and is never stored. */
+export const remoteAgentGrantRevisionSchema = z.number().int().min(1);
+
+/**
+ * Persistent Remote Agent identity. UNIQUE(hostId, profileId, agentId);
+ * `endpointId` is the derived primary key and never includes workspaceId.
+ */
+export const remoteAgentRecordSchema = z
+  .object({
+    endpointId: opaqueIdentifierSchema,
+    hostId: agentHostIdSchema,
+    profileId: opaqueIdentifierSchema,
+    agentId: opaqueIdentifierSchema,
+    ownerHumanPrincipalId: humanPrincipalIdSchema,
+    displayName: z.string().trim().min(1).max(128),
+    accessMode: remoteAgentAccessModeSchema,
+    policyRevision: remoteAgentPolicyRevisionSchema,
+    createdAt: timestampSchema,
+    updatedAt: timestampSchema,
+    revokedAt: timestampSchema.nullable()
+  })
+  .strict();
+
+/** Persistent Workspace Grant. PRIMARY KEY(endpointId, workspaceId). */
+export const remoteAgentWorkspaceGrantRecordSchema = z
+  .object({
+    endpointId: opaqueIdentifierSchema,
+    workspaceId: workspaceIdSchema,
+    grantRevision: remoteAgentGrantRevisionSchema,
+    grantedByHumanPrincipalId: humanPrincipalIdSchema,
+    createdAt: timestampSchema,
+    updatedAt: timestampSchema,
+    revokedAt: timestampSchema.nullable()
+  })
+  .strict();
+
+export const runtimeAuthoritySchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("owner_canvas") }).strict(),
+  z
+    .object({
+      kind: z.literal("workspace_canvas"),
+      workspaceId: workspaceIdSchema
+    })
+    .strict()
+]);
+
+export const agentAccessAuthoritySchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("agent_owner"),
+      ownerHumanPrincipalId: humanPrincipalIdSchema,
+      policyRevision: remoteAgentPolicyRevisionSchema
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("workspace_grant"),
+      workspaceId: workspaceIdSchema,
+      grantRevision: remoteAgentGrantRevisionSchema,
+      policyRevision: remoteAgentPolicyRevisionSchema
+    })
+    .strict()
+]);
+
+export const authorizedRemoteAgentUseSchema = z
+  .object({
+    remoteAgent: z
+      .object({
+        endpointId: opaqueIdentifierSchema,
+        hostId: agentHostIdSchema,
+        profileId: opaqueIdentifierSchema,
+        agentId: opaqueIdentifierSchema
+      })
+      .strict(),
+    runtimeAuthority: runtimeAuthoritySchema,
+    agentAccessAuthority: agentAccessAuthoritySchema,
+    resolvedAt: timestampSchema
+  })
+  .strict();
+
+export { remoteAgentAuthorizationErrorCodeSchema, remoteAgentEndpointAccessViewSchema };
+
+export type RemoteAgentAccessMode = z.infer<typeof remoteAgentAccessModeSchema>;
+export type RemoteAgentPolicyRevision = z.infer<typeof remoteAgentPolicyRevisionSchema>;
+export type RemoteAgentGrantRevision = z.infer<typeof remoteAgentGrantRevisionSchema>;
+export type RemoteAgentRecord = z.infer<typeof remoteAgentRecordSchema>;
+export type RemoteAgentWorkspaceGrantRecord = z.infer<typeof remoteAgentWorkspaceGrantRecordSchema>;
+export type RuntimeAuthority = z.infer<typeof runtimeAuthoritySchema>;
+export type AgentAccessAuthority = z.infer<typeof agentAccessAuthoritySchema>;
+export type AuthorizedRemoteAgentUse = z.infer<typeof authorizedRemoteAgentUseSchema>;
+export type { RemoteAgentAuthorizationErrorCode, RemoteAgentEndpointAccessView };
