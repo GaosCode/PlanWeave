@@ -10,7 +10,7 @@ import {
   type AgentEndpointHostPort
 } from "../agentEndpointCatalog.js";
 import { createRemoteBlockCoordination } from "../distributedCoordination.js";
-import { dispatchTarget } from "../remoteAgent/dispatchTarget.js";
+import { availabilityScopeForAuthorized, dispatchTarget } from "../remoteAgent/dispatchTarget.js";
 import { AgentHostRepository, type AgentHost } from "../hosts.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import { applyMigrations } from "../migrations.js";
@@ -345,6 +345,44 @@ describe("Phase 5 catalog/dispatch authorization", () => {
         projectId: "project-a",
         canvasId: "canvas-main"
       });
+    });
+
+    it("uses fleet availability for unrestricted owners writing back to a workspace canvas", () => {
+      expect(
+        availabilityScopeForAuthorized({
+          remoteAgent: {
+            endpointId: "aep_unrestrictedowner01",
+            hostId: "host-primary",
+            profileId: "profile-main",
+            agentId: "codex"
+          },
+          runtimeAuthority: { kind: "workspace_canvas", workspaceId: "workspace-b" },
+          agentAccessAuthority: {
+            kind: "agent_owner",
+            ownerHumanPrincipalId: "owner-human-1",
+            policyRevision: 1
+          },
+          resolvedAt: now.toISOString()
+        })
+      ).toBe("owner_canvas");
+      expect(
+        availabilityScopeForAuthorized({
+          remoteAgent: {
+            endpointId: "aep_grantscopedagent01",
+            hostId: "host-primary",
+            profileId: "profile-main",
+            agentId: "codex"
+          },
+          runtimeAuthority: { kind: "workspace_canvas", workspaceId: "workspace-b" },
+          agentAccessAuthority: {
+            kind: "workspace_grant",
+            workspaceId: "workspace-b",
+            grantRevision: 1,
+            policyRevision: 1
+          },
+          resolvedAt: now.toISOString()
+        })
+      ).toBe("workspace_canvas");
     });
   });
 

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { SETUP_CODE_REASON_MAX_LENGTH } from "./limits.js";
 import {
+  humanDeviceTokenSchema,
   humanIdentitySchemaVersionSchema,
   humanIdentityTokenSchema,
   humanPrincipalIdSchema,
@@ -85,3 +86,26 @@ export const humanPrincipalMergeResponseSchema = z
   })
   .strict();
 export type HumanPrincipalMergeResponse = z.infer<typeof humanPrincipalMergeResponseSchema>;
+
+/**
+ * Recover a Server-global identity credential from a still-valid Workspace
+ * device session or legacy project device. Independent of setup-code redeem.
+ */
+export const humanIdentityRecoverRequestSchema = z
+  .object({
+    schemaVersion: humanIdentitySchemaVersionSchema,
+    existingDeviceToken: humanDeviceTokenSchema
+  })
+  .strict();
+export type HumanIdentityRecoverRequest = z.infer<typeof humanIdentityRecoverRequestSchema>;
+
+export const humanIdentityRecoverResponseSchema = z
+  .object({
+    schemaVersion: humanIdentitySchemaVersionSchema,
+    humanPrincipalId: humanPrincipalIdSchema,
+    identityCredentialId: identityCredentialIdSchema,
+    identityToken: humanIdentityTokenSchema,
+    identityExpiresAt: timestampSchema
+  })
+  .strict();
+export type HumanIdentityRecoverResponse = z.infer<typeof humanIdentityRecoverResponseSchema>;

@@ -3,6 +3,8 @@ import { AgentHostRepository } from "../hosts.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import { applyMigrations } from "../migrations.js";
 import { RemoteAgentAuthorizationError } from "../remoteAgent/errors.js";
+import { HumanPrincipalIdentity } from "../identity/humanPrincipalIdentity.js";
+import { HumanIdentityCredentialStore } from "../identity/humanIdentityCredentialStore.js";
 import { RemoteAgentManagementService } from "../remoteAgent/management.js";
 import { RemoteAgentRepository } from "../remoteAgent/repository.js";
 import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
@@ -34,8 +36,8 @@ async function fixture() {
   const hosts = new AgentHostRepository(database, () => now);
   const host = hosts.register("Build Mac").host;
   const repo = new RemoteAgentRepository(database, () => now);
-  const management = new RemoteAgentManagementService(repo);
-  return { host, repo, management, workspaceA, workspaceB };
+  const management = new RemoteAgentManagementService(repo, new HumanPrincipalIdentity(database));
+  return { database, host, repo, management, workspaceA, workspaceB };
 }
 
 describe("remote agent management service", () => {
@@ -224,5 +226,52 @@ describe("remote agent management service", () => {
     });
     expect(revokedAgent.revokedAt).toBe(now.toISOString());
     expect(repo.getByEndpointId(agent.endpointId)?.endpointId).toBe(agent.endpointId);
+  });
+
+  it("lists and mutates an agent after dual-token principal merge", async () => {
+    const { database, host, repo, management, workspaceA } = await fixture();
+    insertHuman(database, "human-split-b", "Split B");
+    const owned = repo.registerOrRestoreFromProfile({
+      hostId: host.id,
+      profileId: "profile-main",
+      agentId: "codex",
+      displayName: "Codex",
+      now: now.toISOString(),
+      ownerHumanPrincipalId: "owner-human-1",
+      accessMode: "unrestricted"
+    });
+    const identities = new HumanIdentityCredentialStore(database, () => now);
+    const tokenA = identities.issue("owner-human-1");
+    const tokenB = identities.issue("human-split-b");
+    identities.merge(tokenB.identityToken, tokenA.identityToken);
+    expect(management.listOwned("human-split-b")).toEqual([owned]);
+    expect(
+      management.get({ endpointId: owned.endpointId, actorHumanPrincipalId: "human-split-b" })
+    ).toEqual(owned);
+    const updated = management.setAccessMode({
+      endpointId: owned.endpointId,
+      actorHumanPrincipalId: "human-split-b",
+      accessMode: "workspace_restricted"
+    });
+    expect(updated.accessMode).toBe("workspace_restricted");
+    const grant = management.grantWorkspace({
+      endpointId: owned.endpointId,
+      workspaceId: workspaceA,
+      actorHumanPrincipalId: "human-split-b"
+    });
+    expect(grant.workspaceId).toBe(workspaceA);
+    expect(
+      management.revokeGrant({
+        endpointId: owned.endpointId,
+        workspaceId: workspaceA,
+        actorHumanPrincipalId: "human-split-b"
+      }).revokedAt
+    ).toBe(now.toISOString());
+    expect(
+      management.revokeAgent({
+        endpointId: owned.endpointId,
+        actorHumanPrincipalId: "human-split-b"
+      }).revokedAt
+    ).toBe(now.toISOString());
   });
 });

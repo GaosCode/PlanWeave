@@ -10,7 +10,7 @@ import { activeWorkspacePrincipal } from "../projectRegistryRepository.js";
 import type { SqliteDatabase } from "../sqlite.js";
 import { controlPlaneForTarget } from "./dispatchTarget.js";
 import { RemoteAgentAuthorizationError } from "./errors.js";
-import { HumanIdentityCredentialStore } from "../identity/humanIdentityCredentialStore.js";
+import { HumanPrincipalIdentity } from "../identity/humanPrincipalIdentity.js";
 import { RemoteAgentRepository } from "./repository.js";
 import {
   authorizedRemoteAgentUseSchema,
@@ -82,11 +82,11 @@ function mappingWorkspaceId(target: RemoteAgentUseTarget, runtimeWorkspaceId: st
 
 export class RemoteAgentAccessPolicy {
   private readonly clock: () => Date;
-  private readonly identityCredentials: HumanIdentityCredentialStore;
+  private readonly identity: HumanPrincipalIdentity;
 
   constructor(private readonly options: RemoteAgentAccessPolicyOptions) {
     this.clock = options.clock ?? (() => new Date());
-    this.identityCredentials = new HumanIdentityCredentialStore(options.database, this.clock);
+    this.identity = new HumanPrincipalIdentity(options.database);
   }
 
   evaluateAccess(rawInput: EvaluateRemoteAgentAccessInput): EvaluatedRemoteAgentAccess {
@@ -233,10 +233,7 @@ export class RemoteAgentAccessPolicy {
 
   private sameHumanPrincipal(left: string | null, right: string): boolean {
     if (left === null) return false;
-    return (
-      this.identityCredentials.resolveCanonicalHumanPrincipalId(left) ===
-      this.identityCredentials.resolveCanonicalHumanPrincipalId(right)
-    );
+    return this.identity.areEquivalent(left, right);
   }
 
   private resolveAvailability(

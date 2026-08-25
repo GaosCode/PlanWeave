@@ -126,6 +126,7 @@ function requiresAdmission(request: IncomingMessage): boolean {
     pathname === "/api/v1/human-identity/renew" ||
     pathname === "/api/v1/human-identity/revoke" ||
     pathname === "/api/v1/human-identity/merge" ||
+    pathname === "/api/v1/human-identity/recover" ||
     (pathname.startsWith("/api/v1/workspaces/") && pathname.includes("/setup-codes")) ||
     pathname === "/api/v1/remote-operations" ||
     /^\/api\/v1\/remote-operations\/[^/]+\/actions$/.test(pathname) ||
@@ -274,6 +275,8 @@ export function createDistributedHttpRequestListener(
       if (
         await handleHumanIdentityCredentialHttpRequest(request, response, {
           store: options.setupCodes.identityCredentialStore,
+          lookupDevicePrincipal: (deviceToken) =>
+            options.setupCodes.lookupExistingHumanPrincipal(deviceToken),
           transportAdmission: options.transportAdmission
         })
       )

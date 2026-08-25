@@ -581,6 +581,46 @@ describe("CollaborationConnectForm connection diagnostics", () => {
     expect(screen.queryByText("Workspace disconnected")).not.toBeInTheDocument();
   });
 
+  it("shows identity repair actions when split principals are present", () => {
+    render(
+      <CollaborationConnectForm
+        api={joinApi()}
+        status={{
+          ...statusWithWorkspaceIdentity("error", {
+            code: "identity_repair_required",
+            message:
+              "Multiple Human Principals exist for this server; identity repair is required.",
+            retryable: false
+          }),
+          identityRepair: {
+            required: true,
+            origin: "https://collab.example.com/",
+            principals: [
+              {
+                humanPrincipalId: "human-a",
+                profileIds: ["profile-a"],
+                hasIdentityToken: true,
+                hasDeviceToken: true,
+                identityExpiresAt: null
+              },
+              {
+                humanPrincipalId: "human-b",
+                profileIds: ["profile-b"],
+                hasIdentityToken: true,
+                hasDeviceToken: true,
+                identityExpiresAt: null
+              }
+            ]
+          }
+        }}
+        t={createTranslator("en")}
+        fixedMode="connect"
+      />
+    );
+    expect(screen.getByTestId("people-identity-repair")).toBeInTheDocument();
+    expect(screen.getByTestId("people-identity-repair-merge")).toBeDisabled();
+  });
+
   it.each([
     {
       topology: "private_https" as const,

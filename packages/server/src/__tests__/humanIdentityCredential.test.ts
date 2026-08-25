@@ -55,4 +55,21 @@ describe("human identity credentials", () => {
     const again = store.issue("human-b");
     expect(again.record.humanPrincipalId).toBe("human-a");
   });
+
+  it("renews at the active credential limit without counting the rotated credential", async () => {
+    const database = await openServerDatabase(":memory:", 5_000);
+    databases.push(database);
+    applyMigrations(database);
+    const now = new Date("2030-01-01T00:00:00.000Z");
+    new MembershipStore(database, () => now).insertPrincipal("human-a", "Alice");
+    const store = new HumanIdentityCredentialStore(database, () => now);
+    let latest = store.issue("human-a");
+    for (let index = 1; index < 32; index += 1) {
+      latest = store.issue("human-a");
+    }
+    expect(() => store.issue("human-a")).toThrow(HumanIdentityCredentialError);
+    const renewed = store.renew(latest.identityToken);
+    expect(store.authenticate(latest.identityToken)).toBeUndefined();
+    expect(store.authenticate(renewed.identityToken)?.humanPrincipalId).toBe("human-a");
+  });
 });

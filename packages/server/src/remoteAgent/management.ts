@@ -9,6 +9,7 @@ import {
   toRemoteAgentManagementAgentView,
   type RemoteAgentManagementAgentView
 } from "./managementDtos.js";
+import { HumanPrincipalIdentity } from "../identity/humanPrincipalIdentity.js";
 import { RemoteAgentRepository } from "./repository.js";
 import {
   remoteAgentAccessModeSchema,
@@ -67,12 +68,20 @@ export type RemoteAgentManagementRevokeGrantInput = z.input<typeof revokeGrantIn
 export type RemoteAgentManagementRevokeAgentInput = z.input<typeof actorEndpointInputSchema>;
 
 export class RemoteAgentManagementService {
-  constructor(private readonly repository: RemoteAgentRepository) {}
+  constructor(
+    private readonly repository: RemoteAgentRepository,
+    private readonly identity: HumanPrincipalIdentity
+  ) {}
 
   listOwned(ownerHumanPrincipalId: string): RemoteAgentRecord[] {
-    return this.repository.listByOwnerHumanPrincipalId(
-      humanPrincipalIdSchema.parse(ownerHumanPrincipalId)
-    );
+    const actor = humanPrincipalIdSchema.parse(ownerHumanPrincipalId);
+    const owned = this.repository.listByOwnerHumanPrincipalIds(this.identity.equivalentIds(actor));
+    const seen = new Set<string>();
+    return owned.filter((agent) => {
+      if (seen.has(agent.endpointId)) return false;
+      seen.add(agent.endpointId);
+      return true;
+    });
   }
 
   listOwnershipRepairRequired(): RemoteAgentRecord[] {
@@ -100,7 +109,7 @@ export class RemoteAgentManagementService {
     if (agent.ownershipRepairRequired) return agent;
     if (
       parsed.actorHumanPrincipalId === undefined ||
-      agent.ownerHumanPrincipalId !== parsed.actorHumanPrincipalId
+      !this.identity.areEquivalent(agent.ownerHumanPrincipalId, parsed.actorHumanPrincipalId)
     ) {
       throw new RemoteAgentAuthorizationError("remote_agent_not_found");
     }
@@ -173,7 +182,7 @@ export class RemoteAgentManagementService {
     if (agent.ownershipRepairRequired) {
       throw new RemoteAgentAuthorizationError("remote_agent_owner_required");
     }
-    if (agent.ownerHumanPrincipalId !== actorHumanPrincipalId) {
+    if (!this.identity.areEquivalent(agent.ownerHumanPrincipalId, actorHumanPrincipalId)) {
       throw new RemoteAgentAuthorizationError("remote_agent_not_found");
     }
     return agent;

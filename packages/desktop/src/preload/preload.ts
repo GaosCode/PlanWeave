@@ -278,6 +278,10 @@ const collaborationApi: PlanWeaveCollaborationApi = {
     ipcRenderer.invoke(collaborationInvokeChannels.disconnectCollaborationSession),
   redeemCollaborationSetupCode: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.redeemCollaborationSetupCode, input),
+  recoverCollaborationIdentities: async (input) =>
+    ipcRenderer.invoke(collaborationInvokeChannels.recoverCollaborationIdentities, input),
+  confirmCollaborationIdentityMerge: async (input) =>
+    ipcRenderer.invoke(collaborationInvokeChannels.confirmCollaborationIdentityMerge, input),
   connectExistingServerByOrigin: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.connectExistingServerByOrigin, input),
   getActiveWorkspaceConnection: async () =>

@@ -16,6 +16,8 @@ export const collaborationInvokeChannels = {
   connectCollaborationSession: "planweave-collaboration:connectSession",
   disconnectCollaborationSession: "planweave-collaboration:disconnectSession",
   redeemCollaborationSetupCode: "planweave-collaboration:redeemSetupCode",
+  recoverCollaborationIdentities: "planweave-collaboration:recoverIdentities",
+  confirmCollaborationIdentityMerge: "planweave-collaboration:confirmIdentityMerge",
   connectExistingServerByOrigin: "planweave-collaboration:connectExistingServerByOrigin",
   getActiveWorkspaceConnection: "planweave-collaboration:getActiveWorkspaceConnection",
   listRememberedServerConnections: "planweave-collaboration:listRememberedServerConnections",

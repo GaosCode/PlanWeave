@@ -379,6 +379,68 @@ describe("setup code issue/redeem/revoke", () => {
     expect(recovered.identityToken).not.toBe(first.identityToken);
   });
 
+  it("maps identity credential limit to HTTP 429 on setup redemption", async () => {
+    const database = await openDatabase();
+    provisionAdmin(database);
+    const workspaceId = ensureWorkspace(database);
+    const setup = service(database);
+    const authorization = new OperatorTokenRegistry(database, [
+      {
+        operatorId: "operator-admin",
+        tokenSha256: hashOperatorToken(adminToken),
+        projectIds: ["project-setup"],
+        serverAdmin: false
+      }
+    ]);
+    const admin = principal(database);
+    const first = setup.redeem({
+      schemaVersion: "workspace-setup/v1",
+      purpose: "device_session",
+      setupCode: setup.issue(admin, {
+        schemaVersion: "workspace-setup/v1",
+        workspaceId,
+        purpose: "device_session"
+      }).setupCode,
+      displayName: "Owner Device"
+    });
+    if (first.purpose !== "device_session") throw new Error("expected device");
+    for (let index = 1; index < 32; index += 1) {
+      setup.identityCredentialStore.issue(first.humanPrincipalId);
+    }
+    const server = createServer((request, response) => {
+      void handleSetupCodeHttpRequest(request, response, {
+        service: setup,
+        authorization,
+        transportAdmission: loopbackHttpTransportAdmission
+      }).then((handled) => {
+        if (!handled) {
+          response.writeHead(404);
+          response.end();
+        }
+      });
+    });
+    servers.push(server);
+    const port = await listen(server);
+    const issued = setup.issue(admin, {
+      schemaVersion: "workspace-setup/v1",
+      workspaceId,
+      purpose: "device_session"
+    });
+    const redeem = await fetch(`http://127.0.0.1:${port}/api/v1/setup-codes/redeem`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        schemaVersion: "workspace-setup/v1",
+        purpose: "device_session",
+        setupCode: issued.setupCode,
+        displayName: "Owner Device",
+        existingIdentityToken: first.identityToken
+      })
+    });
+    expect(redeem.status).toBe(429);
+    await expect(redeem.json()).resolves.toEqual({ error: "identity_limit_exceeded" });
+  });
+
   it("redeems operator and host purposes with credential-type isolation", async () => {
     const database = await openDatabase();
     provisionAdmin(database);

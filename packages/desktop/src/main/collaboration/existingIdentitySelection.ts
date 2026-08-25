@@ -11,12 +11,29 @@ export type OriginCredentialCandidate = {
   humanPrincipalId: string | null;
   deviceToken?: string;
   identityToken?: string;
+  identityExpiresAt?: string | null;
   updatedAt: string;
 };
 
-export type ExistingIdentityProof =
-  | { kind: "identity"; token: string; humanPrincipalId: string }
-  | { kind: "device_recovery"; token: string; humanPrincipalId: string };
+export type IdentityRepairPrincipal = {
+  humanPrincipalId: string | null;
+  profileIds: string[];
+  hasIdentityToken: boolean;
+  hasDeviceToken: boolean;
+  identityExpiresAt: string | null;
+};
+
+export type DiagnosedOriginIdentity =
+  | { kind: "none" }
+  | {
+      kind: "identity";
+      token: string;
+      humanPrincipalId: string;
+      profileId: string;
+      expiresAt: string | null;
+    }
+  | { kind: "device_recovery"; token: string; humanPrincipalId: string; profileId: string }
+  | { kind: "repair_required"; principals: IdentityRepairPrincipal[] };
 
 function originOf(serverBaseUrl: string): string | undefined {
   try {
@@ -34,49 +51,109 @@ function compareUpdatedAt(
   return right.updatedAt.localeCompare(left.updatedAt);
 }
 
+function identityUsable(candidate: OriginCredentialCandidate, now: Date): boolean {
+  if (candidate.identityToken === undefined) return false;
+  if (candidate.identityExpiresAt === undefined || candidate.identityExpiresAt === null) {
+    return true;
+  }
+  const expiresAt = Date.parse(candidate.identityExpiresAt);
+  return Number.isFinite(expiresAt) && expiresAt > now.getTime();
+}
+
+function repairPrincipals(
+  matching: readonly OriginCredentialCandidate[]
+): IdentityRepairPrincipal[] {
+  const groups = new Map<string, OriginCredentialCandidate[]>();
+  for (const candidate of matching) {
+    const key = candidate.humanPrincipalId ?? `unproven:${candidate.profileId}`;
+    const group = groups.get(key) ?? [];
+    group.push(candidate);
+    groups.set(key, group);
+  }
+  return [...groups.values()].map((group) => {
+    const newest = [...group].sort(compareUpdatedAt)[0];
+    return {
+      humanPrincipalId: newest.humanPrincipalId,
+      profileIds: group.map((candidate) => candidate.profileId).sort(),
+      hasIdentityToken: group.some((candidate) => candidate.identityToken !== undefined),
+      hasDeviceToken: group.some((candidate) => candidate.deviceToken !== undefined),
+      identityExpiresAt: newest.identityExpiresAt ?? null
+    };
+  });
+}
+
 /**
- * Choose a Server-global identity proof for one origin.
- * Multiple proven principals fail closed. Never returns the first matching
- * workspace token when another principal or unproven credential exists.
+ * Diagnose Server-global identity for one origin.
+ * Multiple proven principals or unproven device tokens require an explicit repair.
  */
-export function selectExistingIdentityProof(
+export function diagnoseOriginIdentity(
   candidates: readonly OriginCredentialCandidate[],
-  serverBaseUrl: string
-): ExistingIdentityProof | undefined {
+  serverBaseUrl: string,
+  now: Date = new Date()
+): DiagnosedOriginIdentity {
   const origin = originOf(serverBaseUrl);
-  if (!origin) return undefined;
-  const matching = candidates.filter((candidate) => candidate.origin === origin);
-  const proven = matching.filter(
+  if (!origin) return { kind: "none" };
+  const matching = candidates.filter(
     (candidate) =>
-      candidate.humanPrincipalId !== null &&
+      candidate.origin === origin &&
       (candidate.identityToken !== undefined || candidate.deviceToken !== undefined)
   );
-  const unproven = matching.filter(
-    (candidate) =>
-      candidate.humanPrincipalId === null &&
-      (candidate.identityToken !== undefined || candidate.deviceToken !== undefined)
-  );
-  if (unproven.length > 0) {
-    throw new IdentitySelectionError("identity_repair_required");
-  }
-  const principalIds = [
-    ...new Set(proven.map((candidate) => candidate.humanPrincipalId as string))
+  if (matching.length === 0) return { kind: "none" };
+  const unproven = matching.filter((candidate) => candidate.humanPrincipalId === null);
+  const provenIds = [
+    ...new Set(
+      matching
+        .map((candidate) => candidate.humanPrincipalId)
+        .filter((id): id is string => id !== null)
+    )
   ];
-  if (principalIds.length > 1) {
-    throw new IdentitySelectionError("identity_repair_required");
+  if (unproven.length > 0 || provenIds.length > 1) {
+    return { kind: "repair_required", principals: repairPrincipals(matching) };
   }
-  if (principalIds.length === 0) return undefined;
-  const humanPrincipalId = principalIds[0];
-  const forPrincipal = proven
+  if (provenIds.length === 0) return { kind: "none" };
+  const humanPrincipalId = provenIds[0];
+  const forPrincipal = matching
     .filter((candidate) => candidate.humanPrincipalId === humanPrincipalId)
     .sort(compareUpdatedAt);
-  const identity = forPrincipal.find((candidate) => candidate.identityToken !== undefined);
+  const identity = forPrincipal.find((candidate) => identityUsable(candidate, now));
   if (identity?.identityToken) {
-    return { kind: "identity", token: identity.identityToken, humanPrincipalId };
+    return {
+      kind: "identity",
+      token: identity.identityToken,
+      humanPrincipalId,
+      profileId: identity.profileId,
+      expiresAt: identity.identityExpiresAt ?? null
+    };
   }
   const device = forPrincipal.find((candidate) => candidate.deviceToken !== undefined);
   if (device?.deviceToken) {
-    return { kind: "device_recovery", token: device.deviceToken, humanPrincipalId };
+    return {
+      kind: "device_recovery",
+      token: device.deviceToken,
+      humanPrincipalId,
+      profileId: device.profileId
+    };
   }
-  return undefined;
+  return { kind: "none" };
+}
+
+/** @deprecated Prefer diagnoseOriginIdentity; throws when repair is required. */
+export function selectExistingIdentityProof(
+  candidates: readonly OriginCredentialCandidate[],
+  serverBaseUrl: string,
+  now: Date = new Date()
+):
+  | { kind: "identity"; token: string; humanPrincipalId: string }
+  | { kind: "device_recovery"; token: string; humanPrincipalId: string }
+  | undefined {
+  const diagnosed = diagnoseOriginIdentity(candidates, serverBaseUrl, now);
+  if (diagnosed.kind === "none") return undefined;
+  if (diagnosed.kind === "repair_required") {
+    throw new IdentitySelectionError("identity_repair_required");
+  }
+  return {
+    kind: diagnosed.kind,
+    token: diagnosed.token,
+    humanPrincipalId: diagnosed.humanPrincipalId
+  };
 }

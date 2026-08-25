@@ -12,6 +12,8 @@ import {
   isAgentHostOnline
 } from "./hosts.js";
 import { isOwnerCanvasRuntime } from "./endpointSelection.js";
+import { availabilityScopeForAuthorized } from "./remoteAgent/dispatchTarget.js";
+import type { RemoteOperation } from "./remoteOperations.js";
 
 const capacityManagedReservationSql = `
   NOT EXISTS (
@@ -29,9 +31,26 @@ const capacityManagedReservationSql = `
           capacity_operation.endpoint_selection_json,
           '$.authority.controlPlane'
         )='owner'
+        OR (
+          json_extract(
+            capacity_operation.agent_access_json,
+            '$.authorized.agentAccessAuthority.kind'
+          )='agent_owner'
+          AND json_extract(
+            capacity_operation.agent_access_json,
+            '$.authorized.agentAccessAuthority.workspaceId'
+          ) IS NULL
+        )
       )
   )
 `;
+
+function isOwnerFleetReservation(operation: RemoteOperation): boolean {
+  if (operation.agentAccess) {
+    return availabilityScopeForAuthorized(operation.agentAccess.authorized) === "owner_canvas";
+  }
+  return isOwnerCanvasRuntime(operation.endpointSelection?.authority);
+}
 
 const timestampSchema = z.iso.datetime();
 const hostCandidateRowSchema = z
@@ -221,7 +240,7 @@ export class HostReservationRepository {
         const now = this.clock();
         const onlineAfter = new Date(now.getTime() - this.options.hostOfflineAfterMs).toISOString();
         const workspaceId = operation.workspaceId;
-        const ownerFleet = isOwnerCanvasRuntime(operation.endpointSelection?.authority);
+        const ownerFleet = isOwnerFleetReservation(operation);
         const preferredHostId =
           options.preferredHostId === undefined
             ? undefined
@@ -453,7 +472,7 @@ export class HostReservationRepository {
       const operation = operations.getRequired(
         opaqueIdentifierSchema.parse(operationRow.operation_id)
       );
-      const ownerFleet = isOwnerCanvasRuntime(operation.endpointSelection?.authority);
+      const ownerFleet = isOwnerFleetReservation(operation);
       if (
         operation.executionAttemptId !== prior.executionAttemptId ||
         operation.attempt.status !== "interrupted" ||

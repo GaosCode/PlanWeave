@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
 import {
   humanIdentityTokenSchema,
-  humanPrincipalIdSchema,
   humanPrincipalMergeIdSchema,
   identityCredentialIdSchema
 } from "@planweave-ai/collaboration-protocol/core/primitives";
 import { inWriteTransaction, type SqliteDatabase } from "../sqlite.js";
 import { digestsEqual, hashHumanToken, mintHumanIdentityToken } from "./crypto.js";
 import { isHumanIdentityUniqueViolation } from "./errors.js";
+import { HumanPrincipalIdentity } from "./humanPrincipalIdentity.js";
 import {
   HUMAN_IDENTITY_DEFAULT_TTL_MS,
   HUMAN_MAX_IDENTITY_CREDENTIALS_PER_PRINCIPAL
@@ -65,28 +65,22 @@ function toRecord(row: IdentityRow): HumanIdentityCredentialRecord {
 }
 
 export class HumanIdentityCredentialStore {
+  private readonly identity: HumanPrincipalIdentity;
+
   constructor(
     private readonly database: SqliteDatabase,
     private readonly clock: () => Date,
     private readonly ttlMs: number = HUMAN_IDENTITY_DEFAULT_TTL_MS
-  ) {}
+  ) {
+    this.identity = new HumanPrincipalIdentity(database);
+  }
 
   resolveCanonicalHumanPrincipalId(humanPrincipalId: string): string {
-    const id = humanPrincipalIdSchema.parse(humanPrincipalId);
-    const seen = new Set<string>();
-    let current = id;
-    while (!seen.has(current)) {
-      seen.add(current);
-      const alias = this.database
-        .prepare(
-          `SELECT canonical_human_principal_id
-           FROM human_principal_aliases WHERE alias_human_principal_id=?`
-        )
-        .get(current) as { canonical_human_principal_id: string } | undefined;
-      if (!alias) return current;
-      current = humanPrincipalIdSchema.parse(alias.canonical_human_principal_id);
+    try {
+      return this.identity.resolveCanonical(humanPrincipalId);
+    } catch {
+      throw new HumanIdentityCredentialError("identity_merge_conflict");
     }
-    throw new HumanIdentityCredentialError("identity_merge_conflict");
   }
 
   authenticate(identityToken: string): HumanIdentityCredentialRecord | undefined {
@@ -111,18 +105,32 @@ export class HumanIdentityCredentialStore {
     return toRecord(updated);
   }
 
-  issue(humanPrincipalId: string): {
+  issue(
+    humanPrincipalId: string,
+    options?: { excludeCredentialId?: string }
+  ): {
     record: HumanIdentityCredentialRecord;
     identityToken: string;
   } {
     const hid = this.resolveCanonicalHumanPrincipalId(humanPrincipalId);
     this.requirePrincipal(hid);
-    const activeCount = this.database
-      .prepare(
-        `SELECT COUNT(*) AS count FROM human_identity_credentials
-         WHERE human_principal_id=? AND revoked_at IS NULL AND expires_at>?`
-      )
-      .get(hid, this.clock().toISOString()) as { count: number };
+    const excludeCredentialId = options?.excludeCredentialId;
+    const activeCount = (
+      excludeCredentialId === undefined
+        ? this.database
+            .prepare(
+              `SELECT COUNT(*) AS count FROM human_identity_credentials
+               WHERE human_principal_id=? AND revoked_at IS NULL AND expires_at>?`
+            )
+            .get(hid, this.clock().toISOString())
+        : this.database
+            .prepare(
+              `SELECT COUNT(*) AS count FROM human_identity_credentials
+               WHERE human_principal_id=? AND revoked_at IS NULL AND expires_at>?
+                 AND identity_credential_id!=?`
+            )
+            .get(hid, this.clock().toISOString(), excludeCredentialId)
+    ) as { count: number };
     if (Number(activeCount.count) >= HUMAN_MAX_IDENTITY_CREDENTIALS_PER_PRINCIPAL) {
       throw new HumanIdentityCredentialError("identity_limit_exceeded");
     }
@@ -158,7 +166,9 @@ export class HumanIdentityCredentialStore {
   } {
     return inWriteTransaction(this.database, () => {
       const current = this.requireUsable(identityToken);
-      const next = this.issue(current.humanPrincipalId);
+      const next = this.issue(current.humanPrincipalId, {
+        excludeCredentialId: current.identityCredentialId
+      });
       this.revokeRecord(current.identityCredentialId, "renewed");
       return next;
     });

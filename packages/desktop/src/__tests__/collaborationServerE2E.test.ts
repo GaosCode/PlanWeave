@@ -61,10 +61,12 @@ function remoteManifest(): PlanPackageManifest {
   return manifest;
 }
 
-async function setup() {
+async function setup(options?: { secondWorkspace?: boolean }) {
   const workspace = await createTestWorkspace(remoteManifest());
   directories.push(workspace.home, workspace.root);
   const projectId = workspace.init.workspace.id;
+  const workspaceId = legacyWorkspaceIdForProject(projectId);
+  const secondWorkspaceId = legacyWorkspaceIdForProject(`${projectId}-second`);
   const httpServer = createServer();
   servers.push(httpServer);
   const config = parseServerConfig({
@@ -75,11 +77,21 @@ async function setup() {
     dataDirectory: join(workspace.root, "server-data"),
     trustedProjects: [
       {
-        workspaceId: legacyWorkspaceIdForProject(projectId),
+        workspaceId,
         projectId,
         canvasId: "default",
         projectRoot: workspace.root
-      }
+      },
+      ...(options?.secondWorkspace
+        ? [
+            {
+              workspaceId: secondWorkspaceId,
+              projectId,
+              canvasId: "default",
+              projectRoot: workspace.root
+            }
+          ]
+        : [])
     ],
     operatorCredentials: [
       {
@@ -101,7 +113,8 @@ async function setup() {
   if (!address || typeof address === "string") throw new Error("Expected HTTP address");
   return {
     projectId,
-    workspaceId: legacyWorkspaceIdForProject(projectId),
+    workspaceId,
+    secondWorkspaceId,
     projectRoot: workspace.root,
     databasePath: config.databasePath,
     origin: `http://127.0.0.1:${address.port}`,
@@ -231,6 +244,7 @@ async function connectEnrolledHost(input: {
   ownerHumanPrincipalId: string;
   accessMode?: "unrestricted" | "workspace_restricted";
   createWorkspaceGrant?: boolean;
+  enrollmentAttemptId?: string;
 }) {
   const grantResponse = await fetch(`${input.origin}/api/v1/host-enrollments`, {
     method: "POST",
@@ -255,7 +269,7 @@ async function connectEnrolledHost(input: {
     type: "host.enrollment.request",
     protocolVersion: 1,
     enrollmentCode: grant.enrollmentCode,
-    enrollmentAttemptId: "desktop-e2e-host-enrollment",
+    enrollmentAttemptId: input.enrollmentAttemptId ?? "desktop-e2e-host-enrollment",
     installationId: "21fb9ea9-4e0d-49fb-a06c-a0fc71e7341e",
     credentialToken,
     displayName: "Desktop E2E Host",
@@ -762,6 +776,128 @@ describe("Desktop CollaborationClient against the Server composition", () => {
       canvasId: blockWorkItem.canvasId
     });
     expect(workspaceBCatalog.items.some((endpoint) => endpoint.status === "available")).toBe(true);
+  });
+
+  it("dispatches an unrestricted owner agent in workspace B without a grant", async () => {
+    const fixture = await setup({ secondWorkspace: true });
+    const owner = await redeemWorkspaceDevice({
+      origin: fixture.origin,
+      adminToken: fixture.adminToken,
+      workspaceId: fixture.workspaceId,
+      displayName: "Workspace B Dispatch Owner"
+    });
+    const host = await connectEnrolledHost({
+      origin: fixture.origin,
+      adminToken: fixture.adminToken,
+      workspaceId: fixture.workspaceId,
+      ownerHumanPrincipalId: owner.humanPrincipalId,
+      accessMode: "unrestricted",
+      createWorkspaceGrant: false,
+      enrollmentAttemptId: "desktop-e2e-workspace-b-dispatch-host"
+    });
+    const issued = await fetch(
+      `${fixture.origin}/api/v1/workspaces/${encodeURIComponent(fixture.secondWorkspaceId)}/setup-codes`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${fixture.adminToken}`,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ schemaVersion: "workspace-setup/v1", purpose: "device_session" })
+      }
+    );
+    expect(issued.status).toBe(201);
+    const setupCode = ((await issued.json()) as { setupCode: string }).setupCode;
+    const second = await fetch(`${fixture.origin}/api/v1/setup-codes/redeem`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        schemaVersion: "workspace-setup/v1",
+        purpose: "device_session",
+        setupCode,
+        displayName: "Workspace B",
+        existingIdentityToken: owner.identityToken
+      })
+    });
+    expect(second.status).toBe(200);
+    const redeemed = (await second.json()) as {
+      humanPrincipalId: string;
+      deviceToken: string;
+    };
+    expect(redeemed.humanPrincipalId).toBe(owner.humanPrincipalId);
+    const workspaceBOwner = clientFor(fixture.origin, fixture.projectId, redeemed.deviceToken);
+    const catalog = await workspaceBOwner.listAgentEndpoints({
+      workspaceId: fixture.secondWorkspaceId,
+      canvasId: blockWorkItem.canvasId
+    });
+    const agentEndpointId = catalog.items.find(
+      (endpoint) => endpoint.status === "available"
+    )?.endpointId;
+    expect(agentEndpointId).toBeTruthy();
+    const remoteDispatch = workspaceBOwner.dispatchRemoteOperation({
+      schemaVersion: "remote-run/v3",
+      projectId: fixture.projectId,
+      canvasId: blockWorkItem.canvasId,
+      blockRef: blockWorkItem.blockRef,
+      agentEndpointId: agentEndpointId!,
+      idempotencyKey: "desktop-e2e-workspace-b-dispatch",
+      expectedResponsibilityRevision: 0,
+      expectedReviewerRevision: 0
+    });
+    const execute = await host.next("mailbox.message");
+    expect(execute.type).toBe("mailbox.message");
+    const command = execute.command as {
+      dispatchId: string;
+      leaseId: string;
+      executionAttemptId: string;
+    };
+    const sequence = execute.sequence as number;
+    host.socket.send(
+      JSON.stringify({
+        type: "mailbox.ack",
+        protocolVersion: 1,
+        messageId: "desktop-e2e-workspace-b-mailbox-ack",
+        sequence
+      })
+    );
+    await expect(host.next("host.event_ack")).resolves.toMatchObject({ type: "host.event_ack" });
+    host.socket.send(
+      JSON.stringify({
+        type: "dispatch.accepted",
+        protocolVersion: 1,
+        messageId: "desktop-e2e-workspace-b-dispatch-accepted",
+        dispatchId: command.dispatchId,
+        leaseId: command.leaseId,
+        executionAttemptId: command.executionAttemptId
+      })
+    );
+    await expect(host.next("host.event_ack")).resolves.toMatchObject({ type: "host.event_ack" });
+    host.socket.send(
+      JSON.stringify({
+        type: "acp.events",
+        protocolVersion: 1,
+        messageId: "desktop-e2e-workspace-b-acp-events",
+        dispatchId: command.dispatchId,
+        leaseId: command.leaseId,
+        executionAttemptId: command.executionAttemptId,
+        acpSessionId: "desktop-e2e-workspace-b-acp",
+        afterCursor: 0,
+        cursor: 1,
+        events: [{ cursor: 1, kind: "agent_message", text: "workspace b writeback" }]
+      })
+    );
+    await expect(host.next("host.event_ack")).resolves.toMatchObject({ type: "host.event_ack" });
+    const remote = await remoteDispatch;
+    expect(remote.projectId).toBe(fixture.projectId);
+    const observed = await workspaceBOwner.observeRemoteOperation(remote.operationId);
+    expect(observed.operationId).toBe(remote.operationId);
+    expect(observed.projectId).toBe(fixture.projectId);
+    const replayed = await workspaceBOwner.replayRemoteOperationEvents(remote.operationId, {
+      afterCursor: 0
+    });
+    expect(replayed.events).toEqual([
+      expect.objectContaining({ kind: "agent_message", text: "workspace b writeback" })
+    ]);
   });
 
   it("replays only disconnected observer events and reports catchup before refetch", async () => {

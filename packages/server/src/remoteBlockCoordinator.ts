@@ -60,7 +60,11 @@ import {
   type AuthorizedRemoteAgentUse,
   type PersistedRemoteAgentAccessSnapshot
 } from "./remoteAgent/schema.js";
-import { dispatchTarget, retryTarget } from "./remoteAgent/dispatchTarget.js";
+import {
+  availabilityScopeForAuthorized,
+  dispatchTarget,
+  retryTarget
+} from "./remoteAgent/dispatchTarget.js";
 import { classifyReenterFailure, diagnosticFromReenterFailure } from "./remoteReenterRecovery.js";
 import { RemoteBlockWritebackCoordinator } from "./remoteBlockWritebackCoordinator.js";
 
@@ -271,7 +275,7 @@ export class RemoteBlockCoordinator {
         request.agentEndpointId,
         target.kind === "workspace_canvas" ? target.workspaceId : candidate.workspaceId,
         candidate.requiredCapabilities,
-        target.kind
+        availabilityScopeForAuthorized(authorized)
       ),
       candidate,
       runtimeAuthoritySnapshotForTarget(target, {
@@ -907,7 +911,7 @@ export class RemoteBlockCoordinator {
         ? selection.authority.workspaceId
         : operation.workspaceId,
       operation.requiredCapabilities,
-      selection.authority.kind
+      this.hostAvailabilityScope(operation, selection)
     );
     this.assertEndpointIdentity(selection, resolved, candidate);
     return resolved;
@@ -929,9 +933,22 @@ export class RemoteBlockCoordinator {
         : operation.workspaceId,
       operation.requiredCapabilities,
       reservation.hostId,
-      selection.authority.kind
+      this.hostAvailabilityScope(operation, selection)
     );
     this.assertEndpointIdentity(selection, resolved, candidate);
+  }
+
+  /**
+   * Host overlay is Agent Access, not Runtime Authority. Unrestricted owners
+   * stay on the fleet even when writeback targets a Workspace canvas.
+   */
+  private hostAvailabilityScope(
+    operation: RemoteOperation,
+    selection: EndpointSelectionSnapshot
+  ): EndpointSelectionSnapshot["authority"]["kind"] {
+    return operation.agentAccess
+      ? availabilityScopeForAuthorized(operation.agentAccess.authorized)
+      : selection.authority.kind;
   }
 
   private authorizeReservedEndpoint(

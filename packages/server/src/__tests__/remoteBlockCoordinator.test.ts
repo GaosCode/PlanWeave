@@ -880,6 +880,37 @@ describe("RemoteBlockCoordinator", () => {
     ).resolves.toMatchObject({ status: "completed" });
   });
 
+  it("dispatches an unrestricted owner agent to a workspace canvas without host mapping", async () => {
+    const fixture = await setupFleetUnboundHost();
+    const endpoint = fixture.agentEndpoints.listVisibleFleet().items[0];
+    if (!endpoint) throw new Error("expected_fleet_endpoint");
+    expect(endpoint.status).toBe("available");
+    expect(fixture.agentEndpoints.listVisible(fixture.locator.workspaceId).items[0]).toMatchObject({
+      status: "unavailable",
+      unavailableReason: "workspace_mapping_missing"
+    });
+
+    const outcome = await fixture.coordinator.dispatch({
+      ...fixture.locator,
+      blockRef: "T-001#B-001",
+      idempotencyKey: "workspace-unmapped-unrestricted-dispatch",
+      agentEndpointId: endpoint.endpointId,
+      expectedResponsibilityRevision: 0,
+      expectedReviewerRevision: 0,
+      targetKind: "workspace_canvas",
+      callerHumanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
+    });
+    expect(outcome.status).toBe("activated");
+    expect(outcome.operation.agentAccess?.authorized).toMatchObject({
+      runtimeAuthority: {
+        kind: "workspace_canvas",
+        workspaceId: fixture.locator.workspaceId
+      },
+      agentAccessAuthority: { kind: "agent_owner" }
+    });
+    expect(fixture.mailbox.listAfter(fixture.host.id, 0)).toHaveLength(1);
+  });
+
   it("lets canvas concurrency admit multiple Owner Fleet operations beyond collaboration Host capacity", async () => {
     const manifest = remoteManifest();
     const secondTask = basicManifest({ includeSecondTask: true }).nodes.find(

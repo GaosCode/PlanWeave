@@ -30,6 +30,7 @@ import { AgentEndpointCatalog } from "./agentEndpointCatalog.js";
 import { listAuthorizedRemoteAgentEndpoints } from "./remoteAgent/catalog.js";
 import type { RemoteAgentAccessPolicy } from "./remoteAgent/accessPolicy.js";
 import { RemoteAgentAuthorizationError } from "./remoteAgent/errors.js";
+import { HumanPrincipalIdentity } from "./identity/humanPrincipalIdentity.js";
 import { RemoteAgentManagementService } from "./remoteAgent/management.js";
 import {
   operatorRemoteAgentAccessModeRequestSchema,
@@ -107,7 +108,10 @@ export class RemoteControlService {
     this.clock = options.clock ?? (() => new Date());
     this.hostOfflineAfterMs = options.hostOfflineAfterMs ?? DEFAULT_HOST_OFFLINE_AFTER_MS;
     this.remoteAgents = options.remoteAgentRepository
-      ? new RemoteAgentManagementService(options.remoteAgentRepository)
+      ? new RemoteAgentManagementService(
+          options.remoteAgentRepository,
+          new HumanPrincipalIdentity(options.remoteAgentRepository.database)
+        )
       : null;
   }
 

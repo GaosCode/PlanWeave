@@ -28,6 +28,23 @@ export function controlPlaneForTarget(target: RemoteAgentUseTarget): "collaborat
   return target.kind === "owner_canvas" ? "owner" : "collaboration";
 }
 
+/**
+ * Host availability overlay is orthogonal to Runtime Authority.
+ * Unrestricted owners resolve against the fleet even when writing back to a
+ * Workspace canvas that the Host is not mapped into.
+ */
+export function availabilityScopeForAuthorized(
+  authorized: AuthorizedRemoteAgentUse
+): RemoteAgentUseTarget["kind"] {
+  if (
+    authorized.agentAccessAuthority.kind === "agent_owner" &&
+    authorized.agentAccessAuthority.workspaceId === undefined
+  ) {
+    return "owner_canvas";
+  }
+  return authorized.runtimeAuthority.kind;
+}
+
 export function retryTarget(
   operation: RemoteOperation,
   authorized: AuthorizedRemoteAgentUse

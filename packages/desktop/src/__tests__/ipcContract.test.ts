@@ -222,6 +222,12 @@ describe("desktop IPC contract", () => {
     expect(collaborationInvokeChannels.redeemCollaborationSetupCode).toBe(
       "planweave-collaboration:redeemSetupCode"
     );
+    expect(collaborationInvokeChannels.recoverCollaborationIdentities).toBe(
+      "planweave-collaboration:recoverIdentities"
+    );
+    expect(collaborationInvokeChannels.confirmCollaborationIdentityMerge).toBe(
+      "planweave-collaboration:confirmIdentityMerge"
+    );
     expect(collaborationInvokeChannels.connectExistingServerByOrigin).toBe(
       "planweave-collaboration:connectExistingServerByOrigin"
     );

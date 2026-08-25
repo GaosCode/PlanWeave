@@ -578,6 +578,22 @@ export class CollaborationService {
     });
   }
 
+  async recoverHistoricalIdentities(input: unknown): Promise<CollaborationStatus> {
+    return this.enqueue(async () => {
+      this.assertOpen();
+      await this.ensureWorkspaceHydrated();
+      return this.workspaceConnectionFacade.recoverHistoricalIdentities(input);
+    });
+  }
+
+  async confirmIdentityMerge(input: unknown): Promise<CollaborationStatus> {
+    return this.enqueue(async () => {
+      this.assertOpen();
+      await this.ensureWorkspaceHydrated();
+      return this.workspaceConnectionFacade.confirmIdentityMerge(input);
+    });
+  }
+
   async connectExistingServerByOrigin(input: unknown): Promise<CollaborationStatus> {
     return this.enqueue(async () => {
       this.assertOpen();

@@ -28,6 +28,7 @@ import {
 import { CollaborationInvitationJoinFields } from "./CollaborationInvitationJoinFields";
 import { CollaborationSetupHandoffFields } from "./CollaborationSetupHandoffFields";
 import { buildCollaborationDiagnosticReport } from "./collaborationDiagnostics";
+import { IdentityRepairPanel } from "./IdentityRepairPanel";
 
 export type CollaborationConnectFormProps = {
   api: PlanWeaveCollaborationApi | null;
@@ -561,6 +562,17 @@ export function CollaborationConnectForm({
                     >
                       {workspaceConnection.error.message ?? workspaceConnection.error.code}
                     </div>
+                  ) : null}
+                  {status?.identityRepair?.required ? (
+                    <IdentityRepairPanel
+                      api={api}
+                      repair={status.identityRepair}
+                      allowInsecureTransport={
+                        workspaceConnection?.profile?.allowInsecureTransport === true
+                      }
+                      t={t}
+                      busy={busy}
+                    />
                   ) : null}
                 </div>
               </div>

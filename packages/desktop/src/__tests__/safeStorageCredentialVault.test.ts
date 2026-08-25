@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   exampleHumanDeviceToken,
+  exampleHumanIdentityToken,
   exampleInvitationToken
 } from "@planweave-ai/collaboration-protocol/fixtures/collaboration";
 import { CollaborationCredentialVault } from "../main/collaboration/collaborationCredentialVault.js";
@@ -184,6 +185,35 @@ describe("safeStorage credential access", () => {
     expect(await vault.persistenceFor("profile-1")).toBe("persisted");
     expect((await stat(profilesPath)).mode & 0o777).toBe(0o600);
     expect((await stat(credentialsPath)).mode & 0o777).toBe(0o600);
+  });
+
+  it("persists identity expiry and preserves omitted device metadata on rotation", async () => {
+    const directory = await temporaryDirectory("planweave-collaboration-identity-expiry-");
+    const credentialsPath = join(directory, "credentials.json");
+    const vault = new CollaborationCredentialVault({
+      paths: { credentialsPath },
+      safeStorage: availableSafeStorage()
+    });
+    const identityExpiresAt = "2031-01-01T00:00:00.000Z";
+    await vault.setDeviceToken("profile-1", exampleHumanDeviceToken, {
+      deviceCredentialId: "device-1",
+      humanPrincipalId: "human-1",
+      identityToken: exampleHumanIdentityToken,
+      identityCredentialId: "identity-1",
+      identityExpiresAt
+    });
+    await vault.setDeviceToken("profile-1", exampleHumanDeviceToken, {
+      identityToken: exampleHumanIdentityToken,
+      identityCredentialId: "identity-2",
+      identityExpiresAt: "2031-06-01T00:00:00.000Z"
+    });
+    expect(await vault.getIdentityToken("profile-1")).toBe(exampleHumanIdentityToken);
+    expect(await vault.getMetadata("profile-1")).toMatchObject({
+      deviceCredentialId: "device-1",
+      humanPrincipalId: "human-1",
+      identityCredentialId: "identity-2",
+      identityExpiresAt: "2031-06-01T00:00:00.000Z"
+    });
   });
 
   it("keeps device tokens session-only when safeStorage is unavailable", async () => {

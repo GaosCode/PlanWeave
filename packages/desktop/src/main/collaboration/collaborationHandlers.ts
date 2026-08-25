@@ -398,6 +398,20 @@ export function registerCollaborationHandlers(
       runCoordinationOperation("workspace.redeemSetupCode", () => active.redeemSetupCode(input))
   );
   ipcMain.handle(
+    collaborationInvokeChannels.recoverCollaborationIdentities,
+    (_event, input: unknown) =>
+      runCoordinationOperation("workspace.recoverIdentities", () =>
+        active.recoverHistoricalIdentities(input)
+      )
+  );
+  ipcMain.handle(
+    collaborationInvokeChannels.confirmCollaborationIdentityMerge,
+    (_event, input: unknown) =>
+      runCoordinationOperation("workspace.confirmIdentityMerge", () =>
+        active.confirmIdentityMerge(input)
+      )
+  );
+  ipcMain.handle(
     collaborationInvokeChannels.connectExistingServerByOrigin,
     (_event, input: unknown) =>
       runCoordinationOperation("workspace.connectByOrigin", () =>

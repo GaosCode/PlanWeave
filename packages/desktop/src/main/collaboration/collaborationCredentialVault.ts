@@ -24,6 +24,7 @@ export type StoredCredentialMetadata = {
   deviceCredentialId: string | null;
   identityCredentialId: string | null;
   humanPrincipalId: string | null;
+  identityExpiresAt: string | null;
   updatedAt: string;
 };
 
@@ -39,7 +40,8 @@ const persistedCredentialRecordV1Schema = z
 const persistedCredentialRecordSchema = persistedCredentialRecordV1Schema
   .extend({
     encryptedIdentityToken: z.string().trim().min(1).nullable(),
-    identityCredentialId: opaqueIdentifierSchema.nullable()
+    identityCredentialId: opaqueIdentifierSchema.nullable(),
+    identityExpiresAt: timestampSchema.nullable().optional()
   })
   .strict();
 
@@ -69,7 +71,8 @@ export const collaborationCredentialsDocumentSchema = z
           {
             ...record,
             encryptedIdentityToken: null,
-            identityCredentialId: null
+            identityCredentialId: null,
+            identityExpiresAt: null
           }
         ])
       )
@@ -87,6 +90,7 @@ type SessionCredential = {
   deviceCredentialId: string | null;
   identityCredentialId: string | null;
   humanPrincipalId: string | null;
+  identityExpiresAt: string | null;
   updatedAt: string;
 };
 
@@ -263,6 +267,7 @@ export class CollaborationCredentialVault {
       deviceCredentialId: record.deviceCredentialId,
       identityCredentialId: record.identityCredentialId,
       humanPrincipalId: record.humanPrincipalId,
+      identityExpiresAt: record.identityExpiresAt ?? null,
       updatedAt: record.updatedAt
     });
     return token;
@@ -284,6 +289,7 @@ export class CollaborationCredentialVault {
         deviceCredentialId: session.deviceCredentialId,
         identityCredentialId: session.identityCredentialId,
         humanPrincipalId: session.humanPrincipalId,
+        identityExpiresAt: session.identityExpiresAt,
         updatedAt: session.updatedAt
       };
     }
@@ -299,6 +305,7 @@ export class CollaborationCredentialVault {
       deviceCredentialId: record.deviceCredentialId,
       identityCredentialId: record.identityCredentialId,
       humanPrincipalId: record.humanPrincipalId,
+      identityExpiresAt: record.identityExpiresAt ?? null,
       updatedAt: record.updatedAt
     };
   }
@@ -334,15 +341,22 @@ export class CollaborationCredentialVault {
       humanPrincipalId?: string | null;
       identityToken?: string | null;
       identityCredentialId?: string | null;
+      identityExpiresAt?: string | null;
     } = {}
   ): Promise<CollaborationCredentialPersistence> {
     const token = humanDeviceTokenSchema.parse(deviceToken);
     const updatedAt = nowIso();
-    const deviceCredentialId = metadata.deviceCredentialId?.trim() || null;
-    const humanPrincipalId = metadata.humanPrincipalId?.trim() || null;
     const existing = this.sessionTokens.get(profileId);
     const document = await this.load();
     const previous = document.credentials[profileId];
+    const deviceCredentialId =
+      metadata.deviceCredentialId === undefined
+        ? (existing?.deviceCredentialId ?? previous?.deviceCredentialId ?? null)
+        : metadata.deviceCredentialId?.trim() || null;
+    const humanPrincipalId =
+      metadata.humanPrincipalId === undefined
+        ? (existing?.humanPrincipalId ?? previous?.humanPrincipalId ?? null)
+        : metadata.humanPrincipalId?.trim() || null;
     const preservedIdentityToken =
       existing?.identityToken ??
       (previous?.encryptedIdentityToken
@@ -358,6 +372,10 @@ export class CollaborationCredentialVault {
       metadata.identityCredentialId === undefined
         ? (existing?.identityCredentialId ?? previous?.identityCredentialId ?? null)
         : metadata.identityCredentialId?.trim() || null;
+    const identityExpiresAt =
+      metadata.identityExpiresAt === undefined
+        ? (existing?.identityExpiresAt ?? previous?.identityExpiresAt ?? null)
+        : metadata.identityExpiresAt;
 
     this.sessionTokens.set(profileId, {
       deviceToken: token,
@@ -365,6 +383,7 @@ export class CollaborationCredentialVault {
       deviceCredentialId,
       identityCredentialId,
       humanPrincipalId,
+      identityExpiresAt,
       updatedAt
     });
 
@@ -383,6 +402,7 @@ export class CollaborationCredentialVault {
       deviceCredentialId,
       identityCredentialId,
       humanPrincipalId,
+      identityExpiresAt,
       updatedAt
     };
     await this.persist(document);

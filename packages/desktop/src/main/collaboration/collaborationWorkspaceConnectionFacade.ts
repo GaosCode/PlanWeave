@@ -4,8 +4,10 @@ import type {
 } from "@planweave-ai/collaboration-protocol/connection";
 import {
   assertNoSmuggledCollaborationSecrets,
+  collaborationConfirmIdentityMergeInputSchema,
   collaborationConnectExistingServerByOriginInputSchema,
   collaborationProfileIdInputSchema,
+  collaborationRecoverIdentitiesInputSchema,
   collaborationRedeemSetupCodeInputSchema,
   collaborationWorkspacePickerQuerySchema,
   parseCollaborationServerOriginInput,
@@ -69,6 +71,47 @@ export class CollaborationWorkspaceConnectionFacade {
     this.connection = options.connection;
     this.publishStatus = options.publishStatus;
     this.setSession = options.setSession;
+  }
+
+  async recoverHistoricalIdentities(input: unknown): Promise<CollaborationStatus> {
+    assertNoSmuggledCollaborationSecrets(input, "recoverCollaborationIdentities");
+    const parsed = collaborationRecoverIdentitiesInputSchema.parse(input);
+    try {
+      const remaining = await this.connection.recoverHistoricalIdentities(parsed);
+      if (remaining) {
+        this.setSession("error", "identity_repair_required", {
+          code: "identity_repair_required",
+          message: "identity_repair_required"
+        });
+      } else {
+        this.setSession("ready", "identity_recovered", null);
+      }
+    } catch (error) {
+      const mapped = collaborationErrorFromUnknown(error);
+      this.setSession("error", "identity_recover_failed", {
+        code: mapped.code,
+        message: mapped.message
+      });
+      throw mapped;
+    }
+    return this.publishStatus();
+  }
+
+  async confirmIdentityMerge(input: unknown): Promise<CollaborationStatus> {
+    assertNoSmuggledCollaborationSecrets(input, "confirmCollaborationIdentityMerge");
+    const parsed = collaborationConfirmIdentityMergeInputSchema.parse(input);
+    try {
+      await this.connection.confirmIdentityMerge(parsed);
+      this.setSession("ready", "identity_merged", null);
+    } catch (error) {
+      const mapped = collaborationErrorFromUnknown(error);
+      this.setSession("error", "identity_merge_failed", {
+        code: mapped.code,
+        message: mapped.message
+      });
+      throw mapped;
+    }
+    return this.publishStatus();
   }
 
   async redeemSetupCode(input: unknown): Promise<CollaborationStatus> {

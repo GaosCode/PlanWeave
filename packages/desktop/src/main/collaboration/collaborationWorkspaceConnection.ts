@@ -23,14 +23,16 @@ import {
   collaborationErrorFromUnknown
 } from "./collaborationErrors.js";
 import {
+  collaborationIdentityRepairViewSchema,
   rememberedServerConnectionViewSchema,
+  type CollaborationIdentityRepairView,
   type RememberedServerConnectionView
 } from "../../shared/collaboration.js";
+import { CollaborationIdentityCredentialClient } from "./collaborationIdentityCredentialClient.js";
 import { CollaborationWorkspaceClient } from "./CollaborationWorkspaceClient.js";
 import { redactCollaborationText } from "./redaction.js";
 import {
-  IdentitySelectionError,
-  selectExistingIdentityProof,
+  diagnoseOriginIdentity,
   type OriginCredentialCandidate
 } from "./existingIdentitySelection.js";
 import { inferPersistedRemoteProfileId } from "./persistedServerConnectionPreference.js";
@@ -58,8 +60,16 @@ export type CollaborationWorkspaceConnectionOptions = {
   onChange?: () => void;
 };
 
+const IDENTITY_RENEW_BEFORE_MS = 7 * 24 * 60 * 60 * 1_000;
+
 function nowIso(clock?: { now(): Date }): string {
   return (clock?.now() ?? new Date()).toISOString();
+}
+
+function needsIdentityRenewal(expiresAt: string | null, now: Date): boolean {
+  if (expiresAt === null) return false;
+  const expires = Date.parse(expiresAt);
+  return Number.isFinite(expires) && expires - now.getTime() <= IDENTITY_RENEW_BEFORE_MS;
 }
 
 function localOnlyView(): ActiveWorkspaceConnectionView {
@@ -145,6 +155,7 @@ export class CollaborationWorkspaceConnection {
   private error: ActiveWorkspaceConnectionError | null = null;
   private workspaceDisplayName: string | null = null;
   private lastAuthoritativePicker: WorkspacePickerPage = emptyWorkspacePickerPage();
+  private identityRepair: CollaborationIdentityRepairView | null = null;
 
   constructor(options: CollaborationWorkspaceConnectionOptions) {
     this.store =
@@ -395,6 +406,7 @@ export class CollaborationWorkspaceConnection {
         deviceCredentialId: metadata?.deviceCredentialId,
         identityCredentialId: metadata?.identityCredentialId,
         humanPrincipalId: metadata?.humanPrincipalId,
+        identityExpiresAt: metadata?.identityExpiresAt ?? null,
         ...(identityToken ? { identityToken } : {})
       });
     }
@@ -503,6 +515,7 @@ export class CollaborationWorkspaceConnection {
       deviceCredentialId: metadata?.deviceCredentialId,
       identityCredentialId: metadata?.identityCredentialId,
       humanPrincipalId: metadata?.humanPrincipalId,
+      identityExpiresAt: metadata?.identityExpiresAt ?? null,
       ...(identityToken ? { identityToken } : {})
     });
     await this.snapshotWorkspaceCredential(localProfile);
@@ -513,11 +526,21 @@ export class CollaborationWorkspaceConnection {
     return true;
   }
 
-  private async existingIdentityProofForOrigin(
-    serverBaseUrl: string
-  ): Promise<
-    { existingIdentityToken: string } | { existingDeviceToken: string } | Record<string, never>
-  > {
+  identityRepairView(): CollaborationIdentityRepairView | null {
+    return this.identityRepair;
+  }
+
+  private identityClient(origin: {
+    serverBaseUrl: string;
+    allowInsecureTransport: boolean;
+  }): CollaborationIdentityCredentialClient {
+    return new CollaborationIdentityCredentialClient({
+      origin,
+      request: this.request
+    });
+  }
+
+  private async collectOriginCandidates(): Promise<OriginCredentialCandidate[]> {
     const candidates: OriginCredentialCandidate[] = [];
     for (const profile of await this.store.list()) {
       let profileOrigin: string;
@@ -537,13 +560,72 @@ export class CollaborationWorkspaceConnection {
         humanPrincipalId: metadata?.humanPrincipalId ?? null,
         ...(deviceToken ? { deviceToken } : {}),
         ...(identityToken ? { identityToken } : {}),
+        identityExpiresAt: metadata?.identityExpiresAt ?? null,
         updatedAt: metadata?.updatedAt ?? "1970-01-01T00:00:00.000Z"
       });
     }
-    const proof = selectExistingIdentityProof(candidates, serverBaseUrl);
-    if (!proof) return {};
-    if (proof.kind === "identity") return { existingIdentityToken: proof.token };
-    return { existingDeviceToken: proof.token };
+    return candidates;
+  }
+
+  private rememberRepair(
+    serverBaseUrl: string,
+    principals: CollaborationIdentityRepairView["principals"]
+  ): CollaborationIdentityRepairView {
+    const repair = collaborationIdentityRepairViewSchema.parse({
+      required: true,
+      origin: new URL(serverBaseUrl).origin,
+      principals
+    });
+    this.identityRepair = repair;
+    return repair;
+  }
+
+  private async existingIdentityProofForOrigin(
+    serverBaseUrl: string,
+    allowInsecureTransport: boolean
+  ): Promise<
+    { existingIdentityToken: string } | { existingDeviceToken: string } | Record<string, never>
+  > {
+    const now = this.clock?.now() ?? new Date();
+    const diagnosed = diagnoseOriginIdentity(
+      await this.collectOriginCandidates(),
+      serverBaseUrl,
+      now
+    );
+    if (diagnosed.kind === "none") {
+      this.identityRepair = null;
+      return {};
+    }
+    if (diagnosed.kind === "repair_required") {
+      this.rememberRepair(serverBaseUrl, diagnosed.principals);
+      throw new CollaborationClientError({
+        kind: "protocol",
+        code: "identity_repair_required",
+        message: "Multiple Human Principals exist for this server; identity repair is required.",
+        retryable: false
+      });
+    }
+    this.identityRepair = null;
+    if (diagnosed.kind === "device_recovery") {
+      return { existingDeviceToken: diagnosed.token };
+    }
+    if (needsIdentityRenewal(diagnosed.expiresAt, now)) {
+      const renewed = await this.identityClient({
+        serverBaseUrl,
+        allowInsecureTransport
+      }).renew(diagnosed.token);
+      const deviceToken = await this.vault.getDeviceToken(diagnosed.profileId);
+      if (deviceToken) {
+        await this.vault.setDeviceToken(diagnosed.profileId, deviceToken, {
+          humanPrincipalId: renewed.humanPrincipalId,
+          identityToken: renewed.identityToken,
+          identityCredentialId: renewed.identityCredentialId,
+          identityExpiresAt: renewed.identityExpiresAt
+        });
+      }
+      return { existingIdentityToken: renewed.identityToken };
+    }
+    return { existingIdentityToken: diagnosed.token };
   }
 
   /**
@@ -567,7 +649,10 @@ export class CollaborationWorkspaceConnection {
         },
         request: this.request
       });
-      const existingProof = await this.existingIdentityProofForOrigin(input.serverBaseUrl);
+      const existingProof = await this.existingIdentityProofForOrigin(
+        input.serverBaseUrl,
+        input.allowInsecureTransport
+      );
       const response = await client.redeemDevice({
         schemaVersion: "workspace-setup/v1",
         purpose: "device_session",
@@ -587,30 +672,26 @@ export class CollaborationWorkspaceConnection {
         deviceCredentialId: response.deviceSessionId,
         humanPrincipalId: response.humanPrincipalId,
         identityToken: response.identityToken,
-        identityCredentialId: response.identityCredentialId
+        identityCredentialId: response.identityCredentialId,
+        identityExpiresAt: response.identityExpiresAt
       });
+      this.identityRepair = null;
       await this.store.setActiveProfileId(stored.profileId);
       this.activeProfileId = stored.profileId;
       this.workspaceDisplayName = response.workspaceDisplayName;
       return await this.connectActiveProfile();
     } catch (error) {
-      if (error instanceof IdentitySelectionError) {
-        const mapped = new CollaborationClientError({
-          kind: "protocol",
-          code: error.code,
-          message: "Multiple Human Principals exist for this server; identity repair is required.",
-          retryable: false
-        });
+      const setupError = collaborationErrorFromUnknown(error);
+      if (setupError.code === "identity_repair_required") {
         this.status = "error";
         this.error = {
-          code: mapped.code,
-          message: setupCodeFailureMessage(mapped),
+          code: setupError.code,
+          message: setupCodeFailureMessage(setupError),
           retryable: false
         };
         this.onChange?.();
-        throw mapped;
+        throw setupError;
       }
-      const setupError = collaborationErrorFromUnknown(error);
       const mapped = setupError.code.startsWith("setup_code_")
         ? setupError
         : collaborationConnectionErrorFromUnknown(setupError);
@@ -623,6 +704,125 @@ export class CollaborationWorkspaceConnection {
       this.onChange?.();
       throw mapped;
     }
+  }
+
+  async recoverHistoricalIdentities(input: {
+    serverBaseUrl: string;
+    allowInsecureTransport: boolean;
+  }): Promise<CollaborationIdentityRepairView | null> {
+    const client = this.identityClient(input);
+    const origin = new URL(input.serverBaseUrl).origin;
+    for (const candidate of await this.collectOriginCandidates()) {
+      if (candidate.origin !== origin) continue;
+      if (candidate.deviceToken === undefined) continue;
+      if (candidate.identityToken !== undefined && candidate.humanPrincipalId !== null) continue;
+      const recovered = await client.recover(candidate.deviceToken);
+      const deviceToken = candidate.deviceToken;
+      await this.vault.setDeviceToken(candidate.profileId, deviceToken, {
+        humanPrincipalId: recovered.humanPrincipalId,
+        identityToken: recovered.identityToken,
+        identityCredentialId: recovered.identityCredentialId,
+        identityExpiresAt: recovered.identityExpiresAt
+      });
+    }
+    const diagnosed = diagnoseOriginIdentity(
+      await this.collectOriginCandidates(),
+      input.serverBaseUrl,
+      this.clock?.now() ?? new Date()
+    );
+    if (diagnosed.kind !== "repair_required") {
+      this.identityRepair = null;
+      this.error = null;
+      this.onChange?.();
+      return null;
+    }
+    const repair = this.rememberRepair(input.serverBaseUrl, diagnosed.principals);
+    this.status = "error";
+    this.error = {
+      code: "identity_repair_required",
+      message: "Multiple Human Principals exist for this server; identity repair is required.",
+      retryable: false
+    };
+    this.onChange?.();
+    return repair;
+  }
+
+  async confirmIdentityMerge(input: {
+    serverBaseUrl: string;
+    allowInsecureTransport: boolean;
+    sourceHumanPrincipalId: string;
+    canonicalHumanPrincipalId: string;
+    confirmation: "merge";
+  }): Promise<void> {
+    if (input.confirmation !== "merge") {
+      throw new CollaborationClientError({
+        kind: "protocol",
+        code: "identity_merge_unconfirmed",
+        message: "Identity merge requires an explicit confirmation.",
+        retryable: false
+      });
+    }
+    if (input.sourceHumanPrincipalId === input.canonicalHumanPrincipalId) {
+      throw new CollaborationClientError({
+        kind: "protocol",
+        code: "identity_merge_same_principal",
+        message: "Identity merge requires two different principals.",
+        retryable: false
+      });
+    }
+    const client = this.identityClient(input);
+    const origin = new URL(input.serverBaseUrl).origin;
+    const candidates = (await this.collectOriginCandidates()).filter(
+      (candidate) => candidate.origin === origin
+    );
+    const sourceToken = await this.requireIdentityToken(
+      client,
+      candidates,
+      input.sourceHumanPrincipalId
+    );
+    const canonicalToken = await this.requireIdentityToken(
+      client,
+      candidates,
+      input.canonicalHumanPrincipalId
+    );
+    await client.merge(sourceToken, canonicalToken);
+    for (const candidate of candidates) {
+      if (candidate.humanPrincipalId !== input.sourceHumanPrincipalId) continue;
+      if (!candidate.deviceToken) continue;
+      await this.vault.setDeviceToken(candidate.profileId, candidate.deviceToken, {
+        humanPrincipalId: input.canonicalHumanPrincipalId
+      });
+    }
+    this.identityRepair = null;
+    this.error = null;
+    this.onChange?.();
+  }
+
+  private async requireIdentityToken(
+    client: CollaborationIdentityCredentialClient,
+    candidates: OriginCredentialCandidate[],
+    humanPrincipalId: string
+  ): Promise<string> {
+    const match = candidates
+      .filter((candidate) => candidate.humanPrincipalId === humanPrincipalId)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+    if (match?.identityToken) return match.identityToken;
+    if (match?.deviceToken) {
+      const recovered = await client.recover(match.deviceToken);
+      await this.vault.setDeviceToken(match.profileId, match.deviceToken, {
+        humanPrincipalId: recovered.humanPrincipalId,
+        identityToken: recovered.identityToken,
+        identityCredentialId: recovered.identityCredentialId,
+        identityExpiresAt: recovered.identityExpiresAt
+      });
+      return recovered.identityToken;
+    }
+    throw new CollaborationClientError({
+      kind: "protocol",
+      code: "identity_merge_unproven",
+      message: "Each principal must present a recoverable identity proof.",
+      retryable: false
+    });
   }
 
   /**

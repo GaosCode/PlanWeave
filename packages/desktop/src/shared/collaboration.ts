@@ -227,6 +227,51 @@ export type CollaborationSessionView = {
   lastErrorMessage: string | null;
 };
 
+export const collaborationIdentityRepairPrincipalSchema = z
+  .object({
+    humanPrincipalId: z.string().trim().min(1).max(128).nullable(),
+    profileIds: z.array(z.string().trim().min(1).max(128)).min(1).max(32),
+    hasIdentityToken: z.boolean(),
+    hasDeviceToken: z.boolean(),
+    identityExpiresAt: z.string().datetime().nullable()
+  })
+  .strict();
+export type CollaborationIdentityRepairPrincipal = z.infer<
+  typeof collaborationIdentityRepairPrincipalSchema
+>;
+
+export const collaborationIdentityRepairViewSchema = z
+  .object({
+    required: z.literal(true),
+    origin: z.string().url(),
+    principals: z.array(collaborationIdentityRepairPrincipalSchema).min(1).max(32)
+  })
+  .strict();
+export type CollaborationIdentityRepairView = z.infer<typeof collaborationIdentityRepairViewSchema>;
+
+export const collaborationRecoverIdentitiesInputSchema = z
+  .object({
+    serverBaseUrl: z.string().url(),
+    allowInsecureTransport: z.boolean()
+  })
+  .strict();
+export type CollaborationRecoverIdentitiesInput = z.infer<
+  typeof collaborationRecoverIdentitiesInputSchema
+>;
+
+export const collaborationConfirmIdentityMergeInputSchema = z
+  .object({
+    serverBaseUrl: z.string().url(),
+    allowInsecureTransport: z.boolean(),
+    sourceHumanPrincipalId: z.string().trim().min(1).max(128),
+    canonicalHumanPrincipalId: z.string().trim().min(1).max(128),
+    confirmation: z.literal("merge")
+  })
+  .strict();
+export type CollaborationConfirmIdentityMergeInput = z.infer<
+  typeof collaborationConfirmIdentityMergeInputSchema
+>;
+
 export type CollaborationStatus = {
   profiles: CollaborationProfileView[];
   activeProfileId: string | null;
@@ -245,6 +290,11 @@ export type CollaborationStatus = {
   workspaceConnection: ActiveWorkspaceConnectionView;
   /** Redacted Workspace picker rows last authenticated by the connected Server. */
   workspacePicker: WorkspacePickerPage;
+  /**
+   * Split-principal repair state. Tokens stay in main; renderer only sees ids
+   * and whether each historical identity has recoverable proofs.
+   */
+  identityRepair?: CollaborationIdentityRepairView | null;
   updatedAt: string;
 };
 
@@ -759,6 +809,12 @@ export type PlanWeaveCollaborationApi = WorkspaceCanvasSharingApi & {
    */
   redeemCollaborationSetupCode: (
     input: CollaborationRedeemSetupCodeInput
+  ) => Promise<CollaborationStatus>;
+  recoverCollaborationIdentities: (
+    input: CollaborationRecoverIdentitiesInput
+  ) => Promise<CollaborationStatus>;
+  confirmCollaborationIdentityMerge: (
+    input: CollaborationConfirmIdentityMergeInput
   ) => Promise<CollaborationStatus>;
   connectExistingServerByOrigin: (
     input: CollaborationConnectExistingServerByOriginInput

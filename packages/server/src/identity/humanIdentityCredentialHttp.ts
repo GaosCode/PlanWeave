@@ -1,5 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import {
+  humanIdentityRecoverRequestSchema,
+  humanIdentityRecoverResponseSchema,
   humanIdentityRenewRequestSchema,
   humanIdentityRenewResponseSchema,
   humanIdentityRevokeRequestSchema,
@@ -21,10 +23,11 @@ const MAX_IDENTITY_BODY_BYTES = 16_384;
 
 export type HumanIdentityCredentialHttpOptions = {
   store: HumanIdentityCredentialStore;
+  lookupDevicePrincipal: (deviceToken: string) => string | undefined;
   transportAdmission: TransportAdmissionPolicy;
 };
 
-type IdentityCredentialRoute = "renew" | "revoke" | "merge";
+type IdentityCredentialRoute = "renew" | "revoke" | "merge" | "recover";
 
 function transportAllowed(
   socket: { encrypted?: boolean; remoteAddress?: string },
@@ -48,6 +51,7 @@ function route(request: IncomingMessage, pathname: string): IdentityCredentialRo
   if (pathname === "/api/v1/human-identity/renew") return "renew";
   if (pathname === "/api/v1/human-identity/revoke") return "revoke";
   if (pathname === "/api/v1/human-identity/merge") return "merge";
+  if (pathname === "/api/v1/human-identity/recover") return "recover";
   return undefined;
 }
 
@@ -142,6 +146,26 @@ export async function handleHumanIdentityCredentialHttpRequest(
           humanPrincipalId: revoked.humanPrincipalId,
           identityCredentialId: revoked.identityCredentialId,
           revokedAt: revoked.revokedAt
+        })
+      );
+      return true;
+    }
+    if (matched === "recover") {
+      const parsed = humanIdentityRecoverRequestSchema.parse(body);
+      const humanPrincipalId = options.lookupDevicePrincipal(parsed.existingDeviceToken);
+      if (!humanPrincipalId) {
+        throw new HumanIdentityCredentialError("identity_credential_invalid");
+      }
+      const issued = options.store.issue(humanPrincipalId);
+      respond(
+        response,
+        200,
+        humanIdentityRecoverResponseSchema.parse({
+          schemaVersion: "human-identity/v1",
+          humanPrincipalId: issued.record.humanPrincipalId,
+          identityCredentialId: issued.record.identityCredentialId,
+          identityToken: issued.identityToken,
+          identityExpiresAt: issued.record.expiresAt
         })
       );
       return true;

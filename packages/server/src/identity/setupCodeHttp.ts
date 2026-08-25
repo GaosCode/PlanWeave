@@ -3,6 +3,7 @@ import { opaqueIdentifierSchema } from "@planweave-ai/collaboration-protocol/cor
 import { setupCodeIssueRequestSchema } from "@planweave-ai/collaboration-protocol/setup";
 import { z } from "zod";
 import { OperatorTokenRegistry, type OperatorPrincipal } from "../operatorAuth.js";
+import { HumanIdentityCredentialError } from "./humanIdentityCredentialStore.js";
 import { SetupCodeError, SetupCodeService } from "./setupCodeService.js";
 import {
   humanNetworkTransportAllowed,
@@ -110,6 +111,12 @@ function query(url: URL, allowed: readonly string[]): Record<string, string | un
 
 function mapError(error: unknown): { status: number; code: string } {
   if (error instanceof z.ZodError) return { status: 400, code: "setup_code_malformed" };
+  if (error instanceof HumanIdentityCredentialError) {
+    if (error.code === "identity_limit_exceeded") {
+      return { status: 429, code: error.code };
+    }
+    return { status: 403, code: error.code };
+  }
   if (error instanceof SetupCodeError) {
     switch (error.code) {
       case "setup_code_expired":

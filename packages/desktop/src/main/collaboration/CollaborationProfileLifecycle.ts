@@ -20,7 +20,11 @@ import {
 } from "../../shared/collaboration.js";
 import type { CollaborationClient } from "./CollaborationClient.js";
 import type { CollaborationCredentialVault } from "./collaborationCredentialVault.js";
-import { collaborationConnectionErrorFromUnknown } from "./collaborationErrors.js";
+import {
+  CollaborationClientError,
+  collaborationConnectionErrorFromUnknown
+} from "./collaborationErrors.js";
+import { CollaborationIdentityCredentialClient } from "./collaborationIdentityCredentialClient.js";
 import type { CollaborationInvitationVault } from "./collaborationInvitationVault.js";
 import type { CollaborationProfileStore } from "./collaborationProfileStore.js";
 
@@ -197,6 +201,22 @@ export class CollaborationProfileLifecycle {
         await this.dependencies.disposeClient("logout");
       } else {
         this.dependencies.clearRememberedObserverCursor(profileId);
+      }
+      const [profile, identityToken] = await Promise.all([
+        this.dependencies.profiles.get(profileId),
+        this.dependencies.vault.getIdentityToken(profileId)
+      ]);
+      if (profile && identityToken) {
+        try {
+          await new CollaborationIdentityCredentialClient({
+            origin: {
+              serverBaseUrl: profile.serverBaseUrl,
+              allowInsecureTransport: profile.allowInsecureTransport
+            }
+          }).revoke(identityToken, "device_credential_cleared");
+        } catch (error) {
+          if (!(error instanceof CollaborationClientError)) throw error;
+        }
       }
       await this.dependencies.vault.clear(profileId);
       return this.dependencies.publishStatus();

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  humanIdentityRecoverRequestSchema,
   humanIdentityRenewRequestSchema,
   humanIdentityRevokeRequestSchema,
   humanPrincipalMergeRequestSchema
@@ -27,6 +28,15 @@ describe("human identity credential contracts", () => {
         reason: "lost device"
       }).reason
     ).toBe("lost device");
+  });
+
+  it("recovers an identity credential from a device token", () => {
+    expect(
+      humanIdentityRecoverRequestSchema.parse({
+        schemaVersion: "human-identity/v1",
+        existingDeviceToken: "pw_hdev_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }).existingDeviceToken
+    ).toMatch(/^pw_hdev_/);
   });
 
   it("rejects merge when both proofs are the same token", () => {

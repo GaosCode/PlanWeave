@@ -138,7 +138,7 @@ function exists(database: SqliteDatabase, sql: string, ...values: unknown[]): bo
 
 export class RemoteAgentRepository {
   constructor(
-    private readonly database: SqliteDatabase,
+    readonly database: SqliteDatabase,
     private readonly clock: () => Date = () => new Date()
   ) {}
 
@@ -162,14 +162,20 @@ export class RemoteAgentRepository {
   }
 
   listByOwnerHumanPrincipalId(ownerHumanPrincipalId: string): RemoteAgentRecord[] {
-    const parsed = humanPrincipalIdSchema.parse(ownerHumanPrincipalId);
+    return this.listByOwnerHumanPrincipalIds([ownerHumanPrincipalId]);
+  }
+
+  listByOwnerHumanPrincipalIds(ownerHumanPrincipalIds: readonly string[]): RemoteAgentRecord[] {
+    const parsed = ownerHumanPrincipalIds.map((id) => humanPrincipalIdSchema.parse(id));
+    if (parsed.length === 0) return [];
+    const placeholders = parsed.map(() => "?").join(",");
     return this.database
       .prepare(
         `SELECT * FROM remote_agents
-         WHERE owner_human_principal_id=? AND ownership_repair_required=0
+         WHERE owner_human_principal_id IN (${placeholders}) AND ownership_repair_required=0
          ORDER BY display_name, endpoint_id`
       )
-      .all(parsed)
+      .all(...parsed)
       .map(mapAgentRow);
   }
 

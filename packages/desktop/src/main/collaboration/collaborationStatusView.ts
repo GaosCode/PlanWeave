@@ -121,6 +121,7 @@ export async function buildCollaborationStatus(
     },
     workspaceConnection: await options.workspaceConnection.buildView(),
     workspacePicker: options.workspaceConnection.buildCachedPickerPage(),
+    identityRepair: options.workspaceConnection.identityRepairView(),
     updatedAt: (options.clock?.now() ?? new Date()).toISOString()
   };
 }

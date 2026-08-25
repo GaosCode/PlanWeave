@@ -639,7 +639,7 @@ export class SetupCodeService {
     return humanPrincipalId;
   }
 
-  private lookupExistingHumanPrincipal(deviceToken: string): string | undefined {
+  lookupExistingHumanPrincipal(deviceToken: string): string | undefined {
     const workspaceSession = this.workspaceIdentity.authenticateWorkspaceDeviceSession(deviceToken);
     if (workspaceSession) return workspaceSession.humanPrincipalId;
     const device = new DeviceCredentialStore(this.database, this.clock).findDeviceByToken(

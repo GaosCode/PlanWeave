@@ -202,6 +202,7 @@ export {
   HumanIdentityCredentialStore,
   type HumanIdentityCredentialRecord
 } from "./humanIdentityCredentialStore.js";
+export { HumanPrincipalIdentity } from "./humanPrincipalIdentity.js";
 export {
   handleHumanIdentityCredentialHttpRequest,
   type HumanIdentityCredentialHttpOptions
