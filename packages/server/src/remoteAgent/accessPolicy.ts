@@ -8,6 +8,7 @@ import { z } from "zod";
 import { AgentEndpointCatalog, type ResolvedAgentEndpoint } from "../agentEndpointCatalog.js";
 import { activeWorkspacePrincipal } from "../projectRegistryRepository.js";
 import type { SqliteDatabase } from "../sqlite.js";
+import { controlPlaneForTarget } from "./dispatchTarget.js";
 import { RemoteAgentAuthorizationError } from "./errors.js";
 import { RemoteAgentRepository } from "./repository.js";
 import {
@@ -74,8 +75,8 @@ function runtimeAuthorityFor(target: RemoteAgentUseTarget): RuntimeAuthority {
     : { kind: "workspace_canvas", workspaceId: target.workspaceId };
 }
 
-function controlPlaneFor(target: RemoteAgentUseTarget): "collaboration" | "owner" {
-  return target.kind === "owner_canvas" ? "owner" : "collaboration";
+function mappingWorkspaceId(target: RemoteAgentUseTarget, runtimeWorkspaceId: string): string {
+  return target.kind === "workspace_canvas" ? target.workspaceId : runtimeWorkspaceId;
 }
 
 export class RemoteAgentAccessPolicy {
@@ -122,7 +123,7 @@ export class RemoteAgentAccessPolicy {
       blockRef: input.blockRef,
       expectedResponsibilityRevision: input.expectedResponsibilityRevision,
       expectedReviewerRevision: input.expectedReviewerRevision,
-      controlPlane: controlPlaneFor(input.target)
+      controlPlane: controlPlaneForTarget(input.target)
     });
     const resolved = this.resolveAvailability(input, access.agent);
     return authorizedRemoteAgentUseSchema.parse({
@@ -228,9 +229,9 @@ export class RemoteAgentAccessPolicy {
   ): ResolvedAgentEndpoint {
     const resolved = this.options.catalog.resolveForRun(
       input.endpointId,
-      input.runtimeWorkspaceId,
+      mappingWorkspaceId(input.target, input.runtimeWorkspaceId),
       input.requiredCapabilities,
-      controlPlaneFor(input.target)
+      input.target.kind
     );
     if (
       resolved.endpointId !== agent.endpointId ||

@@ -15,13 +15,14 @@ import type { AgentHost } from "./hosts.js";
 
 /**
  * Server-scoped Host fleet inventory for Agent Endpoint catalog projection.
- * `listActiveHosts` is the primary source; `listExclusivelyBoundToWorkspace`
- * remains for legacy `listVisible(workspaceId)` filtering during compat.
+ * Exclusive workspace bindings are not an Agent grant or execution-catalog filter.
  */
 export interface AgentEndpointHostPort {
   listActiveHosts(limit: number, offset: number): AgentHost[];
-  listExclusivelyBoundToWorkspace(workspaceId: string): AgentHost[];
 }
+
+/** Runtime availability overlay. Not an Agent class or grant switch. */
+export type AgentEndpointRuntimeScope = "owner_canvas" | "workspace_canvas";
 
 export interface AgentEndpointCapacityPort {
   activeCountsForHosts(hostIds: readonly string[]): ReadonlyMap<string, number>;
@@ -87,7 +88,7 @@ export function endpointIdFor(input: {
   return hashEndpointId([input.hostId, input.profileId, input.agentId]);
 }
 
-/** Legacy workspace-scoped endpoint identity for compat dual-read. */
+/** Retired workspace-scoped endpoint identity. Not used for dispatch resolve. */
 export function legacyEndpointIdFor(input: {
   workspaceId: string;
   hostId: string;
@@ -157,9 +158,9 @@ export class AgentEndpointCatalog {
   }
 
   /**
-   * Server-scoped fleet catalog. Primary listing API for Owner Fleet.
-   * Hosts remain visible when collaboration workspace mappings are absent;
-   * offline and profile validity still apply. Collaboration Host capacity does not.
+   * Server-scoped fleet catalog for owner-canvas availability.
+   * Hosts remain visible when workspace mappings are absent; offline and
+   * profile validity still apply. Workspace Host capacity does not.
    */
   listVisibleFleet(): RemoteAgentEndpointList {
     const items = this.currentFleetCandidates(false).map((candidate) => candidate.endpoint);
@@ -170,39 +171,33 @@ export class AgentEndpointCatalog {
   }
 
   /**
-   * Legacy workspace-scoped listing for project HTTP compat.
-   * Filters the fleet to Hosts exclusively bound to `workspaceId` after read
-   * cutover, and applies workspace mapping availability rules.
+   * Workspace-canvas availability overlay of the fleet.
+   * Mapping and collaboration capacity apply; exclusive bind does not filter.
    */
   listVisible(workspaceIdInput: string): RemoteAgentEndpointList {
     const workspaceId = workspaceIdSchema.parse(workspaceIdInput);
-    const boundHostIds = new Set(
-      this.options.hosts.listExclusivelyBoundToWorkspace(workspaceId).map((host) => host.id)
-    );
     const snapshot = this.currentFleetSnapshot(false);
     const now = this.clock();
-    const items = snapshot.candidates
-      .filter((candidate) => boundHostIds.has(candidate.host.id))
-      .map((candidate) => {
-        const reason = unavailableReason(
-          candidate.host,
-          workspaceId,
-          candidate.profile,
-          snapshot.activeCounts.get(candidate.host.id) ?? 0,
-          now,
-          this.options.hostOfflineAfterMs,
-          this.profileIdentityCount(candidate.host, candidate.profile) !== 1,
-          "workspace",
-          true
-        );
-        const endpoint = remoteAgentEndpointSchema.parse({
-          ...candidate.endpoint,
-          status: reason === undefined ? "available" : "unavailable",
-          ...(reason === undefined ? {} : { unavailableReason: reason })
-        });
-        assertRemoteAgentEndpointRedacted(endpoint);
-        return endpoint;
+    const items = snapshot.candidates.map((candidate) => {
+      const reason = unavailableReason(
+        candidate.host,
+        workspaceId,
+        candidate.profile,
+        snapshot.activeCounts.get(candidate.host.id) ?? 0,
+        now,
+        this.options.hostOfflineAfterMs,
+        this.profileIdentityCount(candidate.host, candidate.profile) !== 1,
+        "workspace",
+        true
+      );
+      const endpoint = remoteAgentEndpointSchema.parse({
+        ...candidate.endpoint,
+        status: reason === undefined ? "available" : "unavailable",
+        ...(reason === undefined ? {} : { unavailableReason: reason })
       });
+      assertRemoteAgentEndpointRedacted(endpoint);
+      return endpoint;
+    });
     return remoteAgentEndpointListSchema.parse({
       schemaVersion: "agent-endpoint-list/v1",
       items
@@ -213,14 +208,14 @@ export class AgentEndpointCatalog {
     endpointIdInput: string,
     workspaceIdInput: string,
     requiredCapabilitiesInput: readonly string[],
-    controlPlane: "collaboration" | "owner"
+    runtimeScope: AgentEndpointRuntimeScope
   ): ResolvedAgentEndpoint {
     const endpointId = opaqueIdentifierSchema.parse(endpointIdInput);
     const workspaceId = workspaceIdSchema.parse(workspaceIdInput);
     const requiredCapabilities = agentEndpointCapabilitiesSchema.parse(requiredCapabilitiesInput);
-    const candidate = this.findCandidateForResolve(endpointId, workspaceId);
+    const candidate = this.findCandidateForResolve(endpointId);
     if (!candidate) throw new AgentEndpointCatalogError("agent_endpoint_unknown");
-    if (this.unavailableReasonForResolve(candidate, workspaceId, controlPlane) !== undefined) {
+    if (this.unavailableReasonForResolve(candidate, workspaceId, runtimeScope) !== undefined) {
       throw new AgentEndpointCatalogError("agent_endpoint_unavailable");
     }
     if (
@@ -240,17 +235,17 @@ export class AgentEndpointCatalog {
     workspaceIdInput: string,
     requiredCapabilitiesInput: readonly string[],
     expectedHostIdInput: string,
-    controlPlane: "collaboration" | "owner"
+    runtimeScope: AgentEndpointRuntimeScope
   ): ResolvedAgentEndpoint {
     const endpointId = opaqueIdentifierSchema.parse(endpointIdInput);
     const workspaceId = workspaceIdSchema.parse(workspaceIdInput);
     const expectedHostId = opaqueIdentifierSchema.parse(expectedHostIdInput);
     const requiredCapabilities = agentEndpointCapabilitiesSchema.parse(requiredCapabilitiesInput);
-    const candidate = this.findCandidateForResolve(endpointId, workspaceId);
+    const candidate = this.findCandidateForResolve(endpointId);
     if (!candidate || candidate.host.id !== expectedHostId) {
       throw new AgentEndpointCatalogError("agent_endpoint_unknown");
     }
-    const reason = this.unavailableReasonForResolve(candidate, workspaceId, controlPlane);
+    const reason = this.unavailableReasonForResolve(candidate, workspaceId, runtimeScope);
     if (reason !== undefined && reason !== "at_capacity") {
       throw new AgentEndpointCatalogError("agent_endpoint_unavailable");
     }
@@ -269,17 +264,9 @@ export class AgentEndpointCatalog {
   private unavailableReasonForResolve(
     candidate: InternalCandidate,
     workspaceId: string,
-    controlPlane: "collaboration" | "owner"
+    runtimeScope: AgentEndpointRuntimeScope
   ): AgentEndpointUnavailableReason | undefined {
-    const boundHostIds = new Set(
-      this.options.hosts.listExclusivelyBoundToWorkspace(workspaceId).map((host) => host.id)
-    );
-    const scope: CandidateScope =
-      controlPlane === "owner"
-        ? "fleet"
-        : boundHostIds.has(candidate.host.id)
-          ? "workspace"
-          : "fleet";
+    const scope: CandidateScope = runtimeScope === "owner_canvas" ? "fleet" : "workspace";
     return unavailableReason(
       candidate.host,
       scope === "workspace" ? workspaceId : undefined,
@@ -289,25 +276,13 @@ export class AgentEndpointCatalog {
       this.options.hostOfflineAfterMs,
       this.profileIdentityCount(candidate.host, candidate.profile) !== 1,
       scope,
-      controlPlane === "collaboration"
+      runtimeScope === "workspace_canvas"
     );
   }
 
-  private findCandidateForResolve(
-    endpointId: string,
-    workspaceId: string
-  ): InternalCandidate | undefined {
-    const fleetCandidates = this.currentFleetCandidates(false);
-    const byNewId = fleetCandidates.find((current) => current.endpoint.endpointId === endpointId);
-    if (byNewId) return byNewId;
-    return fleetCandidates.find(
-      (current) =>
-        legacyEndpointIdFor({
-          workspaceId,
-          hostId: current.host.id,
-          profileId: current.profile.profileId,
-          agentId: current.profile.agentId
-        }) === endpointId
+  private findCandidateForResolve(endpointId: string): InternalCandidate | undefined {
+    return this.currentFleetCandidates(false).find(
+      (current) => current.endpoint.endpointId === endpointId
     );
   }
 

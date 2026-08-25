@@ -402,9 +402,8 @@ export class AgentHostRepository {
   }
 
   /**
-   * Read authoritative Host rows for Hosts bound to exactly one workspace.
-   * The workspace projection is used only as an identity binding; liveness and
-   * readiness always come from the canonical agent_hosts row.
+   * Read Hosts bound to exactly one workspace.
+   * Enrollment/runtime mapping projection only — not Agent grant or catalog access.
    */
   listExclusivelyBoundToWorkspace(workspaceId: string): AgentHost[] {
     if (!this.workspaceIdentity.hasCompletedReadCutover(workspaceId)) return [];

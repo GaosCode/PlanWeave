@@ -6,9 +6,9 @@ export function dispatchTarget(request: {
   projectId: string;
   canvasId: string;
   workspaceId: string;
-  controlPlane?: "collaboration" | "owner";
+  targetKind: RemoteAgentUseTarget["kind"];
 }): RemoteAgentUseTarget {
-  if (request.controlPlane === "owner") {
+  if (request.targetKind === "owner_canvas") {
     return {
       kind: "owner_canvas",
       projectId: request.projectId,
@@ -23,6 +23,7 @@ export function dispatchTarget(request: {
   };
 }
 
+/** Adapter for Host/runtime ports that still speak owner|collaboration. */
 export function controlPlaneForTarget(target: RemoteAgentUseTarget): "collaboration" | "owner" {
   return target.kind === "owner_canvas" ? "owner" : "collaboration";
 }

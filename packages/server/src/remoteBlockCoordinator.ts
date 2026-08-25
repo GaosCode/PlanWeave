@@ -59,11 +59,7 @@ import {
   type AuthorizedRemoteAgentUse,
   type PersistedRemoteAgentAccessSnapshot
 } from "./remoteAgent/schema.js";
-import {
-  controlPlaneForTarget,
-  dispatchTarget,
-  retryTarget
-} from "./remoteAgent/dispatchTarget.js";
+import { dispatchTarget, retryTarget } from "./remoteAgent/dispatchTarget.js";
 import { classifyReenterFailure, diagnosticFromReenterFailure } from "./remoteReenterRecovery.js";
 import { RemoteBlockWritebackCoordinator } from "./remoteBlockWritebackCoordinator.js";
 
@@ -73,8 +69,8 @@ export type RemoteEndpointDispatchRequest = RemoteRuntimeLocator & {
   agentEndpointId: string;
   expectedResponsibilityRevision: number;
   expectedReviewerRevision: number;
-  /** Runtime canvas kind. Not an Agent access switch. */
-  controlPlane?: "collaboration" | "owner";
+  /** Canvas locator kind. Not an Agent class or grant switch. */
+  targetKind: "owner_canvas" | "workspace_canvas";
   /** Required for new dispatches. Never an operatorId. */
   callerHumanPrincipalId: string;
 };
@@ -265,9 +261,9 @@ export class RemoteBlockCoordinator {
     const endpointSelection = this.snapshotEndpoint(
       this.options.agentEndpoints.resolveForRun(
         request.agentEndpointId,
-        candidate.workspaceId,
+        target.kind === "workspace_canvas" ? target.workspaceId : candidate.workspaceId,
         candidate.requiredCapabilities,
-        controlPlaneForTarget(target)
+        target.kind
       ),
       candidate,
       runtimeAuthoritySnapshotForTarget(target, {
@@ -898,9 +894,11 @@ export class RemoteBlockCoordinator {
     }
     const resolved = this.options.agentEndpoints.resolveForRun(
       selection.endpointId,
-      operation.workspaceId,
+      selection.authority.kind === "workspace_canvas"
+        ? selection.authority.workspaceId
+        : operation.workspaceId,
       operation.requiredCapabilities,
-      runtimeControlPlane(selection.authority)
+      selection.authority.kind
     );
     this.assertEndpointIdentity(selection, resolved, candidate);
     return resolved;
@@ -917,10 +915,12 @@ export class RemoteBlockCoordinator {
     }
     const resolved = this.options.agentEndpoints.resolveForReservedRun(
       selection.endpointId,
-      operation.workspaceId,
+      selection.authority.kind === "workspace_canvas"
+        ? selection.authority.workspaceId
+        : operation.workspaceId,
       operation.requiredCapabilities,
       reservation.hostId,
-      runtimeControlPlane(selection.authority)
+      selection.authority.kind
     );
     this.assertEndpointIdentity(selection, resolved, candidate);
   }

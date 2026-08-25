@@ -265,7 +265,7 @@ export class RemoteControlService {
         agentEndpointId: request.agentEndpointId,
         expectedResponsibilityRevision: request.expectedResponsibilityRevision,
         expectedReviewerRevision: request.expectedReviewerRevision,
-        controlPlane: "collaboration",
+        targetKind: "workspace_canvas",
         callerHumanPrincipalId: request.humanPrincipalId
       });
       return this.observeOperation(principal, outcome.operation.id);
@@ -298,7 +298,7 @@ export class RemoteControlService {
       agentEndpointId: request.agentEndpointId,
       expectedResponsibilityRevision: request.expectedResponsibilityRevision,
       expectedReviewerRevision: request.expectedReviewerRevision,
-      controlPlane: ownerScope ? "owner" : "collaboration",
+      targetKind: ownerScope ? "owner_canvas" : "workspace_canvas",
       callerHumanPrincipalId: request.humanPrincipalId
     });
     return this.observeOperation(principal, outcome.operation.id);

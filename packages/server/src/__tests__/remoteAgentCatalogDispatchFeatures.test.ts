@@ -10,6 +10,7 @@ import {
   type AgentEndpointHostPort
 } from "../agentEndpointCatalog.js";
 import { createRemoteBlockCoordination } from "../distributedCoordination.js";
+import { dispatchTarget } from "../remoteAgent/dispatchTarget.js";
 import { AgentHostRepository, type AgentHost } from "../hosts.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import { applyMigrations } from "../migrations.js";
@@ -63,13 +64,11 @@ function activeHosts(hosts: AgentHost[]): AgentHost[] {
   });
 }
 
-function catalogFixture(hostsInput: AgentHost[] = [readyHost()], exclusiveBindings?: AgentHost[]) {
+function catalogFixture(hostsInput: AgentHost[] = [readyHost()]) {
   const hosts = hostsInput;
-  const exclusive = exclusiveBindings ?? hostsInput;
   let counts = new Map<string, number>();
   const hostPort: AgentEndpointHostPort = {
-    listActiveHosts: (limit, offset) => activeHosts(hosts).slice(offset, offset + limit),
-    listExclusivelyBoundToWorkspace: () => exclusive
+    listActiveHosts: (limit, offset) => activeHosts(hosts).slice(offset, offset + limit)
   };
   const capacityPort: AgentEndpointCapacityPort = {
     activeCountsForHosts: (hostIds) =>
@@ -131,7 +130,7 @@ function reportReady(
   });
 }
 
-describe("Phase 0 catalog/dispatch characterization", () => {
+describe("Phase 5 catalog/dispatch authorization", () => {
   describe("Endpoint ID does not include workspaceId", () => {
     it("keeps endpointIdFor stable across workspaces and presentation changes", () => {
       const host = readyHost();
@@ -167,7 +166,7 @@ describe("Phase 0 catalog/dispatch characterization", () => {
       expect(renamed).toMatchObject({ status: "unavailable", unavailableReason: "host_offline" });
     });
 
-    it("resolves legacy workspace-scoped ids without equating them to the current id", () => {
+    it("does not resolve retired workspace-scoped ids", () => {
       const state = catalogFixture();
       const endpoint = state.catalog.listVisibleFleet().items[0]!;
       const legacyId = legacyEndpointIdFor({
@@ -177,25 +176,28 @@ describe("Phase 0 catalog/dispatch characterization", () => {
         agentId: "codex"
       });
       expect(legacyId).not.toBe(endpoint.endpointId);
-      expect(
-        state.catalog.resolveForRun(legacyId, "workspace-a", ["acp.codex"], "collaboration")
-      ).toMatchObject({ hostId: "host-primary", profileId: "profile-main", agentId: "codex" });
+      expect(() =>
+        state.catalog.resolveForRun(legacyId, "workspace-a", ["acp.codex"], "workspace_canvas")
+      ).toThrowError(new AgentEndpointCatalogError("agent_endpoint_unknown"));
     });
   });
 
-  describe("Owner Fleet vs Workspace Catalog current split", () => {
-    it("lists fleet hosts without workspace mapping and filters workspace catalog after read cutover", async () => {
+  describe("Owner Fleet vs Workspace Catalog availability overlay", () => {
+    it("lists fleet hosts without workspace mapping and overlays mapping on workspace listing", async () => {
       const unbound = readyHost({
         readinessObservation: {
           workspaceMappings: [],
           acpProfiles: readyHost().readinessObservation!.acpProfiles
         }
       });
-      const unboundCatalog = catalogFixture([unbound], []);
+      const unboundCatalog = catalogFixture([unbound]);
       expect(unboundCatalog.catalog.listVisibleFleet().items[0]).toMatchObject({
         status: "available"
       });
-      expect(unboundCatalog.catalog.listVisible("workspace-a").items).toEqual([]);
+      expect(unboundCatalog.catalog.listVisible("workspace-a").items[0]).toMatchObject({
+        status: "unavailable",
+        unavailableReason: "workspace_mapping_missing"
+      });
 
       const sqlite = await sqliteCatalogFixture();
       const exclusive = sqlite.hosts.register("Exclusive Host").host;
@@ -203,11 +205,14 @@ describe("Phase 0 catalog/dispatch characterization", () => {
       reportReady(sqlite.hosts, exclusive.id, [sqlite.workspaceA]);
       expect(sqlite.hosts.listExclusivelyBoundToWorkspace(sqlite.workspaceA)).toHaveLength(1);
       expect(sqlite.catalog.listVisible(sqlite.workspaceA).items).toHaveLength(1);
-      expect(sqlite.catalog.listVisible(sqlite.workspaceB).items).toEqual([]);
+      expect(sqlite.catalog.listVisible(sqlite.workspaceB).items[0]).toMatchObject({
+        status: "unavailable",
+        unavailableReason: "workspace_mapping_missing"
+      });
       expect(sqlite.catalog.listVisibleFleet().items).toHaveLength(1);
     });
 
-    it("CURRENT GAP: a host bound to multiple workspaces is excluded from workspace catalog", async () => {
+    it("lists a host bound to multiple workspaces in each workspace overlay", async () => {
       const sqlite = await sqliteCatalogFixture();
       const shared = sqlite.hosts.register("Shared Host").host;
       sqlite.hosts.bindToWorkspace(shared.id, sqlite.workspaceA);
@@ -215,8 +220,8 @@ describe("Phase 0 catalog/dispatch characterization", () => {
       reportReady(sqlite.hosts, shared.id, [sqlite.workspaceA, sqlite.workspaceB]);
       expect(sqlite.hosts.listExclusivelyBoundToWorkspace(sqlite.workspaceA)).toEqual([]);
       expect(sqlite.hosts.listExclusivelyBoundToWorkspace(sqlite.workspaceB)).toEqual([]);
-      expect(sqlite.catalog.listVisible(sqlite.workspaceA).items).toEqual([]);
-      expect(sqlite.catalog.listVisible(sqlite.workspaceB).items).toEqual([]);
+      expect(sqlite.catalog.listVisible(sqlite.workspaceA).items).toHaveLength(1);
+      expect(sqlite.catalog.listVisible(sqlite.workspaceB).items).toHaveLength(1);
       expect(sqlite.catalog.listVisibleFleet().items).toHaveLength(1);
     });
 
@@ -234,45 +239,30 @@ describe("Phase 0 catalog/dispatch characterization", () => {
     });
   });
 
-  describe("Owner Dispatch vs Collaboration current controlPlane", () => {
-    it("resolveForRun owner uses fleet scope even at collaboration capacity", () => {
+  describe("Owner canvas vs workspace canvas resolve scope", () => {
+    it("resolveForRun owner_canvas uses fleet scope even at collaboration capacity", () => {
       const state = catalogFixture();
       const endpoint = state.catalog.listVisibleFleet().items[0]!;
       state.setActive("host-primary", 2);
       expect(
-        state.catalog.resolveForRun(endpoint.endpointId, "workspace-a", ["acp.codex"], "owner")
+        state.catalog.resolveForRun(
+          endpoint.endpointId,
+          "workspace-a",
+          ["acp.codex"],
+          "owner_canvas"
+        )
       ).toMatchObject({ hostId: "host-primary" });
       expect(() =>
         state.catalog.resolveForRun(
           endpoint.endpointId,
           "workspace-a",
           ["acp.codex"],
-          "collaboration"
+          "workspace_canvas"
         )
       ).toThrowError(new AgentEndpointCatalogError("agent_endpoint_unavailable"));
     });
 
-    it("CURRENT GAP: collaboration resolve falls back to fleet rules when the host is not exclusively bound", () => {
-      const host = readyHost({
-        readinessObservation: {
-          workspaceMappings: [],
-          acpProfiles: readyHost().readinessObservation!.acpProfiles
-        }
-      });
-      const state = catalogFixture([host], []);
-      const endpoint = state.catalog.listVisibleFleet().items[0]!;
-      expect(state.catalog.listVisible("workspace-a").items).toEqual([]);
-      expect(
-        state.catalog.resolveForRun(
-          endpoint.endpointId,
-          "workspace-a",
-          ["acp.codex"],
-          "collaboration"
-        )
-      ).toMatchObject({ hostId: "host-primary", profileId: "profile-main", agentId: "codex" });
-    });
-
-    it("rejects collaboration resolve of a workspace-bound host with a missing mapping as unavailable", () => {
+    it("workspace_canvas resolve requires a ready mapping even without exclusive bind", () => {
       const host = readyHost({
         readinessObservation: {
           workspaceMappings: [],
@@ -281,12 +271,24 @@ describe("Phase 0 catalog/dispatch characterization", () => {
       });
       const state = catalogFixture([host]);
       const endpoint = state.catalog.listVisibleFleet().items[0]!;
+      expect(state.catalog.listVisible("workspace-a").items[0]).toMatchObject({
+        status: "unavailable",
+        unavailableReason: "workspace_mapping_missing"
+      });
+      expect(
+        state.catalog.resolveForRun(
+          endpoint.endpointId,
+          "workspace-a",
+          ["acp.codex"],
+          "owner_canvas"
+        )
+      ).toMatchObject({ hostId: "host-primary", profileId: "profile-main", agentId: "codex" });
       expect(() =>
         state.catalog.resolveForRun(
           endpoint.endpointId,
           "workspace-a",
           ["acp.codex"],
-          "collaboration"
+          "workspace_canvas"
         )
       ).toThrowError(new AgentEndpointCatalogError("agent_endpoint_unavailable"));
     });
@@ -295,16 +297,54 @@ describe("Phase 0 catalog/dispatch characterization", () => {
       const state = catalogFixture();
       const endpoint = state.catalog.listVisibleFleet().items[0]!;
       expect(() =>
-        state.catalog.resolveForRun("aep_missingendpointid01", "workspace-a", [], "collaboration")
+        state.catalog.resolveForRun(
+          "aep_missingendpointid01",
+          "workspace-a",
+          [],
+          "workspace_canvas"
+        )
       ).toThrowError(new AgentEndpointCatalogError("agent_endpoint_unknown"));
       expect(() =>
         state.catalog.resolveForRun(
           endpoint.endpointId,
           "workspace-a",
           ["host-only"],
-          "collaboration"
+          "workspace_canvas"
         )
       ).toThrowError(new AgentEndpointCatalogError("agent_endpoint_incompatible"));
+    });
+  });
+
+  describe("RemoteExecutionTarget locator", () => {
+    it("builds owner_canvas from targetKind without using the runtime workspace as a grant", () => {
+      expect(
+        dispatchTarget({
+          projectId: "project-a",
+          canvasId: "canvas-main",
+          workspaceId: "workspace-internal",
+          targetKind: "owner_canvas"
+        })
+      ).toEqual({
+        kind: "owner_canvas",
+        projectId: "project-a",
+        canvasId: "canvas-main"
+      });
+    });
+
+    it("builds workspace_canvas from the locator kind and workspaceId", () => {
+      expect(
+        dispatchTarget({
+          projectId: "project-a",
+          canvasId: "canvas-main",
+          workspaceId: "workspace-a",
+          targetKind: "workspace_canvas"
+        })
+      ).toEqual({
+        kind: "workspace_canvas",
+        workspaceId: "workspace-a",
+        projectId: "project-a",
+        canvasId: "canvas-main"
+      });
     });
   });
 

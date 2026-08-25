@@ -236,7 +236,7 @@ function remoteDispatchBody(
   fixture: Awaited<ReturnType<typeof setup>>,
   idempotencyKey: string
 ): Record<string, unknown> {
-  const endpoint = fixture.coordination.agentEndpoints.listVisible(fixture.workspaceId).items[0];
+  const endpoint = fixture.coordination.agentEndpoints.listVisibleFleet().items[0];
   if (!endpoint) throw new Error("human_remote_test_endpoint_missing");
   return {
     schemaVersion: "remote-run/v3",
@@ -308,7 +308,7 @@ describe("human remote operation HTTP", () => {
       },
       actor: { kind: "system", id: "endpoint-v3-test" }
     });
-    const endpoint = fixture.coordination.agentEndpoints.listVisible(fixture.workspaceId).items[0];
+    const endpoint = fixture.coordination.agentEndpoints.listVisibleFleet().items[0];
     expect(endpoint).toBeDefined();
     const dispatched = await fetch(
       `${fixture.origin}/api/v1/projects/${fixture.projectId}/remote-operations`,

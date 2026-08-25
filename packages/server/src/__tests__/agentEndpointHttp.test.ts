@@ -296,7 +296,7 @@ describe("Agent Endpoint HTTP", () => {
            WHERE migration_id='migration-configured-coexist'`
         )
         .run(migrationState.status, migrationState.marker, migrationState.failureCode);
-      expect(directCatalog.listVisible(workspaceId).items, migrationState.status).toEqual([]);
+      expect(hosts.listExclusivelyBoundToWorkspace(workspaceId), migrationState.status).toEqual([]);
     }
     database
       .prepare(
@@ -339,7 +339,8 @@ describe("Agent Endpoint HTTP", () => {
       "workspace-agent-endpoint-other"
     );
     hosts.bindToWorkspace(host.id, otherWorkspaceId);
-    expect(directCatalog.listVisible(workspaceId).items).toEqual([]);
+    expect(hosts.listExclusivelyBoundToWorkspace(workspaceId)).toEqual([]);
+    expect(directCatalog.listVisible(workspaceId).items).toHaveLength(1);
   });
 
   it("lists the current project Workspace projection for an authenticated member", async () => {
@@ -456,14 +457,16 @@ describe("Agent Endpoint HTTP", () => {
     });
   });
 
-  it("fails closed when a Host has zero or multiple Workspace bindings", async () => {
+  it("does not treat exclusive workspace bind as catalog grant authority", async () => {
     const state = await fixture();
     expect(state.catalog.listVisible(state.workspaceId).items).toHaveLength(1);
     state.database.prepare("DELETE FROM workspace_agent_hosts WHERE host_id=?").run(state.hostId);
-    expect(state.catalog.listVisible(state.workspaceId).items).toEqual([]);
+    expect(state.hosts.listExclusivelyBoundToWorkspace(state.workspaceId)).toEqual([]);
+    expect(state.catalog.listVisible(state.workspaceId).items).toHaveLength(1);
     state.hosts.bindToWorkspace(state.hostId, state.workspaceId);
     expect(state.catalog.listVisible(state.workspaceId).items).toHaveLength(1);
     state.hosts.bindToWorkspace(state.hostId, state.foreignWorkspaceId);
-    expect(state.catalog.listVisible(state.workspaceId).items).toEqual([]);
+    expect(state.hosts.listExclusivelyBoundToWorkspace(state.workspaceId)).toEqual([]);
+    expect(state.catalog.listVisible(state.workspaceId).items).toHaveLength(1);
   });
 });

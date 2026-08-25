@@ -23,6 +23,7 @@ export {
   type RemoteAgentPolicyRevision,
   type RemoteAgentRecord,
   type RemoteAgentUseTarget,
+  type RemoteExecutionTarget,
   type RemoteAgentWorkspaceGrantRecord,
   type RuntimeAuthority
 } from "./schema.js";
@@ -69,3 +70,5 @@ export {
   listAuthorizedRemoteAgentEndpoints,
   type ListAuthorizedRemoteAgentEndpointsInput
 } from "./catalog.js";
+
+export { controlPlaneForTarget, dispatchTarget, retryTarget } from "./dispatchTarget.js";

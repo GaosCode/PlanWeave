@@ -133,7 +133,10 @@ async function fixture() {
     accessMode: "unrestricted"
   });
   coordination.hosts.reportOnline(host.id, ["acp.codex", "host-only"], 2, {
-    workspaceMappings: [{ workspaceId: workspaceA, status: "ready" }],
+    workspaceMappings: [
+      { workspaceId: workspaceA, status: "ready" },
+      { workspaceId: workspaceB, status: "ready" }
+    ],
     acpProfiles: [
       {
         profileId: "profile-main",
@@ -571,5 +574,52 @@ describe("authorizeRemoteAgentUse", () => {
       target: workspaceCanvas(state.workspaceA, "project-a")
     });
     expect(memberListed.items).toEqual([]);
+  });
+
+  it("owner unrestricted on owner canvas does not require a grant on the internal runtime workspace", async () => {
+    const state = await fixture();
+    expect(state.repo.listGrants(state.endpointId)).toEqual([]);
+    state.hosts.bindToWorkspace(state.host.id, state.workspaceA);
+    expect(state.hosts.listExclusivelyBoundToWorkspace(state.workspaceA)).toHaveLength(1);
+    const authorized = authorize(
+      state.policy,
+      "owner-human-1",
+      state.endpointId,
+      ownerCanvas(),
+      state.workspaceA
+    );
+    expect(authorizedRemoteAgentUseSchema.parse(authorized)).toMatchObject({
+      runtimeAuthority: { kind: "owner_canvas" },
+      agentAccessAuthority: {
+        kind: "agent_owner",
+        ownerHumanPrincipalId: "owner-human-1"
+      }
+    });
+  });
+
+  it("exclusive workspace bind without a grant does not authorize a member", async () => {
+    const state = await fixture();
+    state.hosts.bindToWorkspace(state.host.id, state.workspaceA);
+    expect(state.hosts.listExclusivelyBoundToWorkspace(state.workspaceA)).toHaveLength(1);
+    expect(state.repo.listGrants(state.endpointId)).toEqual([]);
+    expect(
+      listAuthorizedRemoteAgentEndpoints({
+        policy: state.policy,
+        catalog: state.catalog,
+        principal: { humanPrincipalId: "member-a" },
+        target: workspaceCanvas(state.workspaceA, "project-a")
+      }).items
+    ).toEqual([]);
+    expectAuthorizationCode(
+      () =>
+        authorize(
+          state.policy,
+          "member-a",
+          state.endpointId,
+          workspaceCanvas(state.workspaceA, "project-a"),
+          state.workspaceA
+        ),
+      "remote_agent_workspace_grant_missing"
+    );
   });
 });

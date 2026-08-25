@@ -348,7 +348,7 @@ async function prepareInterruptedV3Action(harness: CoordinatorHarness) {
     canvasId: harness.locator.canvasId,
     packageDir: harness.workspace.init.workspace.packageDir
   });
-  const endpoint = coordination.agentEndpoints.listVisible(harness.locator.workspaceId).items[0];
+  const endpoint = coordination.agentEndpoints.listVisibleFleet().items[0];
   if (!endpoint) throw new Error("expected_test_endpoint");
   const outcome = await coordination.coordinator.dispatch({
     ...harness.request("T-001#B-001", "v3-action-crash"),

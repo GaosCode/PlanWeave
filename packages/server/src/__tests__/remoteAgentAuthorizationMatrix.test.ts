@@ -34,16 +34,10 @@ function readyHost(overrides: Partial<AgentHost> = {}): AgentHost {
   };
 }
 
-function catalogFixture(
-  hostsInput: AgentHost[] = [readyHost()],
-  exclusiveByWorkspace?: Readonly<Record<string, AgentHost[]>>
-) {
+function catalogFixture(hostsInput: AgentHost[] = [readyHost()]) {
   const hosts = hostsInput;
-  let exclusive = exclusiveByWorkspace;
   const hostPort: AgentEndpointHostPort = {
-    listActiveHosts: (limit, offset) => hosts.slice(offset, offset + limit),
-    listExclusivelyBoundToWorkspace: (workspaceId) =>
-      exclusive === undefined ? hosts : (exclusive[workspaceId] ?? [])
+    listActiveHosts: (limit, offset) => hosts.slice(offset, offset + limit)
   };
   const capacityPort: AgentEndpointCapacityPort = {
     activeCountsForHosts: (hostIds) => new Map(hostIds.map((hostId) => [hostId, 0]))
@@ -54,14 +48,11 @@ function catalogFixture(
       capacities: capacityPort,
       hostOfflineAfterMs: 60_000,
       clock: () => now
-    }),
-    setExclusiveBindings(next: Readonly<Record<string, AgentHost[]>>) {
-      exclusive = next;
-    }
+    })
   };
 }
 
-describe("Phase 0 catalog availability characterization", () => {
+describe("Phase 5 catalog availability", () => {
   it("keeps endpointId stable and independent of workspace bindings", () => {
     const host = readyHost();
     const id = endpointIdFor({
@@ -74,7 +65,7 @@ describe("Phase 0 catalog availability characterization", () => {
     expect(state.catalog.listVisible("workspace-a").items[0]?.endpointId).toBe(id);
   });
 
-  it("keeps exclusive-bind catalog gap until Phase 5", () => {
+  it("does not hide a multi-workspace mapping host from workspace listing", () => {
     const host = readyHost({
       readinessObservation: {
         workspaceMappings: [
@@ -84,9 +75,13 @@ describe("Phase 0 catalog availability characterization", () => {
         acpProfiles: readyHost().readinessObservation!.acpProfiles
       }
     });
-    const state = catalogFixture([host], {});
-    expect(state.catalog.listVisible("workspace-a").items).toEqual([]);
-    expect(state.catalog.listVisible("workspace-b").items).toEqual([]);
+    const state = catalogFixture([host]);
+    expect(state.catalog.listVisible("workspace-a").items[0]?.endpointId).toBe(
+      endpointIdFor({ hostId: host.id, profileId: "profile-main", agentId: "codex" })
+    );
+    expect(state.catalog.listVisible("workspace-b").items[0]?.endpointId).toBe(
+      endpointIdFor({ hostId: host.id, profileId: "profile-main", agentId: "codex" })
+    );
     expect(state.catalog.listVisibleFleet().items[0]?.endpointId).toBe(
       endpointIdFor({ hostId: host.id, profileId: "profile-main", agentId: "codex" })
     );

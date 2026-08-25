@@ -109,7 +109,7 @@ export class HumanRemoteControlService {
         agentEndpointId: request.agentEndpointId,
         expectedResponsibilityRevision: request.expectedResponsibilityRevision,
         expectedReviewerRevision: request.expectedReviewerRevision,
-        controlPlane: "collaboration",
+        targetKind: "workspace_canvas",
         callerHumanPrincipalId: context.humanPrincipalId
       });
     } catch (error) {

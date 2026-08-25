@@ -34,13 +34,16 @@ export function endpointDispatchRequest(input: {
   expectedResponsibilityRevision?: number;
   expectedReviewerRevision?: number;
   callerHumanPrincipalId?: string;
-  controlPlane?: "collaboration" | "owner";
+  targetKind?: "owner_canvas" | "workspace_canvas";
 }): RemoteEndpointDispatchRequest {
+  const targetKind = input.targetKind ?? "workspace_canvas";
+  const listed =
+    targetKind === "owner_canvas"
+      ? input.agentEndpoints.listVisibleFleet()
+      : input.agentEndpoints.listVisible(input.locator.workspaceId);
   const endpointId =
     input.agentEndpointId ??
-    input.agentEndpoints
-      .listVisible(input.locator.workspaceId)
-      .items.find((item) => item.status === "available")?.endpointId ??
+    listed.items.find((item) => item.status === "available")?.endpointId ??
     input.agentEndpoints.listVisibleFleet().items.find((item) => item.status === "available")
       ?.endpointId;
   if (!endpointId) throw new Error("expected_available_test_endpoint");
@@ -51,7 +54,7 @@ export function endpointDispatchRequest(input: {
     agentEndpointId: endpointId,
     expectedResponsibilityRevision: input.expectedResponsibilityRevision ?? 0,
     expectedReviewerRevision: input.expectedReviewerRevision ?? 0,
-    controlPlane: input.controlPlane ?? "collaboration",
+    targetKind,
     callerHumanPrincipalId: input.callerHumanPrincipalId ?? TEST_REMOTE_AGENT_OWNER_ID
   };
 }

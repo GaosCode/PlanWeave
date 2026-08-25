@@ -15,14 +15,18 @@ export type ListAuthorizedRemoteAgentEndpointsInput = {
 };
 
 /**
- * Execution-selector listing: fleet availability snapshot filtered by the same
+ * Execution-selector listing: target-scoped availability filtered by the same
  * access rules as dispatch. Access denials are omitted; offline/capacity/profile
- * unavailability stays visible.
+ * and workspace-mapping unavailability stay visible.
  */
 export function listAuthorizedRemoteAgentEndpoints(
   input: ListAuthorizedRemoteAgentEndpointsInput
 ): RemoteAgentEndpointList {
-  const items = input.catalog.listVisibleFleet().items.filter((endpoint) => {
+  const listed =
+    input.target.kind === "owner_canvas"
+      ? input.catalog.listVisibleFleet()
+      : input.catalog.listVisible(input.target.workspaceId);
+  const items = listed.items.filter((endpoint) => {
     try {
       input.policy.evaluateAccess({
         principal: input.principal,

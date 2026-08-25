@@ -122,6 +122,10 @@ export const authorizedRemoteAgentUseSchema = z
   })
   .strict();
 
+/**
+ * Catalog/dispatch canvas locator (plan RemoteExecutionTarget).
+ * Owner-canvas Agent grant never uses the internal runtime workspaceId.
+ */
 export const remoteAgentUseTargetSchema = z.discriminatedUnion("kind", [
   z
     .object({
@@ -160,6 +164,7 @@ export type AgentAccessAuthority = z.infer<typeof agentAccessAuthoritySchema>;
 export type AgentAccessAuthoritySnapshot = z.infer<typeof agentAccessAuthoritySnapshotSchema>;
 export type AuthorizedRemoteAgentUse = z.infer<typeof authorizedRemoteAgentUseSchema>;
 export type RemoteAgentUseTarget = z.infer<typeof remoteAgentUseTargetSchema>;
+export type RemoteExecutionTarget = RemoteAgentUseTarget;
 export type PersistedRemoteAgentAccessSnapshot = z.infer<
   typeof persistedRemoteAgentAccessSnapshotSchema
 >;

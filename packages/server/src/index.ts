@@ -21,6 +21,7 @@ export {
   type AgentEndpointCapacityPort,
   type AgentEndpointCatalogOptions,
   type AgentEndpointHostPort,
+  type AgentEndpointRuntimeScope,
   type ResolvedAgentEndpoint
 } from "./agentEndpointCatalog.js";
 export {

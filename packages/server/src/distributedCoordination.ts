@@ -57,7 +57,7 @@ export type RemoteBlockCoordinationOptions = {
   artifactContent: RemoteArtifactContentPort;
   checkpoints?: RemoteCoordinatorCheckpointPort;
   interactionAuthorization?: RemoteInteractionAuthorizationPort;
-  /** Server-owner runtime authority; collaboration dispatches never consult this port. */
+  /** Owner-canvas runtime authority adapter; workspace-canvas dispatches never consult this port. */
   ownerEndpointScopeAuthorized?(input: {
     workspaceId: string;
     projectId: string;
