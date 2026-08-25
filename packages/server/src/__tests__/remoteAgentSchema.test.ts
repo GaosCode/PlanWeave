@@ -25,6 +25,7 @@ const remoteAgent = {
   displayName: "Codex",
   accessMode: "unrestricted" as const,
   policyRevision: 1,
+  ownershipRepairRequired: false,
   createdAt: timestamp,
   updatedAt: timestamp,
   revokedAt: null
@@ -59,6 +60,28 @@ describe("remote agent domain schemas", () => {
     expect(() =>
       remoteAgentRecordSchema.parse({ ...remoteAgent, ownerHumanPrincipalId: "" })
     ).toThrow();
+    expect(() =>
+      remoteAgentRecordSchema.parse({ ...remoteAgent, ownerHumanPrincipalId: null })
+    ).toThrow();
+  });
+
+  it("parses a repair-required Remote Agent without an owner", () => {
+    const repairRequired = {
+      ...remoteAgent,
+      ownerHumanPrincipalId: null,
+      accessMode: "workspace_restricted" as const,
+      ownershipRepairRequired: true
+    };
+    expect(remoteAgentRecordSchema.parse(repairRequired)).toEqual(repairRequired);
+    expect(
+      remoteAgentRecordSchema.parse({
+        ...repairRequired,
+        ownerHumanPrincipalId: "owner-human-1"
+      })
+    ).toMatchObject({
+      ownerHumanPrincipalId: "owner-human-1",
+      ownershipRepairRequired: true
+    });
   });
 
   it("rejects access_mode outside unrestricted | workspace_restricted", () => {

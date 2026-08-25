@@ -846,6 +846,8 @@
         "realProcessRemoteBlockLifecycle.test.ts",
         "releaseGate.test.ts",
         "remoteAgentCatalogDispatchFeatures.test.ts",
+        "remoteAgentRegistryMigration.test.ts",
+        "remoteAgentRepository.test.ts",
         "remoteBlockCoordinator.test.ts",
         "remoteBlockCoordinatorCrash.test.ts",
         "remoteBlockCoordinatorStartup.test.ts",

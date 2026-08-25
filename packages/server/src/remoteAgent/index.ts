@@ -25,3 +25,13 @@ export {
   RemoteAgentAuthorizationError,
   remoteAgentAuthorizationErrorCode
 } from "./errors.js";
+
+export {
+  RemoteAgentRepository,
+  RemoteAgentRepositoryError,
+  type GrantRemoteAgentWorkspaceInput,
+  type RegisterOrRestoreRemoteAgentInput,
+  type RepairRemoteAgentOwnershipInput,
+  type RevokeRemoteAgentGrantInput,
+  type SetRemoteAgentAccessModeInput
+} from "./repository.js";

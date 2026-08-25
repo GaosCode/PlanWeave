@@ -24,6 +24,7 @@ export const remoteAgentGrantRevisionSchema = z.number().int().min(1);
 /**
  * Persistent Remote Agent identity. UNIQUE(hostId, profileId, agentId);
  * `endpointId` is the derived primary key and never includes workspaceId.
+ * Repair-required agents may omit an owner; dispatch refuses them (Phase 2).
  */
 export const remoteAgentRecordSchema = z
   .object({
@@ -31,15 +32,25 @@ export const remoteAgentRecordSchema = z
     hostId: agentHostIdSchema,
     profileId: opaqueIdentifierSchema,
     agentId: opaqueIdentifierSchema,
-    ownerHumanPrincipalId: humanPrincipalIdSchema,
+    ownerHumanPrincipalId: humanPrincipalIdSchema.nullable(),
     displayName: z.string().trim().min(1).max(128),
     accessMode: remoteAgentAccessModeSchema,
     policyRevision: remoteAgentPolicyRevisionSchema,
+    ownershipRepairRequired: z.boolean(),
     createdAt: timestampSchema,
     updatedAt: timestampSchema,
     revokedAt: timestampSchema.nullable()
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (!value.ownershipRepairRequired && value.ownerHumanPrincipalId === null) {
+      context.addIssue({
+        code: "custom",
+        message: "owner_human_principal_id_required",
+        path: ["ownerHumanPrincipalId"]
+      });
+    }
+  });
 
 /** Persistent Workspace Grant. PRIMARY KEY(endpointId, workspaceId). */
 export const remoteAgentWorkspaceGrantRecordSchema = z

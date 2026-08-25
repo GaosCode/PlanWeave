@@ -154,7 +154,7 @@ describe("canvas command baseline migration", () => {
 
       applyMigrations(database);
 
-      expect(latestCentralSchemaVersion).toBe(56);
+      expect(latestCentralSchemaVersion).toBe(57);
       expect(
         database
           .prepare(
