@@ -28,6 +28,11 @@ import {
 } from "../../shared/collaboration.js";
 import { CollaborationWorkspaceClient } from "./CollaborationWorkspaceClient.js";
 import { redactCollaborationText } from "./redaction.js";
+import {
+  IdentitySelectionError,
+  selectExistingIdentityProof,
+  type OriginCredentialCandidate
+} from "./existingIdentitySelection.js";
 import { inferPersistedRemoteProfileId } from "./persistedServerConnectionPreference.js";
 import {
   WorkspaceConnectionProfileStore,
@@ -384,10 +389,13 @@ export class CollaborationWorkspaceConnection {
     const token = await this.vault.getDeviceToken(profile.profileId);
     if (!token) return;
     const metadata = await this.vault.getMetadata(profile.profileId);
+    const identityToken = await this.vault.getIdentityToken(profile.profileId);
     if (profile.profileId !== EXPORTED_SERVER_DATA_PROFILE_ID) {
       await this.vault.setDeviceToken(EXPORTED_SERVER_DATA_PROFILE_ID, token, {
         deviceCredentialId: metadata?.deviceCredentialId,
-        humanPrincipalId: metadata?.humanPrincipalId
+        identityCredentialId: metadata?.identityCredentialId,
+        humanPrincipalId: metadata?.humanPrincipalId,
+        ...(identityToken ? { identityToken } : {})
       });
     }
     await this.exportedIdentity.write({
@@ -490,9 +498,12 @@ export class CollaborationWorkspaceConnection {
       membershipRole: localProfile.membershipRole,
       membershipActive: true
     });
+    const identityToken = await this.vault.getIdentityToken(localProfile.profileId);
     await this.vault.setDeviceToken(bound.profileId, token, {
       deviceCredentialId: metadata?.deviceCredentialId,
-      humanPrincipalId: metadata?.humanPrincipalId
+      identityCredentialId: metadata?.identityCredentialId,
+      humanPrincipalId: metadata?.humanPrincipalId,
+      ...(identityToken ? { identityToken } : {})
     });
     await this.snapshotWorkspaceCredential(localProfile);
     await this.store.setActiveProfileId(bound.profileId);
@@ -502,13 +513,12 @@ export class CollaborationWorkspaceConnection {
     return true;
   }
 
-  private async existingDeviceTokenForOrigin(serverBaseUrl: string): Promise<string | undefined> {
-    let origin: string;
-    try {
-      origin = new URL(serverBaseUrl).origin;
-    } catch {
-      return undefined;
-    }
+  private async existingIdentityProofForOrigin(
+    serverBaseUrl: string
+  ): Promise<
+    { existingIdentityToken: string } | { existingDeviceToken: string } | Record<string, never>
+  > {
+    const candidates: OriginCredentialCandidate[] = [];
     for (const profile of await this.store.list()) {
       let profileOrigin: string;
       try {
@@ -516,11 +526,24 @@ export class CollaborationWorkspaceConnection {
       } catch {
         continue;
       }
-      if (profileOrigin !== origin) continue;
-      const token = await this.vault.getDeviceToken(profile.profileId);
-      if (token) return token;
+      const [deviceToken, identityToken, metadata] = await Promise.all([
+        this.vault.getDeviceToken(profile.profileId),
+        this.vault.getIdentityToken(profile.profileId),
+        this.vault.getMetadata(profile.profileId)
+      ]);
+      candidates.push({
+        profileId: profile.profileId,
+        origin: profileOrigin,
+        humanPrincipalId: metadata?.humanPrincipalId ?? null,
+        ...(deviceToken ? { deviceToken } : {}),
+        ...(identityToken ? { identityToken } : {}),
+        updatedAt: metadata?.updatedAt ?? "1970-01-01T00:00:00.000Z"
+      });
     }
-    return undefined;
+    const proof = selectExistingIdentityProof(candidates, serverBaseUrl);
+    if (!proof) return {};
+    if (proof.kind === "identity") return { existingIdentityToken: proof.token };
+    return { existingDeviceToken: proof.token };
   }
 
   /**
@@ -544,14 +567,14 @@ export class CollaborationWorkspaceConnection {
         },
         request: this.request
       });
-      const existingDeviceToken = await this.existingDeviceTokenForOrigin(input.serverBaseUrl);
+      const existingProof = await this.existingIdentityProofForOrigin(input.serverBaseUrl);
       const response = await client.redeemDevice({
         schemaVersion: "workspace-setup/v1",
         purpose: "device_session",
         setupCode: input.setupCode,
         displayName: input.displayName,
         ...(input.deviceLabel ? { deviceLabel: input.deviceLabel } : {}),
-        ...(existingDeviceToken ? { existingDeviceToken } : {})
+        ...existingProof
       });
       const stored = await this.store.upsert({
         profile: response.connectionProfile,
@@ -562,13 +585,31 @@ export class CollaborationWorkspaceConnection {
       });
       await this.vault.setDeviceToken(stored.profileId, response.deviceToken, {
         deviceCredentialId: response.deviceSessionId,
-        humanPrincipalId: response.humanPrincipalId
+        humanPrincipalId: response.humanPrincipalId,
+        identityToken: response.identityToken,
+        identityCredentialId: response.identityCredentialId
       });
       await this.store.setActiveProfileId(stored.profileId);
       this.activeProfileId = stored.profileId;
       this.workspaceDisplayName = response.workspaceDisplayName;
       return await this.connectActiveProfile();
     } catch (error) {
+      if (error instanceof IdentitySelectionError) {
+        const mapped = new CollaborationClientError({
+          kind: "protocol",
+          code: error.code,
+          message: "Multiple Human Principals exist for this server; identity repair is required.",
+          retryable: false
+        });
+        this.status = "error";
+        this.error = {
+          code: mapped.code,
+          message: setupCodeFailureMessage(mapped),
+          retryable: false
+        };
+        this.onChange?.();
+        throw mapped;
+      }
       const setupError = collaborationErrorFromUnknown(error);
       const mapped = setupError.code.startsWith("setup_code_")
         ? setupError

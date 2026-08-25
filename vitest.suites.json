@@ -141,6 +141,7 @@
         "desktopSettingsBridge.test.tsx",
         "desktopSettingsEffects.test.tsx",
         "diagnosticFixActions.test.ts",
+        "existingIdentitySelection.test.ts",
         "executorOptionViewModel.test.ts",
         "executorPreflightAuthenticationUi.test.tsx",
         "executorPreflightUi.test.tsx",

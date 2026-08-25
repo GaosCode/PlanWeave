@@ -2,6 +2,7 @@ import { chmod, mkdir, readFile, rename, stat, writeFile } from "node:fs/promise
 import { dirname } from "node:path";
 import {
   humanDeviceTokenSchema,
+  humanIdentityTokenSchema,
   opaqueIdentifierSchema,
   timestampSchema
 } from "@planweave-ai/collaboration-protocol/core/primitives";
@@ -21,11 +22,12 @@ export type CollaborationSafeStoragePort = {
 
 export type StoredCredentialMetadata = {
   deviceCredentialId: string | null;
+  identityCredentialId: string | null;
   humanPrincipalId: string | null;
   updatedAt: string;
 };
 
-const persistedCredentialRecordSchema = z
+const persistedCredentialRecordV1Schema = z
   .object({
     encryptedDeviceToken: z.string().trim().min(1),
     deviceCredentialId: opaqueIdentifierSchema.nullable(),
@@ -34,12 +36,45 @@ const persistedCredentialRecordSchema = z
   })
   .strict();
 
-export const collaborationCredentialsDocumentSchema = z
+const persistedCredentialRecordSchema = persistedCredentialRecordV1Schema
+  .extend({
+    encryptedIdentityToken: z.string().trim().min(1).nullable(),
+    identityCredentialId: opaqueIdentifierSchema.nullable()
+  })
+  .strict();
+
+const credentialsDocumentV1Schema = z
   .object({
     version: z.literal(1),
+    credentials: z.record(opaqueIdentifierSchema, persistedCredentialRecordV1Schema)
+  })
+  .strict();
+
+const credentialsDocumentV2Schema = z
+  .object({
+    version: z.literal(2),
     credentials: z.record(opaqueIdentifierSchema, persistedCredentialRecordSchema)
   })
   .strict();
+
+export const collaborationCredentialsDocumentSchema = z
+  .union([credentialsDocumentV2Schema, credentialsDocumentV1Schema])
+  .transform((document) => {
+    if (document.version === 2) return document;
+    return credentialsDocumentV2Schema.parse({
+      version: 2,
+      credentials: Object.fromEntries(
+        Object.entries(document.credentials).map(([profileId, record]) => [
+          profileId,
+          {
+            ...record,
+            encryptedIdentityToken: null,
+            identityCredentialId: null
+          }
+        ])
+      )
+    });
+  });
 
 export type CollaborationCredentialsDocument = z.infer<
   typeof collaborationCredentialsDocumentSchema
@@ -48,13 +83,15 @@ type CredentialsDocument = CollaborationCredentialsDocument;
 
 type SessionCredential = {
   deviceToken: string;
+  identityToken: string | null;
   deviceCredentialId: string | null;
+  identityCredentialId: string | null;
   humanPrincipalId: string | null;
   updatedAt: string;
 };
 
 function defaultDocument(): CredentialsDocument {
-  return { version: 1, credentials: {} };
+  return { version: 2, credentials: {} };
 }
 
 function isMissingFileError(error: unknown): boolean {
@@ -138,7 +175,7 @@ export class CollaborationCredentialVault {
     return this.safeStorage.encryptString(token).toString("base64");
   }
 
-  private decrypt(encryptedBase64: string): string | null {
+  private decryptDeviceToken(encryptedBase64: string): string | null {
     if (!this.safeStorage.isEncryptionAvailable()) {
       return null;
     }
@@ -148,6 +185,19 @@ export class CollaborationCredentialVault {
       "collaboration credential"
     ).trim();
     const parsed = humanDeviceTokenSchema.safeParse(plain);
+    return parsed.success ? parsed.data : null;
+  }
+
+  private decryptIdentityToken(encryptedBase64: string): string | null {
+    if (!this.safeStorage.isEncryptionAvailable()) {
+      return null;
+    }
+    const plain = decryptSafeStorageString(
+      this.safeStorage,
+      Buffer.from(encryptedBase64, "base64"),
+      "collaboration identity credential"
+    ).trim();
+    const parsed = humanIdentityTokenSchema.safeParse(plain);
     return parsed.success ? parsed.data : null;
   }
 
@@ -195,21 +245,36 @@ export class CollaborationCredentialVault {
     if (!record) {
       return undefined;
     }
-    const token = this.decrypt(record.encryptedDeviceToken);
+    const token = this.decryptDeviceToken(record.encryptedDeviceToken);
     if (!token) {
       // Corrupt or rotated ciphertext: drop durable entry so status is honest.
       delete document.credentials[profileId];
       await this.persist(document);
       return undefined;
     }
+    const identityToken =
+      record.encryptedIdentityToken === null
+        ? null
+        : this.decryptIdentityToken(record.encryptedIdentityToken);
     // Cache decrypted token in memory for the process lifetime (still encrypted on disk).
     this.sessionTokens.set(profileId, {
       deviceToken: token,
+      identityToken,
       deviceCredentialId: record.deviceCredentialId,
+      identityCredentialId: record.identityCredentialId,
       humanPrincipalId: record.humanPrincipalId,
       updatedAt: record.updatedAt
     });
     return token;
+  }
+
+  async getIdentityToken(profileId: string): Promise<string | undefined> {
+    const session = this.sessionTokens.get(profileId);
+    if (session) {
+      return session.identityToken ?? undefined;
+    }
+    await this.getDeviceToken(profileId);
+    return this.sessionTokens.get(profileId)?.identityToken ?? undefined;
   }
 
   async getMetadata(profileId: string): Promise<StoredCredentialMetadata | null> {
@@ -217,6 +282,7 @@ export class CollaborationCredentialVault {
     if (session) {
       return {
         deviceCredentialId: session.deviceCredentialId,
+        identityCredentialId: session.identityCredentialId,
         humanPrincipalId: session.humanPrincipalId,
         updatedAt: session.updatedAt
       };
@@ -231,6 +297,7 @@ export class CollaborationCredentialVault {
     }
     return {
       deviceCredentialId: record.deviceCredentialId,
+      identityCredentialId: record.identityCredentialId,
       humanPrincipalId: record.humanPrincipalId,
       updatedAt: record.updatedAt
     };
@@ -265,23 +332,44 @@ export class CollaborationCredentialVault {
     metadata: {
       deviceCredentialId?: string | null;
       humanPrincipalId?: string | null;
+      identityToken?: string | null;
+      identityCredentialId?: string | null;
     } = {}
   ): Promise<CollaborationCredentialPersistence> {
     const token = humanDeviceTokenSchema.parse(deviceToken);
     const updatedAt = nowIso();
     const deviceCredentialId = metadata.deviceCredentialId?.trim() || null;
     const humanPrincipalId = metadata.humanPrincipalId?.trim() || null;
+    const existing = this.sessionTokens.get(profileId);
+    const document = await this.load();
+    const previous = document.credentials[profileId];
+    const preservedIdentityToken =
+      existing?.identityToken ??
+      (previous?.encryptedIdentityToken
+        ? this.decryptIdentityToken(previous.encryptedIdentityToken)
+        : null);
+    const identityToken =
+      metadata.identityToken === undefined
+        ? preservedIdentityToken
+        : metadata.identityToken === null
+          ? null
+          : humanIdentityTokenSchema.parse(metadata.identityToken);
+    const identityCredentialId =
+      metadata.identityCredentialId === undefined
+        ? (existing?.identityCredentialId ?? previous?.identityCredentialId ?? null)
+        : metadata.identityCredentialId?.trim() || null;
 
     this.sessionTokens.set(profileId, {
       deviceToken: token,
+      identityToken,
       deviceCredentialId,
+      identityCredentialId,
       humanPrincipalId,
       updatedAt
     });
 
     if (!this.safeStorage.isEncryptionAvailable()) {
       // Never write plaintext tokens to disk.
-      const document = await this.load();
       if (document.credentials[profileId]) {
         delete document.credentials[profileId];
         await this.persist(document);
@@ -289,10 +377,11 @@ export class CollaborationCredentialVault {
       return "session-only";
     }
 
-    const document = await this.load();
     document.credentials[profileId] = {
       encryptedDeviceToken: this.encrypt(token),
+      encryptedIdentityToken: identityToken === null ? null : this.encrypt(identityToken),
       deviceCredentialId,
+      identityCredentialId,
       humanPrincipalId,
       updatedAt
     };

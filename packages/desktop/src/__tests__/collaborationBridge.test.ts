@@ -433,7 +433,9 @@ describe("CollaborationService IPC trust boundary", () => {
     const statusJson = JSON.stringify(status);
     expect(statusJson).not.toContain(exampleSetupCode);
     expect(statusJson).not.toContain(exampleSetupCodeRedeemDeviceResponse.deviceToken);
+    expect(statusJson).not.toContain(exampleSetupCodeRedeemDeviceResponse.identityToken);
     expect(statusJson).not.toContain("encryptedDeviceToken");
+    expect(statusJson).not.toContain("encryptedIdentityToken");
 
     const profileJson = await readFile(join(root, "workspace-profiles.json"), "utf8");
     expect(profileJson).not.toContain(exampleSetupCodeRedeemDeviceResponse.deviceToken);

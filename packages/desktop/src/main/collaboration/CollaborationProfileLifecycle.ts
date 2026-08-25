@@ -164,7 +164,9 @@ export class CollaborationProfileLifecycle {
         "Authorization",
         "credentialPath",
         "credentialsPath",
-        "existingDeviceToken"
+        "existingDeviceToken",
+        "existingIdentityToken",
+        "identityToken"
       ] as const) {
         if (key in record && record[key] !== undefined) {
           throw new Error(
@@ -305,6 +307,11 @@ export class CollaborationProfileLifecycle {
       if ("existingDeviceToken" in outer && outer.existingDeviceToken !== undefined) {
         throw new Error(
           'Collaboration IPC rejected consumeCollaborationInvitation: field "existingDeviceToken" is not allowed across the renderer boundary.'
+        );
+      }
+      if ("existingIdentityToken" in outer && outer.existingIdentityToken !== undefined) {
+        throw new Error(
+          'Collaboration IPC rejected consumeCollaborationInvitation: field "existingIdentityToken" is not allowed across the renderer boundary.'
         );
       }
       assertNoSmuggledCollaborationSecrets(

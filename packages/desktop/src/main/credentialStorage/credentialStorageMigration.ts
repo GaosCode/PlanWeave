@@ -100,7 +100,7 @@ async function migrateCollaborationCredentials(options: {
       options.targetPath,
       (input) => collaborationCredentialsDocumentSchema.parse(input),
       "target_collaboration_credentials"
-    )) ?? ({ version: 1, credentials: {} } satisfies CollaborationCredentialsDocument);
+    )) ?? ({ version: 2, credentials: {} } satisfies CollaborationCredentialsDocument);
   let changed = 0;
   for (const [profileId, sourceRecord] of Object.entries(source.credentials)) {
     const targetRecord = target.credentials[profileId];
@@ -115,9 +115,21 @@ async function migrateCollaborationCredentials(options: {
     const sourceToken = humanDeviceTokenSchema.parse(
       decrypt(options.sourceStorage, sourceRecord.encryptedDeviceToken, "collaboration credential")
     );
+    const encryptedIdentityToken =
+      sourceRecord.encryptedIdentityToken === null
+        ? null
+        : encrypt(
+            options.targetStorage,
+            decrypt(
+              options.sourceStorage,
+              sourceRecord.encryptedIdentityToken,
+              "collaboration identity credential"
+            )
+          );
     target.credentials[profileId] = {
       ...sourceRecord,
-      encryptedDeviceToken: encrypt(options.targetStorage, sourceToken)
+      encryptedDeviceToken: encrypt(options.targetStorage, sourceToken),
+      encryptedIdentityToken
     };
     changed += 1;
   }
