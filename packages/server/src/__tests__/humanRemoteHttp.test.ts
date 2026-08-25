@@ -346,8 +346,9 @@ describe("human remote operation HTTP", () => {
     expect(
       fixture.coordination.operations.getRequired(operationId).endpointSelection?.authority
     ).toEqual({
-      schemaVersion: "endpoint-authority/v1",
-      controlPlane: "collaboration",
+      schemaVersion: "endpoint-authority/v2",
+      kind: "workspace_canvas",
+      workspaceId: fixture.workspaceId,
       responsibilityRevision: 0,
       reviewerRevision: 0
     });

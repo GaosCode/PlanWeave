@@ -103,6 +103,9 @@ export const agentAccessAuthoritySchema = z.discriminatedUnion("kind", [
     .strict()
 ]);
 
+/** Persisted Agent Access Authority. Same union as live authorize(); stored in agent_access_json. */
+export const agentAccessAuthoritySnapshotSchema = agentAccessAuthoritySchema;
+
 export const authorizedRemoteAgentUseSchema = z
   .object({
     remoteAgent: z
@@ -154,6 +157,7 @@ export type RemoteAgentRecord = z.infer<typeof remoteAgentRecordSchema>;
 export type RemoteAgentWorkspaceGrantRecord = z.infer<typeof remoteAgentWorkspaceGrantRecordSchema>;
 export type RuntimeAuthority = z.infer<typeof runtimeAuthoritySchema>;
 export type AgentAccessAuthority = z.infer<typeof agentAccessAuthoritySchema>;
+export type AgentAccessAuthoritySnapshot = z.infer<typeof agentAccessAuthoritySnapshotSchema>;
 export type AuthorizedRemoteAgentUse = z.infer<typeof authorizedRemoteAgentUseSchema>;
 export type RemoteAgentUseTarget = z.infer<typeof remoteAgentUseTargetSchema>;
 export type PersistedRemoteAgentAccessSnapshot = z.infer<

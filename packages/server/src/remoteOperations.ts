@@ -14,6 +14,8 @@ import {
 } from "./work/dispatchIntegration.js";
 import {
   endpointSelectionSnapshotSchema,
+  persistEndpointSelectionSnapshot,
+  readEndpointSelectionSnapshot,
   type EndpointSelectionSnapshot
 } from "./endpointSelection.js";
 import {
@@ -254,9 +256,12 @@ function parseHostSelection(raw: string | null): DispatchHostSelectionSnapshot |
   return dispatchHostSelectionSnapshotSchema.parse(JSON.parse(raw));
 }
 
-function parseEndpointSelection(raw: string | null): EndpointSelectionSnapshot | undefined {
+function parseEndpointSelection(
+  raw: string | null,
+  workspaceId: string
+): EndpointSelectionSnapshot | undefined {
   if (raw === null || raw === undefined) return undefined;
-  return endpointSelectionSnapshotSchema.parse(JSON.parse(raw));
+  return readEndpointSelectionSnapshot(JSON.parse(raw), workspaceId);
 }
 
 function parseAgentAccess(raw: string | null): PersistedRemoteAgentAccessSnapshot | undefined {
@@ -325,7 +330,9 @@ export class RemoteOperationRepository {
         ? JSON.stringify(dispatchHostSelectionSnapshotSchema.parse(input.hostSelection))
         : null;
       const endpointSelectionJson = input.endpointSelection
-        ? JSON.stringify(endpointSelectionSnapshotSchema.parse(input.endpointSelection))
+        ? JSON.stringify(
+            persistEndpointSelectionSnapshot(input.endpointSelection, input.workspaceId)
+          )
         : null;
       const agentAccessJson = input.agentAccess
         ? JSON.stringify(persistedRemoteAgentAccessSnapshotSchema.parse(input.agentAccess))
@@ -553,7 +560,10 @@ export class RemoteOperationRepository {
         envelopeDigest: parsed.envelope_digest ?? undefined,
         envelopeReference: parsed.envelope_reference ?? undefined,
         hostSelection: parseHostSelection(parsed.host_selection_json),
-        endpointSelection: parseEndpointSelection(parsed.endpoint_selection_json),
+        endpointSelection: parseEndpointSelection(
+          parsed.endpoint_selection_json,
+          parsed.workspace_id
+        ),
         agentAccess: parseAgentAccess(parsed.agent_access_json),
         createdAt: parsed.created_at,
         updatedAt: parsed.updated_at,

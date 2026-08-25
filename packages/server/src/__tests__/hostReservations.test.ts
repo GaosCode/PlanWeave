@@ -63,8 +63,8 @@ function createOperation(
             capabilities,
             resolvedAt: "2030-01-01T00:00:00.000Z",
             authority: {
-              schemaVersion: "endpoint-authority/v1" as const,
-              controlPlane: "owner" as const,
+              schemaVersion: "endpoint-authority/v2" as const,
+              kind: "owner_canvas" as const,
               responsibilityRevision: 0,
               reviewerRevision: 0
             }
@@ -136,6 +136,59 @@ describe("HostReservationRepository", () => {
 
     expect(owner.hostId).toBe(host.id);
     expect(collaboration.hostId).toBe(host.id);
+    expect(reservations.activeCountsForHosts([host.id]).get(host.id)).toBe(1);
+  });
+
+  it("excludes in-flight v1 owner controlPlane JSON from collaboration Host capacity", async () => {
+    const server = await setup();
+    const workspaceId = new WorkspaceIdentityRepository(server.database).workspaceForLegacyProject(
+      "project-a"
+    );
+    if (!workspaceId) throw new Error("workspace_mapping_missing");
+    const hosts = new AgentHostRepository(server.database);
+    const host = hosts.register("Owner Host").host;
+    hosts.bindToWorkspace(host.id, workspaceId);
+    reportReady(hosts, host.id, workspaceId, ["linux"], 1);
+    server.database
+      .prepare("UPDATE agent_hosts SET last_seen_at=? WHERE id=?")
+      .run("2030-01-01T00:00:00.000Z", host.id);
+    const operations = new RemoteOperationRepository(server.database);
+    const reservations = new HostReservationRepository(server.database, {
+      hostOfflineAfterMs: 60_000,
+      leaseDurationMs: 60_000,
+      clock: () => new Date("2030-01-01T00:00:00.000Z")
+    });
+    const claimed = createOperation(
+      operations,
+      workspaceId,
+      "owner-v1-capacity",
+      ["linux"],
+      "project-a",
+      "owner",
+      host.id
+    );
+    const selection = operations.getRequired(claimed.id).endpointSelection;
+    if (!selection) throw new Error("expected_owner_selection");
+    server.database
+      .prepare("UPDATE remote_operations SET endpoint_selection_json=? WHERE id=?")
+      .run(
+        JSON.stringify({
+          ...selection,
+          authority: {
+            schemaVersion: "endpoint-authority/v1",
+            controlPlane: "owner",
+            responsibilityRevision: selection.authority.responsibilityRevision,
+            reviewerRevision: selection.authority.reviewerRevision
+          }
+        }),
+        claimed.id
+      );
+
+    reservations.reserve(claimed.id, { ...executionProfile, preferredHostId: host.id });
+    reservations.reserve(createOperation(operations, workspaceId, "collaboration-v1-capacity").id, {
+      ...executionProfile,
+      preferredHostId: host.id
+    });
     expect(reservations.activeCountsForHosts([host.id]).get(host.id)).toBe(1);
   });
 

@@ -140,8 +140,9 @@ describe("RemoteOperationRepository", () => {
       capabilities: ["linux", "acp.codex"],
       resolvedAt: "2030-01-01T00:00:00.000Z",
       authority: {
-        schemaVersion: "endpoint-authority/v1" as const,
-        controlPlane: "collaboration" as const,
+        schemaVersion: "endpoint-authority/v2" as const,
+        kind: "workspace_canvas" as const,
+        workspaceId: operationInput.workspaceId,
         responsibilityRevision: 2,
         reviewerRevision: 3
       }
@@ -156,11 +157,87 @@ describe("RemoteOperationRepository", () => {
         endpointSelection: { ...endpointSelection, endpointId: "aep-other" }
       })
     ).toThrowError("remote_operation_idempotency_conflict");
-    expect(
+    const persisted = String(
       server.database
         .prepare("SELECT endpoint_selection_json FROM remote_operations WHERE id=?")
         .get(created.id)?.endpoint_selection_json
-    ).toEqual(expect.stringContaining('"endpointId":"aep-primary"'));
+    );
+    expect(persisted).toEqual(expect.stringContaining('"endpointId":"aep-primary"'));
+    expect(persisted).toContain("endpoint-authority/v2");
+    expect(persisted).not.toContain("controlPlane");
+  });
+
+  it("compat-reads endpoint-authority/v1 JSON as a v2 runtime snapshot", async () => {
+    const server = await setup();
+    const repository = new RemoteOperationRepository(server.database);
+    const created = repository.create(operationInput);
+    const v1Selection = {
+      schemaVersion: "endpoint-selection/v1",
+      endpointId: "aep-legacy",
+      profileId: "codex-acp",
+      agentId: "codex",
+      displayName: "Codex",
+      hostId: "host-internal",
+      hostDisplayName: "VPS Singapore",
+      capabilities: ["linux", "acp.codex"],
+      resolvedAt: "2030-01-01T00:00:00.000Z",
+      authority: {
+        schemaVersion: "endpoint-authority/v1",
+        controlPlane: "collaboration",
+        responsibilityRevision: 2,
+        reviewerRevision: 3
+      }
+    };
+    server.database
+      .prepare("UPDATE remote_operations SET endpoint_selection_json=? WHERE id=?")
+      .run(JSON.stringify(v1Selection), created.id);
+
+    expect(repository.getRequired(created.id).endpointSelection?.authority).toEqual({
+      schemaVersion: "endpoint-authority/v2",
+      kind: "workspace_canvas",
+      workspaceId: operationInput.workspaceId,
+      responsibilityRevision: 2,
+      reviewerRevision: 3
+    });
+    expect(repository.getRequired(created.id).agentAccess).toBeUndefined();
+  });
+
+  it("rewrites a v1 endpoint authority snapshot to v2 on create", async () => {
+    const server = await setup();
+    const repository = new RemoteOperationRepository(server.database);
+    const created = repository.create({
+      ...operationInput,
+      endpointSelection: {
+        schemaVersion: "endpoint-selection/v1",
+        endpointId: "aep-rewrite",
+        profileId: "codex-acp",
+        agentId: "codex",
+        displayName: "Codex",
+        hostId: "host-internal",
+        hostDisplayName: "VPS Singapore",
+        capabilities: ["linux", "acp.codex"],
+        resolvedAt: "2030-01-01T00:00:00.000Z",
+        authority: {
+          schemaVersion: "endpoint-authority/v1",
+          controlPlane: "owner",
+          responsibilityRevision: 1,
+          reviewerRevision: 0
+        }
+      }
+    });
+    expect(created.endpointSelection?.authority).toEqual({
+      schemaVersion: "endpoint-authority/v2",
+      kind: "owner_canvas",
+      responsibilityRevision: 1,
+      reviewerRevision: 0
+    });
+    expect(
+      String(
+        server.database
+          .prepare("SELECT endpoint_selection_json FROM remote_operations WHERE id=?")
+          .get(created.id)?.endpoint_selection_json
+      )
+    ).toContain("owner_canvas");
   });
 
   it("creates stable dispatch and attempt identities, replays identical input, and rejects conflict", async () => {

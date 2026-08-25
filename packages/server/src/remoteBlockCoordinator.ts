@@ -46,8 +46,11 @@ import {
   type ResolvedAgentEndpoint
 } from "./agentEndpointCatalog.js";
 import {
-  endpointSelectionSnapshotSchema,
-  type EndpointSelectionSnapshot
+  runtimeAuthoritySnapshotForTarget,
+  runtimeControlPlane,
+  writeEndpointSelectionSnapshotSchema,
+  type EndpointSelectionSnapshot,
+  type RuntimeAuthoritySnapshot
 } from "./endpointSelection.js";
 import { humanPrincipalIdSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import type { AuthorizeRemoteAgentUseInput } from "./remoteAgent/accessPolicy.js";
@@ -220,12 +223,12 @@ export class RemoteBlockCoordinator {
 
   async dispatch(request: RemoteEndpointDispatchRequest): Promise<RemoteDispatchOutcome> {
     const callerHumanPrincipalId = humanPrincipalIdSchema.parse(request.callerHumanPrincipalId);
-    const controlPlane = request.controlPlane ?? "collaboration";
+    const target = dispatchTarget(request);
     const existing = this.options.operations.findByCallerIdentity(request);
     if (existing) {
       if (
         existing.endpointSelection?.endpointId !== request.agentEndpointId ||
-        existing.endpointSelection.authority.controlPlane !== controlPlane
+        existing.endpointSelection.authority.kind !== target.kind
       ) {
         throw new Error("remote_operation_idempotency_conflict");
       }
@@ -249,7 +252,6 @@ export class RemoteBlockCoordinator {
     ) {
       throw new Error("agent_endpoint_dispatch_not_configured");
     }
-    const target = dispatchTarget(request);
     const authorized = this.options.authorizeRemoteAgentUse({
       principal: { humanPrincipalId: callerHumanPrincipalId },
       endpointId: request.agentEndpointId,
@@ -268,11 +270,10 @@ export class RemoteBlockCoordinator {
         controlPlaneForTarget(target)
       ),
       candidate,
-      {
+      runtimeAuthoritySnapshotForTarget(target, {
         responsibilityRevision: request.expectedResponsibilityRevision,
-        reviewerRevision: request.expectedReviewerRevision,
-        controlPlane: controlPlaneForTarget(target)
-      }
+        reviewerRevision: request.expectedReviewerRevision
+      })
     );
     const agentAccess = persistedRemoteAgentAccessSnapshotSchema.parse({
       callerHumanPrincipalId,
@@ -406,7 +407,7 @@ export class RemoteBlockCoordinator {
         await runtimeLease.runtime.claim({
           ref: operation.blockRef,
           operationId: operation.id,
-          controlPlane: operation.endpointSelection?.authority.controlPlane ?? "collaboration",
+          controlPlane: runtimeControlPlane(operation.endpointSelection?.authority),
           sourceRevision: operation.ownershipGeneration,
           graphFingerprint: operation.sourceFingerprint
         });
@@ -426,7 +427,7 @@ export class RemoteBlockCoordinator {
     }
 
     const ownerPackageLocator =
-      operation.endpointSelection?.authority.controlPlane !== "owner"
+      operation.endpointSelection?.authority.kind !== "owner_canvas"
         ? undefined
         : this.options.ownerPackageLocatorForHost?.({
             hostId: operation.endpointSelection.hostId,
@@ -875,22 +876,15 @@ export class RemoteBlockCoordinator {
   private snapshotEndpoint(
     resolved: ResolvedAgentEndpoint,
     candidate: RemoteBlockDispatchCandidate,
-    revisions: {
-      responsibilityRevision: number;
-      reviewerRevision: number;
-      controlPlane: "collaboration" | "owner";
-    }
+    authority: RuntimeAuthoritySnapshot
   ): EndpointSelectionSnapshot {
     if (resolved.agentId !== candidate.agentId) {
       throw new AgentEndpointCatalogError("agent_endpoint_incompatible");
     }
-    return endpointSelectionSnapshotSchema.parse({
+    return writeEndpointSelectionSnapshotSchema.parse({
       schemaVersion: "endpoint-selection/v1",
       ...resolved,
-      authority: {
-        schemaVersion: "endpoint-authority/v1",
-        ...revisions
-      }
+      authority
     });
   }
 
@@ -906,7 +900,7 @@ export class RemoteBlockCoordinator {
       selection.endpointId,
       operation.workspaceId,
       operation.requiredCapabilities,
-      selection.authority.controlPlane
+      runtimeControlPlane(selection.authority)
     );
     this.assertEndpointIdentity(selection, resolved, candidate);
     return resolved;
@@ -926,7 +920,7 @@ export class RemoteBlockCoordinator {
       operation.workspaceId,
       operation.requiredCapabilities,
       reservation.hostId,
-      selection.authority.controlPlane
+      runtimeControlPlane(selection.authority)
     );
     this.assertEndpointIdentity(selection, resolved, candidate);
   }
@@ -998,7 +992,7 @@ export class RemoteBlockCoordinator {
       blockRef: operation.blockRef,
       expectedResponsibilityRevision: selection.authority.responsibilityRevision,
       expectedReviewerRevision: selection.authority.reviewerRevision,
-      controlPlane: selection.authority.controlPlane
+      controlPlane: runtimeControlPlane(selection.authority)
     });
     if (reservation) {
       this.assertReservedEndpoint(operation, candidate, reservation);

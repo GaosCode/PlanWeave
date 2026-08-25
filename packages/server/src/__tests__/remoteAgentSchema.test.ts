@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   agentAccessAuthoritySchema,
+  agentAccessAuthoritySnapshotSchema,
   authorizedRemoteAgentUseSchema,
   remoteAgentAccessModeSchema,
   remoteAgentAuthorizationErrorCodeSchema,
@@ -198,6 +199,7 @@ describe("remote agent domain schemas", () => {
       })
     ).toThrow();
     expect(() => agentAccessAuthoritySchema.parse({ kind: "server_admin" })).toThrow();
+    expect(agentAccessAuthoritySnapshotSchema).toBe(agentAccessAuthoritySchema);
   });
 
   it("parses AuthorizedRemoteAgentUse and the future catalog access view", () => {

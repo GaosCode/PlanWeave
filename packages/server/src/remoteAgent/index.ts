@@ -1,5 +1,6 @@
 export {
   agentAccessAuthoritySchema,
+  agentAccessAuthoritySnapshotSchema,
   authorizedRemoteAgentUseSchema,
   persistedRemoteAgentAccessSnapshotSchema,
   remoteAgentAccessModeSchema,
@@ -12,6 +13,7 @@ export {
   remoteAgentWorkspaceGrantRecordSchema,
   runtimeAuthoritySchema,
   type AgentAccessAuthority,
+  type AgentAccessAuthoritySnapshot,
   type AuthorizedRemoteAgentUse,
   type PersistedRemoteAgentAccessSnapshot,
   type RemoteAgentAccessMode,

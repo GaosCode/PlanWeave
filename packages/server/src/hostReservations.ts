@@ -11,6 +11,7 @@ import {
   hostExecutionProfileAvailability,
   isAgentHostOnline
 } from "./hosts.js";
+import { isOwnerCanvasRuntime } from "./endpointSelection.js";
 
 const capacityManagedReservationSql = `
   NOT EXISTS (
@@ -19,10 +20,16 @@ const capacityManagedReservationSql = `
     JOIN remote_operations capacity_operation
       ON capacity_operation.id=capacity_attempt.operation_id
     WHERE capacity_attempt.execution_attempt_id=r.execution_attempt_id
-      AND json_extract(
-        capacity_operation.endpoint_selection_json,
-        '$.authority.controlPlane'
-      )='owner'
+      AND (
+        json_extract(
+          capacity_operation.endpoint_selection_json,
+          '$.authority.kind'
+        )='owner_canvas'
+        OR json_extract(
+          capacity_operation.endpoint_selection_json,
+          '$.authority.controlPlane'
+        )='owner'
+      )
   )
 `;
 
@@ -214,7 +221,7 @@ export class HostReservationRepository {
         const now = this.clock();
         const onlineAfter = new Date(now.getTime() - this.options.hostOfflineAfterMs).toISOString();
         const workspaceId = operation.workspaceId;
-        const ownerFleet = operation.endpointSelection?.authority.controlPlane === "owner";
+        const ownerFleet = isOwnerCanvasRuntime(operation.endpointSelection?.authority);
         const preferredHostId =
           options.preferredHostId === undefined
             ? undefined
@@ -446,7 +453,7 @@ export class HostReservationRepository {
       const operation = operations.getRequired(
         opaqueIdentifierSchema.parse(operationRow.operation_id)
       );
-      const ownerFleet = operation.endpointSelection?.authority.controlPlane === "owner";
+      const ownerFleet = isOwnerCanvasRuntime(operation.endpointSelection?.authority);
       if (
         operation.executionAttemptId !== prior.executionAttemptId ||
         operation.attempt.status !== "interrupted" ||
