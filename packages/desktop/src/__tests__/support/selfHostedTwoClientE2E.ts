@@ -20,6 +20,8 @@ import { ProjectAccessRepository } from "../../../../server/src/projectAccessRep
 import { openServerDatabase, type SqliteDatabase } from "../../../../server/src/sqlite.js";
 import { legacyWorkspaceIdForProject } from "../../../../server/src/__tests__/support/legacyWorkspaceId.js";
 import { seedOperatorSessions } from "../../../../server/src/__tests__/support/operatorAuthFixture.js";
+import { ownHostRemoteAgents } from "../../../../server/src/__tests__/support/remoteAgentOwnerFixture.js";
+import { syncRemoteAgentsFromHost } from "../../../../server/src/remoteAgent/sync.js";
 import {
   createDistributedServerComposition,
   type DistributedServerComposition
@@ -218,8 +220,17 @@ export async function configureWorkspaceAccess(input: {
     role: "editor",
     grantedBy: { kind: "human", id: input.ownerId }
   });
-  const hosts = new AgentHostRepository(database);
+  const hosts = new AgentHostRepository(database, undefined, (host) => {
+    syncRemoteAgentsFromHost({ database, host, clock: () => new Date() });
+  });
   const host = hosts.register("E2E exact-block host").host;
+  ownHostRemoteAgents({
+    database,
+    hostId: host.id,
+    ownerHumanPrincipalId: input.ownerId,
+    accessMode: "workspace_restricted",
+    grantWorkspaceId: input.workspaceId
+  });
   hosts.bindToWorkspace(host.id, input.workspaceId);
   hosts.reportOnline(host.id, ["acp.codex"], 1, {
     workspaceMappings: [{ workspaceId: input.workspaceId, status: "ready" }],

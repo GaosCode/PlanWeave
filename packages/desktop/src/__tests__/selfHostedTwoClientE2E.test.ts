@@ -265,7 +265,7 @@ describe("self-hosted two-Desktop collaboration flow (OSS-006 B-002)", () => {
       }
 
       const endpointResponse = await fetch(
-        `${fixture.origin}/api/v1/projects/${encodeURIComponent(fixture.projectId)}/agent-endpoints`,
+        `${fixture.origin}/api/v1/projects/${encodeURIComponent(fixture.projectId)}/agent-endpoints?workspaceId=${encodeURIComponent(fixture.workspaceId)}&canvasId=default`,
         { headers: { authorization: `Bearer ${ownerToken}` } }
       );
       expect(endpointResponse.status).toBe(200);

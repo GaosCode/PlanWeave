@@ -19,6 +19,7 @@ import { ProjectAccessRepository } from "../../../server/src/projectAccessReposi
 import { openServerDatabase } from "../../../server/src/sqlite.js";
 import { legacyWorkspaceIdForProject } from "../../../server/src/__tests__/support/legacyWorkspaceId.js";
 import { seedOperatorSessions } from "../../../server/src/__tests__/support/operatorAuthFixture.js";
+import { ensureTestHumanPrincipal } from "../../../server/src/__tests__/support/remoteAgentOwnerFixture.js";
 import {
   createDistributedServerComposition,
   type DistributedServerComposition
@@ -213,21 +214,30 @@ async function nextHostMessageOfType(
   throw new Error(`host_message_type_timeout:${expectedType}`);
 }
 
-async function connectEnrolledHost(origin: string, adminToken: string, workspaceId: string) {
-  const grantResponse = await fetch(`${origin}/api/v1/host-enrollments`, {
+async function connectEnrolledHost(input: {
+  origin: string;
+  adminToken: string;
+  workspaceId: string;
+  ownerHumanPrincipalId: string;
+}) {
+  const grantResponse = await fetch(`${input.origin}/api/v1/host-enrollments`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${adminToken}`,
+      Authorization: `Bearer ${input.adminToken}`,
       "content-type": "application/json"
     },
     body: JSON.stringify({
-      workspaceId,
+      workspaceId: input.workspaceId,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
-      credentialPolicy: { lifetimeDays: 180, renewal: "automatic" }
+      credentialPolicy: { lifetimeDays: 180, renewal: "automatic" },
+      ownerHumanPrincipalId: input.ownerHumanPrincipalId,
+      accessMode: "workspace_restricted",
+      createWorkspaceGrant: true
     })
   });
   expect(grantResponse.status).toBe(201);
   const grant = (await grantResponse.json()) as { enrollmentCode: string; workspaceId: string };
+  expect(grant.workspaceId).toBe(input.workspaceId);
   const credentialToken = `pw_host_${"D".repeat(43)}`;
   const enrollmentRequest = {
     type: "host.enrollment.request",
@@ -240,7 +250,7 @@ async function connectEnrolledHost(origin: string, adminToken: string, workspace
     capabilities: ["acp.codex", "acp.session.load"],
     capacity: 1
   };
-  const exchangeResponse = await fetch(`${origin}/agent-hosts/enrollments/exchange`, {
+  const exchangeResponse = await fetch(`${input.origin}/agent-hosts/enrollments/exchange`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(enrollmentRequest)
@@ -248,7 +258,7 @@ async function connectEnrolledHost(origin: string, adminToken: string, workspace
   expect(exchangeResponse.status).toBe(200);
   const exchange = (await exchangeResponse.json()) as { hostId: string };
   const socket = new WebSocket(
-    `${origin.replace(/^http:/, "ws:")}/agent-hosts/${exchange.hostId}/connect?workspaceId=${encodeURIComponent(grant.workspaceId)}`,
+    `${input.origin.replace(/^http:/, "ws:")}/agent-hosts/${exchange.hostId}/connect?workspaceId=${encodeURIComponent(grant.workspaceId)}`,
     { headers: { Authorization: `Bearer ${credentialToken}` } }
   );
   hostSockets.push(socket);
@@ -351,10 +361,11 @@ async function configureWorkspaceWorkAccess(input: {
   const database = await openServerDatabase(input.fixture.databasePath, 5_000);
   try {
     const access = new ProjectAccessRepository(database);
-    for (const humanPrincipalId of [
-      workspaceOwner.humanPrincipalId,
-      workspaceMember.humanPrincipalId
-    ]) {
+    for (const [humanPrincipalId, displayName] of [
+      [workspaceOwner.humanPrincipalId, "Desktop Workspace Owner"],
+      [workspaceMember.humanPrincipalId, "Desktop Workspace Member"]
+    ] as const) {
+      ensureTestHumanPrincipal(database, humanPrincipalId, displayName);
       access.grant({
         workspaceId: input.fixture.workspaceId,
         projectId: input.fixture.projectId,
@@ -373,7 +384,8 @@ async function configureWorkspaceWorkAccess(input: {
   expect(workspaceConnection.status).toBe(200);
   return {
     workspaceOwner: clientFor(input.fixture.origin, input.fixture.projectId, workspaceOwner.token),
-    workspaceMember
+    workspaceMember,
+    workspaceOwnerHumanPrincipalId: workspaceOwner.humanPrincipalId
   };
 }
 
@@ -522,9 +534,20 @@ describe("Desktop CollaborationClient against the Server composition", () => {
 
   it("maps remote action, event, interaction, and error routes through the client", async () => {
     const { fixture, ownerBootstrap } = await createIdentityFixture();
-    const { workspaceOwner } = await configureWorkspaceWorkAccess({ fixture, ownerBootstrap });
-    const host = await connectEnrolledHost(fixture.origin, fixture.adminToken, fixture.workspaceId);
-    const endpointPage = await workspaceOwner.listAgentEndpoints();
+    const { workspaceOwner, workspaceOwnerHumanPrincipalId } = await configureWorkspaceWorkAccess({
+      fixture,
+      ownerBootstrap
+    });
+    const host = await connectEnrolledHost({
+      origin: fixture.origin,
+      adminToken: fixture.adminToken,
+      workspaceId: fixture.workspaceId,
+      ownerHumanPrincipalId: workspaceOwnerHumanPrincipalId
+    });
+    const endpointPage = await workspaceOwner.listAgentEndpoints({
+      workspaceId: fixture.workspaceId,
+      canvasId: blockWorkItem.canvasId
+    });
     const agentEndpointId = endpointPage.items.find(
       (endpoint) => endpoint.status === "available"
     )?.endpointId;
