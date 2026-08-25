@@ -247,16 +247,18 @@ describe("RemoteControlService owner fleet control plane", () => {
       const fleet = fixture.service.listAgentEndpoints(fixture.principal, {});
       expect(fleet.items).toEqual([]);
 
-      const projectScoped = fixture.service.listAgentEndpoints(fixture.principal, {
-        projectId: "project-a"
-      });
-      expect(projectScoped.items).toEqual([]);
+      expect(() =>
+        fixture.service.listAgentEndpoints(fixture.principal, {
+          projectId: "project-a"
+        })
+      ).toThrow("operator_query_invalid");
 
-      const missingCanvas = fixture.service.listAgentEndpoints(fixture.principal, {
-        projectId: "project-a",
-        humanPrincipalId: "owner-human-1"
-      });
-      expect(missingCanvas.items).toEqual([]);
+      expect(() =>
+        fixture.service.listAgentEndpoints(fixture.principal, {
+          projectId: "project-a",
+          humanPrincipalId: "owner-human-1"
+        })
+      ).toThrow("operator_query_invalid");
     };
     return run();
   });

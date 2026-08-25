@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createTestWorkspace } from "../../../runtime/src/__tests__/promptTestHelpers.js";
 import { hashOperatorToken } from "../operatorAuth.js";
 import { parseServerConfig } from "../config.js";
+import { openServerDatabase } from "../sqlite.js";
+import { ensureTestHumanPrincipal } from "./support/remoteAgentOwnerFixture.js";
 import {
   createDistributedServerComposition,
   type DistributedServerComposition
@@ -301,11 +303,12 @@ describe("distributed server composition", () => {
         agentEndpointId: "endpoint-not-enrolled",
         idempotencyKey: "owner-secondary-dispatch",
         expectedResponsibilityRevision: 0,
-        expectedReviewerRevision: 0
+        expectedReviewerRevision: 0,
+        humanPrincipalId: "trusted-owner"
       })
     });
-    await expect(ownerDispatch.json()).resolves.toEqual({ error: "agent_endpoint_unknown" });
-    expect(ownerDispatch.status).toBe(409);
+    await expect(ownerDispatch.json()).resolves.toEqual({ error: "remote_agent_not_found" });
+    expect(ownerDispatch.status).toBe(404);
   });
 
   it("dispatches through the Owner runtime with no collaboration Workspace configured", async () => {
@@ -347,6 +350,10 @@ describe("distributed server composition", () => {
     const address = httpServer.address();
     if (!address || typeof address === "string") throw new Error("Expected HTTP address");
 
+    const database = await openServerDatabase(config.databasePath, 5_000);
+    ensureTestHumanPrincipal(database, "owner-runtime", "Owner Runtime");
+    database.close();
+
     const dispatch = await fetch(`http://127.0.0.1:${address.port}/api/v1/remote-operations`, {
       method: "POST",
       headers: jsonHeaders(adminToken),
@@ -358,11 +365,12 @@ describe("distributed server composition", () => {
         agentEndpointId: "endpoint-not-enrolled",
         idempotencyKey: "owner-only-dispatch",
         expectedResponsibilityRevision: 0,
-        expectedReviewerRevision: 0
+        expectedReviewerRevision: 0,
+        humanPrincipalId: "owner-runtime"
       })
     });
 
-    expect(dispatch.status).toBe(409);
-    await expect(dispatch.json()).resolves.toEqual({ error: "agent_endpoint_unknown" });
+    expect(dispatch.status).toBe(404);
+    await expect(dispatch.json()).resolves.toEqual({ error: "remote_agent_not_found" });
   });
 });

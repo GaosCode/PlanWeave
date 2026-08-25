@@ -165,12 +165,18 @@ export class RemoteControlService {
   listAgentEndpoints(principal: OperatorPrincipal, rawQuery: unknown): RemoteAgentEndpointList {
     this.options.authorization.requireServerAdmin(principal);
     const query = operatorAgentEndpointQuerySchema.parse(rawQuery);
+    const hasLocator =
+      query.humanPrincipalId !== undefined ||
+      query.projectId !== undefined ||
+      query.canvasId !== undefined ||
+      query.workspaceId !== undefined;
+    if (!hasLocator) return emptyAgentEndpointList();
     if (
       query.humanPrincipalId === undefined ||
       query.projectId === undefined ||
       query.canvasId === undefined
     ) {
-      return emptyAgentEndpointList();
+      throw new Error("operator_query_invalid");
     }
     this.options.authorization.authorizeProject(principal, query.projectId);
     if (query.workspaceId !== undefined) {
@@ -197,7 +203,7 @@ export class RemoteControlService {
       projectId: query.projectId,
       canvasId: query.canvasId
     });
-    if (!ownerScope) return emptyAgentEndpointList();
+    if (!ownerScope) throw new Error("operator_project_forbidden");
     return listAuthorizedRemoteAgentEndpoints({
       policy: this.options.remoteAgentAccess,
       catalog: this.options.agentEndpoints,

@@ -74,7 +74,7 @@ describe("distributed server composition Stage H contracts", () => {
     });
     database.close();
 
-    const endpointUrl = `${fixture.origin}/api/v1/agent-endpoints?projectId=${encodeURIComponent(fixture.projectId)}&humanPrincipalId=${encodeURIComponent(TEST_REMOTE_AGENT_OWNER_ID)}`;
+    const endpointUrl = `${fixture.origin}/api/v1/agent-endpoints?projectId=${encodeURIComponent(fixture.projectId)}&canvasId=default&humanPrincipalId=${encodeURIComponent(TEST_REMOTE_AGENT_OWNER_ID)}`;
     const request = () =>
       fetch(endpointUrl, { headers: { Authorization: `Bearer ${adminToken}` } });
     const first = await request();
@@ -110,7 +110,7 @@ describe("distributed server composition Stage H contracts", () => {
     });
     expect(nonAdmin.status).toBe(403);
     const crossProject = await fetch(
-      `${fixture.origin}/api/v1/agent-endpoints?projectId=unknown-project&humanPrincipalId=${encodeURIComponent(TEST_REMOTE_AGENT_OWNER_ID)}`,
+      `${fixture.origin}/api/v1/agent-endpoints?projectId=unknown-project&canvasId=default&humanPrincipalId=${encodeURIComponent(TEST_REMOTE_AGENT_OWNER_ID)}`,
       { headers: { Authorization: `Bearer ${adminToken}` } }
     );
     expect(crossProject.status).toBe(403);
