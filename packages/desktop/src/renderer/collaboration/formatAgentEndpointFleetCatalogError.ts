@@ -10,7 +10,8 @@ function withPlaceholders(template: string, values: Record<string, string>): str
 }
 
 const FLEET_CATALOG_ERROR_KEYS = {
-  operator_local_server_not_ready: "agentEndpointFleetLocalServerNotReady"
+  operator_local_server_not_ready: "agentEndpointFleetLocalServerNotReady",
+  human_principal_unavailable: "agentEndpointHumanPrincipalUnavailable"
 } as const;
 
 const OPTIONAL_FLEET_SETUP_CODES = new Set([

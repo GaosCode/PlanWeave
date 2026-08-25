@@ -13,6 +13,7 @@ import { HostBootstrapCard } from "./HostBootstrapCard";
 import { LocalAgentHostCard } from "./LocalAgentHostCard";
 import { HostAvailabilityCard } from "./HostAvailabilityCard";
 import { DeploymentConnectionCard } from "./DeploymentConnectionCard";
+import { RemoteAgentManagementCard } from "./RemoteAgentManagementCard";
 
 type HostAdministrationSectionProps = {
   diagnosticsEnabled?: boolean;
@@ -252,6 +253,8 @@ export function HostAdministrationContent({
         onRenew={(host) => void renewHostCredential(host.id)}
         t={t}
       />
+
+      <RemoteAgentManagementCard t={t} />
 
       <HostBootstrapCard
         activeProfile={activeProfile}

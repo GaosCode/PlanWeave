@@ -133,6 +133,7 @@ type WorkspaceAgentEndpointRunInput = {
   selectedCanvasId: string | null;
   selectedProject: DesktopProjectSummary | null;
   operatorProfileId?: string | null;
+  humanPrincipalId?: string | null;
   ownerFleetDispatchEnabled?: boolean;
   runtimeAvailability: CollaborationRuntimeAvailabilityView;
   workspaceRuntimeAuthorityKey?: string | null;
@@ -297,13 +298,17 @@ export function useWorkspaceAgentEndpointRun(
         Boolean(input.ownerFleetDispatchEnabled) &&
         Boolean(input.operatorProfileId) &&
         Boolean(operatorControlBridge);
-      const usesOwnerFleetDispatch =
-        remoteBinding === null && usesRemoteEndpoint && ownerFleetReady;
+      const humanPrincipalId = input.humanPrincipalId?.trim() || null;
+      const usesWorkspaceRuntime = remoteBinding !== null;
+      const usesOperatorAgentDispatch =
+        usesRemoteEndpoint && ownerFleetReady && Boolean(humanPrincipalId);
       const collaborationReady = Boolean(
         input.collaborationController && api && input.activeProjectId
       );
-      if (usesRemoteEndpoint && !usesOwnerFleetDispatch && !collaborationReady) {
-        input.setError("owner_fleet_dispatch_unavailable");
+      if (usesRemoteEndpoint && !usesOperatorAgentDispatch && !collaborationReady) {
+        input.setError(
+          humanPrincipalId ? "owner_fleet_dispatch_unavailable" : "human_principal_unavailable"
+        );
         return;
       }
       if (
@@ -379,10 +384,12 @@ export function useWorkspaceAgentEndpointRun(
             return detail.remoteExecution;
           });
         const ownerFleetApi =
-          usesOwnerFleetDispatch && input.operatorProfileId
+          usesOperatorAgentDispatch && input.operatorProfileId && humanPrincipalId
             ? wrapOwnerFleetApiForOperationTracking(
                 createOwnerFleetRemoteDispatchApi({
                   operatorProfileId: input.operatorProfileId,
+                  humanPrincipalId,
+                  ...(remoteBinding?.workspaceId ? { workspaceId: remoteBinding.workspaceId } : {}),
                   fleetApi: operatorControlBridge!
                 }),
                 ownerFleetOperationsByBlockRef
@@ -393,11 +400,11 @@ export function useWorkspaceAgentEndpointRun(
           canvasId: selectedCanvasId,
           selectionByBlockRef,
           collaborationController: input.collaborationController,
-          api: usesOwnerFleetDispatch ? null : api,
+          api: usesOperatorAgentDispatch ? null : api,
           ownerFleetApi,
-          resolveRemoteWorkAuthority: usesOwnerFleetDispatch
-            ? async () => ({ revisions: { responsibilityRevision: 0, reviewerRevision: 0 } })
-            : undefined,
+          resolveRemoteWorkAuthority: usesWorkspaceRuntime
+            ? undefined
+            : async () => ({ revisions: { responsibilityRevision: 0, reviewerRevision: 0 } }),
           resolveLiveRemoteBinding,
           createId,
           startLocal,
@@ -525,7 +532,7 @@ export function useWorkspaceAgentEndpointRun(
           },
           completion: {
             isSatisfied: async (options) => {
-              if (usesOwnerFleetDispatch) {
+              if (!usesWorkspaceRuntime) {
                 return isOwnerFleetScopeSatisfied(options);
               }
               const readStatus = async () => {
@@ -605,6 +612,7 @@ export function useWorkspaceAgentEndpointRun(
       input.selectedCanvasId,
       input.selectedProject,
       input.operatorProfileId,
+      input.humanPrincipalId,
       input.ownerFleetDispatchEnabled,
       input.runtimeAvailability,
       input.setError,

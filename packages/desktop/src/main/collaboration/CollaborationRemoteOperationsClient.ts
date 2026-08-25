@@ -27,6 +27,7 @@ import {
 } from "@planweave-ai/collaboration-protocol/agent-endpoint";
 import type { z, ZodType } from "zod";
 import type { JsonMethod } from "./collaborationHttpTransport.js";
+import type { CollaborationListAgentEndpointsInput } from "../../shared/collaboration.js";
 
 export interface CollaborationRemoteOperationsTransportPort {
   json<T>(
@@ -38,7 +39,10 @@ export interface CollaborationRemoteOperationsTransportPort {
 }
 
 export interface CollaborationRemoteOperationsPort {
-  listAgentEndpoints(signal?: AbortSignal): Promise<RemoteAgentEndpointList>;
+  listAgentEndpoints(
+    query?: CollaborationListAgentEndpointsInput,
+    signal?: AbortSignal
+  ): Promise<RemoteAgentEndpointList>;
   dispatchRemoteOperation(
     command: RemoteDispatchIntentV3,
     signal?: AbortSignal
@@ -79,10 +83,21 @@ export class CollaborationRemoteOperationsClient implements CollaborationRemoteO
     private readonly transport: CollaborationRemoteOperationsTransportPort
   ) {}
 
-  listAgentEndpoints(signal?: AbortSignal): Promise<RemoteAgentEndpointList> {
+  listAgentEndpoints(
+    query?: CollaborationListAgentEndpointsInput,
+    signal?: AbortSignal
+  ): Promise<RemoteAgentEndpointList> {
+    if (query?.projectId !== undefined && query.projectId !== this.projectId) {
+      throw new Error("collaboration_project_scope_mismatch");
+    }
+    const params = new URLSearchParams();
+    if (query?.canvasId) params.set("canvasId", query.canvasId);
+    if (query?.workspaceId) params.set("workspaceId", query.workspaceId);
+    if (query?.humanPrincipalId) params.set("humanPrincipalId", query.humanPrincipalId);
+    const suffix = params.size > 0 ? `?${params.toString()}` : "";
     return this.transport.json(
       "GET",
-      `/api/v1/projects/${encodeURIComponent(this.projectId)}/agent-endpoints`,
+      `/api/v1/projects/${encodeURIComponent(this.projectId)}/agent-endpoints${suffix}`,
       remoteAgentEndpointListSchema,
       { signal }
     );

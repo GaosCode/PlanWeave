@@ -27,6 +27,8 @@ import { useOwnerControlPlaneAvailability } from "./hooks/useOwnerControlPlaneAv
 import { useWorkspaceAgentEndpointCatalog } from "./hooks/useWorkspaceAgentEndpointCatalog";
 import { useWorkspaceAgentEndpointRun } from "./hooks/useWorkspaceAgentEndpointRun";
 import { agentEndpointsForCanvasAuthority } from "./collaboration/agentEndpointViewModel";
+import { resolveDesktopHumanPrincipalId } from "./collaboration/desktopHumanPrincipal";
+import { resolveCurrentMembership } from "./collaboration/peopleViewModels";
 import { useDesktopProjectActions } from "./hooks/useDesktopProjectActions";
 import { useGraphFlowModel } from "./hooks/useGraphFlowModel";
 import { useGraphHistoryActions } from "./hooks/useGraphHistoryActions";
@@ -210,6 +212,26 @@ export function ProjectWorkspaceProvider({
     [refreshProjects, remoteWorkspace.refresh]
   );
   const ownerControlPlane = useOwnerControlPlaneAvailability();
+  const humanPrincipalId = useMemo(
+    () =>
+      resolveDesktopHumanPrincipalId({
+        collaborationStatus: collaborationSurface.status,
+        membershipHumanPrincipalId:
+          resolveCurrentMembership({
+            members: collaborationSurface.viewModel.members,
+            status: collaborationSurface.status
+          })?.humanPrincipalId ?? null
+      }),
+    [collaborationSurface.status, collaborationSurface.viewModel.members]
+  );
+  const catalogLocator = useMemo(() => {
+    if (!canvasLocator) return null;
+    return {
+      projectId: canvasLocator.projectId,
+      canvasId: canvasLocator.canvasId,
+      ...(canvasLocator.kind === "workspace" ? { workspaceId: canvasLocator.workspaceId } : {})
+    };
+  }, [canvasLocator]);
   const agentEndpointCatalog = useWorkspaceAgentEndpointCatalog({
     agentDetections,
     agentTransport: settings.execution.agentTransport,
@@ -217,6 +239,10 @@ export function ProjectWorkspaceProvider({
     fleetCatalogBlockedCode: ownerControlPlane.fleetCatalogBlockedCode,
     graph,
     operatorProfileId: ownerControlPlane.operatorProfileId,
+    humanPrincipalId,
+    locator: catalogLocator,
+    collaborationApi: collaborationBridge,
+    sessionConnected: collaborationSurface.sessionConnected,
     updateSettingsAndWait
   });
   const canvasAgentEndpoints = useMemo(
@@ -432,6 +458,7 @@ export function ProjectWorkspaceProvider({
     selectedCanvasId: activeCanvasId,
     selectedProject,
     operatorProfileId: ownerControlPlane.operatorProfileId,
+    humanPrincipalId,
     ownerFleetDispatchEnabled: ownerControlPlane.fleetCatalogEnabled,
     runtimeAvailability: collaborationRuntime.availability,
     workspaceRuntimeAuthorityKey: collaborationRuntime.workspaceRuntimeAuthorityKey,

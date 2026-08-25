@@ -251,6 +251,12 @@ describe("RemoteControlService owner fleet control plane", () => {
         projectId: "project-a"
       });
       expect(projectScoped.items).toEqual([]);
+
+      const missingCanvas = fixture.service.listAgentEndpoints(fixture.principal, {
+        projectId: "project-a",
+        humanPrincipalId: "owner-human-1"
+      });
+      expect(missingCanvas.items).toEqual([]);
     };
     return run();
   });

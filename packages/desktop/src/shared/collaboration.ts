@@ -451,6 +451,18 @@ export type CollaborationHumanPrincipalIdInput = z.infer<
   typeof collaborationHumanPrincipalIdInputSchema
 >;
 
+export const collaborationListAgentEndpointsInputSchema = z
+  .object({
+    projectId: collaborationOpaqueIdSchema.optional(),
+    canvasId: collaborationOpaqueIdSchema.optional(),
+    workspaceId: collaborationOpaqueIdSchema.optional(),
+    humanPrincipalId: collaborationOpaqueIdSchema.optional()
+  })
+  .strict();
+export type CollaborationListAgentEndpointsInput = z.infer<
+  typeof collaborationListAgentEndpointsInputSchema
+>;
+
 export const collaborationDeviceCredentialIdInputSchema = z
   .object({
     deviceCredentialId: collaborationOpaqueIdSchema
@@ -913,7 +925,9 @@ export type PlanWeaveCollaborationApi = WorkspaceCanvasSharingApi & {
   readCollaborationCommentAttachment: (
     input: CollaborationReadCommentAttachmentInput
   ) => Promise<CollaborationCommentAttachmentBody>;
-  listCollaborationAgentEndpoints: () => Promise<RemoteAgentEndpointList>;
+  listCollaborationAgentEndpoints: (
+    input?: CollaborationListAgentEndpointsInput
+  ) => Promise<RemoteAgentEndpointList>;
   dispatchCollaborationRemoteOperation: (
     input: RemoteDispatchIntentV3
   ) => Promise<RemoteOperationObservation>;

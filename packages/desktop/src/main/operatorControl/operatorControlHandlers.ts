@@ -173,6 +173,26 @@ export function registerOperatorControlHandlers(
     operatorControlInvokeChannels.executeOwnerFleetRemoteOperationAction,
     (_event, input: unknown) => active.executeOwnerFleetRemoteOperationAction(input)
   );
+  ipcMain.handle(operatorControlInvokeChannels.listRemoteAgents, (_event, input: unknown) =>
+    active.listRemoteAgents(input)
+  );
+  ipcMain.handle(operatorControlInvokeChannels.setRemoteAgentAccessMode, (_event, input: unknown) =>
+    active.setRemoteAgentAccessMode(input)
+  );
+  ipcMain.handle(
+    operatorControlInvokeChannels.grantRemoteAgentWorkspace,
+    (_event, input: unknown) => active.grantRemoteAgentWorkspace(input)
+  );
+  ipcMain.handle(operatorControlInvokeChannels.revokeRemoteAgentGrant, (_event, input: unknown) =>
+    active.revokeRemoteAgentGrant(input)
+  );
+  ipcMain.handle(operatorControlInvokeChannels.revokeRemoteAgent, (_event, input: unknown) =>
+    active.revokeRemoteAgent(input)
+  );
+  ipcMain.handle(
+    operatorControlInvokeChannels.repairRemoteAgentOwnership,
+    (_event, input: unknown) => active.repairRemoteAgentOwnership(input)
+  );
   return active;
 }
 

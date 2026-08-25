@@ -11,6 +11,7 @@ import {
 } from "@planweave-ai/collaboration-protocol/remote-run";
 import type { RemoteAgentEndpointList } from "@planweave-ai/collaboration-protocol/agent-endpoint";
 import { z } from "zod";
+import { collaborationListAgentEndpointsInputSchema } from "../../shared/collaboration.js";
 import {
   collaborationRemoteActionInputSchema,
   collaborationRemoteInteractionRespondInputSchema,
@@ -39,8 +40,9 @@ export class CollaborationRemoteOperationsFacade {
     ) => Promise<T>
   ) {}
 
-  async listAgentEndpoints(): Promise<RemoteAgentEndpointList> {
-    return this.withActiveClient((client) => client.listAgentEndpoints());
+  async listAgentEndpoints(input?: unknown): Promise<RemoteAgentEndpointList> {
+    const parsed = collaborationListAgentEndpointsInputSchema.parse(input ?? {});
+    return this.withActiveClient((client) => client.listAgentEndpoints(parsed));
   }
 
   async dispatch(input: unknown): Promise<RemoteOperationObservation> {

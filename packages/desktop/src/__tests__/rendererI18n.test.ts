@@ -31,7 +31,8 @@ describe("desktop renderer i18n", () => {
       "remoteAgentFailureError",
       "collaborationRuntimeStatusUnavailableError",
       "collaborationRuntimeTaskStatusUnavailableError",
-      "collaborationRuntimeBlockStatusUnavailableError"
+      "collaborationRuntimeBlockStatusUnavailableError",
+      "agentEndpointHumanPrincipalUnavailable"
     ] as const;
     for (const key of keys) {
       expect(resources.en[key].length).toBeGreaterThan(0);

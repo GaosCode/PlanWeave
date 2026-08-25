@@ -25,14 +25,20 @@ export type OwnerFleetRemoteDispatchApi = {
 
 export function createOwnerFleetRemoteDispatchApi(input: {
   operatorProfileId: string;
+  humanPrincipalId: string;
+  workspaceId?: string;
   fleetApi: OwnerFleetRemoteOperationsApi;
 }): OwnerFleetRemoteDispatchApi {
   const profileId = input.operatorProfileId;
+  const humanPrincipalId = input.humanPrincipalId;
+  const workspaceId = input.workspaceId;
   return {
     dispatchOwnerFleetRemoteOperation: (dispatchInput) =>
       input.fleetApi.dispatchOwnerFleetRemoteOperation({
         profileId,
-        command: dispatchInput.command
+        humanPrincipalId,
+        command: dispatchInput.command,
+        ...(workspaceId === undefined ? {} : { workspaceId })
       }),
     observeOwnerFleetRemoteOperation: (observeInput) =>
       input.fleetApi.observeOwnerFleetRemoteOperation({

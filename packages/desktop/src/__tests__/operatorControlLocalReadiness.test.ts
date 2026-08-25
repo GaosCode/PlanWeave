@@ -83,7 +83,9 @@ describe("Operator control local readiness", () => {
           fleetCatalogBlockedCode: blockedCode,
           fleetApi: { listOperatorAgentEndpoints },
           logicalExecutors: [],
-          operatorProfileId: "planweave-local-loopback"
+          operatorProfileId: "planweave-local-loopback",
+          humanPrincipalId: "human-owner-1",
+          locator: { projectId: "project-local", canvasId: "canvas-main" }
         }),
       {
         initialProps: {
@@ -144,7 +146,12 @@ describe("Operator control local readiness", () => {
     });
 
     await expect(
-      service.listAgentEndpoints({ profileId: "planweave-local-loopback" })
+      service.listAgentEndpoints({
+        profileId: "planweave-local-loopback",
+        humanPrincipalId: "human-owner-1",
+        projectId: "project-local",
+        canvasId: "canvas-main"
+      })
     ).resolves.toEqual({ schemaVersion: "agent-endpoint-list/v1", items: [] });
     expect((await service.getStatus()).profiles[0]?.hostedByThisDesktop).toBe(true);
     expect(seenBases).toEqual(["http://127.0.0.1:50653/"]);
@@ -179,7 +186,12 @@ describe("Operator control local readiness", () => {
     onStatusChange.mockClear();
 
     await expect(
-      service.listAgentEndpoints({ profileId: "planweave-local-loopback" })
+      service.listAgentEndpoints({
+        profileId: "planweave-local-loopback",
+        humanPrincipalId: "human-owner-1",
+        projectId: "project-local",
+        canvasId: "canvas-main"
+      })
     ).rejects.toMatchObject({ code: "operator_local_server_not_ready" });
     expect(onStatusChange).toHaveBeenLastCalledWith(
       expect.objectContaining({ lastErrorCode: "operator_local_server_not_ready" })

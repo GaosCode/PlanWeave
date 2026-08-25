@@ -25,9 +25,21 @@ import { z, type ZodType } from "zod";
 import {
   OperatorControlError,
   operatorControlProfileSchema,
+  operatorListAgentEndpointsInputSchema,
+  operatorRemoteAgentListSchema,
+  operatorRemoteAgentViewSchema,
   type OperatorControlProfile,
   type OperatorCreateEnrollmentGrantInput,
-  type OperatorListHostsInput
+  type OperatorGrantRemoteAgentWorkspaceInput,
+  type OperatorListAgentEndpointsInput,
+  type OperatorListHostsInput,
+  type OperatorListRemoteAgentsInput,
+  type OperatorRemoteAgentList,
+  type OperatorRemoteAgentView,
+  type OperatorRepairRemoteAgentOwnershipInput,
+  type OperatorRevokeRemoteAgentGrantInput,
+  type OperatorRevokeRemoteAgentInput,
+  type OperatorSetRemoteAgentAccessModeInput
 } from "../../shared/operatorControl.js";
 
 const OPERATOR_REQUEST_TIMEOUT_MS = 30_000;
@@ -134,8 +146,21 @@ export class OperatorControlClient {
     return this.json("GET", `/api/v1/hosts?${params.toString()}`, operatorHostPageSchema);
   }
 
-  async listAgentEndpoints(): Promise<RemoteAgentEndpointList> {
-    return this.json("GET", "/api/v1/agent-endpoints", remoteAgentEndpointListSchema);
+  async listAgentEndpoints(
+    query: Omit<OperatorListAgentEndpointsInput, "profileId">
+  ): Promise<RemoteAgentEndpointList> {
+    const parsed = operatorListAgentEndpointsInputSchema.omit({ profileId: true }).parse(query);
+    const params = new URLSearchParams({
+      projectId: parsed.projectId,
+      humanPrincipalId: parsed.humanPrincipalId,
+      canvasId: parsed.canvasId
+    });
+    if (parsed.workspaceId !== undefined) params.set("workspaceId", parsed.workspaceId);
+    return this.json(
+      "GET",
+      `/api/v1/agent-endpoints?${params.toString()}`,
+      remoteAgentEndpointListSchema
+    );
   }
 
   async createEnrollmentGrant(
@@ -176,13 +201,19 @@ export class OperatorControlClient {
   }
 
   async dispatchRemoteOperation(
-    command: import("@planweave-ai/collaboration-protocol/remote-run").RemoteDispatchIntentV3
+    command: import("@planweave-ai/collaboration-protocol/remote-run").RemoteDispatchIntentV3,
+    humanPrincipalId: string,
+    workspaceId?: string
   ) {
     const { operatorObservationToRemoteRun } = await import("./operatorRemoteOperations.js");
     const { remoteDispatchIntentV3Schema } = await import(
       "@planweave-ai/collaboration-protocol/remote-run"
     );
-    const body = remoteDispatchIntentV3Schema.parse(command);
+    const body = {
+      ...remoteDispatchIntentV3Schema.parse(command),
+      humanPrincipalId,
+      ...(workspaceId === undefined ? {} : { workspaceId })
+    };
     return operatorObservationToRemoteRun(
       await this.json("POST", "/api/v1/remote-operations", z.object({}).passthrough(), { body })
     );
@@ -207,6 +238,88 @@ export class OperatorControlClient {
       "GET",
       `/api/v1/remote-operations/${encodeURIComponent(id)}/events?${params.toString()}`,
       remoteEventReplaySchema
+    );
+  }
+
+  async listRemoteAgents(
+    query: Omit<OperatorListRemoteAgentsInput, "profileId">
+  ): Promise<OperatorRemoteAgentList> {
+    const params = new URLSearchParams({ humanPrincipalId: query.humanPrincipalId });
+    return this.json(
+      "GET",
+      `/api/v1/remote-agents?${params.toString()}`,
+      operatorRemoteAgentListSchema
+    );
+  }
+
+  async setRemoteAgentAccessMode(
+    input: Omit<OperatorSetRemoteAgentAccessModeInput, "profileId">
+  ): Promise<OperatorRemoteAgentView> {
+    return this.json(
+      "POST",
+      `/api/v1/remote-agents/${encodeURIComponent(input.endpointId)}/access-mode`,
+      operatorRemoteAgentViewSchema,
+      {
+        body: {
+          humanPrincipalId: input.humanPrincipalId,
+          accessMode: input.accessMode,
+          ...(input.expectedPolicyRevision === undefined
+            ? {}
+            : { expectedPolicyRevision: input.expectedPolicyRevision })
+        }
+      }
+    );
+  }
+
+  async grantRemoteAgentWorkspace(
+    input: Omit<OperatorGrantRemoteAgentWorkspaceInput, "profileId">
+  ): Promise<OperatorRemoteAgentView> {
+    return this.json(
+      "POST",
+      `/api/v1/remote-agents/${encodeURIComponent(input.endpointId)}/grants`,
+      operatorRemoteAgentViewSchema,
+      {
+        body: {
+          humanPrincipalId: input.humanPrincipalId,
+          workspaceId: input.workspaceId,
+          ...(input.expectedGrantRevision === undefined
+            ? {}
+            : { expectedGrantRevision: input.expectedGrantRevision })
+        }
+      }
+    );
+  }
+
+  async revokeRemoteAgentGrant(
+    input: Omit<OperatorRevokeRemoteAgentGrantInput, "profileId">
+  ): Promise<OperatorRemoteAgentView> {
+    return this.json(
+      "POST",
+      `/api/v1/remote-agents/${encodeURIComponent(input.endpointId)}/grants/${encodeURIComponent(input.workspaceId)}/revoke`,
+      operatorRemoteAgentViewSchema,
+      { body: { humanPrincipalId: input.humanPrincipalId } }
+    );
+  }
+
+  async revokeRemoteAgent(
+    input: Omit<OperatorRevokeRemoteAgentInput, "profileId">
+  ): Promise<OperatorRemoteAgentView> {
+    return this.json(
+      "POST",
+      `/api/v1/remote-agents/${encodeURIComponent(input.endpointId)}/revoke`,
+      operatorRemoteAgentViewSchema,
+      { body: { humanPrincipalId: input.humanPrincipalId } }
+    );
+  }
+
+  async repairRemoteAgentOwnership(
+    input: Omit<OperatorRepairRemoteAgentOwnershipInput, "profileId">
+  ): Promise<OperatorRemoteAgentView> {
+    return this.json(
+      "POST",
+      `/api/v1/remote-agents/${encodeURIComponent(input.endpointId)}/repair-ownership`,
+      operatorRemoteAgentViewSchema,
+      { body: { ownerHumanPrincipalId: input.ownerHumanPrincipalId } }
     );
   }
 

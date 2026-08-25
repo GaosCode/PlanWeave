@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DesktopAutoRunEvent } from "@planweave-ai/runtime";
 import type { DesktopGraphViewModel, DesktopTaskDetail } from "@planweave-ai/runtime";
 import { autoRunEventMatchesCanvas } from "./autoRunEvents";
-import { bridge } from "./bridge";
+import { bridge, collaborationBridge } from "./bridge";
 import { runDurablePackageWrite } from "./collaboration/packageWriteAdapter";
 import { createTranslator, type Language } from "./i18n";
 import { TaskInspector } from "./inspector/TaskInspector";
@@ -11,6 +11,8 @@ import { useDesktopSettingsBridge } from "./hooks/useDesktopSettingsBridge";
 import { useTaskAgentEndpointSelection } from "./hooks/useTaskAgentEndpointSelection";
 import { useOwnerControlPlaneAvailability } from "./hooks/useOwnerControlPlaneAvailability";
 import { useWorkspaceAgentEndpointCatalog } from "./hooks/useWorkspaceAgentEndpointCatalog";
+import { useCollaborationStatus } from "./hooks/useCollaborationStatus";
+import { resolveDesktopHumanPrincipalId } from "./collaboration/desktopHumanPrincipal";
 
 function supportedLanguage(value: string | null): Language {
   return value === "en" || value === "zh-CN" ? value : "zh-CN";
@@ -97,6 +99,15 @@ export function TaskInspectorWindow() {
 
   const workspaceCanvas = null;
   const ownerControlPlane = useOwnerControlPlaneAvailability();
+  const { status: collaborationStatus } = useCollaborationStatus();
+  const humanPrincipalId = useMemo(
+    () => resolveDesktopHumanPrincipalId({ collaborationStatus }),
+    [collaborationStatus]
+  );
+  const catalogLocator = useMemo(() => {
+    if (!graph?.projectId || !canvasId) return null;
+    return { projectId: graph.projectId, canvasId };
+  }, [canvasId, graph?.projectId]);
   const agentEndpointCatalog = useWorkspaceAgentEndpointCatalog({
     agentDetections,
     agentTransport: settings.execution.agentTransport,
@@ -104,6 +115,10 @@ export function TaskInspectorWindow() {
     fleetCatalogBlockedCode: ownerControlPlane.fleetCatalogBlockedCode,
     graph,
     operatorProfileId: ownerControlPlane.operatorProfileId,
+    humanPrincipalId,
+    locator: catalogLocator,
+    collaborationApi: collaborationBridge,
+    sessionConnected: collaborationStatus?.session.phase === "connected",
     updateSettingsAndWait
   });
 

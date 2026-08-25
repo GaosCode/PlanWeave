@@ -115,9 +115,15 @@ export const operatorListHostsInputSchema = z
   .strict();
 export type OperatorListHostsInput = z.input<typeof operatorListHostsInputSchema>;
 
+const operatorHumanPrincipalIdSchema = z.string().trim().min(1).max(128);
+
 export const operatorListAgentEndpointsInputSchema = z
   .object({
-    profileId: operatorProfileIdSchema
+    profileId: operatorProfileIdSchema,
+    humanPrincipalId: operatorHumanPrincipalIdSchema,
+    projectId: operatorProfileIdSchema,
+    canvasId: operatorProfileIdSchema,
+    workspaceId: operatorProfileIdSchema.optional()
   })
   .strict();
 export type OperatorListAgentEndpointsInput = z.infer<typeof operatorListAgentEndpointsInputSchema>;
@@ -189,7 +195,9 @@ export type OperatorRenewHostCredentialInput = z.infer<
 export const operatorDispatchOwnerFleetRemoteOperationInputSchema = z
   .object({
     profileId: operatorProfileIdSchema,
-    command: remoteDispatchIntentV3Schema
+    humanPrincipalId: operatorHumanPrincipalIdSchema,
+    command: remoteDispatchIntentV3Schema,
+    workspaceId: operatorProfileIdSchema.optional()
   })
   .strict();
 export type OperatorDispatchOwnerFleetRemoteOperationInput = z.infer<
@@ -226,6 +234,99 @@ export const operatorExecuteOwnerFleetRemoteOperationActionInputSchema = z
   .strict();
 export type OperatorExecuteOwnerFleetRemoteOperationActionInput = z.infer<
   typeof operatorExecuteOwnerFleetRemoteOperationActionInputSchema
+>;
+
+export const operatorRemoteAgentGrantViewSchema = z
+  .object({
+    workspaceId: operatorProfileIdSchema,
+    grantRevision: z.number().int().min(1)
+  })
+  .strict();
+export const operatorRemoteAgentViewSchema = z
+  .object({
+    endpointId: operatorProfileIdSchema,
+    displayName: z.string().trim().min(1).max(128),
+    accessMode: z.enum(["unrestricted", "workspace_restricted"]),
+    ownershipRepairRequired: z.boolean(),
+    ownerHumanPrincipalId: operatorHumanPrincipalIdSchema.nullable(),
+    policyRevision: z.number().int().min(1),
+    revokedAt: z.iso.datetime().nullable(),
+    grants: z.array(operatorRemoteAgentGrantViewSchema)
+  })
+  .strict();
+export const operatorRemoteAgentListSchema = z
+  .object({
+    schemaVersion: z.literal("remote-agent-management-list/v1"),
+    items: z.array(operatorRemoteAgentViewSchema)
+  })
+  .strict();
+export type OperatorRemoteAgentView = z.infer<typeof operatorRemoteAgentViewSchema>;
+export type OperatorRemoteAgentList = z.infer<typeof operatorRemoteAgentListSchema>;
+
+export const operatorListRemoteAgentsInputSchema = z
+  .object({
+    profileId: operatorProfileIdSchema,
+    humanPrincipalId: operatorHumanPrincipalIdSchema
+  })
+  .strict();
+export type OperatorListRemoteAgentsInput = z.infer<typeof operatorListRemoteAgentsInputSchema>;
+
+export const operatorSetRemoteAgentAccessModeInputSchema = z
+  .object({
+    profileId: operatorProfileIdSchema,
+    humanPrincipalId: operatorHumanPrincipalIdSchema,
+    endpointId: operatorProfileIdSchema,
+    accessMode: z.enum(["unrestricted", "workspace_restricted"]),
+    expectedPolicyRevision: z.number().int().min(1).optional()
+  })
+  .strict();
+export type OperatorSetRemoteAgentAccessModeInput = z.infer<
+  typeof operatorSetRemoteAgentAccessModeInputSchema
+>;
+
+export const operatorGrantRemoteAgentWorkspaceInputSchema = z
+  .object({
+    profileId: operatorProfileIdSchema,
+    humanPrincipalId: operatorHumanPrincipalIdSchema,
+    endpointId: operatorProfileIdSchema,
+    workspaceId: operatorProfileIdSchema,
+    expectedGrantRevision: z.number().int().min(1).optional()
+  })
+  .strict();
+export type OperatorGrantRemoteAgentWorkspaceInput = z.infer<
+  typeof operatorGrantRemoteAgentWorkspaceInputSchema
+>;
+
+export const operatorRevokeRemoteAgentGrantInputSchema = z
+  .object({
+    profileId: operatorProfileIdSchema,
+    humanPrincipalId: operatorHumanPrincipalIdSchema,
+    endpointId: operatorProfileIdSchema,
+    workspaceId: operatorProfileIdSchema
+  })
+  .strict();
+export type OperatorRevokeRemoteAgentGrantInput = z.infer<
+  typeof operatorRevokeRemoteAgentGrantInputSchema
+>;
+
+export const operatorRevokeRemoteAgentInputSchema = z
+  .object({
+    profileId: operatorProfileIdSchema,
+    humanPrincipalId: operatorHumanPrincipalIdSchema,
+    endpointId: operatorProfileIdSchema
+  })
+  .strict();
+export type OperatorRevokeRemoteAgentInput = z.infer<typeof operatorRevokeRemoteAgentInputSchema>;
+
+export const operatorRepairRemoteAgentOwnershipInputSchema = z
+  .object({
+    profileId: operatorProfileIdSchema,
+    endpointId: operatorProfileIdSchema,
+    ownerHumanPrincipalId: operatorHumanPrincipalIdSchema
+  })
+  .strict();
+export type OperatorRepairRemoteAgentOwnershipInput = z.infer<
+  typeof operatorRepairRemoteAgentOwnershipInputSchema
 >;
 
 const localAgentHostProfileIdSchema = z.string().trim().min(1).max(128);
@@ -533,6 +634,24 @@ export type PlanWeaveOperatorControlApi = {
   executeOwnerFleetRemoteOperationAction: (
     input: OperatorExecuteOwnerFleetRemoteOperationActionInput
   ) => Promise<unknown>;
+  listOperatorRemoteAgents: (
+    input: OperatorListRemoteAgentsInput
+  ) => Promise<OperatorRemoteAgentList>;
+  setOperatorRemoteAgentAccessMode: (
+    input: OperatorSetRemoteAgentAccessModeInput
+  ) => Promise<OperatorRemoteAgentView>;
+  grantOperatorRemoteAgentWorkspace: (
+    input: OperatorGrantRemoteAgentWorkspaceInput
+  ) => Promise<OperatorRemoteAgentView>;
+  revokeOperatorRemoteAgentGrant: (
+    input: OperatorRevokeRemoteAgentGrantInput
+  ) => Promise<OperatorRemoteAgentView>;
+  revokeOperatorRemoteAgent: (
+    input: OperatorRevokeRemoteAgentInput
+  ) => Promise<OperatorRemoteAgentView>;
+  repairOperatorRemoteAgentOwnership: (
+    input: OperatorRepairRemoteAgentOwnershipInput
+  ) => Promise<OperatorRemoteAgentView>;
   onOperatorControlStatusChanged: (callback: (status: OperatorControlStatus) => void) => () => void;
 };
 

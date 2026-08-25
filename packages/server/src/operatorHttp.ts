@@ -4,6 +4,12 @@ import { RemoteBlockRuntimeError } from "@planweave-ai/runtime";
 import { z } from "zod";
 import { agentEndpointCatalogErrorCode } from "./agentEndpointCatalog.js";
 import { remoteAgentAuthorizationErrorCode } from "./remoteAgent/errors.js";
+import {
+  handleRemoteAgentManagementHttp,
+  matchRemoteAgentManagementRoute,
+  type RemoteAgentManagementPort,
+  type RemoteAgentManagementRoute
+} from "./remoteAgent/managementHttp.js";
 import { OperatorTokenRegistry, type OperatorPrincipal } from "./operatorAuth.js";
 import { serverReadinessSchema, type ServerReadiness } from "./readiness.js";
 import { DispatchAssignmentError } from "./work/dispatchIntegration.js";
@@ -66,7 +72,7 @@ export type OperatorControlPort = {
     query: unknown
   ): unknown;
   settleInteraction(principal: OperatorPrincipal, operationId: string, request: unknown): unknown;
-};
+} & RemoteAgentManagementPort;
 
 type OperatorRoute =
   | { kind: "health" }
@@ -80,7 +86,8 @@ type OperatorRoute =
   | {
       kind: "get_operation" | "action" | "events" | "interactions" | "settle_interaction";
       operationId: string;
-    };
+    }
+  | RemoteAgentManagementRoute;
 
 function decodeIdentifier(value: string): string | undefined {
   try {
@@ -106,6 +113,12 @@ function route(request: IncomingMessage, pathname: string): OperatorRoute | unde
   if (request.method === "POST" && pathname === "/api/v1/remote-operations") {
     return { kind: "dispatch" };
   }
+  const remoteAgentRoute = matchRemoteAgentManagementRoute(
+    request.method,
+    pathname,
+    decodeIdentifier
+  );
+  if (remoteAgentRoute) return remoteAgentRoute;
   const host = /^\/api\/v1\/hosts\/([^/]+)(\/(?:revoke|credential-renewal))?$/.exec(pathname);
   if (host) {
     const hostId = decodeIdentifier(host[1]);
@@ -369,9 +382,28 @@ export async function handleOperatorHttpRequest(
           200,
           options.service.listAgentEndpoints(
             principal,
-            query(url, ["projectId", "humanPrincipalId", "canvasId"])
+            query(url, ["projectId", "humanPrincipalId", "canvasId", "workspaceId"])
           )
         );
+        break;
+      case "list_remote_agents":
+      case "set_remote_agent_access_mode":
+      case "grant_remote_agent_workspace":
+      case "revoke_remote_agent_grant":
+      case "revoke_remote_agent":
+      case "repair_remote_agent_ownership":
+        options.authorization.requireServerAdmin(principal);
+        await handleRemoteAgentManagementHttp({
+          route: matched,
+          principal,
+          service: options.service,
+          url,
+          request,
+          query,
+          readJson,
+          respond,
+          response
+        });
         break;
       case "get_host":
         query(url, []);

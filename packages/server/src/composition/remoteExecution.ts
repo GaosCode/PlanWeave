@@ -243,6 +243,7 @@ export function createRemoteExecutionComposition(input: {
         hosts: input.coordination.hosts,
         agentEndpoints: input.coordination.agentEndpoints,
         remoteAgentAccess: input.coordination.remoteAgentAccess,
+        remoteAgentRepository: input.coordination.remoteAgents,
         operations: input.coordination.operations,
         dispatches: input.coordination.dispatches,
         coordinator: input.coordination.coordinator,

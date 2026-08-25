@@ -19,7 +19,7 @@ export const agentEndpointRunZhCnCatalog = {
   agentEndpointUnavailableError:
     "Endpoint「{endpoint}」对块 {block} 不可用（{reason}）。请恢复可用性或改选 Endpoint 后重跑。[{code}]",
   agentEndpointUnknownError:
-    "块 {block} 保存的远程 Endpoint 未知（{endpoint}）。请在 Desktop 中重新选择 Agent Endpoint。[{code}]",
+    "块 {block} 保存的远程 Endpoint 已不在当前目录（{endpoint}）。可能已被撤销或未授权给此画布。请重新选择 Agent Endpoint。[{code}]",
   remoteAgentBlockFailedError:
     "块 {block} 的远程运行以 {state} 结束。请检查 Host/operation 详情后重试。[{code}]",
   remoteAgentFailureError: "{message} 请处理该块的 Host/远程失败后重试。[{code}]",
@@ -37,5 +37,7 @@ export const agentEndpointRunZhCnCatalog = {
     "Desktop 无法访问 server-admin 控制面。请重启 Desktop 后重试。[{code}]",
   agentEndpointFleetLocalServerNotReady: "本地协作 Server 仍在启动中，请稍候再试。[{code}]",
   agentEndpointFleetLoadFailed:
-    "无法加载远程 Agent Host endpoint。请检查设置 → 连接与设备后重试。[{code}]"
+    "无法加载远程 Agent Host endpoint。请检查设置 → 连接与设备后重试。[{code}]",
+  agentEndpointHumanPrincipalUnavailable:
+    "远程 Agent 需要已登录的人员身份。请先连接 Workspace 配置文件，再重试。[{code}]"
 } satisfies Record<keyof typeof agentEndpointRunEnCatalog, string>;

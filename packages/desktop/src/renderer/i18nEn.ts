@@ -1,4 +1,5 @@
 import { agentEndpointRunEnCatalog } from "./i18nAgentEndpointRunEn";
+import { remoteAgentManagementEnCatalog } from "./i18nRemoteAgentManagementEn";
 import { runnerEnCatalog } from "./i18nRunnerEn";
 
 export const enCatalog = {
@@ -70,7 +71,8 @@ export const enCatalog = {
   agent: "Agent",
   customExecutor: "Custom",
   agentEndpointSelectionRequired: "Choose a Workspace execution device",
-  agentEndpointSelectionUnavailable: "Previously selected device unavailable",
+  agentEndpointSelectionUnavailable:
+    "Previously selected device is unavailable or no longer authorized",
   agentEndpointUnavailableHostOffline: "Device offline",
   agentEndpointUnavailableHostRevoked: "Device removed",
   agentEndpointUnavailableCredentialExpired: "Device credential expired",
@@ -1138,6 +1140,7 @@ export const enCatalog = {
     "Multiple tasks are currently using this resource. Coordinate when their changes overlap.",
   ...runnerEnCatalog,
   ...agentEndpointRunEnCatalog,
+  ...remoteAgentManagementEnCatalog,
   inspectTask: "Open task inspector",
   inspectBlock: "Open block inspector",
   taskWorkspaceBackToCanvas: "Back to canvas",

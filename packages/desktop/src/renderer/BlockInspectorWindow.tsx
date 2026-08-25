@@ -12,7 +12,7 @@ import type {
   DesktopTerminalAppId
 } from "@planweave-ai/runtime";
 import { autoRunEventMatchesCanvas } from "./autoRunEvents";
-import { bridge } from "./bridge";
+import { bridge, collaborationBridge } from "./bridge";
 import { runDurablePackageWrite } from "./collaboration/packageWriteAdapter";
 import {
   agentEndpointPreferenceKey,
@@ -28,6 +28,8 @@ import { useDetectedAgents } from "./hooks/useDetectedAgents";
 import { useDesktopSettingsBridge } from "./hooks/useDesktopSettingsBridge";
 import { useOwnerControlPlaneAvailability } from "./hooks/useOwnerControlPlaneAvailability";
 import { useWorkspaceAgentEndpointCatalog } from "./hooks/useWorkspaceAgentEndpointCatalog";
+import { useCollaborationStatus } from "./hooks/useCollaborationStatus";
+import { resolveDesktopHumanPrincipalId } from "./collaboration/desktopHumanPrincipal";
 
 function supportedLanguage(value: string | null): Language {
   return value === "en" || value === "zh-CN" ? value : "zh-CN";
@@ -196,6 +198,15 @@ export function BlockInspectorWindow() {
 
   const workspaceCanvas = null;
   const ownerControlPlane = useOwnerControlPlaneAvailability();
+  const { status: collaborationStatus } = useCollaborationStatus();
+  const humanPrincipalId = useMemo(
+    () => resolveDesktopHumanPrincipalId({ collaborationStatus }),
+    [collaborationStatus]
+  );
+  const catalogLocator = useMemo(() => {
+    if (!graph?.projectId || !canvasId) return null;
+    return { projectId: graph.projectId, canvasId };
+  }, [canvasId, graph?.projectId]);
   const agentEndpointCatalog = useWorkspaceAgentEndpointCatalog({
     agentDetections,
     agentTransport: settings.execution.agentTransport,
@@ -203,6 +214,10 @@ export function BlockInspectorWindow() {
     fleetCatalogBlockedCode: ownerControlPlane.fleetCatalogBlockedCode,
     graph,
     operatorProfileId: ownerControlPlane.operatorProfileId,
+    humanPrincipalId,
+    locator: catalogLocator,
+    collaborationApi: collaborationBridge,
+    sessionConnected: collaborationStatus?.session.phase === "connected",
     updateSettingsAndWait
   });
   const graphBlock = graph?.tasks

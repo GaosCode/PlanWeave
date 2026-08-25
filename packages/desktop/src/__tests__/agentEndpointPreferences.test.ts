@@ -48,6 +48,46 @@ const remoteUnavailable: AvailableAgentEndpoint = {
   unavailableReason: "host_offline"
 };
 
+describe("Agent Endpoint preference stability", () => {
+  it("keeps a stored remote preference when the endpoint later becomes unavailable", () => {
+    const key = "project-local:default:task-1";
+    const stored = updateAgentEndpointPreferences({
+      current: {},
+      key,
+      endpoint: remoteGrok
+    });
+    expect(stored[key]).toEqual({
+      kind: "remote",
+      remoteEndpointId: "endpoint-grok"
+    });
+    expect(
+      selectedAgentEndpointId({
+        executorName: "grok",
+        preference: stored[key],
+        endpoints: [
+          { ...remoteGrok, available: false, unavailableReason: "host_offline" },
+          localCodex
+        ]
+      })
+    ).toEqual({ kind: "endpoint", id: remoteGrok.id });
+    expect(
+      selectedAgentEndpointId({
+        executorName: "grok",
+        preference: stored[key],
+        endpoints: [localCodex]
+      })
+    ).toEqual({
+      kind: "mismatch",
+      detail: "agent_endpoint_unknown:endpoint-grok"
+    });
+    expect(stored[key]?.kind).toBe("remote");
+    expect(stored[key]).toEqual({
+      kind: "remote",
+      remoteEndpointId: "endpoint-grok"
+    });
+  });
+});
+
 describe("Agent Endpoint canvas authority", () => {
   it("does not expose ordinary local Agents for a pure Workspace canvas", () => {
     const endpoints = [localCodex, remoteGrok];

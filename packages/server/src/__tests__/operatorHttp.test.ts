@@ -30,6 +30,17 @@ afterEach(async () => {
   for (const database of databases.splice(0)) database.close();
 });
 
+const managedAgent = {
+  endpointId: "endpoint-1",
+  displayName: "Codex",
+  accessMode: "workspace_restricted" as const,
+  ownershipRepairRequired: false,
+  ownerHumanPrincipalId: "owner-human-1",
+  policyRevision: 1,
+  revokedAt: null,
+  grants: []
+};
+
 function control(): OperatorControlPort {
   return {
     createEnrollmentGrant: vi.fn(() => ({
@@ -68,7 +79,16 @@ function control(): OperatorControlPort {
     }),
     replayEvents: vi.fn(),
     listPendingInteractions: vi.fn(() => ({ items: [], nextCursor: null })),
-    settleInteraction: vi.fn()
+    settleInteraction: vi.fn(),
+    listRemoteAgents: vi.fn(() => ({
+      schemaVersion: "remote-agent-management-list/v1",
+      items: []
+    })),
+    setRemoteAgentAccessMode: vi.fn(() => managedAgent),
+    grantRemoteAgentWorkspace: vi.fn(() => managedAgent),
+    revokeRemoteAgentGrant: vi.fn(() => managedAgent),
+    revokeRemoteAgent: vi.fn(() => managedAgent),
+    repairRemoteAgentOwnership: vi.fn(() => managedAgent)
   };
 }
 
@@ -160,11 +180,20 @@ describe("operator HTTP boundary", () => {
     );
     expect(JSON.stringify(firstBody)).not.toMatch(/hostId|path|env|token|readiness/i);
 
-    for (const suffix of [
-      "projectId=project-a&projectId=project-b",
-      "projectId=project-a&workspaceId=workspace-a",
-      "unknown=1"
-    ]) {
+    const locatorUrl = `${fixture.origin}/api/v1/agent-endpoints?projectId=project-a&humanPrincipalId=owner-human-1&canvasId=canvas-main&workspaceId=workspace-a`;
+    const locator = await fetch(locatorUrl, { headers: authorization });
+    expect(locator.status).toBe(200);
+    expect(fixture.service.listAgentEndpoints).toHaveBeenCalledWith(
+      expect.objectContaining({ serverAdmin: true }),
+      {
+        projectId: "project-a",
+        humanPrincipalId: "owner-human-1",
+        canvasId: "canvas-main",
+        workspaceId: "workspace-a"
+      }
+    );
+
+    for (const suffix of ["projectId=project-a&projectId=project-b", "unknown=1"]) {
       const response = await fetch(`${fixture.origin}/api/v1/agent-endpoints?${suffix}`, {
         headers: authorization
       });
@@ -411,5 +440,94 @@ describe("operator HTTP boundary", () => {
       status: "reconciling",
       schemaVersion: 1
     });
+  });
+
+  it("lists and mutates remote agents through operator management routes", async () => {
+    const fixture = await setup(true);
+    const listed = await fetch(
+      `${fixture.origin}/api/v1/remote-agents?humanPrincipalId=owner-human-1`,
+      { headers: authorization }
+    );
+    expect(listed.status).toBe(200);
+    expect(fixture.service.listRemoteAgents).toHaveBeenCalledWith(
+      expect.objectContaining({ serverAdmin: true }),
+      { humanPrincipalId: "owner-human-1" }
+    );
+
+    const access = await fetch(`${fixture.origin}/api/v1/remote-agents/endpoint-1/access-mode`, {
+      method: "POST",
+      headers: { ...authorization, "content-type": "application/json" },
+      body: JSON.stringify({
+        humanPrincipalId: "owner-human-1",
+        accessMode: "unrestricted"
+      })
+    });
+    expect(access.status).toBe(200);
+    expect(fixture.service.setRemoteAgentAccessMode).toHaveBeenCalledWith(
+      expect.objectContaining({ serverAdmin: true }),
+      "endpoint-1",
+      { humanPrincipalId: "owner-human-1", accessMode: "unrestricted" }
+    );
+
+    const grant = await fetch(`${fixture.origin}/api/v1/remote-agents/endpoint-1/grants`, {
+      method: "POST",
+      headers: { ...authorization, "content-type": "application/json" },
+      body: JSON.stringify({
+        humanPrincipalId: "owner-human-1",
+        workspaceId: "workspace-a"
+      })
+    });
+    expect(grant.status).toBe(200);
+    expect(fixture.service.grantRemoteAgentWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({ serverAdmin: true }),
+      "endpoint-1",
+      { humanPrincipalId: "owner-human-1", workspaceId: "workspace-a" }
+    );
+
+    const revokeGrant = await fetch(
+      `${fixture.origin}/api/v1/remote-agents/endpoint-1/grants/workspace-a/revoke`,
+      {
+        method: "POST",
+        headers: { ...authorization, "content-type": "application/json" },
+        body: JSON.stringify({ humanPrincipalId: "owner-human-1" })
+      }
+    );
+    expect(revokeGrant.status).toBe(200);
+    expect(fixture.service.revokeRemoteAgentGrant).toHaveBeenCalledWith(
+      expect.objectContaining({ serverAdmin: true }),
+      "endpoint-1",
+      "workspace-a",
+      { humanPrincipalId: "owner-human-1" }
+    );
+
+    const revoke = await fetch(`${fixture.origin}/api/v1/remote-agents/endpoint-1/revoke`, {
+      method: "POST",
+      headers: { ...authorization, "content-type": "application/json" },
+      body: JSON.stringify({ humanPrincipalId: "owner-human-1" })
+    });
+    expect(revoke.status).toBe(200);
+
+    const repair = await fetch(
+      `${fixture.origin}/api/v1/remote-agents/endpoint-1/repair-ownership`,
+      {
+        method: "POST",
+        headers: { ...authorization, "content-type": "application/json" },
+        body: JSON.stringify({ ownerHumanPrincipalId: "owner-human-1" })
+      }
+    );
+    expect(repair.status).toBe(200);
+
+    const missingPrincipal = await fetch(`${fixture.origin}/api/v1/remote-agents`, {
+      headers: authorization
+    });
+    expect(missingPrincipal.status).toBe(400);
+
+    const nonAdmin = await setup(true, "ready", false);
+    const forbidden = await fetch(
+      `${nonAdmin.origin}/api/v1/remote-agents?humanPrincipalId=owner-human-1`,
+      { headers: authorization }
+    );
+    expect(forbidden.status).toBe(403);
+    expect(nonAdmin.service.listRemoteAgents).not.toHaveBeenCalled();
   });
 });

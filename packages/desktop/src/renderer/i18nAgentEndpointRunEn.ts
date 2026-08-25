@@ -17,7 +17,7 @@ export const agentEndpointRunEnCatalog = {
   agentEndpointUnavailableError:
     "Endpoint “{endpoint}” is unavailable for {block} ({reason}). Fix availability or re-select the endpoint, then run again. [{code}]",
   agentEndpointUnknownError:
-    "Saved remote endpoint for {block} is unknown ({endpoint}). Re-select an Agent Endpoint in Desktop. [{code}]",
+    "Saved remote endpoint for {block} is no longer listed ({endpoint}). It may have been revoked or is not authorized for this canvas. Re-select an Agent Endpoint. [{code}]",
   remoteAgentBlockFailedError:
     "Remote run for {block} ended as {state}. Check Host/operation details, then retry. [{code}]",
   remoteAgentFailureError:
@@ -37,5 +37,7 @@ export const agentEndpointRunEnCatalog = {
   agentEndpointFleetLocalServerNotReady:
     "The local collaboration server is still starting. Wait a moment and retry. [{code}]",
   agentEndpointFleetLoadFailed:
-    "Could not load remote Agent Host endpoints. Check Settings → Connections & Devices and retry. [{code}]"
+    "Could not load remote Agent Host endpoints. Check Settings → Connections & Devices and retry. [{code}]",
+  agentEndpointHumanPrincipalUnavailable:
+    "Remote Agents need a signed-in person identity. Connect a Workspace profile, then retry. [{code}]"
 } as const;

@@ -20,7 +20,10 @@ import {
   operatorHostViewSchema,
   operatorPageQuerySchema
 } from "@planweave-ai/agent-host-protocol";
-import { humanPrincipalIdSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
+import {
+  humanPrincipalIdSchema,
+  workspaceIdSchema
+} from "@planweave-ai/collaboration-protocol/core/primitives";
 import {
   remoteDispatchIntentV3Schema,
   type RemoteDispatchIntentV3
@@ -49,7 +52,8 @@ export {
 const timestampSchema = z.iso.datetime();
 
 export const operatorDispatchRequestSchema = remoteDispatchIntentV3Schema.extend({
-  humanPrincipalId: humanPrincipalIdSchema.optional()
+  humanPrincipalId: humanPrincipalIdSchema.optional(),
+  workspaceId: workspaceIdSchema.optional()
 });
 
 export const operatorActionRequestSchema = remoteExecutionActionRequestSchema;

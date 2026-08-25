@@ -39,6 +39,44 @@ async function fixture() {
 }
 
 describe("remote agent management service", () => {
+  it("lists owned agents with active grants and repair-required rows", async () => {
+    const { host, repo, management, workspaceA } = await fixture();
+    const owned = repo.registerOrRestoreFromProfile({
+      hostId: host.id,
+      profileId: "profile-main",
+      agentId: "codex",
+      displayName: "Codex",
+      now: now.toISOString(),
+      ownerHumanPrincipalId: "owner-human-1",
+      accessMode: "workspace_restricted"
+    });
+    management.grantWorkspace({
+      endpointId: owned.endpointId,
+      workspaceId: workspaceA,
+      actorHumanPrincipalId: "owner-human-1"
+    });
+    const repair = repo.registerOrRestoreFromProfile({
+      hostId: host.id,
+      profileId: "profile-repair",
+      agentId: "repair",
+      displayName: "Repair",
+      now: now.toISOString()
+    });
+    const listed = management.listManaged("owner-human-1");
+    expect(listed).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          endpointId: owned.endpointId,
+          grants: [expect.objectContaining({ workspaceId: workspaceA })]
+        }),
+        expect.objectContaining({
+          endpointId: repair.endpointId,
+          ownershipRepairRequired: true
+        })
+      ])
+    );
+  });
+
   it("lists only the caller's owned agents and hides other owners", async () => {
     const { host, repo, management } = await fixture();
     const owned = repo.registerOrRestoreFromProfile({

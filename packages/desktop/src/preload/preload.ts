@@ -527,8 +527,8 @@ const collaborationApi: PlanWeaveCollaborationApi = {
     ipcRenderer.invoke(collaborationInvokeChannels.finalizeCollaborationPendingAttachment, input),
   readCollaborationCommentAttachment: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.readCollaborationCommentAttachment, input),
-  listCollaborationAgentEndpoints: async () =>
-    ipcRenderer.invoke(collaborationInvokeChannels.listCollaborationAgentEndpoints),
+  listCollaborationAgentEndpoints: async (input) =>
+    ipcRenderer.invoke(collaborationInvokeChannels.listCollaborationAgentEndpoints, input),
   dispatchCollaborationRemoteOperation: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.dispatchCollaborationRemoteOperation, input),
   observeCollaborationRemoteOperation: async (input) =>
@@ -633,6 +633,18 @@ const operatorControlApi: PlanWeaveOperatorControlApi = {
     ipcRenderer.invoke(operatorControlInvokeChannels.replayOwnerFleetRemoteOperationEvents, input),
   executeOwnerFleetRemoteOperationAction: async (input) =>
     ipcRenderer.invoke(operatorControlInvokeChannels.executeOwnerFleetRemoteOperationAction, input),
+  listOperatorRemoteAgents: async (input) =>
+    ipcRenderer.invoke(operatorControlInvokeChannels.listRemoteAgents, input),
+  setOperatorRemoteAgentAccessMode: async (input) =>
+    ipcRenderer.invoke(operatorControlInvokeChannels.setRemoteAgentAccessMode, input),
+  grantOperatorRemoteAgentWorkspace: async (input) =>
+    ipcRenderer.invoke(operatorControlInvokeChannels.grantRemoteAgentWorkspace, input),
+  revokeOperatorRemoteAgentGrant: async (input) =>
+    ipcRenderer.invoke(operatorControlInvokeChannels.revokeRemoteAgentGrant, input),
+  revokeOperatorRemoteAgent: async (input) =>
+    ipcRenderer.invoke(operatorControlInvokeChannels.revokeRemoteAgent, input),
+  repairOperatorRemoteAgentOwnership: async (input) =>
+    ipcRenderer.invoke(operatorControlInvokeChannels.repairRemoteAgentOwnership, input),
   onOperatorControlStatusChanged: (callback) => {
     const listener = (_event: IpcRendererEvent, payload: OperatorControlStatus) =>
       callback(payload);

@@ -263,6 +263,7 @@ export function useRemoteRunPanelController(
     [args.onAgentEndpointChange]
   );
 
+  const workItemCanvasId = args.workItem?.canvasId;
   const refreshAgentEndpoints = useCallback(async () => {
     if (args.refreshAgentEndpoints) {
       await args.refreshAgentEndpoints();
@@ -288,7 +289,9 @@ export function useRemoteRunPanelController(
     }
     setRefreshingAgentEndpoints(true);
     try {
-      const list = await api.listCollaborationAgentEndpoints();
+      const list = await api.listCollaborationAgentEndpoints(
+        workItemCanvasId ? { canvasId: workItemCanvasId } : undefined
+      );
       if (
         requestGeneration === endpointRequestGenerationRef.current &&
         requestScopeKey === scopeKeyRef.current &&
@@ -305,7 +308,14 @@ export function useRemoteRunPanelController(
         setRefreshingAgentEndpoints(false);
       }
     }
-  }, [api, args.refreshAgentEndpoints, hasProvidedAgentEndpoints, sessionConnected, scopeKey]);
+  }, [
+    api,
+    args.refreshAgentEndpoints,
+    hasProvidedAgentEndpoints,
+    sessionConnected,
+    scopeKey,
+    workItemCanvasId
+  ]);
 
   useLayoutEffect(() => {
     if (scopeKeyRef.current !== scopeKey) {

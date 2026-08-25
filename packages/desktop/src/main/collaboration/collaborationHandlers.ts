@@ -787,8 +787,9 @@ export function registerCollaborationHandlers(
     collaborationInvokeChannels.readCollaborationCommentAttachment,
     (_event, input: unknown) => active.readCommentAttachment(input)
   );
-  ipcMain.handle(collaborationInvokeChannels.listCollaborationAgentEndpoints, () =>
-    active.listAgentEndpoints()
+  ipcMain.handle(
+    collaborationInvokeChannels.listCollaborationAgentEndpoints,
+    (_event, input: unknown) => active.listAgentEndpoints(input)
   );
   ipcMain.handle(
     collaborationInvokeChannels.dispatchCollaborationRemoteOperation,

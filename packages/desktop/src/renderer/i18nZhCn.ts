@@ -1,5 +1,6 @@
 import type { TranslationKey } from "./i18nEn";
 import { agentEndpointRunZhCnCatalog } from "./i18nAgentEndpointRunZhCn";
+import { remoteAgentManagementZhCnCatalog } from "./i18nRemoteAgentManagementZhCn";
 import { runnerZhCnCatalog } from "./i18nRunnerZhCn";
 
 export const zhCnCatalog = {
@@ -64,7 +65,7 @@ export const zhCnCatalog = {
   agent: "Agent",
   customExecutor: "自定义",
   agentEndpointSelectionRequired: "请选择 Workspace 执行设备",
-  agentEndpointSelectionUnavailable: "原执行设备已失效",
+  agentEndpointSelectionUnavailable: "原执行设备已不可用或未再授权",
   agentEndpointUnavailableHostOffline: "设备离线",
   agentEndpointUnavailableHostRevoked: "设备已移除",
   agentEndpointUnavailableCredentialExpired: "设备凭据已过期",
@@ -1059,6 +1060,7 @@ export const zhCnCatalog = {
   sharedResourceOverlap: "多个任务正在使用该资源，改动范围重叠时需要协调。",
   ...runnerZhCnCatalog,
   ...agentEndpointRunZhCnCatalog,
+  ...remoteAgentManagementZhCnCatalog,
   inspectTask: "打开 Task 检查器",
   inspectBlock: "打开 Block 检查器",
   taskWorkspaceBackToCanvas: "返回画布",

@@ -9,15 +9,23 @@ import {
 } from "../collaboration/agentEndpointPreferences";
 import type { AvailableAgentEndpoint } from "../collaboration/agentEndpointViewModel";
 import { buildExecutorOptionViews } from "../executors/executorOptionViewModel";
-import { useAgentEndpointCatalog } from "./useAgentEndpointCatalog";
+import {
+  useAgentEndpointCatalog,
+  type AgentEndpointCatalogLocator
+} from "./useAgentEndpointCatalog";
+import type { PlanWeaveCollaborationApi } from "../../shared/collaboration";
 
 export function useWorkspaceAgentEndpointCatalog(input: {
   agentDetections: DesktopAgentDetection[];
   agentTransport: DesktopUiSettings["execution"]["agentTransport"];
   enabled: boolean;
   operatorProfileId: string | null;
+  humanPrincipalId: string | null;
+  locator: AgentEndpointCatalogLocator | null;
   fleetCatalogBlockedCode?: string | null;
   fleetApi?: Pick<PlanWeaveOperatorControlApi, "listOperatorAgentEndpoints"> | null;
+  collaborationApi?: Pick<PlanWeaveCollaborationApi, "listCollaborationAgentEndpoints"> | null;
+  sessionConnected?: boolean;
   graph: DesktopGraphViewModel | null;
   updateSettingsAndWait: (update: DesktopSettingsUpdate) => Promise<void>;
 }) {
@@ -41,7 +49,11 @@ export function useWorkspaceAgentEndpointCatalog(input: {
     fleetApi: input.fleetApi,
     fleetCatalogBlockedCode: input.fleetCatalogBlockedCode,
     logicalExecutors,
-    operatorProfileId: input.operatorProfileId
+    operatorProfileId: input.operatorProfileId,
+    humanPrincipalId: input.humanPrincipalId,
+    locator: input.locator,
+    collaborationApi: input.collaborationApi,
+    sessionConnected: input.sessionConnected
   });
   const savePreference = useCallback(
     async (key: string, endpoint: AvailableAgentEndpoint | null) => {

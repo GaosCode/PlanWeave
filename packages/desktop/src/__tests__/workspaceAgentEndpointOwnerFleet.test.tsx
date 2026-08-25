@@ -262,6 +262,7 @@ function renderOwnerFleetRun(input?: {
       selectedProject: input?.remoteCanvasOnly ? null : project,
       runtimeAvailability: input?.runtimeAvailability ?? { kind: "available" },
       operatorProfileId: "profile-a",
+      humanPrincipalId: "human-owner-1",
       ownerFleetDispatchEnabled: true,
       setError,
       api:
@@ -387,19 +388,57 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
 
     await act(() => result.current({ kind: "block", blockRef: "T-001#B-001" }));
 
-    expect(dispatchCollaborationRemoteOperation).toHaveBeenCalledWith({
-      schemaVersion: "remote-run/v3",
-      projectId: "project-server",
-      canvasId: "canvas-main",
-      blockRef: "T-001#B-001",
-      agentEndpointId: "endpoint-windows",
-      idempotencyKey: "desktop-dispatch-operation-fleet-1",
-      expectedResponsibilityRevision: 7,
-      expectedReviewerRevision: 11
+    expect(dispatchCollaborationRemoteOperation).not.toHaveBeenCalled();
+    expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).toHaveBeenCalledWith({
+      profileId: "profile-a",
+      humanPrincipalId: "human-owner-1",
+      workspaceId: "workspace-1",
+      command: {
+        schemaVersion: "remote-run/v3",
+        projectId: "project-server",
+        canvasId: "canvas-main",
+        blockRef: "T-001#B-001",
+        agentEndpointId: "endpoint-windows",
+        idempotencyKey: "desktop-dispatch-operation-fleet-1",
+        expectedResponsibilityRevision: 7,
+        expectedReviewerRevision: 11
+      }
     });
-    expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).not.toHaveBeenCalled();
     expect(lifecycle.onCompleted).toHaveBeenCalled();
     expect(setError).not.toHaveBeenCalled();
+  });
+
+  it("fails closed for remote dispatch without a human principal", async () => {
+    const setError = vi.fn();
+    const startLocal = vi.fn();
+    const hook = renderHook(() =>
+      useWorkspaceAgentEndpointRun({
+        activeProjectId: null,
+        agentEndpoints: [remoteEndpoint],
+        collaborationController: null,
+        canvasBinding: null,
+        graph,
+        preferences: {
+          [agentEndpointPreferenceKey({
+            projectRoot: project.rootPath,
+            canvasId: "canvas-main",
+            scope: { kind: "task", taskId: "T-001" }
+          })]: { kind: "remote", remoteEndpointId: "endpoint-windows" }
+        },
+        selectedCanvasId: "canvas-main",
+        selectedProject: project,
+        runtimeAvailability: { kind: "available" },
+        operatorProfileId: "profile-a",
+        ownerFleetDispatchEnabled: true,
+        setError,
+        api: null
+      })
+    );
+
+    await act(() => hook.result.current({ kind: "block", blockRef: "T-001#B-001" }, startLocal));
+
+    expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).not.toHaveBeenCalled();
+    expect(setError).toHaveBeenCalledWith("human_principal_unavailable");
   });
 
   it("dispatches through owner fleet operator control without collaboration controller", async () => {
@@ -409,6 +448,7 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
 
     expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).toHaveBeenCalledWith({
       profileId: "profile-a",
+      humanPrincipalId: "human-owner-1",
       command: expect.objectContaining({
         schemaVersion: "remote-run/v3",
         projectId: "project-local",
@@ -436,13 +476,19 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
 
     await act(() => result.current({ kind: "block", blockRef: "T-001#B-001" }));
 
-    expect(dispatchCollaborationRemoteOperation).toHaveBeenCalledWith(
+    expect(dispatchCollaborationRemoteOperation).not.toHaveBeenCalled();
+    expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).toHaveBeenCalledWith(
       expect.objectContaining({
-        projectId: "project-server",
-        canvasId: "canvas-main",
-        blockRef: "T-001#B-001",
-        expectedResponsibilityRevision: 7,
-        expectedReviewerRevision: 11
+        profileId: "profile-a",
+        humanPrincipalId: "human-owner-1",
+        workspaceId: "workspace-1",
+        command: expect.objectContaining({
+          projectId: "project-server",
+          canvasId: "canvas-main",
+          blockRef: "T-001#B-001",
+          expectedResponsibilityRevision: 7,
+          expectedReviewerRevision: 11
+        })
       })
     );
     expect(ensureWorkAuthority).toHaveBeenCalledWith({
@@ -450,7 +496,6 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
       canvasId: "canvas-main",
       blockRef: "T-001#B-001"
     });
-    expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).not.toHaveBeenCalled();
     expect(previewClaimNext).not.toHaveBeenCalled();
     expect(bridgeMock.getBlockDetail).not.toHaveBeenCalled();
     expect(startLocal).not.toHaveBeenCalled();
@@ -520,14 +565,19 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
 
     await act(() => result.current({ kind: "task", taskId: "T-001" }));
 
-    expect(dispatchCollaborationRemoteOperation).toHaveBeenCalledWith(
+    expect(dispatchCollaborationRemoteOperation).not.toHaveBeenCalled();
+    expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).toHaveBeenCalledWith(
       expect.objectContaining({
-        projectId: "project-server",
-        canvasId: "canvas-main",
-        blockRef: "T-001#B-001"
+        profileId: "profile-a",
+        humanPrincipalId: "human-owner-1",
+        workspaceId: "workspace-1",
+        command: expect.objectContaining({
+          projectId: "project-server",
+          canvasId: "canvas-main",
+          blockRef: "T-001#B-001"
+        })
       })
     );
-    expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).not.toHaveBeenCalled();
     expect(previewClaimNext).not.toHaveBeenCalled();
     expect(startLocal).not.toHaveBeenCalled();
     expect(lifecycle.onCompleted).toHaveBeenCalledTimes(1);
@@ -546,14 +596,19 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
 
     await act(() => result.current({ kind: "project" }));
 
-    expect(dispatchCollaborationRemoteOperation).toHaveBeenCalledWith(
+    expect(dispatchCollaborationRemoteOperation).not.toHaveBeenCalled();
+    expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).toHaveBeenCalledWith(
       expect.objectContaining({
-        projectId: "project-server",
-        canvasId: "canvas-main",
-        blockRef: "T-001#B-001"
+        profileId: "profile-a",
+        humanPrincipalId: "human-owner-1",
+        workspaceId: "workspace-1",
+        command: expect.objectContaining({
+          projectId: "project-server",
+          canvasId: "canvas-main",
+          blockRef: "T-001#B-001"
+        })
       })
     );
-    expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).not.toHaveBeenCalled();
     expect(previewClaimNext).not.toHaveBeenCalled();
     expect(startLocal).not.toHaveBeenCalled();
     expect(lifecycle.onCompleted).toHaveBeenCalledTimes(1);

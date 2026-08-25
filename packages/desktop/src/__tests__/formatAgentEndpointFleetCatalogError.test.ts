@@ -24,4 +24,11 @@ describe("formatAgentEndpointFleetCatalogError", () => {
     expect(message).toContain("still starting");
     expect(message).toContain("operator_local_server_not_ready");
   });
+
+  it("surfaces a missing human principal as an explicit catalog error", () => {
+    const t = createTranslator("en");
+    const message = formatAgentEndpointFleetCatalogError("human_principal_unavailable", t);
+    expect(message).toContain("signed-in person");
+    expect(message).toContain("human_principal_unavailable");
+  });
 });

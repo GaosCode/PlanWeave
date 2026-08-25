@@ -880,8 +880,8 @@ export class CollaborationService {
     return this.remoteOperations.dispatch(input);
   }
 
-  async listAgentEndpoints() {
-    return this.remoteOperations.listAgentEndpoints();
+  async listAgentEndpoints(input?: unknown) {
+    return this.remoteOperations.listAgentEndpoints(input);
   }
 
   async observeRemoteOperation(input: unknown): Promise<RemoteOperationObservation> {

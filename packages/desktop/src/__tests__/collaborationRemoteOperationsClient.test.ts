@@ -94,6 +94,32 @@ describe("CollaborationRemoteOperationsClient", () => {
       schemaVersion: "agent-endpoint-list/v1",
       items: [endpoint]
     });
+    expect(catalogFixture.json).toHaveBeenCalledWith(
+      "GET",
+      "/api/v1/projects/project-demo-001/agent-endpoints",
+      expect.anything(),
+      { signal: undefined }
+    );
+    await expect(
+      catalogFixture.client.listAgentEndpoints({
+        projectId: "project-demo-001",
+        canvasId: "canvas-main",
+        workspaceId: "workspace-1",
+        humanPrincipalId: "human-owner-1"
+      })
+    ).resolves.toEqual({
+      schemaVersion: "agent-endpoint-list/v1",
+      items: [endpoint]
+    });
+    expect(catalogFixture.json).toHaveBeenCalledWith(
+      "GET",
+      "/api/v1/projects/project-demo-001/agent-endpoints?canvasId=canvas-main&workspaceId=workspace-1&humanPrincipalId=human-owner-1",
+      expect.anything(),
+      { signal: undefined }
+    );
+    expect(
+      () => void catalogFixture.client.listAgentEndpoints({ projectId: "other-project" })
+    ).toThrow("collaboration_project_scope_mismatch");
 
     const dispatchFixture = fixture(
       observation({ agentEndpoint: { ...endpoint, resolvedAt: "2030-01-01T00:00:00.000Z" } })

@@ -397,12 +397,62 @@ describe("Agent Endpoint HTTP", () => {
   it("rejects query widening instead of silently ignoring it", async () => {
     const state = await fixture();
     const response = await fetch(
-      `${state.origin}/api/v1/projects/project-a/agent-endpoints?workspaceId=foreign`,
+      `${state.origin}/api/v1/projects/project-a/agent-endpoints?unknown=1`,
       { headers: authorization(state.owner.deviceToken) }
     );
     expect({ status: response.status, body: await response.json() }).toEqual({
       status: 400,
       body: { error: "agent_endpoint_request_invalid" }
+    });
+  });
+
+  it("uses owner_canvas when workspaceId is omitted from the locator", async () => {
+    const state = await fixture();
+    const response = await fetch(
+      `${state.origin}/api/v1/projects/project-a/agent-endpoints?canvasId=canvas-main&humanPrincipalId=owner-a`,
+      { headers: authorization(state.owner.deviceToken) }
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      schemaVersion: "agent-endpoint-list/v1",
+      items: [{ status: "available" }]
+    });
+  });
+
+  it("uses workspace_canvas when workspaceId matches the session", async () => {
+    const state = await fixture();
+    const response = await fetch(
+      `${state.origin}/api/v1/projects/project-a/agent-endpoints?canvasId=canvas-main&workspaceId=${encodeURIComponent(state.workspaceId)}&humanPrincipalId=owner-a`,
+      { headers: authorization(state.owner.deviceToken) }
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      schemaVersion: "agent-endpoint-list/v1",
+      items: [{ status: "available" }]
+    });
+  });
+
+  it("forbids a humanPrincipalId that does not match the session", async () => {
+    const state = await fixture();
+    const response = await fetch(
+      `${state.origin}/api/v1/projects/project-a/agent-endpoints?canvasId=canvas-main&humanPrincipalId=owner-b`,
+      { headers: authorization(state.owner.deviceToken) }
+    );
+    expect({ status: response.status, body: await response.json() }).toEqual({
+      status: 403,
+      body: { error: "agent_endpoint_forbidden" }
+    });
+  });
+
+  it("forbids a workspace locator that does not match the session", async () => {
+    const state = await fixture();
+    const response = await fetch(
+      `${state.origin}/api/v1/projects/project-a/agent-endpoints?canvasId=canvas-main&workspaceId=${encodeURIComponent(state.foreignWorkspaceId)}`,
+      { headers: authorization(state.owner.deviceToken) }
+    );
+    expect({ status: response.status, body: await response.json() }).toEqual({
+      status: 403,
+      body: { error: "agent_endpoint_forbidden" }
     });
   });
 

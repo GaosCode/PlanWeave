@@ -724,8 +724,11 @@ export class CollaborationClient {
   // Distinct from local Runtime Auto Run and Host mailbox.
   // ---------------------------------------------------------------------------
 
-  async listAgentEndpoints(signal?: AbortSignal): Promise<RemoteAgentEndpointList> {
-    return this.remoteOperationsClient.listAgentEndpoints(signal);
+  async listAgentEndpoints(
+    query?: import("../../shared/collaboration.js").CollaborationListAgentEndpointsInput,
+    signal?: AbortSignal
+  ): Promise<RemoteAgentEndpointList> {
+    return this.remoteOperationsClient.listAgentEndpoints(query, signal);
   }
 
   async dispatchRemoteOperation(

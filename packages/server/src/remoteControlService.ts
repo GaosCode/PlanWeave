@@ -30,6 +30,17 @@ import { AgentEndpointCatalog } from "./agentEndpointCatalog.js";
 import { listAuthorizedRemoteAgentEndpoints } from "./remoteAgent/catalog.js";
 import type { RemoteAgentAccessPolicy } from "./remoteAgent/accessPolicy.js";
 import { RemoteAgentAuthorizationError } from "./remoteAgent/errors.js";
+import { RemoteAgentManagementService } from "./remoteAgent/management.js";
+import {
+  operatorRemoteAgentAccessModeRequestSchema,
+  operatorRemoteAgentActorRequestSchema,
+  operatorRemoteAgentGrantRequestSchema,
+  operatorRemoteAgentListQuerySchema,
+  operatorRemoteAgentRepairOwnershipRequestSchema,
+  toRemoteAgentManagementAgentView,
+  toRemoteAgentManagementList
+} from "./remoteAgent/managementDtos.js";
+import { RemoteAgentRepository } from "./remoteAgent/repository.js";
 import { HostEnrollmentService } from "./hostEnrollment.js";
 import {
   DEFAULT_HOST_OFFLINE_AFTER_MS,
@@ -69,13 +80,15 @@ export type RemoteControlServiceOptions = {
     projectId: string;
     canvasId: string;
   }) => { workspaceId: string; projectId: string; canvasId: string } | undefined;
+  remoteAgentRepository?: RemoteAgentRepository;
 };
 
 const operatorAgentEndpointQuerySchema = z
   .object({
     projectId: opaqueIdentifierSchema.optional(),
     humanPrincipalId: humanPrincipalIdSchema.optional(),
-    canvasId: opaqueIdentifierSchema.optional()
+    canvasId: opaqueIdentifierSchema.optional(),
+    workspaceId: workspaceIdSchema.optional()
   })
   .strict();
 
@@ -88,10 +101,14 @@ const emptyAgentEndpointList = (): RemoteAgentEndpointList =>
 export class RemoteControlService {
   private readonly clock: () => Date;
   private readonly hostOfflineAfterMs: number;
+  private readonly remoteAgents: RemoteAgentManagementService | null;
 
   constructor(private readonly options: RemoteControlServiceOptions) {
     this.clock = options.clock ?? (() => new Date());
     this.hostOfflineAfterMs = options.hostOfflineAfterMs ?? DEFAULT_HOST_OFFLINE_AFTER_MS;
+    this.remoteAgents = options.remoteAgentRepository
+      ? new RemoteAgentManagementService(options.remoteAgentRepository)
+      : null;
   }
 
   createEnrollmentGrant(principal: OperatorPrincipal, rawRequest: unknown) {
@@ -148,35 +165,48 @@ export class RemoteControlService {
   listAgentEndpoints(principal: OperatorPrincipal, rawQuery: unknown): RemoteAgentEndpointList {
     this.options.authorization.requireServerAdmin(principal);
     const query = operatorAgentEndpointQuerySchema.parse(rawQuery);
-    if (query.humanPrincipalId === undefined || query.projectId === undefined) {
+    if (
+      query.humanPrincipalId === undefined ||
+      query.projectId === undefined ||
+      query.canvasId === undefined
+    ) {
       return emptyAgentEndpointList();
     }
-    const workspaceId = this.resolveWorkspace(principal, principal.workspaceId);
     this.options.authorization.authorizeProject(principal, query.projectId);
-    this.options.authorizeProjectScope({ workspaceId, projectId: query.projectId });
-    const canvasId = query.canvasId ?? "default";
+    if (query.workspaceId !== undefined) {
+      const workspaceId = this.resolveWorkspace(principal, query.workspaceId);
+      this.options.authorizeProjectScope({ workspaceId, projectId: query.projectId });
+      this.options.authorizeCanvas?.({
+        workspaceId,
+        projectId: query.projectId,
+        canvasId: query.canvasId
+      });
+      return listAuthorizedRemoteAgentEndpoints({
+        policy: this.options.remoteAgentAccess,
+        catalog: this.options.agentEndpoints,
+        principal: { humanPrincipalId: query.humanPrincipalId },
+        target: {
+          kind: "workspace_canvas",
+          workspaceId: workspaceIdSchema.parse(workspaceId),
+          projectId: query.projectId,
+          canvasId: query.canvasId
+        }
+      });
+    }
     const ownerScope = this.options.resolveOwnerRuntimeScope?.({
       projectId: query.projectId,
-      canvasId
+      canvasId: query.canvasId
     });
-    const target =
-      ownerScope === undefined
-        ? {
-            kind: "workspace_canvas" as const,
-            workspaceId: workspaceIdSchema.parse(workspaceId),
-            projectId: query.projectId,
-            canvasId
-          }
-        : {
-            kind: "owner_canvas" as const,
-            projectId: ownerScope.projectId,
-            canvasId: ownerScope.canvasId
-          };
+    if (!ownerScope) return emptyAgentEndpointList();
     return listAuthorizedRemoteAgentEndpoints({
       policy: this.options.remoteAgentAccess,
       catalog: this.options.agentEndpoints,
       principal: { humanPrincipalId: query.humanPrincipalId },
-      target
+      target: {
+        kind: "owner_canvas",
+        projectId: ownerScope.projectId,
+        canvasId: ownerScope.canvasId
+      }
     });
   }
 
@@ -215,6 +245,31 @@ export class RemoteControlService {
     }
     const request = operatorDispatchRequestSchema.parse(rawRequest);
     this.options.authorization.authorizeProject(principal, request.projectId);
+    if (request.humanPrincipalId === undefined) {
+      throw new RemoteAgentAuthorizationError("remote_agent_not_found");
+    }
+    if (request.workspaceId !== undefined) {
+      this.options.authorization.requireServerAdmin(principal);
+      const workspaceId = this.resolveWorkspace(principal, request.workspaceId);
+      this.options.authorizeCanvas?.({
+        workspaceId,
+        projectId: request.projectId,
+        canvasId: request.canvasId
+      });
+      const outcome = await this.options.coordinator.dispatch({
+        workspaceId,
+        projectId: request.projectId,
+        canvasId: request.canvasId,
+        blockRef: request.blockRef,
+        idempotencyKey: request.idempotencyKey,
+        agentEndpointId: request.agentEndpointId,
+        expectedResponsibilityRevision: request.expectedResponsibilityRevision,
+        expectedReviewerRevision: request.expectedReviewerRevision,
+        controlPlane: "collaboration",
+        callerHumanPrincipalId: request.humanPrincipalId
+      });
+      return this.observeOperation(principal, outcome.operation.id);
+    }
     const ownerScope = this.options.resolveOwnerRuntimeScope?.({
       projectId: request.projectId,
       canvasId: request.canvasId
@@ -233,9 +288,6 @@ export class RemoteControlService {
         projectId: request.projectId,
         canvasId: request.canvasId
       });
-    }
-    if (request.humanPrincipalId === undefined) {
-      throw new RemoteAgentAuthorizationError("remote_agent_not_found");
     }
     const outcome = await this.options.coordinator.dispatch({
       workspaceId,
@@ -329,6 +381,85 @@ export class RemoteControlService {
     });
   }
 
+  listRemoteAgents(principal: OperatorPrincipal, rawQuery: unknown) {
+    this.options.authorization.requireServerAdmin(principal);
+    const query = operatorRemoteAgentListQuerySchema.parse(rawQuery);
+    return toRemoteAgentManagementList(
+      this.requireRemoteAgents().listManaged(query.humanPrincipalId)
+    );
+  }
+
+  setRemoteAgentAccessMode(principal: OperatorPrincipal, endpointId: string, rawRequest: unknown) {
+    this.options.authorization.requireServerAdmin(principal);
+    const request = operatorRemoteAgentAccessModeRequestSchema.parse(rawRequest);
+    return this.toManagedAgentView(
+      this.requireRemoteAgents().setAccessMode({
+        endpointId,
+        actorHumanPrincipalId: request.humanPrincipalId,
+        accessMode: request.accessMode,
+        ...(request.expectedPolicyRevision === undefined
+          ? {}
+          : { expectedPolicyRevision: request.expectedPolicyRevision })
+      })
+    );
+  }
+
+  grantRemoteAgentWorkspace(principal: OperatorPrincipal, endpointId: string, rawRequest: unknown) {
+    this.options.authorization.requireServerAdmin(principal);
+    const request = operatorRemoteAgentGrantRequestSchema.parse(rawRequest);
+    this.requireRemoteAgents().grantWorkspace({
+      endpointId,
+      actorHumanPrincipalId: request.humanPrincipalId,
+      workspaceId: request.workspaceId,
+      ...(request.expectedGrantRevision === undefined
+        ? {}
+        : { expectedGrantRevision: request.expectedGrantRevision })
+    });
+    return this.managedAgent(endpointId, request.humanPrincipalId);
+  }
+
+  revokeRemoteAgentGrant(
+    principal: OperatorPrincipal,
+    endpointId: string,
+    workspaceId: string,
+    rawRequest: unknown
+  ) {
+    this.options.authorization.requireServerAdmin(principal);
+    const request = operatorRemoteAgentActorRequestSchema.parse(rawRequest);
+    this.requireRemoteAgents().revokeGrant({
+      endpointId,
+      actorHumanPrincipalId: request.humanPrincipalId,
+      workspaceId
+    });
+    return this.managedAgent(endpointId, request.humanPrincipalId);
+  }
+
+  revokeRemoteAgent(principal: OperatorPrincipal, endpointId: string, rawRequest: unknown) {
+    this.options.authorization.requireServerAdmin(principal);
+    const request = operatorRemoteAgentActorRequestSchema.parse(rawRequest);
+    return this.toManagedAgentView(
+      this.requireRemoteAgents().revokeAgent({
+        endpointId,
+        actorHumanPrincipalId: request.humanPrincipalId
+      })
+    );
+  }
+
+  repairRemoteAgentOwnership(
+    principal: OperatorPrincipal,
+    endpointId: string,
+    rawRequest: unknown
+  ) {
+    this.options.authorization.requireServerAdmin(principal);
+    const request = operatorRemoteAgentRepairOwnershipRequestSchema.parse(rawRequest);
+    return this.toManagedAgentView(
+      this.requireRemoteAgents().repairOwnership({
+        endpointId,
+        ownerHumanPrincipalId: request.ownerHumanPrincipalId
+      })
+    );
+  }
+
   settleInteraction(principal: OperatorPrincipal, operationId: string, rawSettlement: unknown) {
     const operation = this.operationFor(principal, operationId);
     const settlement = operatorInteractionResponseSchema.parse(rawSettlement);
@@ -345,6 +476,24 @@ export class RemoteControlService {
       settlement
     });
     return toOperatorInteractionView(interaction);
+  }
+
+  private requireRemoteAgents(): RemoteAgentManagementService {
+    if (!this.remoteAgents) throw new RemoteAgentAuthorizationError("remote_agent_not_found");
+    return this.remoteAgents;
+  }
+
+  private toManagedAgentView(agent: Parameters<typeof toRemoteAgentManagementAgentView>[0]) {
+    return toRemoteAgentManagementAgentView(
+      agent,
+      this.options.remoteAgentRepository?.listGrants(agent.endpointId) ?? []
+    );
+  }
+
+  private managedAgent(endpointId: string, actorHumanPrincipalId: string) {
+    return this.toManagedAgentView(
+      this.requireRemoteAgents().get({ endpointId, actorHumanPrincipalId })
+    );
   }
 
   private operationFor(principal: OperatorPrincipal, operationId: string): RemoteOperation {

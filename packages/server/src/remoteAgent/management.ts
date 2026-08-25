@@ -5,6 +5,10 @@ import {
 } from "@planweave-ai/collaboration-protocol/core/primitives";
 import { z } from "zod";
 import { RemoteAgentAuthorizationError } from "./errors.js";
+import {
+  toRemoteAgentManagementAgentView,
+  type RemoteAgentManagementAgentView
+} from "./managementDtos.js";
 import { RemoteAgentRepository } from "./repository.js";
 import {
   remoteAgentAccessModeSchema,
@@ -73,6 +77,21 @@ export class RemoteAgentManagementService {
 
   listOwnershipRepairRequired(): RemoteAgentRecord[] {
     return this.repository.listOwnershipRepairRequired();
+  }
+
+  /** Owner agents plus repair-required rows. Grants are active-only. */
+  listManaged(ownerHumanPrincipalId: string): RemoteAgentManagementAgentView[] {
+    const owned = this.listOwned(ownerHumanPrincipalId);
+    const seen = new Set(owned.map((agent) => agent.endpointId));
+    const agents = [...owned];
+    for (const agent of this.listOwnershipRepairRequired()) {
+      if (seen.has(agent.endpointId)) continue;
+      seen.add(agent.endpointId);
+      agents.push(agent);
+    }
+    return agents.map((agent) =>
+      toRemoteAgentManagementAgentView(agent, this.repository.listGrants(agent.endpointId))
+    );
   }
 
   get(input: RemoteAgentManagementGetInput): RemoteAgentRecord {

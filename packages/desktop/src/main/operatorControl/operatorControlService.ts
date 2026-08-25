@@ -24,6 +24,12 @@ import {
   operatorObserveOwnerFleetRemoteOperationInputSchema,
   operatorReplayOwnerFleetRemoteOperationEventsInputSchema,
   operatorExecuteOwnerFleetRemoteOperationActionInputSchema,
+  operatorListRemoteAgentsInputSchema,
+  operatorSetRemoteAgentAccessModeInputSchema,
+  operatorGrantRemoteAgentWorkspaceInputSchema,
+  operatorRevokeRemoteAgentGrantInputSchema,
+  operatorRevokeRemoteAgentInputSchema,
+  operatorRepairRemoteAgentOwnershipInputSchema,
   OperatorControlError,
   type OperatorControlProfile,
   type OperatorControlStatus,
@@ -468,7 +474,14 @@ export class OperatorControlService {
     const parsed = operatorListAgentEndpointsInputSchema.parse(input);
     return this.enqueue(async () => {
       try {
-        return await this.withProfile(parsed, (client) => client.listAgentEndpoints());
+        return await this.withProfile(parsed, (client, value) =>
+          client.listAgentEndpoints({
+            humanPrincipalId: value.humanPrincipalId,
+            projectId: value.projectId,
+            canvasId: value.canvasId,
+            ...(value.workspaceId === undefined ? {} : { workspaceId: value.workspaceId })
+          })
+        );
       } catch (error) {
         if (
           error instanceof OperatorControlError &&
@@ -831,7 +844,9 @@ export class OperatorControlService {
     });
     const parsed = operatorDispatchOwnerFleetRemoteOperationInputSchema.parse(input);
     return this.enqueue(() =>
-      this.withProfile(parsed, (client, value) => client.dispatchRemoteOperation(value.command))
+      this.withProfile(parsed, (client, value) =>
+        client.dispatchRemoteOperation(value.command, value.humanPrincipalId, value.workspaceId)
+      )
     );
   }
 
@@ -849,6 +864,90 @@ export class OperatorControlService {
     return this.enqueue(() =>
       this.withProfile(parsed, (client, value) =>
         client.replayRemoteOperationEvents(value.operationId, value.query.afterCursor)
+      )
+    );
+  }
+
+  async listRemoteAgents(input: unknown) {
+    assertNoSmuggledOperatorSecrets(input, "listRemoteAgents");
+    const parsed = operatorListRemoteAgentsInputSchema.parse(input);
+    return this.enqueue(() =>
+      this.withProfile(parsed, (client, value) =>
+        client.listRemoteAgents({ humanPrincipalId: value.humanPrincipalId })
+      )
+    );
+  }
+
+  async setRemoteAgentAccessMode(input: unknown) {
+    assertNoSmuggledOperatorSecrets(input, "setRemoteAgentAccessMode");
+    const parsed = operatorSetRemoteAgentAccessModeInputSchema.parse(input);
+    return this.enqueue(() =>
+      this.withProfile(parsed, (client, value) =>
+        client.setRemoteAgentAccessMode({
+          humanPrincipalId: value.humanPrincipalId,
+          endpointId: value.endpointId,
+          accessMode: value.accessMode,
+          ...(value.expectedPolicyRevision === undefined
+            ? {}
+            : { expectedPolicyRevision: value.expectedPolicyRevision })
+        })
+      )
+    );
+  }
+
+  async grantRemoteAgentWorkspace(input: unknown) {
+    assertNoSmuggledOperatorSecrets(input, "grantRemoteAgentWorkspace");
+    const parsed = operatorGrantRemoteAgentWorkspaceInputSchema.parse(input);
+    return this.enqueue(() =>
+      this.withProfile(parsed, (client, value) =>
+        client.grantRemoteAgentWorkspace({
+          humanPrincipalId: value.humanPrincipalId,
+          endpointId: value.endpointId,
+          workspaceId: value.workspaceId,
+          ...(value.expectedGrantRevision === undefined
+            ? {}
+            : { expectedGrantRevision: value.expectedGrantRevision })
+        })
+      )
+    );
+  }
+
+  async revokeRemoteAgentGrant(input: unknown) {
+    assertNoSmuggledOperatorSecrets(input, "revokeRemoteAgentGrant");
+    const parsed = operatorRevokeRemoteAgentGrantInputSchema.parse(input);
+    return this.enqueue(() =>
+      this.withProfile(parsed, (client, value) =>
+        client.revokeRemoteAgentGrant({
+          humanPrincipalId: value.humanPrincipalId,
+          endpointId: value.endpointId,
+          workspaceId: value.workspaceId
+        })
+      )
+    );
+  }
+
+  async revokeRemoteAgent(input: unknown) {
+    assertNoSmuggledOperatorSecrets(input, "revokeRemoteAgent");
+    const parsed = operatorRevokeRemoteAgentInputSchema.parse(input);
+    return this.enqueue(() =>
+      this.withProfile(parsed, (client, value) =>
+        client.revokeRemoteAgent({
+          humanPrincipalId: value.humanPrincipalId,
+          endpointId: value.endpointId
+        })
+      )
+    );
+  }
+
+  async repairRemoteAgentOwnership(input: unknown) {
+    assertNoSmuggledOperatorSecrets(input, "repairRemoteAgentOwnership");
+    const parsed = operatorRepairRemoteAgentOwnershipInputSchema.parse(input);
+    return this.enqueue(() =>
+      this.withProfile(parsed, (client, value) =>
+        client.repairRemoteAgentOwnership({
+          endpointId: value.endpointId,
+          ownerHumanPrincipalId: value.ownerHumanPrincipalId
+        })
       )
     );
   }

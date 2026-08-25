@@ -24,7 +24,13 @@ export const operatorControlInvokeChannels = {
   observeOwnerFleetRemoteOperation: "planweave-operator:observeOwnerFleetRemoteOperation",
   replayOwnerFleetRemoteOperationEvents: "planweave-operator:replayOwnerFleetRemoteOperationEvents",
   executeOwnerFleetRemoteOperationAction:
-    "planweave-operator:executeOwnerFleetRemoteOperationAction"
+    "planweave-operator:executeOwnerFleetRemoteOperationAction",
+  listRemoteAgents: "planweave-operator:listRemoteAgents",
+  setRemoteAgentAccessMode: "planweave-operator:setRemoteAgentAccessMode",
+  grantRemoteAgentWorkspace: "planweave-operator:grantRemoteAgentWorkspace",
+  revokeRemoteAgentGrant: "planweave-operator:revokeRemoteAgentGrant",
+  revokeRemoteAgent: "planweave-operator:revokeRemoteAgent",
+  repairRemoteAgentOwnership: "planweave-operator:repairRemoteAgentOwnership"
 } as const;
 
 export const operatorControlStatusChangedChannel = "planweave-operator:statusChanged";

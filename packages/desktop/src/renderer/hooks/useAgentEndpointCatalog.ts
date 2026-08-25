@@ -1,5 +1,6 @@
 import type { RemoteAgentEndpoint } from "@planweave-ai/collaboration-protocol/agent-endpoint";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { PlanWeaveCollaborationApi } from "../../shared/collaboration";
 import {
   OperatorControlError,
   type PlanWeaveOperatorControlApi
@@ -12,10 +13,22 @@ import {
 } from "../collaboration/agentEndpointViewModel";
 
 type FleetEndpointCatalogApi = Pick<PlanWeaveOperatorControlApi, "listOperatorAgentEndpoints">;
+type CollaborationEndpointCatalogApi = Pick<
+  PlanWeaveCollaborationApi,
+  "listCollaborationAgentEndpoints"
+>;
+
+export type AgentEndpointCatalogLocator = {
+  projectId: string;
+  canvasId: string;
+  workspaceId?: string;
+};
 
 export const agentEndpointCatalogRefreshIntervalMs = 30_000;
 /** Short retry after a failed load so startup 502s do not leave the picker empty for 30s. */
 export const agentEndpointCatalogRetryAfterFailureMs = 2_000;
+
+export const HUMAN_PRINCIPAL_UNAVAILABLE_CODE = "human_principal_unavailable";
 
 function operatorFleetErrorCode(error: unknown): string {
   if (error instanceof OperatorControlError) return error.code;
@@ -30,9 +43,13 @@ function operatorFleetErrorCode(error: unknown): string {
 export function useAgentEndpointCatalog(input: {
   enabled: boolean;
   operatorProfileId: string | null;
+  humanPrincipalId: string | null;
+  locator: AgentEndpointCatalogLocator | null;
   logicalExecutors: readonly LogicalAgentEndpointInput[];
   fleetApi?: FleetEndpointCatalogApi | null;
   fleetCatalogBlockedCode?: string | null;
+  collaborationApi?: CollaborationEndpointCatalogApi | null;
+  sessionConnected?: boolean;
 }): {
   endpoints: AvailableAgentEndpoint[];
   error: string | null;
@@ -42,6 +59,7 @@ export function useAgentEndpointCatalog(input: {
 } {
   const fleetApi = input.fleetApi === undefined ? operatorControlBridge : input.fleetApi;
   const listFleetEndpoints = fleetApi?.listOperatorAgentEndpoints;
+  const listCollaborationEndpoints = input.collaborationApi?.listCollaborationAgentEndpoints;
   const [remoteEndpoints, setRemoteEndpoints] = useState<RemoteAgentEndpoint[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
@@ -51,8 +69,19 @@ export function useAgentEndpointCatalog(input: {
   const quickRetryAttemptedRef = useRef(false);
   const refreshRef = useRef<() => Promise<void>>(async () => undefined);
   const operatorProfileId = input.operatorProfileId;
+  const humanPrincipalId = input.humanPrincipalId;
+  const locator = input.locator;
   const operatorProfileIdRef = useRef(operatorProfileId);
   operatorProfileIdRef.current = operatorProfileId;
+  const humanPrincipalIdRef = useRef(humanPrincipalId);
+  humanPrincipalIdRef.current = humanPrincipalId;
+  const locatorKey = locator
+    ? `${locator.projectId}:${locator.canvasId}:${locator.workspaceId ?? ""}`
+    : "";
+  const locatorKeyRef = useRef(locatorKey);
+  locatorKeyRef.current = locatorKey;
+  const locatorRef = useRef(locator);
+  locatorRef.current = locator;
   const remoteEndpointsRef = useRef(remoteEndpoints);
   remoteEndpointsRef.current = remoteEndpoints;
 
@@ -66,9 +95,33 @@ export function useAgentEndpointCatalog(input: {
   const refresh = useCallback(async () => {
     const generation = ++generationRef.current;
     const requestProfileId = operatorProfileId;
+    const requestPrincipalId = humanPrincipalId;
+    const requestLocator = locatorRef.current;
+    const requestLocatorKey = locatorKey;
     const canWrite = () =>
-      generation === generationRef.current && requestProfileId === operatorProfileIdRef.current;
-    if (!input.enabled || !requestProfileId || !listFleetEndpoints) {
+      generation === generationRef.current &&
+      requestProfileId === operatorProfileIdRef.current &&
+      requestPrincipalId === humanPrincipalIdRef.current &&
+      requestLocatorKey === locatorKeyRef.current;
+    if (!requestPrincipalId || !requestLocator) {
+      clearRetryTimer();
+      setRemoteEndpoints([]);
+      const code = !requestPrincipalId
+        ? HUMAN_PRINCIPAL_UNAVAILABLE_CODE
+        : (input.fleetCatalogBlockedCode ?? null);
+      setError(code);
+      setErrorCode(code);
+      setRefreshing(false);
+      return;
+    }
+    const useOperator = Boolean(input.enabled && requestProfileId && listFleetEndpoints);
+    const useCollaboration = Boolean(
+      !useOperator &&
+        requestLocator.workspaceId &&
+        input.sessionConnected &&
+        listCollaborationEndpoints
+    );
+    if (!useOperator && !useCollaboration) {
       clearRetryTimer();
       setRemoteEndpoints([]);
       setError(input.fleetCatalogBlockedCode ?? null);
@@ -80,7 +133,24 @@ export function useAgentEndpointCatalog(input: {
     setError(null);
     setErrorCode(null);
     try {
-      const result = await listFleetEndpoints({ profileId: requestProfileId });
+      const result = useOperator
+        ? await listFleetEndpoints!({
+            profileId: requestProfileId!,
+            humanPrincipalId: requestPrincipalId,
+            projectId: requestLocator.projectId,
+            canvasId: requestLocator.canvasId,
+            ...(requestLocator.workspaceId === undefined
+              ? {}
+              : { workspaceId: requestLocator.workspaceId })
+          })
+        : await listCollaborationEndpoints!({
+            projectId: requestLocator.projectId,
+            canvasId: requestLocator.canvasId,
+            humanPrincipalId: requestPrincipalId,
+            ...(requestLocator.workspaceId === undefined
+              ? {}
+              : { workspaceId: requestLocator.workspaceId })
+          });
       if (canWrite()) {
         clearRetryTimer();
         quickRetryAttemptedRef.current = false;
@@ -91,7 +161,6 @@ export function useAgentEndpointCatalog(input: {
         const code = operatorFleetErrorCode(caught);
         setError(code);
         setErrorCode(code);
-        // Keep last successful remotes and allow one startup retry before the regular interval.
         if (
           remoteEndpointsRef.current.length === 0 &&
           retryTimerRef.current === null &&
@@ -109,15 +178,18 @@ export function useAgentEndpointCatalog(input: {
     }
   }, [
     clearRetryTimer,
-    listFleetEndpoints,
+    humanPrincipalId,
     input.enabled,
     input.fleetCatalogBlockedCode,
+    input.sessionConnected,
+    listCollaborationEndpoints,
+    listFleetEndpoints,
+    locatorKey,
     operatorProfileId
   ]);
   refreshRef.current = refresh;
 
   useEffect(() => {
-    // Do not clear remotes here: a failed refresh after clear would hide fleet hosts.
     quickRetryAttemptedRef.current = false;
     void refresh();
     return () => {
@@ -127,21 +199,23 @@ export function useAgentEndpointCatalog(input: {
   }, [clearRetryTimer, refresh]);
 
   useEffect(() => {
-    if (!input.enabled || !operatorProfileId) return;
+    if (!humanPrincipalId || !locatorKey) return;
     const interval = window.setInterval(() => {
       void refresh();
     }, agentEndpointCatalogRefreshIntervalMs);
     return () => {
       window.clearInterval(interval);
     };
-  }, [input.enabled, operatorProfileId, refresh]);
+  }, [humanPrincipalId, locatorKey, refresh]);
 
   const endpoints = useMemo(() => {
     const catalog = buildAgentEndpointCatalog({
       logicalExecutors: input.logicalExecutors,
       remote: remoteEndpoints
     });
-    return errorCode && errorCode !== input.fleetCatalogBlockedCode
+    return errorCode &&
+      errorCode !== input.fleetCatalogBlockedCode &&
+      errorCode !== HUMAN_PRINCIPAL_UNAVAILABLE_CODE
       ? catalog.map((endpoint) =>
           endpoint.source === "remote"
             ? {

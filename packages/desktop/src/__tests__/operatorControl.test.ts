@@ -22,7 +22,9 @@ import { OperatorProfileStore } from "../main/operatorControl/operatorProfileSto
 import {
   assertNoSmuggledOperatorSecrets,
   operatorControlProfileSchema,
-  operatorImportCredentialInputSchema
+  operatorDispatchOwnerFleetRemoteOperationInputSchema,
+  operatorImportCredentialInputSchema,
+  operatorListAgentEndpointsInputSchema
 } from "../shared/operatorControl.js";
 
 const tokenA = "operator_a_token_abcdefghijklmnopqrstuvwxyz_1234";
@@ -56,6 +58,38 @@ const profile = (profileId: string, serverBaseUrl = "https://operator.example.te
 });
 
 describe("Desktop operator control trust boundary", () => {
+  it("requires humanPrincipalId on operator catalog and dispatch IPC inputs", () => {
+    expect(() => operatorListAgentEndpointsInputSchema.parse({ profileId: "profile-a" })).toThrow();
+    expect(
+      operatorListAgentEndpointsInputSchema.parse({
+        profileId: "profile-a",
+        humanPrincipalId: "human-owner-1",
+        projectId: "project-a",
+        canvasId: "canvas-main"
+      })
+    ).toEqual({
+      profileId: "profile-a",
+      humanPrincipalId: "human-owner-1",
+      projectId: "project-a",
+      canvasId: "canvas-main"
+    });
+    expect(() =>
+      operatorDispatchOwnerFleetRemoteOperationInputSchema.parse({
+        profileId: "profile-a",
+        command: {
+          schemaVersion: "remote-run/v3",
+          projectId: "project-a",
+          canvasId: "canvas-main",
+          blockRef: "T-001#B-001",
+          agentEndpointId: "endpoint-1",
+          idempotencyKey: "idem-1",
+          expectedResponsibilityRevision: 0,
+          expectedReviewerRevision: 0
+        }
+      })
+    ).toThrow();
+  });
+
   it("keeps credential material out of the renderer import contract", () => {
     expect(operatorImportCredentialInputSchema.parse({ profileId: "profile-a" })).toEqual({
       profileId: "profile-a"
@@ -679,7 +713,13 @@ describe("Desktop operator control trust boundary", () => {
       items: [],
       nextCursor: null
     });
-    await expect(client.listAgentEndpoints()).resolves.toEqual({
+    await expect(
+      client.listAgentEndpoints({
+        humanPrincipalId: "human-owner-1",
+        projectId: "project-a",
+        canvasId: "canvas-main"
+      })
+    ).resolves.toEqual({
       schemaVersion: "agent-endpoint-list/v1",
       items: []
     });
@@ -688,7 +728,9 @@ describe("Desktop operator control trust boundary", () => {
       authorization: `Bearer ${tokenA}`
     });
     expect(requests[1]).toMatchObject({
-      url: expect.stringContaining("/api/v1/agent-endpoints"),
+      url: expect.stringContaining(
+        "/api/v1/agent-endpoints?projectId=project-a&humanPrincipalId=human-owner-1&canvasId=canvas-main"
+      ),
       authorization: `Bearer ${tokenA}`
     });
 
@@ -807,7 +849,14 @@ describe("Desktop operator control trust boundary", () => {
     await service.upsertProfile(profile("profile-remote", "https://remote-operator.example/"));
     await service.importCredential({ profileId: "profile-remote", operatorToken: tokenA });
 
-    await expect(service.listAgentEndpoints({ profileId: "profile-remote" })).resolves.toEqual({
+    await expect(
+      service.listAgentEndpoints({
+        profileId: "profile-remote",
+        humanPrincipalId: "human-owner-1",
+        projectId: "project-a",
+        canvasId: "canvas-main"
+      })
+    ).resolves.toEqual({
       schemaVersion: "agent-endpoint-list/v1",
       items: []
     });

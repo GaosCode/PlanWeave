@@ -6,6 +6,10 @@ import {
   type AgentEndpointErrorCode
 } from "@planweave-ai/collaboration-protocol/agent-endpoint";
 import {
+  humanPrincipalIdSchema,
+  workspaceIdSchema
+} from "@planweave-ai/collaboration-protocol/core/primitives";
+import {
   authenticateCollaborationForScope,
   hasAuthenticatedCollaborationDevice,
   humanTransportAllowed,
@@ -29,6 +33,30 @@ export type AgentEndpointHttpOptions = {
   collaborationScopeAuthority: CollaborationScopeAuthority;
   transportAdmission: TransportAdmissionPolicy;
 };
+
+type HumanCatalogLocatorQuery = {
+  canvasId?: string;
+  workspaceId?: string;
+  humanPrincipalId?: string;
+};
+
+function readCatalogLocatorQuery(url: URL): HumanCatalogLocatorQuery | "invalid" {
+  const allowed = new Set(["canvasId", "workspaceId", "humanPrincipalId"]);
+  const result: HumanCatalogLocatorQuery = {};
+  for (const key of url.searchParams.keys()) {
+    if (!allowed.has(key) || url.searchParams.getAll(key).length !== 1) return "invalid";
+    const value = url.searchParams.get(key);
+    if (!value) return "invalid";
+    try {
+      if (key === "canvasId") result.canvasId = opaqueIdentifierSchema.parse(value);
+      else if (key === "workspaceId") result.workspaceId = workspaceIdSchema.parse(value);
+      else result.humanPrincipalId = humanPrincipalIdSchema.parse(value);
+    } catch {
+      return "invalid";
+    }
+  }
+  return result;
+}
 
 function projectIdFromRoute(request: IncomingMessage, pathname: string): string | undefined {
   if (request.method !== "GET") return undefined;
@@ -78,7 +106,8 @@ export async function handleAgentEndpointHttpRequest(
     respondError(response, 403, "agent_endpoint_forbidden");
     return true;
   }
-  if ([...url.searchParams.keys()].length > 0) {
+  const locatorQuery = readCatalogLocatorQuery(url);
+  if (locatorQuery === "invalid") {
     request.resume();
     respondError(response, 400, "agent_endpoint_request_invalid");
     return true;
@@ -121,18 +150,39 @@ export async function handleAgentEndpointHttpRequest(
     respondError(response, 403, "agent_endpoint_forbidden");
     return true;
   }
+  if (
+    locatorQuery.humanPrincipalId !== undefined &&
+    locatorQuery.humanPrincipalId !== scope.actor.humanPrincipalId
+  ) {
+    request.resume();
+    respondError(response, 403, "agent_endpoint_forbidden");
+    return true;
+  }
+  const canvasId = locatorQuery.canvasId ?? scope.canvasId ?? "default";
+  if (locatorQuery.workspaceId !== undefined && locatorQuery.workspaceId !== scope.workspaceId) {
+    request.resume();
+    respondError(response, 403, "agent_endpoint_forbidden");
+    return true;
+  }
   try {
     const body = remoteAgentEndpointListSchema.parse(
       listAuthorizedRemoteAgentEndpoints({
         policy: options.remoteAgentAccess,
         catalog: options.catalog,
         principal: { humanPrincipalId: scope.actor.humanPrincipalId },
-        target: {
-          kind: "workspace_canvas",
-          workspaceId: scope.workspaceId,
-          projectId,
-          canvasId: scope.canvasId ?? "default"
-        }
+        target:
+          locatorQuery.workspaceId === undefined
+            ? {
+                kind: "owner_canvas",
+                projectId,
+                canvasId
+              }
+            : {
+                kind: "workspace_canvas",
+                workspaceId: workspaceIdSchema.parse(locatorQuery.workspaceId),
+                projectId,
+                canvasId
+              }
       })
     );
     request.resume();
