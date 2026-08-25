@@ -740,7 +740,8 @@ export class RemoteBlockCoordinator {
     this.actionsCoordinator ??= new RemoteBlockActionCoordinator(this.options, {
       reenter: (operationId) => this.reenter(operationId),
       fail: (operationId) => this.fail(operationId),
-      authorizeEndpointOperation: (operation) => this.authorizeEndpointOperation(operation),
+      authorizeEndpointOperation: (operation, reservation) =>
+        this.authorizeEndpointOperation(operation, reservation),
       reauthorizeAgentAccessForRetry: (operation) => this.reauthorizeAgentAccessForRetry(operation),
       checkpoint: () => this.checkpoint("after_action_side_effect")
     });

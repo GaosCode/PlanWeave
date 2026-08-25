@@ -31,7 +31,10 @@ import {
   registerEndpointDispatchAccess
 } from "./support/endpointCoordinatorFixture.js";
 import { seedLegacyRemoteOperation } from "./support/legacyRemoteOperationSeed.js";
-import { ownHostRemoteAgents } from "./support/remoteAgentOwnerFixture.js";
+import {
+  ownHostRemoteAgents,
+  TEST_REMOTE_AGENT_OWNER_ID
+} from "./support/remoteAgentOwnerFixture.js";
 
 type Coordination = ReturnType<typeof createRemoteBlockCoordination>;
 
@@ -476,6 +479,88 @@ describe("RemoteBlockCoordinator crash reconciliation", () => {
         reason: "retry with a fresh attempt"
       })
     ).rejects.toThrow(new RemoteAgentAuthorizationError("remote_agent_access_snapshot_missing"));
+  });
+
+  it("recovers a v3 retry after after_action_side_effect when the Endpoint identity is unchanged", async () => {
+    const harness = await CoordinatorHarness.create();
+    const prepared = await prepareInterruptedV3Action(harness);
+    let coordination = await harness.restart(new CrashOnce("after_action_side_effect"));
+    const interrupted = coordination.operations.getRequired(prepared.outcome.operation.id);
+    const request = {
+      actionId: "v3-retry-action-crash-success",
+      operationId: interrupted.id,
+      dispatchId: interrupted.dispatchId,
+      executionAttemptId: interrupted.executionAttemptId,
+      expectedAttemptVersion: interrupted.attempt.stateVersion,
+      kind: "retry_new_attempt",
+      priorLeaseId: prepared.dispatch.leaseId,
+      newDispatchId: "dispatch-v3-retry-crash-success-2",
+      newExecutionAttemptId: "attempt-v3-retry-crash-success-2",
+      reason: "retry v3 after side effect with unchanged endpoint"
+    } as const;
+    await expect(coordination.coordinator.executeAction(request)).rejects.toThrowError(
+      "injected_crash:after_action_side_effect"
+    );
+    const snapshotAfterSideEffect = harness
+      .requireServer()
+      .database.prepare("SELECT agent_access_json FROM remote_operations WHERE id=?")
+      .get(interrupted.id) as { agent_access_json: string | null };
+    expect(snapshotAfterSideEffect.agent_access_json).toEqual(expect.any(String));
+
+    coordination.hosts.reportOnline(prepared.hostId, ["acp.codex"], 1, {
+      workspaceMappings: [{ workspaceId: harness.locator.workspaceId, status: "ready" }],
+      acpProfiles: [
+        {
+          profileId: "codex-acp",
+          agentId: "codex",
+          displayName: "Test Agent",
+          status: "ready",
+          capabilities: ["acp.codex"]
+        }
+      ]
+    });
+    coordination = await harness.restart();
+    await coordination.reconcile({
+      serverInstanceOwnerToken: harness.requireServer().serverInstanceOwnerToken
+    });
+    expect(coordination.actions.getRequired(request.actionId).state).toBe("settled");
+    expect(coordination.operations.getRequired(interrupted.id)).toMatchObject({
+      dispatchId: request.newDispatchId,
+      executionAttemptId: request.newExecutionAttemptId,
+      endpointSelection: interrupted.endpointSelection
+    });
+    const database = harness.requireServer().database;
+    const snapshotAfterRecover = database
+      .prepare("SELECT agent_access_json FROM remote_operations WHERE id=?")
+      .get(interrupted.id) as { agent_access_json: string | null };
+    expect(snapshotAfterRecover.agent_access_json).toBe(snapshotAfterSideEffect.agent_access_json);
+    expect(snapshotAfterRecover.agent_access_json).toEqual(expect.any(String));
+    expect(JSON.parse(snapshotAfterRecover.agent_access_json as string)).toMatchObject({
+      callerHumanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID,
+      authorized: {
+        agentAccessAuthority: {
+          kind: "agent_owner",
+          ownerHumanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
+        }
+      }
+    });
+    expect(
+      database
+        .prepare("SELECT COUNT(*) AS count FROM remote_execution_attempts WHERE operation_id=?")
+        .get(interrupted.id)
+    ).toEqual({ count: 2 });
+    expect(
+      database
+        .prepare("SELECT COUNT(*) AS count FROM dispatches WHERE id=?")
+        .get(request.newDispatchId)
+    ).toEqual({ count: 1 });
+    expect(
+      database
+        .prepare(
+          "SELECT COUNT(*) AS count FROM mailbox_messages WHERE json_extract(command_json, '$.dispatchId')=?"
+        )
+        .get(request.newDispatchId)
+    ).toEqual({ count: 1 });
   });
 
   it("fails v3 retry crash recovery when the durable Endpoint identity changes", async () => {

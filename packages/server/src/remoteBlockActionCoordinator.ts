@@ -118,7 +118,12 @@ export class RemoteBlockActionCoordinator {
         return undefined;
       }
       const operation = this.options.operations.getRequired(action.operationId);
-      if (operation.endpointSelection) this.lifecycle.authorizeEndpointOperation(operation);
+      if (operation.endpointSelection) {
+        const reservation = operation.attempt.leaseId
+          ? this.options.reservations.get(operation.attempt.leaseId)
+          : undefined;
+        this.lifecycle.authorizeEndpointOperation(operation, reservation);
+      }
       await this.lifecycle.reenter(action.operationId);
       return "settled";
     }
