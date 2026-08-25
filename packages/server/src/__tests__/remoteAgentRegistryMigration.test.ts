@@ -74,13 +74,13 @@ function acpProfile(
 
 describe("remote agent registry migration v57", () => {
   it("registers as latest schema version", () => {
-    expect(latestCentralSchemaVersion).toBe(59);
+    expect(latestCentralSchemaVersion).toBe(60);
   });
 
   it("creates both tables and the active-grant index on an empty database", async () => {
     const database = await openDatabase();
     applyMigrations(database);
-    expect(centralSchemaVersion(database)).toBe(59);
+    expect(centralSchemaVersion(database)).toBe(60);
     expect(tableExists(database, "remote_agents")).toBe(true);
     expect(tableExists(database, "remote_agent_workspace_grants")).toBe(true);
     expect(tableExists(database, "agent_host_remote_agent_defaults")).toBe(true);
@@ -108,7 +108,7 @@ describe("remote agent registry migration v57", () => {
       )
       .all();
     expect(() => applyMigrations(database)).not.toThrow();
-    expect(centralSchemaVersion(database)).toBe(59);
+    expect(centralSchemaVersion(database)).toBe(60);
     expect(
       database
         .prepare(
@@ -151,7 +151,7 @@ describe("remote agent registry migration v57", () => {
     expect(tableExists(database, "remote_agents")).toBe(false);
 
     applyMigrations(database);
-    expect(centralSchemaVersion(database)).toBe(59);
+    expect(centralSchemaVersion(database)).toBe(60);
     const agents = database
       .prepare(
         `SELECT endpoint_id, host_id, profile_id, agent_id, owner_human_principal_id,
@@ -319,7 +319,7 @@ describe("remote agent registry migration v57", () => {
     expect(centralSchemaVersion(database)).toBe(57);
     expect(tableExists(database, "agent_host_remote_agent_defaults")).toBe(false);
     applyMigrations(database);
-    expect(centralSchemaVersion(database)).toBe(59);
+    expect(centralSchemaVersion(database)).toBe(60);
     expect(tableExists(database, "agent_host_remote_agent_defaults")).toBe(true);
     const applied = database
       .prepare("SELECT version, applied_at FROM schema_migrations WHERE version=58")
@@ -331,5 +331,30 @@ describe("remote agent registry migration v57", () => {
     expect(
       database.prepare("SELECT COUNT(*) AS count FROM schema_migrations WHERE version=58").get()
     ).toEqual({ count: 1 });
+  });
+
+  it("backfills workspace principals into human_principals", async () => {
+    const database = await openDatabase();
+    applyThrough(database, 59);
+    const identity = new WorkspaceIdentityRepository(database);
+    const workspaceId = identity.ensureWorkspaceForLegacyProject("project-backfill");
+    database
+      .prepare(
+        "INSERT INTO workspace_principals(workspace_id,human_principal_id,display_name,created_at,revoked_at) VALUES(?,?,?,?,NULL)"
+      )
+      .run(workspaceId, "human-backfill-owner", "Backfill Owner", now.toISOString());
+    expect(
+      database
+        .prepare("SELECT 1 FROM human_principals WHERE human_principal_id='human-backfill-owner'")
+        .get()
+    ).toBeUndefined();
+    applyMigrations(database);
+    expect(
+      database
+        .prepare(
+          "SELECT display_name FROM human_principals WHERE human_principal_id='human-backfill-owner'"
+        )
+        .get()
+    ).toEqual({ display_name: "Backfill Owner" });
   });
 });

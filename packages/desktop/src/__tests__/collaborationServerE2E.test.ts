@@ -16,10 +16,10 @@ import {
 import { parseServerConfig } from "../../../server/src/config.js";
 import { hashOperatorToken } from "../../../server/src/operatorAuth.js";
 import { ProjectAccessRepository } from "../../../server/src/projectAccessRepository.js";
+import { WorkspaceIdentityRepository } from "../../../server/src/identity/workspaceRepository.js";
 import { openServerDatabase } from "../../../server/src/sqlite.js";
 import { legacyWorkspaceIdForProject } from "../../../server/src/__tests__/support/legacyWorkspaceId.js";
 import { seedOperatorSessions } from "../../../server/src/__tests__/support/operatorAuthFixture.js";
-import { ensureTestHumanPrincipal } from "../../../server/src/__tests__/support/remoteAgentOwnerFixture.js";
 import {
   createDistributedServerComposition,
   type DistributedServerComposition
@@ -219,6 +219,8 @@ async function connectEnrolledHost(input: {
   adminToken: string;
   workspaceId: string;
   ownerHumanPrincipalId: string;
+  accessMode?: "unrestricted" | "workspace_restricted";
+  createWorkspaceGrant?: boolean;
 }) {
   const grantResponse = await fetch(`${input.origin}/api/v1/host-enrollments`, {
     method: "POST",
@@ -231,8 +233,8 @@ async function connectEnrolledHost(input: {
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
       credentialPolicy: { lifetimeDays: 180, renewal: "automatic" },
       ownerHumanPrincipalId: input.ownerHumanPrincipalId,
-      accessMode: "workspace_restricted",
-      createWorkspaceGrant: true
+      accessMode: input.accessMode ?? "workspace_restricted",
+      ...(input.createWorkspaceGrant === false ? {} : { createWorkspaceGrant: true })
     })
   });
   expect(grantResponse.status).toBe(201);
@@ -361,11 +363,10 @@ async function configureWorkspaceWorkAccess(input: {
   const database = await openServerDatabase(input.fixture.databasePath, 5_000);
   try {
     const access = new ProjectAccessRepository(database);
-    for (const [humanPrincipalId, displayName] of [
-      [workspaceOwner.humanPrincipalId, "Desktop Workspace Owner"],
-      [workspaceMember.humanPrincipalId, "Desktop Workspace Member"]
-    ] as const) {
-      ensureTestHumanPrincipal(database, humanPrincipalId, displayName);
+    for (const humanPrincipalId of [
+      workspaceOwner.humanPrincipalId,
+      workspaceMember.humanPrincipalId
+    ]) {
       access.grant({
         workspaceId: input.fixture.workspaceId,
         projectId: input.fixture.projectId,
@@ -385,7 +386,8 @@ async function configureWorkspaceWorkAccess(input: {
   return {
     workspaceOwner: clientFor(input.fixture.origin, input.fixture.projectId, workspaceOwner.token),
     workspaceMember,
-    workspaceOwnerHumanPrincipalId: workspaceOwner.humanPrincipalId
+    workspaceOwnerHumanPrincipalId: workspaceOwner.humanPrincipalId,
+    workspaceOwnerToken: workspaceOwner.token
   };
 }
 
@@ -660,6 +662,70 @@ describe("Desktop CollaborationClient against the Server composition", () => {
       kind: "not_found",
       httpStatus: 404
     });
+  });
+
+  it("lets the same workspace human keep an unrestricted agent after joining another workspace", async () => {
+    const { fixture, ownerBootstrap } = await createIdentityFixture();
+    const { workspaceOwner, workspaceOwnerHumanPrincipalId, workspaceOwnerToken } =
+      await configureWorkspaceWorkAccess({
+        fixture,
+        ownerBootstrap
+      });
+    await connectEnrolledHost({
+      origin: fixture.origin,
+      adminToken: fixture.adminToken,
+      workspaceId: fixture.workspaceId,
+      ownerHumanPrincipalId: workspaceOwnerHumanPrincipalId,
+      accessMode: "unrestricted",
+      createWorkspaceGrant: false
+    });
+    const localCatalog = await workspaceOwner.listAgentEndpoints({
+      canvasId: blockWorkItem.canvasId
+    });
+    expect(localCatalog.items.some((endpoint) => endpoint.status === "available")).toBe(true);
+
+    const database = await openServerDatabase(fixture.databasePath, 5_000);
+    const workspaceB = new WorkspaceIdentityRepository(database).ensureWorkspaceForLegacyProject(
+      `${fixture.projectId}-second`
+    );
+    database.close();
+    const issued = await fetch(
+      `${fixture.origin}/api/v1/workspaces/${encodeURIComponent(workspaceB)}/setup-codes`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${fixture.adminToken}`,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ schemaVersion: "workspace-setup/v1", purpose: "device_session" })
+      }
+    );
+    expect(issued.status).toBe(201);
+    const setupCode = ((await issued.json()) as { setupCode: string }).setupCode;
+    const second = await fetch(`${fixture.origin}/api/v1/setup-codes/redeem`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        schemaVersion: "workspace-setup/v1",
+        purpose: "device_session",
+        setupCode,
+        displayName: "Second Workspace",
+        existingDeviceToken: workspaceOwnerToken
+      })
+    });
+    expect(second.status).toBe(200);
+    const redeemed = (await second.json()) as { humanPrincipalId: string };
+    expect(redeemed.humanPrincipalId).toBe(workspaceOwnerHumanPrincipalId);
+
+    const switchedCatalog = await fetch(
+      `${fixture.origin}/api/v1/agent-endpoints?projectId=${encodeURIComponent(fixture.projectId)}&canvasId=default&humanPrincipalId=${encodeURIComponent(redeemed.humanPrincipalId)}`,
+      { headers: { Authorization: `Bearer ${fixture.adminToken}` } }
+    );
+    expect(switchedCatalog.status).toBe(200);
+    const switchedPage = (await switchedCatalog.json()) as {
+      items: Array<{ status: string }>;
+    };
+    expect(switchedPage.items.some((endpoint) => endpoint.status === "available")).toBe(true);
   });
 
   it("replays only disconnected observer events and reports catchup before refetch", async () => {

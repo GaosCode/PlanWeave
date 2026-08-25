@@ -173,7 +173,9 @@ export const setupCodeRedeemDeviceRequestSchema = z
     ...redeemBase,
     purpose: z.literal("device_session"),
     displayName: humanDisplayNameSchema,
-    deviceLabel: humanDeviceLabelSchema.optional()
+    deviceLabel: humanDeviceLabelSchema.optional(),
+    /** Reuse a Server-global Human Principal proven by an existing device token. */
+    existingDeviceToken: humanDeviceTokenSchema.optional()
   })
   .strict();
 export type SetupCodeRedeemDeviceRequest = z.infer<typeof setupCodeRedeemDeviceRequestSchema>;

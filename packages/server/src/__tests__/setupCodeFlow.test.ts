@@ -127,6 +127,11 @@ describe("setup code issue/redeem/revoke", () => {
     expect(redeemed.role).toBe("owner");
     expect(redeemed.deviceToken).toMatch(/^pw_hdev_/);
     expect(redeemed.connectionProfile.workspaceId).toBe(workspaceId);
+    expect(
+      database
+        .prepare("SELECT 1 FROM human_principals WHERE human_principal_id=?")
+        .get(redeemed.humanPrincipalId)
+    ).toBeDefined();
 
     expect(() =>
       setup.redeem({
@@ -140,6 +145,82 @@ describe("setup code issue/redeem/revoke", () => {
     const page = setup.list(principal(database), workspaceId, { openOnly: true });
     expect(page.items).toHaveLength(0);
     assertSetupViewRedacted(page);
+  });
+
+  it("reuses a global human principal when redeeming another workspace with an existing device token", async () => {
+    const database = await openDatabase();
+    const workspaceA = ensureWorkspace(database, "project-setup");
+    const workspaceB = ensureWorkspace(database, "project-setup-b");
+    provisionConfiguredOperatorSessions({
+      database,
+      credentials: [
+        {
+          operatorId: "operator-admin",
+          tokenSha256: hashOperatorToken(adminToken),
+          projectIds: [],
+          serverAdmin: true
+        }
+      ],
+      trustedProjectIds: ["project-setup", "project-setup-b"],
+      workspaceForProject: (id) =>
+        new WorkspaceIdentityRepository(database).workspaceForLegacyProject(id),
+      operatorSessionTtlMs: 30 * 24 * 60 * 60 * 1_000
+    });
+    const setup = service(database);
+    const admin = new OperatorTokenRegistry(database, [
+      {
+        operatorId: "operator-admin",
+        tokenSha256: hashOperatorToken(adminToken),
+        projectIds: [],
+        serverAdmin: true
+      }
+    ]).authenticate(`Bearer ${adminToken}`);
+    if (!admin) throw new Error("missing principal");
+    const first = setup.redeem({
+      schemaVersion: "workspace-setup/v1",
+      purpose: "device_session",
+      setupCode: setup.issue(admin, {
+        schemaVersion: "workspace-setup/v1",
+        workspaceId: workspaceA,
+        purpose: "device_session"
+      }).setupCode,
+      displayName: "Owner Device"
+    });
+    if (first.purpose !== "device_session") throw new Error("expected device");
+    const second = setup.redeem({
+      schemaVersion: "workspace-setup/v1",
+      purpose: "device_session",
+      setupCode: setup.issue(admin, {
+        schemaVersion: "workspace-setup/v1",
+        workspaceId: workspaceB,
+        purpose: "device_session"
+      }).setupCode,
+      displayName: "Owner Device",
+      existingDeviceToken: first.deviceToken
+    });
+    if (second.purpose !== "device_session") throw new Error("expected device");
+    expect(second.humanPrincipalId).toBe(first.humanPrincipalId);
+    expect(second.workspaceId).toBe(workspaceB);
+    expect(
+      database
+        .prepare(
+          "SELECT COUNT(*) AS count FROM workspace_memberships WHERE human_principal_id=? AND revoked_at IS NULL"
+        )
+        .get(first.humanPrincipalId)
+    ).toEqual({ count: 2 });
+    expect(() =>
+      setup.redeem({
+        schemaVersion: "workspace-setup/v1",
+        purpose: "device_session",
+        setupCode: setup.issue(admin, {
+          schemaVersion: "workspace-setup/v1",
+          workspaceId: workspaceA,
+          purpose: "device_session"
+        }).setupCode,
+        displayName: "Impostor",
+        existingDeviceToken: `pw_hdev_${"A".repeat(43)}`
+      })
+    ).toThrow(SetupCodeError);
   });
 
   it("redeems operator and host purposes with credential-type isolation", async () => {

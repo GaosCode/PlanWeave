@@ -164,6 +164,16 @@ describe("OSS-005 setup-code and single-connection contracts", () => {
       }).purpose
     ).toBe("device_session");
 
+    expect(
+      setupCodeRedeemDeviceRequestSchema.parse({
+        schemaVersion: "workspace-setup/v1",
+        setupCode: exampleSetupCode,
+        purpose: "device_session",
+        displayName: "Owner",
+        existingDeviceToken: exampleSetupCodeRedeemDeviceResponse.deviceToken
+      }).existingDeviceToken
+    ).toBe(exampleSetupCodeRedeemDeviceResponse.deviceToken);
+
     expect(() =>
       setupCodeRedeemDeviceRequestSchema.parse(
         exampleSetupCodeNegativeFixtures.mixedCredentialRedeem

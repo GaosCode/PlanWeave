@@ -131,6 +131,8 @@ function mapError(error: unknown): { status: number; code: string } {
         return { status: 409, code: error.code };
       case "setup_code_forbidden_capability":
         return { status: 400, code: error.code };
+      case "setup_code_existing_identity_invalid":
+        return { status: 403, code: error.code };
       default:
         return { status: 400, code: error.code };
     }

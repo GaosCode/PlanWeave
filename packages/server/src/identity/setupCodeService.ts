@@ -43,6 +43,9 @@ import {
   type SetupCodeHostEnrollmentOutcome
 } from "./setupCodeStore.js";
 import { WorkspaceIdentityRepository } from "./workspaceRepository.js";
+import { DeviceCredentialStore } from "./deviceCredentialStore.js";
+import { evaluateDeviceUsability } from "./schemas.js";
+import { MembershipStore } from "./membershipStore.js";
 
 const DEFAULT_DEVICE_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
 const DEFAULT_OPERATOR_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
@@ -64,6 +67,7 @@ export class SetupCodeError extends Error {
       | "setup_code_workspace_archived"
       | "setup_code_malformed"
       | "setup_code_forbidden_capability"
+      | "setup_code_existing_identity_invalid"
       | "workspace_not_found"
       | "workspace_identity_read_cutover_incomplete",
     message?: string
@@ -248,7 +252,7 @@ export class SetupCodeService {
     }
 
     if (request.purpose === "device_session") {
-      return this.redeemDevice(found, request.displayName, request.deviceLabel);
+      return this.redeemDevice(found, request);
     }
     if (request.purpose === "operator_session") {
       return this.redeemOperator(found, request.displayName);
@@ -258,36 +262,52 @@ export class SetupCodeService {
 
   private redeemDevice(
     grant: NonNullable<ReturnType<SetupCodeStore["findByToken"]>>,
-    displayName: string,
-    deviceLabel: string | undefined
+    request: Extract<
+      ReturnType<typeof setupCodeRedeemRequestSchema.parse>,
+      { purpose: "device_session" }
+    >
   ) {
-    void deviceLabel;
+    void request.deviceLabel;
     const now = this.clock();
     const workspace = this.workspaceIdentity.workspaceView(grant.workspaceId);
-    const humanPrincipalId = `human-${randomUUID()}`;
+    const displayName = request.displayName;
+    const humanPrincipalId = this.resolveRedeemedHumanPrincipal(
+      request.existingDeviceToken,
+      displayName
+    );
     const membershipId = `membership-${randomUUID()}`;
     const deviceSessionId = `device-session-${randomUUID()}`;
     const deviceToken = humanDeviceTokenSchema.parse(mintHumanDeviceToken());
     const credentialSha256 = hashHumanToken(deviceToken);
     const issuedAt = now.toISOString();
     const expiresAt = new Date(now.getTime() + this.deviceSessionTtlMs).toISOString();
+    const existingMembership = this.database
+      .prepare(
+        `SELECT membership_id, role FROM workspace_memberships
+         WHERE workspace_id=? AND human_principal_id=? AND revoked_at IS NULL`
+      )
+      .get(grant.workspaceId, humanPrincipalId) as
+      | { membership_id: string; role: "owner" | "member" }
+      | undefined;
     const activeMembers = this.countActiveMembers(grant.workspaceId);
-    const role = activeMembers === 0 ? "owner" : "member";
+    const role = existingMembership?.role ?? (activeMembers === 0 ? "owner" : "member");
 
     this.database
       .prepare(
-        `INSERT INTO workspace_principals(
+        `INSERT OR IGNORE INTO workspace_principals(
           workspace_id,human_principal_id,display_name,created_at,revoked_at
         ) VALUES(?,?,?,?,NULL)`
       )
       .run(grant.workspaceId, humanPrincipalId, displayName, issuedAt);
-    this.database
-      .prepare(
-        `INSERT INTO workspace_memberships(
-          workspace_id,membership_id,human_principal_id,role,revision,created_at,updated_at,revoked_at
-        ) VALUES(?,?,?,?,1,?,?,NULL)`
-      )
-      .run(grant.workspaceId, membershipId, humanPrincipalId, role, issuedAt, issuedAt);
+    if (!existingMembership) {
+      this.database
+        .prepare(
+          `INSERT INTO workspace_memberships(
+            workspace_id,membership_id,human_principal_id,role,revision,created_at,updated_at,revoked_at
+          ) VALUES(?,?,?,?,1,?,?,NULL)`
+        )
+        .run(grant.workspaceId, membershipId, humanPrincipalId, role, issuedAt, issuedAt);
+    }
     this.database
       .prepare(
         `INSERT INTO workspace_device_sessions(
@@ -303,11 +323,13 @@ export class SetupCodeService {
         issuedAt,
         expiresAt
       );
-    this.onWorkspaceDeviceMembershipCreated?.({
-      workspaceId: grant.workspaceId,
-      humanPrincipalId,
-      role
-    });
+    if (!existingMembership) {
+      this.onWorkspaceDeviceMembershipCreated?.({
+        workspaceId: grant.workspaceId,
+        humanPrincipalId,
+        role
+      });
+    }
     this.store.markRedeemed(grant.setupCodeId, deviceSessionId);
 
     const connectionProfile = this.connectionProfile(grant.workspaceId, workspace.displayName);
@@ -318,7 +340,7 @@ export class SetupCodeService {
       workspaceDisplayName: workspace.displayName,
       connectionProfile,
       humanPrincipalId,
-      membershipId,
+      membershipId: existingMembership?.membership_id ?? membershipId,
       role,
       deviceSessionId,
       deviceToken,
@@ -567,6 +589,37 @@ export class SetupCodeService {
       )
       .get(workspaceId) as { count: number };
     return Number(row.count);
+  }
+
+  private resolveRedeemedHumanPrincipal(
+    existingDeviceToken: string | undefined,
+    displayName: string
+  ): string {
+    const principals = new MembershipStore(this.database, this.clock);
+    if (existingDeviceToken !== undefined) {
+      const existingId = this.lookupExistingHumanPrincipal(existingDeviceToken);
+      if (!existingId) throw new SetupCodeError("setup_code_existing_identity_invalid");
+      principals.insertPrincipal(existingId, displayName);
+      return existingId;
+    }
+    const humanPrincipalId = `human-${randomUUID()}`;
+    principals.insertPrincipal(humanPrincipalId, displayName);
+    return humanPrincipalId;
+  }
+
+  private lookupExistingHumanPrincipal(deviceToken: string): string | undefined {
+    const workspaceSession = this.workspaceIdentity.authenticateWorkspaceDeviceSession(deviceToken);
+    if (workspaceSession) return workspaceSession.humanPrincipalId;
+    const device = new DeviceCredentialStore(this.database, this.clock).findDeviceByToken(
+      deviceToken
+    );
+    if (!device) return undefined;
+    const usability = evaluateDeviceUsability({
+      device,
+      humanPrincipalId: device.humanPrincipalId,
+      now: this.clock()
+    });
+    return usability.usable ? device.humanPrincipalId : undefined;
   }
 
   private rejectForbiddenFields(rawRequest: unknown): void {

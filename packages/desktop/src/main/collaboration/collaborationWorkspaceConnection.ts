@@ -502,6 +502,27 @@ export class CollaborationWorkspaceConnection {
     return true;
   }
 
+  private async existingDeviceTokenForOrigin(serverBaseUrl: string): Promise<string | undefined> {
+    let origin: string;
+    try {
+      origin = new URL(serverBaseUrl).origin;
+    } catch {
+      return undefined;
+    }
+    for (const profile of await this.store.list()) {
+      let profileOrigin: string;
+      try {
+        profileOrigin = new URL(profile.serverBaseUrl).origin;
+      } catch {
+        continue;
+      }
+      if (profileOrigin !== origin) continue;
+      const token = await this.vault.getDeviceToken(profile.profileId);
+      if (token) return token;
+    }
+    return undefined;
+  }
+
   /**
    * Redeem a one-time device setup code. Token stays in the vault; never returned.
    */
@@ -523,12 +544,14 @@ export class CollaborationWorkspaceConnection {
         },
         request: this.request
       });
+      const existingDeviceToken = await this.existingDeviceTokenForOrigin(input.serverBaseUrl);
       const response = await client.redeemDevice({
         schemaVersion: "workspace-setup/v1",
         purpose: "device_session",
         setupCode: input.setupCode,
         displayName: input.displayName,
-        ...(input.deviceLabel ? { deviceLabel: input.deviceLabel } : {})
+        ...(input.deviceLabel ? { deviceLabel: input.deviceLabel } : {}),
+        ...(existingDeviceToken ? { existingDeviceToken } : {})
       });
       const stored = await this.store.upsert({
         profile: response.connectionProfile,
