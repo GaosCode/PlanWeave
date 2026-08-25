@@ -232,4 +232,66 @@ describe("RemoteBlockCoordinator authority snapshots", () => {
       attempt: { stateVersion: interrupted.attempt.stateVersion }
     });
   });
+
+  it("rejects a different principal reusing the same idempotency key", async () => {
+    const fixture = await setup(true);
+    ensureTestHumanPrincipal(fixture.server.database, MEMBER_ID, "Workspace Member");
+    addWorkspaceMember(fixture.server.database, fixture.locator.workspaceId, MEMBER_ID, "member");
+    const request = endpointDispatchRequest({
+      agentEndpoints: fixture.agentEndpoints,
+      locator: fixture.locator,
+      blockRef: "T-001#B-001",
+      idempotencyKey: "shared-idempotency-key"
+    });
+    await fixture.coordinator.dispatch(request);
+    const intruder = endpointDispatchRequest({
+      agentEndpoints: fixture.agentEndpoints,
+      locator: fixture.locator,
+      blockRef: "T-001#B-001",
+      idempotencyKey: "shared-idempotency-key",
+      callerHumanPrincipalId: MEMBER_ID
+    });
+    await expect(fixture.coordinator.dispatch(intruder)).rejects.toThrow(
+      "remote_operation_idempotency_conflict"
+    );
+  });
+
+  it("fails closed when retry_new_attempt has no agent access snapshot", async () => {
+    const fixture = await setup(true);
+    const request = endpointDispatchRequest({
+      agentEndpoints: fixture.agentEndpoints,
+      locator: fixture.locator,
+      blockRef: "T-001#B-001",
+      idempotencyKey: "retry-missing-access"
+    });
+    const dispatched = await fixture.coordinator.dispatch(request);
+    const interrupted = await interruptOperation(
+      fixture,
+      dispatched.operation.id,
+      request.idempotencyKey
+    );
+    fixture.server.database
+      .prepare("UPDATE remote_operations SET agent_access_json=NULL WHERE id=?")
+      .run(interrupted.id);
+
+    await expect(
+      fixture.coordinator.executeAction({
+        actionId: "retry-missing-access-action",
+        operationId: interrupted.id,
+        dispatchId: interrupted.dispatchId,
+        executionAttemptId: interrupted.executionAttemptId,
+        expectedAttemptVersion: interrupted.attempt.stateVersion,
+        kind: "retry_new_attempt",
+        priorLeaseId: interrupted.attempt.leaseId,
+        newDispatchId: "dispatch-retry-missing-access",
+        newExecutionAttemptId: "attempt-retry-missing-access",
+        reason: "pre-v59 operations cannot start a new attempt"
+      })
+    ).rejects.toThrow(new RemoteAgentAuthorizationError("remote_agent_access_snapshot_missing"));
+    expect(fixture.operations.getRequired(interrupted.id)).toMatchObject({
+      dispatchId: interrupted.dispatchId,
+      executionAttemptId: interrupted.executionAttemptId,
+      attempt: { stateVersion: interrupted.attempt.stateVersion }
+    });
+  });
 });

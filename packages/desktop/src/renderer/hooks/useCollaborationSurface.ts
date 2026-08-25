@@ -34,7 +34,7 @@ export type UseCollaborationSurfaceArgs = {
 export type UseCollaborationSurfaceResult = {
   status: CollaborationStatus | null;
   snapshot: CollaborationReadModelSnapshot;
-  viewModel: CollaborationProjectViewModel;
+  viewModel: CollaborationProjectViewModel | null;
   controller: CollaborationReadModelController | null;
   assigneeIndex: AssigneeSurfaceIndex;
   activeProfileId: string | null;

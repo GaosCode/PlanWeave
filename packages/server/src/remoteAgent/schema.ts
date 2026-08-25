@@ -90,9 +90,22 @@ export const agentAccessAuthoritySchema = z.discriminatedUnion("kind", [
     .object({
       kind: z.literal("agent_owner"),
       ownerHumanPrincipalId: humanPrincipalIdSchema,
-      policyRevision: remoteAgentPolicyRevisionSchema
+      policyRevision: remoteAgentPolicyRevisionSchema,
+      workspaceId: workspaceIdSchema.optional(),
+      grantRevision: remoteAgentGrantRevisionSchema.optional()
     })
-    .strict(),
+    .strict()
+    .superRefine((value, context) => {
+      const hasWorkspace = value.workspaceId !== undefined;
+      const hasGrantRevision = value.grantRevision !== undefined;
+      if (hasWorkspace !== hasGrantRevision) {
+        context.addIssue({
+          code: "custom",
+          message: "agent_owner_grant_revision_required_with_workspace",
+          path: hasWorkspace ? ["grantRevision"] : ["workspaceId"]
+        });
+      }
+    }),
   z
     .object({
       kind: z.literal("workspace_grant"),

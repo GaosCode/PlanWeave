@@ -760,6 +760,8 @@ export const zhCnCatalog = {
   hostAdminClearCredential: "清除凭证",
   hostAdminCredentialAvailable: "凭证可用",
   hostAdminCredentialMissing: "当前 Server 无法创建设备入驻信息，请先在“成员”中完成连接。",
+  hostAdminHumanPrincipalUnavailable:
+    "登记 Remote Agent 前需要已登录的人员身份。请先在“成员”中连接 Workspace，然后重试。",
   hostAdminCredentialPersistence_persisted: "操作系统 vault",
   "hostAdminCredentialPersistence_session-only": "仅本次会话",
   hostAdminCredentialPersistence_missing: "未配置",

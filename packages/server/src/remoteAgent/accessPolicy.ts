@@ -208,10 +208,15 @@ export class RemoteAgentAccessPolicy {
     if (target.kind === "owner_canvas") {
       throw new RemoteAgentAuthorizationError("remote_agent_workspace_scope_forbidden");
     }
-    if (!this.activeGrant(agent.endpointId, target.workspaceId)) {
+    const grant = this.activeGrant(agent.endpointId, target.workspaceId);
+    if (!grant) {
       throw new RemoteAgentAuthorizationError("remote_agent_workspace_scope_forbidden");
     }
-    return ownerAuthority;
+    return {
+      ...ownerAuthority,
+      workspaceId: target.workspaceId,
+      grantRevision: grant.grantRevision
+    };
   }
 
   private activeGrant(

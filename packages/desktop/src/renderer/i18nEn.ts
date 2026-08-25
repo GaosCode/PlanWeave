@@ -800,6 +800,8 @@ export const enCatalog = {
   hostAdminCredentialAvailable: "Credential available",
   hostAdminCredentialMissing:
     "The current Server cannot create device enrollment details. Connect it from Members first.",
+  hostAdminHumanPrincipalUnavailable:
+    "Remote Agents need a signed-in person identity before enrollment. Connect a Workspace profile, then retry.",
   hostAdminCredentialPersistence_persisted: "OS vault",
   "hostAdminCredentialPersistence_session-only": "session only",
   hostAdminCredentialPersistence_missing: "not configured",

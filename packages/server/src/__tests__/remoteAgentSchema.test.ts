@@ -156,6 +156,29 @@ describe("remote agent domain schemas", () => {
     });
     expect(
       agentAccessAuthoritySchema.parse({
+        kind: "agent_owner",
+        ownerHumanPrincipalId: "owner-human-1",
+        policyRevision: 2,
+        workspaceId: "workspace-a",
+        grantRevision: 4
+      })
+    ).toEqual({
+      kind: "agent_owner",
+      ownerHumanPrincipalId: "owner-human-1",
+      policyRevision: 2,
+      workspaceId: "workspace-a",
+      grantRevision: 4
+    });
+    expect(() =>
+      agentAccessAuthoritySchema.parse({
+        kind: "agent_owner",
+        ownerHumanPrincipalId: "owner-human-1",
+        policyRevision: 2,
+        workspaceId: "workspace-a"
+      })
+    ).toThrow();
+    expect(
+      agentAccessAuthoritySchema.parse({
         kind: "workspace_grant",
         workspaceId: "workspace-a",
         grantRevision: 3,
@@ -241,6 +264,7 @@ describe("remote agent domain schemas", () => {
       "remote_agent_workspace_grant_missing",
       "remote_agent_workspace_scope_forbidden",
       "remote_agent_ownership_repair_required",
+      "remote_agent_access_snapshot_missing",
       "remote_agent_policy_revision_conflict",
       "remote_agent_grant_revision_conflict"
     ]);

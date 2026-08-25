@@ -218,11 +218,11 @@ export function ProjectWorkspaceProvider({
         collaborationStatus: collaborationSurface.status,
         membershipHumanPrincipalId:
           resolveCurrentMembership({
-            members: collaborationSurface.viewModel.members,
+            members: collaborationSurface.viewModel?.members ?? [],
             status: collaborationSurface.status
           })?.humanPrincipalId ?? null
       }),
-    [collaborationSurface.status, collaborationSurface.viewModel.members]
+    [collaborationSurface.status, collaborationSurface.viewModel]
   );
   const catalogLocator = useMemo(() => {
     if (!canvasLocator) return null;

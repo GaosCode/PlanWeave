@@ -14,6 +14,8 @@ import {
   type OperatorProfileView
 } from "../../shared/operatorControl";
 import { operatorControlBridge } from "../bridge";
+import { resolveDesktopHumanPrincipalId } from "../collaboration/desktopHumanPrincipal";
+import { useCollaborationStatus } from "./useCollaborationStatus";
 import {
   HOST_INVENTORY_PAGE_SIZE,
   mergeHostInventory,
@@ -121,7 +123,8 @@ const knownErrorCodes = new Set([
   "agent_host_handoff_provenance_invalid",
   "agent_host_windows_user_sid_unavailable",
   "agent_host_preset_binary_missing",
-  "agent_host_background_setup_required"
+  "agent_host_background_setup_required",
+  "human_principal_unavailable"
 ]);
 
 function knownErrorCode(value: string): string | null {
@@ -155,7 +158,35 @@ function nextExpiry(minutes: number): string {
   return new Date(Date.now() + minutes * 60_000).toISOString();
 }
 
-export function useHostAdministrationController(): HostAdministrationController {
+export type HostAdministrationControllerOptions = {
+  /** When set, enrollment creates a workspace_restricted Agent plus an explicit Grant. */
+  enrollmentWorkspaceId?: string | null;
+};
+
+function enrollmentOwnerFields(humanPrincipalId: string, workspaceId: string | null) {
+  if (workspaceId) {
+    return {
+      ownerHumanPrincipalId: humanPrincipalId,
+      accessMode: "workspace_restricted" as const,
+      workspaceId,
+      createWorkspaceGrant: true as const
+    };
+  }
+  return {
+    ownerHumanPrincipalId: humanPrincipalId,
+    accessMode: "unrestricted" as const
+  };
+}
+
+export function useHostAdministrationController(
+  options: HostAdministrationControllerOptions = {}
+): HostAdministrationController {
+  const { status: collaborationStatus } = useCollaborationStatus();
+  const humanPrincipalId = useMemo(
+    () => resolveDesktopHumanPrincipalId({ collaborationStatus }),
+    [collaborationStatus]
+  );
+  const enrollmentWorkspaceId = options.enrollmentWorkspaceId ?? null;
   const [status, setStatus] = useState<OperatorControlStatus | null>(null);
   const [hostSnapshot, setHostSnapshot] = useState<HostInventorySnapshot | null>(null);
   const [loadState, setLoadState] = useState<HostAdministrationLoadState>("loading");
@@ -487,13 +518,18 @@ export function useHostAdministrationController(): HostAdministrationController 
       setError("operator_credential_missing");
       return null;
     }
+    if (!humanPrincipalId) {
+      setError("human_principal_unavailable");
+      return null;
+    }
     setBusy(true);
     try {
       const result = await operatorControlBridge.copyOperatorHostBootstrapHandoff({
         profileId: activeProfile.profileId,
         request: {
           expiresAt: nextExpiry(15),
-          credentialPolicy: { lifetimeDays: credentialLifetimeDays, renewal: "automatic" }
+          credentialPolicy: { lifetimeDays: credentialLifetimeDays, renewal: "automatic" },
+          ...enrollmentOwnerFields(humanPrincipalId, enrollmentWorkspaceId)
         }
       });
       setHandoff(result);
@@ -505,7 +541,7 @@ export function useHostAdministrationController(): HostAdministrationController 
     } finally {
       setBusy(false);
     }
-  }, [activeProfile, credentialLifetimeDays]);
+  }, [activeProfile, credentialLifetimeDays, enrollmentWorkspaceId, humanPrincipalId]);
 
   const copyMemberSetupCode = useCallback(async () => {
     if (!operatorControlBridge || !activeProfile || !activeProfile.hasOperatorCredential) {
@@ -622,13 +658,18 @@ export function useHostAdministrationController(): HostAdministrationController 
         setError("operator_credential_missing");
         return null;
       }
+      if (!humanPrincipalId) {
+        setError("human_principal_unavailable");
+        return null;
+      }
       setBusy(true);
       try {
         const next = await operatorControlBridge.registerOperatorLocalAgentHost({
           profileId: activeProfile.profileId,
           request: {
             expiresAt: nextExpiry(15),
-            credentialPolicy: { lifetimeDays: credentialLifetimeDays, renewal: "automatic" }
+            credentialPolicy: { lifetimeDays: credentialLifetimeDays, renewal: "automatic" },
+            ...enrollmentOwnerFields(humanPrincipalId, enrollmentWorkspaceId)
           },
           exposedProfileIds: [...exposedProfileIds]
         });
@@ -655,7 +696,7 @@ export function useHostAdministrationController(): HostAdministrationController 
         setBusy(false);
       }
     },
-    [activeProfile, credentialLifetimeDays, refreshHosts]
+    [activeProfile, credentialLifetimeDays, enrollmentWorkspaceId, humanPrincipalId, refreshHosts]
   );
 
   const enrollLocalAgentHost = useCallback(

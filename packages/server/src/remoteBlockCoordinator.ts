@@ -54,6 +54,7 @@ import {
 } from "./endpointSelection.js";
 import { humanPrincipalIdSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import type { AuthorizeRemoteAgentUseInput } from "./remoteAgent/accessPolicy.js";
+import { RemoteAgentAuthorizationError } from "./remoteAgent/errors.js";
 import {
   persistedRemoteAgentAccessSnapshotSchema,
   type AuthorizedRemoteAgentUse,
@@ -222,6 +223,13 @@ export class RemoteBlockCoordinator {
     const target = dispatchTarget(request);
     const existing = this.options.operations.findByCallerIdentity(request);
     if (existing) {
+      const originalCaller = existing.agentAccess?.callerHumanPrincipalId;
+      if (!originalCaller) {
+        throw new RemoteAgentAuthorizationError("remote_agent_access_snapshot_missing");
+      }
+      if (originalCaller !== callerHumanPrincipalId) {
+        throw new Error("remote_operation_idempotency_conflict");
+      }
       if (
         existing.endpointSelection?.endpointId !== request.agentEndpointId ||
         existing.endpointSelection.authority.kind !== target.kind
@@ -945,11 +953,11 @@ export class RemoteBlockCoordinator {
     }
   }
 
-  reauthorizeAgentAccessForRetry(
-    operation: RemoteOperation
-  ): PersistedRemoteAgentAccessSnapshot | undefined {
+  reauthorizeAgentAccessForRetry(operation: RemoteOperation): PersistedRemoteAgentAccessSnapshot {
     const snapshot = operation.agentAccess;
-    if (!snapshot) return undefined;
+    if (!snapshot) {
+      throw new RemoteAgentAuthorizationError("remote_agent_access_snapshot_missing");
+    }
     if (!this.options.authorizeRemoteAgentUse) {
       throw new Error("agent_endpoint_dispatch_not_configured");
     }

@@ -46,7 +46,7 @@ export class RemoteBlockActionCoordinator {
       ): void;
       reauthorizeAgentAccessForRetry(
         operation: RemoteOperation
-      ): PersistedRemoteAgentAccessSnapshot | undefined;
+      ): PersistedRemoteAgentAccessSnapshot;
       checkpoint(): Promise<void>;
     }
   ) {
@@ -255,7 +255,7 @@ export class RemoteBlockActionCoordinator {
           newExecutionAttemptId: action.newExecutionAttemptId,
           expectedAttemptVersion: action.expectedAttemptVersion,
           hostSelection,
-          ...(agentAccess === undefined ? {} : { agentAccess })
+          agentAccess
         });
         await this.lifecycle.reenter(operation.id);
         return "settled";
@@ -282,9 +282,9 @@ export class RemoteBlockActionCoordinator {
     if (decision.transition !== "retry") return undefined;
     if (action.kind !== "retry_new_attempt") throw new Error("remote_action_decision_mismatch");
     const operation = this.options.operations.getRequired(action.operationId);
+    this.lifecycle.reauthorizeAgentAccessForRetry(operation);
     if (operation.endpointSelection) {
       this.lifecycle.authorizeEndpointOperation(operation);
-      this.lifecycle.reauthorizeAgentAccessForRetry(operation);
       return undefined;
     }
     // Prior authority-backed attempts must re-resolve against current OSS-003 tables, not

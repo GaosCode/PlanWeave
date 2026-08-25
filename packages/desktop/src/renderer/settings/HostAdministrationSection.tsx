@@ -85,17 +85,19 @@ function errorLabel(code: string | null, t: ReturnType<typeof createTranslator>)
       ? "hostAdminBridgeUnavailable"
       : code === "operator_credential_missing"
         ? "hostAdminCredentialMissing"
-        : code === "operator_profile_missing" || code === "operator_profile_not_found"
-          ? "hostAdminProfileMissing"
-          : code === "operator_offline" || code === "operator_timeout"
-            ? "hostAdminOffline"
-            : code === "operator_unauthorized" || code === "operator_credential_invalid"
-              ? "hostAdminUnauthorized"
-              : code === "operator_admin_required" ||
-                  code === "operator_server_admin_required" ||
-                  code === "operator_forbidden"
-                ? "hostAdminForbidden"
-                : "hostAdminErrorGeneric";
+        : code === "human_principal_unavailable"
+          ? "hostAdminHumanPrincipalUnavailable"
+          : code === "operator_profile_missing" || code === "operator_profile_not_found"
+            ? "hostAdminProfileMissing"
+            : code === "operator_offline" || code === "operator_timeout"
+              ? "hostAdminOffline"
+              : code === "operator_unauthorized" || code === "operator_credential_invalid"
+                ? "hostAdminUnauthorized"
+                : code === "operator_admin_required" ||
+                    code === "operator_server_admin_required" ||
+                    code === "operator_forbidden"
+                  ? "hostAdminForbidden"
+                  : "hostAdminErrorGeneric";
   return t(key);
 }
 

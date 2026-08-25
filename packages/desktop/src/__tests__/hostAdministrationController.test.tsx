@@ -9,12 +9,27 @@ const bridgeMock = vi.hoisted(() => ({
   getOperatorControlStatus: vi.fn(),
   onOperatorControlStatusChanged: vi.fn(),
   listOperatorHosts: vi.fn(),
-  getOperatorLocalAgentHostStatus: vi.fn()
+  getOperatorLocalAgentHostStatus: vi.fn(),
+  copyOperatorHostBootstrapHandoff: vi.fn(),
+  registerOperatorLocalAgentHost: vi.fn()
 }));
 
 vi.mock("../renderer/bridge", () => ({
   collaborationBridge: null,
   operatorControlBridge: bridgeMock
+}));
+
+vi.mock("../renderer/hooks/useCollaborationStatus", () => ({
+  useCollaborationStatus: () => ({
+    status: {
+      activeProfileId: "collab-1",
+      profiles: [{ profileId: "collab-1", humanPrincipalId: "owner-human-1" }],
+      session: { phase: "connected" }
+    },
+    loading: false,
+    error: null,
+    refresh: async () => undefined
+  })
 }));
 
 function profile(
@@ -391,5 +406,60 @@ describe("Host administration request authority", () => {
     expect(result.current.hosts.map(({ id }) => id)).toEqual(["host-b"]);
     expect(result.current.hostsLoading).toBe(false);
     expect(result.current.hostInventoryState).toBe("ready");
+  });
+
+  it("creates a personal unrestricted enrollment grant with an explicit owner", async () => {
+    bridgeMock.copyOperatorHostBootstrapHandoff.mockResolvedValue({
+      state: "ready",
+      expiresAt: "2030-01-01T00:15:00.000Z",
+      credentialExpiresAt: "2030-06-30T00:00:00.000Z",
+      credentialPolicy: { lifetimeDays: 180, renewal: "automatic" },
+      copiedAt: "2030-01-01T00:00:00.000Z",
+      commandPreview: "planweave agent-host enroll <handoff>"
+    });
+    const { result } = renderHook(() => useHostAdministrationController());
+    await waitFor(() => expect(result.current.activeProfile?.profileId).toBe("profile-a"));
+    await act(async () => {
+      await result.current.copyBootstrapHandoff();
+    });
+    expect(bridgeMock.copyOperatorHostBootstrapHandoff).toHaveBeenCalledWith({
+      profileId: "profile-a",
+      request: {
+        expiresAt: expect.any(String),
+        credentialPolicy: { lifetimeDays: 180, renewal: "automatic" },
+        ownerHumanPrincipalId: "owner-human-1",
+        accessMode: "unrestricted"
+      }
+    });
+  });
+
+  it("creates a workspace-restricted enrollment grant with an explicit Grant", async () => {
+    bridgeMock.copyOperatorHostBootstrapHandoff.mockResolvedValue({
+      state: "ready",
+      workspaceId: "workspace-a",
+      expiresAt: "2030-01-01T00:15:00.000Z",
+      credentialExpiresAt: "2030-06-30T00:00:00.000Z",
+      credentialPolicy: { lifetimeDays: 180, renewal: "automatic" },
+      copiedAt: "2030-01-01T00:00:00.000Z",
+      commandPreview: "planweave agent-host enroll <handoff>"
+    });
+    const { result } = renderHook(() =>
+      useHostAdministrationController({ enrollmentWorkspaceId: "workspace-a" })
+    );
+    await waitFor(() => expect(result.current.activeProfile?.profileId).toBe("profile-a"));
+    await act(async () => {
+      await result.current.copyBootstrapHandoff();
+    });
+    expect(bridgeMock.copyOperatorHostBootstrapHandoff).toHaveBeenCalledWith({
+      profileId: "profile-a",
+      request: {
+        expiresAt: expect.any(String),
+        credentialPolicy: { lifetimeDays: 180, renewal: "automatic" },
+        ownerHumanPrincipalId: "owner-human-1",
+        accessMode: "workspace_restricted",
+        workspaceId: "workspace-a",
+        createWorkspaceGrant: true
+      }
+    });
   });
 });

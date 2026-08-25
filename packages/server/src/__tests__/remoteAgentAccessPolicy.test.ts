@@ -276,7 +276,12 @@ describe("authorizeRemoteAgentUse", () => {
     );
     expect(authorizedRemoteAgentUseSchema.parse(authorized)).toMatchObject({
       runtimeAuthority: { kind: "workspace_canvas", workspaceId: state.workspaceA },
-      agentAccessAuthority: { kind: "agent_owner", policyRevision: expect.any(Number) }
+      agentAccessAuthority: {
+        kind: "agent_owner",
+        policyRevision: expect.any(Number),
+        workspaceId: state.workspaceA,
+        grantRevision: expect.any(Number)
+      }
     });
   });
 

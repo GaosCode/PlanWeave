@@ -35,6 +35,19 @@ vi.mock("../renderer/bridge", () => ({
   operatorControlBridge: bridgeMock
 }));
 
+vi.mock("../renderer/hooks/useCollaborationStatus", () => ({
+  useCollaborationStatus: () => ({
+    status: {
+      activeProfileId: "collab-1",
+      profiles: [{ profileId: "collab-1", humanPrincipalId: "owner-human-1" }],
+      session: { phase: "connected" }
+    },
+    loading: false,
+    error: null,
+    refresh: async () => undefined
+  })
+}));
+
 const status = () => ({
   profiles: [
     {
@@ -649,7 +662,9 @@ describe("Agent Host settings", () => {
       profileId: "profile-a",
       request: {
         expiresAt: expect.any(String),
-        credentialPolicy: { lifetimeDays: 180, renewal: "automatic" }
+        credentialPolicy: { lifetimeDays: 180, renewal: "automatic" },
+        ownerHumanPrincipalId: "owner-human-1",
+        accessMode: "unrestricted"
       }
     });
     expect(
@@ -672,7 +687,9 @@ describe("Agent Host settings", () => {
       profileId: "profile-a",
       request: {
         expiresAt: expect.any(String),
-        credentialPolicy: { lifetimeDays: 365, renewal: "automatic" }
+        credentialPolicy: { lifetimeDays: 365, renewal: "automatic" },
+        ownerHumanPrincipalId: "owner-human-1",
+        accessMode: "unrestricted"
       }
     });
 
@@ -741,7 +758,9 @@ describe("Agent Host settings", () => {
       profileId: "profile-a",
       request: {
         expiresAt: expect.any(String),
-        credentialPolicy: { lifetimeDays: 180, renewal: "automatic" }
+        credentialPolicy: { lifetimeDays: 180, renewal: "automatic" },
+        ownerHumanPrincipalId: "owner-human-1",
+        accessMode: "unrestricted"
       },
       exposedProfileIds: ["codex-acp"]
     });

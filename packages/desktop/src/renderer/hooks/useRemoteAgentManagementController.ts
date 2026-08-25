@@ -63,7 +63,7 @@ export function useRemoteAgentManagementController(): RemoteAgentManagementContr
         humanPrincipalId
       });
       setAgents(list.items);
-      if (collaborationBridge && status?.session.phase === "connected") {
+      if (collaborationBridge && status?.session?.phase === "connected") {
         const members = await collaborationBridge.listCollaborationMembers({
           cursor: 0,
           limit: 100
@@ -83,7 +83,7 @@ export function useRemoteAgentManagementController(): RemoteAgentManagementContr
     } finally {
       setLoading(false);
     }
-  }, [humanPrincipalId, operatorProfileId, status?.session.phase]);
+  }, [humanPrincipalId, operatorProfileId, status?.session?.phase]);
 
   useEffect(() => {
     void refresh();

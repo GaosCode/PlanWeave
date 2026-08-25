@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { createRemoteBlockArtifactSource, type PlanPackageManifest } from "@planweave-ai/runtime";
 import { describe, expect, it, vi } from "vitest";
 import { ownerPackageLocatorForRun } from "@planweave-ai/agent-host-protocol";
+import { RemoteAgentAuthorizationError } from "../remoteAgent/errors.js";
 import { basicManifest } from "../../../runtime/src/__tests__/promptTestHelpers.js";
 import { canonicalRemoteRuntimePort } from "../canonicalRemoteRuntimePort.js";
 import { RemoteRuntimePortRegistry } from "../remoteRuntimeLocator.js";
@@ -548,7 +549,7 @@ describe("RemoteBlockCoordinator", () => {
     });
   });
 
-  it("recovers a legacy retry from authority tables after execution target change", async () => {
+  it("fails closed when a legacy operation without agent access starts retry_new_attempt", async () => {
     const fixture = await setup(true);
     if (!fixture.host) throw new Error("expected_test_host");
     const workspaceId = new WorkspaceIdentityRepository(
@@ -682,36 +683,25 @@ describe("RemoteBlockCoordinator", () => {
     });
 
     const interrupted = fixture.operations.getRequired(dispatched.operation.id);
-    await fixture.coordinator.executeAction({
-      actionId: "retry-authority-only-action",
-      operationId: interrupted.id,
+    await expect(
+      fixture.coordinator.executeAction({
+        actionId: "retry-authority-only-action",
+        operationId: interrupted.id,
+        dispatchId: interrupted.dispatchId,
+        executionAttemptId: interrupted.executionAttemptId,
+        expectedAttemptVersion: interrupted.attempt.stateVersion,
+        kind: "retry_new_attempt",
+        priorLeaseId: dispatch.leaseId,
+        newDispatchId: "dispatch-retry-authority-2",
+        newExecutionAttemptId: "attempt-retry-authority-2",
+        reason: "legacy operations without agent access cannot start a new attempt"
+      })
+    ).rejects.toThrow(new RemoteAgentAuthorizationError("remote_agent_access_snapshot_missing"));
+    expect(fixture.operations.getRequired(interrupted.id)).toMatchObject({
       dispatchId: interrupted.dispatchId,
       executionAttemptId: interrupted.executionAttemptId,
-      expectedAttemptVersion: interrupted.attempt.stateVersion,
-      kind: "retry_new_attempt",
-      priorLeaseId: dispatch.leaseId,
-      newDispatchId: "dispatch-retry-authority-2",
-      newExecutionAttemptId: "attempt-retry-authority-2",
-      reason: "retry after authority execution target moved to Host B"
+      attempt: { stateVersion: interrupted.attempt.stateVersion }
     });
-
-    const retried = fixture.operations.getRequired(dispatched.operation.id);
-    expect(retried).toMatchObject({
-      state: "activated",
-      dispatchId: "dispatch-retry-authority-2",
-      executionAttemptId: "attempt-retry-authority-2",
-      attempt: { hostId: hostB.id },
-      hostSelection: {
-        selection: "exact",
-        preferredHostId: hostB.id,
-        authorityRevisions: {
-          responsibilityRevision: 0,
-          reviewerRevision: 0,
-          executionTargetRevision: 2
-        }
-      }
-    });
-    expect(retried.hostSelection?.preferredHostId).not.toBe(hostA.id);
     expect(
       fixture.server.database.prepare("SELECT COUNT(*) AS count FROM work_assignments").get() as {
         count: number;

@@ -95,7 +95,6 @@ export function PeopleView({
   onManageServer
 }: PeopleViewProps) {
   const api = apiProp === undefined ? collaborationBridge : apiProp;
-  const hostController = useHostAdministrationController();
   const [localHostingOpen, setLocalHostingOpen] = useState(false);
   const [connectedSection, setConnectedSection] = useState<"members" | "workspace">("members");
   const [revealInvitationManagement, setRevealInvitationManagement] = useState(false);
@@ -132,6 +131,9 @@ export function PeopleView({
     error: collaborationStatusError,
     refresh: refreshCollaborationStatus
   } = useCollaborationStatus({ api });
+  const hostController = useHostAdministrationController({
+    enrollmentWorkspaceId: status?.workspaceConnection.workspaceId ?? null
+  });
 
   const activeProfile = useMemo(() => {
     if (!status?.activeProfileId) return null;

@@ -9,6 +9,7 @@ import {
   type RemoteBlockRuntimePort
 } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it } from "vitest";
+import { RemoteAgentAuthorizationError } from "../remoteAgent/errors.js";
 import {
   createTestWorkspace,
   basicManifest
@@ -25,7 +26,6 @@ import { startPlanweaveServer, type PlanweaveServer } from "../lifecycle.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import { ProjectAccessRepository } from "../projectAccessRepository.js";
 import { canonicalRemoteRuntimePort } from "../canonicalRemoteRuntimePort.js";
-import { WorkAssignmentRepository } from "../work/repository.js";
 import {
   endpointDispatchRequest,
   registerEndpointDispatchAccess
@@ -457,60 +457,25 @@ describe("RemoteBlockCoordinator crash reconciliation", () => {
     ).toBe(1);
   });
 
-  it("recovers a retry crash after dispatching the new attempt but before settling the action", async () => {
+  it("fails closed when retrying a legacy operation without agent access snapshot", async () => {
     const harness = await CoordinatorHarness.create();
     const prepared = await prepareInterruptedAction(harness, false);
-    let coordination = harness.requireCoordination();
-    const { outcome, dispatch } = prepared;
-    new WorkAssignmentRepository(harness.requireServer().database).applyCasUpdate({
-      expectedRevision: 0,
-      record: {
-        workspaceId: harness.locator.workspaceId,
-        projectId: harness.locator.projectId,
-        workItem: {
-          kind: "block",
-          canvasId: harness.locator.canvasId,
-          blockRef: outcome.operation.blockRef
-        },
-        target: { kind: "exact_host", hostId: prepared.hostId },
-        revision: 1,
-        updatedBy: { kind: "system", id: "retry-crash-test" },
-        updatedAt: "2030-01-01T00:00:00.000Z"
-      }
-    });
-    coordination = await harness.restart(new CrashOnce("after_action_side_effect"));
-    const interrupted = coordination.operations.getRequired(outcome.operation.id);
-    const request = {
-      actionId: "retry-action-1",
-      operationId: interrupted.id,
-      dispatchId: interrupted.dispatchId,
-      executionAttemptId: interrupted.executionAttemptId,
-      expectedAttemptVersion: interrupted.attempt.stateVersion,
-      kind: "retry_new_attempt",
-      priorLeaseId: dispatch.leaseId,
-      newDispatchId: "dispatch-retry-action-2",
-      newExecutionAttemptId: "attempt-retry-action-2",
-      reason: "retry with a fresh attempt"
-    } as const;
-    await expect(coordination.coordinator.executeAction(request)).rejects.toThrowError(
-      "injected_crash:after_action_side_effect"
-    );
-    expect(coordination.actions.getRequired(request.actionId).state).toBe("recorded");
-
-    coordination = await harness.restart();
-    await coordination.reconcile({
-      serverInstanceOwnerToken: harness.requireServer().serverInstanceOwnerToken
-    });
-    const action = coordination.actions.getRequired(request.actionId);
-
-    expect(action.state).toBe("settled");
-    expect(coordination.operations.getRequired(outcome.operation.id)).toMatchObject({
-      state: "activated",
-      dispatchId: "dispatch-retry-action-2",
-      executionAttemptId: "attempt-retry-action-2"
-    });
-    expect(count(harness.requireServer().database, "dispatches")).toBe(2);
-    expect(count(harness.requireServer().database, "mailbox_messages")).toBe(2);
+    const coordination = harness.requireCoordination();
+    const interrupted = coordination.operations.getRequired(prepared.outcome.operation.id);
+    await expect(
+      coordination.coordinator.executeAction({
+        actionId: "retry-action-1",
+        operationId: interrupted.id,
+        dispatchId: interrupted.dispatchId,
+        executionAttemptId: interrupted.executionAttemptId,
+        expectedAttemptVersion: interrupted.attempt.stateVersion,
+        kind: "retry_new_attempt",
+        priorLeaseId: prepared.dispatch.leaseId,
+        newDispatchId: "dispatch-retry-action-2",
+        newExecutionAttemptId: "attempt-retry-action-2",
+        reason: "retry with a fresh attempt"
+      })
+    ).rejects.toThrow(new RemoteAgentAuthorizationError("remote_agent_access_snapshot_missing"));
   });
 
   it("fails v3 retry crash recovery when the durable Endpoint identity changes", async () => {
