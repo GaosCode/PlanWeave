@@ -104,12 +104,6 @@ export class CollaborationPresenceSession {
             message: "Collaboration device credential was rejected by the server."
           });
           void this.host.clearDeviceCredential(profileId).then(() => this.host.publishStatus());
-        } else if (status.state === "error") {
-          this.host.setSessionError(`presence:${status.state}`, {
-            code: status.code,
-            message: status.code
-          });
-          void this.host.publishStatus();
         }
       }
     });

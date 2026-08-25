@@ -252,6 +252,16 @@ describe("desktop canvas presence transport", () => {
       profileId: "profile-test",
       reset: { canvasId: "default", reason: "disconnected" }
     });
+    activeHandlers?.onStatus?.({
+      state: "error",
+      canvasId: "default",
+      code: "rate_limited"
+    });
+    expect((await service.getStatus()).session).toMatchObject({
+      phase: "connected",
+      lastErrorCode: null,
+      lastErrorMessage: null
+    });
     await service.stopPresence();
     expect(stopPresence).toHaveLength(1);
     await service.disconnectSession();
