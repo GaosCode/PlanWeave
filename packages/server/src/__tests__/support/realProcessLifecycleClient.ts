@@ -479,7 +479,7 @@ export class RealProcessLifecycleClient {
 
   async listAgentEndpoints(): Promise<RemoteAgentEndpointList> {
     const response = await fetch(
-      `${this.harness.origin}/api/v1/agent-endpoints?projectId=${encodeURIComponent(this.harness.projectId)}&humanPrincipalId=${encodeURIComponent(TEST_REMOTE_AGENT_OWNER_ID)}`,
+      `${this.harness.origin}/api/v1/agent-endpoints?projectId=${encodeURIComponent(this.harness.projectId)}&canvasId=default&humanPrincipalId=${encodeURIComponent(TEST_REMOTE_AGENT_OWNER_ID)}`,
       { headers: this.headers() }
     );
     const body: unknown = await response.json();

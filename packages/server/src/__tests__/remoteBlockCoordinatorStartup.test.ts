@@ -32,7 +32,11 @@ import { canonicalRemoteRuntimePort } from "../canonicalRemoteRuntimePort.js";
 import type { DispatchHostSelectionSnapshot } from "../work/dispatchIntegration.js";
 import { endpointDispatchRequest } from "./support/endpointCoordinatorFixture.js";
 import { seedLegacyRemoteOperation } from "./support/legacyRemoteOperationSeed.js";
-import { ownHostRemoteAgents } from "./support/remoteAgentOwnerFixture.js";
+import {
+  ownHostRemoteAgents,
+  persistedTestAgentAccess,
+  TEST_REMOTE_AGENT_OWNER_ID
+} from "./support/remoteAgentOwnerFixture.js";
 
 type StartedCoordination = Awaited<ReturnType<typeof startRemoteBlockCoordinationServer>>;
 type Coordination = StartedCoordination["coordination"];
@@ -241,7 +245,8 @@ class StartupHarness {
   async seedLegacy(
     blockRef: string,
     idempotencyKey: string,
-    hostSelection?: DispatchHostSelectionSnapshot
+    hostSelection?: DispatchHostSelectionSnapshot,
+    agentAccessHostId?: string
   ) {
     if (!this.runtime) throw new Error("test_runtime_not_started");
     const candidate = await canonicalRemoteRuntimePort(
@@ -254,7 +259,17 @@ class StartupHarness {
       locator: this.locator,
       candidate,
       idempotencyKey,
-      ...(hostSelection === undefined ? {} : { hostSelection })
+      ...(hostSelection === undefined ? {} : { hostSelection }),
+      ...(agentAccessHostId === undefined
+        ? {}
+        : {
+            agentAccess: persistedTestAgentAccess({
+              database: this.requireServer().database,
+              hostId: agentAccessHostId,
+              workspaceId: this.locator.workspaceId,
+              callerHumanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
+            })
+          })
     });
   }
 
@@ -409,7 +424,8 @@ describe("RemoteBlockCoordinator startup reconciliation", () => {
         selection: "exact",
         preferredHostId: hostId,
         requiredCapabilities: ["acp.codex"]
-      }
+      },
+      hostId
     );
     const denied = await coordination.coordinator.reenter(deniedOperation.id);
     const dispatch = coordination.dispatches.getRequired(denied.operation.dispatchId);

@@ -19,6 +19,7 @@ import {
 } from "./support/realProcessAcpHarness.js";
 import { remoteAcpManifestWithDependency } from "./support/realProcessAcpManifests.js";
 import { RealProcessLifecycleClient } from "./support/realProcessLifecycleClient.js";
+import { TEST_REMOTE_AGENT_OWNER_ID } from "./support/remoteAgentOwnerFixture.js";
 
 const harnesses: RealProcessAcpHarness[] = [];
 
@@ -185,7 +186,8 @@ describe("real-process adversarial authorization matrix", () => {
               agentEndpointId,
               idempotencyKey: "auth-matrix-1",
               expectedResponsibilityRevision: 0,
-              expectedReviewerRevision: 0
+              expectedReviewerRevision: 0,
+              humanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
             }
           });
           expect(trusted).toMatchObject({
@@ -205,7 +207,8 @@ describe("real-process adversarial authorization matrix", () => {
               agentEndpointId,
               idempotencyKey: "auth-matrix-project-operator",
               expectedResponsibilityRevision: 0,
-              expectedReviewerRevision: 0
+              expectedReviewerRevision: 0,
+              humanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
             }
           });
           expect(collaborationOperatorDenied).toMatchObject({
@@ -239,7 +242,8 @@ describe("real-process adversarial authorization matrix", () => {
               agentEndpointId,
               idempotencyKey: "auth-wrong-project",
               expectedResponsibilityRevision: 0,
-              expectedReviewerRevision: 0
+              expectedReviewerRevision: 0,
+              humanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
             }
           });
           expect({ status: denied.status, body: denied.body }).toEqual({

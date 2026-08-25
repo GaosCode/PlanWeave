@@ -33,6 +33,11 @@ import { WorkAssignmentRepository } from "../work/repository.js";
 import { WorkAssignmentService } from "../work/service.js";
 import type { WorkItemRef } from "../work/schemas.js";
 import { seedLegacyRemoteOperation } from "./support/legacyRemoteOperationSeed.js";
+import { registerEndpointDispatchAccess } from "./support/endpointCoordinatorFixture.js";
+import {
+  ownHostRemoteAgents,
+  persistedTestAgentAccess
+} from "./support/remoteAgentOwnerFixture.js";
 import { runtimeFactsFromPackagePort } from "./workRuntimeFactsFixture.js";
 
 const directories: string[] = [];
@@ -163,6 +168,21 @@ export async function setup(
 
   let coordination = buildCoordination(options.checkpoints);
 
+  const identity = new HumanIdentityRepository(server.database);
+  const ownerBoot = identity.bootstrapOwner({
+    kind: "local_administrative_proof",
+    projectId: locator.projectId,
+    humanPrincipalId: "human-owner",
+    displayName: "Ada Owner",
+    issuedAt: new Date().toISOString()
+  });
+  registerEndpointDispatchAccess({
+    database: server.database,
+    locator,
+    projectRoot: workspace.root,
+    packageDir: workspace.init.workspace.packageDir
+  });
+
   // Host reservation is workspace-scoped; map the legacy project and bind hosts so
   // preferred-host selection can resolve online capacity (same as production enrollment).
   const registeredHosts: Array<{ id: string; name: string }> = [];
@@ -170,6 +190,12 @@ export async function setup(
     { name: "Primary Host", capabilities: ["acp.codex"], capacity: 2 }
   ]) {
     const host = coordination.hosts.register(hostSpec.name).host;
+    ownHostRemoteAgents({
+      database: server.database,
+      hostId: host.id,
+      ownerHumanPrincipalId: ownerBoot.principal.humanPrincipalId,
+      grantWorkspaceId: workspaceId
+    });
     coordination.hosts.bindToWorkspace(host.id, workspaceId);
     coordination.hosts.reportOnline(host.id, hostSpec.capabilities, hostSpec.capacity, {
       workspaceMappings: [{ workspaceId, status: "ready" }],
@@ -185,15 +211,6 @@ export async function setup(
     });
     registeredHosts.push({ id: host.id, name: hostSpec.name });
   }
-
-  const identity = new HumanIdentityRepository(server.database);
-  const ownerBoot = identity.bootstrapOwner({
-    kind: "local_administrative_proof",
-    projectId: locator.projectId,
-    humanPrincipalId: "human-owner",
-    displayName: "Ada Owner",
-    issuedAt: new Date().toISOString()
-  });
   const ownerContext: HumanAuthContext = {
     humanPrincipalId: ownerBoot.principal.humanPrincipalId,
     displayName: ownerBoot.principal.displayName,
@@ -282,7 +299,13 @@ export async function setup(
         locator,
         candidate,
         idempotencyKey,
-        ...(hostSelection === undefined ? {} : { hostSelection })
+        ...(hostSelection === undefined ? {} : { hostSelection }),
+        agentAccess: persistedTestAgentAccess({
+          database: server.database,
+          hostId: registeredHosts[0]!.id,
+          workspaceId,
+          callerHumanPrincipalId: ownerContext.humanPrincipalId
+        })
       });
     },
     rebuildCoordination(checkpoints?: RemoteCoordinatorCheckpointPort) {

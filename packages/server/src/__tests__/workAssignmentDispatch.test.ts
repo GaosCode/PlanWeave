@@ -407,6 +407,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
     };
 
     const winner = fixture.coordination.coordinator.executeAction(action);
+    void winner.catch(() => {});
     await retryEntered.promise;
     await fixture.assignmentService.updateAssignment({
       projectId: fixture.locator.projectId,
