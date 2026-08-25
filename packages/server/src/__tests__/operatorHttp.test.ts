@@ -202,7 +202,8 @@ describe("operator HTTP boundary", () => {
       agentEndpointId: "endpoint-1",
       idempotencyKey: "operator-v3-contract",
       expectedResponsibilityRevision: 0,
-      expectedReviewerRevision: 0
+      expectedReviewerRevision: 0,
+      humanPrincipalId: "owner-human-1"
     };
     expect(operatorDispatchRequestSchema.parse(request)).toEqual(request);
     expect(

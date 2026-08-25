@@ -45,6 +45,7 @@ import { evaluateHostAuthorization } from "./work/authorityPolicy.js";
 import { hostAuthorizationFactsSchema } from "@planweave-ai/collaboration-protocol/work/host-authorization";
 import { workspaceIdSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import { AgentEndpointCatalog } from "./agentEndpointCatalog.js";
+import { RemoteAgentAccessPolicy, RemoteAgentRepository } from "./remoteAgent/index.js";
 import { syncRemoteAgentsFromHost } from "./remoteAgent/sync.js";
 
 export type RemoteBlockCoordinationOptions = {
@@ -108,6 +109,7 @@ export function createRemoteBlockCoordination(
     hostOfflineAfterMs: options.hostOfflineAfterMs,
     clock: options.clock
   });
+  const remoteAgents = new RemoteAgentRepository(database, clock);
   const acpEvents = new RemoteAcpEventRepository(database, {
     clock: options.clock,
     maxEvents: options.eventRetentionMaxEvents,
@@ -187,6 +189,13 @@ export function createRemoteBlockCoordination(
       throw new DispatchAssignmentError("work_revision_conflict");
     }
   };
+  const remoteAgentAccess = new RemoteAgentAccessPolicy({
+    database,
+    agents: remoteAgents,
+    catalog: agentEndpoints,
+    authorizeTarget: endpointAuthorize,
+    clock: options.clock
+  });
   const assignmentGate: AssignmentDispatchGate | undefined = legacyAssignmentGate
     ? {
         resolve(input) {
@@ -346,6 +355,7 @@ export function createRemoteBlockCoordination(
     checkpoints: options.checkpoints,
     assignmentGate,
     agentEndpoints,
+    authorizeRemoteAgentUse: (input) => remoteAgentAccess.authorizeRemoteAgentUse(input),
     endpointAuthorize,
     finalAuthorize,
     ownerPackageLocatorForHost: ({ hostId, candidate }) => {
@@ -416,6 +426,7 @@ export function createRemoteBlockCoordination(
     interactions,
     reservations,
     agentEndpoints,
+    remoteAgentAccess,
     coordinator,
     dispatches,
     workAssignments,

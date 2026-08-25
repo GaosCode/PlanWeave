@@ -49,6 +49,18 @@ import {
   endpointSelectionSnapshotSchema,
   type EndpointSelectionSnapshot
 } from "./endpointSelection.js";
+import { humanPrincipalIdSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
+import type { AuthorizeRemoteAgentUseInput } from "./remoteAgent/accessPolicy.js";
+import {
+  persistedRemoteAgentAccessSnapshotSchema,
+  type AuthorizedRemoteAgentUse,
+  type PersistedRemoteAgentAccessSnapshot
+} from "./remoteAgent/schema.js";
+import {
+  controlPlaneForTarget,
+  dispatchTarget,
+  retryTarget
+} from "./remoteAgent/dispatchTarget.js";
 import { classifyReenterFailure, diagnosticFromReenterFailure } from "./remoteReenterRecovery.js";
 import { RemoteBlockWritebackCoordinator } from "./remoteBlockWritebackCoordinator.js";
 
@@ -58,7 +70,10 @@ export type RemoteEndpointDispatchRequest = RemoteRuntimeLocator & {
   agentEndpointId: string;
   expectedResponsibilityRevision: number;
   expectedReviewerRevision: number;
+  /** Runtime canvas kind. Not an Agent access switch. */
   controlPlane?: "collaboration" | "owner";
+  /** Required for new dispatches. Never an operatorId. */
+  callerHumanPrincipalId: string;
 };
 
 export type RemoteDispatchOutcome = {
@@ -91,6 +106,7 @@ export type RemoteBlockCoordinatorOptions = {
    */
   assignmentGate?: AssignmentDispatchGate;
   agentEndpoints?: AgentEndpointCatalog;
+  authorizeRemoteAgentUse?: (input: AuthorizeRemoteAgentUseInput) => AuthorizedRemoteAgentUse;
   endpointAuthorize?: (input: {
     workspaceId: string;
     projectId: string;
@@ -203,6 +219,7 @@ export class RemoteBlockCoordinator {
   }
 
   async dispatch(request: RemoteEndpointDispatchRequest): Promise<RemoteDispatchOutcome> {
+    const callerHumanPrincipalId = humanPrincipalIdSchema.parse(request.callerHumanPrincipalId);
     const controlPlane = request.controlPlane ?? "collaboration";
     const existing = this.options.operations.findByCallerIdentity(request);
     if (existing) {
@@ -224,34 +241,43 @@ export class RemoteBlockCoordinator {
       throw new Error("remote_runtime_locator_candidate_mismatch");
     }
 
-    // Endpoint authorization and the redacted route snapshot are captured before persistence.
-    // Reentry always uses this durable exact Endpoint identity.
-    if (!this.options.agentEndpoints || !this.options.endpointAuthorize) {
+    // Access + availability are captured before persistence. Reentry uses this snapshot.
+    if (
+      !this.options.agentEndpoints ||
+      !this.options.endpointAuthorize ||
+      !this.options.authorizeRemoteAgentUse
+    ) {
       throw new Error("agent_endpoint_dispatch_not_configured");
     }
-    this.options.endpointAuthorize({
-      workspaceId: candidate.workspaceId,
-      projectId: candidate.projectId,
-      canvasId: candidate.canvasId,
+    const target = dispatchTarget(request);
+    const authorized = this.options.authorizeRemoteAgentUse({
+      principal: { humanPrincipalId: callerHumanPrincipalId },
+      endpointId: request.agentEndpointId,
+      target,
+      requiredCapabilities: candidate.requiredCapabilities,
+      runtimeWorkspaceId: candidate.workspaceId,
       blockRef: candidate.blockRef,
       expectedResponsibilityRevision: request.expectedResponsibilityRevision,
-      expectedReviewerRevision: request.expectedReviewerRevision,
-      controlPlane
+      expectedReviewerRevision: request.expectedReviewerRevision
     });
     const endpointSelection = this.snapshotEndpoint(
       this.options.agentEndpoints.resolveForRun(
         request.agentEndpointId,
         candidate.workspaceId,
         candidate.requiredCapabilities,
-        controlPlane
+        controlPlaneForTarget(target)
       ),
       candidate,
       {
         responsibilityRevision: request.expectedResponsibilityRevision,
         reviewerRevision: request.expectedReviewerRevision,
-        controlPlane
+        controlPlane: controlPlaneForTarget(target)
       }
     );
+    const agentAccess = persistedRemoteAgentAccessSnapshotSchema.parse({
+      callerHumanPrincipalId,
+      authorized
+    });
 
     await this.checkpoint("before_operation_commit");
     const operation = this.options.operations.create({
@@ -263,7 +289,8 @@ export class RemoteBlockCoordinator {
       idempotencyKey: request.idempotencyKey,
       sourceFingerprint: candidate.graphFingerprint,
       requiredCapabilities: candidate.requiredCapabilities,
-      endpointSelection
+      endpointSelection,
+      agentAccess
     });
     await this.checkpoint("after_operation_commit");
     this.options.candidates.record(operation.id, candidate);
@@ -709,6 +736,7 @@ export class RemoteBlockCoordinator {
       reenter: (operationId) => this.reenter(operationId),
       fail: (operationId) => this.fail(operationId),
       authorizeEndpointOperation: (operation) => this.authorizeEndpointOperation(operation),
+      reauthorizeAgentAccessForRetry: (operation) => this.reauthorizeAgentAccessForRetry(operation),
       checkpoint: () => this.checkpoint("after_action_side_effect")
     });
     return this.actionsCoordinator;
@@ -921,6 +949,34 @@ export class RemoteBlockCoordinator {
       }
       throw error;
     }
+  }
+
+  reauthorizeAgentAccessForRetry(
+    operation: RemoteOperation
+  ): PersistedRemoteAgentAccessSnapshot | undefined {
+    const snapshot = operation.agentAccess;
+    if (!snapshot) return undefined;
+    if (!this.options.authorizeRemoteAgentUse) {
+      throw new Error("agent_endpoint_dispatch_not_configured");
+    }
+    const endpointId =
+      operation.endpointSelection?.endpointId ?? snapshot.authorized.remoteAgent.endpointId;
+    const target = retryTarget(operation, snapshot.authorized);
+    const authorized = this.options.authorizeRemoteAgentUse({
+      principal: { humanPrincipalId: snapshot.callerHumanPrincipalId },
+      endpointId,
+      target,
+      requiredCapabilities: operation.requiredCapabilities,
+      runtimeWorkspaceId: operation.workspaceId,
+      blockRef: operation.blockRef,
+      expectedResponsibilityRevision:
+        operation.endpointSelection?.authority.responsibilityRevision ?? 0,
+      expectedReviewerRevision: operation.endpointSelection?.authority.reviewerRevision ?? 0
+    });
+    return persistedRemoteAgentAccessSnapshotSchema.parse({
+      callerHumanPrincipalId: snapshot.callerHumanPrincipalId,
+      authorized
+    });
   }
 
   authorizeEndpointOperation(

@@ -30,6 +30,7 @@ import {
   endpointDispatchRequest,
   registerEndpointDispatchAccess
 } from "./support/endpointCoordinatorFixture.js";
+import { ownHostRemoteAgents } from "./support/remoteAgentOwnerFixture.js";
 import { seedLegacyRemoteOperation } from "./support/legacyRemoteOperationSeed.js";
 
 const directories: string[] = [];
@@ -312,6 +313,7 @@ describe("agent host WebSocket transport", () => {
       enrollments: new HostEnrollmentService(database.database),
       hosts: coordination.hosts,
       agentEndpoints: coordination.agentEndpoints,
+      remoteAgentAccess: coordination.remoteAgentAccess,
       operations: coordination.operations,
       dispatches: coordination.dispatches,
       coordinator: coordination.coordinator,
@@ -374,6 +376,11 @@ describe("agent host WebSocket transport", () => {
     const { database, coordination, locator, workspaceIdentity, workspaceId } =
       await createWsCoordination();
     const registration = coordination.hosts.register("Action Lifecycle Host");
+    ownHostRemoteAgents({
+      database: database.database,
+      hostId: registration.host.id,
+      grantWorkspaceId: workspaceId
+    });
     workspaceIdentity.bindHostToWorkspace(registration.host.id, workspaceId);
     const httpServer = createServer();
     httpServers.push(httpServer);
@@ -586,6 +593,11 @@ describe("agent host WebSocket transport", () => {
     const { database, coordination, locator, workspaceIdentity, workspaceId } =
       await createWsCoordination();
     const registration = coordination.hosts.register("Remote Linux Host");
+    ownHostRemoteAgents({
+      database: database.database,
+      hostId: registration.host.id,
+      grantWorkspaceId: workspaceId
+    });
     workspaceIdentity.bindHostToWorkspace(registration.host.id, workspaceId);
 
     const httpServer = createServer();
@@ -770,6 +782,11 @@ describe("agent host WebSocket transport", () => {
     const { database, coordination, locator, workspaceIdentity, workspaceId } =
       await createWsCoordination();
     const registration = coordination.hosts.register("Reconnect Expiry Host");
+    ownHostRemoteAgents({
+      database: database.database,
+      hostId: registration.host.id,
+      grantWorkspaceId: workspaceId
+    });
     workspaceIdentity.bindHostToWorkspace(registration.host.id, workspaceId);
     const httpServer = createServer();
     httpServers.push(httpServer);
@@ -912,6 +929,11 @@ describe("agent host WebSocket transport", () => {
     const { database, coordination, locator, workspaceIdentity, workspaceId } =
       await createWsCoordination();
     const registration = coordination.hosts.register("Interruption Host");
+    ownHostRemoteAgents({
+      database: database.database,
+      hostId: registration.host.id,
+      grantWorkspaceId: workspaceId
+    });
     workspaceIdentity.bindHostToWorkspace(registration.host.id, workspaceId);
     const httpServer = createServer();
     httpServers.push(httpServer);

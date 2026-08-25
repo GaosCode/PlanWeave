@@ -253,6 +253,7 @@ describe("RemoteOperationRepository", () => {
 
     expect(() => applyMigrations(database)).toThrowError("stop_before_remote_attempt_cancellation");
     expect(centralSchemaVersion(database)).toBe(44);
+    database.exec("ALTER TABLE remote_operations ADD COLUMN agent_access_json TEXT");
     const legacyRepository = new RemoteOperationRepository(database);
     const claimed = legacyRepository.markClaimed(legacyRepository.create(operationInput).id);
 

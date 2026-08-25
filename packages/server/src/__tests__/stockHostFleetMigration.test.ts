@@ -36,7 +36,7 @@ async function openDatabaseBeforeStockHostFleetMigration(): Promise<SqliteDataba
 
 describe("stock host fleet migration v46", () => {
   it("registers as latest schema version", () => {
-    expect(latestCentralSchemaVersion).toBe(58);
+    expect(latestCentralSchemaVersion).toBe(59);
   });
 
   it("preserves legacy exclusive workspace bindings and lifts hosts to server-scoped usability", async () => {

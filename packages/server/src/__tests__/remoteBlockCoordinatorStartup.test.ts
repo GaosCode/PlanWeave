@@ -32,6 +32,7 @@ import { canonicalRemoteRuntimePort } from "../canonicalRemoteRuntimePort.js";
 import type { DispatchHostSelectionSnapshot } from "../work/dispatchIntegration.js";
 import { endpointDispatchRequest } from "./support/endpointCoordinatorFixture.js";
 import { seedLegacyRemoteOperation } from "./support/legacyRemoteOperationSeed.js";
+import { ownHostRemoteAgents } from "./support/remoteAgentOwnerFixture.js";
 
 type StartedCoordination = Awaited<ReturnType<typeof startRemoteBlockCoordinationServer>>;
 type Coordination = StartedCoordination["coordination"];
@@ -204,6 +205,11 @@ class StartupHarness {
     const workspaceId = new WorkspaceIdentityRepository(
       this.requireServer().database
     ).ensureWorkspaceForLegacyProject(this.locator.projectId);
+    ownHostRemoteAgents({
+      database: this.requireServer().database,
+      hostId: host.id,
+      grantWorkspaceId: workspaceId
+    });
     this.requireCoordination().hosts.bindToWorkspace(host.id, workspaceId);
     this.requireCoordination().hosts.reportOnline(host.id, ["acp.codex"], 1, {
       workspaceMappings: [{ workspaceId, status: "ready" }],

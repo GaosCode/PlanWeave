@@ -143,6 +143,7 @@ export async function createTransportComposition(
     transportAdmission: input.transportAdmission,
     registryService: input.registryService,
     agentEndpointCatalog: input.agentEndpointCatalog,
+    remoteAgentAccess: input.remoteAgentAccess,
     humanRemoteControl: input.humanRemoteControl,
     resolveAssignmentService: input.resolveAssignmentService,
     acquireAuthorityService: input.acquireAuthorityService,

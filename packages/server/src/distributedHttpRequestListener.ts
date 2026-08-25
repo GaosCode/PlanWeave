@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { handleAccessHttpRequest } from "./accessHttp.js";
 import { handleAgentEndpointHttpRequest } from "./agentEndpointHttp.js";
 import type { AgentEndpointCatalog } from "./agentEndpointCatalog.js";
+import type { RemoteAgentAccessPolicy } from "./remoteAgent/accessPolicy.js";
 import { handleAgentHostArtifactRequest } from "./artifactHttp.js";
 import { handleCanvasRuntimeArtifactRequest } from "./canvas/runtimeArtifactHttp.js";
 import { handleCanvasRuntimeContentRequest } from "./canvas/runtimeContentHttp.js";
@@ -63,6 +64,7 @@ export type DistributedHttpRequestListenerOptions = {
   transportAdmission: TransportAdmissionPolicy;
   registryService: RegistryHttpService;
   agentEndpointCatalog: AgentEndpointCatalog;
+  remoteAgentAccess: RemoteAgentAccessPolicy;
   humanRemoteControl: HumanRemoteControlService;
   resolveAssignmentService(
     workspaceId: string,
@@ -174,6 +176,7 @@ export function createDistributedHttpRequestListener(
       if (
         await handleAgentEndpointHttpRequest(request, response, {
           catalog: options.agentEndpointCatalog,
+          remoteAgentAccess: options.remoteAgentAccess,
           repository: options.humanIdentity,
           workspaceIdentity: options.workspaceIdentity,
           collaborationScopeAuthority: options.collaborationScopeAuthority,

@@ -33,6 +33,7 @@ import {
 } from "./workspaceCanvasPublish.js";
 import { remoteAgentRegistryMigration } from "./remoteAgentRegistry.js";
 import { remoteAgentEnrollmentDefaultsMigration } from "./remoteAgentEnrollmentDefaults.js";
+import { remoteAgentAccessSnapshotMigration } from "./remoteAgentAccessSnapshot.js";
 import type { Migration, MigrationModule } from "./types.js";
 
 const identityModule: MigrationModule = { name: "identity", migrations: identityMigrations };
@@ -83,7 +84,11 @@ export const migrationModules: readonly MigrationModule[] = [
   },
   {
     name: "remote-agent-registry",
-    migrations: [remoteAgentRegistryMigration, remoteAgentEnrollmentDefaultsMigration]
+    migrations: [
+      remoteAgentRegistryMigration,
+      remoteAgentEnrollmentDefaultsMigration,
+      remoteAgentAccessSnapshotMigration
+    ]
   }
 ];
 

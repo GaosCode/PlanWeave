@@ -18,6 +18,12 @@ import {
 } from "../serverComposition.js";
 import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
 import { loopbackHttpTransportAdmission } from "./support/transportAdmission.js";
+import { ownHostRemoteAgents } from "./support/remoteAgentOwnerFixture.js";
+import {
+  RemoteAgentAccessPolicy,
+  RemoteAgentRepository,
+  syncRemoteAgentsFromHost
+} from "../remoteAgent/index.js";
 
 const httpServers: HttpServer[] = [];
 const databases: SqliteDatabase[] = [];
@@ -61,8 +67,20 @@ async function fixture() {
     displayName: "Owner B",
     issuedAt: now.toISOString()
   });
-  const hosts = new AgentHostRepository(database, () => now);
+  const hosts = new AgentHostRepository(
+    database,
+    () => now,
+    (host) => {
+      syncRemoteAgentsFromHost({ database, host, clock: () => now });
+    }
+  );
   const registered = hosts.register("HTTP Host").host;
+  ownHostRemoteAgents({
+    database,
+    hostId: registered.id,
+    ownerHumanPrincipalId: owner.principal.humanPrincipalId,
+    grantWorkspaceId: workspaceId
+  });
   hosts.bindToWorkspace(registered.id, workspaceId);
   hosts.reportOnline(registered.id, ["acp.codex"], 2, {
     workspaceMappings: [{ workspaceId, status: "ready" }],
@@ -87,6 +105,13 @@ async function fixture() {
     hostOfflineAfterMs: 60_000,
     clock: () => now
   });
+  const remoteAgentAccess = new RemoteAgentAccessPolicy({
+    database,
+    agents: new RemoteAgentRepository(database, () => now),
+    catalog,
+    authorizeTarget: () => undefined,
+    clock: () => now
+  });
   const collaborationScopeAuthority = {
     hasProject: (projectId: string) => projectId === "project-a" || projectId === "project-b",
     hasScope: (scope: { workspaceId: string; projectId: string }) =>
@@ -96,6 +121,7 @@ async function fixture() {
   const server = createServer((request, response) => {
     void handleAgentEndpointHttpRequest(request, response, {
       catalog,
+      remoteAgentAccess,
       repository: identity,
       workspaceIdentity,
       collaborationScopeAuthority,
@@ -190,8 +216,20 @@ describe("Agent Endpoint HTTP", () => {
 
     const database = await openServerDatabase(config.databasePath, 5_000);
     databases.push(database);
-    const hosts = new AgentHostRepository(database);
+    const hosts = new AgentHostRepository(
+      database,
+      () => new Date(),
+      (host) => {
+        syncRemoteAgentsFromHost({ database, host, clock: () => new Date() });
+      }
+    );
     const host = hosts.register("Configured Host").host;
+    ownHostRemoteAgents({
+      database,
+      hostId: host.id,
+      ownerHumanPrincipalId: device.humanPrincipalId,
+      grantWorkspaceId: workspaceId
+    });
     hosts.bindToWorkspace(host.id, workspaceId);
     hosts.reportOnline(host.id, ["acp.codex"], 1, {
       workspaceMappings: [{ workspaceId, status: "ready" }],

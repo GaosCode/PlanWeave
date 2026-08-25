@@ -22,6 +22,7 @@ import {
   type HostCommandResult
 } from "./realProcessAgentExposure.js";
 import { configureHostWorkspace } from "./realProcessHostConfig.js";
+import { TEST_REMOTE_AGENT_OWNER_ID } from "./remoteAgentOwnerFixture.js";
 
 function resolveHarnessPath(relativeUrl: string, workspacePath: string): string {
   try {
@@ -826,8 +827,28 @@ export class RealProcessAcpHarness {
     }
   }
 
+  async ensureRemoteAgentOwner(): Promise<void> {
+    const response = await fetch(
+      `${this.origin}/api/v1/projects/${this.projectId}/human/bootstrap`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          displayName: "Test Remote Agent Owner",
+          humanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
+        })
+      }
+    );
+    if (response.status !== 201 && response.status !== 200 && response.status !== 409) {
+      throw new Error(
+        `real_process_harness_remote_agent_owner_failed:${response.status}\n${this.diagnostics()}`
+      );
+    }
+  }
+
   async enrollHost(): Promise<void> {
     if (this.disposed) throw new Error("real_process_harness_disposed");
+    await this.ensureRemoteAgentOwner();
     const enrollmentExpiresAt = new Date(Date.now() + 10 * 60_000).toISOString();
     const grantResponse = await fetch(`${this.origin}/api/v1/host-enrollments`, {
       method: "POST",
@@ -838,7 +859,10 @@ export class RealProcessAcpHarness {
       body: JSON.stringify({
         workspaceId: legacyWorkspaceIdForProject(this.projectId),
         expiresAt: enrollmentExpiresAt,
-        credentialPolicy: { lifetimeDays: 180, renewal: "automatic" }
+        credentialPolicy: { lifetimeDays: 180, renewal: "automatic" },
+        ownerHumanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID,
+        accessMode: "unrestricted",
+        createWorkspaceGrant: true
       })
     });
     if (grantResponse.status !== 201) {
@@ -972,6 +996,7 @@ export class RealProcessAcpHarness {
     };
     this.secondaryHosts.set(key, { handle, child: undefined, enrolled: false });
 
+    await this.ensureRemoteAgentOwner();
     const enrollmentExpiresAt = new Date(Date.now() + 10 * 60_000).toISOString();
     const grantResponse = await fetch(`${this.origin}/api/v1/host-enrollments`, {
       method: "POST",
@@ -982,7 +1007,10 @@ export class RealProcessAcpHarness {
       body: JSON.stringify({
         workspaceId: legacyWorkspaceIdForProject(this.projectId),
         expiresAt: enrollmentExpiresAt,
-        credentialPolicy: { lifetimeDays: 180, renewal: "automatic" }
+        credentialPolicy: { lifetimeDays: 180, renewal: "automatic" },
+        ownerHumanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID,
+        accessMode: "unrestricted",
+        createWorkspaceGrant: true
       })
     });
     if (grantResponse.status !== 201) {

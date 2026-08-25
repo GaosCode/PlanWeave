@@ -6,6 +6,7 @@ import {
   remoteAgentEndpointListSchema
 } from "@planweave-ai/collaboration-protocol/agent-endpoint";
 import { AgentHostRepository } from "../hosts.js";
+import { syncRemoteAgentsFromHost } from "../remoteAgent/index.js";
 import { latestCentralSchemaVersion } from "../migrations.js";
 import { openServerDatabase } from "../sqlite.js";
 import type { DistributedServerComposition } from "../serverComposition.js";
@@ -16,6 +17,10 @@ import {
   projectToken,
   setupServerCompositionFixture
 } from "./support/serverCompositionFixture.js";
+import {
+  ownHostRemoteAgents,
+  TEST_REMOTE_AGENT_OWNER_ID
+} from "./support/remoteAgentOwnerFixture.js";
 
 const httpServers: HttpServer[] = [];
 const compositions: DistributedServerComposition[] = [];
@@ -41,8 +46,19 @@ describe("distributed server composition Stage H contracts", () => {
   it("lists stable redacted Agent Endpoints through the operator-admin project scope", async () => {
     const fixture = await setup();
     const database = await openServerDatabase(fixture.databasePath, 5_000);
-    const hosts = new AgentHostRepository(database);
+    const hosts = new AgentHostRepository(
+      database,
+      () => new Date(),
+      (host) => {
+        syncRemoteAgentsFromHost({ database, host, clock: () => new Date() });
+      }
+    );
     const host = hosts.register("Builder").host;
+    ownHostRemoteAgents({
+      database,
+      hostId: host.id,
+      grantWorkspaceId: fixture.workspaceId
+    });
     hosts.bindToWorkspace(host.id, fixture.workspaceId);
     hosts.reportOnline(host.id, ["acp.codex"], 1, {
       workspaceMappings: [{ workspaceId: fixture.workspaceId, status: "ready" }],
@@ -58,7 +74,7 @@ describe("distributed server composition Stage H contracts", () => {
     });
     database.close();
 
-    const endpointUrl = `${fixture.origin}/api/v1/agent-endpoints?projectId=${encodeURIComponent(fixture.projectId)}`;
+    const endpointUrl = `${fixture.origin}/api/v1/agent-endpoints?projectId=${encodeURIComponent(fixture.projectId)}&humanPrincipalId=${encodeURIComponent(TEST_REMOTE_AGENT_OWNER_ID)}`;
     const request = () =>
       fetch(endpointUrl, { headers: { Authorization: `Bearer ${adminToken}` } });
     const first = await request();
@@ -76,7 +92,7 @@ describe("distributed server composition Stage H contracts", () => {
     const fleet = await fetch(fleetUrl, { headers: { Authorization: `Bearer ${adminToken}` } });
     expect(fleet.status).toBe(200);
     const fleetPage = remoteAgentEndpointListSchema.parse(await fleet.json());
-    expect(fleetPage.items).toHaveLength(1);
+    expect(fleetPage.items).toEqual([]);
 
     for (const invalidPath of [
       `/api/v1/agent-endpoints?projectId=${fixture.projectId}&projectId=${fixture.projectId}`,
@@ -94,7 +110,7 @@ describe("distributed server composition Stage H contracts", () => {
     });
     expect(nonAdmin.status).toBe(403);
     const crossProject = await fetch(
-      `${fixture.origin}/api/v1/agent-endpoints?projectId=unknown-project`,
+      `${fixture.origin}/api/v1/agent-endpoints?projectId=unknown-project&humanPrincipalId=${encodeURIComponent(TEST_REMOTE_AGENT_OWNER_ID)}`,
       { headers: { Authorization: `Bearer ${adminToken}` } }
     );
     expect(crossProject.status).toBe(403);

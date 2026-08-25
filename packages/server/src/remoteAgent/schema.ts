@@ -119,6 +119,32 @@ export const authorizedRemoteAgentUseSchema = z
   })
   .strict();
 
+export const remoteAgentUseTargetSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("owner_canvas"),
+      projectId: opaqueIdentifierSchema,
+      canvasId: opaqueIdentifierSchema
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("workspace_canvas"),
+      workspaceId: workspaceIdSchema,
+      projectId: opaqueIdentifierSchema,
+      canvasId: opaqueIdentifierSchema
+    })
+    .strict()
+]);
+
+/** Durable dispatch snapshot: caller + AuthorizedRemoteAgentUse. Sibling of endpoint-selection. */
+export const persistedRemoteAgentAccessSnapshotSchema = z
+  .object({
+    callerHumanPrincipalId: humanPrincipalIdSchema,
+    authorized: authorizedRemoteAgentUseSchema
+  })
+  .strict();
+
 export { remoteAgentAuthorizationErrorCodeSchema, remoteAgentEndpointAccessViewSchema };
 
 export type RemoteAgentAccessMode = z.infer<typeof remoteAgentAccessModeSchema>;
@@ -129,4 +155,8 @@ export type RemoteAgentWorkspaceGrantRecord = z.infer<typeof remoteAgentWorkspac
 export type RuntimeAuthority = z.infer<typeof runtimeAuthoritySchema>;
 export type AgentAccessAuthority = z.infer<typeof agentAccessAuthoritySchema>;
 export type AuthorizedRemoteAgentUse = z.infer<typeof authorizedRemoteAgentUseSchema>;
+export type RemoteAgentUseTarget = z.infer<typeof remoteAgentUseTargetSchema>;
+export type PersistedRemoteAgentAccessSnapshot = z.infer<
+  typeof persistedRemoteAgentAccessSnapshotSchema
+>;
 export type { RemoteAgentAuthorizationErrorCode, RemoteAgentEndpointAccessView };

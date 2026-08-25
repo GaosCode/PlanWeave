@@ -109,7 +109,8 @@ export class HumanRemoteControlService {
         agentEndpointId: request.agentEndpointId,
         expectedResponsibilityRevision: request.expectedResponsibilityRevision,
         expectedReviewerRevision: request.expectedReviewerRevision,
-        controlPlane: "collaboration"
+        controlPlane: "collaboration",
+        callerHumanPrincipalId: context.humanPrincipalId
       });
     } catch (error) {
       if (error instanceof CanvasRuntimeUnavailableError) {

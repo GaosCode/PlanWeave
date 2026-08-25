@@ -845,6 +845,7 @@
         "realProcessLifecycleClient.test.ts",
         "realProcessRemoteBlockLifecycle.test.ts",
         "releaseGate.test.ts",
+        "remoteAgentAccessPolicy.test.ts",
         "remoteAgentCatalogDispatchFeatures.test.ts",
         "remoteAgentEnrollment.test.ts",
         "remoteAgentManagement.test.ts",

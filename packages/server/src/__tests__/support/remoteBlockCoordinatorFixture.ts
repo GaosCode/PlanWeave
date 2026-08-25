@@ -16,6 +16,7 @@ import { startPlanweaveServer, type PlanweaveServer } from "../../lifecycle.js";
 import { RemoteRuntimePortRegistry } from "../../remoteRuntimeLocator.js";
 import { WorkspaceIdentityRepository } from "../../identity/workspaceRepository.js";
 import { registerEndpointDispatchAccess } from "./endpointCoordinatorFixture.js";
+import { ownHostRemoteAgents, TEST_REMOTE_AGENT_OWNER_ID } from "./remoteAgentOwnerFixture.js";
 
 export const directories: string[] = [];
 const servers: PlanweaveServer[] = [];
@@ -93,6 +94,13 @@ export async function setup(
     packageDir: workspace.init.workspace.packageDir
   });
   const host = withHost ? coordination.hosts.register("Coordinator Host").host : undefined;
+  const callerHumanPrincipalId = host
+    ? ownHostRemoteAgents({
+        database: server.database,
+        hostId: host.id,
+        grantWorkspaceId: workspaceId
+      })
+    : TEST_REMOTE_AGENT_OWNER_ID;
   if (host) {
     coordination.hosts.bindToWorkspace(host.id, workspaceId);
     coordination.hosts.reportOnline(host.id, ["acp.codex"], hostCapacity, {
@@ -125,6 +133,7 @@ export async function setup(
     dispatches: coordination.dispatches,
     reservations: coordination.reservations,
     agentEndpoints: coordination.agentEndpoints,
-    artifactAuthorization: coordination.artifactAuthorization
+    artifactAuthorization: coordination.artifactAuthorization,
+    callerHumanPrincipalId
   };
 }

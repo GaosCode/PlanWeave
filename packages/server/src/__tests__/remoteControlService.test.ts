@@ -80,6 +80,7 @@ async function setup(input: { serverAdmin?: boolean } = {}) {
     enrollments: new HostEnrollmentService(database, () => now),
     hosts: coordination.hosts,
     agentEndpoints: coordination.agentEndpoints,
+    remoteAgentAccess: coordination.remoteAgentAccess,
     operations: coordination.operations,
     dispatches: coordination.dispatches,
     coordinator: coordination.coordinator,
@@ -239,18 +240,17 @@ describe("RemoteControlService owner fleet control plane", () => {
     await expect(forbidden.json()).resolves.toEqual({ error: "operator_admin_required" });
   });
 
-  it("lists server-scoped agent endpoints without projectId and keeps project-scoped compat", () => {
+  it("fails closed for operator catalog without an explicit human principal", () => {
     const run = async () => {
       const fixture = await setup();
       registerFleetHost(fixture.coordination);
       const fleet = fixture.service.listAgentEndpoints(fixture.principal, {});
-      expect(fleet.items).toHaveLength(1);
-      expect(fleet.items[0]?.endpointId).toMatch(/^aep_/);
+      expect(fleet.items).toEqual([]);
 
       const projectScoped = fixture.service.listAgentEndpoints(fixture.principal, {
         projectId: "project-a"
       });
-      expect(projectScoped.items).toHaveLength(0);
+      expect(projectScoped.items).toEqual([]);
     };
     return run();
   });

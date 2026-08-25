@@ -18,6 +18,7 @@ import {
 } from "./humanRemoteControlService.js";
 import type { ServerReadiness } from "./readiness.js";
 import { agentEndpointCatalogErrorCode } from "./agentEndpointCatalog.js";
+import { remoteAgentAuthorizationErrorCode } from "./remoteAgent/errors.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -130,6 +131,17 @@ function safeError(error: unknown): { status: number; code: string } {
   if (error instanceof DispatchAssignmentError) return { status: 409, code: error.code };
   const endpointErrorCode = agentEndpointCatalogErrorCode(error);
   if (endpointErrorCode) return { status: 409, code: endpointErrorCode };
+  const agentAccessCode = remoteAgentAuthorizationErrorCode(error);
+  if (agentAccessCode) {
+    if (agentAccessCode === "remote_agent_not_found") return { status: 404, code: agentAccessCode };
+    if (
+      agentAccessCode === "remote_agent_policy_revision_conflict" ||
+      agentAccessCode === "remote_agent_grant_revision_conflict"
+    ) {
+      return { status: 409, code: agentAccessCode };
+    }
+    return { status: 403, code: agentAccessCode };
+  }
   if (error instanceof HumanRemoteControlError) {
     if (error.code === "human_remote_body_too_large") return { status: 413, code: error.code };
     if (error.code === "human_remote_runtime_unavailable") {

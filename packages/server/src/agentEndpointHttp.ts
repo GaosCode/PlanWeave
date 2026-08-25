@@ -18,9 +18,12 @@ import { authorizeHumanAction } from "./identity/policy.js";
 import type { WorkspaceIdentityRepository } from "./identity/workspaceRepository.js";
 import type { TransportAdmissionPolicy } from "./insecureTransport.js";
 import type { AgentEndpointCatalog } from "./agentEndpointCatalog.js";
+import type { RemoteAgentAccessPolicy } from "./remoteAgent/accessPolicy.js";
+import { listAuthorizedRemoteAgentEndpoints } from "./remoteAgent/catalog.js";
 
 export type AgentEndpointHttpOptions = {
   catalog: AgentEndpointCatalog;
+  remoteAgentAccess: RemoteAgentAccessPolicy;
   repository: HumanIdentityRepository;
   workspaceIdentity: WorkspaceIdentityRepository;
   collaborationScopeAuthority: CollaborationScopeAuthority;
@@ -120,7 +123,17 @@ export async function handleAgentEndpointHttpRequest(
   }
   try {
     const body = remoteAgentEndpointListSchema.parse(
-      options.catalog.listVisible(scope.workspaceId)
+      listAuthorizedRemoteAgentEndpoints({
+        policy: options.remoteAgentAccess,
+        catalog: options.catalog,
+        principal: { humanPrincipalId: scope.actor.humanPrincipalId },
+        target: {
+          kind: "workspace_canvas",
+          workspaceId: scope.workspaceId,
+          projectId,
+          canvasId: scope.canvasId ?? "default"
+        }
+      })
     );
     request.resume();
     respond(response, 200, body);

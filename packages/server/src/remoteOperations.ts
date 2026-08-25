@@ -16,6 +16,10 @@ import {
   endpointSelectionSnapshotSchema,
   type EndpointSelectionSnapshot
 } from "./endpointSelection.js";
+import {
+  persistedRemoteAgentAccessSnapshotSchema,
+  type PersistedRemoteAgentAccessSnapshot
+} from "./remoteAgent/schema.js";
 
 const boundedKeySchema = z
   .string()
@@ -104,7 +108,8 @@ export const createRemoteOperationInputSchema = z
      * When present, persisted with the operation and never re-derived from a later assignment.
      */
     hostSelection: dispatchHostSelectionSnapshotSchema.optional(),
-    endpointSelection: endpointSelectionSnapshotSchema.optional()
+    endpointSelection: endpointSelectionSnapshotSchema.optional(),
+    agentAccess: persistedRemoteAgentAccessSnapshotSchema.optional()
   })
   .strict();
 
@@ -130,6 +135,7 @@ const operationRowSchema = z
     envelope_reference: boundedKeySchema.nullable(),
     host_selection_json: z.string().nullable(),
     endpoint_selection_json: z.string().nullable(),
+    agent_access_json: z.string().nullable(),
     created_at: timestampSchema,
     updated_at: timestampSchema,
     terminal_at: timestampSchema.nullable()
@@ -203,6 +209,8 @@ export type RemoteOperation = {
   hostSelection?: DispatchHostSelectionSnapshot;
   /** Durable exact Endpoint route for v3; internal hostId is never human-projected. */
   endpointSelection?: EndpointSelectionSnapshot;
+  /** Durable Remote Agent access snapshot; reentry keeps it, retry_new_attempt re-runs authorize. */
+  agentAccess?: PersistedRemoteAgentAccessSnapshot;
   createdAt: string;
   updatedAt: string;
   terminalAt?: string;
@@ -213,7 +221,7 @@ const operationColumns = `
   id,workspace_id,project_id,canvas_id,block_ref,ownership_generation,idempotency_key,request_fingerprint,
   source_fingerprint,required_capabilities_json,state,dispatch_id,execution_attempt_id,
   envelope_digest,envelope_reference,host_selection_json,endpoint_selection_json,
-  created_at,updated_at,terminal_at
+  agent_access_json,created_at,updated_at,terminal_at
 `;
 
 const attemptColumns = `
@@ -249,6 +257,11 @@ function parseHostSelection(raw: string | null): DispatchHostSelectionSnapshot |
 function parseEndpointSelection(raw: string | null): EndpointSelectionSnapshot | undefined {
   if (raw === null || raw === undefined) return undefined;
   return endpointSelectionSnapshotSchema.parse(JSON.parse(raw));
+}
+
+function parseAgentAccess(raw: string | null): PersistedRemoteAgentAccessSnapshot | undefined {
+  if (raw === null || raw === undefined) return undefined;
+  return persistedRemoteAgentAccessSnapshotSchema.parse(JSON.parse(raw));
 }
 
 function parseAttempt(row: Record<string, unknown>): RemoteExecutionAttempt {
@@ -314,14 +327,17 @@ export class RemoteOperationRepository {
       const endpointSelectionJson = input.endpointSelection
         ? JSON.stringify(endpointSelectionSnapshotSchema.parse(input.endpointSelection))
         : null;
+      const agentAccessJson = input.agentAccess
+        ? JSON.stringify(persistedRemoteAgentAccessSnapshotSchema.parse(input.agentAccess))
+        : null;
       this.database
         .prepare(
           `INSERT INTO remote_operations(
             id,workspace_id,project_id,canvas_id,block_ref,ownership_generation,idempotency_key,
             request_fingerprint,source_fingerprint,required_capabilities_json,state,
             dispatch_id,execution_attempt_id,host_selection_json,endpoint_selection_json,
-            created_at,updated_at
-          ) VALUES (?,?,?,?,?,?,?,?,?,?,'preparing',?,?,?,?,?,?)`
+            agent_access_json,created_at,updated_at
+          ) VALUES (?,?,?,?,?,?,?,?,?,?,'preparing',?,?,?,?,?,?,?)`
         )
         .run(
           operationId,
@@ -338,6 +354,7 @@ export class RemoteOperationRepository {
           executionAttemptId,
           hostSelectionJson,
           endpointSelectionJson,
+          agentAccessJson,
           now,
           now
         );
@@ -537,6 +554,7 @@ export class RemoteOperationRepository {
         envelopeReference: parsed.envelope_reference ?? undefined,
         hostSelection: parseHostSelection(parsed.host_selection_json),
         endpointSelection: parseEndpointSelection(parsed.endpoint_selection_json),
+        agentAccess: parseAgentAccess(parsed.agent_access_json),
         createdAt: parsed.created_at,
         updatedAt: parsed.updated_at,
         terminalAt: parsed.terminal_at ?? undefined,
@@ -657,6 +675,7 @@ export class RemoteOperationRepository {
      * Omitted only when no assignment gate is wired.
      */
     hostSelection?: DispatchHostSelectionSnapshot;
+    agentAccess?: PersistedRemoteAgentAccessSnapshot;
   }): RemoteOperation {
     const priorExecutionAttemptId = executionAttemptIdSchema.parse(input.priorExecutionAttemptId);
     const newDispatchId = dispatchIdSchema.parse(input.newDispatchId);
@@ -665,6 +684,10 @@ export class RemoteOperationRepository {
       input.hostSelection === undefined
         ? undefined
         : JSON.stringify(dispatchHostSelectionSnapshotSchema.parse(input.hostSelection));
+    const agentAccessJson =
+      input.agentAccess === undefined
+        ? undefined
+        : JSON.stringify(persistedRemoteAgentAccessSnapshotSchema.parse(input.agentAccess));
     if (priorExecutionAttemptId === newExecutionAttemptId) {
       throw new Error("remote_retry_attempt_identity_reused");
     }
@@ -743,7 +766,23 @@ export class RemoteOperationRepository {
           now,
           now
         );
-      if (hostSelectionJson !== undefined) {
+      if (hostSelectionJson !== undefined && agentAccessJson !== undefined) {
+        this.database
+          .prepare(
+            `UPDATE remote_operations
+             SET state='claimed',dispatch_id=?,execution_attempt_id=?,envelope_digest=NULL,
+               envelope_reference=NULL,host_selection_json=?,agent_access_json=?,updated_at=?
+             WHERE id=?`
+          )
+          .run(
+            newDispatchId,
+            newExecutionAttemptId,
+            hostSelectionJson,
+            agentAccessJson,
+            now,
+            operation.id
+          );
+      } else if (hostSelectionJson !== undefined) {
         this.database
           .prepare(
             `UPDATE remote_operations
@@ -751,6 +790,14 @@ export class RemoteOperationRepository {
                envelope_reference=NULL,host_selection_json=?,updated_at=? WHERE id=?`
           )
           .run(newDispatchId, newExecutionAttemptId, hostSelectionJson, now, operation.id);
+      } else if (agentAccessJson !== undefined) {
+        this.database
+          .prepare(
+            `UPDATE remote_operations
+             SET state='claimed',dispatch_id=?,execution_attempt_id=?,envelope_digest=NULL,
+               envelope_reference=NULL,agent_access_json=?,updated_at=? WHERE id=?`
+          )
+          .run(newDispatchId, newExecutionAttemptId, agentAccessJson, now, operation.id);
       } else {
         this.database
           .prepare(

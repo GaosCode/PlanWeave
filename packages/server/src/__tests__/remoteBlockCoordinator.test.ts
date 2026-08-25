@@ -13,10 +13,18 @@ import { AuthorityRepository } from "../work/authorityRepository.js";
 import { endpointDispatchRequest } from "./support/endpointCoordinatorFixture.js";
 import { seedLegacyRemoteOperation } from "./support/legacyRemoteOperationSeed.js";
 import { remoteManifest, setup } from "./support/remoteBlockCoordinatorFixture.js";
+import {
+  ownHostRemoteAgents,
+  TEST_REMOTE_AGENT_OWNER_ID
+} from "./support/remoteAgentOwnerFixture.js";
 
 async function setupFleetUnboundHost(manifest: PlanPackageManifest = remoteManifest()) {
   const fixture = await setup(false, manifest);
   const host = fixture.hosts.register("Fleet Unbound Host").host;
+  ownHostRemoteAgents({
+    database: fixture.server.database,
+    hostId: host.id
+  });
   fixture.hosts.reportOnline(host.id, ["acp.codex"], 1, {
     workspaceMappings: [],
     acpProfiles: [
@@ -127,7 +135,8 @@ async function setupInterruptedV3EndpointOperation(idempotencyKey: string) {
     idempotencyKey,
     agentEndpointId: endpoint.endpointId,
     expectedResponsibilityRevision: 0,
-    expectedReviewerRevision: 0
+    expectedReviewerRevision: 0,
+    callerHumanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
   });
   const dispatch = fixture.dispatches.getRequired(dispatched.operation.dispatchId);
   fixture.dispatches.accept(
@@ -181,7 +190,8 @@ async function setupActiveV3EndpointOperation(idempotencyKey: string) {
     idempotencyKey,
     agentEndpointId: endpoint.endpointId,
     expectedResponsibilityRevision: 0,
-    expectedReviewerRevision: 0
+    expectedReviewerRevision: 0,
+    callerHumanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
   });
   return { fixture, operation: outcome.operation };
 }
@@ -200,7 +210,8 @@ describe("RemoteBlockCoordinator", () => {
       idempotencyKey: "built-in-codex-selected-endpoint",
       agentEndpointId: endpoint.endpointId,
       expectedResponsibilityRevision: 0,
-      expectedReviewerRevision: 0
+      expectedReviewerRevision: 0,
+      callerHumanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
     });
 
     expect(outcome).toMatchObject({
@@ -321,6 +332,11 @@ describe("RemoteBlockCoordinator", () => {
     const ready = fixture.hosts.register("Ready automatic Host").host;
     for (const host of [missingWorkspace, missingAcp, ready]) {
       fixture.hosts.bindToWorkspace(host.id, fixture.locator.workspaceId);
+      ownHostRemoteAgents({
+        database: fixture.server.database,
+        hostId: host.id,
+        grantWorkspaceId: fixture.locator.workspaceId
+      });
     }
     fixture.hosts.reportOnline(missingWorkspace.id, ["acp.codex"], 1, {
       workspaceMappings: [],
@@ -456,6 +472,11 @@ describe("RemoteBlockCoordinator", () => {
       packageDir: fixture.workspace.init.workspace.packageDir
     });
     const host = fixture.hosts.register("Second Workspace Host").host;
+    ownHostRemoteAgents({
+      database: fixture.server.database,
+      hostId: host.id,
+      grantWorkspaceId: secondWorkspaceId
+    });
     fixture.hosts.bindToWorkspace(host.id, secondWorkspaceId);
     fixture.hosts.reportOnline(host.id, ["acp.codex"], 1, {
       workspaceMappings: [{ workspaceId: secondWorkspaceId, status: "ready" }],
@@ -546,6 +567,11 @@ describe("RemoteBlockCoordinator", () => {
 
     const hostA = fixture.host;
     const hostB = fixture.hosts.register("Authority Host B").host;
+    ownHostRemoteAgents({
+      database: fixture.server.database,
+      hostId: hostB.id,
+      grantWorkspaceId: workspaceId
+    });
     fixture.hosts.bindToWorkspace(hostB.id, workspaceId);
     fixture.hosts.reportOnline(hostB.id, ["acp.codex"], 1, {
       workspaceMappings: [{ workspaceId, status: "ready" }],
@@ -839,7 +865,8 @@ describe("RemoteBlockCoordinator", () => {
       agentEndpointId: endpoint.endpointId,
       controlPlane: "owner",
       expectedResponsibilityRevision: 0,
-      expectedReviewerRevision: 0
+      expectedReviewerRevision: 0,
+      callerHumanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
     });
     expect(outcome.status).toBe("activated");
 
@@ -880,7 +907,8 @@ describe("RemoteBlockCoordinator", () => {
         agentEndpointId: endpoint.endpointId,
         controlPlane: "owner",
         expectedResponsibilityRevision: 0,
-        expectedReviewerRevision: 0
+        expectedReviewerRevision: 0,
+        callerHumanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
       });
 
     const first = await dispatchOwner("T-001#B-001", "owner-capacity-first");

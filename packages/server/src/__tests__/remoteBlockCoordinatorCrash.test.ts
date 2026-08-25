@@ -31,6 +31,7 @@ import {
   registerEndpointDispatchAccess
 } from "./support/endpointCoordinatorFixture.js";
 import { seedLegacyRemoteOperation } from "./support/legacyRemoteOperationSeed.js";
+import { ownHostRemoteAgents } from "./support/remoteAgentOwnerFixture.js";
 
 type Coordination = ReturnType<typeof createRemoteBlockCoordination>;
 
@@ -205,6 +206,11 @@ class CoordinatorHarness {
     const workspaceId = new WorkspaceIdentityRepository(
       this.requireServer().database
     ).ensureWorkspaceForLegacyProject(this.locator.projectId);
+    ownHostRemoteAgents({
+      database: this.requireServer().database,
+      hostId: host.id,
+      grantWorkspaceId: workspaceId
+    });
     coordination.hosts.bindToWorkspace(host.id, workspaceId);
     coordination.hosts.reportOnline(host.id, ["acp.codex"], capacity, {
       workspaceMappings: [{ workspaceId, status: "ready" }],

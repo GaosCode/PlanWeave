@@ -264,20 +264,6 @@ describe("remote operator walkthrough", () => {
       protocolVersion: 1
     });
 
-    const enrollmentExpiresAt = new Date(Date.now() + 10 * 60_000).toISOString();
-    const grantResponse = await fetch(`${origin}/api/v1/host-enrollments`, {
-      method: "POST",
-      headers: { ...authorization, "content-type": "application/json" },
-      body: JSON.stringify({
-        workspaceId: legacyWorkspaceIdForProject(workspace.init.workspace.id),
-        expiresAt: enrollmentExpiresAt,
-        credentialPolicy: { lifetimeDays: 180, renewal: "automatic" }
-      })
-    });
-    expect(grantResponse.status).toBe(201);
-    const grant = operatorEnrollmentGrantResponseSchema.parse(await grantResponse.json());
-    expect(grant.enrollmentCode).toMatch(/^pw_enroll_/);
-
     const bootstrap = await fetch(
       `${origin}/api/v1/projects/${workspace.init.workspace.id}/human/bootstrap`,
       {
@@ -291,6 +277,23 @@ describe("remote operator walkthrough", () => {
     );
     expect(bootstrap.status).toBe(201);
     const { deviceToken } = (await bootstrap.json()) as { deviceToken: string };
+
+    const enrollmentExpiresAt = new Date(Date.now() + 10 * 60_000).toISOString();
+    const grantResponse = await fetch(`${origin}/api/v1/host-enrollments`, {
+      method: "POST",
+      headers: { ...authorization, "content-type": "application/json" },
+      body: JSON.stringify({
+        workspaceId: legacyWorkspaceIdForProject(workspace.init.workspace.id),
+        expiresAt: enrollmentExpiresAt,
+        credentialPolicy: { lifetimeDays: 180, renewal: "automatic" },
+        ownerHumanPrincipalId: "walkthrough-owner",
+        accessMode: "unrestricted",
+        createWorkspaceGrant: true
+      })
+    });
+    expect(grantResponse.status).toBe(201);
+    const grant = operatorEnrollmentGrantResponseSchema.parse(await grantResponse.json());
+    expect(grant.enrollmentCode).toMatch(/^pw_enroll_/);
 
     const hostConfigPath = join(temporaryRoot, "agent-host.json");
     await writeFile(
@@ -456,7 +459,8 @@ describe("remote operator walkthrough", () => {
         agentEndpointId,
         idempotencyKey: "operator-walkthrough-dispatch",
         expectedResponsibilityRevision: 0,
-        expectedReviewerRevision: 0
+        expectedReviewerRevision: 0,
+        humanPrincipalId: "walkthrough-owner"
       })
     });
     const dispatchBody = await dispatchResponse.json();

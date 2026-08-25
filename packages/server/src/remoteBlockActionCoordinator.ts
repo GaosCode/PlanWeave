@@ -24,6 +24,7 @@ import type { RemoteBlockRuntimePort } from "@planweave-ai/runtime";
 import type { MailboxMessage } from "./mailbox.js";
 import type { HostCapacityReservation } from "./hostReservations.js";
 import type { RemoteOperation } from "./remoteOperations.js";
+import type { PersistedRemoteAgentAccessSnapshot } from "./remoteAgent/schema.js";
 import { remoteRuntimeLocator } from "./remoteBlockCoordinatorPorts.js";
 import {
   DispatchAssignmentError,
@@ -43,6 +44,9 @@ export class RemoteBlockActionCoordinator {
         operation: RemoteOperation,
         reservation?: HostCapacityReservation
       ): void;
+      reauthorizeAgentAccessForRetry(
+        operation: RemoteOperation
+      ): PersistedRemoteAgentAccessSnapshot | undefined;
       checkpoint(): Promise<void>;
     }
   ) {
@@ -236,6 +240,7 @@ export class RemoteBlockActionCoordinator {
         const hostSelection =
           context === undefined ? undefined : dispatchHostSelectionSnapshotSchema.parse(context);
         if (operation.endpointSelection) this.lifecycle.authorizeEndpointOperation(operation);
+        const agentAccess = this.lifecycle.reauthorizeAgentAccessForRetry(operation);
         await this.withRuntime(operation, (runtime) =>
           runtime.retryAttempt({
             ...remoteBlockIdentity(operation),
@@ -249,7 +254,8 @@ export class RemoteBlockActionCoordinator {
           newDispatchId: action.newDispatchId,
           newExecutionAttemptId: action.newExecutionAttemptId,
           expectedAttemptVersion: action.expectedAttemptVersion,
-          hostSelection
+          hostSelection,
+          ...(agentAccess === undefined ? {} : { agentAccess })
         });
         await this.lifecycle.reenter(operation.id);
         return "settled";
@@ -278,6 +284,7 @@ export class RemoteBlockActionCoordinator {
     const operation = this.options.operations.getRequired(action.operationId);
     if (operation.endpointSelection) {
       this.lifecycle.authorizeEndpointOperation(operation);
+      this.lifecycle.reauthorizeAgentAccessForRetry(operation);
       return undefined;
     }
     // Prior authority-backed attempts must re-resolve against current OSS-003 tables, not

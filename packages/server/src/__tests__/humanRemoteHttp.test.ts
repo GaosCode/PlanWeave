@@ -27,6 +27,7 @@ import { startPlanweaveServer, type PlanweaveServer } from "../lifecycle.js";
 import { ProjectAccessRepository } from "../projectAccessRepository.js";
 import { RemoteRuntimePortRegistry } from "../remoteRuntimeLocator.js";
 import { AuthorityRepository } from "../work/authorityRepository.js";
+import { ownHostRemoteAgents } from "./support/remoteAgentOwnerFixture.js";
 
 const directories: string[] = [];
 const storageServers: PlanweaveServer[] = [];
@@ -125,6 +126,11 @@ async function setup(options: { runtimeAvailable?: boolean } = {}) {
     { serverInstanceOwnerToken: storage.serverInstanceOwnerToken }
   );
   const host = coordination.hosts.register("Human Remote Host").host;
+  ownHostRemoteAgents({
+    database: storage.database,
+    hostId: host.id,
+    grantWorkspaceId: workspaceId
+  });
   coordination.hosts.bindToWorkspace(host.id, workspaceId);
   coordination.hosts.reportOnline(host.id, ["acp.codex", "acp.session.load"], 1, {
     workspaceMappings: [{ workspaceId, status: "ready" }],
@@ -502,8 +508,8 @@ describe("human remote operation HTTP", () => {
         })
       }
     );
-    expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toEqual({ error: "agent_endpoint_unknown" });
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({ error: "remote_agent_not_found" });
   });
 
   it("reports Runtime unavailability after collaboration scope authorization", async () => {

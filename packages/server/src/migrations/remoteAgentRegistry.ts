@@ -1,6 +1,7 @@
 import { hostReadinessObservationSchema } from "@planweave-ai/agent-host-protocol";
 import { endpointIdFor } from "../agentEndpointCatalog.js";
 import type { SqliteDatabase } from "../sqlite.js";
+import { tableExists } from "./schemaIntrospection.js";
 import type { Migration } from "./types.js";
 
 /**
@@ -65,6 +66,7 @@ function parseHostReadiness(
 
 /** Conservative identity backfill: never assigns owner or workspace grants. */
 export function backfillRemoteAgentsFromHostReadiness(database: SqliteDatabase): void {
+  if (!tableExists(database, "agent_hosts") || !tableExists(database, "remote_agents")) return;
   const now = new Date().toISOString();
   const insert = database.prepare(`
     INSERT INTO remote_agents(

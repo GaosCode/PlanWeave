@@ -3,6 +3,7 @@ import { opaqueIdentifierSchema } from "@planweave-ai/agent-host-protocol";
 import { RemoteBlockRuntimeError } from "@planweave-ai/runtime";
 import { z } from "zod";
 import { agentEndpointCatalogErrorCode } from "./agentEndpointCatalog.js";
+import { remoteAgentAuthorizationErrorCode } from "./remoteAgent/errors.js";
 import { OperatorTokenRegistry, type OperatorPrincipal } from "./operatorAuth.js";
 import { serverReadinessSchema, type ServerReadiness } from "./readiness.js";
 import { DispatchAssignmentError } from "./work/dispatchIntegration.js";
@@ -206,6 +207,17 @@ function safeError(error: unknown): { status: number; code: string } {
   }
   const endpointErrorCode = agentEndpointCatalogErrorCode(error);
   if (endpointErrorCode) return { status: 409, code: endpointErrorCode };
+  const agentAccessCode = remoteAgentAuthorizationErrorCode(error);
+  if (agentAccessCode) {
+    if (agentAccessCode === "remote_agent_not_found") return { status: 404, code: agentAccessCode };
+    if (
+      agentAccessCode === "remote_agent_policy_revision_conflict" ||
+      agentAccessCode === "remote_agent_grant_revision_conflict"
+    ) {
+      return { status: 409, code: agentAccessCode };
+    }
+    return { status: 403, code: agentAccessCode };
+  }
   if (error instanceof RemoteExecutionActionRejectedError) {
     return { status: 409, code: error.code };
   }
@@ -355,7 +367,10 @@ export async function handleOperatorHttpRequest(
         respond(
           response,
           200,
-          options.service.listAgentEndpoints(principal, query(url, ["projectId"]))
+          options.service.listAgentEndpoints(
+            principal,
+            query(url, ["projectId", "humanPrincipalId", "canvasId"])
+          )
         );
         break;
       case "get_host":

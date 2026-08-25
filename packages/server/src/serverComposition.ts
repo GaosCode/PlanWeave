@@ -297,6 +297,7 @@ export async function createDistributedServerComposition(
       collaborationScopeAuthority,
       registryService,
       agentEndpointCatalog: coordination.agentEndpoints,
+      remoteAgentAccess: coordination.remoteAgentAccess,
       humanRemoteControl: remoteExecution.humanRemoteControl,
       resolveAssignmentService: remoteExecution.resolveAssignmentService,
       acquireAuthorityService: remoteExecution.acquireAuthorityService,
