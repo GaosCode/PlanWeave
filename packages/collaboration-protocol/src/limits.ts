@@ -12,6 +12,8 @@ export const HUMAN_COMMENT_BODY_MIN_LENGTH = 1 as const;
 export const HUMAN_ASSIGN_REASON_MAX_LENGTH = 512 as const;
 
 export const HUMAN_DEVICE_TOKEN_PREFIX = "pw_hdev_" as const;
+/** Server-global Human Identity Credential. Independent of workspace device sessions. */
+export const HUMAN_IDENTITY_TOKEN_PREFIX = "pw_hid_" as const;
 export const PROJECT_INVITATION_TOKEN_PREFIX = "pw_inv_" as const;
 export const HUMAN_TOKEN_SECRET_CHAR_LENGTH = 43 as const;
 
@@ -23,6 +25,9 @@ export const HUMAN_INVITATION_IDEMPOTENCY_KEY_MAX_LENGTH = 128 as const;
 
 export const HUMAN_DEVICE_MIN_TTL_MS = 60_000 as const;
 export const HUMAN_DEVICE_MAX_TTL_MS = 31_536_000_000 as const;
+export const HUMAN_IDENTITY_MIN_TTL_MS = HUMAN_DEVICE_MIN_TTL_MS;
+export const HUMAN_IDENTITY_MAX_TTL_MS = HUMAN_DEVICE_MAX_TTL_MS;
+export const HUMAN_IDENTITY_DEFAULT_TTL_MS = HUMAN_DEVICE_MAX_TTL_MS;
 
 export const HUMAN_MAX_DEVICES_LISTED_PER_PAGE = 100 as const;
 export const HUMAN_MAX_MEMBERS_LISTED_PER_PAGE = 100 as const;
@@ -150,7 +155,8 @@ export const CONTENT_VERSION_TRANSFER_MAX_WIRE_BYTES =
 
 /**
  * One-time Workspace setup code budgets.
- * Distinct from host enrollment (`pw_enroll_`), human device (`pw_hdev_`), and invitation tokens.
+ * Distinct from host enrollment (`pw_enroll_`), human device (`pw_hdev_`),
+ * human identity (`pw_hid_`), and invitation tokens.
  */
 export const SETUP_CODE_TOKEN_PREFIX = "pw_setup_" as const;
 export const SETUP_CODE_MIN_TTL_MS = 60_000 as const;

@@ -10,6 +10,7 @@ import {
   HUMAN_DEVICE_TOKEN_PREFIX,
   HUMAN_DISPLAY_NAME_MAX_LENGTH,
   HUMAN_DISPLAY_NAME_MIN_LENGTH,
+  HUMAN_IDENTITY_TOKEN_PREFIX,
   HUMAN_TOKEN_SECRET_CHAR_LENGTH,
   PROJECT_INVITATION_MAX_TTL_MS,
   PROJECT_INVITATION_MIN_TTL_MS,
@@ -238,6 +239,22 @@ export const humanDeviceTokenSchema = z
   .regex(
     new RegExp(`^${HUMAN_DEVICE_TOKEN_PREFIX}[A-Za-z0-9_-]{${HUMAN_TOKEN_SECRET_CHAR_LENGTH}}$`)
   );
+
+export const humanIdentityTokenSchema = z
+  .string()
+  .regex(
+    new RegExp(`^${HUMAN_IDENTITY_TOKEN_PREFIX}[A-Za-z0-9_-]{${HUMAN_TOKEN_SECRET_CHAR_LENGTH}}$`)
+  );
+
+export const identityCredentialIdSchema = opaqueIdentifierSchema.brand("IdentityCredentialId");
+export type IdentityCredentialId = z.infer<typeof identityCredentialIdSchema>;
+
+export const humanPrincipalMergeIdSchema = opaqueIdentifierSchema.brand("HumanPrincipalMergeId");
+export type HumanPrincipalMergeId = z.infer<typeof humanPrincipalMergeIdSchema>;
+
+export const humanIdentitySchemaVersion = "human-identity/v1" as const;
+export const humanIdentitySchemaVersionSchema = z.literal(humanIdentitySchemaVersion);
+export type HumanIdentitySchemaVersion = z.infer<typeof humanIdentitySchemaVersionSchema>;
 
 export const projectInvitationTokenSchema = z
   .string()

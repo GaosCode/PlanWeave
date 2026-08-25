@@ -19,6 +19,8 @@ import {
   humanDeviceLabelSchema,
   humanDeviceTokenSchema,
   humanDisplayNameSchema,
+  humanIdentityTokenSchema,
+  identityCredentialIdSchema,
   humanMembershipIdSchema,
   humanPrincipalIdSchema,
   operatorCredentialTokenSchema,
@@ -174,10 +176,27 @@ export const setupCodeRedeemDeviceRequestSchema = z
     purpose: z.literal("device_session"),
     displayName: humanDisplayNameSchema,
     deviceLabel: humanDeviceLabelSchema.optional(),
-    /** Reuse a Server-global Human Principal proven by an existing device token. */
+    /**
+     * Reuse a Server-global Human Principal proven by an identity credential.
+     * Independent of Workspace membership and Workspace device-session TTL.
+     */
+    existingIdentityToken: humanIdentityTokenSchema.optional(),
+    /**
+     * Recovery only: prove the same principal via a still-valid Workspace
+     * device session or legacy project device when no identity token exists.
+     */
     existingDeviceToken: humanDeviceTokenSchema.optional()
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.existingIdentityToken !== undefined && value.existingDeviceToken !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: "setup_code_existing_identity_conflict",
+        path: ["existingIdentityToken"]
+      });
+    }
+  });
 export type SetupCodeRedeemDeviceRequest = z.infer<typeof setupCodeRedeemDeviceRequestSchema>;
 
 /** Operator-session redeem: control-plane enrollment only. */
@@ -230,7 +249,10 @@ export const setupCodeRedeemDeviceResponseSchema = z
     role: workspaceRoleSchema,
     deviceSessionId: deviceSessionIdSchema,
     deviceToken: humanDeviceTokenSchema,
-    deviceExpiresAt: nullableTimestampSchema
+    deviceExpiresAt: nullableTimestampSchema,
+    identityCredentialId: identityCredentialIdSchema,
+    identityToken: humanIdentityTokenSchema,
+    identityExpiresAt: timestampSchema
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -508,9 +530,9 @@ export function deriveSetupCodeLifecycleState(input: {
 /** Ensures setup views never leak digests, tokens, paths, or commands. */
 export function assertSetupViewRedacted(value: unknown): void {
   const forbiddenKey =
-    /^(?:credential(?:Sha256|Hash|Token)|credential[_-](?:sha256|hash|token)|token(?:Sha256|Hash|Token)?|token[_-](?:sha256|hash|token)|secret|password|setupCode|setup[_-]?code|codeSha256|code[_-]?sha256|enrollment(?:Code|Hash)|enrollment[_-](?:code|hash)|hostCredentialToken|host[_-]?credential[_-]?token|deviceToken|device[_-]?token|operatorToken|operator[_-]?token|projectRoot|project[_-]?root|executable|command|args|environment|env)$/i;
+    /^(?:credential(?:Sha256|Hash|Token)|credential[_-](?:sha256|hash|token)|token(?:Sha256|Hash|Token)?|token[_-](?:sha256|hash|token)|secret|password|setupCode|setup[_-]?code|codeSha256|code[_-]?sha256|enrollment(?:Code|Hash)|enrollment[_-](?:code|hash)|hostCredentialToken|host[_-]?credential[_-]?token|deviceToken|device[_-]?token|identityToken|identity[_-]?token|existingIdentityToken|existing[_-]?identity[_-]?token|existingDeviceToken|existing[_-]?device[_-]?token|operatorToken|operator[_-]?token|projectRoot|project[_-]?root|executable|command|args|environment|env)$/i;
   const forbiddenValue =
-    /\b(?:pw_setup_|pw_hdev_|pw_inv_|pw_enroll_|pw_host_|pw_operator_)[A-Za-z0-9_-]{10,}\b/;
+    /\b(?:pw_setup_|pw_hdev_|pw_hid_|pw_inv_|pw_enroll_|pw_host_|pw_operator_)[A-Za-z0-9_-]{10,}\b/;
   const visit = (current: unknown): boolean => {
     if (typeof current === "string") return forbiddenValue.test(current);
     if (Array.isArray(current)) return current.some(visit);

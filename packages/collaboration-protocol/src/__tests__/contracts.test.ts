@@ -38,6 +38,7 @@ const productionExportPaths = [
   "./core/limits",
   "./errors",
   "./identity/workspace",
+  "./identity/credential",
   "./identity/migration",
   "./access/project",
   "./access/control",

@@ -25,6 +25,10 @@
       "types": "./dist/identity.d.ts",
       "import": "./dist/identity.js"
     },
+    "./identity/credential": {
+      "types": "./dist/humanIdentityCredential.d.ts",
+      "import": "./dist/humanIdentityCredential.js"
+    },
     "./identity/migration": {
       "types": "./dist/migration.d.ts",
       "import": "./dist/migration.js"

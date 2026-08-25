@@ -174,6 +174,27 @@ describe("OSS-005 setup-code and single-connection contracts", () => {
       }).existingDeviceToken
     ).toBe(exampleSetupCodeRedeemDeviceResponse.deviceToken);
 
+    expect(
+      setupCodeRedeemDeviceRequestSchema.parse({
+        schemaVersion: "workspace-setup/v1",
+        setupCode: exampleSetupCode,
+        purpose: "device_session",
+        displayName: "Owner",
+        existingIdentityToken: exampleSetupCodeRedeemDeviceResponse.identityToken
+      }).existingIdentityToken
+    ).toBe(exampleSetupCodeRedeemDeviceResponse.identityToken);
+
+    expect(() =>
+      setupCodeRedeemDeviceRequestSchema.parse({
+        schemaVersion: "workspace-setup/v1",
+        setupCode: exampleSetupCode,
+        purpose: "device_session",
+        displayName: "Owner",
+        existingIdentityToken: exampleSetupCodeRedeemDeviceResponse.identityToken,
+        existingDeviceToken: exampleSetupCodeRedeemDeviceResponse.deviceToken
+      })
+    ).toThrow();
+
     expect(() =>
       setupCodeRedeemDeviceRequestSchema.parse(
         exampleSetupCodeNegativeFixtures.mixedCredentialRedeem
@@ -328,6 +349,7 @@ describe("OSS-005 setup-code and single-connection contracts", () => {
     for (const value of [
       { setupCode: exampleSetupCode },
       { deviceToken: exampleSetupCodeRedeemDeviceResponse.deviceToken },
+      { identityToken: exampleSetupCodeRedeemDeviceResponse.identityToken },
       { operatorToken: exampleSetupCodeRedeemOperatorResponse.operatorToken },
       { hostCredentialToken: `pw_host_${"A".repeat(43)}` },
       { projectRoot: "/srv/planweave" },

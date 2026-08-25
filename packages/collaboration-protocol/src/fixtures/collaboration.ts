@@ -43,6 +43,7 @@ import { canvasAccessRecordSchema, projectAccessRecordSchema } from "../projectA
 import { packageSnapshotSchema } from "../packageSnapshot.js";
 import {
   humanDeviceTokenSchema,
+  humanIdentityTokenSchema,
   operatorCredentialTokenSchema,
   projectInvitationTokenSchema,
   setupCodeTokenSchema
@@ -74,6 +75,7 @@ import { exampleCompleteContentVersion } from "./contentVersion.js";
 const SECRET_SEGMENT = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
 export const exampleHumanDeviceToken = humanDeviceTokenSchema.parse(`pw_hdev_${SECRET_SEGMENT}`);
+export const exampleHumanIdentityToken = humanIdentityTokenSchema.parse(`pw_hid_${SECRET_SEGMENT}`);
 export const exampleInvitationToken = projectInvitationTokenSchema.parse(
   `pw_inv_${SECRET_SEGMENT}`
 );
@@ -719,7 +721,10 @@ export const exampleSetupCodeRedeemDeviceResponse = setupCodeRedeemDeviceRespons
   role: "owner",
   deviceSessionId: "device-session-001",
   deviceToken: exampleHumanDeviceToken,
-  deviceExpiresAt: "2030-01-02T00:00:00.000Z"
+  deviceExpiresAt: "2030-01-02T00:00:00.000Z",
+  identityCredentialId: "identity-credential-001",
+  identityToken: exampleHumanIdentityToken,
+  identityExpiresAt: "2031-01-01T00:00:00.000Z"
 });
 
 export const exampleSetupCodeRedeemOperatorResponse = setupCodeRedeemOperatorResponseSchema.parse({
@@ -888,6 +893,7 @@ export const exampleSetupCodeNegativeFixtures = {
 /** Fixtures that must never appear in redacted logs. */
 export const exampleSecretsForRedaction = {
   deviceToken: exampleHumanDeviceToken,
+  identityToken: exampleHumanIdentityToken,
   invitationToken: exampleInvitationToken,
   setupCode: exampleSetupCode,
   operatorToken: exampleOperatorCredentialToken,

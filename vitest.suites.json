@@ -664,6 +664,7 @@
         "contentVersion.test.ts",
         "contracts.test.ts",
         "deploymentContracts.test.ts",
+        "humanIdentityCredential.test.ts",
         "humanInvitationContracts.test.ts",
         "invitationHandoff.test.ts",
         "oss003Contracts.test.ts",
