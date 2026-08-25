@@ -180,7 +180,8 @@ export function isAgentHostOnline(
 export class AgentHostRepository {
   constructor(
     private readonly database: SqliteDatabase,
-    private readonly clock: () => Date = () => new Date()
+    private readonly clock: () => Date = () => new Date(),
+    private readonly onHostReadinessCommitted?: (host: AgentHost) => void
   ) {
     this.workspaceIdentity = new WorkspaceIdentityRepository(database);
     this.credentials = new HostCredentialLifecycleRepository(database, clock);
@@ -484,6 +485,7 @@ export class AgentHostRepository {
     const host = this.getRequired(hostId);
     this.runtimeBindings.synchronizeReadiness(hostId, readiness?.runtimeProjects);
     this.syncWorkspaceHost(hostId);
+    if (readiness !== undefined) this.onHostReadinessCommitted?.(host);
     return host;
   }
 
@@ -501,11 +503,12 @@ export class AgentHostRepository {
         this.clock().toISOString()
       );
     if (updated.changes !== 1) throw new Error("agent_host_not_found_or_revoked");
-    this.getRequired(hostId);
+    const host = this.getRequired(hostId);
     if (readiness !== undefined) {
       this.runtimeBindings.synchronizeReadiness(hostId, readiness.runtimeProjects);
     }
     this.syncWorkspaceHost(hostId);
+    if (readiness !== undefined) this.onHostReadinessCommitted?.(host);
   }
 
   revoke(hostId: string): void {

@@ -32,6 +32,7 @@ import {
   workspaceCanvasPublishMigration
 } from "./workspaceCanvasPublish.js";
 import { remoteAgentRegistryMigration } from "./remoteAgentRegistry.js";
+import { remoteAgentEnrollmentDefaultsMigration } from "./remoteAgentEnrollmentDefaults.js";
 import type { Migration, MigrationModule } from "./types.js";
 
 const identityModule: MigrationModule = { name: "identity", migrations: identityMigrations };
@@ -80,7 +81,10 @@ export const migrationModules: readonly MigrationModule[] = [
     name: "workspace-canvas-publish",
     migrations: [workspaceCanvasPublishMigration, workspaceCanvasPublishLocalSourceMigration]
   },
-  { name: "remote-agent-registry", migrations: [remoteAgentRegistryMigration] }
+  {
+    name: "remote-agent-registry",
+    migrations: [remoteAgentRegistryMigration, remoteAgentEnrollmentDefaultsMigration]
+  }
 ];
 
 const flattened = migrationModules.flatMap((module) => module.migrations);

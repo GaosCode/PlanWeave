@@ -115,4 +115,58 @@ describe("operator control wire contracts", () => {
     expect(operatorHostRenewalRequestSchema.parse({})).toEqual({});
     expect(() => operatorHostRenewalRequestSchema.parse({ lifetimeDays: 180 })).toThrow();
   });
+
+  it("accepts explicit Remote Agent owner fields and rejects incomplete combinations", () => {
+    const base = {
+      expiresAt: "2030-01-01T00:00:00.000Z",
+      credentialPolicy: { lifetimeDays: 180, renewal: "automatic" as const }
+    };
+    expect(operatorEnrollmentGrantRequestSchema.parse(base)).toEqual(base);
+    expect(
+      operatorEnrollmentGrantRequestSchema.parse({
+        ...base,
+        ownerHumanPrincipalId: "owner-human-1",
+        accessMode: "unrestricted"
+      })
+    ).toMatchObject({
+      ownerHumanPrincipalId: "owner-human-1",
+      accessMode: "unrestricted"
+    });
+    expect(
+      operatorEnrollmentGrantRequestSchema.parse({
+        ...base,
+        workspaceId: "workspace-1",
+        ownerHumanPrincipalId: "owner-human-1",
+        accessMode: "workspace_restricted",
+        createWorkspaceGrant: true
+      })
+    ).toMatchObject({ createWorkspaceGrant: true, workspaceId: "workspace-1" });
+    expect(() =>
+      operatorEnrollmentGrantRequestSchema.parse({
+        ...base,
+        ownerHumanPrincipalId: "owner-human-1"
+      })
+    ).toThrow();
+    expect(() =>
+      operatorEnrollmentGrantRequestSchema.parse({
+        ...base,
+        accessMode: "unrestricted"
+      })
+    ).toThrow();
+    expect(() =>
+      operatorEnrollmentGrantRequestSchema.parse({
+        ...base,
+        ownerHumanPrincipalId: "owner-human-1",
+        accessMode: "workspace_restricted",
+        createWorkspaceGrant: true
+      })
+    ).toThrow();
+    expect(() =>
+      operatorEnrollmentGrantRequestSchema.parse({
+        ...base,
+        workspaceId: "workspace-1",
+        createWorkspaceGrant: true
+      })
+    ).toThrow();
+  });
 });

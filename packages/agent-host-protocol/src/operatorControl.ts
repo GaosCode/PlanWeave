@@ -24,14 +24,45 @@ export const operatorPageQuerySchema = z
   })
   .strict();
 
+const remoteAgentAccessModeSchema = z.enum(["unrestricted", "workspace_restricted"]);
+
 export const operatorEnrollmentGrantRequestSchema = z
   .object({
     /** Target scope selector; Server validates it against the authenticated operator. */
     workspaceId: opaqueIdentifierSchema.optional(),
     expiresAt: timestampSchema,
-    credentialPolicy: hostCredentialPolicySchema
+    credentialPolicy: hostCredentialPolicySchema,
+    /** Explicit verified Human Principal owner. Never inferred from operatorId. */
+    ownerHumanPrincipalId: opaqueIdentifierSchema.optional(),
+    accessMode: remoteAgentAccessModeSchema.optional(),
+    /** When true, also create a Workspace Grant for `workspaceId` after readiness sync. */
+    createWorkspaceGrant: z.boolean().optional()
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    const hasOwner = value.ownerHumanPrincipalId !== undefined;
+    const hasAccessMode = value.accessMode !== undefined;
+    if (hasOwner !== hasAccessMode) {
+      context.addIssue({
+        code: "custom",
+        message: "owner_and_access_mode_required_together"
+      });
+    }
+    if (value.createWorkspaceGrant === true) {
+      if (value.workspaceId === undefined) {
+        context.addIssue({
+          code: "custom",
+          message: "create_workspace_grant_requires_workspace"
+        });
+      }
+      if (!hasOwner) {
+        context.addIssue({
+          code: "custom",
+          message: "create_workspace_grant_requires_owner"
+        });
+      }
+    }
+  });
 
 export const operatorEnrollmentGrantResponseSchema = z
   .object({

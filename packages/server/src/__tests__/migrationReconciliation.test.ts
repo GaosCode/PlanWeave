@@ -33,6 +33,7 @@ async function openDatabaseAtV26(): Promise<SqliteDatabase> {
   for (const table of [
     "remote_agent_workspace_grants",
     "remote_agents",
+    "agent_host_remote_agent_defaults",
     "canvas_runtime_reset_operations",
     "canvas_runtime_status_snapshots",
     "canvas_workspace_publish_operations",
@@ -88,6 +89,7 @@ async function openDatabaseAtV53(): Promise<SqliteDatabase> {
   database.exec(`
     DROP TABLE IF EXISTS remote_agent_workspace_grants;
     DROP TABLE IF EXISTS remote_agents;
+    DROP TABLE IF EXISTS agent_host_remote_agent_defaults;
     DROP TABLE canvas_runtime_reset_operations;
     DROP TABLE canvas_workspace_publish_operations;
     ALTER TABLE canvas_runtime_status_snapshots DROP COLUMN runtime_revision;
@@ -205,12 +207,12 @@ describe("collaboration migration reconciliation", () => {
       { name: "canvas-runtime-status", versions: [53] },
       { name: "canvas-runtime-revision", versions: [56] },
       { name: "workspace-canvas-publish", versions: [54, 55] },
-      { name: "remote-agent-registry", versions: [57] }
+      { name: "remote-agent-registry", versions: [57, 58] }
     ]);
-    expect(latestCentralSchemaVersion).toBe(57);
+    expect(latestCentralSchemaVersion).toBe(58);
   });
 
-  it("upgrades a representative v53 database through v57 exactly once", async () => {
+  it("upgrades a representative v53 database through v58 exactly once", async () => {
     const database = await openDatabaseAtV53();
     database
       .prepare(
@@ -241,7 +243,7 @@ describe("collaboration migration reconciliation", () => {
 
     applyMigrations(database);
 
-    expect(centralSchemaVersion(database)).toBe(57);
+    expect(centralSchemaVersion(database)).toBe(58);
     expect(
       database
         .prepare(

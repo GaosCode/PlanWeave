@@ -173,6 +173,17 @@ export class RemoteAgentRepository {
       .map(mapAgentRow);
   }
 
+  listOwnershipRepairRequired(): RemoteAgentRecord[] {
+    return this.database
+      .prepare(
+        `SELECT * FROM remote_agents
+         WHERE ownership_repair_required=1 AND revoked_at IS NULL
+         ORDER BY display_name, endpoint_id`
+      )
+      .all()
+      .map(mapAgentRow);
+  }
+
   registerOrRestoreFromProfile(input: RegisterOrRestoreRemoteAgentInput): RemoteAgentRecord {
     const parsed = registerOrRestoreInputSchema.parse(input);
     const endpointId = endpointIdFor({

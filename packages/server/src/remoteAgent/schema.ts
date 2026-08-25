@@ -50,6 +50,16 @@ export const remoteAgentRecordSchema = z
         path: ["ownerHumanPrincipalId"]
       });
     }
+    if (
+      value.accessMode === "unrestricted" &&
+      (value.ownerHumanPrincipalId === null || value.ownershipRepairRequired)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "unrestricted_requires_owner",
+        path: ["accessMode"]
+      });
+    }
   });
 
 /** Persistent Workspace Grant. PRIMARY KEY(endpointId, workspaceId). */

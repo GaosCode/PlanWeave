@@ -84,6 +84,24 @@ describe("remote agent domain schemas", () => {
     });
   });
 
+  it("rejects unrestricted when owner is missing or ownership is repair-required", () => {
+    expect(() =>
+      remoteAgentRecordSchema.parse({
+        ...remoteAgent,
+        ownerHumanPrincipalId: null,
+        accessMode: "unrestricted",
+        ownershipRepairRequired: true
+      })
+    ).toThrow();
+    expect(() =>
+      remoteAgentRecordSchema.parse({
+        ...remoteAgent,
+        accessMode: "unrestricted",
+        ownershipRepairRequired: true
+      })
+    ).toThrow();
+  });
+
   it("rejects access_mode outside unrestricted | workspace_restricted", () => {
     expect(remoteAgentAccessModeSchema.options).toEqual(["unrestricted", "workspace_restricted"]);
     expect(() =>

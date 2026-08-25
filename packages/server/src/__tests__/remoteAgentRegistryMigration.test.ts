@@ -74,15 +74,16 @@ function acpProfile(
 
 describe("remote agent registry migration v57", () => {
   it("registers as latest schema version", () => {
-    expect(latestCentralSchemaVersion).toBe(57);
+    expect(latestCentralSchemaVersion).toBe(58);
   });
 
   it("creates both tables and the active-grant index on an empty database", async () => {
     const database = await openDatabase();
     applyMigrations(database);
-    expect(centralSchemaVersion(database)).toBe(57);
+    expect(centralSchemaVersion(database)).toBe(58);
     expect(tableExists(database, "remote_agents")).toBe(true);
     expect(tableExists(database, "remote_agent_workspace_grants")).toBe(true);
+    expect(tableExists(database, "agent_host_remote_agent_defaults")).toBe(true);
     expect(
       database
         .prepare(
@@ -102,16 +103,24 @@ describe("remote agent registry migration v57", () => {
     const database = await openDatabase();
     applyMigrations(database);
     const applied = database
-      .prepare("SELECT version, applied_at FROM schema_migrations WHERE version=57")
-      .get();
+      .prepare(
+        "SELECT version, applied_at FROM schema_migrations WHERE version IN (57,58) ORDER BY version"
+      )
+      .all();
     expect(() => applyMigrations(database)).not.toThrow();
-    expect(centralSchemaVersion(database)).toBe(57);
+    expect(centralSchemaVersion(database)).toBe(58);
     expect(
-      database.prepare("SELECT version, applied_at FROM schema_migrations WHERE version=57").get()
+      database
+        .prepare(
+          "SELECT version, applied_at FROM schema_migrations WHERE version IN (57,58) ORDER BY version"
+        )
+        .all()
     ).toEqual(applied);
     expect(
-      database.prepare("SELECT COUNT(*) AS count FROM schema_migrations WHERE version=57").get()
-    ).toEqual({ count: 1 });
+      database
+        .prepare("SELECT COUNT(*) AS count FROM schema_migrations WHERE version IN (57,58)")
+        .get()
+    ).toEqual({ count: 2 });
   });
 
   it("backfills repair-required agents from readiness profiles without grants or unrestricted mode", async () => {
@@ -142,7 +151,7 @@ describe("remote agent registry migration v57", () => {
     expect(tableExists(database, "remote_agents")).toBe(false);
 
     applyMigrations(database);
-    expect(centralSchemaVersion(database)).toBe(57);
+    expect(centralSchemaVersion(database)).toBe(58);
     const agents = database
       .prepare(
         `SELECT endpoint_id, host_id, profile_id, agent_id, owner_human_principal_id,
@@ -266,5 +275,61 @@ describe("remote agent registry migration v57", () => {
         )
         .run(endpointId, host.id, "profile-main", "codex", at, at)
     ).not.toThrow();
+  });
+
+  it("adds v58 enrollment columns and forbids unrestricted without an owner", async () => {
+    const database = await openDatabase();
+    applyMigrations(database);
+    const grantColumns = new Set(
+      (
+        database.prepare("PRAGMA table_info(agent_host_enrollment_grants)").all() as Array<{
+          name: string;
+        }>
+      ).map((column) => column.name)
+    );
+    expect(grantColumns.has("owner_human_principal_id")).toBe(true);
+    expect(grantColumns.has("access_mode")).toBe(true);
+    expect(grantColumns.has("create_workspace_grant")).toBe(true);
+    expect(tableExists(database, "agent_host_remote_agent_defaults")).toBe(true);
+
+    const hosts = new AgentHostRepository(database, () => now);
+    const host = hosts.register("Unrestricted Check Host").host;
+    const endpointId = endpointIdFor({
+      hostId: host.id,
+      profileId: "profile-main",
+      agentId: "codex"
+    });
+    const at = now.toISOString();
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO remote_agents(
+             endpoint_id, host_id, profile_id, agent_id, owner_human_principal_id,
+             display_name, access_mode, policy_revision, ownership_repair_required,
+             created_at, updated_at, revoked_at
+           ) VALUES (?,?,?,?,NULL,'Codex','unrestricted',1,1,?,?,NULL)`
+        )
+        .run(endpointId, host.id, "profile-main", "codex", at, at)
+    ).toThrow(/CHECK/i);
+  });
+
+  it("upgrades v57 to v58 once and is reentrant", async () => {
+    const database = await openDatabase();
+    applyThrough(database, 57);
+    expect(centralSchemaVersion(database)).toBe(57);
+    expect(tableExists(database, "agent_host_remote_agent_defaults")).toBe(false);
+    applyMigrations(database);
+    expect(centralSchemaVersion(database)).toBe(58);
+    expect(tableExists(database, "agent_host_remote_agent_defaults")).toBe(true);
+    const applied = database
+      .prepare("SELECT version, applied_at FROM schema_migrations WHERE version=58")
+      .get();
+    expect(() => applyMigrations(database)).not.toThrow();
+    expect(
+      database.prepare("SELECT version, applied_at FROM schema_migrations WHERE version=58").get()
+    ).toEqual(applied);
+    expect(
+      database.prepare("SELECT COUNT(*) AS count FROM schema_migrations WHERE version=58").get()
+    ).toEqual({ count: 1 });
   });
 });

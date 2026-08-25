@@ -45,6 +45,7 @@ import { evaluateHostAuthorization } from "./work/authorityPolicy.js";
 import { hostAuthorizationFactsSchema } from "@planweave-ai/collaboration-protocol/work/host-authorization";
 import { workspaceIdSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import { AgentEndpointCatalog } from "./agentEndpointCatalog.js";
+import { syncRemoteAgentsFromHost } from "./remoteAgent/sync.js";
 
 export type RemoteBlockCoordinationOptions = {
   leaseDurationMs: number;
@@ -87,7 +88,10 @@ export function createRemoteBlockCoordination(
   options: RemoteBlockCoordinationOptions,
   startupContext: StartupContext
 ) {
-  const hosts = new AgentHostRepository(database, options.clock);
+  const clock = options.clock ?? (() => new Date());
+  const hosts = new AgentHostRepository(database, clock, (host) => {
+    syncRemoteAgentsFromHost({ database, host, clock });
+  });
   const mailbox = new DurableMailbox(database);
   const artifactAuthorization = new ArtifactAuthorizationRepository(database);
   const operations = new RemoteOperationRepository(database, options.clock);

@@ -35,3 +35,15 @@ export {
   type RevokeRemoteAgentGrantInput,
   type SetRemoteAgentAccessModeInput
 } from "./repository.js";
+
+export {
+  RemoteAgentManagementService,
+  type RemoteAgentManagementGetInput,
+  type RemoteAgentManagementGrantWorkspaceInput,
+  type RemoteAgentManagementRepairOwnershipInput,
+  type RemoteAgentManagementRevokeAgentInput,
+  type RemoteAgentManagementRevokeGrantInput,
+  type RemoteAgentManagementSetAccessModeInput
+} from "./management.js";
+
+export { syncRemoteAgentsFromHost } from "./sync.js";

@@ -87,7 +87,14 @@ export class RemoteControlService {
       this.options.enrollments.createGrant({
         ...(workspaceId === undefined ? {} : { workspaceId }),
         expiresAt: new Date(request.expiresAt),
-        credentialPolicy: request.credentialPolicy
+        credentialPolicy: request.credentialPolicy,
+        ...(request.ownerHumanPrincipalId === undefined
+          ? {}
+          : { ownerHumanPrincipalId: request.ownerHumanPrincipalId }),
+        ...(request.accessMode === undefined ? {} : { accessMode: request.accessMode }),
+        ...(request.createWorkspaceGrant === undefined
+          ? {}
+          : { createWorkspaceGrant: request.createWorkspaceGrant })
       })
     );
   }
