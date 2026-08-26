@@ -197,14 +197,6 @@ export const runtimeNotAttachedInventory = [
     "Main-process coordinator parses CanvasRuntimeAvailability including unattached."
   ),
   inventoryEntry(
-    "rna-useWorkspaceRuntime",
-    "runtime_not_attached",
-    "runtime_attachment",
-    "packages/desktop/src/renderer/hooks/useWorkspaceRuntime.ts",
-    "api.initializeWorkspaceCanvasRuntime",
-    "Renderer still calls explicit initialize when availability is unattached."
-  ),
-  inventoryEntry(
     "rna-graphView",
     "runtime_not_attached",
     "runtime_attachment",
@@ -229,12 +221,12 @@ export const runtimeNotAttachedInventory = [
     "Agent Host state tests stub unattached availability."
   ),
   inventoryEntry(
-    "rna-test-canvasRuntimeService",
+    "rna-test-canvasRuntimeReplay",
     "runtime_not_attached",
     "runtime_attachment",
-    "packages/agent-host/src/__tests__/canvasRuntimeService.test.ts",
+    "packages/agent-host/src/__tests__/canvasRuntimeReplay.test.ts",
     "error.code runtime_not_attached",
-    "Agent Host canvas runtime service tests error with unattached."
+    "Agent Host replay tests preserve an existing unattached terminal response."
   ),
   inventoryEntry(
     "rna-test-collaborationClient",

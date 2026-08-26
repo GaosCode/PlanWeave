@@ -714,6 +714,7 @@
         "agentHostState.test.ts",
         "backgroundServices.test.ts",
         "canvasRuntimeArtifactTransfer.test.ts",
+        "canvasRuntimeReplay.test.ts",
         "canvasRuntimeService.test.ts",
         "canvasRuntimeWorkItemFacts.test.ts",
         "connectionStatus.test.ts",

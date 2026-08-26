@@ -178,22 +178,16 @@ describe("Canvas Runtime Host service", () => {
     const { state } = await setup();
     const source = await createTestWorkspace(basicManifest());
     const managed = await createTestWorkspace(basicManifest());
-    const alternateHostManaged = await createTestWorkspace(basicManifest());
     const authority = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
     directories.push(
       source.home,
       source.root,
       managed.home,
       managed.root,
-      alternateHostManaged.home,
-      alternateHostManaged.root,
       authority.home,
       authority.root
     );
     const sourceBefore = await capturePackageSnapshot({ projectRoot: source.init.workspace });
-    const alternateHostBefore = await capturePackageSnapshot({
-      projectRoot: alternateHostManaged.init.workspace
-    });
     const stateBefore = await readFile(managed.init.workspace.stateFile, "utf8");
     const preservedResult = join(managed.init.workspace.resultsDir, "preserved.txt");
     await writeFile(preservedResult, "preserved-result\n", "utf8");
@@ -303,25 +297,22 @@ describe("Canvas Runtime Host service", () => {
       })
     ).resolves.toMatchObject({ packageFingerprint: authoritativeStatus.packageFingerprint });
 
-    const alternateHostResolver = vi.fn(async () => ({
+    const restartedHostResolver = vi.fn(async () => ({
       scope,
       project: source.init.workspace,
-      canvas: alternateHostManaged.init.workspace
+      canvas: managed.init.workspace
     }));
-    const restartedAlternateHost = new CanvasRuntimeService({
-      resolver: resolverWith(alternateHostResolver),
+    const restartedHost = new CanvasRuntimeService({
+      resolver: resolverWith(restartedHostResolver),
       receipts: state.canvasRuntime,
       capabilities: [CANVAS_RUNTIME_CAPABILITY],
       artifactTransfer,
       contentTransfer: transfer
     });
-    await restartedAlternateHost.handle(command);
+    await restartedHost.handle(command);
 
-    expect(alternateHostResolver).not.toHaveBeenCalled();
+    expect(restartedHostResolver).not.toHaveBeenCalled();
     expect(transfer.fetch).toHaveBeenCalledOnce();
-    expect(
-      await capturePackageSnapshot({ projectRoot: alternateHostManaged.init.workspace })
-    ).toEqual(alternateHostBefore);
 
     const authorityLayoutDirectory = join(authority.init.workspace.workspaceRoot, "desktop");
     await mkdir(authorityLayoutDirectory, { recursive: true });
@@ -772,78 +763,6 @@ describe("Canvas Runtime Host service", () => {
     await service.handle(complete);
     expect(response(state, complete.requestId)).toMatchObject({
       response: { outcome: "error", error: { code: "invalid_operation_input" } }
-    });
-  });
-
-  it("releases leases idempotently and cancellation cannot replace a terminal response", async () => {
-    const { state } = await setup();
-    const workspace = unusedWorkspace();
-    const service = new CanvasRuntimeService({
-      resolver: resolverWith(async () => ({ scope, project: workspace, canvas: workspace })),
-      receipts: state.canvasRuntime,
-      capabilities: [CANVAS_RUNTIME_CAPABILITY],
-      artifactTransfer,
-      contentTransfer
-    });
-    createLease(state);
-    for (const [sequence, requestId] of [
-      [1, "request-release-1"],
-      [2, "request-release-2"]
-    ] as const) {
-      const release = request(requestId, {
-        operation: "release",
-        runtimeLeaseId: "runtime-lease-1"
-      });
-      state.receive(delivery(sequence, release));
-      await service.handle(release);
-      expect(response(state, requestId)).toMatchObject({
-        response: { outcome: "success", result: { released: true } }
-      });
-    }
-
-    const terminal = request("request-terminal");
-    state.receive(delivery(3, terminal));
-    state.canvasRuntime.begin(terminal.requestId);
-    state.canvasRuntime.complete(terminal.requestId, {
-      type: "canvas_runtime.response",
-      protocolVersion: 1,
-      requestId: terminal.requestId,
-      response: {
-        outcome: "error",
-        operation: "availability",
-        error: { code: "runtime_not_attached", message: "Unavailable.", retryable: false }
-      }
-    });
-    const cancellation = cancel("request-cancel-terminal", terminal.requestId);
-    state.receive(delivery(4, cancellation));
-    await service.handle(cancellation);
-    expect(response(state, cancellation.requestId)).toMatchObject({
-      response: { outcome: "success", result: { cancelled: false } }
-    });
-    expect(response(state, terminal.requestId)).toMatchObject({
-      response: { outcome: "error", error: { code: "runtime_not_attached" } }
-    });
-  });
-
-  it("marks an in-flight request reconcile-required after Host restart", async () => {
-    const { state } = await setup();
-    const command = request("request-restart");
-    state.receive(delivery(1, command));
-    expect(state.canvasRuntime.begin(command.requestId)).toBe(true);
-    new CanvasRuntimeService({
-      resolver: resolverWith(async () => {
-        throw new Error("must_not_resume_unknown_work");
-      }),
-      receipts: state.canvasRuntime,
-      capabilities: [CANVAS_RUNTIME_CAPABILITY],
-      artifactTransfer,
-      contentTransfer
-    }).recover();
-    expect(response(state, command.requestId)).toMatchObject({
-      response: {
-        outcome: "error",
-        error: { code: "reconcile_required", reconcileRequired: true }
-      }
     });
   });
 

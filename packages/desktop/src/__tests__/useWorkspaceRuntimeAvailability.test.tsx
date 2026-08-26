@@ -410,13 +410,11 @@ describe("useWorkspaceRuntimeAvailability", () => {
 describe("useWorkspaceRuntime", () => {
   it("does not initialize when opening a Workspace canvas or reading availability", async () => {
     const uninitializedRuntime = uninitializedRuntimeView();
-    const initializeWorkspaceCanvasRuntime = vi.fn();
     const api = {
       getCollaborationStatus: vi.fn().mockRejectedValue(new Error("observer unavailable")),
       readCollaborationCanvasBindingRuntimeAvailability: vi
         .fn()
         .mockResolvedValue(uninitializedRuntime),
-      initializeWorkspaceCanvasRuntime,
       resetWorkspaceCanvasRuntime: vi.fn()
     } satisfies WorkspaceRuntimeBridge;
     const { result } = renderHook(() =>
@@ -442,220 +440,7 @@ describe("useWorkspaceRuntime", () => {
     await waitFor(() =>
       expect(result.current.availability).toEqual({ kind: "state_uninitialized" })
     );
-    expect(initializeWorkspaceCanvasRuntime).not.toHaveBeenCalled();
-  });
-
-  it("still supports explicit initialize HTTP for recovery", async () => {
-    const uninitializedRuntime = uninitializedRuntimeView();
-    const initializedRuntime = runtimeView(1, graph.packageFingerprint, "ready");
-    const readRuntimeAvailability = vi.fn().mockResolvedValue(uninitializedRuntime);
-    const initializeWorkspaceCanvasRuntime = vi.fn().mockResolvedValue({
-      type: "canvas.runtime.initialize.accepted" as const,
-      operationId: "operation-1",
-      runtimeRevision: 1,
-      sourceRevision: initializedRuntime.execution.sourceRevision,
-      graphFingerprint: graph.packageFingerprint,
-      status: initializedRuntime.execution.status
-    });
-    const api = {
-      getCollaborationStatus: vi.fn().mockRejectedValue(new Error("observer unavailable")),
-      readCollaborationCanvasBindingRuntimeAvailability: readRuntimeAvailability,
-      initializeWorkspaceCanvasRuntime,
-      resetWorkspaceCanvasRuntime: vi.fn()
-    } satisfies WorkspaceRuntimeBridge;
-    const { result } = renderHook(() =>
-      useWorkspaceRuntime({
-        activeProfileId: "profile-1",
-        activeProjectId: scope.projectId,
-        graph,
-        sessionConnected: true,
-        binding: { kind: "remote", ...scope },
-        initialRuntimeAvailability: uninitializedRuntime,
-        locator: {
-          kind: "workspace",
-          connectionProfileId: "profile-1",
-          ...scope
-        },
-        setError: vi.fn(),
-        setSuccessMessage: vi.fn(),
-        t: createTranslator("en"),
-        api
-      })
-    );
-
-    await act(async () => {
-      await result.current.ensureWorkspaceRuntimeInitialized?.();
-    });
-
-    expect(readRuntimeAvailability).toHaveBeenCalledOnce();
-    expect(initializeWorkspaceCanvasRuntime).toHaveBeenCalledWith({
-      locator: {
-        kind: "workspace",
-        connectionProfileId: "profile-1",
-        ...scope
-      },
-      operationId: expect.any(String),
-      expectedSourceRevision: uninitializedRuntime.execution.sourceRevision,
-      expectedGraphFingerprint: graph.packageFingerprint
-    });
-    expect(result.current.availability).toEqual({ kind: "available" });
-  });
-
-  it("rejects a cached initialized runtime when the fresh Server view says the Host is offline", async () => {
-    const initializedRuntime = runtimeView(1, graph.packageFingerprint, "ready");
-    const hostOfflineRuntime = {
-      ...initializedRuntime,
-      execution: {
-        schemaVersion: "canvas-runtime-availability/v1" as const,
-        kind: "unavailable" as const,
-        reason: "host_offline" as const
-      }
-    };
-    const initializeWorkspaceCanvasRuntime = vi.fn();
-    const api = {
-      getCollaborationStatus: vi.fn().mockRejectedValue(new Error("observer unavailable")),
-      readCollaborationCanvasBindingRuntimeAvailability: vi
-        .fn()
-        .mockResolvedValue(hostOfflineRuntime),
-      initializeWorkspaceCanvasRuntime,
-      resetWorkspaceCanvasRuntime: vi.fn()
-    } satisfies WorkspaceRuntimeBridge;
-    const { result } = renderHook(() =>
-      useWorkspaceRuntime({
-        activeProfileId: "profile-1",
-        activeProjectId: scope.projectId,
-        graph,
-        sessionConnected: true,
-        binding: { kind: "remote", ...scope },
-        initialRuntimeAvailability: initializedRuntime,
-        locator: {
-          kind: "workspace",
-          connectionProfileId: "profile-1",
-          ...scope
-        },
-        setError: vi.fn(),
-        setSuccessMessage: vi.fn(),
-        t: createTranslator("en"),
-        api
-      })
-    );
-
-    await expect(result.current.ensureWorkspaceRuntimeInitialized?.()).rejects.toMatchObject({
-      diagnosticCode: "host_offline"
-    });
-    expect(initializeWorkspaceCanvasRuntime).not.toHaveBeenCalled();
-  });
-
-  it("cancels automatic runtime preparation when the active Workspace canvas changes", async () => {
-    let resolveRead: ((value: ReturnType<typeof runtimeView>) => void) | null = null;
-    const deferredRead = new Promise<ReturnType<typeof runtimeView>>((resolve) => {
-      resolveRead = resolve;
-    });
-    const runtimeA = uninitializedRuntimeView();
-    const scopeB = { ...scope, canvasId: "canvas-2" };
-    const runtimeB = runtimeViewForScope(2, scopeB, "ready");
-    const initializeWorkspaceCanvasRuntime = vi.fn();
-    const api = {
-      getCollaborationStatus: vi.fn().mockRejectedValue(new Error("observer unavailable")),
-      readCollaborationCanvasBindingRuntimeAvailability: vi.fn().mockReturnValue(deferredRead),
-      initializeWorkspaceCanvasRuntime,
-      resetWorkspaceCanvasRuntime: vi.fn()
-    } satisfies WorkspaceRuntimeBridge;
-    const { result, rerender } = renderHook(
-      ({ currentScope, initialRuntimeAvailability }) =>
-        useWorkspaceRuntime({
-          activeProfileId: "profile-1",
-          activeProjectId: currentScope.projectId,
-          graph,
-          sessionConnected: true,
-          binding: { kind: "remote", ...currentScope },
-          initialRuntimeAvailability,
-          locator: {
-            kind: "workspace",
-            connectionProfileId: "profile-1",
-            ...currentScope
-          },
-          setError: vi.fn(),
-          setSuccessMessage: vi.fn(),
-          t: createTranslator("en"),
-          api
-        }),
-      { initialProps: { currentScope: scope, initialRuntimeAvailability: runtimeA } }
-    );
-
-    const preparation = result.current.ensureWorkspaceRuntimeInitialized?.();
-    rerender({ currentScope: scopeB, initialRuntimeAvailability: runtimeB });
-    resolveRead?.(runtimeViewForScope(1, scope, "ready"));
-
-    await expect(preparation).rejects.toMatchObject({ diagnosticCode: "source_drift" });
-    expect(initializeWorkspaceCanvasRuntime).not.toHaveBeenCalled();
-  });
-
-  it("starts a fresh preparation when the same Workspace canvas gets a new fingerprint", async () => {
-    let resolveFirstRead: ((value: ReturnType<typeof runtimeView>) => void) | null = null;
-    const firstRead = new Promise<ReturnType<typeof runtimeView>>((resolve) => {
-      resolveFirstRead = resolve;
-    });
-    const graphB = { ...graph, packageFingerprint: "package-b" };
-    const runtimeA = uninitializedRuntimeView();
-    const runtimeB = {
-      ...runtimeView(1, graphB.packageFingerprint, "ready", graphB),
-      state: { kind: "uninitialized" as const }
-    };
-    const initializeWorkspaceCanvasRuntime = vi.fn().mockResolvedValue({
-      type: "canvas.runtime.initialize.accepted" as const,
-      operationId: "operation-b",
-      runtimeRevision: 1,
-      sourceRevision: runtimeB.execution.sourceRevision,
-      graphFingerprint: graphB.packageFingerprint,
-      status: runtimeB.execution.status
-    });
-    const readCollaborationCanvasBindingRuntimeAvailability = vi
-      .fn()
-      .mockReturnValueOnce(firstRead)
-      .mockResolvedValue(runtimeB);
-    const api = {
-      getCollaborationStatus: vi.fn().mockRejectedValue(new Error("observer unavailable")),
-      readCollaborationCanvasBindingRuntimeAvailability,
-      initializeWorkspaceCanvasRuntime,
-      resetWorkspaceCanvasRuntime: vi.fn()
-    } satisfies WorkspaceRuntimeBridge;
-    const { result, rerender } = renderHook(
-      ({ currentGraph, initialRuntimeAvailability }) =>
-        useWorkspaceRuntime({
-          activeProfileId: "profile-1",
-          activeProjectId: scope.projectId,
-          graph: currentGraph,
-          sessionConnected: true,
-          binding: { kind: "remote", ...scope },
-          initialRuntimeAvailability,
-          locator: {
-            kind: "workspace",
-            connectionProfileId: "profile-1",
-            ...scope
-          },
-          setError: vi.fn(),
-          setSuccessMessage: vi.fn(),
-          t: createTranslator("en"),
-          api
-        }),
-      { initialProps: { currentGraph: graph, initialRuntimeAvailability: runtimeA } }
-    );
-
-    const preparationA = result.current.ensureWorkspaceRuntimeInitialized?.();
-    rerender({ currentGraph: graphB, initialRuntimeAvailability: runtimeB });
-    const preparationB = result.current.ensureWorkspaceRuntimeInitialized?.();
-
-    expect(preparationB).not.toBe(preparationA);
-    await expect(preparationB).resolves.toBeUndefined();
-    resolveFirstRead?.(runtimeView(1, graph.packageFingerprint, "ready"));
-    await expect(preparationA).rejects.toMatchObject({ diagnosticCode: "source_drift" });
-    expect(
-      readCollaborationCanvasBindingRuntimeAvailability.mock.calls.length
-    ).toBeGreaterThanOrEqual(2);
-    expect(initializeWorkspaceCanvasRuntime).toHaveBeenCalledWith(
-      expect.objectContaining({ expectedGraphFingerprint: graphB.packageFingerprint })
-    );
+    expect(result.current.ensureWorkspaceRuntimeInitialized).toBeUndefined();
   });
 
   it("projects an accepted reset immediately without a duplicate availability read", async () => {
@@ -673,7 +458,6 @@ describe("useWorkspaceRuntime", () => {
     const api = {
       getCollaborationStatus: vi.fn().mockRejectedValue(new Error("observer unavailable")),
       readCollaborationCanvasBindingRuntimeAvailability: readRuntimeAvailability,
-      initializeWorkspaceCanvasRuntime: vi.fn(),
       resetWorkspaceCanvasRuntime
     } satisfies WorkspaceRuntimeBridge;
     const setSuccessMessage = vi.fn();
@@ -735,7 +519,6 @@ describe("useWorkspaceRuntime", () => {
     const api = {
       getCollaborationStatus: vi.fn().mockRejectedValue(new Error("observer unavailable")),
       readCollaborationCanvasBindingRuntimeAvailability: vi.fn(),
-      initializeWorkspaceCanvasRuntime: vi.fn(),
       resetWorkspaceCanvasRuntime
     } satisfies WorkspaceRuntimeBridge;
     const workspaceProps = {
@@ -817,7 +600,6 @@ describe("useWorkspaceRuntime", () => {
         observer = listener;
         return () => undefined;
       }),
-      initializeWorkspaceCanvasRuntime: vi.fn(),
       resetWorkspaceCanvasRuntime: vi.fn().mockReturnValue(resetOutcome)
     } satisfies WorkspaceRuntimeBridge;
     const baseProps = {
@@ -897,7 +679,6 @@ describe("useWorkspaceRuntime", () => {
         observer = listener;
         return () => undefined;
       }),
-      initializeWorkspaceCanvasRuntime: vi.fn(),
       resetWorkspaceCanvasRuntime: vi.fn().mockResolvedValue({
         type: "canvas.runtime.reset.accepted" as const,
         operationId: "operation-1",
@@ -974,7 +755,6 @@ describe("useWorkspaceRuntime", () => {
     const api = {
       getCollaborationStatus: vi.fn().mockRejectedValue(new Error("observer unavailable")),
       readCollaborationCanvasBindingRuntimeAvailability: vi.fn(),
-      initializeWorkspaceCanvasRuntime: vi.fn(),
       resetWorkspaceCanvasRuntime: vi.fn().mockReturnValue(resetOutcome)
     } satisfies WorkspaceRuntimeBridge;
     const { result, rerender } = renderHook(

@@ -1,9 +1,6 @@
 import { useCallback, useRef } from "react";
 import type { DesktopGraphViewModel } from "@planweave-ai/runtime";
-import type {
-  CanvasRuntimeInitializeAccepted,
-  CanvasRuntimeResetAccepted
-} from "@planweave-ai/collaboration-protocol/canvas/runtime-control";
+import type { CanvasRuntimeResetAccepted } from "@planweave-ai/collaboration-protocol/canvas/runtime-control";
 import type {
   PlanWeaveCollaborationApi,
   RemoteCollaborationCanvasBindingInput
@@ -18,22 +15,13 @@ import {
   presentWorkspaceRuntimeResetError,
   workspaceRuntimeResetError
 } from "../collaboration/runtimeResetPresentation";
-import {
-  presentWorkspaceRuntimeInitializeError,
-  workspaceRuntimeInitializeError
-} from "../collaboration/runtimeInitializePresentation";
 
 export type WorkspaceRuntimeBridge = WorkspaceRuntimeAvailabilityBridge &
-  Pick<
-    PlanWeaveCollaborationApi,
-    "initializeWorkspaceCanvasRuntime" | "resetWorkspaceCanvasRuntime"
-  >;
-
-type AcceptedRuntimeControlOutcome = CanvasRuntimeInitializeAccepted | CanvasRuntimeResetAccepted;
+  Pick<PlanWeaveCollaborationApi, "resetWorkspaceCanvasRuntime">;
 
 function runtimeAvailabilityAfterAcceptedControl(
   current: CanvasRuntimeAvailability,
-  outcome: AcceptedRuntimeControlOutcome
+  outcome: CanvasRuntimeResetAccepted
 ): CanvasRuntimeAvailability {
   return {
     ...current,
@@ -52,24 +40,6 @@ function runtimeAvailabilityAfterAcceptedControl(
           }
         : current.execution
   };
-}
-
-function workspaceRuntimePreparationFailureCode(
-  current: CanvasRuntimeAvailability,
-  expectedGraphFingerprint: string | null
-): "host_offline" | "source_drift" | "unavailable" | null {
-  if (current.execution.kind !== "available") {
-    if (current.execution.reason === "host_offline") return "host_offline";
-    if (current.execution.reason === "content_out_of_sync") return "source_drift";
-    return "unavailable";
-  }
-  if (
-    expectedGraphFingerprint !== null &&
-    current.execution.graphFingerprint !== expectedGraphFingerprint
-  ) {
-    return "source_drift";
-  }
-  return null;
 }
 
 export function useWorkspaceRuntime(input: {
@@ -95,8 +65,6 @@ export function useWorkspaceRuntime(input: {
     : null;
   const activeScopeKeyRef = useRef(activeScopeKey);
   activeScopeKeyRef.current = activeScopeKey;
-  const activeGraphFingerprintRef = useRef(input.graph?.packageFingerprint ?? null);
-  activeGraphFingerprintRef.current = input.graph?.packageFingerprint ?? null;
   const pendingResetOperation = useRef<{
     scopeKey: string;
     request: {
@@ -105,18 +73,6 @@ export function useWorkspaceRuntime(input: {
       expectedGraphFingerprint: string;
       reason: string;
     };
-  } | null>(null);
-  const pendingInitializeOperation = useRef<{
-    scopeKey: string;
-    request: {
-      operationId: string;
-      expectedSourceRevision: string;
-      expectedGraphFingerprint: string;
-    };
-  } | null>(null);
-  const pendingRuntimePreparation = useRef<{
-    authorityKey: string;
-    promise: Promise<void>;
   } | null>(null);
   const runtime = useWorkspaceRuntimeAvailability({
     enabled: input.locator?.kind === "workspace",
@@ -201,115 +157,9 @@ export function useWorkspaceRuntime(input: {
     runtime.authoritativeRuntime
   ]);
 
-  const ensureWorkspaceRuntimeInitialized = useCallback((): Promise<void> => {
-    if (input.locator?.kind !== "workspace" || !input.binding) {
-      return Promise.reject(workspaceRuntimeInitializeError(input.t, "unavailable"));
-    }
-    if (!api) return Promise.reject(new Error(input.t("bridgeUnavailable")));
-    const currentScopeKey = `${input.locator.connectionProfileId}\u0000${input.locator.workspaceId}\u0000${input.locator.projectId}\u0000${input.locator.canvasId}`;
-    const expectedGraphFingerprint = input.graph?.packageFingerprint ?? null;
-    const currentAuthorityKey = `${currentScopeKey}\u0000${expectedGraphFingerprint ?? "no-graph"}`;
-    const inFlight = pendingRuntimePreparation.current;
-    if (inFlight?.authorityKey === currentAuthorityKey) return inFlight.promise;
-
-    const locator = input.locator;
-    const binding = input.binding;
-    const assertActivePreparation = () => {
-      if (
-        activeScopeKeyRef.current !== currentScopeKey ||
-        activeGraphFingerprintRef.current !== expectedGraphFingerprint
-      ) {
-        throw workspaceRuntimeInitializeError(input.t, "source_drift");
-      }
-    };
-    const preparation = (async () => {
-      let currentRuntime: CanvasRuntimeAvailability | null;
-      try {
-        currentRuntime = await api.readCollaborationCanvasBindingRuntimeAvailability(binding);
-      } catch (caught) {
-        throw presentWorkspaceRuntimeInitializeError(input.t, caught);
-      }
-      if (!currentRuntime) {
-        throw workspaceRuntimeInitializeError(input.t, "unavailable");
-      }
-      assertActivePreparation();
-      const preparationFailure = workspaceRuntimePreparationFailureCode(
-        currentRuntime,
-        expectedGraphFingerprint
-      );
-      if (preparationFailure) {
-        throw workspaceRuntimeInitializeError(input.t, preparationFailure);
-      }
-      if (currentRuntime.state.kind === "initialized") {
-        runtime.applyAcceptedRuntimeProjection(currentRuntime);
-        return;
-      }
-      if (currentRuntime.execution.kind !== "available") {
-        throw workspaceRuntimeInitializeError(input.t, "unavailable");
-      }
-      const request =
-        pendingInitializeOperation.current?.scopeKey === currentScopeKey &&
-        pendingInitializeOperation.current.request.expectedSourceRevision ===
-          currentRuntime.execution.sourceRevision &&
-        pendingInitializeOperation.current.request.expectedGraphFingerprint ===
-          currentRuntime.execution.graphFingerprint
-          ? pendingInitializeOperation.current.request
-          : {
-              operationId: crypto.randomUUID(),
-              expectedSourceRevision: currentRuntime.execution.sourceRevision,
-              expectedGraphFingerprint: currentRuntime.execution.graphFingerprint
-            };
-      pendingInitializeOperation.current = { scopeKey: currentScopeKey, request };
-      let outcome: Awaited<ReturnType<typeof api.initializeWorkspaceCanvasRuntime>>;
-      try {
-        outcome = await api.initializeWorkspaceCanvasRuntime({ locator, ...request });
-      } catch (caught) {
-        throw presentWorkspaceRuntimeInitializeError(input.t, caught);
-      }
-      assertActivePreparation();
-      if (outcome.type === "canvas.runtime.initialize.rejected") {
-        pendingInitializeOperation.current = null;
-        if (["active_lease", "conflict", "source_drift"].includes(outcome.code)) {
-          const refreshed = await api.readCollaborationCanvasBindingRuntimeAvailability(binding);
-          assertActivePreparation();
-          if (
-            refreshed?.state.kind === "initialized" &&
-            workspaceRuntimePreparationFailureCode(refreshed, expectedGraphFingerprint) === null
-          ) {
-            runtime.applyAcceptedRuntimeProjection(refreshed);
-            return;
-          }
-        }
-        throw workspaceRuntimeInitializeError(input.t, outcome.code);
-      }
-      pendingInitializeOperation.current = null;
-      assertActivePreparation();
-      runtime.applyAcceptedRuntimeProjection(
-        runtimeAvailabilityAfterAcceptedControl(currentRuntime, outcome)
-      );
-    })();
-    pendingRuntimePreparation.current = { authorityKey: currentAuthorityKey, promise: preparation };
-    const clearPreparation = () => {
-      if (pendingRuntimePreparation.current?.promise === preparation) {
-        pendingRuntimePreparation.current = null;
-      }
-    };
-    void preparation.then(clearPreparation, clearPreparation);
-    return preparation;
-  }, [
-    api,
-    input.binding,
-    input.graph?.packageFingerprint,
-    input.locator,
-    input.t,
-    runtime.applyAcceptedRuntimeProjection
-  ]);
-
   return {
     ...runtime,
     workspaceRuntimeAuthorityKey,
-    ensureWorkspaceRuntimeInitialized:
-      input.locator?.kind === "workspace" ? ensureWorkspaceRuntimeInitialized : undefined,
     resetWorkspaceRuntime: input.locator?.kind === "workspace" ? resetWorkspaceRuntime : undefined
   };
 }
