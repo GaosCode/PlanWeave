@@ -22,10 +22,9 @@ export function collaborationRuntimeOperationsAllowed(
 export function collaborationRuntimeStartAllowed(
   availability: CollaborationRuntimeAvailabilityView
 ): boolean {
-  return (
-    collaborationRuntimeOperationsAllowed(availability) ||
-    availability.kind === "state_uninitialized"
-  );
+  if (availability.kind === "not_applicable" || availability.kind === "available") return true;
+  if (availability.kind === "state_uninitialized") return true;
+  return availability.kind === "unavailable" && availability.reason === "runtime_not_attached";
 }
 
 export function collaborationRuntimeStatusKnown(
@@ -40,9 +39,10 @@ export function collaborationRuntimeUnavailableCode(
   availability: CollaborationRuntimeAvailabilityView
 ): string | null {
   if (availability.kind === "not_applicable" || availability.kind === "available") return null;
-  if (availability.kind === "unavailable") return `collaboration_runtime_${availability.reason}`;
-  if (availability.kind === "state_uninitialized") {
-    return "collaboration_runtime_state_uninitialized";
+  if (availability.kind === "state_uninitialized") return null;
+  if (availability.kind === "unavailable") {
+    if (availability.reason === "runtime_not_attached") return null;
+    return `collaboration_runtime_${availability.reason}`;
   }
   if (availability.kind === "error") {
     return `collaboration_runtime_availability_error:${availability.message}`;

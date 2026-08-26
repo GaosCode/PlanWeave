@@ -51,6 +51,8 @@ import type { WorkspaceCanvasLocator } from "../../shared/canvasLocator";
 import { useProjectWorkspace } from "../ProjectWorkspaceProvider";
 import { queueSettingsConnectionsTab } from "../settings/settingsEntry";
 import type { CollaborationRuntimeAvailabilityView } from "../collaboration/runtimeAvailabilityView";
+import type { RemoteRunLifecyclePhase } from "../collaboration/remoteRunViewModels";
+import type { EndpointScopeRunPhase } from "../hooks/useAutoRunControl";
 
 const CanvasMapView = lazy(() =>
   import("./CanvasMapView").then((module) => ({ default: module.CanvasMapView }))
@@ -157,7 +159,8 @@ export type WorkspaceTabsAutoRunProps = {
   autoRunRetrospective: DesktopAutoRunRetrospectiveSummary | null;
   autoRunScopeMode: AutoRunScopeMode;
   autoRunState: DesktopAutoRunState | null;
-  endpointScopeRunPhase: "running" | "completed" | "failed" | null;
+  endpointScopeRunPhase: EndpointScopeRunPhase | null;
+  selectedRemoteRunPhase?: RemoteRunLifecyclePhase | null;
   handleAutoRunClick: () => Promise<void>;
   handleAutoRunNextAction: (action: AutoRunNextActionDescriptor) => Promise<void>;
   miniRunPanelOpen: boolean;

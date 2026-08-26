@@ -42,6 +42,15 @@ describe("formatAgentEndpointRunError", () => {
     expect(block).toContain("[collaboration_runtime_block_status_unavailable:T-001#B-001]");
   });
 
+  it("presents automatic runtime attachment as execution-environment preparation", () => {
+    expect(formatAgentEndpointRunError("collaboration_runtime_state_uninitialized", en)).toContain(
+      "Preparing the execution environment"
+    );
+    expect(formatAgentEndpointRunError("collaboration_runtime_runtime_not_attached", zh)).toContain(
+      "正在准备执行环境"
+    );
+  });
+
   it("humanizes local_agent_unit failure with block and phase", () => {
     const formatted = formatAgentEndpointRunError("local_agent_unit_failed:T-002#B-001", en);
     expect(formatted).toContain("T-002#B-001");

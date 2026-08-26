@@ -14,6 +14,8 @@ import {
   projectRemoteRunPanelViewModel,
   REMOTE_RUN_ACTION_STATE_TABLE
 } from "../renderer/collaboration/remoteRunViewModels";
+import { remoteRunLifecyclePhaseLabel } from "../renderer/collaboration/remoteRunLifecycleCopy";
+import { createTranslator } from "../renderer/i18n";
 
 function assignment(
   overrides: Partial<AssignmentDisplayProjection> = {}
@@ -110,6 +112,37 @@ describe("remoteRunViewModels", () => {
       available: false,
       reason: "local_run_active"
     });
+  });
+
+  it("projects preparing and running from the Server runtime projection without an observation", () => {
+    const runtime = {
+      identity: { operationId: "op-1" },
+      phase: "preparing" as const,
+      status: "owned" as const,
+      actionRequired: false,
+      source: { revision: "rev-1", graphFingerprint: "fp-1" },
+      dispatchAttempt: { dispatchId: "dispatch-1", executionAttemptId: "attempt-1" }
+    };
+
+    expect(projectRemoteLifecyclePhase({ observation: null, runtime, canDispatch: false })).toBe(
+      "preparing"
+    );
+    expect(
+      projectRemoteLifecyclePhase({
+        observation: null,
+        runtime: { ...runtime, phase: "active" },
+        canDispatch: false
+      })
+    ).toBe("running");
+  });
+
+  it("uses the shared execution-environment copy for Server preparing projections", () => {
+    expect(remoteRunLifecyclePhaseLabel("preparing", createTranslator("en"))).toBe(
+      "Preparing the execution environment"
+    );
+    expect(remoteRunLifecyclePhaseLabel("preparing", createTranslator("zh-CN"))).toBe(
+      "正在准备执行环境"
+    );
   });
 
   it("dedupes and orders ACP events by cursor", () => {

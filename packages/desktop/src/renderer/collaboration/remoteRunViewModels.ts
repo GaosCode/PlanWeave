@@ -227,6 +227,8 @@ export function projectRemoteLifecyclePhase(input: {
   const { observation, runtime, canDispatch } = input;
   if (!observation) {
     if (runtime?.status === "interrupted" || runtime?.actionRequired) return "action_required";
+    if (runtime?.phase === "preparing") return "preparing";
+    if (runtime?.phase === "active") return "running";
     if (runtime?.phase === "terminal" && runtime.status === "completed") return "terminal_success";
     if (runtime?.phase === "terminal" && runtime.status === "failed") return "terminal_failure";
     if (runtime?.status === "source_drift") return "stale";

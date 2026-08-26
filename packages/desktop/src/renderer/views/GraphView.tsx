@@ -55,6 +55,8 @@ import type { AutoRunNextActionDescriptor } from "../run/autoRunNextActions";
 import type { AppFlowNode, AutoRunScopeMode } from "../types";
 import type { CollaborationCanvasPresenceResult } from "../hooks/useCollaborationCanvasPresence";
 import type { CollaborationRuntimeAvailabilityView } from "../collaboration/runtimeAvailabilityView";
+import type { RemoteRunLifecyclePhase } from "../collaboration/remoteRunViewModels";
+import type { EndpointScopeRunPhase } from "../hooks/useAutoRunControl";
 import { CollaborationOperationDiagnosticsPopover } from "../collaboration/CollaborationOperationDiagnosticsPopover";
 
 type GraphViewProps = {
@@ -65,7 +67,8 @@ type GraphViewProps = {
   autoRunRetrospective: DesktopAutoRunRetrospectiveSummary | null;
   autoRunScopeMode: AutoRunScopeMode;
   autoRunState: DesktopAutoRunState | null;
-  endpointScopeRunPhase: "running" | "completed" | "failed" | null;
+  endpointScopeRunPhase: EndpointScopeRunPhase | null;
+  selectedRemoteRunPhase?: RemoteRunLifecyclePhase | null;
   edges: Edge[];
   fileSyncResult: DesktopPackageFileSyncResult | null;
   graph: DesktopGraphViewModel | null;
@@ -162,6 +165,7 @@ export function GraphView({
   autoRunScopeMode,
   autoRunState,
   endpointScopeRunPhase,
+  selectedRemoteRunPhase = null,
   edges,
   fileSyncResult,
   graph,
@@ -566,6 +570,7 @@ export function GraphView({
         autoRunRetrospective={autoRunRetrospective}
         autoRunState={autoRunState}
         endpointScopeRunPhase={endpointScopeRunPhase}
+        selectedRemoteRunPhase={selectedRemoteRunPhase}
         controlRef={autoRunControlRef}
         affectedTasks={fileSyncResult?.affectedTasks ?? []}
         diagnostics={fileSyncResult?.diagnostics ?? []}

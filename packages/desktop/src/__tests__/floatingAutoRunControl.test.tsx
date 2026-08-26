@@ -173,6 +173,7 @@ describe("FloatingAutoRunControl", () => {
         autoRunScopeMode="project"
         runtimeOperationsAllowed={true}
         autoRunState={autoRunState}
+        selectedRemoteRunPhase="preparing"
         diagnostics={[
           {
             code: "prompt_changed",
@@ -219,6 +220,13 @@ describe("FloatingAutoRunControl", () => {
     expect(screen.getByTestId("auto-run-mini-panel")).toBeVisible();
     expect(screen.getByTestId("auto-run-mini-status")).toHaveAttribute("data-phase", "running");
     expect(screen.getByTestId("auto-run-mini-status")).toHaveAttribute("data-run-id", "RUN-001");
+    expect(screen.getByTestId("auto-run-control-phase")).toHaveAttribute(
+      "data-remote-run-phase",
+      "preparing"
+    );
+    expect(screen.getByTestId("auto-run-control-phase")).toHaveTextContent(
+      "Preparing the execution environment"
+    );
     expect(screen.getByText("Current block: T-001#B-001")).toBeInTheDocument();
     expect(screen.getByText("Agent: codex")).toBeInTheDocument();
     expect(screen.getByTestId("auto-run-session-id")).toHaveTextContent("SESSION-0001");

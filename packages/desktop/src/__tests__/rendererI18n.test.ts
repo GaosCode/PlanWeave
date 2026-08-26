@@ -30,6 +30,7 @@ describe("desktop renderer i18n", () => {
       "remoteAgentBlockFailedError",
       "remoteAgentFailureError",
       "collaborationRuntimeStatusUnavailableError",
+      "collaborationRuntimePreparingEnvironmentError",
       "collaborationRuntimeTaskStatusUnavailableError",
       "collaborationRuntimeBlockStatusUnavailableError",
       "agentEndpointHumanPrincipalUnavailable"
@@ -40,6 +41,15 @@ describe("desktop renderer i18n", () => {
       expect(resources.en[key]).toContain("{code}");
       expect(resources["zh-CN"][key]).toContain("{code}");
     }
+  });
+
+  it("uses one preparing-environment phrase across remote run surfaces", () => {
+    expect(resources.en.remoteRunPreparingEnvironment).toBe("Preparing the execution environment");
+    expect(resources.en.remoteRunPhasePreparing).toBe(resources.en.remoteRunPreparingEnvironment);
+    expect(resources["zh-CN"].remoteRunPreparingEnvironment).toBe("正在准备执行环境");
+    expect(resources["zh-CN"].remoteRunPhasePreparing).toBe(
+      resources["zh-CN"].remoteRunPreparingEnvironment
+    );
   });
 
   it("keeps catalog data outside the translator runtime module", async () => {

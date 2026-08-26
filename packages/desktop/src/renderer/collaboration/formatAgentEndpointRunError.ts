@@ -30,6 +30,15 @@ export function formatAgentEndpointRunError(message: string, t: Translator): str
     });
   }
 
+  if (
+    message === "collaboration_runtime_state_uninitialized" ||
+    message === "collaboration_runtime_runtime_not_attached"
+  ) {
+    return withPlaceholders(t("collaborationRuntimePreparingEnvironmentError"), {
+      code: message
+    });
+  }
+
   {
     const matched = matchPrefix(message, "claim_bus_blocked:");
     if (matched) {

@@ -14,6 +14,8 @@ import {
 } from "../renderer/hooks/useWorkspaceRuntime";
 import {
   collaborationRuntimeOperationsAllowed,
+  collaborationRuntimeStartAllowed,
+  collaborationRuntimeUnavailableCode,
   collaborationRuntimeStatusKnown
 } from "../renderer/collaboration/runtimeAvailabilityView";
 import { createTranslator } from "../renderer/i18n";
@@ -136,6 +138,22 @@ function input(api: WorkspaceRuntimeAvailabilityBridge, enabled = true) {
 }
 
 describe("useWorkspaceRuntimeAvailability", () => {
+  it("allows Run preparation without enabling Reset for an unattached runtime", () => {
+    const uninitialized = { kind: "state_uninitialized" } as const;
+    const unattached = {
+      kind: "unavailable",
+      reason: "runtime_not_attached",
+      statusKnown: false
+    } as const;
+
+    expect(collaborationRuntimeStartAllowed(uninitialized)).toBe(true);
+    expect(collaborationRuntimeOperationsAllowed(uninitialized)).toBe(false);
+    expect(collaborationRuntimeUnavailableCode(uninitialized)).toBeNull();
+    expect(collaborationRuntimeStartAllowed(unattached)).toBe(true);
+    expect(collaborationRuntimeOperationsAllowed(unattached)).toBe(false);
+    expect(collaborationRuntimeUnavailableCode(unattached)).toBeNull();
+  });
+
   it("leaves a Local Canvas on its direct runtime path without collaboration reads", () => {
     const fixture = createApi();
     const { result } = renderHook(() => useWorkspaceRuntimeAvailability(input(fixture.api, false)));

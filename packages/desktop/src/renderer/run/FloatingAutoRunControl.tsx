@@ -22,6 +22,9 @@ import { useExecutorPreflight } from "../hooks/useExecutorPreflight";
 import type { createTranslator } from "../i18n";
 import type { AutoRunNextActionDescriptor } from "./autoRunNextActions";
 import type { AutoRunScopeMode } from "../types";
+import type { EndpointScopeRunPhase } from "../hooks/useAutoRunControl";
+import type { RemoteRunLifecyclePhase } from "../collaboration/remoteRunViewModels";
+import { remoteRunLifecyclePhaseLabel } from "../collaboration/remoteRunLifecycleCopy";
 import { AutoRunMiniPanel } from "./AutoRunMiniPanel";
 import { AutoRunScopeContextMenu, AutoRunScopeControl } from "./AutoRunScopeControl";
 import { DesktopDiagnosticsPopover } from "./DesktopDiagnosticsPopover";
@@ -33,7 +36,8 @@ type FloatingAutoRunControlProps = {
   autoRunRetrospective: DesktopAutoRunRetrospectiveSummary | null;
   autoRunScopeMode: AutoRunScopeMode;
   autoRunState: DesktopAutoRunState | null;
-  endpointScopeRunPhase?: "running" | "completed" | "failed" | null;
+  endpointScopeRunPhase?: EndpointScopeRunPhase | null;
+  selectedRemoteRunPhase?: RemoteRunLifecyclePhase | null;
   controlRef: Ref<HTMLDivElement>;
   diagnostics: ValidationIssue[];
   projectDiagnostics: ValidationIssue[];
@@ -100,6 +104,7 @@ export function FloatingAutoRunControl({
   autoRunScopeMode,
   autoRunState,
   endpointScopeRunPhase = null,
+  selectedRemoteRunPhase = null,
   controlRef,
   diagnostics,
   projectDiagnostics,
@@ -315,14 +320,27 @@ export function FloatingAutoRunControl({
       <Badge
         title={t("runStatus")}
         variant={
+          selectedRemoteRunPhase === "terminal_failure" ||
           endpointScopeRunPhase === "failed" ||
           autoRunState?.phase === "blocked" ||
           autoRunState?.phase === "failed"
             ? "destructive"
             : "outline"
         }
+        data-testid="auto-run-control-phase"
+        data-remote-run-phase={selectedRemoteRunPhase ?? undefined}
       >
-        {endpointScopeRunPhase ?? autoRunState?.phase ?? t("autoRunStopped")}
+        {selectedRemoteRunPhase
+          ? remoteRunLifecyclePhaseLabel(selectedRemoteRunPhase, t)
+          : endpointScopeRunPhase === "preparing"
+            ? t("remoteRunPreparingEnvironment")
+            : endpointScopeRunPhase === "running"
+              ? t("remoteRunPhaseRunning")
+              : endpointScopeRunPhase === "completed"
+                ? t("remoteRunPhaseSucceeded")
+                : endpointScopeRunPhase === "failed"
+                  ? t("remoteRunPhaseFailed")
+                  : (autoRunState?.phase ?? t("autoRunStopped"))}
       </Badge>
     </div>
   );

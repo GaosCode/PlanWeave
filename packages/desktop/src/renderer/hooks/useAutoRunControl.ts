@@ -24,6 +24,12 @@ import {
   collaborationRuntimeStartAllowed,
   collaborationRuntimeUnavailableCode
 } from "../collaboration/runtimeAvailabilityView";
+import {
+  projectRemoteLifecyclePhase,
+  type RemoteRunLifecyclePhase
+} from "../collaboration/remoteRunViewModels";
+
+export type EndpointScopeRunPhase = "preparing" | "running" | "completed" | "failed";
 
 type UseAutoRunControlArgs = {
   autoRunState: DesktopAutoRunState | null;
@@ -165,9 +171,9 @@ export function useAutoRunControl({
   resetWorkspaceRuntime
 }: UseAutoRunControlArgs) {
   const [autoRunScopeMode, setAutoRunScopeMode] = useState<AutoRunScopeMode>("project");
-  const [endpointScopeRunPhase, setEndpointScopeRunPhase] = useState<
-    "running" | "completed" | "failed" | null
-  >(null);
+  const [endpointScopeRunPhase, setEndpointScopeRunPhase] = useState<EndpointScopeRunPhase | null>(
+    null
+  );
   const [miniRunPanelOpen, setMiniRunPanelOpen] = useState(false);
   const [autoRunControlPosition, setAutoRunControlPosition] =
     useState<FloatingControlPosition | null>(() => {
@@ -324,6 +330,21 @@ export function useAutoRunControl({
     (!runtimeStateUninitialized || Boolean(startAutoRunScope));
   const runtimeResetAllowed = runtimeOperationsAllowed;
   const runtimeUnavailableCode = collaborationRuntimeUnavailableCode(runtimeAvailability);
+  const selectedRemoteRunPhase: RemoteRunLifecyclePhase | null = (() => {
+    const runtime = selectedBlock?.remoteExecution ?? null;
+    return runtime
+      ? projectRemoteLifecyclePhase({ observation: null, runtime, canDispatch: false })
+      : null;
+  })();
+  const startDisabledReason =
+    runtimeAvailability.kind === "unavailable" && runtimeAvailability.reason === "host_offline"
+      ? t("collaborationRuntimeHostOffline")
+      : runtimeAvailability.kind === "unavailable" &&
+          runtimeAvailability.reason === "content_out_of_sync"
+        ? t("collaborationRuntimeContentOutOfSync")
+        : runtimeAvailability.kind === "session_disconnected"
+          ? t("peopleProjectSessionDisconnected")
+          : t("collaborationRuntimeStatusUnavailable");
   const baseAutoRunNextAction = buildAutoRunNextActionDescriptor({
     labels: {
       copyManualCommand: t("copyManualCommand"),
@@ -350,7 +371,7 @@ export function useAutoRunControl({
       ? {
           ...baseAutoRunNextAction,
           enabled: false,
-          disabledReason: t("collaborationRuntimeStatusUnavailable")
+          disabledReason: startDisabledReason
         }
       : baseAutoRunNextAction;
 
@@ -410,7 +431,7 @@ export function useAutoRunControl({
         await startAutoRunScope(scope, startLocalAutoRunWithScope, {
           onStarted: () => {
             setAutoRunState(null);
-            setEndpointScopeRunPhase("running");
+            setEndpointScopeRunPhase("preparing");
           },
           onCompleted: () => setEndpointScopeRunPhase("completed"),
           onFailed: () => setEndpointScopeRunPhase("failed"),
@@ -437,7 +458,7 @@ export function useAutoRunControl({
     }
     try {
       setMiniRunPanelOpen(true);
-      if (endpointScopeRunPhase === "running") return;
+      if (endpointScopeRunPhase === "running" || endpointScopeRunPhase === "preparing") return;
       if (
         !autoRunState ||
         ["completed", "blocked", "failed", "stopped"].includes(autoRunState.phase)
@@ -595,7 +616,11 @@ export function useAutoRunControl({
     if (workspaceReset ? !resetWorkspaceRuntime : !bridge || !selectedProject) {
       return;
     }
-    if (isActiveAutoRunState(autoRunState) || endpointScopeRunPhase === "running") {
+    if (
+      isActiveAutoRunState(autoRunState) ||
+      endpointScopeRunPhase === "running" ||
+      endpointScopeRunPhase === "preparing"
+    ) {
       setError(t("stopAutoRunBeforeReset"));
       return;
     }
@@ -729,6 +754,7 @@ export function useAutoRunControl({
     autoRunScopeMode,
     autoRunState,
     endpointScopeRunPhase,
+    selectedRemoteRunPhase,
     handleAutoRunClick,
     handleAutoRunNextAction,
     miniRunPanelOpen,

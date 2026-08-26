@@ -24,6 +24,7 @@ export const agentEndpointRunEnCatalog = {
     "{message} Fix the Host/remote failure for this block, then retry. [{code}]",
   collaborationRuntimeStatusUnavailableError:
     "Workspace execution is unavailable. Reconnect the Workspace Canvas, then re-run. [{code}]",
+  collaborationRuntimePreparingEnvironmentError: "Preparing the execution environment. [{code}]",
   collaborationRuntimeTaskStatusUnavailableError:
     "Collaboration status for task {task} is missing. Refresh the canvas or reconnect, then re-run. [{code}]",
   collaborationRuntimeBlockStatusUnavailableError:

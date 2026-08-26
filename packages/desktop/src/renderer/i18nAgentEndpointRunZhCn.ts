@@ -25,6 +25,7 @@ export const agentEndpointRunZhCnCatalog = {
   remoteAgentFailureError: "{message} 请处理该块的 Host/远程失败后重试。[{code}]",
   collaborationRuntimeStatusUnavailableError:
     "Workspace 执行不可用。请重新连接 Workspace 画布后再重跑。[{code}]",
+  collaborationRuntimePreparingEnvironmentError: "正在准备执行环境。[{code}]",
   collaborationRuntimeTaskStatusUnavailableError:
     "任务 {task} 的协作状态缺失。请刷新画布或重新连接后再重跑。[{code}]",
   collaborationRuntimeBlockStatusUnavailableError:

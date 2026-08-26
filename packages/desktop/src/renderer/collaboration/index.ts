@@ -128,3 +128,4 @@ export {
   type RemoteRunPanelViewModel,
   type RunAuthorityKind
 } from "./remoteRunViewModels.js";
+export { remoteRunLifecyclePhaseLabel } from "./remoteRunLifecycleCopy.js";

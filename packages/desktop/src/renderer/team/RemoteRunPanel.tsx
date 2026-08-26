@@ -15,10 +15,9 @@ import { cn } from "@/lib/utils";
 import type { createTranslator } from "../i18n";
 import { useRemoteRunPanelController } from "../hooks/useRemoteRunPanelController";
 import type { PlanWeaveCollaborationApi } from "../../shared/collaboration.js";
-import type {
-  RemoteRunAuthorizedActionKind,
-  RemoteRunPanelViewModel
-} from "../collaboration/remoteRunViewModels";
+import type { RemoteRunAuthorizedActionKind } from "../collaboration/remoteRunViewModels";
+import { remoteRunLifecyclePhaseLabel } from "../collaboration/remoteRunLifecycleCopy";
+import { formatAgentEndpointUnavailableReason } from "../collaboration/formatAgentEndpointUnavailableReason";
 import {
   agentEndpointDisplayLabel,
   type AvailableAgentEndpoint,
@@ -68,36 +67,6 @@ function actionLabel(
       return t("remoteRunActionFail");
     case "retry_new_attempt":
       return t("remoteRunActionRetry");
-  }
-}
-
-function phaseLabel(
-  phase: RemoteRunPanelViewModel["phase"],
-  t: ReturnType<typeof createTranslator>
-): string {
-  switch (phase) {
-    case "idle":
-      return t("remoteRunPhaseIdle");
-    case "dispatchable":
-      return t("remoteRunPhaseDispatchable");
-    case "preparing":
-      return t("remoteRunPhasePreparing");
-    case "running":
-      return t("remoteRunPhaseRunning");
-    case "action_required":
-      return t("remoteRunPhaseActionRequired");
-    case "interrupted":
-      return t("remoteRunPhaseInterrupted");
-    case "terminal_success":
-      return t("remoteRunPhaseSucceeded");
-    case "terminal_failure":
-      return t("remoteRunPhaseFailed");
-    case "terminal_cancelled":
-      return t("remoteRunPhaseCancelled");
-    case "stale":
-      return t("remoteRunPhaseStale");
-    case "unavailable":
-      return t("remoteRunPhaseUnavailable");
   }
 }
 
@@ -178,12 +147,12 @@ export function RemoteRunPanel({
           variant={viewModel.actionRequired ? "destructive" : "outline"}
           data-testid="remote-run-phase"
         >
-          {phaseLabel(viewModel.phase, t)}
+          {remoteRunLifecyclePhaseLabel(viewModel.phase, t)}
         </Badge>
       </div>
 
       <div aria-live="polite" className="sr-only" data-testid="remote-run-live-region">
-        {controller.actionError ?? phaseLabel(viewModel.phase, t)}
+        {controller.actionError ?? remoteRunLifecyclePhaseLabel(viewModel.phase, t)}
       </div>
 
       {viewModel.localAutoRunCoexisting ? (
@@ -230,8 +199,8 @@ export function RemoteRunPanel({
             {controller.agentEndpoints.map((endpoint) => (
               <SelectItem key={endpoint.id} value={endpoint.id} disabled={!endpoint.available}>
                 {agentEndpointDisplayLabel(endpoint)}
-                {!endpoint.available && endpoint.unavailableReason
-                  ? ` — ${endpoint.unavailableReason}`
+                {!endpoint.available
+                  ? ` — ${formatAgentEndpointUnavailableReason(endpoint.unavailableReason, t)}`
                   : ""}
               </SelectItem>
             ))}

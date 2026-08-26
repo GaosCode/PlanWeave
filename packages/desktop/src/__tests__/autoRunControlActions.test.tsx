@@ -206,7 +206,8 @@ describe("auto run control hook actions", () => {
     await act(() => result.current.handleAutoRunClick());
     act(() => lifecycle?.onStarted());
     expect(result.current.autoRunState).toBeNull();
-    expect(result.current.endpointScopeRunPhase).toBe("running");
+    expect(result.current.endpointScopeRunPhase).toBe("preparing");
+    expect(result.current.selectedRemoteRunPhase).toBeNull();
     act(() => lifecycle?.onCompleted());
     expect(result.current.endpointScopeRunPhase).toBe("completed");
   });
@@ -530,7 +531,7 @@ describe("auto run control hook actions", () => {
     expect(onAutoRunDerivedStateRefresh).toHaveBeenCalledTimes(1);
   });
 
-  it("starts an uninitialized Workspace canvas and leaves initialization to the run path", async () => {
+  it("starts an uninitialized Workspace canvas and leaves preparation to Server dispatch", async () => {
     stubAutoRunControlBridge(createDesktopBridgeMock());
     const { useAutoRunControl } = await loadAutoRunControl();
     const resetWorkspaceRuntime = vi.fn().mockResolvedValue(undefined);
@@ -579,6 +580,42 @@ describe("auto run control hook actions", () => {
       expect.any(Object)
     );
     expect(resetWorkspaceRuntime).not.toHaveBeenCalled();
+  });
+
+  it("projects the selected Block Server phase independently from scope lifecycle", async () => {
+    stubAutoRunControlBridge(createDesktopBridgeMock());
+    const { useAutoRunControl } = await loadAutoRunControl();
+    const { result } = renderHook(() =>
+      useAutoRunControl({
+        autoRunState: null,
+        openRunWorkspace: vi.fn(),
+        selectedCanvasId: "canvas-main",
+        selectedBlock: {
+          ...selectedBlock,
+          remoteExecution: {
+            identity: { operationId: "operation-1" },
+            controlPlane: "collaboration",
+            phase: "active",
+            status: "owned",
+            actionRequired: false,
+            source: { revision: "revision-1", graphFingerprint: "fingerprint-1" },
+            dispatchAttempt: {
+              dispatchId: "dispatch-1",
+              executionAttemptId: "attempt-1"
+            }
+          }
+        },
+        selectedProject: project,
+        selectedTaskPanelId: null,
+        setAutoRunState: vi.fn(),
+        setError: vi.fn(),
+        t: createTranslator("en"),
+        tmuxMonitoringEnabled: false
+      })
+    );
+
+    expect(result.current.endpointScopeRunPhase).toBeNull();
+    expect(result.current.selectedRemoteRunPhase).toBe("running");
   });
 
   it("does not refresh the unrelated local graph after a Workspace runtime reset", async () => {
@@ -719,7 +756,7 @@ describe("auto run control hook actions", () => {
     await act(async () => {
       await Promise.resolve();
     });
-    expect(result.current.endpointScopeRunPhase).toBe("running");
+    expect(result.current.endpointScopeRunPhase).toBe("preparing");
 
     await act(async () => {
       await result.current.resetRuntimeStateClick();
@@ -730,7 +767,7 @@ describe("auto run control hook actions", () => {
     );
     expect(confirm).not.toHaveBeenCalled();
     expect(resetWorkspaceRuntime).not.toHaveBeenCalled();
-    expect(result.current.endpointScopeRunPhase).toBe("running");
+    expect(result.current.endpointScopeRunPhase).toBe("preparing");
 
     finishRun?.();
     await act(async () => {
