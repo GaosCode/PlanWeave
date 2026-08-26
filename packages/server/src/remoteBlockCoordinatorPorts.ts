@@ -45,6 +45,8 @@ export type RemoteRuntimeLocator = {
   workspaceId: string;
   projectId: string;
   canvasId: string;
+  /** Already-authorized Host for this request. Inspect/acquire must not persist a ready binding to discover it. */
+  hostId?: string;
 };
 
 /** Project a domain record onto the exact Runtime lease scope contract. */
@@ -52,8 +54,30 @@ export function remoteRuntimeLocator(locator: RemoteRuntimeLocator): RemoteRunti
   return {
     workspaceId: locator.workspaceId,
     projectId: locator.projectId,
-    canvasId: locator.canvasId
+    canvasId: locator.canvasId,
+    ...(locator.hostId ? { hostId: locator.hostId } : {})
   };
+}
+
+export function remoteRuntimeLocatorForHost(
+  locator: RemoteRuntimeLocator,
+  hostId: string | undefined
+): RemoteRuntimeLocator {
+  return remoteRuntimeLocator({
+    workspaceId: locator.workspaceId,
+    projectId: locator.projectId,
+    canvasId: locator.canvasId,
+    ...(hostId ? { hostId } : {})
+  });
+}
+
+export function authorizedOperationHostId(operation: {
+  endpointSelection?: { hostId: string };
+  agentAccess?: { authorized: { remoteAgent: { hostId: string } } };
+}): string | undefined {
+  return (
+    operation.endpointSelection?.hostId ?? operation.agentAccess?.authorized.remoteAgent.hostId
+  );
 }
 
 export interface RemoteOperationCandidatePort {

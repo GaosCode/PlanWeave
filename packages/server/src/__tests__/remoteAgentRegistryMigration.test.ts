@@ -74,13 +74,13 @@ function acpProfile(
 
 describe("remote agent registry migration v57", () => {
   it("registers as latest schema version", () => {
-    expect(latestCentralSchemaVersion).toBe(61);
+    expect(latestCentralSchemaVersion).toBe(62);
   });
 
   it("creates both tables and the active-grant index on an empty database", async () => {
     const database = await openDatabase();
     applyMigrations(database);
-    expect(centralSchemaVersion(database)).toBe(61);
+    expect(centralSchemaVersion(database)).toBe(62);
     expect(tableExists(database, "remote_agents")).toBe(true);
     expect(tableExists(database, "remote_agent_workspace_grants")).toBe(true);
     expect(tableExists(database, "agent_host_remote_agent_defaults")).toBe(true);
@@ -108,7 +108,7 @@ describe("remote agent registry migration v57", () => {
       )
       .all();
     expect(() => applyMigrations(database)).not.toThrow();
-    expect(centralSchemaVersion(database)).toBe(61);
+    expect(centralSchemaVersion(database)).toBe(62);
     expect(
       database
         .prepare(
@@ -151,7 +151,7 @@ describe("remote agent registry migration v57", () => {
     expect(tableExists(database, "remote_agents")).toBe(false);
 
     applyMigrations(database);
-    expect(centralSchemaVersion(database)).toBe(61);
+    expect(centralSchemaVersion(database)).toBe(62);
     const agents = database
       .prepare(
         `SELECT endpoint_id, host_id, profile_id, agent_id, owner_human_principal_id,
@@ -319,7 +319,7 @@ describe("remote agent registry migration v57", () => {
     expect(centralSchemaVersion(database)).toBe(57);
     expect(tableExists(database, "agent_host_remote_agent_defaults")).toBe(false);
     applyMigrations(database);
-    expect(centralSchemaVersion(database)).toBe(61);
+    expect(centralSchemaVersion(database)).toBe(62);
     expect(tableExists(database, "agent_host_remote_agent_defaults")).toBe(true);
     const applied = database
       .prepare("SELECT version, applied_at FROM schema_migrations WHERE version=58")

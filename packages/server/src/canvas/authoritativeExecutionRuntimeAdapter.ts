@@ -3,6 +3,7 @@ import type { RemoteBlockRuntimePort } from "@planweave-ai/runtime";
 import type {
   CanvasExecutionRuntimeLease,
   CanvasExecutionRuntimeLeasePort,
+  RuntimeCanvasAcquireRequest,
   RuntimeCanvasScope
 } from "./executionRuntimePort.js";
 
@@ -20,10 +21,14 @@ export type AuthoritativeExecutionRuntimeAdapterOptions = {
 export class AuthoritativeExecutionRuntimeAdapter implements CanvasExecutionRuntimeLeasePort {
   constructor(private readonly options: AuthoritativeExecutionRuntimeAdapterOptions) {}
 
-  async acquire(scope: RuntimeCanvasScope): Promise<CanvasExecutionRuntimeLease> {
+  async acquire(scope: RuntimeCanvasAcquireRequest): Promise<CanvasExecutionRuntimeLease> {
     const lease = await this.options.delegate.acquire(scope);
     const persist = async () => {
-      const expectedFingerprint = this.options.readContentFingerprint(scope);
+      const expectedFingerprint = this.options.readContentFingerprint({
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        canvasId: scope.canvasId
+      });
       if (!expectedFingerprint) return;
       if (!lease.readStatus) throw new Error("canvas_runtime_status_capture_unavailable");
       const status = await lease.readStatus();

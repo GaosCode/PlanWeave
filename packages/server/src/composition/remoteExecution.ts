@@ -216,7 +216,6 @@ export function createRemoteExecutionComposition(input: {
     coordinator: input.coordination.coordinator,
     events: input.coordination.acpEvents,
     interactions: input.coordination.interactions,
-    runtimeAvailable: (scope) => input.runtimeAvailability.hasRuntimeScope(scope),
     authorizeCanvas: (context, scope) => {
       assertHumanScopeAuthorized({
         actor: context,

@@ -22,11 +22,16 @@ import type {
   RemoteOperationCandidatePort,
   RemoteRuntimeLocator
 } from "./remoteBlockCoordinatorPorts.js";
-import { remoteRuntimeLocator } from "./remoteBlockCoordinatorPorts.js";
+import {
+  remoteRuntimeLocator,
+  remoteRuntimeLocatorForHost,
+  authorizedOperationHostId
+} from "./remoteBlockCoordinatorPorts.js";
 import type {
   CanvasExecutionRuntimeLease,
   CanvasExecutionRuntimeLeasePort
 } from "./canvas/executionRuntimePort.js";
+import type { RuntimeAttachmentRequest } from "./canvas/runtimeAttachment.js";
 import { HostReservationRepository, type HostCapacityReservation } from "./hostReservations.js";
 import { RemoteOperationRepository, type RemoteOperation } from "./remoteOperations.js";
 import {
@@ -130,6 +135,8 @@ export type RemoteBlockCoordinatorOptions = {
     hostId: string;
     candidate: RemoteBlockDispatchCandidate;
   }) => OwnerPackageLocator | undefined;
+  /** Server-internal Canvas Runtime routing after authorize/reserve. Not a Desktop Host. */
+  ensureRuntimeAttachment?: (input: RuntimeAttachmentRequest) => void;
   serverInstanceOwnerToken: string;
   humanIdentity: HumanPrincipalIdentity;
 };
@@ -198,10 +205,12 @@ export class RemoteBlockCoordinator {
   }
 
   private async inspectDispatchCandidate(
-    request: RemoteEndpointDispatchRequest
+    request: RemoteEndpointDispatchRequest,
+    hostId?: string
   ): Promise<RemoteBlockDispatchCandidate> {
+    const locator = remoteRuntimeLocatorForHost(request, hostId);
     try {
-      return await this.withRuntime(request, (runtime) =>
+      return await this.withRuntime(locator, (runtime) =>
         runtime.inspect({ ref: request.blockRef })
       );
     } catch (error) {
@@ -211,7 +220,7 @@ export class RemoteBlockCoordinator {
       ) {
         throw error;
       }
-      return this.withRuntime(request, (runtime) => runtime.inspect({ ref: request.blockRef }));
+      return this.withRuntime(locator, (runtime) => runtime.inspect({ ref: request.blockRef }));
     }
   }
 
@@ -249,7 +258,26 @@ export class RemoteBlockCoordinator {
       this.options.humanIdentity,
       requestedCaller
     );
-    const candidate = await this.inspectDispatchCandidate(request);
+    let authorizedHostId: string | undefined;
+    if (
+      this.options.agentEndpoints &&
+      this.options.endpointAuthorize &&
+      this.options.authorizeRemoteAgentUse &&
+      request.targetKind === "workspace_canvas"
+    ) {
+      const authorized = this.options.authorizeRemoteAgentUse({
+        principal: { humanPrincipalId: callerHumanPrincipalId },
+        endpointId: request.agentEndpointId,
+        target,
+        requiredCapabilities: [],
+        runtimeWorkspaceId: request.workspaceId,
+        blockRef: request.blockRef,
+        expectedResponsibilityRevision: request.expectedResponsibilityRevision,
+        expectedReviewerRevision: request.expectedReviewerRevision
+      });
+      authorizedHostId = authorized.remoteAgent.hostId;
+    }
+    const candidate = await this.inspectDispatchCandidate(request, authorizedHostId);
     if (
       candidate.workspaceId !== request.workspaceId ||
       candidate.projectId !== request.projectId ||
@@ -318,7 +346,9 @@ export class RemoteBlockCoordinator {
     if (["completed", "failed", "cancelled"].includes(operation.state)) {
       return { operation, status: "terminal" };
     }
-    const lease = await this.options.runtimeLeases.acquire(remoteRuntimeLocator(operation));
+    const lease = await this.options.runtimeLeases.acquire(
+      remoteRuntimeLocatorForHost(operation, authorizedOperationHostId(operation))
+    );
     try {
       return await this.reenterWithLease(operationId, lease);
     } finally {
@@ -579,6 +609,20 @@ export class RemoteBlockCoordinator {
       }
     }
     operation = this.options.operations.getRequired(operation.id);
+    if (
+      this.options.ensureRuntimeAttachment &&
+      operation.endpointSelection?.authority.kind === "workspace_canvas"
+    ) {
+      this.options.ensureRuntimeAttachment({
+        workspaceId: operation.workspaceId,
+        projectId: operation.projectId,
+        canvasId: operation.canvasId,
+        hostId: reservation.hostId,
+        operationId: operation.id,
+        executionAttemptId: operation.executionAttemptId,
+        graphFingerprint: operation.sourceFingerprint
+      });
+    }
     this.options.dispatches.prepare({ operation, reservation, envelope, envelopeDigest });
     await this.checkpoint("after_dispatch_persistence");
 
@@ -619,7 +663,9 @@ export class RemoteBlockCoordinator {
     for (const operation of this.options.operations.listNonTerminal()) {
       let runtimeLease: CanvasExecutionRuntimeLease | undefined;
       try {
-        runtimeLease = await this.options.runtimeLeases.acquire(remoteRuntimeLocator(operation));
+        runtimeLease = await this.options.runtimeLeases.acquire(
+          remoteRuntimeLocatorForHost(operation, authorizedOperationHostId(operation))
+        );
         outcomes.push(await this.reenterWithLease(operation.id, runtimeLease));
       } catch (error) {
         const decision = classifyReenterFailure(error);

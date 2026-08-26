@@ -19,6 +19,8 @@ import {
 import type { ServerReadiness } from "./readiness.js";
 import { agentEndpointCatalogErrorCode } from "./agentEndpointCatalog.js";
 import { remoteAgentAuthorizationErrorCode } from "./remoteAgent/errors.js";
+import { CanvasRuntimeAttachmentConflictError } from "./canvas/runtimeAttachment.js";
+import { CanvasRuntimeHostAmbiguousError } from "./canvas/runtimeHostLocator.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -131,6 +133,12 @@ function safeError(error: unknown): { status: number; code: string } {
   if (error instanceof DispatchAssignmentError) return { status: 409, code: error.code };
   const endpointErrorCode = agentEndpointCatalogErrorCode(error);
   if (endpointErrorCode) return { status: 409, code: endpointErrorCode };
+  if (error instanceof CanvasRuntimeAttachmentConflictError) {
+    return { status: 409, code: error.code };
+  }
+  if (error instanceof CanvasRuntimeHostAmbiguousError) {
+    return { status: 409, code: "canvas_runtime_host_ambiguous" };
+  }
   const agentAccessCode = remoteAgentAuthorizationErrorCode(error);
   if (agentAccessCode) {
     if (agentAccessCode === "remote_agent_not_found") return { status: 404, code: agentAccessCode };
@@ -144,7 +152,12 @@ function safeError(error: unknown): { status: number; code: string } {
   }
   if (error instanceof HumanRemoteControlError) {
     if (error.code === "human_remote_body_too_large") return { status: 413, code: error.code };
-    if (error.code === "human_remote_runtime_unavailable") {
+    if (
+      error.code === "human_remote_runtime_unavailable" ||
+      error.code === "human_remote_host_offline" ||
+      error.code === "human_remote_materialization_failed" ||
+      error.code === "human_remote_revision_drift"
+    ) {
       return { status: 503, code: error.code };
     }
     if (error.code.includes("forbidden") || error.code.includes("project_mismatch")) {

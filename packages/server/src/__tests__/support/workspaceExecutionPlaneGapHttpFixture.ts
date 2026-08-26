@@ -2,14 +2,21 @@ import { createServer, type Server as HttpServer } from "node:http";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach } from "vitest";
+import { randomUUID } from "node:crypto";
+import { WebSocket } from "ws";
 import {
+  captureAuthorizedCanvasContent,
   createRemoteBlockArtifactSource,
-  createRemoteBlockRuntimePort
+  createRemoteBlockRuntimePort,
+  decodeCanvasReplicaDocument,
+  projectCanvasReplicaDocument
 } from "@planweave-ai/runtime";
 import { createTestWorkspace } from "../../../../runtime/src/__tests__/promptTestHelpers.js";
 import { handleAgentEndpointHttpRequest } from "../../agentEndpointHttp.js";
 import { ArtifactStore } from "../../artifacts.js";
 import { canonicalRemoteRuntimePort } from "../../canonicalRemoteRuntimePort.js";
+import { ContentVersionRepository } from "../../canvas/contentVersionRepository.js";
+import { RuntimeArtifactGrantRepository } from "../../canvas/runtimeArtifactGrantRepository.js";
 import { parseServerConfig } from "../../config.js";
 import { createRemoteBlockCoordination } from "../../distributedCoordination.js";
 import { handleHumanRemoteHttpRequest } from "../../humanRemoteHttp.js";
@@ -35,14 +42,21 @@ import { AuthorityRepository } from "../../work/authorityRepository.js";
 import { loopbackHttpTransportAdmission } from "./transportAdmission.js";
 import { ownHostRemoteAgents } from "./remoteAgentOwnerFixture.js";
 import { adminToken, jsonHeaders, remoteManifest } from "./serverCompositionFixture.js";
+import {
+  connectPathlessCanvasRuntimeHost,
+  type PathlessCanvasRuntimeFailure,
+  type PathlessCanvasRuntimeHostHandle
+} from "./workspaceExecutionPlaneGapCanvasRuntimeHost.js";
 
 const directories: string[] = [];
 const storageServers: PlanweaveServer[] = [];
 const httpServers: HttpServer[] = [];
 const compositions: DistributedServerComposition[] = [];
 const databases: SqliteDatabase[] = [];
+const runtimeSockets: WebSocket[] = [];
 
 afterEach(async () => {
+  for (const socket of runtimeSockets.splice(0)) socket.terminate();
   for (const composition of compositions.splice(0)) await composition.close();
   await Promise.all(
     httpServers
@@ -222,7 +236,6 @@ export async function startGrantedHostCatalogDispatchHttp(options: { mapWorkspac
     coordinator: coordination.coordinator,
     events: coordination.acpEvents,
     interactions: coordination.interactions,
-    runtimeAvailable: () => true,
     authorizeCanvas: (_context, scope) => {
       if (
         scope.workspaceId !== workspaceId ||
@@ -300,7 +313,10 @@ function serverListen(server: HttpServer, resolve: () => void) {
 }
 
 /** Pathless registry composition: collaboration works, no attached Canvas runtime host. */
-export async function startPathlessCompositionWithGrantedHost(options: { mapWorkspace: boolean }) {
+export async function startPathlessCompositionWithGrantedHost(options: {
+  mapWorkspace: boolean;
+  liveCanvasRuntime?: boolean | { failOperation?: PathlessCanvasRuntimeFailure };
+}) {
   const workspace = await createTestWorkspace(remoteManifest());
   directories.push(workspace.home, workspace.root);
   const httpServer = createServer();
@@ -359,7 +375,8 @@ export async function startPathlessCompositionWithGrantedHost(options: { mapWork
       syncRemoteAgentsFromHost({ database, host, clock: () => new Date() });
     }
   );
-  const host = hosts.register("Pathless Gap Host").host;
+  const registration = hosts.register("Pathless Gap Host");
+  const host = registration.host;
   await new Promise<void>((resolve) => serverListen(httpServer, resolve));
   const address = httpServer.address();
   if (!address || typeof address === "string") throw new Error("expected HTTP address");
@@ -387,6 +404,48 @@ export async function startPathlessCompositionWithGrantedHost(options: { mapWork
     workspaceMappings: options.mapWorkspace ? [{ workspaceId, status: "ready" }] : [],
     acpProfiles: [readyCodexProfile]
   });
+  let contentGraphFingerprint: string | undefined;
+  if (options.liveCanvasRuntime) {
+    const captured = await captureAuthorizedCanvasContent({
+      projectRoot: workspace.root,
+      canvasId,
+      expectedPackageDir: workspace.init.workspace.packageDir,
+      authorityProjectId: projectId
+    });
+    new ContentVersionRepository(database).publishInitial({
+      scope: { workspaceId, projectId, canvasId },
+      content: captured.content,
+      createdBy: { kind: "system", id: "pathless-gap-content" }
+    });
+    contentGraphFingerprint = projectCanvasReplicaDocument(
+      decodeCanvasReplicaDocument(captured.content)
+    ).packageFingerprint;
+  }
+  const liveOptions =
+    options.liveCanvasRuntime === undefined
+      ? undefined
+      : options.liveCanvasRuntime === true
+        ? {}
+        : options.liveCanvasRuntime;
+  let canvasRuntime: PathlessCanvasRuntimeHostHandle | undefined;
+  if (liveOptions) {
+    canvasRuntime = await connectPathlessCanvasRuntimeHost({
+      origin,
+      hostId: host.id,
+      token: registration.token,
+      scope: { workspaceId, projectId, canvasId },
+      projectRoot: workspace.root,
+      sockets: runtimeSockets,
+      ...(contentGraphFingerprint ? { contentGraphFingerprint } : {}),
+      ...(liveOptions.failOperation ? { failOperation: liveOptions.failOperation } : {})
+    });
+  }
+  const runtimeHandle = canvasRuntime;
+  const disconnectCanvasRuntime = runtimeHandle
+    ? () => {
+        runtimeHandle.disconnect();
+      }
+    : undefined;
   return {
     origin,
     projectId,
@@ -394,6 +453,55 @@ export async function startPathlessCompositionWithGrantedHost(options: { mapWork
     canvasId,
     blockRef,
     ownerToken: bootstrapped.deviceToken,
-    endpointId: endpointIdForHost(database, host.id)
+    hostId: host.id,
+    endpointId: endpointIdForHost(database, host.id),
+    disconnectCanvasRuntime,
+    listRuntimeBindings() {
+      return database
+        .prepare(
+          `SELECT host_id,readiness_status,operation_id,execution_attempt_id,host_generation
+           FROM canvas_runtime_host_bindings
+           WHERE workspace_id=? AND project_id=? ORDER BY host_id`
+        )
+        .all(workspaceId, projectId) as Array<{
+        host_id: string;
+        readiness_status: string;
+        operation_id: string | null;
+        execution_attempt_id: string | null;
+        host_generation: string | null;
+      }>;
+    },
+    seedPeerRuntimeLease() {
+      const peer = hosts.register("Peer Lease Host").host;
+      new RuntimeArtifactGrantRepository(database, {
+        maxArtifactBytes: 1024,
+        leaseActive: () => true
+      }).recordLease({
+        runtimeLeaseId: randomUUID(),
+        hostId: peer.id,
+        workspaceId,
+        projectId,
+        canvasId,
+        attachmentVersion: 0,
+        sourceRevision: "src-peer-lease",
+        graphFingerprint: contentGraphFingerprint ?? `pkg-${"a".repeat(64)}`,
+        expiresAt: "2099-01-01T00:00:00.000Z"
+      });
+      return peer.id;
+    },
+    countOperations() {
+      const row = database
+        .prepare(
+          "SELECT COUNT(*) AS n FROM remote_operations WHERE workspace_id=? AND project_id=?"
+        )
+        .get(workspaceId, projectId) as { n: number };
+      return Number(row.n);
+    },
+    countActiveReservations() {
+      const row = database
+        .prepare("SELECT COUNT(*) AS n FROM host_capacity_reservations WHERE status='active'")
+        .get() as { n: number };
+      return Number(row.n);
+    }
   };
 }

@@ -67,7 +67,12 @@ describe("CanvasRuntimeHostLocator", () => {
       "host_id",
       "readiness_status",
       "first_observed_at",
-      "last_observed_at"
+      "last_observed_at",
+      "operation_id",
+      "execution_attempt_id",
+      "host_generation",
+      "content_revision",
+      "graph_fingerprint"
     ]);
   });
 
@@ -172,5 +177,53 @@ describe("CanvasRuntimeHostLocator", () => {
 
     expect(() => fixture.locator.locate(scope)).toThrow("canvas_runtime_scope_unavailable");
     expect(fixture.sessions.isActive).not.toHaveBeenCalled();
+  });
+
+  it("routes an authorized Host without a persisted ready binding", async () => {
+    const fixture = await setup();
+    const host = fixture.hosts.register("Authorized Runtime").host;
+    fixture.hosts.reportOnline(host.id, [CANVAS_RUNTIME_CAPABILITY], 1, {
+      workspaceMappings: [{ workspaceId: scope.workspaceId, status: "ready" }],
+      acpProfiles: []
+    });
+    expect(fixture.locator.locate(scope)).toEqual({
+      kind: "unavailable",
+      reason: "runtime_not_attached"
+    });
+    expect(fixture.locator.locateAuthorizedHost(scope, host.id)).toMatchObject({
+      kind: "unavailable",
+      reason: "host_offline"
+    });
+    fixture.active.add(host.id);
+    expect(fixture.locator.locateAuthorizedHost(scope, host.id)).toEqual({
+      kind: "available",
+      hostId: host.id
+    });
+    expect(fixture.locator.locate(scope)).toEqual({
+      kind: "unavailable",
+      reason: "runtime_not_attached"
+    });
+  });
+
+  it("does not insert a second ready Host while an operation-scoped attachment exists", async () => {
+    const fixture = await setup();
+    const first = fixture.hosts.register("Attached").host;
+    const observer = fixture.hosts.register("Observer").host;
+    fixture.report(first.id);
+    fixture.active.add(first.id);
+    fixture.hosts.runtimeBindings.upsertOperationAttachment({
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      hostId: first.id,
+      hostGeneration: first.id,
+      operationId: "operation-fenced",
+      executionAttemptId: "attempt-fenced"
+    });
+    fixture.report(observer.id);
+    fixture.active.add(observer.id);
+    expect(fixture.hosts.runtimeBindings.list(scope)).toEqual([
+      expect.objectContaining({ hostId: first.id, readinessStatus: "ready" })
+    ]);
+    expect(fixture.locator.locate(scope)).toEqual({ kind: "available", hostId: first.id });
   });
 });

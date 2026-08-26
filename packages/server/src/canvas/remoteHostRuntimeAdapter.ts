@@ -41,6 +41,7 @@ import type {
   CanvasExecutionRuntimeLease,
   CanvasExecutionRuntimeLeasePort,
   CanvasRuntimeScopeAvailabilityPort,
+  RuntimeCanvasAcquireRequest,
   RuntimeCanvasScope
 } from "./executionRuntimePort.js";
 import {
@@ -91,6 +92,24 @@ function once<T>(operation: () => T): () => T {
     }
     return result;
   };
+}
+
+function logicalScope(scopeInput: RuntimeCanvasAcquireRequest) {
+  return canvasRuntimeLogicalScopeSchema.parse({
+    workspaceId: scopeInput.workspaceId,
+    projectId: scopeInput.projectId,
+    canvasId: scopeInput.canvasId
+  });
+}
+
+function locateForAcquire(
+  locator: CanvasRuntimeHostLocator,
+  scopeInput: RuntimeCanvasAcquireRequest
+) {
+  const scope = logicalScope(scopeInput);
+  return scopeInput.hostId
+    ? locator.locateAuthorizedHost(scope, scopeInput.hostId)
+    : locator.locate(scope);
 }
 
 /** Remote Runtime seam. Artifact bytes remain an explicit HTTP data-plane follow-up. */
@@ -152,9 +171,9 @@ export class RemoteHostCanvasRuntimeAdapter
     });
   }
 
-  async acquire(scopeInput: RuntimeCanvasScope): Promise<CanvasExecutionRuntimeLease> {
-    const scope = canvasRuntimeLogicalScopeSchema.parse(scopeInput);
-    const located = this.locator.locate(scope);
+  async acquire(scopeInput: RuntimeCanvasAcquireRequest): Promise<CanvasExecutionRuntimeLease> {
+    const scope = logicalScope(scopeInput);
+    const located = locateForAcquire(this.locator, scopeInput);
     if (located.kind === "unavailable") {
       throw new CanvasRuntimeUnavailableError(
         located.reason === "host_offline" ? "host_offline" : "runtime_not_attached"
@@ -526,7 +545,7 @@ export class LocalFirstCanvasRuntimeRouter
     );
   }
 
-  acquire(scope: RuntimeCanvasScope): Promise<CanvasExecutionRuntimeLease> {
+  acquire(scope: RuntimeCanvasAcquireRequest): Promise<CanvasExecutionRuntimeLease> {
     if (this.localScopes.hasRuntimeScope(scope))
       return Promise.resolve(this.localLeases.acquire(scope));
     if (this.remote) return this.remote.acquire(scope);
@@ -570,7 +589,7 @@ export class LocalFirstCanvasExecutionRuntimeRouter implements CanvasExecutionRu
     this.remote = remote;
   }
 
-  acquire(scope: RuntimeCanvasScope): Promise<CanvasExecutionRuntimeLease> {
+  acquire(scope: RuntimeCanvasAcquireRequest): Promise<CanvasExecutionRuntimeLease> {
     if (this.localScopes.hasRuntimeScope(scope)) {
       return Promise.resolve(this.localLeases.acquire(scope));
     }

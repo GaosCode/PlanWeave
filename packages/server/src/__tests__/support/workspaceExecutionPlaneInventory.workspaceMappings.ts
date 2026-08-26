@@ -386,6 +386,14 @@ export const workspaceMappingsInventory = [
     "Gap HTTP fixtures report empty mappings for grant-without-mapping and ready mappings to isolate auto-prepare."
   ),
   inventoryEntry(
+    "wm-fixture-gapCanvasRuntimeHost",
+    "workspaceMappings",
+    "endpoint_readiness",
+    "packages/server/src/__tests__/support/workspaceExecutionPlaneGapCanvasRuntimeHost.ts",
+    "workspaceMappings ready",
+    "Pathless auto-prepare Host hello reports mapping ready plus canvas-runtime capability."
+  ),
+  inventoryEntry(
     "wm-tailscaleProxyTransport-test",
     "workspaceMappings",
     "endpoint_readiness",

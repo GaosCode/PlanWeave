@@ -25,7 +25,10 @@ import type { MailboxMessage } from "./mailbox.js";
 import type { HostCapacityReservation } from "./hostReservations.js";
 import type { RemoteOperation } from "./remoteOperations.js";
 import type { PersistedRemoteAgentAccessSnapshot } from "./remoteAgent/schema.js";
-import { remoteRuntimeLocator } from "./remoteBlockCoordinatorPorts.js";
+import {
+  remoteRuntimeLocatorForHost,
+  authorizedOperationHostId
+} from "./remoteBlockCoordinatorPorts.js";
 import {
   DispatchAssignmentError,
   dispatchHostSelectionSnapshotSchema,
@@ -269,10 +272,20 @@ export class RemoteBlockActionCoordinator {
   }
 
   private async withRuntime<T>(
-    locator: { workspaceId: string; projectId: string; canvasId: string },
+    locator: {
+      workspaceId: string;
+      projectId: string;
+      canvasId: string;
+      hostId?: string;
+      endpointSelection?: { hostId: string };
+      agentAccess?: { authorized: { remoteAgent: { hostId: string } } };
+    },
     operation: (runtime: RemoteBlockRuntimePort) => Promise<T>
   ): Promise<T> {
-    const acquired = await this.options.runtimeLeases.acquire(remoteRuntimeLocator(locator));
+    const hostId = locator.hostId ?? authorizedOperationHostId(locator);
+    const acquired = await this.options.runtimeLeases.acquire(
+      remoteRuntimeLocatorForHost(locator, hostId)
+    );
     try {
       return await operation(acquired.runtime);
     } finally {

@@ -24,6 +24,7 @@ import { hostCredentialLifecycleMigration } from "./hostCredentialLifecycle.js";
 import { hostInstallationIdentityMigration } from "./hostInstallationIdentity.js";
 import { remoteOperationRetentionMigration } from "./remoteOperationRetention.js";
 import { canvasRuntimeHostBindingMigration } from "./canvasRuntimeHostBinding.js";
+import { canvasRuntimeHostBindingEvidenceMigration } from "./canvasRuntimeHostBindingEvidence.js";
 import { canvasRuntimeArtifactGrantMigration } from "./canvasRuntimeArtifactGrant.js";
 import { canvasRuntimeStatusMigration } from "./canvasRuntimeStatus.js";
 import { canvasRuntimeRevisionMigration } from "./canvasRuntimeRevision.js";
@@ -76,7 +77,10 @@ export const migrationModules: readonly MigrationModule[] = [
   { name: "host-credential-lifecycle", migrations: [hostCredentialLifecycleMigration] },
   { name: "host-installation-identity", migrations: [hostInstallationIdentityMigration] },
   { name: "remote-operation-retention", migrations: [remoteOperationRetentionMigration] },
-  { name: "canvas-runtime-host-binding", migrations: [canvasRuntimeHostBindingMigration] },
+  {
+    name: "canvas-runtime-host-binding",
+    migrations: [canvasRuntimeHostBindingMigration, canvasRuntimeHostBindingEvidenceMigration]
+  },
   { name: "canvas-runtime-artifact-grant", migrations: [canvasRuntimeArtifactGrantMigration] },
   { name: "canvas-runtime-status", migrations: [canvasRuntimeStatusMigration] },
   { name: "canvas-runtime-revision", migrations: [canvasRuntimeRevisionMigration] },

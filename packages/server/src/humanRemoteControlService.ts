@@ -25,6 +25,7 @@ import { RemoteOperationRepository, type RemoteOperation } from "./remoteOperati
 import { DispatchService } from "./dispatches.js";
 import { toHumanEndpointSnapshot } from "./endpointSelection.js";
 import { CanvasRuntimeUnavailableError } from "./canvas/executionRuntimePort.js";
+import { CanvasRuntimeRpcError } from "./canvas/runtimeRpcBroker.js";
 
 export class HumanRemoteControlError extends Error {
   constructor(readonly code: string) {
@@ -39,7 +40,6 @@ export type HumanRemoteControlServiceOptions = {
   coordinator: RemoteBlockCoordinator;
   events: RemoteAcpEventRepository;
   interactions: RemoteInteractionService;
-  runtimeAvailable(scope: { workspaceId: string; projectId: string; canvasId: string }): boolean;
   authorizeCanvas?: (
     context: CollaborationAuthContext,
     scope: { workspaceId: string; projectId: string; canvasId: string }
@@ -50,6 +50,34 @@ function isWorkspaceDeviceContext(
   context: CollaborationAuthContext
 ): context is Extract<CollaborationAuthContext, { kind: "workspace_device" }> {
   return "kind" in context && context.kind === "workspace_device";
+}
+
+function throwMappedDispatchRuntimeFailure(error: unknown): never {
+  if (error instanceof CanvasRuntimeUnavailableError) {
+    throw new HumanRemoteControlError(
+      error.reason === "host_offline"
+        ? "human_remote_host_offline"
+        : "human_remote_runtime_unavailable"
+    );
+  }
+  if (error instanceof CanvasRuntimeRpcError) {
+    if (error.code === "content_out_of_sync") {
+      throw new HumanRemoteControlError("human_remote_revision_drift");
+    }
+    throw new HumanRemoteControlError("human_remote_materialization_failed");
+  }
+  if (error instanceof Error) {
+    if (
+      error.message === "canvas_content_head_changed" ||
+      error.message === "canvas_runtime_status_content_out_of_sync"
+    ) {
+      throw new HumanRemoteControlError("human_remote_revision_drift");
+    }
+    if (error.message === "canvas_content_head_missing") {
+      throw new HumanRemoteControlError("human_remote_materialization_failed");
+    }
+  }
+  throw error;
 }
 
 export class HumanRemoteControlService {
@@ -89,15 +117,6 @@ export class HumanRemoteControlService {
     const request = remoteDispatchIntentV3Schema.parse(rawRequest);
     if (request.projectId !== projectId)
       throw new HumanRemoteControlError("human_remote_project_mismatch");
-    if (
-      !this.options.runtimeAvailable({
-        workspaceId: scope.workspaceId,
-        projectId: request.projectId,
-        canvasId: request.canvasId
-      })
-    ) {
-      throw new HumanRemoteControlError("human_remote_runtime_unavailable");
-    }
     let outcome: Awaited<ReturnType<RemoteBlockCoordinator["dispatch"]>>;
     try {
       outcome = await this.options.coordinator.dispatch({
@@ -113,10 +132,7 @@ export class HumanRemoteControlService {
         callerHumanPrincipalId: context.humanPrincipalId
       });
     } catch (error) {
-      if (error instanceof CanvasRuntimeUnavailableError) {
-        throw new HumanRemoteControlError("human_remote_runtime_unavailable");
-      }
-      throw error;
+      throwMappedDispatchRuntimeFailure(error);
     }
     return this.observeOperation(scope, outcome.operation.id);
   }

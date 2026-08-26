@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createRemoteBlockArtifactSource, type PlanPackageManifest } from "@planweave-ai/runtime";
@@ -12,6 +12,8 @@ import { RemoteRuntimePortRegistry } from "../remoteRuntimeLocator.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import { ProjectAccessRepository } from "../projectAccessRepository.js";
 import { AuthorityRepository } from "../work/authorityRepository.js";
+import { CanvasRuntimeAttachmentConflictError } from "../canvas/runtimeAttachment.js";
+import { RuntimeArtifactGrantRepository } from "../canvas/runtimeArtifactGrantRepository.js";
 import { endpointDispatchRequest } from "./support/endpointCoordinatorFixture.js";
 import { seedLegacyRemoteOperation } from "./support/legacyRemoteOperationSeed.js";
 import { remoteManifest, setup } from "./support/remoteBlockCoordinatorFixture.js";
@@ -19,6 +21,7 @@ import {
   ownHostRemoteAgents,
   TEST_REMOTE_AGENT_OWNER_ID
 } from "./support/remoteAgentOwnerFixture.js";
+import type { SqliteDatabase } from "../sqlite.js";
 
 async function setupFleetUnboundHost(manifest: PlanPackageManifest = remoteManifest()) {
   const fixture = await setup(false, manifest);
@@ -168,6 +171,25 @@ async function setupInterruptedV3EndpointOperation(idempotencyKey: string) {
   });
   await fixture.coordinator.reenter(dispatched.operation.id);
   return { fixture, operation: fixture.operations.getRequired(dispatched.operation.id), endpoint };
+}
+
+function listRuntimeBindings(
+  database: SqliteDatabase,
+  scope: { workspaceId: string; projectId: string }
+) {
+  return database
+    .prepare(
+      `SELECT host_id,readiness_status,operation_id,execution_attempt_id,host_generation
+       FROM canvas_runtime_host_bindings
+       WHERE workspace_id=? AND project_id=? ORDER BY host_id`
+    )
+    .all(scope.workspaceId, scope.projectId) as Array<{
+    host_id: string;
+    readiness_status: string;
+    operation_id: string | null;
+    execution_attempt_id: string | null;
+    host_generation: string | null;
+  }>;
 }
 
 async function setupActiveV3EndpointOperation(idempotencyKey: string) {
@@ -757,6 +779,13 @@ describe("RemoteBlockCoordinator", () => {
         .prepare("SELECT COUNT(*) AS count FROM remote_execution_attempts WHERE operation_id=?")
         .get(operation.id)
     ).toEqual({ count: 1 });
+    expect(listRuntimeBindings(fixture.server.database, fixture.locator)).toEqual([
+      expect.objectContaining({
+        host_id: fixture.host.id,
+        operation_id: operation.id,
+        execution_attempt_id: operation.executionAttemptId
+      })
+    ]);
   });
 
   it("retries a v3 operation on the exact durable Endpoint", async () => {
@@ -778,6 +807,61 @@ describe("RemoteBlockCoordinator", () => {
     expect(retried.endpointSelection).toEqual(operation.endpointSelection);
     expect(retried.endpointSelection?.endpointId).toBe(endpoint.endpointId);
     expect(retried.attempt.hostId).toBe(operation.endpointSelection?.hostId);
+    expect(listRuntimeBindings(fixture.server.database, fixture.locator)).toEqual([
+      expect.objectContaining({
+        host_id: fixture.host?.id,
+        host_generation: fixture.host?.id,
+        operation_id: retried.id,
+        execution_attempt_id: retried.executionAttemptId,
+        readiness_status: "ready"
+      })
+    ]);
+    expect(retried.executionAttemptId).toBe("attempt-v3-retry-same-endpoint");
+  });
+
+  it("keeps the original attachment when retry_new_attempt hits an active peer lease", async () => {
+    const { fixture, operation } =
+      await setupInterruptedV3EndpointOperation("v3-retry-active-lease");
+    if (!fixture.host) throw new Error("expected_test_host");
+    const original = listRuntimeBindings(fixture.server.database, fixture.locator);
+    expect(original).toEqual([
+      expect.objectContaining({
+        host_id: fixture.host.id,
+        operation_id: operation.id,
+        execution_attempt_id: operation.executionAttemptId,
+        readiness_status: "ready"
+      })
+    ]);
+    const peer = fixture.hosts.register("Peer Lease Host").host;
+    new RuntimeArtifactGrantRepository(fixture.server.database, {
+      maxArtifactBytes: 1024,
+      leaseActive: () => true
+    }).recordLease({
+      runtimeLeaseId: randomUUID(),
+      hostId: peer.id,
+      workspaceId: fixture.locator.workspaceId,
+      projectId: fixture.locator.projectId,
+      canvasId: fixture.locator.canvasId,
+      attachmentVersion: 0,
+      sourceRevision: "src-peer-retry",
+      graphFingerprint: `pkg-${"a".repeat(64)}`,
+      expiresAt: "2099-01-01T00:00:00.000Z"
+    });
+    await expect(
+      fixture.coordinator.executeAction({
+        actionId: "v3-retry-active-lease-action",
+        operationId: operation.id,
+        dispatchId: operation.dispatchId,
+        executionAttemptId: operation.executionAttemptId,
+        expectedAttemptVersion: operation.attempt.stateVersion,
+        kind: "retry_new_attempt",
+        priorLeaseId: operation.attempt.leaseId,
+        newDispatchId: "dispatch-v3-retry-active-lease",
+        newExecutionAttemptId: "attempt-v3-retry-active-lease",
+        reason: "peer lease must fail closed"
+      })
+    ).rejects.toThrow(CanvasRuntimeAttachmentConflictError);
+    expect(listRuntimeBindings(fixture.server.database, fixture.locator)).toEqual(original);
   });
 
   it("rejects v3 reentry on a stale Endpoint without changing the durable attempt", async () => {

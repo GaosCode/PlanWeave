@@ -209,9 +209,9 @@ describe("distributed server composition", () => {
         })
       }
     );
-    expect(remoteOperation.status).toBe(503);
+    expect(remoteOperation.status).toBe(404);
     await expect(remoteOperation.json()).resolves.toEqual({
-      error: "human_remote_runtime_unavailable"
+      error: "remote_agent_not_found"
     });
 
     const canvases = await fetch(

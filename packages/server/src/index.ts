@@ -266,6 +266,7 @@ export type {
   CanvasExecutionRuntimeLeasePort,
   CanvasRuntimeScopeAvailabilityPort,
   OwnerCanvasRuntimeScopeResolverPort,
+  RuntimeCanvasAcquireRequest,
   RuntimeCanvasScope
 } from "./canvas/executionRuntimePort.js";
 export {

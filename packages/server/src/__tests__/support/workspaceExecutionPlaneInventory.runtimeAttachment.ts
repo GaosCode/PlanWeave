@@ -22,8 +22,8 @@ export const canvasRuntimeHostBindingInventory = [
     "CanvasRuntimeHostBinding",
     "runtime_attachment",
     "packages/server/src/canvas/runtimeHostLocator.ts",
-    "CanvasRuntimeHostLocator.locateBindings",
-    "Resolves which attached Host currently carries a Canvas runtime."
+    "CanvasRuntimeHostLocator.locate / locateAuthorizedHost",
+    "Resolves which attached Host currently carries a Canvas runtime; locateAuthorizedHost routes an already-authorized Host without a persisted ready binding."
   ),
   inventoryEntry(
     "crhb-hosts-runtimeBindings",
@@ -40,6 +40,38 @@ export const canvasRuntimeHostBindingInventory = [
     "packages/server/src/migrations/canvasRuntimeHostBinding.ts",
     "CREATE TABLE canvas_runtime_host_bindings",
     "DDL for logical Canvas-to-Host bindings; filesystem locations stay private."
+  ),
+  inventoryEntry(
+    "crhb-evidence-migration",
+    "CanvasRuntimeHostBinding",
+    "runtime_attachment",
+    "packages/server/src/migrations/canvasRuntimeHostBindingEvidence.ts",
+    "canvasRuntimeHostBindingEvidenceMigration",
+    "Adds operation/attempt/generation/revision evidence columns; PK unchanged."
+  ),
+  inventoryEntry(
+    "crhb-ensure-attachment",
+    "CanvasRuntimeHostBinding",
+    "runtime_attachment",
+    "packages/server/src/canvas/runtimeAttachment.ts",
+    "ensureRuntimeAttachmentForOperation",
+    "Server-internal operation-scoped attachment after an accepted operation+reservation; not Grant."
+  ),
+  inventoryEntry(
+    "crhb-upsert-operation",
+    "CanvasRuntimeHostBinding",
+    "runtime_attachment",
+    "packages/server/src/canvas/runtimeHostLocator.ts",
+    "upsertOperationAttachment",
+    "Repository API that upserts attachment evidence without renaming the table."
+  ),
+  inventoryEntry(
+    "crhb-test-ensure-attachment",
+    "CanvasRuntimeHostBinding",
+    "runtime_attachment",
+    "packages/server/src/__tests__/runtimeAttachment.test.ts",
+    "ensureRuntimeAttachmentForOperation",
+    "First run creates one binding; idempotent reenter does not duplicate; active lease refuses Host swap; Host row id is the generation; later attempt can write a new generation; attachment requires an accepted operation."
   )
 ];
 

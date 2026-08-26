@@ -202,14 +202,14 @@ describe("collaboration migration reconciliation", () => {
       { name: "host-credential-lifecycle", versions: [47] },
       { name: "host-installation-identity", versions: [48] },
       { name: "remote-operation-retention", versions: [49] },
-      { name: "canvas-runtime-host-binding", versions: [51] },
+      { name: "canvas-runtime-host-binding", versions: [51, 62] },
       { name: "canvas-runtime-artifact-grant", versions: [52] },
       { name: "canvas-runtime-status", versions: [53] },
       { name: "canvas-runtime-revision", versions: [56] },
       { name: "workspace-canvas-publish", versions: [54, 55] },
       { name: "remote-agent-registry", versions: [57, 58, 59, 60, 61] }
     ]);
-    expect(latestCentralSchemaVersion).toBe(61);
+    expect(latestCentralSchemaVersion).toBe(62);
   });
 
   it("upgrades a representative v53 database through v58 exactly once", async () => {
@@ -243,7 +243,7 @@ describe("collaboration migration reconciliation", () => {
 
     applyMigrations(database);
 
-    expect(centralSchemaVersion(database)).toBe(61);
+    expect(centralSchemaVersion(database)).toBe(62);
     expect(
       database
         .prepare(

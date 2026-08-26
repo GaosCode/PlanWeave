@@ -58,7 +58,7 @@ function remoteManifest(): PlanPackageManifest {
   return manifest;
 }
 
-async function setup(options: { runtimeAvailable?: boolean } = {}) {
+async function setup() {
   const workspace = await createTestWorkspace(remoteManifest());
   directories.push(workspace.home, workspace.root);
   const dataDirectory = join(workspace.root, "server-data");
@@ -160,7 +160,6 @@ async function setup(options: { runtimeAvailable?: boolean } = {}) {
     coordinator: coordination.coordinator,
     events: coordination.acpEvents,
     interactions: coordination.interactions,
-    runtimeAvailable: () => options.runtimeAvailable ?? true,
     authorizeCanvas: (_context, scope) => {
       if (
         scope.workspaceId !== workspaceId ||
@@ -511,23 +510,6 @@ describe("human remote operation HTTP", () => {
     );
     expect(response.status).toBe(404);
     await expect(response.json()).resolves.toEqual({ error: "remote_agent_not_found" });
-  });
-
-  it("reports Runtime unavailability after collaboration scope authorization", async () => {
-    const fixture = await setup({ runtimeAvailable: false });
-    const token = await bootstrap(fixture.origin, fixture.projectId, "runtime-unavailable-owner");
-    const response = await fetch(
-      `${fixture.origin}/api/v1/projects/${fixture.projectId}/remote-operations`,
-      {
-        method: "POST",
-        headers: headers(token),
-        body: JSON.stringify(remoteDispatchBody(fixture, "runtime-unavailable-dispatch"))
-      }
-    );
-    expect(response.status).toBe(503);
-    await expect(response.json()).resolves.toEqual({
-      error: "human_remote_runtime_unavailable"
-    });
   });
 
   it.each([

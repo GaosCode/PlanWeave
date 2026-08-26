@@ -177,8 +177,12 @@ describe("workspace execution plane HTTP gaps", () => {
     expect(dispatched.status).toBe(202);
   });
 
-  it.fails("PHASE0 GAP: first remote operation auto-prepares without pre-bound runtime host", async () => {
-    const fixture = await startPathlessCompositionWithGrantedHost({ mapWorkspace: true });
+  it("first remote operation auto-prepares without pre-bound runtime host", async () => {
+    const fixture = await startPathlessCompositionWithGrantedHost({
+      mapWorkspace: true,
+      liveCanvasRuntime: true
+    });
+    expect(fixture.listRuntimeBindings()).toEqual([]);
     const dispatched = await fetch(dispatchUrl(fixture.origin, fixture.projectId), {
       method: "POST",
       headers: jsonHeaders(fixture.ownerToken),
@@ -196,6 +200,180 @@ describe("workspace execution plane HTTP gaps", () => {
     await expect(dispatched.json()).resolves.toMatchObject({
       agentEndpoint: { endpointId: fixture.endpointId }
     });
+    expect(fixture.listRuntimeBindings()).toEqual([
+      expect.objectContaining({
+        host_id: fixture.hostId,
+        readiness_status: "ready",
+        host_generation: fixture.hostId,
+        operation_id: expect.any(String),
+        execution_attempt_id: expect.any(String)
+      })
+    ]);
+    expect(fixture.listRuntimeBindings()[0]?.operation_id).not.toBeNull();
+  });
+
+  it("same-operation reenter does not duplicate attachment or reservation", async () => {
+    const fixture = await startPathlessCompositionWithGrantedHost({
+      mapWorkspace: true,
+      liveCanvasRuntime: true
+    });
+    const body = JSON.stringify(
+      remoteRunV3Body({
+        projectId: fixture.projectId,
+        canvasId: fixture.canvasId,
+        blockRef: fixture.blockRef,
+        agentEndpointId: fixture.endpointId,
+        idempotencyKey: "gap-autoprepare-reenter"
+      })
+    );
+    const first = await fetch(dispatchUrl(fixture.origin, fixture.projectId), {
+      method: "POST",
+      headers: jsonHeaders(fixture.ownerToken),
+      body
+    });
+    expect(first.status).toBe(202);
+    const firstBody = (await first.json()) as { operationId: string };
+    const second = await fetch(dispatchUrl(fixture.origin, fixture.projectId), {
+      method: "POST",
+      headers: jsonHeaders(fixture.ownerToken),
+      body
+    });
+    expect(second.status).toBe(202);
+    await expect(second.json()).resolves.toMatchObject({ operationId: firstBody.operationId });
+    expect(fixture.listRuntimeBindings()).toHaveLength(1);
+    expect(fixture.countOperations()).toBe(1);
+    expect(fixture.countActiveReservations()).toBe(1);
+  });
+
+  it("returns distinct HTTP codes for Host offline and materialization failure", async () => {
+    const offline = await startPathlessCompositionWithGrantedHost({
+      mapWorkspace: true,
+      liveCanvasRuntime: true
+    });
+    offline.disconnectCanvasRuntime?.();
+    const offlineDispatch = await fetch(dispatchUrl(offline.origin, offline.projectId), {
+      method: "POST",
+      headers: jsonHeaders(offline.ownerToken),
+      body: JSON.stringify(
+        remoteRunV3Body({
+          projectId: offline.projectId,
+          canvasId: offline.canvasId,
+          blockRef: offline.blockRef,
+          agentEndpointId: offline.endpointId,
+          idempotencyKey: "gap-offline-dispatch"
+        })
+      )
+    });
+    expect(offlineDispatch.status).toBe(503);
+    await expect(offlineDispatch.json()).resolves.toEqual({ error: "human_remote_host_offline" });
+    expect(offline.listRuntimeBindings()).toEqual([]);
+
+    const materialization = await startPathlessCompositionWithGrantedHost({
+      mapWorkspace: true,
+      liveCanvasRuntime: { failOperation: "inspect" }
+    });
+    const failed = await fetch(dispatchUrl(materialization.origin, materialization.projectId), {
+      method: "POST",
+      headers: jsonHeaders(materialization.ownerToken),
+      body: JSON.stringify(
+        remoteRunV3Body({
+          projectId: materialization.projectId,
+          canvasId: materialization.canvasId,
+          blockRef: materialization.blockRef,
+          agentEndpointId: materialization.endpointId,
+          idempotencyKey: "gap-materialization-dispatch"
+        })
+      )
+    });
+    expect(failed.status).toBe(503);
+    await expect(failed.json()).resolves.toEqual({
+      error: "human_remote_materialization_failed"
+    });
+    expect(materialization.listRuntimeBindings()).toEqual([]);
+  });
+
+  it("returns revision drift when content-head and Host replica disagree", async () => {
+    const fixture = await startPathlessCompositionWithGrantedHost({
+      mapWorkspace: true,
+      liveCanvasRuntime: { failOperation: "content_out_of_sync" }
+    });
+    const drifted = await fetch(dispatchUrl(fixture.origin, fixture.projectId), {
+      method: "POST",
+      headers: jsonHeaders(fixture.ownerToken),
+      body: JSON.stringify(
+        remoteRunV3Body({
+          projectId: fixture.projectId,
+          canvasId: fixture.canvasId,
+          blockRef: fixture.blockRef,
+          agentEndpointId: fixture.endpointId,
+          idempotencyKey: "gap-revision-drift-dispatch"
+        })
+      )
+    });
+    expect(drifted.status).toBe(503);
+    await expect(drifted.json()).resolves.toEqual({ error: "human_remote_revision_drift" });
+    expect(fixture.listRuntimeBindings()).toEqual([]);
+  });
+
+  it("returns active_lease when another Host holds an active Runtime lease", async () => {
+    const fixture = await startPathlessCompositionWithGrantedHost({
+      mapWorkspace: true,
+      liveCanvasRuntime: true
+    });
+    const peerHostId = fixture.seedPeerRuntimeLease();
+    expect(peerHostId).not.toBe(fixture.hostId);
+    const conflicted = await fetch(dispatchUrl(fixture.origin, fixture.projectId), {
+      method: "POST",
+      headers: jsonHeaders(fixture.ownerToken),
+      body: JSON.stringify(
+        remoteRunV3Body({
+          projectId: fixture.projectId,
+          canvasId: fixture.canvasId,
+          blockRef: fixture.blockRef,
+          agentEndpointId: fixture.endpointId,
+          idempotencyKey: "gap-active-lease-dispatch"
+        })
+      )
+    });
+    expect(conflicted.status).toBe(409);
+    await expect(conflicted.json()).resolves.toEqual({ error: "active_lease" });
+    expect(fixture.listRuntimeBindings()).toEqual([]);
+  });
+
+  it("first remote operation attaches the reserved Host without a pre-bound runtime", async () => {
+    const fixture = await startPathlessCompositionWithGrantedHost({ mapWorkspace: true });
+    expect(fixture.listRuntimeBindings()).toEqual([]);
+    const first = await fetch(dispatchUrl(fixture.origin, fixture.projectId), {
+      method: "POST",
+      headers: jsonHeaders(fixture.ownerToken),
+      body: JSON.stringify(
+        remoteRunV3Body({
+          projectId: fixture.projectId,
+          canvasId: fixture.canvasId,
+          blockRef: fixture.blockRef,
+          agentEndpointId: fixture.endpointId,
+          idempotencyKey: "gap-attach-first"
+        })
+      )
+    });
+    expect(first.status).toBe(503);
+    await expect(first.json()).resolves.toEqual({ error: "human_remote_host_offline" });
+    expect(fixture.listRuntimeBindings()).toEqual([]);
+    const retry = await fetch(dispatchUrl(fixture.origin, fixture.projectId), {
+      method: "POST",
+      headers: jsonHeaders(fixture.ownerToken),
+      body: JSON.stringify(
+        remoteRunV3Body({
+          projectId: fixture.projectId,
+          canvasId: fixture.canvasId,
+          blockRef: fixture.blockRef,
+          agentEndpointId: fixture.endpointId,
+          idempotencyKey: "gap-attach-retry"
+        })
+      )
+    });
+    expect(retry.status).toBe(503);
+    expect(fixture.listRuntimeBindings()).toEqual([]);
   });
 
   it("lists members, canvases, and content when execution is unavailable", async () => {

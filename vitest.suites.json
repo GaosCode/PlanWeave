@@ -882,6 +882,7 @@
         "registryHttp.test.ts",
         "runtimeArtifactAdapter.test.ts",
         "runtimeArtifactGrantRepository.test.ts",
+        "runtimeAttachment.test.ts",
         "runtimeCompositionBoundary.test.ts",
         "runtimeHostLocator.test.ts",
         "runtimeProjectRegistry.test.ts",

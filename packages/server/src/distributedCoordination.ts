@@ -9,6 +9,7 @@ import {
 import { DurableMailbox } from "./mailbox.js";
 import type { SqliteDatabase } from "./sqlite.js";
 import { RemoteBlockCoordinator } from "./remoteBlockCoordinator.js";
+import { ensureRuntimeAttachmentForOperation } from "./canvas/runtimeAttachment.js";
 import type {
   RemoteArtifactContentPort,
   RemoteCoordinatorCheckpointPort,
@@ -367,6 +368,11 @@ export function createRemoteBlockCoordination(
         canvasId: candidate.canvasId
       });
     },
+    ensureRuntimeAttachment: (input) =>
+      ensureRuntimeAttachmentForOperation(
+        { bindings: hosts.runtimeBindings, database, clock },
+        input
+      ),
     serverInstanceOwnerToken: startupContext.serverInstanceOwnerToken,
     humanIdentity
   });
