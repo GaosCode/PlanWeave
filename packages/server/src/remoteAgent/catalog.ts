@@ -3,6 +3,7 @@ import {
   type RemoteAgentEndpointList
 } from "@planweave-ai/collaboration-protocol/agent-endpoint";
 import type { AgentEndpointCatalog } from "../agentEndpointCatalog.js";
+import { deriveEndpointAvailabilityPolicy } from "./dispatchTarget.js";
 import { RemoteAgentAuthorizationError } from "./errors.js";
 import type { RemoteAgentAccessPolicy } from "./accessPolicy.js";
 import type { RemoteAgentUseTarget } from "./schema.js";
@@ -17,18 +18,25 @@ export type ListAuthorizedRemoteAgentEndpointsInput = {
 /**
  * Execution-selector listing: target-scoped availability filtered by the same
  * access rules as dispatch. Access denials are omitted; offline/capacity/profile
- * and workspace-mapping unavailability stay visible.
+ * and workspace-mapping unavailability stay visible. Unrestricted owners overlay
+ * fleet mapping (ignore workspace mapping) but keep Host capacity on a
+ * workspace canvas via deriveEndpointAvailabilityPolicy.
  */
 export function listAuthorizedRemoteAgentEndpoints(
   input: ListAuthorizedRemoteAgentEndpointsInput
 ): RemoteAgentEndpointList {
   const listed =
     input.target.kind === "owner_canvas"
-      ? input.catalog.listVisibleFleet()
+      ? input.catalog.listProjected({ kind: "owner_fleet" })
       : input.catalog.listVisible(input.target.workspaceId);
-  const fleetById = new Map(
-    input.catalog.listVisibleFleet().items.map((endpoint) => [endpoint.endpointId, endpoint])
-  );
+  const ownerWorkspaceById =
+    input.target.kind === "workspace_canvas"
+      ? new Map(
+          input.catalog
+            .listProjected({ kind: "owner_workspace" })
+            .items.map((endpoint) => [endpoint.endpointId, endpoint])
+        )
+      : undefined;
   const items = listed.items.flatMap((endpoint) => {
     try {
       const access = input.policy.evaluateAccess({
@@ -36,10 +44,14 @@ export function listAuthorizedRemoteAgentEndpoints(
         endpointId: endpoint.endpointId,
         target: input.target
       });
+      const availability = deriveEndpointAvailabilityPolicy({
+        accessMode: access.agent.accessMode,
+        agentAccessAuthority: access.agentAccessAuthority,
+        target: input.target
+      });
       const listedEndpoint =
-        access.agent.accessMode === "unrestricted" &&
-        access.agentAccessAuthority.kind === "agent_owner"
-          ? (fleetById.get(endpoint.endpointId) ?? endpoint)
+        availability.kind === "owner_workspace"
+          ? (ownerWorkspaceById?.get(endpoint.endpointId) ?? endpoint)
           : endpoint;
       return [listedEndpoint];
     } catch (error) {

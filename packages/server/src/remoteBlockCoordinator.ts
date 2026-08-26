@@ -40,19 +40,8 @@ import {
   type AssignmentDispatchGate,
   type DispatchHostSelectionSnapshot
 } from "./work/dispatchIntegration.js";
-import {
-  AgentEndpointCatalog,
-  AgentEndpointCatalogError,
-  type ResolvedAgentEndpoint
-} from "./agentEndpointCatalog.js";
-import {
-  runtimeAuthoritySnapshotForTarget,
-  runtimeControlPlane,
-  writeEndpointSelectionSnapshotSchema,
-  type EndpointSelectionSnapshot,
-  type RuntimeAuthoritySnapshot
-} from "./endpointSelection.js";
-import { humanPrincipalIdSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
+import { AgentEndpointCatalogError, type AgentEndpointCatalog } from "./agentEndpointCatalog.js";
+import { runtimeAuthoritySnapshotForTarget, runtimeControlPlane } from "./endpointSelection.js";
 import type { AuthorizeRemoteAgentUseInput } from "./remoteAgent/accessPolicy.js";
 import { RemoteAgentAuthorizationError } from "./remoteAgent/errors.js";
 import {
@@ -61,12 +50,24 @@ import {
   type PersistedRemoteAgentAccessSnapshot
 } from "./remoteAgent/schema.js";
 import {
-  availabilityScopeForAuthorized,
+  deriveEndpointAvailabilityPolicyFromAuthorized,
   dispatchTarget,
   retryTarget
 } from "./remoteAgent/dispatchTarget.js";
 import { classifyReenterFailure, diagnosticFromReenterFailure } from "./remoteReenterRecovery.js";
 import { RemoteBlockWritebackCoordinator } from "./remoteBlockWritebackCoordinator.js";
+import {
+  canonicalizeDispatchCaller,
+  parseDispatchCaller,
+  sameDispatchCaller
+} from "./remoteBlockDispatchIdentity.js";
+import {
+  assertReservedDispatchEndpoint,
+  candidateForIdentity,
+  resolveDurableDispatchEndpoint,
+  snapshotDispatchEndpoint
+} from "./remoteBlockCoordinatorEndpoint.js";
+import type { HumanPrincipalIdentity } from "./identity/humanPrincipalIdentity.js";
 
 export type RemoteEndpointDispatchRequest = RemoteRuntimeLocator & {
   blockRef: string;
@@ -130,6 +131,7 @@ export type RemoteBlockCoordinatorOptions = {
     candidate: RemoteBlockDispatchCandidate;
   }) => OwnerPackageLocator | undefined;
   serverInstanceOwnerToken: string;
+  humanIdentity: HumanPrincipalIdentity;
 };
 
 function buildEnvelope(
@@ -223,7 +225,7 @@ export class RemoteBlockCoordinator {
   }
 
   async dispatch(request: RemoteEndpointDispatchRequest): Promise<RemoteDispatchOutcome> {
-    const callerHumanPrincipalId = humanPrincipalIdSchema.parse(request.callerHumanPrincipalId);
+    const requestedCaller = parseDispatchCaller(request.callerHumanPrincipalId);
     const target = dispatchTarget(request);
     const existing = this.options.operations.findByCallerIdentity(request);
     if (existing) {
@@ -231,7 +233,7 @@ export class RemoteBlockCoordinator {
       if (!originalCaller) {
         throw new RemoteAgentAuthorizationError("remote_agent_access_snapshot_missing");
       }
-      if (originalCaller !== callerHumanPrincipalId) {
+      if (!sameDispatchCaller(this.options.humanIdentity, originalCaller, requestedCaller)) {
         throw new Error("remote_operation_idempotency_conflict");
       }
       if (
@@ -243,6 +245,10 @@ export class RemoteBlockCoordinator {
       return this.reenter(existing.id);
     }
 
+    const callerHumanPrincipalId = canonicalizeDispatchCaller(
+      this.options.humanIdentity,
+      requestedCaller
+    );
     const candidate = await this.inspectDispatchCandidate(request);
     if (
       candidate.workspaceId !== request.workspaceId ||
@@ -270,12 +276,12 @@ export class RemoteBlockCoordinator {
       expectedResponsibilityRevision: request.expectedResponsibilityRevision,
       expectedReviewerRevision: request.expectedReviewerRevision
     });
-    const endpointSelection = this.snapshotEndpoint(
+    const endpointSelection = snapshotDispatchEndpoint(
       this.options.agentEndpoints.resolveForRun(
         request.agentEndpointId,
         target.kind === "workspace_canvas" ? target.workspaceId : candidate.workspaceId,
         candidate.requiredCapabilities,
-        availabilityScopeForAuthorized(authorized)
+        deriveEndpointAvailabilityPolicyFromAuthorized(authorized)
       ),
       candidate,
       runtimeAuthoritySnapshotForTarget(target, {
@@ -517,9 +523,15 @@ export class RemoteBlockCoordinator {
     if (!reservation) {
       try {
         if (operation.endpointSelection) this.authorizeEndpointOperation(operation);
-        const resolvedEndpoint = operation.endpointSelection
-          ? this.resolveDurableEndpoint(operation, candidate)
-          : undefined;
+        const agentEndpoints = this.options.agentEndpoints;
+        const resolvedEndpoint =
+          operation.endpointSelection && agentEndpoints
+            ? resolveDurableDispatchEndpoint({
+                operation,
+                candidate,
+                agentEndpoints
+              })
+            : undefined;
         const preferredHostId =
           resolvedEndpoint?.hostId ?? this.resolvePreferredHostId(operation, candidate);
         reservation = this.options.reservations.reserve(operation.id, {
@@ -882,75 +894,6 @@ export class RemoteBlockCoordinator {
     return persisted.hostSelection.preferredHostId;
   }
 
-  private snapshotEndpoint(
-    resolved: ResolvedAgentEndpoint,
-    candidate: RemoteBlockDispatchCandidate,
-    authority: RuntimeAuthoritySnapshot
-  ): EndpointSelectionSnapshot {
-    if (resolved.agentId !== candidate.agentId) {
-      throw new AgentEndpointCatalogError("agent_endpoint_incompatible");
-    }
-    return writeEndpointSelectionSnapshotSchema.parse({
-      schemaVersion: "endpoint-selection/v1",
-      ...resolved,
-      authority
-    });
-  }
-
-  private resolveDurableEndpoint(
-    operation: RemoteOperation,
-    candidate: RemoteBlockDispatchCandidate
-  ): ResolvedAgentEndpoint {
-    const selection = operation.endpointSelection;
-    if (!selection || !this.options.agentEndpoints) {
-      throw new Error("agent_endpoint_dispatch_not_configured");
-    }
-    const resolved = this.options.agentEndpoints.resolveForRun(
-      selection.endpointId,
-      selection.authority.kind === "workspace_canvas"
-        ? selection.authority.workspaceId
-        : operation.workspaceId,
-      operation.requiredCapabilities,
-      this.hostAvailabilityScope(operation, selection)
-    );
-    this.assertEndpointIdentity(selection, resolved, candidate);
-    return resolved;
-  }
-
-  private assertReservedEndpoint(
-    operation: RemoteOperation,
-    candidate: RemoteBlockDispatchCandidate,
-    reservation: HostCapacityReservation
-  ): void {
-    const selection = operation.endpointSelection;
-    if (!selection || !this.options.agentEndpoints) {
-      throw new Error("agent_endpoint_dispatch_not_configured");
-    }
-    const resolved = this.options.agentEndpoints.resolveForReservedRun(
-      selection.endpointId,
-      selection.authority.kind === "workspace_canvas"
-        ? selection.authority.workspaceId
-        : operation.workspaceId,
-      operation.requiredCapabilities,
-      reservation.hostId,
-      this.hostAvailabilityScope(operation, selection)
-    );
-    this.assertEndpointIdentity(selection, resolved, candidate);
-  }
-
-  /**
-   * Host overlay is Agent Access, not Runtime Authority. Unrestricted owners
-   * stay on the fleet even when writeback targets a Workspace canvas.
-   */
-  private hostAvailabilityScope(
-    operation: RemoteOperation,
-    selection: EndpointSelectionSnapshot
-  ): EndpointSelectionSnapshot["authority"]["kind"] {
-    return operation.agentAccess
-      ? availabilityScopeForAuthorized(operation.agentAccess.authorized)
-      : selection.authority.kind;
-  }
-
   private authorizeReservedEndpoint(
     operation: RemoteOperation,
     candidate: RemoteBlockDispatchCandidate,
@@ -1021,38 +964,18 @@ export class RemoteBlockCoordinator {
       controlPlane: runtimeControlPlane(selection.authority)
     });
     if (reservation) {
-      this.assertReservedEndpoint(operation, candidate, reservation);
+      assertReservedDispatchEndpoint({
+        operation,
+        candidate,
+        reservation,
+        agentEndpoints: this.options.agentEndpoints
+      });
       return;
     }
-    this.resolveDurableEndpoint(operation, candidate);
+    resolveDurableDispatchEndpoint({
+      operation,
+      candidate,
+      agentEndpoints: this.options.agentEndpoints
+    });
   }
-
-  private assertEndpointIdentity(
-    selection: EndpointSelectionSnapshot,
-    resolved: ResolvedAgentEndpoint,
-    candidate: RemoteBlockDispatchCandidate
-  ): void {
-    if (
-      resolved.endpointId !== selection.endpointId ||
-      resolved.hostId !== selection.hostId ||
-      resolved.profileId !== selection.profileId ||
-      resolved.agentId !== selection.agentId ||
-      resolved.displayName !== selection.displayName ||
-      resolved.hostDisplayName !== selection.hostDisplayName ||
-      resolved.capabilities.length !== selection.capabilities.length ||
-      resolved.capabilities.some((capability) => !selection.capabilities.includes(capability)) ||
-      resolved.agentId !== candidate.agentId
-    ) {
-      throw new AgentEndpointCatalogError("agent_endpoint_incompatible");
-    }
-  }
-}
-
-function candidateForIdentity(
-  operation: RemoteOperation,
-  candidates: RemoteOperationCandidatePort
-): RemoteBlockDispatchCandidate {
-  const candidate = candidates.get(operation.id);
-  if (!candidate) throw new Error("remote_operation_candidate_missing");
-  return candidate;
 }

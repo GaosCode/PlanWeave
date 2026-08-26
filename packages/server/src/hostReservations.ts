@@ -12,7 +12,10 @@ import {
   isAgentHostOnline
 } from "./hosts.js";
 import { isOwnerCanvasRuntime } from "./endpointSelection.js";
-import { availabilityScopeForAuthorized } from "./remoteAgent/dispatchTarget.js";
+import {
+  availabilityScopeForAuthorized,
+  occupiesHostCapacity
+} from "./remoteAgent/dispatchTarget.js";
 import type { RemoteOperation } from "./remoteOperations.js";
 
 const capacityManagedReservationSql = `
@@ -31,25 +34,22 @@ const capacityManagedReservationSql = `
           capacity_operation.endpoint_selection_json,
           '$.authority.controlPlane'
         )='owner'
-        OR (
-          json_extract(
-            capacity_operation.agent_access_json,
-            '$.authorized.agentAccessAuthority.kind'
-          )='agent_owner'
-          AND json_extract(
-            capacity_operation.agent_access_json,
-            '$.authorized.agentAccessAuthority.workspaceId'
-          ) IS NULL
-        )
       )
   )
 `;
 
-function isOwnerFleetReservation(operation: RemoteOperation): boolean {
+function usesFleetHostVisibility(operation: RemoteOperation): boolean {
   if (operation.agentAccess) {
     return availabilityScopeForAuthorized(operation.agentAccess.authorized) === "owner_canvas";
   }
   return isOwnerCanvasRuntime(operation.endpointSelection?.authority);
+}
+
+function reservationOccupiesHostCapacity(operation: RemoteOperation): boolean {
+  if (operation.agentAccess) {
+    return occupiesHostCapacity(operation.agentAccess.authorized);
+  }
+  return !isOwnerCanvasRuntime(operation.endpointSelection?.authority);
 }
 
 const timestampSchema = z.iso.datetime();
@@ -210,9 +210,9 @@ export class HostReservationRepository {
   }
 
   /**
-   * Reserve a Host for an operation attempt. Collaboration operations consume the
-   * advertised Host capacity; Owner Fleet operations are governed by canvas runtime
-   * concurrency and only require the selected Host/profile to remain usable.
+   * Reserve a Host for an operation attempt. Workspace canvas and restricted
+   * Endpoint runs consume advertised Host capacity. Owner-canvas fleet runs may
+   * still search the owner fleet, but they do not consume collaboration capacity.
    * When `preferredHostId` is set (exact Host assignment or explicit override), only that Host
    * is considered — never an arbitrary alternate from a UI eligibility cache.
    * When omitted, uses the deterministic automatic selector (active_reservations ASC,
@@ -240,7 +240,8 @@ export class HostReservationRepository {
         const now = this.clock();
         const onlineAfter = new Date(now.getTime() - this.options.hostOfflineAfterMs).toISOString();
         const workspaceId = operation.workspaceId;
-        const ownerFleet = isOwnerFleetReservation(operation);
+        const fleetVisibility = usesFleetHostVisibility(operation);
+        const occupiesCapacity = reservationOccupiesHostCapacity(operation);
         const preferredHostId =
           options.preferredHostId === undefined
             ? undefined
@@ -300,7 +301,7 @@ export class HostReservationRepository {
             });
             const fleetUnbound =
               this.workspaceIdentity.workspaceForHost(candidate.id) === undefined;
-            const profileAvailability = ownerFleet
+            const profileAvailability = fleetVisibility
               ? fleetHostExecutionProfileAvailability(host, {
                   online,
                   agentId: options.agentId,
@@ -317,14 +318,15 @@ export class HostReservationRepository {
                 });
             return (
               this.workspaceIdentity.hostUsable(candidate.id, now) &&
-              (ownerFleet || this.workspaceIdentity.hostUsable(candidate.id, now, workspaceId)) &&
+              (fleetVisibility ||
+                this.workspaceIdentity.hostUsable(candidate.id, now, workspaceId)) &&
               profileAvailability.status === "available"
             );
           });
         const required = new Set(operation.requiredCapabilities);
         const host = candidates.find(
           (candidate) =>
-            (ownerFleet || candidate.active_reservations < candidate.capacity) &&
+            (!occupiesCapacity || candidate.active_reservations < candidate.capacity) &&
             [...required].every((capability) => candidate.capabilities.includes(capability))
         );
         if (!host) throw new Error("no_compatible_agent_host");
@@ -472,7 +474,7 @@ export class HostReservationRepository {
       const operation = operations.getRequired(
         opaqueIdentifierSchema.parse(operationRow.operation_id)
       );
-      const ownerFleet = isOwnerFleetReservation(operation);
+      const occupiesCapacity = reservationOccupiesHostCapacity(operation);
       if (
         operation.executionAttemptId !== prior.executionAttemptId ||
         operation.attempt.status !== "interrupted" ||
@@ -500,7 +502,7 @@ export class HostReservationRepository {
       }
       const capacity = z.number().int().positive().parse(hostRow.capacity);
       const activeReservations = z.number().int().nonnegative().parse(hostRow.active_reservations);
-      if (!ownerFleet && activeReservations >= capacity) {
+      if (occupiesCapacity && activeReservations >= capacity) {
         throw new Error("remote_resume_host_capacity_exhausted");
       }
       const fencingToken = prior.fencingToken + 1;

@@ -11,6 +11,11 @@ import {
 import { opaqueIdentifierSchema } from "@planweave-ai/agent-host-protocol";
 import { createHash } from "node:crypto";
 import { workspaceIdSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
+import type { EndpointAvailabilityPolicy } from "./remoteAgent/dispatchTarget.js";
+import {
+  endpointMappingScope,
+  endpointOccupiesHostCapacity
+} from "./remoteAgent/dispatchTarget.js";
 import type { AgentHost } from "./hosts.js";
 
 /**
@@ -158,37 +163,37 @@ export class AgentEndpointCatalog {
   }
 
   /**
-   * Server-scoped fleet catalog for owner-canvas availability.
-   * Hosts remain visible when workspace mappings are absent; offline and
-   * profile validity still apply. Workspace Host capacity does not.
+   * Project Host availability from the closed mapping+capacity policy.
+   * `workspaceId` is required when policy.kind is `workspace`.
    */
-  listVisibleFleet(): RemoteAgentEndpointList {
-    const items = this.currentFleetCandidates(false).map((candidate) => candidate.endpoint);
-    return remoteAgentEndpointListSchema.parse({
-      schemaVersion: "agent-endpoint-list/v1",
-      items
-    });
-  }
-
-  /**
-   * Workspace-canvas availability overlay of the fleet.
-   * Mapping and collaboration capacity apply; exclusive bind does not filter.
-   */
-  listVisible(workspaceIdInput: string): RemoteAgentEndpointList {
-    const workspaceId = workspaceIdSchema.parse(workspaceIdInput);
+  listProjected(
+    policy: EndpointAvailabilityPolicy,
+    workspaceIdInput?: string
+  ): RemoteAgentEndpointList {
+    const mappingScope = endpointMappingScope(policy);
+    const occupyHostCapacity = endpointOccupiesHostCapacity(policy);
+    const workspaceId =
+      mappingScope === "workspace_canvas"
+        ? workspaceIdSchema.parse(workspaceIdInput)
+        : workspaceIdInput === undefined
+          ? undefined
+          : workspaceIdSchema.parse(workspaceIdInput);
+    if (mappingScope === "workspace_canvas" && workspaceId === undefined) {
+      throw new Error("agent_endpoint_workspace_required");
+    }
     const snapshot = this.currentFleetSnapshot(false);
     const now = this.clock();
     const items = snapshot.candidates.map((candidate) => {
       const reason = unavailableReason(
         candidate.host,
-        workspaceId,
+        mappingScope === "workspace_canvas" ? workspaceId : undefined,
         candidate.profile,
         snapshot.activeCounts.get(candidate.host.id) ?? 0,
         now,
         this.options.hostOfflineAfterMs,
         this.profileIdentityCount(candidate.host, candidate.profile) !== 1,
-        "workspace",
-        true
+        mappingScope === "workspace_canvas" ? "workspace" : "fleet",
+        occupyHostCapacity
       );
       const endpoint = remoteAgentEndpointSchema.parse({
         ...candidate.endpoint,
@@ -204,18 +209,34 @@ export class AgentEndpointCatalog {
     });
   }
 
+  /**
+   * Server-scoped fleet catalog for owner-canvas availability.
+   * Hosts remain visible when workspace mappings are absent; Host capacity does not apply.
+   */
+  listVisibleFleet(): RemoteAgentEndpointList {
+    return this.listProjected({ kind: "owner_fleet" });
+  }
+
+  /**
+   * Workspace-canvas availability overlay of the fleet.
+   * Mapping and collaboration capacity apply; exclusive bind does not filter.
+   */
+  listVisible(workspaceIdInput: string): RemoteAgentEndpointList {
+    return this.listProjected({ kind: "workspace" }, workspaceIdInput);
+  }
+
   resolveForRun(
     endpointIdInput: string,
     workspaceIdInput: string,
     requiredCapabilitiesInput: readonly string[],
-    runtimeScope: AgentEndpointRuntimeScope
+    policy: EndpointAvailabilityPolicy
   ): ResolvedAgentEndpoint {
     const endpointId = opaqueIdentifierSchema.parse(endpointIdInput);
     const workspaceId = workspaceIdSchema.parse(workspaceIdInput);
     const requiredCapabilities = agentEndpointCapabilitiesSchema.parse(requiredCapabilitiesInput);
     const candidate = this.findCandidateForResolve(endpointId);
     if (!candidate) throw new AgentEndpointCatalogError("agent_endpoint_unknown");
-    if (this.unavailableReasonForResolve(candidate, workspaceId, runtimeScope) !== undefined) {
+    if (this.unavailableReasonForResolve(candidate, workspaceId, policy) !== undefined) {
       throw new AgentEndpointCatalogError("agent_endpoint_unavailable");
     }
     if (
@@ -235,7 +256,7 @@ export class AgentEndpointCatalog {
     workspaceIdInput: string,
     requiredCapabilitiesInput: readonly string[],
     expectedHostIdInput: string,
-    runtimeScope: AgentEndpointRuntimeScope
+    policy: EndpointAvailabilityPolicy
   ): ResolvedAgentEndpoint {
     const endpointId = opaqueIdentifierSchema.parse(endpointIdInput);
     const workspaceId = workspaceIdSchema.parse(workspaceIdInput);
@@ -245,7 +266,7 @@ export class AgentEndpointCatalog {
     if (!candidate || candidate.host.id !== expectedHostId) {
       throw new AgentEndpointCatalogError("agent_endpoint_unknown");
     }
-    const reason = this.unavailableReasonForResolve(candidate, workspaceId, runtimeScope);
+    const reason = this.unavailableReasonForResolve(candidate, workspaceId, policy);
     if (reason !== undefined && reason !== "at_capacity") {
       throw new AgentEndpointCatalogError("agent_endpoint_unavailable");
     }
@@ -264,9 +285,10 @@ export class AgentEndpointCatalog {
   private unavailableReasonForResolve(
     candidate: InternalCandidate,
     workspaceId: string,
-    runtimeScope: AgentEndpointRuntimeScope
+    policy: EndpointAvailabilityPolicy
   ): AgentEndpointUnavailableReason | undefined {
-    const scope: CandidateScope = runtimeScope === "owner_canvas" ? "fleet" : "workspace";
+    const scope: CandidateScope =
+      endpointMappingScope(policy) === "owner_canvas" ? "fleet" : "workspace";
     return unavailableReason(
       candidate.host,
       scope === "workspace" ? workspaceId : undefined,
@@ -276,7 +298,7 @@ export class AgentEndpointCatalog {
       this.options.hostOfflineAfterMs,
       this.profileIdentityCount(candidate.host, candidate.profile) !== 1,
       scope,
-      runtimeScope === "workspace_canvas"
+      endpointOccupiesHostCapacity(policy)
     );
   }
 

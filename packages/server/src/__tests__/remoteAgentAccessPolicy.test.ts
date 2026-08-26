@@ -177,6 +177,41 @@ function workspaceCanvas(workspaceId: string, projectId: string): RemoteAgentUse
   return { kind: "workspace_canvas", workspaceId, projectId, canvasId: "default" };
 }
 
+function occupyCollaborationCapacity(state: Awaited<ReturnType<typeof fixture>>) {
+  state.hosts.reportOnline(state.host.id, ["acp.codex", "host-only"], 1, {
+    workspaceMappings: [
+      { workspaceId: state.workspaceA, status: "ready" },
+      { workspaceId: state.workspaceB, status: "ready" }
+    ],
+    acpProfiles: [
+      {
+        profileId: "profile-main",
+        agentId: "codex",
+        displayName: "Codex",
+        status: "ready",
+        capabilities: ["acp.codex"]
+      }
+    ]
+  });
+  const claimed = state.coordination.operations.markClaimed(
+    state.coordination.operations.create({
+      workspaceId: state.workspaceA,
+      projectId: "project-a",
+      canvasId: "default",
+      blockRef: "T-001#B-fill",
+      ownershipGeneration: "generation-1",
+      idempotencyKey: "fill-host-capacity",
+      sourceFingerprint: "fingerprint-fill-host-capacity",
+      requiredCapabilities: ["acp.codex"]
+    }).id
+  );
+  state.coordination.reservations.reserve(claimed.id, {
+    agentId: "codex",
+    agentProfileId: "profile-main",
+    preferredHostId: state.host.id
+  });
+}
+
 function authorize(
   policy: RemoteAgentAccessPolicy,
   humanPrincipalId: string,
@@ -670,6 +705,89 @@ describe("authorizeRemoteAgentUse", () => {
         ownerHumanPrincipalId: "owner-human-1"
       }
     });
+  });
+
+  it("unrestricted owner workspace catalog keeps host capacity after the first occupancy fills it", async () => {
+    const state = await fixture();
+    addWorkspaceMember(state.database, state.workspaceB, "owner-human-1", "member");
+    expect(
+      listAuthorizedRemoteAgentEndpoints({
+        policy: state.policy,
+        catalog: state.catalog,
+        principal: { humanPrincipalId: "owner-human-1" },
+        target: workspaceCanvas(state.workspaceA, "project-a")
+      }).items
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ endpointId: state.endpointId, status: "available" })
+      ])
+    );
+    occupyCollaborationCapacity(state);
+    state.hosts.reportOnline(state.host.id, ["acp.codex", "host-only"], 1, {
+      workspaceMappings: [{ workspaceId: state.workspaceA, status: "ready" }],
+      acpProfiles: [
+        {
+          profileId: "profile-main",
+          agentId: "codex",
+          displayName: "Codex",
+          status: "ready",
+          capabilities: ["acp.codex"]
+        }
+      ]
+    });
+    expect(
+      listAuthorizedRemoteAgentEndpoints({
+        policy: state.policy,
+        catalog: state.catalog,
+        principal: { humanPrincipalId: "owner-human-1" },
+        target: workspaceCanvas(state.workspaceA, "project-a")
+      }).items
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          endpointId: state.endpointId,
+          status: "unavailable",
+          unavailableReason: "at_capacity"
+        })
+      ])
+    );
+    expect(
+      listAuthorizedRemoteAgentEndpoints({
+        policy: state.policy,
+        catalog: state.catalog,
+        principal: { humanPrincipalId: "owner-human-1" },
+        target: workspaceCanvas(state.workspaceB, "project-b")
+      }).items
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          endpointId: state.endpointId,
+          status: "unavailable",
+          unavailableReason: "at_capacity"
+        })
+      ])
+    );
+    expect(
+      listAuthorizedRemoteAgentEndpoints({
+        policy: state.policy,
+        catalog: state.catalog,
+        principal: { humanPrincipalId: "owner-human-1" },
+        target: ownerCanvas()
+      }).items
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ endpointId: state.endpointId, status: "available" })
+      ])
+    );
+    expect(() =>
+      authorize(
+        state.policy,
+        "owner-human-1",
+        state.endpointId,
+        workspaceCanvas(state.workspaceA, "project-a"),
+        state.workspaceA
+      )
+    ).toThrowError(new AgentEndpointCatalogError("agent_endpoint_unavailable"));
   });
 
   it("historical split principals cannot own an agent until dual-token merge", async () => {

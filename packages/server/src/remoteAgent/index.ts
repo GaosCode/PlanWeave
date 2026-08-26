@@ -71,4 +71,11 @@ export {
   type ListAuthorizedRemoteAgentEndpointsInput
 } from "./catalog.js";
 
-export { controlPlaneForTarget, dispatchTarget, retryTarget } from "./dispatchTarget.js";
+export {
+  controlPlaneForTarget,
+  deriveEndpointAvailabilityPolicy,
+  deriveEndpointAvailabilityPolicyFromAuthorized,
+  dispatchTarget,
+  retryTarget,
+  type EndpointAvailabilityPolicy
+} from "./dispatchTarget.js";

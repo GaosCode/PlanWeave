@@ -10,7 +10,12 @@ import {
   type AgentEndpointHostPort
 } from "../agentEndpointCatalog.js";
 import { createRemoteBlockCoordination } from "../distributedCoordination.js";
-import { availabilityScopeForAuthorized, dispatchTarget } from "../remoteAgent/dispatchTarget.js";
+import {
+  availabilityScopeForAuthorized,
+  deriveEndpointAvailabilityPolicy,
+  dispatchTarget,
+  occupiesHostCapacity
+} from "../remoteAgent/dispatchTarget.js";
 import { AgentHostRepository, type AgentHost } from "../hosts.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import { applyMigrations } from "../migrations.js";
@@ -177,7 +182,7 @@ describe("Phase 5 catalog/dispatch authorization", () => {
       });
       expect(legacyId).not.toBe(endpoint.endpointId);
       expect(() =>
-        state.catalog.resolveForRun(legacyId, "workspace-a", ["acp.codex"], "workspace_canvas")
+        state.catalog.resolveForRun(legacyId, "workspace-a", ["acp.codex"], { kind: "workspace" })
       ).toThrowError(new AgentEndpointCatalogError("agent_endpoint_unknown"));
     });
   });
@@ -245,20 +250,14 @@ describe("Phase 5 catalog/dispatch authorization", () => {
       const endpoint = state.catalog.listVisibleFleet().items[0]!;
       state.setActive("host-primary", 2);
       expect(
-        state.catalog.resolveForRun(
-          endpoint.endpointId,
-          "workspace-a",
-          ["acp.codex"],
-          "owner_canvas"
-        )
+        state.catalog.resolveForRun(endpoint.endpointId, "workspace-a", ["acp.codex"], {
+          kind: "owner_fleet"
+        })
       ).toMatchObject({ hostId: "host-primary" });
       expect(() =>
-        state.catalog.resolveForRun(
-          endpoint.endpointId,
-          "workspace-a",
-          ["acp.codex"],
-          "workspace_canvas"
-        )
+        state.catalog.resolveForRun(endpoint.endpointId, "workspace-a", ["acp.codex"], {
+          kind: "workspace"
+        })
       ).toThrowError(new AgentEndpointCatalogError("agent_endpoint_unavailable"));
     });
 
@@ -276,20 +275,14 @@ describe("Phase 5 catalog/dispatch authorization", () => {
         unavailableReason: "workspace_mapping_missing"
       });
       expect(
-        state.catalog.resolveForRun(
-          endpoint.endpointId,
-          "workspace-a",
-          ["acp.codex"],
-          "owner_canvas"
-        )
+        state.catalog.resolveForRun(endpoint.endpointId, "workspace-a", ["acp.codex"], {
+          kind: "owner_fleet"
+        })
       ).toMatchObject({ hostId: "host-primary", profileId: "profile-main", agentId: "codex" });
       expect(() =>
-        state.catalog.resolveForRun(
-          endpoint.endpointId,
-          "workspace-a",
-          ["acp.codex"],
-          "workspace_canvas"
-        )
+        state.catalog.resolveForRun(endpoint.endpointId, "workspace-a", ["acp.codex"], {
+          kind: "workspace"
+        })
       ).toThrowError(new AgentEndpointCatalogError("agent_endpoint_unavailable"));
     });
 
@@ -297,20 +290,14 @@ describe("Phase 5 catalog/dispatch authorization", () => {
       const state = catalogFixture();
       const endpoint = state.catalog.listVisibleFleet().items[0]!;
       expect(() =>
-        state.catalog.resolveForRun(
-          "aep_missingendpointid01",
-          "workspace-a",
-          [],
-          "workspace_canvas"
-        )
+        state.catalog.resolveForRun("aep_missingendpointid01", "workspace-a", [], {
+          kind: "workspace"
+        })
       ).toThrowError(new AgentEndpointCatalogError("agent_endpoint_unknown"));
       expect(() =>
-        state.catalog.resolveForRun(
-          endpoint.endpointId,
-          "workspace-a",
-          ["host-only"],
-          "workspace_canvas"
-        )
+        state.catalog.resolveForRun(endpoint.endpointId, "workspace-a", ["host-only"], {
+          kind: "workspace"
+        })
       ).toThrowError(new AgentEndpointCatalogError("agent_endpoint_incompatible"));
     });
   });
@@ -383,6 +370,90 @@ describe("Phase 5 catalog/dispatch authorization", () => {
           resolvedAt: now.toISOString()
         })
       ).toBe("workspace_canvas");
+    });
+
+    it("occupies Host capacity for unrestricted owners writing back to a workspace canvas", () => {
+      expect(
+        occupiesHostCapacity({
+          remoteAgent: {
+            endpointId: "aep_unrestrictedowner01",
+            hostId: "host-primary",
+            profileId: "profile-main",
+            agentId: "codex"
+          },
+          runtimeAuthority: { kind: "workspace_canvas", workspaceId: "workspace-b" },
+          agentAccessAuthority: {
+            kind: "agent_owner",
+            ownerHumanPrincipalId: "owner-human-1",
+            policyRevision: 1
+          },
+          resolvedAt: now.toISOString()
+        })
+      ).toBe(true);
+      expect(
+        occupiesHostCapacity({
+          remoteAgent: {
+            endpointId: "aep_ownercanvasagent01",
+            hostId: "host-primary",
+            profileId: "profile-main",
+            agentId: "codex"
+          },
+          runtimeAuthority: { kind: "owner_canvas" },
+          agentAccessAuthority: {
+            kind: "agent_owner",
+            ownerHumanPrincipalId: "owner-human-1",
+            policyRevision: 1
+          },
+          resolvedAt: now.toISOString()
+        })
+      ).toBe(false);
+    });
+
+    it("derives a closed availability policy for catalog, authorize, and dispatch", () => {
+      expect(
+        deriveEndpointAvailabilityPolicy({
+          accessMode: "unrestricted",
+          agentAccessAuthority: {
+            kind: "agent_owner",
+            ownerHumanPrincipalId: "owner-human-1",
+            policyRevision: 1
+          },
+          target: { kind: "owner_canvas", projectId: "project-a", canvasId: "canvas-main" }
+        })
+      ).toEqual({ kind: "owner_fleet" });
+      expect(
+        deriveEndpointAvailabilityPolicy({
+          accessMode: "unrestricted",
+          agentAccessAuthority: {
+            kind: "agent_owner",
+            ownerHumanPrincipalId: "owner-human-1",
+            policyRevision: 1
+          },
+          target: {
+            kind: "workspace_canvas",
+            workspaceId: "workspace-b",
+            projectId: "project-a",
+            canvasId: "canvas-main"
+          }
+        })
+      ).toEqual({ kind: "owner_workspace" });
+      expect(
+        deriveEndpointAvailabilityPolicy({
+          accessMode: "workspace_restricted",
+          agentAccessAuthority: {
+            kind: "workspace_grant",
+            workspaceId: "workspace-b",
+            grantRevision: 1,
+            policyRevision: 1
+          },
+          target: {
+            kind: "workspace_canvas",
+            workspaceId: "workspace-b",
+            projectId: "project-a",
+            canvasId: "canvas-main"
+          }
+        })
+      ).toEqual({ kind: "workspace" });
     });
   });
 

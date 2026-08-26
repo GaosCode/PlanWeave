@@ -40,6 +40,7 @@ import { createHostAssignmentPort } from "./work/ports.js";
 import type { AssignmentRecord } from "./work/schemas.js";
 import { AuthorityRepository } from "./work/authorityRepository.js";
 import { WorkspaceIdentityRepository } from "./identity/workspaceRepository.js";
+import { HumanPrincipalIdentity } from "./identity/humanPrincipalIdentity.js";
 import { ProjectAccessRepository } from "./projectAccessRepository.js";
 import { evaluateHostAuthorization } from "./work/authorityPolicy.js";
 import { hostAuthorizationFactsSchema } from "@planweave-ai/collaboration-protocol/work/host-authorization";
@@ -149,6 +150,7 @@ export function createRemoteBlockCoordination(
   });
   const authorityRepository = new AuthorityRepository(database, { clock: options.clock });
   const workspaceIdentity = new WorkspaceIdentityRepository(database);
+  const humanIdentity = new HumanPrincipalIdentity(database);
   const projectAccess = new ProjectAccessRepository(database, options.clock);
   const endpointAuthorize: NonNullable<
     ConstructorParameters<typeof RemoteBlockCoordinator>[0]["endpointAuthorize"]
@@ -365,7 +367,8 @@ export function createRemoteBlockCoordination(
         canvasId: candidate.canvasId
       });
     },
-    serverInstanceOwnerToken: startupContext.serverInstanceOwnerToken
+    serverInstanceOwnerToken: startupContext.serverInstanceOwnerToken,
+    humanIdentity
   });
   const dispatches = new DispatchService(database, hosts, artifactAuthorization, {
     leaseDurationMs: options.leaseDurationMs,

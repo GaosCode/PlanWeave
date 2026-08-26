@@ -8,7 +8,7 @@ import { z } from "zod";
 import { AgentEndpointCatalog, type ResolvedAgentEndpoint } from "../agentEndpointCatalog.js";
 import { activeWorkspacePrincipal } from "../projectRegistryRepository.js";
 import type { SqliteDatabase } from "../sqlite.js";
-import { controlPlaneForTarget } from "./dispatchTarget.js";
+import { controlPlaneForTarget, deriveEndpointAvailabilityPolicy } from "./dispatchTarget.js";
 import { RemoteAgentAuthorizationError } from "./errors.js";
 import { HumanPrincipalIdentity } from "../identity/humanPrincipalIdentity.js";
 import { RemoteAgentRepository } from "./repository.js";
@@ -241,15 +241,16 @@ export class RemoteAgentAccessPolicy {
     agent: RemoteAgentRecord,
     agentAccessAuthority: AgentAccessAuthority
   ): ResolvedAgentEndpoint {
-    const runtimeScope =
-      agent.accessMode === "unrestricted" && agentAccessAuthority.kind === "agent_owner"
-        ? "owner_canvas"
-        : input.target.kind;
+    const availability = deriveEndpointAvailabilityPolicy({
+      accessMode: agent.accessMode,
+      agentAccessAuthority,
+      target: input.target
+    });
     const resolved = this.options.catalog.resolveForRun(
       input.endpointId,
       mappingWorkspaceId(input.target, input.runtimeWorkspaceId),
       input.requiredCapabilities,
-      runtimeScope
+      availability
     );
     if (
       resolved.endpointId !== agent.endpointId ||

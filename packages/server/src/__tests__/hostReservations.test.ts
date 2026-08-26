@@ -213,6 +213,130 @@ describe("HostReservationRepository", () => {
     expect(reserved.hostId).toBe(host.id);
   });
 
+  it("counts unrestricted owner workspace-canvas reservations against Host capacity", async () => {
+    const server = await setup();
+    const identity = new WorkspaceIdentityRepository(server.database);
+    const workspaceA = identity.workspaceForLegacyProject("project-a");
+    const workspaceB = identity.ensureWorkspaceForLegacyProject("project-b");
+    if (!workspaceA) throw new Error("workspace_mapping_missing");
+    const hosts = new AgentHostRepository(server.database);
+    const host = hosts.register("Owner Host").host;
+    hosts.bindToWorkspace(host.id, workspaceA);
+    reportReady(hosts, host.id, workspaceA, ["linux"], 1);
+    server.database
+      .prepare("UPDATE agent_hosts SET last_seen_at=? WHERE id=?")
+      .run("2030-01-01T00:00:00.000Z", host.id);
+    const operations = new RemoteOperationRepository(server.database);
+    const reservations = new HostReservationRepository(server.database, {
+      hostOfflineAfterMs: 60_000,
+      leaseDurationMs: 60_000,
+      clock: () => new Date("2030-01-01T00:00:00.000Z")
+    });
+    const first = operations.markClaimed(
+      operations.create({
+        workspaceId: workspaceB,
+        projectId: "project-b",
+        canvasId: "default",
+        blockRef: "RC-002#unrestricted-capacity-a",
+        ownershipGeneration: "generation-1",
+        idempotencyKey: "request-unrestricted-capacity-a",
+        sourceFingerprint: "fingerprint-unrestricted-capacity-a",
+        requiredCapabilities: ["linux"],
+        endpointSelection: {
+          schemaVersion: "endpoint-selection/v1",
+          endpointId: "endpoint-unrestricted-capacity-a",
+          hostId: host.id,
+          profileId: executionProfile.agentProfileId,
+          agentId: executionProfile.agentId,
+          displayName: "Owner Agent",
+          hostDisplayName: "Owner Host",
+          capabilities: ["linux"],
+          resolvedAt: "2030-01-01T00:00:00.000Z",
+          authority: {
+            schemaVersion: "endpoint-authority/v2",
+            kind: "workspace_canvas",
+            workspaceId: workspaceB,
+            responsibilityRevision: 0,
+            reviewerRevision: 0
+          }
+        },
+        agentAccess: {
+          callerHumanPrincipalId: "owner-human-1",
+          authorized: {
+            remoteAgent: {
+              endpointId: "endpoint-unrestricted-capacity-a",
+              hostId: host.id,
+              profileId: executionProfile.agentProfileId,
+              agentId: executionProfile.agentId
+            },
+            runtimeAuthority: { kind: "workspace_canvas", workspaceId: workspaceB },
+            agentAccessAuthority: {
+              kind: "agent_owner",
+              ownerHumanPrincipalId: "owner-human-1",
+              policyRevision: 1
+            },
+            resolvedAt: "2030-01-01T00:00:00.000Z"
+          }
+        }
+      }).id
+    );
+    const second = operations.markClaimed(
+      operations.create({
+        workspaceId: workspaceB,
+        projectId: "project-b",
+        canvasId: "default",
+        blockRef: "RC-002#unrestricted-capacity-b",
+        ownershipGeneration: "generation-1",
+        idempotencyKey: "request-unrestricted-capacity-b",
+        sourceFingerprint: "fingerprint-unrestricted-capacity-b",
+        requiredCapabilities: ["linux"],
+        endpointSelection: {
+          schemaVersion: "endpoint-selection/v1",
+          endpointId: "endpoint-unrestricted-capacity-b",
+          hostId: host.id,
+          profileId: executionProfile.agentProfileId,
+          agentId: executionProfile.agentId,
+          displayName: "Owner Agent",
+          hostDisplayName: "Owner Host",
+          capabilities: ["linux"],
+          resolvedAt: "2030-01-01T00:00:00.000Z",
+          authority: {
+            schemaVersion: "endpoint-authority/v2",
+            kind: "workspace_canvas",
+            workspaceId: workspaceB,
+            responsibilityRevision: 0,
+            reviewerRevision: 0
+          }
+        },
+        agentAccess: {
+          callerHumanPrincipalId: "owner-human-1",
+          authorized: {
+            remoteAgent: {
+              endpointId: "endpoint-unrestricted-capacity-b",
+              hostId: host.id,
+              profileId: executionProfile.agentProfileId,
+              agentId: executionProfile.agentId
+            },
+            runtimeAuthority: { kind: "workspace_canvas", workspaceId: workspaceB },
+            agentAccessAuthority: {
+              kind: "agent_owner",
+              ownerHumanPrincipalId: "owner-human-1",
+              policyRevision: 1
+            },
+            resolvedAt: "2030-01-01T00:00:00.000Z"
+          }
+        }
+      }).id
+    );
+    expect(
+      reservations.reserve(first.id, { ...executionProfile, preferredHostId: host.id }).hostId
+    ).toBe(host.id);
+    expect(() =>
+      reservations.reserve(second.id, { ...executionProfile, preferredHostId: host.id })
+    ).toThrowError("no_compatible_agent_host");
+    expect(reservations.activeCountsForHosts([host.id]).get(host.id)).toBe(1);
+  });
+
   it("excludes in-flight v1 owner controlPlane JSON from collaboration Host capacity", async () => {
     const server = await setup();
     const workspaceId = new WorkspaceIdentityRepository(server.database).workspaceForLegacyProject(

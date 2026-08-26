@@ -167,12 +167,9 @@ describe("AgentEndpointCatalog", () => {
     const endpointAfterFirstPage = endpoints[100]!;
     expect(endpointAfterFirstPage.hostDisplayName).toBe("Host 101");
     expect(
-      state.catalog.resolveForRun(
-        endpointAfterFirstPage.endpointId,
-        "workspace-a",
-        ["acp.codex"],
-        "owner_canvas"
-      )
+      state.catalog.resolveForRun(endpointAfterFirstPage.endpointId, "workspace-a", ["acp.codex"], {
+        kind: "owner_fleet"
+      })
     ).toMatchObject({ hostId: "host-101" });
   });
 
@@ -233,7 +230,7 @@ describe("AgentEndpointCatalog", () => {
     });
     expect(legacyId).not.toBe(endpoint.endpointId);
     expect(() =>
-      state.catalog.resolveForRun(legacyId, "workspace-a", ["acp.codex"], "workspace_canvas")
+      state.catalog.resolveForRun(legacyId, "workspace-a", ["acp.codex"], { kind: "workspace" })
     ).toThrowError(new AgentEndpointCatalogError("agent_endpoint_unknown"));
   });
 
@@ -337,12 +334,9 @@ describe("AgentEndpointCatalog", () => {
       unavailableReason: "workspace_mapping_missing"
     });
     expect(() =>
-      state.catalog.resolveForRun(
-        endpoint.endpointId,
-        "workspace-a",
-        ["acp.codex"],
-        "workspace_canvas"
-      )
+      state.catalog.resolveForRun(endpoint.endpointId, "workspace-a", ["acp.codex"], {
+        kind: "workspace"
+      })
     ).toThrowError(new AgentEndpointCatalogError("agent_endpoint_unavailable"));
   });
 
@@ -364,10 +358,14 @@ describe("AgentEndpointCatalog", () => {
     });
     const endpoint = catalog.listVisibleFleet().items[0]!;
     expect(
-      catalog.resolveForRun(endpoint.endpointId, "workspace-a", ["acp.codex"], "owner_canvas")
+      catalog.resolveForRun(endpoint.endpointId, "workspace-a", ["acp.codex"], {
+        kind: "owner_fleet"
+      })
     ).toMatchObject({ hostId: "host-primary", profileId: "profile-main", agentId: "codex" });
     expect(() =>
-      catalog.resolveForRun(endpoint.endpointId, "workspace-a", ["acp.codex"], "workspace_canvas")
+      catalog.resolveForRun(endpoint.endpointId, "workspace-a", ["acp.codex"], {
+        kind: "workspace"
+      })
     ).toThrowError(new AgentEndpointCatalogError("agent_endpoint_unavailable"));
   });
 
@@ -426,16 +424,24 @@ describe("AgentEndpointCatalog", () => {
       unavailableReason: "at_capacity"
     });
     expect(
-      state.catalog.resolveForRun(after.endpointId, "workspace-a", ["acp.codex"], "owner_canvas")
+      state.catalog.resolveForRun(after.endpointId, "workspace-a", ["acp.codex"], {
+        kind: "owner_fleet"
+      })
     ).toMatchObject({ hostId: "host-primary" });
     expect(() =>
-      state.catalog.resolveForRun(
-        after.endpointId,
-        "workspace-a",
-        ["acp.codex"],
-        "workspace_canvas"
-      )
+      state.catalog.resolveForRun(after.endpointId, "workspace-a", ["acp.codex"], {
+        kind: "workspace"
+      })
     ).toThrowError(new AgentEndpointCatalogError("agent_endpoint_unavailable"));
+    expect(() =>
+      state.catalog.resolveForRun(after.endpointId, "workspace-a", ["acp.codex"], {
+        kind: "owner_workspace"
+      })
+    ).toThrowError(new AgentEndpointCatalogError("agent_endpoint_unavailable"));
+    expect(state.catalog.listProjected({ kind: "owner_workspace" }).items[0]).toMatchObject({
+      status: "unavailable",
+      unavailableReason: "at_capacity"
+    });
   });
 
   it("loads capacity once for a multi-endpoint workspace catalog snapshot", () => {
@@ -457,20 +463,14 @@ describe("AgentEndpointCatalog", () => {
     const state = fixture();
     const endpoint = state.catalog.listVisibleFleet().items[0]!;
     expect(
-      state.catalog.resolveForRun(
-        endpoint.endpointId,
-        "workspace-a",
-        ["acp.codex"],
-        "workspace_canvas"
-      )
+      state.catalog.resolveForRun(endpoint.endpointId, "workspace-a", ["acp.codex"], {
+        kind: "workspace"
+      })
     ).toMatchObject({ hostId: "host-primary", profileId: "profile-main", agentId: "codex" });
     expect(() =>
-      state.catalog.resolveForRun(
-        endpoint.endpointId,
-        "workspace-a",
-        ["host-only"],
-        "workspace_canvas"
-      )
+      state.catalog.resolveForRun(endpoint.endpointId, "workspace-a", ["host-only"], {
+        kind: "workspace"
+      })
     ).toThrowError(new AgentEndpointCatalogError("agent_endpoint_incompatible"));
   });
 
@@ -484,7 +484,7 @@ describe("AgentEndpointCatalog", () => {
         "workspace-a",
         ["acp.codex"],
         "host-primary",
-        "workspace_canvas"
+        { kind: "workspace" }
       )
     ).toMatchObject({ endpointId: endpoint.endpointId, hostId: "host-primary" });
     expect(() =>
@@ -493,7 +493,7 @@ describe("AgentEndpointCatalog", () => {
         "workspace-a",
         ["acp.codex"],
         "host-secondary",
-        "workspace_canvas"
+        { kind: "workspace" }
       )
     ).toThrowError(new AgentEndpointCatalogError("agent_endpoint_unknown"));
   });
@@ -507,12 +507,9 @@ describe("AgentEndpointCatalog", () => {
       .items.find((item) => item.hostDisplayName === "Build Mac")!;
     state.setHosts([{ ...first, lastSeenAt: "2026-08-03T07:00:00.000Z" }, second]);
     expect(() =>
-      state.catalog.resolveForRun(
-        endpoint.endpointId,
-        "workspace-a",
-        ["acp.codex"],
-        "workspace_canvas"
-      )
+      state.catalog.resolveForRun(endpoint.endpointId, "workspace-a", ["acp.codex"], {
+        kind: "workspace"
+      })
     ).toThrowError(new AgentEndpointCatalogError("agent_endpoint_unavailable"));
   });
 
@@ -521,7 +518,7 @@ describe("AgentEndpointCatalog", () => {
     const endpoint = state.catalog.listVisibleFleet().items[0]!;
     state.setHosts([]);
     expect(() =>
-      state.catalog.resolveForRun(endpoint.endpointId, "workspace-a", [], "workspace_canvas")
+      state.catalog.resolveForRun(endpoint.endpointId, "workspace-a", [], { kind: "workspace" })
     ).toThrowError(new AgentEndpointCatalogError("agent_endpoint_unknown"));
   });
 

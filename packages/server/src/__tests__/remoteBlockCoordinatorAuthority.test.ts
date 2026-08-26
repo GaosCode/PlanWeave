@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { HumanIdentityCredentialStore } from "../identity/humanIdentityCredentialStore.js";
 import { workspaceMembershipIdFor } from "../identity/workspaceMembershipProjection.js";
 import { RemoteAgentAuthorizationError } from "../remoteAgent/errors.js";
 import { RemoteAgentRepository } from "../remoteAgent/repository.js";
@@ -254,6 +255,29 @@ describe("RemoteBlockCoordinator authority snapshots", () => {
     await expect(fixture.coordinator.dispatch(intruder)).rejects.toThrow(
       "remote_operation_idempotency_conflict"
     );
+  });
+
+  it("reenters the same idempotency key after the caller identity is merged", async () => {
+    const fixture = await setup(true);
+    const canonicalId = "test-remote-agent-owner-canonical";
+    ensureTestHumanPrincipal(fixture.server.database, canonicalId, "Canonical Owner");
+    const request = endpointDispatchRequest({
+      agentEndpoints: fixture.agentEndpoints,
+      locator: fixture.locator,
+      blockRef: "T-001#B-001",
+      idempotencyKey: "merged-caller-idempotency"
+    });
+    const first = await fixture.coordinator.dispatch(request);
+    const identities = new HumanIdentityCredentialStore(fixture.server.database, () => new Date());
+    const tokenOwner = identities.issue(TEST_REMOTE_AGENT_OWNER_ID);
+    const tokenCanonical = identities.issue(canonicalId);
+    identities.merge(tokenOwner.identityToken, tokenCanonical.identityToken);
+    const retried = await fixture.coordinator.dispatch({
+      ...request,
+      callerHumanPrincipalId: canonicalId
+    });
+    expect(retried.operation.id).toBe(first.operation.id);
+    expect(retried.operation.agentAccess?.callerHumanPrincipalId).toBe(TEST_REMOTE_AGENT_OWNER_ID);
   });
 
   it("fails closed when retry_new_attempt has no agent access snapshot", async () => {
