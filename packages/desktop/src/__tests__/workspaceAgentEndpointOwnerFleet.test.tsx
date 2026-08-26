@@ -15,7 +15,10 @@ import {
   remoteAgentEndpointPreferenceKey
 } from "../renderer/collaboration/agentEndpointPreferences";
 import type { AvailableAgentEndpoint } from "../renderer/collaboration/agentEndpointViewModel";
-import { runWorkspaceRemoteScope } from "../renderer/collaboration/workspaceRemoteScopeScheduler";
+import {
+  runWorkspaceRemoteScope,
+  runWorkspaceRemoteScopeFromAvailability
+} from "../renderer/collaboration/workspaceRemoteScopeScheduler";
 import { useWorkspaceAgentEndpointRun } from "../renderer/hooks/useWorkspaceAgentEndpointRun";
 
 const operatorControlBridgeMock = vi.hoisted(() => ({
@@ -872,6 +875,60 @@ describe("Workspace remote scope scheduling", () => {
       }
     ]
   };
+
+  it.each([
+    { label: "Task", scope: { kind: "task", taskId: "T-001" } as const },
+    { label: "Project", scope: { kind: "project" } as const }
+  ])("causes the first $label dispatch before an uninitialized projection exists", async ({
+    scope
+  }) => {
+    let dispatched = false;
+    const execute = vi.fn(async () => {
+      dispatched = true;
+    });
+    const completed = remoteScopeStatus([
+      { ref: "T-001#B-001", status: "completed", dispatchable: false },
+      { ref: "T-001#B-002", status: "completed", dispatchable: false }
+    ]);
+    const readAvailability = vi.fn(async () => {
+      if (!dispatched) {
+        return {
+          schemaVersion: "canvas-runtime-view/v1" as const,
+          state: { kind: "uninitialized" as const },
+          execution: {
+            schemaVersion: "canvas-runtime-availability/v1" as const,
+            kind: "available" as const,
+            status: completed,
+            sourceRevision: "source-revision-1",
+            graphFingerprint: graph.packageFingerprint
+          }
+        };
+      }
+      return {
+        schemaVersion: "canvas-runtime-view/v1" as const,
+        state: { kind: "initialized" as const, status: completed },
+        execution: {
+          schemaVersion: "canvas-runtime-availability/v1" as const,
+          kind: "available" as const,
+          status: completed,
+          sourceRevision: "source-revision-1",
+          graphFingerprint: graph.packageFingerprint
+        }
+      };
+    });
+
+    await runWorkspaceRemoteScopeFromAvailability({
+      graph: dependencyGraph,
+      scope,
+      binding: { workspaceId: "workspace-1", projectId: "project-server", canvasId: "canvas-main" },
+      readAvailability,
+      execute
+    });
+
+    expect(execute).toHaveBeenCalledOnce();
+    expect(execute).toHaveBeenCalledWith("T-001#B-001", undefined);
+    expect(readAvailability).toHaveBeenCalledTimes(2);
+  });
 
   it("advances a Task run from authoritative dispatchable state", async () => {
     let phase = 0;

@@ -27,6 +27,16 @@ export function collaborationRuntimeStartAllowed(
   return availability.kind === "unavailable" && availability.reason === "runtime_not_attached";
 }
 
+export function collaborationRuntimeResetAllowed(
+  availability: CollaborationRuntimeAvailabilityView
+): boolean {
+  return (
+    collaborationRuntimeOperationsAllowed(availability) ||
+    availability.kind === "state_uninitialized" ||
+    (availability.kind === "unavailable" && availability.reason === "runtime_not_attached")
+  );
+}
+
 export function collaborationRuntimeStatusKnown(
   availability: CollaborationRuntimeAvailabilityView
 ): boolean {

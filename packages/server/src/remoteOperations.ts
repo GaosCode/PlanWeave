@@ -4,6 +4,10 @@ import {
   opaqueIdentifierSchema
 } from "@planweave-ai/agent-host-protocol";
 import { workspaceIdSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
+import {
+  remoteOperationDiagnosticStageSchema,
+  type RemoteOperationDiagnosticStage
+} from "@planweave-ai/collaboration-protocol/remote-run";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { capabilitiesSchema } from "./protocol.js";
@@ -219,6 +223,21 @@ export type RemoteOperation = {
   attempt: RemoteExecutionAttempt;
 };
 
+export type RemoteOperationDiagnosticEvidence = {
+  stage: RemoteOperationDiagnosticStage;
+  error?: { code: string; retryable: boolean };
+};
+
+function diagnosticRetryable(code: string): boolean {
+  return new Set([
+    "agent_endpoint_unavailable",
+    "host_offline",
+    "no_compatible_agent_host",
+    "runtime_host_unavailable",
+    "runtime_reconciliation_conflict"
+  ]).has(code);
+}
+
 const operationColumns = `
   id,workspace_id,project_id,canvas_id,block_ref,ownership_generation,idempotency_key,request_fingerprint,
   source_fingerprint,required_capabilities_json,state,dispatch_id,execution_attempt_id,
@@ -385,6 +404,7 @@ export class RemoteOperationRepository {
           now
         );
       this.appendEvent(operationId, executionAttemptId, "remote.operation.created", now);
+      this.insertDiagnostic(this.getRequired(operationId), "preparing_runtime");
       return this.getRequired(operationId);
     });
   }
@@ -944,6 +964,76 @@ export class RemoteOperationRepository {
       )
       .run(parsedCode, parsedMessage, this.clock().toISOString(), operationId);
     if (updated.changes !== 1) throw new Error("remote_operation_not_actionable");
+    const operation = this.getRequired(operationId);
+    const latest = this.latestDiagnostic(operationId);
+    this.insertDiagnostic(
+      operation,
+      latest?.stage ?? "preparing_runtime",
+      parsedCode,
+      diagnosticRetryable(parsedCode)
+    );
+  }
+
+  recordDiagnosticStage(operationId: string, stage: RemoteOperationDiagnosticStage): void {
+    const operation = this.getRequired(operationId);
+    const latest = this.latestDiagnostic(operationId);
+    if (latest?.stage === stage && !latest.error) {
+      return;
+    }
+    this.insertDiagnostic(operation, stage);
+  }
+
+  latestDiagnostic(operationId: string): RemoteOperationDiagnosticEvidence | undefined {
+    const row = this.database
+      .prepare(
+        `SELECT stage,error_code,error_retryable
+           FROM remote_operation_diagnostics
+          WHERE operation_id=? ORDER BY sequence DESC LIMIT 1`
+      )
+      .get(opaqueIdentifierSchema.parse(operationId));
+    if (!row) return undefined;
+    const stage = remoteOperationDiagnosticStageSchema.parse(row.stage);
+    const errorCode =
+      row.error_code == null ? undefined : opaqueIdentifierSchema.parse(row.error_code);
+    return {
+      stage,
+      ...(errorCode
+        ? {
+            error: {
+              code: errorCode,
+              retryable: z.number().int().min(0).max(1).parse(row.error_retryable) === 1
+            }
+          }
+        : {})
+    };
+  }
+
+  getRequiredDiagnostic(operationId: string): RemoteOperationDiagnosticEvidence {
+    const diagnostic = this.latestDiagnostic(operationId);
+    if (!diagnostic) throw new Error("remote_operation_diagnostic_missing");
+    return diagnostic;
+  }
+
+  private insertDiagnostic(
+    operation: RemoteOperation,
+    stage: RemoteOperationDiagnosticStage,
+    errorCode?: string,
+    retryable?: boolean
+  ): void {
+    this.database
+      .prepare(
+        `INSERT INTO remote_operation_diagnostics(
+           operation_id,execution_attempt_id,stage,error_code,error_retryable,occurred_at
+         ) VALUES(?,?,?,?,?,?)`
+      )
+      .run(
+        operation.id,
+        operation.executionAttemptId,
+        stage,
+        errorCode ?? null,
+        errorCode ? (retryable ? 1 : 0) : null,
+        this.clock().toISOString()
+      );
   }
 
   clearDiagnostic(operationId: string): void {

@@ -1,3 +1,4 @@
+import { buildResetCanvasRuntimeStatusProjection } from "@planweave-ai/runtime";
 import {
   canvasRuntimeResetRejectedSchema,
   canvasRuntimeResetRequestSchema,
@@ -210,11 +211,28 @@ export class CanvasRuntimeCommandCoordinator {
         if (!lease.reset) throw new CanvasRuntimeUnavailableError();
         hostResult = await lease.reset(command);
       } catch (error) {
-        const failure = hostFailure(error);
-        if (failure.code !== "reconcile_required") {
-          return rejectAndComplete(failure.code);
+        if (
+          error instanceof CanvasRuntimeUnavailableError &&
+          error.reason === "runtime_not_attached"
+        ) {
+          const authoritative = this.options.contentVersions.readVersion(scope, head.content);
+          hostResult = {
+            operationId: request.operationId,
+            sourceRevision: request.expectedSourceRevision,
+            graphFingerprint: request.expectedGraphFingerprint,
+            status: buildResetCanvasRuntimeStatusProjection({
+              content: authoritative.content,
+              scope,
+              packageFingerprint: request.expectedGraphFingerprint
+            })
+          };
+        } else {
+          const failure = hostFailure(error);
+          if (failure.code !== "reconcile_required") {
+            return rejectAndComplete(failure.code);
+          }
+          this.markUnknown(scope, request.operationId);
         }
-        this.markUnknown(scope, request.operationId);
       } finally {
         if (lease) {
           try {

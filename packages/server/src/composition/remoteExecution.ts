@@ -28,7 +28,7 @@ import { RemoteOperationRetention } from "../remoteOperationRetention.js";
 import type { RuntimeAttachmentRequest } from "../canvas/runtimeAttachment.js";
 import type {
   CanvasExecutionRuntimeLease,
-  CanvasExecutionRuntimeLeasePort,
+  CanvasExecutionRuntimeRoutePort,
   CanvasRuntimeScopeAvailabilityPort,
   OwnerCanvasRuntimeScopeResolverPort
 } from "../canvas/executionRuntimePort.js";
@@ -39,7 +39,7 @@ import { ContentVersionRepository } from "../canvas/contentVersionRepository.js"
 export function createRemoteCoordinationOptions(input: {
   config: ServerConfig;
   clock: () => Date;
-  ownerRuntimeLeases: CanvasExecutionRuntimeLeasePort;
+  ownerRuntimeLeases: CanvasExecutionRuntimeRoutePort;
   ownerRuntimeAvailability: CanvasRuntimeScopeAvailabilityPort;
   activity: ActivityJournalComposition;
   getAuthorization(): OperatorTokenRegistry;

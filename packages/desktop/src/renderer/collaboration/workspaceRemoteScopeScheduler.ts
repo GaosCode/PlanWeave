@@ -8,6 +8,7 @@ type WorkspaceRemoteScopeSchedulerInput = {
   readStatus: () => Promise<CanvasRuntimeStatusProjection>;
   execute: (blockRef: string, signal?: AbortSignal) => Promise<void>;
   waitForStatusChange?: (signal?: AbortSignal) => Promise<void>;
+  initiallyDispatchedBlockRefs?: readonly string[];
   signal?: AbortSignal;
 };
 
@@ -57,7 +58,7 @@ export async function runWorkspaceRemoteScope(
 ): Promise<void> {
   const blockRefs = scopeBlockRefs(input.graph, input.scope);
   if (blockRefs.length === 0) return;
-  const dispatchedBlockRefs = new Set<string>();
+  const dispatchedBlockRefs = new Set(input.initiallyDispatchedBlockRefs);
   const waitForStatusChange = input.waitForStatusChange ?? waitForFallbackRefresh;
 
   while (!input.signal?.aborted) {
@@ -120,12 +121,37 @@ export async function runWorkspaceRemoteScopeFromAvailability(input: {
   signal?: AbortSignal;
 }): Promise<void> {
   const waitForStatusChange = input.waitForStatusChange ?? waitForFallbackRefresh;
+  let pendingAvailability = await input.readAvailability();
+  if (!pendingAvailability) throw new Error("collaboration_runtime_availability_unavailable");
+  const initiallyDispatchedBlockRefs: string[] = [];
+  if (pendingAvailability.state.kind === "uninitialized") {
+    if (pendingAvailability.execution.kind === "unavailable") {
+      throw new Error(`collaboration_runtime_${pendingAvailability.execution.reason}`);
+    }
+    const scopedRefs = new Set(scopeBlockRefs(input.graph, input.scope));
+    const firstDispatchable = input.graph.tasks
+      .flatMap((task) => task.blocks)
+      .find(
+        (block) =>
+          scopedRefs.has(block.ref) &&
+          block.dispatchable &&
+          block.status !== "completed" &&
+          block.status !== "in_progress"
+      );
+    if (!firstDispatchable) {
+      throw new Error("workspace_remote_scope_idle:no_dispatchable_blocks");
+    }
+    initiallyDispatchedBlockRefs.push(firstDispatchable.ref);
+    await input.execute(firstDispatchable.ref, input.signal);
+    pendingAvailability = null;
+  }
   await runWorkspaceRemoteScope({
     graph: input.graph,
     scope: input.scope,
     readStatus: async () => {
       while (!input.signal?.aborted) {
-        const availability = await input.readAvailability();
+        const availability = pendingAvailability ?? (await input.readAvailability());
+        pendingAvailability = null;
         if (!availability) throw new Error("collaboration_runtime_availability_unavailable");
         if (availability.state.kind === "uninitialized") {
           if (availability.execution.kind === "unavailable") {
@@ -148,6 +174,7 @@ export async function runWorkspaceRemoteScopeFromAvailability(input: {
     },
     execute: input.execute,
     waitForStatusChange,
+    initiallyDispatchedBlockRefs,
     signal: input.signal
   });
 }

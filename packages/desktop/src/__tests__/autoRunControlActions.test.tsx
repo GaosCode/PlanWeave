@@ -568,7 +568,7 @@ describe("auto run control hook actions", () => {
     );
 
     expect(result.current.runtimeOperationsAllowed).toBe(true);
-    expect(result.current.runtimeResetAllowed).toBe(false);
+    expect(result.current.runtimeResetAllowed).toBe(true);
 
     await act(async () => {
       await result.current.handleAutoRunClick();
@@ -669,6 +669,12 @@ describe("auto run control hook actions", () => {
     expect(resetWorkspaceRuntime).toHaveBeenCalledOnce();
     expect(onAutoRunDerivedStateRefresh).not.toHaveBeenCalled();
     expect(result.current.endpointScopeRunPhase).toBeNull();
+
+    await act(async () => {
+      await result.current.handleAutoRunClick();
+    });
+    expect(startAutoRunScope).toHaveBeenCalledTimes(2);
+    expect(result.current.endpointScopeRunPhase).toBe("completed");
   });
 
   it("blocks runtime reset while an Auto Run step is active", async () => {

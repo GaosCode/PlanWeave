@@ -26,7 +26,7 @@ import type { HostCapacityReservation } from "./hostReservations.js";
 import type { RemoteOperation } from "./remoteOperations.js";
 import type { PersistedRemoteAgentAccessSnapshot } from "./remoteAgent/schema.js";
 import {
-  remoteRuntimeLocatorForHost,
+  acquireRemoteRuntimeLease,
   authorizedOperationHostId
 } from "./remoteBlockCoordinatorPorts.js";
 import {
@@ -70,7 +70,11 @@ export class RemoteBlockActionCoordinator {
   }
 
   execute(rawAction: unknown): Promise<RemoteExecutionActionRecord> {
-    return this.actionService.execute(rawAction);
+    const action = remoteExecutionActionRequestSchema.parse(rawAction);
+    if (action.kind === "cancel") {
+      this.options.operations.recordDiagnosticStage(action.operationId, "cancelling");
+    }
+    return this.actionService.execute(action);
   }
 
   executeHuman(rawCommand: unknown): Promise<RemoteExecutionActionRecord> {
@@ -91,6 +95,7 @@ export class RemoteBlockActionCoordinator {
   }
 
   async requestCancel(operationId: string, reason: string): Promise<void> {
+    this.options.operations.recordDiagnosticStage(operationId, "cancelling");
     const operation = this.options.operations.getRequired(operationId);
     if (!operation.attempt.leaseId) throw new Error("remote_attempt_not_bound");
     await this.execute({
@@ -276,15 +281,15 @@ export class RemoteBlockActionCoordinator {
       workspaceId: string;
       projectId: string;
       canvasId: string;
-      hostId?: string;
       endpointSelection?: { hostId: string };
       agentAccess?: { authorized: { remoteAgent: { hostId: string } } };
     },
     operation: (runtime: RemoteBlockRuntimePort) => Promise<T>
   ): Promise<T> {
-    const hostId = locator.hostId ?? authorizedOperationHostId(locator);
-    const acquired = await this.options.runtimeLeases.acquire(
-      remoteRuntimeLocatorForHost(locator, hostId)
+    const acquired = await acquireRemoteRuntimeLease(
+      this.options.runtimeLeases,
+      locator,
+      authorizedOperationHostId(locator)
     );
     try {
       return await operation(acquired.runtime);

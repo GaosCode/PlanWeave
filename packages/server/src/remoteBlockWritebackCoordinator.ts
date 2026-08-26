@@ -123,6 +123,7 @@ export class RemoteBlockWritebackCoordinator {
   }
 
   finalizeOperationTerminal(operation: RemoteOperation, status: TerminalStatus): void {
+    this.options.operations.recordDiagnosticStage(operation.id, "terminal");
     if (!operation.attempt.leaseId) throw new Error("remote_terminal_attempt_not_bound");
     const reservation = this.options.reservations.getRequired(operation.attempt.leaseId);
     if (reservation.status === "active") {
@@ -148,6 +149,7 @@ export class RemoteBlockWritebackCoordinator {
     runtimeLease: CanvasExecutionRuntimeLease
   ): Promise<void> {
     let operation = this.options.operations.getRequired(operationId);
+    this.options.operations.recordDiagnosticStage(operation.id, "writing_back");
     if (this.reconcileTerminalOperationReplay(operation)) return;
     this.authorizeWritebackIfLeaseActive(operation);
     const terminal = this.options.dispatches.inspect(operation).dispatch;
@@ -197,6 +199,7 @@ export class RemoteBlockWritebackCoordinator {
     runtimeLease: CanvasExecutionRuntimeLease
   ): Promise<void> {
     let operation = this.options.operations.getRequired(operationId);
+    this.options.operations.recordDiagnosticStage(operation.id, "writing_back");
     if (this.reconcileTerminalOperationReplay(operation)) return;
     this.authorizeWritebackIfLeaseActive(operation);
     const terminal = this.options.dispatches.inspect(operation).dispatch;

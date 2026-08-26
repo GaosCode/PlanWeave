@@ -406,6 +406,10 @@ describe("human remote operation HTTP", () => {
           code: "acp_authentication_required",
           message: "ACP authentication is required.",
           retryable: false
+        },
+        diagnostics: {
+          stage: "terminal",
+          error: { code: "acp_authentication_required", retryable: false }
         }
       }
     });
@@ -689,6 +693,12 @@ describe("human remote operation HTTP", () => {
     expect({ status: action.status, body: actionBody }).toMatchObject({
       status: 202,
       body: { state: "delivered" }
+    });
+    const cancelling = await fetch(`${collection}/${operation.operationId}`, {
+      headers: { Authorization: `Bearer ${ownerToken}` }
+    });
+    await expect(cancelling.json()).resolves.toMatchObject({
+      diagnostics: { stage: "cancelling" }
     });
   });
 

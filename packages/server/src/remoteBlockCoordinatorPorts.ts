@@ -13,6 +13,11 @@ import type { HostCapacityReservation } from "./hostReservations.js";
 import type { MailboxMessage } from "./mailbox.js";
 import type { RemoteOperation } from "./remoteOperations.js";
 import type {
+  CanvasExecutionRuntimeLease,
+  CanvasExecutionRuntimeLeasePort,
+  CanvasExecutionRuntimeRoutePort
+} from "./canvas/executionRuntimePort.js";
+import type {
   RemoteExecutionActionRequest,
   RemoteExecutionLifecycleSnapshot
 } from "./remoteExecutionLifecycle.js";
@@ -45,8 +50,6 @@ export type RemoteRuntimeLocator = {
   workspaceId: string;
   projectId: string;
   canvasId: string;
-  /** Already-authorized Host for this request. Inspect/acquire must not persist a ready binding to discover it. */
-  hostId?: string;
 };
 
 /** Project a domain record onto the exact Runtime lease scope contract. */
@@ -54,21 +57,20 @@ export function remoteRuntimeLocator(locator: RemoteRuntimeLocator): RemoteRunti
   return {
     workspaceId: locator.workspaceId,
     projectId: locator.projectId,
-    canvasId: locator.canvasId,
-    ...(locator.hostId ? { hostId: locator.hostId } : {})
+    canvasId: locator.canvasId
   };
 }
 
-export function remoteRuntimeLocatorForHost(
+export function acquireRemoteRuntimeLease(
+  runtimeLeases: CanvasExecutionRuntimeLeasePort | CanvasExecutionRuntimeRoutePort,
   locator: RemoteRuntimeLocator,
   hostId: string | undefined
-): RemoteRuntimeLocator {
-  return remoteRuntimeLocator({
-    workspaceId: locator.workspaceId,
-    projectId: locator.projectId,
-    canvasId: locator.canvasId,
-    ...(hostId ? { hostId } : {})
-  });
+): CanvasExecutionRuntimeLease | Promise<CanvasExecutionRuntimeLease> {
+  const scope = remoteRuntimeLocator(locator);
+  if (hostId && "acquireForHost" in runtimeLeases) {
+    return runtimeLeases.acquireForHost(scope, hostId);
+  }
+  return runtimeLeases.acquire(scope);
 }
 
 export function authorizedOperationHostId(operation: {

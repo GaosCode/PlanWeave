@@ -182,6 +182,7 @@ export {
 } from "./desktop/workspaceForkLineage.js";
 export { validateAuthoritativeCanvasContent } from "./desktop/contentVersionValidation.js";
 export type { ValidatedAuthoritativeCanvasContent } from "./desktop/contentVersionValidation.js";
+export { buildResetCanvasRuntimeStatusProjection } from "./desktop/resetCanvasRuntimeStatus.js";
 export {
   readAuthorizedCanvasRuntimeStatus,
   type ReadAuthorizedCanvasRuntimeStatusInput

@@ -16,7 +16,7 @@ import type {
   RemoteCoordinatorCheckpointPort,
   RemoteInputArtifactPort
 } from "./remoteBlockCoordinatorPorts.js";
-import type { CanvasExecutionRuntimeLeasePort } from "./canvas/executionRuntimePort.js";
+import type { CanvasExecutionRuntimeRoutePort } from "./canvas/executionRuntimePort.js";
 import {
   SqliteRemoteDispatchPersistence,
   SqliteRemoteOperationCandidateRepository
@@ -55,7 +55,7 @@ export type RemoteBlockCoordinationOptions = {
   leaseDurationMs: number;
   hostOfflineAfterMs: number;
   clock?: () => Date;
-  runtimeLeases: CanvasExecutionRuntimeLeasePort;
+  runtimeLeases: CanvasExecutionRuntimeRoutePort;
   inputArtifacts: RemoteInputArtifactPort;
   artifactContent: RemoteArtifactContentPort;
   checkpoints?: RemoteCoordinatorCheckpointPort;

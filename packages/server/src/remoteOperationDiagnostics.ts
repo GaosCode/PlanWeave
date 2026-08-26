@@ -1,28 +1,14 @@
 import { createHash } from "node:crypto";
 import {
   remoteOperationDiagnosticsSchema,
-  type RemoteOperationDiagnosticStage,
   type RemoteOperationDiagnostics,
   type RemoteRuntimeBindingProjection
 } from "@planweave-ai/collaboration-protocol/remote-run";
 import type { NormalizedFailure } from "@planweave-ai/agent-host-protocol";
 import type { RemoteOperation } from "./remoteOperations.js";
+import type { RemoteOperationDiagnosticEvidence } from "./remoteOperations.js";
 
 type RuntimeProjection = Pick<RemoteRuntimeBindingProjection, "ownership">;
-
-function diagnosticStage(
-  operation: RemoteOperation,
-  dispatchStatus: string | undefined
-): RemoteOperationDiagnosticStage {
-  if (["completed", "failed", "cancelled"].includes(operation.state)) return "terminal";
-  if (dispatchStatus === "cancelling") return "cancelling";
-  if (operation.state === "awaiting_writeback") return "writing_back";
-  if (["running", "interrupted", "action_required"].includes(operation.state)) return "running";
-  if (operation.state === "activated") return "dispatching";
-  if (operation.state === "reserved") return "attaching_runtime";
-  if (operation.state === "claimed") return "materializing";
-  return "preparing_runtime";
-}
 
 function redactedHostGeneration(operation: RemoteOperation): string | undefined {
   const hostGeneration = operation.endpointSelection?.hostId ?? operation.attempt.hostId;
@@ -37,6 +23,7 @@ export function buildRemoteOperationDiagnostics(input: {
   runtime: RuntimeProjection;
   dispatchStatus?: string;
   failure?: NormalizedFailure;
+  diagnostic: RemoteOperationDiagnosticEvidence;
 }): RemoteOperationDiagnostics {
   const { operation } = input;
   const terminal = ["completed", "failed", "cancelled"].includes(operation.state);
@@ -45,7 +32,7 @@ export function buildRemoteOperationDiagnostics(input: {
   const executionTargetRevision =
     operation.hostSelection?.authorityRevisions?.executionTargetRevision;
   return remoteOperationDiagnosticsSchema.parse({
-    stage: diagnosticStage(operation, input.dispatchStatus),
+    stage: input.diagnostic.stage,
     revision: input.revision,
     attemptId: operation.executionAttemptId,
     locator: {
@@ -96,6 +83,8 @@ export function buildRemoteOperationDiagnostics(input: {
     ...(operation.attempt.leaseExpiresAt ? { timeoutAt: operation.attempt.leaseExpiresAt } : {}),
     ...(input.failure
       ? { error: { code: input.failure.code, retryable: input.failure.retryable } }
-      : {})
+      : input.diagnostic.error
+        ? { error: input.diagnostic.error }
+        : {})
   });
 }

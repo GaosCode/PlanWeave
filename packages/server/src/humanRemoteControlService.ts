@@ -174,7 +174,8 @@ export class HumanRemoteControlService {
         revision: this.options.operations.observationRevision(operation.id),
         runtime,
         dispatchStatus: dispatch?.status,
-        failure: dispatch?.failure
+        failure: dispatch?.failure,
+        diagnostic: this.options.operations.getRequiredDiagnostic(operation.id)
       }),
       runtime: {
         ref: runtime.ref,

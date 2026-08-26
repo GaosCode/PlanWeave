@@ -10,6 +10,10 @@ import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js"
 import { loopbackHttpTransportAdmission } from "./support/transportAdmission.js";
 import { canvasCommandServiceFixture, submitBody } from "./support/canvasCommandServiceFixture.js";
 import { CanvasRuntimeInitializationCoordinator } from "../canvas/runtimeInitializationCoordinator.js";
+import { CanvasRuntimeCommandCoordinator } from "../canvas/runtimeCommandCoordinator.js";
+import { CanvasRuntimeResetReceiptRepository } from "../canvas/runtimeCommandReceipts.js";
+import { CanvasRuntimeUnavailableError } from "../canvas/executionRuntimePort.js";
+import { readStableCanvasContentFingerprint } from "../canvas/contentFingerprint.js";
 import { inWriteTransaction } from "../sqlite.js";
 import {
   joinMember,
@@ -30,7 +34,7 @@ afterEach(async () => {
   );
 });
 
-async function startCanvasCommandHttp() {
+async function startCanvasCommandHttp(options: { activeLease?: boolean } = {}) {
   const fixture = await canvasCommandServiceFixture({
     runtimeAvailability: {
       async readAvailability() {
@@ -86,11 +90,26 @@ async function startCanvasCommandHttp() {
     hasConflictingLease: () => false,
     commitTransaction: (action) => inWriteTransaction(database, action)
   });
+  const runtimeCommandCoordinator = new CanvasRuntimeCommandCoordinator({
+    access,
+    workspaceIdentity,
+    contentVersions,
+    runtimeStatuses,
+    receipts: new CanvasRuntimeResetReceiptRepository(database),
+    executionLeases: {
+      acquire() {
+        throw new CanvasRuntimeUnavailableError("runtime_not_attached");
+      }
+    },
+    hasConflictingLease: () => options.activeLease ?? false,
+    commitTransaction: (action) => inWriteTransaction(database, action)
+  });
   const server = createServer((request, response) => {
     void handleCanvasCommandHttpRequest(request, response, {
       service,
       runtimeAvailabilityService,
       runtimeInitializationCoordinator,
+      runtimeCommandCoordinator,
       repository,
       workspaceIdentity,
       collaborationScopeAuthority,
@@ -102,7 +121,14 @@ async function startCanvasCommandHttp() {
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Expected HTTP address");
-  return { origin: `http://127.0.0.1:${address.port}`, token };
+  const head = contentVersions.head({ workspaceId: "w", projectId: "p", canvasId: "default" });
+  const fingerprint = readStableCanvasContentFingerprint(contentVersions, {
+    workspaceId: "w",
+    projectId: "p",
+    canvasId: "default"
+  });
+  if (!head || !fingerprint) throw new Error("test_content_authority_missing");
+  return { origin: `http://127.0.0.1:${address.port}`, token, head, fingerprint };
 }
 
 function catalogUrl(origin: string, projectId: string, workspaceId: string, canvasId: string) {
@@ -473,7 +499,7 @@ describe("workspace execution plane HTTP gaps", () => {
       body: invalidBody
     });
     expect(initialize.status).toBe(400);
-    expect(reset.status).toBe(503);
+    expect(reset.status).toBe(400);
     await expect(initialize.json()).resolves.toEqual({
       type: "canvas.runtime.initialize.rejected",
       operationId: "control-invalid",
@@ -482,29 +508,64 @@ describe("workspace execution plane HTTP gaps", () => {
     await expect(reset.json()).resolves.toEqual({
       type: "canvas.runtime.reset.rejected",
       operationId: "control-invalid",
-      code: "unavailable"
+      code: "invalid_request"
     });
   });
 
-  it("rejects reset without a runtime coordinator as reset unavailable, not initialize", async () => {
-    const { origin, token } = await startCanvasCommandHttp();
+  it("resets without a Runtime attachment and still fences active work and source drift", async () => {
+    const { origin, token, head, fingerprint } = await startCanvasCommandHttp();
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json"
+    };
     const response = await fetch(`${origin}/api/v1/projects/p/canvases/default/runtime-reset`, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json"
-      },
+      headers,
       body: JSON.stringify({
         operationId: "reset-unattached",
-        expectedContentRevision: 1,
+        expectedContentRevision: head.revision,
         expectedSourceRevision: `snapshot:${"a".repeat(64)}`,
-        expectedGraphFingerprint: `pkg-${"b".repeat(64)}`
+        expectedGraphFingerprint: fingerprint
       })
     });
-    expect(response.status).toBe(503);
-    const body = (await response.json()) as { type: string; code: string };
-    expect(body.type).toBe("canvas.runtime.reset.rejected");
-    expect(body.code).toBe("unavailable");
-    expect(body.type).not.toContain("initialize");
+    const responseBody = await response.json();
+    expect(response.status, JSON.stringify(responseBody)).toBe(200);
+    expect(responseBody).toMatchObject({
+      type: "canvas.runtime.reset.accepted",
+      status: { packageFingerprint: fingerprint }
+    });
+
+    const drifted = await fetch(`${origin}/api/v1/projects/p/canvases/default/runtime-reset`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        operationId: "reset-source-drift",
+        expectedContentRevision: head.revision + 1,
+        expectedSourceRevision: `snapshot:${"a".repeat(64)}`,
+        expectedGraphFingerprint: fingerprint
+      })
+    });
+    expect(drifted.status).toBe(409);
+    await expect(drifted.json()).resolves.toMatchObject({ code: "source_drift" });
+
+    const active = await startCanvasCommandHttp({ activeLease: true });
+    const activeResponse = await fetch(
+      `${active.origin}/api/v1/projects/p/canvases/default/runtime-reset`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${active.token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          operationId: "reset-active-work",
+          expectedContentRevision: active.head.revision,
+          expectedSourceRevision: `snapshot:${"a".repeat(64)}`,
+          expectedGraphFingerprint: active.fingerprint
+        })
+      }
+    );
+    expect(activeResponse.status).toBe(409);
+    await expect(activeResponse.json()).resolves.toMatchObject({ code: "active_lease" });
   });
 });

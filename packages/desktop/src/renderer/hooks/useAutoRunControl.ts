@@ -21,6 +21,7 @@ import type { CollaborationRuntimeAvailabilityView } from "../collaboration/runt
 import type { CanvasLocator } from "../../shared/canvasLocator";
 import {
   collaborationRuntimeOperationsAllowed,
+  collaborationRuntimeResetAllowed,
   collaborationRuntimeStartAllowed,
   collaborationRuntimeUnavailableCode
 } from "../collaboration/runtimeAvailabilityView";
@@ -328,7 +329,7 @@ export function useAutoRunControl({
   const runtimeStartAllowed =
     collaborationRuntimeStartAllowed(runtimeAvailability) &&
     (!runtimeStateUninitialized || Boolean(startAutoRunScope));
-  const runtimeResetAllowed = runtimeOperationsAllowed;
+  const runtimeResetAllowed = collaborationRuntimeResetAllowed(runtimeAvailability);
   const runtimeUnavailableCode = collaborationRuntimeUnavailableCode(runtimeAvailability);
   const selectedRemoteRunPhase: RemoteRunLifecyclePhase | null = (() => {
     const runtime = selectedBlock?.remoteExecution ?? null;

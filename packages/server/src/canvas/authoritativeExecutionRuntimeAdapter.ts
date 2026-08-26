@@ -2,8 +2,7 @@ import type { CanvasRuntimeStatusProjection } from "@planweave-ai/collaboration-
 import type { RemoteBlockRuntimePort } from "@planweave-ai/runtime";
 import type {
   CanvasExecutionRuntimeLease,
-  CanvasExecutionRuntimeLeasePort,
-  RuntimeCanvasAcquireRequest,
+  CanvasExecutionRuntimeRoutePort,
   RuntimeCanvasScope
 } from "./executionRuntimePort.js";
 
@@ -12,17 +11,28 @@ export type CanvasRuntimeStatusExecutionStore = {
 };
 
 export type AuthoritativeExecutionRuntimeAdapterOptions = {
-  delegate: CanvasExecutionRuntimeLeasePort;
+  delegate: CanvasExecutionRuntimeRoutePort;
   readContentFingerprint(scope: RuntimeCanvasScope): string | undefined;
   runtimeStatuses: CanvasRuntimeStatusExecutionStore;
 };
 
 /** Mirrors successful Runtime mutations into the Server-owned shared status snapshot. */
-export class AuthoritativeExecutionRuntimeAdapter implements CanvasExecutionRuntimeLeasePort {
+export class AuthoritativeExecutionRuntimeAdapter implements CanvasExecutionRuntimeRoutePort {
   constructor(private readonly options: AuthoritativeExecutionRuntimeAdapterOptions) {}
 
-  async acquire(scope: RuntimeCanvasAcquireRequest): Promise<CanvasExecutionRuntimeLease> {
-    const lease = await this.options.delegate.acquire(scope);
+  acquire(scope: RuntimeCanvasScope): Promise<CanvasExecutionRuntimeLease> {
+    return this.acquireAndWrap(scope, this.options.delegate.acquire(scope));
+  }
+
+  acquireForHost(scope: RuntimeCanvasScope, hostId: string): Promise<CanvasExecutionRuntimeLease> {
+    return this.acquireAndWrap(scope, this.options.delegate.acquireForHost(scope, hostId));
+  }
+
+  private async acquireAndWrap(
+    scope: RuntimeCanvasScope,
+    acquired: CanvasExecutionRuntimeLease | Promise<CanvasExecutionRuntimeLease>
+  ): Promise<CanvasExecutionRuntimeLease> {
+    const lease = await acquired;
     const persist = async () => {
       const expectedFingerprint = this.options.readContentFingerprint({
         workspaceId: scope.workspaceId,

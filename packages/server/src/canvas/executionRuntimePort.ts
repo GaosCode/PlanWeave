@@ -7,10 +7,8 @@ export type RuntimeCanvasScope = {
   canvasId: string;
 };
 
-/** Request-scoped Host route for acquire. Not a persisted Canvas Runtime binding. */
-export type RuntimeCanvasAcquireRequest = RuntimeCanvasScope & {
-  hostId?: string;
-};
+/** @deprecated Use RuntimeCanvasScope. Acquire accepts only the logical Runtime scope. */
+export type RuntimeCanvasAcquireRequest = RuntimeCanvasScope;
 
 export class CanvasRuntimeUnavailableError extends Error {
   constructor(readonly reason: "runtime_not_attached" | "host_offline" = "runtime_not_attached") {
@@ -65,12 +63,20 @@ export type CanvasExecutionRuntimeLease = {
 
 export interface CanvasExecutionRuntimeLeasePort {
   acquire(
-    scope: RuntimeCanvasAcquireRequest
+    scope: RuntimeCanvasScope
   ): CanvasExecutionRuntimeLease | Promise<CanvasExecutionRuntimeLease>;
   reconcileReset?(
     scope: RuntimeCanvasScope,
     command: CanvasRuntimeResetCommand
   ): Promise<CanvasRuntimeResetReconciliation>;
+}
+
+/** Execution-adapter routing seam. Host evidence never enters the logical Runtime scope. */
+export interface CanvasExecutionRuntimeRoutePort extends CanvasExecutionRuntimeLeasePort {
+  acquireForHost(
+    scope: RuntimeCanvasScope,
+    hostId: string
+  ): CanvasExecutionRuntimeLease | Promise<CanvasExecutionRuntimeLease>;
 }
 
 export interface CanvasRuntimeScopeAvailabilityPort {

@@ -58,6 +58,7 @@ export {
 export { materializeAuthoritativeCanvasContent } from "./contentVersionMaterializer.js";
 export { validateAuthoritativeCanvasContent } from "./contentVersionValidation.js";
 export type { ValidatedAuthoritativeCanvasContent } from "./contentVersionValidation.js";
+export { buildResetCanvasRuntimeStatusProjection } from "./resetCanvasRuntimeStatus.js";
 export type {
   CanvasMapLayoutErrorCode,
   CanvasMapLayoutIssue,

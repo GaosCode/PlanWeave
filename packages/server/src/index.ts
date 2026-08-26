@@ -264,6 +264,7 @@ export type {
 export type {
   CanvasExecutionRuntimeLease,
   CanvasExecutionRuntimeLeasePort,
+  CanvasExecutionRuntimeRoutePort,
   CanvasRuntimeScopeAvailabilityPort,
   OwnerCanvasRuntimeScopeResolverPort,
   RuntimeCanvasAcquireRequest,

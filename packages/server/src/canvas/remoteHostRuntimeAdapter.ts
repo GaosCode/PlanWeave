@@ -41,7 +41,7 @@ import type {
   CanvasExecutionRuntimeLease,
   CanvasExecutionRuntimeLeasePort,
   CanvasRuntimeScopeAvailabilityPort,
-  RuntimeCanvasAcquireRequest,
+  CanvasExecutionRuntimeRoutePort,
   RuntimeCanvasScope
 } from "./executionRuntimePort.js";
 import {
@@ -94,7 +94,7 @@ function once<T>(operation: () => T): () => T {
   };
 }
 
-function logicalScope(scopeInput: RuntimeCanvasAcquireRequest) {
+function logicalScope(scopeInput: RuntimeCanvasScope) {
   return canvasRuntimeLogicalScopeSchema.parse({
     workspaceId: scopeInput.workspaceId,
     projectId: scopeInput.projectId,
@@ -102,21 +102,11 @@ function logicalScope(scopeInput: RuntimeCanvasAcquireRequest) {
   });
 }
 
-function locateForAcquire(
-  locator: CanvasRuntimeHostLocator,
-  scopeInput: RuntimeCanvasAcquireRequest
-) {
-  const scope = logicalScope(scopeInput);
-  return scopeInput.hostId
-    ? locator.locateAuthorizedHost(scope, scopeInput.hostId)
-    : locator.locate(scope);
-}
-
 /** Remote Runtime seam. Artifact bytes remain an explicit HTTP data-plane follow-up. */
 export class RemoteHostCanvasRuntimeAdapter
   implements
     CanvasRuntimeAvailabilityPort,
-    CanvasExecutionRuntimeLeasePort,
+    CanvasExecutionRuntimeRoutePort,
     CanvasRuntimeScopeAvailabilityPort
 {
   constructor(
@@ -171,9 +161,23 @@ export class RemoteHostCanvasRuntimeAdapter
     });
   }
 
-  async acquire(scopeInput: RuntimeCanvasAcquireRequest): Promise<CanvasExecutionRuntimeLease> {
+  acquire(scopeInput: RuntimeCanvasScope): Promise<CanvasExecutionRuntimeLease> {
+    return this.acquireLocated(scopeInput, this.locator.locate(logicalScope(scopeInput)));
+  }
+
+  acquireForHost(
+    scopeInput: RuntimeCanvasScope,
+    hostId: string
+  ): Promise<CanvasExecutionRuntimeLease> {
     const scope = logicalScope(scopeInput);
-    const located = locateForAcquire(this.locator, scopeInput);
+    return this.acquireLocated(scope, this.locator.locateAuthorizedHost(scope, hostId));
+  }
+
+  private async acquireLocated(
+    scopeInput: RuntimeCanvasScope,
+    located: ReturnType<CanvasRuntimeHostLocator["locate"]>
+  ): Promise<CanvasExecutionRuntimeLease> {
+    const scope = logicalScope(scopeInput);
     if (located.kind === "unavailable") {
       throw new CanvasRuntimeUnavailableError(
         located.reason === "host_offline" ? "host_offline" : "runtime_not_attached"
@@ -545,11 +549,19 @@ export class LocalFirstCanvasRuntimeRouter
     );
   }
 
-  acquire(scope: RuntimeCanvasAcquireRequest): Promise<CanvasExecutionRuntimeLease> {
+  acquire(scope: RuntimeCanvasScope): Promise<CanvasExecutionRuntimeLease> {
     if (this.localScopes.hasRuntimeScope(scope))
       return Promise.resolve(this.localLeases.acquire(scope));
     if (this.remote) return this.remote.acquire(scope);
     return Promise.reject(new CanvasRuntimeUnavailableError());
+  }
+
+  acquireForHost(scope: RuntimeCanvasScope, hostId: string): Promise<CanvasExecutionRuntimeLease> {
+    if (this.localScopes.hasRuntimeScope(scope)) {
+      return Promise.resolve(this.localLeases.acquire(scope));
+    }
+    if (!this.remote) return Promise.reject(new CanvasRuntimeUnavailableError());
+    return this.remote.acquireForHost(scope, hostId);
   }
 
   reconcileReset(
@@ -576,7 +588,7 @@ export class LocalFirstCanvasRuntimeRouter
   }
 }
 
-export class LocalFirstCanvasExecutionRuntimeRouter implements CanvasExecutionRuntimeLeasePort {
+export class LocalFirstCanvasExecutionRuntimeRouter implements CanvasExecutionRuntimeRoutePort {
   private remote: RemoteHostCanvasRuntimeAdapter | undefined;
 
   constructor(
@@ -589,12 +601,20 @@ export class LocalFirstCanvasExecutionRuntimeRouter implements CanvasExecutionRu
     this.remote = remote;
   }
 
-  acquire(scope: RuntimeCanvasAcquireRequest): Promise<CanvasExecutionRuntimeLease> {
+  acquire(scope: RuntimeCanvasScope): Promise<CanvasExecutionRuntimeLease> {
     if (this.localScopes.hasRuntimeScope(scope)) {
       return Promise.resolve(this.localLeases.acquire(scope));
     }
     if (this.remote) return this.remote.acquire(scope);
     return Promise.reject(new CanvasRuntimeUnavailableError());
+  }
+
+  acquireForHost(scope: RuntimeCanvasScope, hostId: string): Promise<CanvasExecutionRuntimeLease> {
+    if (this.localScopes.hasRuntimeScope(scope)) {
+      return Promise.resolve(this.localLeases.acquire(scope));
+    }
+    if (!this.remote) return Promise.reject(new CanvasRuntimeUnavailableError());
+    return this.remote.acquireForHost(scope, hostId);
   }
 
   reconcileReset(
