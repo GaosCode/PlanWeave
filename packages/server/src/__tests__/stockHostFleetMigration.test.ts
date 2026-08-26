@@ -83,7 +83,7 @@ describe("stock host fleet migration v46", () => {
     ).toEqual(bindingBefore);
 
     expect(hosts.authenticate(hostId, credentialToken)?.id).toBe(hostId);
-    expect(hosts.authenticate(hostId, credentialToken, workspaceId)?.id).toBe(hostId);
+    expect(hosts.authenticate(hostId, credentialToken)?.id).toBe(hostId);
     expect(identity.hostUsable(hostId, new Date())).toBe(true);
     expect(hosts.list().map((host) => host.id)).toContain(hostId);
 

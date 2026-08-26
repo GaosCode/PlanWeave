@@ -152,7 +152,7 @@ export async function handleAgentHostArtifactRequest(
     workspaceId
   );
   if (!authentication.ok) {
-    if (authentication.reason === "workspace_mismatch" || authentication.status === 403) {
+    if (authentication.status === 403) {
       forbidden(response);
       return true;
     }

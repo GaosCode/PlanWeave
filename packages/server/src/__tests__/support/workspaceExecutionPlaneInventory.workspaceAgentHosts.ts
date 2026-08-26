@@ -50,14 +50,6 @@ export const workspaceAgentHostsInventory = [
     "bindHostToWorkspace / synchronizeHost write the identity projection."
   ),
   inventoryEntry(
-    "wah-hostUsable",
-    "workspace_agent_hosts",
-    "unknown",
-    "packages/server/src/identity/workspaceRepository.ts",
-    "hostUsable SELECT workspace_id,revoked_at,credential_expires_at",
-    "Unbound fleet is usable, but existing rows still act as a workspace access filter. Blocks deletion until split."
-  ),
-  inventoryEntry(
     "wah-writeEnrollmentProjection",
     "workspace_agent_hosts",
     "enrollment_migration",

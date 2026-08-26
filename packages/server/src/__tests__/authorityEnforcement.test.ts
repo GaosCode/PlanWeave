@@ -490,23 +490,6 @@ describe("strict Host dispatch authority", () => {
       }
     },
     {
-      name: "workspace_mapping_missing",
-      setup: (ctx: Awaited<ReturnType<typeof fixture>>) => {
-        ctx.hosts.reportOnline(ctx.host.id, ["acp.codex"], 1, {
-          workspaceMappings: [],
-          acpProfiles: [
-            {
-              profileId: "codex-acp",
-              agentId: "codex",
-              displayName: "Test Agent",
-              status: "ready",
-              capabilities: ["acp.codex"]
-            }
-          ]
-        });
-      }
-    },
-    {
       name: "acp_profile_missing",
       setup: (ctx: Awaited<ReturnType<typeof fixture>>) => {
         ctx.hosts.reportOnline(ctx.host.id, ["acp.codex"], 1, {

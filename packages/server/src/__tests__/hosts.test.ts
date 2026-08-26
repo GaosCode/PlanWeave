@@ -53,7 +53,7 @@ describe("fleet host readiness", () => {
     ).toEqual({ status: "available", reason: null });
   });
 
-  it("rejects workspace-bound readiness when workspace mapping is missing", () => {
+  it("does not treat workspace mapping as Host readiness", () => {
     const host = hostWithObservation(readyObservation);
     expect(
       hostExecutionProfileAvailability(host, {
@@ -63,7 +63,7 @@ describe("fleet host readiness", () => {
         agentProfileId: "codex-acp",
         requiredCapabilities: ["acp.codex"]
       })
-    ).toEqual({ status: "unavailable", reason: "workspace_mapping_missing" });
+    ).toEqual({ status: "available", reason: null });
   });
 
   it("keeps fleet execution profile readiness when mapping is missing", () => {

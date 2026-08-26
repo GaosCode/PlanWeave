@@ -215,10 +215,9 @@ describe("Agent Host enrollment", () => {
 
     expect(first.workspaceId).toBe(workspaceId);
     expect(hosts.authenticate(first.hostId, credentialToken)?.id).toBe(first.hostId);
-    expect(hosts.authenticate(first.hostId, credentialToken, workspaceId)?.id).toBe(first.hostId);
   });
 
-  it("authenticates server-scoped hosts and honors legacy workspace bindings when scoped", async () => {
+  it("authenticates server-scoped hosts independently of legacy workspace bindings", async () => {
     const store = await setup();
     const hosts = new AgentHostRepository(store.database);
     const registration = hosts.register("Unbound Host");
@@ -234,21 +233,15 @@ describe("Agent Host enrollment", () => {
     expect(hosts.authenticate(registration.host.id, registration.token)?.id).toBe(
       registration.host.id
     );
-    expect(hosts.authenticate(registration.host.id, registration.token, firstWorkspace)?.id).toBe(
+    expect(hosts.authenticate(registration.host.id, registration.token)?.id).toBe(
       registration.host.id
     );
-    expect(
-      hosts.authenticate(registration.host.id, registration.token, secondWorkspace)
-    ).toBeUndefined();
 
     hosts.bindToWorkspace(registration.host.id, secondWorkspace);
     expect(hosts.authenticate(registration.host.id, registration.token)?.id).toBe(
       registration.host.id
     );
-    expect(hosts.authenticate(registration.host.id, registration.token, firstWorkspace)?.id).toBe(
-      registration.host.id
-    );
-    expect(hosts.authenticate(registration.host.id, registration.token, secondWorkspace)?.id).toBe(
+    expect(hosts.authenticate(registration.host.id, registration.token)?.id).toBe(
       registration.host.id
     );
   });

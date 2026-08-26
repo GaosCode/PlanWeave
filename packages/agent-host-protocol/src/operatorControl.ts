@@ -79,8 +79,6 @@ export const operatorHostAvailabilityReasonSchema = z.enum([
   "revoked",
   "offline",
   "readiness_not_reported",
-  "workspace_mapping_missing",
-  "workspace_mapping_invalid",
   "acp_profile_missing",
   "acp_profile_invalid",
   "capability_mismatch"

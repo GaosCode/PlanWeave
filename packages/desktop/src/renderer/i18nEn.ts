@@ -738,8 +738,6 @@ export const enCatalog = {
   hostAvailability_revoked: "Removed",
   hostAvailability_offline: "Offline",
   hostAvailability_readiness_not_reported: "Initializing",
-  hostAvailability_workspace_mapping_missing: "Register again",
-  hostAvailability_workspace_mapping_invalid: "Register again",
   hostAvailability_acp_profile_missing: "Agent unavailable",
   hostAvailability_acp_profile_invalid: "Agent unavailable",
   hostAvailability_capability_mismatch: "Update required",
@@ -747,8 +745,6 @@ export const enCatalog = {
   hostAvailabilityAction_offline: "Make sure the device is on and PlanWeave Agent Host is running.",
   hostAvailabilityAction_readiness_not_reported:
     "The device is preparing its agents. Refresh again shortly.",
-  hostAvailabilityAction_workspace_mapping_missing: "Register the target device again.",
-  hostAvailabilityAction_workspace_mapping_invalid: "Register the target device again.",
   hostAvailabilityAction_acp_profile_missing:
     "Install or sign in to the agent on the target device, then share it again.",
   hostAvailabilityAction_acp_profile_invalid:

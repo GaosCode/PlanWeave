@@ -500,9 +500,9 @@ describe("setup code issue/redeem/revoke", () => {
     });
     expect(hostRedeem.purpose).toBe("host_enrollment");
     if (hostRedeem.purpose !== "host_enrollment") throw new Error("expected host");
-    expect(
-      new AgentHostRepository(database).authenticate(hostRedeem.hostId, hostToken, workspaceId)?.id
-    ).toBe(hostRedeem.hostId);
+    expect(new AgentHostRepository(database).authenticate(hostRedeem.hostId, hostToken)?.id).toBe(
+      hostRedeem.hostId
+    );
   });
 
   it("resumes a setup Host enrollment after the committed response is lost", async () => {

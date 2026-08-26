@@ -36,22 +36,13 @@ export const DEFAULT_HOST_OFFLINE_AFTER_MS = 60_000;
 /** Server-authoritative readiness derived from liveness and redacted Host observations. */
 export function operatorHostAvailability(
   host: AgentHost,
-  workspaceId: string,
+  _workspaceId: string,
   online: boolean
 ): OperatorHostAvailability {
   if (host.revokedAt) return { status: "unavailable", reason: "revoked" };
   if (!online) return { status: "unavailable", reason: "offline" };
   const observation = host.readinessObservation;
   if (!observation) return { status: "unavailable", reason: "readiness_not_reported" };
-  const workspace = observation.workspaceMappings.find(
-    (mapping) => mapping.workspaceId === workspaceId
-  );
-  if (!workspace || workspace.status === "missing") {
-    return { status: "unavailable", reason: "workspace_mapping_missing" };
-  }
-  if (workspace.status === "invalid") {
-    return { status: "unavailable", reason: "workspace_mapping_invalid" };
-  }
   if (observation.acpProfiles.length === 0) {
     return { status: "unavailable", reason: "acp_profile_missing" };
   }
@@ -425,18 +416,17 @@ export class AgentHostRepository {
 
   authenticateCredential(
     hostId: string,
-    token: string,
-    workspaceId?: string
+    token: string
   ): { host: AgentHost; kind: HostCredentialAuthenticationKind } | undefined {
     const kind = this.credentials.authenticate(hostId, token);
     if (!kind) return undefined;
-    if (!this.workspaceIdentity.hostUsable(hostId, this.clock(), workspaceId)) return undefined;
+    if (!this.workspaceIdentity.hostUsable(hostId, this.clock())) return undefined;
     if (kind === "promoted") this.syncWorkspaceHost(hostId);
     return { host: this.getRequired(hostId), kind };
   }
 
-  authenticate(hostId: string, token: string, workspaceId?: string): AgentHost | undefined {
-    return this.authenticateCredential(hostId, token, workspaceId)?.host;
+  authenticate(hostId: string, token: string): AgentHost | undefined {
+    return this.authenticateCredential(hostId, token)?.host;
   }
 
   credentialRenewalState(hostId: string): HostCredentialRenewalState {

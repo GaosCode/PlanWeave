@@ -687,12 +687,8 @@ export class WorkspaceIdentityRepository {
     for (const binding of bindings) this.writeHostProjection(String(binding.workspace_id), host);
   }
 
-  /**
-   * Server-scoped Host usability: unrevoked credential in agent_hosts is sufficient
-   * without workspace binding. When workspaceId is supplied, legacy workspace bindings
-   * are honored when present; unbound fleet Hosts remain usable.
-   */
-  hostUsable(hostId: string, now: Date, workspaceId?: string): boolean {
+  /** Server-scoped Host usability never derives Agent authority from Workspace projection rows. */
+  hostUsable(hostId: string, now: Date): boolean {
     const host = this.database
       .prepare("SELECT revoked_at,credential_expires_at FROM agent_hosts WHERE id=?")
       .get(hostId) as
@@ -706,31 +702,7 @@ export class WorkspaceIdentityRepository {
     ) {
       return false;
     }
-    if (workspaceId === undefined) return true;
-
-    const bindings = this.database
-      .prepare(
-        `SELECT workspace_id,revoked_at,credential_expires_at
-         FROM workspace_agent_hosts WHERE host_id=? ORDER BY workspace_id`
-      )
-      .all(hostId);
-    if (bindings.length === 0) return true;
-
-    const row = bindings.find((binding) => String(binding.workspace_id) === workspaceId);
-    if (!row) return false;
-    const state = this.getReadState(workspaceId);
-    if (
-      !state ||
-      state.status !== "completed" ||
-      state.interruptionMarker !== "read_cutover_complete"
-    ) {
-      return false;
-    }
-    if (row.revoked_at !== null) return false;
-    return (
-      row.credential_expires_at === null ||
-      Date.parse(String(row.credential_expires_at)) > now.getTime()
-    );
+    return true;
   }
 
   /** Bind an enrollment grant to a workspace, preserving its original created_at. */

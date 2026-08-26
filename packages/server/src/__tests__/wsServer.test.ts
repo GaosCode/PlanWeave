@@ -185,7 +185,7 @@ async function createWsCoordination() {
 }
 
 describe("agent host WebSocket transport", () => {
-  it("authenticates server-scoped hosts without workspace scope and honors legacy bindings", async () => {
+  it("authenticates server-scoped hosts without treating legacy workspace bindings as grants", async () => {
     const { coordination, workspaceIdentity, workspaceId } = await createWsCoordination();
     const registration = coordination.hosts.register("Scoped Host");
     const otherWorkspace = workspaceIdentity.ensureWorkspaceForLegacyProject("project-other");
@@ -223,7 +223,7 @@ describe("agent host WebSocket transport", () => {
         `${base}?workspaceId=${encodeURIComponent(otherWorkspace)}`,
         registration.token
       )
-    ).toBe(401);
+    ).toBe(101);
     expect(
       await upgradeStatus(
         `${base}?workspaceId=${encodeURIComponent(workspaceId)}`,

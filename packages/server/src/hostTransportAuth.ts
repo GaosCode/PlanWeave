@@ -9,12 +9,7 @@ import {
 
 export type HostTransportAuthentication =
   | { ok: true; host: AgentHost; credentialKind: HostCredentialAuthenticationKind }
-  | {
-      ok: false;
-      status: 401 | 403 | 426;
-      message: string;
-      reason?: "workspace_mismatch";
-    };
+  | { ok: false; status: 401 | 403 | 426; message: string };
 
 function bearerToken(header: string | string[] | undefined): string | undefined {
   const value = Array.isArray(header) ? header[0] : header;
@@ -65,24 +60,6 @@ export function authenticateAgentHostRequest(
   }
   const token = bearerToken(request.headers.authorization);
   if (!token) return { ok: false, status: 401, message: "Unauthorized" };
-
-  const workspaceId = requestedWorkspaceId ?? expectedWorkspaceId;
-  if (workspaceId) {
-    const authentication = hosts.authenticateCredential(hostId, token);
-    const scopedAuthentication = authentication
-      ? hosts.authenticateCredential(hostId, token, workspaceId)
-      : undefined;
-    if (scopedAuthentication) {
-      return {
-        ok: true,
-        host: scopedAuthentication.host,
-        credentialKind: scopedAuthentication.kind
-      };
-    }
-    return authentication
-      ? { ok: false, status: 401, message: "Unauthorized", reason: "workspace_mismatch" }
-      : { ok: false, status: 401, message: "Unauthorized" };
-  }
 
   const authentication = hosts.authenticateCredential(hostId, token);
   return authentication

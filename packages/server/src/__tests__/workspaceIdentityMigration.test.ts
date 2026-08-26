@@ -481,9 +481,9 @@ describe("workspace identity migration recovery", () => {
       "workspace_identity_read_cutover_incomplete"
     );
     expect(operatorSessions.authenticate(operatorToken)).toBeUndefined();
-    expect(
-      hosts.authenticate(registeredHost.host.id, registeredHost.token, workspaceId)
-    ).toBeUndefined();
+    expect(hosts.authenticate(registeredHost.host.id, registeredHost.token)?.id).toBe(
+      registeredHost.host.id
+    );
 
     const interrupted = retryWorkspaceIdentityMigrationForTesting(database, "project-recovery", {
       failAtStep: "backfill_devices"
