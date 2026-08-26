@@ -8,7 +8,8 @@ import { waitForRemoteOperationTerminal } from "./remoteTaskEndpointRun";
 
 function operation(
   blockRef: string,
-  state: RemoteOperationObservation["state"]
+  state: RemoteOperationObservation["state"],
+  revision = state === "completed" || state === "failed" || state === "cancelled" ? 3 : 2
 ): RemoteOperationObservation {
   const operationSuffix = blockRef.replace("#", ":");
   const attemptStatus =
@@ -32,6 +33,24 @@ function operation(
       dispatchId: `dispatch-${operationSuffix}`,
       status: attemptStatus,
       stateVersion: 1
+    },
+    diagnostics: {
+      stage:
+        state === "completed" || state === "failed" || state === "cancelled"
+          ? "terminal"
+          : state === "awaiting_writeback"
+            ? "writing_back"
+            : "running",
+      revision,
+      attemptId: `attempt-${operationSuffix}`,
+      locator: {
+        workspaceId: "workspace-1",
+        projectId: "project-1",
+        canvasId: "canvas-1"
+      },
+      content: { revision: "source-1", fingerprint: "fingerprint-1" },
+      startedAt: "2026-08-05T00:00:00.000Z",
+      updatedAt: "2026-08-05T00:00:01.000Z"
     },
     runtime: {
       ref: blockRef,
@@ -218,6 +237,66 @@ describe("waitForRemoteOperationTerminal", () => {
     resolveRecovery?.(operation("T-001#B-001", "completed"));
     await expect(terminal).resolves.toMatchObject({ state: "completed" });
     expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let an older terminal response finish a newer retry attempt", async () => {
+    let emitSignal: ((signal: CollaborationObserverSignal) => void) | undefined;
+    let resolveOlder: ((value: RemoteOperationObservation) => void) | undefined;
+    let resolveNewer: ((value: RemoteOperationObservation) => void) | undefined;
+    const olderRead = new Promise<RemoteOperationObservation>((resolve) => {
+      resolveOlder = resolve;
+    });
+    const newerRead = new Promise<RemoteOperationObservation>((resolve) => {
+      resolveNewer = resolve;
+    });
+    const observe = vi
+      .fn()
+      .mockImplementationOnce(() => olderRead)
+      .mockImplementationOnce(() => newerRead)
+      .mockResolvedValueOnce(operation("T-001#B-001", "completed", 4));
+    const terminal = waitForRemoteOperationTerminal({
+      api: {
+        observeCollaborationRemoteOperation: observe,
+        onCollaborationObserverSignal: vi.fn((listener) => {
+          emitSignal = listener;
+          return () => undefined;
+        })
+      },
+      initial: operation("T-001#B-001", "running", 1),
+      fallbackRefreshMs: 60_000
+    });
+    const signal: CollaborationObserverSignal = {
+      type: "human.observer.event",
+      profileId: "profile-1",
+      projectId: "project-1",
+      event: {
+        type: "human.observer.event",
+        protocolVersion: 1,
+        cursor: 2,
+        previousCursor: 1,
+        occurredAt: "2026-08-05T00:00:02.000Z",
+        kind: "remote_run",
+        dispatchId: "dispatch-T-001:B-001",
+        remoteRunStatus: "progress"
+      }
+    };
+
+    await vi.waitFor(() => expect(observe).toHaveBeenCalledTimes(1));
+    emitSignal?.(signal);
+    await vi.waitFor(() => expect(observe).toHaveBeenCalledTimes(2));
+    resolveNewer?.(operation("T-001#B-001", "running", 3));
+    await Promise.resolve();
+    resolveOlder?.(operation("T-001#B-001", "completed", 2));
+    await Promise.resolve();
+
+    let settled = false;
+    void terminal.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    emitSignal?.(signal);
+    await expect(terminal).resolves.toMatchObject({ state: "completed" });
   });
 
   it("ignores an older read failure after a newer nonterminal recovery succeeds", async () => {

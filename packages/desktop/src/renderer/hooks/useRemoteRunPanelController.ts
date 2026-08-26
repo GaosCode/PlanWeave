@@ -35,6 +35,10 @@ import {
   type LocalAgentEndpointInput,
   type LogicalAgentEndpointInput
 } from "../collaboration/agentEndpointViewModel";
+import {
+  remoteOperationScopeKey,
+  selectRemoteOperationObservation
+} from "../collaboration/remoteProjectionMerge";
 
 /** Derive a logical-executor directory from local Endpoint rows for discovery fallback. */
 export function logicalExecutorsFromLocalAgentEndpoints(
@@ -388,7 +392,17 @@ export function useRemoteRunPanelController(
       }
       const next = await api.observeCollaborationRemoteOperation({ operationId });
       if (!canWrite()) return;
-      setObservation(next);
+      const merged = selectRemoteOperationObservation({
+        current: observationRef.current,
+        incoming: next,
+        expectedScopeKey: remoteOperationScopeKey({
+          projectId: snapshot.projectId ?? next.projectId,
+          canvasId: args.workItem.canvasId,
+          blockRef: args.workItem.blockRef
+        })
+      });
+      observationRef.current = merged;
+      setObservation(merged);
 
       setLoadingInteractions(true);
       try {
@@ -434,7 +448,8 @@ export function useRemoteRunPanelController(
     sessionConnected,
     assignment,
     observerRun,
-    scopeKey
+    scopeKey,
+    snapshot.projectId
   ]);
 
   // Refresh when observer remote-run milestones advance for this work item.
@@ -559,7 +574,19 @@ export function useRemoteRunPanelController(
           expectedResponsibilityRevision: revisions.responsibilityRevision,
           expectedReviewerRevision: revisions.reviewerRevision
         });
-        if (isCurrentScope()) setObservation(result);
+        if (isCurrentScope()) {
+          const merged = selectRemoteOperationObservation({
+            current: observationRef.current,
+            incoming: result,
+            expectedScopeKey: remoteOperationScopeKey({
+              projectId,
+              canvasId: workItem.canvasId,
+              blockRef: workItem.blockRef
+            })
+          });
+          observationRef.current = merged;
+          setObservation(merged);
+        }
       } catch (error) {
         const mapped = mapBoundaryError(error);
         if (

@@ -644,6 +644,11 @@ describe("useRemoteRunPanelController", () => {
     const pendingDispatch = deferred<ReturnType<typeof observation>>();
     dispatch.mockImplementationOnce(() => pendingDispatch.promise);
     if (collisionCase) {
+      vi.mocked(api.observeCollaborationRemoteOperation).mockResolvedValue({
+        ...observation("running"),
+        canvasId: testCase.initial.canvasId,
+        blockRef: testCase.initial.blockRef
+      });
       const authorityTemplate = await api.getCollaborationWorkAuthority({ workItem: blockItem });
       const assignmentFor = (workItem: WorkItemRef, hostId: string, revision: number) => ({
         projectId: "project-1",

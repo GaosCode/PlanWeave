@@ -581,6 +581,13 @@ export class RemoteOperationRepository {
     return operation;
   }
 
+  observationRevision(operationId: string): number {
+    const row = this.database
+      .prepare("SELECT MAX(sequence) AS revision FROM remote_operation_events WHERE operation_id=?")
+      .get(opaqueIdentifierSchema.parse(operationId));
+    return z.number().int().positive().parse(row?.revision);
+  }
+
   getInWorkspace(workspaceId: string, operationId: string): RemoteOperation | undefined {
     const row = this.database
       .prepare(`SELECT id FROM remote_operations WHERE workspace_id=? AND id=?`)

@@ -22,7 +22,6 @@ import {
   type CollaborationObserverSignal,
   type CollaborationReadModelSnapshot,
   type CollaborationRemoteRunProjection,
-  type CollaborationRemoteRunStatus,
   type CollaborationResponsibilityUpdateInput,
   type CollaborationReviewerUpdateInput,
   type CollaborationSyncPhase,
@@ -51,6 +50,7 @@ import {
   AuthoritativeRefreshArbitrator,
   type AggregateRefreshApplication
 } from "./refreshArbitration.js";
+import { applyObserverRemoteRun, ingestActivityRemoteRun } from "./remoteRunProjection.js";
 
 export type CollaborationReadBridgePort = Pick<
   PlanWeaveCollaborationApi,
@@ -179,21 +179,6 @@ function mapSessionPhaseToSync(
         : current;
   }
   return current;
-}
-
-function remoteStatusFromActivityType(type: string): CollaborationRemoteRunStatus | null {
-  switch (type) {
-    case "remote_run_started":
-      return "started";
-    case "remote_run_succeeded":
-      return "succeeded";
-    case "remote_run_failed":
-      return "failed";
-    case "remote_run_interrupted":
-      return "interrupted";
-    default:
-      return null;
-  }
 }
 
 /**
@@ -715,17 +700,13 @@ export class CollaborationReadModelController {
         await this.reloadActivity(generation);
         return "applied";
       case "remote_run":
-        if (event.dispatchId && event.remoteRunStatus) {
-          const existing = this.state.remoteRuns.get(event.dispatchId);
-          this.state.remoteRuns.set(event.dispatchId, {
-            dispatchId: event.dispatchId,
-            projectId: this.state.projectId ?? existing?.projectId ?? "",
-            workItem: event.workItem ?? existing?.workItem,
-            hostId: existing?.hostId,
-            status: event.remoteRunStatus,
-            lastActivityId: existing?.lastActivityId,
-            updatedAt: event.occurredAt
-          });
+        if (
+          applyObserverRemoteRun({
+            remoteRuns: this.state.remoteRuns,
+            projectId: this.state.projectId,
+            event
+          })
+        ) {
           this.emit();
         } else {
           await this.reloadActivity(generation);
@@ -964,24 +945,7 @@ export class CollaborationReadModelController {
       if (generation !== this.state.generation) return;
       this.state.activity = page.items;
       for (const record of page.items) {
-        const status = remoteStatusFromActivityType(record.type);
-        if (!status) continue;
-        const dispatchId = record.summary.dispatchId ?? record.source.sourceId;
-        if (!dispatchId) continue;
-        const next: CollaborationRemoteRunProjection = {
-          dispatchId,
-          projectId: record.projectId,
-          workItem: record.workItem ?? record.summary.workItem,
-          hostId: record.summary.hostId,
-          status,
-          lastActivityId: record.activityId,
-          updatedAt: record.occurredAt
-        };
-        const existing = this.state.remoteRuns.get(dispatchId);
-        // Prefer newer observer progress over older activity replay.
-        if (!existing || existing.updatedAt <= next.updatedAt) {
-          this.state.remoteRuns.set(dispatchId, next);
-        }
+        ingestActivityRemoteRun(this.state.remoteRuns, record);
       }
       this.emit();
     } catch (error) {

@@ -27,6 +27,7 @@ const operatorOperationViewSchema = z
     runtime: remoteBlockBindingViewSchema,
     dispatchStatus: z.string().optional(),
     failure: z.object({}).passthrough().optional(),
+    diagnostics: z.object({}).passthrough().optional(),
     agentEndpoint: z.object({}).passthrough().optional()
   })
   .passthrough();
@@ -50,6 +51,7 @@ export function operatorObservationToRemoteRun(input: unknown): RemoteOperationO
     attempt: view.attempt,
     ...(view.dispatchStatus === undefined ? {} : { dispatchStatus: view.dispatchStatus }),
     ...(view.failure === undefined ? {} : { failure: view.failure }),
+    ...(view.diagnostics === undefined ? {} : { diagnostics: view.diagnostics }),
     ...(view.agentEndpoint === undefined ? {} : { agentEndpoint: view.agentEndpoint }),
     runtime: {
       ref: view.runtime.ref,

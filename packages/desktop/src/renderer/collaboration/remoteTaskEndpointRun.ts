@@ -1,5 +1,6 @@
 import type { RemoteOperationObservation } from "@planweave-ai/collaboration-protocol/remote-run";
 import type { CollaborationObserverSignal } from "../../shared/collaborationReadModels";
+import { remoteOperationScopeKey, selectRemoteOperationObservation } from "./remoteProjectionMerge";
 
 const HARD_TERMINAL_OPERATION_STATES = new Set<RemoteOperationObservation["state"]>([
   "completed",
@@ -42,6 +43,8 @@ export function waitForRemoteOperationTerminal(input: {
     let nextRefreshGeneration = 0;
     let latestSuccessfulGeneration = 0;
     let pendingRefreshError: { generation: number; reason: unknown } | null = null;
+    const expectedScopeKey = remoteOperationScopeKey(input.initial);
+    let latestObservation = input.initial;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     const cleanup = () => {
@@ -82,13 +85,19 @@ export function waitForRemoteOperationTerminal(input: {
       // never settles. Observer signals can use the same second slot immediately.
       scheduleFallback();
       try {
-        const observation = await input.api.observeCollaborationRemoteOperation({
+        const incoming = await input.api.observeCollaborationRemoteOperation({
           operationId: input.initial.operationId
         });
+        latestObservation =
+          selectRemoteOperationObservation({
+            current: latestObservation,
+            incoming,
+            expectedScopeKey
+          }) ?? latestObservation;
         latestSuccessfulGeneration = Math.max(latestSuccessfulGeneration, generation);
         pendingRefreshError = null;
-        if (isRemoteOperationWaitTerminal(observation)) {
-          finish(observation);
+        if (isRemoteOperationWaitTerminal(latestObservation)) {
+          finish(latestObservation);
           return;
         }
         scheduleFallback();

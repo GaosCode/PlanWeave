@@ -556,6 +556,17 @@ describe("human remote operation HTTP", () => {
       dispatchId: string;
       executionAttemptId: string;
       attempt: { leaseId: string; stateVersion: number };
+      diagnostics: {
+        stage: string;
+        revision: number;
+        locator: { workspaceId: string; projectId: string; canvasId: string };
+        endpointId?: string;
+        hostGeneration?: string;
+        content: { revision: string; fingerprint: string };
+        reservation?: { status: string };
+        attachment?: { status: string };
+        lease?: { status: string };
+      };
       envelopeDigest?: string;
     };
     expect(dispatched.status).toBe(202);
@@ -566,6 +577,25 @@ describe("human remote operation HTTP", () => {
     });
     expect(operation).not.toHaveProperty("envelopeDigest");
     expect(operation).not.toHaveProperty("reportArtifactRef");
+    expect(operation.diagnostics).toMatchObject({
+      stage: "dispatching",
+      revision: expect.any(Number),
+      locator: {
+        workspaceId: fixture.workspaceId,
+        projectId: fixture.projectId,
+        canvasId: fixture.canvasId
+      },
+      endpointId: expect.any(String),
+      hostGeneration: expect.stringMatching(/^hostgen:sha256:[a-f0-9]{16}$/),
+      content: {
+        revision: expect.any(String),
+        fingerprint: expect.any(String)
+      },
+      reservation: { status: "active" },
+      attachment: { status: "active" },
+      lease: { status: "active" }
+    });
+    expect(JSON.stringify(operation.diagnostics)).not.toContain(fixture.host.id);
 
     const observed = await fetch(`${collection}/${operation.operationId}`, {
       headers: { Authorization: `Bearer ${ownerToken}` }

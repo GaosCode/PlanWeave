@@ -1093,6 +1093,12 @@ describe("CollaborationReadModelController", () => {
     expect(controller.getSnapshot().remoteRunsByDispatchId["dispatch-001"]?.status).toBe(
       "progress"
     );
+
+    await controller.refreshAuthoritative({ reason: "test" });
+    expect(controller.getSnapshot().remoteRunsByDispatchId["dispatch-001"]).toMatchObject({
+      status: "progress",
+      observerCursor: 20
+    });
     controller.dispose();
   });
 

@@ -120,6 +120,61 @@ describe("remote-run/v3 dispatch contract", () => {
     expect(remoteOperationObservationSchema.parse(observation)).toEqual(observation);
   });
 
+  it("accepts redacted ordered diagnostics and rejects internal Host material", () => {
+    const diagnostics = {
+      stage: "attaching_runtime" as const,
+      revision: 12,
+      attemptId: "attempt-1",
+      locator: {
+        workspaceId: "workspace-a",
+        projectId: "project-a",
+        canvasId: "default"
+      },
+      endpointId: "endpoint-1",
+      hostGeneration: "hostgen:sha256:0123456789abcdef",
+      authorityRevisions: { responsibility: 3, reviewer: 2 },
+      content: { revision: "source-4", fingerprint: "fingerprint-4" },
+      reservation: { status: "active" as const },
+      attachment: { status: "preparing" as const },
+      lease: { status: "active" as const, expiresAt: "2030-01-01T00:02:00.000Z" },
+      startedAt: "2030-01-01T00:00:00.000Z",
+      updatedAt: "2030-01-01T00:01:00.000Z",
+      timeoutAt: "2030-01-01T00:02:00.000Z"
+    };
+    const observation = remoteOperationObservationSchema.parse({
+      operationId: "operation-1",
+      projectId: "project-a",
+      canvasId: "default",
+      blockRef: "T-001#B-001",
+      state: "reserved",
+      dispatchId: "dispatch-1",
+      executionAttemptId: "attempt-1",
+      createdAt: diagnostics.startedAt,
+      updatedAt: diagnostics.updatedAt,
+      attempt: {
+        executionAttemptId: "attempt-1",
+        dispatchId: "dispatch-1",
+        status: "reserved",
+        stateVersion: 1
+      },
+      diagnostics,
+      runtime: { ref: "T-001#B-001", status: "in_progress" }
+    });
+    expect(observation.diagnostics).toEqual(diagnostics);
+    for (const forbidden of [
+      { hostId: "host-internal" },
+      { projectRoot: "/srv/private/workspace" },
+      { readiness: "TOKEN=secret" }
+    ]) {
+      expect(() =>
+        remoteOperationObservationSchema.parse({
+          ...observation,
+          diagnostics: { ...diagnostics, ...forbidden }
+        })
+      ).toThrow();
+    }
+  });
+
   it("keeps legacy v2 strict and independently parseable for migration", () => {
     const v2 = {
       schemaVersion: "remote-run/v2" as const,

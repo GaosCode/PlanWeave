@@ -115,6 +115,84 @@ export const remoteAttemptViewSchema = z
   .strict();
 export type RemoteAttemptView = z.infer<typeof remoteAttemptViewSchema>;
 
+export const remoteOperationDiagnosticStageSchema = z.enum([
+  "authorizing",
+  "resolving_endpoint",
+  "reserving_host",
+  "attaching_runtime",
+  "preparing_runtime",
+  "materializing",
+  "dispatching",
+  "running",
+  "writing_back",
+  "cancelling",
+  "terminal"
+]);
+export type RemoteOperationDiagnosticStage = z.infer<typeof remoteOperationDiagnosticStageSchema>;
+
+/** Redacted, Server-derived diagnostics. Never contains Host IDs, paths, credentials, or logs. */
+export const remoteOperationDiagnosticsSchema = z
+  .object({
+    stage: remoteOperationDiagnosticStageSchema,
+    /** Monotonic Server persistence order from remote_operation_events.sequence. */
+    revision: z.number().int().positive(),
+    attemptId: executionAttemptIdSchema,
+    locator: z
+      .object({
+        workspaceId: opaqueIdentifierSchema,
+        projectId: opaqueIdentifierSchema,
+        canvasId: opaqueIdentifierSchema
+      })
+      .strict(),
+    endpointId: opaqueIdentifierSchema.optional(),
+    hostGeneration: z
+      .string()
+      .regex(/^hostgen:sha256:[a-f0-9]{16}$/)
+      .optional(),
+    authorityRevisions: z
+      .object({
+        responsibility: z.number().int().nonnegative(),
+        reviewer: z.number().int().nonnegative(),
+        executionTarget: z.number().int().nonnegative().optional()
+      })
+      .strict()
+      .optional(),
+    content: z
+      .object({
+        revision: opaqueIdentifierSchema,
+        fingerprint: opaqueIdentifierSchema
+      })
+      .strict(),
+    reservation: z
+      .object({ status: z.enum(["pending", "active", "released"]) })
+      .strict()
+      .optional(),
+    attachment: z
+      .object({ status: z.enum(["preparing", "active"]) })
+      .strict()
+      .optional(),
+    lease: z
+      .object({
+        status: z.enum(["active", "released"]),
+        expiresAt: timestampSchema.optional()
+      })
+      .strict()
+      .optional(),
+    startedAt: timestampSchema,
+    updatedAt: timestampSchema,
+    terminalAt: timestampSchema.optional(),
+    timeoutAt: timestampSchema.optional(),
+    error: z
+      .object({
+        code: opaqueIdentifierSchema,
+        retryable: z.boolean()
+      })
+      .strict()
+      .optional()
+  })
+  .strict();
+export type RemoteOperationDiagnostics = z.infer<typeof remoteOperationDiagnosticsSchema>;
+
 export const remoteOperationObservationSchema = z
   .object({
     operationId: opaqueIdentifierSchema,
@@ -130,6 +208,8 @@ export const remoteOperationObservationSchema = z
     attempt: remoteAttemptViewSchema,
     dispatchStatus: remoteDispatchStatusSchema.optional(),
     failure: normalizedFailureSchema.optional(),
+    /** Optional only for rolling compatibility; current Server observations always provide it. */
+    diagnostics: remoteOperationDiagnosticsSchema.optional(),
     agentEndpoint: availableRemoteAgentEndpointSchema
       .extend({ resolvedAt: timestampSchema })
       .strict()

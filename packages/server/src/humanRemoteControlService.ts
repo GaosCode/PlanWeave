@@ -26,6 +26,7 @@ import { DispatchService } from "./dispatches.js";
 import { toHumanEndpointSnapshot } from "./endpointSelection.js";
 import { CanvasRuntimeUnavailableError } from "./canvas/executionRuntimePort.js";
 import { CanvasRuntimeRpcError } from "./canvas/runtimeRpcBroker.js";
+import { buildRemoteOperationDiagnostics } from "./remoteOperationDiagnostics.js";
 
 export class HumanRemoteControlError extends Error {
   constructor(readonly code: string) {
@@ -168,6 +169,13 @@ export class HumanRemoteControlService {
       },
       dispatchStatus: dispatch?.status,
       ...(dispatch?.failure ? { failure: dispatch.failure } : {}),
+      diagnostics: buildRemoteOperationDiagnostics({
+        operation,
+        revision: this.options.operations.observationRevision(operation.id),
+        runtime,
+        dispatchStatus: dispatch?.status,
+        failure: dispatch?.failure
+      }),
       runtime: {
         ref: runtime.ref,
         status: runtime.status,

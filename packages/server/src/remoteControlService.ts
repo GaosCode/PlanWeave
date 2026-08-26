@@ -26,6 +26,7 @@ import {
 } from "@planweave-ai/collaboration-protocol/agent-endpoint";
 import { opaqueIdentifierSchema } from "@planweave-ai/agent-host-protocol";
 import { z } from "zod";
+import { buildRemoteOperationDiagnostics } from "./remoteOperationDiagnostics.js";
 import { AgentEndpointCatalog } from "./agentEndpointCatalog.js";
 import { listAuthorizedRemoteAgentEndpoints } from "./remoteAgent/catalog.js";
 import type { RemoteAgentAccessPolicy } from "./remoteAgent/accessPolicy.js";
@@ -348,6 +349,13 @@ export class RemoteControlService {
       },
       dispatchStatus: dispatch?.status,
       ...(dispatch?.failure ? { failure: dispatch.failure } : {}),
+      diagnostics: buildRemoteOperationDiagnostics({
+        operation,
+        revision: this.options.operations.observationRevision(operation.id),
+        runtime,
+        dispatchStatus: dispatch?.status,
+        failure: dispatch?.failure
+      }),
       runtime
     });
   }

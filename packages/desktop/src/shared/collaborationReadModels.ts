@@ -88,6 +88,8 @@ export type CollaborationRemoteRunProjection = {
   hostId?: string;
   status: CollaborationRemoteRunStatus;
   lastActivityId?: string;
+  /** Human observer journal order; HTTP activity replay intentionally has no cursor. */
+  observerCursor?: number;
   updatedAt: string;
 };
 

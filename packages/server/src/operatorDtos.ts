@@ -26,6 +26,7 @@ import {
 } from "@planweave-ai/collaboration-protocol/core/primitives";
 import {
   remoteDispatchIntentV3Schema,
+  remoteOperationDiagnosticsSchema,
   type RemoteDispatchIntentV3
 } from "@planweave-ai/collaboration-protocol/remote-run";
 import { availableRemoteAgentEndpointSchema } from "@planweave-ai/collaboration-protocol/agent-endpoint";
@@ -96,6 +97,7 @@ export const operatorOperationViewSchema = z
     attempt: operatorAttemptViewSchema,
     dispatchStatus: dispatchStatusSchema.optional(),
     failure: normalizedFailureSchema.optional(),
+    diagnostics: remoteOperationDiagnosticsSchema,
     runtime: remoteBlockBindingViewSchema
   })
   .strict()
