@@ -17,13 +17,17 @@ import type { ContentAuthorityStore } from "./contentAuthorityStore.js";
 import {
   CanvasRuntimeResetConflictError,
   CanvasRuntimeUnavailableError,
+  type CanvasExecutionRuntimeLease,
   type CanvasExecutionRuntimeLeasePort,
   type RuntimeCanvasScope
 } from "./executionRuntimePort.js";
 import { authorizeCanvasCommand } from "./policy.js";
 import { CanvasRuntimeRpcError } from "./runtimeRpcBroker.js";
 import type { CanvasRuntimeStatusRepository } from "./runtimeStatusRepository.js";
-import type { CanvasRuntimeStatusProjection } from "@planweave-ai/collaboration-protocol/canvas/status";
+import type {
+  CanvasRuntimeStatusProjection,
+  CanvasRuntimeStatusSnapshot
+} from "@planweave-ai/collaboration-protocol/canvas/status";
 
 export type CanvasRuntimeInitializationCoordinatorOptions = {
   access: ProjectAccessRepository;
@@ -80,6 +84,55 @@ function matchesScope(
     left.workspaceId === right.workspaceId &&
     left.projectId === right.projectId &&
     left.canvasId === right.canvasId
+  );
+}
+
+/**
+ * Idempotent Host evidence → Server projection writer.
+ * Same fingerprint keeps the current snapshot; never resets Host state.
+ */
+export function persistCanvasRuntimeProjectionFromHostEvidence(input: {
+  runtimeStatuses: CanvasRuntimeStatusRepository;
+  scope: CanvasScopeRef;
+  expectedGraphFingerprint: string;
+  status: CanvasRuntimeStatusProjection;
+}): CanvasRuntimeStatusSnapshot {
+  if (
+    !matchesScope(input.status.scope, input.scope) ||
+    input.status.packageFingerprint !== input.expectedGraphFingerprint
+  ) {
+    throw new Error("canvas_runtime_status_content_out_of_sync");
+  }
+  const current = input.runtimeStatuses.read(input.scope);
+  if (current && current.status.packageFingerprint === input.expectedGraphFingerprint) {
+    return current;
+  }
+  return input.runtimeStatuses.replaceFromExecution(input.status);
+}
+
+/** Reads Host initialization evidence from an already-acquired lease and persists it. */
+export async function projectCanvasRuntimeFromAcquiredLease(input: {
+  runtimeStatuses: CanvasRuntimeStatusRepository;
+  commitTransaction: <T>(action: () => T) => T;
+  scope: CanvasScopeRef;
+  expectedGraphFingerprint: string;
+  lease: CanvasExecutionRuntimeLease;
+}): Promise<CanvasRuntimeStatusSnapshot | undefined> {
+  if (!input.lease.readInitializationEvidence) return undefined;
+  const evidence = await input.lease.readInitializationEvidence();
+  if (
+    evidence.graphFingerprint !== input.expectedGraphFingerprint ||
+    evidence.status.packageFingerprint !== input.expectedGraphFingerprint
+  ) {
+    throw new Error("canvas_runtime_status_content_out_of_sync");
+  }
+  return input.commitTransaction(() =>
+    persistCanvasRuntimeProjectionFromHostEvidence({
+      runtimeStatuses: input.runtimeStatuses,
+      scope: input.scope,
+      expectedGraphFingerprint: input.expectedGraphFingerprint,
+      status: evidence.status
+    })
   );
 }
 
@@ -145,11 +198,12 @@ export class CanvasRuntimeInitializationCoordinator {
         if (!this.contentMatchesRequest(scope, request)) {
           throw new CanvasRuntimeInitializationContentSupersededError();
         }
-        const current = this.options.runtimeStatuses.read(scope);
-        const snapshot =
-          current && current.status.packageFingerprint === request.expectedGraphFingerprint
-            ? current
-            : this.options.runtimeStatuses.replaceFromExecution(status);
+        const snapshot = persistCanvasRuntimeProjectionFromHostEvidence({
+          runtimeStatuses: this.options.runtimeStatuses,
+          scope,
+          expectedGraphFingerprint: request.expectedGraphFingerprint,
+          status
+        });
         return canvasRuntimeInitializeAcceptedSchema.parse({
           type: "canvas.runtime.initialize.accepted",
           operationId: request.operationId,
@@ -162,7 +216,8 @@ export class CanvasRuntimeInitializationCoordinator {
     } catch (error) {
       return rejected(
         request.operationId,
-        error instanceof CanvasRuntimeInitializationContentSupersededError
+        error instanceof CanvasRuntimeInitializationContentSupersededError ||
+          (error instanceof Error && error.message === "canvas_runtime_status_content_out_of_sync")
           ? "source_drift"
           : "persist_failed"
       );

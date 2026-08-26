@@ -137,6 +137,13 @@ export type RemoteBlockCoordinatorOptions = {
   }) => OwnerPackageLocator | undefined;
   /** Server-internal Canvas Runtime routing after authorize/reserve. Not a Desktop Host. */
   ensureRuntimeAttachment?: (input: RuntimeAttachmentRequest) => void;
+  /**
+   * Idempotent Host evidence → Server Runtime projection after attach.
+   * Shares the initialize coordinator persist writer; never resets Host state.
+   */
+  ensureRuntimeProjection?: (
+    input: RuntimeAttachmentRequest & { lease: CanvasExecutionRuntimeLease }
+  ) => void | Promise<void>;
   serverInstanceOwnerToken: string;
   humanIdentity: HumanPrincipalIdentity;
 };
@@ -621,6 +628,16 @@ export class RemoteBlockCoordinator {
         operationId: operation.id,
         executionAttemptId: operation.executionAttemptId,
         graphFingerprint: operation.sourceFingerprint
+      });
+      await this.options.ensureRuntimeProjection?.({
+        workspaceId: operation.workspaceId,
+        projectId: operation.projectId,
+        canvasId: operation.canvasId,
+        hostId: reservation.hostId,
+        operationId: operation.id,
+        executionAttemptId: operation.executionAttemptId,
+        graphFingerprint: operation.sourceFingerprint,
+        lease: runtimeLease
       });
     }
     this.options.dispatches.prepare({ operation, reservation, envelope, envelopeDigest });

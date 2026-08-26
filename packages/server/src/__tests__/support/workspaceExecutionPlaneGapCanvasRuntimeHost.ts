@@ -26,6 +26,20 @@ function graphFingerprintFrom(value: unknown): string | undefined {
   return undefined;
 }
 
+function runtimeStatusProjection(
+  scope: { workspaceId: string; projectId: string; canvasId: string },
+  graphFingerprint: string
+) {
+  return {
+    schemaVersion: "canvas-runtime-status/v2" as const,
+    scope,
+    packageFingerprint: graphFingerprint,
+    capturedAt: new Date().toISOString(),
+    tasks: [] as const,
+    blocks: [] as const
+  };
+}
+
 function runtimeError(operation: string, code: string) {
   return {
     outcome: "error" as const,
@@ -197,20 +211,22 @@ async function answerRuntimeRequest(input: {
     if (operation.operation === "release") {
       return { outcome: "success", operation: "release", result: { released: true } };
     }
-    if (operation.operation === "status") {
+    if (operation.operation === "status" || operation.operation === "availability") {
       if (!contentGraphFingerprint) {
         return runtimeError(operation.operation, "materialization_failed");
       }
+      const status = runtimeStatusProjection(commandScope, contentGraphFingerprint);
+      if (operation.operation === "status") {
+        return { outcome: "success", operation: "status", result: status };
+      }
       return {
         outcome: "success",
-        operation: "status",
+        operation: "availability",
         result: {
-          schemaVersion: "canvas-runtime-status/v2",
-          scope: commandScope,
-          packageFingerprint: contentGraphFingerprint,
-          capturedAt: new Date().toISOString(),
-          tasks: [],
-          blocks: []
+          kind: "available",
+          status,
+          sourceRevision: "src-pathless-runtime",
+          graphFingerprint: contentGraphFingerprint
         }
       };
     }

@@ -62,6 +62,8 @@ export {
 } from "./runtimeCommandCoordinator.js";
 export {
   CanvasRuntimeInitializationCoordinator,
+  persistCanvasRuntimeProjectionFromHostEvidence,
+  projectCanvasRuntimeFromAcquiredLease,
   type CanvasRuntimeInitializationCoordinatorOptions
 } from "./runtimeInitializationCoordinator.js";
 export { CanvasRuntimeResetReceiptRepository } from "./runtimeCommandReceipts.js";

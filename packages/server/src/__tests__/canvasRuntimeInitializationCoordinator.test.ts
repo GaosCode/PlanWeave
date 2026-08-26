@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { RemoteBlockArtifactSource, RemoteBlockRuntimePort } from "@planweave-ai/runtime";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
-import { CanvasRuntimeInitializationCoordinator } from "../canvas/runtimeInitializationCoordinator.js";
+import {
+  CanvasRuntimeInitializationCoordinator,
+  persistCanvasRuntimeProjectionFromHostEvidence,
+  projectCanvasRuntimeFromAcquiredLease
+} from "../canvas/runtimeInitializationCoordinator.js";
 import { CanvasRuntimeStatusRepository } from "../canvas/runtimeStatusRepository.js";
 import type { CanvasExecutionRuntimeLeasePort } from "../canvas/executionRuntimePort.js";
 import { readStableCanvasContentFingerprint } from "../canvas/contentFingerprint.js";
@@ -75,6 +79,7 @@ async function setup(options: { activeLease?: boolean } = {}) {
     acquire,
     body,
     coordinator,
+    database: context.database,
     fingerprint,
     readInitializationEvidence,
     reset,
@@ -186,6 +191,28 @@ describe("CanvasRuntimeInitializationCoordinator", () => {
       })
     ).resolves.toMatchObject({ code: "source_drift" });
     expect(test.runtimeStatuses.read(scope)).toBeNull();
+    expect(test.reset).not.toHaveBeenCalled();
+  });
+
+  it("shares the Host evidence persist writer for operation preparation", async () => {
+    const test = await setup();
+    const lease = await test.acquire();
+    const first = await projectCanvasRuntimeFromAcquiredLease({
+      runtimeStatuses: test.runtimeStatuses,
+      commitTransaction: (action) => inWriteTransaction(test.database, action),
+      scope,
+      expectedGraphFingerprint: test.fingerprint,
+      lease
+    });
+    expect(first).toMatchObject({ runtimeRevision: 1 });
+    if (!first) throw new Error("expected_runtime_projection");
+    const second = persistCanvasRuntimeProjectionFromHostEvidence({
+      runtimeStatuses: test.runtimeStatuses,
+      scope,
+      expectedGraphFingerprint: test.fingerprint,
+      status: first.status
+    });
+    expect(second).toMatchObject({ runtimeRevision: 1 });
     expect(test.reset).not.toHaveBeenCalled();
   });
 });

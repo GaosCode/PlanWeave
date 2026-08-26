@@ -210,6 +210,15 @@ describe("workspace execution plane HTTP gaps", () => {
       })
     ]);
     expect(fixture.listRuntimeBindings()[0]?.operation_id).not.toBeNull();
+    const availability = await fetch(
+      `${fixture.origin}/api/v1/projects/${fixture.projectId}/canvases/${fixture.canvasId}/runtime-availability`,
+      { headers: { Authorization: `Bearer ${fixture.ownerToken}` } }
+    );
+    expect(availability.status).toBe(200);
+    await expect(availability.json()).resolves.toMatchObject({
+      schemaVersion: "canvas-runtime-view/v1",
+      state: { kind: "initialized" }
+    });
   });
 
   it("same-operation reenter does not duplicate attachment or reservation", async () => {
@@ -418,6 +427,17 @@ describe("workspace execution plane HTTP gaps", () => {
     expect(members.status).toBe(200);
     expect(canvases.status).toBe(200);
     expect(head.status).toBe(200);
+
+    const availability = await fetch(
+      `${fixture.origin}/api/v1/projects/${fixture.projectId}/canvases/${fixture.canvasId}/runtime-availability`,
+      { headers: auth }
+    );
+    expect(availability.status).toBe(200);
+    await expect(availability.json()).resolves.toMatchObject({
+      schemaVersion: "canvas-runtime-view/v1",
+      state: { kind: "uninitialized" }
+    });
+    expect(fixture.listRuntimeBindings()).toEqual([]);
   });
 
   it("accepts canvas command edits when execution availability is unattached", async () => {

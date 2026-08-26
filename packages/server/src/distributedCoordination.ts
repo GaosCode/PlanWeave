@@ -9,6 +9,7 @@ import {
 import { DurableMailbox } from "./mailbox.js";
 import type { SqliteDatabase } from "./sqlite.js";
 import { RemoteBlockCoordinator } from "./remoteBlockCoordinator.js";
+import type { RemoteBlockCoordinatorOptions } from "./remoteBlockCoordinator.js";
 import { ensureRuntimeAttachmentForOperation } from "./canvas/runtimeAttachment.js";
 import type {
   RemoteArtifactContentPort,
@@ -65,6 +66,8 @@ export type RemoteBlockCoordinationOptions = {
     projectId: string;
     canvasId: string;
   }): boolean;
+  /** Idempotent Host evidence → Server Runtime projection after workspace attach. */
+  ensureRuntimeProjection?: RemoteBlockCoordinatorOptions["ensureRuntimeProjection"];
   eventRetentionMaxEvents?: number;
   eventRetentionMaxBytes?: number;
   /**
@@ -373,6 +376,9 @@ export function createRemoteBlockCoordination(
         { bindings: hosts.runtimeBindings, database, clock },
         input
       ),
+    ...(options.ensureRuntimeProjection
+      ? { ensureRuntimeProjection: options.ensureRuntimeProjection }
+      : {}),
     serverInstanceOwnerToken: startupContext.serverInstanceOwnerToken,
     humanIdentity
   });

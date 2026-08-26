@@ -58,6 +58,9 @@ import { ContentVersionRepository } from "./canvas/contentVersionRepository.js";
 import { readStableCanvasContentFingerprint } from "./canvas/contentFingerprint.js";
 import { readStableCanvasRuntimeContentTarget } from "./canvas/contentFingerprint.js";
 import { createInvalidatingCanvasRuntimeStatusRepository } from "./canvas/runtimeStatusInvalidation.js";
+import { projectCanvasRuntimeFromAcquiredLease } from "./canvas/runtimeInitializationCoordinator.js";
+import { inWriteTransaction } from "./sqlite.js";
+import { canvasScopeRefSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 
 export type DistributedServerCompositionOptions = {
   httpServer: HttpServer;
@@ -134,15 +137,16 @@ export async function createDistributedServerComposition(
         readiness.transition("reconciling");
         activity = createActivityJournalComposition({ database, config, clock });
         const contentVersions = new ContentVersionRepository(database, clock);
+        const runtimeStatuses = createInvalidatingCanvasRuntimeStatusRepository({
+          database,
+          observerJournal: activity.humanObserverJournal,
+          clock
+        });
         const authoritativeExecutionRuntime = new AuthoritativeExecutionRuntimeAdapter({
           delegate: executionRuntime,
           readContentFingerprint: (scope) =>
             readStableCanvasContentFingerprint(contentVersions, scope),
-          runtimeStatuses: createInvalidatingCanvasRuntimeStatusRepository({
-            database,
-            observerJournal: activity.humanObserverJournal,
-            clock
-          })
+          runtimeStatuses
         });
         return createRemoteCoordinationOptions({
           config,
@@ -152,7 +156,21 @@ export async function createDistributedServerComposition(
           activity,
           getAuthorization: () => authorization,
           getHumanIdentity: () => humanIdentityForInteractions,
-          getWorkspaceIdentity: () => workspaceIdentityForInteractions
+          getWorkspaceIdentity: () => workspaceIdentityForInteractions,
+          ensureRuntimeProjection: async (input) => {
+            if (!input.graphFingerprint) return;
+            await projectCanvasRuntimeFromAcquiredLease({
+              runtimeStatuses,
+              commitTransaction: (action) => inWriteTransaction(database, action),
+              scope: canvasScopeRefSchema.parse({
+                workspaceId: input.workspaceId,
+                projectId: input.projectId,
+                canvasId: input.canvasId
+              }),
+              expectedGraphFingerprint: input.graphFingerprint,
+              lease: input.lease
+            });
+          }
         });
       }
     );

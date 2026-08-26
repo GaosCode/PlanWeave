@@ -25,7 +25,9 @@ import {
 } from "../runtimeArtifactAdapter.js";
 import type { HumanIdentityRepository } from "../identity/index.js";
 import { RemoteOperationRetention } from "../remoteOperationRetention.js";
+import type { RuntimeAttachmentRequest } from "../canvas/runtimeAttachment.js";
 import type {
+  CanvasExecutionRuntimeLease,
   CanvasExecutionRuntimeLeasePort,
   CanvasRuntimeScopeAvailabilityPort,
   OwnerCanvasRuntimeScopeResolverPort
@@ -43,12 +45,18 @@ export function createRemoteCoordinationOptions(input: {
   getAuthorization(): OperatorTokenRegistry;
   getHumanIdentity(): HumanIdentityRepository | undefined;
   getWorkspaceIdentity(): WorkspaceIdentityRepository;
+  ensureRuntimeProjection?: (
+    input: RuntimeAttachmentRequest & { lease: CanvasExecutionRuntimeLease }
+  ) => void | Promise<void>;
 }) {
   return {
     leaseDurationMs: input.config.limits.leaseDurationMs,
     hostOfflineAfterMs: input.config.limits.hostOfflineAfterMs,
     clock: input.clock,
     runtimeLeases: input.ownerRuntimeLeases,
+    ...(input.ensureRuntimeProjection
+      ? { ensureRuntimeProjection: input.ensureRuntimeProjection }
+      : {}),
     inputArtifacts: new RuntimeInputArtifactMaterializer(input.activity.artifactStore),
     artifactContent: new ArtifactStoreRemoteContent(input.activity.artifactStore),
     ownerEndpointScopeAuthorized: (scope: {
