@@ -213,7 +213,7 @@ function publishInitial(
 describe("authoritative content version repository", () => {
   it("persists a verified immutable version before creating the first head", async () => {
     const { repository } = await fixture();
-    expect(latestCentralSchemaVersion).toBe(62);
+    expect(latestCentralSchemaVersion).toBe(63);
     const result = publishInitial(repository);
     expect(result.head.content).toEqual(result.version.completed);
     expect(

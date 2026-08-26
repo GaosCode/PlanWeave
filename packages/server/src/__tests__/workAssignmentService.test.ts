@@ -370,8 +370,7 @@ describe("work assignment service API", () => {
       capableHost,
       weakHost,
       offlineHost,
-      revokedHost,
-      workspaceId
+      revokedHost
     } = await openStack();
 
     // Remove member, then try assign.
@@ -440,23 +439,7 @@ describe("work assignment service API", () => {
         }
       ]
     });
-    await expect(
-      service.updateAssignment({
-        projectId,
-        workItem: blockItem,
-        target: { kind: "exact_host", hostId: capableHost.host.id },
-        expectedRevision: 0,
-        actor: ownerContext
-      })
-    ).rejects.toThrow(/ready workspace and ACP profile state/);
-    hosts.reportOnline(
-      capableHost.host.id,
-      ["acp.codex", "linux", "git.read"],
-      2,
-      readyObservation(workspaceId, ["acp.codex", "linux", "git.read"])
-    );
-
-    // Reassign to capable online host.
+    // Workspace mappings do not define Host availability; the ready ACP profile does.
     const online = await service.updateAssignment({
       projectId,
       workItem: blockItem,
@@ -720,7 +703,7 @@ describe("work assignment host port facts", () => {
       port
         .listHostFacts(stack.workspaceId, projectId)
         .some((host) => host.hostId === stack.capableHost.host.id)
-    ).toBe(false);
+    ).toBe(true);
 
     stack.hosts.reportOnline(stack.capableHost.host.id, capabilities, 2, {
       workspaceMappings: [{ workspaceId: stack.workspaceId, status: "ready" }],

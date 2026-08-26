@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import type { HostReadinessObservation } from "@planweave-ai/agent-host-protocol";
 import { endpointIdFor } from "../agentEndpointCatalog.js";
 import { AgentHostRepository } from "../hosts.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
@@ -72,15 +73,29 @@ function acpProfile(
   };
 }
 
+function writeLegacyReadiness(
+  database: SqliteDatabase,
+  hostId: string,
+  readiness: HostReadinessObservation
+): void {
+  database
+    .prepare(
+      `UPDATE agent_hosts
+       SET capabilities_json=?,capacity=?,last_seen_at=?,readiness_json=?
+       WHERE id=?`
+    )
+    .run(JSON.stringify(["acp.codex"]), 2, now.toISOString(), JSON.stringify(readiness), hostId);
+}
+
 describe("remote agent registry migration v57", () => {
   it("registers as latest schema version", () => {
-    expect(latestCentralSchemaVersion).toBe(62);
+    expect(latestCentralSchemaVersion).toBe(63);
   });
 
   it("creates both tables and the active-grant index on an empty database", async () => {
     const database = await openDatabase();
     applyMigrations(database);
-    expect(centralSchemaVersion(database)).toBe(62);
+    expect(centralSchemaVersion(database)).toBe(63);
     expect(tableExists(database, "remote_agents")).toBe(true);
     expect(tableExists(database, "remote_agent_workspace_grants")).toBe(true);
     expect(tableExists(database, "agent_host_remote_agent_defaults")).toBe(true);
@@ -108,7 +123,7 @@ describe("remote agent registry migration v57", () => {
       )
       .all();
     expect(() => applyMigrations(database)).not.toThrow();
-    expect(centralSchemaVersion(database)).toBe(62);
+    expect(centralSchemaVersion(database)).toBe(63);
     expect(
       database
         .prepare(
@@ -133,7 +148,7 @@ describe("remote agent registry migration v57", () => {
     const host = hosts.register("Build Mac").host;
     hosts.bindToWorkspace(host.id, workspaceA);
     hosts.bindToWorkspace(host.id, workspaceB);
-    hosts.reportOnline(host.id, ["acp.codex"], 2, {
+    writeLegacyReadiness(database, host.id, {
       workspaceMappings: [
         { workspaceId: workspaceA, status: "ready" },
         { workspaceId: workspaceB, status: "ready" }
@@ -151,7 +166,7 @@ describe("remote agent registry migration v57", () => {
     expect(tableExists(database, "remote_agents")).toBe(false);
 
     applyMigrations(database);
-    expect(centralSchemaVersion(database)).toBe(62);
+    expect(centralSchemaVersion(database)).toBe(63);
     const agents = database
       .prepare(
         `SELECT endpoint_id, host_id, profile_id, agent_id, owner_human_principal_id,
@@ -220,11 +235,11 @@ describe("remote agent registry migration v57", () => {
     const invalidHost = hosts.register("Invalid Readiness").host;
     const emptyHost = hosts.register("Empty Profiles").host;
     const superseded = hosts.register("Superseded Host").host;
-    hosts.reportOnline(emptyHost.id, ["acp.codex"], 1, {
+    writeLegacyReadiness(database, emptyHost.id, {
       workspaceMappings: [],
       acpProfiles: []
     });
-    hosts.reportOnline(superseded.id, ["acp.codex"], 1, {
+    writeLegacyReadiness(database, superseded.id, {
       workspaceMappings: [],
       acpProfiles: [acpProfile()]
     });
@@ -319,7 +334,7 @@ describe("remote agent registry migration v57", () => {
     expect(centralSchemaVersion(database)).toBe(57);
     expect(tableExists(database, "agent_host_remote_agent_defaults")).toBe(false);
     applyMigrations(database);
-    expect(centralSchemaVersion(database)).toBe(62);
+    expect(centralSchemaVersion(database)).toBe(63);
     expect(tableExists(database, "agent_host_remote_agent_defaults")).toBe(true);
     const applied = database
       .prepare("SELECT version, applied_at FROM schema_migrations WHERE version=58")

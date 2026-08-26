@@ -72,7 +72,16 @@ export async function handleCanvasRuntimeContentRequest(
       request.resume();
       return true;
     }
-    const located = options.locator.locate(scope);
+    let located: ReturnType<CanvasRuntimeHostLocator["locate"]>;
+    try {
+      located = options.locator.locate(scope);
+    } catch (error) {
+      if (error instanceof Error && error.message === "canvas_runtime_scope_unavailable") {
+        respond(response, 403, "runtime_content_scope_forbidden");
+        return true;
+      }
+      throw error;
+    }
     if (located.kind !== "available" || located.hostId !== hostId) {
       respond(response, 403, "runtime_content_scope_forbidden");
       return true;

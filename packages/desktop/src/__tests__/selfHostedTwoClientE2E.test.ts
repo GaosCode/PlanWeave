@@ -277,6 +277,38 @@ describe("self-hosted two-Desktop collaboration flow (OSS-006 B-002)", () => {
       )?.endpointId;
       expect(agentEndpointId).toBeTruthy();
 
+      for (const [request, status] of [
+        [{ projectId: "untrusted-project" }, 403],
+        [
+          {
+            canvasId: "private",
+            expectedResponsibilityRevision: 0,
+            expectedReviewerRevision: 0
+          },
+          404
+        ],
+        [{ blockRef: "T-001" }, 400]
+      ] as const) {
+        const response = await postJson(
+          fixture.origin,
+          `/api/v1/projects/${encodeURIComponent(fixture.projectId)}/remote-operations`,
+          ownerToken,
+          {
+            schemaVersion: "remote-run/v3",
+            projectId: fixture.projectId,
+            canvasId: "default",
+            blockRef: "T-001#B-001",
+            agentEndpointId,
+            idempotencyKey: `two-client-rejected-${status}`,
+            expectedResponsibilityRevision: 1,
+            expectedReviewerRevision: 1,
+            ...request
+          }
+        );
+        const body = await response.json();
+        expect(response.status, JSON.stringify(body)).toBe(status);
+      }
+
       const remoteDispatchIntent = remoteDispatchIntentV3Schema.parse({
         schemaVersion: "remote-run/v3",
         projectId: fixture.projectId,
@@ -334,31 +366,6 @@ describe("self-hosted two-Desktop collaboration flow (OSS-006 B-002)", () => {
         dispatchId: dispatchedBody.dispatchId,
         agentEndpoint: { endpointId: agentEndpointId }
       });
-
-      for (const [request, status] of [
-        [{ projectId: "untrusted-project" }, 403],
-        [{ canvasId: "private" }, 404],
-        [{ blockRef: "T-001" }, 400]
-      ] as const) {
-        const response = await postJson(
-          fixture.origin,
-          `/api/v1/projects/${encodeURIComponent(fixture.projectId)}/remote-operations`,
-          ownerToken,
-          {
-            schemaVersion: "remote-run/v3",
-            projectId: fixture.projectId,
-            canvasId: "default",
-            blockRef: "T-001#B-001",
-            agentEndpointId,
-            idempotencyKey: `two-client-rejected-${status}`,
-            expectedResponsibilityRevision: 1,
-            expectedReviewerRevision: 1,
-            ...request
-          }
-        );
-        const body = await response.json();
-        expect(response.status, JSON.stringify(body)).toBe(status);
-      }
 
       for (const invalidScope of [
         taskScope,

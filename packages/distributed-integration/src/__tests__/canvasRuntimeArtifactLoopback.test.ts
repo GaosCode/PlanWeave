@@ -118,7 +118,10 @@ async function setup() {
     {
       leaseDurationMs: 60_000,
       hostOfflineAfterMs: 60_000,
-      runtimeLeases: { acquire: () => Promise.reject(new Error("acp_runtime_not_used")) },
+      runtimeLeases: {
+        acquire: () => Promise.reject(new Error("acp_runtime_not_used")),
+        acquireForHost: () => Promise.reject(new Error("acp_runtime_not_used"))
+      },
       inputArtifacts: { async materialize() {} },
       artifactContent: {
         async readReport() {
@@ -425,8 +428,8 @@ describe("Canvas Runtime artifact loopback", () => {
     const crossScope = await fetch(wrongWorkspace, {
       headers: { Authorization: `Bearer ${fixture.hostRegistration.token}` }
     });
-    expect(crossScope.status).toBe(401);
-    expect(await crossScope.json()).toEqual({ error: "runtime_content_unauthorized" });
+    expect(crossScope.status).toBe(403);
+    expect(await crossScope.json()).toEqual({ error: "runtime_content_scope_forbidden" });
 
     const staleDigest = "f".repeat(64);
     const staleTarget = new URL(contentUrl);
