@@ -770,7 +770,8 @@
         "tailscaleWebSocketProbe.test.ts",
         "workAssignmentPolicy.test.ts",
         "workAssignmentSchemas.test.ts",
-        "workAssignmentWorkItemRef.test.ts"
+        "workAssignmentWorkItemRef.test.ts",
+        "workspaceExecutionPlaneInventory.test.ts"
       ],
       "integration": [
         "accessHttp.test.ts",
@@ -913,6 +914,7 @@
         "workAssignmentWorkspaceProjection.test.ts",
         "workRuntimeFactsPort.test.ts",
         "workspaceConnectionHttp.test.ts",
+        "workspaceExecutionPlaneGapHttp.test.ts",
         "workspaceIdentityHttp.test.ts",
         "workspaceIdentityMigration.test.ts",
         "wsServer.test.ts"
