@@ -8,14 +8,10 @@ import { WorkspaceIdentityRepository } from "./identity/workspaceRepository.js";
 import {
   AgentHostRepository,
   fleetHostExecutionProfileAvailability,
-  hostExecutionProfileAvailability,
   isAgentHostOnline
 } from "./hosts.js";
 import { isOwnerCanvasRuntime } from "./endpointSelection.js";
-import {
-  availabilityScopeForAuthorized,
-  occupiesHostCapacity
-} from "./remoteAgent/dispatchTarget.js";
+import { occupiesHostCapacity } from "./remoteAgent/dispatchTarget.js";
 import type { RemoteOperation } from "./remoteOperations.js";
 
 const capacityManagedReservationSql = `
@@ -37,13 +33,6 @@ const capacityManagedReservationSql = `
       )
   )
 `;
-
-function usesFleetHostVisibility(operation: RemoteOperation): boolean {
-  if (operation.agentAccess) {
-    return availabilityScopeForAuthorized(operation.agentAccess.authorized) === "owner_canvas";
-  }
-  return isOwnerCanvasRuntime(operation.endpointSelection?.authority);
-}
 
 function reservationOccupiesHostCapacity(operation: RemoteOperation): boolean {
   if (operation.agentAccess) {
@@ -239,8 +228,6 @@ export class HostReservationRepository {
         }
         const now = this.clock();
         const onlineAfter = new Date(now.getTime() - this.options.hostOfflineAfterMs).toISOString();
-        const workspaceId = operation.workspaceId;
-        const fleetVisibility = usesFleetHostVisibility(operation);
         const occupiesCapacity = reservationOccupiesHostCapacity(operation);
         const preferredHostId =
           options.preferredHostId === undefined
@@ -268,18 +255,9 @@ export class HostReservationRepository {
                    FROM agent_hosts h
                    WHERE h.revoked_at IS NULL AND h.last_seen_at>=?
                      AND (h.credential_expires_at IS NULL OR h.credential_expires_at>?)
-                     AND (
-                       EXISTS (
-                         SELECT 1 FROM workspace_agent_hosts wh
-                         WHERE wh.host_id=h.id AND wh.workspace_id=?
-                       )
-                       OR NOT EXISTS (
-                         SELECT 1 FROM workspace_agent_hosts wh WHERE wh.host_id=h.id
-                       )
-                     )
                    ORDER BY active_reservations ASC,h.last_seen_at DESC,h.id ASC`
                 )
-                .all(onlineAfter, now.toISOString(), workspaceId)
+                .all(onlineAfter, now.toISOString())
         )
           .map((row) => {
             try {
@@ -299,27 +277,14 @@ export class HostReservationRepository {
               now,
               hostOfflineAfterMs: this.options.hostOfflineAfterMs
             });
-            const fleetUnbound =
-              this.workspaceIdentity.workspaceForHost(candidate.id) === undefined;
-            const profileAvailability = fleetVisibility
-              ? fleetHostExecutionProfileAvailability(host, {
-                  online,
-                  agentId: options.agentId,
-                  agentProfileId: options.agentProfileId,
-                  requiredCapabilities: operation.requiredCapabilities
-                })
-              : hostExecutionProfileAvailability(host, {
-                  workspaceId,
-                  online,
-                  agentId: options.agentId,
-                  agentProfileId: options.agentProfileId,
-                  requiredCapabilities: operation.requiredCapabilities,
-                  fleetUnbound
-                });
+            const profileAvailability = fleetHostExecutionProfileAvailability(host, {
+              online,
+              agentId: options.agentId,
+              agentProfileId: options.agentProfileId,
+              requiredCapabilities: operation.requiredCapabilities
+            });
             return (
               this.workspaceIdentity.hostUsable(candidate.id, now) &&
-              (fleetVisibility ||
-                this.workspaceIdentity.hostUsable(candidate.id, now, workspaceId)) &&
               profileAvailability.status === "available"
             );
           });

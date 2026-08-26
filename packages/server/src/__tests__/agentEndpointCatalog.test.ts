@@ -306,7 +306,7 @@ describe("AgentEndpointCatalog", () => {
     expect(new Set([base, ...variants]).size).toBe(4);
   });
 
-  it("lists Hosts without workspace mapping in the fleet catalog", () => {
+  it("lists Hosts without workspace mapping as available in fleet and workspace catalogs", () => {
     const host = readyHost({
       readinessObservation: {
         workspaceMappings: [],
@@ -314,13 +314,10 @@ describe("AgentEndpointCatalog", () => {
       }
     });
     expect(fleetEndpointFor(host)).toMatchObject({ status: "available" });
-    expect(workspaceEndpointFor(host)).toMatchObject({
-      status: "unavailable",
-      unavailableReason: "workspace_mapping_missing"
-    });
+    expect(workspaceEndpointFor(host)).toMatchObject({ status: "available" });
   });
 
-  it("rejects resolveForRun when a workspace-bound host has a missing workspace mapping", () => {
+  it("resolves workspace-canvas runs when a host has no workspace mapping", () => {
     const host = readyHost({
       readinessObservation: {
         workspaceMappings: [],
@@ -330,14 +327,13 @@ describe("AgentEndpointCatalog", () => {
     const state = fixture([host]);
     const endpoint = state.catalog.listVisibleFleet().items[0]!;
     expect(state.catalog.listVisible("workspace-a").items[0]).toMatchObject({
-      status: "unavailable",
-      unavailableReason: "workspace_mapping_missing"
+      status: "available"
     });
-    expect(() =>
+    expect(
       state.catalog.resolveForRun(endpoint.endpointId, "workspace-a", ["acp.codex"], {
         kind: "workspace"
       })
-    ).toThrowError(new AgentEndpointCatalogError("agent_endpoint_unavailable"));
+    ).toMatchObject({ hostId: "host-primary", profileId: "profile-main", agentId: "codex" });
   });
 
   it("uses fleet rules for owner_canvas resolve when the host has no workspace mapping", () => {
@@ -362,11 +358,11 @@ describe("AgentEndpointCatalog", () => {
         kind: "owner_fleet"
       })
     ).toMatchObject({ hostId: "host-primary", profileId: "profile-main", agentId: "codex" });
-    expect(() =>
+    expect(
       catalog.resolveForRun(endpoint.endpointId, "workspace-a", ["acp.codex"], {
         kind: "workspace"
       })
-    ).toThrowError(new AgentEndpointCatalogError("agent_endpoint_unavailable"));
+    ).toMatchObject({ hostId: "host-primary", profileId: "profile-main", agentId: "codex" });
   });
 
   it.each([
@@ -377,18 +373,15 @@ describe("AgentEndpointCatalog", () => {
   });
 
   it.each([
-    ["missing", "workspace_mapping_missing"],
-    ["invalid", "workspace_mapping_invalid"]
-  ] as const)("projects a %s workspace mapping for workspace-canvas listing", (status, reason) => {
+    "missing",
+    "invalid"
+  ] as const)("does not treat a %s workspace mapping as workspace-canvas unavailability", (status) => {
     const host = readyHost();
     host.readinessObservation = {
       workspaceMappings: [{ workspaceId: "workspace-a", status }],
       acpProfiles: host.readinessObservation!.acpProfiles
     };
-    expect(workspaceEndpointFor(host)).toMatchObject({
-      status: "unavailable",
-      unavailableReason: reason
-    });
+    expect(workspaceEndpointFor(host)).toMatchObject({ status: "available" });
   });
 
   it("treats a profile capability outside the Host capability set as invalid", () => {

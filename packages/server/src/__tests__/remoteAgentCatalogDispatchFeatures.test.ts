@@ -188,7 +188,7 @@ describe("Phase 5 catalog/dispatch authorization", () => {
   });
 
   describe("Owner Fleet vs Workspace Catalog availability overlay", () => {
-    it("lists fleet hosts without workspace mapping and overlays mapping on workspace listing", async () => {
+    it("lists fleet hosts without workspace mapping as available in workspace listing", async () => {
       const unbound = readyHost({
         readinessObservation: {
           workspaceMappings: [],
@@ -200,8 +200,7 @@ describe("Phase 5 catalog/dispatch authorization", () => {
         status: "available"
       });
       expect(unboundCatalog.catalog.listVisible("workspace-a").items[0]).toMatchObject({
-        status: "unavailable",
-        unavailableReason: "workspace_mapping_missing"
+        status: "available"
       });
 
       const sqlite = await sqliteCatalogFixture();
@@ -211,8 +210,7 @@ describe("Phase 5 catalog/dispatch authorization", () => {
       expect(sqlite.hosts.listExclusivelyBoundToWorkspace(sqlite.workspaceA)).toHaveLength(1);
       expect(sqlite.catalog.listVisible(sqlite.workspaceA).items).toHaveLength(1);
       expect(sqlite.catalog.listVisible(sqlite.workspaceB).items[0]).toMatchObject({
-        status: "unavailable",
-        unavailableReason: "workspace_mapping_missing"
+        status: "available"
       });
       expect(sqlite.catalog.listVisibleFleet().items).toHaveLength(1);
     });
@@ -261,7 +259,7 @@ describe("Phase 5 catalog/dispatch authorization", () => {
       ).toThrowError(new AgentEndpointCatalogError("agent_endpoint_unavailable"));
     });
 
-    it("workspace_canvas resolve requires a ready mapping even without exclusive bind", () => {
+    it("workspace_canvas resolve does not require a ready mapping", () => {
       const host = readyHost({
         readinessObservation: {
           workspaceMappings: [],
@@ -271,19 +269,18 @@ describe("Phase 5 catalog/dispatch authorization", () => {
       const state = catalogFixture([host]);
       const endpoint = state.catalog.listVisibleFleet().items[0]!;
       expect(state.catalog.listVisible("workspace-a").items[0]).toMatchObject({
-        status: "unavailable",
-        unavailableReason: "workspace_mapping_missing"
+        status: "available"
       });
       expect(
         state.catalog.resolveForRun(endpoint.endpointId, "workspace-a", ["acp.codex"], {
           kind: "owner_fleet"
         })
       ).toMatchObject({ hostId: "host-primary", profileId: "profile-main", agentId: "codex" });
-      expect(() =>
+      expect(
         state.catalog.resolveForRun(endpoint.endpointId, "workspace-a", ["acp.codex"], {
           kind: "workspace"
         })
-      ).toThrowError(new AgentEndpointCatalogError("agent_endpoint_unavailable"));
+      ).toMatchObject({ hostId: "host-primary", profileId: "profile-main", agentId: "codex" });
     });
 
     it("keeps unknown and incompatible distinct from unavailable", () => {

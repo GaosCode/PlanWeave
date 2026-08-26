@@ -18,9 +18,9 @@ export type ListAuthorizedRemoteAgentEndpointsInput = {
 /**
  * Execution-selector listing: target-scoped availability filtered by the same
  * access rules as dispatch. Access denials are omitted; offline/capacity/profile
- * and workspace-mapping unavailability stay visible. Unrestricted owners overlay
- * fleet mapping (ignore workspace mapping) but keep Host capacity on a
- * workspace canvas via deriveEndpointAvailabilityPolicy.
+ * unavailability stay visible. Unrestricted owners overlay owner-workspace
+ * capacity on a workspace canvas via deriveEndpointAvailabilityPolicy.
+ * Workspace mapping is not an Agent grant or execution-catalog filter.
  */
 export function listAuthorizedRemoteAgentEndpoints(
   input: ListAuthorizedRemoteAgentEndpointsInput

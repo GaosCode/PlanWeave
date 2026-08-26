@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ownerPackageLocatorForRun } from "@planweave-ai/agent-host-protocol";
 import { RemoteAgentAuthorizationError } from "../remoteAgent/errors.js";
 import { basicManifest } from "../../../runtime/src/__tests__/promptTestHelpers.js";
+import { endpointIdFor } from "../agentEndpointCatalog.js";
 import { canonicalRemoteRuntimePort } from "../canonicalRemoteRuntimePort.js";
 import { RemoteRuntimePortRegistry } from "../remoteRuntimeLocator.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
@@ -329,12 +330,11 @@ describe("RemoteBlockCoordinator", () => {
     });
   });
 
-  it("dispatches the selected catalog Endpoint only to its ready workspace ACP Host", async () => {
+  it("dispatches the selected catalog Endpoint only to a Host with a ready ACP profile", async () => {
     const fixture = await setup(false);
-    const missingWorkspace = fixture.hosts.register("Missing workspace readiness").host;
     const missingAcp = fixture.hosts.register("Missing ACP readiness").host;
     const ready = fixture.hosts.register("Ready automatic Host").host;
-    for (const host of [missingWorkspace, missingAcp, ready]) {
+    for (const host of [missingAcp, ready]) {
       fixture.hosts.bindToWorkspace(host.id, fixture.locator.workspaceId);
       ownHostRemoteAgents({
         database: fixture.server.database,
@@ -342,18 +342,6 @@ describe("RemoteBlockCoordinator", () => {
         grantWorkspaceId: fixture.locator.workspaceId
       });
     }
-    fixture.hosts.reportOnline(missingWorkspace.id, ["acp.codex"], 1, {
-      workspaceMappings: [],
-      acpProfiles: [
-        {
-          profileId: "codex-acp",
-          agentId: "codex",
-          displayName: "Test Agent",
-          status: "ready",
-          capabilities: ["acp.codex"]
-        }
-      ]
-    });
     fixture.hosts.reportOnline(missingAcp.id, ["acp.codex"], 1, {
       workspaceMappings: [{ workspaceId: fixture.locator.workspaceId, status: "ready" }],
       acpProfiles: []
@@ -523,7 +511,12 @@ describe("RemoteBlockCoordinator", () => {
         agentEndpoints: fixture.agentEndpoints,
         locator: secondLocator,
         blockRef: scope.blockRef,
-        idempotencyKey: "strict-authority-exact-workspace"
+        idempotencyKey: "strict-authority-exact-workspace",
+        agentEndpointId: endpointIdFor({
+          hostId: host.id,
+          profileId: "codex-acp",
+          agentId: "codex"
+        })
       })
     );
     expect(outcome).toMatchObject({
@@ -886,8 +879,7 @@ describe("RemoteBlockCoordinator", () => {
     if (!endpoint) throw new Error("expected_fleet_endpoint");
     expect(endpoint.status).toBe("available");
     expect(fixture.agentEndpoints.listVisible(fixture.locator.workspaceId).items[0]).toMatchObject({
-      status: "unavailable",
-      unavailableReason: "workspace_mapping_missing"
+      status: "available"
     });
 
     const outcome = await fixture.coordinator.dispatch({

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   agentEndpointErrorCodeSchema,
+  agentEndpointUnavailableReasonSchema,
   assertRemoteAgentEndpointRedacted,
   remoteAgentAuthorizationErrorCodeSchema,
   remoteAgentEndpointAccessViewSchema,
@@ -32,6 +33,14 @@ describe("agent endpoint protocol", () => {
   });
 
   it("requires a bounded reason only for unavailable endpoints", () => {
+    expect([...agentEndpointUnavailableReasonSchema.options]).toEqual([
+      "host_offline",
+      "host_revoked",
+      "host_credential_expired",
+      "profile_missing",
+      "profile_invalid",
+      "at_capacity"
+    ]);
     expect(() => remoteAgentEndpointSchema.parse({ ...endpoint, status: "unavailable" })).toThrow();
     expect(() =>
       remoteAgentEndpointSchema.parse({
@@ -46,6 +55,18 @@ describe("agent endpoint protocol", () => {
         unavailableReason: "at_capacity"
       })
     ).toMatchObject({ status: "unavailable", unavailableReason: "at_capacity" });
+    for (const unavailableReason of [
+      "workspace_mapping_missing",
+      "workspace_mapping_invalid"
+    ] as const) {
+      expect(
+        remoteAgentEndpointSchema.safeParse({
+          ...endpoint,
+          status: "unavailable",
+          unavailableReason
+        }).success
+      ).toBe(false);
+    }
   });
 
   it("has a dedicated redaction assertion for sensitive Host fields", () => {

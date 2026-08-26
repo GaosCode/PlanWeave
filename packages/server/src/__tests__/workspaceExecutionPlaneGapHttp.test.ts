@@ -114,7 +114,7 @@ function dispatchUrl(origin: string, projectId: string) {
 }
 
 describe("workspace execution plane HTTP gaps", () => {
-  it.fails("PHASE0 GAP: member with grant and no workspace mapping can catalog and dispatch", async () => {
+  it("PHASE0: member with grant and no workspace mapping can catalog and dispatch", async () => {
     const fixture = await startGrantedHostCatalogDispatchHttp({ mapWorkspace: false });
     const member = await joinMember(fixture.origin, fixture.projectId, fixture.ownerToken);
     const listed = await fetch(

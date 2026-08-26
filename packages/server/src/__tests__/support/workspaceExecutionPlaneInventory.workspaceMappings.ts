@@ -18,14 +18,6 @@ export const workspaceMappingsInventory = [
     "Agent Host produces mapping status without exposing local paths."
   ),
   inventoryEntry(
-    "wm-catalog-unavailableReason",
-    "workspaceMappings",
-    "legacy_agent_access",
-    "packages/server/src/agentEndpointCatalog.ts",
-    "unavailableReason readinessObservation.workspaceMappings",
-    "Workspace catalog/resolve still gate visibility on mapping presence/status."
-  ),
-  inventoryEntry(
     "wm-operatorHostAvailability",
     "workspaceMappings",
     "legacy_agent_access",
@@ -122,12 +114,12 @@ export const workspaceMappingsInventory = [
     "Catalog unit fixture supplies a ready mapping observation."
   ),
   inventoryEntry(
-    "wm-catalog-test-empty-gate",
+    "wm-catalog-test-empty-observation",
     "workspaceMappings",
-    "legacy_agent_access",
+    "endpoint_readiness",
     "packages/server/src/__tests__/agentEndpointCatalog.test.ts",
     "workspaceMappings: [] / status missing",
-    "Catalog unit tests currently expect mapping-missing unavailability."
+    "Catalog unit tests treat empty or missing mapping observations as valid availability payload."
   ),
   inventoryEntry(
     "wm-agentEndpointHttp-test",
@@ -188,10 +180,10 @@ export const workspaceMappingsInventory = [
   inventoryEntry(
     "wm-hostReservations-empty",
     "workspaceMappings",
-    "legacy_agent_access",
+    "endpoint_readiness",
     "packages/server/src/__tests__/hostReservations.test.ts",
     "workspaceMappings: []",
-    "Some reservation cases still empty mappings to change workspace readiness."
+    "Grant-authorized reservation fixture uses empty mapping observations as valid Host readiness."
   ),
   inventoryEntry(
     "wm-hosts-test-empty-fleet",
@@ -220,10 +212,10 @@ export const workspaceMappingsInventory = [
   inventoryEntry(
     "wm-remoteAgentAccessPolicy-empty",
     "workspaceMappings",
-    "legacy_agent_access",
+    "endpoint_readiness",
     "packages/server/src/__tests__/remoteAgentAccessPolicy.test.ts",
     "workspaceMappings: []",
-    "Access-policy cases still use empty mappings as a workspace overlay gate."
+    "Access-policy repair-host fixture reports empty mapping observations."
   ),
   inventoryEntry(
     "wm-remoteAgentAuthorizationMatrix-test",
@@ -244,10 +236,10 @@ export const workspaceMappingsInventory = [
   inventoryEntry(
     "wm-remoteAgentCatalogDispatchFeatures-empty",
     "workspaceMappings",
-    "legacy_agent_access",
+    "endpoint_readiness",
     "packages/server/src/__tests__/remoteAgentCatalogDispatchFeatures.test.ts",
-    "workspaceMappings: [] expect workspace_mapping_missing",
-    "Feature tests lock catalog overlay unavailability when mappings are empty."
+    "workspaceMappings: []",
+    "Feature tests report empty mapping observations as valid catalog availability payload."
   ),
   inventoryEntry(
     "wm-remoteAgentEnrollment-test",
@@ -292,10 +284,10 @@ export const workspaceMappingsInventory = [
   inventoryEntry(
     "wm-remoteBlockCoordinator-empty",
     "workspaceMappings",
-    "legacy_agent_access",
+    "endpoint_readiness",
     "packages/server/src/__tests__/remoteBlockCoordinator.test.ts",
     "workspaceMappings: []",
-    "Coordinator cases still empty mappings to force overlay unavailability."
+    "Coordinator fleet-unbound fixtures report empty mapping observations."
   ),
   inventoryEntry(
     "wm-remoteBlockCoordinatorCrash-test",

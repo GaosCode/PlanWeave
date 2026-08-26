@@ -73,8 +73,6 @@ type InternalCandidate = {
   profile: NonNullable<AgentHost["readinessObservation"]>["acpProfiles"][number];
 };
 
-type CandidateScope = "fleet" | "workspace";
-
 const ACTIVE_HOST_PAGE_SIZE = 100;
 const MAX_ACTIVE_HOSTS_PER_SNAPSHOT = 12_800;
 const MAX_ENDPOINTS_PER_SNAPSHOT = 12_800;
@@ -105,13 +103,11 @@ export function legacyEndpointIdFor(input: {
 
 function unavailableReason(
   host: AgentHost,
-  workspaceId: string | undefined,
   profile: InternalCandidate["profile"],
   activeReservations: number,
   now: Date,
   hostOfflineAfterMs: number,
   duplicateProfile: boolean,
-  scope: CandidateScope,
   enforceCapacity: boolean
 ): AgentEndpointUnavailableReason | undefined {
   if (host.revokedAt !== undefined) return "host_revoked";
@@ -130,18 +126,6 @@ function unavailableReason(
     lastSeenAt < now.getTime() - hostOfflineAfterMs
   ) {
     return "host_offline";
-  }
-  if (scope === "workspace" && workspaceId !== undefined) {
-    const mappings =
-      host.readinessObservation?.workspaceMappings.filter(
-        (mapping) => mapping.workspaceId === workspaceId
-      ) ?? [];
-    if (mappings.length === 0 || mappings[0]?.status === "missing") {
-      return "workspace_mapping_missing";
-    }
-    if (mappings.length !== 1 || mappings[0]?.status === "invalid") {
-      return "workspace_mapping_invalid";
-    }
   }
   if (duplicateProfile || profile.status === "invalid") return "profile_invalid";
   if (profile.status === "missing") return "profile_missing";
@@ -163,8 +147,9 @@ export class AgentEndpointCatalog {
   }
 
   /**
-   * Project Host availability from the closed mapping+capacity policy.
+   * Project Host availability from the closed capacity policy.
    * `workspaceId` is required when policy.kind is `workspace`.
+   * Workspace mapping is not an Agent grant or execution-catalog filter.
    */
   listProjected(
     policy: EndpointAvailabilityPolicy,
@@ -172,27 +157,24 @@ export class AgentEndpointCatalog {
   ): RemoteAgentEndpointList {
     const mappingScope = endpointMappingScope(policy);
     const occupyHostCapacity = endpointOccupiesHostCapacity(policy);
-    const workspaceId =
-      mappingScope === "workspace_canvas"
-        ? workspaceIdSchema.parse(workspaceIdInput)
-        : workspaceIdInput === undefined
-          ? undefined
-          : workspaceIdSchema.parse(workspaceIdInput);
-    if (mappingScope === "workspace_canvas" && workspaceId === undefined) {
-      throw new Error("agent_endpoint_workspace_required");
+    if (mappingScope === "workspace_canvas") {
+      if (workspaceIdInput === undefined) {
+        throw new Error("agent_endpoint_workspace_required");
+      }
+      workspaceIdSchema.parse(workspaceIdInput);
+    } else if (workspaceIdInput !== undefined) {
+      workspaceIdSchema.parse(workspaceIdInput);
     }
     const snapshot = this.currentFleetSnapshot(false);
     const now = this.clock();
     const items = snapshot.candidates.map((candidate) => {
       const reason = unavailableReason(
         candidate.host,
-        mappingScope === "workspace_canvas" ? workspaceId : undefined,
         candidate.profile,
         snapshot.activeCounts.get(candidate.host.id) ?? 0,
         now,
         this.options.hostOfflineAfterMs,
         this.profileIdentityCount(candidate.host, candidate.profile) !== 1,
-        mappingScope === "workspace_canvas" ? "workspace" : "fleet",
         occupyHostCapacity
       );
       const endpoint = remoteAgentEndpointSchema.parse({
@@ -219,7 +201,8 @@ export class AgentEndpointCatalog {
 
   /**
    * Workspace-canvas availability overlay of the fleet.
-   * Mapping and collaboration capacity apply; exclusive bind does not filter.
+   * Collaboration Host capacity applies; exclusive bind and workspace mapping
+   * are not Agent grant or execution-catalog filters.
    */
   listVisible(workspaceIdInput: string): RemoteAgentEndpointList {
     return this.listProjected({ kind: "workspace" }, workspaceIdInput);
@@ -232,11 +215,11 @@ export class AgentEndpointCatalog {
     policy: EndpointAvailabilityPolicy
   ): ResolvedAgentEndpoint {
     const endpointId = opaqueIdentifierSchema.parse(endpointIdInput);
-    const workspaceId = workspaceIdSchema.parse(workspaceIdInput);
+    workspaceIdSchema.parse(workspaceIdInput);
     const requiredCapabilities = agentEndpointCapabilitiesSchema.parse(requiredCapabilitiesInput);
     const candidate = this.findCandidateForResolve(endpointId);
     if (!candidate) throw new AgentEndpointCatalogError("agent_endpoint_unknown");
-    if (this.unavailableReasonForResolve(candidate, workspaceId, policy) !== undefined) {
+    if (this.unavailableReasonForResolve(candidate, policy) !== undefined) {
       throw new AgentEndpointCatalogError("agent_endpoint_unavailable");
     }
     if (
@@ -259,14 +242,14 @@ export class AgentEndpointCatalog {
     policy: EndpointAvailabilityPolicy
   ): ResolvedAgentEndpoint {
     const endpointId = opaqueIdentifierSchema.parse(endpointIdInput);
-    const workspaceId = workspaceIdSchema.parse(workspaceIdInput);
+    workspaceIdSchema.parse(workspaceIdInput);
     const expectedHostId = opaqueIdentifierSchema.parse(expectedHostIdInput);
     const requiredCapabilities = agentEndpointCapabilitiesSchema.parse(requiredCapabilitiesInput);
     const candidate = this.findCandidateForResolve(endpointId);
     if (!candidate || candidate.host.id !== expectedHostId) {
       throw new AgentEndpointCatalogError("agent_endpoint_unknown");
     }
-    const reason = this.unavailableReasonForResolve(candidate, workspaceId, policy);
+    const reason = this.unavailableReasonForResolve(candidate, policy);
     if (reason !== undefined && reason !== "at_capacity") {
       throw new AgentEndpointCatalogError("agent_endpoint_unavailable");
     }
@@ -284,20 +267,15 @@ export class AgentEndpointCatalog {
 
   private unavailableReasonForResolve(
     candidate: InternalCandidate,
-    workspaceId: string,
     policy: EndpointAvailabilityPolicy
   ): AgentEndpointUnavailableReason | undefined {
-    const scope: CandidateScope =
-      endpointMappingScope(policy) === "owner_canvas" ? "fleet" : "workspace";
     return unavailableReason(
       candidate.host,
-      scope === "workspace" ? workspaceId : undefined,
       candidate.profile,
       this.options.capacities.activeCountsForHosts([candidate.host.id]).get(candidate.host.id) ?? 0,
       this.clock(),
       this.options.hostOfflineAfterMs,
       this.profileIdentityCount(candidate.host, candidate.profile) !== 1,
-      scope,
       endpointOccupiesHostCapacity(policy)
     );
   }
@@ -356,13 +334,11 @@ export class AgentEndpointCatalog {
         emitted.add(identity);
         const reason = unavailableReason(
           host,
-          undefined,
           profile,
           activeCounts.get(host.id) ?? 0,
           now,
           this.options.hostOfflineAfterMs,
           identityCounts.get(identity) !== 1,
-          "fleet",
           enforceCapacity
         );
         const endpoint = remoteAgentEndpointSchema.parse({

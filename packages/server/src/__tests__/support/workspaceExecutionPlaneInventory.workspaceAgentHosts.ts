@@ -90,22 +90,6 @@ export const workspaceAgentHostsInventory = [
     "Explicit workspace projection write delegated to WorkspaceIdentityRepository."
   ),
   inventoryEntry(
-    "wah-reservations-exists",
-    "workspace_agent_hosts",
-    "legacy_agent_access",
-    "packages/server/src/hostReservations.ts",
-    "EXISTS SELECT 1 FROM workspace_agent_hosts wh WHERE wh.host_id=h.id AND wh.workspace_id=?",
-    "Reservation candidate SQL still filters Host membership through projection rows."
-  ),
-  inventoryEntry(
-    "wah-reservations-fleetUnbound",
-    "workspace_agent_hosts",
-    "enrollment_migration",
-    "packages/server/src/hostReservations.ts",
-    "workspaceForHost(candidate.id) === undefined",
-    "Fleet-unbound Hosts skip workspace mapping readiness after the stock-fleet lift."
-  ),
-  inventoryEntry(
     "wah-hostEnrollment-bind",
     "workspace_agent_hosts",
     "enrollment_migration",
@@ -224,5 +208,13 @@ export const workspaceAgentHostsInventory = [
     "packages/server/src/__tests__/workspaceIdentityMigration.test.ts",
     "workspace_agent_hosts table + SELECT COUNT/row",
     "Identity cutover tests create, copy, and count projection rows."
+  ),
+  inventoryEntry(
+    "wah-test-hostReservations-unmapped",
+    "workspace_agent_hosts",
+    "enrollment_migration",
+    "packages/server/src/__tests__/hostReservations.test.ts",
+    "SELECT COUNT(*) FROM workspace_agent_hosts WHERE host_id=?",
+    "Positive lock: grant-authorized reservation does not require a projection row."
   )
 ];

@@ -10,8 +10,6 @@ export const agentEndpointUnavailableReasonSchema = z.enum([
   "host_offline",
   "host_revoked",
   "host_credential_expired",
-  "workspace_mapping_missing",
-  "workspace_mapping_invalid",
   "profile_missing",
   "profile_invalid",
   "at_capacity"

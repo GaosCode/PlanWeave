@@ -76,8 +76,6 @@ export const enCatalog = {
   agentEndpointUnavailableHostOffline: "Device offline",
   agentEndpointUnavailableHostRevoked: "Device removed",
   agentEndpointUnavailableCredentialExpired: "Device credential expired",
-  agentEndpointUnavailableWorkspaceMappingMissing: "Workspace not mapped",
-  agentEndpointUnavailableWorkspaceMappingInvalid: "Workspace mapping invalid",
   agentEndpointUnavailableProfileMissing: "Agent profile missing",
   agentEndpointUnavailableProfileInvalid: "Agent profile invalid",
   agentEndpointUnavailableAtCapacity: "Device busy",

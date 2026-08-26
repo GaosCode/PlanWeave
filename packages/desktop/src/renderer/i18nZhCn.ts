@@ -69,8 +69,6 @@ export const zhCnCatalog = {
   agentEndpointUnavailableHostOffline: "设备离线",
   agentEndpointUnavailableHostRevoked: "设备已移除",
   agentEndpointUnavailableCredentialExpired: "设备凭据已过期",
-  agentEndpointUnavailableWorkspaceMappingMissing: "未映射当前 Workspace",
-  agentEndpointUnavailableWorkspaceMappingInvalid: "Workspace 映射无效",
   agentEndpointUnavailableProfileMissing: "Agent 配置缺失",
   agentEndpointUnavailableProfileInvalid: "Agent 配置无效",
   agentEndpointUnavailableAtCapacity: "设备忙碌",

@@ -6,8 +6,6 @@ const reasonTranslationKeys = {
   host_offline: "agentEndpointUnavailableHostOffline",
   host_revoked: "agentEndpointUnavailableHostRevoked",
   host_credential_expired: "agentEndpointUnavailableCredentialExpired",
-  workspace_mapping_missing: "agentEndpointUnavailableWorkspaceMappingMissing",
-  workspace_mapping_invalid: "agentEndpointUnavailableWorkspaceMappingInvalid",
   profile_missing: "agentEndpointUnavailableProfileMissing",
   profile_invalid: "agentEndpointUnavailableProfileInvalid",
   at_capacity: "agentEndpointUnavailableAtCapacity",

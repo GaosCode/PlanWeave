@@ -390,7 +390,7 @@ describe("HostReservationRepository", () => {
     expect(reservations.activeCountsForHosts([host.id]).get(host.id)).toBe(1);
   });
 
-  it("scopes automatic and exact reservations to the operation Workspace", async () => {
+  it("reserves a workspace-canvas run on a host bound to another workspace", async () => {
     const server = await setup();
     const identity = new WorkspaceIdentityRepository(server.database);
     const workspaceA = identity.workspaceForLegacyProject("project-a");
@@ -403,31 +403,114 @@ describe("HostReservationRepository", () => {
     hosts.bindToWorkspace(hostB.id, workspaceB);
     reportReady(hosts, hostA.id, workspaceA, ["linux"], 1);
     reportReady(hosts, hostB.id, workspaceB, ["linux"], 1);
+    server.database
+      .prepare("UPDATE agent_hosts SET last_seen_at=? WHERE id IN (?,?)")
+      .run("2030-01-01T00:00:00.000Z", hostA.id, hostB.id);
     const operations = new RemoteOperationRepository(server.database);
     const reservations = new HostReservationRepository(server.database, {
       hostOfflineAfterMs: 60_000,
-      leaseDurationMs: 60_000
+      leaseDurationMs: 60_000,
+      clock: () => new Date("2030-01-01T00:00:00.000Z")
     });
 
-    const automaticA = reservations.reserve(
-      createOperation(operations, workspaceA, "scope-a").id,
-      executionProfile
+    const reserved = reservations.reserve(
+      createOperation(operations, workspaceA, "cross-bind", ["linux"], "project-a").id,
+      {
+        ...executionProfile,
+        preferredHostId: hostB.id
+      }
     );
-    expect(automaticA.hostId).toBe(hostA.id);
-    expect(() =>
-      reservations.reserve(
-        createOperation(operations, workspaceA, "scope-a-exact", ["linux"], "project-a").id,
+    expect(reserved.hostId).toBe(hostB.id);
+  });
+
+  it("reserves a grant-authorized workspace run without a workspace_agent_hosts row", async () => {
+    const server = await setup();
+    const workspaceId = new WorkspaceIdentityRepository(server.database).workspaceForLegacyProject(
+      "project-a"
+    );
+    if (!workspaceId) throw new Error("workspace_mapping_missing");
+    const hosts = new AgentHostRepository(server.database);
+    const host = hosts.register("Unmapped Host").host;
+    hosts.reportOnline(host.id, ["linux"], 1, {
+      workspaceMappings: [],
+      acpProfiles: [
         {
-          ...executionProfile,
-          preferredHostId: hostB.id
+          profileId: "codex-acp",
+          agentId: "codex",
+          displayName: "Test Agent",
+          status: "ready",
+          capabilities: ["linux"]
         }
-      )
-    ).toThrowError("no_compatible_agent_host");
-    const automaticB = reservations.reserve(
-      createOperation(operations, workspaceB, "scope-b", ["linux"], "project-b").id,
-      executionProfile
+      ]
+    });
+    server.database
+      .prepare("UPDATE agent_hosts SET last_seen_at=? WHERE id=?")
+      .run("2030-01-01T00:00:00.000Z", host.id);
+    expect(
+      server.database
+        .prepare("SELECT COUNT(*) AS count FROM workspace_agent_hosts WHERE host_id=?")
+        .get(host.id) as { count: number }
+    ).toEqual({ count: 0 });
+    const operations = new RemoteOperationRepository(server.database);
+    const reservations = new HostReservationRepository(server.database, {
+      hostOfflineAfterMs: 60_000,
+      leaseDurationMs: 60_000,
+      clock: () => new Date("2030-01-01T00:00:00.000Z")
+    });
+    const claimed = operations.markClaimed(
+      operations.create({
+        workspaceId,
+        projectId: "project-a",
+        canvasId: "default",
+        blockRef: "RC-002#grant-unmapped",
+        ownershipGeneration: "generation-1",
+        idempotencyKey: "request-grant-unmapped",
+        sourceFingerprint: "fingerprint-grant-unmapped",
+        requiredCapabilities: ["linux"],
+        endpointSelection: {
+          schemaVersion: "endpoint-selection/v1",
+          endpointId: "endpoint-grant-unmapped",
+          hostId: host.id,
+          profileId: executionProfile.agentProfileId,
+          agentId: executionProfile.agentId,
+          displayName: "Granted Agent",
+          hostDisplayName: "Unmapped Host",
+          capabilities: ["linux"],
+          resolvedAt: "2030-01-01T00:00:00.000Z",
+          authority: {
+            schemaVersion: "endpoint-authority/v2",
+            kind: "workspace_canvas",
+            workspaceId,
+            responsibilityRevision: 0,
+            reviewerRevision: 0
+          }
+        },
+        agentAccess: {
+          callerHumanPrincipalId: "member-a",
+          authorized: {
+            remoteAgent: {
+              endpointId: "endpoint-grant-unmapped",
+              hostId: host.id,
+              profileId: executionProfile.agentProfileId,
+              agentId: executionProfile.agentId
+            },
+            runtimeAuthority: { kind: "workspace_canvas", workspaceId },
+            agentAccessAuthority: {
+              kind: "workspace_grant",
+              workspaceId,
+              grantRevision: 1,
+              policyRevision: 1
+            },
+            resolvedAt: "2030-01-01T00:00:00.000Z"
+          }
+        }
+      }).id
     );
-    expect(automaticB.hostId).toBe(hostB.id);
+    const reserved = reservations.reserve(claimed.id, {
+      ...executionProfile,
+      preferredHostId: host.id
+    });
+    expect(reserved.hostId).toBe(host.id);
   });
 
   it("skips unready Hosts for automatic reservations and rejects an unready preferred Host", async () => {
@@ -437,25 +520,12 @@ describe("HostReservationRepository", () => {
     );
     if (!workspaceId) throw new Error("workspace_mapping_missing");
     const hosts = new AgentHostRepository(server.database);
-    const missingWorkspace = hosts.register("Missing workspace readiness").host;
     const missingAcp = hosts.register("Missing ACP readiness").host;
     const wrongReadyProfile = hosts.register("Wrong ready ACP profile").host;
     const ready = hosts.register("Ready Host").host;
-    for (const host of [missingWorkspace, missingAcp, wrongReadyProfile, ready]) {
+    for (const host of [missingAcp, wrongReadyProfile, ready]) {
       hosts.bindToWorkspace(host.id, workspaceId);
     }
-    hosts.reportOnline(missingWorkspace.id, ["linux"], 1, {
-      workspaceMappings: [],
-      acpProfiles: [
-        {
-          profileId: "codex-acp",
-          agentId: "codex",
-          displayName: "Codex",
-          status: "ready",
-          capabilities: ["linux"]
-        }
-      ]
-    });
     hosts.reportOnline(missingAcp.id, ["linux"], 1, {
       workspaceMappings: [{ workspaceId, status: "ready" }],
       acpProfiles: []
@@ -509,12 +579,6 @@ describe("HostReservationRepository", () => {
       reservations.reserve(createOperation(operations, workspaceId, "readiness-profile").id, {
         ...executionProfile,
         preferredHostId: wrongReadyProfile.id
-      })
-    ).toThrowError("no_compatible_agent_host");
-    expect(() =>
-      reservations.reserve(createOperation(operations, workspaceId, "readiness-preferred").id, {
-        ...executionProfile,
-        preferredHostId: missingWorkspace.id
       })
     ).toThrowError("no_compatible_agent_host");
 
