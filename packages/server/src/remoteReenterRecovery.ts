@@ -47,7 +47,7 @@ export function diagnosticFromReenterFailure(error: unknown): { code: string; me
     return { code: error.code, message: error.message };
   }
   if (error instanceof CanvasRuntimeUnavailableError) {
-    return { code: error.message, message: error.message };
+    return { code: error.reason, message: error.reason };
   }
   if (error instanceof RemoteBlockRuntimeError || error instanceof RemoteOwnershipConflictError) {
     return { code: error.code, message: error.message };

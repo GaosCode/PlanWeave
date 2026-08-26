@@ -2,6 +2,7 @@ const RETRYABLE_DIAGNOSTIC_CODES = [
   "agent_endpoint_unavailable",
   "host_offline",
   "no_compatible_agent_host",
+  "runtime_not_attached",
   "runtime_host_unavailable",
   "runtime_reconciliation_conflict"
 ] as const;
@@ -9,7 +10,6 @@ const RETRYABLE_DIAGNOSTIC_CODES = [
 const NON_RETRYABLE_DIAGNOSTIC_CODES = [
   "agent_endpoint_incompatible",
   "agent_endpoint_unknown",
-  "canvas_runtime_unavailable",
   "protocol_error",
   "remote_block_executor_not_acp",
   "remote_block_not_dispatchable",
