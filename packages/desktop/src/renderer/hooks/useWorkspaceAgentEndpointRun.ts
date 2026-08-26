@@ -38,7 +38,7 @@ import { runClaimBusScope } from "../collaboration/claimBusScheduler";
 import { waitForRemoteOperationTerminal } from "../collaboration/remoteTaskEndpointRun";
 import type { CollaborationRuntimeAvailabilityView } from "../collaboration/runtimeAvailabilityView";
 import {
-  collaborationRuntimeOperationsAllowed,
+  collaborationRuntimeStartAllowed,
   collaborationRuntimeUnavailableCode
 } from "../collaboration/runtimeAvailabilityView";
 
@@ -137,7 +137,6 @@ type WorkspaceAgentEndpointRunInput = {
   ownerFleetDispatchEnabled?: boolean;
   runtimeAvailability: CollaborationRuntimeAvailabilityView;
   workspaceRuntimeAuthorityKey?: string | null;
-  ensureWorkspaceRuntimeInitialized?: () => Promise<void>;
   setError: (message: string | null) => void;
   api?: Pick<
     PlanWeaveCollaborationApi,
@@ -231,7 +230,6 @@ export function useWorkspaceAgentEndpointRun(
       lifecycle?: WorkspaceAgentEndpointScopeLifecycle
     ) => {
       if (!input.graph || !input.selectedCanvasId) return;
-      const requestedExecutionScopeIdentity = executionScopeIdentity;
       const remoteBinding = input.canvasBinding ?? null;
       const remoteCanvasOnly = !input.selectedProject && remoteBinding !== null;
       const endpoints = remoteCanvasOnly
@@ -255,20 +253,6 @@ export function useWorkspaceAgentEndpointRun(
         input.setError("collaboration_canvas_binding_scope_mismatch");
         return;
       }
-      let workspaceRuntimePrepared = false;
-      if (remoteBinding && input.ensureWorkspaceRuntimeInitialized) {
-        try {
-          await input.ensureWorkspaceRuntimeInitialized();
-        } catch (caught) {
-          if (activeExecutionScopeIdentity.current !== requestedExecutionScopeIdentity) return;
-          const message = caught instanceof Error ? caught.message : String(caught);
-          input.setError(message);
-          lifecycle?.onFailed(message);
-          return;
-        }
-        if (activeExecutionScopeIdentity.current !== requestedExecutionScopeIdentity) return;
-        workspaceRuntimePrepared = true;
-      }
       if (plan.kind === "local_scope") {
         if (remoteCanvasOnly) {
           input.setError("content_local_canvas_binding_required");
@@ -277,10 +261,7 @@ export function useWorkspaceAgentEndpointRun(
         await startLocal(plan.scope);
         return;
       }
-      if (
-        !workspaceRuntimePrepared &&
-        !collaborationRuntimeOperationsAllowed(input.runtimeAvailability)
-      ) {
+      if (!collaborationRuntimeStartAllowed(input.runtimeAvailability)) {
         const message =
           collaborationRuntimeUnavailableCode(input.runtimeAvailability) ??
           "collaboration_runtime_unavailable";
@@ -535,7 +516,7 @@ export function useWorkspaceAgentEndpointRun(
               if (!usesWorkspaceRuntime) {
                 return isOwnerFleetScopeSatisfied(options);
               }
-              const readStatus = async () => {
+              const readAvailability = async () => {
                 if (!api) throw new Error("collaboration_runtime_availability_unavailable");
                 if (!remoteBinding) {
                   throw new Error("collaboration_runtime_availability_unavailable");
@@ -545,18 +526,22 @@ export function useWorkspaceAgentEndpointRun(
                 if (!availability) {
                   throw new Error("collaboration_runtime_availability_unavailable");
                 }
-                if (availability.state.kind === "uninitialized") {
-                  throw new Error("collaboration_runtime_state_uninitialized");
-                }
-                return availability.state.status;
+                return availability;
               };
 
               // refresh: dedicated re-read so claim-none idle cannot use a lagging projection.
               // Authority stays on collaboration runtime status (not local Auto Run state).
-              let status = await readStatus();
+              let availability = await readAvailability();
               if (options?.refresh) {
-                status = await readStatus();
+                availability = await readAvailability();
               }
+              if (availability.state.kind === "uninitialized") {
+                if (availability.execution.kind === "unavailable") {
+                  throw new Error(`collaboration_runtime_${availability.execution.reason}`);
+                }
+                return false;
+              }
+              const status = availability.state.status;
 
               if (scope.kind === "block") {
                 const row = status.blocks.find((block) => block.ref === scope.blockRef);
@@ -598,13 +583,11 @@ export function useWorkspaceAgentEndpointRun(
     [
       api,
       createId,
-      executionScopeIdentity,
       input.activeProjectId,
       input.agentEndpoints,
       input.collaborationController,
       input.canvasBinding,
       input.graph,
-      input.ensureWorkspaceRuntimeInitialized,
       input.localAutoRunApi,
       input.preferences,
       input.previewClaimNext,

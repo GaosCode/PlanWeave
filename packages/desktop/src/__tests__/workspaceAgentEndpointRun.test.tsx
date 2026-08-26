@@ -219,7 +219,6 @@ function renderRun(input?: {
   >;
   readRuntimeAvailability?: ReturnType<typeof vi.fn>;
   runtimeAvailability?: CollaborationRuntimeAvailabilityView;
-  ensureWorkspaceRuntimeInitialized?: ReturnType<typeof vi.fn>;
   previewClaimNext?: ReturnType<typeof vi.fn>;
   resolveLiveRemoteBinding?: ReturnType<typeof vi.fn>;
   activeProjectId?: string | null;
@@ -315,7 +314,6 @@ function renderRun(input?: {
       selectedCanvasId: "canvas-main",
       selectedProject: project,
       runtimeAvailability: input?.runtimeAvailability ?? { kind: "available" },
-      ensureWorkspaceRuntimeInitialized: input?.ensureWorkspaceRuntimeInitialized,
       setError,
       api: {
         dispatchCollaborationRemoteOperation: dispatch,
@@ -358,30 +356,26 @@ function renderRun(input?: {
 }
 
 describe("workspace Agent Endpoint routing", () => {
-  it("prepares an uninitialized Workspace runtime automatically before running", async () => {
-    const ensureWorkspaceRuntimeInitialized = vi.fn().mockResolvedValue(undefined);
-    const { result, lifecycle, setError } = renderRun({
-      runtimeAvailability: { kind: "state_uninitialized" },
-      ensureWorkspaceRuntimeInitialized
+  it("dispatches a Workspace run without a prior initialize call", async () => {
+    const { result, lifecycle, setError, dispatch } = renderRun({
+      runtimeAvailability: { kind: "state_uninitialized" }
     });
 
     await act(() => result.current({ kind: "project" }));
 
-    expect(ensureWorkspaceRuntimeInitialized).toHaveBeenCalledOnce();
+    expect(dispatch).toHaveBeenCalledOnce();
     expect(lifecycle.onCompleted).toHaveBeenCalledOnce();
     expect(setError).not.toHaveBeenCalledWith("collaboration_runtime_state_uninitialized");
   });
 
-  it("fresh-checks Server runtime authority before every Workspace run", async () => {
-    const ensureWorkspaceRuntimeInitialized = vi.fn().mockResolvedValue(undefined);
-    const { result } = renderRun({
-      runtimeAvailability: { kind: "available" },
-      ensureWorkspaceRuntimeInitialized
+  it("does not POST initialize before every Workspace run", async () => {
+    const { result, dispatch } = renderRun({
+      runtimeAvailability: { kind: "available" }
     });
 
     await act(() => result.current({ kind: "block", blockRef: "T-001#B-001" }));
 
-    expect(ensureWorkspaceRuntimeInitialized).toHaveBeenCalledOnce();
+    expect(dispatch).toHaveBeenCalledOnce();
   });
 
   it("starts the selected local Agent when Server state is known without an attached Runtime", async () => {
@@ -1091,8 +1085,43 @@ describe("workspace Agent Endpoint routing", () => {
 
     await act(() => result.current({ kind: "project" }));
 
-    expect(setError).toHaveBeenCalledWith("collaboration_runtime_state_uninitialized");
-    expect(lifecycle.onFailed).toHaveBeenCalledWith("collaboration_runtime_state_uninitialized");
+    expect(setError).toHaveBeenCalledWith("collaboration_runtime_content_out_of_sync");
+    expect(lifecycle.onFailed).toHaveBeenCalledWith("collaboration_runtime_content_out_of_sync");
+  });
+
+  it("waits through an empty Server runtime projection instead of failing as uninitialized", async () => {
+    const previewClaimNext = vi.fn(async () => ({
+      kind: "none" as const,
+      reason: "no_claimable_blocks"
+    }));
+    const complete = statusProjection({
+      taskStatus: "implemented",
+      blocks: [{ ref: "T-001#B-001", status: "completed", dispatchable: false }]
+    });
+    const pending = {
+      schemaVersion: "canvas-runtime-view/v1" as const,
+      state: { kind: "uninitialized" as const },
+      execution: {
+        schemaVersion: "canvas-runtime-availability/v1" as const,
+        kind: "available" as const,
+        status: complete,
+        sourceRevision: "source-revision-1",
+        graphFingerprint: complete.packageFingerprint
+      }
+    };
+    const readRuntimeAvailability = vi
+      .fn()
+      .mockResolvedValueOnce(pending)
+      .mockResolvedValue(complete);
+    const { result, setError, lifecycle } = renderRun({
+      previewClaimNext,
+      readRuntimeAvailability
+    });
+
+    await act(() => result.current({ kind: "project" }));
+
+    expect(lifecycle.onCompleted).toHaveBeenCalledOnce();
+    expect(setError).not.toHaveBeenCalledWith("collaboration_runtime_state_uninitialized");
   });
 
   it("surfaces collaboration_runtime_block_status_unavailable when block row missing after refresh", async () => {

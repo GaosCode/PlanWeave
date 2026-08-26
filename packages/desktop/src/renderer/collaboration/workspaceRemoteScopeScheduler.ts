@@ -119,27 +119,35 @@ export async function runWorkspaceRemoteScopeFromAvailability(input: {
   waitForStatusChange?: (signal?: AbortSignal) => Promise<void>;
   signal?: AbortSignal;
 }): Promise<void> {
+  const waitForStatusChange = input.waitForStatusChange ?? waitForFallbackRefresh;
   await runWorkspaceRemoteScope({
     graph: input.graph,
     scope: input.scope,
     readStatus: async () => {
-      const availability = await input.readAvailability();
-      if (!availability) throw new Error("collaboration_runtime_availability_unavailable");
-      if (availability.state.kind === "uninitialized") {
-        throw new Error("collaboration_runtime_state_uninitialized");
+      while (!input.signal?.aborted) {
+        const availability = await input.readAvailability();
+        if (!availability) throw new Error("collaboration_runtime_availability_unavailable");
+        if (availability.state.kind === "uninitialized") {
+          if (availability.execution.kind === "unavailable") {
+            throw new Error(`collaboration_runtime_${availability.execution.reason}`);
+          }
+          await waitForStatusChange(input.signal);
+          continue;
+        }
+        const status = availability.state.status;
+        if (
+          status.scope.workspaceId !== input.binding.workspaceId ||
+          status.scope.projectId !== input.binding.projectId ||
+          status.scope.canvasId !== input.binding.canvasId
+        ) {
+          throw new Error("collaboration_runtime_scope_mismatch");
+        }
+        return status;
       }
-      const status = availability.state.status;
-      if (
-        status.scope.workspaceId !== input.binding.workspaceId ||
-        status.scope.projectId !== input.binding.projectId ||
-        status.scope.canvasId !== input.binding.canvasId
-      ) {
-        throw new Error("collaboration_runtime_scope_mismatch");
-      }
-      return status;
+      throw new Error("workspace_remote_scope_cancelled");
     },
     execute: input.execute,
-    waitForStatusChange: input.waitForStatusChange,
+    waitForStatusChange,
     signal: input.signal
   });
 }

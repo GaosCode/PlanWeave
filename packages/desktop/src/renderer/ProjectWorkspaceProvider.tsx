@@ -462,7 +462,6 @@ export function ProjectWorkspaceProvider({
     ownerFleetDispatchEnabled: ownerControlPlane.fleetCatalogEnabled,
     runtimeAvailability: collaborationRuntime.availability,
     workspaceRuntimeAuthorityKey: collaborationRuntime.workspaceRuntimeAuthorityKey,
-    ensureWorkspaceRuntimeInitialized: collaborationRuntime.ensureWorkspaceRuntimeInitialized,
     setError
   });
 

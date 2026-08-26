@@ -390,7 +390,44 @@ describe("useWorkspaceRuntimeAvailability", () => {
 });
 
 describe("useWorkspaceRuntime", () => {
-  it("initializes the latest Server runtime projection automatically on first run", async () => {
+  it("does not initialize when opening a Workspace canvas or reading availability", async () => {
+    const uninitializedRuntime = uninitializedRuntimeView();
+    const initializeWorkspaceCanvasRuntime = vi.fn();
+    const api = {
+      getCollaborationStatus: vi.fn().mockRejectedValue(new Error("observer unavailable")),
+      readCollaborationCanvasBindingRuntimeAvailability: vi
+        .fn()
+        .mockResolvedValue(uninitializedRuntime),
+      initializeWorkspaceCanvasRuntime,
+      resetWorkspaceCanvasRuntime: vi.fn()
+    } satisfies WorkspaceRuntimeBridge;
+    const { result } = renderHook(() =>
+      useWorkspaceRuntime({
+        activeProfileId: "profile-1",
+        activeProjectId: scope.projectId,
+        graph,
+        sessionConnected: true,
+        binding: { kind: "remote", ...scope },
+        initialRuntimeAvailability: uninitializedRuntime,
+        locator: {
+          kind: "workspace",
+          connectionProfileId: "profile-1",
+          ...scope
+        },
+        setError: vi.fn(),
+        setSuccessMessage: vi.fn(),
+        t: createTranslator("en"),
+        api
+      })
+    );
+
+    await waitFor(() =>
+      expect(result.current.availability).toEqual({ kind: "state_uninitialized" })
+    );
+    expect(initializeWorkspaceCanvasRuntime).not.toHaveBeenCalled();
+  });
+
+  it("still supports explicit initialize HTTP for recovery", async () => {
     const uninitializedRuntime = uninitializedRuntimeView();
     const initializedRuntime = runtimeView(1, graph.packageFingerprint, "ready");
     const readRuntimeAvailability = vi.fn().mockResolvedValue(uninitializedRuntime);
