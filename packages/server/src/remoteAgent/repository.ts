@@ -7,6 +7,7 @@ import {
 } from "@planweave-ai/collaboration-protocol/core/primitives";
 import { z } from "zod";
 import { endpointIdFor } from "../agentEndpointCatalog.js";
+import { HumanPrincipalIdentity } from "../identity/humanPrincipalIdentity.js";
 import { inWriteTransaction, type SqliteDatabase } from "../sqlite.js";
 import { RemoteAgentAuthorizationError } from "./errors.js";
 import {
@@ -218,7 +219,9 @@ export class RemoteAgentRepository {
       if (!exists(this.database, "SELECT 1 FROM agent_hosts WHERE id=?", parsed.hostId)) {
         throw new RemoteAgentRepositoryError("remote_agent_host_not_found");
       }
-      const ownerHumanPrincipalId = parsed.ownerHumanPrincipalId ?? null;
+      const ownerHumanPrincipalId = parsed.ownerHumanPrincipalId
+        ? new HumanPrincipalIdentity(this.database).canonicalizeTarget(parsed.ownerHumanPrincipalId)
+        : null;
       let accessMode: RemoteAgentAccessMode;
       let ownershipRepairRequired: 0 | 1;
       if (ownerHumanPrincipalId === null) {
@@ -271,6 +274,9 @@ export class RemoteAgentRepository {
 
   repairOwnership(input: RepairRemoteAgentOwnershipInput): RemoteAgentRecord {
     const parsed = repairOwnershipInputSchema.parse(input);
+    const ownerHumanPrincipalId = new HumanPrincipalIdentity(this.database).canonicalizeTarget(
+      parsed.ownerHumanPrincipalId
+    );
     return inWriteTransaction(this.database, () => {
       const agent = requireAgent(
         this.database
@@ -281,7 +287,7 @@ export class RemoteAgentRepository {
         !exists(
           this.database,
           "SELECT 1 FROM human_principals WHERE human_principal_id=?",
-          parsed.ownerHumanPrincipalId
+          ownerHumanPrincipalId
         )
       ) {
         throw new RemoteAgentRepositoryError("remote_agent_owner_not_found");
@@ -294,7 +300,7 @@ export class RemoteAgentRepository {
                policy_revision=policy_revision+1, updated_at=?
            WHERE endpoint_id=?`
         )
-        .run(parsed.ownerHumanPrincipalId, now, agent.endpointId);
+        .run(ownerHumanPrincipalId, now, agent.endpointId);
       return requireAgent(
         this.database
           .prepare("SELECT * FROM remote_agents WHERE endpoint_id=?")

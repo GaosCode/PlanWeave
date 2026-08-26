@@ -120,6 +120,23 @@ describe("comment attachment authorization policy", () => {
 
     expect(
       authorizePendingUploadMutation({
+        subject: {
+          kind: "human",
+          context: { ...member, humanPrincipalId: "human-alias" }
+        },
+        projectId: "project-a",
+        record: pending(),
+        now,
+        requiredStatus: ["pending"],
+        sameHumanPrincipal: (left, right) =>
+          left === right ||
+          (left === "human-alias" && right === "human-1") ||
+          (left === "human-1" && right === "human-alias")
+      }).allowed
+    ).toBe(true);
+
+    expect(
+      authorizePendingUploadMutation({
         subject: { kind: "human", context: member },
         projectId: "project-a",
         record: pending({ expiresAt: "2026-07-24T11:00:00.000Z" }),

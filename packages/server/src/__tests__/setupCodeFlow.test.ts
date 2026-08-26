@@ -14,6 +14,7 @@ import {
   SetupCodeService
 } from "../identity/setupCodeService.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
+import { HumanIdentityCredentialStore } from "../identity/humanIdentityCredentialStore.js";
 import { applyMigrations } from "../migrations.js";
 import { hashOperatorToken, OperatorTokenRegistry } from "../operatorAuth.js";
 import { provisionConfiguredOperatorSessions } from "../identity/operatorSessionProvisioning.js";
@@ -878,5 +879,91 @@ describe("setup code issue/redeem/revoke", () => {
       "setup_code_host_enrollment_outcomes",
       "setup_code_revocations"
     ]);
+  });
+
+  it("inherits owner membership when a merged canonical redeems the same workspace", async () => {
+    const database = await openDatabase();
+    const workspaceA = ensureWorkspace(database, "project-setup");
+    const workspaceB = ensureWorkspace(database, "project-setup-b");
+    provisionConfiguredOperatorSessions({
+      database,
+      credentials: [
+        {
+          operatorId: "operator-admin",
+          tokenSha256: hashOperatorToken(adminToken),
+          projectIds: [],
+          serverAdmin: true
+        }
+      ],
+      trustedProjectIds: ["project-setup", "project-setup-b"],
+      workspaceForProject: (id) =>
+        new WorkspaceIdentityRepository(database).workspaceForLegacyProject(id),
+      operatorSessionTtlMs: 30 * 24 * 60 * 60 * 1_000
+    });
+    const setup = service(database);
+    const admin = new OperatorTokenRegistry(database, [
+      {
+        operatorId: "operator-admin",
+        tokenSha256: hashOperatorToken(adminToken),
+        projectIds: [],
+        serverAdmin: true
+      }
+    ]).authenticate(`Bearer ${adminToken}`);
+    if (!admin) throw new Error("missing principal");
+    const first = setup.redeem({
+      schemaVersion: "workspace-setup/v1",
+      purpose: "device_session",
+      setupCode: setup.issue(admin, {
+        schemaVersion: "workspace-setup/v1",
+        workspaceId: workspaceA,
+        purpose: "device_session"
+      }).setupCode,
+      displayName: "Owner Device"
+    });
+    if (first.purpose !== "device_session") throw new Error("expected device");
+    const second = setup.redeem({
+      schemaVersion: "workspace-setup/v1",
+      purpose: "device_session",
+      setupCode: setup.issue(admin, {
+        schemaVersion: "workspace-setup/v1",
+        workspaceId: workspaceB,
+        purpose: "device_session"
+      }).setupCode,
+      displayName: "Canonical Device"
+    });
+    if (second.purpose !== "device_session") throw new Error("expected device");
+    expect(first.role).toBe("owner");
+    expect(second.role).toBe("owner");
+    expect(first.humanPrincipalId).not.toBe(second.humanPrincipalId);
+    const store = new HumanIdentityCredentialStore(database, () => new Date());
+    store.merge(first.identityToken, second.identityToken);
+    const third = setup.redeem({
+      schemaVersion: "workspace-setup/v1",
+      purpose: "device_session",
+      setupCode: setup.issue(admin, {
+        schemaVersion: "workspace-setup/v1",
+        workspaceId: workspaceA,
+        purpose: "device_session"
+      }).setupCode,
+      displayName: "Canonical Device",
+      existingIdentityToken: second.identityToken
+    });
+    if (third.purpose !== "device_session") throw new Error("expected device");
+    expect(third.humanPrincipalId).toBe(second.humanPrincipalId);
+    expect(third.role).toBe("owner");
+    const active = database
+      .prepare(
+        `SELECT human_principal_id, role FROM workspace_memberships
+         WHERE workspace_id=? AND revoked_at IS NULL ORDER BY human_principal_id`
+      )
+      .all(workspaceA) as Array<{ human_principal_id: string; role: string }>;
+    expect(active).toEqual([{ human_principal_id: second.humanPrincipalId, role: "owner" }]);
+    const session = new WorkspaceIdentityRepository(database).authenticateWorkspaceDeviceSession(
+      first.deviceToken
+    );
+    expect(session).toMatchObject({
+      workspaceId: workspaceA,
+      humanPrincipalId: second.humanPrincipalId
+    });
   });
 });

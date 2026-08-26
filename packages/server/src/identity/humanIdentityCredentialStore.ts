@@ -7,7 +7,8 @@ import {
 import { inWriteTransaction, type SqliteDatabase } from "../sqlite.js";
 import { digestsEqual, hashHumanToken, mintHumanIdentityToken } from "./crypto.js";
 import { isHumanIdentityUniqueViolation } from "./errors.js";
-import { HumanPrincipalIdentity } from "./humanPrincipalIdentity.js";
+import { HumanPrincipalIdentity, sqlPlaceholders } from "./humanPrincipalIdentity.js";
+import { consolidateCanonicalAuthorization } from "./humanPrincipalAuthorizationMerge.js";
 import {
   HUMAN_IDENTITY_DEFAULT_TTL_MS,
   HUMAN_MAX_IDENTITY_CREDENTIALS_PER_PRINCIPAL
@@ -114,24 +115,8 @@ export class HumanIdentityCredentialStore {
   } {
     const hid = this.resolveCanonicalHumanPrincipalId(humanPrincipalId);
     this.requirePrincipal(hid);
-    const excludeCredentialId = options?.excludeCredentialId;
-    const activeCount = (
-      excludeCredentialId === undefined
-        ? this.database
-            .prepare(
-              `SELECT COUNT(*) AS count FROM human_identity_credentials
-               WHERE human_principal_id=? AND revoked_at IS NULL AND expires_at>?`
-            )
-            .get(hid, this.clock().toISOString())
-        : this.database
-            .prepare(
-              `SELECT COUNT(*) AS count FROM human_identity_credentials
-               WHERE human_principal_id=? AND revoked_at IS NULL AND expires_at>?
-                 AND identity_credential_id!=?`
-            )
-            .get(hid, this.clock().toISOString(), excludeCredentialId)
-    ) as { count: number };
-    if (Number(activeCount.count) >= HUMAN_MAX_IDENTITY_CREDENTIALS_PER_PRINCIPAL) {
+    const activeCount = this.countActiveCredentials(hid, options?.excludeCredentialId);
+    if (activeCount >= HUMAN_MAX_IDENTITY_CREDENTIALS_PER_PRINCIPAL) {
       throw new HumanIdentityCredentialError("identity_limit_exceeded");
     }
     const identityCredentialId = identityCredentialIdSchema.parse(
@@ -185,10 +170,11 @@ export class HumanIdentityCredentialStore {
     sourceIdentityToken: string,
     canonicalIdentityToken: string
   ): {
-    mergeId: string;
-    sourceHumanPrincipalId: string;
     canonicalHumanPrincipalId: string;
-    mergedAt: string;
+    alreadyEquivalent: boolean;
+    mergeId?: string;
+    sourceHumanPrincipalId?: string;
+    mergedAt?: string;
   } {
     return inWriteTransaction(this.database, () =>
       this.mergeLocked(sourceIdentityToken, canonicalIdentityToken)
@@ -199,10 +185,11 @@ export class HumanIdentityCredentialStore {
     sourceIdentityToken: string,
     canonicalIdentityToken: string
   ): {
-    mergeId: string;
-    sourceHumanPrincipalId: string;
     canonicalHumanPrincipalId: string;
-    mergedAt: string;
+    alreadyEquivalent: boolean;
+    mergeId?: string;
+    sourceHumanPrincipalId?: string;
+    mergedAt?: string;
   } {
     const source = this.requireUsable(sourceIdentityToken);
     const canonical = this.requireUsable(canonicalIdentityToken);
@@ -212,29 +199,12 @@ export class HumanIdentityCredentialStore {
       throw new HumanIdentityCredentialError("identity_merge_same_principal");
     }
     if (sourceCanonical === targetCanonical) {
-      const existing = this.database
-        .prepare(
-          `SELECT merge_id, source_human_principal_id, canonical_human_principal_id, merged_at
-           FROM human_principal_merges
-           WHERE source_human_principal_id=? AND canonical_human_principal_id=?
-           ORDER BY merged_at DESC LIMIT 1`
-        )
-        .get(source.humanPrincipalId, targetCanonical) as
-        | {
-            merge_id: string;
-            source_human_principal_id: string;
-            canonical_human_principal_id: string;
-            merged_at: string;
-          }
-        | undefined;
-      if (!existing) throw new HumanIdentityCredentialError("identity_merge_same_principal");
       return {
-        mergeId: existing.merge_id,
-        sourceHumanPrincipalId: existing.source_human_principal_id,
-        canonicalHumanPrincipalId: existing.canonical_human_principal_id,
-        mergedAt: existing.merged_at
+        alreadyEquivalent: true,
+        canonicalHumanPrincipalId: targetCanonical
       };
     }
+    this.assertCombinedCredentialLimit(sourceCanonical, targetCanonical);
     const existingAlias = this.database
       .prepare(
         "SELECT canonical_human_principal_id FROM human_principal_aliases WHERE alias_human_principal_id=?"
@@ -267,12 +237,56 @@ export class HumanIdentityCredentialStore {
         ) VALUES(?,?,?)`
       )
       .run(sourceCanonical, targetCanonical, mergeId);
+    consolidateCanonicalAuthorization(this.database, targetCanonical, mergedAt);
     return {
+      alreadyEquivalent: false,
       mergeId,
       sourceHumanPrincipalId: sourceCanonical,
       canonicalHumanPrincipalId: targetCanonical,
       mergedAt
     };
+  }
+
+  private countActiveCredentials(humanPrincipalId: string, excludeCredentialId?: string): number {
+    const ids = this.identity.equivalentIds(humanPrincipalId);
+    const inSql = sqlPlaceholders(ids);
+    const now = this.clock().toISOString();
+    const row = (
+      excludeCredentialId === undefined
+        ? this.database
+            .prepare(
+              `SELECT COUNT(*) AS count FROM human_identity_credentials
+               WHERE human_principal_id IN (${inSql}) AND revoked_at IS NULL AND expires_at>?`
+            )
+            .get(...ids, now)
+        : this.database
+            .prepare(
+              `SELECT COUNT(*) AS count FROM human_identity_credentials
+               WHERE human_principal_id IN (${inSql}) AND revoked_at IS NULL AND expires_at>?
+                 AND identity_credential_id!=?`
+            )
+            .get(...ids, now, excludeCredentialId)
+    ) as { count: number };
+    return Number(row.count);
+  }
+
+  private assertCombinedCredentialLimit(sourceCanonical: string, targetCanonical: string): void {
+    const combined = [
+      ...new Set([
+        ...this.identity.equivalentIds(sourceCanonical),
+        ...this.identity.equivalentIds(targetCanonical)
+      ])
+    ];
+    const inSql = sqlPlaceholders(combined);
+    const row = this.database
+      .prepare(
+        `SELECT COUNT(*) AS count FROM human_identity_credentials
+         WHERE human_principal_id IN (${inSql}) AND revoked_at IS NULL AND expires_at>?`
+      )
+      .get(...combined, this.clock().toISOString()) as { count: number };
+    if (Number(row.count) > HUMAN_MAX_IDENTITY_CREDENTIALS_PER_PRINCIPAL) {
+      throw new HumanIdentityCredentialError("identity_limit_exceeded");
+    }
   }
 
   private requireUsable(identityToken: string): HumanIdentityCredentialRecord {

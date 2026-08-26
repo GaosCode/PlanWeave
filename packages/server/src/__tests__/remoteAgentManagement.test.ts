@@ -274,4 +274,45 @@ describe("remote agent management service", () => {
       }).revokedAt
     ).toBe(now.toISOString());
   });
+
+  it("lists and mutates an agent after an A→B→C principal merge", async () => {
+    const { database, host, repo, management, workspaceA } = await fixture();
+    insertHuman(database, "human-a", "Human A");
+    insertHuman(database, "human-b", "Human B");
+    insertHuman(database, "human-c", "Human C");
+    const owned = repo.registerOrRestoreFromProfile({
+      hostId: host.id,
+      profileId: "profile-chain",
+      agentId: "codex",
+      displayName: "Codex Chain",
+      now: now.toISOString(),
+      ownerHumanPrincipalId: "human-a",
+      accessMode: "unrestricted"
+    });
+    const identities = new HumanIdentityCredentialStore(database, () => now);
+    const tokenA = identities.issue("human-a");
+    const tokenB = identities.issue("human-b");
+    const tokenC = identities.issue("human-c");
+    identities.merge(tokenA.identityToken, tokenB.identityToken);
+    identities.merge(tokenB.identityToken, tokenC.identityToken);
+    const canonicalOwned = { ...owned, ownerHumanPrincipalId: "human-c" };
+    expect(management.listOwned("human-c")).toEqual([canonicalOwned]);
+    expect(management.listOwned("human-b")).toEqual([canonicalOwned]);
+    expect(management.listOwned("human-a")).toEqual([canonicalOwned]);
+    expect(
+      management.get({ endpointId: owned.endpointId, actorHumanPrincipalId: "human-c" })
+    ).toEqual(canonicalOwned);
+    const updated = management.setAccessMode({
+      endpointId: owned.endpointId,
+      actorHumanPrincipalId: "human-c",
+      accessMode: "workspace_restricted"
+    });
+    expect(updated.accessMode).toBe("workspace_restricted");
+    const grant = management.grantWorkspace({
+      endpointId: owned.endpointId,
+      workspaceId: workspaceA,
+      actorHumanPrincipalId: "human-a"
+    });
+    expect(grant.workspaceId).toBe(workspaceA);
+  });
 });

@@ -77,14 +77,12 @@ export function createIdentityMembershipPort(
     const { workspaceIdentity } = options;
     return {
       getMembershipFacts(workspaceId, projectId, humanPrincipalId) {
-        const membership = workspaceIdentity
-          .listMembershipViews(workspaceId)
-          .find((candidate) => candidate.humanPrincipalId === humanPrincipalId);
+        const membership = workspaceIdentity.findActiveMembership(workspaceId, humanPrincipalId);
         if (!membership) return undefined;
         return assignmentMembershipFactsSchema.parse({
           projectId,
-          humanPrincipalId,
-          membershipActive: membership.revokedAt === null,
+          humanPrincipalId: membership.humanPrincipalId,
+          membershipActive: true,
           displayName: membership.displayName
         });
       },

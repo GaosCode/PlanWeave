@@ -202,9 +202,10 @@ export class CollaborationProfileLifecycle {
       } else {
         this.dependencies.clearRememberedObserverCursor(profileId);
       }
-      const [profile, identityToken] = await Promise.all([
+      const [profile, identityToken, metadata] = await Promise.all([
         this.dependencies.profiles.get(profileId),
-        this.dependencies.vault.getIdentityToken(profileId)
+        this.dependencies.vault.getIdentityToken(profileId),
+        this.dependencies.vault.getMetadata(profileId)
       ]);
       if (profile && identityToken) {
         try {
@@ -216,6 +217,14 @@ export class CollaborationProfileLifecycle {
           }).revoke(identityToken, "device_credential_cleared");
         } catch (error) {
           if (!(error instanceof CollaborationClientError)) throw error;
+        }
+        const copies = await this.dependencies.vault.findProfilesSharingIdentity({
+          identityCredentialId: metadata?.identityCredentialId ?? null,
+          identityToken,
+          excludeProfileId: profileId
+        });
+        for (const copyProfileId of copies) {
+          await this.dependencies.vault.clearIdentityCredential(copyProfileId);
         }
       }
       await this.dependencies.vault.clear(profileId);

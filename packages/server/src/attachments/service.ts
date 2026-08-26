@@ -30,6 +30,7 @@ import {
   type PendingUploadRecord
 } from "./policy.js";
 import { AttachmentRepositoryError, CommentAttachmentRepository } from "./repository.js";
+import type { HumanIdentityRepository } from "../identity/repository.js";
 
 export class CommentAttachmentServiceError extends Error {
   constructor(
@@ -76,6 +77,7 @@ function mapUnknown(error: unknown): never {
 export type CommentAttachmentServiceOptions = {
   repository: CommentAttachmentRepository;
   blobs: CommentAttachmentBlobStore;
+  identity: HumanIdentityRepository;
   clock?: () => Date;
 };
 
@@ -84,6 +86,10 @@ export class CommentAttachmentService {
 
   constructor(private readonly options: CommentAttachmentServiceOptions) {
     this.clock = options.clock ?? (() => new Date());
+  }
+
+  private sameHumanPrincipal(left: string, right: string): boolean {
+    return this.options.identity.areEquivalent(left, right);
   }
 
   createPendingUpload(input: {
@@ -171,7 +177,8 @@ export class CommentAttachmentService {
         projectId: input.projectId,
         record,
         now: this.clock(),
-        requiredStatus: ["pending"]
+        requiredStatus: ["pending"],
+        sameHumanPrincipal: (left, right) => this.sameHumanPrincipal(left, right)
       });
       if (!auth.allowed) deny(auth.code, auth.message);
 
@@ -261,7 +268,8 @@ export class CommentAttachmentService {
         projectId: input.projectId,
         record,
         now: this.clock(),
-        requiredStatus: ["uploaded", "finalized"]
+        requiredStatus: ["uploaded", "finalized"],
+        sameHumanPrincipal: (left, right) => this.sameHumanPrincipal(left, right)
       });
       if (!auth.allowed) deny(auth.code, auth.message);
       if (!record.digestSha256) deny("attachment_status_conflict");

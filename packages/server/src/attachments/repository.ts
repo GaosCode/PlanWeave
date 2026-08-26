@@ -15,6 +15,7 @@ import {
   type PendingAttachmentUploadId
 } from "../comments/schemas.js";
 import { humanPrincipalIdSchema, humanProjectIdSchema } from "../identity/schemas.js";
+import { HumanPrincipalIdentity } from "../identity/humanPrincipalIdentity.js";
 import { inWriteTransaction, type SqliteDatabase } from "../sqlite.js";
 import { ATTACHMENT_ERROR_MESSAGES, type AttachmentErrorCode } from "./errors.js";
 import type { CommentAttachmentBinding, PendingUploadRecord } from "./policy.js";
@@ -129,7 +130,9 @@ export class CommentAttachmentRepository {
     const pendingUploadId = pendingAttachmentUploadIdSchema.parse(randomUUID());
     const workspaceId = workspaceIdSchema.parse(input.workspaceId);
     const projectId = humanProjectIdSchema.parse(input.projectId);
-    const uploaderHumanPrincipalId = humanPrincipalIdSchema.parse(input.uploaderHumanPrincipalId);
+    const uploaderHumanPrincipalId = new HumanPrincipalIdentity(this.database).canonicalizeTarget(
+      humanPrincipalIdSchema.parse(input.uploaderHumanPrincipalId)
+    );
     const mediaType = commentAttachmentMediaTypeSchema.parse(input.mediaType);
     const expectedDigestSha256 = input.expectedDigestSha256
       ? commentContentSha256Schema.parse(input.expectedDigestSha256)

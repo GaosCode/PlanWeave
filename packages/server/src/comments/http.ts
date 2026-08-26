@@ -55,13 +55,10 @@ function commentActor(
   if (!("kind" in authenticated.actor) || authenticated.actor.kind !== "workspace_device") {
     return authenticated.actor;
   }
-  const membership = workspaceIdentity
-    .listMembershipViews(authenticated.workspaceId)
-    .find(
-      (candidate) =>
-        candidate.humanPrincipalId === authenticated.actor.humanPrincipalId &&
-        candidate.revokedAt === null
-    );
+  const membership = workspaceIdentity.findActiveMembership(
+    authenticated.workspaceId,
+    authenticated.actor.humanPrincipalId
+  );
   if (!membership) throw new CommentServiceError("comment_auth_forbidden");
   return humanAuthContextSchema.parse({
     humanPrincipalId: authenticated.actor.humanPrincipalId,

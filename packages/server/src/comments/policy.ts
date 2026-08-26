@@ -191,6 +191,7 @@ export function authorizeCommentEdit(input: {
   subject: HumanPolicySubject;
   projectId: string;
   record: CommentRecord;
+  sameHumanPrincipal?: (left: string, right: string) => boolean;
 }): CommentActivityAuthDecision {
   const base = authorizeCommentMutation({
     subject: input.subject,
@@ -207,7 +208,12 @@ export function authorizeCommentEdit(input: {
   if (input.subject.kind !== "human") {
     return denial("comment_author_required");
   }
-  if (input.subject.context.humanPrincipalId !== input.record.authorHumanPrincipalId) {
+  if (
+    !(input.sameHumanPrincipal ?? ((left, right) => left === right))(
+      input.subject.context.humanPrincipalId,
+      input.record.authorHumanPrincipalId
+    )
+  ) {
     return denial("comment_not_author");
   }
   return allowCommentActivity();
@@ -221,6 +227,7 @@ export function authorizeCommentTombstone(input: {
   subject: HumanPolicySubject;
   projectId: string;
   record: CommentRecord;
+  sameHumanPrincipal?: (left: string, right: string) => boolean;
 }): CommentActivityAuthDecision {
   const base = authorizeCommentMutation({
     subject: input.subject,
@@ -239,7 +246,10 @@ export function authorizeCommentTombstone(input: {
   }
 
   const context = input.subject.context;
-  const isAuthor = context.humanPrincipalId === input.record.authorHumanPrincipalId;
+  const isAuthor = (input.sameHumanPrincipal ?? ((left, right) => left === right))(
+    context.humanPrincipalId,
+    input.record.authorHumanPrincipalId
+  );
   const isOwner = context.role === "owner";
   if (!isAuthor && !isOwner) {
     return denial("comment_role_insufficient");
@@ -347,6 +357,7 @@ export function decideCommentEdit(input: {
   command: CommentEditCommand;
   current: CommentRecord;
   now: Date;
+  sameHumanPrincipal?: (left: string, right: string) => boolean;
 }): CommentEditDecision {
   const { command, current } = input;
 
@@ -361,7 +372,8 @@ export function decideCommentEdit(input: {
   const auth = authorizeCommentEdit({
     subject: { kind: "human", context: command.actor },
     projectId: command.projectId,
-    record: current
+    record: current,
+    sameHumanPrincipal: input.sameHumanPrincipal
   });
   if (!auth.allowed) {
     return { ok: false, code: auth.code, message: auth.message };
@@ -404,6 +416,7 @@ export function decideCommentTombstone(input: {
   command: CommentTombstoneCommand;
   current: CommentRecord;
   now: Date;
+  sameHumanPrincipal?: (left: string, right: string) => boolean;
 }): CommentTombstoneDecision {
   const { command, current } = input;
 
@@ -418,7 +431,8 @@ export function decideCommentTombstone(input: {
   const auth = authorizeCommentTombstone({
     subject: { kind: "human", context: command.actor },
     projectId: command.projectId,
-    record: current
+    record: current,
+    sameHumanPrincipal: input.sameHumanPrincipal
   });
   if (!auth.allowed) {
     return { ok: false, code: auth.code, message: auth.message };

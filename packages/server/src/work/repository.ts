@@ -1,6 +1,7 @@
 import { opaqueIdentifierSchema } from "@planweave-ai/agent-host-protocol";
 import { humanProjectIdSchema, type ActorRef } from "../identity/schemas.js";
 import { inWriteTransaction, type SqliteDatabase } from "../sqlite.js";
+import { HumanPrincipalIdentity } from "../identity/humanPrincipalIdentity.js";
 import { WORK_ASSIGNMENT_ERROR_MESSAGES, type WorkAssignmentErrorCode } from "./errors.js";
 import { WORK_ASSIGNMENT_BATCH_MAX } from "./limits.js";
 import {
@@ -106,7 +107,10 @@ function targetFromRow(row: AssignmentRow): AssignmentTarget {
   }
 }
 
-function targetColumns(target: AssignmentTarget): {
+function targetColumns(
+  target: AssignmentTarget,
+  identity: HumanPrincipalIdentity
+): {
   target_kind: string;
   target_human_principal_id: string | null;
   target_host_id: string | null;
@@ -121,7 +125,7 @@ function targetColumns(target: AssignmentTarget): {
     case "human":
       return {
         target_kind: "human",
-        target_human_principal_id: target.humanPrincipalId,
+        target_human_principal_id: identity.canonicalizeTarget(target.humanPrincipalId),
         target_host_id: null
       };
     case "exact_host":
@@ -321,7 +325,7 @@ export class WorkAssignmentRepository {
         throw new WorkAssignmentError("work_revision_conflict");
       }
 
-      const target = targetColumns(record.target);
+      const target = targetColumns(record.target, new HumanPrincipalIdentity(this.database));
       const updatedByDisplayName = record.updatedBy.displayName ?? null;
       const reason = record.reason ?? null;
 

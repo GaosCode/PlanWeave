@@ -33,6 +33,7 @@ import { CollaborationWorkspaceClient } from "./CollaborationWorkspaceClient.js"
 import { redactCollaborationText } from "./redaction.js";
 import {
   diagnoseOriginIdentity,
+  identityUsable,
   type OriginCredentialCandidate
 } from "./existingIdentitySelection.js";
 import { inferPersistedRemoteProfileId } from "./persistedServerConnectionPreference.js";
@@ -70,6 +71,15 @@ function needsIdentityRenewal(expiresAt: string | null, now: Date): boolean {
   if (expiresAt === null) return false;
   const expires = Date.parse(expiresAt);
   return Number.isFinite(expires) && expires - now.getTime() <= IDENTITY_RENEW_BEFORE_MS;
+}
+
+function isUnusableIdentityCredential(error: unknown): boolean {
+  return (
+    error instanceof CollaborationClientError &&
+    (error.code === "identity_credential_expired" ||
+      error.code === "identity_credential_revoked" ||
+      error.code === "identity_credential_invalid")
+  );
 }
 
 function localOnlyView(): ActiveWorkspaceConnectionView {
@@ -712,10 +722,11 @@ export class CollaborationWorkspaceConnection {
   }): Promise<CollaborationIdentityRepairView | null> {
     const client = this.identityClient(input);
     const origin = new URL(input.serverBaseUrl).origin;
+    const now = this.clock?.now() ?? new Date();
     for (const candidate of await this.collectOriginCandidates()) {
       if (candidate.origin !== origin) continue;
       if (candidate.deviceToken === undefined) continue;
-      if (candidate.identityToken !== undefined && candidate.humanPrincipalId !== null) continue;
+      if (identityUsable(candidate, now) && candidate.humanPrincipalId !== null) continue;
       const recovered = await client.recover(candidate.deviceToken);
       const deviceToken = candidate.deviceToken;
       await this.vault.setDeviceToken(candidate.profileId, deviceToken, {
@@ -753,7 +764,7 @@ export class CollaborationWorkspaceConnection {
     sourceHumanPrincipalId: string;
     canonicalHumanPrincipalId: string;
     confirmation: "merge";
-  }): Promise<void> {
+  }): Promise<CollaborationIdentityRepairView | null> {
     if (input.confirmation !== "merge") {
       throw new CollaborationClientError({
         kind: "protocol",
@@ -775,38 +786,98 @@ export class CollaborationWorkspaceConnection {
     const candidates = (await this.collectOriginCandidates()).filter(
       (candidate) => candidate.origin === origin
     );
-    const sourceToken = await this.requireIdentityToken(
+    const merged = await this.mergeProvenPrincipals(
       client,
       candidates,
-      input.sourceHumanPrincipalId
+      input.sourceHumanPrincipalId,
+      input.canonicalHumanPrincipalId
     );
+    for (const candidate of candidates) {
+      if (
+        candidate.humanPrincipalId !== input.sourceHumanPrincipalId &&
+        candidate.humanPrincipalId !== input.canonicalHumanPrincipalId
+      ) {
+        continue;
+      }
+      if (candidate.humanPrincipalId === merged.canonicalHumanPrincipalId) continue;
+      if (!candidate.deviceToken) continue;
+      await this.vault.setDeviceToken(candidate.profileId, candidate.deviceToken, {
+        humanPrincipalId: merged.canonicalHumanPrincipalId
+      });
+    }
+    return this.diagnoseRemainingRepair(input.serverBaseUrl);
+  }
+
+  private async mergeProvenPrincipals(
+    client: CollaborationIdentityCredentialClient,
+    candidates: OriginCredentialCandidate[],
+    sourceHumanPrincipalId: string,
+    canonicalHumanPrincipalId: string
+  ): Promise<{ canonicalHumanPrincipalId: string }> {
+    const sourceToken = await this.requireIdentityToken(client, candidates, sourceHumanPrincipalId);
     const canonicalToken = await this.requireIdentityToken(
       client,
       candidates,
-      input.canonicalHumanPrincipalId
+      canonicalHumanPrincipalId
     );
-    await client.merge(sourceToken, canonicalToken);
-    for (const candidate of candidates) {
-      if (candidate.humanPrincipalId !== input.sourceHumanPrincipalId) continue;
-      if (!candidate.deviceToken) continue;
-      await this.vault.setDeviceToken(candidate.profileId, candidate.deviceToken, {
-        humanPrincipalId: input.canonicalHumanPrincipalId
-      });
+    try {
+      return await client.merge(sourceToken, canonicalToken);
+    } catch (error) {
+      if (!isUnusableIdentityCredential(error)) throw error;
+      const recoveredSource = await this.requireIdentityToken(
+        client,
+        candidates,
+        sourceHumanPrincipalId,
+        true
+      );
+      const recoveredCanonical = await this.requireIdentityToken(
+        client,
+        candidates,
+        canonicalHumanPrincipalId,
+        true
+      );
+      return await client.merge(recoveredSource, recoveredCanonical);
     }
-    this.identityRepair = null;
-    this.error = null;
+  }
+
+  private async diagnoseRemainingRepair(
+    serverBaseUrl: string
+  ): Promise<CollaborationIdentityRepairView | null> {
+    const diagnosed = diagnoseOriginIdentity(
+      await this.collectOriginCandidates(),
+      serverBaseUrl,
+      this.clock?.now() ?? new Date()
+    );
+    if (diagnosed.kind !== "repair_required") {
+      this.identityRepair = null;
+      this.error = null;
+      this.onChange?.();
+      return null;
+    }
+    const repair = this.rememberRepair(serverBaseUrl, diagnosed.principals);
+    this.status = "error";
+    this.error = {
+      code: "identity_repair_required",
+      message: "Multiple Human Principals exist for this server; identity repair is required.",
+      retryable: false
+    };
     this.onChange?.();
+    return repair;
   }
 
   private async requireIdentityToken(
     client: CollaborationIdentityCredentialClient,
     candidates: OriginCredentialCandidate[],
-    humanPrincipalId: string
+    humanPrincipalId: string,
+    forceRecover = false
   ): Promise<string> {
+    const now = this.clock?.now() ?? new Date();
     const match = candidates
       .filter((candidate) => candidate.humanPrincipalId === humanPrincipalId)
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
-    if (match?.identityToken) return match.identityToken;
+    if (!forceRecover && match && identityUsable(match, now) && match.identityToken) {
+      return match.identityToken;
+    }
     if (match?.deviceToken) {
       const recovered = await client.recover(match.deviceToken);
       await this.vault.setDeviceToken(match.profileId, match.deviceToken, {
@@ -815,6 +886,9 @@ export class CollaborationWorkspaceConnection {
         identityCredentialId: recovered.identityCredentialId,
         identityExpiresAt: recovered.identityExpiresAt
       });
+      match.identityToken = recovered.identityToken;
+      match.identityExpiresAt = recovered.identityExpiresAt;
+      match.humanPrincipalId = recovered.humanPrincipalId;
       return recovered.identityToken;
     }
     throw new CollaborationClientError({

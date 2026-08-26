@@ -23,6 +23,7 @@ import {
   type ProjectAccessRecord,
   type CanvasAccessRecord
 } from "@planweave-ai/collaboration-protocol/access/project";
+import { HumanPrincipalIdentity, sqlPlaceholders } from "./identity/humanPrincipalIdentity.js";
 import { z } from "zod";
 import { inWriteTransaction, type SqliteDatabase } from "./sqlite.js";
 import { assertNoPendingSnapshotRestore } from "./authorizationFence.js";
@@ -187,10 +188,11 @@ export class ProjectAccessRepository {
     if (!project || project.revokedAt !== null || !canvas || canvas.revokedAt !== null) {
       throw new Error("access_scope_not_found");
     }
+    const ids = new HumanPrincipalIdentity(this.database).equivalentIds(humanPrincipalId);
     return this.database
       .prepare(
         `SELECT grant_id,scope_kind,role FROM project_access_grants
-         WHERE workspace_id=? AND project_id=? AND human_principal_id=? AND revoked_at IS NULL
+         WHERE workspace_id=? AND project_id=? AND human_principal_id IN (${sqlPlaceholders(ids)}) AND revoked_at IS NULL
            AND role IN ('editor','viewer')
            AND ((scope_kind='project' AND project_registry_id=? AND canvas_registry_id IS NULL)
              OR (scope_kind='canvas' AND canvas_registry_id=?))
@@ -199,7 +201,7 @@ export class ProjectAccessRepository {
       .all(
         scope.workspaceId,
         scope.projectId,
-        humanPrincipalId,
+        ...ids,
         project.projectRegistryId,
         canvas.canvasRegistryId
       )
@@ -237,7 +239,9 @@ export class ProjectAccessRepository {
   }
 
   grant(rawInput: unknown): MembershipGrant {
-    const input = grantInputSchema.parse(rawInput);
+    const parsed = grantInputSchema.parse(rawInput);
+    const humanPrincipalId = this.canonicalGrantTarget(parsed.humanPrincipalId);
+    const input = { ...parsed, humanPrincipalId };
     if (input.role === "owner") throw new Error("project_owner_grant_forbidden");
     this.policy.assertCanManage({
       workspaceId: input.workspaceId,
@@ -490,7 +494,8 @@ export class ProjectAccessRepository {
         return { status: "applied", aclRevision: current + 1, updatedAt: at };
       }
       if (request.operation === "grant") {
-        if (!activeWorkspacePrincipal(this.database, scope.workspaceId, request.humanPrincipalId)) {
+        const grantTarget = this.canonicalGrantTarget(request.humanPrincipalId);
+        if (!activeWorkspacePrincipal(this.database, scope.workspaceId, grantTarget)) {
           return { status: "denied", reason: "membership_missing", aclRevision: current };
         }
         const project = this.registry.projectInternal(scope.workspaceId, scope.projectId);
@@ -526,7 +531,7 @@ export class ProjectAccessRepository {
               scope.workspaceId,
               scope.projectId,
               canvasId ?? "",
-              request.humanPrincipalId,
+              grantTarget,
               String(nextRevision)
             ].join("\0")
           )
@@ -544,7 +549,7 @@ export class ProjectAccessRepository {
             canvas?.canvasRegistryId ?? null,
             canvasId,
             canvas ? "canvas" : "project",
-            request.humanPrincipalId,
+            grantTarget,
             request.role,
             nextRevision,
             input.actor.kind,
@@ -597,7 +602,9 @@ export class ProjectAccessRepository {
       this.onAuthorizationChangeAfterCommit?.({
         workspaceId: scope.workspaceId,
         projectId: scope.projectId,
-        ...(request.operation === "grant" ? { humanPrincipalId: request.humanPrincipalId } : {})
+        ...(request.operation === "grant"
+          ? { humanPrincipalId: this.canonicalGrantTarget(request.humanPrincipalId) }
+          : {})
       });
     }
     return result;
@@ -613,6 +620,10 @@ export class ProjectAccessRepository {
         ? this.registry.projectInternal(workspaceId, projectId)
         : this.registry.canvasInternal(workspaceId, projectId, canvasId);
     return row?.aclRevision ?? 0;
+  }
+
+  private canonicalGrantTarget(humanPrincipalId: string): string {
+    return new HumanPrincipalIdentity(this.database).canonicalizeTarget(humanPrincipalId);
   }
 
   private grantFromRow(row: Record<string, unknown>): MembershipGrant {

@@ -18,6 +18,7 @@ import {
   type CanvasAccessRecord
 } from "@planweave-ai/collaboration-protocol/access/project";
 import { workspaceCanvasPublishLocalSourceSchema } from "@planweave-ai/collaboration-protocol/content/version";
+import { HumanPrincipalIdentity, sqlPlaceholders } from "./identity/humanPrincipalIdentity.js";
 import type { SqliteDatabase } from "./sqlite.js";
 import {
   activeWorkspacePrincipal,
@@ -41,11 +42,12 @@ function latestProjectGrant(
   project: InternalProjectRecord,
   principalId: string
 ): Record<string, unknown> | undefined {
+  const ids = new HumanPrincipalIdentity(database).equivalentIds(principalId);
   return database
     .prepare(
-      `SELECT * FROM project_access_grants WHERE workspace_id=? AND project_registry_id=? AND scope_kind='project' AND human_principal_id=? ORDER BY acl_revision DESC LIMIT 1`
+      `SELECT * FROM project_access_grants WHERE workspace_id=? AND project_registry_id=? AND scope_kind='project' AND human_principal_id IN (${sqlPlaceholders(ids)}) ORDER BY acl_revision DESC LIMIT 1`
     )
-    .get(project.workspaceId, project.projectRegistryId, principalId);
+    .get(project.workspaceId, project.projectRegistryId, ...ids);
 }
 
 function latestCanvasGrant(
@@ -53,11 +55,12 @@ function latestCanvasGrant(
   canvas: InternalCanvasRecord,
   principalId: string
 ): Record<string, unknown> | undefined {
+  const ids = new HumanPrincipalIdentity(database).equivalentIds(principalId);
   return database
     .prepare(
-      `SELECT * FROM project_access_grants WHERE workspace_id=? AND canvas_registry_id=? AND scope_kind='canvas' AND human_principal_id=? ORDER BY acl_revision DESC LIMIT 1`
+      `SELECT * FROM project_access_grants WHERE workspace_id=? AND canvas_registry_id=? AND scope_kind='canvas' AND human_principal_id IN (${sqlPlaceholders(ids)}) ORDER BY acl_revision DESC LIMIT 1`
     )
-    .get(canvas.workspaceId, canvas.canvasRegistryId, principalId);
+    .get(canvas.workspaceId, canvas.canvasRegistryId, ...ids);
 }
 
 function grantFromRow(row: Record<string, unknown> | undefined): MembershipGrant | null {
@@ -221,6 +224,8 @@ export class ProjectAccessPolicy {
     const limit = pageLimitSchema.parse(input.limit ?? 100);
     const offset = pageOffsetSchema.parse(input.offset ?? 0);
     if (input.actor.kind !== "human") return [];
+    const ids = new HumanPrincipalIdentity(this.database).equivalentIds(input.actor.id);
+    const inSql = sqlPlaceholders(ids);
     const rows = this.database
       .prepare(`
       SELECT p.*
@@ -234,33 +239,28 @@ export class ProjectAccessPolicy {
             ON wm.workspace_id=wp.workspace_id
            AND wm.human_principal_id=wp.human_principal_id
           WHERE wp.workspace_id=p.workspace_id
-            AND wp.human_principal_id=?
+            AND wp.human_principal_id IN (${inSql})
             AND wp.revoked_at IS NULL
             AND wm.revoked_at IS NULL
         )
         AND (
-          p.owner_human_principal_id=?
+          p.owner_human_principal_id IN (${inSql})
           OR p.visibility='shared'
           OR EXISTS (
             SELECT 1 FROM project_access_grants g
             WHERE g.workspace_id=p.workspace_id
               AND g.project_registry_id=p.project_registry_id
               AND g.scope_kind='project'
-              AND g.human_principal_id=?
+              AND g.human_principal_id IN (${inSql})
               AND g.revoked_at IS NULL
           )
         )
       ORDER BY p.project_registry_id
       LIMIT ? OFFSET ?
     `)
-      .all(
-        input.workspaceId,
-        input.actor.id,
-        input.actor.id,
-        input.actor.id,
-        limit,
-        offset
-      ) as Array<Record<string, unknown>>;
+      .all(input.workspaceId, ...ids, ...ids, ...ids, limit, offset) as Array<
+      Record<string, unknown>
+    >;
     return rows.map((row) => projectAccessRecord(rowToProject(row)));
   }
 
@@ -274,6 +274,8 @@ export class ProjectAccessPolicy {
     const limit = pageLimitSchema.parse(input.limit ?? 100);
     const offset = pageOffsetSchema.parse(input.offset ?? 0);
     if (input.actor.kind !== "human") return [];
+    const ids = new HumanPrincipalIdentity(this.database).equivalentIds(input.actor.id);
+    const inSql = sqlPlaceholders(ids);
     const rows = this.database
       .prepare(`
       SELECT c.*,
@@ -299,19 +301,19 @@ export class ProjectAccessPolicy {
             ON wm.workspace_id=wp.workspace_id
            AND wm.human_principal_id=wp.human_principal_id
           WHERE wp.workspace_id=c.workspace_id
-            AND wp.human_principal_id=?
+            AND wp.human_principal_id IN (${inSql})
             AND wp.revoked_at IS NULL
             AND wm.revoked_at IS NULL
         )
         AND (
-          c.owner_human_principal_id=?
+          c.owner_human_principal_id IN (${inSql})
           OR c.visibility='shared'
           OR EXISTS (
             SELECT 1 FROM project_access_grants g
             WHERE g.workspace_id=c.workspace_id
               AND g.canvas_registry_id=c.canvas_registry_id
               AND g.scope_kind='canvas'
-              AND g.human_principal_id=?
+              AND g.human_principal_id IN (${inSql})
               AND g.revoked_at IS NULL
           )
           OR EXISTS (
@@ -319,7 +321,7 @@ export class ProjectAccessPolicy {
             WHERE g.workspace_id=c.workspace_id
               AND g.project_registry_id=p.project_registry_id
               AND g.scope_kind='project'
-              AND g.human_principal_id=?
+              AND g.human_principal_id IN (${inSql})
               AND g.revoked_at IS NULL
           )
         )
@@ -329,10 +331,10 @@ export class ProjectAccessPolicy {
       .all(
         input.workspaceId,
         input.projectId,
-        input.actor.id,
-        input.actor.id,
-        input.actor.id,
-        input.actor.id,
+        ...ids,
+        ...ids,
+        ...ids,
+        ...ids,
         limit,
         offset
       ) as Array<Record<string, unknown>>;

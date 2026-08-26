@@ -177,10 +177,15 @@ export async function handleHumanIdentityCredentialHttpRequest(
       200,
       humanPrincipalMergeResponseSchema.parse({
         schemaVersion: "human-identity/v1",
-        mergeId: merged.mergeId,
-        sourceHumanPrincipalId: merged.sourceHumanPrincipalId,
         canonicalHumanPrincipalId: merged.canonicalHumanPrincipalId,
-        mergedAt: merged.mergedAt
+        alreadyEquivalent: merged.alreadyEquivalent,
+        ...(merged.alreadyEquivalent
+          ? {}
+          : {
+              mergeId: merged.mergeId,
+              sourceHumanPrincipalId: merged.sourceHumanPrincipalId,
+              mergedAt: merged.mergedAt
+            })
       })
     );
     return true;

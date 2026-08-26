@@ -112,7 +112,10 @@ export class AuthorityService {
           workspaceIdentity: this.options.workspaceIdentity
         });
       }
-      this.options.repository.applyResponsibility({ mutation: intent, actor: actorOf(actor) });
+      this.options.repository.applyResponsibility({
+        mutation: this.canonicalAssignedMutation(scope.workspaceId, intent),
+        actor: actorOf(actor)
+      });
       return this.getResponsibility(actor, scope)!;
     });
   }
@@ -139,7 +142,10 @@ export class AuthorityService {
           workspaceIdentity: this.options.workspaceIdentity
         });
       }
-      this.options.repository.applyReviewer({ mutation: intent, actor: actorOf(actor) });
+      this.options.repository.applyReviewer({
+        mutation: this.canonicalAssignedMutation(scope.workspaceId, intent),
+        actor: actorOf(actor)
+      });
       return this.getReviewer(actor, scope)!;
     });
   }
@@ -515,11 +521,21 @@ export class AuthorityService {
   }
 
   private isActiveWorkspaceMember(workspaceId: string, humanPrincipalId: string): boolean {
-    return this.options.workspaceIdentity
-      .listMembershipViews(workspaceId)
-      .some(
-        (membership) =>
-          membership.humanPrincipalId === humanPrincipalId && membership.revokedAt === null
-      );
+    return this.options.workspaceIdentity.hasActiveMembership(workspaceId, humanPrincipalId);
+  }
+
+  private canonicalAssignedMutation<
+    T extends { principal: { kind: "human"; humanPrincipalId: string } | null }
+  >(workspaceId: string, intent: T): T {
+    if (!intent.principal) return intent;
+    const membership = this.options.workspaceIdentity.findActiveMembership(
+      workspaceId,
+      intent.principal.humanPrincipalId
+    );
+    if (!membership) throw new Error("authority_membership_required");
+    return {
+      ...intent,
+      principal: { kind: "human" as const, humanPrincipalId: membership.humanPrincipalId }
+    };
   }
 }

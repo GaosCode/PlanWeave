@@ -120,6 +120,7 @@ export function createActivityCommentsComposition(input: {
   const commentAttachments = new CommentAttachmentService({
     repository: commentAttachmentRepository,
     blobs: new CommentAttachmentBlobStore(input.database, input.config.dataDirectory),
+    identity: input.humanIdentity,
     clock: input.clock
   });
   const contentVersions = new ContentVersionRepository(input.database, input.clock);
@@ -164,21 +165,13 @@ export function createActivityCommentsComposition(input: {
           }
         },
         authorMembershipActive(humanPrincipalId) {
-          return input.workspaceIdentity
-            .listMembershipViews(workspaceId)
-            .some(
-              (candidate) =>
-                candidate.humanPrincipalId === humanPrincipalId && candidate.revokedAt === null
-            );
+          return input.workspaceIdentity.hasActiveMembership(workspaceId, humanPrincipalId);
         },
         assertMembership(actor) {
-          const membership = input.workspaceIdentity
-            .listMembershipViews(workspaceId)
-            .find(
-              (candidate) =>
-                candidate.humanPrincipalId === actor.humanPrincipalId &&
-                candidate.revokedAt === null
-            );
+          const membership = input.workspaceIdentity.findActiveMembership(
+            workspaceId,
+            actor.humanPrincipalId
+          );
           if (!membership || membership.role !== actor.role) {
             throw new CommentServiceError("comment_auth_forbidden");
           }

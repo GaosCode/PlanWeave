@@ -216,6 +216,45 @@ describe("safeStorage credential access", () => {
     });
   });
 
+  it("finds and clears copied identity credentials that share a credential id", async () => {
+    const directory = await temporaryDirectory("planweave-collaboration-shared-identity-");
+    const credentialsPath = join(directory, "credentials.json");
+    const vault = new CollaborationCredentialVault({
+      paths: { credentialsPath },
+      safeStorage: availableSafeStorage()
+    });
+    const copyDeviceToken = `pw_hdev_${"B".repeat(43)}`;
+    await vault.setDeviceToken("profile-1", exampleHumanDeviceToken, {
+      deviceCredentialId: "device-1",
+      humanPrincipalId: "human-1",
+      identityToken: exampleHumanIdentityToken,
+      identityCredentialId: "identity-shared-1",
+      identityExpiresAt: "2031-01-01T00:00:00.000Z"
+    });
+    await vault.setDeviceToken("profile-2", copyDeviceToken, {
+      deviceCredentialId: "device-2",
+      humanPrincipalId: "human-1",
+      identityToken: exampleHumanIdentityToken,
+      identityCredentialId: "identity-shared-1",
+      identityExpiresAt: "2031-01-01T00:00:00.000Z"
+    });
+    expect(
+      await vault.findProfilesSharingIdentity({
+        identityCredentialId: "identity-shared-1",
+        identityToken: exampleHumanIdentityToken,
+        excludeProfileId: "profile-1"
+      })
+    ).toEqual(["profile-2"]);
+    await vault.clearIdentityCredential("profile-2");
+    expect(await vault.getDeviceToken("profile-2")).toBe(copyDeviceToken);
+    expect(await vault.getIdentityToken("profile-2")).toBeUndefined();
+    expect(await vault.getMetadata("profile-2")).toMatchObject({
+      identityCredentialId: null,
+      identityExpiresAt: null
+    });
+    expect(await vault.getIdentityToken("profile-1")).toBe(exampleHumanIdentityToken);
+  });
+
   it("keeps device tokens session-only when safeStorage is unavailable", async () => {
     const directory = await temporaryDirectory("planweave-collaboration-session-");
     const credentialsPath = join(directory, "credentials.json");

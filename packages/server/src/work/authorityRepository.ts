@@ -11,6 +11,7 @@ import {
   type ReviewAssignmentRecord
 } from "@planweave-ai/collaboration-protocol/work/review";
 import { inWriteTransaction, type SqliteDatabase } from "../sqlite.js";
+import { HumanPrincipalIdentity } from "../identity/humanPrincipalIdentity.js";
 import {
   authorityScopeSchema,
   scopeKey,
@@ -181,6 +182,14 @@ export class AuthorityRepository {
   }): ResponsibilityRecord {
     const mutation = input.mutation;
     const scope = scopeColumns(mutation.scope);
+    const principal = mutation.principal
+      ? {
+          kind: "human" as const,
+          humanPrincipalId: new HumanPrincipalIdentity(this.database).canonicalizeTarget(
+            mutation.principal.humanPrincipalId
+          )
+        }
+      : null;
     let nextRevision = 0;
     const [updatedByKind, updatedById] = actorColumns(input.actor);
     const at = this.clock().toISOString();
@@ -203,7 +212,7 @@ export class AuthorityRepository {
           scope.canvasId,
           scope.scopeKind,
           scope.scopeKey,
-          mutation.principal?.humanPrincipalId ?? null,
+          principal?.humanPrincipalId ?? null,
           nextRevision,
           updatedByKind,
           updatedById,
@@ -213,7 +222,7 @@ export class AuthorityRepository {
     return responsibilityRecordSchema.parse({
       schemaVersion: "responsibility/v1",
       scope: mutation.scope,
-      principal: mutation.principal,
+      principal,
       revision: nextRevision,
       updatedAt: at
     });
@@ -225,6 +234,14 @@ export class AuthorityRepository {
   }): ReviewAssignmentRecord {
     const mutation = input.mutation;
     const scope = scopeColumns(mutation.scope);
+    const principal = mutation.principal
+      ? {
+          kind: "human" as const,
+          humanPrincipalId: new HumanPrincipalIdentity(this.database).canonicalizeTarget(
+            mutation.principal.humanPrincipalId
+          )
+        }
+      : null;
     let nextRevision = 0;
     const [updatedByKind, updatedById] = actorColumns(input.actor);
     const at = this.clock().toISOString();
@@ -247,7 +264,7 @@ export class AuthorityRepository {
           scope.canvasId,
           scope.scopeKind,
           scope.scopeKey,
-          mutation.principal?.humanPrincipalId ?? null,
+          principal?.humanPrincipalId ?? null,
           nextRevision,
           updatedByKind,
           updatedById,
@@ -257,7 +274,7 @@ export class AuthorityRepository {
     return reviewAssignmentRecordSchema.parse({
       schemaVersion: "review-assignment/v1",
       scope: mutation.scope,
-      principal: mutation.principal,
+      principal,
       revision: nextRevision,
       updatedAt: at
     });

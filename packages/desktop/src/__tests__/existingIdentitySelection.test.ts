@@ -141,6 +141,47 @@ describe("diagnoseOriginIdentity", () => {
     ).toThrow(IdentitySelectionError);
   });
 
+  it("marks expired identity tokens as unusable in a repair view", () => {
+    const diagnosed = diagnoseOriginIdentity(
+      [
+        {
+          profileId: "profile-a",
+          origin,
+          humanPrincipalId: "human-a",
+          deviceToken: "pw_hdev_valid_a",
+          identityToken: "pw_hid_expired",
+          identityExpiresAt: "2030-01-01T00:00:00.000Z",
+          updatedAt: "2030-01-02T00:00:00.000Z"
+        },
+        {
+          profileId: "profile-b",
+          origin,
+          humanPrincipalId: "human-b",
+          identityToken: "pw_hid_b",
+          identityExpiresAt: "2031-01-01T00:00:00.000Z",
+          updatedAt: "2030-01-02T00:00:00.000Z"
+        }
+      ],
+      `${origin}/`,
+      now
+    );
+    expect(diagnosed.kind).toBe("repair_required");
+    if (diagnosed.kind !== "repair_required") throw new Error("expected_repair_required");
+    expect(diagnosed.principals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          humanPrincipalId: "human-a",
+          hasIdentityToken: false,
+          hasDeviceToken: true
+        }),
+        expect.objectContaining({
+          humanPrincipalId: "human-b",
+          hasIdentityToken: true
+        })
+      ])
+    );
+  });
+
   it("requires repair when a same-origin token has no proven principal", () => {
     expect(
       diagnoseOriginIdentity(

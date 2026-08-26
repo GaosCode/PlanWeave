@@ -22,6 +22,7 @@ import {
   type WorkspacePickerItem
 } from "@planweave-ai/collaboration-protocol/connection";
 import { hashHumanToken } from "./crypto.js";
+import { HumanPrincipalIdentity, sqlPlaceholders } from "./humanPrincipalIdentity.js";
 import type { SqliteDatabase } from "../sqlite.js";
 
 export type WorkspaceIdentityReadState = {
@@ -76,7 +77,11 @@ function nowIso(): string {
  * Migrations create/backfill these tables; runtime writes use this store only.
  */
 export class WorkspaceIdentityRepository {
-  constructor(private readonly database: SqliteDatabase) {}
+  private readonly identity: HumanPrincipalIdentity;
+
+  constructor(private readonly database: SqliteDatabase) {
+    this.identity = new HumanPrincipalIdentity(database);
+  }
 
   workspaceForLegacyProject(projectId: string): string | undefined {
     const row = this.database
@@ -258,34 +263,89 @@ export class WorkspaceIdentityRepository {
   }
 
   workspaceIdsForHumanPrincipal(humanPrincipalId: string): string[] {
+    const ids = this.identity.equivalentIds(humanPrincipalId);
+    const inSql = sqlPlaceholders(ids);
     const rows = this.database
       .prepare(
         `SELECT DISTINCT workspace_id FROM (
-           SELECT workspace_id FROM workspace_principals WHERE human_principal_id=?
+           SELECT workspace_id FROM workspace_principals WHERE human_principal_id IN (${inSql})
            UNION
            SELECT m.workspace_id
            FROM project_memberships p
            JOIN legacy_project_workspace_mappings m ON m.legacy_project_id=p.project_id
-           WHERE p.human_principal_id=?
+           WHERE p.human_principal_id IN (${inSql})
          ) ORDER BY workspace_id`
       )
-      .all(humanPrincipalId, humanPrincipalId);
+      .all(...ids, ...ids);
     return rows.map((row) => workspaceIdSchema.parse(String(row.workspace_id)));
   }
 
   /** Resolve only workspaces with an active projected principal and membership. */
   activeWorkspaceIdsForHumanPrincipal(humanPrincipalId: string): string[] {
+    const ids = this.identity.equivalentIds(humanPrincipalId);
+    const inSql = sqlPlaceholders(ids);
     const rows = this.database
       .prepare(
         `SELECT DISTINCT p.workspace_id
          FROM workspace_principals p
          JOIN workspace_memberships m
            ON m.workspace_id=p.workspace_id AND m.human_principal_id=p.human_principal_id
-         WHERE p.human_principal_id=? AND p.revoked_at IS NULL AND m.revoked_at IS NULL
+         WHERE p.human_principal_id IN (${inSql}) AND p.revoked_at IS NULL AND m.revoked_at IS NULL
          ORDER BY p.workspace_id`
       )
-      .all(humanPrincipalId);
+      .all(...ids);
     return rows.map((row) => workspaceIdSchema.parse(String(row.workspace_id)));
+  }
+
+  findActiveMembership(
+    workspaceId: string,
+    humanPrincipalId: string
+  ):
+    | {
+        workspaceId: string;
+        membershipId: string;
+        humanPrincipalId: string;
+        displayName: string;
+        role: "owner" | "member";
+      }
+    | undefined {
+    const parsed = workspaceIdSchema.parse(workspaceId);
+    const ids = this.identity.equivalentIds(humanPrincipalId);
+    const canonical = this.identity.resolveCanonical(humanPrincipalId);
+    const rows = this.database
+      .prepare(
+        `SELECT m.workspace_id,m.membership_id,m.human_principal_id,p.display_name,m.role
+         FROM workspace_memberships m
+         JOIN workspace_principals p
+           ON p.workspace_id=m.workspace_id AND p.human_principal_id=m.human_principal_id
+         WHERE m.workspace_id=?
+           AND m.human_principal_id IN (${sqlPlaceholders(ids)})
+           AND m.revoked_at IS NULL
+           AND p.revoked_at IS NULL`
+      )
+      .all(parsed, ...ids) as Array<{
+      workspace_id: string;
+      membership_id: string;
+      human_principal_id: string;
+      display_name: string;
+      role: "owner" | "member";
+    }>;
+    const selected =
+      rows.find((row) => row.human_principal_id === canonical) ??
+      rows.find((row) => row.role === "owner") ??
+      rows[0];
+    if (!selected) return undefined;
+    return {
+      workspaceId: workspaceIdSchema.parse(String(selected.workspace_id)),
+      membershipId: String(selected.membership_id),
+      humanPrincipalId: humanPrincipalIdSchema.parse(String(selected.human_principal_id)),
+      displayName: humanDisplayNameSchema.parse(String(selected.display_name)),
+      role: selected.role
+    };
+  }
+
+  hasActiveMembership(workspaceId: string, humanPrincipalId: string): boolean {
+    return this.findActiveMembership(workspaceId, humanPrincipalId) !== undefined;
   }
 
   /** Authenticate only the Workspace-scoped device sessions minted by setup-code redemption. */
@@ -301,34 +361,31 @@ export class WorkspaceIdentityRepository {
     if (!parsedToken.success) return undefined;
     const row = this.database
       .prepare(
-        `SELECT s.workspace_id,s.device_session_id,s.human_principal_id,p.display_name
+        `SELECT s.workspace_id,s.device_session_id,s.human_principal_id
          FROM workspace_device_sessions s
-         JOIN workspace_memberships m
-           ON m.workspace_id=s.workspace_id AND m.human_principal_id=s.human_principal_id
-         JOIN workspace_principals p
-           ON p.workspace_id=s.workspace_id AND p.human_principal_id=s.human_principal_id
          WHERE s.credential_sha256=?
            AND s.revoked_at IS NULL
-           AND (s.expires_at IS NULL OR s.expires_at>?)
-           AND p.revoked_at IS NULL
-           AND m.revoked_at IS NULL`
+           AND (s.expires_at IS NULL OR s.expires_at>?)`
       )
       .get(hashHumanToken(parsedToken.data), nowIso()) as
       | {
           workspace_id: string;
           device_session_id: string;
           human_principal_id: string;
-          display_name: string;
         }
       | undefined;
-    return row
-      ? {
-          workspaceId: workspaceIdSchema.parse(String(row.workspace_id)),
-          deviceSessionId: deviceSessionIdSchema.parse(String(row.device_session_id)),
-          humanPrincipalId: humanPrincipalIdSchema.parse(String(row.human_principal_id)),
-          displayName: humanDisplayNameSchema.parse(String(row.display_name))
-        }
-      : undefined;
+    if (!row) return undefined;
+    const membership = this.findActiveMembership(
+      String(row.workspace_id),
+      String(row.human_principal_id)
+    );
+    if (!membership) return undefined;
+    return {
+      workspaceId: workspaceIdSchema.parse(String(row.workspace_id)),
+      deviceSessionId: deviceSessionIdSchema.parse(String(row.device_session_id)),
+      humanPrincipalId: humanPrincipalIdSchema.parse(membership.humanPrincipalId),
+      displayName: humanDisplayNameSchema.parse(membership.displayName)
+    };
   }
 
   /**
@@ -368,10 +425,7 @@ export class WorkspaceIdentityRepository {
   listActiveWorkspacePickerItems(humanPrincipalId: string): WorkspacePickerItem[] {
     return this.activeWorkspaceIdsForHumanPrincipal(humanPrincipalId).map((workspaceId) => {
       const workspace = this.workspaceView(workspaceId);
-      const membership = this.listMembershipViews(workspaceId).find(
-        (candidate) =>
-          candidate.humanPrincipalId === humanPrincipalId && candidate.revokedAt === null
-      );
+      const membership = this.findActiveMembership(workspaceId, humanPrincipalId);
       if (!membership) throw new Error("workspace_membership_projection_missing");
       return workspacePickerItemSchema.parse({
         schemaVersion: "workspace-setup/v1",

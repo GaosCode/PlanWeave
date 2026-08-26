@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { inWriteTransaction, type SqliteDatabase } from "../sqlite.js";
 import { DeviceCredentialStore } from "./deviceCredentialStore.js";
 import { HumanIdentityError } from "./errors.js";
+import { HumanPrincipalIdentity } from "./humanPrincipalIdentity.js";
 import { InvitationStore } from "./invitationStore.js";
 import { HUMAN_MAX_MEMBERS_PER_PROJECT, HUMAN_MAX_OPEN_INVITATIONS_PER_PROJECT } from "./limits.js";
 import { MembershipStore } from "./membershipStore.js";
@@ -110,6 +111,10 @@ export class HumanIdentityRepository {
 
   getActiveMembership(projectId: string, humanPrincipalId: string): ProjectMembership | undefined {
     return this.memberships.getActiveMembership(projectId, humanPrincipalId);
+  }
+
+  areEquivalent(left: string, right: string): boolean {
+    return new HumanPrincipalIdentity(this.database).areEquivalent(left, right);
   }
 
   countActiveOwners(projectId: string): number {
@@ -486,8 +491,8 @@ export class HumanIdentityRepository {
     this.assertPrincipalWorkspace(proof.humanPrincipalId, workspaceId);
     const existingOwners = this.memberships.listActiveOwners(projectId);
 
-    const samePrincipal = existingOwners.find(
-      (membership) => membership.humanPrincipalId === proof.humanPrincipalId
+    const samePrincipal = existingOwners.find((membership) =>
+      this.areEquivalent(membership.humanPrincipalId, proof.humanPrincipalId)
     );
     if (existingOwners.length > 0 && !samePrincipal) {
       throw new HumanIdentityError("human_bootstrap_conflict");

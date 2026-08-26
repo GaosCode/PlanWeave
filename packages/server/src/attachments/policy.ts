@@ -136,6 +136,7 @@ export function authorizePendingUploadMutation(input: {
   record: PendingUploadRecord;
   now: Date;
   requiredStatus: readonly PendingUploadStatus[];
+  sameHumanPrincipal?: (left: string, right: string) => boolean;
 }): AttachmentAuthDecision {
   const base = authorizeAttachmentProjectAccess({
     subject: input.subject,
@@ -149,7 +150,11 @@ export function authorizePendingUploadMutation(input: {
   if (input.subject.kind !== "human") {
     return denial("attachment_auth_forbidden");
   }
-  if (input.subject.context.humanPrincipalId !== input.record.uploaderHumanPrincipalId) {
+  const sameUploader = (input.sameHumanPrincipal ?? ((left, right) => left === right))(
+    input.subject.context.humanPrincipalId,
+    input.record.uploaderHumanPrincipalId
+  );
+  if (!sameUploader) {
     return denial("attachment_pending_not_uploader");
   }
   if (Date.parse(input.record.expiresAt) <= input.now.getTime()) {

@@ -21,6 +21,7 @@ import {
   mintHumanDeviceToken,
   resetHumanHttpRateLimits
 } from "../identity/index.js";
+import { HumanIdentityCredentialStore } from "../identity/humanIdentityCredentialStore.js";
 import { applyMigrations } from "../migrations.js";
 import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
 
@@ -77,6 +78,7 @@ async function setup(options?: { clock?: () => Date }) {
   const attachmentService = new CommentAttachmentService({
     repository: attachmentRepository,
     blobs,
+    identity: humanRepository,
     clock: options?.clock
   });
 
@@ -184,6 +186,17 @@ function createWorkspaceDevice(input: {
 
 function auth(token: string) {
   return { Authorization: `Bearer ${token}` };
+}
+
+function principalIdForDeviceToken(database: SqliteDatabase, token: string): string {
+  const row = database
+    .prepare(
+      `SELECT human_principal_id FROM human_device_credentials
+       WHERE token_sha256=? AND revoked_at IS NULL`
+    )
+    .get(hashHumanToken(token)) as { human_principal_id: string } | undefined;
+  if (!row) throw new Error("device_principal_missing");
+  return row.human_principal_id;
 }
 
 async function bootstrap(origin: string, projectId = "project-a", principalId = "human-owner-1") {
@@ -866,5 +879,53 @@ describe("comment attachment HTTP and blob authorization", () => {
     );
     expect(stolen.response.status).toBe(403);
     expect(stolen.payload.error).toBe("attachment_pending_not_uploader");
+  });
+
+  it("lets the merged canonical principal finish an in-flight pending upload", async () => {
+    const { origin, database, attachmentRepository, workspaceA } = await setup();
+    const ownerToken = await bootstrap(origin, "project-a", "human-a");
+    const canonicalToken = await inviteAndJoin(origin, ownerToken, "project-a", "Alice Canonical");
+    const canonicalPrincipalId = principalIdForDeviceToken(database, canonicalToken);
+    const bytes = Buffer.from("merge-upload-body");
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    const created = await createPending(origin, ownerToken, "project-a", {
+      expectedSizeBytes: bytes.byteLength,
+      mediaType: "text/plain",
+      expectedDigestSha256: digest
+    });
+    expect(created.response.status).toBe(201);
+    const pendingUploadId = created.payload.pendingUploadId as string;
+    expect(
+      attachmentRepository.getPendingRequired(workspaceA, "project-a", pendingUploadId)
+        .uploaderHumanPrincipalId
+    ).toBe("human-a");
+    const identities = new HumanIdentityCredentialStore(database, () => new Date());
+    identities.merge(
+      identities.issue("human-a").identityToken,
+      identities.issue(canonicalPrincipalId).identityToken
+    );
+    const uploaded = await uploadPending(
+      origin,
+      canonicalToken,
+      "project-a",
+      pendingUploadId,
+      bytes,
+      "text/plain",
+      digest
+    );
+    expect(uploaded.response.status).toBe(201);
+    const finalized = await finalizePending(
+      origin,
+      canonicalToken,
+      "project-a",
+      pendingUploadId,
+      digest
+    );
+    expect(finalized.response.status).toBe(200);
+    expect(finalizePendingAttachmentResponseSchema.parse(finalized.payload)).toMatchObject({
+      pendingUploadId,
+      status: "finalized",
+      digestSha256: digest
+    });
   });
 });

@@ -83,14 +83,7 @@ export function assertAssignmentPrincipalActive(input: {
   humanPrincipalId: string;
   workspaceIdentity: WorkspaceIdentityRepository;
 }): void {
-  if (
-    !input.workspaceIdentity
-      .listMembershipViews(input.workspaceId)
-      .some(
-        (membership) =>
-          membership.humanPrincipalId === input.humanPrincipalId && membership.revokedAt === null
-      )
-  ) {
+  if (!input.workspaceIdentity.hasActiveMembership(input.workspaceId, input.humanPrincipalId)) {
     throw new Error("authority_membership_required");
   }
 }

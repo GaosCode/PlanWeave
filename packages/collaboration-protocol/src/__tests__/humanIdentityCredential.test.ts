@@ -3,7 +3,8 @@ import {
   humanIdentityRecoverRequestSchema,
   humanIdentityRenewRequestSchema,
   humanIdentityRevokeRequestSchema,
-  humanPrincipalMergeRequestSchema
+  humanPrincipalMergeRequestSchema,
+  humanPrincipalMergeResponseSchema
 } from "../humanIdentityCredential.js";
 import { exampleHumanIdentityToken } from "../fixtures/collaboration.js";
 
@@ -45,6 +46,25 @@ describe("human identity credential contracts", () => {
         schemaVersion: "human-identity/v1",
         sourceIdentityToken: exampleHumanIdentityToken,
         canonicalIdentityToken: exampleHumanIdentityToken
+      })
+    ).toThrow();
+  });
+
+  it("accepts an already-equivalent merge response without a new audit row", () => {
+    expect(
+      humanPrincipalMergeResponseSchema.parse({
+        schemaVersion: "human-identity/v1",
+        canonicalHumanPrincipalId: "human-c",
+        alreadyEquivalent: true
+      })
+    ).toMatchObject({ alreadyEquivalent: true, canonicalHumanPrincipalId: "human-c" });
+  });
+
+  it("requires merge audit fields unless the principals are already equivalent", () => {
+    expect(() =>
+      humanPrincipalMergeResponseSchema.parse({
+        schemaVersion: "human-identity/v1",
+        canonicalHumanPrincipalId: "human-c"
       })
     ).toThrow();
   });

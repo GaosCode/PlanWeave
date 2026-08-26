@@ -51,7 +51,7 @@ function compareUpdatedAt(
   return right.updatedAt.localeCompare(left.updatedAt);
 }
 
-function identityUsable(candidate: OriginCredentialCandidate, now: Date): boolean {
+export function identityUsable(candidate: OriginCredentialCandidate, now: Date): boolean {
   if (candidate.identityToken === undefined) return false;
   if (candidate.identityExpiresAt === undefined || candidate.identityExpiresAt === null) {
     return true;
@@ -61,7 +61,8 @@ function identityUsable(candidate: OriginCredentialCandidate, now: Date): boolea
 }
 
 function repairPrincipals(
-  matching: readonly OriginCredentialCandidate[]
+  matching: readonly OriginCredentialCandidate[],
+  now: Date
 ): IdentityRepairPrincipal[] {
   const groups = new Map<string, OriginCredentialCandidate[]>();
   for (const candidate of matching) {
@@ -75,7 +76,7 @@ function repairPrincipals(
     return {
       humanPrincipalId: newest.humanPrincipalId,
       profileIds: group.map((candidate) => candidate.profileId).sort(),
-      hasIdentityToken: group.some((candidate) => candidate.identityToken !== undefined),
+      hasIdentityToken: group.some((candidate) => identityUsable(candidate, now)),
       hasDeviceToken: group.some((candidate) => candidate.deviceToken !== undefined),
       identityExpiresAt: newest.identityExpiresAt ?? null
     };
@@ -108,7 +109,7 @@ export function diagnoseOriginIdentity(
     )
   ];
   if (unproven.length > 0 || provenIds.length > 1) {
-    return { kind: "repair_required", principals: repairPrincipals(matching) };
+    return { kind: "repair_required", principals: repairPrincipals(matching, now) };
   }
   if (provenIds.length === 0) return { kind: "none" };
   const humanPrincipalId = provenIds[0];

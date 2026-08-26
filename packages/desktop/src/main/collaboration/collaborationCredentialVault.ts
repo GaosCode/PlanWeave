@@ -418,6 +418,47 @@ export class CollaborationCredentialVault {
     }
   }
 
+  async listStoredProfileIds(): Promise<string[]> {
+    const document = await this.load();
+    return [...new Set([...Object.keys(document.credentials), ...this.sessionTokens.keys()])];
+  }
+
+  async findProfilesSharingIdentity(input: {
+    identityCredentialId: string | null;
+    identityToken?: string;
+    excludeProfileId?: string;
+  }): Promise<string[]> {
+    const matches: string[] = [];
+    for (const profileId of await this.listStoredProfileIds()) {
+      if (profileId === input.excludeProfileId) continue;
+      const metadata = await this.getMetadata(profileId);
+      if (
+        input.identityCredentialId !== null &&
+        metadata?.identityCredentialId === input.identityCredentialId
+      ) {
+        matches.push(profileId);
+        continue;
+      }
+      if (!input.identityToken) continue;
+      const token = await this.getIdentityToken(profileId);
+      if (token === input.identityToken) matches.push(profileId);
+    }
+    return matches;
+  }
+
+  async clearIdentityCredential(profileId: string): Promise<void> {
+    const deviceToken = await this.getDeviceToken(profileId);
+    if (!deviceToken) {
+      await this.clear(profileId);
+      return;
+    }
+    await this.setDeviceToken(profileId, deviceToken, {
+      identityToken: null,
+      identityCredentialId: null,
+      identityExpiresAt: null
+    });
+  }
+
   /** True when any in-memory session-only credential exists while storage is unavailable. */
   async hasAnySessionOnlyCredential(): Promise<boolean> {
     if (this.safeStorage.isEncryptionAvailable()) {

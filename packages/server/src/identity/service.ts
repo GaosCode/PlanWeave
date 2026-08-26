@@ -516,7 +516,10 @@ export class HumanMembershipService {
       if (!device) deny("human_input_invalid");
       if (device.mintedForProjectId !== pid) deny("human_cross_project_forbidden");
 
-      const isOwn = device.humanPrincipalId === context.humanPrincipalId;
+      const isOwn = this.repository.areEquivalent(
+        device.humanPrincipalId,
+        context.humanPrincipalId
+      );
       if (isOwn) {
         const decision = authorizeHumanAction({
           action: "revoke_own_device",

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { SqliteDatabase } from "../sqlite.js";
 import { HumanIdentityError, isHumanIdentityUniqueViolation } from "./errors.js";
+import { HumanPrincipalIdentity, sqlPlaceholders } from "./humanPrincipalIdentity.js";
 import {
   humanDisplayNameSchema,
   humanPrincipalIdSchema,
@@ -76,12 +77,18 @@ export class MembershipStore {
   getActiveMembership(projectId: string, humanPrincipalId: string): ProjectMembership | undefined {
     const pid = humanProjectIdSchema.parse(projectId);
     const hid = humanPrincipalIdSchema.parse(humanPrincipalId);
-    const row = this.database
+    const ids = new HumanPrincipalIdentity(this.database).equivalentIds(hid);
+    const rows = this.database
       .prepare(
         `SELECT * FROM project_memberships
-         WHERE project_id=? AND human_principal_id=? AND revoked_at IS NULL`
+         WHERE project_id=? AND human_principal_id IN (${sqlPlaceholders(ids)}) AND revoked_at IS NULL`
       )
-      .get(pid, hid) as MembershipRow | undefined;
+      .all(pid, ...ids) as MembershipRow[];
+    const canonical = new HumanPrincipalIdentity(this.database).resolveCanonical(hid);
+    const row =
+      rows.find((candidate) => candidate.human_principal_id === canonical) ??
+      rows.find((candidate) => candidate.role === "owner") ??
+      rows[0];
     return row ? toProjectMembership(row) : undefined;
   }
 

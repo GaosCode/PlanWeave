@@ -126,6 +126,7 @@ async function openStack() {
   const attachmentService = new CommentAttachmentService({
     repository: attachmentRepository,
     blobs,
+    identity,
     clock: () => now
   });
 

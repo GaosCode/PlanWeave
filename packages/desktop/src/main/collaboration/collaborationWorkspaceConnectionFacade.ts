@@ -101,8 +101,15 @@ export class CollaborationWorkspaceConnectionFacade {
     assertNoSmuggledCollaborationSecrets(input, "confirmCollaborationIdentityMerge");
     const parsed = collaborationConfirmIdentityMergeInputSchema.parse(input);
     try {
-      await this.connection.confirmIdentityMerge(parsed);
-      this.setSession("ready", "identity_merged", null);
+      const remaining = await this.connection.confirmIdentityMerge(parsed);
+      if (remaining) {
+        this.setSession("error", "identity_repair_required", {
+          code: "identity_repair_required",
+          message: "identity_repair_required"
+        });
+      } else {
+        this.setSession("ready", "identity_merged", null);
+      }
     } catch (error) {
       const mapped = collaborationErrorFromUnknown(error);
       this.setSession("error", "identity_merge_failed", {

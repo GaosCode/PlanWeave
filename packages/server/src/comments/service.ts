@@ -252,7 +252,12 @@ export class CommentService {
       const current = this.comments.getRequired(command.projectId, command.commentId);
       this.authorizeMutation(command.actor, current.workItem);
       const now = this.clock();
-      const decision = decideCommentEdit({ command, current, now });
+      const decision = decideCommentEdit({
+        command,
+        current,
+        now,
+        sameHumanPrincipal: (left, right) => this.identity.areEquivalent(left, right)
+      });
       if (!decision.ok) {
         deny(decision.code, decision.message);
       }
@@ -299,7 +304,12 @@ export class CommentService {
       const current = this.comments.getRequired(command.projectId, command.commentId);
       this.authorizeMutation(command.actor, current.workItem);
       const now = this.clock();
-      const decision = decideCommentTombstone({ command, current, now });
+      const decision = decideCommentTombstone({
+        command,
+        current,
+        now,
+        sameHumanPrincipal: (left, right) => this.identity.areEquivalent(left, right)
+      });
       if (!decision.ok) {
         deny(decision.code, decision.message);
       }

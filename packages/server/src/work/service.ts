@@ -185,6 +185,7 @@ export class WorkAssignmentService {
           );
 
           let membership: AssignmentMembershipFacts | undefined;
+          let persisted = command;
           if (command.target.kind === "human") {
             membership = this.membershipPort.getMembershipFacts(
               this.workspaceId,
@@ -199,21 +200,26 @@ export class WorkAssignmentService {
                 humanPrincipalId: command.target.humanPrincipalId,
                 membershipActive: false
               };
+            } else if (membership.membershipActive) {
+              persisted = {
+                ...command,
+                target: { kind: "human", humanPrincipalId: membership.humanPrincipalId }
+              };
             }
           }
 
           let host: AssignmentHostFacts | undefined;
-          if (command.target.kind === "exact_host") {
+          if (persisted.target.kind === "exact_host") {
             host = this.hostPort.getHostFacts(
               this.workspaceId,
-              command.projectId,
-              command.target.hostId
+              persisted.projectId,
+              persisted.target.hostId
             );
           }
 
           const decision = decideAssignmentUpdate({
             workspaceId: this.workspaceId,
-            command,
+            command: persisted,
             concurrency,
             packageFacts,
             membership,

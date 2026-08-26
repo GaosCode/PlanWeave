@@ -79,12 +79,27 @@ export type HumanPrincipalMergeRequest = z.infer<typeof humanPrincipalMergeReque
 export const humanPrincipalMergeResponseSchema = z
   .object({
     schemaVersion: humanIdentitySchemaVersionSchema,
-    mergeId: humanPrincipalMergeIdSchema,
-    sourceHumanPrincipalId: humanPrincipalIdSchema,
     canonicalHumanPrincipalId: humanPrincipalIdSchema,
-    mergedAt: timestampSchema
+    alreadyEquivalent: z.boolean().optional(),
+    mergeId: humanPrincipalMergeIdSchema.optional(),
+    sourceHumanPrincipalId: humanPrincipalIdSchema.optional(),
+    mergedAt: timestampSchema.optional()
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.alreadyEquivalent === true) return;
+    if (
+      value.mergeId === undefined ||
+      value.sourceHumanPrincipalId === undefined ||
+      value.mergedAt === undefined
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message: "identity_merge_audit_required",
+        path: ["mergeId"]
+      });
+    }
+  });
 export type HumanPrincipalMergeResponse = z.infer<typeof humanPrincipalMergeResponseSchema>;
 
 /**

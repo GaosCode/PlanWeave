@@ -20,6 +20,7 @@ import {
   type InternalCanvasRecord,
   type InternalProjectRecord
 } from "./projectRegistryRecords.js";
+import { HumanPrincipalIdentity, sqlPlaceholders } from "./identity/humanPrincipalIdentity.js";
 import { inWriteTransaction, type SqliteDatabase } from "./sqlite.js";
 import { assertNoPendingSnapshotRestore } from "./authorizationFence.js";
 
@@ -75,6 +76,10 @@ export class ProjectRegistryRepository {
     const input = projectRegistrationSchema.parse(rawInput);
     const at = this.clock().toISOString();
     const registryId = projectRegistryIdFor(input.workspaceId, input.projectId);
+    const ownerHumanPrincipalId =
+      input.ownerHumanPrincipalId === null
+        ? null
+        : this.canonicalOwnerId(input.ownerHumanPrincipalId);
     return inWriteTransaction(this.database, () => {
       const row = this.database
         .prepare("SELECT * FROM project_registry WHERE workspace_id=? AND project_id=?")
@@ -88,8 +93,8 @@ export class ProjectRegistryRepository {
         )
           throw new Error("project_registry_conflict");
         if (
-          input.ownerHumanPrincipalId !== null &&
-          project.ownerHumanPrincipalId !== input.ownerHumanPrincipalId
+          ownerHumanPrincipalId !== null &&
+          !this.ownersMatch(project.ownerHumanPrincipalId, ownerHumanPrincipalId)
         )
           throw new Error(
             project.ownerHumanPrincipalId === null
@@ -100,8 +105,8 @@ export class ProjectRegistryRepository {
         return project;
       }
       if (
-        input.ownerHumanPrincipalId !== null &&
-        !activeWorkspacePrincipal(this.database, input.workspaceId, input.ownerHumanPrincipalId)
+        ownerHumanPrincipalId !== null &&
+        !activeWorkspacePrincipal(this.database, input.workspaceId, ownerHumanPrincipalId)
       )
         throw new Error("project_registry_owner_not_active");
       this.database
@@ -114,7 +119,7 @@ export class ProjectRegistryRepository {
           input.projectId,
           input.projectRoot,
           input.visibility,
-          input.ownerHumanPrincipalId,
+          ownerHumanPrincipalId,
           at,
           at
         );
@@ -151,6 +156,10 @@ export class ProjectRegistryRepository {
       input.projectId,
       input.canvasId
     );
+    const requestedOwner =
+      input.ownerHumanPrincipalId === null
+        ? null
+        : this.canonicalOwnerId(input.ownerHumanPrincipalId);
     return inWriteTransaction(this.database, () => {
       const project = this.projectInternal(input.workspaceId, input.projectId);
       if (!project) throw new Error("project_registry_not_found");
@@ -169,14 +178,17 @@ export class ProjectRegistryRepository {
         | undefined;
       if (row) {
         let canvas = parseCanvas(row);
-        const expectedOwner = input.ownerHumanPrincipalId ?? project.ownerHumanPrincipalId;
+        const expectedOwner = requestedOwner ?? project.ownerHumanPrincipalId;
         if (
           canvas.canvasRegistryId !== canvasRegistryId ||
           (canvas.packageDir !== null && canvas.packageDir !== input.packageDir) ||
           canvas.visibility !== input.visibility
         )
           throw new Error("canvas_registry_conflict");
-        if (expectedOwner !== null && canvas.ownerHumanPrincipalId !== expectedOwner)
+        if (
+          expectedOwner !== null &&
+          !this.ownersMatch(canvas.ownerHumanPrincipalId, expectedOwner)
+        )
           throw new Error(
             canvas.ownerHumanPrincipalId === null
               ? "canvas_registry_owner_initialization_required"
@@ -221,7 +233,7 @@ export class ProjectRegistryRepository {
         }
         return canvas;
       }
-      const ownerHumanPrincipalId = input.ownerHumanPrincipalId ?? project.ownerHumanPrincipalId;
+      const ownerHumanPrincipalId = requestedOwner ?? project.ownerHumanPrincipalId;
       if (
         ownerHumanPrincipalId !== null &&
         !activeWorkspacePrincipal(this.database, input.workspaceId, ownerHumanPrincipalId)
@@ -345,14 +357,15 @@ export class ProjectRegistryRepository {
     projectId: string,
     ownerHumanPrincipalId: string
   ): InternalProjectRecord {
-    if (!activeWorkspacePrincipal(this.database, workspaceId, ownerHumanPrincipalId))
+    const ownerId = this.canonicalOwnerId(ownerHumanPrincipalId);
+    if (!activeWorkspacePrincipal(this.database, workspaceId, ownerId))
       throw new Error("project_registry_owner_not_active");
     return inWriteTransaction(this.database, () => {
       const project = this.projectInternal(workspaceId, projectId);
       if (!project || project.revokedAt !== null) throw new Error("project_registry_not_found");
       assertNoPendingSnapshotRestore(this.database, { workspaceId, projectId });
       if (project.ownerHumanPrincipalId !== null) {
-        if (project.ownerHumanPrincipalId !== ownerHumanPrincipalId)
+        if (!this.ownersMatch(project.ownerHumanPrincipalId, ownerId))
           throw new Error("project_registry_owner_conflict");
         return project;
       }
@@ -361,13 +374,13 @@ export class ProjectRegistryRepository {
         .prepare(
           "UPDATE project_registry SET owner_human_principal_id=?,updated_at=? WHERE project_registry_id=? AND owner_human_principal_id IS NULL AND revoked_at IS NULL"
         )
-        .run(ownerHumanPrincipalId, at, project.projectRegistryId);
+        .run(ownerId, at, project.projectRegistryId);
       if (result.changes !== 1) throw new Error("project_registry_owner_conflict");
       this.database
         .prepare(
           "UPDATE canvas_registry SET owner_human_principal_id=?,updated_at=? WHERE project_registry_id=? AND owner_human_principal_id IS NULL AND revoked_at IS NULL"
         )
-        .run(ownerHumanPrincipalId, at, project.projectRegistryId);
+        .run(ownerId, at, project.projectRegistryId);
       return this.projectInternal(workspaceId, projectId) as InternalProjectRecord;
     });
   }
@@ -378,12 +391,13 @@ export class ProjectRegistryRepository {
     canvasId: string,
     ownerHumanPrincipalId: string
   ): InternalCanvasRecord {
-    if (!activeWorkspacePrincipal(this.database, workspaceId, ownerHumanPrincipalId))
+    const ownerId = this.canonicalOwnerId(ownerHumanPrincipalId);
+    if (!activeWorkspacePrincipal(this.database, workspaceId, ownerId))
       throw new Error("canvas_registry_owner_not_active");
     const canvas = this.canvasInternal(workspaceId, projectId, canvasId);
     if (!canvas || canvas.revokedAt !== null) throw new Error("canvas_registry_not_found");
     if (canvas.ownerHumanPrincipalId !== null) {
-      if (canvas.ownerHumanPrincipalId !== ownerHumanPrincipalId)
+      if (!this.ownersMatch(canvas.ownerHumanPrincipalId, ownerId))
         throw new Error("canvas_registry_owner_conflict");
       return canvas;
     }
@@ -393,7 +407,7 @@ export class ProjectRegistryRepository {
         .prepare(
           "UPDATE canvas_registry SET owner_human_principal_id=?,updated_at=? WHERE canvas_registry_id=? AND owner_human_principal_id IS NULL AND revoked_at IS NULL"
         )
-        .run(ownerHumanPrincipalId, this.clock().toISOString(), canvas.canvasRegistryId);
+        .run(ownerId, this.clock().toISOString(), canvas.canvasRegistryId);
       if (result.changes !== 1) throw new Error("canvas_registry_owner_conflict");
       return this.canvasInternal(workspaceId, projectId, canvasId) as InternalCanvasRecord;
     });
@@ -410,6 +424,7 @@ export class ProjectRegistryRepository {
     transition: "member_joined" | "member_removed" | "owner_promoted" | "owner_demoted";
     membershipRole: "owner" | "member";
   }): void {
+    const humanPrincipalId = this.canonicalOwnerId(input.humanPrincipalId);
     const project = this.projectInternal(input.workspaceId, input.projectId);
     if (!project || project.revokedAt !== null) throw new Error("project_registry_not_found");
     assertNoPendingSnapshotRestore(this.database, {
@@ -421,13 +436,13 @@ export class ProjectRegistryRepository {
       (input.transition === "member_joined" && input.membershipRole === "owner") ||
       input.transition === "owner_promoted"
     ) {
-      this.materializeProjectOwnerInCallerTransaction(project, input.humanPrincipalId);
+      this.materializeProjectOwnerInCallerTransaction(project, humanPrincipalId);
       return;
     }
 
     if (
       (input.transition === "member_removed" || input.transition === "owner_demoted") &&
-      project.ownerHumanPrincipalId === input.humanPrincipalId
+      project.ownerHumanPrincipalId === humanPrincipalId
     ) {
       const replacement = this.nextActiveOwnerInCallerTransaction(
         input.workspaceId,
@@ -440,7 +455,7 @@ export class ProjectRegistryRepository {
 
     if (
       input.transition === "member_removed" &&
-      project.ownerHumanPrincipalId !== input.humanPrincipalId
+      project.ownerHumanPrincipalId !== humanPrincipalId
     ) {
       const currentProjectOwner = project.ownerHumanPrincipalId;
       if (currentProjectOwner === null) throw new Error("project_registry_owner_missing");
@@ -455,7 +470,7 @@ export class ProjectRegistryRepository {
           currentProjectOwner,
           this.clock().toISOString(),
           project.projectRegistryId,
-          input.humanPrincipalId
+          humanPrincipalId
         );
     }
   }
@@ -464,8 +479,9 @@ export class ProjectRegistryRepository {
     project: InternalProjectRecord,
     ownerHumanPrincipalId: string
   ): void {
+    const ownerId = this.canonicalOwnerId(ownerHumanPrincipalId);
     if (project.ownerHumanPrincipalId !== null) return;
-    if (!activeWorkspacePrincipal(this.database, project.workspaceId, ownerHumanPrincipalId)) {
+    if (!activeWorkspacePrincipal(this.database, project.workspaceId, ownerId)) {
       throw new Error("project_registry_owner_not_active");
     }
     const at = this.clock().toISOString();
@@ -473,13 +489,13 @@ export class ProjectRegistryRepository {
       .prepare(
         "UPDATE project_registry SET owner_human_principal_id=?,updated_at=? WHERE project_registry_id=? AND owner_human_principal_id IS NULL AND revoked_at IS NULL"
       )
-      .run(ownerHumanPrincipalId, at, project.projectRegistryId);
+      .run(ownerId, at, project.projectRegistryId);
     if (updated.changes !== 1) throw new Error("project_registry_owner_conflict");
     this.database
       .prepare(
         "UPDATE canvas_registry SET owner_human_principal_id=?,updated_at=? WHERE project_registry_id=? AND owner_human_principal_id IS NULL AND revoked_at IS NULL"
       )
-      .run(ownerHumanPrincipalId, at, project.projectRegistryId);
+      .run(ownerId, at, project.projectRegistryId);
   }
 
   private nextActiveOwnerInCallerTransaction(
@@ -507,9 +523,10 @@ export class ProjectRegistryRepository {
     project: InternalProjectRecord,
     ownerHumanPrincipalId: string
   ): void {
+    const ownerId = this.canonicalOwnerId(ownerHumanPrincipalId);
     const previousOwner = project.ownerHumanPrincipalId;
     if (previousOwner === null) throw new Error("project_registry_owner_missing");
-    if (!activeWorkspacePrincipal(this.database, project.workspaceId, ownerHumanPrincipalId)) {
+    if (!activeWorkspacePrincipal(this.database, project.workspaceId, ownerId)) {
       throw new Error("project_registry_owner_not_active");
     }
     const at = this.clock().toISOString();
@@ -517,13 +534,13 @@ export class ProjectRegistryRepository {
       .prepare(
         "UPDATE project_registry SET owner_human_principal_id=?,updated_at=? WHERE project_registry_id=? AND owner_human_principal_id=? AND revoked_at IS NULL"
       )
-      .run(ownerHumanPrincipalId, at, project.projectRegistryId, previousOwner);
+      .run(ownerId, at, project.projectRegistryId, previousOwner);
     if (updated.changes !== 1) throw new Error("project_registry_owner_conflict");
     this.database
       .prepare(
         "UPDATE canvas_registry SET owner_human_principal_id=?,updated_at=? WHERE project_registry_id=? AND owner_human_principal_id=? AND revoked_at IS NULL"
       )
-      .run(ownerHumanPrincipalId, at, project.projectRegistryId, previousOwner);
+      .run(ownerId, at, project.projectRegistryId, previousOwner);
   }
 
   /** True when any Workspace still has an unretracted registry row for this project ID. */
@@ -799,6 +816,15 @@ export class ProjectRegistryRepository {
       aclRevision: canvas.aclRevision
     };
   }
+
+  private canonicalOwnerId(humanPrincipalId: string): string {
+    return new HumanPrincipalIdentity(this.database).canonicalizeTarget(humanPrincipalId);
+  }
+
+  private ownersMatch(left: string | null, right: string | null): boolean {
+    if (left === null || right === null) return left === right;
+    return new HumanPrincipalIdentity(this.database).areEquivalent(left, right);
+  }
 }
 
 export function activeWorkspacePrincipal(
@@ -806,11 +832,18 @@ export function activeWorkspacePrincipal(
   workspaceId: string,
   principalId: string
 ): boolean {
+  const ids = new HumanPrincipalIdentity(database).equivalentIds(principalId);
   return Boolean(
     database
       .prepare(
-        `SELECT 1 FROM workspace_principals p JOIN workspace_memberships m ON m.workspace_id=p.workspace_id AND m.human_principal_id=p.human_principal_id WHERE p.workspace_id=? AND p.human_principal_id=? AND p.revoked_at IS NULL AND m.revoked_at IS NULL`
+        `SELECT 1 FROM workspace_principals p
+         JOIN workspace_memberships m
+           ON m.workspace_id=p.workspace_id AND m.human_principal_id=p.human_principal_id
+         WHERE p.workspace_id=?
+           AND p.human_principal_id IN (${sqlPlaceholders(ids)})
+           AND p.revoked_at IS NULL
+           AND m.revoked_at IS NULL`
       )
-      .get(workspaceId, principalId)
+      .get(workspaceId, ...ids)
   );
 }

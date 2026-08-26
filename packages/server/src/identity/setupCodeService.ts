@@ -296,14 +296,10 @@ export class SetupCodeService {
     const credentialSha256 = hashHumanToken(deviceToken);
     const issuedAt = now.toISOString();
     const expiresAt = new Date(now.getTime() + this.deviceSessionTtlMs).toISOString();
-    const existingMembership = this.database
-      .prepare(
-        `SELECT membership_id, role FROM workspace_memberships
-         WHERE workspace_id=? AND human_principal_id=? AND revoked_at IS NULL`
-      )
-      .get(grant.workspaceId, humanPrincipalId) as
-      | { membership_id: string; role: "owner" | "member" }
-      | undefined;
+    const existingMembership = this.workspaceIdentity.findActiveMembership(
+      grant.workspaceId,
+      humanPrincipalId
+    );
     const activeMembers = this.countActiveMembers(grant.workspaceId);
     const role = existingMembership?.role ?? (activeMembers === 0 ? "owner" : "member");
 
@@ -356,7 +352,7 @@ export class SetupCodeService {
       workspaceDisplayName: workspace.displayName,
       connectionProfile,
       humanPrincipalId,
-      membershipId: existingMembership?.membership_id ?? membershipId,
+      membershipId: existingMembership?.membershipId ?? membershipId,
       role,
       deviceSessionId,
       deviceToken,

@@ -66,12 +66,7 @@ export function createRemoteCoordinationOptions(input: {
         if (!input.getHumanIdentity()) throw new Error("human_identity_not_initialized");
         return input
           .getWorkspaceIdentity()
-          .listMembershipViews(interaction.workspaceId)
-          .some(
-            (membership) =>
-              membership.humanPrincipalId === interaction.responderId &&
-              membership.revokedAt === null
-          );
+          .hasActiveMembership(interaction.workspaceId, interaction.responderId);
       }
     },
     eventRetentionMaxEvents: input.config.limits.eventRetentionMaxEvents,

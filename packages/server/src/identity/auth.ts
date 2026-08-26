@@ -43,16 +43,14 @@ export function workspaceDeviceSessionHumanContext(
   if (!("kind" in actor) || actor.kind !== "workspace_device") {
     return humanAuthContextSchema.parse(actor);
   }
-  const membership = workspaceIdentity
-    .listMembershipViews(actor.workspaceId)
-    .find(
-      (candidate) =>
-        candidate.humanPrincipalId === actor.humanPrincipalId && candidate.revokedAt === null
-    );
+  const membership = workspaceIdentity.findActiveMembership(
+    actor.workspaceId,
+    actor.humanPrincipalId
+  );
   if (!membership) return undefined;
   return humanAuthContextSchema.parse({
-    humanPrincipalId: actor.humanPrincipalId,
-    displayName: actor.displayName,
+    humanPrincipalId: membership.humanPrincipalId,
+    displayName: membership.displayName,
     deviceCredentialId: actor.deviceSessionId,
     projectId: actor.projectId,
     role: membership.role,
