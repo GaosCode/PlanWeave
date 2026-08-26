@@ -395,5 +395,69 @@ export const runtimeNotAttachedInventory = [
     "packages/server/src/__tests__/wsServer.test.ts",
     "kind unavailable reason runtime_not_attached",
     "WS server tests return unattached runtime availability."
+  ),
+  inventoryEntry(
+    "rna-runtime-command-coordinator",
+    "runtime_not_attached",
+    "runtime_attachment",
+    "packages/server/src/canvas/runtimeCommandCoordinator.ts",
+    "initialize rejection maps runtime_not_attached",
+    "Legacy initialize recovery preserves the internal attachment diagnostic."
+  ),
+  inventoryEntry(
+    "rna-retryability",
+    "runtime_not_attached",
+    "runtime_attachment",
+    "packages/server/src/remoteOperationDiagnosticRetryability.ts",
+    "runtime_not_attached retryability classification",
+    "Remote operation recovery classifies missing attachment as a preparation fact."
+  ),
+  inventoryEntry(
+    "rna-test-runtime-coordinator",
+    "runtime_not_attached",
+    "runtime_attachment",
+    "packages/server/src/__tests__/remoteBlockCoordinatorRuntimeAvailability.test.ts",
+    "runtime_not_attached runtime availability regression",
+    "Remote coordinator coverage keeps the internal preparation diagnostic stable."
+  ),
+  inventoryEntry(
+    "rna-test-reenter-recovery",
+    "runtime_not_attached",
+    "runtime_attachment",
+    "packages/server/src/__tests__/remoteReenterRecovery.test.ts",
+    "runtime_not_attached reentry recovery regression",
+    "Lost-ACK recovery preserves the attachment diagnostic across restart."
+  ),
+  inventoryEntry(
+    "rna-desktop-runtime-view",
+    "runtime_not_attached",
+    "runtime_attachment",
+    "packages/desktop/src/renderer/collaboration/runtimeAvailabilityView.ts",
+    "runtime_not_attached presentation filtering",
+    "Desktop hides internal attachment state from ordinary availability."
+  ),
+  inventoryEntry(
+    "rna-desktop-run-error",
+    "runtime_not_attached",
+    "runtime_attachment",
+    "packages/desktop/src/renderer/collaboration/formatAgentEndpointRunError.ts",
+    "collaboration_runtime_runtime_not_attached",
+    "Legacy recovery errors retain the stable internal diagnostic."
+  ),
+  inventoryEntry(
+    "rna-test-desktop-runtime-view",
+    "runtime_not_attached",
+    "runtime_attachment",
+    "packages/desktop/src/__tests__/useWorkspaceRuntimeAvailability.test.tsx",
+    "runtime_not_attached availability regression",
+    "Desktop regression proves opening a Canvas does not initialize it."
+  ),
+  inventoryEntry(
+    "rna-test-desktop-run-error",
+    "runtime_not_attached",
+    "runtime_attachment",
+    "packages/desktop/src/__tests__/formatAgentEndpointRunError.test.ts",
+    "runtime_not_attached run error regression",
+    "Desktop recovery-error formatting retains a stable diagnostic."
   )
 ];

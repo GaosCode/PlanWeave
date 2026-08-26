@@ -178,16 +178,22 @@ describe("Canvas Runtime Host service", () => {
     const { state } = await setup();
     const source = await createTestWorkspace(basicManifest());
     const managed = await createTestWorkspace(basicManifest());
+    const alternateHostManaged = await createTestWorkspace(basicManifest());
     const authority = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
     directories.push(
       source.home,
       source.root,
       managed.home,
       managed.root,
+      alternateHostManaged.home,
+      alternateHostManaged.root,
       authority.home,
       authority.root
     );
     const sourceBefore = await capturePackageSnapshot({ projectRoot: source.init.workspace });
+    const alternateHostBefore = await capturePackageSnapshot({
+      projectRoot: alternateHostManaged.init.workspace
+    });
     const stateBefore = await readFile(managed.init.workspace.stateFile, "utf8");
     const preservedResult = join(managed.init.workspace.resultsDir, "preserved.txt");
     await writeFile(preservedResult, "preserved-result\n", "utf8");
@@ -296,6 +302,26 @@ describe("Canvas Runtime Host service", () => {
         scope
       })
     ).resolves.toMatchObject({ packageFingerprint: authoritativeStatus.packageFingerprint });
+
+    const alternateHostResolver = vi.fn(async () => ({
+      scope,
+      project: source.init.workspace,
+      canvas: alternateHostManaged.init.workspace
+    }));
+    const restartedAlternateHost = new CanvasRuntimeService({
+      resolver: resolverWith(alternateHostResolver),
+      receipts: state.canvasRuntime,
+      capabilities: [CANVAS_RUNTIME_CAPABILITY],
+      artifactTransfer,
+      contentTransfer: transfer
+    });
+    await restartedAlternateHost.handle(command);
+
+    expect(alternateHostResolver).not.toHaveBeenCalled();
+    expect(transfer.fetch).toHaveBeenCalledOnce();
+    expect(
+      await capturePackageSnapshot({ projectRoot: alternateHostManaged.init.workspace })
+    ).toEqual(alternateHostBefore);
 
     const authorityLayoutDirectory = join(authority.init.workspace.workspaceRoot, "desktop");
     await mkdir(authorityLayoutDirectory, { recursive: true });
