@@ -26,6 +26,7 @@ import {
   persistedRemoteAgentAccessSnapshotSchema,
   type PersistedRemoteAgentAccessSnapshot
 } from "./remoteAgent/schema.js";
+import { requireRemoteOperationDiagnosticRetryability } from "./remoteOperationDiagnosticRetryability.js";
 
 const boundedKeySchema = z
   .string()
@@ -227,16 +228,6 @@ export type RemoteOperationDiagnosticEvidence = {
   stage: RemoteOperationDiagnosticStage;
   error?: { code: string; retryable: boolean };
 };
-
-function diagnosticRetryable(code: string): boolean {
-  return new Set([
-    "agent_endpoint_unavailable",
-    "host_offline",
-    "no_compatible_agent_host",
-    "runtime_host_unavailable",
-    "runtime_reconciliation_conflict"
-  ]).has(code);
-}
 
 const operationColumns = `
   id,workspace_id,project_id,canvas_id,block_ref,ownership_generation,idempotency_key,request_fingerprint,
@@ -957,6 +948,7 @@ export class RemoteOperationRepository {
   recordDiagnostic(operationId: string, code: string, message: string): void {
     const parsedCode = opaqueIdentifierSchema.parse(code);
     const parsedMessage = z.string().min(1).max(4_096).parse(message);
+    const retryable = requireRemoteOperationDiagnosticRetryability(parsedCode);
     const updated = this.database
       .prepare(
         `UPDATE remote_operations SET diagnostic_code=?,diagnostic_message=?,updated_at=?
@@ -966,12 +958,7 @@ export class RemoteOperationRepository {
     if (updated.changes !== 1) throw new Error("remote_operation_not_actionable");
     const operation = this.getRequired(operationId);
     const latest = this.latestDiagnostic(operationId);
-    this.insertDiagnostic(
-      operation,
-      latest?.stage ?? "preparing_runtime",
-      parsedCode,
-      diagnosticRetryable(parsedCode)
-    );
+    this.insertDiagnostic(operation, latest?.stage ?? "preparing_runtime", parsedCode, retryable);
   }
 
   recordDiagnosticStage(operationId: string, stage: RemoteOperationDiagnosticStage): void {

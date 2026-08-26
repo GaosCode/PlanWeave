@@ -271,6 +271,7 @@
         "workspaceAgentEndpointRun.test.tsx",
         "workspaceCanvasPublishAuthority.test.ts",
         "workspaceCanvasSharingPanel.test.tsx",
+        "workspaceRemoteScopeScheduler.test.ts",
         "workspaceTabsLazyRoutes.test.tsx"
       ],
       "integration": [

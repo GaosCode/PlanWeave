@@ -15,10 +15,6 @@ import {
   remoteAgentEndpointPreferenceKey
 } from "../renderer/collaboration/agentEndpointPreferences";
 import type { AvailableAgentEndpoint } from "../renderer/collaboration/agentEndpointViewModel";
-import {
-  runWorkspaceRemoteScope,
-  runWorkspaceRemoteScopeFromAvailability
-} from "../renderer/collaboration/workspaceRemoteScopeScheduler";
 import { useWorkspaceAgentEndpointRun } from "../renderer/hooks/useWorkspaceAgentEndpointRun";
 
 const operatorControlBridgeMock = vi.hoisted(() => ({
@@ -169,6 +165,28 @@ function localRunState(phase: DesktopAutoRunState["phase"]): DesktopAutoRunState
     error: null,
     startedAt: "2026-08-05T00:00:00.000Z",
     updatedAt: "2026-08-05T00:00:01.000Z"
+  };
+}
+
+function remoteScopeStatus(
+  rows: Array<{
+    ref: string;
+    status: "ready" | "in_progress" | "completed";
+    dispatchable: boolean;
+  }>
+): CanvasRuntimeStatusProjection {
+  return {
+    schemaVersion: "canvas-runtime-status/v2",
+    scope: { workspaceId: "workspace-1", projectId: "project-server", canvasId: "canvas-main" },
+    packageFingerprint: graph.packageFingerprint,
+    capturedAt: "2026-08-23T00:00:00.000Z",
+    tasks: [{ taskId: "T-001", status: "ready", openFeedbackCount: 0 }],
+    blocks: rows.map((row) => ({
+      ...row,
+      completionReason: row.status === "completed" ? "passed" : null,
+      blockedReason: null,
+      divergenceReason: null
+    }))
   };
 }
 
@@ -568,6 +586,7 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
 
     await act(() => result.current({ kind: "task", taskId: "T-001" }));
 
+    expect(setError).not.toHaveBeenCalled();
     expect(dispatchCollaborationRemoteOperation).not.toHaveBeenCalled();
     expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -693,7 +712,11 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
       execution: {
         schemaVersion: "canvas-runtime-availability/v1" as const,
         kind: "available" as const,
-        runtimeDeviceId: "runtime-device-1"
+        status: remoteScopeStatus([
+          { ref: "T-001#B-001", status: "in_progress", dispatchable: false }
+        ]),
+        sourceRevision: "source-revision-1",
+        graphFingerprint: graph.packageFingerprint
       }
     }));
     const { result, rerender } = renderHook(
@@ -822,296 +845,5 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
     expect(lifecycle.onCancelled).toHaveBeenCalledTimes(1);
     expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).not.toHaveBeenCalled();
     expect(setError).not.toHaveBeenCalled();
-  });
-});
-
-function remoteScopeStatus(
-  rows: Array<{
-    ref: string;
-    status:
-      | "planned"
-      | "ready"
-      | "in_progress"
-      | "completed"
-      | "needs_changes"
-      | "blocked"
-      | "diverged";
-    dispatchable: boolean;
-  }>,
-  packageFingerprint = graph.packageFingerprint
-): CanvasRuntimeStatusProjection {
-  return {
-    schemaVersion: "canvas-runtime-status/v2",
-    scope: { workspaceId: "workspace-1", projectId: "project-server", canvasId: "canvas-main" },
-    packageFingerprint,
-    capturedAt: "2026-08-23T00:00:00.000Z",
-    tasks: [{ taskId: "T-001", status: "ready", openFeedbackCount: 0 }],
-    blocks: rows.map((row) => ({
-      ...row,
-      completionReason: row.status === "completed" ? "passed" : null,
-      blockedReason: null,
-      divergenceReason: null
-    }))
-  };
-}
-
-describe("Workspace remote scope scheduling", () => {
-  const dependencyGraph: DesktopGraphViewModel = {
-    ...graph,
-    tasks: [
-      {
-        ...graph.tasks[0]!,
-        blocks: [
-          graph.tasks[0]!.blocks[0]!,
-          {
-            ...graph.tasks[0]!.blocks[0]!,
-            ref: "T-001#B-002",
-            blockId: "B-002",
-            title: "Second",
-            status: "planned",
-            dispatchable: false
-          }
-        ]
-      }
-    ]
-  };
-
-  it.each([
-    { label: "Task", scope: { kind: "task", taskId: "T-001" } as const },
-    { label: "Project", scope: { kind: "project" } as const }
-  ])("causes the first $label dispatch before an uninitialized projection exists", async ({
-    scope
-  }) => {
-    let dispatched = false;
-    const execute = vi.fn(async () => {
-      dispatched = true;
-    });
-    const completed = remoteScopeStatus([
-      { ref: "T-001#B-001", status: "completed", dispatchable: false },
-      { ref: "T-001#B-002", status: "completed", dispatchable: false }
-    ]);
-    const readAvailability = vi.fn(async () => {
-      if (!dispatched) {
-        return {
-          schemaVersion: "canvas-runtime-view/v1" as const,
-          state: { kind: "uninitialized" as const },
-          execution: {
-            schemaVersion: "canvas-runtime-availability/v1" as const,
-            kind: "available" as const,
-            status: completed,
-            sourceRevision: "source-revision-1",
-            graphFingerprint: graph.packageFingerprint
-          }
-        };
-      }
-      return {
-        schemaVersion: "canvas-runtime-view/v1" as const,
-        state: { kind: "initialized" as const, status: completed },
-        execution: {
-          schemaVersion: "canvas-runtime-availability/v1" as const,
-          kind: "available" as const,
-          status: completed,
-          sourceRevision: "source-revision-1",
-          graphFingerprint: graph.packageFingerprint
-        }
-      };
-    });
-
-    await runWorkspaceRemoteScopeFromAvailability({
-      graph: dependencyGraph,
-      scope,
-      binding: { workspaceId: "workspace-1", projectId: "project-server", canvasId: "canvas-main" },
-      readAvailability,
-      execute
-    });
-
-    expect(execute).toHaveBeenCalledOnce();
-    expect(execute).toHaveBeenCalledWith("T-001#B-001", undefined);
-    expect(readAvailability).toHaveBeenCalledTimes(2);
-  });
-
-  it("advances a Task run from authoritative dispatchable state", async () => {
-    let phase = 0;
-    const execute = vi.fn(async () => {
-      phase += 1;
-    });
-    const readStatus = vi.fn(async () =>
-      phase === 0
-        ? remoteScopeStatus([
-            { ref: "T-001#B-001", status: "ready", dispatchable: true },
-            { ref: "T-001#B-002", status: "planned", dispatchable: false }
-          ])
-        : phase === 1
-          ? remoteScopeStatus([
-              { ref: "T-001#B-001", status: "completed", dispatchable: false },
-              { ref: "T-001#B-002", status: "ready", dispatchable: true }
-            ])
-          : remoteScopeStatus([
-              { ref: "T-001#B-001", status: "completed", dispatchable: false },
-              { ref: "T-001#B-002", status: "completed", dispatchable: false }
-            ])
-    );
-
-    await runWorkspaceRemoteScope({
-      graph: dependencyGraph,
-      scope: { kind: "task", taskId: "T-001" },
-      readStatus,
-      execute
-    });
-
-    expect(execute.mock.calls.map(([ref]) => ref)).toEqual(["T-001#B-001", "T-001#B-002"]);
-  });
-
-  it("fails loudly when incomplete scope has no Server-dispatchable Block", async () => {
-    await expect(
-      runWorkspaceRemoteScope({
-        graph: dependencyGraph,
-        scope: { kind: "task", taskId: "T-001" },
-        readStatus: async () =>
-          remoteScopeStatus([
-            { ref: "T-001#B-001", status: "blocked", dispatchable: false },
-            { ref: "T-001#B-002", status: "planned", dispatchable: false }
-          ]),
-        execute: vi.fn()
-      })
-    ).rejects.toThrow("workspace_remote_scope_blocked:T-001#B-001:blocked");
-  });
-
-  it("does not redispatch a Block while the Server projection is lagging", async () => {
-    const ready = remoteScopeStatus([
-      { ref: "T-001#B-001", status: "ready", dispatchable: true },
-      { ref: "T-001#B-002", status: "planned", dispatchable: false }
-    ]);
-    const completed = remoteScopeStatus([
-      { ref: "T-001#B-001", status: "completed", dispatchable: false },
-      { ref: "T-001#B-002", status: "completed", dispatchable: false }
-    ]);
-    const readStatus = vi
-      .fn()
-      .mockResolvedValueOnce(ready)
-      .mockResolvedValueOnce(ready)
-      .mockResolvedValueOnce(completed);
-    const execute = vi.fn(async () => undefined);
-    const waitForStatusChange = vi.fn(async () => undefined);
-
-    await runWorkspaceRemoteScope({
-      graph: dependencyGraph,
-      scope: { kind: "task", taskId: "T-001" },
-      readStatus,
-      execute,
-      waitForStatusChange
-    });
-
-    expect(execute).toHaveBeenCalledTimes(1);
-    expect(execute).toHaveBeenCalledWith("T-001#B-001", undefined);
-    expect(waitForStatusChange).toHaveBeenCalledTimes(1);
-  });
-
-  it("waits for an existing remote operation to leave in-progress after reconnect", async () => {
-    const readStatus = vi
-      .fn()
-      .mockResolvedValueOnce(
-        remoteScopeStatus([
-          { ref: "T-001#B-001", status: "in_progress", dispatchable: false },
-          { ref: "T-001#B-002", status: "planned", dispatchable: false }
-        ])
-      )
-      .mockResolvedValueOnce(
-        remoteScopeStatus([
-          { ref: "T-001#B-001", status: "completed", dispatchable: false },
-          { ref: "T-001#B-002", status: "completed", dispatchable: false }
-        ])
-      );
-    const execute = vi.fn();
-    const waitForStatusChange = vi.fn(async () => undefined);
-
-    await runWorkspaceRemoteScope({
-      graph: dependencyGraph,
-      scope: { kind: "task", taskId: "T-001" },
-      readStatus,
-      execute,
-      waitForStatusChange
-    });
-
-    expect(execute).not.toHaveBeenCalled();
-    expect(waitForStatusChange).toHaveBeenCalledTimes(1);
-  });
-
-  it("re-reads Server readiness after each dispatch instead of using a stale batch", async () => {
-    let dispatched = false;
-    const execute = vi.fn(async () => {
-      dispatched = true;
-    });
-    const readStatus = vi.fn(async () =>
-      dispatched
-        ? remoteScopeStatus([
-            { ref: "T-001#B-001", status: "completed", dispatchable: false },
-            { ref: "T-001#B-002", status: "planned", dispatchable: false }
-          ])
-        : remoteScopeStatus([
-            { ref: "T-001#B-001", status: "ready", dispatchable: true },
-            { ref: "T-001#B-002", status: "ready", dispatchable: true }
-          ])
-    );
-
-    await expect(
-      runWorkspaceRemoteScope({
-        graph: dependencyGraph,
-        scope: { kind: "task", taskId: "T-001" },
-        readStatus,
-        execute
-      })
-    ).rejects.toThrow("workspace_remote_scope_idle:no_dispatchable_blocks");
-
-    expect(execute).toHaveBeenCalledTimes(1);
-    expect(execute).toHaveBeenCalledWith("T-001#B-001", undefined);
-    expect(readStatus).toHaveBeenCalledTimes(2);
-  });
-
-  it("fails closed when Runtime status belongs to another content version", async () => {
-    const execute = vi.fn();
-
-    await expect(
-      runWorkspaceRemoteScope({
-        graph: dependencyGraph,
-        scope: { kind: "task", taskId: "T-001" },
-        readStatus: async () =>
-          remoteScopeStatus(
-            [
-              { ref: "T-001#B-001", status: "ready", dispatchable: true },
-              { ref: "T-001#B-002", status: "planned", dispatchable: false }
-            ],
-            "another-package-version"
-          ),
-        execute
-      })
-    ).rejects.toThrow("workspace_remote_scope_content_mismatch");
-
-    expect(execute).not.toHaveBeenCalled();
-  });
-
-  it("does not report completion when the scope is cancelled during a status read", async () => {
-    let resolveStatus: ((status: CanvasRuntimeStatusProjection) => void) | undefined;
-    const pendingStatus = new Promise<CanvasRuntimeStatusProjection>((resolve) => {
-      resolveStatus = resolve;
-    });
-    const controller = new AbortController();
-    const run = runWorkspaceRemoteScope({
-      graph: dependencyGraph,
-      scope: { kind: "task", taskId: "T-001" },
-      readStatus: () => pendingStatus,
-      execute: vi.fn(),
-      signal: controller.signal
-    });
-
-    controller.abort();
-    resolveStatus?.(
-      remoteScopeStatus([
-        { ref: "T-001#B-001", status: "completed", dispatchable: false },
-        { ref: "T-001#B-002", status: "completed", dispatchable: false }
-      ])
-    );
-
-    await expect(run).rejects.toThrow("workspace_remote_scope_cancelled");
   });
 });

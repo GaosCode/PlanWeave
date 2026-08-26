@@ -6,22 +6,29 @@ type WorkspaceRemoteScopeSchedulerInput = {
   graph: DesktopGraphViewModel;
   scope: DesktopAutoRunScope;
   readStatus: () => Promise<CanvasRuntimeStatusProjection>;
+  validateBeforeExecute?: (blockRef: string, signal?: AbortSignal) => Promise<void>;
   execute: (blockRef: string, signal?: AbortSignal) => Promise<void>;
   waitForStatusChange?: (signal?: AbortSignal) => Promise<void>;
   initiallyDispatchedBlockRefs?: readonly string[];
   signal?: AbortSignal;
 };
 
-function scopeBlockRefs(
-  graph: DesktopGraphViewModel,
+function scopeRows(
+  status: CanvasRuntimeStatusProjection,
   scope: DesktopAutoRunScope
-): readonly string[] {
-  if (scope.kind === "block") return [scope.blockRef];
-  const tasks =
-    scope.kind === "project"
-      ? graph.tasks
-      : graph.tasks.filter((task) => task.taskId === scope.taskId);
-  return tasks.flatMap((task) => task.blocks.map((block) => block.ref));
+): CanvasRuntimeStatusProjection["blocks"] {
+  if (scope.kind === "block") {
+    const row = status.blocks.find((block) => block.ref === scope.blockRef);
+    if (!row) throw new Error(`workspace_remote_scope_status_missing:${scope.blockRef}`);
+    return [row];
+  }
+  if (scope.kind === "task") {
+    if (!status.tasks.some((task) => task.taskId === scope.taskId)) {
+      throw new Error(`workspace_remote_scope_task_status_missing:${scope.taskId}`);
+    }
+    return status.blocks.filter((block) => block.ref.startsWith(`${scope.taskId}#`));
+  }
+  return status.blocks;
 }
 
 const FAILED_SCOPE_STATUSES = new Set(["needs_changes", "blocked", "diverged"]);
@@ -56,8 +63,6 @@ function waitForFallbackRefresh(signal?: AbortSignal): Promise<void> {
 export async function runWorkspaceRemoteScope(
   input: WorkspaceRemoteScopeSchedulerInput
 ): Promise<void> {
-  const blockRefs = scopeBlockRefs(input.graph, input.scope);
-  if (blockRefs.length === 0) return;
   const dispatchedBlockRefs = new Set(input.initiallyDispatchedBlockRefs);
   const waitForStatusChange = input.waitForStatusChange ?? waitForFallbackRefresh;
 
@@ -67,12 +72,8 @@ export async function runWorkspaceRemoteScope(
     if (status.packageFingerprint !== input.graph.packageFingerprint) {
       throw new Error("workspace_remote_scope_content_mismatch");
     }
-    const rowsByRef = new Map(status.blocks.map((row) => [row.ref, row]));
-    const rows = blockRefs.map((ref) => {
-      const row = rowsByRef.get(ref);
-      if (!row) throw new Error(`workspace_remote_scope_status_missing:${ref}`);
-      return row;
-    });
+    const rows = scopeRows(status, input.scope);
+    if (rows.length === 0) return;
     const failed = rows.find((row) => FAILED_SCOPE_STATUSES.has(row.status));
     if (failed) {
       throw new Error(`workspace_remote_scope_blocked:${failed.ref}:${failed.status}`);
@@ -102,6 +103,8 @@ export async function runWorkspaceRemoteScope(
     const next = dispatchable[0];
     if (!next) continue;
     if (input.signal?.aborted) throw new Error("workspace_remote_scope_cancelled");
+    await input.validateBeforeExecute?.(next.ref, input.signal);
+    if (input.signal?.aborted) throw new Error("workspace_remote_scope_cancelled");
     // Mark before dispatch so a lagging Server projection cannot duplicate the operation.
     // Re-read after every operation because one completion may change other Blocks' readiness.
     dispatchedBlockRefs.add(next.ref);
@@ -123,58 +126,92 @@ export async function runWorkspaceRemoteScopeFromAvailability(input: {
   const waitForStatusChange = input.waitForStatusChange ?? waitForFallbackRefresh;
   let pendingAvailability = await input.readAvailability();
   if (!pendingAvailability) throw new Error("collaboration_runtime_availability_unavailable");
-  const initiallyDispatchedBlockRefs: string[] = [];
-  if (pendingAvailability.state.kind === "uninitialized") {
-    if (pendingAvailability.execution.kind === "unavailable") {
-      throw new Error(`collaboration_runtime_${pendingAvailability.execution.reason}`);
-    }
-    const scopedRefs = new Set(scopeBlockRefs(input.graph, input.scope));
-    const firstDispatchable = input.graph.tasks
-      .flatMap((task) => task.blocks)
-      .find(
-        (block) =>
-          scopedRefs.has(block.ref) &&
-          block.dispatchable &&
-          block.status !== "completed" &&
-          block.status !== "in_progress"
-      );
-    if (!firstDispatchable) {
-      throw new Error("workspace_remote_scope_idle:no_dispatchable_blocks");
-    }
-    initiallyDispatchedBlockRefs.push(firstDispatchable.ref);
-    await input.execute(firstDispatchable.ref, input.signal);
+  type CommandEvidence = {
+    status: CanvasRuntimeStatusProjection;
+    sourceRevision?: string;
+    graphFingerprint: string;
+  };
+  let commandEvidence: CommandEvidence | undefined;
+
+  const readServerEvidence = async (): Promise<CommandEvidence> => {
+    const availability = pendingAvailability ?? (await input.readAvailability());
     pendingAvailability = null;
-  }
+    if (!availability) throw new Error("collaboration_runtime_availability_unavailable");
+    let status: CanvasRuntimeStatusProjection;
+    if (availability.state.kind === "initialized") {
+      status = availability.state.status;
+    } else {
+      if (availability.execution.kind === "unavailable") {
+        throw new Error(`collaboration_runtime_${availability.execution.reason}`);
+      }
+      status = availability.execution.status;
+    }
+    if (
+      status.scope.workspaceId !== input.binding.workspaceId ||
+      status.scope.projectId !== input.binding.projectId ||
+      status.scope.canvasId !== input.binding.canvasId
+    ) {
+      throw new Error("collaboration_runtime_scope_mismatch");
+    }
+    if (status.packageFingerprint !== input.graph.packageFingerprint) {
+      throw new Error("workspace_remote_scope_content_mismatch");
+    }
+    if (availability.execution.kind === "unavailable") {
+      return { status, graphFingerprint: status.packageFingerprint };
+    }
+    const execution = availability.execution;
+    if (
+      execution.status.scope.workspaceId !== input.binding.workspaceId ||
+      execution.status.scope.projectId !== input.binding.projectId ||
+      execution.status.scope.canvasId !== input.binding.canvasId
+    ) {
+      throw new Error("collaboration_runtime_scope_mismatch");
+    }
+    if (
+      execution.graphFingerprint !== execution.status.packageFingerprint ||
+      execution.graphFingerprint !== status.packageFingerprint
+    ) {
+      throw new Error("workspace_remote_scope_content_mismatch");
+    }
+    return {
+      status,
+      sourceRevision: execution.sourceRevision,
+      graphFingerprint: execution.graphFingerprint
+    };
+  };
+
   await runWorkspaceRemoteScope({
     graph: input.graph,
     scope: input.scope,
     readStatus: async () => {
       while (!input.signal?.aborted) {
-        const availability = pendingAvailability ?? (await input.readAvailability());
-        pendingAvailability = null;
-        if (!availability) throw new Error("collaboration_runtime_availability_unavailable");
-        if (availability.state.kind === "uninitialized") {
-          if (availability.execution.kind === "unavailable") {
-            throw new Error(`collaboration_runtime_${availability.execution.reason}`);
-          }
-          await waitForStatusChange(input.signal);
-          continue;
-        }
-        const status = availability.state.status;
-        if (
-          status.scope.workspaceId !== input.binding.workspaceId ||
-          status.scope.projectId !== input.binding.projectId ||
-          status.scope.canvasId !== input.binding.canvasId
-        ) {
-          throw new Error("collaboration_runtime_scope_mismatch");
-        }
-        return status;
+        commandEvidence = await readServerEvidence();
+        return commandEvidence.status;
       }
       throw new Error("workspace_remote_scope_cancelled");
     },
+    validateBeforeExecute: async (blockRef) => {
+      const selected = commandEvidence;
+      if (!selected) throw new Error("collaboration_runtime_availability_unavailable");
+      const current = await readServerEvidence();
+      if (
+        selected.sourceRevision !== undefined &&
+        current.sourceRevision !== selected.sourceRevision
+      ) {
+        throw new Error("workspace_remote_scope_source_mismatch");
+      }
+      if (current.graphFingerprint !== selected.graphFingerprint) {
+        throw new Error("workspace_remote_scope_content_mismatch");
+      }
+      const row = scopeRows(current.status, input.scope).find(
+        (candidate) => candidate.ref === blockRef
+      );
+      if (!row || !row.dispatchable || row.status === "completed" || row.status === "in_progress") {
+        throw new Error("workspace_remote_scope_idle:no_dispatchable_blocks");
+      }
+    },
     execute: input.execute,
     waitForStatusChange,
-    initiallyDispatchedBlockRefs,
     signal: input.signal
   });
 }

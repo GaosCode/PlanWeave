@@ -550,4 +550,85 @@ describe("collaboration migration reconciliation", () => {
         .get("operation-migration")
     ).toEqual({ endpoint_selection_json: null });
   });
+
+  it("backfills only diagnostic errors with authoritative retryability", async () => {
+    const database = await openDatabase();
+    applyMigrations(database);
+    database.exec("DROP TABLE remote_operation_diagnostics");
+
+    const insertLegacyDiagnostic = (operationId: string, code: string) => {
+      const dispatchId = `dispatch-${operationId}`;
+      const attemptId = `attempt-${operationId}`;
+      database
+        .prepare(
+          `INSERT INTO remote_operations(
+            id,workspace_id,project_id,canvas_id,block_ref,ownership_generation,idempotency_key,
+            request_fingerprint,source_fingerprint,required_capabilities_json,state,dispatch_id,
+            execution_attempt_id,diagnostic_code,diagnostic_message,created_at,updated_at
+          ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        )
+        .run(
+          operationId,
+          "workspace-1",
+          "project-1",
+          "default",
+          `T-1#${operationId}`,
+          "generation-1",
+          `idempotency-${operationId}`,
+          "a".repeat(64),
+          "source-1",
+          "[]",
+          "preparing",
+          dispatchId,
+          attemptId,
+          code,
+          code,
+          "2030-01-01T00:00:00.000Z",
+          "2030-01-01T00:00:00.000Z"
+        );
+      database
+        .prepare(
+          `INSERT INTO remote_execution_attempts(
+            execution_attempt_id,operation_id,dispatch_id,workspace_id,project_id,canvas_id,
+            block_ref,ownership_generation,status,created_at,updated_at
+          ) VALUES(?,?,?,?,?,?,?,?,?,?,?)`
+        )
+        .run(
+          attemptId,
+          operationId,
+          dispatchId,
+          "workspace-1",
+          "project-1",
+          "default",
+          `T-1#${operationId}`,
+          "generation-1",
+          "prepared",
+          "2030-01-01T00:00:00.000Z",
+          "2030-01-01T00:00:00.000Z"
+        );
+    };
+
+    insertLegacyDiagnostic("retryable", "host_offline");
+    insertLegacyDiagnostic("non-retryable", "remote_source_changed");
+    insertLegacyDiagnostic("unknown", "legacy_unclassified_failure");
+    database.prepare("DELETE FROM schema_migrations WHERE version=63").run();
+
+    applyMigrations(database);
+
+    expect(
+      database
+        .prepare(
+          `SELECT operation_id,error_code,error_retryable
+           FROM remote_operation_diagnostics ORDER BY operation_id`
+        )
+        .all()
+    ).toEqual([
+      {
+        operation_id: "non-retryable",
+        error_code: "remote_source_changed",
+        error_retryable: 0
+      },
+      { operation_id: "retryable", error_code: "host_offline", error_retryable: 1 }
+    ]);
+  });
 });

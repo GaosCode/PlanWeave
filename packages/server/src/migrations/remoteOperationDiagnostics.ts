@@ -1,4 +1,7 @@
 import type { Migration } from "./types.js";
+import { remoteOperationDiagnosticRetryabilitySql } from "../remoteOperationDiagnosticRetryability.js";
+
+const historicalRetryability = remoteOperationDiagnosticRetryabilitySql("diagnostic_code");
 
 /** Durable diagnostic evidence. It is observational and never drives operation lifecycle. */
 export const remoteOperationDiagnosticsMigration: Migration = {
@@ -35,10 +38,11 @@ SELECT id,execution_attempt_id,
     ELSE 'preparing_runtime'
   END,
   diagnostic_code,
-  CASE WHEN diagnostic_code IS NULL THEN NULL ELSE 0 END,
+  CASE WHEN diagnostic_code IS NULL THEN NULL ELSE ${historicalRetryability} END,
   updated_at
 FROM remote_operations AS operation
-WHERE NOT EXISTS (
+WHERE (diagnostic_code IS NULL OR (${historicalRetryability}) IS NOT NULL)
+AND NOT EXISTS (
   SELECT 1 FROM remote_operation_diagnostics AS diagnostic
   WHERE diagnostic.operation_id=operation.id
 );

@@ -331,8 +331,52 @@ describe("RemoteOperationRepository", () => {
     expect(() => applyMigrations(database)).toThrowError("stop_before_remote_attempt_cancellation");
     expect(centralSchemaVersion(database)).toBe(44);
     database.exec("ALTER TABLE remote_operations ADD COLUMN agent_access_json TEXT");
-    const legacyRepository = new RemoteOperationRepository(database);
-    const claimed = legacyRepository.markClaimed(legacyRepository.create(operationInput).id);
+    const claimed = { id: "operation-v44", executionAttemptId: "attempt-v44" };
+    database
+      .prepare(
+        `INSERT INTO remote_operations(
+          id,workspace_id,project_id,canvas_id,block_ref,ownership_generation,idempotency_key,
+          request_fingerprint,source_fingerprint,required_capabilities_json,state,dispatch_id,
+          execution_attempt_id,created_at,updated_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      )
+      .run(
+        claimed.id,
+        operationInput.workspaceId,
+        operationInput.projectId,
+        operationInput.canvasId,
+        operationInput.blockRef,
+        operationInput.ownershipGeneration,
+        operationInput.idempotencyKey,
+        "a".repeat(64),
+        operationInput.sourceFingerprint,
+        JSON.stringify(operationInput.requiredCapabilities),
+        "claimed",
+        "dispatch-v44",
+        claimed.executionAttemptId,
+        "2030-01-01T00:00:00.000Z",
+        "2030-01-01T00:00:00.000Z"
+      );
+    database
+      .prepare(
+        `INSERT INTO remote_execution_attempts(
+          execution_attempt_id,operation_id,dispatch_id,workspace_id,project_id,canvas_id,block_ref,
+          ownership_generation,status,created_at,updated_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?)`
+      )
+      .run(
+        claimed.executionAttemptId,
+        claimed.id,
+        "dispatch-v44",
+        operationInput.workspaceId,
+        operationInput.projectId,
+        operationInput.canvasId,
+        operationInput.blockRef,
+        operationInput.ownershipGeneration,
+        "prepared",
+        "2030-01-01T00:00:00.000Z",
+        "2030-01-01T00:00:00.000Z"
+      );
 
     database.exec("DROP TRIGGER stop_before_remote_attempt_cancellation");
     applyMigrations(database);
