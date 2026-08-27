@@ -165,7 +165,7 @@ export {
   runtimeSchemaTopicOrder
 } from "./schemaDocs/index.js";
 export { loadPackage } from "./package/loadPackage.js";
-export { createEmptyState } from "./state.js";
+export { createEmptyState, ensureStateForManifest } from "./state.js";
 export {
   createManagedProjectFromAuthoritativeContent,
   materializeAuthoritativeCanvasContent,

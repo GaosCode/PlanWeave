@@ -1,5 +1,5 @@
 import type { CanvasRuntimeStatusProjection } from "@planweave-ai/collaboration-protocol/canvas/status";
-import type { RemoteBlockRuntimePort } from "@planweave-ai/runtime";
+import type { PlanPackageManifest, RemoteBlockRuntimePort } from "@planweave-ai/runtime";
 import type {
   CanvasExecutionRuntimeLease,
   CanvasExecutionRuntimeRoutePort,
@@ -7,12 +7,18 @@ import type {
 } from "./executionRuntimePort.js";
 
 export type CanvasRuntimeStatusExecutionStore = {
-  replaceFromExecution(status: CanvasRuntimeStatusProjection): unknown;
+  mergeRemoteMutationFromExecution(
+    status: CanvasRuntimeStatusProjection,
+    blockRef: string,
+    manifest: PlanPackageManifest
+  ): unknown;
 };
 
 export type AuthoritativeExecutionRuntimeAdapterOptions = {
   delegate: CanvasExecutionRuntimeRoutePort;
-  readContentFingerprint(scope: RuntimeCanvasScope): string | undefined;
+  readContentAuthority(
+    scope: RuntimeCanvasScope
+  ): { packageFingerprint: string; manifest: PlanPackageManifest } | undefined;
   runtimeStatuses: CanvasRuntimeStatusExecutionStore;
 };
 
@@ -33,24 +39,28 @@ export class AuthoritativeExecutionRuntimeAdapter implements CanvasExecutionRunt
     acquired: CanvasExecutionRuntimeLease | Promise<CanvasExecutionRuntimeLease>
   ): Promise<CanvasExecutionRuntimeLease> {
     const lease = await acquired;
-    const persist = async () => {
-      const expectedFingerprint = this.options.readContentFingerprint({
+    const persist = async (blockRef: string) => {
+      const authority = this.options.readContentAuthority({
         workspaceId: scope.workspaceId,
         projectId: scope.projectId,
         canvasId: scope.canvasId
       });
-      if (!expectedFingerprint) return;
+      if (!authority) return;
       if (!lease.readStatus) throw new Error("canvas_runtime_status_capture_unavailable");
       const status = await lease.readStatus();
       if (
         status.scope.workspaceId !== scope.workspaceId ||
         status.scope.projectId !== scope.projectId ||
         status.scope.canvasId !== scope.canvasId ||
-        status.packageFingerprint !== expectedFingerprint
+        status.packageFingerprint !== authority.packageFingerprint
       ) {
         throw new Error("canvas_runtime_status_content_out_of_sync");
       }
-      this.options.runtimeStatuses.replaceFromExecution(status);
+      this.options.runtimeStatuses.mergeRemoteMutationFromExecution(
+        status,
+        blockRef,
+        authority.manifest
+      );
     };
     const reset = lease.reset;
     return {
@@ -63,23 +73,23 @@ export class AuthoritativeExecutionRuntimeAdapter implements CanvasExecutionRunt
 
 function wrapMutations(
   runtime: RemoteBlockRuntimePort,
-  persist: () => Promise<void>
+  persist: (blockRef: string) => Promise<void>
 ): RemoteBlockRuntimePort {
-  const after = async <T>(operation: () => Promise<T>): Promise<T> => {
+  const after = async <T>(blockRef: string, operation: () => Promise<T>): Promise<T> => {
     const result = await operation();
-    await persist();
+    await persist(blockRef);
     return result;
   };
   return {
     inspect: (input) => runtime.inspect(input),
     query: (input) => runtime.query(input),
     reconcile: (input) => runtime.reconcile(input),
-    claim: (input) => after(() => runtime.claim(input)),
-    activate: (input) => after(() => runtime.activate(input)),
-    markInterrupted: (input) => after(() => runtime.markInterrupted(input)),
-    resumeAttempt: (input) => after(() => runtime.resumeAttempt(input)),
-    retryAttempt: (input) => after(() => runtime.retryAttempt(input)),
-    complete: (input) => after(() => runtime.complete(input)),
-    fail: (input) => after(() => runtime.fail(input))
+    claim: (input) => after(input.ref, () => runtime.claim(input)),
+    activate: (input) => after(input.ref, () => runtime.activate(input)),
+    markInterrupted: (input) => after(input.ref, () => runtime.markInterrupted(input)),
+    resumeAttempt: (input) => after(input.ref, () => runtime.resumeAttempt(input)),
+    retryAttempt: (input) => after(input.ref, () => runtime.retryAttempt(input)),
+    complete: (input) => after(input.ref, () => runtime.complete(input)),
+    fail: (input) => after(input.ref, () => runtime.fail(input))
   };
 }

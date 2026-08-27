@@ -6,7 +6,8 @@ import type { PackageSnapshotDigestManifest } from "@planweave-ai/collaboration-
 import {
   decodeCanvasReplicaDocument,
   packageSnapshotSourceRevision,
-  projectCanvasReplicaDocument
+  projectCanvasReplicaDocument,
+  type PlanPackageManifest
 } from "@planweave-ai/runtime";
 import type { ContentAuthorityStore } from "./contentAuthorityStore.js";
 
@@ -62,6 +63,24 @@ export function readStableCanvasContentFingerprint(
   if (!contentVersions.head(scope)) return undefined;
   try {
     return readStableCanvasRuntimeContentTarget(contentVersions, scope).graphFingerprint;
+  } catch (error) {
+    if (error instanceof Error && error.message === "canvas_content_head_changed") return undefined;
+    throw error;
+  }
+}
+
+export function readStableCanvasRuntimeAuthority(
+  contentVersions: ContentAuthorityStore,
+  scope: { workspaceId: string; projectId: string; canvasId: string }
+): { packageFingerprint: string; manifest: PlanPackageManifest } | undefined {
+  if (!contentVersions.head(scope)) return undefined;
+  try {
+    const target = readStableCanvasRuntimeContentTarget(contentVersions, scope);
+    const authoritative = contentVersions.readVersion(scope, target.content);
+    return {
+      packageFingerprint: target.graphFingerprint,
+      manifest: decodeCanvasReplicaDocument(authoritative.content).manifest
+    };
   } catch (error) {
     if (error instanceof Error && error.message === "canvas_content_head_changed") return undefined;
     throw error;

@@ -55,8 +55,10 @@ import { CanvasRuntimeHostLocator } from "./canvas/runtimeHostLocator.js";
 import { RuntimeArtifactGrantRepository } from "./canvas/runtimeArtifactGrantRepository.js";
 import { AuthoritativeExecutionRuntimeAdapter } from "./canvas/authoritativeExecutionRuntimeAdapter.js";
 import { ContentVersionRepository } from "./canvas/contentVersionRepository.js";
-import { readStableCanvasContentFingerprint } from "./canvas/contentFingerprint.js";
-import { readStableCanvasRuntimeContentTarget } from "./canvas/contentFingerprint.js";
+import {
+  readStableCanvasRuntimeAuthority,
+  readStableCanvasRuntimeContentTarget
+} from "./canvas/contentFingerprint.js";
 import { createInvalidatingCanvasRuntimeStatusRepository } from "./canvas/runtimeStatusInvalidation.js";
 import { projectCanvasRuntimeFromAcquiredLease } from "./canvas/runtimeInitializationCoordinator.js";
 import { inWriteTransaction } from "./sqlite.js";
@@ -144,8 +146,7 @@ export async function createDistributedServerComposition(
         });
         const authoritativeExecutionRuntime = new AuthoritativeExecutionRuntimeAdapter({
           delegate: executionRuntime,
-          readContentFingerprint: (scope) =>
-            readStableCanvasContentFingerprint(contentVersions, scope),
+          readContentAuthority: (scope) => readStableCanvasRuntimeAuthority(contentVersions, scope),
           runtimeStatuses
         });
         return createRemoteCoordinationOptions({
