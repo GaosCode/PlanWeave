@@ -149,7 +149,6 @@ export function createRemoteExecutionComposition(input: {
   config: ServerConfig;
   clock: () => Date;
   coordination: Coordination;
-  runtimeAvailability: CanvasRuntimeScopeAvailabilityPort;
   ownerRuntimeScopes: OwnerCanvasRuntimeScopeResolverPort;
   workRuntimeFacts: WorkRuntimePackageFactsPort;
   workspaceIdentity: WorkspaceIdentityRepository;
@@ -254,12 +253,12 @@ export function createRemoteExecutionComposition(input: {
         disconnectHost,
         workspaceIdentity: input.workspaceIdentity,
         authorizeProjectScope: (scope) => {
-          if (!input.runtimeAvailability.hasRuntimeProject(scope)) {
+          if (!input.projectAccess.registry.hasActiveScope(scope)) {
             throw new Error("operator_project_forbidden");
           }
         },
         authorizeCanvas: (scope) => {
-          if (!input.runtimeAvailability.hasRuntimeScope(scope)) {
+          if (!input.projectAccess.registry.hasActiveScope(scope)) {
             throw new Error("operator_project_forbidden");
           }
         },

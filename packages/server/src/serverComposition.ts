@@ -280,7 +280,6 @@ export async function createDistributedServerComposition(
       config,
       clock,
       coordination,
-      runtimeAvailability: collaborationRuntime,
       ownerRuntimeScopes: ownerExecutionRuntime,
       workRuntimeFacts,
       workspaceIdentity,

@@ -182,6 +182,16 @@ describe("distributed server composition", () => {
       items: []
     });
 
+    const operatorAgentEndpoints = await fetch(
+      `${origin}/api/v1/agent-endpoints?workspaceId=workspace-self-host&projectId=${restoredProjectId}&canvasId=default&humanPrincipalId=restored-owner`,
+      { headers: { Authorization: `Bearer ${adminToken}` } }
+    );
+    expect(operatorAgentEndpoints.status).toBe(200);
+    await expect(operatorAgentEndpoints.json()).resolves.toEqual({
+      schemaVersion: "agent-endpoint-list/v1",
+      items: []
+    });
+
     const workItem = encodeURIComponent(
       JSON.stringify({ kind: "task", canvasId: "default", taskId: "T-001" })
     );
@@ -281,6 +291,14 @@ describe("distributed server composition", () => {
     expect(revokedAgentEndpoints.status).toBe(403);
     await expect(revokedAgentEndpoints.json()).resolves.toEqual({
       error: "agent_endpoint_forbidden"
+    });
+    const revokedOperatorAgentEndpoints = await fetch(
+      `${origin}/api/v1/agent-endpoints?workspaceId=workspace-self-host&projectId=${restoredProjectId}&canvasId=default&humanPrincipalId=restored-owner`,
+      { headers: { Authorization: `Bearer ${adminToken}` } }
+    );
+    expect(revokedOperatorAgentEndpoints.status).toBe(403);
+    await expect(revokedOperatorAgentEndpoints.json()).resolves.toEqual({
+      error: "operator_scope_forbidden"
     });
     const revokedAssignment = await fetch(
       `${origin}/api/v1/projects/${restoredProjectId}/assignments?workItem=${workItem}`,
