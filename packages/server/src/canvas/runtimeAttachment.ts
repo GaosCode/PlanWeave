@@ -51,11 +51,11 @@ function conflictingLeaseHostId(
   const runtimeLease = database
     .prepare(
       `SELECT host_id FROM canvas_runtime_leases
-       WHERE workspace_id=? AND project_id=? AND canvas_id=?
+       WHERE workspace_id=? AND project_id=?
          AND status='active' AND expires_at>? AND host_id!=?
        LIMIT 1`
     )
-    .get(scope.workspaceId, scope.projectId, scope.canvasId, nowIso, reservedHostId) as
+    .get(scope.workspaceId, scope.projectId, nowIso, reservedHostId) as
     | { host_id: string }
     | undefined;
   if (runtimeLease) return runtimeLease.host_id;
@@ -67,7 +67,7 @@ function conflictingLeaseHostId(
        JOIN remote_execution_attempts a
          ON a.execution_attempt_id=r.execution_attempt_id
        JOIN remote_operations o ON o.id=a.operation_id
-       WHERE o.workspace_id=? AND o.project_id=? AND o.canvas_id=?
+       WHERE o.workspace_id=? AND o.project_id=?
          AND r.status='active' AND r.host_id!=?
          AND (? IS NULL OR o.id!=?)
        LIMIT 1`
@@ -75,7 +75,6 @@ function conflictingLeaseHostId(
     .get(
       scope.workspaceId,
       scope.projectId,
-      scope.canvasId,
       reservedHostId,
       operationId ?? null,
       operationId ?? null

@@ -79,7 +79,7 @@ describe("ensureRuntimeAttachmentForOperation", () => {
     });
   });
 
-  it("refuses a silent Host swap while another Host holds an active Runtime lease", async () => {
+  it("refuses a cross-Canvas Host swap while the project holds an active Runtime lease", async () => {
     const fixture = await setup();
     const first = fixture.hosts.register("First Host").host;
     const second = fixture.hosts.register("Second Host").host;
@@ -102,6 +102,7 @@ describe("ensureRuntimeAttachmentForOperation", () => {
     expect(() =>
       fixture.attach({
         ...scope,
+        canvasId: "secondary",
         hostId: second.id,
         hostGeneration: second.id,
         operationId: "operation-lease-2",

@@ -105,6 +105,14 @@ export class CanvasRuntimeHostBindingRepository {
       }
       const fencedHostId = this.fencedReadyHostId(workspaceId, observation.projectId, observedAt);
       if (fencedHostId !== undefined && fencedHostId !== hostId) {
+        this.database
+          .prepare(
+            `UPDATE canvas_runtime_host_bindings
+             SET readiness_status='missing',last_observed_at=?,
+                 operation_id=NULL,execution_attempt_id=NULL
+             WHERE host_id=? AND workspace_id=? AND project_id=?`
+          )
+          .run(observedAt, hostId, workspaceId, observation.projectId);
         continue;
       }
       this.database
@@ -130,8 +138,19 @@ export class CanvasRuntimeHostBindingRepository {
   ): string | undefined {
     const attached = this.database
       .prepare(
-        `SELECT host_id FROM canvas_runtime_host_bindings
-         WHERE workspace_id=? AND project_id=? AND operation_id IS NOT NULL
+        `SELECT binding.host_id
+         FROM canvas_runtime_host_bindings binding
+         LEFT JOIN remote_operations operation ON operation.id=binding.operation_id
+         WHERE binding.workspace_id=? AND binding.project_id=? AND binding.operation_id IS NOT NULL
+         ORDER BY
+           CASE
+             WHEN operation.state NOT IN ('completed','failed','cancelled') THEN 0
+             WHEN operation.id IS NOT NULL THEN 1
+             ELSE 2
+           END,
+           operation.created_at DESC,
+           binding.first_observed_at DESC,
+           binding.host_id
          LIMIT 1`
       )
       .get(workspaceId, projectId) as { host_id: string } | undefined;
@@ -231,8 +250,9 @@ export class CanvasRuntimeHostBindingRepository {
       this.database
         .prepare(
           `UPDATE canvas_runtime_host_bindings
-           SET readiness_status='missing',last_observed_at=?
-           WHERE workspace_id=? AND project_id=? AND host_id!=? AND readiness_status='ready'`
+           SET readiness_status='missing',last_observed_at=?,
+               operation_id=NULL,execution_attempt_id=NULL
+           WHERE workspace_id=? AND project_id=? AND host_id!=?`
         )
         .run(observedAt, workspaceId, projectId, hostId);
       const row = this.database

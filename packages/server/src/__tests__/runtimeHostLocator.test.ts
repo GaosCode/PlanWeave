@@ -35,7 +35,8 @@ async function setup() {
   database
     .prepare("UPDATE canvas_registry SET package_dir_internal=NULL WHERE project_id=?")
     .run(scope.projectId);
-  const hosts = new AgentHostRepository(database, () => new Date("2026-08-20T01:00:00.000Z"));
+  let now = new Date("2026-08-20T01:00:00.000Z");
+  const hosts = new AgentHostRepository(database, () => new Date(now));
   const active = new Set<string>();
   const sessions = { isActive: vi.fn((hostId: string) => active.has(hostId)) };
   const locator = new CanvasRuntimeHostLocator(
@@ -50,7 +51,10 @@ async function setup() {
       acpProfiles: [],
       runtimeProjects: [{ workspaceId: scope.workspaceId, projectId: scope.projectId, status }]
     });
-  return { active, database, hosts, locator, projectAccess, report, sessions };
+  const advanceTo = (timestamp: string) => {
+    now = new Date(timestamp);
+  };
+  return { active, advanceTo, database, hosts, locator, projectAccess, report, sessions };
 }
 
 describe("CanvasRuntimeHostLocator", () => {
@@ -225,5 +229,61 @@ describe("CanvasRuntimeHostLocator", () => {
       expect.objectContaining({ hostId: first.id, readinessStatus: "ready" })
     ]);
     expect(fixture.locator.locate(scope)).toEqual({ kind: "available", hostId: first.id });
+  });
+
+  it("replaces the operation attachment without allowing a stale Host heartbeat to reactivate", async () => {
+    const fixture = await setup();
+    const first = fixture.hosts.register("First attachment").host;
+    const second = fixture.hosts.register("Second attachment").host;
+    fixture.report(first.id);
+    fixture.active.add(first.id);
+    fixture.hosts.runtimeBindings.upsertOperationAttachment({
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      hostId: first.id,
+      hostGeneration: first.id,
+      operationId: "operation-first",
+      executionAttemptId: "attempt-first"
+    });
+
+    fixture.advanceTo("2026-08-20T01:01:00.000Z");
+    fixture.report(second.id);
+    fixture.hosts.runtimeBindings.upsertOperationAttachment({
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      hostId: second.id,
+      hostGeneration: second.id,
+      operationId: "operation-second",
+      executionAttemptId: "attempt-second"
+    });
+    fixture.active.add(second.id);
+    fixture.database
+      .prepare(
+        `UPDATE canvas_runtime_host_bindings
+         SET readiness_status='ready',operation_id='operation-first',execution_attempt_id='attempt-first'
+         WHERE workspace_id=? AND project_id=? AND host_id=?`
+      )
+      .run(scope.workspaceId, scope.projectId, first.id);
+
+    fixture.advanceTo("2026-08-20T01:02:00.000Z");
+    fixture.report(first.id);
+    fixture.report(second.id);
+
+    const bindings = fixture.hosts.runtimeBindings.list(scope);
+    expect(bindings).toEqual([
+      expect.objectContaining({
+        hostId: first.id,
+        readinessStatus: "missing"
+      }),
+      expect.objectContaining({
+        hostId: second.id,
+        readinessStatus: "ready",
+        operationId: "operation-second",
+        executionAttemptId: "attempt-second"
+      })
+    ]);
+    expect(bindings[0]).not.toHaveProperty("operationId");
+    expect(bindings[0]).not.toHaveProperty("executionAttemptId");
+    expect(fixture.locator.locate(scope)).toEqual({ kind: "available", hostId: second.id });
   });
 });
