@@ -3,7 +3,11 @@ import {
   resolveWorkItemsRequestSchema,
   type WorkItemPackageFacts
 } from "@planweave-ai/collaboration-protocol/work/package-facts";
-import { loadPlanGraphPackage, resolveTaskCanvasWorkspace } from "@planweave-ai/runtime";
+import {
+  capturePackageSnapshot,
+  loadPlanGraphPackage,
+  resolveTaskCanvasWorkspace
+} from "@planweave-ai/runtime";
 import type { ContentAuthorityStore } from "../canvas/contentAuthorityStore.js";
 import { readStableCanvasRuntimeEvidence } from "../canvas/contentFingerprint.js";
 import type { TrustedRuntimeRegistry } from "../runtimeProjectRegistry.js";
@@ -101,8 +105,12 @@ export class LocalFilesystemWorkRuntimeFactsAdapter implements WorkRuntimePackag
     if (loaded.promptReadFailuresByPath.size > 0 || loaded.graph.diagnostics.length > 0) {
       throw new WorkRuntimeUnavailableError("content_out_of_sync");
     }
+    const captured = await capturePackageSnapshot({
+      projectRoot: location.projectRoot,
+      canvasId: input.scope.canvasId
+    });
     return factsLease(input, {
-      sourceRevision: loaded.graph.graphVersion,
+      sourceRevision: captured.snapshot.sourceRevision,
       graphFingerprint: loaded.graph.packageFingerprint,
       facts: request.workItems.map((item) => localFacts(loaded.graph, item))
     });
