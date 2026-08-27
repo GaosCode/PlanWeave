@@ -3,6 +3,10 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  CANVAS_RUNTIME_CAPABILITY,
+  WORKSPACE_CANVAS_EXECUTION_CAPABILITY
+} from "@planweave-ai/agent-host-protocol";
 import { AgentHostOperator } from "../operator/agentHostOperator.js";
 import { writeHostConnectionStatus } from "../transport/connectionStatus.js";
 import {
@@ -78,7 +82,7 @@ describe("Agent Host operator CLI", () => {
     const diagnostics = await new AgentHostOperator().preflight(configPath);
     expect(diagnostics).toMatchObject({
       credential: "missing",
-      capabilities: ["acp.test"],
+      capabilities: ["acp.test", CANVAS_RUNTIME_CAPABILITY, WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
       capacity: 1,
       connection: "offline",
       recoverableExecutions: 0

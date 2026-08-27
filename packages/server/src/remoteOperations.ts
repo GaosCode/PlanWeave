@@ -417,6 +417,7 @@ export class RemoteOperationRepository {
   cancelClaimedAfterRuntimeReset(input: {
     operationId: string;
     executionAttemptId: string;
+    preserveDiagnostic?: boolean;
   }): RemoteOperation {
     const operationId = opaqueIdentifierSchema.parse(input.operationId);
     const executionAttemptId = executionAttemptIdSchema.parse(input.executionAttemptId);
@@ -453,12 +454,20 @@ export class RemoteOperationRepository {
       const operationUpdate = this.database
         .prepare(
           `UPDATE remote_operations
-           SET state='cancelled',diagnostic_code='runtime_binding_reset',
-             diagnostic_message='Runtime reset removed remote ownership before Host dispatch.',
+           SET state='cancelled',
+             diagnostic_code=CASE WHEN ?=1 THEN COALESCE(diagnostic_code,'runtime_binding_reset') ELSE 'runtime_binding_reset' END,
+             diagnostic_message=CASE WHEN ?=1 THEN COALESCE(diagnostic_message,'Runtime reset removed remote ownership before Host dispatch.') ELSE 'Runtime reset removed remote ownership before Host dispatch.' END,
              updated_at=?,terminal_at=?
            WHERE id=? AND state='claimed' AND execution_attempt_id=? AND terminal_at IS NULL`
         )
-        .run(now, now, operationId, executionAttemptId);
+        .run(
+          input.preserveDiagnostic === true ? 1 : 0,
+          input.preserveDiagnostic === true ? 1 : 0,
+          now,
+          now,
+          operationId,
+          executionAttemptId
+        );
       if (operationUpdate.changes !== 1) {
         throw new Error("remote_runtime_reset_recovery_conflict");
       }

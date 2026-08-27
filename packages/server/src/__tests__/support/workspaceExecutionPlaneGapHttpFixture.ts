@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach } from "vitest";
 import { randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
+import { WORKSPACE_CANVAS_EXECUTION_CAPABILITY } from "@planweave-ai/agent-host-protocol";
 import {
   captureAuthorizedCanvasContent,
   createRemoteBlockArtifactSource,
@@ -216,10 +217,15 @@ export async function startGrantedHostCatalogDispatchHttp(options: { mapWorkspac
   if (options.mapWorkspace) {
     coordination.hosts.bindToWorkspace(host.id, workspaceId);
   }
-  coordination.hosts.reportOnline(host.id, ["acp.codex", "acp.session.load"], 1, {
-    workspaceMappings: options.mapWorkspace ? [{ workspaceId, status: "ready" }] : [],
-    acpProfiles: [readyCodexProfile]
-  });
+  coordination.hosts.reportOnline(
+    host.id,
+    ["acp.codex", "acp.session.load", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
+    1,
+    {
+      workspaceMappings: options.mapWorkspace ? [{ workspaceId, status: "ready" }] : [],
+      acpProfiles: [readyCodexProfile]
+    }
+  );
   const authority = new AuthorityRepository(storage.database);
   authority.applyExecutionTarget({
     mutation: {
@@ -400,10 +406,15 @@ export async function startPathlessCompositionWithGrantedHost(options: {
   if (options.mapWorkspace) {
     hosts.bindToWorkspace(host.id, workspaceId);
   }
-  hosts.reportOnline(host.id, ["acp.codex", "acp.session.load"], 1, {
-    workspaceMappings: options.mapWorkspace ? [{ workspaceId, status: "ready" }] : [],
-    acpProfiles: [readyCodexProfile]
-  });
+  hosts.reportOnline(
+    host.id,
+    ["acp.codex", "acp.session.load", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
+    1,
+    {
+      workspaceMappings: options.mapWorkspace ? [{ workspaceId, status: "ready" }] : [],
+      acpProfiles: [readyCodexProfile]
+    }
+  );
   let contentGraphFingerprint: string | undefined;
   if (options.liveCanvasRuntime) {
     const captured = await captureAuthorizedCanvasContent({

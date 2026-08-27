@@ -283,7 +283,8 @@ export class RemoteBlockWritebackCoordinator {
     ) {
       this.options.operations.cancelClaimedAfterRuntimeReset({
         operationId: current.id,
-        executionAttemptId: current.executionAttemptId
+        executionAttemptId: current.executionAttemptId,
+        preserveDiagnostic: true
       });
     }
   }

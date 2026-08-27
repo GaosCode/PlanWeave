@@ -1,6 +1,7 @@
 import {
   OUTPUT_MAX_ARTIFACT_BYTES,
   OUTPUT_MAX_ARTIFACT_COUNT,
+  WORKSPACE_CANVAS_EXECUTION_CAPABILITY,
   agentHostProtocolVersion,
   assertAgentHostProtocolCompatible,
   executionEnvelopeSchema,
@@ -27,6 +28,16 @@ export function buildRemoteBlockExecutionEnvelope(
   if (!protocolCheck.ok) {
     throw new Error(`${protocolCheck.code}:${protocolCheck.message}`);
   }
+  const targetKind = operation.endpointSelection?.authority.kind;
+  if (targetKind === undefined) {
+    throw new Error("remote_operation_endpoint_selection_missing");
+  }
+  const workspaceCapabilityPersisted = operation.requiredCapabilities.includes(
+    WORKSPACE_CANVAS_EXECUTION_CAPABILITY
+  );
+  if (workspaceCapabilityPersisted !== (targetKind === "workspace_canvas")) {
+    throw new Error("remote_operation_runtime_capability_mismatch");
+  }
   return executionEnvelopeSchema.parse({
     protocolVersion: agentHostProtocolVersion,
     execution: {
@@ -49,7 +60,7 @@ export function buildRemoteBlockExecutionEnvelope(
     agentId: operation.endpointSelection?.agentId ?? candidate.agentId,
     agentProfileId: operation.endpointSelection?.profileId ?? candidate.agentProfileId,
     session: candidate.session,
-    requiredCapabilities: candidate.requiredCapabilities,
+    requiredCapabilities: operation.requiredCapabilities,
     output: {
       reportRequired: true,
       maxArtifactBytes: OUTPUT_MAX_ARTIFACT_BYTES,

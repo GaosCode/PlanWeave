@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { rm } from "node:fs/promises";
+import { WORKSPACE_CANVAS_EXECUTION_CAPABILITY } from "@planweave-ai/agent-host-protocol";
 import {
   createRemoteBlockArtifactSource,
   createRemoteBlockRuntimePort,
@@ -103,18 +104,23 @@ export async function setup(
     : TEST_REMOTE_AGENT_OWNER_ID;
   if (host) {
     coordination.hosts.bindToWorkspace(host.id, workspaceId);
-    coordination.hosts.reportOnline(host.id, ["acp.codex"], hostCapacity, {
-      workspaceMappings: [{ workspaceId, status: "ready" }],
-      acpProfiles: [
-        {
-          profileId: "codex-acp",
-          agentId: "codex",
-          displayName: "Test Agent",
-          status: "ready",
-          capabilities: ["acp.codex"]
-        }
-      ]
-    });
+    coordination.hosts.reportOnline(
+      host.id,
+      ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
+      hostCapacity,
+      {
+        workspaceMappings: [{ workspaceId, status: "ready" }],
+        acpProfiles: [
+          {
+            profileId: "codex-acp",
+            agentId: "codex",
+            displayName: "Test Agent",
+            status: "ready",
+            capabilities: ["acp.codex"]
+          }
+        ]
+      }
+    );
   }
   return {
     workspace,

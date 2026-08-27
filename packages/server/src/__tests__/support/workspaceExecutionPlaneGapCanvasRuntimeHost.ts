@@ -1,5 +1,6 @@
 import {
   CANVAS_RUNTIME_CAPABILITY,
+  WORKSPACE_CANVAS_EXECUTION_CAPABILITY,
   agentHostProtocolVersion
 } from "@planweave-ai/agent-host-protocol";
 import { createRemoteBlockRuntimePort } from "@planweave-ai/runtime";
@@ -95,7 +96,11 @@ export async function connectPathlessCanvasRuntimeHost(input: {
       type: "host.hello",
       protocolVersion: agentHostProtocolVersion,
       lastAcknowledgedSequence: 0,
-      capabilities: [CANVAS_RUNTIME_CAPABILITY, ...acpCapabilities],
+      capabilities: [
+        CANVAS_RUNTIME_CAPABILITY,
+        WORKSPACE_CANVAS_EXECUTION_CAPABILITY,
+        ...acpCapabilities
+      ],
       capacity: 1,
       readiness: {
         workspaceMappings: [{ workspaceId: input.scope.workspaceId, status: "ready" }],

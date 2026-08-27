@@ -37,6 +37,7 @@ describe("agent endpoint protocol", () => {
       "host_offline",
       "host_revoked",
       "host_credential_expired",
+      "host_capability_missing",
       "profile_missing",
       "profile_invalid",
       "at_capacity"

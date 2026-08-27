@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CAPABILITIES_MAX_COUNT,
   CAPABILITY_MAX_LENGTH,
+  WORKSPACE_CANVAS_EXECUTION_CAPABILITY,
   NORMALIZED_FAILURE_MESSAGE_MAX_LENGTH,
   OPAQUE_IDENTIFIER_MAX_LENGTH,
   agentHostProtocolVersion,
@@ -19,7 +20,8 @@ import {
   mailboxMessageIdSchema,
   mailboxSequenceSchema,
   normalizedFailureSchema,
-  opaqueIdentifierSchema
+  opaqueIdentifierSchema,
+  userRequiredCapabilitiesSchema
 } from "../index.js";
 
 const validSha256 = "a".repeat(64);
@@ -59,6 +61,9 @@ describe("capabilities", () => {
       "git.read"
     ]);
     expectZodRejects(() => capabilitiesSchema.parse(["node", "acp.codex", "node"]));
+    expectZodRejects(() =>
+      userRequiredCapabilitiesSchema.parse(["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY])
+    );
   });
 
   it("rejects uppercase, path-like, oversized tokens, and over-count lists", () => {

@@ -9,6 +9,13 @@ export const CAPABILITIES_MAX_COUNT = 128 as const;
 /** Capability gate for the version-one Canvas Runtime control plane. */
 export const CANVAS_RUNTIME_CAPABILITY = "canvas-runtime.v1" as const;
 
+/** Reserved namespace for capabilities injected by PlanWeave control-plane code. */
+export const INTERNAL_CAPABILITY_PREFIX = "planweave.internal." as const;
+
+/** Code capability for managed Workspace Canvas materialization and ACP execution. */
+export const WORKSPACE_CANVAS_EXECUTION_CAPABILITY =
+  `${INTERNAL_CAPABILITY_PREFIX}workspace-canvas-execution.v1` as const;
+
 /**
  * Portable Host capability token (plan intent / scheduling).
  * Lowercase logical identifiers only; never a path, command, or credential.
@@ -31,6 +38,17 @@ export const capabilitiesSchema = z
 
 export type Capabilities = z.infer<typeof capabilitiesSchema>;
 
+/** Plan-authored requirements cannot claim control-plane capabilities. */
+export const userRequiredCapabilitiesSchema = capabilitiesSchema.refine(
+  (capabilities) =>
+    capabilities.every((capability) => !capability.startsWith(INTERNAL_CAPABILITY_PREFIX)),
+  { message: `Capability values beginning with ${INTERNAL_CAPABILITY_PREFIX} are reserved.` }
+);
+
 export function hasCanvasRuntimeCapability(capabilities: readonly string[]): boolean {
   return capabilitiesSchema.parse(capabilities).includes(CANVAS_RUNTIME_CAPABILITY);
+}
+
+export function hasWorkspaceCanvasExecutionCapability(capabilities: readonly string[]): boolean {
+  return capabilitiesSchema.parse(capabilities).includes(WORKSPACE_CANVAS_EXECUTION_CAPABILITY);
 }

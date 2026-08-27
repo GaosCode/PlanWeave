@@ -204,7 +204,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
     expect(stillA?.revision).toBe(first.record.revision);
   });
 
-  it("retry_new_attempt revalidates current assignment and resnapshots host selection", async () => {
+  it("retry_new_attempt preserves the explicitly selected Agent Endpoint across reassignment", async () => {
     const fixture = await setup({
       projectActivity: true,
       withHosts: [
@@ -266,7 +266,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
     });
     await fixture.coordination.coordinator.reenter(dispatched.operation.id);
 
-    // Reassignment before explicit retry: new attempt must follow current assignment, not A.
+    // Work Assignment does not rewrite the explicitly authorized Agent Endpoint.
     await fixture.assignmentService.updateAssignment({
       projectId: fixture.locator.projectId,
       workItem: fixture.blockItem,
@@ -297,23 +297,22 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
       executionAttemptId: "attempt-retry-revalidate-2",
       hostSelection: {
         selection: "exact",
-        preferredHostId: hostB.id,
-        assignmentRevision: 2
+        preferredHostId: hostA.id,
+        assignmentRevision: 1
       },
-      attempt: { hostId: hostB.id }
+      attempt: { hostId: hostA.id }
     });
-    expect(retried.hostSelection?.preferredHostId).not.toBe(hostA.id);
     expect(
       fixture.coordination.coordinator.getAuthorizedHostSelection(dispatched.operation.id)
     ).toMatchObject({
-      preferredHostId: hostB.id,
-      assignmentRevision: 2
+      preferredHostId: hostA.id,
+      assignmentRevision: 1
     });
 
     const retryDispatch = fixture.coordination.dispatches.getRequired(maximalRetryDispatchId);
     expect(
       fixture.coordination.dispatches.accept(
-        hostB.id,
+        hostA.id,
         "retry-revalidate-max-id-accepted",
         retryDispatch.id,
         retryDispatch.leaseId,
@@ -537,7 +536,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
       application_claimed_at: null
     });
     expect(JSON.parse(String(pendingAction?.application_decision_json))).toMatchObject({
-      context: { preferredHostId: hostA.id, assignmentRevision: 1 }
+      decision: { transition: "retry", sendsCommand: false }
     });
 
     await fixture.assignmentService.updateAssignment({
@@ -572,7 +571,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
   it.each([
     "human",
     "unassigned"
-  ] as const)("retry_new_attempt fails closed for %s assignment with the production default gate", async (targetKind) => {
+  ] as const)("retry_new_attempt keeps the explicit Agent Endpoint after %s assignment", async (targetKind) => {
     const fixture = await setup({
       withHosts: [{ name: "Host A", capabilities: ["acp.codex"], capacity: 1 }]
     });
@@ -650,28 +649,30 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
         priorLeaseId: dispatch.leaseId,
         newDispatchId: `dispatch-retry-deny-${targetKind}-2`,
         newExecutionAttemptId: `attempt-retry-deny-${targetKind}-2`,
-        reason: `retry should fail closed after ${targetKind} assignment`
+        reason: `retry keeps endpoint after ${targetKind} assignment`
       })
-    ).rejects.toMatchObject({ code: "work_not_agent_assigned" });
+    ).resolves.toMatchObject({ state: "settled" });
 
     expect(fixture.coordination.actions.getRequired(actionId)).toMatchObject({
-      state: "rejected",
-      rejectionCode: "work_not_agent_assigned"
+      state: "settled",
+      rejectionCode: undefined
     });
-    expect(fixture.coordination.actions.getRequired(actionId).rejectedAt).toBeDefined();
     expect(fixture.coordination.actions.listUnsettled()).not.toContainEqual(
       expect.objectContaining({ request: expect.objectContaining({ actionId }) })
     );
 
-    const unchanged = fixture.coordination.operations.getRequired(dispatched.operation.id);
-    expect(unchanged.dispatchId).toBe(interrupted.dispatchId);
-    expect(unchanged.executionAttemptId).toBe(interrupted.executionAttemptId);
-    expect(unchanged.hostSelection).toEqual(priorSelection);
+    const retried = fixture.coordination.operations.getRequired(dispatched.operation.id);
+    expect(retried).toMatchObject({
+      dispatchId: `dispatch-retry-deny-${targetKind}-2`,
+      executionAttemptId: `attempt-retry-deny-${targetKind}-2`,
+      hostSelection: priorSelection,
+      attempt: { hostId: hostA.id }
+    });
     expect(
       fixture.server.database
         .prepare("SELECT COUNT(*) AS count FROM host_capacity_reservations")
         .get()?.count
-    ).toBe(reservationCount);
+    ).toBe(Number(reservationCount) + 1);
 
     await fixture.assignmentService.updateAssignment({
       projectId: fixture.locator.projectId,
@@ -693,19 +694,19 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
         priorLeaseId: dispatch.leaseId,
         newDispatchId: `dispatch-retry-deny-${targetKind}-2`,
         newExecutionAttemptId: `attempt-retry-deny-${targetKind}-2`,
-        reason: `retry should fail closed after ${targetKind} assignment`
+        reason: `retry keeps endpoint after ${targetKind} assignment`
       })
-    ).rejects.toMatchObject({ code: "work_not_agent_assigned" });
+    ).resolves.toMatchObject({ state: "settled" });
     expect(
       fixture.server.database
         .prepare(
           "SELECT COUNT(*) AS count FROM remote_execution_attempts WHERE execution_attempt_id=?"
         )
         .get(`attempt-retry-deny-${targetKind}-2`)?.count
-    ).toBe(0);
+    ).toBe(1);
   });
 
-  it("recovers historical null host_selection on reenter and persists a fresh snapshot", async () => {
+  it("keeps the explicit Agent Endpoint authoritative when legacy host_selection is null", async () => {
     const fixture = await setup({
       withHosts: [
         { name: "Host A", capabilities: ["acp.codex"], capacity: 1 },
@@ -727,7 +728,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
     expect(partial.hostSelection).toBeUndefined();
     expect(partial.attempt.hostId).toBeUndefined();
 
-    // Concurrent reassignment after upgrade: legacy null recovery revalidates current assignment.
+    // Concurrent Work Assignment changes cannot rewrite the persisted Agent Endpoint.
     await fixture.assignmentService.updateAssignment({
       projectId: fixture.locator.projectId,
       workItem: fixture.blockItem,
@@ -739,19 +740,14 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
     const restarted = fixture.rebuildCoordination();
     const recovered = await restarted.coordinator.reenter(partial.id);
     expect(recovered.status).toBe("activated");
-    expect(recovered.operation.attempt.hostId).toBe(hostB.id);
-    expect(recovered.operation.hostSelection).toMatchObject({
-      selection: "exact",
-      preferredHostId: hostB.id,
-      assignmentRevision: 2
-    });
-    // Durable row must be filled so a second restart does not re-resolve again.
+    expect(recovered.operation.attempt.hostId).toBe(hostA.id);
+    expect(recovered.operation.hostSelection).toBeUndefined();
     const durable = fixture.server.database
       .prepare("SELECT host_selection_json FROM remote_operations WHERE id=?")
-      .get(partial.id) as { host_selection_json: string };
-    expect(durable.host_selection_json).toContain(hostB.id);
+      .get(partial.id) as { host_selection_json: string | null };
+    expect(durable.host_selection_json).toBeNull();
 
-    // Same-attempt reenter after another reassignment must keep the recovered snapshot (Host B).
+    // Same-attempt reenter keeps the endpoint Host even after assignment becomes unassigned.
     await fixture.assignmentService.updateAssignment({
       projectId: fixture.locator.projectId,
       workItem: fixture.blockItem,
@@ -761,11 +757,11 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
     });
     const again = fixture.rebuildCoordination();
     const reentered = await again.coordinator.reenter(partial.id);
-    expect(reentered.operation.attempt.hostId).toBe(hostB.id);
-    expect(reentered.operation.hostSelection?.preferredHostId).toBe(hostB.id);
+    expect(reentered.operation.attempt.hostId).toBe(hostA.id);
+    expect(reentered.operation.hostSelection).toBeUndefined();
   });
 
-  it("null host_selection recovery records assignment denial without aborting reenter", async () => {
+  it("null host_selection does not let a human assignment override the Agent Endpoint", async () => {
     const fixture = await setup({
       strictGate: true,
       withHosts: [{ name: "Host A", capabilities: ["acp.codex"], capacity: 1 }]
@@ -792,13 +788,14 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
 
     const restarted = fixture.rebuildCoordination();
     await expect(restarted.coordinator.reenter(partial.id)).resolves.toMatchObject({
-      status: "awaiting_host"
+      status: "activated",
+      operation: { attempt: { hostId: hostA.id } }
     });
     const row = fixture.server.database
       .prepare("SELECT diagnostic_code,state FROM remote_operations WHERE id=?")
       .get(partial.id) as { diagnostic_code: string; state: string };
-    expect(row.diagnostic_code).toBe("work_not_agent_assigned");
-    expect(row.state).toBe("claimed");
+    expect(row.diagnostic_code).toBeNull();
+    expect(row.state).toBe("activated");
   });
 
   it("keeps durable exact Host selection after restart + reassignment before reserve", async () => {

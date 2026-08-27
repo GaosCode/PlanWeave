@@ -79,6 +79,7 @@ export const enCatalog = {
   agentEndpointUnavailableProfileMissing: "Agent profile missing",
   agentEndpointUnavailableProfileInvalid: "Agent profile invalid",
   agentEndpointUnavailableAtCapacity: "Device busy",
+  agentEndpointUnavailableHostCapabilityMissing: "Device does not support Workspace execution",
   agentEndpointUnavailableIncompatible: "Does not support this task",
   agentEndpointUnavailableRequestFailed: "Device status unavailable",
   agentEndpointUnavailableLocalProfileMissing: "Local Agent profile missing",

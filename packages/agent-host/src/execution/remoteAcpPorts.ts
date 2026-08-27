@@ -8,6 +8,7 @@ import type {
   ExecutionHost
 } from "@planweave-ai/runtime";
 import { acpCapabilitySnapshotSchema } from "@planweave-ai/runtime";
+import type { CanvasRuntimeLogicalScope } from "@planweave-ai/agent-host-protocol";
 import { z } from "zod";
 
 export const agentHostRemoteExecutionIdentitySchema = z
@@ -198,6 +199,13 @@ export interface AgentHostWorkspaceResolver {
   resolve(
     workspaceId: string,
     ownerPackageLocator?: import("@planweave-ai/agent-host-protocol").OwnerPackageLocator
+  ): Promise<ResolvedAgentHostWorkspace> | ResolvedAgentHostWorkspace;
+}
+
+export interface AgentHostRuntimeWorkspaceResolver {
+  resolve(
+    scope: CanvasRuntimeLogicalScope,
+    expected: { sourceRevision: string; graphFingerprint: string }
   ): Promise<ResolvedAgentHostWorkspace> | ResolvedAgentHostWorkspace;
 }
 

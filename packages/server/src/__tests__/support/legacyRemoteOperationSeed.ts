@@ -5,6 +5,7 @@ import type { RemoteRuntimeLocator } from "../../remoteBlockCoordinatorPorts.js"
 import type { SqliteDatabase } from "../../sqlite.js";
 import type { DispatchHostSelectionSnapshot } from "../../work/dispatchIntegration.js";
 import type { PersistedRemoteAgentAccessSnapshot } from "../../remoteAgent/schema.js";
+import type { PersistedEndpointSelectionSnapshot } from "../../endpointSelection.js";
 
 export function seedLegacyRemoteOperation(input: {
   database: SqliteDatabase;
@@ -13,6 +14,7 @@ export function seedLegacyRemoteOperation(input: {
   candidate: RemoteBlockDispatchCandidate;
   idempotencyKey: string;
   hostSelection?: DispatchHostSelectionSnapshot;
+  endpointSelection?: PersistedEndpointSelectionSnapshot;
   agentAccess?: PersistedRemoteAgentAccessSnapshot;
 }): RemoteOperation {
   if (
@@ -30,6 +32,9 @@ export function seedLegacyRemoteOperation(input: {
     sourceFingerprint: input.candidate.graphFingerprint,
     requiredCapabilities: input.candidate.requiredCapabilities,
     ...(input.hostSelection === undefined ? {} : { hostSelection: input.hostSelection }),
+    ...(input.endpointSelection === undefined
+      ? {}
+      : { endpointSelection: input.endpointSelection }),
     ...(input.agentAccess === undefined ? {} : { agentAccess: input.agentAccess })
   });
   new SqliteRemoteOperationCandidateRepository(input.database).record(

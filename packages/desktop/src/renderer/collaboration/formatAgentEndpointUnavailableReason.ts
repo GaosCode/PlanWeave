@@ -9,6 +9,7 @@ const reasonTranslationKeys = {
   profile_missing: "agentEndpointUnavailableProfileMissing",
   profile_invalid: "agentEndpointUnavailableProfileInvalid",
   at_capacity: "agentEndpointUnavailableAtCapacity",
+  host_capability_missing: "agentEndpointUnavailableHostCapabilityMissing",
   agent_endpoint_incompatible: "agentEndpointUnavailableIncompatible",
   agent_endpoint_request_failed: "agentEndpointUnavailableRequestFailed",
   agent_endpoint_local_profile_missing: "agentEndpointUnavailableLocalProfileMissing",

@@ -2,11 +2,17 @@ import {
   agentHostProtocolVersion,
   hashExecutionEnvelope,
   mailboxCommandSchema,
+  userRequiredCapabilitiesSchema,
+  WORKSPACE_CANVAS_EXECUTION_CAPABILITY,
   type OwnerPackageLocator
 } from "@planweave-ai/agent-host-protocol";
 import { workspaceIdSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
-import type { RemoteBlockDispatchCandidate, RemoteBlockRuntimePort } from "@planweave-ai/runtime";
-import { RemoteOwnershipConflictError } from "@planweave-ai/runtime";
+import {
+  RemoteOwnershipConflictError,
+  remoteBlockDispatchCandidateSchema,
+  type RemoteBlockDispatchCandidate,
+  type RemoteBlockRuntimePort
+} from "@planweave-ai/runtime";
 import type {
   RemoteArtifactContentPort,
   RemoteAcpTranscriptPort,
@@ -95,6 +101,27 @@ export type RemoteDispatchOutcome = {
     | "awaiting_writeback"
     | "terminal";
 };
+
+function candidateForRuntimeTarget(
+  candidate: RemoteBlockDispatchCandidate,
+  targetKind: RemoteEndpointDispatchRequest["targetKind"]
+): RemoteBlockDispatchCandidate {
+  const userRequiredCapabilities = userRequiredCapabilitiesSchema.parse(
+    candidate.requiredCapabilities
+  );
+  if (targetKind === "owner_canvas") {
+    return remoteBlockDispatchCandidateSchema.parse({
+      ...candidate,
+      requiredCapabilities: userRequiredCapabilities
+    });
+  }
+  const requiredCapabilities = new Set(userRequiredCapabilities);
+  requiredCapabilities.add(WORKSPACE_CANVAS_EXECUTION_CAPABILITY);
+  return remoteBlockDispatchCandidateSchema.parse({
+    ...candidate,
+    requiredCapabilities: [...requiredCapabilities]
+  });
+}
 
 export type RemoteBlockCoordinatorOptions = {
   runtimeLeases: CanvasExecutionRuntimeRoutePort;
@@ -218,7 +245,7 @@ export class RemoteBlockCoordinator {
         principal: { humanPrincipalId: callerHumanPrincipalId },
         endpointId: request.agentEndpointId,
         target,
-        requiredCapabilities: [],
+        requiredCapabilities: [WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
         runtimeWorkspaceId: request.workspaceId,
         blockRef: request.blockRef,
         expectedResponsibilityRevision: request.expectedResponsibilityRevision,
@@ -226,10 +253,13 @@ export class RemoteBlockCoordinator {
       });
       authorizedHostId = authorized.remoteAgent.hostId;
     }
-    const candidate = await inspectRemoteBlockDispatchCandidate(
-      this.options.runtimeLeases,
-      request,
-      authorizedHostId
+    const candidate = candidateForRuntimeTarget(
+      await inspectRemoteBlockDispatchCandidate(
+        this.options.runtimeLeases,
+        request,
+        authorizedHostId
+      ),
+      request.targetKind
     );
     if (
       candidate.workspaceId !== request.workspaceId ||

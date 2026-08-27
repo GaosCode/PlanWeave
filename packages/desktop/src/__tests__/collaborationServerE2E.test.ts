@@ -1,6 +1,7 @@
 import { createServer, type Server as HttpServer } from "node:http";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
+import { WORKSPACE_CANVAS_EXECUTION_CAPABILITY } from "@planweave-ai/agent-host-protocol";
 import type { PlanPackageManifest } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
@@ -273,7 +274,7 @@ async function connectEnrolledHost(input: {
     installationId: "21fb9ea9-4e0d-49fb-a06c-a0fc71e7341e",
     credentialToken,
     displayName: "Desktop E2E Host",
-    capabilities: ["acp.codex", "acp.session.load"],
+    capabilities: ["acp.codex", "acp.session.load", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
     capacity: 1
   };
   const exchangeResponse = await fetch(`${input.origin}/agent-hosts/enrollments/exchange`, {
@@ -309,7 +310,7 @@ async function connectEnrolledHost(input: {
             agentId: "codex",
             displayName: "Test Agent",
             status: "ready",
-            capabilities: enrollmentRequest.capabilities
+            capabilities: ["acp.codex", "acp.session.load"]
           }
         ]
       }

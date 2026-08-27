@@ -93,8 +93,81 @@ function contentTargetMatches(
   );
 }
 
+export class CanvasRuntimeMaterializationEvidenceError extends Error {
+  constructor(options?: ErrorOptions) {
+    super("runtime_materialization_evidence_mismatch", options);
+    this.name = "CanvasRuntimeMaterializationEvidenceError";
+  }
+}
+
+type ExpectedCanvasRuntimeMaterializationEvidence = {
+  sourceRevision?: string;
+  graphFingerprint: string;
+  contentTarget?: CanvasRuntimeContentTarget;
+};
+
+async function readCanvasRuntimeAvailability(resolved: ResolvedCanvasRuntime) {
+  const [{ snapshot }, status] = await Promise.all([
+    capturePackageSnapshot({ projectRoot: resolved.canvas }),
+    readAuthorizedCanvasRuntimeStatus({
+      projectRoot: resolved.canvas,
+      canvasId: resolved.scope.canvasId,
+      expectedPackageDir: resolved.canvas.packageDir,
+      scope: canvasScopeRefSchema.parse(resolved.scope)
+    })
+  ]);
+  return {
+    kind: "available" as const,
+    status,
+    sourceRevision: snapshot.sourceRevision,
+    graphFingerprint: status.packageFingerprint
+  };
+}
+
+async function requireCanvasRuntimeMaterializationEvidence(
+  resolved: ResolvedCanvasRuntime,
+  expected: ExpectedCanvasRuntimeMaterializationEvidence
+) {
+  try {
+    const receipt = canvasRuntimeContentTargetSchema.parse(
+      JSON.parse(
+        await readFile(join(resolved.canvas.workspaceRoot, "authority-content-target.json"), "utf8")
+      )
+    );
+    const available = await readCanvasRuntimeAvailability(resolved);
+    if (
+      receipt.graphFingerprint !== available.graphFingerprint ||
+      receipt.graphFingerprint !== expected.graphFingerprint ||
+      available.graphFingerprint !== expected.graphFingerprint ||
+      (expected.sourceRevision !== undefined &&
+        available.sourceRevision !== expected.sourceRevision) ||
+      (expected.contentTarget !== undefined &&
+        !contentTargetMatches(receipt, expected.contentTarget))
+    ) {
+      throw new CanvasRuntimeMaterializationEvidenceError();
+    }
+    return available;
+  } catch (error) {
+    if (error instanceof CanvasRuntimeMaterializationEvidenceError) throw error;
+    throw new CanvasRuntimeMaterializationEvidenceError({ cause: error });
+  }
+}
+
+export async function readCanvasRuntimeMaterializationEvidence(
+  resolved: ResolvedCanvasRuntime,
+  expected: { sourceRevision: string; graphFingerprint: string }
+) {
+  return withAuthoritativeCanvasWorkspaceLock(resolved.canvas, async () => {
+    await recoverPendingAuthoritativeCanvasMaterialization(resolved.canvas);
+    return requireCanvasRuntimeMaterializationEvidence(resolved, expected);
+  });
+}
+
 function errorCode(error: unknown): CanvasRuntimeServiceError {
   if (error instanceof CanvasRuntimeServiceError) return error;
+  if (error instanceof CanvasRuntimeMaterializationEvidenceError) {
+    return new CanvasRuntimeServiceError("content_out_of_sync");
+  }
   if (error instanceof CanvasRuntimeResolutionError) {
     return new CanvasRuntimeServiceError(error.code);
   }
@@ -362,13 +435,10 @@ export class CanvasRuntimeService {
       });
       await this.writeMaterializedContentTarget(receiptFile, target);
     }
-    const materialized = await this.availability(resolved);
-    if (
-      materialized.graphFingerprint !== target.graphFingerprint ||
-      materialized.status.packageFingerprint !== target.graphFingerprint
-    ) {
-      throw new CanvasRuntimeServiceError("content_out_of_sync");
-    }
+    await requireCanvasRuntimeMaterializationEvidence(resolved, {
+      graphFingerprint: target.graphFingerprint,
+      contentTarget: target
+    });
   }
 
   private async readMaterializedContentTarget(
@@ -438,21 +508,7 @@ export class CanvasRuntimeService {
   }
 
   private async availability(resolved: ResolvedCanvasRuntime) {
-    const [{ snapshot }, status] = await Promise.all([
-      capturePackageSnapshot({ projectRoot: resolved.canvas }),
-      readAuthorizedCanvasRuntimeStatus({
-        projectRoot: resolved.canvas,
-        canvasId: resolved.scope.canvasId,
-        expectedPackageDir: resolved.canvas.packageDir,
-        scope: canvasScopeRefSchema.parse(resolved.scope)
-      })
-    ]);
-    return {
-      kind: "available" as const,
-      status,
-      sourceRevision: snapshot.sourceRevision,
-      graphFingerprint: status.packageFingerprint
-    };
+    return readCanvasRuntimeAvailability(resolved);
   }
 
   private async acquire(command: CanvasRuntimeRequestCommand, resolved: ResolvedCanvasRuntime) {

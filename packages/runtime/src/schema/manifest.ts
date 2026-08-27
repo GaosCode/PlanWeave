@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { capabilitiesSchema } from "@planweave-ai/agent-host-protocol/browser";
+import { userRequiredCapabilitiesSchema } from "@planweave-ai/agent-host-protocol/browser";
 import {
   edgeTypes,
   executorProfileSchema,
@@ -25,7 +25,7 @@ const blockParallelPolicySchema = z
 
 const blockExecutionRequirementsSchema = z
   .object({
-    capabilities: capabilitiesSchema.refine((capabilities) => capabilities.length > 0, {
+    capabilities: userRequiredCapabilitiesSchema.refine((capabilities) => capabilities.length > 0, {
       message: "requirements.capabilities must include at least one capability"
     })
   })

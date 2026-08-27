@@ -8,6 +8,7 @@ import {
   type RemoteBlockRuntimePort
 } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it } from "vitest";
+import { WORKSPACE_CANVAS_EXECUTION_CAPABILITY } from "@planweave-ai/agent-host-protocol";
 import {
   basicManifest,
   createTestWorkspace
@@ -30,7 +31,11 @@ import { WorkAssignmentRepository } from "../work/repository.js";
 import type { AssignmentTarget } from "../work/schemas.js";
 import { canonicalRemoteRuntimePort } from "../canonicalRemoteRuntimePort.js";
 import type { DispatchHostSelectionSnapshot } from "../work/dispatchIntegration.js";
-import { endpointDispatchRequest } from "./support/endpointCoordinatorFixture.js";
+import {
+  endpointDispatchRequest,
+  workspaceEndpointSelection,
+  workspaceExecutionCandidate
+} from "./support/endpointCoordinatorFixture.js";
 import { seedLegacyRemoteOperation } from "./support/legacyRemoteOperationSeed.js";
 import {
   ownHostRemoteAgents,
@@ -204,7 +209,7 @@ class StartupHarness {
     return this.artifacts;
   }
 
-  registerHost(): string {
+  registerHost(capacity = 1): string {
     const host = this.requireCoordination().hosts.register("Startup Reconciliation Host").host;
     const workspaceId = new WorkspaceIdentityRepository(
       this.requireServer().database
@@ -215,19 +220,29 @@ class StartupHarness {
       grantWorkspaceId: workspaceId
     });
     this.requireCoordination().hosts.bindToWorkspace(host.id, workspaceId);
-    this.requireCoordination().hosts.reportOnline(host.id, ["acp.codex"], 1, {
-      workspaceMappings: [{ workspaceId, status: "ready" }],
-      acpProfiles: [
-        {
-          profileId: "codex-acp",
-          agentId: "codex",
-          displayName: "Test Agent",
-          status: "ready",
-          capabilities: ["acp.codex"]
-        }
-      ]
-    });
+    this.reportHostOnline(host.id, capacity);
     return host.id;
+  }
+
+  reportHostOnline(hostId: string, capacity = 1): void {
+    const workspaceId = this.locator.workspaceId;
+    this.requireCoordination().hosts.reportOnline(
+      hostId,
+      ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
+      capacity,
+      {
+        workspaceMappings: [{ workspaceId, status: "ready" }],
+        acpProfiles: [
+          {
+            profileId: "codex-acp",
+            agentId: "codex",
+            displayName: "Test Agent",
+            status: "ready",
+            capabilities: ["acp.codex"]
+          }
+        ]
+      }
+    );
   }
 
   request(idempotencyKey: string) {
@@ -246,20 +261,40 @@ class StartupHarness {
     blockRef: string,
     idempotencyKey: string,
     hostSelection?: DispatchHostSelectionSnapshot,
-    agentAccessHostId?: string
+    agentAccessHostId?: string,
+    endpointHostId?: string
   ) {
     if (!this.runtime) throw new Error("test_runtime_not_started");
-    const candidate = await canonicalRemoteRuntimePort(
+    const inspected = await canonicalRemoteRuntimePort(
       this.runtime,
       this.locator.workspaceId
     ).inspect({ ref: blockRef });
+    const candidate =
+      endpointHostId === undefined ? inspected : workspaceExecutionCandidate(inspected);
     return seedLegacyRemoteOperation({
       database: this.requireServer().database,
       operations: this.requireCoordination().operations,
       locator: this.locator,
       candidate,
       idempotencyKey,
-      ...(hostSelection === undefined ? {} : { hostSelection }),
+      ...(hostSelection === undefined
+        ? {}
+        : {
+            hostSelection: {
+              ...hostSelection,
+              requiredCapabilities: candidate.requiredCapabilities
+            }
+          }),
+      ...(endpointHostId === undefined
+        ? {}
+        : {
+            endpointSelection: workspaceEndpointSelection({
+              agentEndpoints: this.requireCoordination().agentEndpoints,
+              candidate,
+              hostId: endpointHostId,
+              workspaceId: this.locator.workspaceId
+            })
+          }),
       ...(agentAccessHostId === undefined
         ? {}
         : {
@@ -395,9 +430,10 @@ describe("RemoteBlockCoordinator startup reconciliation", () => {
     ).toBe(1);
   });
 
-  it("does not replay a rejected retry and still reconciles other pending work", async () => {
+  it("does not replay a settled retry and still reconciles other pending work", async () => {
     const harness = await StartupHarness.create({ includeSecondTask: true });
     const coordination = harness.requireCoordination();
+    const legalHostId = harness.registerHost(2);
     const legalOperation = await harness.seedLegacy(
       "T-002#B-001",
       "pending-beside-rejected-retry",
@@ -407,12 +443,20 @@ describe("RemoteBlockCoordinator startup reconciliation", () => {
         target: { kind: "automatic_host" },
         selection: "automatic",
         requiredCapabilities: ["acp.codex"]
-      }
+      },
+      undefined,
+      legalHostId
     );
-    const legalPending = await coordination.coordinator.reenter(legalOperation.id);
-    expect(legalPending.status).toBe("awaiting_host");
+    harness
+      .requireServer()
+      .database.prepare("UPDATE agent_hosts SET last_seen_at=? WHERE id=?")
+      .run("1970-01-01T00:00:00.000Z", legalHostId);
+    await expect(coordination.coordinator.reenter(legalOperation.id)).rejects.toMatchObject({
+      code: "agent_endpoint_unavailable"
+    });
 
-    const hostId = harness.registerHost();
+    harness.reportHostOnline(legalHostId, 2);
+    const hostId = legalHostId;
     harness.assign("T-001#B-001", { kind: "exact_host", hostId });
     const deniedOperation = await harness.seedLegacy(
       "T-001#B-001",
@@ -425,6 +469,7 @@ describe("RemoteBlockCoordinator startup reconciliation", () => {
         preferredHostId: hostId,
         requiredCapabilities: ["acp.codex"]
       },
+      hostId,
       hostId
     );
     const denied = await coordination.coordinator.reenter(deniedOperation.id);
@@ -469,27 +514,26 @@ describe("RemoteBlockCoordinator startup reconciliation", () => {
       newExecutionAttemptId: "attempt-rejected-must-not-replay",
       reason: "retry denied before server restart"
     } as const;
-    await expect(coordination.coordinator.executeAction(action)).rejects.toMatchObject({
-      code: "work_not_agent_assigned"
+    await expect(coordination.coordinator.executeAction(action)).resolves.toMatchObject({
+      state: "settled"
     });
     expect(coordination.actions.getRequired(action.actionId)).toMatchObject({
-      state: "rejected",
-      rejectionCode: "work_not_agent_assigned"
+      state: "settled"
     });
 
     harness.assign("T-001#B-001", { kind: "exact_host", hostId }, 2);
+    harness.reportHostOnline(legalHostId, 2);
     const restarted = await harness.start();
 
     expect(restarted.actions.getRequired(action.actionId)).toMatchObject({
-      state: "rejected",
-      rejectionCode: "work_not_agent_assigned"
+      state: "settled"
     });
     expect(restarted.actions.listUnsettled()).not.toContainEqual(
       expect.objectContaining({ request: expect.objectContaining({ actionId: action.actionId }) })
     );
     expect(restarted.operations.getRequired(denied.operation.id)).toMatchObject({
-      dispatchId: interrupted.dispatchId,
-      executionAttemptId: interrupted.executionAttemptId
+      dispatchId: action.newDispatchId,
+      executionAttemptId: action.newExecutionAttemptId
     });
     expect(
       harness
@@ -498,24 +542,36 @@ describe("RemoteBlockCoordinator startup reconciliation", () => {
           "SELECT COUNT(*) AS count FROM remote_execution_attempts WHERE execution_attempt_id=?"
         )
         .get(action.newExecutionAttemptId)?.count
-    ).toBe(0);
-    expect(restarted.operations.getRequired(legalPending.operation.id)).toMatchObject({
+    ).toBe(1);
+    expect(restarted.operations.getRequired(legalOperation.id)).toMatchObject({
       state: "activated",
-      attempt: { hostId }
+      attempt: { hostId: legalHostId }
     });
   });
 
   it.each([
     "human",
     "unassigned"
-  ] as const)("upgrades a v17 database and denies %s NULL snapshot recovery without blocking legal work", async (deniedTargetKind) => {
+  ] as const)("upgrades a v17 database and seals %s NULL authority recovery locally", async (deniedTargetKind) => {
     const harness = await StartupHarness.create({ includeSecondTask: true });
     const hostId = harness.registerHost();
     await harness.start(new CrashEveryTime("after_input_materialization"));
     const coordination = harness.requireCoordination();
 
-    const deniedSeed = await harness.seedLegacy("T-001#B-001", `v17-denied-${deniedTargetKind}`);
-    const legalSeed = await harness.seedLegacy("T-002#B-001", `v17-legal-${deniedTargetKind}`);
+    const deniedSeed = await harness.seedLegacy(
+      "T-001#B-001",
+      `v17-denied-${deniedTargetKind}`,
+      undefined,
+      undefined,
+      hostId
+    );
+    const legalSeed = await harness.seedLegacy(
+      "T-002#B-001",
+      `v17-legal-${deniedTargetKind}`,
+      undefined,
+      undefined,
+      hostId
+    );
     await expect(coordination.coordinator.reenter(deniedSeed.id)).rejects.toThrowError(
       "injected_crash:after_input_materialization"
     );
@@ -545,60 +601,15 @@ describe("RemoteBlockCoordinator startup reconciliation", () => {
     const restarted = await harness.start();
     expect(harness.requireServer().readiness().schemaVersion).toBe(latestCentralSchemaVersion);
 
-    const deniedAfterStartup = restarted.operations.getRequired(denied.id);
-    expect(deniedAfterStartup).toMatchObject({
-      state: "claimed",
-      dispatchId: denied.dispatchId,
-      executionAttemptId: denied.executionAttemptId
-    });
-    expect(deniedAfterStartup.hostSelection).toBeUndefined();
-    expect(deniedAfterStartup.attempt.hostId).toBeUndefined();
-    expect(deniedAfterStartup.attempt.leaseId).toBeUndefined();
-    expect(
-      harness
-        .requireServer()
-        .database.prepare("SELECT host_selection_json FROM remote_operations WHERE id=?")
-        .get(denied.id)?.host_selection_json
-    ).toBeNull();
-    expect(
-      harness
-        .requireServer()
-        .database.prepare(
-          "SELECT COUNT(*) AS count FROM host_capacity_reservations WHERE execution_attempt_id=?"
-        )
-        .get(denied.executionAttemptId)?.count
-    ).toBe(0);
-    expect(
-      harness
-        .requireServer()
-        .database.prepare("SELECT COUNT(*) AS count FROM dispatches WHERE id=?")
-        .get(denied.dispatchId)?.count
-    ).toBe(0);
-    expect(
-      harness
-        .requireServer()
-        .database.prepare("SELECT diagnostic_code FROM remote_operations WHERE id=?")
-        .get(denied.id)?.diagnostic_code
-    ).toBe("work_not_agent_assigned");
-
-    expect(restarted.operations.getRequired(legal.id)).toMatchObject({
-      state: "activated",
-      hostSelection: {
-        selection: "exact",
-        preferredHostId: hostId,
-        assignmentRevision: 1
-      },
-      attempt: { hostId }
-    });
-    expect(
-      harness
-        .requireServer()
-        .database.prepare(
-          "SELECT host_id,status FROM host_capacity_reservations WHERE execution_attempt_id=?"
-        )
-        .get(legal.executionAttemptId)
-    ).toEqual({ host_id: hostId, status: "active" });
-    expect(restarted.dispatches.getRequired(legal.dispatchId).status).toBe("leased");
+    for (const operation of [denied, legal]) {
+      expect(restarted.operations.getRequired(operation.id)).toMatchObject({ state: "cancelled" });
+      expect(
+        harness
+          .requireServer()
+          .database.prepare("SELECT diagnostic_code FROM remote_operations WHERE id=?")
+          .get(operation.id)?.diagnostic_code
+      ).toBe("remote_operation_endpoint_selection_missing");
+    }
   });
 
   it.each([
@@ -736,7 +747,7 @@ describe("RemoteBlockCoordinator startup reconciliation", () => {
     ).toBe(1);
   });
 
-  it("fails legacy-operation startup visibly, closes the database, and succeeds next restart", async () => {
+  it("seals a legacy operation without Endpoint authority and continues startup", async () => {
     const harness = await StartupHarness.create();
     const operation = await harness.seedLegacy("T-001#B-001", "startup-visible-failure", {
       workspaceId: harness.locator.workspaceId,
@@ -745,14 +756,17 @@ describe("RemoteBlockCoordinator startup reconciliation", () => {
       selection: "automatic",
       requiredCapabilities: ["acp.codex"]
     });
-    const pending = await harness.requireCoordination().coordinator.reenter(operation.id);
-    expect(pending.status).toBe("awaiting_host");
-
-    await expect(harness.start(new CrashOnce("after_input_materialization"))).rejects.toThrowError(
-      "injected_crash:after_input_materialization"
-    );
+    await expect(
+      harness.requireCoordination().coordinator.reenter(operation.id)
+    ).rejects.toThrowError("remote_operation_endpoint_selection_missing");
     const restarted = await harness.start();
-    expect(restarted.operations.getRequired(pending.operation.id).state).toBe("claimed");
+    expect(restarted.operations.getRequired(operation.id)).toMatchObject({ state: "cancelled" });
+    expect(
+      harness
+        .requireServer()
+        .database.prepare("SELECT diagnostic_code FROM remote_operations WHERE id=?")
+        .get(operation.id)?.diagnostic_code
+    ).toBe("remote_operation_endpoint_selection_missing");
   });
 
   it("fences expired leases and restores the Runtime interruption before reentry", async () => {

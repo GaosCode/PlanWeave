@@ -291,13 +291,6 @@ describe("Agent Host configuration", () => {
     await symlink(first.workspace.workspaceRoot, resolved.canvas.workspaceRoot);
     await expect(resolver.resolve(scope)).rejects.toThrow("runtime_project_escape");
     expect(await readFile(first.workspace.manifestFile, "utf8")).toBe(localManifestBefore);
-    await expect(
-      resolver.resolve({
-        workspaceId: "workspace-b",
-        projectId: first.project.id,
-        canvasId: "default"
-      })
-    ).rejects.toThrow("runtime_project_not_configured");
     expect(resolveAgentHostCapabilities(config)).toContain("canvas-runtime.v1");
     const readiness = await observeHostReadiness(config, { SAFE_API_KEY: "present" }, []);
     expect(readiness.runtimeProjects).toEqual([

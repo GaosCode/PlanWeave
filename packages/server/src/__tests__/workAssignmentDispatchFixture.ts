@@ -1,5 +1,6 @@
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
+import { WORKSPACE_CANVAS_EXECUTION_CAPABILITY } from "@planweave-ai/agent-host-protocol";
 import {
   createRemoteBlockArtifactSource,
   createRemoteBlockRuntimePort,
@@ -33,7 +34,11 @@ import { WorkAssignmentRepository } from "../work/repository.js";
 import { WorkAssignmentService } from "../work/service.js";
 import type { WorkItemRef } from "../work/schemas.js";
 import { seedLegacyRemoteOperation } from "./support/legacyRemoteOperationSeed.js";
-import { registerEndpointDispatchAccess } from "./support/endpointCoordinatorFixture.js";
+import {
+  registerEndpointDispatchAccess,
+  workspaceEndpointSelection,
+  workspaceExecutionCandidate
+} from "./support/endpointCoordinatorFixture.js";
 import {
   ownHostRemoteAgents,
   persistedTestAgentAccess
@@ -197,18 +202,23 @@ export async function setup(
       grantWorkspaceId: workspaceId
     });
     coordination.hosts.bindToWorkspace(host.id, workspaceId);
-    coordination.hosts.reportOnline(host.id, hostSpec.capabilities, hostSpec.capacity, {
-      workspaceMappings: [{ workspaceId, status: "ready" }],
-      acpProfiles: [
-        {
-          profileId: "codex-acp",
-          agentId: "codex",
-          displayName: "Test Agent",
-          status: "ready",
-          capabilities: hostSpec.capabilities
-        }
-      ]
-    });
+    coordination.hosts.reportOnline(
+      host.id,
+      [...new Set([...hostSpec.capabilities, WORKSPACE_CANVAS_EXECUTION_CAPABILITY])],
+      hostSpec.capacity,
+      {
+        workspaceMappings: [{ workspaceId, status: "ready" }],
+        acpProfiles: [
+          {
+            profileId: "codex-acp",
+            agentId: "codex",
+            displayName: "Test Agent",
+            status: "ready",
+            capabilities: hostSpec.capabilities
+          }
+        ]
+      }
+    );
     registeredHosts.push({ id: host.id, name: hostSpec.name });
   }
   const ownerContext: HumanAuthContext = {
@@ -290,9 +300,11 @@ export async function setup(
       hostSelection?: DispatchHostSelectionSnapshot
     ) {
       if (!activeRuntime) throw new Error("test_runtime_not_initialized");
-      const candidate = await canonicalRemoteRuntimePort(activeRuntime, workspaceId).inspect({
-        ref: "T-001#B-001"
-      });
+      const candidate = workspaceExecutionCandidate(
+        await canonicalRemoteRuntimePort(activeRuntime, workspaceId).inspect({
+          ref: "T-001#B-001"
+        })
+      );
       return seedLegacyRemoteOperation({
         database: server.database,
         operations: coordination.operations,
@@ -300,6 +312,12 @@ export async function setup(
         candidate,
         idempotencyKey,
         ...(hostSelection === undefined ? {} : { hostSelection }),
+        endpointSelection: workspaceEndpointSelection({
+          agentEndpoints: coordination.agentEndpoints,
+          candidate,
+          hostId: registeredHosts[0]!.id,
+          workspaceId
+        }),
         agentAccess: persistedTestAgentAccess({
           database: server.database,
           hostId: registeredHosts[0]!.id,

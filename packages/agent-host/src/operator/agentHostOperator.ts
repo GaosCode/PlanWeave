@@ -32,7 +32,10 @@ import {
 } from "../state/durableHostIdentity.js";
 import { AgentHostClient } from "../transport/agentHostClient.js";
 import { ConfiguredCanvasRuntimeResolver } from "../runtime/canvasRuntimeResolver.js";
-import { CanvasRuntimeService } from "../runtime/canvasRuntimeService.js";
+import {
+  CanvasRuntimeService,
+  readCanvasRuntimeMaterializationEvidence
+} from "../runtime/canvasRuntimeService.js";
 import { CanvasRuntimeArtifactTransfer } from "../artifacts/canvasRuntimeArtifactTransfer.js";
 import { CanvasRuntimeContentTransfer } from "../runtime/canvasRuntimeContentTransfer.js";
 import { agentHostPackageVersion } from "../packageInfo.js";
@@ -642,8 +645,16 @@ export class AgentHostOperator {
         join(config.dataDirectory, "remote-execution.sqlite")
       );
       const interactionRelay = new DurableAcpInteractionRelay(state);
+      const canvasRuntimeResolver = new ConfiguredCanvasRuntimeResolver(config);
       const executor = new RemoteAcpExecutor({
         workspaceResolver: new ConfiguredWorkspaceResolver(config),
+        runtimeWorkspaceResolver: {
+          resolve: async (scope, expected) => {
+            const resolved = await canvasRuntimeResolver.resolve(scope);
+            await readCanvasRuntimeMaterializationEvidence(resolved, expected);
+            return { cwd: resolved.canvas.workspaceRoot };
+          }
+        },
         profileResolver: new ConfiguredAcpProfileResolver(
           config,
           process.env,
@@ -660,7 +671,7 @@ export class AgentHostOperator {
         }
       });
       const canvasRuntime = new CanvasRuntimeService({
-        resolver: new ConfiguredCanvasRuntimeResolver(config),
+        resolver: canvasRuntimeResolver,
         receipts: state.canvasRuntime,
         capabilities,
         artifactTransfer: new CanvasRuntimeArtifactTransfer({

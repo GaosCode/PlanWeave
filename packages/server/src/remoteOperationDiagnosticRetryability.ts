@@ -22,6 +22,8 @@ const NON_RETRYABLE_DIAGNOSTIC_CODES = [
   "remote_dispatch_not_found",
   "remote_failure_evidence_missing",
   "remote_operation_candidate_missing",
+  "remote_operation_endpoint_selection_missing",
+  "remote_operation_runtime_capability_mismatch",
   "remote_ownership_activation_conflict",
   "remote_ownership_not_active",
   "remote_ownership_not_preparing",

@@ -1,6 +1,7 @@
 import { rm } from "node:fs/promises";
 import { createServer, type Server as HttpServer } from "node:http";
 import { join } from "node:path";
+import { WORKSPACE_CANVAS_EXECUTION_CAPABILITY } from "@planweave-ai/agent-host-protocol";
 import {
   applyDefaultCanvasWorkspaceMigration,
   createCanvasWorkspace,
@@ -232,7 +233,7 @@ export async function configureWorkspaceAccess(input: {
     grantWorkspaceId: input.workspaceId
   });
   hosts.bindToWorkspace(host.id, input.workspaceId);
-  hosts.reportOnline(host.id, ["acp.codex"], 1, {
+  hosts.reportOnline(host.id, ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY], 1, {
     workspaceMappings: [{ workspaceId: input.workspaceId, status: "ready" }],
     acpProfiles: [
       {

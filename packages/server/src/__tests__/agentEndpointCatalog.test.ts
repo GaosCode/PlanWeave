@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { WORKSPACE_CANVAS_EXECUTION_CAPABILITY } from "@planweave-ai/agent-host-protocol";
 import {
   AgentEndpointCatalog,
   AgentEndpointCatalogError,
@@ -15,7 +16,7 @@ function readyHost(overrides: Partial<AgentHost> = {}): AgentHost {
   return {
     id: "host-primary",
     displayName: "Build Mac",
-    capabilities: ["acp.codex", "host-only"],
+    capabilities: ["acp.codex", "host-only", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
     capacity: 2,
     lastSeenAt: now.toISOString(),
     lastAcknowledgedSequence: 0,

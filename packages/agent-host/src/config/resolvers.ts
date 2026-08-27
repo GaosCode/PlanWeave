@@ -1,5 +1,6 @@
 import {
   CANVAS_RUNTIME_CAPABILITY,
+  WORKSPACE_CANVAS_EXECUTION_CAPABILITY,
   ownerPackageLocatorSchema,
   resolveOwnerRunWorkspace,
   type OwnerPackageLocator
@@ -22,8 +23,8 @@ import type {
 
 export function resolveAgentHostCapabilities(config: AgentHostConfig): string[] {
   const capabilities = new Set(config.host.capabilities);
-  if (config.runtimeProjects.length > 0) capabilities.add(CANVAS_RUNTIME_CAPABILITY);
-  else capabilities.delete(CANVAS_RUNTIME_CAPABILITY);
+  capabilities.add(CANVAS_RUNTIME_CAPABILITY);
+  capabilities.add(WORKSPACE_CANVAS_EXECUTION_CAPABILITY);
   return [...capabilities];
 }
 

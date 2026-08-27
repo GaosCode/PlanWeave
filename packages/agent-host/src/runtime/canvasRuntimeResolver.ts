@@ -50,7 +50,7 @@ export class ConfiguredCanvasRuntimeResolver implements CanvasRuntimeResolverPor
   constructor(private readonly config: AgentHostConfig) {}
 
   configured(): boolean {
-    return this.config.runtimeProjects.length > 0;
+    return true;
   }
 
   mappings(): AgentHostConfig["runtimeProjects"] {
@@ -92,7 +92,12 @@ export class ConfiguredCanvasRuntimeResolver implements CanvasRuntimeResolverPor
   }
 
   async resolve(scope: CanvasRuntimeLogicalScope): Promise<ResolvedCanvasRuntime> {
-    const project = await this.resolveProject(scope.workspaceId, scope.projectId);
+    const configuredProject = this.config.runtimeProjects.some(
+      (candidate) =>
+        candidate.workspaceId === scope.workspaceId && candidate.projectId === scope.projectId
+    )
+      ? await this.resolveProject(scope.workspaceId, scope.projectId)
+      : undefined;
     await mkdir(this.config.dataDirectory, { recursive: true, mode: 0o700 });
     const dataDirectoryRoot = await realpath(this.config.dataDirectory);
     const runtimeCanvasesRoot = resolve(dataDirectoryRoot, "runtime-canvases");
@@ -130,9 +135,9 @@ export class ConfiguredCanvasRuntimeResolver implements CanvasRuntimeResolverPor
     }
     const runtimeProject = projectWorkspacePaths({
       id: scope.projectId,
-      kind: project.kind,
-      rootPath: project.rootPath,
-      sourceRoot: project.sourceRoot,
+      kind: configuredProject?.kind ?? "managed",
+      rootPath: configuredProject?.rootPath ?? resolvedProjectRoot,
+      sourceRoot: configuredProject?.sourceRoot ?? null,
       planweaveHome: resolvedRuntimeHome,
       workspaceRoot: resolvedProjectRoot
     });
@@ -143,7 +148,7 @@ export class ConfiguredCanvasRuntimeResolver implements CanvasRuntimeResolverPor
     const canvas = projectCanvasWorkspace(runtimeProject, canvasNode);
     await this.ensureProjectGraph(runtimeProject, canvasNode);
     await this.ensureManagedCanvas(canvas);
-    return { scope, project, canvas };
+    return { scope, project: configuredProject ?? runtimeProject, canvas };
   }
 
   private async ensureProjectGraph(

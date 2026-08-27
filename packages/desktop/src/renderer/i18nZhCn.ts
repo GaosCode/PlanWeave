@@ -72,6 +72,7 @@ export const zhCnCatalog = {
   agentEndpointUnavailableProfileMissing: "Agent 配置缺失",
   agentEndpointUnavailableProfileInvalid: "Agent 配置无效",
   agentEndpointUnavailableAtCapacity: "设备忙碌",
+  agentEndpointUnavailableHostCapabilityMissing: "设备不支持 Workspace 执行",
   agentEndpointUnavailableIncompatible: "不支持当前任务",
   agentEndpointUnavailableRequestFailed: "无法获取设备状态",
   agentEndpointUnavailableLocalProfileMissing: "本机 Agent 配置缺失",

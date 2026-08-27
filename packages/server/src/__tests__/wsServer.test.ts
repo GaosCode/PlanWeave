@@ -2,7 +2,10 @@ import { createServer, type Server as HttpServer } from "node:http";
 import { loopbackHttpTransportAdmission } from "./support/transportAdmission.js";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { CANVAS_RUNTIME_CAPABILITY } from "@planweave-ai/agent-host-protocol";
+import {
+  CANVAS_RUNTIME_CAPABILITY,
+  WORKSPACE_CANVAS_EXECUTION_CAPABILITY
+} from "@planweave-ai/agent-host-protocol";
 import {
   createRemoteBlockArtifactSource,
   createRemoteBlockRuntimePort,
@@ -28,7 +31,9 @@ import {
 } from "../../../runtime/src/__tests__/promptTestHelpers.js";
 import {
   endpointDispatchRequest,
-  registerEndpointDispatchAccess
+  registerEndpointDispatchAccess,
+  workspaceEndpointSelection,
+  workspaceExecutionCandidate
 } from "./support/endpointCoordinatorFixture.js";
 import { ownHostRemoteAgents } from "./support/remoteAgentOwnerFixture.js";
 import { seedLegacyRemoteOperation } from "./support/legacyRemoteOperationSeed.js";
@@ -282,13 +287,24 @@ describe("agent host WebSocket transport", () => {
         type: "host.hello",
         protocolVersion: 1,
         lastAcknowledgedSequence: 0,
-        capabilities: ["acp.codex"],
+        capabilities: ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
         capacity: 1,
         readiness: readyObservation(workspaceId)
       })
     );
     await expect(events.next()).resolves.toMatchObject({ type: "host.welcome" });
     expect(onHostAvailable).toHaveBeenCalledWith(registration.host.id);
+    const candidate = workspaceExecutionCandidate(
+      await canonicalRemoteRuntimePort(runtime, workspaceId).inspect({
+        ref: "T-001#B-001"
+      })
+    );
+    const endpointSelection = workspaceEndpointSelection({
+      agentEndpoints: coordination.agentEndpoints,
+      candidate,
+      hostId: registration.host.id,
+      workspaceId
+    });
 
     const operatorToken = `pw_operator_${"R".repeat(43)}`;
     new OperatorSessionStore(database.database).create({
@@ -346,15 +362,13 @@ describe("agent host WebSocket transport", () => {
       reconnect.once("open", () => resolve(101));
     });
     expect(rejectedStatus).toBe(401);
-    const candidate = await canonicalRemoteRuntimePort(runtime, workspaceId).inspect({
-      ref: "T-001#B-001"
-    });
     const legacyOperation = seedLegacyRemoteOperation({
       database: database.database,
       operations: coordination.operations,
       locator,
       candidate,
       idempotencyKey: "revoked-host-recovery",
+      endpointSelection,
       hostSelection: {
         workspaceId,
         assignmentRevision: 1,
@@ -364,10 +378,8 @@ describe("agent host WebSocket transport", () => {
         requiredCapabilities: candidate.requiredCapabilities
       }
     });
-    const afterRevoke = await coordination.coordinator.reenter(legacyOperation.id);
-    expect(afterRevoke).toMatchObject({
-      status: "awaiting_host",
-      operation: { attempt: { hostId: undefined } }
+    await expect(coordination.coordinator.reenter(legacyOperation.id)).rejects.toMatchObject({
+      code: "agent_endpoint_unknown"
     });
     expect(coordination.mailbox.listAfter(registration.host.id, 0)).toEqual([]);
   });
@@ -419,7 +431,11 @@ describe("agent host WebSocket transport", () => {
         type: "host.hello",
         protocolVersion: 1,
         lastAcknowledgedSequence: 0,
-        capabilities: ["acp.codex", CANVAS_RUNTIME_CAPABILITY],
+        capabilities: [
+          "acp.codex",
+          CANVAS_RUNTIME_CAPABILITY,
+          WORKSPACE_CANVAS_EXECUTION_CAPABILITY
+        ],
         capacity: 1,
         readiness: readyObservation(workspaceId)
       })
@@ -629,7 +645,7 @@ describe("agent host WebSocket transport", () => {
         type: "host.hello",
         protocolVersion: 1,
         lastAcknowledgedSequence: 0,
-        capabilities: ["acp.codex"],
+        capabilities: ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
         capacity: 1,
         readiness: readyObservation(workspaceId)
       })
@@ -743,7 +759,7 @@ describe("agent host WebSocket transport", () => {
         type: "host.hello",
         protocolVersion: 1,
         lastAcknowledgedSequence: 0,
-        capabilities: ["acp.codex"],
+        capabilities: ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
         capacity: 1,
         readiness: readyObservation(workspaceId)
       })
@@ -817,7 +833,7 @@ describe("agent host WebSocket transport", () => {
         type: "host.hello",
         protocolVersion: 1,
         lastAcknowledgedSequence: 0,
-        capabilities: ["acp.codex"],
+        capabilities: ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
         capacity: 1,
         readiness: readyObservation(workspaceId)
       })
@@ -873,7 +889,7 @@ describe("agent host WebSocket transport", () => {
         type: "host.hello",
         protocolVersion: 1,
         lastAcknowledgedSequence: 0,
-        capabilities: ["acp.codex"],
+        capabilities: ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
         capacity: 1,
         readiness: readyObservation(workspaceId)
       })
@@ -911,7 +927,7 @@ describe("agent host WebSocket transport", () => {
         type: "host.hello",
         protocolVersion: 1,
         lastAcknowledgedSequence: 0,
-        capabilities: ["acp.codex"],
+        capabilities: ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
         capacity: 1,
         readiness: readyObservation(workspaceId)
       })
@@ -965,7 +981,7 @@ describe("agent host WebSocket transport", () => {
         type: "host.hello",
         protocolVersion: 1,
         lastAcknowledgedSequence: 0,
-        capabilities: ["acp.codex"],
+        capabilities: ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
         capacity: 1,
         readiness: readyObservation(workspaceId)
       })

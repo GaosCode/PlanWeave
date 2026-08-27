@@ -13,6 +13,8 @@ const OP_LOCAL_ERROR_NAMES = new Set(["RemoteBlockRuntimeError", "RemoteOwnershi
 const OP_LOCAL_MESSAGE_CODES = new Set([
   "remote_source_changed",
   "remote_operation_candidate_missing",
+  "remote_operation_endpoint_selection_missing",
+  "remote_operation_runtime_capability_mismatch",
   "remote_completion_evidence_missing",
   "remote_failure_evidence_missing",
   "remote_dispatch_not_awaiting_writeback",

@@ -176,6 +176,7 @@ async function runRemoteConformance(
   const controller = new AbortController();
   const executor = new RemoteAcpExecutor({
     workspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
+    runtimeWorkspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
     profileResolver: profileResolver(scenario),
     outbox,
     hostCapabilities: ["linux", "acp.test"]
@@ -222,6 +223,7 @@ describe("RemoteAcpExecutor", () => {
     const input = command();
     const executor = new RemoteAcpExecutor({
       workspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
+      runtimeWorkspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
       profileResolver: profileResolver("success", DEFAULT_ACP_SHUTDOWN_POLICY, {
         required: ["history-load"],
         optional: []
@@ -255,6 +257,7 @@ describe("RemoteAcpExecutor", () => {
     const input = command();
     const executor = new RemoteAcpExecutor({
       workspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
+      runtimeWorkspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
       profileResolver: profileResolver("session-ready-with-agent-auth"),
       outbox,
       hostCapabilities: ["linux", "acp.test"]
@@ -319,6 +322,7 @@ describe("RemoteAcpExecutor", () => {
     });
     const executor = new RemoteAcpExecutor({
       workspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
+      runtimeWorkspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
       profileResolver: profileResolver("artifact-session-config"),
       outbox,
       hostCapabilities: ["linux", "acp.test"]
@@ -355,6 +359,7 @@ describe("RemoteAcpExecutor", () => {
     const input = command({ session: {} });
     const executor = new RemoteAcpExecutor({
       workspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
+      runtimeWorkspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
       profileResolver: profileResolver("load-capable"),
       outbox,
       hostCapabilities: ["linux", "acp.test"]
@@ -391,6 +396,7 @@ describe("RemoteAcpExecutor", () => {
     const input = command({ session: {} });
     const executor = new RemoteAcpExecutor({
       workspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
+      runtimeWorkspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
       profileResolver: profileResolver("success"),
       outbox,
       hostCapabilities: ["linux", "acp.test"]
@@ -419,6 +425,7 @@ describe("RemoteAcpExecutor", () => {
     const resolveWorkspace = vi.fn(() => ({ cwd: process.cwd() }));
     const executor = new RemoteAcpExecutor({
       workspaceResolver: { resolve: resolveWorkspace },
+      runtimeWorkspaceResolver: { resolve: resolveWorkspace },
       profileResolver: profileResolver("success"),
       outbox,
       hostCapabilities: ["linux", "acp.test"]
@@ -452,6 +459,7 @@ describe("RemoteAcpExecutor", () => {
     const resolveWorkspace = vi.fn(() => ({ cwd: process.cwd() }));
     const executor = new RemoteAcpExecutor({
       workspaceResolver: { resolve: resolveWorkspace },
+      runtimeWorkspaceResolver: { resolve: resolveWorkspace },
       profileResolver: profileResolver("success"),
       outbox,
       hostCapabilities: ["linux"]
@@ -474,6 +482,7 @@ describe("RemoteAcpExecutor", () => {
     const input = command({ prompt: finalArtifactPrompt });
     const executor = new RemoteAcpExecutor({
       workspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
+      runtimeWorkspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
       profileResolver: profileResolver("success"),
       outbox,
       hostCapabilities: ["linux", "acp.test"]
@@ -493,6 +502,7 @@ describe("RemoteAcpExecutor", () => {
     const input = command({ prompt: finalArtifactPrompt });
     const executor = new RemoteAcpExecutor({
       workspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
+      runtimeWorkspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
       profileResolver: profileResolver("permission-secret"),
       outbox,
       hostCapabilities: ["linux", "acp.test"],
@@ -529,6 +539,7 @@ describe("RemoteAcpExecutor", () => {
     const input = command({ prompt: finalArtifactPrompt });
     const executor = new RemoteAcpExecutor({
       workspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
+      runtimeWorkspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
       profileResolver: profileResolver("permission"),
       outbox,
       interactionResponder: responder,
@@ -558,6 +569,7 @@ describe("RemoteAcpExecutor", () => {
     });
     const unsupported = new RemoteAcpExecutor({
       workspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
+      runtimeWorkspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
       profileResolver: profileResolver("success"),
       outbox,
       hostCapabilities: ["linux", "acp.test"]
@@ -573,6 +585,7 @@ describe("RemoteAcpExecutor", () => {
     const limited = command({ maxArtifactBytes: 8 });
     const limitedExecutor = new RemoteAcpExecutor({
       workspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
+      runtimeWorkspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
       profileResolver: profileResolver("success"),
       outbox,
       hostCapabilities: ["linux", "acp.test"]
@@ -588,6 +601,11 @@ describe("RemoteAcpExecutor", () => {
     const input = command();
     const executor = new RemoteAcpExecutor({
       workspaceResolver: {
+        resolve: () => {
+          throw new Error("/Users/private-worktree token=raw-secret");
+        }
+      },
+      runtimeWorkspaceResolver: {
         resolve: () => {
           throw new Error("/Users/private-worktree token=raw-secret");
         }
@@ -645,6 +663,7 @@ describe("RemoteAcpExecutor", () => {
       const cwd = process.cwd();
       const executor = new IsolatedRemoteAcpExecutor({
         workspaceResolver: { resolve: () => ({ cwd }) },
+        runtimeWorkspaceResolver: { resolve: () => ({ cwd }) },
         profileResolver: {
           resolve: () => ({
             agentId: exampleExecutionEnvelopeInput.agentId,
@@ -706,6 +725,7 @@ describe("RemoteAcpExecutor", () => {
       const input = command();
       const executor = new IsolatedRemoteAcpExecutor({
         workspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
+        runtimeWorkspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
         profileResolver: profileResolver("success", shutdown),
         outbox,
         hostCapabilities: ["linux", "acp.test"]
@@ -763,6 +783,7 @@ describe("RemoteAcpExecutor", () => {
       const input = command();
       const executor = new IsolatedRemoteAcpExecutor({
         workspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
+        runtimeWorkspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
         profileResolver: profileResolver("success"),
         outbox,
         hostCapabilities: ["linux", "acp.test"]

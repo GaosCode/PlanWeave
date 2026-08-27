@@ -20,6 +20,7 @@ export type {
   AgentHostRemoteExecutionOutbox,
   AgentHostRemoteExecutionRecord,
   AgentHostRemoteInteractionResponder,
+  AgentHostRuntimeWorkspaceResolver,
   AgentHostWorkspaceResolver,
   ResolvedAgentHostAcpProfile,
   ResolvedAgentHostWorkspace
@@ -79,6 +80,8 @@ export {
 } from "./runtime/canvasRuntimeResolver.js";
 export {
   CanvasRuntimeService,
+  readCanvasRuntimeMaterializationEvidence,
+  CanvasRuntimeMaterializationEvidenceError,
   type CanvasRuntimeServiceOptions
 } from "./runtime/canvasRuntimeService.js";
 export { resolveCanvasRuntimeWorkItems } from "./runtime/canvasRuntimeWorkItemFacts.js";

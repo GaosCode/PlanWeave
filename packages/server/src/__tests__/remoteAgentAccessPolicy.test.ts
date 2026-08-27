@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { WORKSPACE_CANVAS_EXECUTION_CAPABILITY } from "@planweave-ai/agent-host-protocol";
 import { endpointIdFor } from "../agentEndpointCatalog.js";
 import { AgentEndpointCatalogError } from "../agentEndpointCatalog.js";
 import { createRemoteBlockCoordination } from "../distributedCoordination.js";
@@ -133,21 +134,26 @@ async function fixture() {
     ownerHumanPrincipalId: "owner-human-1",
     accessMode: "unrestricted"
   });
-  coordination.hosts.reportOnline(host.id, ["acp.codex", "host-only"], 2, {
-    workspaceMappings: [
-      { workspaceId: workspaceA, status: "ready" },
-      { workspaceId: workspaceB, status: "ready" }
-    ],
-    acpProfiles: [
-      {
-        profileId: "profile-main",
-        agentId: "codex",
-        displayName: "Codex",
-        status: "ready",
-        capabilities: ["acp.codex"]
-      }
-    ]
-  });
+  coordination.hosts.reportOnline(
+    host.id,
+    ["acp.codex", "host-only", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
+    2,
+    {
+      workspaceMappings: [
+        { workspaceId: workspaceA, status: "ready" },
+        { workspaceId: workspaceB, status: "ready" }
+      ],
+      acpProfiles: [
+        {
+          profileId: "profile-main",
+          agentId: "codex",
+          displayName: "Codex",
+          status: "ready",
+          capabilities: ["acp.codex"]
+        }
+      ]
+    }
+  );
   const endpointId = endpointIdFor({
     hostId: host.id,
     profileId: "profile-main",
@@ -178,21 +184,26 @@ function workspaceCanvas(workspaceId: string, projectId: string): RemoteAgentUse
 }
 
 function occupyCollaborationCapacity(state: Awaited<ReturnType<typeof fixture>>) {
-  state.hosts.reportOnline(state.host.id, ["acp.codex", "host-only"], 1, {
-    workspaceMappings: [
-      { workspaceId: state.workspaceA, status: "ready" },
-      { workspaceId: state.workspaceB, status: "ready" }
-    ],
-    acpProfiles: [
-      {
-        profileId: "profile-main",
-        agentId: "codex",
-        displayName: "Codex",
-        status: "ready",
-        capabilities: ["acp.codex"]
-      }
-    ]
-  });
+  state.hosts.reportOnline(
+    state.host.id,
+    ["acp.codex", "host-only", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
+    1,
+    {
+      workspaceMappings: [
+        { workspaceId: state.workspaceA, status: "ready" },
+        { workspaceId: state.workspaceB, status: "ready" }
+      ],
+      acpProfiles: [
+        {
+          profileId: "profile-main",
+          agentId: "codex",
+          displayName: "Codex",
+          status: "ready",
+          capabilities: ["acp.codex"]
+        }
+      ]
+    }
+  );
   const claimed = state.coordination.operations.markClaimed(
     state.coordination.operations.create({
       workspaceId: state.workspaceA,
@@ -667,18 +678,23 @@ describe("authorizeRemoteAgentUse", () => {
   it("owner unrestricted on workspace B does not require a grant or workspace host mapping", async () => {
     const state = await fixture();
     expect(state.repo.listGrants(state.endpointId)).toEqual([]);
-    state.coordination.hosts.reportOnline(state.host.id, ["acp.codex", "host-only"], 2, {
-      workspaceMappings: [{ workspaceId: state.workspaceA, status: "ready" }],
-      acpProfiles: [
-        {
-          profileId: "profile-main",
-          agentId: "codex",
-          displayName: "Codex",
-          status: "ready",
-          capabilities: ["acp.codex"]
-        }
-      ]
-    });
+    state.coordination.hosts.reportOnline(
+      state.host.id,
+      ["acp.codex", "host-only", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
+      2,
+      {
+        workspaceMappings: [{ workspaceId: state.workspaceA, status: "ready" }],
+        acpProfiles: [
+          {
+            profileId: "profile-main",
+            agentId: "codex",
+            displayName: "Codex",
+            status: "ready",
+            capabilities: ["acp.codex"]
+          }
+        ]
+      }
+    );
     addWorkspaceMember(state.database, state.workspaceB, "owner-human-1", "member");
     const listed = listAuthorizedRemoteAgentEndpoints({
       policy: state.policy,
@@ -723,18 +739,23 @@ describe("authorizeRemoteAgentUse", () => {
       ])
     );
     occupyCollaborationCapacity(state);
-    state.hosts.reportOnline(state.host.id, ["acp.codex", "host-only"], 1, {
-      workspaceMappings: [{ workspaceId: state.workspaceA, status: "ready" }],
-      acpProfiles: [
-        {
-          profileId: "profile-main",
-          agentId: "codex",
-          displayName: "Codex",
-          status: "ready",
-          capabilities: ["acp.codex"]
-        }
-      ]
-    });
+    state.hosts.reportOnline(
+      state.host.id,
+      ["acp.codex", "host-only", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
+      1,
+      {
+        workspaceMappings: [{ workspaceId: state.workspaceA, status: "ready" }],
+        acpProfiles: [
+          {
+            profileId: "profile-main",
+            agentId: "codex",
+            displayName: "Codex",
+            status: "ready",
+            capabilities: ["acp.codex"]
+          }
+        ]
+      }
+    );
     expect(
       listAuthorizedRemoteAgentEndpoints({
         policy: state.policy,

@@ -9,6 +9,7 @@ import {
   type RemoteBlockRuntimePort
 } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it } from "vitest";
+import { WORKSPACE_CANVAS_EXECUTION_CAPABILITY } from "@planweave-ai/agent-host-protocol";
 import { RemoteAgentAuthorizationError } from "../remoteAgent/errors.js";
 import {
   createTestWorkspace,
@@ -28,7 +29,9 @@ import { ProjectAccessRepository } from "../projectAccessRepository.js";
 import { canonicalRemoteRuntimePort } from "../canonicalRemoteRuntimePort.js";
 import {
   endpointDispatchRequest,
-  registerEndpointDispatchAccess
+  registerEndpointDispatchAccess,
+  workspaceEndpointSelection,
+  workspaceExecutionCandidate
 } from "./support/endpointCoordinatorFixture.js";
 import { seedLegacyRemoteOperation } from "./support/legacyRemoteOperationSeed.js";
 import {
@@ -215,18 +218,23 @@ class CoordinatorHarness {
       grantWorkspaceId: workspaceId
     });
     coordination.hosts.bindToWorkspace(host.id, workspaceId);
-    coordination.hosts.reportOnline(host.id, ["acp.codex"], capacity, {
-      workspaceMappings: [{ workspaceId, status: "ready" }],
-      acpProfiles: [
-        {
-          profileId: "codex-acp",
-          agentId: "codex",
-          displayName: "Test Agent",
-          status: "ready",
-          capabilities: ["acp.codex"]
-        }
-      ]
-    });
+    coordination.hosts.reportOnline(
+      host.id,
+      ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
+      capacity,
+      {
+        workspaceMappings: [{ workspaceId, status: "ready" }],
+        acpProfiles: [
+          {
+            profileId: "codex-acp",
+            agentId: "codex",
+            displayName: "Test Agent",
+            status: "ready",
+            capabilities: ["acp.codex"]
+          }
+        ]
+      }
+    );
     return host.id;
   }
 
@@ -271,30 +279,42 @@ async function prepareInterruptedAction(harness: CoordinatorHarness, resumable: 
   const hostId = harness.registerHost();
   const coordination = harness.requireCoordination();
   if (resumable) {
-    coordination.hosts.reportOnline(hostId, ["acp.codex", "acp.session.load"], 1, {
-      workspaceMappings: [{ workspaceId: harness.locator.workspaceId, status: "ready" }],
-      acpProfiles: [
-        {
-          profileId: "codex-acp",
-          agentId: "codex",
-          displayName: "Test Agent",
-          status: "ready",
-          capabilities: ["acp.codex", "acp.session.load"]
-        }
-      ]
-    });
+    coordination.hosts.reportOnline(
+      hostId,
+      ["acp.codex", "acp.session.load", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
+      1,
+      {
+        workspaceMappings: [{ workspaceId: harness.locator.workspaceId, status: "ready" }],
+        acpProfiles: [
+          {
+            profileId: "codex-acp",
+            agentId: "codex",
+            displayName: "Test Agent",
+            status: "ready",
+            capabilities: ["acp.codex", "acp.session.load"]
+          }
+        ]
+      }
+    );
   }
   const blockRef = "T-001#B-001";
-  const candidate = await canonicalRemoteRuntimePort(
-    harness.requireRuntime(),
-    harness.locator.workspaceId
-  ).inspect({ ref: blockRef });
+  const candidate = workspaceExecutionCandidate(
+    await canonicalRemoteRuntimePort(harness.requireRuntime(), harness.locator.workspaceId).inspect(
+      { ref: blockRef }
+    )
+  );
   const operation = seedLegacyRemoteOperation({
     database: harness.requireServer().database,
     operations: coordination.operations,
     locator: harness.locator,
     candidate,
     idempotencyKey: `action-crash-${resumable}`,
+    endpointSelection: workspaceEndpointSelection({
+      agentEndpoints: coordination.agentEndpoints,
+      candidate,
+      hostId,
+      workspaceId: harness.locator.workspaceId
+    }),
     hostSelection: {
       workspaceId: harness.locator.workspaceId,
       assignmentRevision: 0,
@@ -507,18 +527,23 @@ describe("RemoteBlockCoordinator crash reconciliation", () => {
       .get(interrupted.id) as { agent_access_json: string | null };
     expect(snapshotAfterSideEffect.agent_access_json).toEqual(expect.any(String));
 
-    coordination.hosts.reportOnline(prepared.hostId, ["acp.codex"], 1, {
-      workspaceMappings: [{ workspaceId: harness.locator.workspaceId, status: "ready" }],
-      acpProfiles: [
-        {
-          profileId: "codex-acp",
-          agentId: "codex",
-          displayName: "Test Agent",
-          status: "ready",
-          capabilities: ["acp.codex"]
-        }
-      ]
-    });
+    coordination.hosts.reportOnline(
+      prepared.hostId,
+      ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
+      1,
+      {
+        workspaceMappings: [{ workspaceId: harness.locator.workspaceId, status: "ready" }],
+        acpProfiles: [
+          {
+            profileId: "codex-acp",
+            agentId: "codex",
+            displayName: "Test Agent",
+            status: "ready",
+            capabilities: ["acp.codex"]
+          }
+        ]
+      }
+    );
     coordination = await harness.restart();
     await coordination.reconcile({
       serverInstanceOwnerToken: harness.requireServer().serverInstanceOwnerToken
@@ -586,18 +611,23 @@ describe("RemoteBlockCoordinator crash reconciliation", () => {
     const mutated = coordination.operations.getRequired(interrupted.id);
     expect(mutated.endpointSelection).toEqual(interrupted.endpointSelection);
 
-    coordination.hosts.reportOnline(prepared.hostId, ["acp.codex"], 1, {
-      workspaceMappings: [{ workspaceId: harness.locator.workspaceId, status: "ready" }],
-      acpProfiles: [
-        {
-          profileId: "replacement-profile",
-          agentId: "replacement-agent",
-          displayName: "Replacement",
-          status: "ready",
-          capabilities: ["acp.codex"]
-        }
-      ]
-    });
+    coordination.hosts.reportOnline(
+      prepared.hostId,
+      ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
+      1,
+      {
+        workspaceMappings: [{ workspaceId: harness.locator.workspaceId, status: "ready" }],
+        acpProfiles: [
+          {
+            profileId: "replacement-profile",
+            agentId: "replacement-agent",
+            displayName: "Replacement",
+            status: "ready",
+            capabilities: ["acp.codex"]
+          }
+        ]
+      }
+    );
     coordination = await harness.restart();
     await expect(
       coordination.reconcile({
@@ -845,16 +875,25 @@ describe("RemoteBlockCoordinator crash reconciliation", () => {
   it("blocks a restarted legacy operation when its Runtime source has drifted", async () => {
     const harness = await CoordinatorHarness.create();
     const coordination = harness.requireCoordination();
-    const candidate = await canonicalRemoteRuntimePort(
-      harness.requireRuntime(),
-      harness.locator.workspaceId
-    ).inspect({ ref: "T-001#B-001" });
+    const hostId = harness.registerHost();
+    const candidate = workspaceExecutionCandidate(
+      await canonicalRemoteRuntimePort(
+        harness.requireRuntime(),
+        harness.locator.workspaceId
+      ).inspect({ ref: "T-001#B-001" })
+    );
     const operation = seedLegacyRemoteOperation({
       database: harness.requireServer().database,
       operations: coordination.operations,
       locator: harness.locator,
       candidate,
       idempotencyKey: "source-drift-before-host",
+      endpointSelection: workspaceEndpointSelection({
+        agentEndpoints: coordination.agentEndpoints,
+        candidate,
+        hostId,
+        workspaceId: harness.locator.workspaceId
+      }),
       hostSelection: {
         workspaceId: harness.locator.workspaceId,
         assignmentRevision: 0,
@@ -863,8 +902,13 @@ describe("RemoteBlockCoordinator crash reconciliation", () => {
         requiredCapabilities: candidate.requiredCapabilities
       }
     });
-    const outcome = await coordination.coordinator.reenter(operation.id);
-    expect(outcome.status).toBe("awaiting_host");
+    harness
+      .requireServer()
+      .database.prepare("UPDATE agent_hosts SET last_seen_at=? WHERE id=?")
+      .run("1970-01-01T00:00:00.000Z", hostId);
+    await expect(coordination.coordinator.reenter(operation.id)).rejects.toMatchObject({
+      code: "agent_endpoint_unavailable"
+    });
     await appendFile(
       join(harness.workspace.init.workspace.packageDir, "nodes/T-001/blocks/B-001.prompt.md"),
       "\nsource drift after durable preparation\n",
@@ -876,7 +920,7 @@ describe("RemoteBlockCoordinator crash reconciliation", () => {
     await expect(harness.requireCoordination().coordinator.reenterPending()).resolves.toMatchObject(
       [{ status: "terminal" }]
     );
-    expect(harness.requireCoordination().operations.getRequired(outcome.operation.id).state).toBe(
+    expect(harness.requireCoordination().operations.getRequired(operation.id).state).toBe(
       "cancelled"
     );
     expect(count(harness.requireServer().database, "host_capacity_reservations")).toBe(0);

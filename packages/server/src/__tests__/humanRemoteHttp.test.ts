@@ -2,6 +2,7 @@ import { createServer, type Server as HttpServer } from "node:http";
 import { loopbackHttpTransportAdmission } from "./support/transportAdmission.js";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
+import { WORKSPACE_CANVAS_EXECUTION_CAPABILITY } from "@planweave-ai/agent-host-protocol";
 import {
   createRemoteBlockArtifactSource,
   createRemoteBlockRuntimePort,
@@ -132,18 +133,23 @@ async function setup() {
     grantWorkspaceId: workspaceId
   });
   coordination.hosts.bindToWorkspace(host.id, workspaceId);
-  coordination.hosts.reportOnline(host.id, ["acp.codex", "acp.session.load"], 1, {
-    workspaceMappings: [{ workspaceId, status: "ready" }],
-    acpProfiles: [
-      {
-        profileId: "codex-acp",
-        agentId: "codex",
-        displayName: "Test Agent",
-        status: "ready",
-        capabilities: ["acp.codex", "acp.session.load"]
-      }
-    ]
-  });
+  coordination.hosts.reportOnline(
+    host.id,
+    ["acp.codex", "acp.session.load", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
+    1,
+    {
+      workspaceMappings: [{ workspaceId, status: "ready" }],
+      acpProfiles: [
+        {
+          profileId: "codex-acp",
+          agentId: "codex",
+          displayName: "Test Agent",
+          status: "ready",
+          capabilities: ["acp.codex", "acp.session.load"]
+        }
+      ]
+    }
+  );
   const authority = new AuthorityRepository(storage.database);
   const executionTarget = authority.applyExecutionTarget({
     mutation: {

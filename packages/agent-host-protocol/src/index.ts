@@ -116,9 +116,13 @@ export {
   CAPABILITIES_MAX_COUNT,
   CAPABILITY_MAX_LENGTH,
   CANVAS_RUNTIME_CAPABILITY,
+  INTERNAL_CAPABILITY_PREFIX,
+  WORKSPACE_CANVAS_EXECUTION_CAPABILITY,
   capabilitiesSchema,
   capabilitySchema,
   hasCanvasRuntimeCapability,
+  hasWorkspaceCanvasExecutionCapability,
+  userRequiredCapabilitiesSchema,
   type Capabilities,
   type Capability
 } from "./capabilities.js";

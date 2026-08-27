@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { WORKSPACE_CANVAS_EXECUTION_CAPABILITY } from "@planweave-ai/agent-host-protocol";
 import { manifestSchema } from "../schema/manifest.js";
 import { basicManifest } from "./promptTestHelpers.js";
 import { manifestTestBuilder } from "./manifestTestBuilder.js";
@@ -255,6 +256,9 @@ describe("plan-package/v1 manifest schema", () => {
     ]);
 
     block.requirements = { capabilities: ["linux", "acp.codex", "linux"] };
+    expect(manifestSchema.safeParse(manifest).success).toBe(false);
+
+    block.requirements = { capabilities: [WORKSPACE_CANVAS_EXECUTION_CAPABILITY] };
     expect(manifestSchema.safeParse(manifest).success).toBe(false);
   });
 

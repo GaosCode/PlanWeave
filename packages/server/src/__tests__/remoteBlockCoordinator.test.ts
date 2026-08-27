@@ -3,7 +3,10 @@ import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createRemoteBlockArtifactSource, type PlanPackageManifest } from "@planweave-ai/runtime";
 import { describe, expect, it, vi } from "vitest";
-import { ownerPackageLocatorForRun } from "@planweave-ai/agent-host-protocol";
+import {
+  ownerPackageLocatorForRun,
+  WORKSPACE_CANVAS_EXECUTION_CAPABILITY
+} from "@planweave-ai/agent-host-protocol";
 import { RemoteAgentAuthorizationError } from "../remoteAgent/errors.js";
 import { basicManifest } from "../../../runtime/src/__tests__/promptTestHelpers.js";
 import { endpointIdFor } from "../agentEndpointCatalog.js";
@@ -14,7 +17,11 @@ import { ProjectAccessRepository } from "../projectAccessRepository.js";
 import { AuthorityRepository } from "../work/authorityRepository.js";
 import { CanvasRuntimeAttachmentConflictError } from "../canvas/runtimeAttachment.js";
 import { RuntimeArtifactGrantRepository } from "../canvas/runtimeArtifactGrantRepository.js";
-import { endpointDispatchRequest } from "./support/endpointCoordinatorFixture.js";
+import {
+  endpointDispatchRequest,
+  workspaceEndpointSelection,
+  workspaceExecutionCandidate
+} from "./support/endpointCoordinatorFixture.js";
 import { seedLegacyRemoteOperation } from "./support/legacyRemoteOperationSeed.js";
 import { remoteManifest, setup } from "./support/remoteBlockCoordinatorFixture.js";
 import {
@@ -30,7 +37,7 @@ async function setupFleetUnboundHost(manifest: PlanPackageManifest = remoteManif
     database: fixture.server.database,
     hostId: host.id
   });
-  fixture.hosts.reportOnline(host.id, ["acp.codex"], 1, {
+  fixture.hosts.reportOnline(host.id, ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY], 1, {
     workspaceMappings: [],
     acpProfiles: [
       {
@@ -297,7 +304,7 @@ describe("RemoteBlockCoordinator", () => {
     ).resolves.toMatchObject({ ownership: { phase: "active" } });
   });
 
-  it("keeps an existing legacy automatic operation actionable until capacity appears", async () => {
+  it("fails closed when a legacy automatic operation has no Endpoint authority", async () => {
     const fixture = await setup(false);
     const request = {
       blockRef: "T-001#B-001",
@@ -320,36 +327,10 @@ describe("RemoteBlockCoordinator", () => {
         requiredCapabilities: candidate.requiredCapabilities
       }
     });
-    const pending = await fixture.coordinator.reenter(operation.id);
-    expect(pending.status).toBe("awaiting_host");
-    expect(pending.operation.state).toBe("claimed");
-    expect(
-      fixture.server.database
-        .prepare("SELECT diagnostic_code FROM remote_operations WHERE id=?")
-        .get(pending.operation.id)?.diagnostic_code
-    ).toBe("no_compatible_agent_host");
-
-    const host = fixture.hosts.register("Late Host").host;
-    const workspaceId = new WorkspaceIdentityRepository(
-      fixture.server.database
-    ).workspaceForLegacyProject(fixture.locator.projectId);
-    if (!workspaceId) throw new Error("workspace_mapping_missing");
-    fixture.hosts.bindToWorkspace(host.id, workspaceId);
-    fixture.hosts.reportOnline(host.id, ["acp.codex"], 1, {
-      workspaceMappings: [{ workspaceId, status: "ready" }],
-      acpProfiles: [
-        {
-          profileId: "codex-acp",
-          agentId: "codex",
-          displayName: "Test Agent",
-          status: "ready",
-          capabilities: ["acp.codex"]
-        }
-      ]
-    });
-    await expect(fixture.coordinator.reenter(pending.operation.id)).resolves.toMatchObject({
-      status: "activated"
-    });
+    await expect(fixture.coordinator.reenter(operation.id)).rejects.toThrowError(
+      "remote_operation_endpoint_selection_missing"
+    );
+    expect(fixture.operations.getRequired(operation.id).state).toBe("claimed");
   });
 
   it("dispatches the selected catalog Endpoint only to a Host with a ready ACP profile", async () => {
@@ -364,11 +345,16 @@ describe("RemoteBlockCoordinator", () => {
         grantWorkspaceId: fixture.locator.workspaceId
       });
     }
-    fixture.hosts.reportOnline(missingAcp.id, ["acp.codex"], 1, {
-      workspaceMappings: [{ workspaceId: fixture.locator.workspaceId, status: "ready" }],
-      acpProfiles: []
-    });
-    fixture.hosts.reportOnline(ready.id, ["acp.codex"], 1, {
+    fixture.hosts.reportOnline(
+      missingAcp.id,
+      ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
+      1,
+      {
+        workspaceMappings: [{ workspaceId: fixture.locator.workspaceId, status: "ready" }],
+        acpProfiles: []
+      }
+    );
+    fixture.hosts.reportOnline(ready.id, ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY], 1, {
       workspaceMappings: [{ workspaceId: fixture.locator.workspaceId, status: "ready" }],
       acpProfiles: [
         {
@@ -492,7 +478,7 @@ describe("RemoteBlockCoordinator", () => {
       grantWorkspaceId: secondWorkspaceId
     });
     fixture.hosts.bindToWorkspace(host.id, secondWorkspaceId);
-    fixture.hosts.reportOnline(host.id, ["acp.codex"], 1, {
+    fixture.hosts.reportOnline(host.id, ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY], 1, {
       workspaceMappings: [{ workspaceId: secondWorkspaceId, status: "ready" }],
       acpProfiles: [
         {
@@ -592,7 +578,7 @@ describe("RemoteBlockCoordinator", () => {
       grantWorkspaceId: workspaceId
     });
     fixture.hosts.bindToWorkspace(hostB.id, workspaceId);
-    fixture.hosts.reportOnline(hostB.id, ["acp.codex"], 1, {
+    fixture.hosts.reportOnline(hostB.id, ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY], 1, {
       workspaceMappings: [{ workspaceId, status: "ready" }],
       acpProfiles: [
         {
@@ -628,15 +614,21 @@ describe("RemoteBlockCoordinator", () => {
       }
     ).toEqual({ count: 0 });
 
-    const candidate = await fixture.registry.resolve(fixture.locator).inspect({
-      ref: scope.blockRef
-    });
+    const candidate = workspaceExecutionCandidate(
+      await fixture.registry.resolve(fixture.locator).inspect({ ref: scope.blockRef })
+    );
     const legacyOperation = seedLegacyRemoteOperation({
       database: fixture.server.database,
       operations: fixture.operations,
       locator: fixture.locator,
       candidate,
       idempotencyKey: "retry-authority-only",
+      endpointSelection: workspaceEndpointSelection({
+        agentEndpoints: fixture.agentEndpoints,
+        candidate,
+        hostId: hostA.id,
+        workspaceId
+      }),
       hostSelection: {
         workspaceId,
         assignmentRevision: 1,
@@ -740,18 +732,23 @@ describe("RemoteBlockCoordinator", () => {
         .prepare("UPDATE agent_hosts SET last_seen_at=? WHERE id=?")
         .run("2000-01-01T00:00:00.000Z", fixture.host.id);
     } else {
-      fixture.hosts.reportOnline(fixture.host.id, ["acp.codex"], 1, {
-        workspaceMappings: [{ workspaceId: fixture.locator.workspaceId, status: "ready" }],
-        acpProfiles: [
-          {
-            profileId: "other-profile",
-            agentId: "other-agent",
-            displayName: "Other Agent",
-            status: "ready",
-            capabilities: ["acp.codex"]
-          }
-        ]
-      });
+      fixture.hosts.reportOnline(
+        fixture.host.id,
+        ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
+        1,
+        {
+          workspaceMappings: [{ workspaceId: fixture.locator.workspaceId, status: "ready" }],
+          acpProfiles: [
+            {
+              profileId: "other-profile",
+              agentId: "other-agent",
+              displayName: "Other Agent",
+              status: "ready",
+              capabilities: ["acp.codex"]
+            }
+          ]
+        }
+      );
     }
 
     await expect(
@@ -902,7 +899,7 @@ describe("RemoteBlockCoordinator", () => {
       "utf8"
     );
     const host = fixture.hosts.register("Drift Host").host;
-    fixture.hosts.reportOnline(host.id, ["acp.codex"], 1);
+    fixture.hosts.reportOnline(host.id, ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY], 1);
     await expect(fixture.coordinator.reenter(pending.operation.id)).rejects.toThrowError(
       "remote_source_changed"
     );

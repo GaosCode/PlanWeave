@@ -175,6 +175,7 @@ async function runHostExecutor(
   let uploadedBytes = 0;
   const executor = new RemoteAcpExecutor({
     workspaceResolver: { resolve: async () => ({ cwd }) },
+    runtimeWorkspaceResolver: { resolve: async () => ({ cwd }) },
     profileResolver: {
       resolve: async (agentProfileId, agentId) => {
         if (

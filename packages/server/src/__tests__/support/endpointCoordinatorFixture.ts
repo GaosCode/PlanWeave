@@ -1,6 +1,13 @@
-import type { AgentEndpointCatalog } from "../../agentEndpointCatalog.js";
+import { WORKSPACE_CANVAS_EXECUTION_CAPABILITY } from "@planweave-ai/agent-host-protocol";
+import {
+  remoteBlockDispatchCandidateSchema,
+  type RemoteBlockDispatchCandidate
+} from "@planweave-ai/runtime";
+import { endpointIdFor, type AgentEndpointCatalog } from "../../agentEndpointCatalog.js";
+import { runtimeAuthoritySnapshotForTarget } from "../../endpointSelection.js";
 import { ProjectAccessRepository } from "../../projectAccessRepository.js";
 import type { RemoteEndpointDispatchRequest } from "../../remoteBlockCoordinator.js";
+import { snapshotDispatchEndpoint } from "../../remoteBlockCoordinatorEndpoint.js";
 import type { RemoteRuntimeLocator } from "../../remoteBlockCoordinatorPorts.js";
 import type { SqliteDatabase } from "../../sqlite.js";
 import { TEST_REMOTE_AGENT_OWNER_ID } from "./remoteAgentOwnerFixture.js";
@@ -57,4 +64,34 @@ export function endpointDispatchRequest(input: {
     targetKind,
     callerHumanPrincipalId: input.callerHumanPrincipalId ?? TEST_REMOTE_AGENT_OWNER_ID
   };
+}
+
+export function workspaceExecutionCandidate(
+  candidate: RemoteBlockDispatchCandidate
+): RemoteBlockDispatchCandidate {
+  return remoteBlockDispatchCandidateSchema.parse({
+    ...candidate,
+    requiredCapabilities: [...candidate.requiredCapabilities, WORKSPACE_CANVAS_EXECUTION_CAPABILITY]
+  });
+}
+
+export function workspaceEndpointSelection(input: {
+  agentEndpoints: AgentEndpointCatalog;
+  candidate: RemoteBlockDispatchCandidate;
+  hostId: string;
+  workspaceId: string;
+}) {
+  return snapshotDispatchEndpoint(
+    input.agentEndpoints.resolveForRun(
+      endpointIdFor({ hostId: input.hostId, profileId: "codex-acp", agentId: "codex" }),
+      input.workspaceId,
+      input.candidate.requiredCapabilities,
+      { kind: "workspace" }
+    ),
+    input.candidate,
+    runtimeAuthoritySnapshotForTarget(
+      { kind: "workspace_canvas", workspaceId: input.workspaceId },
+      { responsibilityRevision: 0, reviewerRevision: 0 }
+    )
+  );
 }

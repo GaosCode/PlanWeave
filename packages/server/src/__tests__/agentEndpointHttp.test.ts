@@ -3,6 +3,7 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { createTestWorkspace } from "../../../runtime/src/__tests__/promptTestHelpers.js";
 import { afterEach, describe, expect, it } from "vitest";
+import { WORKSPACE_CANVAS_EXECUTION_CAPABILITY } from "@planweave-ai/agent-host-protocol";
 import { AgentEndpointCatalog } from "../agentEndpointCatalog.js";
 import { handleAgentEndpointHttpRequest } from "../agentEndpointHttp.js";
 import { AgentHostRepository } from "../hosts.js";
@@ -82,7 +83,7 @@ async function fixture() {
     grantWorkspaceId: workspaceId
   });
   hosts.bindToWorkspace(registered.id, workspaceId);
-  hosts.reportOnline(registered.id, ["acp.codex"], 2, {
+  hosts.reportOnline(registered.id, ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY], 2, {
     workspaceMappings: [{ workspaceId, status: "ready" }],
     acpProfiles: [
       {
@@ -231,7 +232,7 @@ describe("Agent Endpoint HTTP", () => {
       grantWorkspaceId: workspaceId
     });
     hosts.bindToWorkspace(host.id, workspaceId);
-    hosts.reportOnline(host.id, ["acp.codex"], 1, {
+    hosts.reportOnline(host.id, ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY], 1, {
       workspaceMappings: [{ workspaceId, status: "ready" }],
       acpProfiles: [
         {

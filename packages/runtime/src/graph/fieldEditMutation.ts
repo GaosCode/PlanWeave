@@ -1,5 +1,5 @@
 import { parseBlockRef } from "./compileTaskGraph.js";
-import { capabilitiesSchema } from "@planweave-ai/agent-host-protocol/browser";
+import { userRequiredCapabilitiesSchema } from "@planweave-ai/agent-host-protocol/browser";
 import {
   buildPlanPackageManifestChangeMutation,
   writePromptSideEffects,
@@ -166,7 +166,7 @@ function editImplementationBlock(
     fields.push("parallel.sharedResources");
   }
   if (input.requiredCapabilities !== undefined) {
-    const requiredCapabilities = capabilitiesSchema.parse(input.requiredCapabilities);
+    const requiredCapabilities = userRequiredCapabilitiesSchema.parse(input.requiredCapabilities);
     next = {
       ...next,
       ...(requiredCapabilities.length === 0

@@ -12,6 +12,7 @@ import {
   type AcpSharedPoolIdentity
 } from "@planweave-ai/runtime";
 import { parseAgentHostExecuteCommand } from "../protocol.js";
+import { hasWorkspaceCanvasExecutionCapability } from "@planweave-ai/agent-host-protocol";
 import {
   AgentHostExecutionError,
   AgentHostSessionLoadError,
@@ -23,6 +24,7 @@ import type {
   AgentHostRemoteExecutionIdentity,
   AgentHostRemoteExecutionOutbox,
   AgentHostRemoteInteractionResponder,
+  AgentHostRuntimeWorkspaceResolver,
   AgentHostWorkspaceResolver,
   ResolvedAgentHostAcpProfile
 } from "./remoteAcpPorts.js";
@@ -31,6 +33,7 @@ import { prepareInputArtifacts } from "./inputArtifactWorkspace.js";
 
 type RemoteAcpExecutorOptions = {
   workspaceResolver: AgentHostWorkspaceResolver;
+  runtimeWorkspaceResolver: AgentHostRuntimeWorkspaceResolver;
   profileResolver: AgentHostAcpProfileResolver;
   outbox: AgentHostRemoteExecutionOutbox;
   hostCapabilities: readonly string[];
@@ -226,22 +229,58 @@ export class RemoteAcpExecutor implements AgentHostExecutor {
       throw failure("report_contract_invalid", "Report artifact allowance must be at least one.");
     }
     validateLocalCapabilities(command.envelope.requiredCapabilities, this.hostCapabilities);
-
     let workspace: Awaited<ReturnType<AgentHostWorkspaceResolver["resolve"]>>;
     let profile: Awaited<ReturnType<AgentHostAcpProfileResolver["resolve"]>>;
     try {
-      [workspace, profile] = await Promise.all([
-        this.options.workspaceResolver.resolve(
+      let workspaceResolution: ReturnType<AgentHostWorkspaceResolver["resolve"]>;
+      const workspaceCanvasExecution = hasWorkspaceCanvasExecutionCapability(
+        command.envelope.requiredCapabilities
+      );
+      if (!workspaceCanvasExecution) {
+        workspaceResolution = this.options.workspaceResolver.resolve(
           command.envelope.workspaceId,
           command.envelope.ownerPackageLocator
-        ),
+        );
+      } else {
+        const graphFingerprint = command.envelope.graphFingerprint;
+        if (graphFingerprint === undefined) {
+          throw failure(
+            "runtime_materialization_evidence_missing",
+            "Workspace execution requires exact Runtime materialization evidence."
+          );
+        }
+        workspaceResolution = this.options.runtimeWorkspaceResolver.resolve(
+          {
+            workspaceId: command.envelope.workspaceId,
+            projectId: command.envelope.projectId,
+            canvasId: command.envelope.canvasId
+          },
+          {
+            sourceRevision: command.envelope.sourceRevision,
+            graphFingerprint
+          }
+        );
+      }
+      [workspace, profile] = await Promise.all([
+        workspaceResolution,
         this.options.profileResolver.resolve(
           command.envelope.agentProfileId,
           command.envelope.agentId
         )
       ]);
-    } catch {
+    } catch (error) {
+      if (error instanceof AgentHostExecutionError) throw error;
       if (context.sessionStart.kind === "load") throw new AgentHostSessionLoadError();
+      if (
+        hasWorkspaceCanvasExecutionCapability(command.envelope.requiredCapabilities) &&
+        error instanceof Error &&
+        error.message === "runtime_materialization_evidence_mismatch"
+      ) {
+        throw failure(
+          "runtime_materialization_evidence_mismatch",
+          "The managed Runtime working set does not match the authorized execution source."
+        );
+      }
       throw failure(
         "host_resolution_failed",
         "The Agent Host could not resolve the requested workspace or ACP profile."

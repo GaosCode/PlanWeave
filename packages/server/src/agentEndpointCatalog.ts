@@ -8,7 +8,10 @@ import {
   type RemoteAgentEndpoint,
   type RemoteAgentEndpointList
 } from "@planweave-ai/collaboration-protocol/agent-endpoint";
-import { opaqueIdentifierSchema } from "@planweave-ai/agent-host-protocol";
+import {
+  opaqueIdentifierSchema,
+  WORKSPACE_CANVAS_EXECUTION_CAPABILITY
+} from "@planweave-ai/agent-host-protocol";
 import { createHash } from "node:crypto";
 import { workspaceIdSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import type { EndpointAvailabilityPolicy } from "./remoteAgent/dispatchTarget.js";
@@ -73,6 +76,14 @@ type InternalCandidate = {
   profile: NonNullable<AgentHost["readinessObservation"]>["acpProfiles"][number];
 };
 
+function supportsRequiredCapability(candidate: InternalCandidate, capability: string): boolean {
+  if (!candidate.host.capabilities.includes(capability)) return false;
+  return (
+    capability === WORKSPACE_CANVAS_EXECUTION_CAPABILITY ||
+    candidate.profile.capabilities.includes(capability)
+  );
+}
+
 const ACTIVE_HOST_PAGE_SIZE = 100;
 const MAX_ACTIVE_HOSTS_PER_SNAPSHOT = 12_800;
 const MAX_ENDPOINTS_PER_SNAPSHOT = 12_800;
@@ -108,7 +119,8 @@ function unavailableReason(
   now: Date,
   hostOfflineAfterMs: number,
   duplicateProfile: boolean,
-  enforceCapacity: boolean
+  enforceCapacity: boolean,
+  requireWorkspaceCanvasExecution: boolean
 ): AgentEndpointUnavailableReason | undefined {
   if (host.revokedAt !== undefined) return "host_revoked";
   const credentialExpiry =
@@ -131,6 +143,12 @@ function unavailableReason(
   if (profile.status === "missing") return "profile_missing";
   if (!profile.capabilities.every((capability) => host.capabilities.includes(capability))) {
     return "profile_invalid";
+  }
+  if (
+    requireWorkspaceCanvasExecution &&
+    !host.capabilities.includes(WORKSPACE_CANVAS_EXECUTION_CAPABILITY)
+  ) {
+    return "host_capability_missing";
   }
   if (enforceCapacity && activeReservations >= host.capacity) return "at_capacity";
   return undefined;
@@ -175,7 +193,8 @@ export class AgentEndpointCatalog {
         now,
         this.options.hostOfflineAfterMs,
         this.profileIdentityCount(candidate.host, candidate.profile) !== 1,
-        occupyHostCapacity
+        occupyHostCapacity,
+        policy.kind !== "owner_fleet"
       );
       const endpoint = remoteAgentEndpointSchema.parse({
         ...candidate.endpoint,
@@ -223,11 +242,7 @@ export class AgentEndpointCatalog {
       throw new AgentEndpointCatalogError("agent_endpoint_unavailable");
     }
     if (
-      !requiredCapabilities.every(
-        (capability) =>
-          candidate.host.capabilities.includes(capability) &&
-          candidate.profile.capabilities.includes(capability)
-      )
+      !requiredCapabilities.every((capability) => supportsRequiredCapability(candidate, capability))
     ) {
       throw new AgentEndpointCatalogError("agent_endpoint_incompatible");
     }
@@ -254,11 +269,7 @@ export class AgentEndpointCatalog {
       throw new AgentEndpointCatalogError("agent_endpoint_unavailable");
     }
     if (
-      !requiredCapabilities.every(
-        (capability) =>
-          candidate.host.capabilities.includes(capability) &&
-          candidate.profile.capabilities.includes(capability)
-      )
+      !requiredCapabilities.every((capability) => supportsRequiredCapability(candidate, capability))
     ) {
       throw new AgentEndpointCatalogError("agent_endpoint_incompatible");
     }
@@ -276,7 +287,8 @@ export class AgentEndpointCatalog {
       this.clock(),
       this.options.hostOfflineAfterMs,
       this.profileIdentityCount(candidate.host, candidate.profile) !== 1,
-      endpointOccupiesHostCapacity(policy)
+      endpointOccupiesHostCapacity(policy),
+      policy.kind !== "owner_fleet"
     );
   }
 
@@ -339,7 +351,8 @@ export class AgentEndpointCatalog {
           now,
           this.options.hostOfflineAfterMs,
           identityCounts.get(identity) !== 1,
-          enforceCapacity
+          enforceCapacity,
+          false
         );
         const endpoint = remoteAgentEndpointSchema.parse({
           schemaVersion: "agent-endpoint/v1",
