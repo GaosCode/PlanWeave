@@ -372,6 +372,19 @@ export class RemoteExecutionActionRepository {
     });
   }
 
+  releaseApplicationClaimIfOwned(actionId: string, ownerToken: string): void {
+    inWriteTransaction(this.database, () => {
+      assertServerInstanceOwnership(this.database, ownerToken);
+      this.database
+        .prepare(
+          `UPDATE remote_execution_actions
+           SET application_owner_token=NULL,application_claimed_at=NULL
+           WHERE action_id=? AND state='recorded' AND application_owner_token=?`
+        )
+        .run(actionId, ownerToken);
+    });
+  }
+
   listUnsettled(): RemoteExecutionActionRecord[] {
     return this.database
       .prepare(
@@ -561,9 +574,12 @@ export class RemoteExecutionActionService {
     return this.actions.transition(actionId, "settled");
   }
 
-  async reconcile(startupContext?: {
-    serverInstanceOwnerToken: string;
-  }): Promise<RemoteExecutionActionRecord[]> {
+  async reconcile(
+    startupContext?: {
+      serverInstanceOwnerToken: string;
+    },
+    onFailure?: (action: RemoteExecutionActionRecord, error: unknown) => boolean | Promise<boolean>
+  ): Promise<RemoteExecutionActionRecord[]> {
     if (
       startupContext &&
       startupContext.serverInstanceOwnerToken !== this.serverInstanceOwnerToken
@@ -573,7 +589,15 @@ export class RemoteExecutionActionService {
     const reconciled: RemoteExecutionActionRecord[] = [];
     for (const action of this.actions.listUnsettled()) {
       if (action.state === "recorded") {
-        reconciled.push(await this.runSingleFlight(action, startupContext !== undefined));
+        try {
+          reconciled.push(await this.runSingleFlight(action, startupContext !== undefined));
+        } catch (error) {
+          if (!onFailure || !(await onFailure(action, error))) throw error;
+          this.actions.releaseApplicationClaimIfOwned(
+            action.request.actionId,
+            this.serverInstanceOwnerToken
+          );
+        }
       } else {
         reconciled.push(action);
       }

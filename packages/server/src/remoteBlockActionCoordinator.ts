@@ -34,6 +34,7 @@ import {
   dispatchHostSelectionSnapshotSchema,
   type DispatchHostSelectionSnapshot
 } from "./work/dispatchIntegration.js";
+import { classifyReenterFailure, diagnosticFromReenterFailure } from "./remoteReenterRecovery.js";
 
 export class RemoteBlockActionCoordinator {
   private readonly actionService: RemoteExecutionActionService;
@@ -91,7 +92,16 @@ export class RemoteBlockActionCoordinator {
   reconcile(startupContext?: {
     serverInstanceOwnerToken: string;
   }): Promise<RemoteExecutionActionRecord[]> {
-    return this.actionService.reconcile(startupContext);
+    return this.actionService.reconcile(startupContext, (action, error) => {
+      if (classifyReenterFailure(error) !== "defer_host") return false;
+      const diagnostic = diagnosticFromReenterFailure(error);
+      this.options.operations.recordDiagnostic(
+        action.request.operationId,
+        diagnostic.code,
+        diagnostic.message
+      );
+      return true;
+    });
   }
 
   async requestCancel(operationId: string, reason: string): Promise<void> {

@@ -30,6 +30,7 @@ import { RemoteRuntimePortRegistry } from "../remoteRuntimeLocator.js";
 import { WorkAssignmentRepository } from "../work/repository.js";
 import type { AssignmentTarget } from "../work/schemas.js";
 import { canonicalRemoteRuntimePort } from "../canonicalRemoteRuntimePort.js";
+import { CanvasRuntimeUnavailableError } from "../canvas/executionRuntimePort.js";
 import type { DispatchHostSelectionSnapshot } from "../work/dispatchIntegration.js";
 import {
   endpointDispatchRequest,
@@ -127,7 +128,8 @@ class StartupHarness {
   async start(
     checkpoints?: RemoteCoordinatorCheckpointPort,
     decorateRuntime: (runtime: RemoteBlockRuntimePort) => RemoteBlockRuntimePort = (runtime) =>
-      runtime
+      runtime,
+    options: { runtimeUnavailable?: boolean } = {}
   ): Promise<Coordination> {
     this.close();
     this.runtime = decorateRuntime(
@@ -135,6 +137,11 @@ class StartupHarness {
     );
     const runtime = this.runtime;
     const registry = new RemoteRuntimePortRegistry();
+    if (options.runtimeUnavailable) {
+      registry.setScopedResolver(() => {
+        throw new CanvasRuntimeUnavailableError();
+      });
+    }
     const started = await startRemoteBlockCoordinationServer(
       {
         dataDirectory: this.dataDirectory,
@@ -389,6 +396,87 @@ function eventCount(database: PlanweaveServer["database"], table: string, type: 
 }
 
 describe("RemoteBlockCoordinator startup reconciliation", () => {
+  it("defers recorded action recovery while the Canvas Runtime is unavailable", async () => {
+    const harness = await StartupHarness.create();
+    const hostId = harness.registerHost();
+    await harness.start(new CrashOnce("after_terminal_event_persistence"));
+    const coordination = harness.requireCoordination();
+    const outcome = await coordination.coordinator.dispatch(
+      harness.request("startup-action-runtime-unavailable")
+    );
+    const dispatch = coordination.dispatches.getRequired(outcome.operation.dispatchId);
+    coordination.dispatches.accept(
+      hostId,
+      "startup-action-runtime-unavailable-accepted",
+      dispatch.id,
+      dispatch.leaseId,
+      dispatch.executionAttemptId
+    );
+    coordination.dispatches.interrupt(hostId, "startup-action-runtime-unavailable-interrupted", {
+      type: "dispatch.interrupted",
+      protocolVersion: 1,
+      messageId: "startup-action-runtime-unavailable-interrupted",
+      dispatchId: dispatch.id,
+      leaseId: dispatch.leaseId,
+      executionAttemptId: dispatch.executionAttemptId,
+      reason: "acp_session_lost",
+      resumable: false
+    });
+    const lease = coordination.reservations.getRequired(dispatch.leaseId);
+    coordination.reservations.release({
+      leaseId: lease.leaseId,
+      fencingToken: lease.fencingToken,
+      expectedVersion: lease.version,
+      reason: "expired"
+    });
+    await coordination.coordinator.reenter(outcome.operation.id);
+    const interrupted = coordination.operations.getRequired(outcome.operation.id);
+    const action = {
+      actionId: "startup-action-runtime-unavailable-fail",
+      operationId: interrupted.id,
+      dispatchId: dispatch.id,
+      executionAttemptId: dispatch.executionAttemptId,
+      expectedAttemptVersion: interrupted.attempt.stateVersion,
+      kind: "fail",
+      leaseId: dispatch.leaseId,
+      failure: { code: "remote_test_failure", message: "Failed.", retryable: false },
+      reason: "recover failure writeback after restart"
+    } as const;
+    await expect(coordination.coordinator.executeAction(action)).rejects.toThrowError(
+      "injected_crash:after_terminal_event_persistence"
+    );
+
+    const unavailable = await harness.start(undefined, undefined, { runtimeUnavailable: true });
+    expect(unavailable.actions.getRequired(action.actionId)).toMatchObject({ state: "recorded" });
+    expect(
+      harness
+        .requireServer()
+        .database.prepare(
+          `SELECT application_owner_token,application_claimed_at,
+                  application_decision_json IS NOT NULL AS has_application_plan
+             FROM remote_execution_actions WHERE action_id=?`
+        )
+        .get(action.actionId)
+    ).toEqual({
+      application_owner_token: null,
+      application_claimed_at: null,
+      has_application_plan: 1
+    });
+    expect(
+      harness
+        .requireServer()
+        .database.prepare("SELECT diagnostic_code FROM remote_operations WHERE id=?")
+        .get(outcome.operation.id)
+    ).toEqual({ diagnostic_code: "runtime_not_attached" });
+
+    const recovered = await harness.start();
+    expect(recovered.actions.getRequired(action.actionId)).toMatchObject({ state: "settled" });
+    expect(recovered.operations.getRequired(outcome.operation.id)).toMatchObject({
+      state: "failed",
+      attempt: { status: "failed" }
+    });
+  });
+
   it("cancels a pre-dispatch claim after Runtime reset and continues startup", async () => {
     const harness = await StartupHarness.create();
     await harness.start(new CrashOnce("after_envelope_persistence"));
