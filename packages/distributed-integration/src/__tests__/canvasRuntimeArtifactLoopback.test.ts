@@ -186,7 +186,7 @@ async function setup() {
     void (async () => {
       const contentHandled = await handleCanvasRuntimeContentRequest(request, response, {
         hosts: coordination.hosts,
-        locator,
+        authorization: broker,
         contentVersions,
         transportAdmission: loopbackHttpTransportAdmission
       });
@@ -431,24 +431,33 @@ describe("Canvas Runtime artifact loopback", () => {
     expect(crossScope.status).toBe(403);
     expect(await crossScope.json()).toEqual({ error: "runtime_content_scope_forbidden" });
 
-    const staleDigest = "f".repeat(64);
-    const staleTarget = new URL(contentUrl);
-    staleTarget.pathname = staleTarget.pathname.replace(/\/[^/]+$/u, `/version-${staleDigest}`);
-    staleTarget.searchParams.set("canonicalDigest", staleDigest);
-    const stale = await fetch(staleTarget, {
-      headers: { Authorization: `Bearer ${fixture.hostRegistration.token}` }
+    const currentHead = fixture.contentVersions.head(scope);
+    if (!currentHead) throw new Error("test_content_head_required");
+    const staleHead = vi.spyOn(fixture.contentVersions, "head").mockReturnValueOnce({
+      ...currentHead,
+      revision: currentHead.revision + 1,
+      content: canvasRuntimeContentTargetSchema.parse({
+        revision: fixture.contentTarget.revision + 1,
+        content: {
+          versionId: `version-${"f".repeat(64)}`,
+          canonicalDigest: "f".repeat(64),
+          verification: "complete"
+        },
+        graphFingerprint: fixture.contentTarget.graphFingerprint
+      }).content
     });
-    expect(stale.status).toBe(409);
-    expect(await stale.json()).toEqual({ error: "runtime_content_target_stale" });
+    await expect(fixture.adapter.acquire(scope)).rejects.toThrow(
+      "runtime_content_download_failed_409"
+    );
+    staleHead.mockRestore();
 
-    vi.spyOn(fixture.contentVersions, "head").mockImplementationOnce(() => {
+    const failedHead = vi.spyOn(fixture.contentVersions, "head").mockImplementationOnce(() => {
       throw new Error("simulated_repository_failure");
     });
-    const internalFailure = await fetch(contentUrl, {
-      headers: { Authorization: `Bearer ${fixture.hostRegistration.token}` }
-    });
-    expect(internalFailure.status).toBe(500);
-    expect(await internalFailure.json()).toEqual({ error: "runtime_content_internal_error" });
+    await expect(fixture.adapter.acquire(scope)).rejects.toThrow(
+      "runtime_content_download_failed_500"
+    );
+    failedHead.mockRestore();
 
     fixture.coordination.hosts.runtimeBindings.synchronizeReadiness(
       fixture.hostRegistration.host.id,
