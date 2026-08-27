@@ -1132,4 +1132,49 @@ describe("RemoteBlockCoordinator concurrency reconciliation", () => {
     expect(resumed[0]).toMatchObject({ status: "activated" });
     expect(count(harness.requireServer().database, "mailbox_messages")).toBe(2);
   });
+
+  it("fails waiting-host reentry when the durable Endpoint identity changes", async () => {
+    const harness = await CoordinatorHarness.create(true);
+    const hostId = harness.registerHost(1);
+    const coordination = harness.requireCoordination();
+    const outcomes = await Promise.allSettled([
+      coordination.coordinator.dispatch(harness.request("T-001#B-001", "waiting-drift-a")),
+      coordination.coordinator.dispatch(harness.request("T-002#B-001", "waiting-drift-b"))
+    ]);
+    expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+    expect(outcomes.filter((outcome) => outcome.status === "rejected")).toHaveLength(1);
+    const waiting = coordination.operations
+      .listNonTerminal()
+      .find(
+        (operation) => operation.state === "claimed" && operation.attempt.status === "prepared"
+      );
+    expect(waiting?.endpointSelection?.hostId).toBe(hostId);
+
+    coordination.hosts.reportOnline(
+      hostId,
+      ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
+      1,
+      {
+        workspaceMappings: [{ workspaceId: harness.locator.workspaceId, status: "ready" }],
+        acpProfiles: [
+          {
+            profileId: "replacement-profile",
+            agentId: "replacement-agent",
+            displayName: "Replacement",
+            status: "ready",
+            capabilities: ["acp.codex"]
+          }
+        ]
+      }
+    );
+
+    await expect(coordination.coordinator.reenterWaitingForHost(hostId)).rejects.toThrow(
+      /agent_endpoint_(unknown|incompatible)/
+    );
+    expect(coordination.operations.getRequired(waiting!.id)).toMatchObject({
+      state: "claimed",
+      attempt: { status: "prepared" },
+      endpointSelection: waiting!.endpointSelection
+    });
+  });
 });

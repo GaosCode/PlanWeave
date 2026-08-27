@@ -783,7 +783,12 @@ export class RemoteBlockCoordinator {
       try {
         outcomes.push(await this.reenter(operation.id));
       } catch (error) {
-        if (!(error instanceof AgentEndpointCatalogError)) throw error;
+        if (
+          !(error instanceof AgentEndpointCatalogError) ||
+          error.code !== "agent_endpoint_unavailable"
+        ) {
+          throw error;
+        }
         this.options.operations.recordDiagnostic(operation.id, error.code, error.message);
         outcomes.push({
           operation: this.options.operations.getRequired(operation.id),
