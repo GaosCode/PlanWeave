@@ -193,6 +193,24 @@ describe("operator HTTP boundary", () => {
       }
     );
 
+    const workspaceMember = await setup(true, "ready", false);
+    const workspaceLocator = await fetch(
+      locatorUrl.replace(fixture.origin, workspaceMember.origin),
+      {
+        headers: authorization
+      }
+    );
+    expect(workspaceLocator.status).toBe(200);
+    expect(workspaceMember.service.listAgentEndpoints).toHaveBeenCalledWith(
+      expect.objectContaining({ serverAdmin: false, workspaceId: expect.any(String) }),
+      {
+        projectId: "project-a",
+        humanPrincipalId: "owner-human-1",
+        canvasId: "canvas-main",
+        workspaceId: "workspace-a"
+      }
+    );
+
     for (const suffix of ["projectId=project-a&projectId=project-b", "unknown=1"]) {
       const response = await fetch(`${fixture.origin}/api/v1/agent-endpoints?${suffix}`, {
         headers: authorization

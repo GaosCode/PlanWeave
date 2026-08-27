@@ -375,17 +375,19 @@ export async function handleOperatorHttpRequest(
           options.service.listHosts(principal, query(url, ["workspaceId", "cursor", "limit"]))
         );
         break;
-      case "list_agent_endpoints":
-        options.authorization.requireServerAdmin(principal);
-        respond(
-          response,
-          200,
-          options.service.listAgentEndpoints(
-            principal,
-            query(url, ["projectId", "humanPrincipalId", "canvasId", "workspaceId"])
-          )
-        );
+      case "list_agent_endpoints": {
+        const endpointQuery = query(url, [
+          "projectId",
+          "humanPrincipalId",
+          "canvasId",
+          "workspaceId"
+        ]);
+        if (endpointQuery.workspaceId === undefined) {
+          options.authorization.requireServerAdmin(principal);
+        }
+        respond(response, 200, options.service.listAgentEndpoints(principal, endpointQuery));
         break;
+      }
       case "list_remote_agents":
       case "set_remote_agent_access_mode":
       case "grant_remote_agent_workspace":

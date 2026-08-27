@@ -1,4 +1,5 @@
 import { createServer, type Server as HttpServer } from "node:http";
+import { WORKSPACE_CANVAS_EXECUTION_CAPABILITY } from "@planweave-ai/agent-host-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { createRemoteBlockCoordination } from "../distributedCoordination.js";
 import { HostEnrollmentService } from "../hostEnrollment.js";
@@ -10,9 +11,15 @@ import { handleOperatorHttpRequest } from "../operatorHttp.js";
 import { RemoteControlService } from "../remoteControlService.js";
 import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
 import { loopbackHttpTransportAdmission } from "./support/transportAdmission.js";
+import {
+  ownHostRemoteAgents,
+  persistedTestAgentAccess,
+  TEST_REMOTE_AGENT_OWNER_ID
+} from "./support/remoteAgentOwnerFixture.js";
 
 const adminToken = `pw_operator_${"F".repeat(43)}`;
 const memberToken = `pw_operator_${"G".repeat(43)}`;
+const workspaceToken = `pw_operator_${"H".repeat(43)}`;
 const now = new Date("2026-08-03T08:00:00.000Z");
 
 const databases: SqliteDatabase[] = [];
@@ -25,7 +32,7 @@ afterEach(async () => {
   for (const database of databases.splice(0)) database.close();
 });
 
-async function setup(input: { serverAdmin?: boolean } = {}) {
+async function setup(input: { serverAdmin?: boolean; withOwnerResolver?: boolean } = {}) {
   const database = await openServerDatabase(":memory:", 5_000);
   databases.push(database);
   applyMigrations(database);
@@ -51,6 +58,13 @@ async function setup(input: { serverAdmin?: boolean } = {}) {
     workspaceId,
     operatorId: "operator-admin",
     credentialSha256: hashOperatorToken(adminToken),
+    issuedAt: now.toISOString(),
+    expiresAt: "2030-01-01T00:00:00.000Z"
+  });
+  new OperatorSessionStore(database).create({
+    workspaceId,
+    operatorId: "operator-workspace",
+    credentialSha256: hashOperatorToken(workspaceToken),
     issuedAt: now.toISOString(),
     expiresAt: "2030-01-01T00:00:00.000Z"
   });
@@ -89,6 +103,7 @@ async function setup(input: { serverAdmin?: boolean } = {}) {
     disconnectHost: () => {},
     workspaceIdentity,
     authorizeProjectScope: () => {},
+    ...(input.withOwnerResolver ? { resolveOwnerRuntimeScope: () => undefined } : {}),
     hostOfflineAfterMs: 60_000,
     clock: () => now
   });
@@ -108,12 +123,16 @@ async function setup(input: { serverAdmin?: boolean } = {}) {
   if (!address || typeof address === "string") throw new Error("Expected HTTP address");
   const principal = authorization.authenticate(`Bearer ${adminToken}`);
   if (!principal) throw new Error("Expected admin principal");
+  const workspacePrincipal = authorization.authenticate(`Bearer ${workspaceToken}`);
+  if (!workspacePrincipal) throw new Error("Expected Workspace principal");
   return {
     origin: `http://127.0.0.1:${address.port}`,
     service,
     coordination,
+    database,
     workspaceId,
-    principal
+    principal,
+    workspacePrincipal
   };
 }
 
@@ -131,6 +150,36 @@ function registerFleetHost(coordination: Awaited<ReturnType<typeof setup>>["coor
       }
     ]
   });
+  return registration.host;
+}
+
+function registerWorkspaceHost(fixture: Awaited<ReturnType<typeof setup>>) {
+  const registration = fixture.coordination.hosts.register("Workspace Host");
+  ownHostRemoteAgents({
+    database: fixture.database,
+    hostId: registration.host.id,
+    ownerHumanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID,
+    accessMode: "workspace_restricted",
+    grantWorkspaceId: fixture.workspaceId
+  });
+  fixture.coordination.hosts.bindToWorkspace(registration.host.id, fixture.workspaceId);
+  fixture.coordination.hosts.reportOnline(
+    registration.host.id,
+    ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
+    1,
+    {
+      workspaceMappings: [{ workspaceId: fixture.workspaceId, status: "ready" }],
+      acpProfiles: [
+        {
+          profileId: "codex-acp",
+          agentId: "codex",
+          displayName: "Codex",
+          status: "ready",
+          capabilities: ["acp.codex"]
+        }
+      ]
+    }
+  );
   return registration.host;
 }
 
@@ -273,5 +322,86 @@ describe("RemoteControlService owner fleet control plane", () => {
     });
     expect(forbidden.status).toBe(403);
     await expect(forbidden.json()).resolves.toEqual({ error: "operator_admin_required" });
+  });
+
+  it("allows a setup-code operator session to list only its Workspace-scoped endpoints", async () => {
+    const fixture = await setup({ withOwnerResolver: true });
+    const host = registerWorkspaceHost(fixture);
+
+    const response = await fetch(
+      `${fixture.origin}/api/v1/agent-endpoints?projectId=project-a&canvasId=default&humanPrincipalId=${TEST_REMOTE_AGENT_OWNER_ID}&workspaceId=${fixture.workspaceId}`,
+      { headers: { Authorization: `Bearer ${workspaceToken}` } }
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      schemaVersion: "agent-endpoint-list/v1",
+      items: [
+        {
+          profileId: "codex-acp",
+          agentId: "codex",
+          status: "available"
+        }
+      ]
+    });
+
+    const fleet = await fetch(`${fixture.origin}/api/v1/agent-endpoints`, {
+      headers: { Authorization: `Bearer ${workspaceToken}` }
+    });
+    expect(fleet.status).toBe(403);
+    await expect(fleet.json()).resolves.toEqual({ error: "operator_admin_required" });
+
+    const endpoint = fixture.coordination.agentEndpoints.listVisible(fixture.workspaceId).items[0];
+    await expect(
+      fixture.service.dispatch(fixture.workspacePrincipal, {
+        schemaVersion: "remote-run/v3",
+        workspaceId: fixture.workspaceId,
+        projectId: "project-a",
+        canvasId: "default",
+        blockRef: "T-001#B-001",
+        idempotencyKey: "workspace-session-dispatch",
+        agentEndpointId: endpoint.endpointId,
+        humanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID,
+        expectedResponsibilityRevision: 1,
+        expectedReviewerRevision: 1
+      })
+    ).rejects.toThrow("Exact Host is not authorized to serve this project.");
+
+    const operation = fixture.coordination.operations.create({
+      workspaceId: fixture.workspaceId,
+      projectId: "project-a",
+      canvasId: "default",
+      blockRef: "T-001#B-002",
+      ownershipGeneration: "generation-1",
+      idempotencyKey: "workspace-session-observe",
+      sourceFingerprint: "source-1",
+      requiredCapabilities: ["acp.codex"],
+      agentAccess: persistedTestAgentAccess({
+        database: fixture.database,
+        hostId: host.id,
+        workspaceId: fixture.workspaceId,
+        callerHumanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
+      })
+    });
+    expect(fixture.service.replayEvents(fixture.workspacePrincipal, operation.id, 0)).toMatchObject(
+      {
+        executionAttemptId: operation.executionAttemptId,
+        events: []
+      }
+    );
+
+    const legacyOperation = fixture.coordination.operations.create({
+      workspaceId: fixture.workspaceId,
+      projectId: "project-a",
+      canvasId: "default",
+      blockRef: "T-001#B-003",
+      ownershipGeneration: "generation-1",
+      idempotencyKey: "workspace-session-legacy-observe",
+      sourceFingerprint: "source-1",
+      requiredCapabilities: ["acp.codex"]
+    });
+    expect(() =>
+      fixture.service.replayEvents(fixture.workspacePrincipal, legacyOperation.id, 0)
+    ).toThrow("operator_server_admin_required");
   });
 });
