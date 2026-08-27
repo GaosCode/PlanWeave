@@ -207,6 +207,69 @@ async function createWsCoordination() {
 }
 
 describe("agent host WebSocket transport", () => {
+  it("does not block Host event acknowledgements while availability recovery waits on Host RPC", async () => {
+    const { coordination } = await createWsCoordination();
+    const registration = coordination.hosts.register("Recovery Host");
+    const httpServer = createServer();
+    httpServers.push(httpServer);
+    await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
+    const address = httpServer.address();
+    if (!address || typeof address === "string") throw new Error("Expected an HTTP port.");
+    let releaseAvailability!: () => void;
+    const blockedAvailability = new Promise<void>((resolve) => {
+      releaseAvailability = resolve;
+    });
+    const onHostAvailable = vi.fn(() => blockedAvailability);
+    webSocketServers.push(
+      attachAgentHostWebSocketServer({
+        server: httpServer,
+        hosts: coordination.hosts,
+        mailbox: coordination.mailbox,
+        dispatches: coordination.dispatches,
+        acpEvents: coordination.acpEvents,
+        interactions: coordination.interactions,
+        actions: coordination.actions,
+        heartbeatIntervalMs: 30_000,
+        leaseDurationMs: 60_000,
+        onHostAvailable,
+        transportAdmission: loopbackHttpTransportAdmission
+      })
+    );
+    const socket = await openSocket(
+      `ws://127.0.0.1:${address.port}/agent-hosts/${registration.host.id}/connect`,
+      registration.token
+    );
+    const events = eventStream(socket);
+    socket.send(
+      JSON.stringify({
+        type: "host.hello",
+        protocolVersion: 1,
+        lastAcknowledgedSequence: 0,
+        capabilities: ["acp.codex"],
+        capacity: 1,
+        readiness: readyObservation("workspace-recovery")
+      })
+    );
+    await expect(events.next()).resolves.toMatchObject({ type: "host.welcome" });
+    expect(onHostAvailable).toHaveBeenCalledOnce();
+
+    socket.send(
+      JSON.stringify({
+        type: "host.heartbeat",
+        protocolVersion: 1,
+        messageId: "heartbeat-during-recovery",
+        activeLeases: []
+      })
+    );
+    await expect(events.next()).resolves.toMatchObject({
+      type: "host.event_ack",
+      messageId: "heartbeat-during-recovery"
+    });
+
+    releaseAvailability();
+    await vi.waitFor(() => expect(onHostAvailable).toHaveBeenCalledTimes(2));
+  });
+
   it("authenticates server-scoped hosts without treating legacy workspace bindings as grants", async () => {
     const { coordination, workspaceIdentity, workspaceId } = await createWsCoordination();
     const registration = coordination.hosts.register("Scoped Host");

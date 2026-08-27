@@ -91,6 +91,17 @@ function logDeferredWritebackFailure(input: {
   );
 }
 
+function logDeferredHostAvailabilityFailure(input: { hostId: string; error: unknown }): void {
+  console.error(
+    JSON.stringify({
+      scope: "agent-host-ws",
+      event: "host_availability_reentry_failed",
+      hostId: input.hostId,
+      error: input.error instanceof Error ? input.error.message : String(input.error)
+    })
+  );
+}
+
 export function attachAgentHostWebSocketServer(
   options: AgentHostWebSocketOptions
 ): AgentHostWebSocketServer {
@@ -106,7 +117,10 @@ export function attachAgentHostWebSocketServer(
   const sessions = new Map<string, HostSession>();
   const openSessions = new Set<HostSession>();
   const pendingWritebacks = new Map<string, Promise<void>>();
+  const pendingHostAvailabilities = new Map<string, Promise<void>>();
+  const rerunHostAvailabilities = new Set<string>();
   let acceptingWritebacks = true;
+  let acceptingHostAvailabilities = true;
   const continueWriteback = (hostId: string, dispatchId: string): void => {
     if (!acceptingWritebacks || pendingWritebacks.has(dispatchId)) return;
     const pending = options.dispatches
@@ -119,6 +133,30 @@ export function attachAgentHostWebSocketServer(
         if (pendingWritebacks.get(dispatchId) === pending) pendingWritebacks.delete(dispatchId);
       });
     pendingWritebacks.set(dispatchId, pending);
+  };
+  const continueHostAvailability = (hostId: string): void => {
+    if (!acceptingHostAvailabilities || !options.onHostAvailable) return;
+    if (pendingHostAvailabilities.has(hostId)) {
+      rerunHostAvailabilities.add(hostId);
+      return;
+    }
+    const run = async () => {
+      do {
+        rerunHostAvailabilities.delete(hostId);
+        try {
+          await options.onHostAvailable?.(hostId);
+        } catch (error) {
+          logDeferredHostAvailabilityFailure({ hostId, error });
+        }
+      } while (acceptingHostAvailabilities && rerunHostAvailabilities.has(hostId));
+    };
+    const pending = run().finally(() => {
+      if (pendingHostAvailabilities.get(hostId) === pending) {
+        pendingHostAvailabilities.delete(hostId);
+      }
+      rerunHostAvailabilities.delete(hostId);
+    });
+    pendingHostAvailabilities.set(hostId, pending);
   };
   options.runtimeRpc?.attachSessionLookup({
     isActive(hostId) {
@@ -181,7 +219,7 @@ export function attachAgentHostWebSocketServer(
               protocolVersion: agentHostProtocolVersion,
               ...lease
             });
-          await options.onHostAvailable?.(hostId);
+          continueHostAvailability(hostId);
           break;
         }
         case "dispatch.accepted":
@@ -320,7 +358,7 @@ export function attachAgentHostWebSocketServer(
             )) {
               sendMailboxMessage(socket, message);
             }
-            await options.onHostAvailable?.(hostId);
+            continueHostAvailability(hostId);
             return;
           }
           await handleHostEvent(hostEventSchema.parse(input));
@@ -392,6 +430,8 @@ export function attachAgentHostWebSocketServer(
     close: () => {
       closePromise ??= (async () => {
         closing = true;
+        acceptingHostAvailabilities = false;
+        rerunHostAvailabilities.clear();
         unregisterUpgrade();
         const shutdownDeadline = Date.now() + shutdownTimeoutMs;
         const waitWithinShutdownBudget = async (work: Promise<unknown>): Promise<boolean> => {
@@ -429,6 +469,7 @@ export function attachAgentHostWebSocketServer(
         };
         await waitWithinShutdownBudget(drainPendingWritebacks());
         acceptingWritebacks = false;
+        await waitWithinShutdownBudget(Promise.allSettled([...pendingHostAvailabilities.values()]));
         if (closeError) throw closeError;
       })();
       return closePromise;
