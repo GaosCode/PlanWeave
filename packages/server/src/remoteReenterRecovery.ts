@@ -44,6 +44,14 @@ export function isMissingActiveOwnership(error: unknown): boolean {
   );
 }
 
+/** Runtime confirms that this operation no longer owns the block because another operation does. */
+export function isReplacedActiveOwnership(error: unknown): boolean {
+  return (
+    error instanceof RemoteOwnershipConflictError &&
+    error.code === "remote_ownership_operation_conflict"
+  );
+}
+
 export function diagnosticFromReenterFailure(error: unknown): { code: string; message: string } {
   if (error instanceof AgentEndpointCatalogError) {
     return { code: error.code, message: error.message };

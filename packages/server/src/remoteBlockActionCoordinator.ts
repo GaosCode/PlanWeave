@@ -34,7 +34,11 @@ import {
   dispatchHostSelectionSnapshotSchema,
   type DispatchHostSelectionSnapshot
 } from "./work/dispatchIntegration.js";
-import { classifyReenterFailure, diagnosticFromReenterFailure } from "./remoteReenterRecovery.js";
+import {
+  classifyReenterFailure,
+  diagnosticFromReenterFailure,
+  isReplacedActiveOwnership
+} from "./remoteReenterRecovery.js";
 
 export class RemoteBlockActionCoordinator {
   private readonly actionService: RemoteExecutionActionService;
@@ -44,6 +48,7 @@ export class RemoteBlockActionCoordinator {
     private readonly lifecycle: {
       reenter(operationId: string): Promise<RemoteDispatchOutcome>;
       fail(operationId: string): Promise<void>;
+      sealOperationLocalFailure(operation: RemoteOperation, error: unknown): Promise<void>;
       authorizeEndpointOperation(
         operation: RemoteOperation,
         reservation?: HostCapacityReservation
@@ -177,7 +182,12 @@ export class RemoteBlockActionCoordinator {
         persisted?.status === "failed" ||
         persisted?.status === "cancelled")
     ) {
-      await this.lifecycle.fail(operation.id);
+      try {
+        await this.lifecycle.fail(operation.id);
+      } catch (error) {
+        if (!isReplacedActiveOwnership(error)) throw error;
+        await this.lifecycle.sealOperationLocalFailure(operation, error);
+      }
       return "settled";
     }
     return undefined;

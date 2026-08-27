@@ -10,6 +10,7 @@ import {
   LocalFirstCanvasRuntimeRouter,
   RemoteHostCanvasRuntimeAdapter
 } from "../canvas/remoteHostRuntimeAdapter.js";
+import { RemoteOwnershipConflictError } from "@planweave-ai/runtime";
 import { CanvasRuntimeHostLocator } from "../canvas/runtimeHostLocator.js";
 import { CanvasRuntimeRpcBroker } from "../canvas/runtimeRpcBroker.js";
 import { CanvasRuntimeUnavailableError } from "../canvas/executionRuntimePort.js";
@@ -316,6 +317,51 @@ describe("RemoteHostCanvasRuntimeAdapter", () => {
     await expect(firstRelease).resolves.toBeUndefined();
     await expect(secondRelease).resolves.toBeUndefined();
     expect(fixture.deliveries).toHaveLength(3);
+  });
+
+  it("restores Host ownership errors at the remote Runtime domain boundary", async () => {
+    const fixture = await setup();
+    const acquiring = fixture.adapter.acquire(scope);
+    const acquireCommand = commandAt(fixture.deliveries, 0);
+    const sourceRevision = `snapshot:${"b".repeat(64)}`;
+    const graphFingerprint = `pkg-${"a".repeat(64)}`;
+    respond(fixture.broker, fixture.host.id, acquireCommand, {
+      outcome: "success",
+      operation: "acquire",
+      result: {
+        runtimeLeaseId: randomUUID(),
+        sourceRevision,
+        graphFingerprint,
+        acquiredAt: "2026-08-20T00:00:00.000Z",
+        expiresAt: "2099-08-20T00:01:00.000Z"
+      }
+    });
+    const lease = await acquiring;
+    const failing = lease.runtime.fail({
+      ref: "T-001#B-001",
+      operationId: "operation-previous",
+      controlPlane: "collaboration",
+      sourceRevision,
+      graphFingerprint,
+      dispatchId: "dispatch-previous",
+      executionAttemptId: "attempt-previous",
+      failure: { code: "remote_test_failure", message: "Failed.", retryable: false }
+    });
+    const failCommand = commandAt(fixture.deliveries, 1);
+    respond(fixture.broker, fixture.host.id, failCommand, {
+      outcome: "error",
+      operation: "fail",
+      error: {
+        code: "remote_ownership_operation_conflict",
+        message: "Another operation owns the block.",
+        retryable: false
+      }
+    });
+
+    await expect(failing).rejects.toBeInstanceOf(RemoteOwnershipConflictError);
+    await expect(failing).rejects.toMatchObject({
+      code: "remote_ownership_operation_conflict"
+    });
   });
 
   it("routes reset through the acquired Host lease with matching evidence", async () => {

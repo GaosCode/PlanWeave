@@ -595,6 +595,86 @@ describe("Canvas Runtime Host service", () => {
     });
   });
 
+  it("preserves an ownership operation conflict returned by the Runtime", async () => {
+    const { state } = await setup();
+    const manifest = basicManifest();
+    manifest.execution.defaultExecutor = "codex-acp";
+    manifest.executors = {
+      "codex-acp": { adapter: "agent", agent: "codex", runner: { transport: "acp" } }
+    };
+    const workspace = await createTestWorkspace(manifest);
+    directories.push(workspace.home, workspace.root);
+    const service = new CanvasRuntimeService({
+      resolver: resolverWith(async () => ({
+        scope,
+        project: workspace.init.workspace,
+        canvas: workspace.init.workspace
+      })),
+      receipts: state.canvasRuntime,
+      capabilities: [CANVAS_RUNTIME_CAPABILITY],
+      artifactTransfer,
+      contentTransfer
+    });
+    createLease(state);
+    const candidate = await createRemoteBlockRuntimePort({
+      projectRoot: workspace.init.workspace
+    }).inspect({ ref: "T-001#B-001" });
+    const currentIdentity = {
+      ref: "T-001#B-001",
+      operationId: "operation-current",
+      controlPlane: "collaboration" as const,
+      sourceRevision: candidate.sourceRevision,
+      graphFingerprint: candidate.graphFingerprint
+    };
+    const currentEvidence = {
+      operationId: currentIdentity.operationId,
+      sourceRevision: currentIdentity.sourceRevision,
+      graphFingerprint: currentIdentity.graphFingerprint
+    };
+    const claim = request("request-current-claim", {
+      operation: "claim",
+      runtimeLeaseId: "runtime-lease-1",
+      evidence: currentEvidence,
+      input: currentIdentity
+    });
+    const activate = request("request-current-activate", {
+      operation: "activate",
+      runtimeLeaseId: "runtime-lease-1",
+      evidence: currentEvidence,
+      input: {
+        ...currentIdentity,
+        dispatchId: "dispatch-current",
+        executionAttemptId: "attempt-current"
+      }
+    });
+    const failPrevious = request("request-previous-fail", {
+      operation: "fail",
+      runtimeLeaseId: "runtime-lease-1",
+      evidence: { ...currentEvidence, operationId: "operation-previous" },
+      input: {
+        ...currentIdentity,
+        operationId: "operation-previous",
+        dispatchId: "dispatch-previous",
+        executionAttemptId: "attempt-previous",
+        failure: { code: "remote_test_failure", message: "Failed.", retryable: false }
+      }
+    });
+
+    state.receive(delivery(1, claim));
+    await service.handle(claim);
+    state.receive(delivery(2, activate));
+    await service.handle(activate);
+    state.receive(delivery(3, failPrevious));
+    await service.handle(failPrevious);
+
+    expect(response(state, failPrevious.requestId)).toMatchObject({
+      response: {
+        outcome: "error",
+        error: { code: "remote_ownership_operation_conflict" }
+      }
+    });
+  });
+
   it("fails closed when the capability was not negotiated or the deadline elapsed", async () => {
     const { state } = await setup();
     const resolve = vi.fn<CanvasRuntimeResolverPort["resolve"]>();

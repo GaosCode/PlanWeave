@@ -19,6 +19,7 @@ import { RemoteOperationRepository, type RemoteOperation } from "./remoteOperati
 import {
   diagnosticFromReenterFailure,
   isMissingActiveOwnership,
+  isReplacedActiveOwnership,
   isWritebackDomainFailure
 } from "./remoteReenterRecovery.js";
 
@@ -105,9 +106,15 @@ export class RemoteBlockWritebackCoordinator {
       try {
         await this.fail(current.id, existingLease);
       } catch (failError) {
-        if (!isMissingActiveOwnership(failError) && !isWritebackDomainFailure(failError)) {
+        if (
+          !isMissingActiveOwnership(failError) &&
+          !isReplacedActiveOwnership(failError) &&
+          !isWritebackDomainFailure(failError)
+        ) {
           throw failError;
         }
+        const diagnostic = diagnosticFromReenterFailure(failError);
+        this.options.operations.recordDiagnostic(current.id, diagnostic.code, diagnostic.message);
         this.forceFailedTerminal(current);
       }
       return {
@@ -254,7 +261,9 @@ export class RemoteBlockWritebackCoordinator {
         })
       );
     } catch (failError) {
-      if (!isMissingActiveOwnership(failError)) throw failError;
+      if (!isMissingActiveOwnership(failError) && !isReplacedActiveOwnership(failError)) {
+        throw failError;
+      }
     }
     await this.options.checkpoint("after_runtime_writeback");
     const current = this.options.operations.getRequired(operation.id);

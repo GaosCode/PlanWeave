@@ -7,6 +7,7 @@ import {
   classifyReenterFailure,
   diagnosticFromReenterFailure,
   isMissingActiveOwnership,
+  isReplacedActiveOwnership,
   isWritebackDomainFailure
 } from "../remoteReenterRecovery.js";
 
@@ -72,6 +73,27 @@ describe("remoteReenterRecovery", () => {
       code: "remote_source_changed",
       message: "remote_source_changed"
     });
+  });
+
+  it("recognizes only an operation replacement as replaced active ownership", () => {
+    expect(
+      isReplacedActiveOwnership(
+        new RemoteOwnershipConflictError(
+          "remote_ownership_operation_conflict",
+          "Another operation owns the block."
+        )
+      )
+    ).toBe(true);
+    expect(
+      isReplacedActiveOwnership(
+        new RemoteOwnershipConflictError("remote_ownership_not_active", "No operation owns it.")
+      )
+    ).toBe(false);
+    expect(
+      isReplacedActiveOwnership(
+        new RemoteBlockRuntimeError("remote_block_source_changed", "Source changed.")
+      )
+    ).toBe(false);
   });
 
   it("keeps crash-injection and aggregate infrastructure failures fatal", () => {

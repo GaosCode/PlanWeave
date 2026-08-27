@@ -32,6 +32,7 @@ import {
   remoteBlockOperationQuerySchema,
   remoteBlockRefIdentitySchema,
   remoteBlockRetryAttemptInputSchema,
+  RemoteOwnershipConflictError,
   type RemoteBlockArtifactSource,
   type RemoteBlockRuntimePort
 } from "@planweave-ai/runtime";
@@ -57,8 +58,22 @@ import type { CanvasRuntimeContentTarget } from "@planweave-ai/collaboration-pro
 
 type RuntimeResponse = CanvasRuntimeResponsePayload["response"];
 
-function responseError(response: RuntimeResponse): CanvasRuntimeRpcError {
+function responseError(response: RuntimeResponse): Error {
   if (response.outcome !== "error") throw new Error("canvas_runtime_response_error_expected");
+  switch (response.error.code) {
+    case "remote_ownership_requires_executable_block":
+    case "remote_ownership_requires_implementation":
+    case "remote_ownership_requires_ready_block":
+    case "remote_ownership_operation_conflict":
+    case "remote_ownership_source_conflict":
+    case "remote_ownership_not_preparing":
+    case "remote_ownership_activation_conflict":
+    case "remote_ownership_not_active":
+    case "remote_ownership_terminal_conflict":
+    case "remote_ownership_status_conflict":
+    case "remote_ownership_source_drift":
+      return new RemoteOwnershipConflictError(response.error.code, response.error.message);
+  }
   return new CanvasRuntimeRpcError(
     response.error.reconcileRequired ? "canvas_runtime_reconcile_required" : response.error.code,
     response.error.retryable,

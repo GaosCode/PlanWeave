@@ -413,6 +413,14 @@ export const runtimeNotAttachedInventory = [
     "Remote coordinator coverage keeps the internal preparation diagnostic stable."
   ),
   inventoryEntry(
+    "rna-test-startup-action-recovery",
+    "runtime_not_attached",
+    "runtime_attachment",
+    "packages/server/src/__tests__/remoteBlockCoordinatorStartup.test.ts",
+    "recorded action recovery defers while runtime_not_attached",
+    "Startup recovery leaves recorded terminal actions pending until the Canvas Runtime is available."
+  ),
+  inventoryEntry(
     "rna-test-reenter-recovery",
     "runtime_not_attached",
     "runtime_attachment",

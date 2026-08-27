@@ -826,6 +826,9 @@ export class RemoteBlockCoordinator {
     this.actionsCoordinator ??= new RemoteBlockActionCoordinator(this.options, {
       reenter: (operationId) => this.reenter(operationId),
       fail: (operationId) => this.fail(operationId),
+      sealOperationLocalFailure: async (operation, error) => {
+        await this.writebackCoordinator().sealOperationLocalFailure(operation, error);
+      },
       authorizeEndpointOperation: (operation, reservation) =>
         this.authorizeEndpointOperation(operation, reservation),
       reauthorizeAgentAccessForRetry: (operation) => this.reauthorizeAgentAccessForRetry(operation),

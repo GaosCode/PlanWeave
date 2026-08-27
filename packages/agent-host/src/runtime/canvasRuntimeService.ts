@@ -28,6 +28,7 @@ import {
   remoteBlockRetryAttemptInputSchema,
   remoteBlockArtifactReadInputSchema,
   RemoteBlockRuntimeError,
+  RemoteOwnershipConflictError,
   materializeAuthoritativeCanvasWorkspace,
   recoverPendingAuthoritativeCanvasMaterialization,
   withAuthoritativeCanvasWorkspaceLock,
@@ -172,6 +173,9 @@ function errorCode(error: unknown): CanvasRuntimeServiceError {
     return new CanvasRuntimeServiceError(error.code);
   }
   if (error instanceof RemoteBlockRuntimeError) {
+    return new CanvasRuntimeServiceError(error.code);
+  }
+  if (error instanceof RemoteOwnershipConflictError) {
     return new CanvasRuntimeServiceError(error.code);
   }
   if (error instanceof ZodError) return new CanvasRuntimeServiceError("invalid_operation_input");

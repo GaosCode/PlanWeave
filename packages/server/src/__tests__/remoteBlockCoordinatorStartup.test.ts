@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   createRemoteBlockArtifactSource,
   createRemoteBlockRuntimePort,
+  RemoteOwnershipConflictError,
   resetRuntimeState,
   type RemoteBlockRuntimePort
 } from "@planweave-ai/runtime";
@@ -469,12 +470,26 @@ describe("RemoteBlockCoordinator startup reconciliation", () => {
         .get(outcome.operation.id)
     ).toEqual({ diagnostic_code: "runtime_not_attached" });
 
-    const recovered = await harness.start();
+    const recovered = await harness.start(undefined, (runtime) => ({
+      ...runtime,
+      fail: async () => {
+        throw new RemoteOwnershipConflictError(
+          "remote_ownership_operation_conflict",
+          "The Runtime block is already owned by the successor operation."
+        );
+      }
+    }));
     expect(recovered.actions.getRequired(action.actionId)).toMatchObject({ state: "settled" });
     expect(recovered.operations.getRequired(outcome.operation.id)).toMatchObject({
       state: "failed",
       attempt: { status: "failed" }
     });
+    expect(
+      harness
+        .requireServer()
+        .database.prepare("SELECT diagnostic_code FROM remote_operations WHERE id=?")
+        .get(outcome.operation.id)
+    ).toEqual({ diagnostic_code: "remote_ownership_operation_conflict" });
   });
 
   it("cancels a pre-dispatch claim after Runtime reset and continues startup", async () => {
