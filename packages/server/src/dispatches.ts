@@ -342,10 +342,59 @@ export class DispatchService {
     const remainingLeaseMs = new Date(dispatch.leaseExpiresAt).getTime() - now.getTime();
     if (remainingLeaseMs > this.options.leaseDurationMs / 2) return undefined;
     const leaseExpiresAt = new Date(now.getTime() + this.options.leaseDurationMs).toISOString();
-    this.database
-      .prepare("UPDATE dispatches SET lease_expires_at=? WHERE id=? AND lease_id=?")
-      .run(leaseExpiresAt, dispatch.id, dispatch.leaseId);
-    this.appendEvent(dispatch.id, "lease.renewed", { leaseExpiresAt });
+    inWriteTransaction(this.database, () => {
+      const dispatchUpdate = this.database
+        .prepare(
+          `UPDATE dispatches SET lease_expires_at=?
+           WHERE id=? AND host_id=? AND lease_id=? AND execution_attempt_id=?
+             AND status IN ('leased','running','cancelling') AND lease_expires_at=?`
+        )
+        .run(
+          leaseExpiresAt,
+          dispatch.id,
+          hostId,
+          dispatch.leaseId,
+          dispatch.executionAttemptId,
+          dispatch.leaseExpiresAt
+        );
+      const reservationUpdate = this.database
+        .prepare(
+          `UPDATE host_capacity_reservations
+           SET lease_expires_at=?,version=version+1
+           WHERE lease_id=? AND host_id=? AND execution_attempt_id=?
+             AND status='active' AND lease_expires_at=?`
+        )
+        .run(
+          leaseExpiresAt,
+          dispatch.leaseId,
+          hostId,
+          dispatch.executionAttemptId,
+          dispatch.leaseExpiresAt
+        );
+      const attemptUpdate = this.database
+        .prepare(
+          `UPDATE remote_execution_attempts SET lease_expires_at=?,updated_at=?
+           WHERE execution_attempt_id=? AND host_id=? AND lease_id=?
+             AND status IN ('reserved','activated','running','action_required','awaiting_writeback')
+             AND lease_expires_at=?`
+        )
+        .run(
+          leaseExpiresAt,
+          now.toISOString(),
+          dispatch.executionAttemptId,
+          hostId,
+          dispatch.leaseId,
+          dispatch.leaseExpiresAt
+        );
+      if (
+        dispatchUpdate.changes !== 1 ||
+        reservationUpdate.changes !== 1 ||
+        attemptUpdate.changes !== 1
+      ) {
+        throw new Error("remote_lease_authority_inconsistent");
+      }
+      this.appendEvent(dispatch.id, "lease.renewed", { leaseExpiresAt });
+    });
     return {
       dispatchId: dispatch.id,
       leaseId: dispatch.leaseId,

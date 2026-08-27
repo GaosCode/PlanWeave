@@ -12,6 +12,7 @@ import { createRemoteDispatchFixture } from "./support/remoteDispatchFixture.js"
 import { ActivityRepository } from "../comments/activityRepository.js";
 import { ActivityProjectionService } from "../comments/service.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
+import { HostReservationRepository } from "../hostReservations.js";
 
 const directories: string[] = [];
 const servers: PlanweaveServer[] = [];
@@ -331,6 +332,59 @@ describe("DispatchService (test-only thin stack)", () => {
     ).toEqual({ count: 0 });
 
     const renewalTime = new Date(new Date(previousExpiry).getTime() - 30_000);
+    const attemptBeforeRenewal = server.database
+      .prepare(
+        "SELECT lease_expires_at AS leaseExpiry,state_version AS stateVersion FROM remote_execution_attempts WHERE execution_attempt_id=?"
+      )
+      .get(dispatch.executionAttemptId) as { leaseExpiry: string; stateVersion: number };
+    const inconsistentAttemptExpiry = new Date(
+      new Date(previousExpiry).getTime() + 1
+    ).toISOString();
+    server.database
+      .prepare(
+        "UPDATE remote_execution_attempts SET lease_expires_at=? WHERE execution_attempt_id=?"
+      )
+      .run(inconsistentAttemptExpiry, dispatch.executionAttemptId);
+    expect(() =>
+      coordination.dispatches.renewLeaseForActivity(
+        registration.host.id,
+        {
+          dispatchId: dispatch.id,
+          leaseId: dispatch.leaseId,
+          executionAttemptId: dispatch.executionAttemptId
+        },
+        renewalTime
+      )
+    ).toThrowError("remote_lease_authority_inconsistent");
+    expect(
+      server.database
+        .prepare(
+          `SELECT
+             d.lease_expires_at AS dispatch_expiry,
+             r.lease_expires_at AS reservation_expiry,
+             a.lease_expires_at AS attempt_expiry
+           FROM dispatches d
+           JOIN host_capacity_reservations r ON r.lease_id=d.lease_id
+           JOIN remote_execution_attempts a
+             ON a.execution_attempt_id=d.execution_attempt_id
+           WHERE d.id=?`
+        )
+        .get(dispatch.id)
+    ).toEqual({
+      dispatch_expiry: previousExpiry,
+      reservation_expiry: previousExpiry,
+      attempt_expiry: inconsistentAttemptExpiry
+    });
+    expect(
+      server.database
+        .prepare("SELECT COUNT(*) AS count FROM dispatch_events WHERE dispatch_id=? AND type=?")
+        .get(dispatch.id, "lease.renewed")
+    ).toEqual({ count: 0 });
+    server.database
+      .prepare(
+        "UPDATE remote_execution_attempts SET lease_expires_at=? WHERE execution_attempt_id=?"
+      )
+      .run(previousExpiry, dispatch.executionAttemptId);
     const activityRenewal = coordination.dispatches.renewLeaseForActivity(
       registration.host.id,
       {
@@ -343,6 +397,40 @@ describe("DispatchService (test-only thin stack)", () => {
     expect(activityRenewal?.leaseExpiresAt).toBe(
       new Date(renewalTime.getTime() + 60_000).toISOString()
     );
+    expect(
+      server.database
+        .prepare(
+          `SELECT
+             d.lease_expires_at AS dispatch_expiry,
+             r.lease_expires_at AS reservation_expiry,
+             a.lease_expires_at AS attempt_expiry
+           FROM dispatches d
+           JOIN host_capacity_reservations r ON r.lease_id=d.lease_id
+           JOIN remote_execution_attempts a
+             ON a.execution_attempt_id=d.execution_attempt_id
+           WHERE d.id=?`
+        )
+        .get(dispatch.id)
+    ).toEqual({
+      dispatch_expiry: activityRenewal?.leaseExpiresAt,
+      reservation_expiry: activityRenewal?.leaseExpiresAt,
+      attempt_expiry: activityRenewal?.leaseExpiresAt
+    });
+    const afterOriginalExpiry = new Date(new Date(previousExpiry).getTime() + 1);
+    const reservations = new HostReservationRepository(server.database, {
+      leaseDurationMs: 60_000,
+      hostOfflineAfterMs: 60_000,
+      clock: () => afterOriginalExpiry
+    });
+    expect(reservations.expireDue()).toEqual([]);
+    expect(reservations.getRequired(dispatch.leaseId).status).toBe("active");
+    expect(
+      server.database
+        .prepare(
+          "SELECT state_version AS stateVersion FROM remote_execution_attempts WHERE execution_attempt_id=?"
+        )
+        .get(dispatch.executionAttemptId)
+    ).toEqual({ stateVersion: attemptBeforeRenewal.stateVersion });
     expect(
       server.database
         .prepare("SELECT COUNT(*) AS count FROM dispatch_events WHERE dispatch_id=? AND type=?")
