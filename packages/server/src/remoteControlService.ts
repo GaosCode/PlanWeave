@@ -256,15 +256,15 @@ export class RemoteControlService {
       throw new Error("remote_run_v3_required");
     }
     const request = operatorDispatchRequestSchema.parse(rawRequest);
-    if (request.humanPrincipalId === undefined) {
-      throw new RemoteAgentAuthorizationError("remote_agent_not_found");
-    }
     if (request.workspaceId !== undefined) {
       const workspaceId = this.authorizeWorkspaceRuntimeScope(principal, {
         workspaceId: request.workspaceId,
         projectId: request.projectId,
         canvasId: request.canvasId
       });
+      if (request.humanPrincipalId === undefined) {
+        throw new RemoteAgentAuthorizationError("remote_agent_not_found");
+      }
       const outcome = await this.options.coordinator.dispatch({
         workspaceId,
         projectId: request.projectId,
@@ -280,6 +280,9 @@ export class RemoteControlService {
       return this.observeOperation(principal, outcome.operation.id);
     }
     this.options.authorization.authorizeProject(principal, request.projectId);
+    if (request.humanPrincipalId === undefined) {
+      throw new RemoteAgentAuthorizationError("remote_agent_not_found");
+    }
     const ownerScope = this.options.resolveOwnerRuntimeScope?.({
       projectId: request.projectId,
       canvasId: request.canvasId
