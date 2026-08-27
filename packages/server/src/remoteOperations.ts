@@ -332,6 +332,22 @@ export class RemoteOperationRepository {
         }
         return existing;
       }
+      const activeOwnership = this.database
+        .prepare(
+          `SELECT 1 FROM remote_operations
+           WHERE workspace_id=? AND project_id=? AND canvas_id=? AND block_ref=?
+             AND ownership_generation=?
+             AND state NOT IN ('completed','failed','cancelled')
+           LIMIT 1`
+        )
+        .get(
+          input.workspaceId,
+          input.projectId,
+          input.canvasId,
+          input.blockRef,
+          input.ownershipGeneration
+        );
+      if (activeOwnership) throw new Error("remote_active_attempt_conflict");
       const operationId = opaqueIdentifierSchema.parse(`operation-${randomUUID()}`);
       const dispatchId = dispatchIdSchema.parse(`dispatch-${randomUUID()}`);
       const executionAttemptId = executionAttemptIdSchema.parse(`attempt-${randomUUID()}`);

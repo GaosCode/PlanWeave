@@ -58,7 +58,11 @@ describe("RemoteOperationRepository", () => {
 
     const first = repository.create(operationInput);
     now = new Date("2030-01-01T00:01:00.000Z");
-    const latest = repository.create({ ...operationInput, idempotencyKey: "request-2" });
+    const latest = repository.create({
+      ...operationInput,
+      ownershipGeneration: "generation-2",
+      idempotencyKey: "request-2"
+    });
     repository.create({ ...operationInput, canvasId: "canvas-other", idempotencyKey: "request-3" });
     repository.create({ ...operationInput, blockRef: "RC-002#B-002", idempotencyKey: "request-4" });
     repository.create({
@@ -114,7 +118,11 @@ describe("RemoteOperationRepository", () => {
       () => new Date("2030-01-01T00:00:00.000Z")
     );
     repository.create(operationInput);
-    const second = repository.create({ ...operationInput, idempotencyKey: "request-2" });
+    const second = repository.create({
+      ...operationInput,
+      ownershipGeneration: "generation-2",
+      idempotencyKey: "request-2"
+    });
 
     expect(
       repository.findLatestByScope({
@@ -266,6 +274,31 @@ describe("RemoteOperationRepository", () => {
     expect(() =>
       repository.create({ ...operationInput, sourceFingerprint: "graph-fingerprint-2" })
     ).toThrowError("remote_operation_idempotency_conflict");
+  });
+
+  it("rejects a second operation while the same ownership generation is non-terminal", async () => {
+    const server = await setup();
+    const repository = new RemoteOperationRepository(server.database);
+    const active = repository.markClaimed(repository.create(operationInput).id);
+
+    expect(() =>
+      repository.create({ ...operationInput, idempotencyKey: "request-2" })
+    ).toThrowError("remote_active_attempt_conflict");
+    expect(
+      server.database
+        .prepare(
+          `SELECT COUNT(*) AS count FROM remote_operations
+           WHERE workspace_id=? AND project_id=? AND canvas_id=? AND block_ref=?
+             AND ownership_generation=?`
+        )
+        .get(
+          active.workspaceId,
+          active.projectId,
+          active.canvasId,
+          active.blockRef,
+          active.ownershipGeneration
+        )?.count
+    ).toBe(1);
   });
 
   it("cancels only a claimed prepared attempt whose Runtime binding was reset before dispatch", async () => {
