@@ -34,6 +34,7 @@ type HttpListenerOptions = Omit<
   | "contentVersions"
   | "canvasCommandService"
   | "canvasRuntimeAvailabilityService"
+  | "runtimeContentAuthorization"
 >;
 
 export async function createTransportComposition(
@@ -163,6 +164,7 @@ export async function createTransportComposition(
     artifacts: input.artifacts,
     runtimeArtifactGrants: input.runtimeArtifactGrants,
     runtimeHostLocator: input.runtimeHostLocator,
+    runtimeContentAuthorization: input.runtimeRpc,
     humanMembership: input.humanMembership,
     commentAttachments: input.commentAttachments,
     operatorControl,

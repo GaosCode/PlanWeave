@@ -1,16 +1,29 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { completedContentVersionRefSchema } from "@planweave-ai/collaboration-protocol/content/version";
-import { canvasScopeRefSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
+import {
+  completedContentVersionRefSchema,
+  type CompletedContentVersionRef
+} from "@planweave-ai/collaboration-protocol/content/version";
+import {
+  canvasScopeRefSchema,
+  type CanvasScopeRef
+} from "@planweave-ai/collaboration-protocol/core/primitives";
 import type { AgentHostRepository } from "../hosts.js";
 import { authenticateAgentHostRequest } from "../hostTransportAuth.js";
 import type { TransportAdmissionPolicy } from "../insecureTransport.js";
 import type { ContentVersionRepository } from "./contentVersionRepository.js";
-import type { CanvasRuntimeHostLocator } from "./runtimeHostLocator.js";
 import { streamContentVersion } from "./contentVersionTransferHttp.js";
+
+export type RuntimeContentAuthorization = {
+  authorizesContentTransfer(
+    hostId: string,
+    scope: CanvasScopeRef,
+    content: CompletedContentVersionRef
+  ): boolean;
+};
 
 export type RuntimeContentHttpOptions = {
   hosts: AgentHostRepository;
-  locator: CanvasRuntimeHostLocator;
+  authorization: RuntimeContentAuthorization;
   contentVersions: ContentVersionRepository;
   transportAdmission: TransportAdmissionPolicy;
 };
@@ -72,17 +85,7 @@ export async function handleCanvasRuntimeContentRequest(
       request.resume();
       return true;
     }
-    let located: ReturnType<CanvasRuntimeHostLocator["locate"]>;
-    try {
-      located = options.locator.locate(scope);
-    } catch (error) {
-      if (error instanceof Error && error.message === "canvas_runtime_scope_unavailable") {
-        respond(response, 403, "runtime_content_scope_forbidden");
-        return true;
-      }
-      throw error;
-    }
-    if (located.kind !== "available" || located.hostId !== hostId) {
+    if (!options.authorization.authorizesContentTransfer(hostId, scope, content)) {
       respond(response, 403, "runtime_content_scope_forbidden");
       return true;
     }

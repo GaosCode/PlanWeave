@@ -889,6 +889,7 @@
         "runtimeCompositionBoundary.test.ts",
         "runtimeHostLocator.test.ts",
         "runtimeProjectRegistry.test.ts",
+        "runtimeContentHttp.test.ts",
         "runtimeRpcBroker.test.ts",
         "runtimeRpcWebSocket.test.ts",
         "securityReliabilityMatrix.test.ts",

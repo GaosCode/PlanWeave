@@ -9,6 +9,12 @@ import {
   type CanvasRuntimeOperation,
   type CanvasRuntimeResponsePayload
 } from "@planweave-ai/agent-host-protocol";
+import {
+  canvasRuntimeContentTargetSchema,
+  type CanvasRuntimeContentTarget,
+  type CompletedContentVersionRef
+} from "@planweave-ai/collaboration-protocol/content/version";
+import type { CanvasScopeRef } from "@planweave-ai/collaboration-protocol/core/primitives";
 import { randomUUID } from "node:crypto";
 import type { AgentHostRepository } from "../hosts.js";
 import { HostEventInbox } from "../hostEvents.js";
@@ -22,7 +28,9 @@ type RuntimeResponseEvent = Extract<HostEvent, { type: "canvas_runtime.response"
 
 type PendingRequest = {
   hostId: string;
+  scope: CanvasRuntimeLogicalScope;
   operation: CanvasRuntimeOperation["operation"];
+  contentTarget?: CanvasRuntimeContentTarget;
   mutation: boolean;
   timer: ReturnType<typeof setTimeout>;
   resolve(response: RuntimeResponse): void;
@@ -124,7 +132,11 @@ export class CanvasRuntimeRpcBroker implements CanvasRuntimeHostSessionLookup {
     return new Promise<RuntimeResponse>((resolve, reject) => {
       const pending: PendingRequest = {
         hostId,
+        scope,
         operation: operation.operation,
+        ...("contentTarget" in operation
+          ? { contentTarget: canvasRuntimeContentTargetSchema.parse(operation.contentTarget) }
+          : {}),
         mutation,
         timer: setTimeout(() => {
           if (this.pending.delete(requestId)) {
@@ -205,6 +217,22 @@ export class CanvasRuntimeRpcBroker implements CanvasRuntimeHostSessionLookup {
 
   pendingCount(): number {
     return this.pending.size;
+  }
+
+  authorizesContentTransfer(
+    hostId: string,
+    scope: CanvasScopeRef,
+    content: CompletedContentVersionRef
+  ): boolean {
+    return [...this.pending.values()].some(
+      (pending) =>
+        pending.hostId === hostId &&
+        pending.scope.workspaceId === scope.workspaceId &&
+        pending.scope.projectId === scope.projectId &&
+        pending.scope.canvasId === scope.canvasId &&
+        pending.contentTarget?.content.versionId === content.versionId &&
+        pending.contentTarget.content.canonicalDigest === content.canonicalDigest
+    );
   }
 
   attachmentVersion(hostId: string): number {

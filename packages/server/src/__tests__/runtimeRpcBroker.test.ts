@@ -101,6 +101,38 @@ describe("CanvasRuntimeRpcBroker", () => {
     expect(fixture.broker.pendingCount()).toBe(0);
   });
 
+  it("authorizes immutable content only while the exact Host RPC is pending", async () => {
+    const fixture = await setup();
+    const pending = fixture.broker.request(fixture.host.id, scope, availabilityOperation);
+
+    expect(
+      fixture.broker.authorizesContentTransfer(fixture.host.id, scope, contentTarget.content)
+    ).toBe(true);
+    expect(
+      fixture.broker.authorizesContentTransfer(
+        fixture.host.id,
+        { ...scope, workspaceId: "workspace-other" },
+        contentTarget.content
+      )
+    ).toBe(false);
+    expect(
+      fixture.broker.authorizesContentTransfer(fixture.host.id, scope, {
+        ...contentTarget.content,
+        canonicalDigest: "d".repeat(64)
+      })
+    ).toBe(false);
+
+    const command = requestCommand(fixture.deliveries[0]!);
+    fixture.broker.handleResponse(
+      fixture.host.id,
+      availabilityResponse(command, "runtime_not_attached")
+    );
+    await pending;
+    expect(
+      fixture.broker.authorizesContentTransfer(fixture.host.id, scope, contentTarget.content)
+    ).toBe(false);
+  });
+
   it("persists and ignores orphan/duplicate durable responses after restart", async () => {
     const fixture = await setup();
     const orphan = availabilityResponse(
