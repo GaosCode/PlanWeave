@@ -459,5 +459,13 @@ export const runtimeNotAttachedInventory = [
     "packages/desktop/src/__tests__/formatAgentEndpointRunError.test.ts",
     "runtime_not_attached run error regression",
     "Desktop recovery-error formatting retains a stable diagnostic."
+  ),
+  inventoryEntry(
+    "rna-test-desktop-auto-run-control",
+    "runtime_not_attached",
+    "runtime_attachment",
+    "packages/desktop/src/__tests__/autoRunControlActions.test.tsx",
+    "runtime_not_attached endpoint scope stop regression",
+    "Desktop endpoint-scope cancellation remains available while automatic Runtime attachment is pending."
   )
 ];
