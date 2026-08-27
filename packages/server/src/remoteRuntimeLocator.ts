@@ -1,7 +1,10 @@
 import type { RemoteBlockArtifactSource, RemoteBlockRuntimePort } from "@planweave-ai/runtime";
 import { workspaceIdSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import { canonicalRemoteRuntimePort } from "./canonicalRemoteRuntimePort.js";
-import type { CanvasExecutionRuntimeLeasePort } from "./canvas/executionRuntimePort.js";
+import type {
+  CanvasExecutionRuntimeLeasePort,
+  CanvasRuntimeInitializationEvidence
+} from "./canvas/executionRuntimePort.js";
 import type { RemoteRuntimeLocator } from "./remoteBlockCoordinatorPorts.js";
 
 function locatorKey(locator: RemoteRuntimeLocator): string {
@@ -13,6 +16,7 @@ function locatorKey(locator: RemoteRuntimeLocator): string {
 export type ScopedRemoteRuntimeBinding = {
   runtime: RemoteBlockRuntimePort;
   artifacts: RemoteBlockArtifactSource;
+  readInitializationEvidence?(): Promise<CanvasRuntimeInitializationEvidence>;
   release(): void | Promise<void>;
 };
 
@@ -23,7 +27,11 @@ type ScopedRemoteRuntimeResolver = (
 export class RemoteRuntimePortRegistry implements CanvasExecutionRuntimeLeasePort {
   private readonly ports = new Map<
     string,
-    { runtime: RemoteBlockRuntimePort; artifacts?: RemoteBlockArtifactSource }
+    {
+      runtime: RemoteBlockRuntimePort;
+      artifacts?: RemoteBlockArtifactSource;
+      readInitializationEvidence?: () => Promise<CanvasRuntimeInitializationEvidence>;
+    }
   >();
   private scopedResolver: ScopedRemoteRuntimeResolver | undefined;
 
@@ -34,13 +42,15 @@ export class RemoteRuntimePortRegistry implements CanvasExecutionRuntimeLeasePor
   bind(
     locator: RemoteRuntimeLocator,
     runtime: RemoteBlockRuntimePort,
-    artifacts?: RemoteBlockArtifactSource
+    artifacts?: RemoteBlockArtifactSource,
+    readInitializationEvidence?: () => Promise<CanvasRuntimeInitializationEvidence>
   ): () => void {
     const key = locatorKey(locator);
     if (this.ports.has(key)) throw new Error("remote_runtime_locator_already_bound");
     const binding = {
       runtime: canonicalRemoteRuntimePort(runtime, locator.workspaceId),
-      artifacts
+      artifacts,
+      readInitializationEvidence
     };
     this.ports.set(key, binding);
     return () => {
@@ -60,12 +70,18 @@ export class RemoteRuntimePortRegistry implements CanvasExecutionRuntimeLeasePor
   async acquire(locator: RemoteRuntimeLocator): Promise<ScopedRemoteRuntimeBinding> {
     if (this.scopedResolver) {
       const binding = await this.scopedResolver(locator);
-      return runtimeHandle(binding.runtime, binding.artifacts, binding.release);
+      return runtimeHandle(
+        binding.runtime,
+        binding.artifacts,
+        binding.release,
+        binding.readInitializationEvidence
+      );
     }
     return runtimeHandle(
       this.resolve(locator),
       this.resolveArtifactSource(locator),
-      () => undefined
+      () => undefined,
+      this.bindingFor(locator)?.readInitializationEvidence
     );
   }
 
@@ -82,9 +98,13 @@ export class RemoteRuntimePortRegistry implements CanvasExecutionRuntimeLeasePor
     return binding.artifacts;
   }
 
-  private bindingFor(
-    locator: RemoteRuntimeLocator
-  ): { runtime: RemoteBlockRuntimePort; artifacts?: RemoteBlockArtifactSource } | undefined {
+  private bindingFor(locator: RemoteRuntimeLocator):
+    | {
+        runtime: RemoteBlockRuntimePort;
+        artifacts?: RemoteBlockArtifactSource;
+        readInitializationEvidence?: () => Promise<CanvasRuntimeInitializationEvidence>;
+      }
+    | undefined {
     return this.ports.get(locatorKey(locator));
   }
 }
@@ -103,7 +123,13 @@ function once(releaseBinding: () => void | Promise<void>): () => void | Promise<
 function runtimeHandle(
   runtime: RemoteBlockRuntimePort,
   artifacts: RemoteBlockArtifactSource,
-  releaseBinding: () => void | Promise<void>
+  releaseBinding: () => void | Promise<void>,
+  readInitializationEvidence?: () => Promise<CanvasRuntimeInitializationEvidence>
 ): ScopedRemoteRuntimeBinding {
-  return { runtime, artifacts, release: once(releaseBinding) };
+  return {
+    runtime,
+    artifacts,
+    ...(readInitializationEvidence === undefined ? {} : { readInitializationEvidence }),
+    release: once(releaseBinding)
+  };
 }

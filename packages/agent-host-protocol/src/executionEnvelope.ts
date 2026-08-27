@@ -2,7 +2,7 @@ import { z } from "zod";
 import { artifactMediaTypeSchema } from "./artifactMediaType.js";
 import { artifactRefSchema } from "./artifacts.js";
 import { blockRefSchema } from "./blockRef.js";
-import { capabilitiesSchema } from "./capabilities.js";
+import { capabilitiesSchema, hasWorkspaceCanvasExecutionCapability } from "./capabilities.js";
 import { canonicalizeJson } from "./canonicalJson.js";
 import { executionIdentitySchema } from "./executionIdentity.js";
 import { opaqueIdentifierSchema } from "./identifiers.js";
@@ -137,6 +137,16 @@ export const traceCorrelationSchema = z
 
 export type TraceCorrelation = z.infer<typeof traceCorrelationSchema>;
 
+/** Exact managed Runtime working-set evidence for Workspace Canvas execution. */
+export const runtimeMaterializationEvidenceSchema = z
+  .object({
+    sourceRevision: sourceIdentitySchema,
+    graphFingerprint: sourceIdentitySchema
+  })
+  .strict();
+
+export type RuntimeMaterializationEvidence = z.infer<typeof runtimeMaterializationEvidenceSchema>;
+
 /**
  * Immutable, content-addressed Execution Envelope for one exact Block attempt.
  *
@@ -157,6 +167,8 @@ export const executionEnvelopeSchema = z
     sourceRevision: sourceIdentitySchema,
     /** Optional additional graph fingerprint when distinct from sourceRevision. */
     graphFingerprint: sourceIdentitySchema.optional(),
+    /** Exact materialization evidence; present only for managed Workspace Canvas execution. */
+    runtimeMaterialization: runtimeMaterializationEvidenceSchema.optional(),
     renderedPrompt: boundedUtf8String({ minBytes: 1, maxBytes: RENDERED_PROMPT_MAX_LENGTH }),
     acceptance: z
       .array(boundedUtf8String({ minBytes: 1, maxBytes: ACCEPTANCE_ITEM_MAX_LENGTH }))
@@ -177,6 +189,18 @@ export const executionEnvelopeSchema = z
   })
   .strict()
   .superRefine((envelope, context) => {
+    const workspaceCanvasExecution = hasWorkspaceCanvasExecutionCapability(
+      envelope.requiredCapabilities
+    );
+    if (workspaceCanvasExecution !== (envelope.runtimeMaterialization !== undefined)) {
+      context.addIssue({
+        code: "custom",
+        path: ["runtimeMaterialization"],
+        message: workspaceCanvasExecution
+          ? "Workspace Canvas execution requires Runtime materialization evidence."
+          : "Runtime materialization evidence is reserved for Workspace Canvas execution."
+      });
+    }
     if (!envelope.blockRef.startsWith(`${envelope.taskId}#`)) {
       context.addIssue({
         code: "custom",

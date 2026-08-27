@@ -295,9 +295,17 @@ describe("RemoteBlockCoordinator", () => {
         execution: {
           dispatchId: first.operation.dispatchId,
           attemptId: first.operation.executionAttemptId
+        },
+        runtimeMaterialization: {
+          sourceRevision: expect.stringMatching(/^snapshot:/),
+          graphFingerprint: expect.stringMatching(/^pkg-/)
         }
       }
     });
+    if (command?.type !== "execute_block") throw new Error("expected_execute_block_command");
+    expect(command.envelope.runtimeMaterialization?.sourceRevision).not.toBe(
+      command.envelope.sourceRevision
+    );
     expect(JSON.stringify(command)).not.toContain(fixture.workspace.root);
     await expect(
       fixture.runtime.query({ ref: request.blockRef, operationId: first.operation.id })
@@ -456,7 +464,8 @@ describe("RemoteBlockCoordinator", () => {
     fixture.registry.bind(
       secondLocator,
       fixture.runtime,
-      createRemoteBlockArtifactSource({ projectRoot: fixture.workspace.root })
+      createRemoteBlockArtifactSource({ projectRoot: fixture.workspace.root }),
+      fixture.runtimeInitializationEvidenceFor(secondLocator)
     );
 
     const access = new ProjectAccessRepository(fixture.server.database);
@@ -882,6 +891,7 @@ describe("RemoteBlockCoordinator", () => {
     const acquireScoped = vi.fn(() => ({
       runtime: canonicalRemoteRuntimePort(fixture.runtime, fixture.locator.workspaceId),
       artifacts: createRemoteBlockArtifactSource({ projectRoot: fixture.workspace.root }),
+      readInitializationEvidence: fixture.runtimeInitializationEvidenceFor(fixture.locator),
       release: vi.fn()
     }));
     fixture.registry.setScopedResolver(acquireScoped);

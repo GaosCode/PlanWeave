@@ -7,7 +7,9 @@ import {
   exampleExecutionEnvelopeInput,
   executeBlockCommandSchema,
   executionEnvelopeSchema,
-  hashExecutionEnvelope
+  hashExecutionEnvelope,
+  LEGACY_WORKSPACE_CANVAS_EXECUTION_CAPABILITY,
+  WORKSPACE_CANVAS_EXECUTION_CAPABILITY
 } from "@planweave-ai/agent-host-protocol";
 import { DEFAULT_ACP_SHUTDOWN_POLICY, type AcpEngineTerminal } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -66,6 +68,7 @@ function command(
     maxArtifactBytes?: number;
     maxArtifactCount?: number;
     requiredCapabilities?: string[];
+    runtimeMaterialization?: { sourceRevision: string; graphFingerprint: string };
   } = {}
 ) {
   const envelope = executionEnvelopeSchema.parse({
@@ -73,6 +76,9 @@ function command(
     renderedPrompt: options.prompt ?? "Execute the remote ACP adapter test.",
     session: options.session ?? {},
     requiredCapabilities: options.requiredCapabilities ?? ["linux", "acp.test"],
+    ...(options.runtimeMaterialization === undefined
+      ? {}
+      : { runtimeMaterialization: options.runtimeMaterialization }),
     output: {
       reportRequired: options.reportRequired ?? true,
       maxArtifactBytes: options.maxArtifactBytes ?? 1_048_576,
@@ -450,6 +456,59 @@ describe("RemoteAcpExecutor", () => {
         executionKey: `${input.dispatchId}:${input.leaseId}:stale`
       }),
       "execution_attempt_mismatch"
+    );
+    expect(resolveWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("resolves Workspace Canvas execution with materialization evidence, not content ownership revision", async () => {
+    const { outbox } = await openOutbox();
+    const runtimeMaterialization = {
+      sourceRevision: `snapshot:${"a".repeat(64)}`,
+      graphFingerprint: `pkg-${"b".repeat(64)}`
+    };
+    const input = command({
+      requiredCapabilities: ["linux", "acp.test", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
+      runtimeMaterialization
+    });
+    const resolveRuntimeWorkspace = vi.fn(() => ({ cwd: process.cwd() }));
+    const executor = new RemoteAcpExecutor({
+      workspaceResolver: { resolve: vi.fn(() => ({ cwd: process.cwd() })) },
+      runtimeWorkspaceResolver: { resolve: resolveRuntimeWorkspace },
+      profileResolver: profileResolver("success"),
+      outbox,
+      hostCapabilities: ["linux", "acp.test", WORKSPACE_CANVAS_EXECUTION_CAPABILITY]
+    });
+
+    await executor.execute(input, artifactContext(input).context);
+
+    expect(input.envelope.sourceRevision).toBe(exampleExecutionEnvelopeInput.sourceRevision);
+    expect(resolveRuntimeWorkspace).toHaveBeenCalledWith(
+      {
+        workspaceId: input.envelope.workspaceId,
+        projectId: input.envelope.projectId,
+        canvasId: input.envelope.canvasId
+      },
+      runtimeMaterialization
+    );
+  });
+
+  it("fails closed when resuming a legacy v1 Workspace Canvas envelope", async () => {
+    const { outbox } = await openOutbox();
+    const input = command({
+      requiredCapabilities: ["linux", "acp.test", LEGACY_WORKSPACE_CANVAS_EXECUTION_CAPABILITY]
+    });
+    const resolveWorkspace = vi.fn(() => ({ cwd: process.cwd() }));
+    const executor = new RemoteAcpExecutor({
+      workspaceResolver: { resolve: resolveWorkspace },
+      runtimeWorkspaceResolver: { resolve: resolveWorkspace },
+      profileResolver: profileResolver("success"),
+      outbox,
+      hostCapabilities: ["linux", "acp.test", LEGACY_WORKSPACE_CANVAS_EXECUTION_CAPABILITY]
+    });
+
+    await expectFailure(
+      executor.execute(input, artifactContext(input).context),
+      "runtime_materialization_evidence_missing"
     );
     expect(resolveWorkspace).not.toHaveBeenCalled();
   });

@@ -137,7 +137,19 @@ class CoordinatorHarness {
     registry.bind(
       this.locator,
       this.runtime,
-      createRemoteBlockArtifactSource({ projectRoot: this.workspace.root })
+      createRemoteBlockArtifactSource({ projectRoot: this.workspace.root }),
+      async () => ({
+        sourceRevision: `snapshot:${"a".repeat(64)}`,
+        graphFingerprint: `pkg-${"b".repeat(64)}`,
+        status: {
+          schemaVersion: "canvas-runtime-status/v2",
+          scope: this.locator,
+          packageFingerprint: `pkg-${"b".repeat(64)}`,
+          capturedAt: "2026-08-27T00:00:00.000Z",
+          tasks: [],
+          blocks: []
+        }
+      })
     );
     this.artifacts = new ArtifactStore(this.server.database, this.dataDirectory, 1024 * 1024);
     const options: RemoteBlockCoordinationOptions = {

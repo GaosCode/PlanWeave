@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { canonicalizeJson } from "../canonicalJson.js";
 import {
+  LEGACY_WORKSPACE_CANVAS_EXECUTION_CAPABILITY,
+  WORKSPACE_CANVAS_EXECUTION_CAPABILITY
+} from "../capabilities.js";
+import {
   executionEnvelopeDigestPrefix,
   executionEnvelopeSchema,
   isExecutionEnvelopeDigest,
@@ -65,6 +69,59 @@ describe("ExecutionEnvelope schema", () => {
     expectRejects(() =>
       parseExecutionEnvelope(
         validEnvelope({ requiredCapabilities: ["node", "linux", "node", "acp.codex"] })
+      )
+    );
+  });
+
+  it("requires Runtime materialization evidence only for Workspace Canvas execution", () => {
+    expectRejects(() =>
+      parseExecutionEnvelope(
+        validEnvelope({ requiredCapabilities: [WORKSPACE_CANVAS_EXECUTION_CAPABILITY] })
+      )
+    );
+    expect(
+      parseExecutionEnvelope(
+        validEnvelope({
+          requiredCapabilities: [WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
+          runtimeMaterialization: {
+            sourceRevision: `snapshot:${"a".repeat(64)}`,
+            graphFingerprint: `pkg-${"b".repeat(64)}`
+          }
+        })
+      ).runtimeMaterialization
+    ).toEqual({
+      sourceRevision: `snapshot:${"a".repeat(64)}`,
+      graphFingerprint: `pkg-${"b".repeat(64)}`
+    });
+    expectRejects(() =>
+      parseExecutionEnvelope(
+        validEnvelope({
+          runtimeMaterialization: {
+            sourceRevision: `snapshot:${"a".repeat(64)}`,
+            graphFingerprint: `pkg-${"b".repeat(64)}`
+          }
+        })
+      )
+    );
+  });
+
+  it("keeps legacy v1 envelopes parseable without accepting v2 materialization fields", () => {
+    expect(
+      parseExecutionEnvelope(
+        validEnvelope({
+          requiredCapabilities: [LEGACY_WORKSPACE_CANVAS_EXECUTION_CAPABILITY]
+        })
+      ).runtimeMaterialization
+    ).toBeUndefined();
+    expectRejects(() =>
+      parseExecutionEnvelope(
+        validEnvelope({
+          requiredCapabilities: [LEGACY_WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
+          runtimeMaterialization: {
+            sourceRevision: `snapshot:${"a".repeat(64)}`,
+            graphFingerprint: `pkg-${"b".repeat(64)}`
+          }
+        })
       )
     );
   });

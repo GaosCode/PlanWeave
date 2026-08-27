@@ -68,7 +68,21 @@ export async function setup(
   };
   const runtime = createRemoteBlockRuntimePort({ projectRoot: workspace.root });
   const registry = new RemoteRuntimePortRegistry();
-  registry.bind(locator, runtime, createRemoteBlockArtifactSource({ projectRoot: workspace.root }));
+  const runtimeArtifacts = createRemoteBlockArtifactSource({ projectRoot: workspace.root });
+  const runtimeCandidate = await runtime.inspect({ ref: "T-001#B-001" });
+  const runtimeInitializationEvidenceFor = (scope: typeof locator) => async () => ({
+    sourceRevision: `snapshot:${"a".repeat(64)}`,
+    graphFingerprint: runtimeCandidate.graphFingerprint,
+    status: {
+      schemaVersion: "canvas-runtime-status/v2",
+      scope,
+      packageFingerprint: runtimeCandidate.graphFingerprint,
+      capturedAt: "2026-08-27T00:00:00.000Z",
+      tasks: [],
+      blocks: []
+    }
+  });
+  registry.bind(locator, runtime, runtimeArtifacts, runtimeInitializationEvidenceFor(locator));
   const artifacts = new ArtifactStore(server.database, dataDirectory, 1024 * 1024);
   const materialize = vi.fn(async (candidate: Awaited<ReturnType<typeof runtime.inspect>>) => {
     if (candidate.inputArtifacts.length !== 0) throw new Error("unexpected_test_artifact");
@@ -128,6 +142,7 @@ export async function setup(
     locator,
     runtime,
     registry,
+    runtimeInitializationEvidenceFor,
     hosts: coordination.hosts,
     host,
     mailbox: coordination.mailbox,

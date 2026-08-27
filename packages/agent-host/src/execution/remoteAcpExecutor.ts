@@ -12,7 +12,10 @@ import {
   type AcpSharedPoolIdentity
 } from "@planweave-ai/runtime";
 import { parseAgentHostExecuteCommand } from "../protocol.js";
-import { hasWorkspaceCanvasExecutionCapability } from "@planweave-ai/agent-host-protocol";
+import {
+  hasLegacyWorkspaceCanvasExecutionCapability,
+  hasWorkspaceCanvasExecutionCapability
+} from "@planweave-ai/agent-host-protocol";
 import {
   AgentHostExecutionError,
   AgentHostSessionLoadError,
@@ -236,14 +239,23 @@ export class RemoteAcpExecutor implements AgentHostExecutor {
       const workspaceCanvasExecution = hasWorkspaceCanvasExecutionCapability(
         command.envelope.requiredCapabilities
       );
+      if (
+        !workspaceCanvasExecution &&
+        hasLegacyWorkspaceCanvasExecutionCapability(command.envelope.requiredCapabilities)
+      ) {
+        throw failure(
+          "runtime_materialization_evidence_missing",
+          "Legacy Workspace execution cannot resume without exact Runtime materialization evidence."
+        );
+      }
       if (!workspaceCanvasExecution) {
         workspaceResolution = this.options.workspaceResolver.resolve(
           command.envelope.workspaceId,
           command.envelope.ownerPackageLocator
         );
       } else {
-        const graphFingerprint = command.envelope.graphFingerprint;
-        if (graphFingerprint === undefined) {
+        const runtimeMaterialization = command.envelope.runtimeMaterialization;
+        if (runtimeMaterialization === undefined) {
           throw failure(
             "runtime_materialization_evidence_missing",
             "Workspace execution requires exact Runtime materialization evidence."
@@ -255,10 +267,7 @@ export class RemoteAcpExecutor implements AgentHostExecutor {
             projectId: command.envelope.projectId,
             canvasId: command.envelope.canvasId
           },
-          {
-            sourceRevision: command.envelope.sourceRevision,
-            graphFingerprint
-          }
+          runtimeMaterialization
         );
       }
       [workspace, profile] = await Promise.all([

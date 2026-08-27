@@ -28,9 +28,10 @@ import {
   acquireRemoteRuntimeLease,
   authorizedOperationHostId
 } from "./remoteBlockCoordinatorPorts.js";
-import type {
-  CanvasExecutionRuntimeLease,
-  CanvasExecutionRuntimeRoutePort
+import {
+  CanvasRuntimeUnavailableError,
+  type CanvasExecutionRuntimeLease,
+  type CanvasExecutionRuntimeRoutePort
 } from "./canvas/executionRuntimePort.js";
 import type { RuntimeAttachmentRequest } from "./canvas/runtimeAttachment.js";
 import { HostReservationRepository, type HostCapacityReservation } from "./hostReservations.js";
@@ -463,7 +464,22 @@ export class RemoteBlockCoordinator {
             hostId: operation.endpointSelection.hostId,
             candidate
           });
-    const envelope = buildRemoteBlockExecutionEnvelope(operation, candidate, ownerPackageLocator);
+    const runtimeMaterialization =
+      operation.endpointSelection?.authority.kind === "workspace_canvas"
+        ? await runtimeLease.readInitializationEvidence?.()
+        : undefined;
+    if (
+      operation.endpointSelection?.authority.kind === "workspace_canvas" &&
+      runtimeMaterialization === undefined
+    ) {
+      throw new CanvasRuntimeUnavailableError();
+    }
+    const envelope = buildRemoteBlockExecutionEnvelope(
+      operation,
+      candidate,
+      ownerPackageLocator,
+      runtimeMaterialization
+    );
     const envelopeDigest = hashExecutionEnvelope(envelope);
     operation = this.options.operations.recordEnvelope({
       operationId: operation.id,

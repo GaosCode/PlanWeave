@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { WORKSPACE_CANVAS_EXECUTION_CAPABILITY } from "@planweave-ai/agent-host-protocol";
+import {
+  LEGACY_WORKSPACE_CANVAS_EXECUTION_CAPABILITY,
+  WORKSPACE_CANVAS_EXECUTION_CAPABILITY
+} from "@planweave-ai/agent-host-protocol";
 import {
   AgentEndpointCatalog,
   AgentEndpointCatalogError,
@@ -233,6 +236,32 @@ describe("AgentEndpointCatalog", () => {
     expect(() =>
       state.catalog.resolveForRun(legacyId, "workspace-a", ["acp.codex"], { kind: "workspace" })
     ).toThrowError(new AgentEndpointCatalogError("agent_endpoint_unknown"));
+  });
+
+  it("excludes legacy v1 Hosts from v2 Workspace Canvas execution", () => {
+    const legacyHost = readyHost({
+      capabilities: ["acp.codex", LEGACY_WORKSPACE_CANVAS_EXECUTION_CAPABILITY]
+    });
+    const state = fixture([legacyHost]);
+
+    expect(state.catalog.listVisible("workspace-a").items).toEqual([
+      expect.objectContaining({
+        status: "unavailable",
+        unavailableReason: "host_capability_missing"
+      })
+    ]);
+    expect(() =>
+      state.catalog.resolveForRun(
+        endpointIdFor({
+          hostId: legacyHost.id,
+          profileId: "profile-main",
+          agentId: "codex"
+        }),
+        "workspace-a",
+        [WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
+        { kind: "workspace" }
+      )
+    ).toThrowError(new AgentEndpointCatalogError("agent_endpoint_unavailable"));
   });
 
   it("B3: projects offline Host state as unavailable in the fleet list", () => {

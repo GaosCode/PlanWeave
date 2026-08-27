@@ -9,6 +9,7 @@ import {
 } from "@planweave-ai/agent-host-protocol";
 import { RemoteBlockRuntimeError, type RemoteBlockDispatchCandidate } from "@planweave-ai/runtime";
 import type {
+  CanvasRuntimeInitializationEvidence,
   CanvasExecutionRuntimeLeasePort,
   CanvasExecutionRuntimeRoutePort
 } from "./canvas/executionRuntimePort.js";
@@ -22,7 +23,8 @@ import type { RemoteOperation } from "./remoteOperations.js";
 export function buildRemoteBlockExecutionEnvelope(
   operation: RemoteOperation,
   candidate: RemoteBlockDispatchCandidate,
-  ownerPackageLocator?: OwnerPackageLocator
+  ownerPackageLocator?: OwnerPackageLocator,
+  runtimeMaterialization?: CanvasRuntimeInitializationEvidence
 ) {
   const protocolCheck = assertAgentHostProtocolCompatible(agentHostProtocolVersion);
   if (!protocolCheck.ok) {
@@ -51,6 +53,14 @@ export function buildRemoteBlockExecutionEnvelope(
     blockType: candidate.blockType,
     sourceRevision: candidate.sourceRevision,
     graphFingerprint: candidate.graphFingerprint,
+    ...(runtimeMaterialization === undefined
+      ? {}
+      : {
+          runtimeMaterialization: {
+            sourceRevision: runtimeMaterialization.sourceRevision,
+            graphFingerprint: runtimeMaterialization.graphFingerprint
+          }
+        }),
     renderedPrompt: candidate.renderedPrompt,
     acceptance: candidate.acceptance,
     dependencySummaries: candidate.dependencySummaries,
