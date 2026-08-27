@@ -164,7 +164,24 @@ async function createWsCoordination() {
   };
   const registry = new RemoteRuntimePortRegistry();
   const runtime = createRemoteBlockRuntimePort({ projectRoot: workspace.root });
-  registry.bind(locator, runtime, createRemoteBlockArtifactSource({ projectRoot: workspace.root }));
+  const runtimeCandidate = await runtime.inspect({ ref: "T-001#B-001" });
+  registry.bind(
+    locator,
+    runtime,
+    createRemoteBlockArtifactSource({ projectRoot: workspace.root }),
+    async () => ({
+      sourceRevision: `snapshot:${"a".repeat(64)}`,
+      graphFingerprint: runtimeCandidate.graphFingerprint,
+      status: {
+        schemaVersion: "canvas-runtime-status/v2",
+        scope: locator,
+        packageFingerprint: runtimeCandidate.graphFingerprint,
+        capturedAt: "2026-08-27T00:00:00.000Z",
+        tasks: [],
+        blocks: []
+      }
+    })
+  );
   const coordination = createRemoteBlockCoordination(
     database.database,
     {

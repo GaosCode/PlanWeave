@@ -21,6 +21,7 @@ describe("RemoteBlockCoordinator Runtime lease and terminal writeback", () => {
       const binding = {
         runtime: canonicalRemoteRuntimePort(fixture.runtime, fixture.locator.workspaceId),
         artifacts: createRemoteBlockArtifactSource({ projectRoot: fixture.workspace.root }),
+        readInitializationEvidence: fixture.runtimeInitializationEvidenceFor(fixture.locator),
         release: vi.fn()
       };
       bindings.push(binding);
@@ -54,6 +55,9 @@ describe("RemoteBlockCoordinator Runtime lease and terminal writeback", () => {
           failureFixture.locator.workspaceId
         ),
         artifacts: createRemoteBlockArtifactSource({ projectRoot: failureFixture.workspace.root }),
+        readInitializationEvidence: failureFixture.runtimeInitializationEvidenceFor(
+          failureFixture.locator
+        ),
         release
       };
     });
@@ -103,6 +107,7 @@ describe("RemoteBlockCoordinator Runtime lease and terminal writeback", () => {
       return {
         runtime: canonicalRemoteRuntimePort(fixture.runtime, fixture.locator.workspaceId),
         artifacts: createRemoteBlockArtifactSource({ projectRoot: fixture.workspace.root }),
+        readInitializationEvidence: fixture.runtimeInitializationEvidenceFor(fixture.locator),
         release
       };
     });

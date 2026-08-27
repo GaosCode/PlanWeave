@@ -128,6 +128,9 @@ export async function setup(
     : undefined;
 
   let activeRuntime: RemoteBlockRuntimePort | undefined;
+  const initializationCandidate = await createRemoteBlockRuntimePort({
+    projectRoot: workspace.root
+  }).inspect({ ref: "T-001#B-001" });
   const buildCoordination = (checkpoints?: RemoteCoordinatorCheckpointPort) => {
     const baseRuntime = createRemoteBlockRuntimePort({ projectRoot: workspace.root });
     const runtime = options.decorateRuntime?.(baseRuntime) ?? baseRuntime;
@@ -136,7 +139,19 @@ export async function setup(
     registry.bind(
       locator,
       runtime,
-      createRemoteBlockArtifactSource({ projectRoot: workspace.root })
+      createRemoteBlockArtifactSource({ projectRoot: workspace.root }),
+      async () => ({
+        sourceRevision: `snapshot:${"a".repeat(64)}`,
+        graphFingerprint: initializationCandidate.graphFingerprint,
+        status: {
+          schemaVersion: "canvas-runtime-status/v2",
+          scope: locator,
+          packageFingerprint: initializationCandidate.graphFingerprint,
+          capturedAt: "2026-08-27T00:00:00.000Z",
+          tasks: [],
+          blocks: []
+        }
+      })
     );
     const artifacts = new ArtifactStore(server.database, dataDirectory, 1024 * 1024);
     return createRemoteBlockCoordination(

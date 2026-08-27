@@ -176,13 +176,24 @@ export async function startGrantedHostCatalogDispatchHttp(options: { mapWorkspac
     packageDir: workspace.init.workspace.packageDir
   });
   const registry = new RemoteRuntimePortRegistry();
+  const runtime = createRemoteBlockRuntimePort({ projectRoot: workspace.root });
+  const runtimeCandidate = await runtime.inspect({ ref: "T-001#B-001" });
   registry.bind(
     { workspaceId, projectId, canvasId },
-    canonicalRemoteRuntimePort(
-      createRemoteBlockRuntimePort({ projectRoot: workspace.root }),
-      workspaceId
-    ),
-    createRemoteBlockArtifactSource({ projectRoot: workspace.root })
+    canonicalRemoteRuntimePort(runtime, workspaceId),
+    createRemoteBlockArtifactSource({ projectRoot: workspace.root }),
+    async () => ({
+      sourceRevision: `snapshot:${"a".repeat(64)}`,
+      graphFingerprint: runtimeCandidate.graphFingerprint,
+      status: {
+        schemaVersion: "canvas-runtime-status/v2",
+        scope: { workspaceId, projectId, canvasId },
+        packageFingerprint: runtimeCandidate.graphFingerprint,
+        capturedAt: "2026-08-27T00:00:00.000Z",
+        tasks: [],
+        blocks: []
+      }
+    })
   );
   const artifacts = new ArtifactStore(storage.database, dataDirectory, 1024 * 1024);
   const coordination = createRemoteBlockCoordination(
