@@ -203,7 +203,7 @@ describe("Canvas Runtime content HTTP authorization", () => {
       response: {
         outcome: "success",
         operation: "availability",
-        result: { kind: "unavailable", reason: "runtime_not_attached" }
+        result: { kind: "unavailable", reason: "host_offline" }
       }
     });
     await pending;
