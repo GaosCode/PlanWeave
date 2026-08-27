@@ -77,11 +77,18 @@ function connectedStatus(): CollaborationStatus {
     updatedAt: "2030-01-01T00:00:00.000Z",
     workspaceConnection: {
       schemaVersion: "workspace-setup/v1",
-      status: "local_only",
-      profile: null,
-      workspaceId: null,
-      workspaceDisplayName: null,
-      connectedAt: null,
+      status: "connected",
+      profile: {
+        schemaVersion: "workspace-setup/v1",
+        profileId: "workspace-profile-1",
+        displayName: "Workspace Demo",
+        serverBaseUrl: "https://example.test",
+        workspaceId: "workspace-1",
+        allowInsecureTransport: false
+      },
+      workspaceId: "workspace-1",
+      workspaceDisplayName: "Workspace Demo",
+      connectedAt: "2030-01-01T00:00:00.000Z",
       error: null
     },
     workspacePicker: { schemaVersion: "workspace-setup/v1", items: [], nextCursor: null }
@@ -551,6 +558,14 @@ describe("useRemoteRunPanelController", () => {
       );
     });
     expect(listAgentEndpoints).toHaveBeenCalledTimes(2);
+    expect(listAgentEndpoints).toHaveBeenNthCalledWith(1, {
+      canvasId: "default",
+      workspaceId: "workspace-1"
+    });
+    expect(listAgentEndpoints).toHaveBeenNthCalledWith(2, {
+      canvasId: "secondary",
+      workspaceId: "workspace-1"
+    });
   });
 
   it("does not let an old scope endpoint request overwrite the new scope", async () => {

@@ -230,7 +230,8 @@ export function useRemoteRunPanelController(
   const generationRef = useRef(0);
   const endpointRequestGenerationRef = useRef(0);
   const scopeGenerationRef = useRef(0);
-  const scopeKey = JSON.stringify([snapshot.projectId ?? null, workKey]);
+  const workspaceId = status?.workspaceConnection.workspaceId ?? null;
+  const scopeKey = JSON.stringify([snapshot.projectId ?? null, workspaceId, workKey]);
   const scopeKeyRef = useRef(scopeKey);
 
   const discoveredAgentEndpoints = useMemo(() => {
@@ -293,9 +294,10 @@ export function useRemoteRunPanelController(
     }
     setRefreshingAgentEndpoints(true);
     try {
-      const list = await api.listCollaborationAgentEndpoints(
-        workItemCanvasId ? { canvasId: workItemCanvasId } : undefined
-      );
+      const list = await api.listCollaborationAgentEndpoints({
+        ...(workItemCanvasId ? { canvasId: workItemCanvasId } : {}),
+        ...(workspaceId ? { workspaceId } : {})
+      });
       if (
         requestGeneration === endpointRequestGenerationRef.current &&
         requestScopeKey === scopeKeyRef.current &&
@@ -318,7 +320,8 @@ export function useRemoteRunPanelController(
     hasProvidedAgentEndpoints,
     sessionConnected,
     scopeKey,
-    workItemCanvasId
+    workItemCanvasId,
+    workspaceId
   ]);
 
   useLayoutEffect(() => {
