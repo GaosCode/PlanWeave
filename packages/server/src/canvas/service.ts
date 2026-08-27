@@ -26,7 +26,6 @@ import {
   type AuthoritativeContentVersion,
   type CompleteContentVersion
 } from "@planweave-ai/collaboration-protocol/content/version";
-import { type PackageSnapshotDigestManifest } from "@planweave-ai/collaboration-protocol/content/snapshot";
 import {
   applyCanvasReplicaIntent,
   decodeCanvasReplicaDocument,
@@ -48,6 +47,7 @@ import {
 } from "./operationRetention.js";
 import type { ContentAuthorityStore } from "./contentAuthorityStore.js";
 import type { AuthoritativeCanvasCommitPort } from "./authoritativeCanvasCommitPort.js";
+import { packageDigestManifestFromContent } from "./contentFingerprint.js";
 
 export type CanvasCommandServiceOptions = {
   repository: CanvasCommandRepository;
@@ -107,25 +107,6 @@ function baseContentDigests(intent: CanvasCommandIntent): readonly string[] {
     default:
       return [];
   }
-}
-
-function packageDigestManifestFromContent(
-  content: CompleteContentVersion
-): PackageSnapshotDigestManifest {
-  const manifest = content.members.find((member) => member.kind === "manifest");
-  if (!manifest) throw new Error("canvas_baseline_rebase_authority_malformed");
-  const prompts = content.members
-    .filter((member) => member.kind === "task_prompt" || member.kind === "block_prompt")
-    .map((member) => ({
-      path: member.path,
-      digest: { digestSha256: member.digestSha256, sizeBytes: member.sizeBytes }
-    }));
-  return {
-    manifest: { digestSha256: manifest.digestSha256, sizeBytes: manifest.sizeBytes },
-    prompts,
-    totalBytes:
-      manifest.sizeBytes + prompts.reduce((total, member) => total + member.digest.sizeBytes, 0)
-  };
 }
 
 /**

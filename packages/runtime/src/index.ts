@@ -193,6 +193,7 @@ export { readMarkdown } from "./package/readMarkdown.js";
 export { resolvePackagePath, PackagePathError } from "./package/resolvePackagePath.js";
 export {
   capturePackageSnapshot,
+  packageSnapshotSourceRevision,
   restorePackageSnapshot,
   type CapturePackageSnapshotResult,
   type CapturedPackageSnapshot,

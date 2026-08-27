@@ -43,6 +43,15 @@ export type CapturePackageSnapshotResult = {
   resolvedPackageDir: string;
 };
 
+export function packageSnapshotSourceRevision(
+  digestManifestInput: PackageSnapshotDigestManifest
+): string {
+  const digestManifest = packageSnapshotDigestManifestSchema.parse(digestManifestInput);
+  return sourceRevisionSchema.parse(
+    `snapshot:${createHash("sha256").update(JSON.stringify(digestManifest)).digest("hex")}`
+  );
+}
+
 function digest(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
@@ -117,9 +126,7 @@ export async function capturePackageSnapshot(input: {
     prompts,
     totalBytes
   });
-  const sourceRevision = sourceRevisionSchema.parse(
-    `snapshot:${createHash("sha256").update(JSON.stringify(digestManifest)).digest("hex")}`
-  );
+  const sourceRevision = packageSnapshotSourceRevision(digestManifest);
   return {
     snapshot: { sourceRevision, digestManifest, files },
     resolvedPackageDir: workspace.packageDir

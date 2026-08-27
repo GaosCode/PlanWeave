@@ -5,7 +5,7 @@ import {
 } from "@planweave-ai/collaboration-protocol/work/package-facts";
 import { loadPlanGraphPackage, resolveTaskCanvasWorkspace } from "@planweave-ai/runtime";
 import type { ContentAuthorityStore } from "../canvas/contentAuthorityStore.js";
-import { readStableCanvasContentFingerprint } from "../canvas/contentFingerprint.js";
+import { readStableCanvasRuntimeEvidence } from "../canvas/contentFingerprint.js";
 import type { TrustedRuntimeRegistry } from "../runtimeProjectRegistry.js";
 import type { WorkItemRef } from "./schemas.js";
 import type {
@@ -134,8 +134,12 @@ export class ContentAlignedWorkRuntimeFactsAdapter implements WorkRuntimePackage
     const lease = await this.delegate.acquireFacts(input);
     if (!lease) return undefined;
     try {
-      const fingerprint = readStableCanvasContentFingerprint(this.content, input.scope);
-      if (!fingerprint || fingerprint !== lease.evidence.graphFingerprint) {
+      const authority = readStableCanvasRuntimeEvidence(this.content, input.scope);
+      if (
+        !authority ||
+        authority.target.graphFingerprint !== lease.evidence.graphFingerprint ||
+        authority.sourceRevision !== lease.evidence.sourceRevision
+      ) {
         throw new WorkRuntimeUnavailableError("content_out_of_sync");
       }
       return lease;
