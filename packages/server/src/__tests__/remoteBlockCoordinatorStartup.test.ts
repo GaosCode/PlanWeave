@@ -397,7 +397,19 @@ function eventCount(database: PlanweaveServer["database"], table: string, type: 
 }
 
 describe("RemoteBlockCoordinator startup reconciliation", () => {
-  it("defers recorded action recovery while the Canvas Runtime is unavailable", async () => {
+  it.each([
+    {
+      code: "remote_ownership_operation_conflict",
+      message: "The Runtime block is already owned by the successor operation."
+    },
+    {
+      code: "remote_ownership_not_active",
+      message: "The Runtime block no longer has active remote ownership after reset."
+    }
+  ] as const)("defers recorded action recovery while the Canvas Runtime is unavailable, then seals $code", async ({
+    code,
+    message
+  }) => {
     const harness = await StartupHarness.create();
     const hostId = harness.registerHost();
     await harness.start(new CrashOnce("after_terminal_event_persistence"));
@@ -473,10 +485,7 @@ describe("RemoteBlockCoordinator startup reconciliation", () => {
     const recovered = await harness.start(undefined, (runtime) => ({
       ...runtime,
       fail: async () => {
-        throw new RemoteOwnershipConflictError(
-          "remote_ownership_operation_conflict",
-          "The Runtime block is already owned by the successor operation."
-        );
+        throw new RemoteOwnershipConflictError(code, message);
       }
     }));
     expect(recovered.actions.getRequired(action.actionId)).toMatchObject({ state: "settled" });
@@ -489,7 +498,7 @@ describe("RemoteBlockCoordinator startup reconciliation", () => {
         .requireServer()
         .database.prepare("SELECT diagnostic_code FROM remote_operations WHERE id=?")
         .get(outcome.operation.id)
-    ).toEqual({ diagnostic_code: "remote_ownership_operation_conflict" });
+    ).toEqual({ diagnostic_code: code });
   });
 
   it("cancels a pre-dispatch claim after Runtime reset and continues startup", async () => {

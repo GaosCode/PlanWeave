@@ -37,6 +37,7 @@ import {
 import {
   classifyReenterFailure,
   diagnosticFromReenterFailure,
+  isMissingActiveOwnership,
   isReplacedActiveOwnership
 } from "./remoteReenterRecovery.js";
 
@@ -185,7 +186,7 @@ export class RemoteBlockActionCoordinator {
       try {
         await this.lifecycle.fail(operation.id);
       } catch (error) {
-        if (!isReplacedActiveOwnership(error)) throw error;
+        if (!isMissingActiveOwnership(error) && !isReplacedActiveOwnership(error)) throw error;
         await this.lifecycle.sealOperationLocalFailure(operation, error);
       }
       return "settled";
