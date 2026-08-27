@@ -459,6 +459,7 @@ describe("FloatingAutoRunControl", () => {
 
   it("offers automatic first run without exposing Workspace runtime initialization", async () => {
     const resetRuntimeStateClick = vi.fn().mockResolvedValue(undefined);
+    const stopAutoRunClick = vi.fn().mockResolvedValue(undefined);
     render(
       <FloatingAutoRunControl
         affectedTasks={[]}
@@ -468,6 +469,7 @@ describe("FloatingAutoRunControl", () => {
         runtimeOperationsAllowed={true}
         runtimeResetAllowed={false}
         autoRunState={null}
+        endpointScopeRunPhase="preparing"
         diagnostics={[]}
         projectDiagnostics={[]}
         dirtyPromptRefs={[]}
@@ -489,7 +491,7 @@ describe("FloatingAutoRunControl", () => {
         setAutoRunScopeMode={vi.fn()}
         setMiniRunPanelOpen={vi.fn()}
         startAutoRunControlDrag={vi.fn()}
-        stopAutoRunClick={vi.fn().mockResolvedValue(undefined)}
+        stopAutoRunClick={stopAutoRunClick}
         stopAutoRunControlDrag={vi.fn()}
         style={{ right: 24, bottom: 24 }}
         t={t}
@@ -503,6 +505,8 @@ describe("FloatingAutoRunControl", () => {
       screen.queryByRole("button", { name: "Initialize runtime state" })
     ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reset runtime state" })).toBeDisabled();
+    await userEvent.click(screen.getAllByRole("button", { name: "Stop" })[0]);
+    expect(stopAutoRunClick).toHaveBeenCalledOnce();
     expect(screen.getByRole("button", { name: "View file sync changes" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "View desktop diagnostics" })).toBeDisabled();
 

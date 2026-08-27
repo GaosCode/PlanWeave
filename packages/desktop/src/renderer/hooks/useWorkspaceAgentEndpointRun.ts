@@ -8,7 +8,7 @@ import type {
 } from "@planweave-ai/runtime";
 import type { WorkItemRef } from "@planweave-ai/collaboration-protocol/core/primitives";
 import type { RemoteOperationObservation } from "@planweave-ai/collaboration-protocol/remote-run";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { PlanWeaveCollaborationApi } from "../../shared/collaboration";
 import type { RemoteCollaborationCanvasBindingInput } from "../../shared/collaboration";
 import type { CollaborationObserverSignal } from "../../shared/collaborationReadModels";
@@ -21,12 +21,14 @@ import {
 } from "../bridge";
 import {
   createAgentEndpointBlockExecutor,
+  type RemoteOperationControl,
   type ResolveLiveRemoteBinding
 } from "../collaboration/agentEndpointBlockExecutor";
 import { createOwnerFleetRemoteDispatchApi } from "../collaboration/ownerFleetRemoteDispatch";
 import { createAgentEndpointRunPlan } from "../collaboration/agentEndpointRunPlan";
 import type { AvailableAgentEndpoint } from "../collaboration/agentEndpointViewModel";
 import { createRemoteEndpointDispatchGate } from "../collaboration/remoteEndpointDispatchGate";
+import { buildRemoteActionIdentity } from "../collaboration/remoteRunViewModels";
 import { runWorkspaceRemoteScopeFromAvailability } from "../collaboration/workspaceRemoteScopeScheduler";
 import {
   type LocalAutoRunObserver,
@@ -117,6 +119,11 @@ function wrapOwnerFleetApiForOperationTracking(
   };
 }
 
+type ActiveEndpointScopeRun = {
+  controller: AbortController;
+  operations: Map<string, RemoteOperationControl>;
+};
+
 type GraphTask = DesktopGraphViewModel["tasks"][number];
 
 type WorkspaceAgentEndpointRunInput = {
@@ -186,6 +193,10 @@ export type WorkspaceAgentEndpointScopeStarter = (
   lifecycle?: WorkspaceAgentEndpointScopeLifecycle
 ) => Promise<void>;
 
+export type WorkspaceAgentEndpointScopeController = WorkspaceAgentEndpointScopeStarter & {
+  stop: () => Promise<void>;
+};
+
 function scopeTaskIds(
   plan:
     | { kind: "coordinated_scope"; tasks: readonly GraphTask[] }
@@ -197,10 +208,10 @@ function scopeTaskIds(
 
 export function useWorkspaceAgentEndpointRun(
   input: WorkspaceAgentEndpointRunInput
-): WorkspaceAgentEndpointScopeStarter {
+): WorkspaceAgentEndpointScopeController {
   const api = input.api === undefined ? collaborationBridge : input.api;
   const createId = input.createId ?? createDispatchId;
-  const activeEndpointScopeRun = useRef<AbortController | null>(null);
+  const activeEndpointScopeRun = useRef<ActiveEndpointScopeRun | null>(null);
   const executionScopeIdentity = input.canvasBinding
     ? (input.workspaceRuntimeAuthorityKey ??
       `${input.canvasBinding.workspaceId}:${input.canvasBinding.projectId}:${input.canvasBinding.canvasId}`)
@@ -212,13 +223,13 @@ export function useWorkspaceAgentEndpointRun(
   useEffect(() => {
     if (previousExecutionScopeIdentity.current !== executionScopeIdentity) {
       previousExecutionScopeIdentity.current = executionScopeIdentity;
-      activeEndpointScopeRun.current?.abort();
+      activeEndpointScopeRun.current?.controller.abort();
     }
   }, [executionScopeIdentity]);
 
   useEffect(
     () => () => {
-      activeEndpointScopeRun.current?.abort();
+      activeEndpointScopeRun.current?.controller.abort();
     },
     []
   );
@@ -331,7 +342,8 @@ export function useWorkspaceAgentEndpointRun(
       }
 
       const controller = new AbortController();
-      activeEndpointScopeRun.current = controller;
+      const activeRun: ActiveEndpointScopeRun = { controller, operations: new Map() };
+      activeEndpointScopeRun.current = activeRun;
       const completeLifecycle = () => {
         if (controller.signal.aborted) throw new Error("workspace_remote_scope_cancelled");
         lifecycle?.onCompleted();
@@ -392,7 +404,24 @@ export function useWorkspaceAgentEndpointRun(
           stopLocal,
           localAutoRunApi: input.localAutoRunApi,
           waitForLocalUnit: input.waitForLocalUnit,
-          waitForRemoteTerminal: input.waitForTerminal
+          waitForRemoteTerminal: input.waitForTerminal,
+          onRemoteOperation: async (operation) => {
+            const operationId = operation.observation.operationId;
+            if (OWNER_FLEET_TERMINAL_OPERATION_STATES.has(operation.observation.state)) {
+              activeRun.operations.delete(operationId);
+              return;
+            }
+            activeRun.operations.set(operationId, operation);
+            if (!activeRun.controller.signal.aborted) return;
+            await operation.executeAction(
+              buildRemoteActionIdentity({
+                observation: operation.observation,
+                kind: "cancel",
+                actionId: createId(),
+                reason: "Desktop Auto Run stop requested."
+              })
+            );
+          }
         });
 
         const executeSelectionByRef = async (ref: string, signal?: AbortSignal) => {
@@ -577,7 +606,7 @@ export function useWorkspaceAgentEndpointRun(
         input.setError(message);
         lifecycle?.onFailed(message);
       } finally {
-        if (activeEndpointScopeRun.current === controller) activeEndpointScopeRun.current = null;
+        if (activeEndpointScopeRun.current === activeRun) activeEndpointScopeRun.current = null;
       }
     },
     [
@@ -605,5 +634,31 @@ export function useWorkspaceAgentEndpointRun(
     ]
   );
 
-  return startScope;
+  const stop = useCallback(async () => {
+    const activeRun = activeEndpointScopeRun.current;
+    if (!activeRun) return;
+    activeRun.controller.abort();
+    const cancellations = [...activeRun.operations.values()].map(async (operation) => {
+      const observation = await operation.observe();
+      if (OWNER_FLEET_TERMINAL_OPERATION_STATES.has(observation.state)) return;
+      await operation.executeAction(
+        buildRemoteActionIdentity({
+          observation,
+          kind: "cancel",
+          actionId: createId(),
+          reason: "Desktop Auto Run stop requested."
+        })
+      );
+    });
+    const results = await Promise.allSettled(cancellations);
+    const failures = results.filter((result) => result.status === "rejected");
+    if (failures.length > 0) {
+      throw new AggregateError(
+        failures.map((failure) => failure.reason),
+        "workspace_remote_scope_cancel_failed"
+      );
+    }
+  }, [createId]);
+
+  return useMemo(() => Object.assign(startScope, { stop }), [startScope, stop]);
 }

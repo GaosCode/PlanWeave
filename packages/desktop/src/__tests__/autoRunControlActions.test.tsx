@@ -712,7 +712,10 @@ describe("auto run control hook actions", () => {
     expect(resetRuntimeState).not.toHaveBeenCalled();
   });
 
-  it("blocks Workspace runtime reset while an Endpoint scope run is active", async () => {
+  it.each([
+    { kind: "state_uninitialized" } as const,
+    { kind: "unavailable", reason: "runtime_not_attached", statusKnown: true } as const
+  ])("blocks Workspace runtime reset and permits Endpoint scope stop when Runtime is $kind", async (runtimeAvailability) => {
     stubAutoRunControlBridge(createDesktopBridgeMock());
     const { useAutoRunControl } = await loadAutoRunControl();
     const resetWorkspaceRuntime = vi.fn().mockResolvedValue(undefined);
@@ -722,13 +725,18 @@ describe("auto run control hook actions", () => {
     const runFinished = new Promise<void>((resolve) => {
       finishRun = resolve;
     });
+    let endpointLifecycle: Parameters<WorkspaceAgentEndpointScopeStarter>[2] | undefined;
     const startAutoRunScope = vi.fn<WorkspaceAgentEndpointScopeStarter>(
       async (_scope, _startLocal, lifecycle) => {
+        endpointLifecycle = lifecycle;
         lifecycle?.onStarted();
         await runFinished;
-        lifecycle?.onCompleted();
       }
     );
+    const stopAutoRunScope = vi.fn(async () => {
+      endpointLifecycle?.onCancelled?.();
+      finishRun?.();
+    });
 
     const { result } = renderHook(() =>
       useAutoRunControl({
@@ -742,7 +750,7 @@ describe("auto run control hook actions", () => {
         },
         openRunWorkspace: vi.fn(),
         resetWorkspaceRuntime,
-        runtimeAvailability: { kind: "available" },
+        runtimeAvailability,
         selectedCanvasId: "canvas-main",
         selectedBlock: null,
         selectedProject: null,
@@ -750,6 +758,7 @@ describe("auto run control hook actions", () => {
         setAutoRunState: vi.fn(),
         setError,
         startAutoRunScope,
+        stopAutoRunScope,
         t: createTranslator("en"),
         tmuxMonitoringEnabled: false
       })
@@ -775,10 +784,12 @@ describe("auto run control hook actions", () => {
     expect(resetWorkspaceRuntime).not.toHaveBeenCalled();
     expect(result.current.endpointScopeRunPhase).toBe("preparing");
 
-    finishRun?.();
     await act(async () => {
+      await result.current.stopAutoRunClick();
       await runPromise;
     });
+    expect(stopAutoRunScope).toHaveBeenCalledOnce();
+    expect(result.current.endpointScopeRunPhase).toBeNull();
   });
 
   it("opens an internal run record before falling back to revealing the record path", async () => {

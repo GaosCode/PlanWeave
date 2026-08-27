@@ -480,6 +480,7 @@ export function ProjectWorkspaceProvider({
     position: settings.layout.autoRunControl.position,
     onPositionCommit: (position) => updateLayoutSettings({ autoRunControl: { position } }),
     startAutoRunScope: startAutoRunWithSelectedEndpoint,
+    stopAutoRunScope: startAutoRunWithSelectedEndpoint.stop,
     runtimeAvailability: collaborationRuntime.availability,
     canvasLocator,
     resetWorkspaceRuntime: collaborationRuntime.resetWorkspaceRuntime

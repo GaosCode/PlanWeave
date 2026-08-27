@@ -52,6 +52,7 @@ type UseAutoRunControlArgs = {
   position?: FloatingControlPosition | null;
   onPositionCommit?: (position: FloatingControlPosition) => void;
   startAutoRunScope?: WorkspaceAgentEndpointScopeStarter;
+  stopAutoRunScope?: () => Promise<void>;
   runtimeAvailability: CollaborationRuntimeAvailabilityView;
   canvasLocator?: CanvasLocator | null;
   resetWorkspaceRuntime?: () => Promise<void>;
@@ -167,6 +168,7 @@ export function useAutoRunControl({
   position,
   onPositionCommit,
   startAutoRunScope,
+  stopAutoRunScope,
   runtimeAvailability,
   canvasLocator,
   resetWorkspaceRuntime
@@ -594,6 +596,16 @@ export function useAutoRunControl({
   );
 
   const stopAutoRunClick = useCallback(async () => {
+    if (endpointScopeRunPhase === "running" || endpointScopeRunPhase === "preparing") {
+      if (!stopAutoRunScope) return;
+      try {
+        await stopAutoRunScope();
+        setEndpointScopeRunPhase(null);
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+      }
+      return;
+    }
     if (!runtimeOperationsAllowed) {
       setError(runtimeUnavailableCode ?? "collaboration_runtime_unavailable");
       return;
@@ -606,7 +618,15 @@ export function useAutoRunControl({
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [applyAutoRunState, autoRunState, runtimeOperationsAllowed, runtimeUnavailableCode, setError]);
+  }, [
+    applyAutoRunState,
+    autoRunState,
+    endpointScopeRunPhase,
+    runtimeOperationsAllowed,
+    runtimeUnavailableCode,
+    setError,
+    stopAutoRunScope
+  ]);
 
   const resetRuntimeStateClick = useCallback(async () => {
     const workspaceReset = canvasLocator?.kind === "workspace";

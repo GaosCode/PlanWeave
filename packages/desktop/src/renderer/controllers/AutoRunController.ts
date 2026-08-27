@@ -49,6 +49,7 @@ export function useAutoRunController({
   t,
   tmuxMonitoringEnabled,
   startAutoRunScope,
+  stopAutoRunScope,
   runtimeAvailability,
   canvasLocator,
   resetWorkspaceRuntime
@@ -71,6 +72,7 @@ export function useAutoRunController({
   t: ReturnType<typeof createTranslator>;
   tmuxMonitoringEnabled: boolean;
   startAutoRunScope?: WorkspaceAgentEndpointScopeStarter;
+  stopAutoRunScope?: () => Promise<void>;
   runtimeAvailability: CollaborationRuntimeAvailabilityView;
   canvasLocator?: CanvasLocator | null;
   resetWorkspaceRuntime?: () => Promise<void>;
@@ -112,6 +114,7 @@ export function useAutoRunController({
     position,
     onPositionCommit,
     startAutoRunScope,
+    stopAutoRunScope,
     runtimeAvailability,
     canvasLocator,
     resetWorkspaceRuntime

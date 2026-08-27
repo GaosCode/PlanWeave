@@ -49,6 +49,12 @@ type RemoteDispatchSurface = {
   fallbackRefreshMs?: number;
 };
 
+export type RemoteOperationControl = {
+  observation: RemoteOperationObservation;
+  observe: () => Promise<RemoteOperationObservation>;
+  executeAction: (action: RemoteHumanExecutionActionCommand) => Promise<unknown>;
+};
+
 const OWNER_FLEET_FALLBACK_REFRESH_MS = 1_000;
 
 function collaborationRemoteDispatchSurface(api: RemoteOperationsApi): RemoteDispatchSurface {
@@ -66,6 +72,26 @@ function ownerFleetRemoteDispatchSurface(api: OwnerFleetRemoteDispatchApi): Remo
     observe: (input) => api.observeOwnerFleetRemoteOperation(input),
     executeAction: (input) => api.executeOwnerFleetRemoteOperationAction(input),
     fallbackRefreshMs: OWNER_FLEET_FALLBACK_REFRESH_MS
+  };
+}
+
+function trackRemoteDispatchSurface(
+  api: RemoteDispatchSurface,
+  onRemoteOperation?: (control: RemoteOperationControl) => void | Promise<void>
+): RemoteDispatchSurface {
+  if (!onRemoteOperation) return api;
+  const track = async (observation: RemoteOperationObservation) => {
+    await onRemoteOperation({
+      observation,
+      observe: () => api.observe({ operationId: observation.operationId }),
+      executeAction: (action) => api.executeAction({ operationId: observation.operationId, action })
+    });
+    return observation;
+  };
+  return {
+    ...api,
+    dispatch: async (command) => track(await api.dispatch(command)),
+    observe: async (observeInput) => track(await api.observe(observeInput))
   };
 }
 
@@ -215,14 +241,18 @@ export function createAgentEndpointBlockExecutor(input: {
   localAutoRunApi?: LocalAutoRunObserver | null;
   waitForLocalUnit?: typeof waitForClaimBusLocalAutoRunUnit;
   waitForRemoteTerminal?: typeof waitForRemoteOperationTerminal;
+  onRemoteOperation?: (control: RemoteOperationControl) => void | Promise<void>;
 }): (task: GraphTask, block: GraphBlock, signal?: AbortSignal) => Promise<void> {
   const waitForRemoteTerminal = input.waitForRemoteTerminal ?? waitForRemoteOperationTerminal;
-  const remoteDispatch =
+  const baseRemoteDispatch =
     input.ownerFleetApi !== undefined && input.ownerFleetApi !== null
       ? ownerFleetRemoteDispatchSurface(input.ownerFleetApi)
       : input.api
         ? collaborationRemoteDispatchSurface(input.api)
         : null;
+  const remoteDispatch = baseRemoteDispatch
+    ? trackRemoteDispatchSurface(baseRemoteDispatch, input.onRemoteOperation)
+    : null;
 
   const executeLocal = async (selection: AgentEndpointBlockSelection, signal?: AbortSignal) => {
     const localApi = input.localAutoRunApi === undefined ? bridge : input.localAutoRunApi;

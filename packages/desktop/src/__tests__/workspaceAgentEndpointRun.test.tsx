@@ -133,6 +133,7 @@ function operation(
       executionAttemptId: "attempt-1",
       dispatchId: "dispatch-1",
       status: state === "completed" ? "completed" : state === "failed" ? "failed" : "running",
+      leaseId: "lease-1",
       stateVersion: 1
     },
     ...(failure ? { failure } : {}),
@@ -224,6 +225,7 @@ function renderRun(input?: {
   activeProjectId?: string | null;
   remoteTerminal?: RemoteOperationObservation;
   localCanvas?: boolean;
+  waitForTerminal?: ReturnType<typeof vi.fn>;
 }) {
   const dispatch = vi.fn(async () => operation("running"));
   const observe = vi.fn(async () => operation("running"));
@@ -238,7 +240,8 @@ function renderRun(input?: {
   const lifecycle = {
     onStarted: vi.fn(),
     onCompleted: vi.fn(),
-    onFailed: vi.fn()
+    onFailed: vi.fn(),
+    onCancelled: vi.fn()
   };
   // Real Desktop Auto Run: start → running, then stepLimit settles as paused + Step limit reached.
   const startLocal = vi.fn(async () => localRunState("running"));
@@ -281,7 +284,8 @@ function renderRun(input?: {
   });
   // Default: no live remote binding → fresh dispatch (graph snapshot is not authoritative).
   const resolveLiveRemoteBinding = input?.resolveLiveRemoteBinding ?? vi.fn(async () => null);
-  const waitForTerminal = vi.fn(async () => input?.remoteTerminal ?? operation("completed"));
+  const waitForTerminal =
+    input?.waitForTerminal ?? vi.fn(async () => input?.remoteTerminal ?? operation("completed"));
   // Honest local unit settle: stepLimit:1 → paused + Step limit reached. (not completed)
   const waitForLocalUnit = vi.fn(async () =>
     localRunState("paused", { error: "Step limit reached.", stepCount: 1 })
@@ -335,7 +339,10 @@ function renderRun(input?: {
       previewClaimNext,
       resolveLiveRemoteBinding
     });
-    return (scope: DesktopAutoRunScope) => startWithEndpoint(scope, startLocal, lifecycle);
+    return Object.assign(
+      (scope: DesktopAutoRunScope) => startWithEndpoint(scope, startLocal, lifecycle),
+      { stop: startWithEndpoint.stop }
+    );
   });
   return {
     ...hook,
@@ -356,6 +363,46 @@ function renderRun(input?: {
 }
 
 describe("workspace Agent Endpoint routing", () => {
+  it("durably cancels an active collaboration remote operation when endpoint scope stops", async () => {
+    const waitForTerminal = vi.fn(
+      async (input: { signal?: AbortSignal }) =>
+        new Promise<RemoteOperationObservation>((_resolve, reject) => {
+          input.signal?.addEventListener(
+            "abort",
+            () => reject(new Error("remote_task_run_cancelled")),
+            { once: true }
+          );
+        })
+    );
+    const { result, dispatch, executeAction, lifecycle, setError } = renderRun({
+      waitForTerminal
+    });
+
+    let run: Promise<void> | undefined;
+    act(() => {
+      run = result.current({ kind: "block", blockRef: "T-001#B-001" });
+    });
+    await vi.waitFor(() => expect(dispatch).toHaveBeenCalledOnce());
+
+    await act(() => result.current.stop());
+    await act(() => run);
+
+    expect(executeAction).toHaveBeenCalledWith({
+      operationId: "operation-1",
+      action: expect.objectContaining({
+        kind: "cancel",
+        operationId: "operation-1",
+        dispatchId: "dispatch-1",
+        executionAttemptId: "attempt-1",
+        leaseId: "lease-1",
+        expectedAttemptVersion: 1,
+        reason: "Desktop Auto Run stop requested."
+      })
+    });
+    expect(lifecycle.onCancelled).toHaveBeenCalledOnce();
+    expect(setError).not.toHaveBeenCalled();
+  });
+
   it("dispatches a Workspace run without a prior initialize call", async () => {
     const { result, lifecycle, setError, dispatch } = renderRun({
       runtimeAvailability: { kind: "state_uninitialized" }

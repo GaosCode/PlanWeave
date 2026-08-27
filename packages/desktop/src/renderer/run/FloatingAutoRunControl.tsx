@@ -143,9 +143,12 @@ export function FloatingAutoRunControl({
   t,
   workspaceCanvasSelected = false
 }: FloatingAutoRunControlProps) {
-  const canStop = autoRunState
-    ? ["running", "pausing", "paused", "manual"].includes(autoRunState.phase)
-    : false;
+  const canStop =
+    endpointScopeRunPhase === "running" ||
+    endpointScopeRunPhase === "preparing" ||
+    (autoRunState
+      ? ["running", "pausing", "paused", "manual"].includes(autoRunState.phase)
+      : false);
   const hasLocalProject = Boolean(selectedProject);
   const hasRunnableCanvas = hasLocalProject || workspaceCanvasSelected;
   const explanation = autoRunState?.explanation ?? null;
