@@ -38,6 +38,11 @@ describe("Canvas Runtime work item facts", () => {
   it("loads one exact snapshot and preserves task/block/missing identity order", async () => {
     const resolved = await resolvedCanvas();
     const load = vi.fn(loadPlanGraphPackage);
+    const loaded = await loadPlanGraphPackage(resolved.canvas);
+    const evidence = {
+      sourceRevision: `snapshot:${"a".repeat(64)}`,
+      graphFingerprint: loaded.graph.packageFingerprint
+    };
     const result = await resolveCanvasRuntimeWorkItems(
       resolved,
       {
@@ -47,12 +52,14 @@ describe("Canvas Runtime work item facts", () => {
           { kind: "block", canvasId: scope.canvasId, blockRef: "T-001#B-999" }
         ]
       },
+      evidence,
       load
     );
 
     expect(load).toHaveBeenCalledOnce();
     expect(load).toHaveBeenCalledWith(resolved.canvas);
-    expect(result.sourceRevision).toBe(`pgv-${result.graphFingerprint}`);
+    expect(result.sourceRevision).toBe(evidence.sourceRevision);
+    expect(result.graphFingerprint).toBe(evidence.graphFingerprint);
     expect(result.facts).toEqual([
       {
         canvasId: "default",
@@ -91,6 +98,10 @@ describe("Canvas Runtime work item facts", () => {
         {
           workItems: [{ kind: "task", canvasId: "other-canvas", taskId: "T-001" }]
         },
+        {
+          sourceRevision: `snapshot:${"a".repeat(64)}`,
+          graphFingerprint: `pkg-${"b".repeat(64)}`
+        },
         load
       )
     ).rejects.toThrow("work_item_scope_mismatch");
@@ -109,7 +120,25 @@ describe("Canvas Runtime work item facts", () => {
       resolveCanvasRuntimeWorkItems(
         resolved,
         { workItems: [{ kind: "task", canvasId: scope.canvasId, taskId: "T-001" }] },
+        {
+          sourceRevision: `snapshot:${"a".repeat(64)}`,
+          graphFingerprint: loaded.graph.packageFingerprint
+        },
         async () => loaded
+      )
+    ).rejects.toThrow("work_package_evidence_invalid");
+  });
+
+  it("fails closed when loaded graph facts drift from materialization evidence", async () => {
+    const resolved = await resolvedCanvas();
+    await expect(
+      resolveCanvasRuntimeWorkItems(
+        resolved,
+        { workItems: [{ kind: "task", canvasId: scope.canvasId, taskId: "T-001" }] },
+        {
+          sourceRevision: `snapshot:${"a".repeat(64)}`,
+          graphFingerprint: `pkg-${"b".repeat(64)}`
+        }
       )
     ).rejects.toThrow("work_package_evidence_invalid");
   });

@@ -50,6 +50,7 @@ function resolveFacts(
 export async function resolveCanvasRuntimeWorkItems(
   resolved: ResolvedCanvasRuntime,
   input: unknown,
+  evidence: { sourceRevision: string; graphFingerprint: string },
   load: WorkItemFactsLoader = loadPlanGraphPackage
 ): Promise<ResolveWorkItemsResult> {
   const request = resolveWorkItemsRequestSchema.parse(input);
@@ -60,9 +61,12 @@ export async function resolveCanvasRuntimeWorkItems(
   if (loaded.promptReadFailuresByPath.size > 0 || loaded.graph.diagnostics.length > 0) {
     throw new Error("work_package_evidence_invalid");
   }
+  if (loaded.graph.packageFingerprint !== evidence.graphFingerprint) {
+    throw new Error("work_package_evidence_invalid");
+  }
   const result = {
-    sourceRevision: loaded.graph.graphVersion,
-    graphFingerprint: loaded.graph.packageFingerprint,
+    sourceRevision: evidence.sourceRevision,
+    graphFingerprint: evidence.graphFingerprint,
     facts: request.workItems.map((workItem) => resolveFacts(loaded.graph, workItem))
   };
   return parseResolveWorkItemsResult(request, result);

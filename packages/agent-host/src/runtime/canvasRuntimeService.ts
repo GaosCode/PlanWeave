@@ -364,8 +364,8 @@ export class CanvasRuntimeService {
     if (operation.operation === "resolve_work_items") {
       const target = canvasRuntimeContentTargetSchema.parse(operation.contentTarget);
       return this.withMaterializationLock(command.scope, resolved, async () => {
-        await this.ensureMaterialized(command, resolved, target, active);
-        return resolveCanvasRuntimeWorkItems(resolved, operation.input);
+        const evidence = await this.ensureMaterialized(command, resolved, target, active);
+        return resolveCanvasRuntimeWorkItems(resolved, operation.input, evidence);
       });
     }
     if (operation.operation === "acquire") {
@@ -397,7 +397,7 @@ export class CanvasRuntimeService {
     resolved: ResolvedCanvasRuntime,
     target: CanvasRuntimeContentTarget,
     active: ActiveRequest
-  ): Promise<void> {
+  ) {
     await recoverPendingAuthoritativeCanvasMaterialization(resolved.canvas);
     const receiptFile = join(resolved.canvas.workspaceRoot, "authority-content-target.json");
     const materializedTarget = await this.readMaterializedContentTarget(receiptFile);
@@ -435,7 +435,7 @@ export class CanvasRuntimeService {
       });
       await this.writeMaterializedContentTarget(receiptFile, target);
     }
-    await requireCanvasRuntimeMaterializationEvidence(resolved, {
+    return await requireCanvasRuntimeMaterializationEvidence(resolved, {
       graphFingerprint: target.graphFingerprint,
       contentTarget: target
     });
