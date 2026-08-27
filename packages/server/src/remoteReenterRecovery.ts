@@ -78,7 +78,7 @@ export function diagnosticFromReenterFailure(error: unknown): { code: string; me
  */
 export function classifyReenterFailure(error: unknown): ReenterFailureDecision {
   if (
-    error instanceof AgentEndpointCatalogError ||
+    (error instanceof AgentEndpointCatalogError && error.code === "agent_endpoint_unavailable") ||
     error instanceof CanvasRuntimeUnavailableError
   ) {
     return "defer_host";

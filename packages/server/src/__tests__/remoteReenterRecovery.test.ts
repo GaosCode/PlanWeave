@@ -19,6 +19,13 @@ describe("remoteReenterRecovery", () => {
   });
 
   it.each([
+    "agent_endpoint_unknown",
+    "agent_endpoint_incompatible"
+  ] as const)("keeps durable Endpoint identity failure %s fatal", (code) => {
+    expect(classifyReenterFailure(new AgentEndpointCatalogError(code))).toBe("fatal");
+  });
+
+  it.each([
     "host_offline",
     "runtime_not_attached"
   ] as const)("defers %s until the Canvas Runtime can be acquired", (reason) => {
