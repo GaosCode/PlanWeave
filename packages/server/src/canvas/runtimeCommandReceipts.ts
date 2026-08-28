@@ -24,6 +24,17 @@ export type CanvasRuntimeResetReceipt =
   | { kind: "busy" }
   | { kind: "completed"; outcome: CanvasRuntimeResetOutcome };
 
+export type CanvasRuntimeResetBaseline = {
+  runtimeRevision: number;
+  command: {
+    operationId: string;
+    expectedSourceRevision: string;
+    expectedGraphFingerprint: string;
+    reason?: string;
+  };
+  status: CanvasRuntimeResetHostResult["status"];
+};
+
 function digestResetIntent(request: CanvasRuntimeResetRequest): string {
   return createHash("sha256")
     .update(
@@ -43,6 +54,43 @@ export class CanvasRuntimeResetReceiptRepository {
     private readonly database: SqliteDatabase,
     private readonly clock: () => Date = () => new Date()
   ) {}
+
+  latestAcceptedBaseline(scopeInput: CanvasScopeRef): CanvasRuntimeResetBaseline | null {
+    const scope = canvasScopeRefSchema.parse(scopeInput);
+    const row = this.database
+      .prepare(
+        `SELECT request_json,outcome_json,runtime_revision
+           FROM canvas_runtime_reset_operations
+          WHERE workspace_id=? AND project_id=? AND canvas_id=?
+            AND status='completed' AND runtime_revision IS NOT NULL
+          ORDER BY runtime_revision DESC,updated_at DESC
+          LIMIT 1`
+      )
+      .get(scope.workspaceId, scope.projectId, scope.canvasId);
+    if (!row) return null;
+    if (row.outcome_json == null) throw new Error("canvas_runtime_reset_receipt_corrupt");
+    const request = canvasRuntimeResetRequestSchema.parse(JSON.parse(String(row.request_json)));
+    const outcome = canvasRuntimeResetOutcomeSchema.parse(JSON.parse(String(row.outcome_json)));
+    if (
+      outcome.type !== "canvas.runtime.reset.accepted" ||
+      outcome.operationId !== request.operationId ||
+      outcome.sourceRevision !== request.expectedSourceRevision ||
+      outcome.graphFingerprint !== request.expectedGraphFingerprint ||
+      outcome.runtimeRevision !== Number(row.runtime_revision)
+    ) {
+      throw new Error("canvas_runtime_reset_receipt_corrupt");
+    }
+    return {
+      runtimeRevision: outcome.runtimeRevision,
+      command: {
+        operationId: request.operationId,
+        expectedSourceRevision: request.expectedSourceRevision,
+        expectedGraphFingerprint: request.expectedGraphFingerprint,
+        ...(request.reason ? { reason: request.reason } : {})
+      },
+      status: outcome.status
+    };
+  }
 
   begin(scopeInput: CanvasScopeRef, request: CanvasRuntimeResetRequest): CanvasRuntimeResetReceipt {
     const scope = canvasScopeRefSchema.parse(scopeInput);

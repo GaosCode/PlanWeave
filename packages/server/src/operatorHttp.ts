@@ -14,6 +14,7 @@ import { OperatorTokenRegistry, type OperatorPrincipal } from "./operatorAuth.js
 import { serverReadinessSchema, type ServerReadiness } from "./readiness.js";
 import { DispatchAssignmentError } from "./work/dispatchIntegration.js";
 import { RemoteExecutionActionRejectedError } from "./remoteExecutionActions.js";
+import { CanvasRuntimeRpcError } from "./canvas/runtimeRpcBroker.js";
 import {
   operatorNetworkTransportAllowed,
   type TransportAdmissionPolicy
@@ -205,6 +206,16 @@ function query(url: URL, allowed: readonly string[]): Record<string, string | un
 
 function safeError(error: unknown): { status: number; code: string } {
   if (error instanceof z.ZodError) return { status: 400, code: "operator_request_invalid" };
+  if (error instanceof CanvasRuntimeRpcError) {
+    if (error.code === "remote_block_not_found") return { status: 404, code: error.code };
+    if (
+      error.code === "remote_block_not_dispatchable" ||
+      error.code === "remote_block_source_changed" ||
+      error.code === "remote_block_result_conflict"
+    ) {
+      return { status: 409, code: error.code };
+    }
+  }
   if (error instanceof RemoteBlockRuntimeError) {
     if (error.code === "remote_block_not_found") {
       return { status: 404, code: error.code };

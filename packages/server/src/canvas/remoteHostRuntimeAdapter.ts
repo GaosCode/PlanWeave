@@ -313,18 +313,61 @@ export class RemoteHostCanvasRuntimeAdapter
       expectedGraphFingerprint: string;
       reason?: string;
     }) => {
+      const readPrior = async (operationId: string) => {
+        const priorResponse = await call({ operation: "reset_status", operationId });
+        if (priorResponse.outcome === "error") throw responseError(priorResponse);
+        if (priorResponse.operation !== "reset_status") {
+          throw new Error("canvas_runtime_response_operation_mismatch");
+        }
+        return canvasRuntimeResetStatusResultSchema.parse(priorResponse.result);
+      };
+      const logicalOperationId = command.operationId;
+      let hostOperationId = logicalOperationId;
+      let prior = await readPrior(hostOperationId);
+      if (
+        prior.kind === "failed" &&
+        !prior.error.reconcileRequired &&
+        (prior.error.retryable || prior.error.code === "active_lease")
+      ) {
+        hostOperationId = `reset-retry:${createHash("sha256")
+          .update(`${logicalOperationId}\0${runtimeLeaseId}`)
+          .digest("hex")}`;
+        prior = await readPrior(hostOperationId);
+      }
+      if (prior.kind === "succeeded") {
+        const result = canvasRuntimeResetResultSchema.parse(prior.result);
+        if (result.operationId !== hostOperationId) {
+          throw new Error("canvas_runtime_reset_result_identity_mismatch");
+        }
+        return {
+          operationId: logicalOperationId,
+          sourceRevision: result.sourceRevision,
+          graphFingerprint: result.graphFingerprint,
+          status: canvasRuntimeStatusProjectionSchema.parse(result.status)
+        };
+      }
+      if (prior.kind === "pending") {
+        throw new CanvasRuntimeRpcError("canvas_runtime_reconcile_required", true, true);
+      }
+      if (prior.kind === "failed") {
+        throw new CanvasRuntimeRpcError(
+          prior.error.reconcileRequired ? "canvas_runtime_reconcile_required" : prior.error.code,
+          prior.error.retryable,
+          prior.error.reconcileRequired === true
+        );
+      }
       const response = await call({
         operation: "reset",
         runtimeLeaseId,
         evidence: {
-          operationId: command.operationId,
+          operationId: hostOperationId,
           sourceRevision: canvasRuntimeSourceRevisionSchema.parse(command.expectedSourceRevision),
           graphFingerprint: canvasRuntimeGraphFingerprintSchema.parse(
             command.expectedGraphFingerprint
           )
         },
         input: canvasRuntimeResetInputSchema.parse({
-          operationId: command.operationId,
+          operationId: hostOperationId,
           sourceRevision: command.expectedSourceRevision,
           graphFingerprint: command.expectedGraphFingerprint,
           ...(command.reason ? { reason: command.reason } : {})
@@ -343,8 +386,11 @@ export class RemoteHostCanvasRuntimeAdapter
         throw new Error("canvas_runtime_response_operation_mismatch");
       }
       const result = canvasRuntimeResetResultSchema.parse(response.result);
+      if (result.operationId !== hostOperationId) {
+        throw new Error("canvas_runtime_reset_result_identity_mismatch");
+      }
       return {
-        operationId: result.operationId,
+        operationId: logicalOperationId,
         sourceRevision: result.sourceRevision,
         graphFingerprint: result.graphFingerprint,
         status: canvasRuntimeStatusProjectionSchema.parse(result.status)

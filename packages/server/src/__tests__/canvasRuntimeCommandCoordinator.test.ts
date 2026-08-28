@@ -185,6 +185,15 @@ describe("CanvasRuntimeCommandCoordinator", () => {
     expect(first).toMatchObject({ type: "canvas.runtime.reset.accepted", runtimeRevision: 1 });
     expect(test.reset).toHaveBeenCalledTimes(1);
     expect(test.invalidated).toHaveBeenCalledWith(scope, 1);
+    expect(test.receipts.latestAcceptedBaseline(scope)).toMatchObject({
+      runtimeRevision: 1,
+      command: {
+        operationId: "reset-once",
+        expectedSourceRevision: sourceRevision,
+        expectedGraphFingerprint: test.fingerprint
+      },
+      status: { packageFingerprint: test.fingerprint }
+    });
   });
 
   it("does not execute a concurrent duplicate while the first operation is applying", async () => {

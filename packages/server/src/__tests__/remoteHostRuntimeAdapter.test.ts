@@ -389,7 +389,18 @@ describe("RemoteHostCanvasRuntimeAdapter", () => {
       expectedGraphFingerprint: graphFingerprint,
       reason: "Remote reset test."
     });
-    const resetCommand = commandAt(fixture.deliveries, 1);
+    const resetStatusCommand = commandAt(fixture.deliveries, 1);
+    expect(resetStatusCommand.operation).toEqual({
+      operation: "reset_status",
+      operationId: "reset-remote-1"
+    });
+    respond(fixture.broker, fixture.host.id, resetStatusCommand, {
+      outcome: "success",
+      operation: "reset_status",
+      result: { kind: "not_found" }
+    });
+    await vi.waitFor(() => expect(fixture.deliveries).toHaveLength(3));
+    const resetCommand = commandAt(fixture.deliveries, 2);
     expect(resetCommand.operation).toMatchObject({
       operation: "reset",
       evidence: { operationId: "reset-remote-1", sourceRevision, graphFingerprint },
@@ -413,6 +424,132 @@ describe("RemoteHostCanvasRuntimeAdapter", () => {
       }
     });
     await expect(resetting).resolves.toMatchObject({ operationId: "reset-remote-1" });
+  });
+
+  it("reuses the durable reset result on the acquired Host", async () => {
+    const fixture = await setup();
+    const acquiring = fixture.adapter.acquire(scope);
+    const acquireCommand = commandAt(fixture.deliveries, 0);
+    const graphFingerprint = `pkg-${"a".repeat(64)}`;
+    const sourceRevision = `snapshot:${"b".repeat(64)}`;
+    respond(fixture.broker, fixture.host.id, acquireCommand, {
+      outcome: "success",
+      operation: "acquire",
+      result: {
+        runtimeLeaseId: randomUUID(),
+        sourceRevision,
+        graphFingerprint,
+        acquiredAt: "2026-08-20T00:00:00.000Z",
+        expiresAt: "2099-08-20T00:01:00.000Z"
+      }
+    });
+    const lease = await acquiring;
+    if (!lease.reset) throw new Error("remote_reset_expected");
+    const resetting = lease.reset({
+      operationId: "reset-remote-replay",
+      expectedSourceRevision: sourceRevision,
+      expectedGraphFingerprint: graphFingerprint
+    });
+    const resetStatusCommand = commandAt(fixture.deliveries, 1);
+    respond(fixture.broker, fixture.host.id, resetStatusCommand, {
+      outcome: "success",
+      operation: "reset_status",
+      result: {
+        kind: "succeeded",
+        result: {
+          operationId: "reset-remote-replay",
+          sourceRevision,
+          graphFingerprint,
+          status: {
+            schemaVersion: "canvas-runtime-status/v2",
+            scope,
+            packageFingerprint: graphFingerprint,
+            capturedAt: "2026-08-20T00:00:01.000Z",
+            tasks: [],
+            blocks: []
+          }
+        }
+      }
+    });
+
+    await expect(resetting).resolves.toMatchObject({ operationId: "reset-remote-replay" });
+    expect(fixture.deliveries).toHaveLength(2);
+  });
+
+  it("retries a prior active-lease reset failure under the current Host lease", async () => {
+    const fixture = await setup();
+    const acquiring = fixture.adapter.acquire(scope);
+    const acquireCommand = commandAt(fixture.deliveries, 0);
+    const graphFingerprint = `pkg-${"a".repeat(64)}`;
+    const sourceRevision = `snapshot:${"b".repeat(64)}`;
+    const runtimeLeaseId = randomUUID();
+    respond(fixture.broker, fixture.host.id, acquireCommand, {
+      outcome: "success",
+      operation: "acquire",
+      result: {
+        runtimeLeaseId,
+        sourceRevision,
+        graphFingerprint,
+        acquiredAt: "2026-08-20T00:00:00.000Z",
+        expiresAt: "2099-08-20T00:01:00.000Z"
+      }
+    });
+    const lease = await acquiring;
+    if (!lease.reset) throw new Error("remote_reset_expected");
+    const resetting = lease.reset({
+      operationId: "reset-after-active-lease",
+      expectedSourceRevision: sourceRevision,
+      expectedGraphFingerprint: graphFingerprint
+    });
+    const originalStatus = commandAt(fixture.deliveries, 1);
+    respond(fixture.broker, fixture.host.id, originalStatus, {
+      outcome: "success",
+      operation: "reset_status",
+      result: { kind: "failed", error: { code: "active_lease", retryable: false } }
+    });
+    await vi.waitFor(() => expect(fixture.deliveries).toHaveLength(3));
+    const retryStatus = commandAt(fixture.deliveries, 2);
+    expect(retryStatus.operation.operation).toBe("reset_status");
+    const retryOperationId =
+      retryStatus.operation.operation === "reset_status"
+        ? retryStatus.operation.operationId
+        : "unexpected";
+    expect(retryOperationId).toMatch(/^reset-retry:[a-f0-9]{64}$/);
+    respond(fixture.broker, fixture.host.id, retryStatus, {
+      outcome: "success",
+      operation: "reset_status",
+      result: { kind: "not_found" }
+    });
+    await vi.waitFor(() => expect(fixture.deliveries).toHaveLength(4));
+    const retryReset = commandAt(fixture.deliveries, 3);
+    expect(retryReset.operation).toMatchObject({
+      operation: "reset",
+      runtimeLeaseId,
+      evidence: { operationId: retryOperationId }
+    });
+    respond(fixture.broker, fixture.host.id, retryReset, {
+      outcome: "success",
+      operation: "reset",
+      result: {
+        operationId: retryOperationId,
+        sourceRevision,
+        graphFingerprint,
+        status: {
+          schemaVersion: "canvas-runtime-status/v2",
+          scope,
+          packageFingerprint: graphFingerprint,
+          capturedAt: "2026-08-20T00:00:01.000Z",
+          tasks: [],
+          blocks: []
+        }
+      }
+    });
+
+    await expect(resetting).resolves.toMatchObject({
+      operationId: "reset-after-active-lease",
+      sourceRevision,
+      graphFingerprint
+    });
   });
 
   it("queries the durable Host reset receipt without acquiring a second lease", async () => {

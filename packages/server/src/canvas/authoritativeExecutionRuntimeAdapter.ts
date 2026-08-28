@@ -1,12 +1,17 @@
-import type { CanvasRuntimeStatusProjection } from "@planweave-ai/collaboration-protocol/canvas/status";
+import type {
+  CanvasRuntimeStatusProjection,
+  CanvasRuntimeStatusSnapshot
+} from "@planweave-ai/collaboration-protocol/canvas/status";
 import type { PlanPackageManifest, RemoteBlockRuntimePort } from "@planweave-ai/runtime";
 import type {
   CanvasExecutionRuntimeLease,
   CanvasExecutionRuntimeRoutePort,
   RuntimeCanvasScope
 } from "./executionRuntimePort.js";
+import type { CanvasRuntimeResetBaseline } from "./runtimeCommandReceipts.js";
 
 export type CanvasRuntimeStatusExecutionStore = {
+  read(scope: RuntimeCanvasScope): CanvasRuntimeStatusSnapshot | null;
   mergeRemoteMutationFromExecution(
     status: CanvasRuntimeStatusProjection,
     blockRef: string,
@@ -19,8 +24,20 @@ export type AuthoritativeExecutionRuntimeAdapterOptions = {
   readContentAuthority(
     scope: RuntimeCanvasScope
   ): { packageFingerprint: string; manifest: PlanPackageManifest } | undefined;
+  resetBaselines: {
+    latestAcceptedBaseline(scope: RuntimeCanvasScope): CanvasRuntimeResetBaseline | null;
+  };
   runtimeStatuses: CanvasRuntimeStatusExecutionStore;
 };
+
+function sameResetProjection(
+  left: CanvasRuntimeStatusProjection,
+  right: CanvasRuntimeStatusProjection
+): boolean {
+  const { capturedAt: _leftCapturedAt, ...leftStable } = left;
+  const { capturedAt: _rightCapturedAt, ...rightStable } = right;
+  return JSON.stringify(leftStable) === JSON.stringify(rightStable);
+}
 
 /** Mirrors successful Runtime mutations into the Server-owned shared status snapshot. */
 export class AuthoritativeExecutionRuntimeAdapter implements CanvasExecutionRuntimeRoutePort {
@@ -39,6 +56,19 @@ export class AuthoritativeExecutionRuntimeAdapter implements CanvasExecutionRunt
     acquired: CanvasExecutionRuntimeLease | Promise<CanvasExecutionRuntimeLease>
   ): Promise<CanvasExecutionRuntimeLease> {
     const lease = await acquired;
+    try {
+      await this.applyCurrentResetBaseline(scope, lease);
+    } catch (error) {
+      try {
+        await lease.release();
+      } catch (releaseError) {
+        throw new AggregateError(
+          [error, releaseError],
+          "canvas_runtime_reset_baseline_release_failed"
+        );
+      }
+      throw error;
+    }
     const persist = async (blockRef: string) => {
       const authority = this.options.readContentAuthority({
         workspaceId: scope.workspaceId,
@@ -68,6 +98,46 @@ export class AuthoritativeExecutionRuntimeAdapter implements CanvasExecutionRunt
       runtime: wrapMutations(lease.runtime, persist),
       ...(reset ? { reset: (command) => reset(command) } : {})
     };
+  }
+
+  private async applyCurrentResetBaseline(
+    scope: RuntimeCanvasScope,
+    lease: CanvasExecutionRuntimeLease
+  ): Promise<void> {
+    const baseline = this.options.resetBaselines.latestAcceptedBaseline(scope);
+    if (!baseline) return;
+    const current = this.options.runtimeStatuses.read(scope);
+    if (!current || current.runtimeRevision !== baseline.runtimeRevision) return;
+    const authority = this.options.readContentAuthority(scope);
+    if (
+      !authority ||
+      authority.packageFingerprint !== baseline.command.expectedGraphFingerprint ||
+      current.status.packageFingerprint !== baseline.command.expectedGraphFingerprint ||
+      !sameResetProjection(current.status, baseline.status)
+    ) {
+      throw new Error("canvas_runtime_reset_baseline_authority_mismatch");
+    }
+    if (!lease.reset) throw new Error("canvas_runtime_reset_baseline_unavailable");
+    const applied = await lease.reset(baseline.command);
+    if (
+      applied.operationId !== baseline.command.operationId ||
+      applied.sourceRevision !== baseline.command.expectedSourceRevision ||
+      applied.graphFingerprint !== baseline.command.expectedGraphFingerprint ||
+      !sameResetProjection(applied.status, baseline.status)
+    ) {
+      throw new Error("canvas_runtime_reset_baseline_result_mismatch");
+    }
+    const currentAfterReset = this.options.runtimeStatuses.read(scope);
+    const authorityAfterReset = this.options.readContentAuthority(scope);
+    if (
+      !currentAfterReset ||
+      currentAfterReset.runtimeRevision !== baseline.runtimeRevision ||
+      !sameResetProjection(currentAfterReset.status, baseline.status) ||
+      !authorityAfterReset ||
+      authorityAfterReset.packageFingerprint !== baseline.command.expectedGraphFingerprint
+    ) {
+      throw new Error("canvas_runtime_reset_baseline_superseded");
+    }
   }
 }
 

@@ -81,6 +81,24 @@ function status(packageFingerprint = fingerprint): CanvasRuntimeStatusProjection
   };
 }
 
+function resetStatus(capturedAt = "2026-08-21T00:00:00.000Z"): CanvasRuntimeStatusProjection {
+  return {
+    ...status(),
+    capturedAt,
+    tasks: [{ taskId: "T-001", status: "ready", openFeedbackCount: 0 }],
+    blocks: [
+      {
+        ref: "T-001#B-001",
+        status: "ready",
+        completionReason: null,
+        blockedReason: null,
+        divergenceReason: null,
+        dispatchable: true
+      }
+    ]
+  };
+}
+
 function manifestForStatus(
   projection: CanvasRuntimeStatusProjection,
   dependencies: Record<string, string[]> = {}
@@ -110,6 +128,8 @@ function manifestForStatus(
   return manifest;
 }
 
+const noResetBaselines = { latestAcceptedBaseline: () => null };
+
 describe("AuthoritativeExecutionRuntimeAdapter", () => {
   it("persists the real Runtime projection after a shared-canvas mutation", async () => {
     const mergeRemoteMutationFromExecution = vi.fn(
@@ -132,7 +152,8 @@ describe("AuthoritativeExecutionRuntimeAdapter", () => {
         }))
       },
       readContentAuthority,
-      runtimeStatuses: { mergeRemoteMutationFromExecution }
+      resetBaselines: noResetBaselines,
+      runtimeStatuses: { read: () => null, mergeRemoteMutationFromExecution }
     });
 
     const lease = await adapter.acquire(scope);
@@ -161,6 +182,7 @@ describe("AuthoritativeExecutionRuntimeAdapter", () => {
         packageFingerprint: fingerprint,
         manifest: manifestForStatus(status())
       }),
+      resetBaselines: noResetBaselines,
       runtimeStatuses
     });
 
@@ -171,6 +193,130 @@ describe("AuthoritativeExecutionRuntimeAdapter", () => {
     expect(runtimeInvalidations(database)).toEqual([
       { kind: "runtime", canvasId: "default", runtimeRevision: 1 }
     ]);
+  });
+
+  it("applies the current Server reset baseline to the selected Host before inspect", async () => {
+    const { runtimeStatuses } = await statusAuthority();
+    const baselineStatus = resetStatus();
+    runtimeStatuses.replaceFromExecution(baselineStatus);
+    const reset = vi.fn(async () => ({
+      operationId: "reset-selected-host",
+      sourceRevision: "source-1",
+      graphFingerprint: fingerprint,
+      status: resetStatus("2026-08-21T00:00:01.000Z")
+    }));
+    const selectedRuntime = runtime();
+    const adapter = new AuthoritativeExecutionRuntimeAdapter({
+      delegate: {
+        acquire: vi.fn(async () => ({
+          runtime: selectedRuntime,
+          artifacts: { read: vi.fn() },
+          reset,
+          release: vi.fn()
+        })),
+        acquireForHost: vi.fn(async () => ({
+          runtime: selectedRuntime,
+          artifacts: { read: vi.fn() },
+          reset,
+          release: vi.fn()
+        }))
+      },
+      readContentAuthority: () => ({
+        packageFingerprint: fingerprint,
+        manifest: manifestForStatus(baselineStatus)
+      }),
+      resetBaselines: {
+        latestAcceptedBaseline: () => ({
+          runtimeRevision: 1,
+          command: {
+            operationId: "reset-selected-host",
+            expectedSourceRevision: "source-1",
+            expectedGraphFingerprint: fingerprint
+          },
+          status: baselineStatus
+        })
+      },
+      runtimeStatuses
+    });
+
+    const lease = await adapter.acquireForHost(scope, "mac-host");
+    await lease.runtime.inspect({ ref: "T-001#B-001" });
+
+    expect(reset).toHaveBeenCalledOnce();
+    expect(reset).toHaveBeenCalledWith({
+      operationId: "reset-selected-host",
+      expectedSourceRevision: "source-1",
+      expectedGraphFingerprint: fingerprint
+    });
+    expect(selectedRuntime.inspect).toHaveBeenCalledOnce();
+  });
+
+  it("does not expose a reset Host lease when the Server baseline advances during reset", async () => {
+    const { runtimeStatuses } = await statusAuthority();
+    const baselineStatus = resetStatus();
+    runtimeStatuses.replaceFromExecution(baselineStatus);
+    let finishReset:
+      | ((value: {
+          operationId: string;
+          sourceRevision: string;
+          graphFingerprint: string;
+          status: CanvasRuntimeStatusProjection;
+        }) => void)
+      | undefined;
+    const reset = vi.fn(
+      () =>
+        new Promise<{
+          operationId: string;
+          sourceRevision: string;
+          graphFingerprint: string;
+          status: CanvasRuntimeStatusProjection;
+        }>((resolve) => {
+          finishReset = resolve;
+        })
+    );
+    const release = vi.fn();
+    const selectedRuntime = runtime();
+    const adapter = new AuthoritativeExecutionRuntimeAdapter({
+      delegate: {
+        acquire: vi.fn(),
+        acquireForHost: vi.fn(async () => ({
+          runtime: selectedRuntime,
+          artifacts: { read: vi.fn() },
+          reset,
+          release
+        }))
+      },
+      readContentAuthority: () => ({
+        packageFingerprint: fingerprint,
+        manifest: manifestForStatus(baselineStatus)
+      }),
+      resetBaselines: {
+        latestAcceptedBaseline: () => ({
+          runtimeRevision: 1,
+          command: {
+            operationId: "reset-racing-host",
+            expectedSourceRevision: "source-1",
+            expectedGraphFingerprint: fingerprint
+          },
+          status: baselineStatus
+        })
+      },
+      runtimeStatuses
+    });
+
+    const acquiring = adapter.acquireForHost(scope, "mac-host");
+    await vi.waitFor(() => expect(reset).toHaveBeenCalledOnce());
+    runtimeStatuses.replaceFromExecution(status());
+    finishReset?.({
+      operationId: "reset-racing-host",
+      sourceRevision: "source-1",
+      graphFingerprint: fingerprint,
+      status: resetStatus("2026-08-21T00:00:01.000Z")
+    });
+
+    await expect(acquiring).rejects.toThrow("canvas_runtime_reset_baseline_superseded");
+    expect(release).toHaveBeenCalledOnce();
+    expect(selectedRuntime.inspect).not.toHaveBeenCalled();
   });
 
   it("preserves terminal Server statuses when another Host returns a stale full projection", async () => {
@@ -240,6 +386,7 @@ describe("AuthoritativeExecutionRuntimeAdapter", () => {
         packageFingerprint: fingerprint,
         manifest: manifestForStatus(initial)
       }),
+      resetBaselines: noResetBaselines,
       runtimeStatuses
     });
 
@@ -302,6 +449,7 @@ describe("AuthoritativeExecutionRuntimeAdapter", () => {
         packageFingerprint: fingerprint,
         manifest: manifestForStatus(initial)
       }),
+      resetBaselines: noResetBaselines,
       runtimeStatuses
     });
 
@@ -369,6 +517,7 @@ describe("AuthoritativeExecutionRuntimeAdapter", () => {
         packageFingerprint: fingerprint,
         manifest: manifestForStatus(initial)
       }),
+      resetBaselines: noResetBaselines,
       runtimeStatuses
     });
 
@@ -434,6 +583,7 @@ describe("AuthoritativeExecutionRuntimeAdapter", () => {
         }))
       },
       readContentAuthority: () => ({ packageFingerprint: fingerprint, manifest }),
+      resetBaselines: noResetBaselines,
       runtimeStatuses
     });
 
@@ -474,6 +624,7 @@ describe("AuthoritativeExecutionRuntimeAdapter", () => {
         packageFingerprint: fingerprint,
         manifest: manifestForStatus(status())
       }),
+      resetBaselines: noResetBaselines,
       runtimeStatuses
     });
 
@@ -500,7 +651,8 @@ describe("AuthoritativeExecutionRuntimeAdapter", () => {
         }))
       },
       readContentAuthority: () => undefined,
-      runtimeStatuses: { mergeRemoteMutationFromExecution }
+      resetBaselines: noResetBaselines,
+      runtimeStatuses: { read: () => null, mergeRemoteMutationFromExecution }
     });
 
     const lease = await adapter.acquire(scope);
@@ -527,7 +679,8 @@ describe("AuthoritativeExecutionRuntimeAdapter", () => {
         packageFingerprint: fingerprint,
         manifest: manifestForStatus(status())
       }),
-      runtimeStatuses: { mergeRemoteMutationFromExecution }
+      resetBaselines: noResetBaselines,
+      runtimeStatuses: { read: () => null, mergeRemoteMutationFromExecution }
     });
 
     const lease = await adapter.acquire(scope);

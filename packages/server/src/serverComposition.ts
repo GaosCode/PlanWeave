@@ -54,6 +54,7 @@ import { CanvasRuntimeRpcBroker } from "./canvas/runtimeRpcBroker.js";
 import { CanvasRuntimeHostLocator } from "./canvas/runtimeHostLocator.js";
 import { RuntimeArtifactGrantRepository } from "./canvas/runtimeArtifactGrantRepository.js";
 import { AuthoritativeExecutionRuntimeAdapter } from "./canvas/authoritativeExecutionRuntimeAdapter.js";
+import { CanvasRuntimeResetReceiptRepository } from "./canvas/runtimeCommandReceipts.js";
 import { ContentVersionRepository } from "./canvas/contentVersionRepository.js";
 import {
   readStableCanvasRuntimeAuthority,
@@ -147,6 +148,7 @@ export async function createDistributedServerComposition(
         const authoritativeExecutionRuntime = new AuthoritativeExecutionRuntimeAdapter({
           delegate: executionRuntime,
           readContentAuthority: (scope) => readStableCanvasRuntimeAuthority(contentVersions, scope),
+          resetBaselines: new CanvasRuntimeResetReceiptRepository(database, clock),
           runtimeStatuses
         });
         return createRemoteCoordinationOptions({

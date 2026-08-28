@@ -2,6 +2,7 @@ import { createServer, type Server as HttpServer } from "node:http";
 import { RemoteBlockRuntimeError } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentEndpointCatalogError } from "../agentEndpointCatalog.js";
+import { CanvasRuntimeRpcError } from "../canvas/runtimeRpcBroker.js";
 import { applyMigrations } from "../migrations.js";
 import { OperatorSessionStore } from "../identity/operatorSessionStore.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
@@ -404,6 +405,30 @@ describe("operator HTTP boundary", () => {
     const body = await response.json();
     expect(body).toEqual({ error: code });
     expect(JSON.stringify(body)).not.toContain("private detail");
+  });
+
+  it("preserves a remote Runtime RPC dispatch conflict without reporting the Host offline", async () => {
+    const fixture = await setup(true);
+    vi.mocked(fixture.service.dispatch).mockRejectedValueOnce(
+      new CanvasRuntimeRpcError("remote_block_not_dispatchable", false, false)
+    );
+    const response = await fetch(`${fixture.origin}/api/v1/remote-operations`, {
+      method: "POST",
+      headers: { ...authorization, "content-type": "application/json" },
+      body: JSON.stringify({
+        schemaVersion: "remote-run/v3",
+        projectId: "project-a",
+        canvasId: "default",
+        blockRef: "T-001#B-001",
+        agentEndpointId: "private-endpoint-id",
+        idempotencyKey: "runtime-rpc-not-dispatchable",
+        expectedResponsibilityRevision: 0,
+        expectedReviewerRevision: 0
+      })
+    });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: "remote_block_not_dispatchable" });
   });
 
   it("serves public health and delegates bounded host pagination", async () => {
