@@ -431,15 +431,33 @@ export function useAutoRunControl({
         return;
       }
       if (startAutoRunScope) {
-        await startAutoRunScope(scope, startLocalAutoRunWithScope, {
-          onStarted: () => {
-            setAutoRunState(null);
-            setEndpointScopeRunPhase("preparing");
-          },
-          onCompleted: () => setEndpointScopeRunPhase("completed"),
-          onFailed: () => setEndpointScopeRunPhase("failed"),
-          onCancelled: () => setEndpointScopeRunPhase(null)
-        });
+        setEndpointScopeRunPhase("preparing");
+        let lifecycleReported = false;
+        try {
+          await startAutoRunScope(scope, startLocalAutoRunWithScope, {
+            onStarted: () => {
+              lifecycleReported = true;
+              setAutoRunState(null);
+              setEndpointScopeRunPhase("preparing");
+            },
+            onCompleted: () => {
+              lifecycleReported = true;
+              setEndpointScopeRunPhase("completed");
+            },
+            onFailed: () => {
+              lifecycleReported = true;
+              setEndpointScopeRunPhase("failed");
+            },
+            onCancelled: () => {
+              lifecycleReported = true;
+              setEndpointScopeRunPhase(null);
+            }
+          });
+          if (!lifecycleReported) setEndpointScopeRunPhase(null);
+        } catch (caught) {
+          setEndpointScopeRunPhase("failed");
+          throw caught;
+        }
         return;
       }
       await startLocalAutoRunWithScope(scope);

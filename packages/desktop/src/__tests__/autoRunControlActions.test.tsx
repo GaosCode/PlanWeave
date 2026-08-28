@@ -182,6 +182,7 @@ describe("auto run control hook actions", () => {
     const startAutoRunScope = vi.fn<WorkspaceAgentEndpointScopeStarter>(
       async (_scope, _startLocal, callbacks) => {
         lifecycle = callbacks;
+        callbacks?.onStarted();
       }
     );
     const { useAutoRunControl } = await loadAutoRunControl();
@@ -204,12 +205,115 @@ describe("auto run control hook actions", () => {
     });
 
     await act(() => result.current.handleAutoRunClick());
-    act(() => lifecycle?.onStarted());
     expect(result.current.autoRunState).toBeNull();
     expect(result.current.endpointScopeRunPhase).toBe("preparing");
     expect(result.current.selectedRemoteRunPhase).toBeNull();
     act(() => lifecycle?.onCompleted());
     expect(result.current.endpointScopeRunPhase).toBe("completed");
+  });
+
+  it("shows preparing before coordinated Endpoint startup reports lifecycle progress", async () => {
+    stubAutoRunControlBridge(createDesktopBridgeMock());
+    let finishStartup: (() => void) | undefined;
+    const startupFinished = new Promise<void>((resolve) => {
+      finishStartup = resolve;
+    });
+    const startAutoRunScope = vi.fn<WorkspaceAgentEndpointScopeStarter>(async () => {
+      await startupFinished;
+    });
+    const { useAutoRunControl } = await loadAutoRunControl();
+    const { result } = renderHook(() =>
+      useAutoRunControl({
+        autoRunState: null,
+        openRunWorkspace: vi.fn(),
+        selectedCanvasId: "canvas-main",
+        selectedBlock: null,
+        selectedProject: project,
+        selectedTaskPanelId: null,
+        setAutoRunState: vi.fn(),
+        setError: vi.fn(),
+        t: createTranslator("en"),
+        tmuxMonitoringEnabled: true,
+        startAutoRunScope
+      })
+    );
+
+    let startPromise: Promise<void> | undefined;
+    act(() => {
+      startPromise = result.current.handleAutoRunClick();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(result.current.endpointScopeRunPhase).toBe("preparing");
+
+    finishStartup?.();
+    await act(async () => {
+      await startPromise;
+    });
+    expect(result.current.endpointScopeRunPhase).toBeNull();
+  });
+
+  it("restores the prior badge when coordinated startup resolves without starting", async () => {
+    stubAutoRunControlBridge(createDesktopBridgeMock());
+    const stale = autoRunState({ phase: "failed", error: "Previous failure" });
+    const startAutoRunScope = vi.fn<WorkspaceAgentEndpointScopeStarter>(async () => undefined);
+    const { useAutoRunControl } = await loadAutoRunControl();
+    const { result } = renderHook(() => {
+      const [state, setState] = useState<DesktopAutoRunState | null>(stale);
+      return useAutoRunControl({
+        autoRunState: state,
+        openRunWorkspace: vi.fn(),
+        selectedCanvasId: "canvas-main",
+        selectedBlock: null,
+        selectedProject: project,
+        selectedTaskPanelId: null,
+        setAutoRunState: setState,
+        setError: vi.fn(),
+        t: createTranslator("en"),
+        tmuxMonitoringEnabled: true,
+        startAutoRunScope
+      });
+    });
+
+    await act(async () => {
+      await result.current.handleAutoRunClick();
+    });
+
+    expect(result.current.endpointScopeRunPhase).toBeNull();
+    expect(result.current.autoRunState).toEqual(stale);
+  });
+
+  it("enters failed feedback when coordinated Endpoint startup rejects", async () => {
+    stubAutoRunControlBridge(createDesktopBridgeMock());
+    const setError = vi.fn();
+    const startAutoRunScope = vi.fn<WorkspaceAgentEndpointScopeStarter>(async () => {
+      throw new Error("Endpoint startup failed");
+    });
+    const { useAutoRunControl } = await loadAutoRunControl();
+    const { result } = renderHook(() =>
+      useAutoRunControl({
+        autoRunState: null,
+        openRunWorkspace: vi.fn(),
+        selectedCanvasId: "canvas-main",
+        selectedBlock: null,
+        selectedProject: project,
+        selectedTaskPanelId: null,
+        setAutoRunState: vi.fn(),
+        setError,
+        t: createTranslator("en"),
+        tmuxMonitoringEnabled: true,
+        startAutoRunScope
+      })
+    );
+
+    await act(async () => {
+      await result.current.handleAutoRunClick();
+    });
+
+    expect(result.current.endpointScopeRunPhase).toBe("failed");
+    expect(setError).toHaveBeenCalledWith("Endpoint startup failed");
   });
 
   it("keeps selected block auto-run scope narrow", async () => {

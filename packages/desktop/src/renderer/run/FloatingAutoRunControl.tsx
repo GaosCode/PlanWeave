@@ -257,6 +257,7 @@ export function FloatingAutoRunControl({
               autoRunNextAction={autoRunNextAction}
               autoRunRetrospective={autoRunRetrospective}
               autoRunState={autoRunState}
+              endpointScopeRunPhase={endpointScopeRunPhase}
               canStop={canStop}
               executorPreflight={executorPreflight}
               handleAutoRunClick={handleAutoRunClick}

@@ -26,6 +26,7 @@ import {
   PopoverTrigger
 } from "@/components/ui/popover";
 import { formatElapsed } from "../viewHelpers";
+import type { EndpointScopeRunPhase } from "../hooks/useAutoRunControl";
 import type { AutoRunNextActionDescriptor } from "./autoRunNextActions";
 import type { ExecutorPreflightView, FloatingAutoRunTranslator } from "./floatingAutoRunTypes";
 
@@ -33,6 +34,7 @@ type AutoRunMiniPanelProps = {
   autoRunNextAction: AutoRunNextActionDescriptor | null;
   autoRunRetrospective: DesktopAutoRunRetrospectiveSummary | null;
   autoRunState: DesktopAutoRunState | null;
+  endpointScopeRunPhase?: EndpointScopeRunPhase | null;
   canStop: boolean;
   executorPreflight: ExecutorPreflightView;
   handleAutoRunClick: () => Promise<void>;
@@ -56,6 +58,22 @@ function isFailureState(state: DesktopAutoRunState | null): state is DesktopAuto
 
 function isLiveRun(state: DesktopAutoRunState | null): state is DesktopAutoRunState {
   return state?.phase === "running" || state?.phase === "pausing";
+}
+
+function endpointScopePhaseLabel(
+  phase: EndpointScopeRunPhase,
+  t: FloatingAutoRunTranslator
+): string {
+  switch (phase) {
+    case "preparing":
+      return t("remoteRunPreparingEnvironment");
+    case "running":
+      return t("remoteRunPhaseRunning");
+    case "completed":
+      return t("remoteRunPhaseSucceeded");
+    case "failed":
+      return t("remoteRunPhaseFailed");
+  }
 }
 
 function DisclosureSection({
@@ -260,6 +278,7 @@ export function AutoRunMiniPanel({
   autoRunNextAction,
   autoRunRetrospective,
   autoRunState,
+  endpointScopeRunPhase = null,
   canStop,
   executorPreflight,
   handleAutoRunClick,
@@ -304,6 +323,9 @@ export function AutoRunMiniPanel({
   const displayedRecordRunId = stateRecordPath
     ? (autoRunState?.runId ?? null)
     : (autoRunRetrospective?.runId ?? null);
+  const displayedPhase = endpointScopeRunPhase ?? autoRunState?.phase ?? null;
+  const endpointScopeRunActive =
+    endpointScopeRunPhase === "preparing" || endpointScopeRunPhase === "running";
   return (
     <Popover open={miniRunPanelOpen} onOpenChange={setMiniRunPanelOpen}>
       <PopoverTrigger asChild>
@@ -311,9 +333,7 @@ export function AutoRunMiniPanel({
           data-testid="auto-run-trigger"
           size="icon-lg"
           variant={
-            autoRunState?.phase === "blocked" || autoRunState?.phase === "failed"
-              ? "destructive"
-              : "default"
+            displayedPhase === "blocked" || displayedPhase === "failed" ? "destructive" : "default"
           }
           aria-label={t("autoRun")}
           title={t("autoRun")}
@@ -322,7 +342,7 @@ export function AutoRunMiniPanel({
         >
           {autoRunState?.phase === "running" ? (
             <PauseIcon data-icon="inline-start" />
-          ) : autoRunState?.phase === "pausing" ? (
+          ) : autoRunState?.phase === "pausing" || endpointScopeRunActive ? (
             <RefreshCwIcon className="animate-spin" data-icon="inline-start" />
           ) : (
             <PlayIcon data-icon="inline-start" />
@@ -340,16 +360,18 @@ export function AutoRunMiniPanel({
           <div className="flex items-center justify-between gap-2">
             <span className="text-sm font-medium">{t("runStatus")}</span>
             <Badge
-              data-phase={autoRunState?.phase ?? "idle"}
-              data-run-id={autoRunState?.runId ?? ""}
+              data-phase={displayedPhase ?? "idle"}
+              data-run-id={endpointScopeRunPhase ? "" : (autoRunState?.runId ?? "")}
               data-testid="auto-run-mini-status"
               variant={
-                autoRunState?.phase === "blocked" || autoRunState?.phase === "failed"
+                displayedPhase === "blocked" || displayedPhase === "failed"
                   ? "destructive"
                   : "outline"
               }
             >
-              {autoRunState?.phase ?? t("miniPanelEmpty")}
+              {endpointScopeRunPhase
+                ? endpointScopePhaseLabel(endpointScopeRunPhase, t)
+                : (autoRunState?.phase ?? t("miniPanelEmpty"))}
             </Badge>
           </div>
           <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">

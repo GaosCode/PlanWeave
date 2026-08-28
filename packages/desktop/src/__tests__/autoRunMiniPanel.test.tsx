@@ -71,6 +71,43 @@ afterEach(() => {
 });
 
 describe("AutoRunMiniPanel", () => {
+  it("shows coordinated Endpoint preparing feedback instead of stale local state", () => {
+    render(
+      <AutoRunMiniPanel
+        autoRunNextAction={null}
+        autoRunRetrospective={null}
+        autoRunState={createFailedAutoRunState()}
+        endpointScopeRunPhase="preparing"
+        runtimeOperationsAllowed={true}
+        canStop={true}
+        executorPreflight={{
+          error: null,
+          loading: false,
+          result: null,
+          runPreflight: vi.fn().mockResolvedValue(null)
+        }}
+        handleAutoRunClick={vi.fn().mockResolvedValue(undefined)}
+        handleAutoRunNextAction={vi.fn().mockResolvedValue(undefined)}
+        handleRevealPathInFinder={vi.fn().mockResolvedValue(undefined)}
+        hasProject={true}
+        miniRunPanelOpen={true}
+        preflightExecutor={null}
+        resetRuntimeStateClick={vi.fn().mockResolvedValue(undefined)}
+        selectedProject={project}
+        setMiniRunPanelOpen={vi.fn()}
+        stopAutoRunClick={vi.fn().mockResolvedValue(undefined)}
+        t={t}
+      />
+    );
+
+    expect(screen.getByTestId("auto-run-mini-status")).toHaveAttribute("data-phase", "preparing");
+    expect(screen.getByTestId("auto-run-mini-status")).toHaveTextContent(
+      "Preparing the execution environment"
+    );
+    expect(screen.getByTestId("auto-run-mini-status")).toHaveAttribute("data-run-id", "");
+    expect(screen.getByTestId("auto-run-trigger").querySelector(".animate-spin")).not.toBeNull();
+  });
+
   it("visually disables run, reset, and stop controls when Runtime operations are gated", () => {
     render(
       <AutoRunMiniPanel
