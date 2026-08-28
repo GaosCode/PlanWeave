@@ -54,7 +54,8 @@ export const runtimeBridgeAutoRunHandlers = {
     await unblockBlock({
       projectRoot: await resolveDesktopCanvasReference(ref),
       ref: blockRef,
-      reason
+      reason,
+      allowAlreadyCompleted: true
     });
   },
   markBlockedBlock: async (_event, ref, blockRef, reason) => {

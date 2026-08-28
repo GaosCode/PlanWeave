@@ -46,6 +46,46 @@ describe("block recovery commands", () => {
     ).rejects.toThrow("unblock requires a non-empty reason");
   });
 
+  it("allows Auto Run retry to continue after the target block already completed", async () => {
+    const { root } = await createTestWorkspace();
+    await claimNext({ projectRoot: root });
+    await submitBlockResult({
+      projectRoot: root,
+      ref: "T-001#B-001",
+      reportPath: await writeReport(root, "completed-before-retry.md")
+    });
+
+    await expect(
+      unblockBlock({
+        projectRoot: root,
+        ref: "T-001#B-001",
+        reason: "Auto Run retry caught up with current state.",
+        allowAlreadyCompleted: true
+      })
+    ).resolves.toMatchObject({
+      ref: "T-001#B-001",
+      status: "completed"
+    });
+  });
+
+  it("does not hide divergent state during an Auto Run retry", async () => {
+    const { root } = await createTestWorkspace();
+    await markBlockDiverged({
+      projectRoot: root,
+      ref: "T-001#B-001",
+      reason: "manifest changed"
+    });
+
+    await expect(
+      unblockBlock({
+        projectRoot: root,
+        ref: "T-001#B-001",
+        reason: "Auto Run retry.",
+        allowAlreadyCompleted: true
+      })
+    ).rejects.toThrow("Block 'T-001#B-001' is not blocked.");
+  });
+
   it("records and resolves divergence on block refs", async () => {
     const { root } = await createTestWorkspace();
 

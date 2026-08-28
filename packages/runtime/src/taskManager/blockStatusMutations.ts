@@ -118,6 +118,7 @@ export async function unblockBlock(options: {
   projectRoot: PackageWorkspaceRef;
   ref: string;
   reason: string;
+  allowAlreadyCompleted?: boolean;
   session?: ExecutionGraphSession;
 }) {
   return withLockedRuntime(options, async (context) => {
@@ -128,6 +129,13 @@ export async function unblockBlock(options: {
     }
     const current = context.state.blocks[options.ref];
     if (current?.status !== "blocked") {
+      if (options.allowAlreadyCompleted && current?.status === "completed") {
+        return {
+          ref: options.ref,
+          status: current.status,
+          reason: options.reason.trim()
+        };
+      }
       throw new Error(`Block '${options.ref}' is not blocked.`);
     }
     const nextStatus = blockDependenciesCompleted(graph, context.state, options.ref)
