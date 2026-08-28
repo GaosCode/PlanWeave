@@ -4,6 +4,7 @@ import { act, renderHook } from "@testing-library/react";
 import type { RemoteAgentEndpoint } from "@planweave-ai/collaboration-protocol/agent-endpoint";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAgentEndpointCatalog } from "../renderer/hooks/useAgentEndpointCatalog";
+import { OperatorControlError } from "../shared/operatorControl";
 import { updateAgentEndpointPreferences } from "../renderer/collaboration/agentEndpointPreferences";
 import { resolveDesktopHumanPrincipalId } from "../renderer/collaboration/desktopHumanPrincipal";
 
@@ -310,6 +311,96 @@ describe("useAgentEndpointCatalog freshness", () => {
     await act(async () => vi.advanceTimersByTimeAsync(10_000));
     expect(listOperatorAgentEndpoints).toHaveBeenCalledTimes(2);
     expect(result.current.errorCode).toBe("operator_local_server_not_ready");
+  });
+
+  it("does not automatically retry a forbidden workspace scope", async () => {
+    const listOperatorAgentEndpoints = vi.fn().mockRejectedValue(
+      new OperatorControlError({
+        kind: "forbidden",
+        code: "operator_scope_forbidden",
+        httpStatus: 403
+      })
+    );
+    const { result } = renderHook(() =>
+      useAgentEndpointCatalog({
+        fleetApi: { listOperatorAgentEndpoints },
+        enabled: true,
+        logicalExecutors: [localCodex],
+        operatorProfileId: "operator-profile-1",
+        humanPrincipalId: "human-owner-1",
+        locator: catalogLocator
+      })
+    );
+
+    await act(async () => undefined);
+    expect(result.current.errorCode).toBe("operator_scope_forbidden");
+
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+    expect(listOperatorAgentEndpoints).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(listOperatorAgentEndpoints).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry a forbidden scope after Electron serializes the error", async () => {
+    const listOperatorAgentEndpoints = vi
+      .fn()
+      .mockRejectedValue(
+        new Error(
+          "Error invoking remote method 'planweave-operator:listAgentEndpoints': " +
+            "OperatorControlError: operator_scope_forbidden"
+        )
+      );
+    const { result } = renderHook(() =>
+      useAgentEndpointCatalog({
+        fleetApi: { listOperatorAgentEndpoints },
+        enabled: true,
+        logicalExecutors: [localCodex],
+        operatorProfileId: "operator-profile-1",
+        humanPrincipalId: "human-owner-1",
+        locator: catalogLocator
+      })
+    );
+
+    await act(async () => undefined);
+    expect(result.current.errorCode).toBe("operator_scope_forbidden");
+
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+    expect(listOperatorAgentEndpoints).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels a pending transient retry when a manual refresh becomes forbidden", async () => {
+    const listOperatorAgentEndpoints = vi
+      .fn()
+      .mockRejectedValueOnce(Object.assign(new Error("http_502"), { code: "http_502" }))
+      .mockRejectedValueOnce(
+        new OperatorControlError({
+          kind: "forbidden",
+          code: "operator_scope_forbidden",
+          httpStatus: 403
+        })
+      );
+    const { result } = renderHook(() =>
+      useAgentEndpointCatalog({
+        fleetApi: { listOperatorAgentEndpoints },
+        enabled: true,
+        logicalExecutors: [localCodex],
+        operatorProfileId: "operator-profile-1",
+        humanPrincipalId: "human-owner-1",
+        locator: catalogLocator
+      })
+    );
+
+    await act(async () => undefined);
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.errorCode).toBe("operator_scope_forbidden");
+
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+    expect(listOperatorAgentEndpoints).toHaveBeenCalledTimes(2);
   });
 });
 

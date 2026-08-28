@@ -30,14 +30,55 @@ export const agentEndpointCatalogRetryAfterFailureMs = 2_000;
 
 export const HUMAN_PRINCIPAL_UNAVAILABLE_CODE = "human_principal_unavailable";
 
+const nonRetryableOperatorKinds = new Set([
+  "validation",
+  "unauthorized",
+  "forbidden",
+  "conflict",
+  "protocol",
+  "payload_too_large"
+]);
+
+const nonRetryableFleetCatalogCodes = new Set([
+  HUMAN_PRINCIPAL_UNAVAILABLE_CODE,
+  "operator_request_invalid",
+  "operator_scope_forbidden",
+  "operator_credential_missing",
+  "operator_profile_missing",
+  "operator_profile_not_found",
+  "operator_profile_not_active",
+  "operator_unauthorized",
+  "operator_forbidden",
+  "operator_admin_required",
+  "operator_server_admin_required"
+]);
+
 function operatorFleetErrorCode(error: unknown): string {
   if (error instanceof OperatorControlError) return error.code;
   if (error && typeof error === "object" && "code" in error) {
     const code = (error as { code?: unknown }).code;
     if (typeof code === "string" && code.length > 0) return code;
   }
-  if (error instanceof Error && error.message.trim().length > 0) return error.message;
+  if (error instanceof Error && error.message.trim().length > 0) {
+    const serializedCode = error.message.match(
+      /\b(?:operator_[a-z0-9_]+|http_[1-5][0-9]{2}|human_principal_unavailable)\b/
+    )?.[0];
+    return serializedCode ?? error.message;
+  }
   return "agent_endpoint_request_failed";
+}
+
+export function shouldRetryAgentEndpointCatalogError(error: unknown): boolean {
+  if (
+    error &&
+    typeof error === "object" &&
+    "kind" in error &&
+    typeof (error as { kind?: unknown }).kind === "string" &&
+    nonRetryableOperatorKinds.has((error as { kind: string }).kind)
+  ) {
+    return false;
+  }
+  return !nonRetryableFleetCatalogCodes.has(operatorFleetErrorCode(error));
 }
 
 export function useAgentEndpointCatalog(input: {
@@ -64,6 +105,7 @@ export function useAgentEndpointCatalog(input: {
   const [error, setError] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [automaticRefreshSuppressed, setAutomaticRefreshSuppressed] = useState(false);
   const generationRef = useRef(0);
   const retryTimerRef = useRef<number | null>(null);
   const quickRetryAttemptedRef = useRef(false);
@@ -154,14 +196,19 @@ export function useAgentEndpointCatalog(input: {
       if (canWrite()) {
         clearRetryTimer();
         quickRetryAttemptedRef.current = false;
+        setAutomaticRefreshSuppressed(false);
         setRemoteEndpoints(result.items);
       }
     } catch (caught: unknown) {
       if (canWrite()) {
         const code = operatorFleetErrorCode(caught);
+        const retryable = shouldRetryAgentEndpointCatalogError(caught);
         setError(code);
         setErrorCode(code);
+        setAutomaticRefreshSuppressed(!retryable);
+        if (!retryable) clearRetryTimer();
         if (
+          retryable &&
           remoteEndpointsRef.current.length === 0 &&
           retryTimerRef.current === null &&
           !quickRetryAttemptedRef.current
@@ -199,14 +246,14 @@ export function useAgentEndpointCatalog(input: {
   }, [clearRetryTimer, refresh]);
 
   useEffect(() => {
-    if (!humanPrincipalId || !locatorKey) return;
+    if (!humanPrincipalId || !locatorKey || automaticRefreshSuppressed) return;
     const interval = window.setInterval(() => {
       void refresh();
     }, agentEndpointCatalogRefreshIntervalMs);
     return () => {
       window.clearInterval(interval);
     };
-  }, [humanPrincipalId, locatorKey, refresh]);
+  }, [automaticRefreshSuppressed, humanPrincipalId, locatorKey, refresh]);
 
   const endpoints = useMemo(() => {
     const catalog = buildAgentEndpointCatalog({
