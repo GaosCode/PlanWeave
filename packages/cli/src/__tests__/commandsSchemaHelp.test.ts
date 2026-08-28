@@ -113,6 +113,8 @@ describe("planweave CLI help and schema output", () => {
     expect(formatSchemaHelp("state")).toContain(
       "normalize every other unknown wire code to remote_execution_failed"
     );
+    expect(formatSchemaHelp("state")).toContain("report_output_missing");
+    expect(formatSchemaHelp("state")).toContain("report_output_too_large");
     expect(formatSchemaHelp("state")).not.toContain("preserve the portable code");
     expect(formatSchemaHelp("layout")).toContain('"desktop-layout/v1"');
     expect(formatSchemaHelp("layout")).toContain("legacy_layout_schema");

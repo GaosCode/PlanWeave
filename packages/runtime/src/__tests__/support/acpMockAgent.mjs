@@ -572,30 +572,32 @@ const app = agent({ name: "planweave-acp-mock" })
     }
 
     const artifactText =
-      scenario === "recovery-permission-artifact"
-        ? session.recovered !== true
-          ? `PLANWEAVE_FINAL_ARTIFACT ${JSON.stringify({ version: "planweave.runner-artifact/v1", artifact: { kind: "review", ref: "T-001#R-001", taskId: "T-001", reviewResult: { reviewBlockRef: "T-001#R-001", taskId: "T-001", verdict: "passed", content: "passed" } } })}\n`
-          : `PLANWEAVE_FINAL_ARTIFACT ${JSON.stringify({ version: "planweave.runner-artifact/v1", artifact: { kind: "implementation", ref: "T-001#B-001", taskId: "T-001", reportMarkdown: "recovered implementation\n" } })}\n`
-        : scenario === "artifact-implementation" ||
-            scenario === "authenticated-artifact-implementation" ||
-            scenario === "env-auth" ||
-            scenario === "artifact-session-config" ||
-            scenario === "artifact-session-config-live" ||
-            scenario === "delayed-artifact-implementation" ||
-            scenario === "terminal-output" ||
-            scenario === "permission-deny" ||
-            scenario === "permission-secret" ||
-            scenario === "elicitation-secret" ||
-            scenario === "elicitation-validation" ||
-            scenario === "multi-interaction"
-          ? `PLANWEAVE_FINAL_ARTIFACT ${JSON.stringify({ version: "planweave.runner-artifact/v1", artifact: { kind: "implementation", ref: "T-001#B-001", taskId: "T-001", reportMarkdown: "implemented\n" } })}\n`
-          : scenario === "artifact-review" || scenario === "artifact-review-needs-changes"
-            ? `PLANWEAVE_FINAL_ARTIFACT ${JSON.stringify({ version: "planweave.runner-artifact/v1", artifact: { kind: "review", ref: "T-001#R-001", taskId: "T-001", reviewResult: { reviewBlockRef: "T-001#R-001", taskId: "T-001", verdict: scenario === "artifact-review-needs-changes" ? "needs_changes" : "passed", content: scenario === "artifact-review-needs-changes" ? "fix the implementation" : "passed" } } })}\n`
-            : scenario === "artifact-feedback"
-              ? `PLANWEAVE_FINAL_ARTIFACT ${JSON.stringify({ version: "planweave.runner-artifact/v1", artifact: { kind: "feedback", feedbackId: "FE-001", sourceReviewBlockRef: "T-001#R-001", taskId: "T-001", reportMarkdown: "feedback fixed\n" } })}\n`
-              : scenario === "nontext-output"
-                ? "TOKEN=super-secret"
-                : `hello from ${sessionId}`;
+      scenario === "empty-report"
+        ? "\n\n"
+        : scenario === "recovery-permission-artifact"
+          ? session.recovered !== true
+            ? `PLANWEAVE_FINAL_ARTIFACT ${JSON.stringify({ version: "planweave.runner-artifact/v1", artifact: { kind: "review", ref: "T-001#R-001", taskId: "T-001", reviewResult: { reviewBlockRef: "T-001#R-001", taskId: "T-001", verdict: "passed", content: "passed" } } })}\n`
+            : `PLANWEAVE_FINAL_ARTIFACT ${JSON.stringify({ version: "planweave.runner-artifact/v1", artifact: { kind: "implementation", ref: "T-001#B-001", taskId: "T-001", reportMarkdown: "recovered implementation\n" } })}\n`
+          : scenario === "artifact-implementation" ||
+              scenario === "authenticated-artifact-implementation" ||
+              scenario === "env-auth" ||
+              scenario === "artifact-session-config" ||
+              scenario === "artifact-session-config-live" ||
+              scenario === "delayed-artifact-implementation" ||
+              scenario === "terminal-output" ||
+              scenario === "permission-deny" ||
+              scenario === "permission-secret" ||
+              scenario === "elicitation-secret" ||
+              scenario === "elicitation-validation" ||
+              scenario === "multi-interaction"
+            ? `PLANWEAVE_FINAL_ARTIFACT ${JSON.stringify({ version: "planweave.runner-artifact/v1", artifact: { kind: "implementation", ref: "T-001#B-001", taskId: "T-001", reportMarkdown: "implemented\n" } })}\n`
+            : scenario === "artifact-review" || scenario === "artifact-review-needs-changes"
+              ? `PLANWEAVE_FINAL_ARTIFACT ${JSON.stringify({ version: "planweave.runner-artifact/v1", artifact: { kind: "review", ref: "T-001#R-001", taskId: "T-001", reviewResult: { reviewBlockRef: "T-001#R-001", taskId: "T-001", verdict: scenario === "artifact-review-needs-changes" ? "needs_changes" : "passed", content: scenario === "artifact-review-needs-changes" ? "fix the implementation" : "passed" } } })}\n`
+              : scenario === "artifact-feedback"
+                ? `PLANWEAVE_FINAL_ARTIFACT ${JSON.stringify({ version: "planweave.runner-artifact/v1", artifact: { kind: "feedback", feedbackId: "FE-001", sourceReviewBlockRef: "T-001#R-001", taskId: "T-001", reportMarkdown: "feedback fixed\n" } })}\n`
+                : scenario === "nontext-output"
+                  ? "TOKEN=super-secret"
+                  : `hello from ${sessionId}`;
     await ctx.client.notify(methods.client.session.update, {
       sessionId,
       update: {

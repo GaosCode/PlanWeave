@@ -434,7 +434,7 @@ export class RemoteAcpExecutor implements AgentHostExecutor {
       );
     }
     if (result.output.trim().length === 0) {
-      throw failure("report_output_missing", "ACP completed without report output.");
+      throw failure("report_output_missing", "ACP completed without report output.", true);
     }
     const bytes = Buffer.from(result.output, "utf8");
     if (bytes.byteLength > command.envelope.output.maxArtifactBytes) {

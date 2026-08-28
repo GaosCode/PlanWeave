@@ -90,7 +90,7 @@ export const stateSchemaDocument: SchemaDocument<"state"> = {
     "Use status --json, explain, doctor, or Desktop read models for the canonical remoteExecution projection; it exposes the Owner/collaboration control plane plus logical operation/source/dispatch-attempt identity, lifecycle phase/status, and Runtime-derived actionRequired.",
     "Remote ownership is valid only for in_progress or diverged implementation/review blocks; completed, blocked, and reset state never retain an active owner.",
     "Terminal remote receipts are immutable idempotency evidence and are cleared by reset, unblock, or later local recovery mutations.",
-    "Remote failure receipts preserve retryability, retain Runtime-owned public codes, keep redacted diagnostics for selected ACP codes (such as acp_unknown_error), and normalize every other unknown wire code to remote_execution_failed with message Remote execution failed.",
+    "Remote failure receipts preserve retryability, retain Runtime-owned public codes, expose report_output_missing as Remote ACP execution completed without report output and report_output_too_large as Remote ACP report output exceeded its artifact contract, keep redacted diagnostics for selected ACP codes (such as acp_unknown_error), and normalize every other unknown wire code to remote_execution_failed with message Remote execution failed.",
     "Manifest edits can make old state refs stale; run validate/status/doctor instead of editing state by hand.",
     "Feedback is runtime state; do not create feedback blocks in the Plan Package manifest."
   ]

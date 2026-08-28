@@ -655,6 +655,24 @@ describe("RemoteAcpExecutor", () => {
     );
   });
 
+  it("classifies a missing report as retryable without uploading an artifact", async () => {
+    const { outbox } = await openOutbox();
+    const input = command();
+    const executor = new RemoteAcpExecutor({
+      workspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
+      runtimeWorkspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
+      profileResolver: profileResolver("empty-report"),
+      outbox,
+      hostCapabilities: ["linux", "acp.test"]
+    });
+    const { context, upload } = artifactContext(input);
+
+    await expect(executor.execute(input, context)).rejects.toMatchObject({
+      failure: { code: "report_output_missing", retryable: true }
+    });
+    expect(upload).not.toHaveBeenCalled();
+  });
+
   it("masks resolver diagnostics so trusted paths and secrets do not cross the boundary", async () => {
     const { outbox } = await openOutbox();
     const input = command();

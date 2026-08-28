@@ -39,6 +39,8 @@ const publicRemoteFailureCodes = [
   "lease_expired",
   "persistence_failed",
   "protocol_error",
+  "report_output_missing",
+  "report_output_too_large",
   "remote_execution_failed",
   "transport_failed"
 ] as const;
@@ -63,6 +65,8 @@ const publicFailureMessagesByCode: Readonly<Record<PublicRemoteFailureCode, stri
   lease_expired: "Remote execution lease expired.",
   persistence_failed: "Remote persistence failed.",
   protocol_error: "Remote protocol failed.",
+  report_output_missing: "Remote ACP execution completed without report output.",
+  report_output_too_large: "Remote ACP report output exceeded its artifact contract.",
   remote_execution_failed: "Remote execution failed.",
   transport_failed: "Remote transport failed."
 };

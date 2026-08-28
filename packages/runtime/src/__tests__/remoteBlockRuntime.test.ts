@@ -907,6 +907,18 @@ describe("remote block runtime terminal transitions", () => {
     ["private protocol frame", "acp_protocol_error", "Remote ACP protocol failed.", false],
     ["private elapsed timing", "acp_operation_timeout", "Remote ACP execution timed out.", true],
     [
+      "private missing report diagnostic",
+      "report_output_missing",
+      "Remote ACP execution completed without report output.",
+      true
+    ],
+    [
+      "private oversized report diagnostic",
+      "report_output_too_large",
+      "Remote ACP report output exceeded its artifact contract.",
+      false
+    ],
+    [
       "ACP execution failed. provider usage limit exceeded",
       "acp_unknown_error",
       "ACP execution failed. provider usage limit exceeded",
