@@ -4,7 +4,7 @@ import { startRemoteBlockCoordinationServer } from "./distributedCoordination.js
 import { HostEnrollmentService } from "./hostEnrollment.js";
 import type { HumanIdentityRepository, HumanMembershipService } from "./identity/index.js";
 import type { WorkspaceIdentityRepository } from "./identity/workspaceRepository.js";
-import { serverPackageVersion } from "./packageInfo.js";
+import { serverBuildRevision, serverPackageVersion } from "./packageInfo.js";
 import { ServerReadinessController, type ServerReadiness } from "./readiness.js";
 import type { RemoteCoordinationMaintenance } from "./remoteCoordinationMaintenance.js";
 import {
@@ -334,6 +334,7 @@ export async function createDistributedServerComposition(
       commentAttachments: activityComments.commentAttachments,
       createOperatorControl: remoteExecution.createOperatorControl,
       serverVersion: serverPackageVersion,
+      serverBuildRevision,
       maxArtifactBytes: config.limits.maxArtifactBytes,
       maxWebSocketPayloadBytes: config.limits.maxWebSocketPayloadBytes,
       clock

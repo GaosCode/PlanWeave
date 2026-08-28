@@ -22,10 +22,14 @@ import {
 
 const MAX_OPERATOR_BODY_BYTES = 64 * 1024;
 
-const healthResponseSchema = z.object({ status: z.literal("ok") }).strict();
+const buildRevisionSchema = z.string().regex(/^(?:[0-9a-f]{7,64}|development)$/);
+const healthResponseSchema = z
+  .object({ status: z.literal("ok"), serverBuildRevision: buildRevisionSchema })
+  .strict();
 const versionResponseSchema = z
   .object({
     serverVersion: z.string().min(1).max(64),
+    serverBuildRevision: buildRevisionSchema,
     protocolVersion: z.literal(1),
     limits: z
       .object({
@@ -41,6 +45,7 @@ export type OperatorHttpOptions = {
   service: OperatorControlPort;
   readiness(): ServerReadiness;
   serverVersion: string;
+  serverBuildRevision: string;
   limits: {
     maxArtifactBytes: number;
     maxWebSocketPayloadBytes: number;
@@ -329,7 +334,10 @@ export async function handleOperatorHttpRequest(
       url.pathname.startsWith("/api/v1/") ||
       ["/healthz", "/readyz", "/version"].includes(url.pathname)
     ) {
-      respond(response, 404, { error: "route_not_found" });
+      respond(response, 404, {
+        error: "route_not_found",
+        serverBuildRevision: options.serverBuildRevision
+      });
       return true;
     }
     return false;
@@ -337,7 +345,14 @@ export async function handleOperatorHttpRequest(
   try {
     if (matched.kind === "health") {
       query(url, []);
-      respond(response, 200, healthResponseSchema.parse({ status: "ok" }));
+      respond(
+        response,
+        200,
+        healthResponseSchema.parse({
+          status: "ok",
+          serverBuildRevision: options.serverBuildRevision
+        })
+      );
       return true;
     }
     if (matched.kind === "readiness") {
@@ -353,6 +368,7 @@ export async function handleOperatorHttpRequest(
         200,
         versionResponseSchema.parse({
           serverVersion: options.serverVersion,
+          serverBuildRevision: options.serverBuildRevision,
           protocolVersion: 1,
           limits: options.limits
         })
@@ -361,13 +377,19 @@ export async function handleOperatorHttpRequest(
     }
     if (!operatorTransportAllowed(request.socket, options.transportAdmission)) {
       request.resume();
-      respond(response, 426, { error: "operator_insecure_transport" });
+      respond(response, 426, {
+        error: "operator_insecure_transport",
+        serverBuildRevision: options.serverBuildRevision
+      });
       return true;
     }
     const principal = options.authorization.authenticate(request.headers.authorization);
     if (!principal) {
       request.resume();
-      respond(response, 401, { error: "operator_unauthorized" });
+      respond(response, 401, {
+        error: "operator_unauthorized",
+        serverBuildRevision: options.serverBuildRevision
+      });
       return true;
     }
     switch (matched.kind) {
@@ -494,8 +516,12 @@ export async function handleOperatorHttpRequest(
   } catch (error) {
     const safe = safeError(error);
     request.resume();
-    if (!response.headersSent) respond(response, safe.status, { error: safe.code });
-    else response.destroy();
+    if (!response.headersSent) {
+      respond(response, safe.status, {
+        error: safe.code,
+        serverBuildRevision: options.serverBuildRevision
+      });
+    } else response.destroy();
   }
   return true;
 }

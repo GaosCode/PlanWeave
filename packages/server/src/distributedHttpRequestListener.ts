@@ -98,17 +98,23 @@ export type DistributedHttpRequestListenerOptions = {
   commentAttachments: CommentAttachmentService;
   operatorControl: OperatorControlPort;
   serverVersion: string;
+  serverBuildRevision: string;
   maxArtifactBytes: number;
   maxWebSocketPayloadBytes: number;
   clock: () => Date;
 };
 
-function respond(response: ServerResponse, status: number, code: string): void {
+function respond(
+  response: ServerResponse,
+  status: number,
+  code: string,
+  serverBuildRevision: string
+): void {
   if (response.headersSent) {
     response.destroy();
     return;
   }
-  const bytes = Buffer.from(JSON.stringify({ error: code }));
+  const bytes = Buffer.from(JSON.stringify({ error: code, serverBuildRevision }));
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "content-length": bytes.byteLength,
@@ -150,7 +156,7 @@ export function createDistributedHttpRequestListener(
     const operation = (async () => {
       if (requiresAdmission(request) && options.readiness.readiness().status !== "ready") {
         request.resume();
-        respond(response, 503, "server_not_accepting_mutations");
+        respond(response, 503, "server_not_accepting_mutations", options.serverBuildRevision);
         return;
       }
       if (
@@ -346,6 +352,7 @@ export function createDistributedHttpRequestListener(
           service: options.operatorControl,
           readiness: () => options.readiness.readiness(),
           serverVersion: options.serverVersion,
+          serverBuildRevision: options.serverBuildRevision,
           limits: {
             maxArtifactBytes: options.maxArtifactBytes,
             maxWebSocketPayloadBytes: options.maxWebSocketPayloadBytes
@@ -354,8 +361,8 @@ export function createDistributedHttpRequestListener(
         })
       )
         return;
-      respond(response, 404, "route_not_found");
-    })().catch(() => respond(response, 500, "request_failed"));
+      respond(response, 404, "route_not_found", options.serverBuildRevision);
+    })().catch(() => respond(response, 500, "request_failed", options.serverBuildRevision));
     options.inflightRequests.add(operation);
     void operation.finally(() => options.inflightRequests.delete(operation));
   };

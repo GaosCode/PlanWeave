@@ -14,6 +14,9 @@ RUN --mount=type=cache,id=planweave-server-pnpm-store,target=/pnpm/store \
 
 FROM node:22-bookworm-slim
 
+ARG PLANWEAVE_SERVER_BUILD_REVISION=development
+LABEL org.opencontainers.image.revision="${PLANWEAVE_SERVER_BUILD_REVISION}"
+
 WORKDIR /app
 COPY --from=build --chown=node:node /out/ ./
 COPY packages/server/docker-entrypoint.sh /usr/local/bin/planweave-server-entrypoint
@@ -21,5 +24,6 @@ RUN mkdir -p /run/planweave/input/config /run/planweave/input/tls /run/planweave
   && chmod 755 /usr/local/bin/planweave-server-entrypoint
 
 ENV PLANWEAVE_SERVER_CONFIG=/run/planweave/runtime/server.json
+ENV PLANWEAVE_SERVER_BUILD_REVISION=${PLANWEAVE_SERVER_BUILD_REVISION}
 EXPOSE 443
 ENTRYPOINT ["/usr/local/bin/planweave-server-entrypoint"]

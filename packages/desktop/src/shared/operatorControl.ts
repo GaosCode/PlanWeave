@@ -482,6 +482,7 @@ export type OperatorControlErrorKind =
   | "conflict"
   | "protocol"
   | "payload_too_large"
+  | "server"
   | "offline"
   | "timeout"
   | "unknown";
@@ -490,12 +491,14 @@ export class OperatorControlError extends Error {
   readonly kind: OperatorControlErrorKind;
   readonly code: string;
   readonly httpStatus?: number;
+  readonly serverBuildRevision?: string;
 
   constructor(input: {
     kind: OperatorControlErrorKind;
     code: string;
     message?: string;
     httpStatus?: number;
+    serverBuildRevision?: string;
     cause?: unknown;
   }) {
     super(input.message ?? input.code);
@@ -503,6 +506,7 @@ export class OperatorControlError extends Error {
     this.kind = input.kind;
     this.code = input.code;
     this.httpStatus = input.httpStatus;
+    this.serverBuildRevision = input.serverBuildRevision;
     if (input.cause !== undefined) {
       (this as Error & { cause?: unknown }).cause = input.cause;
     }

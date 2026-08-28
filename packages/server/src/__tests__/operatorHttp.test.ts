@@ -10,6 +10,7 @@ import { hashOperatorToken, OperatorTokenRegistry } from "../operatorAuth.js";
 import { RemoteExecutionActionRejectedError } from "../remoteExecutionActions.js";
 import { operatorDispatchRequestSchema } from "../operatorDtos.js";
 import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
+import { resolveServerBuildRevision } from "../packageInfo.js";
 import {
   handleOperatorHttpRequest,
   operatorTransportAllowed,
@@ -126,6 +127,7 @@ async function setup(
       service,
       readiness: () => ({ status: readiness, schemaVersion: 1 }),
       serverVersion: "test",
+      serverBuildRevision: "abcdef0123456789",
       limits: { maxArtifactBytes: 1024, maxWebSocketPayloadBytes: 2048 },
       transportAdmission: allowInsecureDevelopment
         ? loopbackHttpTransportAdmission
@@ -140,8 +142,22 @@ async function setup(
 }
 
 const authorization = { Authorization: `Bearer ${token}` };
+const expectedError = (error: string) => ({
+  error,
+  serverBuildRevision: "abcdef0123456789"
+});
 
 describe("operator HTTP boundary", () => {
+  it("rejects malformed injected build revisions instead of hiding deployment metadata", () => {
+    expect(resolveServerBuildRevision({})).toBe("development");
+    expect(
+      resolveServerBuildRevision({ PLANWEAVE_SERVER_BUILD_REVISION: "abcdef0123456789" })
+    ).toBe("abcdef0123456789");
+    expect(() =>
+      resolveServerBuildRevision({ PLANWEAVE_SERVER_BUILD_REVISION: "not a revision" })
+    ).toThrow("server_build_revision_invalid");
+  });
+
   it("lists redacted Agent Endpoints with strict admin-scoped query handling", async () => {
     const fixture = await setup(true);
     vi.mocked(fixture.service.listAgentEndpoints).mockReturnValue({
@@ -224,7 +240,7 @@ describe("operator HTTP boundary", () => {
       headers: authorization
     });
     expect(forbidden.status).toBe(403);
-    await expect(forbidden.json()).resolves.toEqual({ error: "operator_admin_required" });
+    await expect(forbidden.json()).resolves.toEqual(expectedError("operator_admin_required"));
     expect(nonAdmin.service.listAgentEndpoints).not.toHaveBeenCalled();
   });
 
@@ -237,7 +253,7 @@ describe("operator HTTP boundary", () => {
       headers: authorization
     });
     expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toEqual({ error: "operator_admin_required" });
+    await expect(response.json()).resolves.toEqual(expectedError("operator_admin_required"));
     expect(memberOnly.service.listAgentEndpoints).not.toHaveBeenCalled();
   });
 
@@ -284,7 +300,7 @@ describe("operator HTTP boundary", () => {
     const fixture = await setup(false);
     const response = await fetch(`${fixture.origin}/api/v1/hosts`, { headers: authorization });
     expect(response.status).toBe(426);
-    await expect(response.json()).resolves.toEqual({ error: "operator_insecure_transport" });
+    await expect(response.json()).resolves.toEqual(expectedError("operator_insecure_transport"));
     expect(fixture.service.listHosts).not.toHaveBeenCalled();
   });
 
@@ -325,7 +341,7 @@ describe("operator HTTP boundary", () => {
       }
     );
     expect(policyRejected.status).toBe(409);
-    await expect(policyRejected.json()).resolves.toEqual({ error: "work_not_agent_assigned" });
+    await expect(policyRejected.json()).resolves.toEqual(expectedError("work_not_agent_assigned"));
 
     const invalidPage = await fetch(`${fixture.origin}/api/v1/hosts?limit=1&limit=2`, {
       headers: authorization
@@ -354,7 +370,7 @@ describe("operator HTTP boundary", () => {
     });
     expect(response.status).toBe(409);
     const body = await response.json();
-    expect(body).toEqual({ error: "agent_endpoint_incompatible" });
+    expect(body).toEqual(expectedError("agent_endpoint_incompatible"));
     expect(JSON.stringify(body)).not.toContain("private-endpoint-id");
   });
 
@@ -370,7 +386,8 @@ describe("operator HTTP boundary", () => {
 
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({
-      error: "remote_acp_event_replay_cursor_ahead"
+      error: "remote_acp_event_replay_cursor_ahead",
+      serverBuildRevision: "abcdef0123456789"
     });
   });
 
@@ -403,7 +420,7 @@ describe("operator HTTP boundary", () => {
 
     expect(response.status).toBe(status);
     const body = await response.json();
-    expect(body).toEqual({ error: code });
+    expect(body).toEqual(expectedError(code));
     expect(JSON.stringify(body)).not.toContain("private detail");
   });
 
@@ -428,13 +445,14 @@ describe("operator HTTP boundary", () => {
     });
 
     expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toEqual({ error: "remote_block_not_dispatchable" });
+    await expect(response.json()).resolves.toEqual(expectedError("remote_block_not_dispatchable"));
   });
 
   it("serves public health and delegates bounded host pagination", async () => {
     const fixture = await setup(true);
     await expect((await fetch(`${fixture.origin}/healthz`)).json()).resolves.toEqual({
-      status: "ok"
+      status: "ok",
+      serverBuildRevision: "abcdef0123456789"
     });
     const response = await fetch(`${fixture.origin}/api/v1/hosts?cursor=0&limit=50`, {
       headers: authorization
@@ -446,7 +464,25 @@ describe("operator HTTP boundary", () => {
       { cursor: "0", limit: "50" }
     );
     await expect((await fetch(`${fixture.origin}/version`)).json()).resolves.toMatchObject({
+      serverBuildRevision: "abcdef0123456789",
       limits: { maxArtifactBytes: 1024, maxWebSocketPayloadBytes: 2048 }
+    });
+  });
+
+  it("returns the build revision without leaking an unclassified operator failure", async () => {
+    const fixture = await setup(true);
+    vi.mocked(fixture.service.listHosts).mockImplementation(() => {
+      throw new Error("sensitive_internal_failure");
+    });
+    const response = await fetch(`${fixture.origin}/api/v1/hosts?cursor=0&limit=50`, {
+      headers: authorization
+    });
+    expect(response.status).toBe(500);
+    const body = await response.text();
+    expect(body).not.toContain("sensitive_internal_failure");
+    expect(JSON.parse(body)).toEqual({
+      error: "operator_request_failed",
+      serverBuildRevision: "abcdef0123456789"
     });
   });
 

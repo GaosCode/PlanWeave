@@ -113,6 +113,7 @@ async function setup(input: { serverAdmin?: boolean; withOwnerResolver?: boolean
       service,
       readiness: () => ({ status: "ready", schemaVersion: 1 }),
       serverVersion: "test",
+      serverBuildRevision: "abcdef0123456789",
       limits: { maxArtifactBytes: 1024, maxWebSocketPayloadBytes: 2048 },
       transportAdmission: loopbackHttpTransportAdmission
     });
@@ -286,7 +287,10 @@ describe("RemoteControlService owner fleet control plane", () => {
       }
     );
     expect(forbidden.status).toBe(403);
-    await expect(forbidden.json()).resolves.toEqual({ error: "operator_admin_required" });
+    await expect(forbidden.json()).resolves.toEqual({
+      error: "operator_admin_required",
+      serverBuildRevision: "abcdef0123456789"
+    });
   });
 
   it("fails closed for operator catalog without an explicit human principal", () => {
@@ -321,7 +325,10 @@ describe("RemoteControlService owner fleet control plane", () => {
       headers: { Authorization: `Bearer ${memberToken}` }
     });
     expect(forbidden.status).toBe(403);
-    await expect(forbidden.json()).resolves.toEqual({ error: "operator_admin_required" });
+    await expect(forbidden.json()).resolves.toEqual({
+      error: "operator_admin_required",
+      serverBuildRevision: "abcdef0123456789"
+    });
   });
 
   it("allows a setup-code operator session to list only its Workspace-scoped endpoints", async () => {
@@ -349,7 +356,10 @@ describe("RemoteControlService owner fleet control plane", () => {
       headers: { Authorization: `Bearer ${workspaceToken}` }
     });
     expect(fleet.status).toBe(403);
-    await expect(fleet.json()).resolves.toEqual({ error: "operator_admin_required" });
+    await expect(fleet.json()).resolves.toEqual({
+      error: "operator_admin_required",
+      serverBuildRevision: "abcdef0123456789"
+    });
 
     const endpoint = fixture.coordination.agentEndpoints.listVisible(fixture.workspaceId).items[0];
     await expect(

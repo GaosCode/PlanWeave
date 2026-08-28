@@ -73,11 +73,24 @@ function safeErrorCode(value: unknown): string | undefined {
   return /^[A-Za-z0-9_.-]{1,96}$/.test(code) ? code : undefined;
 }
 
+function safeServerBuildRevision(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const revision = value.trim();
+  return /^(?:[0-9a-f]{7,64}|development)$/.test(revision) ? revision : undefined;
+}
+
 function errorFromHttp(status: number, body: string): OperatorControlError {
   let code = `http_${status}`;
+  let serverBuildRevision: string | undefined;
   try {
-    const parsed = z.object({ error: z.unknown() }).passthrough().safeParse(JSON.parse(body));
-    if (parsed.success) code = safeErrorCode(parsed.data.error) ?? code;
+    const parsed = z
+      .object({ error: z.unknown(), serverBuildRevision: z.unknown().optional() })
+      .passthrough()
+      .safeParse(JSON.parse(body));
+    if (parsed.success) {
+      code = safeErrorCode(parsed.data.error) ?? code;
+      serverBuildRevision = safeServerBuildRevision(parsed.data.serverBuildRevision);
+    }
   } catch {
     // Keep status-derived code; never copy an untrusted response body to the error.
   }
@@ -89,13 +102,14 @@ function errorFromHttp(status: number, body: string): OperatorControlError {
         : status === 409
           ? "conflict"
           : status >= 500
-            ? "offline"
+            ? "server"
             : "unknown";
   return new OperatorControlError({
     kind,
     code,
     httpStatus: status,
-    message: code
+    serverBuildRevision,
+    message: serverBuildRevision ? `${code} (server ${serverBuildRevision})` : code
   });
 }
 

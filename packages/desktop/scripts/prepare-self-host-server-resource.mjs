@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { cp, lstat, mkdir, readdir, rm } from "node:fs/promises";
+import { cp, lstat, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
@@ -18,6 +18,20 @@ function run(command, args, cwd = repositoryRoot) {
       code === 0
         ? resolveRun()
         : reject(new Error(`self-host resource build failed with exit ${code}`))
+    );
+  });
+}
+
+function capture(command, args, cwd = repositoryRoot) {
+  return new Promise((resolveCapture, reject) => {
+    const child = spawn(command, args, { cwd, stdio: ["ignore", "pipe", "inherit"] });
+    const chunks = [];
+    child.stdout.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+    child.once("error", reject);
+    child.once("close", (code) =>
+      code === 0
+        ? resolveCapture(Buffer.concat(chunks).toString("utf8").trim())
+        : reject(new Error(`self-host resource metadata failed with exit ${code}`))
     );
   });
 }
@@ -75,3 +89,18 @@ await Promise.all([
   ),
   cp(resolve(desktopRoot, "build/self-host-compose.yaml"), resolve(outputRoot, "compose.yaml"))
 ]);
+const buildRevision = await capture("git", ["rev-parse", "HEAD"]);
+if (!/^[0-9a-f]{40}$/.test(buildRevision)) {
+  throw new Error("self-host resource build revision is invalid");
+}
+const dockerfilePath = resolve(imageRoot, "Dockerfile");
+const dockerfile = await readFile(dockerfilePath, "utf8");
+const revisionMarker = "ARG PLANWEAVE_SERVER_BUILD_REVISION=development";
+if (!dockerfile.includes(revisionMarker)) {
+  throw new Error("self-host resource build revision marker is missing");
+}
+await writeFile(
+  dockerfilePath,
+  dockerfile.replace(revisionMarker, `ARG PLANWEAVE_SERVER_BUILD_REVISION=${buildRevision}`),
+  "utf8"
+);

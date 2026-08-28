@@ -93,6 +93,10 @@ describe("desktop release configuration", () => {
     expect(source).toContain("--config.node-linker=hoisted");
     expect(source).toContain("await import('@agentclientprotocol/sdk')");
     expect(source).toContain("await import('@planweave-ai/runtime')");
+    expect(source).toContain('capture("git", ["rev-parse", "HEAD"])');
+    expect(source).toContain(
+      'const revisionMarker = "ARG PLANWEAVE_SERVER_BUILD_REVISION=development"'
+    );
   });
 
   it("keeps local pack and dist commands explicitly unsigned", async () => {

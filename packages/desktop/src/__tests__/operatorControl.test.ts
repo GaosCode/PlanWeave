@@ -746,6 +746,35 @@ describe("Desktop operator control trust boundary", () => {
       new Response(JSON.stringify({ error: "operator_admin_required" }), { status: 403 })
     );
     await expect(client.listHosts()).rejects.toMatchObject({ kind: "forbidden", httpStatus: 403 });
+    request.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          error: "operator_request_failed",
+          serverBuildRevision: "abcdef0123456789"
+        }),
+        { status: 500 }
+      )
+    );
+    await expect(client.listHosts()).rejects.toMatchObject({
+      kind: "server",
+      httpStatus: 500,
+      code: "operator_request_failed",
+      serverBuildRevision: "abcdef0123456789",
+      message: "operator_request_failed (server abcdef0123456789)"
+    });
+    request.mockResolvedValueOnce(new Response("<html>proxy unavailable</html>", { status: 503 }));
+    await expect(client.listHosts()).rejects.toMatchObject({
+      kind: "server",
+      httpStatus: 503,
+      code: "http_503",
+      serverBuildRevision: undefined
+    });
+    request.mockRejectedValueOnce(new TypeError("connection refused"));
+    await expect(client.listHosts()).rejects.toMatchObject({
+      kind: "offline",
+      code: "operator_offline",
+      httpStatus: undefined
+    });
     request.mockResolvedValueOnce(new Response("not-json", { status: 200 }));
     await expect(client.listHosts()).rejects.toMatchObject({ code: "operator_malformed_json" });
     expect(JSON.stringify(requests)).toContain(tokenA);

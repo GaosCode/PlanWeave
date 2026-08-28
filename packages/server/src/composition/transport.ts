@@ -169,6 +169,7 @@ export async function createTransportComposition(
     commentAttachments: input.commentAttachments,
     operatorControl,
     serverVersion: input.serverVersion,
+    serverBuildRevision: input.serverBuildRevision,
     maxArtifactBytes: input.maxArtifactBytes,
     maxWebSocketPayloadBytes: input.maxWebSocketPayloadBytes,
     clock: input.clock

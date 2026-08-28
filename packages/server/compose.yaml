@@ -3,6 +3,8 @@ services:
     build:
       context: ../..
       dockerfile: packages/server/Dockerfile
+      args:
+        PLANWEAVE_SERVER_BUILD_REVISION: ${PLANWEAVE_SERVER_BUILD_REVISION:-development}
     image: planweave-server:local
     environment:
       PLANWEAVE_HOME: /var/lib/planweave
