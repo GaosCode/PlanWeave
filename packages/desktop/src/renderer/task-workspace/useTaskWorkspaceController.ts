@@ -3,8 +3,10 @@ import {
   composeTaskWorkspaceRuns,
   projectTaskWorkspaceLiveSnapshot
 } from "@planweave-ai/runtime/browser";
+import type { RemoteOperationState } from "@planweave-ai/collaboration-protocol/remote-run";
 import type {
   DesktopBridgeApi,
+  RemoteBlockExecutionReadModel,
   TaskWorkspace,
   TaskWorkspaceRunListItem,
   TaskWorkspaceRunsCursor
@@ -95,6 +97,18 @@ const idleWorkspaceLoad: WorkspaceLoad = {
 };
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function projectedRemoteConversationState(
+  execution: RemoteBlockExecutionReadModel | null | undefined
+): RemoteOperationState | undefined {
+  if (!execution) return undefined;
+  if (execution.phase === "terminal") {
+    return execution.status === "completed" ? "completed" : "failed";
+  }
+  if (execution.status === "interrupted") return "interrupted";
+  if (execution.status === "source_drift") return "action_required";
+  return execution.phase === "active" ? "running" : "preparing";
 }
 
 function navigationTargetWithSelection(
@@ -520,6 +534,38 @@ export function useTaskWorkspaceController(options: {
   const remoteExecutionVersion =
     workspace?.blocks.map((block) => block.remoteExecution?.identity.operationId).join("|") ?? "";
   const selectedRemoteControlPlane = selectedRemoteExecution?.controlPlane ?? null;
+  const selectedRemoteInitialState = projectedRemoteConversationState(selectedRemoteExecution);
+  const workspaceConnectionProfileId = workspaceNavigation?.connectionProfileId ?? null;
+  const workspaceId = workspaceNavigation?.workspaceId ?? null;
+  const workspaceProjectId = workspaceNavigation?.projectId ?? null;
+  const workspaceCanvasId = workspaceNavigation?.canvasId ?? null;
+  const remoteConversationWorkspaceScope = useMemo(() => {
+    if (
+      !workspaceConnectionProfileId ||
+      !workspaceId ||
+      !workspaceProjectId ||
+      !workspaceCanvasId ||
+      !selectedBlockRef
+    ) {
+      return undefined;
+    }
+    return {
+      locator: {
+        kind: "workspace" as const,
+        connectionProfileId: workspaceConnectionProfileId,
+        workspaceId,
+        projectId: workspaceProjectId,
+        canvasId: workspaceCanvasId
+      },
+      blockRef: selectedBlockRef
+    };
+  }, [
+    selectedBlockRef,
+    workspaceCanvasId,
+    workspaceConnectionProfileId,
+    workspaceId,
+    workspaceProjectId
+  ]);
   const remoteConversationApi = useMemo(
     () =>
       selectedRemoteControlPlane
@@ -528,19 +574,8 @@ export function useTaskWorkspaceController(options: {
             collaborationApi,
             operatorApi,
             operatorProfileId,
-            ...(workspaceNavigation && selectedBlockRef
-              ? {
-                  workspaceScope: {
-                    locator: {
-                      kind: "workspace" as const,
-                      connectionProfileId: workspaceNavigation.connectionProfileId,
-                      workspaceId: workspaceNavigation.workspaceId,
-                      projectId: workspaceNavigation.projectId,
-                      canvasId: workspaceNavigation.canvasId
-                    },
-                    blockRef: selectedBlockRef
-                  }
-                }
+            ...(remoteConversationWorkspaceScope
+              ? { workspaceScope: remoteConversationWorkspaceScope }
               : {})
           })
         : null,
@@ -548,14 +583,15 @@ export function useTaskWorkspaceController(options: {
       collaborationApi,
       operatorApi,
       operatorProfileId,
-      selectedBlockRef,
       selectedRemoteControlPlane,
-      workspaceNavigation
+      remoteConversationWorkspaceScope
     ]
   );
   const remoteConversation = useRemoteTaskWorkspaceConversation({
     api: remoteConversationApi,
     blockRef: selectedBlockRef || null,
+    cacheScopeKey: key,
+    initialState: selectedRemoteInitialState,
     operationId: selectedRemoteExecution?.identity.operationId ?? null,
     onTerminal: refresh
   });
