@@ -1,7 +1,12 @@
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { initWorkspace, writeProjectGraph, type PlanPackageManifest } from "@planweave-ai/runtime";
+import {
+  initWorkspace,
+  loadPlanGraphPackage,
+  writeProjectGraph,
+  type PlanPackageManifest
+} from "@planweave-ai/runtime";
 
 /**
  * Disposable Plan Package + trusted project root for local-tls-fixture.
@@ -79,6 +84,7 @@ export type FixtureWorkspace = {
   home: string;
   root: string;
   projectId: string;
+  graphFingerprint: string;
   ownedRoots: string[];
 };
 
@@ -108,10 +114,12 @@ export async function createFixtureWorkspace(): Promise<FixtureWorkspace> {
     crossTaskEdges: []
   });
 
+  const loaded = await loadPlanGraphPackage(init.workspace);
   return {
     home,
     root,
     projectId: init.workspace.id,
+    graphFingerprint: loaded.graph.packageFingerprint,
     ownedRoots: [home, root]
   };
 }

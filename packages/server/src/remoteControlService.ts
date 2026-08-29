@@ -283,6 +283,9 @@ export class RemoteControlService {
         agentEndpointId: request.agentEndpointId,
         expectedResponsibilityRevision: request.expectedResponsibilityRevision,
         expectedReviewerRevision: request.expectedReviewerRevision,
+        executionTargetRevision: request.executionTargetRevision,
+        contentRevision: request.contentRevision,
+        graphFingerprint: request.graphFingerprint,
         targetKind: "workspace_canvas",
         callerHumanPrincipalId: request.humanPrincipalId
       });
@@ -320,6 +323,9 @@ export class RemoteControlService {
       agentEndpointId: request.agentEndpointId,
       expectedResponsibilityRevision: request.expectedResponsibilityRevision,
       expectedReviewerRevision: request.expectedReviewerRevision,
+      executionTargetRevision: request.executionTargetRevision,
+      contentRevision: request.contentRevision,
+      graphFingerprint: request.graphFingerprint,
       targetKind: ownerScope ? "owner_canvas" : "workspace_canvas",
       callerHumanPrincipalId: request.humanPrincipalId
     });

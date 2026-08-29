@@ -25,6 +25,7 @@ import {
   requireTaskState
 } from "./selectors.js";
 import { REVIEW_RESULT_CONTENT_GUIDANCE } from "./reviewResultContract.js";
+import { renderRemoteDispatchPromptProjection } from "./remoteDispatchPromptProjection.js";
 import {
   type PromptSourceKind,
   type PromptSourceSummary,
@@ -309,6 +310,33 @@ export async function renderPromptSurfaceFromContext(
     : await renderLatestImplementationReports(runtime, taskId, promptSourceReader);
   const focusedReviewLines =
     block.type === "review" ? await renderFocusedReviewLines(runtime, ref, promptSourceReader) : [];
+  if (remoteDispatchMode) {
+    return {
+      markdown: renderRemoteDispatchPromptProjection({
+        ref,
+        taskId,
+        blockTitle: block.title,
+        blockType: block.type,
+        ...(promptPolicy.includeGlobalPrompt
+          ? { globalPrompt: globalPrompt.markdown.trim() || "- No global prompt." }
+          : {}),
+        projectPrompt: projectPrompt.markdown.trim() || "- No project prompt.",
+        projectCanvasContext: projectCanvasContext.markdown,
+        planGraphContext,
+        taskPrompt: taskPrompt.markdown,
+        blockPrompt: blockPrompt.markdown,
+        acceptance: task.acceptance,
+        requiredCapabilities: requiredCapabilityLines,
+        sharedResources: requireMapValue(
+          graph.sharedResourcesByBlockRef,
+          ref,
+          "sharedResourcesByBlockRef"
+        ),
+        focusedReviewContext: focusedReviewLines
+      }),
+      sources: promptSources
+    };
+  }
   const reviewSchema =
     block.type === "review"
       ? [

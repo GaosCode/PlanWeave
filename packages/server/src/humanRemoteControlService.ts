@@ -129,6 +129,9 @@ export class HumanRemoteControlService {
         agentEndpointId: request.agentEndpointId,
         expectedResponsibilityRevision: request.expectedResponsibilityRevision,
         expectedReviewerRevision: request.expectedReviewerRevision,
+        executionTargetRevision: request.executionTargetRevision,
+        contentRevision: request.contentRevision,
+        graphFingerprint: request.graphFingerprint,
         targetKind: "workspace_canvas",
         callerHumanPrincipalId: context.humanPrincipalId
       });

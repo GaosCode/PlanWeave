@@ -20,6 +20,16 @@ export function sameRemoteBlockSource(
   );
 }
 
+export function sameRemoteBlockAuthority(
+  current: RemoteBlockSourceEvidence,
+  requested: RemoteBlockSourceEvidence
+): boolean {
+  if (requested.sourceRevision.startsWith("snapshot:")) {
+    return current.graphFingerprint === requested.graphFingerprint;
+  }
+  return sameRemoteBlockSource(current, requested);
+}
+
 /**
  * Fingerprint package inputs plus the dependency generations consumed by a dispatch.
  * Target status is intentionally excluded so preparation/activation do not invalidate it.

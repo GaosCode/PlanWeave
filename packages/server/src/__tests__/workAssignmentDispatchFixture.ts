@@ -160,6 +160,21 @@ export async function setup(
         leaseDurationMs: 60_000,
         hostOfflineAfterMs: 60_000,
         runtimeLeases: registry,
+        dispatchCandidates: {
+          read: (scope) => ({
+            ...initializationCandidate,
+            workspaceId: scope.workspaceId,
+            projectId: scope.projectId,
+            canvasId: scope.canvasId,
+            blockRef: scope.blockRef
+          })
+        },
+        runtimeContentTargets: {
+          read: () => ({
+            revision: 1,
+            graphFingerprint: initializationCandidate.graphFingerprint
+          })
+        },
         inputArtifacts: {
           materialize: async (candidate) => {
             if (candidate.inputArtifacts.length !== 0) throw new Error("unexpected_test_artifact");
@@ -331,7 +346,8 @@ export async function setup(
           agentEndpoints: coordination.agentEndpoints,
           candidate,
           hostId: registeredHosts[0]!.id,
-          workspaceId
+          workspaceId,
+          database: server.database
         }),
         agentAccess: persistedTestAgentAccess({
           database: server.database,

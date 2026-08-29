@@ -13,11 +13,17 @@ import type { RemoteBlockCoordinatorOptions } from "./remoteBlockCoordinator.js"
 import { ensureRuntimeAttachmentForOperation } from "./canvas/runtimeAttachment.js";
 import type {
   RemoteArtifactContentPort,
+  RemoteContentAuthorizePort,
   RemoteCoordinatorCheckpointPort,
+  RemoteDispatchCandidateReaderPort,
   RemoteInputArtifactPort,
   RemoteRuntimeContentTargetPort
 } from "./remoteBlockCoordinatorPorts.js";
 import { CanvasRuntimeOperationAttachmentRepository } from "./canvas/runtimeOperationAttachmentRepository.js";
+import { ServerCanvasDispatchCandidateReader } from "./canvas/remoteDispatchCandidateReader.js";
+import { dispatchResultSchema } from "./protocol.js";
+import { ContentVersionRepository } from "./canvas/contentVersionRepository.js";
+import { readStableCanvasRuntimeContentTarget } from "./canvas/contentFingerprint.js";
 import type { CanvasExecutionRuntimeRoutePort } from "./canvas/executionRuntimePort.js";
 import {
   SqliteRemoteDispatchPersistence,
@@ -58,6 +64,7 @@ export type RemoteBlockCoordinationOptions = {
   hostOfflineAfterMs: number;
   clock?: () => Date;
   runtimeLeases: CanvasExecutionRuntimeRoutePort;
+  dispatchCandidates?: RemoteDispatchCandidateReaderPort;
   inputArtifacts: RemoteInputArtifactPort;
   artifactContent: RemoteArtifactContentPort;
   checkpoints?: RemoteCoordinatorCheckpointPort;
@@ -162,6 +169,7 @@ export function createRemoteBlockCoordination(
     clock: options.clock
   });
   const authorityRepository = new AuthorityRepository(database, { clock: options.clock });
+  const contentVersions = new ContentVersionRepository(database, clock);
   const workspaceIdentity = new WorkspaceIdentityRepository(database);
   const humanIdentity = new HumanPrincipalIdentity(database);
   const projectAccess = new ProjectAccessRepository(database, options.clock);
@@ -199,7 +207,8 @@ export function createRemoteBlockCoordination(
     const current = authorityRepository.currentRevisions(scope);
     if (
       current.responsibilityRevision !== input.expectedResponsibilityRevision ||
-      current.reviewerRevision !== input.expectedReviewerRevision
+      current.reviewerRevision !== input.expectedReviewerRevision ||
+      current.executionTargetRevision !== input.executionTargetRevision
     ) {
       throw new DispatchAssignmentError("work_revision_conflict");
     }
@@ -211,6 +220,19 @@ export function createRemoteBlockCoordination(
     authorizeTarget: endpointAuthorize,
     clock: options.clock
   });
+  const contentAuthorize: RemoteContentAuthorizePort = (input) => {
+    const current = readStableCanvasRuntimeContentTarget(contentVersions, {
+      workspaceId: input.workspaceId,
+      projectId: input.projectId,
+      canvasId: input.canvasId
+    });
+    if (
+      String(current.revision) !== input.contentRevision ||
+      current.graphFingerprint !== input.graphFingerprint
+    ) {
+      throw new Error("canvas_content_revision_conflict");
+    }
+  };
   const assignmentGate: AssignmentDispatchGate | undefined = legacyAssignmentGate
     ? {
         resolve(input) {
@@ -356,13 +378,46 @@ export function createRemoteBlockCoordination(
       throw error;
     }
   };
+  const remoteDispatchPersistence = new SqliteRemoteDispatchPersistence(database);
   const coordinator = new RemoteBlockCoordinator({
     runtimeLeases: options.runtimeLeases,
+    dispatchCandidates:
+      options.dispatchCandidates ??
+      new ServerCanvasDispatchCandidateReader(contentVersions, {
+        read: async (scope) => {
+          const dependency = operations.findLatestByScope(scope);
+          if (!dependency || !["completed", "failed", "cancelled"].includes(dependency.state)) {
+            return undefined;
+          }
+          const row = database
+            .prepare("SELECT result_json FROM dispatches WHERE id=?")
+            .get(dependency.dispatchId);
+          const result = row?.result_json
+            ? dispatchResultSchema.parse(JSON.parse(String(row.result_json)))
+            : undefined;
+          const reportBytes = result
+            ? await options.artifactContent.readReport(result.reportArtifactRef)
+            : undefined;
+          const reportMediaType = result
+            ? await options.artifactContent.readReportMediaType?.(result.reportArtifactRef)
+            : undefined;
+          return {
+            state: dependency.state as "completed" | "failed" | "cancelled",
+            ...(result && reportBytes
+              ? {
+                  reportArtifactRef: result.reportArtifactRef,
+                  reportBytes,
+                  ...(reportMediaType ? { reportMediaType } : {})
+                }
+              : {})
+          };
+        }
+      }),
     operations,
     actions,
     candidates,
     reservations,
-    dispatches: new SqliteRemoteDispatchPersistence(database),
+    dispatches: remoteDispatchPersistence,
     mailbox,
     inputArtifacts: options.inputArtifacts,
     artifactContent: options.artifactContent,
@@ -374,6 +429,7 @@ export function createRemoteBlockCoordination(
     authorizeRemoteAgentUseForSnapshot: (input) =>
       remoteAgentAccess.authorizeRemoteAgentUseForSnapshot(input),
     endpointAuthorize,
+    contentAuthorize,
     finalAuthorize,
     ownerPackageLocatorForHost: ({ hostId, candidate }) => {
       if (workspaceIdentity.workspaceForHost(hostId) !== undefined) return undefined;

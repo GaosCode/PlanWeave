@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { appendFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  captureAuthorizedCanvasContent,
   createRemoteBlockArtifactSource,
   createRemoteBlockRuntimePort,
   remoteBlockDispatchCandidateSchema,
@@ -41,6 +42,8 @@ import {
   TEST_REMOTE_AGENT_OWNER_ID
 } from "./support/remoteAgentOwnerFixture.js";
 import { exactHostRuntimeRouteFixture } from "./support/exactHostRuntimeRoute.js";
+import { ContentVersionRepository } from "../canvas/contentVersionRepository.js";
+import { AuthorityRepository } from "../work/authorityRepository.js";
 
 type Coordination = ReturnType<typeof createRemoteBlockCoordination>;
 
@@ -87,7 +90,12 @@ class CoordinatorHarness {
   artifacts?: ArtifactStore;
   private agentEndpointId?: string;
   private contentRevision = 1;
+  private bindingContentRevision = "1";
+  private bindingGraphFingerprint = `pkg-${"0".repeat(64)}`;
   private contentTargetFailure?: Error;
+  private readonly dispatchCandidates = new Map<string, RemoteBlockDispatchCandidate>();
+  runtimeAcquireCount = 0;
+  runtimeInspectCount = 0;
 
   private constructor(
     readonly workspace: Awaited<ReturnType<typeof createTestWorkspace>>,
@@ -138,10 +146,52 @@ class CoordinatorHarness {
     this.locator.workspaceId = new WorkspaceIdentityRepository(
       this.server.database
     ).ensureWorkspaceForLegacyProject(this.locator.projectId);
+    const contentVersions = new ContentVersionRepository(this.server.database);
+    if (!contentVersions.head(this.locator)) {
+      const captured = await captureAuthorizedCanvasContent({
+        projectRoot: this.workspace.root,
+        canvasId: this.locator.canvasId,
+        expectedPackageDir: this.workspace.init.workspace.packageDir,
+        authorityProjectId: this.locator.projectId
+      });
+      contentVersions.publishInitial({
+        scope: this.locator,
+        content: captured.content,
+        createdBy: { kind: "human", id: "test-owner" }
+      });
+    }
+    for (const ref of ["T-001#B-001", "T-002#B-001"]) {
+      try {
+        this.dispatchCandidates.set(
+          ref,
+          remoteBlockDispatchCandidateSchema.parse({
+            ...(await this.runtime.inspect({ ref })),
+            workspaceId: this.locator.workspaceId
+          })
+        );
+      } catch {
+        // The optional second task is absent in the single-task fixture.
+      }
+    }
+    const contentHead = contentVersions.head(this.locator);
+    const primaryCandidate = this.dispatchCandidates.get("T-001#B-001");
+    if (!contentHead || !primaryCandidate) throw new Error("test_content_authority_missing");
+    this.bindingContentRevision = String(contentHead.revision);
+    this.bindingGraphFingerprint = primaryCandidate.graphFingerprint;
+    this.runtimeAcquireCount = 0;
+    this.runtimeInspectCount = 0;
+    const runtime = this.runtime;
+    const routedRuntime: RemoteBlockRuntimePort = {
+      ...runtime,
+      inspect: async (input) => {
+        this.runtimeInspectCount += 1;
+        return runtime.inspect(input);
+      }
+    };
     const registry = new RemoteRuntimePortRegistry();
     registry.bind(
       this.locator,
-      this.runtime,
+      routedRuntime,
       createRemoteBlockArtifactSource({ projectRoot: this.workspace.root }),
       async () => ({
         sourceRevision: `snapshot:${"a".repeat(64)}`,
@@ -160,7 +210,16 @@ class CoordinatorHarness {
     const options: RemoteBlockCoordinationOptions = {
       leaseDurationMs: 60_000,
       hostOfflineAfterMs: 60_000,
-      runtimeLeases: exactHostRuntimeRouteFixture(registry),
+      runtimeLeases: exactHostRuntimeRouteFixture(registry, () => {
+        this.runtimeAcquireCount += 1;
+      }),
+      dispatchCandidates: {
+        read: ({ blockRef }) => {
+          const candidate = this.dispatchCandidates.get(blockRef);
+          if (!candidate) throw new Error("test_dispatch_candidate_missing");
+          return candidate;
+        }
+      },
       runtimeContentTargets: {
         read: (scope) => {
           if (this.contentTargetFailure) throw this.contentTargetFailure;
@@ -280,6 +339,17 @@ class CoordinatorHarness {
     this.contentRevision += 1;
   }
 
+  advanceAuthoritativeContentHead(): void {
+    const repository = new ContentVersionRepository(this.requireServer().database);
+    const current = repository.head(this.locator);
+    if (!current) throw new Error("test_content_head_missing");
+    repository.advanceHeadForSqliteCommit({
+      scope: this.locator,
+      expectedRevision: current.revision,
+      content: current.content
+    });
+  }
+
   failContentTargetReads(error?: Error): void {
     this.contentTargetFailure = error;
   }
@@ -287,7 +357,11 @@ class CoordinatorHarness {
   request(blockRef = "T-001#B-001", idempotencyKey = "crash-matrix-request") {
     const request = endpointDispatchRequest({
       agentEndpoints: this.requireCoordination().agentEndpoints,
-      locator: this.locator,
+      locator: {
+        ...this.locator,
+        contentRevision: this.bindingContentRevision,
+        graphFingerprint: this.bindingGraphFingerprint
+      },
       blockRef,
       idempotencyKey,
       agentEndpointId: this.agentEndpointId
@@ -360,7 +434,8 @@ async function prepareInterruptedAction(harness: CoordinatorHarness, resumable: 
       agentEndpoints: coordination.agentEndpoints,
       candidate,
       hostId,
-      workspaceId: harness.locator.workspaceId
+      workspaceId: harness.locator.workspaceId,
+      database: harness.requireServer().database
     }),
     hostSelection: {
       workspaceId: harness.locator.workspaceId,
@@ -424,7 +499,8 @@ async function prepareInterruptedV3Action(harness: CoordinatorHarness) {
     ...harness.request("T-001#B-001", "v3-action-crash"),
     agentEndpointId: endpoint.endpointId,
     expectedResponsibilityRevision: 0,
-    expectedReviewerRevision: 0
+    expectedReviewerRevision: 0,
+    executionTargetRevision: 0
   });
   const dispatch = coordination.dispatches.getRequired(outcome.operation.dispatchId);
   coordination.dispatches.accept(
@@ -794,6 +870,13 @@ describe("RemoteBlockCoordinator crash reconciliation", () => {
     ).rejects.toThrowError(`injected_crash:${checkpoint}`);
 
     const crashedDatabase = harness.requireServer().database;
+    if (checkpoint === "before_operation_commit") {
+      expect(harness.runtimeAcquireCount).toBe(0);
+      expect(harness.runtimeInspectCount).toBe(0);
+      expect(count(crashedDatabase, "remote_operations")).toBe(0);
+      expect(count(crashedDatabase, "host_capacity_reservations")).toBe(0);
+      expect(count(crashedDatabase, "canvas_runtime_operation_attachments")).toBe(0);
+    }
     if (checkpoint === "after_host_reservation" || checkpoint === "after_runtime_attachment") {
       expect(count(crashedDatabase, "host_capacity_reservations")).toBe(1);
       expect(count(crashedDatabase, "dispatches")).toBe(0);
@@ -849,6 +932,92 @@ describe("RemoteBlockCoordinator crash reconciliation", () => {
         operationId: recovered.operation.id
       })
     ).resolves.toMatchObject({ ownership: { phase: "active" } });
+  });
+
+  it("rejects authority mismatch before Host acquire or inspect", async () => {
+    const harness = await CoordinatorHarness.create();
+    harness.registerHost();
+    new AuthorityRepository(harness.requireServer().database).applyExecutionTarget({
+      mutation: {
+        schemaVersion: "execution-target/v1",
+        scope: {
+          kind: "block",
+          ...harness.locator,
+          blockRef: "T-001#B-001"
+        },
+        target: { kind: "unassigned" },
+        expectedRevision: 0
+      },
+      actor: { kind: "system", id: "authority-mismatch-test" }
+    });
+
+    await expect(
+      harness.requireCoordination().coordinator.dispatch(harness.request())
+    ).rejects.toMatchObject({ code: "work_revision_conflict" });
+    expect(harness.runtimeAcquireCount).toBe(0);
+    expect(harness.runtimeInspectCount).toBe(0);
+    expect(count(harness.requireServer().database, "remote_operations")).toBe(0);
+  });
+
+  it("rejects a content-head race in a custom-candidate composition before Host access", async () => {
+    const harness = await CoordinatorHarness.create();
+    harness.registerHost();
+    let advanced = false;
+    await harness.restart({
+      reached(checkpoint) {
+        if (checkpoint === "before_operation_commit" && !advanced) {
+          advanced = true;
+          harness.advanceAuthoritativeContentHead();
+        }
+      }
+    });
+    const request = harness.request("T-001#B-001", "content-head-race");
+
+    await expect(harness.requireCoordination().coordinator.dispatch(request)).rejects.toThrow(
+      "canvas_content_revision_conflict"
+    );
+    expect(advanced).toBe(true);
+    expect(harness.runtimeAcquireCount).toBe(0);
+    expect(harness.runtimeInspectCount).toBe(0);
+    expect(count(harness.requireServer().database, "remote_operations")).toBe(0);
+  });
+
+  it("fails closed when a persisted legacy endpoint selection reenters current dispatch", async () => {
+    const harness = await CoordinatorHarness.create();
+    harness.registerHost();
+    await harness.restart(new CrashOnce("after_operation_commit"));
+    const request = harness.request("T-001#B-001", "legacy-endpoint-recovery");
+    await expect(harness.requireCoordination().coordinator.dispatch(request)).rejects.toThrow(
+      "injected_crash:after_operation_commit"
+    );
+    const database = harness.requireServer().database;
+    const operation = database
+      .prepare("SELECT id,endpoint_selection_json FROM remote_operations WHERE idempotency_key=?")
+      .get(request.idempotencyKey) as { id: string; endpoint_selection_json: string };
+    const selection = JSON.parse(operation.endpoint_selection_json) as {
+      authority: { responsibilityRevision: number; reviewerRevision: number };
+    };
+    database.prepare("UPDATE remote_operations SET endpoint_selection_json=? WHERE id=?").run(
+      JSON.stringify({
+        ...selection,
+        authority: {
+          schemaVersion: "endpoint-authority/v1",
+          controlPlane: "collaboration",
+          responsibilityRevision: selection.authority.responsibilityRevision,
+          reviewerRevision: selection.authority.reviewerRevision
+        }
+      }),
+      operation.id
+    );
+
+    await harness.restart();
+    await expect(harness.requireCoordination().coordinator.dispatch(request)).rejects.toThrow(
+      "remote_operation_row_invalid"
+    );
+    expect(harness.runtimeAcquireCount).toBe(0);
+    expect(harness.runtimeInspectCount).toBe(0);
+    expect(count(harness.requireServer().database, "remote_operations")).toBe(1);
+    expect(count(harness.requireServer().database, "dispatches")).toBe(0);
   });
 
   it("fails closed when the Server content head advances after attachment", async () => {
@@ -1170,7 +1339,8 @@ describe("RemoteBlockCoordinator crash reconciliation", () => {
         agentEndpoints: coordination.agentEndpoints,
         candidate,
         hostId,
-        workspaceId: harness.locator.workspaceId
+        workspaceId: harness.locator.workspaceId,
+        database: harness.requireServer().database
       }),
       hostSelection: {
         workspaceId: harness.locator.workspaceId,
@@ -1205,7 +1375,7 @@ describe("RemoteBlockCoordinator crash reconciliation", () => {
     expect(count(harness.requireServer().database, "mailbox_messages")).toBe(0);
   });
 
-  it("rejects foreign Runtime ownership before reserving a Host", async () => {
+  it("rejects foreign Runtime ownership only after durable preparation", async () => {
     const harness = await CoordinatorHarness.create();
     harness.registerHost();
     const runtime = harness.requireRuntime();
@@ -1221,8 +1391,9 @@ describe("RemoteBlockCoordinator crash reconciliation", () => {
     await expect(
       harness.requireCoordination().coordinator.dispatch(harness.request())
     ).rejects.toThrow();
-    expect(count(harness.requireServer().database, "remote_operations")).toBe(0);
-    expect(count(harness.requireServer().database, "host_capacity_reservations")).toBe(0);
+    expect(count(harness.requireServer().database, "remote_operations")).toBe(1);
+    expect(count(harness.requireServer().database, "host_capacity_reservations")).toBe(1);
+    expect(count(harness.requireServer().database, "canvas_runtime_operation_attachments")).toBe(1);
     expect(count(harness.requireServer().database, "mailbox_messages")).toBe(0);
     await expect(
       runtime.query({ ref: candidate.blockRef, operationId: "foreign-operation" })

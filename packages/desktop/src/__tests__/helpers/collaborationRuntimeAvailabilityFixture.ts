@@ -32,7 +32,12 @@ export function availableRuntime(
   })
 ) {
   return {
-    schemaVersion: "canvas-runtime-view/v1" as const,
+    schemaVersion: "canvas-runtime-view/v2" as const,
+    authority: {
+      revision: 1,
+      sourceRevision: "source-revision-1",
+      graphFingerprint: status.packageFingerprint
+    },
     state: { kind: "initialized" as const, runtimeRevision: 1, status },
     execution: {
       schemaVersion: "canvas-runtime-availability/v1" as const,

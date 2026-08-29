@@ -440,7 +440,10 @@ describe("remote operation retention", () => {
       cursor: 1,
       highWatermark: 1,
       events: [],
-      diagnostics: [{ code: "remote_acp_event_retention_gap", droppedThroughCursor: 1 }]
+      diagnostics: [
+        { code: "remote_acp_event_retention_gap", droppedThroughCursor: 1 },
+        { code: "remote_acp_event_contract_degraded" }
+      ]
     });
     expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
     expect(retention.compactBatch()).toEqual({ selected: 0, compacted: 0, skipped: 0 });

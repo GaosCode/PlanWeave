@@ -8,12 +8,7 @@ import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { normalizedFailureSchema } from "@planweave-ai/agent-host-protocol";
-import {
-  claimBlock,
-  claimDispatchedBlock,
-  createRemoteBlockRuntimePort,
-  submitBlockResult
-} from "@planweave-ai/runtime";
+import { claimBlock, createRemoteBlockRuntimePort, submitBlockResult } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it } from "vitest";
 import { writeReport } from "../../../runtime/src/__tests__/promptTestHelpers.js";
 import {
@@ -81,6 +76,7 @@ describe("real-process remote Block lifecycle", () => {
       idempotencyKey: "lifecycle-success-1",
       agentEndpointId: endpoint.endpointId
     });
+
     expect(dispatched).toMatchObject({
       projectId: harness.projectId,
       canvasId: "default",
@@ -178,7 +174,14 @@ describe("real-process remote Block lifecycle", () => {
     const events = await client.listEvents(dispatched.operationId, 0);
     expect(events.executionAttemptId).toBe(identities.executionAttemptId);
     expect(events.events.length).toBeGreaterThan(0);
-    expect(events.events.some((event) => event.kind === "agent_message")).toBe(true);
+    expect(
+      events.events.some(
+        (event) =>
+          event.fragment?.kind === "runner_body" &&
+          event.fragment.body?.kind === "message" &&
+          event.fragment.body.role === "assistant"
+      )
+    ).toBe(true);
 
     // Authoritative Runtime results land under the project home.
     const canvasHome = join(
@@ -224,6 +227,92 @@ describe("real-process remote Block lifecycle", () => {
     const runEntries = await readdir(runsDir);
     expect(runEntries).toContain(String(runId));
   }, 90_000);
+
+  it.each([
+    { scenario: "artifact-review", verdict: "passed", expectedStatus: "completed" },
+    {
+      scenario: "artifact-review-needs-changes",
+      verdict: "needs_changes",
+      expectedStatus: "in_progress"
+    }
+  ] as const)("review envelope $verdict reaches Host through the shared prompt and writes back authoritatively", async ({
+    scenario,
+    verdict,
+    expectedStatus
+  }) => {
+    const { harness, client } = await createHarness({ acpScenario: "success" });
+    await harness.startAll();
+    const primary = await harness.waitForHostOnline();
+    const implementationEndpoint = await client.availableAgentEndpointForHostDisplayName(
+      primary.displayName
+    );
+    const implementation = await client.dispatch({
+      blockRef: "T-001#B-001",
+      idempotencyKey: `review-prerequisite-${verdict}`,
+      agentEndpointId: implementationEndpoint.endpointId
+    });
+    const implementationTerminal = await client.waitForTerminal(implementation.operationId);
+    if (implementationTerminal.state !== "completed") {
+      throw new Error(`review_prerequisite_failed:${JSON.stringify(implementationTerminal)}`);
+    }
+    expect(implementationTerminal).toMatchObject({
+      state: "completed",
+      dispatchStatus: "completed"
+    });
+    const implementationResult = JSON.parse(
+      String(client.readServerDispatch(implementation.dispatchId).result_json)
+    ) as { reportArtifactRef: string };
+    expect(client.readServerArtifactMediaType(implementationResult.reportArtifactRef)).toBe(
+      "text/markdown"
+    );
+
+    const reviewHost = await harness.startSecondaryHost({
+      key: `review-${verdict}`,
+      displayName: `Review Host ${verdict}`,
+      capabilities: ["acp.codex"],
+      capacity: 1,
+      acpScenario: scenario
+    });
+    const reviewEndpoint = await client.availableAgentEndpointForHostDisplayName(
+      reviewHost.handle.displayName
+    );
+    const review = await client.dispatch({
+      blockRef: "T-001#R-001",
+      idempotencyKey: `review-writeback-${verdict}`,
+      agentEndpointId: reviewEndpoint.endpointId
+    });
+    await expect(
+      client.waitForPersistedOperationState(review.operationId, ["completed"])
+    ).resolves.toMatchObject({ state: "completed" });
+    expect(client.readServerDispatch(review.dispatchId).status).toBe("completed");
+
+    const result = JSON.parse(String(client.readServerDispatch(review.dispatchId).result_json)) as {
+      reportArtifactRef: string;
+    };
+    expect(client.readServerArtifactBytes(result.reportArtifactRef).toString("utf8")).toContain(
+      `"verdict":"${verdict}"`
+    );
+    const state = JSON.parse(
+      await readFile(
+        join(
+          harness.paths.projectHome,
+          "projects",
+          harness.projectId,
+          "canvases",
+          "default",
+          "state.json"
+        ),
+        "utf8"
+      )
+    ) as { blocks: Record<string, { status?: string; completionReason?: string }> };
+    expect(state.blocks["T-001#R-001"]?.status).toBe(expectedStatus);
+    if (verdict === "passed") {
+      expect(state.blocks["T-001#R-001"]?.completionReason).toBe("passed");
+    }
+    expect(await readFile(join(reviewHost.handle.controlDir, "lifecycle.log"), "utf8")).toContain(
+      "review prompt verified"
+    );
+  }, 120_000);
 
   it("ACP-declared failure (refusal) terminalizes with matching identities", async () => {
     const { harness, client } = await createHarness({ acpScenario: "refusal" });
@@ -362,24 +451,13 @@ describe("real-process remote Block lifecycle", () => {
       acpScenario: "success",
       manifest: remoteAcpManifestWithDependency()
     });
-    // Complete upstream dependency locally (no Server required for package writeback).
-    process.env.PLANWEAVE_HOME = harness.paths.projectHome;
-    await claimDispatchedBlock({
-      projectRoot: harness.paths.projectRoot,
-      ref: "T-001#B-001"
-    });
-    const reportPath = await writeReport(
-      harness.paths.projectRoot,
-      "upstream-dep.md",
-      "upstream dependency report\n"
-    );
-    await submitBlockResult({
-      projectRoot: harness.paths.projectRoot,
-      ref: "T-001#B-001",
-      reportPath
-    });
-
     await harness.startAll();
+    const upstream = await client.dispatch({
+      blockRef: "T-001#B-001",
+      idempotencyKey: "lifecycle-deps-upstream-1"
+    });
+    expect((await client.waitForTerminal(upstream.operationId)).state).toBe("completed");
+
     const dispatched = await client.dispatch({
       blockRef: "T-001#B-002",
       idempotencyKey: "lifecycle-deps-1"
@@ -431,8 +509,14 @@ describe("real-process remote Block lifecycle", () => {
     const first = await client.listEvents(dispatched.operationId, 0);
     expect(first.events.length).toBeGreaterThan(0);
     expect(first.executionAttemptId).toBe(dispatched.executionAttemptId);
-    const message = first.events.find((event) => event.kind === "agent_message");
-    expect(message).toMatchObject({ text: expect.stringContaining("hello from mock-session") });
+    const message = first.events.find(
+      (event) => event.fragment?.kind === "runner_body" && event.fragment.body?.kind === "message"
+    );
+    expect(message).toMatchObject({
+      fragment: {
+        body: { content: expect.stringContaining("hello from mock-session") }
+      }
+    });
 
     const cursor = first.cursor;
     await harness.restartHost();

@@ -63,6 +63,22 @@ export type RemoteRuntimeLocator = {
 
 export type RemoteRuntimeContentTargetPort = RuntimeContentTargetAuthorityPort;
 
+/** Atomically fences an Operation create against the persisted Canvas content authority. */
+export type RemoteContentAuthorizePort = (input: {
+  workspaceId: string;
+  projectId: string;
+  canvasId: string;
+  contentRevision: string;
+  graphFingerprint: string;
+}) => void;
+
+/** Reads an immutable dispatch candidate from Server-owned Canvas content authority. */
+export interface RemoteDispatchCandidateReaderPort {
+  read(
+    input: RemoteRuntimeLocator & { blockRef: string }
+  ): RemoteBlockDispatchCandidate | Promise<RemoteBlockDispatchCandidate>;
+}
+
 /** Project a domain record onto the exact Runtime lease scope contract. */
 export function remoteRuntimeLocator(locator: RemoteRuntimeLocator): RemoteRuntimeLocator {
   return {
@@ -173,6 +189,7 @@ export interface RemoteMailboxPublisherPort {
 
 export interface RemoteArtifactContentPort {
   readReport(artifactRef: string): Promise<Uint8Array>;
+  readReportMediaType?(artifactRef: string): Promise<string>;
 }
 
 export interface RemoteAcpTranscriptPort {

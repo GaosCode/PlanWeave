@@ -8,7 +8,6 @@ import {
   type RemoteBlockDispatchCandidate
 } from "@planweave-ai/runtime";
 import type { AgentEndpointCatalog } from "./agentEndpointCatalog.js";
-import type { CanvasExecutionRuntimeRoutePort } from "./canvas/executionRuntimePort.js";
 import { runtimeAuthoritySnapshotForTarget } from "./endpointSelection.js";
 import type { HumanPrincipalIdentity } from "./identity/humanPrincipalIdentity.js";
 import type { AuthorizeRemoteAgentUseInput } from "./remoteAgent/accessPolicy.js";
@@ -20,6 +19,8 @@ import {
 } from "./remoteAgent/schema.js";
 import type {
   RemoteCoordinatorCheckpoint,
+  RemoteContentAuthorizePort,
+  RemoteDispatchCandidateReaderPort,
   RemoteOperationCandidatePort,
   RemoteRuntimeLocator
 } from "./remoteBlockCoordinatorPorts.js";
@@ -29,7 +30,6 @@ import {
   sameDispatchCaller
 } from "./remoteBlockDispatchIdentity.js";
 import { snapshotDispatchEndpoint } from "./remoteBlockCoordinatorEndpoint.js";
-import { inspectRemoteBlockDispatchCandidate } from "./remoteBlockDispatchPreparation.js";
 import type { RemoteOperation, RemoteOperationRepository } from "./remoteOperations.js";
 
 export type RemoteEndpointDispatchRequest = RemoteRuntimeLocator & {
@@ -38,12 +38,15 @@ export type RemoteEndpointDispatchRequest = RemoteRuntimeLocator & {
   agentEndpointId: string;
   expectedResponsibilityRevision: number;
   expectedReviewerRevision: number;
+  executionTargetRevision: number;
+  contentRevision: string;
+  graphFingerprint: string;
   targetKind: "owner_canvas" | "workspace_canvas";
   callerHumanPrincipalId: string;
 };
 
 type AcceptancePorts = {
-  runtimeLeases: CanvasExecutionRuntimeRoutePort;
+  dispatchCandidates: RemoteDispatchCandidateReaderPort;
   operations: RemoteOperationRepository;
   candidates: RemoteOperationCandidatePort;
   agentEndpoints?: AgentEndpointCatalog;
@@ -58,8 +61,10 @@ type AcceptancePorts = {
     blockRef: string;
     expectedResponsibilityRevision: number;
     expectedReviewerRevision: number;
+    executionTargetRevision: number;
     controlPlane: "collaboration" | "owner";
   }) => void;
+  contentAuthorize: RemoteContentAuthorizePort;
   humanIdentity: HumanPrincipalIdentity;
   checkpoint: (point: RemoteCoordinatorCheckpoint) => Promise<void>;
 };
@@ -110,27 +115,22 @@ export async function acceptRemoteBlockDispatch(
   }
 
   const callerHumanPrincipalId = canonicalizeDispatchCaller(ports.humanIdentity, requestedCaller);
-  let authorizedHostId: string | undefined;
-  if (
-    ports.agentEndpoints &&
-    ports.endpointAuthorize &&
-    ports.authorizeRemoteAgentUseForSnapshot &&
-    request.targetKind === "workspace_canvas"
-  ) {
-    const authorized = ports.authorizeRemoteAgentUseForSnapshot({
+  if (ports.agentEndpoints && ports.endpointAuthorize && ports.authorizeRemoteAgentUseForSnapshot) {
+    ports.authorizeRemoteAgentUseForSnapshot({
       principal: { humanPrincipalId: callerHumanPrincipalId },
       endpointId: request.agentEndpointId,
       target,
-      requiredCapabilities: [WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
+      requiredCapabilities:
+        request.targetKind === "workspace_canvas" ? [WORKSPACE_CANVAS_EXECUTION_CAPABILITY] : [],
       runtimeWorkspaceId: request.workspaceId,
       blockRef: request.blockRef,
       expectedResponsibilityRevision: request.expectedResponsibilityRevision,
-      expectedReviewerRevision: request.expectedReviewerRevision
+      expectedReviewerRevision: request.expectedReviewerRevision,
+      executionTargetRevision: request.executionTargetRevision
     });
-    authorizedHostId = authorized.remoteAgent.hostId;
   }
   const candidate = candidateForRuntimeTarget(
-    await inspectRemoteBlockDispatchCandidate(ports.runtimeLeases, request, authorizedHostId),
+    await ports.dispatchCandidates.read(request),
     request.targetKind
   );
   if (
@@ -139,6 +139,9 @@ export async function acceptRemoteBlockDispatch(
     candidate.canvasId !== request.canvasId
   ) {
     throw new Error("remote_runtime_locator_candidate_mismatch");
+  }
+  if (candidate.graphFingerprint !== request.graphFingerprint) {
+    throw new Error("remote_content_authority_candidate_mismatch");
   }
   if (!ports.agentEndpoints || !ports.endpointAuthorize || !ports.authorizeRemoteAgentUse) {
     throw new Error("agent_endpoint_dispatch_not_configured");
@@ -153,7 +156,8 @@ export async function acceptRemoteBlockDispatch(
     runtimeWorkspaceId: candidate.workspaceId,
     blockRef: candidate.blockRef,
     expectedResponsibilityRevision: request.expectedResponsibilityRevision,
-    expectedReviewerRevision: request.expectedReviewerRevision
+    expectedReviewerRevision: request.expectedReviewerRevision,
+    executionTargetRevision: request.executionTargetRevision
   });
   const endpointSelection = snapshotDispatchEndpoint(
     ports.agentEndpoints.resolveForSnapshot(
@@ -164,7 +168,8 @@ export async function acceptRemoteBlockDispatch(
     candidate,
     runtimeAuthoritySnapshotForTarget(target, {
       responsibilityRevision: request.expectedResponsibilityRevision,
-      reviewerRevision: request.expectedReviewerRevision
+      reviewerRevision: request.expectedReviewerRevision,
+      executionTargetRevision: request.executionTargetRevision
     })
   );
   const agentAccess = persistedRemoteAgentAccessSnapshotSchema.parse({
@@ -173,22 +178,37 @@ export async function acceptRemoteBlockDispatch(
   });
 
   await ports.checkpoint("before_operation_commit");
-  const operation = ports.candidates.createWithCandidate(
-    () =>
-      ports.operations.create({
-        workspaceId: workspaceIdSchema.parse(candidate.workspaceId),
-        projectId: candidate.projectId,
-        canvasId: candidate.canvasId,
-        blockRef: candidate.blockRef,
-        ownershipGeneration: candidate.sourceRevision,
-        idempotencyKey: request.idempotencyKey,
-        sourceFingerprint: candidate.graphFingerprint,
-        requiredCapabilities: candidate.requiredCapabilities,
-        endpointSelection,
-        agentAccess
-      }),
-    candidate
-  );
+  const operation = ports.candidates.createWithCandidate(() => {
+    ports.endpointAuthorize?.({
+      workspaceId: request.workspaceId,
+      projectId: request.projectId,
+      canvasId: request.canvasId,
+      blockRef: request.blockRef,
+      expectedResponsibilityRevision: request.expectedResponsibilityRevision,
+      expectedReviewerRevision: request.expectedReviewerRevision,
+      executionTargetRevision: request.executionTargetRevision,
+      controlPlane: request.targetKind === "owner_canvas" ? "owner" : "collaboration"
+    });
+    ports.contentAuthorize({
+      workspaceId: request.workspaceId,
+      projectId: request.projectId,
+      canvasId: request.canvasId,
+      contentRevision: request.contentRevision,
+      graphFingerprint: request.graphFingerprint
+    });
+    return ports.operations.create({
+      workspaceId: workspaceIdSchema.parse(candidate.workspaceId),
+      projectId: candidate.projectId,
+      canvasId: candidate.canvasId,
+      blockRef: candidate.blockRef,
+      ownershipGeneration: candidate.sourceRevision,
+      idempotencyKey: request.idempotencyKey,
+      sourceFingerprint: candidate.graphFingerprint,
+      requiredCapabilities: candidate.requiredCapabilities,
+      endpointSelection,
+      agentAccess
+    });
+  }, candidate);
   await ports.checkpoint("after_operation_commit");
   await ports.checkpoint("after_candidate_persistence");
   return operation;

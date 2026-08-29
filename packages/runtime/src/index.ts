@@ -121,6 +121,7 @@ export type {
   WslExecutionOptions
 } from "./process/wslExecutionHost.js";
 export { readProjectPaths, resolvePlanweaveHome } from "./paths.js";
+export * from "./workspaceExecution/node.js";
 export { readGlobalPrompt, updateGlobalPrompt } from "./globalPrompt.js";
 export { createManagedProjectId, createProjectId } from "./projectId.js";
 export {
@@ -133,6 +134,7 @@ export {
   shutdownActiveAgentRuns,
   shutdownDesktopAgentRun
 } from "./autoRun/activeAgentRunRegistry.js";
+export { executorRunnerEvidenceForManifest } from "./autoRun/executors.js";
 export {
   normalizeProjectMetadata,
   projectWorkspacePaths,
@@ -393,12 +395,14 @@ export {
   runDoctor,
   runProjectDoctor,
   renderPrompt,
+  renderRemoteDispatchPromptProjection,
   createRemoteBlockRuntimePort,
   RemoteOwnershipConflictError,
   createRemoteBlockArtifactSource,
   submitBlockResult,
   submitBlockResultFromBytes,
   submitReviewResult,
+  parseRemoteReviewResultBytes,
   submitFeedback,
   markBlockBlocked,
   markBlockDiverged,

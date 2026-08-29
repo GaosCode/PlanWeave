@@ -22,6 +22,8 @@ import {
 } from "../../serverComposition.js";
 import { openServerDatabase } from "../../sqlite.js";
 import { AuthorityRepository } from "../../work/authorityRepository.js";
+import { ContentVersionRepository } from "../../canvas/contentVersionRepository.js";
+import { readStableCanvasRuntimeContentTarget } from "../../canvas/contentFingerprint.js";
 
 export const adminToken = `pw_operator_${"A".repeat(43)}`;
 export const projectToken = `pw_operator_${"B".repeat(43)}`;
@@ -63,6 +65,39 @@ export async function configureAutomaticExecutionTarget(input: {
       },
       actor: { kind: "system", id: "server-composition-test" }
     }).revision;
+  } finally {
+    database.close();
+  }
+}
+
+export async function readDispatchAuthority(input: {
+  databasePath: string;
+  workspaceId: string;
+  projectId: string;
+  canvasId: string;
+  blockRef: string;
+}) {
+  const database = await openServerDatabase(input.databasePath, 5_000);
+  try {
+    const content = readStableCanvasRuntimeContentTarget(new ContentVersionRepository(database), {
+      workspaceId: input.workspaceId,
+      projectId: input.projectId,
+      canvasId: input.canvasId
+    });
+    const revisions = new AuthorityRepository(database).currentRevisions({
+      kind: "block",
+      workspaceId: input.workspaceId,
+      projectId: input.projectId,
+      canvasId: input.canvasId,
+      blockRef: input.blockRef
+    });
+    return {
+      expectedResponsibilityRevision: revisions.responsibilityRevision,
+      expectedReviewerRevision: revisions.reviewerRevision,
+      executionTargetRevision: revisions.executionTargetRevision,
+      contentRevision: String(content.revision),
+      graphFingerprint: content.graphFingerprint
+    };
   } finally {
     database.close();
   }
@@ -137,6 +172,13 @@ export async function setupServerCompositionFixture(input: {
     canvasId: "default",
     blockRef: "T-001#B-001"
   });
+  const dispatchAuthority = await readDispatchAuthority({
+    databasePath: config.databasePath,
+    workspaceId,
+    projectId,
+    canvasId: "default",
+    blockRef: "T-001#B-001"
+  });
   await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
   const address = httpServer.address();
   if (!address || typeof address === "string") throw new Error("Expected HTTP address");
@@ -146,6 +188,7 @@ export async function setupServerCompositionFixture(input: {
     workspaceId,
     databasePath: config.databasePath,
     origin: `http://127.0.0.1:${address.port}`,
-    executionTargetRevision
+    executionTargetRevision,
+    dispatchAuthority
   };
 }

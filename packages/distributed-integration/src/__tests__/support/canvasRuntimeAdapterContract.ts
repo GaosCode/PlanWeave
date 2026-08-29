@@ -24,19 +24,14 @@ export type CanvasRuntimeAdapterContractFactory = {
   create(): Promise<CanvasRuntimeAdapterContractFixture>;
 };
 
-function changedSourceRevision(sourceRevision: string): string {
-  return sourceRevision === "snapshot:contract-drift"
-    ? "snapshot:contract-other"
-    : "snapshot:contract-drift";
-}
-
-function claimInput(candidate: RemoteBlockDispatchCandidate, sourceRevision: string) {
+function claimWithChangedAuthority(candidate: RemoteBlockDispatchCandidate) {
+  const snapshotDomain = candidate.sourceRevision.startsWith("snapshot:");
   return {
     ref: candidate.blockRef,
     operationId: "operation-contract-claim",
     controlPlane: "collaboration" as const,
-    sourceRevision,
-    graphFingerprint: candidate.graphFingerprint
+    sourceRevision: snapshotDomain ? candidate.sourceRevision : "src-contract-drift",
+    graphFingerprint: snapshotDomain ? `pkg-${"f".repeat(64)}` : candidate.graphFingerprint
   };
 }
 
@@ -63,9 +58,7 @@ export function registerCanvasRuntimeAdapterContract(
         expect(candidate.graphFingerprint.length).toBeGreaterThan(0);
 
         await expect(
-          lease.runtime.claim(
-            claimInput(candidate, changedSourceRevision(candidate.sourceRevision))
-          )
+          lease.runtime.claim(claimWithChangedAuthority(candidate))
         ).rejects.toMatchObject(fixture.sourceDriftError);
 
         if (!lease.reset) throw new Error("contract_runtime_reset_unavailable");

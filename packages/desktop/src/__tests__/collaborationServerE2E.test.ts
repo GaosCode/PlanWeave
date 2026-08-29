@@ -19,6 +19,8 @@ import { hashOperatorToken } from "../../../server/src/operatorAuth.js";
 import { ProjectAccessRepository } from "../../../server/src/projectAccessRepository.js";
 import { WorkspaceIdentityRepository } from "../../../server/src/identity/workspaceRepository.js";
 import { openServerDatabase } from "../../../server/src/sqlite.js";
+import { ContentVersionRepository } from "../../../server/src/canvas/contentVersionRepository.js";
+import { readStableCanvasRuntimeContentTarget } from "../../../server/src/canvas/contentFingerprint.js";
 import { legacyWorkspaceIdForProject } from "../../../server/src/__tests__/support/legacyWorkspaceId.js";
 import { seedOperatorSessions } from "../../../server/src/__tests__/support/operatorAuthFixture.js";
 import {
@@ -417,6 +419,25 @@ async function configureWorkspaceWorkAccess(input: {
   };
 }
 
+async function readContentAuthority(input: {
+  databasePath: string;
+  workspaceId: string;
+  projectId: string;
+  canvasId: string;
+}) {
+  const database = await openServerDatabase(input.databasePath, 5_000);
+  try {
+    const target = readStableCanvasRuntimeContentTarget(new ContentVersionRepository(database), {
+      workspaceId: input.workspaceId,
+      projectId: input.projectId,
+      canvasId: input.canvasId
+    });
+    return { contentRevision: String(target.revision), graphFingerprint: target.graphFingerprint };
+  } finally {
+    database.close();
+  }
+}
+
 const blockWorkItem = {
   kind: "block" as const,
   canvasId: "default",
@@ -580,6 +601,12 @@ describe("Desktop CollaborationClient against the Server composition", () => {
       (endpoint) => endpoint.status === "available"
     )?.endpointId;
     expect(agentEndpointId).toBeTruthy();
+    const contentAuthority = await readContentAuthority({
+      databasePath: fixture.databasePath,
+      workspaceId: fixture.workspaceId,
+      projectId: fixture.projectId,
+      canvasId: blockWorkItem.canvasId
+    });
     const remoteDispatch = workspaceOwner.dispatchRemoteOperation({
       schemaVersion: "remote-run/v3",
       projectId: fixture.projectId,
@@ -588,7 +615,9 @@ describe("Desktop CollaborationClient against the Server composition", () => {
       agentEndpointId: agentEndpointId!,
       idempotencyKey: "desktop-e2e-remote-operation",
       expectedResponsibilityRevision: 0,
-      expectedReviewerRevision: 0
+      expectedReviewerRevision: 0,
+      executionTargetRevision: 0,
+      ...contentAuthority
     });
     const execute = await host.next("mailbox.message");
     expect(execute.type).toBe("mailbox.message");
@@ -835,6 +864,12 @@ describe("Desktop CollaborationClient against the Server composition", () => {
       (endpoint) => endpoint.status === "available"
     )?.endpointId;
     expect(agentEndpointId).toBeTruthy();
+    const contentAuthority = await readContentAuthority({
+      databasePath: fixture.databasePath,
+      workspaceId: fixture.secondWorkspaceId,
+      projectId: fixture.projectId,
+      canvasId: blockWorkItem.canvasId
+    });
     const remoteDispatch = workspaceBOwner.dispatchRemoteOperation({
       schemaVersion: "remote-run/v3",
       projectId: fixture.projectId,
@@ -843,7 +878,9 @@ describe("Desktop CollaborationClient against the Server composition", () => {
       agentEndpointId: agentEndpointId!,
       idempotencyKey: "desktop-e2e-workspace-b-dispatch",
       expectedResponsibilityRevision: 0,
-      expectedReviewerRevision: 0
+      expectedReviewerRevision: 0,
+      executionTargetRevision: 0,
+      ...contentAuthority
     });
     const execute = await host.next("mailbox.message");
     expect(execute.type).toBe("mailbox.message");

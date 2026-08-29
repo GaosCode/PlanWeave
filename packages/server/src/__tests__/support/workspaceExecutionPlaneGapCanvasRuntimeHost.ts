@@ -3,7 +3,10 @@ import {
   WORKSPACE_CANVAS_EXECUTION_CAPABILITY,
   agentHostProtocolVersion
 } from "@planweave-ai/agent-host-protocol";
-import { createRemoteBlockRuntimePort } from "@planweave-ai/runtime";
+import {
+  createRemoteBlockRuntimePort,
+  readAuthorizedCanvasRuntimeStatus
+} from "@planweave-ai/runtime";
 import { randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
 
@@ -25,20 +28,6 @@ function graphFingerprintFrom(value: unknown): string | undefined {
     return value.graphFingerprint;
   }
   return undefined;
-}
-
-function runtimeStatusProjection(
-  scope: { workspaceId: string; projectId: string; canvasId: string },
-  graphFingerprint: string
-) {
-  return {
-    schemaVersion: "canvas-runtime-status/v2" as const,
-    scope,
-    packageFingerprint: graphFingerprint,
-    capturedAt: new Date().toISOString(),
-    tasks: [] as const,
-    blocks: [] as const
-  };
 }
 
 function runtimeError(operation: string, code: string) {
@@ -63,6 +52,7 @@ export async function connectPathlessCanvasRuntimeHost(input: {
   token: string;
   scope: { workspaceId: string; projectId: string; canvasId: string };
   projectRoot: string;
+  expectedPackageDir: string;
   sockets: WebSocket[];
   contentGraphFingerprint?: string;
   failOperation?: PathlessCanvasRuntimeFailure;
@@ -149,6 +139,8 @@ export async function connectPathlessCanvasRuntimeHost(input: {
           canvasId: scope?.canvasId ?? input.scope.canvasId
         },
         operation,
+        projectRoot: input.projectRoot,
+        expectedPackageDir: input.expectedPackageDir,
         contentGraphFingerprint,
         failOperation: input.failOperation
       });
@@ -176,6 +168,8 @@ async function answerRuntimeRequest(input: {
   collaborationScope: { workspaceId: string; projectId: string; canvasId: string };
   commandScope: { workspaceId: string; projectId: string; canvasId: string };
   operation: { operation: string; input?: unknown; contentTarget?: unknown };
+  projectRoot: string;
+  expectedPackageDir: string;
   contentGraphFingerprint?: string;
   failOperation?: PathlessCanvasRuntimeFailure;
 }): Promise<Record<string, unknown>> {
@@ -184,6 +178,8 @@ async function answerRuntimeRequest(input: {
     runtime,
     collaborationScope,
     commandScope,
+    projectRoot,
+    expectedPackageDir,
     contentGraphFingerprint,
     failOperation
   } = input;
@@ -220,7 +216,12 @@ async function answerRuntimeRequest(input: {
       if (!contentGraphFingerprint) {
         return runtimeError(operation.operation, "materialization_failed");
       }
-      const status = runtimeStatusProjection(commandScope, contentGraphFingerprint);
+      const status = await readAuthorizedCanvasRuntimeStatus({
+        projectRoot,
+        canvasId: commandScope.canvasId,
+        expectedPackageDir,
+        scope: commandScope
+      });
       if (operation.operation === "status") {
         return { outcome: "success", operation: "status", result: status };
       }

@@ -39,6 +39,9 @@ type RemoteDispatchSurface = {
     idempotencyKey: string;
     expectedResponsibilityRevision: number;
     expectedReviewerRevision: number;
+    executionTargetRevision: number;
+    contentRevision: string;
+    graphFingerprint: string;
   }): Promise<RemoteOperationObservation>;
   observe(input: { operationId: string }): Promise<RemoteOperationObservation>;
   executeAction(input: {
@@ -218,13 +221,25 @@ export function createAgentEndpointBlockExecutor(input: {
   selectionByBlockRef: ReadonlyMap<string, AgentEndpointBlockSelection>;
   collaborationController?: {
     ensureWorkAuthority: (workItem: WorkItemRef) => Promise<{
-      revisions: { responsibilityRevision: number; reviewerRevision: number };
+      revisions: {
+        responsibilityRevision: number;
+        reviewerRevision: number;
+        executionTargetRevision: number;
+      };
     } | null>;
   } | null;
   api?: RemoteOperationsApi | null;
   ownerFleetApi?: OwnerFleetRemoteDispatchApi | null;
   resolveRemoteWorkAuthority?: (workItem: WorkItemRef) => Promise<{
-    revisions: { responsibilityRevision: number; reviewerRevision: number };
+    revisions: {
+      responsibilityRevision: number;
+      reviewerRevision: number;
+      executionTargetRevision: number;
+    };
+  } | null>;
+  resolveRemoteContentAuthority?: () => Promise<{
+    contentRevision: string;
+    graphFingerprint: string;
   } | null>;
   /**
    * Authority for existing-operation recovery: live remoteExecution read-model for the block.
@@ -314,6 +329,8 @@ export function createAgentEndpointBlockExecutor(input: {
         ? await input.collaborationController.ensureWorkAuthority(workItem)
         : null);
     if (!authority) throw new Error("work_authority_unavailable");
+    const contentAuthority = await input.resolveRemoteContentAuthority?.();
+    if (!contentAuthority) throw new Error("remote_content_authority_unavailable");
     const dispatched = await remoteDispatch.dispatch({
       schemaVersion: "remote-run/v3",
       projectId: input.activeProjectId,
@@ -322,7 +339,9 @@ export function createAgentEndpointBlockExecutor(input: {
       agentEndpointId: remoteEndpointId,
       idempotencyKey: `desktop-dispatch-${input.createId()}`,
       expectedResponsibilityRevision: authority.revisions.responsibilityRevision,
-      expectedReviewerRevision: authority.revisions.reviewerRevision
+      expectedReviewerRevision: authority.revisions.reviewerRevision,
+      executionTargetRevision: authority.revisions.executionTargetRevision,
+      ...contentAuthority
     });
     await waitForRemoteCompletion({
       api: remoteDispatch,

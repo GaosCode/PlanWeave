@@ -7,16 +7,8 @@ import {
   executionEnvelopeSchema,
   type OwnerPackageLocator
 } from "@planweave-ai/agent-host-protocol";
-import { RemoteBlockRuntimeError, type RemoteBlockDispatchCandidate } from "@planweave-ai/runtime";
-import type {
-  CanvasRuntimeInitializationEvidence,
-  CanvasExecutionRuntimeLeasePort,
-  CanvasExecutionRuntimeRoutePort
-} from "./canvas/executionRuntimePort.js";
-import {
-  acquireRemoteRuntimeLease,
-  type RemoteRuntimeLocator
-} from "./remoteBlockCoordinatorPorts.js";
+import type { RemoteBlockDispatchCandidate } from "@planweave-ai/runtime";
+import type { CanvasRuntimeInitializationEvidence } from "./canvas/executionRuntimePort.js";
 import type { RemoteOperation } from "./remoteOperations.js";
 
 /** Creates the immutable Host envelope after authorization and before artifact materialization. */
@@ -78,31 +70,4 @@ export function buildRemoteBlockExecutionEnvelope(
     },
     trace: { correlationId: operation.id }
   });
-}
-
-/** Reads a dispatch candidate through the authorized route and retries only source refresh drift. */
-export async function inspectRemoteBlockDispatchCandidate(
-  runtimeLeases: CanvasExecutionRuntimeLeasePort | CanvasExecutionRuntimeRoutePort,
-  request: RemoteRuntimeLocator & { blockRef: string },
-  hostId?: string
-): Promise<RemoteBlockDispatchCandidate> {
-  const inspect = async () => {
-    const acquired = await acquireRemoteRuntimeLease(runtimeLeases, request, hostId);
-    try {
-      return await acquired.runtime.inspect({ ref: request.blockRef });
-    } finally {
-      await acquired.release();
-    }
-  };
-  try {
-    return await inspect();
-  } catch (error) {
-    if (
-      !(error instanceof RemoteBlockRuntimeError) ||
-      error.code !== "remote_block_source_changed"
-    ) {
-      throw error;
-    }
-    return inspect();
-  }
 }

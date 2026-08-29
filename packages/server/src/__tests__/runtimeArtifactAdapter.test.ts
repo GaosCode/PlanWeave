@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { appendFile, rm } from "node:fs/promises";
+import { appendFile, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   claimDispatchedBlock,
@@ -8,7 +8,7 @@ import {
   submitBlockResult,
   type PlanPackageManifest
 } from "@planweave-ai/runtime";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   basicManifest,
   createTestWorkspace,
@@ -62,6 +62,7 @@ describe("RuntimeInputArtifactMaterializer", () => {
     const runtime = createRemoteBlockRuntimePort({ projectRoot: workspace.root });
     const candidate = await runtime.inspect({ ref: "T-001#B-002" });
     const source = createRemoteBlockArtifactSource({ projectRoot: workspace.root });
+    const sourceRead = vi.spyOn(source, "read");
     const dataDirectory = join(workspace.root, "server-data");
     const server = await startPlanweaveServer({
       dataDirectory,
@@ -72,8 +73,20 @@ describe("RuntimeInputArtifactMaterializer", () => {
     const store = new ArtifactStore(server.database, dataDirectory, 1024 * 1024);
     const materializer = new RuntimeInputArtifactMaterializer(store);
 
+    const targetPrompt = join(
+      workspace.init.workspace.packageDir,
+      "nodes/T-001/blocks/B-002.prompt.md"
+    );
+    const originalPrompt = await readFile(targetPrompt, "utf8");
+    await appendFile(targetPrompt, "\nsource drift\n", "utf8");
+    await expect(materializer.materialize(candidate, source)).rejects.toThrow(
+      "remote_block_artifact_source_revision_mismatch"
+    );
+    await writeFile(targetPrompt, originalPrompt, "utf8");
+
     await materializer.materialize(candidate, source);
     await materializer.materialize(candidate, source);
+    expect(sourceRead).toHaveBeenCalledTimes(2);
     const declared = candidate.inputArtifacts[0];
     if (!declared) throw new Error("Expected declared input artifact");
     await expect(store.read(declared.artifactRef)).resolves.toEqual(report);
@@ -93,14 +106,5 @@ describe("RuntimeInputArtifactMaterializer", () => {
         source
       )
     ).rejects.toThrow("remote_block_artifact_not_declared");
-
-    await appendFile(
-      join(workspace.init.workspace.packageDir, "nodes/T-001/blocks/B-002.prompt.md"),
-      "\nsource drift\n",
-      "utf8"
-    );
-    await expect(materializer.materialize(candidate, source)).rejects.toThrow(
-      "remote_block_artifact_source_revision_mismatch"
-    );
   });
 });

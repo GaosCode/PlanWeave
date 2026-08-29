@@ -614,6 +614,16 @@ export function useRemoteRunPanelController(
       if (!workAuthority) throw new Error("work_authority_unavailable");
       const revisions = workAuthority.revisions;
       if (!selectedEndpoint.remoteEndpointId) throw new Error("agent_endpoint_selection_required");
+      if (!workspaceId) throw new Error("remote_content_authority_unavailable");
+      const availability = await api.readCollaborationCanvasBindingRuntimeAvailability({
+        kind: "remote",
+        workspaceId,
+        projectId,
+        canvasId: workItem.canvasId
+      });
+      if (!availability || availability.schemaVersion !== "canvas-runtime-view/v2") {
+        throw new Error("remote_content_authority_unavailable");
+      }
       try {
         const result = await api.dispatchCollaborationRemoteOperation({
           schemaVersion: "remote-run/v3",
@@ -623,7 +633,10 @@ export function useRemoteRunPanelController(
           agentEndpointId: selectedEndpoint.remoteEndpointId,
           idempotencyKey: `desktop-dispatch-${createId()}`,
           expectedResponsibilityRevision: revisions.responsibilityRevision,
-          expectedReviewerRevision: revisions.reviewerRevision
+          expectedReviewerRevision: revisions.reviewerRevision,
+          executionTargetRevision: revisions.executionTargetRevision,
+          contentRevision: String(availability.authority.revision),
+          graphFingerprint: availability.authority.graphFingerprint
         });
         if (isCurrentScope()) {
           const merged = selectRemoteOperationObservation({
@@ -665,7 +678,8 @@ export function useRemoteRunPanelController(
     agentEndpoints,
     selectedAgentEndpointId,
     args.canvasRef,
-    refreshAgentEndpoints
+    refreshAgentEndpoints,
+    workspaceId
   ]);
 
   const cancel = useCallback(

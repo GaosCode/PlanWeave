@@ -16,6 +16,7 @@ import {
   addSecondaryCanvas,
   configureAutomaticExecutionTarget,
   jsonHeaders,
+  readDispatchAuthority,
   remoteManifest
 } from "./support/serverCompositionFixture.js";
 
@@ -138,7 +139,10 @@ describe("distributed server composition", () => {
       })
     });
     expect(secondaryDispatch.status).toBe(400);
-    await expect(secondaryDispatch.json()).resolves.toEqual({ error: "remote_run_v3_required" });
+    await expect(secondaryDispatch.json()).resolves.toEqual({
+      error: "remote_run_v3_required",
+      serverBuildRevision: "development"
+    });
   });
 
   it("does not expose secondary canvases through legacy canvas trust", async () => {
@@ -302,12 +306,20 @@ describe("distributed server composition", () => {
         blockRef: "T-001#B-001",
         agentEndpointId: "endpoint-not-enrolled",
         idempotencyKey: "owner-secondary-dispatch",
-        expectedResponsibilityRevision: 0,
-        expectedReviewerRevision: 0,
+        ...(await readDispatchAuthority({
+          databasePath: config.databasePath,
+          workspaceId: "workspace-server",
+          projectId,
+          canvasId: "secondary",
+          blockRef: "T-001#B-001"
+        })),
         humanPrincipalId: "trusted-owner"
       })
     });
-    await expect(ownerDispatch.json()).resolves.toEqual({ error: "remote_agent_not_found" });
+    await expect(ownerDispatch.json()).resolves.toEqual({
+      error: "remote_agent_not_found",
+      serverBuildRevision: "development"
+    });
     expect(ownerDispatch.status).toBe(404);
   });
 
@@ -364,13 +376,21 @@ describe("distributed server composition", () => {
         blockRef: "T-001#B-001",
         agentEndpointId: "endpoint-not-enrolled",
         idempotencyKey: "owner-only-dispatch",
-        expectedResponsibilityRevision: 0,
-        expectedReviewerRevision: 0,
+        ...(await readDispatchAuthority({
+          databasePath: config.databasePath,
+          workspaceId: "workspace-owner-runtime",
+          projectId,
+          canvasId: "default",
+          blockRef: "T-001#B-001"
+        })),
         humanPrincipalId: "owner-runtime"
       })
     });
 
     expect(dispatch.status).toBe(404);
-    await expect(dispatch.json()).resolves.toEqual({ error: "remote_agent_not_found" });
+    await expect(dispatch.json()).resolves.toEqual({
+      error: "remote_agent_not_found",
+      serverBuildRevision: "development"
+    });
   });
 });

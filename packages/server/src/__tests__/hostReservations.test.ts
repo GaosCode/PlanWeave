@@ -7,10 +7,23 @@ import { AgentHostRepository } from "../hosts.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import { startPlanweaveServer, type PlanweaveServer } from "../lifecycle.js";
 import { RemoteOperationRepository } from "../remoteOperations.js";
+import type { SqliteDatabase } from "../sqlite.js";
+import { AuthorityRepository } from "../work/authorityRepository.js";
 
 const directories: string[] = [];
 const servers: PlanweaveServer[] = [];
 const executionProfile = { agentId: "codex", agentProfileId: "codex-acp" } as const;
+
+function currentAuthorityRevisions(
+  database: SqliteDatabase,
+  scope: { workspaceId: string; projectId: string; blockRef: string }
+) {
+  return new AuthorityRepository(database).currentRevisions({
+    kind: "block",
+    ...scope,
+    canvasId: "default"
+  });
+}
 
 afterEach(async () => {
   for (const server of servers.splice(0)) server.close();
@@ -39,8 +52,12 @@ function createOperation(
   capabilities = ["linux"],
   projectId = "project-a",
   controlPlane: "collaboration" | "owner" = "collaboration",
-  ownerHostId = "host-owner"
+  ownerHostId = "host-owner",
+  authorityRevisions?: ReturnType<typeof currentAuthorityRevisions>
 ) {
+  if (controlPlane === "owner" && !authorityRevisions) {
+    throw new Error("owner_authority_revisions_required");
+  }
   const operation = repository.create({
     workspaceId,
     projectId,
@@ -65,8 +82,9 @@ function createOperation(
             authority: {
               schemaVersion: "endpoint-authority/v2" as const,
               kind: "owner_canvas" as const,
-              responsibilityRevision: 0,
-              reviewerRevision: 0
+              responsibilityRevision: authorityRevisions?.responsibilityRevision,
+              reviewerRevision: authorityRevisions?.reviewerRevision,
+              executionTargetRevision: authorityRevisions?.executionTargetRevision
             }
           }
         }
@@ -125,7 +143,12 @@ describe("HostReservationRepository", () => {
         ["linux"],
         "project-a",
         "owner",
-        host.id
+        host.id,
+        currentAuthorityRevisions(server.database, {
+          workspaceId,
+          projectId: "project-a",
+          blockRef: "RC-002#owner-capacity"
+        })
       ).id,
       { ...executionProfile, preferredHostId: host.id }
     );
@@ -182,8 +205,11 @@ describe("HostReservationRepository", () => {
             schemaVersion: "endpoint-authority/v2",
             kind: "workspace_canvas",
             workspaceId: workspaceB,
-            responsibilityRevision: 0,
-            reviewerRevision: 0
+            ...currentAuthorityRevisions(server.database, {
+              workspaceId: workspaceB,
+              projectId: "project-b",
+              blockRef: "RC-002#cross-workspace-unrestricted"
+            })
           }
         },
         agentAccess: {
@@ -256,8 +282,11 @@ describe("HostReservationRepository", () => {
             schemaVersion: "endpoint-authority/v2",
             kind: "workspace_canvas",
             workspaceId: workspaceB,
-            responsibilityRevision: 0,
-            reviewerRevision: 0
+            ...currentAuthorityRevisions(server.database, {
+              workspaceId: workspaceB,
+              projectId: "project-b",
+              blockRef: "RC-002#unrestricted-capacity-a"
+            })
           }
         },
         agentAccess: {
@@ -304,8 +333,11 @@ describe("HostReservationRepository", () => {
             schemaVersion: "endpoint-authority/v2",
             kind: "workspace_canvas",
             workspaceId: workspaceB,
-            responsibilityRevision: 0,
-            reviewerRevision: 0
+            ...currentAuthorityRevisions(server.database, {
+              workspaceId: workspaceB,
+              projectId: "project-b",
+              blockRef: "RC-002#unrestricted-capacity-b"
+            })
           }
         },
         agentAccess: {
@@ -337,7 +369,7 @@ describe("HostReservationRepository", () => {
     expect(reservations.activeCountsForHosts([host.id]).get(host.id)).toBe(1);
   });
 
-  it("excludes in-flight v1 owner controlPlane JSON from collaboration Host capacity", async () => {
+  it("fails closed on in-flight v1 owner controlPlane JSON before capacity accounting", async () => {
     const server = await setup();
     const workspaceId = new WorkspaceIdentityRepository(server.database).workspaceForLegacyProject(
       "project-a"
@@ -363,7 +395,12 @@ describe("HostReservationRepository", () => {
       ["linux"],
       "project-a",
       "owner",
-      host.id
+      host.id,
+      currentAuthorityRevisions(server.database, {
+        workspaceId,
+        projectId: "project-a",
+        blockRef: "RC-002#owner-v1-capacity"
+      })
     );
     const selection = operations.getRequired(claimed.id).endpointSelection;
     if (!selection) throw new Error("expected_owner_selection");
@@ -382,7 +419,9 @@ describe("HostReservationRepository", () => {
         claimed.id
       );
 
-    reservations.reserve(claimed.id, { ...executionProfile, preferredHostId: host.id });
+    expect(() =>
+      reservations.reserve(claimed.id, { ...executionProfile, preferredHostId: host.id })
+    ).toThrow("remote_operation_row_invalid");
     reservations.reserve(createOperation(operations, workspaceId, "collaboration-v1-capacity").id, {
       ...executionProfile,
       preferredHostId: host.id
@@ -481,8 +520,11 @@ describe("HostReservationRepository", () => {
             schemaVersion: "endpoint-authority/v2",
             kind: "workspace_canvas",
             workspaceId,
-            responsibilityRevision: 0,
-            reviewerRevision: 0
+            ...currentAuthorityRevisions(server.database, {
+              workspaceId,
+              projectId: "project-a",
+              blockRef: "RC-002#grant-unmapped"
+            })
           }
         },
         agentAccess: {

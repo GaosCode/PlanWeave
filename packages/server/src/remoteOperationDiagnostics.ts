@@ -30,7 +30,9 @@ export function buildRemoteOperationDiagnostics(input: {
   const ownership = input.runtime.ownership;
   const authority = operation.endpointSelection?.authority;
   const executionTargetRevision =
-    operation.hostSelection?.authorityRevisions?.executionTargetRevision;
+    (authority?.schemaVersion === "endpoint-authority/v2"
+      ? authority.executionTargetRevision
+      : undefined) ?? operation.hostSelection?.authorityRevisions?.executionTargetRevision;
   return remoteOperationDiagnosticsSchema.parse({
     stage: input.diagnostic.stage,
     revision: input.revision,

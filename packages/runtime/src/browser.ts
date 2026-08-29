@@ -33,6 +33,7 @@ export {
   type RemoteAcpReplayInput,
   type RemoteAcpReplayProjection
 } from "./autoRun/remoteAcpEventProjection.js";
+export * from "./workspaceExecution/browser.js";
 export {
   taskWorkspaceInputSchema,
   taskWorkspaceRunItemSchema,

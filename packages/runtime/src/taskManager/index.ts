@@ -8,6 +8,7 @@ export {
   renderPromptSurface,
   renderPromptSurfaceFromContext
 } from "./promptRenderer.js";
+export { renderRemoteDispatchPromptProjection } from "./remoteDispatchPromptProjection.js";
 export type { PromptSourceKind, PromptSourceSummary, PromptSurface } from "./promptContracts.js";
 export { submitBlockResult, submitBlockResultFromBytes } from "./blockSubmission.js";
 export { createRemoteBlockRuntimePort } from "./remoteBlockRuntime.js";
@@ -59,7 +60,7 @@ export type {
   RemoteBlockRetryDecision,
   RemoteBlockRuntimeErrorCode
 } from "./remoteBlockRuntimeContracts.js";
-export { submitReviewResult } from "./reviewSubmission.js";
+export { parseRemoteReviewResultBytes, submitReviewResult } from "./reviewSubmission.js";
 export { submitFeedback } from "./feedbackSubmission.js";
 export {
   markBlockBlocked,

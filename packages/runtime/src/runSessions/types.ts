@@ -7,6 +7,7 @@ import type {
   RunnerTransport
 } from "../types.js";
 import type { RunnerInteractionObserver } from "../autoRun/runnerInteractionObserver.js";
+import type { WorkspaceExecutionSessionState } from "../workspaceExecution/contracts.js";
 
 export type RunSessionKind = "run" | "reset";
 export type RunSessionTrigger = "manual" | "cron" | "desktop" | "api";
@@ -48,6 +49,8 @@ export type RunSessionAutoRunSummary = {
 };
 
 export type RunSessionState = {
+  /** Monotonic compare-and-swap revision for the durable session summary. */
+  stateVersion: number;
   sessionId: string;
   kind: RunSessionKind;
   trigger: RunSessionTrigger;
@@ -62,6 +65,7 @@ export type RunSessionState = {
   autoRun: RunSessionAutoRunSummary | null;
   latestRecordId: string | null;
   latestRecordPath: string | null;
+  workspaceExecution: WorkspaceExecutionSessionState | null;
   error: string | null;
 };
 
@@ -90,12 +94,24 @@ export type CreateRunSessionOptions = {
   scope?: RunSessionScope;
   phase?: RunSessionPhase;
   now?: Date;
+  workspaceExecution?: WorkspaceExecutionSessionState | null;
+};
+
+export type UpdateRunSessionOptions = {
+  expectedStateVersion?: number;
 };
 
 export type UpdateRunSessionPatch = Partial<
   Pick<
     RunSessionState,
-    "phase" | "finishedAt" | "reset" | "autoRun" | "latestRecordId" | "latestRecordPath" | "error"
+    | "phase"
+    | "finishedAt"
+    | "reset"
+    | "autoRun"
+    | "latestRecordId"
+    | "latestRecordPath"
+    | "workspaceExecution"
+    | "error"
   >
 >;
 

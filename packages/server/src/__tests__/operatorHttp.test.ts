@@ -267,6 +267,9 @@ describe("operator HTTP boundary", () => {
       idempotencyKey: "operator-v3-contract",
       expectedResponsibilityRevision: 0,
       expectedReviewerRevision: 0,
+      executionTargetRevision: 0,
+      contentRevision: "1",
+      graphFingerprint: `pkg-${"a".repeat(64)}`,
       humanPrincipalId: "owner-human-1"
     };
     expect(operatorDispatchRequestSchema.parse(request)).toEqual(request);
@@ -365,7 +368,8 @@ describe("operator HTTP boundary", () => {
         agentEndpointId: "private-endpoint-id",
         idempotencyKey: "incompatible-endpoint",
         expectedResponsibilityRevision: 0,
-        expectedReviewerRevision: 0
+        expectedReviewerRevision: 0,
+        executionTargetRevision: 0
       })
     });
     expect(response.status).toBe(409);
@@ -414,7 +418,8 @@ describe("operator HTTP boundary", () => {
         agentEndpointId: "private-endpoint-id",
         idempotencyKey: `runtime-error-${code}`,
         expectedResponsibilityRevision: 0,
-        expectedReviewerRevision: 0
+        expectedReviewerRevision: 0,
+        executionTargetRevision: 0
       })
     });
 
@@ -440,7 +445,8 @@ describe("operator HTTP boundary", () => {
         agentEndpointId: "private-endpoint-id",
         idempotencyKey: "runtime-rpc-not-dispatchable",
         expectedResponsibilityRevision: 0,
-        expectedReviewerRevision: 0
+        expectedReviewerRevision: 0,
+        executionTargetRevision: 0
       })
     });
 

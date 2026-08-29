@@ -239,7 +239,11 @@ function renderOwnerFleetRun(input?: {
   }));
   const dispatchCollaborationRemoteOperation = vi.fn(async () => operation("running"));
   const ensureWorkAuthority = vi.fn(async () => ({
-    revisions: { responsibilityRevision: 7, reviewerRevision: 11 }
+    revisions: {
+      responsibilityRevision: 7,
+      reviewerRevision: 11,
+      executionTargetRevision: 13
+    }
   }));
   bridgeMock.getBlockDetail.mockImplementation(getBlockDetail);
   operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation.mockResolvedValue(
@@ -304,7 +308,11 @@ function renderOwnerFleetRun(input?: {
       stopLocal: vi.fn(async () => localRunState("stopped")),
       waitForTerminal: vi.fn(async () => operation("completed")),
       previewClaimNext,
-      resolveLiveRemoteBinding: vi.fn(async () => null)
+      resolveLiveRemoteBinding: vi.fn(async () => null),
+      resolveRemoteContentAuthority: vi.fn(async () => ({
+        contentRevision: "1",
+        graphFingerprint: `pkg-${"a".repeat(64)}`
+      }))
     });
     return (scope: DesktopAutoRunScope) => startWithEndpoint(scope, startLocal, lifecycle);
   });
@@ -422,7 +430,10 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
         agentEndpointId: "endpoint-windows",
         idempotencyKey: "desktop-dispatch-operation-fleet-1",
         expectedResponsibilityRevision: 7,
-        expectedReviewerRevision: 11
+        expectedReviewerRevision: 11,
+        executionTargetRevision: 13,
+        contentRevision: "1",
+        graphFingerprint: `pkg-${"a".repeat(64)}`
       }
     });
     expect(lifecycle.onCompleted).toHaveBeenCalled();
@@ -477,7 +488,8 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
         blockRef: "T-001#B-001",
         agentEndpointId: "endpoint-windows",
         expectedResponsibilityRevision: 0,
-        expectedReviewerRevision: 0
+        expectedReviewerRevision: 0,
+        executionTargetRevision: 0
       })
     });
     expect(lifecycle.onCompleted).toHaveBeenCalled();
@@ -508,7 +520,8 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
           canvasId: "canvas-main",
           blockRef: "T-001#B-001",
           expectedResponsibilityRevision: 7,
-          expectedReviewerRevision: 11
+          expectedReviewerRevision: 11,
+          executionTargetRevision: 13
         })
       })
     );
@@ -732,7 +745,11 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
           agentEndpoints: [remoteEndpoint],
           collaborationController: {
             ensureWorkAuthority: vi.fn(async () => ({
-              revisions: { responsibilityRevision: 7, reviewerRevision: 11 }
+              revisions: {
+                responsibilityRevision: 7,
+                reviewerRevision: 11,
+                executionTargetRevision: 13
+              }
             }))
           },
           canvasBinding: binding,
@@ -802,7 +819,11 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
           agentEndpoints: [remoteEndpoint],
           collaborationController: {
             ensureWorkAuthority: vi.fn(async () => ({
-              revisions: { responsibilityRevision: 7, reviewerRevision: 11 }
+              revisions: {
+                responsibilityRevision: 7,
+                reviewerRevision: 11,
+                executionTargetRevision: 13
+              }
             }))
           },
           canvasBinding: binding,
@@ -824,7 +845,20 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
             observeCollaborationRemoteOperation: vi.fn(),
             executeCollaborationRemoteOperationAction: vi.fn(),
             onCollaborationObserverSignal: vi.fn(() => () => undefined),
-            readCollaborationCanvasBindingRuntimeAvailability: vi.fn()
+            readCollaborationCanvasBindingRuntimeAvailability: vi.fn(async () => ({
+              schemaVersion: "canvas-runtime-view/v2" as const,
+              authority: {
+                revision: 1,
+                sourceRevision: "source-revision-1",
+                graphFingerprint: `pkg-${"a".repeat(64)}`
+              },
+              state: { kind: "uninitialized" as const },
+              execution: {
+                schemaVersion: "canvas-runtime-availability/v1" as const,
+                kind: "unavailable" as const,
+                reason: "runtime_not_attached" as const
+              }
+            }))
           }
         });
       },

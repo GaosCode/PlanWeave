@@ -1,5 +1,7 @@
 import { appendFile, mkdir, readFile, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
+import { withAdvisoryDirectoryLock } from "../fs/advisoryDirectoryLock.js";
 import { optionalReaddir } from "../fs/optionalFile.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import { commandCanvasIdForWorkspace } from "../taskManager/canvasCommandScope.js";
@@ -15,7 +17,9 @@ import type {
   RunSessionState,
   UpdateRunSessionPatch
 } from "./types.js";
+import type { RunSessionScope, UpdateRunSessionOptions } from "./types.js";
 import { agentFamilies, type PackageWorkspaceRef, type ProjectWorkspace } from "../types.js";
+import { workspaceExecutionSessionStateSchema } from "../workspaceExecution/contracts.js";
 
 const sessionIdPattern = /^SESSION-(\d{4,})$/;
 const runSessionKinds = new Set(["run", "reset"]);
@@ -54,6 +58,46 @@ function sessionSummaryPath(workspace: ProjectWorkspace, sessionId: string): str
 
 function sessionEventsPath(workspace: ProjectWorkspace, sessionId: string): string {
   return join(sessionRoot(workspace, sessionId), "events.ndjson");
+}
+
+function sessionMutationLockPath(workspace: ProjectWorkspace, sessionId: string): string {
+  return join(sessionRoot(workspace, sessionId), ".session-mutation.lock");
+}
+
+function scopeLockPath(workspace: ProjectWorkspace, scope: RunSessionScope): string {
+  const digest = createHash("sha256")
+    .update(JSON.stringify({ canvasId: workspace.id, scope }))
+    .digest("hex");
+  return join(runSessionsRoot(workspace), ".scope-locks", `${digest}.lock`);
+}
+
+export class RunSessionStateVersionConflictError extends Error {
+  constructor(
+    readonly sessionId: string,
+    readonly expectedStateVersion: number,
+    readonly actualStateVersion: number
+  ) {
+    super(
+      `Run session '${sessionId}' state version conflict: expected ${expectedStateVersion}, found ${actualStateVersion}.`
+    );
+    this.name = "RunSessionStateVersionConflictError";
+  }
+}
+
+export async function withRunSessionScopeLock<T>(
+  projectRoot: PackageWorkspaceRef,
+  scope: RunSessionScope,
+  operation: () => Promise<T>
+): Promise<T> {
+  const workspace = await resolveSessionWorkspace(projectRoot);
+  await mkdir(join(runSessionsRoot(workspace), ".scope-locks"), { recursive: true });
+  return withAdvisoryDirectoryLock(
+    {
+      lockPath: scopeLockPath(workspace, scope),
+      operation: `workspace-execution:${scope.kind}`
+    },
+    operation
+  );
 }
 
 async function resolveSessionWorkspace(
@@ -244,6 +288,17 @@ function validateSessionState(
       invalidSessionDiagnostic(sessionId, path, "Run session summary has an invalid phase.")
     );
   }
+  const storedStateVersion = value.stateVersion ?? 0;
+  if (
+    typeof storedStateVersion !== "number" ||
+    !Number.isInteger(storedStateVersion) ||
+    storedStateVersion < 0
+  ) {
+    diagnostics.push(
+      invalidSessionDiagnostic(sessionId, path, "Run session summary has an invalid stateVersion.")
+    );
+  }
+  const stateVersion = typeof storedStateVersion === "number" ? storedStateVersion : 0;
   if (
     typeof value.startedAt !== "string" ||
     value.startedAt.length === 0 ||
@@ -293,12 +348,42 @@ function validateSessionState(
       )
     );
   }
+  let workspaceExecution: RunSessionState["workspaceExecution"] = null;
+  if (value.workspaceExecution !== undefined && value.workspaceExecution !== null) {
+    const parsed = workspaceExecutionSessionStateSchema.safeParse(value.workspaceExecution);
+    if (!parsed.success) {
+      diagnostics.push(
+        invalidSessionDiagnostic(
+          sessionId,
+          path,
+          `Run session summary has invalid workspace execution state: ${parsed.error.message}`
+        )
+      );
+    } else {
+      workspaceExecution = parsed.data;
+      if (parsed.data.handle !== null && parsed.data.handle.runSessionId !== sessionId) {
+        diagnostics.push(
+          invalidSessionDiagnostic(
+            sessionId,
+            path,
+            "Workspace execution handle runSessionId does not match its directory."
+          )
+        );
+      }
+    }
+  }
   if (diagnostics.length > 0) {
     return { session: null, diagnostics };
   }
   const session = value as RunSessionState;
   return {
-    session: { ...session, reset: resetSummary, autoRun: normalizeAutoRunSummary(session.autoRun) },
+    session: {
+      ...session,
+      stateVersion,
+      reset: resetSummary,
+      autoRun: normalizeAutoRunSummary(session.autoRun),
+      workspaceExecution
+    },
     diagnostics: []
   };
 }
@@ -343,6 +428,7 @@ export async function createRunSession(options: CreateRunSessionOptions): Promis
   }
   const now = (options.now ?? new Date()).toISOString();
   const session: RunSessionState = {
+    stateVersion: 0,
     sessionId,
     kind: options.kind,
     trigger: options.trigger ?? "manual",
@@ -357,6 +443,7 @@ export async function createRunSession(options: CreateRunSessionOptions): Promis
     autoRun: null,
     latestRecordId: null,
     latestRecordPath: null,
+    workspaceExecution: options.workspaceExecution ?? null,
     error: null
   };
   try {
@@ -390,22 +477,42 @@ export async function discardRunSessionInitialization(
 export async function updateRunSession(
   projectRoot: PackageWorkspaceRef,
   sessionId: string,
-  patch: UpdateRunSessionPatch
+  patch: UpdateRunSessionPatch,
+  options: UpdateRunSessionOptions = {}
 ): Promise<RunSessionState> {
   assertValidRunSessionId(sessionId);
   const workspace = await resolveSessionWorkspace(projectRoot);
-  const current = await readSessionState(workspace, sessionId);
-  if (!current.session) {
-    throw new Error(`Run session '${sessionId}' could not be read.`);
-  }
-  const now = new Date().toISOString();
-  const next: RunSessionState = {
-    ...current.session,
-    ...patch,
-    updatedAt: now
-  };
-  await writeJsonFile(sessionSummaryPath(workspace, sessionId), next);
-  return next;
+  return withAdvisoryDirectoryLock(
+    {
+      lockPath: sessionMutationLockPath(workspace, sessionId),
+      operation: "run-session-update"
+    },
+    async () => {
+      const current = await readSessionState(workspace, sessionId);
+      if (!current.session) {
+        throw new Error(`Run session '${sessionId}' could not be read.`);
+      }
+      if (
+        options.expectedStateVersion !== undefined &&
+        current.session.stateVersion !== options.expectedStateVersion
+      ) {
+        throw new RunSessionStateVersionConflictError(
+          sessionId,
+          options.expectedStateVersion,
+          current.session.stateVersion
+        );
+      }
+      const now = new Date().toISOString();
+      const next: RunSessionState = {
+        ...current.session,
+        ...patch,
+        stateVersion: current.session.stateVersion + 1,
+        updatedAt: now
+      };
+      await writeJsonFile(sessionSummaryPath(workspace, sessionId), next);
+      return next;
+    }
+  );
 }
 
 export async function appendRunSessionEvent(

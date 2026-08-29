@@ -376,6 +376,14 @@ async function createRemoteFixture(): Promise<RemoteContractFixture> {
           });
           return;
         }
+        if (operation.operation === "reset_status") {
+          respond(command, {
+            outcome: "success",
+            operation: "reset_status",
+            result: { kind: "not_found" }
+          });
+          return;
+        }
         if (!("runtimeLeaseId" in operation)) throw new Error("runtime_lease_required");
         const lease = hostLeases.get(operation.runtimeLeaseId);
         if (!lease) throw new Error("runtime_lease_not_found");
@@ -423,10 +431,14 @@ async function createRemoteFixture(): Promise<RemoteContractFixture> {
         }
         throw new Error("operation_not_supported_by_contract_host");
       } catch (error) {
+        const errorCode =
+          error instanceof Error && "code" in error ? String(error.code) : undefined;
         const sourceDrift =
           (error instanceof RemoteBlockRuntimeError &&
             error.code === "remote_block_source_changed") ||
-          (error instanceof CanvasRuntimeResetConflictError && error.code === "source_drift");
+          (error instanceof CanvasRuntimeResetConflictError && error.code === "source_drift") ||
+          errorCode === "remote_block_source_changed" ||
+          errorCode === "source_drift";
         respond(command, {
           outcome: "error",
           operation: command.operation.operation,

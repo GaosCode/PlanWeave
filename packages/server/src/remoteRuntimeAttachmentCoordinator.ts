@@ -69,7 +69,11 @@ export function assertRuntimeAttachmentContentTarget(input: {
   candidate: RemoteBlockDispatchCandidate;
   contentTargets: RemoteRuntimeContentTargetPort;
 }): void {
-  const current = input.contentTargets.read(input.attachment);
+  const current = input.contentTargets.read({
+    workspaceId: input.attachment.workspaceId,
+    projectId: input.attachment.projectId,
+    canvasId: input.attachment.canvasId
+  });
   if (
     current.revision !== input.attachment.contentRevision ||
     current.graphFingerprint !== input.attachment.graphFingerprint ||

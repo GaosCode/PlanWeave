@@ -10,9 +10,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { join, relative } from "node:path";
-import { claimDispatchedBlock, submitBlockResult } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it } from "vitest";
-import { writeReport } from "../../../runtime/src/__tests__/promptTestHelpers.js";
 import {
   RealProcessAcpHarness,
   type RealProcessAcpHarnessOptions
@@ -175,6 +173,7 @@ describe("real-process adversarial authorization matrix", () => {
         run: async ({ client: c, operationId, dispatchId }) => {
           // Positive control: the Owner Fleet operator reaches the real project/runtime seam.
           const agentEndpointId = await c.availableAgentEndpointId();
+          const dispatchAuthority = c.dispatchAuthority("T-001#B-001");
           const trusted = await c.rawRequest({
             method: "POST",
             path: "/api/v1/remote-operations",
@@ -185,8 +184,7 @@ describe("real-process adversarial authorization matrix", () => {
               blockRef: "T-001#B-001",
               agentEndpointId,
               idempotencyKey: "auth-matrix-1",
-              expectedResponsibilityRevision: 0,
-              expectedReviewerRevision: 0,
+              ...dispatchAuthority,
               humanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
             }
           });
@@ -206,8 +204,7 @@ describe("real-process adversarial authorization matrix", () => {
               blockRef: "T-001#B-001",
               agentEndpointId,
               idempotencyKey: "auth-matrix-project-operator",
-              expectedResponsibilityRevision: 0,
-              expectedReviewerRevision: 0,
+              ...dispatchAuthority,
               humanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
             }
           });
@@ -241,14 +238,16 @@ describe("real-process adversarial authorization matrix", () => {
               blockRef: "T-001#B-001",
               agentEndpointId,
               idempotencyKey: "auth-wrong-project",
-              expectedResponsibilityRevision: 0,
-              expectedReviewerRevision: 0,
+              ...dispatchAuthority,
               humanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
             }
           });
           expect({ status: denied.status, body: denied.body }).toEqual({
             status: 403,
-            body: { error: "operator_scope_forbidden" }
+            body: {
+              error: "operator_scope_forbidden",
+              serverBuildRevision: "development"
+            }
           });
           expect(await durableBaseline()).toEqual(before);
         }
@@ -576,30 +575,12 @@ describe("real-process adversarial authorization matrix", () => {
       hostCapacity: 2,
       manifest: remoteAcpManifestWithDependency()
     });
-    const inputContent = "authorization matrix upstream input\n";
-    const previousPlanWeaveHome = process.env.PLANWEAVE_HOME;
-    try {
-      process.env.PLANWEAVE_HOME = harness.paths.projectHome;
-      await claimDispatchedBlock({
-        projectRoot: harness.paths.projectRoot,
-        ref: "T-001#B-001"
-      });
-      const reportPath = await writeReport(
-        harness.paths.projectRoot,
-        "authorization-input.md",
-        inputContent
-      );
-      await submitBlockResult({
-        projectRoot: harness.paths.projectRoot,
-        ref: "T-001#B-001",
-        reportPath
-      });
-    } finally {
-      if (previousPlanWeaveHome === undefined) delete process.env.PLANWEAVE_HOME;
-      else process.env.PLANWEAVE_HOME = previousPlanWeaveHome;
-    }
-
     await harness.startAll();
+    const upstream = await client.dispatch({
+      blockRef: "T-001#B-001",
+      idempotencyKey: "auth-matrix-upstream-1"
+    });
+    expect((await client.waitForTerminal(upstream.operationId)).state).toBe("completed");
     await harness.acpControl.pause(["session/prompt"]);
     const ownerHost = await harness.waitForHostOnline();
     const ownerCredential = client.readHostCredential();
@@ -653,9 +634,8 @@ describe("real-process adversarial authorization matrix", () => {
     expect(inputArtifacts).toHaveLength(1);
     const inputArtifact = inputArtifacts[0];
     const inputSha = inputArtifact.artifactRef.slice("artifact:sha256:".length);
-    expect(client.readServerArtifactBytes(inputArtifact.artifactRef)).toEqual(
-      Buffer.from(inputContent)
-    );
+    const inputContent = client.readServerArtifactBytes(inputArtifact.artifactRef).toString("utf8");
+    expect(inputContent.length).toBeGreaterThan(0);
 
     const artifactFixture = (label: string) => {
       const bytes = Buffer.from(`auth-matrix-${label}\n`, "utf8");

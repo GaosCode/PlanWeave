@@ -94,7 +94,10 @@ describe("CollaborationClient remote operations process integration", () => {
       agentEndpointId: "endpoint-process-1",
       idempotencyKey: "idem-process-1",
       expectedResponsibilityRevision: 2,
-      expectedReviewerRevision: 3
+      expectedReviewerRevision: 3,
+      executionTargetRevision: 4,
+      contentRevision: "7",
+      graphFingerprint: `pkg-${"a".repeat(64)}`
     });
     const dispatchedObservation = remoteEndpointOperationObservationSchema.parse({
       ...observation,
@@ -119,6 +122,7 @@ describe("CollaborationClient remote operations process integration", () => {
       }
     });
     const eventReplay = remoteEventReplaySchema.parse({
+      eventProtocolVersion: 1,
       executionAttemptId: "attempt-process-1",
       afterCursor: 0,
       cursor: 1,

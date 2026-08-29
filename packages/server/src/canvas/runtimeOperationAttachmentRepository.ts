@@ -130,7 +130,11 @@ export class CanvasRuntimeOperationAttachmentRepository {
       if (authority.source_fingerprint !== input.graphFingerprint) {
         throw new Error("canvas_runtime_attachment_graph_fingerprint_conflict");
       }
-      const currentTarget = this.contentTargets?.read(input);
+      const currentTarget = this.contentTargets?.read({
+        workspaceId: input.workspaceId,
+        projectId: input.projectId,
+        canvasId: input.canvasId
+      });
       if (!currentTarget) throw new Error("runtime_content_target_port_missing");
       if (
         currentTarget.revision !== input.contentRevision ||

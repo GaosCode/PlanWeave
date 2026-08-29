@@ -13,7 +13,7 @@ import { CanvasRuntimeInitializationCoordinator } from "../canvas/runtimeInitial
 import { CanvasRuntimeCommandCoordinator } from "../canvas/runtimeCommandCoordinator.js";
 import { CanvasRuntimeResetReceiptRepository } from "../canvas/runtimeCommandReceipts.js";
 import { CanvasRuntimeUnavailableError } from "../canvas/executionRuntimePort.js";
-import { readStableCanvasContentFingerprint } from "../canvas/contentFingerprint.js";
+import { readStableCanvasRuntimeEvidence } from "../canvas/contentFingerprint.js";
 import { inWriteTransaction } from "../sqlite.js";
 import {
   joinMember,
@@ -122,13 +122,19 @@ async function startCanvasCommandHttp(options: { activeLease?: boolean } = {}) {
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Expected HTTP address");
   const head = contentVersions.head({ workspaceId: "w", projectId: "p", canvasId: "default" });
-  const fingerprint = readStableCanvasContentFingerprint(contentVersions, {
+  const evidence = readStableCanvasRuntimeEvidence(contentVersions, {
     workspaceId: "w",
     projectId: "p",
     canvasId: "default"
   });
-  if (!head || !fingerprint) throw new Error("test_content_authority_missing");
-  return { origin: `http://127.0.0.1:${address.port}`, token, head, fingerprint };
+  if (!head || !evidence) throw new Error("test_content_authority_missing");
+  return {
+    origin: `http://127.0.0.1:${address.port}`,
+    token,
+    head,
+    fingerprint: evidence.target.graphFingerprint,
+    sourceRevision: evidence.sourceRevision
+  };
 }
 
 function catalogUrl(origin: string, projectId: string, workspaceId: string, canvasId: string) {
@@ -162,7 +168,8 @@ describe("workspace execution plane HTTP gaps", () => {
           canvasId: fixture.canvasId,
           blockRef: fixture.blockRef,
           agentEndpointId: fixture.endpointId,
-          idempotencyKey: "gap-member-dispatch"
+          idempotencyKey: "gap-member-dispatch",
+          dispatchAuthority: fixture.dispatchAuthority
         })
       )
     });
@@ -196,7 +203,8 @@ describe("workspace execution plane HTTP gaps", () => {
           canvasId: fixture.canvasId,
           blockRef: fixture.blockRef,
           agentEndpointId: fixture.endpointId,
-          idempotencyKey: "gap-owner-dispatch"
+          idempotencyKey: "gap-owner-dispatch",
+          dispatchAuthority: fixture.dispatchAuthority
         })
       )
     });
@@ -218,7 +226,8 @@ describe("workspace execution plane HTTP gaps", () => {
           canvasId: fixture.canvasId,
           blockRef: fixture.blockRef,
           agentEndpointId: fixture.endpointId,
-          idempotencyKey: "gap-autoprepare-dispatch"
+          idempotencyKey: "gap-autoprepare-dispatch",
+          dispatchAuthority: fixture.dispatchAuthority
         })
       )
     });
@@ -271,7 +280,8 @@ describe("workspace execution plane HTTP gaps", () => {
         canvasId: fixture.canvasId,
         blockRef: fixture.blockRef,
         agentEndpointId: fixture.endpointId,
-        idempotencyKey: "gap-autoprepare-reenter"
+        idempotencyKey: "gap-autoprepare-reenter",
+        dispatchAuthority: fixture.dispatchAuthority
       })
     );
     const first = await fetch(dispatchUrl(fixture.origin, fixture.projectId), {
@@ -308,7 +318,8 @@ describe("workspace execution plane HTTP gaps", () => {
           canvasId: offline.canvasId,
           blockRef: offline.blockRef,
           agentEndpointId: offline.endpointId,
-          idempotencyKey: "gap-offline-dispatch"
+          idempotencyKey: "gap-offline-dispatch",
+          dispatchAuthority: offline.dispatchAuthority
         })
       )
     });
@@ -318,7 +329,7 @@ describe("workspace execution plane HTTP gaps", () => {
 
     const materialization = await startPathlessCompositionWithGrantedHost({
       mapWorkspace: true,
-      liveCanvasRuntime: { failOperation: "inspect" }
+      liveCanvasRuntime: { failOperation: "acquire" }
     });
     const failed = await fetch(dispatchUrl(materialization.origin, materialization.projectId), {
       method: "POST",
@@ -329,7 +340,8 @@ describe("workspace execution plane HTTP gaps", () => {
           canvasId: materialization.canvasId,
           blockRef: materialization.blockRef,
           agentEndpointId: materialization.endpointId,
-          idempotencyKey: "gap-materialization-dispatch"
+          idempotencyKey: "gap-materialization-dispatch",
+          dispatchAuthority: materialization.dispatchAuthority
         })
       )
     });
@@ -354,7 +366,8 @@ describe("workspace execution plane HTTP gaps", () => {
           canvasId: fixture.canvasId,
           blockRef: fixture.blockRef,
           agentEndpointId: fixture.endpointId,
-          idempotencyKey: "gap-revision-drift-dispatch"
+          idempotencyKey: "gap-revision-drift-dispatch",
+          dispatchAuthority: fixture.dispatchAuthority
         })
       )
     });
@@ -379,7 +392,8 @@ describe("workspace execution plane HTTP gaps", () => {
           canvasId: fixture.canvasId,
           blockRef: fixture.blockRef,
           agentEndpointId: fixture.endpointId,
-          idempotencyKey: "gap-active-lease-dispatch"
+          idempotencyKey: "gap-active-lease-dispatch",
+          dispatchAuthority: fixture.dispatchAuthority
         })
       )
     });
@@ -400,7 +414,8 @@ describe("workspace execution plane HTTP gaps", () => {
           canvasId: fixture.canvasId,
           blockRef: fixture.blockRef,
           agentEndpointId: fixture.endpointId,
-          idempotencyKey: "gap-attach-first"
+          idempotencyKey: "gap-attach-first",
+          dispatchAuthority: fixture.dispatchAuthority
         })
       )
     });
@@ -416,11 +431,14 @@ describe("workspace execution plane HTTP gaps", () => {
           canvasId: fixture.canvasId,
           blockRef: fixture.blockRef,
           agentEndpointId: fixture.endpointId,
-          idempotencyKey: "gap-attach-retry"
+          idempotencyKey: "gap-attach-retry",
+          dispatchAuthority: fixture.dispatchAuthority
         })
       )
     });
-    expect(retry.status).toBe(503);
+    expect(retry.status).toBe(409);
+    await expect(retry.json()).resolves.toEqual({ error: "human_remote_operation_conflict" });
+    expect(fixture.countOperations()).toBe(1);
     expect(fixture.listRuntimeBindings()).toEqual([]);
   });
 
@@ -526,7 +544,7 @@ describe("workspace execution plane HTTP gaps", () => {
   });
 
   it("resets without a Runtime attachment and still fences active work and source drift", async () => {
-    const { origin, token, head, fingerprint } = await startCanvasCommandHttp();
+    const { origin, token, head, fingerprint, sourceRevision } = await startCanvasCommandHttp();
     const headers = {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json"
@@ -537,7 +555,7 @@ describe("workspace execution plane HTTP gaps", () => {
       body: JSON.stringify({
         operationId: "reset-unattached",
         expectedContentRevision: head.revision,
-        expectedSourceRevision: `snapshot:${"a".repeat(64)}`,
+        expectedSourceRevision: sourceRevision,
         expectedGraphFingerprint: fingerprint
       })
     });
@@ -554,7 +572,7 @@ describe("workspace execution plane HTTP gaps", () => {
       body: JSON.stringify({
         operationId: "reset-source-drift",
         expectedContentRevision: head.revision + 1,
-        expectedSourceRevision: `snapshot:${"a".repeat(64)}`,
+        expectedSourceRevision: sourceRevision,
         expectedGraphFingerprint: fingerprint
       })
     });
@@ -573,7 +591,7 @@ describe("workspace execution plane HTTP gaps", () => {
         body: JSON.stringify({
           operationId: "reset-active-work",
           expectedContentRevision: active.head.revision,
-          expectedSourceRevision: `snapshot:${"a".repeat(64)}`,
+          expectedSourceRevision: active.sourceRevision,
           expectedGraphFingerprint: active.fingerprint
         })
       }

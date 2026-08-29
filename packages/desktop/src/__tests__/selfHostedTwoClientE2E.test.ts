@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { remoteDispatchIntentV3Schema } from "@planweave-ai/collaboration-protocol/remote-run";
+import { workAuthorityProjectionSchema } from "@planweave-ai/collaboration-protocol/work/authority";
 import { serverBuildRevision } from "../../../server/src/packageInfo.js";
+import { ContentVersionRepository } from "../../../server/src/canvas/contentVersionRepository.js";
+import { readStableCanvasRuntimeContentTarget } from "../../../server/src/canvas/contentFingerprint.js";
+import { openServerDatabase } from "../../../server/src/sqlite.js";
 import {
   adminToken,
   configureWorkspaceAccess,
@@ -15,6 +19,25 @@ import {
   sendPresenceHello,
   setupSelfHostedTwoClientFixture
 } from "./support/selfHostedTwoClientE2E.js";
+
+async function readContentAuthority(input: {
+  databasePath: string;
+  workspaceId: string;
+  projectId: string;
+  canvasId: string;
+}) {
+  const database = await openServerDatabase(input.databasePath, 5_000);
+  try {
+    const target = readStableCanvasRuntimeContentTarget(new ContentVersionRepository(database), {
+      workspaceId: input.workspaceId,
+      projectId: input.projectId,
+      canvasId: input.canvasId
+    });
+    return { contentRevision: String(target.revision), graphFingerprint: target.graphFingerprint };
+  } finally {
+    database.close();
+  }
+}
 
 describe("self-hosted two-Desktop collaboration flow (OSS-006 B-002)", () => {
   it("redeems one-time setup codes through the Desktop Workspace connection and reaches one Workspace", async () => {
@@ -184,6 +207,18 @@ describe("self-hosted two-Desktop collaboration flow (OSS-006 B-002)", () => {
         revision: 1,
         content: { canonicalDigest: fixture.initialContent.canonicalDigest }
       });
+      const defaultContentAuthority = await readContentAuthority({
+        databasePath: fixture.databasePath,
+        workspaceId: fixture.workspaceId,
+        projectId: fixture.projectId,
+        canvasId: "default"
+      });
+      const privateContentAuthority = await readContentAuthority({
+        databasePath: fixture.databasePath,
+        workspaceId: fixture.workspaceId,
+        projectId: fixture.projectId,
+        canvasId: "private"
+      });
 
       const memberCanvases = await fetch(
         `${fixture.origin}/api/v1/registry/projects/${encodeURIComponent(fixture.projectId)}/canvases`,
@@ -277,6 +312,17 @@ describe("self-hosted two-Desktop collaboration flow (OSS-006 B-002)", () => {
         (endpoint) => endpoint.status === "available"
       )?.endpointId;
       expect(agentEndpointId).toBeTruthy();
+      const authorityResponse = await fetch(
+        `${fixture.origin}${assignmentPath}/authority?scope=${encodeURIComponent(JSON.stringify(blockScope))}`,
+        { headers: { authorization: `Bearer ${ownerToken}` } }
+      );
+      expect(authorityResponse.status).toBe(200);
+      const currentAuthority = workAuthorityProjectionSchema.parse(await authorityResponse.json());
+      const dispatchAuthorityRevisions = {
+        expectedResponsibilityRevision: currentAuthority.revisions.responsibilityRevision,
+        expectedReviewerRevision: currentAuthority.revisions.reviewerRevision,
+        executionTargetRevision: currentAuthority.revisions.executionTargetRevision
+      };
 
       for (const [request, status] of [
         [{ projectId: "untrusted-project" }, 403],
@@ -284,7 +330,9 @@ describe("self-hosted two-Desktop collaboration flow (OSS-006 B-002)", () => {
           {
             canvasId: "private",
             expectedResponsibilityRevision: 0,
-            expectedReviewerRevision: 0
+            expectedReviewerRevision: 0,
+            executionTargetRevision: 0,
+            ...privateContentAuthority
           },
           404
         ],
@@ -301,8 +349,8 @@ describe("self-hosted two-Desktop collaboration flow (OSS-006 B-002)", () => {
             blockRef: "T-001#B-001",
             agentEndpointId,
             idempotencyKey: `two-client-rejected-${status}`,
-            expectedResponsibilityRevision: 1,
-            expectedReviewerRevision: 1,
+            ...dispatchAuthorityRevisions,
+            ...defaultContentAuthority,
             ...request
           }
         );
@@ -317,8 +365,8 @@ describe("self-hosted two-Desktop collaboration flow (OSS-006 B-002)", () => {
         blockRef: "T-001#B-001",
         agentEndpointId,
         idempotencyKey: "two-client-exact-block-dispatch",
-        expectedResponsibilityRevision: 1,
-        expectedReviewerRevision: 1
+        ...dispatchAuthorityRevisions,
+        ...defaultContentAuthority
       });
       const dispatched = await postJson(
         fixture.origin,
@@ -357,8 +405,8 @@ describe("self-hosted two-Desktop collaboration flow (OSS-006 B-002)", () => {
           blockRef: "T-001#B-001",
           agentEndpointId,
           idempotencyKey: "two-client-exact-block-dispatch",
-          expectedResponsibilityRevision: 1,
-          expectedReviewerRevision: 1
+          ...dispatchAuthorityRevisions,
+          ...defaultContentAuthority
         }
       );
       expect(retry.status).toBe(202);

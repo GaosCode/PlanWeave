@@ -2,9 +2,9 @@ import { createHash } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  captureAuthorizedCanvasContent,
   createRemoteBlockArtifactSource,
   createRemoteBlockRuntimePort,
-  remoteBlockDispatchCandidateSchema,
   RemoteOwnershipConflictError,
   resetRuntimeState,
   type RemoteBlockRuntimePort
@@ -34,6 +34,8 @@ import { WorkAssignmentRepository } from "../work/repository.js";
 import type { AssignmentTarget } from "../work/schemas.js";
 import { canonicalRemoteRuntimePort } from "../canonicalRemoteRuntimePort.js";
 import { CanvasRuntimeUnavailableError } from "../canvas/executionRuntimePort.js";
+import { ContentVersionRepository } from "../canvas/contentVersionRepository.js";
+import { readStableCanvasRuntimeContentTarget } from "../canvas/contentFingerprint.js";
 import type { DispatchHostSelectionSnapshot } from "../work/dispatchIntegration.js";
 import {
   endpointDispatchRequest,
@@ -140,6 +142,12 @@ class StartupHarness {
       createRemoteBlockRuntimePort({ projectRoot: this.workspace.root })
     );
     const runtime = this.runtime;
+    const capturedContent = await captureAuthorizedCanvasContent({
+      projectRoot: this.workspace.root,
+      canvasId: this.locator.canvasId,
+      expectedPackageDir: this.workspace.init.workspace.packageDir,
+      authorityProjectId: this.locator.projectId
+    });
     const registry = new RemoteRuntimePortRegistry();
     if (options.runtimeUnavailable) {
       registry.setScopedResolver(() => {
@@ -157,6 +165,14 @@ class StartupHarness {
           database
         ).ensureWorkspaceForLegacyProject(this.locator.projectId);
         this.locator.workspaceId = workspaceId;
+        const contentVersions = new ContentVersionRepository(database);
+        if (!contentVersions.head(this.locator)) {
+          contentVersions.publishInitial({
+            scope: this.locator,
+            content: capturedContent.content,
+            createdBy: { kind: "system", id: "startup-test" }
+          });
+        }
         registry.bind(
           { ...this.locator, workspaceId },
           runtime,
@@ -199,24 +215,7 @@ class StartupHarness {
           hostOfflineAfterMs: 60_000,
           runtimeLeases: exactHostRuntimeRouteFixture(registry),
           runtimeContentTargets: {
-            read: (scope) => {
-              const row = database
-                .prepare(
-                  `SELECT c.candidate_json
-                   FROM remote_operation_candidates c
-                   JOIN remote_operations o ON o.id=c.operation_id
-                   WHERE o.workspace_id=? AND o.project_id=? AND o.canvas_id=?
-                   ORDER BY o.created_at DESC,o.id DESC LIMIT 1`
-                )
-                .get(scope.workspaceId, scope.projectId, scope.canvasId);
-              if (!row || typeof row.candidate_json !== "string") {
-                throw new Error("test_runtime_content_target_missing");
-              }
-              const candidate = remoteBlockDispatchCandidateSchema.parse(
-                JSON.parse(row.candidate_json)
-              );
-              return { revision: 1, graphFingerprint: candidate.graphFingerprint };
-            }
+            read: (scope) => readStableCanvasRuntimeContentTarget(contentVersions, scope)
           },
           inputArtifacts: { materialize: async () => {} },
           artifactContent: { readReport: async (ref) => this.requireArtifacts().read(ref) },
@@ -289,9 +288,17 @@ class StartupHarness {
   }
 
   request(idempotencyKey: string) {
+    const contentTarget = readStableCanvasRuntimeContentTarget(
+      new ContentVersionRepository(this.requireServer().database),
+      this.locator
+    );
     const request = endpointDispatchRequest({
       agentEndpoints: this.requireCoordination().agentEndpoints,
-      locator: this.locator,
+      locator: {
+        ...this.locator,
+        contentRevision: String(contentTarget.revision),
+        graphFingerprint: contentTarget.graphFingerprint
+      },
       blockRef: "T-001#B-001",
       idempotencyKey,
       agentEndpointId: this.agentEndpointId
@@ -335,7 +342,8 @@ class StartupHarness {
               agentEndpoints: this.requireCoordination().agentEndpoints,
               candidate,
               hostId: endpointHostId,
-              workspaceId: this.locator.workspaceId
+              workspaceId: this.locator.workspaceId,
+              database: this.requireServer().database
             })
           }),
       ...(agentAccessHostId === undefined

@@ -84,7 +84,8 @@ describe("Desktop operator control trust boundary", () => {
           agentEndpointId: "endpoint-1",
           idempotencyKey: "idem-1",
           expectedResponsibilityRevision: 0,
-          expectedReviewerRevision: 0
+          expectedReviewerRevision: 0,
+          executionTargetRevision: 0
         }
       })
     ).toThrow();
@@ -787,6 +788,7 @@ describe("Desktop operator control trust boundary", () => {
       );
       return new Response(
         JSON.stringify({
+          eventProtocolVersion: 2,
           executionAttemptId: "attempt-owner-001",
           afterCursor: 7,
           cursor: 9,

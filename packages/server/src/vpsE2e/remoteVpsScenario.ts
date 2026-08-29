@@ -49,6 +49,8 @@ export function buildRemoteVpsDispatchIntent(input: {
   blockRef: string;
   agentEndpointId: string;
   idempotencyKey: string;
+  contentRevision: string;
+  graphFingerprint: string;
 }): RemoteDispatchIntentV3 {
   return {
     schemaVersion: "remote-run/v3",
@@ -58,7 +60,10 @@ export function buildRemoteVpsDispatchIntent(input: {
     agentEndpointId: input.agentEndpointId,
     idempotencyKey: input.idempotencyKey,
     expectedResponsibilityRevision: 0,
-    expectedReviewerRevision: 0
+    expectedReviewerRevision: 0,
+    executionTargetRevision: 0,
+    contentRevision: input.contentRevision,
+    graphFingerprint: input.graphFingerprint
   };
 }
 
@@ -573,7 +578,9 @@ export async function runRemoteVpsScenario(options: {
           canvasId: options.config.canvasId,
           blockRef: options.config.blockRef,
           agentEndpointId,
-          idempotencyKey: `vps-e2e-remote-${Date.now()}`
+          idempotencyKey: `vps-e2e-remote-${Date.now()}`,
+          contentRevision: options.config.contentRevision,
+          graphFingerprint: options.config.graphFingerprint
         })
       )
     });

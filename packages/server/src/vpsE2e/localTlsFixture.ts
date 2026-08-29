@@ -551,7 +551,10 @@ export async function runLocalTlsFixture(options: {
         agentEndpointId,
         idempotencyKey: `vps-e2e-local-tls-${Date.now()}`,
         expectedResponsibilityRevision: 0,
-        expectedReviewerRevision: 0
+        expectedReviewerRevision: 0,
+        executionTargetRevision: 0,
+        contentRevision: "1",
+        graphFingerprint: workspace.graphFingerprint
       })
     });
     if (dispatchResponse.status !== 202) {

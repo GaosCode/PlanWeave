@@ -18,12 +18,17 @@ const v3 = {
   agentEndpointId: "aep_endpoint",
   idempotencyKey: "dispatch-once",
   expectedResponsibilityRevision: 3,
-  expectedReviewerRevision: 2
+  expectedReviewerRevision: 2,
+  executionTargetRevision: 4,
+  contentRevision: "7",
+  graphFingerprint: `pkg-${"a".repeat(64)}`
 };
 
 describe("remote-run/v3 dispatch contract", () => {
   it("accepts only the endpoint-scoped authority fields", () => {
     expect(remoteDispatchIntentV3Schema.parse(v3)).toEqual(v3);
+    const { executionTargetRevision: _, ...missingTargetRevision } = v3;
+    expect(() => remoteDispatchIntentV3Schema.parse(missingTargetRevision)).toThrow();
     for (const forbidden of [
       { hostId: "host-a" },
       { requestedHostId: "host-a" },

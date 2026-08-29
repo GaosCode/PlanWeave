@@ -548,6 +548,28 @@ const app = agent({ name: "planweave-acp-mock" })
     }
 
     const promptText = ctx.params.prompt.find((part) => part.type === "text")?.text ?? "";
+    if (
+      controlDir &&
+      (scenario === "artifact-review" || scenario === "artifact-review-needs-changes")
+    ) {
+      const reviewPromptPath = controlPath("last-review-prompt.txt");
+      if (reviewPromptPath) writeFileSync(reviewPromptPath, promptText, "utf8");
+    }
+    if (
+      controlDir &&
+      (scenario === "artifact-review" || scenario === "artifact-review-needs-changes") &&
+      (!promptText.includes("## Required Review Result JSON") ||
+        !promptText.includes('"reviewBlockRef": "T-001#R-001"') ||
+        !promptText.includes("PLANWEAVE_FINAL_ARTIFACT"))
+    ) {
+      throw RequestError.invalidParams({ reason: "missing shared remote review prompt contract" });
+    }
+    if (
+      controlDir &&
+      (scenario === "artifact-review" || scenario === "artifact-review-needs-changes")
+    ) {
+      recordLifecycle("review prompt verified");
+    }
     const taskPrompt = promptText.split("\n\nPLANWEAVE RUNNER-ONLY FINAL ARTIFACT CONTRACT", 1)[0];
     const artifactScenario =
       scenario.startsWith("artifact-") ||

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   endpointSelectionSnapshotSchema,
+  legacyEndpointSelectionSnapshotSchema,
   mapEndpointAuthorityToRuntimeSnapshot,
   persistEndpointSelectionSnapshot,
   readEndpointSelectionSnapshot,
@@ -49,7 +50,8 @@ const v2Workspace = {
     kind: "workspace_canvas" as const,
     workspaceId: "workspace-a",
     responsibilityRevision: 2,
-    reviewerRevision: 3
+    reviewerRevision: 3,
+    executionTargetRevision: 6
   }
 };
 
@@ -59,40 +61,32 @@ const v2Owner = {
     schemaVersion: "endpoint-authority/v2" as const,
     kind: "owner_canvas" as const,
     responsibilityRevision: 4,
-    reviewerRevision: 5
+    reviewerRevision: 5,
+    executionTargetRevision: 7
   }
 };
 
 describe("endpoint-authority snapshot", () => {
-  it("parses both endpoint-authority/v1 and v2 inside endpoint-selection/v1", () => {
-    expect(endpointSelectionSnapshotSchema.parse(v1Collaboration)).toEqual(v1Collaboration);
-    expect(endpointSelectionSnapshotSchema.parse(v1Owner)).toEqual(v1Owner);
+  it("isolates legacy reads from strict current endpoint selections", () => {
+    expect(legacyEndpointSelectionSnapshotSchema.parse(v1Collaboration)).toEqual(v1Collaboration);
+    expect(legacyEndpointSelectionSnapshotSchema.parse(v1Owner)).toEqual(v1Owner);
     expect(endpointSelectionSnapshotSchema.parse(v2Workspace)).toEqual(v2Workspace);
     expect(endpointSelectionSnapshotSchema.parse(v2Owner)).toEqual(v2Owner);
+    expect(() => endpointSelectionSnapshotSchema.parse(v1Collaboration)).toThrow();
   });
 
-  it("maps v1 controlPlane to v2 runtime authority using the operation workspace", () => {
-    expect(mapEndpointAuthorityToRuntimeSnapshot(v1Owner.authority, "workspace-a")).toEqual({
-      schemaVersion: "endpoint-authority/v2",
-      kind: "owner_canvas",
-      responsibilityRevision: 4,
-      reviewerRevision: 5
-    });
-    expect(mapEndpointAuthorityToRuntimeSnapshot(v1Collaboration.authority, "workspace-a")).toEqual(
-      {
-        schemaVersion: "endpoint-authority/v2",
-        kind: "workspace_canvas",
-        workspaceId: "workspace-a",
-        responsibilityRevision: 2,
-        reviewerRevision: 3
-      }
+  it("fails closed when a legacy read enters current authorization", () => {
+    expect(() => mapEndpointAuthorityToRuntimeSnapshot(v1Owner.authority, "workspace-a")).toThrow(
+      "endpoint_authority_execution_target_revision_missing"
     );
-    expect(readEndpointSelectionSnapshot(v1Collaboration, "workspace-a")).toEqual(v2Workspace);
-    expect(readEndpointSelectionSnapshot(v1Owner, "workspace-ignored")).toEqual(v2Owner);
+    expect(() => readEndpointSelectionSnapshot(v1Collaboration, "workspace-a")).toThrow(
+      "endpoint_authority_execution_target_revision_missing"
+    );
+    expect(readEndpointSelectionSnapshot(v2Workspace, "workspace-a")).toEqual(v2Workspace);
   });
 
   it("persists v2 only and rejects a workspace_canvas snapshot without workspaceId", () => {
-    expect(persistEndpointSelectionSnapshot(v1Collaboration, "workspace-a")).toEqual(v2Workspace);
+    expect(() => persistEndpointSelectionSnapshot(v1Collaboration, "workspace-a")).toThrow();
     expect(persistEndpointSelectionSnapshot(v2Owner, "workspace-a")).toEqual(v2Owner);
     expect(writeEndpointSelectionSnapshotSchema.parse(v2Workspace)).toEqual(v2Workspace);
     expect(() => writeEndpointSelectionSnapshotSchema.parse(v1Collaboration)).toThrow();
@@ -113,25 +107,27 @@ describe("endpoint-authority snapshot", () => {
     expect(
       runtimeAuthoritySnapshotForTarget(
         { kind: "owner_canvas" },
-        { responsibilityRevision: 1, reviewerRevision: 2 }
+        { responsibilityRevision: 1, reviewerRevision: 2, executionTargetRevision: 3 }
       )
     ).toEqual({
       schemaVersion: "endpoint-authority/v2",
       kind: "owner_canvas",
       responsibilityRevision: 1,
-      reviewerRevision: 2
+      reviewerRevision: 2,
+      executionTargetRevision: 3
     });
     expect(
       runtimeAuthoritySnapshotForTarget(
         { kind: "workspace_canvas", workspaceId: "workspace-a" },
-        { responsibilityRevision: 1, reviewerRevision: 2 }
+        { responsibilityRevision: 1, reviewerRevision: 2, executionTargetRevision: 3 }
       )
     ).toEqual({
       schemaVersion: "endpoint-authority/v2",
       kind: "workspace_canvas",
       workspaceId: "workspace-a",
       responsibilityRevision: 1,
-      reviewerRevision: 2
+      reviewerRevision: 2,
+      executionTargetRevision: 3
     });
     expect(runtimeControlPlane(v2Owner.authority)).toBe("owner");
     expect(runtimeControlPlane(v2Workspace.authority)).toBe("collaboration");

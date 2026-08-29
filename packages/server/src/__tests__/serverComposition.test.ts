@@ -2,7 +2,9 @@ import { createServer, type Server as HttpServer } from "node:http";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { captureAuthorizedCanvasContent } from "@planweave-ai/runtime";
 import { createTestWorkspace } from "../../../runtime/src/__tests__/promptTestHelpers.js";
+import { ContentVersionRepository } from "../canvas/contentVersionRepository.js";
 import { hashOperatorToken } from "../operatorAuth.js";
 import { parseServerConfig } from "../config.js";
 import { ProjectAccessRepository } from "../projectAccessRepository.js";
@@ -15,6 +17,7 @@ import {
 import {
   adminToken,
   jsonHeaders,
+  readDispatchAuthority,
   remoteManifest,
   setupServerCompositionFixture
 } from "./support/serverCompositionFixture.js";
@@ -111,6 +114,12 @@ describe("distributed server composition", () => {
     });
     const composition = await createDistributedServerComposition({ httpServer, config });
     compositions.push(composition);
+    const captured = await captureAuthorizedCanvasContent({
+      projectRoot: workspace.root,
+      canvasId: "default",
+      expectedPackageDir: workspace.init.workspace.packageDir,
+      authorityProjectId: restoredProjectId
+    });
     const database = await openServerDatabase(config.databasePath, 5_000);
     try {
       const access = new ProjectAccessRepository(database);
@@ -135,6 +144,15 @@ describe("distributed server composition", () => {
         )
         .run(restoredProjectId);
       workspaceIdentity.ensureLegacyProjectAdapter(restoredProjectId, "workspace-self-host");
+      new ContentVersionRepository(database).publishInitial({
+        scope: {
+          workspaceId: "workspace-self-host",
+          projectId: restoredProjectId,
+          canvasId: "default"
+        },
+        content: captured.content,
+        createdBy: { kind: "system", id: "server-composition-test" }
+      });
     } finally {
       database.close();
     }
@@ -214,8 +232,13 @@ describe("distributed server composition", () => {
           blockRef: "T-001#B-001",
           agentEndpointId: "missing-agent-endpoint",
           idempotencyKey: "pathless-registry-dispatch",
-          expectedResponsibilityRevision: 0,
-          expectedReviewerRevision: 0
+          ...(await readDispatchAuthority({
+            databasePath: config.databasePath,
+            workspaceId: "workspace-self-host",
+            projectId: restoredProjectId,
+            canvasId: "default",
+            blockRef: "T-001#B-001"
+          }))
         })
       }
     );
@@ -242,7 +265,7 @@ describe("distributed server composition", () => {
       }
     );
     expect(head.status).toBe(200);
-    await expect(head.json()).resolves.toBeNull();
+    await expect(head.json()).resolves.toMatchObject({ revision: 1 });
 
     const runtimeAvailability = await fetch(
       `${origin}/api/v1/projects/${restoredProjectId}/canvases/default/runtime-availability`,
@@ -270,10 +293,9 @@ describe("distributed server composition", () => {
         body: JSON.stringify({ afterRevision: 0 })
       }
     );
-    expect(reconnect.status).toBe(409);
+    expect(reconnect.status).toBe(200);
     await expect(reconnect.json()).resolves.toMatchObject({
-      type: "canvas.reconnect.error",
-      code: "snapshot_malformed"
+      type: "canvas.reconnect.snapshot"
     });
 
     const revokeDatabase = await openServerDatabase(config.databasePath, 5_000);
@@ -298,7 +320,8 @@ describe("distributed server composition", () => {
     );
     expect(revokedOperatorAgentEndpoints.status).toBe(403);
     await expect(revokedOperatorAgentEndpoints.json()).resolves.toEqual({
-      error: "operator_scope_forbidden"
+      error: "operator_scope_forbidden",
+      serverBuildRevision: "development"
     });
     const revokedAssignment = await fetch(
       `${origin}/api/v1/projects/${restoredProjectId}/assignments?workItem=${workItem}`,

@@ -16,6 +16,8 @@ import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js"
 import { ProjectAccessRepository } from "../projectAccessRepository.js";
 import { AuthorityRepository } from "../work/authorityRepository.js";
 import { CanvasRuntimeAttachmentConflictError } from "../canvas/runtimeAttachment.js";
+import { ContentVersionRepository } from "../canvas/contentVersionRepository.js";
+import { readStableCanvasRuntimeContentTarget } from "../canvas/contentFingerprint.js";
 import { RuntimeArtifactGrantRepository } from "../canvas/runtimeArtifactGrantRepository.js";
 import {
   endpointDispatchRequest,
@@ -142,12 +144,13 @@ async function setupInterruptedV3EndpointOperation(idempotencyKey: string) {
   const endpoint = fixture.agentEndpoints.listVisibleFleet().items[0];
   if (!endpoint) throw new Error("expected_test_endpoint");
   const dispatched = await fixture.coordinator.dispatch({
-    ...fixture.locator,
+    ...fixture.dispatchLocator,
     blockRef: "T-001#B-001",
     idempotencyKey,
     agentEndpointId: endpoint.endpointId,
     expectedResponsibilityRevision: 0,
     expectedReviewerRevision: 0,
+    executionTargetRevision: 0,
     targetKind: "workspace_canvas",
     callerHumanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
   });
@@ -216,12 +219,13 @@ async function setupActiveV3EndpointOperation(idempotencyKey: string) {
   const endpoint = fixture.agentEndpoints.listVisibleFleet().items[0];
   if (!endpoint) throw new Error("expected_test_endpoint");
   const outcome = await fixture.coordinator.dispatch({
-    ...fixture.locator,
+    ...fixture.dispatchLocator,
     blockRef: "T-001#B-001",
     idempotencyKey,
     agentEndpointId: endpoint.endpointId,
     expectedResponsibilityRevision: 0,
     expectedReviewerRevision: 0,
+    executionTargetRevision: 0,
     targetKind: "workspace_canvas",
     callerHumanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
   });
@@ -229,6 +233,36 @@ async function setupActiveV3EndpointOperation(idempotencyKey: string) {
 }
 
 describe("RemoteBlockCoordinator", () => {
+  it("rejects stale execution-target CAS before operation creation", async () => {
+    const fixture = await setup(true);
+    if (!fixture.host) throw new Error("host");
+    const scope = { kind: "block" as const, ...fixture.locator, blockRef: "T-001#B-001" };
+    new AuthorityRepository(fixture.server.database).applyExecutionTarget({
+      mutation: {
+        schemaVersion: "execution-target/v1",
+        scope,
+        target: { kind: "exact_host", hostId: fixture.host.id },
+        expectedRevision: 0
+      },
+      actor: { kind: "system", id: "test-system" }
+    });
+    const countOperations = () =>
+      fixture.server.database.prepare("SELECT COUNT(*) count FROM remote_operations").get();
+    const before = countOperations();
+    await expect(
+      fixture.coordinator.dispatch(
+        endpointDispatchRequest({
+          agentEndpoints: fixture.agentEndpoints,
+          locator: fixture.dispatchLocator,
+          blockRef: scope.blockRef,
+          idempotencyKey: "stalecas",
+          executionTargetRevision: 0
+        })
+      )
+    ).rejects.toMatchObject({ code: "work_revision_conflict" });
+    expect(countOperations()).toEqual(before);
+  });
+
   it("routes a built-in logical executor through the selected Host ACP profile", async () => {
     const manifest = basicManifest();
     manifest.execution.defaultExecutor = "codex";
@@ -237,12 +271,13 @@ describe("RemoteBlockCoordinator", () => {
     if (!endpoint) throw new Error("expected_test_endpoint");
 
     const outcome = await fixture.coordinator.dispatch({
-      ...fixture.locator,
+      ...fixture.dispatchLocator,
       blockRef: "T-001#B-001",
       idempotencyKey: "built-in-codex-selected-endpoint",
       agentEndpointId: endpoint.endpointId,
       expectedResponsibilityRevision: 0,
       expectedReviewerRevision: 0,
+      executionTargetRevision: 0,
       targetKind: "workspace_canvas",
       callerHumanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
     });
@@ -270,7 +305,7 @@ describe("RemoteBlockCoordinator", () => {
     const unsubscribe = fixture.mailbox.subscribe(fixture.host?.id ?? "", publish);
     const request = endpointDispatchRequest({
       agentEndpoints: fixture.agentEndpoints,
-      locator: fixture.locator,
+      locator: fixture.dispatchLocator,
       blockRef: "T-001#B-001",
       idempotencyKey: "dispatch-request-1"
     });
@@ -377,7 +412,7 @@ describe("RemoteBlockCoordinator", () => {
     const outcome = await fixture.coordinator.dispatch(
       endpointDispatchRequest({
         agentEndpoints: fixture.agentEndpoints,
-        locator: fixture.locator,
+        locator: fixture.dispatchLocator,
         blockRef: "T-001#B-001",
         idempotencyKey: "selected-ready-endpoint"
       })
@@ -426,11 +461,12 @@ describe("RemoteBlockCoordinator", () => {
     const outcome = await fixture.coordinator.dispatch(
       endpointDispatchRequest({
         agentEndpoints: fixture.agentEndpoints,
-        locator: fixture.locator,
+        locator: fixture.dispatchLocator,
         blockRef: scope.blockRef,
         idempotencyKey: "strict-authority-recheck",
         expectedResponsibilityRevision: 0,
-        expectedReviewerRevision: 0
+        expectedReviewerRevision: 0,
+        executionTargetRevision: 1
       })
     );
     authority.applyReviewer({
@@ -479,6 +515,24 @@ describe("RemoteBlockCoordinator", () => {
       canvasId: secondLocator.canvasId,
       packageDir: fixture.workspace.init.workspace.packageDir
     });
+    const contentVersions = new ContentVersionRepository(fixture.server.database);
+    const firstHead = contentVersions.head(fixture.locator);
+    if (!firstHead) throw new Error("test_content_head_missing");
+    const secondContent = contentVersions.readVersion(fixture.locator, firstHead.content);
+    contentVersions.publishInitial({
+      scope: secondLocator,
+      content: secondContent.content,
+      createdBy: { kind: "system", id: "second-workspace-test" }
+    });
+    const secondContentTarget = readStableCanvasRuntimeContentTarget(
+      contentVersions,
+      secondLocator
+    );
+    const secondDispatchLocator = {
+      ...secondLocator,
+      contentRevision: String(secondContentTarget.revision),
+      graphFingerprint: secondContentTarget.graphFingerprint
+    };
     const host = fixture.hosts.register("Second Workspace Host").host;
     ownHostRemoteAgents({
       database: fixture.server.database,
@@ -525,9 +579,10 @@ describe("RemoteBlockCoordinator", () => {
     const outcome = await fixture.coordinator.dispatch(
       endpointDispatchRequest({
         agentEndpoints: fixture.agentEndpoints,
-        locator: secondLocator,
+        locator: secondDispatchLocator,
         blockRef: scope.blockRef,
         idempotencyKey: "strict-authority-exact-workspace",
+        executionTargetRevision: 1,
         agentEndpointId: endpointIdFor({
           hostId: host.id,
           profileId: "codex-acp",
@@ -635,7 +690,8 @@ describe("RemoteBlockCoordinator", () => {
         agentEndpoints: fixture.agentEndpoints,
         candidate,
         hostId: hostA.id,
-        workspaceId
+        workspaceId,
+        database: fixture.server.database
       }),
       hostSelection: {
         workspaceId,
@@ -904,7 +960,7 @@ describe("RemoteBlockCoordinator", () => {
     const pending = await fixture.coordinator.dispatch({
       ...endpointDispatchRequest({
         agentEndpoints: fixture.agentEndpoints,
-        locator: fixture.locator,
+        locator: fixture.dispatchLocator,
         blockRef: "T-001#B-001",
         idempotencyKey: "dispatch-request-drift"
       })
@@ -942,12 +998,13 @@ describe("RemoteBlockCoordinator", () => {
     expect(endpoint.status).toBe("available");
 
     const outcome = await fixture.coordinator.dispatch({
-      ...fixture.locator,
+      ...fixture.dispatchLocator,
       blockRef: "T-001#B-001",
       idempotencyKey: "fleet-unbound-dispatch",
       agentEndpointId: endpoint.endpointId,
       expectedResponsibilityRevision: 0,
       expectedReviewerRevision: 0,
+      executionTargetRevision: 0,
       targetKind: "owner_canvas",
       callerHumanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
     });
@@ -980,12 +1037,13 @@ describe("RemoteBlockCoordinator", () => {
     });
 
     const outcome = await fixture.coordinator.dispatch({
-      ...fixture.locator,
+      ...fixture.dispatchLocator,
       blockRef: "T-001#B-001",
       idempotencyKey: "workspace-unmapped-unrestricted-dispatch",
       agentEndpointId: endpoint.endpointId,
       expectedResponsibilityRevision: 0,
       expectedReviewerRevision: 0,
+      executionTargetRevision: 0,
       targetKind: "workspace_canvas",
       callerHumanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
     });
@@ -1014,13 +1072,14 @@ describe("RemoteBlockCoordinator", () => {
 
     const dispatchOwner = (blockRef: string, idempotencyKey: string) =>
       fixture.coordinator.dispatch({
-        ...fixture.locator,
+        ...fixture.dispatchLocator,
         blockRef,
         idempotencyKey,
         agentEndpointId: endpoint.endpointId,
         targetKind: "owner_canvas",
         expectedResponsibilityRevision: 0,
         expectedReviewerRevision: 0,
+        executionTargetRevision: 0,
         callerHumanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
       });
 

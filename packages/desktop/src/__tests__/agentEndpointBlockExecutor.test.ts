@@ -125,7 +125,11 @@ describe("createAgentEndpointBlockExecutor live remote binding (C3)", () => {
     const dispatch = vi.fn(async () => observation("operation-first-dispatch", "running"));
     const observe = vi.fn(async () => observation("operation-live-active", "running"));
     const ensureWorkAuthority = vi.fn(async () => ({
-      revisions: { responsibilityRevision: 1, reviewerRevision: 2 }
+      revisions: {
+        responsibilityRevision: 1,
+        reviewerRevision: 2,
+        executionTargetRevision: 3
+      }
     }));
     const waitForRemoteTerminal = vi.fn(async (input: { initial: RemoteOperationObservation }) => ({
       ...input.initial,
@@ -146,6 +150,10 @@ describe("createAgentEndpointBlockExecutor live remote binding (C3)", () => {
         onCollaborationObserverSignal: vi.fn(() => () => undefined)
       },
       resolveLiveRemoteBinding,
+      resolveRemoteContentAuthority: async () => ({
+        contentRevision: "1",
+        graphFingerprint: `pkg-${"a".repeat(64)}`
+      }),
       createId: () => "id-1",
       startLocal: vi.fn(async () => null as DesktopAutoRunState | null),
       stopLocal: vi.fn(),
@@ -190,7 +198,11 @@ describe("createAgentEndpointBlockExecutor live remote binding (C3)", () => {
     const dispatch = vi.fn(async () => observation("operation-re-review", "running"));
     const observe = vi.fn();
     const ensureWorkAuthority = vi.fn(async () => ({
-      revisions: { responsibilityRevision: 3, reviewerRevision: 4 }
+      revisions: {
+        responsibilityRevision: 3,
+        reviewerRevision: 4,
+        executionTargetRevision: 5
+      }
     }));
     const waitForRemoteTerminal = vi.fn(async () =>
       observation("operation-re-review", "completed")
@@ -208,6 +220,10 @@ describe("createAgentEndpointBlockExecutor live remote binding (C3)", () => {
         onCollaborationObserverSignal: vi.fn(() => () => undefined)
       },
       resolveLiveRemoteBinding,
+      resolveRemoteContentAuthority: async () => ({
+        contentRevision: "1",
+        graphFingerprint: `pkg-${"a".repeat(64)}`
+      }),
       createId: () => "id-2",
       startLocal: vi.fn(async () => null as DesktopAutoRunState | null),
       stopLocal: vi.fn(),
@@ -236,9 +252,17 @@ describe("createAgentEndpointBlockExecutor live remote binding (C3)", () => {
         executeOwnerFleetRemoteOperationAction: vi.fn()
       },
       resolveRemoteWorkAuthority: async () => ({
-        revisions: { responsibilityRevision: 0, reviewerRevision: 0 }
+        revisions: {
+          responsibilityRevision: 0,
+          reviewerRevision: 0,
+          executionTargetRevision: 0
+        }
       }),
       resolveLiveRemoteBinding: vi.fn(async () => null),
+      resolveRemoteContentAuthority: async () => ({
+        contentRevision: "1",
+        graphFingerprint: `pkg-${"a".repeat(64)}`
+      }),
       createId: () => "fleet-dispatch-1",
       startLocal: vi.fn(async () => null as DesktopAutoRunState | null),
       stopLocal: vi.fn(),
@@ -253,7 +277,8 @@ describe("createAgentEndpointBlockExecutor live remote binding (C3)", () => {
         projectId: "project-server",
         agentEndpointId: "endpoint-windows",
         expectedResponsibilityRevision: 0,
-        expectedReviewerRevision: 0
+        expectedReviewerRevision: 0,
+        executionTargetRevision: 0
       })
     });
     expect(waitForRemoteTerminal).toHaveBeenCalledWith(

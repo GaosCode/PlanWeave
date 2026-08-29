@@ -373,7 +373,10 @@ describe("RemoteControlService owner fleet control plane", () => {
         agentEndpointId: endpoint.endpointId,
         humanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID,
         expectedResponsibilityRevision: 1,
-        expectedReviewerRevision: 1
+        expectedReviewerRevision: 1,
+        executionTargetRevision: 1,
+        contentRevision: "1",
+        graphFingerprint: `pkg-${"a".repeat(64)}`
       })
     ).rejects.toThrow("Exact Host is not authorized to serve this project.");
 

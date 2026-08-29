@@ -263,8 +263,14 @@ describe("distributed server composition Stage H contracts", () => {
     const second = await dispatch(adminToken);
     expect(first.status).toBe(400);
     expect(second.status).toBe(400);
-    await expect(first.json()).resolves.toEqual({ error: "remote_run_v3_required" });
-    await expect(second.json()).resolves.toEqual({ error: "remote_run_v3_required" });
+    await expect(first.json()).resolves.toEqual({
+      error: "remote_run_v3_required",
+      serverBuildRevision: "development"
+    });
+    await expect(second.json()).resolves.toEqual({
+      error: "remote_run_v3_required",
+      serverBuildRevision: "development"
+    });
 
     const forbidden = await dispatch(projectToken, {
       schemaVersion: "remote-run/v3",
@@ -273,8 +279,7 @@ describe("distributed server composition Stage H contracts", () => {
       blockRef: request.blockRef,
       agentEndpointId: "endpoint-unauthorized",
       idempotencyKey: request.idempotencyKey,
-      expectedResponsibilityRevision: request.expectedResponsibilityRevision,
-      expectedReviewerRevision: request.expectedReviewerRevision
+      ...fixture.dispatchAuthority
     });
     expect(forbidden.status).toBe(403);
     const hosts = await fetch(`${fixture.origin}/api/v1/hosts?limit=1`, {

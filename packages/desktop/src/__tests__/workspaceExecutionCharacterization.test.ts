@@ -82,7 +82,10 @@ describe("workspace execution authority characterization", () => {
       agentEndpointId: "endpoint-characterization",
       idempotencyKey: "dispatch-characterization",
       expectedResponsibilityRevision: 1,
-      expectedReviewerRevision: 1
+      expectedReviewerRevision: 1,
+      executionTargetRevision: 1,
+      contentRevision: "7",
+      graphFingerprint: `pkg-${"a".repeat(64)}`
     });
 
     expect(current.activeClientCalls).toHaveBeenCalledTimes(2);

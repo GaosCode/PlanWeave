@@ -56,7 +56,7 @@ import {
   type RemoteBlockRefIdentity,
   type RemoteBlockRetryAttemptInput
 } from "./remoteBlockRuntimeContracts.js";
-import { remoteBlockSourceEvidence, sameRemoteBlockSource } from "./remoteBlockSource.js";
+import { remoteBlockSourceEvidence, sameRemoteBlockAuthority } from "./remoteBlockSource.js";
 import {
   loadRuntime,
   loadRuntimeReadonly,
@@ -192,7 +192,7 @@ export function createRemoteBlockRuntimePort(options: {
         });
         if (current.remoteOwnership) {
           const source = await remoteBlockSourceEvidence(context, input.ref);
-          if (!sameRemoteBlockSource(source, input)) {
+          if (!sameRemoteBlockAuthority(source, input)) {
             context.state.blocks[input.ref] = markRemoteBlockOwnershipSourceDrift({
               blockType,
               blockState: current,
@@ -209,7 +209,7 @@ export function createRemoteBlockRuntimePort(options: {
         } else {
           await assertRemoteBlockDispatchable(context, input.ref);
           const source = await remoteBlockSourceEvidence(context, input.ref);
-          if (!sameRemoteBlockSource(source, input)) {
+          if (!sameRemoteBlockAuthority(source, input)) {
             throw new RemoteBlockRuntimeError(
               "remote_block_source_changed",
               `Inspected source for '${input.ref}' is no longer current.`
@@ -244,7 +244,7 @@ export function createRemoteBlockRuntimePort(options: {
           ownership: identityFromInput(input)
         });
         const source = await remoteBlockSourceEvidence(context, input.ref);
-        if (!sameRemoteBlockSource(source, input)) {
+        if (!sameRemoteBlockAuthority(source, input)) {
           context.state.blocks[input.ref] = markRemoteBlockOwnershipSourceDrift({
             blockType,
             blockState: context.state.blocks[input.ref],
@@ -287,7 +287,7 @@ export function createRemoteBlockRuntimePort(options: {
           return view;
         }
         const source = await remoteBlockSourceEvidence(context, ref);
-        if (!sameRemoteBlockSource(source, view.ownership)) {
+        if (!sameRemoteBlockAuthority(source, view.ownership)) {
           context.state.blocks[ref] = markRemoteBlockOwnershipSourceDrift({
             blockType,
             blockState: context.state.blocks[ref],
@@ -312,7 +312,7 @@ export function createRemoteBlockRuntimePort(options: {
           ownership: identityFromInput(input)
         });
         const source = await remoteBlockSourceEvidence(context, input.ref);
-        if (!sameRemoteBlockSource(source, input)) {
+        if (!sameRemoteBlockAuthority(source, input)) {
           context.state.blocks[input.ref] = markRemoteBlockOwnershipSourceDrift({
             blockType,
             blockState: context.state.blocks[input.ref],
@@ -396,7 +396,7 @@ export function createRemoteBlockRuntimePort(options: {
           ownership: requested
         });
         const source = await remoteBlockSourceEvidence(context, input.ref);
-        if (!sameRemoteBlockSource(source, input)) {
+        if (!sameRemoteBlockAuthority(source, input)) {
           context.state.blocks[input.ref] = markRemoteBlockOwnershipSourceDrift({
             blockType,
             blockState: context.state.blocks[input.ref],
@@ -444,7 +444,7 @@ export function createRemoteBlockRuntimePort(options: {
           ownership: identityFromInput(input)
         });
         const source = await remoteBlockSourceEvidence(context, input.ref);
-        if (!sameRemoteBlockSource(source, input)) {
+        if (!sameRemoteBlockAuthority(source, input)) {
           context.state.blocks[input.ref] = markRemoteBlockOwnershipSourceDrift({
             blockType,
             blockState: context.state.blocks[input.ref],
@@ -502,7 +502,7 @@ export function createRemoteBlockRuntimePort(options: {
           ownership: identityFromInput(input)
         });
         const source = await remoteBlockSourceEvidence(context, input.ref);
-        if (!sameRemoteBlockSource(source, input)) {
+        if (!sameRemoteBlockAuthority(source, input)) {
           context.state.blocks[input.ref] = markRemoteBlockOwnershipSourceDrift({
             blockType,
             blockState: current,

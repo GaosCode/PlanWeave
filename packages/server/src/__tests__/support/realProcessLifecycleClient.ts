@@ -17,6 +17,9 @@ import {
   type RealProcessAcpHarness
 } from "./realProcessAcpHarness.js";
 import { TEST_REMOTE_AGENT_OWNER_ID } from "./remoteAgentOwnerFixture.js";
+import { ContentVersionRepository } from "../../canvas/contentVersionRepository.js";
+import { readStableCanvasRuntimeContentTarget } from "../../canvas/contentFingerprint.js";
+import { AuthorityRepository } from "../../work/authorityRepository.js";
 
 const require = createRequire(import.meta.url);
 
@@ -114,6 +117,7 @@ function openSqlite(path: string, readOnly = true) {
         get(...values: unknown[]): Record<string, unknown> | undefined;
         all(...values: unknown[]): Array<Record<string, unknown>>;
       };
+      exec(sql: string): void;
       close(): void;
     };
   };
@@ -183,7 +187,7 @@ export class RealProcessLifecycleClient {
     const body = result.body as OperatorOperationView & { error?: string };
     if (result.status !== 202) {
       throw new Error(
-        `real_process_lifecycle_dispatch_failed:${result.status}:${body.error ?? JSON.stringify(body)}`
+        `real_process_lifecycle_dispatch_failed:${result.status}:${body.error ?? JSON.stringify(body)}\n${this.harness.diagnostics()}`
       );
     }
     return body;
@@ -195,22 +199,58 @@ export class RealProcessLifecycleClient {
     canvasId?: string;
     agentEndpointId?: string;
   }): Promise<{ status: number; body: unknown; text: string }> {
+    const canvasId = input.canvasId ?? "default";
     const agentEndpointId = input.agentEndpointId ?? (await this.availableAgentEndpointId());
+    const authority = this.dispatchAuthority(input.blockRef, canvasId);
     return this.rawRequest({
       method: "POST",
       path: "/api/v1/remote-operations",
       body: {
         schemaVersion: "remote-run/v3",
         projectId: this.harness.projectId,
-        canvasId: input.canvasId ?? "default",
+        canvasId,
         blockRef: input.blockRef,
         agentEndpointId,
         idempotencyKey: input.idempotencyKey,
-        expectedResponsibilityRevision: 0,
-        expectedReviewerRevision: 0,
+        ...authority,
         humanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
       }
     });
+  }
+
+  dispatchAuthority(blockRef: string, canvasId = "default") {
+    const database = openSqlite(this.serverDatabasePath());
+    const scopeRow = database
+      .prepare(
+        `SELECT workspace_id FROM canvas_content_heads
+         WHERE project_id=? AND canvas_id=? AND revision>0`
+      )
+      .get(this.harness.projectId, canvasId) as { workspace_id: string } | undefined;
+    const content = scopeRow
+      ? readStableCanvasRuntimeContentTarget(new ContentVersionRepository(database), {
+          workspaceId: scopeRow.workspace_id,
+          projectId: this.harness.projectId,
+          canvasId
+        })
+      : undefined;
+    const revisions = scopeRow
+      ? new AuthorityRepository(database).currentRevisions({
+          kind: "block",
+          workspaceId: scopeRow.workspace_id,
+          projectId: this.harness.projectId,
+          canvasId,
+          blockRef
+        })
+      : undefined;
+    database.close();
+    if (!content || !revisions) throw new Error("real_process_content_authority_missing");
+    return {
+      expectedResponsibilityRevision: revisions.responsibilityRevision,
+      expectedReviewerRevision: revisions.reviewerRevision,
+      executionTargetRevision: revisions.executionTargetRevision,
+      contentRevision: String(content.revision),
+      graphFingerprint: content.graphFingerprint
+    };
   }
 
   /**
@@ -598,6 +638,22 @@ export class RealProcessLifecycleClient {
     }
   }
 
+  async waitForPersistedOperationState(
+    operationId: string,
+    expected: readonly string[]
+  ): Promise<ReturnType<RealProcessLifecycleClient["readOperationDiagnostic"]>> {
+    let latest: ReturnType<RealProcessLifecycleClient["readOperationDiagnostic"]> | undefined;
+    await waitFor(
+      () => {
+        latest = this.readOperationDiagnostic(operationId);
+        return expected.includes(latest.state);
+      },
+      { timeoutMs: this.timeoutMs, label: `persisted-operation:${operationId}` }
+    );
+    if (!latest) throw new Error(`real_process_lifecycle_operation_missing:${operationId}`);
+    return latest;
+  }
+
   readHostTerminalReceipt(
     dispatchId: string,
     hostDataDir = this.harness.paths.hostData
@@ -681,6 +737,18 @@ export class RealProcessLifecycleClient {
     const digest = createHash("sha256").update(bytes).digest("hex");
     if (digest !== sha256) throw new Error("real_process_lifecycle_artifact_digest_mismatch");
     return bytes;
+  }
+
+  readServerArtifactMediaType(artifactRef: string): string {
+    const database = openSqlite(this.serverDatabasePath());
+    const row = database
+      .prepare("SELECT media_type FROM artifact_blobs WHERE ref=?")
+      .get(artifactRef);
+    database.close();
+    if (!row || typeof row.media_type !== "string") {
+      throw new Error(`real_process_lifecycle_artifact_metadata_missing:${artifactRef}`);
+    }
+    return row.media_type;
   }
 
   serverArtifactBlobExists(artifactRef: string): boolean {

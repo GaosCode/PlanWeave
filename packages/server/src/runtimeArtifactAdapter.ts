@@ -25,6 +25,18 @@ export class RuntimeInputArtifactMaterializer implements RemoteInputArtifactPort
     const candidate = remoteBlockDispatchCandidateSchema.parse(rawCandidate);
     for (const declared of candidate.inputArtifacts) {
       if (!declared.mediaType) throw new Error("remote_input_artifact_media_type_required");
+      const existing = this.artifacts.get(declared.artifactRef);
+      if (existing) {
+        if (existing.mediaType !== declared.mediaType) {
+          throw new Error("remote_input_artifact_store_conflict");
+        }
+        const bytes = await this.artifacts.read(declared.artifactRef);
+        const digest = createHash("sha256").update(bytes).digest("hex");
+        if (digest !== digestFromRef(declared.artifactRef)) {
+          throw new Error("remote_input_artifact_digest_mismatch");
+        }
+        continue;
+      }
       const artifact = verifiedRemoteBlockArtifactSchema.parse(
         await source.read({
           targetBlockRef: candidate.blockRef,
@@ -65,5 +77,9 @@ export class ArtifactStoreRemoteContent implements RemoteArtifactContentPort {
 
   async readReport(artifactRef: string): Promise<Uint8Array> {
     return new Uint8Array(await this.artifacts.read(artifactRef));
+  }
+
+  async readReportMediaType(artifactRef: string): Promise<string> {
+    return this.artifacts.getRequired(artifactRef).mediaType;
   }
 }

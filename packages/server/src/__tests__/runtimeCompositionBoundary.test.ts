@@ -36,9 +36,9 @@ describe("Runtime composition boundary", () => {
     expect(transportSource).toContain("runtimeAvailability: CanvasRuntimeAvailabilityPort");
     expect(transportSource).not.toContain("CanvasRuntimeStatusPort");
     expect(transportSource).not.toContain("runtimeStatus:");
-    expect(compositionRootSource).toContain(
-      "runtimeAttachments: registries.runtimeRegistry.locators"
-    );
+    expect(compositionRootSource).toContain("...registries.runtimeRegistry.locators");
+    expect(compositionRootSource).toContain("...registries.ownerRuntimeRegistry.locators");
+    expect(compositionRootSource).toContain("initialContentCapture,");
     expect(compositionRootSource).toContain("runtimeAvailability: collaborationRuntime");
     expect(compositionRootSource).toContain(
       "const collaborationRuntime = new LocalFirstCanvasRuntimeRouter("

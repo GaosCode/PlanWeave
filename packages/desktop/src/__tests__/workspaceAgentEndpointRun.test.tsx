@@ -234,7 +234,11 @@ function renderRun(input?: {
     state: "settled"
   }));
   const ensureWorkAuthority = vi.fn(async () => ({
-    revisions: { responsibilityRevision: 7, reviewerRevision: 11 }
+    revisions: {
+      responsibilityRevision: 7,
+      reviewerRevision: 11,
+      executionTargetRevision: 13
+    }
   }));
   const setError = vi.fn();
   const lifecycle = {
@@ -276,7 +280,7 @@ function renderRun(input?: {
     const result = await readRuntimeAvailability(...args);
     if (
       !result ||
-      ("schemaVersion" in result && result.schemaVersion === "canvas-runtime-view/v1")
+      ("schemaVersion" in result && String(result.schemaVersion).startsWith("canvas-runtime-view/"))
     ) {
       return result;
     }
@@ -759,6 +763,15 @@ describe("workspace Agent Endpoint routing", () => {
     };
     const readRuntimeAvailability = vi
       .fn()
+      .mockResolvedValueOnce(
+        statusProjection({
+          taskStatus: "ready",
+          blocks: [
+            { ref: "T-001#B-001", status: "ready" },
+            { ref: "T-001#R-001", status: "planned", dispatchable: false }
+          ]
+        })
+      )
       .mockResolvedValueOnce(
         statusProjection({
           taskStatus: "ready",
@@ -1278,7 +1291,10 @@ describe("workspace Agent Endpoint routing", () => {
       agentEndpointId: "endpoint-windows",
       idempotencyKey: "desktop-dispatch-operation-1",
       expectedResponsibilityRevision: 7,
-      expectedReviewerRevision: 11
+      expectedReviewerRevision: 11,
+      executionTargetRevision: 13,
+      contentRevision: "1",
+      graphFingerprint: `pkg-${"a".repeat(64)}`
     });
     expect(dispatch).toHaveBeenCalledTimes(1);
     expect(startLocal).not.toHaveBeenCalled();

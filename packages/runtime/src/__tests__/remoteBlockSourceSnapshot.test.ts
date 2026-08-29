@@ -13,6 +13,7 @@ import {
   submitBlockResult
 } from "../taskManager/index.js";
 import type { PlanPackageManifest } from "../types.js";
+import { sameRemoteBlockAuthority } from "../taskManager/remoteBlockSource.js";
 import { basicManifest, createTestWorkspace, writeReport } from "./promptTestHelpers.js";
 
 function remoteManifest(
@@ -76,6 +77,37 @@ function claimIdentity(identity: ReturnType<typeof activeIdentity>) {
   const { dispatchId: _dispatchId, executionAttemptId: _attemptId, ...claim } = identity;
   return claim;
 }
+
+describe("remote block source authority domains", () => {
+  const graphFingerprint = `pkg-${"a".repeat(64)}`;
+
+  it("uses Server snapshot source identity with graph fingerprint fencing", () => {
+    expect(
+      sameRemoteBlockAuthority(
+        { sourceRevision: `src-${"b".repeat(64)}`, graphFingerprint },
+        { sourceRevision: `snapshot:${"c".repeat(64)}`, graphFingerprint }
+      )
+    ).toBe(true);
+    expect(
+      sameRemoteBlockAuthority(
+        { sourceRevision: `src-${"b".repeat(64)}`, graphFingerprint },
+        {
+          sourceRevision: `snapshot:${"c".repeat(64)}`,
+          graphFingerprint: `pkg-${"d".repeat(64)}`
+        }
+      )
+    ).toBe(false);
+  });
+
+  it("keeps legacy block-local source revisions exact", () => {
+    expect(
+      sameRemoteBlockAuthority(
+        { sourceRevision: `src-${"b".repeat(64)}`, graphFingerprint },
+        { sourceRevision: `src-${"c".repeat(64)}`, graphFingerprint }
+      )
+    ).toBe(false);
+  });
+});
 describe("remote block runtime inspection", () => {
   it("reads only a currently declared verified dependency artifact", async () => {
     const { root } = await createTestWorkspace(remoteManifest({ dependency: true }));

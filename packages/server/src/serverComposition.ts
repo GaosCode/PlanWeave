@@ -98,6 +98,14 @@ export async function createDistributedServerComposition(
     ownerTrustedProjects: options.ownerTrustedProjects
   });
   const localCanvasRuntime = createLocalFilesystemCanvasRuntimeAdapter(registries.runtimeRegistry);
+  const initialContentCapture = createLocalFilesystemCanvasRuntimeAdapter({
+    resolveExactCanvasLocation(scope) {
+      return (
+        registries.runtimeRegistry.resolveExactCanvasLocation(scope) ??
+        registries.ownerRuntimeRegistry.resolveExactCanvasLocation(scope)
+      );
+    }
+  });
   const localExecutionRuntime = new LocalFilesystemExecutionRuntimeAdapter(
     registries.runtimeRegistry
   );
@@ -299,8 +307,11 @@ export async function createDistributedServerComposition(
       database: server.database,
       config,
       coordination,
-      runtimeAttachments: registries.runtimeRegistry.locators,
-      initialContentCapture: localCanvasRuntime,
+      runtimeAttachments: [
+        ...registries.runtimeRegistry.locators,
+        ...registries.ownerRuntimeRegistry.locators
+      ],
+      initialContentCapture,
       runtimeAvailability: collaborationRuntime,
       runtimeCommand: {
         executionLeases: collaborationRuntime,

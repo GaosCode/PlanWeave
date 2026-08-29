@@ -467,5 +467,13 @@ export const runtimeNotAttachedInventory = [
     "packages/desktop/src/__tests__/autoRunControlActions.test.tsx",
     "runtime_not_attached endpoint scope stop regression",
     "Desktop endpoint-scope cancellation remains available while automatic Runtime attachment is pending."
+  ),
+  inventoryEntry(
+    "rna-test-desktop-remote-run-panel",
+    "runtime_not_attached",
+    "runtime_attachment",
+    "packages/desktop/src/__tests__/remoteRunPanelController.test.ts",
+    "reason: runtime_not_attached",
+    "Remote run panel tests preserve the stable unattached diagnostic returned by execution availability."
   )
 ];

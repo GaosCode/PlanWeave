@@ -1,7 +1,7 @@
 import { readStableCanvasRuntimeContentTarget } from "../canvas/contentFingerprint.js";
 import { ContentVersionRepository } from "../canvas/contentVersionRepository.js";
 import type { SqliteDatabase } from "../sqlite.js";
-import { columnExists } from "./schemaIntrospection.js";
+import { columnExists, tableExists } from "./schemaIntrospection.js";
 import type { Migration } from "./types.js";
 
 const attachmentTableSql = `
@@ -98,6 +98,7 @@ function prepareRuntimeOperationAttachments(database: SqliteDatabase): void {
     );
   }
   database.exec(attachmentTableSql);
+  if (!tableExists(database, "host_capacity_reservations")) return;
   const candidates = database
     .prepare(
       `SELECT binding.workspace_id,binding.project_id,attempt.canvas_id,

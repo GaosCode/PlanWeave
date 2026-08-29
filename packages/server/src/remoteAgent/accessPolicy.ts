@@ -39,7 +39,8 @@ export const authorizeRemoteAgentUseInputSchema = evaluateRemoteAgentAccessInput
     runtimeWorkspaceId: workspaceIdSchema,
     blockRef: z.string().min(1),
     expectedResponsibilityRevision: z.number().int().nonnegative(),
-    expectedReviewerRevision: z.number().int().nonnegative()
+    expectedReviewerRevision: z.number().int().nonnegative(),
+    executionTargetRevision: z.number().int().nonnegative()
   })
   .strict();
 
@@ -59,6 +60,7 @@ export type AuthorizeRemoteAgentTargetPort = (input: {
   blockRef: string;
   expectedResponsibilityRevision: number;
   expectedReviewerRevision: number;
+  executionTargetRevision: number;
   controlPlane: "collaboration" | "owner";
 }) => void;
 
@@ -139,6 +141,7 @@ export class RemoteAgentAccessPolicy {
       blockRef: input.blockRef,
       expectedResponsibilityRevision: input.expectedResponsibilityRevision,
       expectedReviewerRevision: input.expectedReviewerRevision,
+      executionTargetRevision: input.executionTargetRevision,
       controlPlane: controlPlaneForTarget(input.target)
     });
     const resolved =

@@ -23,6 +23,10 @@ import {
 } from "../vpsE2e/remoteVpsScenario.js";
 
 const roots: string[] = [];
+const fixtureContentAuthority = {
+  contentRevision: "1",
+  graphFingerprint: `pkg-${"a".repeat(64)}`
+};
 
 afterEach(async () => {
   await Promise.all(
@@ -37,7 +41,8 @@ describe("VPS e2e gate and redaction (unit)", () => {
       canvasId: "default",
       blockRef: "T-001#B-001",
       agentEndpointId: "endpoint-1",
-      idempotencyKey: "vps-e2e-1"
+      idempotencyKey: "vps-e2e-1",
+      ...fixtureContentAuthority
     });
 
     expect(remoteDispatchIntentV3Schema.parse(intent)).toEqual(intent);
@@ -117,7 +122,8 @@ describe("VPS e2e gate and redaction (unit)", () => {
       coordinatorUrl: "https://127.0.0.1:7443",
       operatorTokenEnv: "PLANWEAVE_VPS_OPERATOR_TOKEN",
       hostConfigPath: "/etc/planweave/agent-host.json",
-      projectId: "project-example"
+      projectId: "project-example",
+      ...fixtureContentAuthority
     });
     expect(parsed.blockRef).toBe("T-001#B-001");
     expect(parsed.operatorTokenEnv).toBe("PLANWEAVE_VPS_OPERATOR_TOKEN");
@@ -161,7 +167,8 @@ describe("VPS e2e gate and redaction (unit)", () => {
         coordinatorUrl: "https://127.0.0.1:7443",
         operatorTokenEnv: "PLANWEAVE_VPS_OPERATOR_TOKEN",
         hostConfigPath: "/var/lib/planweave/agent-host.json",
-        projectId: "project-example"
+        projectId: "project-example",
+        ...fixtureContentAuthority
       }),
       "utf8"
     );
@@ -208,6 +215,7 @@ describe("VPS e2e gate and redaction (unit)", () => {
         operatorTokenEnv: "PLANWEAVE_VPS_OPERATOR_TOKEN",
         hostConfigPath: missingPath,
         projectId: "project-example",
+        ...fixtureContentAuthority,
         canvasId: "default",
         blockRef: "T-001#B-001"
       },

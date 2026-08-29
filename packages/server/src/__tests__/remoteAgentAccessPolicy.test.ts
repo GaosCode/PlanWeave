@@ -239,7 +239,8 @@ function authorize(
     runtimeWorkspaceId: workspaceId,
     blockRef: "T-001#B-001",
     expectedResponsibilityRevision: 0,
-    expectedReviewerRevision: 0
+    expectedReviewerRevision: 0,
+    executionTargetRevision: 0
   });
 }
 

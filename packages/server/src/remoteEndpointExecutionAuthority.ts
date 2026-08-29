@@ -33,6 +33,7 @@ type AuthorityPorts = {
     blockRef: string;
     expectedResponsibilityRevision: number;
     expectedReviewerRevision: number;
+    executionTargetRevision: number;
     controlPlane: "collaboration" | "owner";
   }) => void;
   recordInconsistency: (operation: RemoteOperation, message: string) => never;
@@ -107,7 +108,12 @@ export class RemoteEndpointExecutionAuthority {
       blockRef: operation.blockRef,
       expectedResponsibilityRevision:
         operation.endpointSelection?.authority.responsibilityRevision ?? 0,
-      expectedReviewerRevision: operation.endpointSelection?.authority.reviewerRevision ?? 0
+      expectedReviewerRevision: operation.endpointSelection?.authority.reviewerRevision ?? 0,
+      executionTargetRevision:
+        operation.endpointSelection?.authority.executionTargetRevision ??
+        (() => {
+          throw new Error("endpoint_authority_execution_target_revision_missing");
+        })()
     });
     return persistedRemoteAgentAccessSnapshotSchema.parse({
       callerHumanPrincipalId: snapshot.callerHumanPrincipalId,
@@ -131,6 +137,7 @@ export class RemoteEndpointExecutionAuthority {
       blockRef: operation.blockRef,
       expectedResponsibilityRevision: selection.authority.responsibilityRevision,
       expectedReviewerRevision: selection.authority.reviewerRevision,
+      executionTargetRevision: selection.authority.executionTargetRevision,
       controlPlane: runtimeControlPlane(selection.authority)
     });
     if (reservation) {

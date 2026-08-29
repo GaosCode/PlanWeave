@@ -7,6 +7,7 @@ import {
   WORKSPACE_CANVAS_EXECUTION_CAPABILITY
 } from "@planweave-ai/agent-host-protocol";
 import {
+  captureAuthorizedCanvasContent,
   createRemoteBlockArtifactSource,
   createRemoteBlockRuntimePort,
   type PlanPackageManifest
@@ -16,6 +17,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRemoteBlockCoordination } from "../distributedCoordination.js";
 import { canonicalRemoteRuntimePort } from "../canonicalRemoteRuntimePort.js";
 import { CanvasRuntimeRpcBroker } from "../canvas/runtimeRpcBroker.js";
+import { ContentVersionRepository } from "../canvas/contentVersionRepository.js";
+import { readStableCanvasRuntimeContentTarget } from "../canvas/contentFingerprint.js";
 import { RemoteRuntimePortRegistry } from "../remoteRuntimeLocator.js";
 import { HostEnrollmentService } from "../hostEnrollment.js";
 import { hashOperatorToken, OperatorTokenRegistry } from "../operatorAuth.js";
@@ -165,6 +168,24 @@ async function createWsCoordination() {
   const registry = new RemoteRuntimePortRegistry();
   const runtime = createRemoteBlockRuntimePort({ projectRoot: workspace.root });
   const runtimeCandidate = await runtime.inspect({ ref: "T-001#B-001" });
+  const capturedContent = await captureAuthorizedCanvasContent({
+    projectRoot: workspace.root,
+    canvasId: locator.canvasId,
+    expectedPackageDir: workspace.init.workspace.packageDir,
+    authorityProjectId: locator.projectId
+  });
+  const contentVersions = new ContentVersionRepository(database.database);
+  contentVersions.publishInitial({
+    scope: locator,
+    content: capturedContent.content,
+    createdBy: { kind: "system", id: "ws-server-test" }
+  });
+  const contentTarget = readStableCanvasRuntimeContentTarget(contentVersions, locator);
+  const dispatchLocator = {
+    ...locator,
+    contentRevision: String(contentTarget.revision),
+    graphFingerprint: contentTarget.graphFingerprint
+  };
   registry.bind(
     locator,
     runtime,
@@ -188,6 +209,18 @@ async function createWsCoordination() {
       leaseDurationMs: 60_000,
       hostOfflineAfterMs: 60_000,
       runtimeLeases: registry,
+      dispatchCandidates: {
+        read: (scope) => ({
+          ...runtimeCandidate,
+          workspaceId: scope.workspaceId,
+          projectId: scope.projectId,
+          canvasId: scope.canvasId,
+          blockRef: scope.blockRef
+        })
+      },
+      runtimeContentTargets: {
+        read: (scope) => readStableCanvasRuntimeContentTarget(contentVersions, scope)
+      },
       inputArtifacts: {
         materialize: async (candidate) => {
           if (candidate.inputArtifacts.length > 0) throw new Error("unexpected_test_artifact");
@@ -203,7 +236,15 @@ async function createWsCoordination() {
     projectRoot: workspace.root,
     packageDir: workspace.init.workspace.packageDir
   });
-  return { database, coordination, locator, runtime, workspaceIdentity, workspaceId };
+  return {
+    database,
+    coordination,
+    locator,
+    dispatchLocator,
+    runtime,
+    workspaceIdentity,
+    workspaceId
+  };
 }
 
 describe("agent host WebSocket transport", () => {
@@ -383,7 +424,8 @@ describe("agent host WebSocket transport", () => {
       agentEndpoints: coordination.agentEndpoints,
       candidate,
       hostId: registration.host.id,
-      workspaceId
+      workspaceId,
+      database: database.database
     });
 
     const operatorToken = `pw_operator_${"R".repeat(43)}`;
@@ -465,7 +507,7 @@ describe("agent host WebSocket transport", () => {
   });
 
   it("settles fresh-lease resume acceptance and terminalizes cancellation after load interruption", async () => {
-    const { database, coordination, locator, workspaceIdentity, workspaceId } =
+    const { database, coordination, locator, dispatchLocator, workspaceIdentity, workspaceId } =
       await createWsCoordination();
     const registration = coordination.hosts.register("Action Lifecycle Host");
     ownHostRemoteAgents({
@@ -524,7 +566,7 @@ describe("agent host WebSocket transport", () => {
     const outcome = await coordination.coordinator.dispatch(
       endpointDispatchRequest({
         agentEndpoints: coordination.agentEndpoints,
-        locator,
+        locator: dispatchLocator,
         blockRef: "T-001#B-001",
         idempotencyKey: "ws-action-lifecycle"
       })
@@ -686,7 +728,7 @@ describe("agent host WebSocket transport", () => {
   });
 
   it("authenticates a host and replays unacknowledged mailbox messages", async () => {
-    const { database, coordination, locator, workspaceIdentity, workspaceId } =
+    const { database, coordination, dispatchLocator, workspaceIdentity, workspaceId } =
       await createWsCoordination();
     const registration = coordination.hosts.register("Remote Linux Host");
     ownHostRemoteAgents({
@@ -735,7 +777,7 @@ describe("agent host WebSocket transport", () => {
     const outcome = await coordination.coordinator.dispatch(
       endpointDispatchRequest({
         agentEndpoints: coordination.agentEndpoints,
-        locator,
+        locator: dispatchLocator,
         blockRef: "T-001#B-001",
         idempotencyKey: "ws-replay"
       })
@@ -875,7 +917,7 @@ describe("agent host WebSocket transport", () => {
   });
 
   it("expires an offline interaction on reconnect heartbeat and replays its unacknowledged cancel", async () => {
-    const { database, coordination, locator, workspaceIdentity, workspaceId } =
+    const { database, coordination, dispatchLocator, workspaceIdentity, workspaceId } =
       await createWsCoordination();
     const registration = coordination.hosts.register("Reconnect Expiry Host");
     ownHostRemoteAgents({
@@ -922,7 +964,7 @@ describe("agent host WebSocket transport", () => {
     const outcome = await coordination.coordinator.dispatch(
       endpointDispatchRequest({
         agentEndpoints: coordination.agentEndpoints,
-        locator,
+        locator: dispatchLocator,
         blockRef: "T-001#B-001",
         idempotencyKey: "ws-offline-expiry"
       })
@@ -1022,7 +1064,7 @@ describe("agent host WebSocket transport", () => {
   });
 
   it("persists interruption before ACK and rejects unsupported live events without ACK", async () => {
-    const { database, coordination, locator, workspaceIdentity, workspaceId } =
+    const { database, coordination, dispatchLocator, workspaceIdentity, workspaceId } =
       await createWsCoordination();
     const registration = coordination.hosts.register("Interruption Host");
     ownHostRemoteAgents({
@@ -1070,7 +1112,7 @@ describe("agent host WebSocket transport", () => {
     const outcome = await coordination.coordinator.dispatch(
       endpointDispatchRequest({
         agentEndpoints: coordination.agentEndpoints,
-        locator,
+        locator: dispatchLocator,
         blockRef: "T-001#B-001",
         idempotencyKey: "ws-interruption"
       })

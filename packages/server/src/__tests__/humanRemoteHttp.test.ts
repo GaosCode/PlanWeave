@@ -4,6 +4,7 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { WORKSPACE_CANVAS_EXECUTION_CAPABILITY } from "@planweave-ai/agent-host-protocol";
 import {
+  captureAuthorizedCanvasContent,
   createRemoteBlockArtifactSource,
   createRemoteBlockRuntimePort,
   type PlanPackageManifest
@@ -14,6 +15,8 @@ import {
   createTestWorkspace
 } from "../../../runtime/src/__tests__/promptTestHelpers.js";
 import { ArtifactStore } from "../artifacts.js";
+import { readStableCanvasRuntimeContentTarget } from "../canvas/contentFingerprint.js";
+import { ContentVersionRepository } from "../canvas/contentVersionRepository.js";
 import { canonicalRemoteRuntimePort } from "../canonicalRemoteRuntimePort.js";
 import { createRemoteBlockCoordination } from "../distributedCoordination.js";
 import {
@@ -29,6 +32,7 @@ import { ProjectAccessRepository } from "../projectAccessRepository.js";
 import { RemoteRuntimePortRegistry } from "../remoteRuntimeLocator.js";
 import { AuthorityRepository } from "../work/authorityRepository.js";
 import { ownHostRemoteAgents } from "./support/remoteAgentOwnerFixture.js";
+import { exactHostRuntimeRouteFixture } from "./support/exactHostRuntimeRoute.js";
 
 const directories: string[] = [];
 const storageServers: PlanweaveServer[] = [];
@@ -101,12 +105,30 @@ async function setup() {
     canvasId,
     packageDir: workspace.init.workspace.packageDir
   });
+  const capturedContent = await captureAuthorizedCanvasContent({
+    projectRoot: workspace.root,
+    canvasId,
+    expectedPackageDir: workspace.init.workspace.packageDir,
+    authorityProjectId: projectId
+  });
+  const contentVersions = new ContentVersionRepository(storage.database);
+  contentVersions.publishInitial({
+    scope: { workspaceId, projectId, canvasId },
+    content: capturedContent.content,
+    createdBy: { kind: "human", id: "human-remote-http-test" }
+  });
+  const contentTarget = readStableCanvasRuntimeContentTarget(contentVersions, {
+    workspaceId,
+    projectId,
+    canvasId
+  });
   const registry = new RemoteRuntimePortRegistry();
   const runtime = createRemoteBlockRuntimePort({ projectRoot: workspace.root });
-  const runtimeCandidate = await runtime.inspect({ ref: "T-001#B-001" });
+  const canonicalRuntime = canonicalRemoteRuntimePort(runtime, workspaceId);
+  const runtimeCandidate = await canonicalRuntime.inspect({ ref: "T-001#B-001" });
   registry.bind(
     { workspaceId, projectId, canvasId },
-    canonicalRemoteRuntimePort(runtime, workspaceId),
+    canonicalRuntime,
     createRemoteBlockArtifactSource({ projectRoot: workspace.root }),
     async () => ({
       sourceRevision: `snapshot:${"a".repeat(64)}`,
@@ -127,7 +149,15 @@ async function setup() {
     {
       leaseDurationMs: 60_000,
       hostOfflineAfterMs: 60_000,
-      runtimeLeases: registry,
+      runtimeLeases: exactHostRuntimeRouteFixture(registry),
+      runtimeContentTargets: {
+        read: ({ workspaceId, projectId, canvasId }) =>
+          readStableCanvasRuntimeContentTarget(contentVersions, {
+            workspaceId,
+            projectId,
+            canvasId
+          })
+      },
       inputArtifacts: { materialize: async () => undefined },
       artifactContent: { readReport: async (ref) => artifacts.read(ref) },
       interactionAuthorization: {
@@ -170,6 +200,13 @@ async function setup() {
       expectedRevision: 0
     },
     actor: { kind: "system", id: "human-remote-http-test" }
+  });
+  const authorityRevisions = authority.currentRevisions({
+    kind: "block",
+    workspaceId,
+    projectId,
+    canvasId,
+    blockRef
   });
   const service = new HumanRemoteControlService({
     operations: coordination.operations,
@@ -242,6 +279,13 @@ async function setup() {
     authority,
     coordination,
     executionTargetRevision: executionTarget.revision,
+    dispatchAuthority: {
+      expectedResponsibilityRevision: authorityRevisions.responsibilityRevision,
+      expectedReviewerRevision: authorityRevisions.reviewerRevision,
+      executionTargetRevision: executionTarget.revision,
+      contentRevision: String(contentTarget.revision),
+      graphFingerprint: contentTarget.graphFingerprint
+    },
     setAcceptingMutations(value: boolean) {
       acceptingMutations = value;
     }
@@ -261,8 +305,7 @@ function remoteDispatchBody(
     blockRef: fixture.blockRef,
     agentEndpointId: endpoint.endpointId,
     idempotencyKey,
-    expectedResponsibilityRevision: 0,
-    expectedReviewerRevision: 0
+    ...fixture.dispatchAuthority
   };
 }
 
@@ -309,7 +352,7 @@ describe("human remote operation HTTP", () => {
   it("dispatches v3 through an exact Agent Endpoint without exposing Host routing", async () => {
     const fixture = await setup();
     const token = await bootstrap(fixture.origin, fixture.projectId, "endpoint-owner");
-    fixture.authority.applyExecutionTarget({
+    const executionTarget = fixture.authority.applyExecutionTarget({
       mutation: {
         schemaVersion: "execution-target/v1",
         scope: {
@@ -338,8 +381,8 @@ describe("human remote operation HTTP", () => {
           blockRef: fixture.blockRef,
           agentEndpointId: endpoint?.endpointId,
           idempotencyKey: "human-endpoint-dispatch",
-          expectedResponsibilityRevision: 0,
-          expectedReviewerRevision: 0
+          ...fixture.dispatchAuthority,
+          executionTargetRevision: executionTarget.revision
         })
       }
     );
@@ -366,7 +409,8 @@ describe("human remote operation HTTP", () => {
       kind: "workspace_canvas",
       workspaceId: fixture.workspaceId,
       responsibilityRevision: 0,
-      reviewerRevision: 0
+      reviewerRevision: 0,
+      executionTargetRevision: executionTarget.revision
     });
   });
 
@@ -524,8 +568,7 @@ describe("human remote operation HTTP", () => {
           blockRef: fixture.blockRef,
           agentEndpointId: "missing-agent-endpoint",
           idempotencyKey: "missing-endpoint-dispatch",
-          expectedResponsibilityRevision: 0,
-          expectedReviewerRevision: 0
+          ...fixture.dispatchAuthority
         })
       }
     );

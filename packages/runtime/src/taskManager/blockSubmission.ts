@@ -42,7 +42,7 @@ import {
   RemoteBlockRuntimeError,
   type RemoteBlockCompletionInput
 } from "./remoteBlockRuntimeContracts.js";
-import { remoteBlockSourceEvidence } from "./remoteBlockSource.js";
+import { remoteBlockSourceEvidence, sameRemoteBlockAuthority } from "./remoteBlockSource.js";
 import { materializeRemoteAcpTranscript } from "./remoteAcpTranscript.js";
 import { submitRemoteReviewResult } from "./reviewSubmission.js";
 
@@ -333,10 +333,7 @@ async function submitBlockResultArtifact(
         throw new Error(`Block '${options.ref}' must be in_progress before submit-result.`);
       }
       const currentSource = await remoteBlockSourceEvidence(context, options.ref);
-      if (
-        currentSource.sourceRevision !== authority.identity.sourceRevision ||
-        currentSource.graphFingerprint !== authority.identity.graphFingerprint
-      ) {
+      if (!sameRemoteBlockAuthority(currentSource, authority.identity)) {
         state.blocks[options.ref] = markRemoteBlockOwnershipSourceDrift({
           blockType: block.type,
           blockState,

@@ -27,6 +27,8 @@ export const remoteVpsE2eConfigSchema = z
     projectId: z.string().min(1).max(256),
     canvasId: z.string().min(1).max(128).default("default"),
     blockRef: z.string().min(1).max(256).default("T-001#B-001"),
+    contentRevision: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/),
+    graphFingerprint: z.string().regex(/^pkg-[a-f0-9]{64}$/),
     /** Optional absolute path for evidence JSON (also overridable via CLI --evidence). */
     evidencePath: absolutePathSchema.optional()
   })

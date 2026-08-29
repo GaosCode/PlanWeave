@@ -81,7 +81,10 @@ const v3Command = {
   agentEndpointId: "endpoint-vps",
   idempotencyKey: "endpoint-dispatch-1",
   expectedResponsibilityRevision: 2,
-  expectedReviewerRevision: 3
+  expectedReviewerRevision: 3,
+  executionTargetRevision: 4,
+  contentRevision: "7",
+  graphFingerprint: `pkg-${"a".repeat(64)}`
 };
 
 describe("CollaborationRemoteOperationsClient", () => {

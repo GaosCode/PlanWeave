@@ -14,6 +14,8 @@ import type {
   RemoteAcpTranscriptPort,
   RemoteCoordinatorCheckpoint,
   RemoteCoordinatorCheckpointPort,
+  RemoteContentAuthorizePort,
+  RemoteDispatchCandidateReaderPort,
   RemoteDispatchPersistencePort,
   RemoteInputArtifactPort,
   RemoteMailboxPublisherPort,
@@ -77,6 +79,7 @@ export type { RemoteEndpointDispatchRequest } from "./remoteBlockDispatchAccepta
 
 export type RemoteBlockCoordinatorOptions = {
   runtimeLeases: CanvasExecutionRuntimeRoutePort;
+  dispatchCandidates: RemoteDispatchCandidateReaderPort;
   operations: RemoteOperationRepository;
   actions: RemoteExecutionActionRepository;
   candidates: RemoteOperationCandidatePort;
@@ -100,8 +103,10 @@ export type RemoteBlockCoordinatorOptions = {
     blockRef: string;
     expectedResponsibilityRevision: number;
     expectedReviewerRevision: number;
+    executionTargetRevision: number;
     controlPlane: "collaboration" | "owner";
   }) => void;
+  contentAuthorize: RemoteContentAuthorizePort;
   finalAuthorize?: (input: {
     operation: RemoteOperation;
     reservation: HostCapacityReservation;
@@ -162,13 +167,14 @@ export class RemoteBlockCoordinator {
 
   async dispatch(request: RemoteEndpointDispatchRequest): Promise<RemoteDispatchOutcome> {
     const operation = await acceptRemoteBlockDispatch(request, {
-      runtimeLeases: this.options.runtimeLeases,
+      dispatchCandidates: this.options.dispatchCandidates,
       operations: this.options.operations,
       candidates: this.options.candidates,
       agentEndpoints: this.options.agentEndpoints,
       authorizeRemoteAgentUse: this.options.authorizeRemoteAgentUse,
       authorizeRemoteAgentUseForSnapshot: this.options.authorizeRemoteAgentUseForSnapshot,
       endpointAuthorize: this.options.endpointAuthorize,
+      contentAuthorize: this.options.contentAuthorize,
       humanIdentity: this.options.humanIdentity,
       checkpoint: (point) => this.checkpoint(point)
     });
@@ -221,7 +227,11 @@ export class RemoteBlockCoordinator {
           this.options.finalAuthorize?.({ operation, reservation });
         }
       }
-      const lease = await this.options.runtimeLeases.acquireForHost(operation, reservation.hostId);
+      const lease = await acquireRemoteRuntimeLease(
+        this.options.runtimeLeases,
+        operation,
+        reservation.hostId
+      );
       try {
         return await this.reenterWithLease(operation.id, lease, undefined, true);
       } finally {
@@ -239,13 +249,11 @@ export class RemoteBlockCoordinator {
         workspaceExecution && reservation
           ? await this.preparationCoordinator().attach(operation, candidate, reservation)
           : undefined;
-      lease = reservation
-        ? await this.options.runtimeLeases.acquireForHost(operation, reservation.hostId)
-        : await acquireRemoteRuntimeLease(
-            this.options.runtimeLeases,
-            operation,
-            authorizedOperationHostId(operation)
-          );
+      lease = await acquireRemoteRuntimeLease(
+        this.options.runtimeLeases,
+        operation,
+        reservation?.hostId ?? authorizedOperationHostId(operation)
+      );
     } catch (error) {
       if (reservation)
         this.preparationCoordinator().releaseOnFailure(operation, reservation, error);

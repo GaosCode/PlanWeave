@@ -14,10 +14,28 @@ import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js"
 import { RemoteOperationRepository } from "../remoteOperations.js";
 import { RemoteExecutionActionRepository } from "../remoteExecutionActions.js";
 import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
+import { canvasRuntimeOperationAttachmentMigration } from "../migrations/canvasRuntimeOperationAttachment.js";
 
 const directories: string[] = [];
 const servers: PlanweaveServer[] = [];
 const databases: SqliteDatabase[] = [];
+
+const preRunnerEventTablesSql = `
+  CREATE TABLE remote_acp_event_streams (
+    execution_attempt_id TEXT PRIMARY KEY REFERENCES remote_execution_attempts(execution_attempt_id),
+    operation_id TEXT NOT NULL REFERENCES remote_operations(id),dispatch_id TEXT NOT NULL,
+    lease_id TEXT NOT NULL,host_id TEXT NOT NULL REFERENCES agent_hosts(id),
+    acp_session_id TEXT NOT NULL,latest_cursor INTEGER NOT NULL DEFAULT 0,
+    retained_from_cursor INTEGER NOT NULL DEFAULT 1,retained_count INTEGER NOT NULL DEFAULT 0,
+    retained_bytes INTEGER NOT NULL DEFAULT 0,dropped_count INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+  );
+  CREATE TABLE remote_acp_events (
+    execution_attempt_id TEXT NOT NULL REFERENCES remote_acp_event_streams(execution_attempt_id),
+    cursor INTEGER NOT NULL,event_json TEXT NOT NULL,encoded_bytes INTEGER NOT NULL,
+    received_at TEXT NOT NULL,PRIMARY KEY(execution_attempt_id,cursor)
+  );
+`;
 
 afterEach(async () => {
   for (const server of servers.splice(0)) server.close();
@@ -152,7 +170,8 @@ describe("RemoteOperationRepository", () => {
         kind: "workspace_canvas" as const,
         workspaceId: operationInput.workspaceId,
         responsibilityRevision: 2,
-        reviewerRevision: 3
+        reviewerRevision: 3,
+        executionTargetRevision: 4
       }
     };
     const created = repository.create({ ...operationInput, endpointSelection });
@@ -175,7 +194,7 @@ describe("RemoteOperationRepository", () => {
     expect(persisted).not.toContain("controlPlane");
   });
 
-  it("compat-reads endpoint-authority/v1 JSON as a v2 runtime snapshot", async () => {
+  it("fails closed when a persisted endpoint-authority/v1 row enters current recovery", async () => {
     const server = await setup();
     const repository = new RemoteOperationRepository(server.database);
     const created = repository.create(operationInput);
@@ -200,52 +219,37 @@ describe("RemoteOperationRepository", () => {
       .prepare("UPDATE remote_operations SET endpoint_selection_json=? WHERE id=?")
       .run(JSON.stringify(v1Selection), created.id);
 
-    expect(repository.getRequired(created.id).endpointSelection?.authority).toEqual({
-      schemaVersion: "endpoint-authority/v2",
-      kind: "workspace_canvas",
-      workspaceId: operationInput.workspaceId,
-      responsibilityRevision: 2,
-      reviewerRevision: 3
-    });
-    expect(repository.getRequired(created.id).agentAccess).toBeUndefined();
+    expect(() => repository.getRequired(created.id)).toThrow("remote_operation_row_invalid");
   });
 
-  it("rewrites a v1 endpoint authority snapshot to v2 on create", async () => {
+  it("rejects endpoint-authority/v1 on current create", async () => {
     const server = await setup();
     const repository = new RemoteOperationRepository(server.database);
-    const created = repository.create({
-      ...operationInput,
-      endpointSelection: {
-        schemaVersion: "endpoint-selection/v1",
-        endpointId: "aep-rewrite",
-        profileId: "codex-acp",
-        agentId: "codex",
-        displayName: "Codex",
-        hostId: "host-internal",
-        hostDisplayName: "VPS Singapore",
-        capabilities: ["linux", "acp.codex"],
-        resolvedAt: "2030-01-01T00:00:00.000Z",
-        authority: {
-          schemaVersion: "endpoint-authority/v1",
-          controlPlane: "owner",
-          responsibilityRevision: 1,
-          reviewerRevision: 0
+    expect(() =>
+      repository.create({
+        ...operationInput,
+        endpointSelection: {
+          schemaVersion: "endpoint-selection/v1",
+          endpointId: "aep-rewrite",
+          profileId: "codex-acp",
+          agentId: "codex",
+          displayName: "Codex",
+          hostId: "host-internal",
+          hostDisplayName: "VPS Singapore",
+          capabilities: ["linux", "acp.codex"],
+          resolvedAt: "2030-01-01T00:00:00.000Z",
+          authority: {
+            schemaVersion: "endpoint-authority/v1",
+            controlPlane: "owner",
+            responsibilityRevision: 1,
+            reviewerRevision: 0
+          }
         }
-      }
-    });
-    expect(created.endpointSelection?.authority).toEqual({
-      schemaVersion: "endpoint-authority/v2",
-      kind: "owner_canvas",
-      responsibilityRevision: 1,
-      reviewerRevision: 0
-    });
+      })
+    ).toThrow();
     expect(
-      String(
-        server.database
-          .prepare("SELECT endpoint_selection_json FROM remote_operations WHERE id=?")
-          .get(created.id)?.endpoint_selection_json
-      )
-    ).toContain("owner_canvas");
+      server.database.prepare("SELECT COUNT(*) AS count FROM remote_operations").get()?.count
+    ).toBe(0);
   });
 
   it("creates stable dispatch and attempt identities, replays identical input, and rejects conflict", async () => {
@@ -528,6 +532,83 @@ describe("RemoteOperationRepository", () => {
   });
 });
 
+describe("canvas runtime operation attachment migration v64", () => {
+  it("skips unverifiable legacy attachment evidence when reservation history is absent", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "planweave-runtime-attachment-migration-"));
+    directories.push(directory);
+    const database = await openServerDatabase(join(directory, "server.sqlite"), 5_000);
+    databases.push(database);
+    database.exec(`
+      CREATE TABLE agent_hosts(id TEXT PRIMARY KEY);
+      INSERT INTO agent_hosts(id) VALUES ('host-legacy');
+      CREATE TABLE remote_operations(id TEXT PRIMARY KEY);
+      CREATE TABLE remote_execution_attempts(execution_attempt_id TEXT PRIMARY KEY);
+      CREATE TABLE canvas_runtime_host_bindings(
+        workspace_id TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        host_id TEXT NOT NULL REFERENCES agent_hosts(id),
+        readiness_status TEXT NOT NULL,
+        first_observed_at TEXT NOT NULL,
+        last_observed_at TEXT NOT NULL,
+        operation_id TEXT,
+        execution_attempt_id TEXT,
+        host_generation TEXT,
+        content_revision INTEGER,
+        graph_fingerprint TEXT,
+        PRIMARY KEY(workspace_id,project_id,host_id)
+      );
+      INSERT INTO canvas_runtime_host_bindings VALUES (
+        'workspace-legacy','project-legacy','host-legacy','ready',
+        '2020-01-01T00:00:00.000Z','2020-01-01T00:00:01.000Z',
+        'operation-unprovable','attempt-unprovable','host-legacy',7,'graph-unprovable'
+      );
+    `);
+
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      canvasRuntimeOperationAttachmentMigration.before?.(database);
+      database.exec(canvasRuntimeOperationAttachmentMigration.sql);
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+
+    expect(
+      database.prepare("SELECT COUNT(*) AS count FROM canvas_runtime_operation_attachments").get()
+    ).toEqual({ count: 0 });
+    expect(
+      database
+        .prepare("PRAGMA table_info(canvas_runtime_host_bindings)")
+        .all()
+        .map((column) => column.name)
+    ).toEqual([
+      "workspace_id",
+      "project_id",
+      "host_id",
+      "readiness_status",
+      "route_selected",
+      "first_observed_at",
+      "last_observed_at"
+    ]);
+    expect(
+      database
+        .prepare(
+          `SELECT workspace_id,project_id,host_id,readiness_status,route_selected
+             FROM canvas_runtime_host_bindings`
+        )
+        .get()
+    ).toEqual({
+      workspace_id: "workspace-legacy",
+      project_id: "project-legacy",
+      host_id: "host-legacy",
+      readiness_status: "ready",
+      route_selected: 0
+    });
+    expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+  });
+});
+
 describe("remote coordinator migration v9", () => {
   it("upgrades v8 in place and rejects corrupt Host capability data without recording v9", async () => {
     const directory = await mkdtemp(join(tmpdir(), "planweave-remote-migration-"));
@@ -779,6 +860,12 @@ describe("remote recovery migration v13", () => {
         result_json TEXT,failure_json TEXT,interruption_reason TEXT,
         interruption_resumable INTEGER,interruption_recovery_json TEXT
       );
+      CREATE TABLE agent_hosts(
+        id TEXT PRIMARY KEY,display_name TEXT NOT NULL,credential_hash TEXT NOT NULL,
+        capabilities_json TEXT NOT NULL,capacity INTEGER NOT NULL,last_seen_at TEXT,
+        last_acknowledged_sequence INTEGER NOT NULL DEFAULT 0,revoked_at TEXT,
+        created_at TEXT NOT NULL
+      );
       CREATE TABLE remote_operations(
         id TEXT PRIMARY KEY,project_id TEXT NOT NULL,canvas_id TEXT NOT NULL,
         block_ref TEXT NOT NULL,ownership_generation TEXT NOT NULL,idempotency_key TEXT NOT NULL,
@@ -803,6 +890,7 @@ describe("remote recovery migration v13", () => {
         ('attempt-2','operation-2','dispatch-shared','project-2','default','TASK#B-002',
          'generation-2','prepared',NULL,'lease-2',0,NULL,0,
          '2020-01-01T00:00:00.000Z','2020-01-01T00:00:00.000Z',NULL);
+      ${preRunnerEventTablesSql}
     `);
     expect(() => applyMigrations(database)).toThrowError(
       "migration_duplicate_remote_attempt_dispatch_identity"
@@ -888,6 +976,7 @@ describe("remote operation host_selection migration v18", () => {
         'generation-1','prepared',NULL,NULL,0,NULL,0,
         '2020-01-01T00:00:00.000Z','2020-01-01T00:00:00.000Z',NULL
       );
+      ${preRunnerEventTablesSql}
       CREATE TABLE work_assignments(
         project_id TEXT NOT NULL,canvas_id TEXT NOT NULL,work_item_kind TEXT NOT NULL,
         work_item_key TEXT NOT NULL,target_kind TEXT NOT NULL,target_human_principal_id TEXT,

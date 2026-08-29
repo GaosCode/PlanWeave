@@ -471,6 +471,7 @@
         "taskManagerTrustedAccess.test.ts",
         "taskStatus.test.ts",
         "validationSummary.test.ts",
+        "workspaceExecutionAuthorityBinding.test.ts",
         "windowsProcessInvocation.test.ts",
         "wslExecutionHost.test.ts"
       ],
@@ -630,7 +631,9 @@
         "tmuxExecutor.test.ts",
         "tmuxRunnerScript.test.ts",
         "validatePackage.test.ts",
-        "windowsJobProcessContract.test.ts"
+        "windowsJobProcessContract.test.ts",
+        "workspaceExecutionArchitectureBoundaries.test.ts",
+        "workspaceExecutionCoordinator.test.ts"
       ],
       "platform": [
         "agentRunControlServer.test.ts",
@@ -869,6 +872,7 @@
         "remoteAgentRegistryMigration.test.ts",
         "remoteAgentRepository.test.ts",
         "remoteAgentSync.test.ts",
+        "remoteDispatchCandidateReader.test.ts",
         "remoteBlockCoordinator.test.ts",
         "remoteBlockCoordinatorAuthority.test.ts",
         "remoteBlockCoordinatorCrash.test.ts",

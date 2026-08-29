@@ -131,7 +131,11 @@ type WorkspaceAgentEndpointRunInput = {
   agentEndpoints: readonly AvailableAgentEndpoint[];
   collaborationController: {
     ensureWorkAuthority: (workItem: WorkItemRef) => Promise<{
-      revisions: { responsibilityRevision: number; reviewerRevision: number };
+      revisions: {
+        responsibilityRevision: number;
+        reviewerRevision: number;
+        executionTargetRevision: number;
+      };
     } | null>;
   } | null;
   canvasBinding?: RemoteCollaborationCanvasBindingInput | null;
@@ -173,6 +177,10 @@ type WorkspaceAgentEndpointRunInput = {
    * Must not use the renderer graph snapshot from run start.
    */
   resolveLiveRemoteBinding?: ResolveLiveRemoteBinding;
+  resolveRemoteContentAuthority?: () => Promise<{
+    contentRevision: string;
+    graphFingerprint: string;
+  } | null>;
 };
 
 export type LocalAutoRunScopeStarter = (
@@ -397,7 +405,28 @@ export function useWorkspaceAgentEndpointRun(
           ownerFleetApi,
           resolveRemoteWorkAuthority: usesWorkspaceRuntime
             ? undefined
-            : async () => ({ revisions: { responsibilityRevision: 0, reviewerRevision: 0 } }),
+            : async () => ({
+                revisions: {
+                  responsibilityRevision: 0,
+                  reviewerRevision: 0,
+                  executionTargetRevision: 0
+                }
+              }),
+          resolveRemoteContentAuthority:
+            input.resolveRemoteContentAuthority ??
+            (api && remoteBinding
+              ? async () => {
+                  const availability =
+                    await api.readCollaborationCanvasBindingRuntimeAvailability(remoteBinding);
+                  if (!availability || availability.schemaVersion !== "canvas-runtime-view/v2") {
+                    return null;
+                  }
+                  return {
+                    contentRevision: String(availability.authority.revision),
+                    graphFingerprint: availability.authority.graphFingerprint
+                  };
+                }
+              : undefined),
           resolveLiveRemoteBinding,
           createId,
           startLocal,
@@ -620,6 +649,7 @@ export function useWorkspaceAgentEndpointRun(
       input.localAutoRunApi,
       input.preferences,
       input.previewClaimNext,
+      input.resolveRemoteContentAuthority,
       input.resolveLiveRemoteBinding,
       input.selectedCanvasId,
       input.selectedProject,

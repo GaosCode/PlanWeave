@@ -9,14 +9,17 @@ import {
   captureAuthorizedCanvasContent,
   createRemoteBlockArtifactSource,
   createRemoteBlockRuntimePort,
-  decodeCanvasReplicaDocument,
-  projectCanvasReplicaDocument
+  readAuthorizedCanvasRuntimeStatus
 } from "@planweave-ai/runtime";
 import { createTestWorkspace } from "../../../../runtime/src/__tests__/promptTestHelpers.js";
 import { handleAgentEndpointHttpRequest } from "../../agentEndpointHttp.js";
 import { ArtifactStore } from "../../artifacts.js";
 import { canonicalRemoteRuntimePort } from "../../canonicalRemoteRuntimePort.js";
 import { ContentVersionRepository } from "../../canvas/contentVersionRepository.js";
+import {
+  readStableCanvasRuntimeContentTarget,
+  readStableCanvasRuntimeEvidence
+} from "../../canvas/contentFingerprint.js";
 import { RuntimeArtifactGrantRepository } from "../../canvas/runtimeArtifactGrantRepository.js";
 import { parseServerConfig } from "../../config.js";
 import { createRemoteBlockCoordination } from "../../distributedCoordination.js";
@@ -119,6 +122,13 @@ export function remoteRunV3Body(input: {
   blockRef: string;
   agentEndpointId: string;
   idempotencyKey: string;
+  dispatchAuthority: {
+    expectedResponsibilityRevision: number;
+    expectedReviewerRevision: number;
+    executionTargetRevision: number;
+    contentRevision: string;
+    graphFingerprint: string;
+  };
 }) {
   return {
     schemaVersion: "remote-run/v3",
@@ -127,8 +137,7 @@ export function remoteRunV3Body(input: {
     blockRef: input.blockRef,
     agentEndpointId: input.agentEndpointId,
     idempotencyKey: input.idempotencyKey,
-    expectedResponsibilityRevision: 0,
-    expectedReviewerRevision: 0
+    ...input.dispatchAuthority
   };
 }
 
@@ -177,22 +186,37 @@ export async function startGrantedHostCatalogDispatchHttp(options: { mapWorkspac
   });
   const registry = new RemoteRuntimePortRegistry();
   const runtime = createRemoteBlockRuntimePort({ projectRoot: workspace.root });
-  const runtimeCandidate = await runtime.inspect({ ref: "T-001#B-001" });
+  const captured = await captureAuthorizedCanvasContent({
+    projectRoot: workspace.root,
+    canvasId,
+    expectedPackageDir: workspace.init.workspace.packageDir,
+    authorityProjectId: projectId
+  });
+  const contentVersions = new ContentVersionRepository(storage.database);
+  contentVersions.publishInitial({
+    scope: { workspaceId, projectId, canvasId },
+    content: captured.content,
+    createdBy: { kind: "system", id: "gap-http-content" }
+  });
+  const contentEvidence = readStableCanvasRuntimeEvidence(contentVersions, {
+    workspaceId,
+    projectId,
+    canvasId
+  });
+  if (!contentEvidence) throw new Error("gap_http_content_evidence_missing");
   registry.bind(
     { workspaceId, projectId, canvasId },
     canonicalRemoteRuntimePort(runtime, workspaceId),
     createRemoteBlockArtifactSource({ projectRoot: workspace.root }),
     async () => ({
-      sourceRevision: `snapshot:${"a".repeat(64)}`,
-      graphFingerprint: runtimeCandidate.graphFingerprint,
-      status: {
-        schemaVersion: "canvas-runtime-status/v2",
-        scope: { workspaceId, projectId, canvasId },
-        packageFingerprint: runtimeCandidate.graphFingerprint,
-        capturedAt: "2026-08-27T00:00:00.000Z",
-        tasks: [],
-        blocks: []
-      }
+      sourceRevision: contentEvidence.sourceRevision,
+      graphFingerprint: contentEvidence.target.graphFingerprint,
+      status: await readAuthorizedCanvasRuntimeStatus({
+        projectRoot: workspace.root,
+        canvasId,
+        expectedPackageDir: workspace.init.workspace.packageDir,
+        scope: { workspaceId, projectId, canvasId }
+      })
     })
   );
   const artifacts = new ArtifactStore(storage.database, dataDirectory, 1024 * 1024);
@@ -202,6 +226,9 @@ export async function startGrantedHostCatalogDispatchHttp(options: { mapWorkspac
       leaseDurationMs: 60_000,
       hostOfflineAfterMs: 60_000,
       runtimeLeases: registry,
+      runtimeContentTargets: {
+        read: (scope) => readStableCanvasRuntimeContentTarget(contentVersions, scope)
+      },
       inputArtifacts: { materialize: async () => undefined },
       artifactContent: { readReport: async (ref) => artifacts.read(ref) },
       interactionAuthorization: {
@@ -246,6 +273,13 @@ export async function startGrantedHostCatalogDispatchHttp(options: { mapWorkspac
       expectedRevision: 0
     },
     actor: { kind: "system", id: "workspace-execution-plane-gap-http" }
+  });
+  const authorityRevisions = authority.currentRevisions({
+    kind: "block",
+    workspaceId,
+    projectId,
+    canvasId,
+    blockRef
   });
   const service = new HumanRemoteControlService({
     operations: coordination.operations,
@@ -321,7 +355,14 @@ export async function startGrantedHostCatalogDispatchHttp(options: { mapWorkspac
     canvasId,
     blockRef,
     ownerToken: owner.deviceToken,
-    endpointId: endpointIdForHost(storage.database, host.id)
+    endpointId: endpointIdForHost(storage.database, host.id),
+    dispatchAuthority: {
+      expectedResponsibilityRevision: authorityRevisions.responsibilityRevision,
+      expectedReviewerRevision: authorityRevisions.reviewerRevision,
+      executionTargetRevision: authorityRevisions.executionTargetRevision,
+      contentRevision: String(contentEvidence.target.revision),
+      graphFingerprint: contentEvidence.target.graphFingerprint
+    }
   };
 }
 
@@ -426,23 +467,24 @@ export async function startPathlessCompositionWithGrantedHost(options: {
       acpProfiles: [readyCodexProfile]
     }
   );
-  let contentGraphFingerprint: string | undefined;
-  if (options.liveCanvasRuntime) {
-    const captured = await captureAuthorizedCanvasContent({
-      projectRoot: workspace.root,
-      canvasId,
-      expectedPackageDir: workspace.init.workspace.packageDir,
-      authorityProjectId: projectId
-    });
-    new ContentVersionRepository(database).publishInitial({
-      scope: { workspaceId, projectId, canvasId },
-      content: captured.content,
-      createdBy: { kind: "system", id: "pathless-gap-content" }
-    });
-    contentGraphFingerprint = projectCanvasReplicaDocument(
-      decodeCanvasReplicaDocument(captured.content)
-    ).packageFingerprint;
-  }
+  const captured = await captureAuthorizedCanvasContent({
+    projectRoot: workspace.root,
+    canvasId,
+    expectedPackageDir: workspace.init.workspace.packageDir,
+    authorityProjectId: projectId
+  });
+  const contentVersions = new ContentVersionRepository(database);
+  contentVersions.publishInitial({
+    scope: { workspaceId, projectId, canvasId },
+    content: captured.content,
+    createdBy: { kind: "system", id: "pathless-gap-content" }
+  });
+  const contentTarget = readStableCanvasRuntimeContentTarget(contentVersions, {
+    workspaceId,
+    projectId,
+    canvasId
+  });
+  const contentGraphFingerprint = contentTarget.graphFingerprint;
   const liveOptions =
     options.liveCanvasRuntime === undefined
       ? undefined
@@ -457,6 +499,7 @@ export async function startPathlessCompositionWithGrantedHost(options: {
       token: registration.token,
       scope: { workspaceId, projectId, canvasId },
       projectRoot: workspace.root,
+      expectedPackageDir: workspace.init.workspace.packageDir,
       sockets: runtimeSockets,
       ...(contentGraphFingerprint ? { contentGraphFingerprint } : {}),
       ...(liveOptions.failOperation ? { failOperation: liveOptions.failOperation } : {})
@@ -477,6 +520,23 @@ export async function startPathlessCompositionWithGrantedHost(options: {
     ownerToken: bootstrapped.deviceToken,
     hostId: host.id,
     endpointId: endpointIdForHost(database, host.id),
+    dispatchAuthority: (() => {
+      const revisions = new AuthorityRepository(database).currentRevisions({
+        kind: "block",
+        workspaceId,
+        projectId,
+        canvasId,
+        blockRef
+      });
+      return {
+        expectedResponsibilityRevision: revisions.responsibilityRevision,
+        expectedReviewerRevision: revisions.reviewerRevision,
+        executionTargetRevision: revisions.executionTargetRevision,
+        contentRevision: String(contentTarget.revision),
+        graphFingerprint: contentTarget.graphFingerprint
+      };
+    })(),
+    contentGraphFingerprint,
     disconnectCanvasRuntime,
     listRuntimeBindings() {
       return database

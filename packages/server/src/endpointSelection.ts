@@ -21,7 +21,8 @@ export const runtimeAuthoritySnapshotSchema = z.discriminatedUnion("kind", [
       schemaVersion: z.literal("endpoint-authority/v2"),
       kind: z.literal("owner_canvas"),
       responsibilityRevision: z.number().int().nonnegative(),
-      reviewerRevision: z.number().int().nonnegative()
+      reviewerRevision: z.number().int().nonnegative(),
+      executionTargetRevision: z.number().int().nonnegative()
     })
     .strict(),
   z
@@ -30,14 +31,37 @@ export const runtimeAuthoritySnapshotSchema = z.discriminatedUnion("kind", [
       kind: z.literal("workspace_canvas"),
       workspaceId: workspaceIdSchema,
       responsibilityRevision: z.number().int().nonnegative(),
-      reviewerRevision: z.number().int().nonnegative()
+      reviewerRevision: z.number().int().nonnegative(),
+      executionTargetRevision: z.number().int().nonnegative()
     })
     .strict()
 ]);
 
-/** Disk and input reader: v1 controlPlane or v2 runtime kind. */
-export const endpointAuthoritySnapshotSchema = z.union([
-  runtimeAuthoritySnapshotSchema,
+export const legacyRuntimeAuthoritySnapshotSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      schemaVersion: z.literal("endpoint-authority/v2"),
+      kind: z.literal("owner_canvas"),
+      responsibilityRevision: z.number().int().nonnegative(),
+      reviewerRevision: z.number().int().nonnegative(),
+      executionTargetRevision: z.number().int().nonnegative().optional()
+    })
+    .strict(),
+  z
+    .object({
+      schemaVersion: z.literal("endpoint-authority/v2"),
+      kind: z.literal("workspace_canvas"),
+      workspaceId: workspaceIdSchema,
+      responsibilityRevision: z.number().int().nonnegative(),
+      reviewerRevision: z.number().int().nonnegative(),
+      executionTargetRevision: z.number().int().nonnegative().optional()
+    })
+    .strict()
+]);
+
+/** Explicit recovery-only reader for historical authority snapshots. */
+export const legacyEndpointAuthoritySnapshotSchema = z.union([
+  legacyRuntimeAuthoritySnapshotSchema,
   endpointAuthorityV1SnapshotSchema
 ]);
 
@@ -58,9 +82,9 @@ const endpointSelectionFields = availableRemoteAgentEndpointSchema
   });
 
 /** Parses both v1 and v2 authority. New writes must persist v2 via persistEndpointSelectionSnapshot. */
-export const endpointSelectionSnapshotSchema = endpointSelectionFields
+export const legacyEndpointSelectionSnapshotSchema = endpointSelectionFields
   .extend({
-    authority: endpointAuthoritySnapshotSchema
+    authority: legacyEndpointAuthoritySnapshotSchema
   })
   .strict();
 
@@ -69,43 +93,31 @@ export const writeEndpointSelectionSnapshotSchema = endpointSelectionFields
     authority: runtimeAuthoritySnapshotSchema
   })
   .strict();
+export const endpointSelectionSnapshotSchema = writeEndpointSelectionSnapshotSchema;
 
 export type EndpointAuthorityV1Snapshot = z.infer<typeof endpointAuthorityV1SnapshotSchema>;
 export type RuntimeAuthoritySnapshot = z.infer<typeof runtimeAuthoritySnapshotSchema>;
 export type EndpointSelectionSnapshot = z.infer<typeof writeEndpointSelectionSnapshotSchema>;
-export type PersistedEndpointSelectionSnapshot = z.infer<typeof endpointSelectionSnapshotSchema>;
+export type PersistedEndpointSelectionSnapshot = z.infer<
+  typeof legacyEndpointSelectionSnapshotSchema
+>;
 
 export function mapEndpointAuthorityToRuntimeSnapshot(
-  authority: z.infer<typeof endpointAuthoritySnapshotSchema>,
+  authority: z.infer<typeof legacyEndpointAuthoritySnapshotSchema>,
   workspaceId: string
 ): RuntimeAuthoritySnapshot {
   if (authority.schemaVersion === "endpoint-authority/v2") {
     return runtimeAuthoritySnapshotSchema.parse(authority);
   }
-  const revisions = {
-    responsibilityRevision: authority.responsibilityRevision,
-    reviewerRevision: authority.reviewerRevision
-  };
-  if (authority.controlPlane === "owner") {
-    return runtimeAuthoritySnapshotSchema.parse({
-      schemaVersion: "endpoint-authority/v2",
-      kind: "owner_canvas",
-      ...revisions
-    });
-  }
-  return runtimeAuthoritySnapshotSchema.parse({
-    schemaVersion: "endpoint-authority/v2",
-    kind: "workspace_canvas",
-    workspaceId: workspaceIdSchema.parse(workspaceId),
-    ...revisions
-  });
+  workspaceIdSchema.parse(workspaceId);
+  throw new Error("endpoint_authority_execution_target_revision_missing");
 }
 
 export function readEndpointSelectionSnapshot(
   value: unknown,
   workspaceId: string
 ): EndpointSelectionSnapshot {
-  const parsed = endpointSelectionSnapshotSchema.parse(value);
+  const parsed = legacyEndpointSelectionSnapshotSchema.parse(value);
   return writeEndpointSelectionSnapshotSchema.parse({
     ...parsed,
     authority: mapEndpointAuthorityToRuntimeSnapshot(parsed.authority, workspaceId)
@@ -114,16 +126,18 @@ export function readEndpointSelectionSnapshot(
 
 export function persistEndpointSelectionSnapshot(
   value: unknown,
-  workspaceId: string
+  _workspaceId: string
 ): EndpointSelectionSnapshot {
-  return writeEndpointSelectionSnapshotSchema.parse(
-    readEndpointSelectionSnapshot(value, workspaceId)
-  );
+  return writeEndpointSelectionSnapshotSchema.parse(value);
 }
 
 export function runtimeAuthoritySnapshotForTarget(
   target: { kind: "owner_canvas" } | { kind: "workspace_canvas"; workspaceId: string },
-  revisions: { responsibilityRevision: number; reviewerRevision: number }
+  revisions: {
+    responsibilityRevision: number;
+    reviewerRevision: number;
+    executionTargetRevision: number;
+  }
 ): RuntimeAuthoritySnapshot {
   if (target.kind === "owner_canvas") {
     return runtimeAuthoritySnapshotSchema.parse({

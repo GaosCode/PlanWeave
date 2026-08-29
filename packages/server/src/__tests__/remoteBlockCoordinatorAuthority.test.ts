@@ -82,7 +82,7 @@ describe("RemoteBlockCoordinator authority snapshots", () => {
     const fixture = await setup(true);
     const request = endpointDispatchRequest({
       agentEndpoints: fixture.agentEndpoints,
-      locator: fixture.locator,
+      locator: fixture.dispatchLocator,
       blockRef: "T-001#B-001",
       idempotencyKey: "workspace-runtime-owner-access"
     });
@@ -99,7 +99,8 @@ describe("RemoteBlockCoordinator authority snapshots", () => {
       kind: "workspace_canvas",
       workspaceId: fixture.locator.workspaceId,
       responsibilityRevision: 0,
-      reviewerRevision: 0
+      reviewerRevision: 0,
+      executionTargetRevision: 0
     });
     expect(operation.agentAccess).toMatchObject({
       callerHumanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID,
@@ -128,7 +129,7 @@ describe("RemoteBlockCoordinator authority snapshots", () => {
     addWorkspaceMember(fixture.server.database, fixture.locator.workspaceId, MEMBER_ID, "member");
     const request = endpointDispatchRequest({
       agentEndpoints: fixture.agentEndpoints,
-      locator: fixture.locator,
+      locator: fixture.dispatchLocator,
       blockRef: "T-001#B-001",
       idempotencyKey: "workspace-runtime-grant-access",
       callerHumanPrincipalId: MEMBER_ID
@@ -160,7 +161,7 @@ describe("RemoteBlockCoordinator authority snapshots", () => {
     addWorkspaceMember(fixture.server.database, fixture.locator.workspaceId, MEMBER_ID, "member");
     const request = endpointDispatchRequest({
       agentEndpoints: fixture.agentEndpoints,
-      locator: fixture.locator,
+      locator: fixture.dispatchLocator,
       blockRef: "T-001#B-001",
       idempotencyKey: "reenter-after-grant-revoke",
       callerHumanPrincipalId: MEMBER_ID
@@ -195,7 +196,7 @@ describe("RemoteBlockCoordinator authority snapshots", () => {
     addWorkspaceMember(fixture.server.database, fixture.locator.workspaceId, MEMBER_ID, "member");
     const request = endpointDispatchRequest({
       agentEndpoints: fixture.agentEndpoints,
-      locator: fixture.locator,
+      locator: fixture.dispatchLocator,
       blockRef: "T-001#B-001",
       idempotencyKey: "retry-after-grant-revoke",
       callerHumanPrincipalId: MEMBER_ID
@@ -240,14 +241,14 @@ describe("RemoteBlockCoordinator authority snapshots", () => {
     addWorkspaceMember(fixture.server.database, fixture.locator.workspaceId, MEMBER_ID, "member");
     const request = endpointDispatchRequest({
       agentEndpoints: fixture.agentEndpoints,
-      locator: fixture.locator,
+      locator: fixture.dispatchLocator,
       blockRef: "T-001#B-001",
       idempotencyKey: "shared-idempotency-key"
     });
     await fixture.coordinator.dispatch(request);
     const intruder = endpointDispatchRequest({
       agentEndpoints: fixture.agentEndpoints,
-      locator: fixture.locator,
+      locator: fixture.dispatchLocator,
       blockRef: "T-001#B-001",
       idempotencyKey: "shared-idempotency-key",
       callerHumanPrincipalId: MEMBER_ID
@@ -263,7 +264,7 @@ describe("RemoteBlockCoordinator authority snapshots", () => {
     ensureTestHumanPrincipal(fixture.server.database, canonicalId, "Canonical Owner");
     const request = endpointDispatchRequest({
       agentEndpoints: fixture.agentEndpoints,
-      locator: fixture.locator,
+      locator: fixture.dispatchLocator,
       blockRef: "T-001#B-001",
       idempotencyKey: "merged-caller-idempotency"
     });
@@ -284,7 +285,7 @@ describe("RemoteBlockCoordinator authority snapshots", () => {
     const fixture = await setup(true);
     const request = endpointDispatchRequest({
       agentEndpoints: fixture.agentEndpoints,
-      locator: fixture.locator,
+      locator: fixture.dispatchLocator,
       blockRef: "T-001#B-001",
       idempotencyKey: "retry-missing-access"
     });

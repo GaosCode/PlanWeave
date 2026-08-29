@@ -294,7 +294,15 @@ export const remoteDispatchIntentV3Schema = z
     agentEndpointId: opaqueIdentifierSchema,
     idempotencyKey: z.string().trim().min(1).max(256),
     expectedResponsibilityRevision: collaborationRevisionSchema,
-    expectedReviewerRevision: collaborationRevisionSchema
+    expectedReviewerRevision: collaborationRevisionSchema,
+    executionTargetRevision: collaborationRevisionSchema,
+    contentRevision: z
+      .string()
+      .trim()
+      .min(1)
+      .max(256)
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/),
+    graphFingerprint: z.string().regex(/^pkg-[a-f0-9]{64}$/)
   })
   .strict();
 export type RemoteDispatchIntentV3 = z.infer<typeof remoteDispatchIntentV3Schema>;

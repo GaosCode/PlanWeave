@@ -228,6 +228,20 @@ function createApi() {
     getCollaborationStatus: vi.fn().mockResolvedValue(status),
     onCollaborationStatusChanged: vi.fn(() => () => undefined),
     onCollaborationObserverSignal: vi.fn(() => () => undefined),
+    readCollaborationCanvasBindingRuntimeAvailability: vi.fn().mockResolvedValue({
+      schemaVersion: "canvas-runtime-view/v2",
+      authority: {
+        revision: 1,
+        sourceRevision: "source-revision-1",
+        graphFingerprint: `pkg-${"a".repeat(64)}`
+      },
+      state: { kind: "uninitialized" },
+      execution: {
+        schemaVersion: "canvas-runtime-availability/v1",
+        kind: "unavailable",
+        reason: "runtime_not_attached"
+      }
+    }),
     listCollaborationMembers: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
     listCollaborationAssignments: vi.fn().mockResolvedValue({
       items: [
@@ -949,7 +963,10 @@ describe("useRemoteRunPanelController", () => {
       agentEndpointId: "endpoint-vps",
       idempotencyKey: "desktop-dispatch-id-fixed",
       expectedResponsibilityRevision: 0,
-      expectedReviewerRevision: 0
+      expectedReviewerRevision: 0,
+      executionTargetRevision: 1,
+      contentRevision: "1",
+      graphFingerprint: `pkg-${"a".repeat(64)}`
     });
 
     await act(async () => {
@@ -1283,7 +1300,8 @@ describe("useRemoteRunPanelController", () => {
           canvasId: "a",
           blockRef: "b:T#B",
           expectedResponsibilityRevision: 22,
-          expectedReviewerRevision: 22
+          expectedReviewerRevision: 22,
+          executionTargetRevision: 1
         })
       );
       newScopeIdentity = result.current.viewModel.identity;

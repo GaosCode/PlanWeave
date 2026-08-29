@@ -12,7 +12,11 @@ import {
   createTestWorkspace
 } from "../../../runtime/src/__tests__/promptTestHelpers.js";
 import { latestCentralSchemaVersion } from "../migrations.js";
+import { ContentVersionRepository } from "../canvas/contentVersionRepository.js";
+import { readStableCanvasRuntimeContentTarget } from "../canvas/contentFingerprint.js";
 import { hashOperatorToken } from "../operatorAuth.js";
+import { openServerDatabase } from "../sqlite.js";
+import { AuthorityRepository } from "../work/authorityRepository.js";
 import { legacyWorkspaceIdForProject } from "./support/legacyWorkspaceId.js";
 import { seedOperatorSessions } from "./support/operatorAuthFixture.js";
 import {
@@ -427,6 +431,37 @@ describe("remote operator walkthrough", () => {
     const agentEndpointId = endpointPage.items[0]?.endpointId;
     expect(agentEndpointId).toBeTruthy();
 
+    const authorityDatabase = await openServerDatabase(
+      join(temporaryRoot, "server-data", "planweave-server.sqlite"),
+      5_000
+    );
+    const dispatchScope = {
+      workspaceId: grant.workspaceId,
+      projectId: workspace.init.workspace.id,
+      canvasId: "default",
+      blockRef: "T-001#B-001"
+    };
+    const contentTarget = readStableCanvasRuntimeContentTarget(
+      new ContentVersionRepository(authorityDatabase),
+      {
+        workspaceId: dispatchScope.workspaceId,
+        projectId: dispatchScope.projectId,
+        canvasId: dispatchScope.canvasId
+      }
+    );
+    const revisions = new AuthorityRepository(authorityDatabase).currentRevisions({
+      kind: "block",
+      ...dispatchScope
+    });
+    authorityDatabase.close();
+    const dispatchAuthority = {
+      expectedResponsibilityRevision: revisions.responsibilityRevision,
+      expectedReviewerRevision: revisions.reviewerRevision,
+      executionTargetRevision: revisions.executionTargetRevision,
+      contentRevision: String(contentTarget.revision),
+      graphFingerprint: contentTarget.graphFingerprint
+    };
+
     for (const schemaVersion of ["remote-run/v1", "remote-run/v2"]) {
       const legacyDispatch = await fetch(`${origin}/api/v1/remote-operations`, {
         method: "POST",
@@ -443,7 +478,10 @@ describe("remote operator walkthrough", () => {
         })
       });
       expect(legacyDispatch.status).toBe(400);
-      await expect(legacyDispatch.json()).resolves.toEqual({ error: "remote_run_v3_required" });
+      await expect(legacyDispatch.json()).resolves.toEqual({
+        error: "remote_run_v3_required",
+        serverBuildRevision: "development"
+      });
     }
 
     // Operator dispatch proof: HTTP 202 only means the Coordinator accepted the request.
@@ -458,8 +496,7 @@ describe("remote operator walkthrough", () => {
         blockRef: "T-001#B-001",
         agentEndpointId,
         idempotencyKey: "operator-walkthrough-dispatch",
-        expectedResponsibilityRevision: 0,
-        expectedReviewerRevision: 0,
+        ...dispatchAuthority,
         humanPrincipalId: "walkthrough-owner"
       })
     });

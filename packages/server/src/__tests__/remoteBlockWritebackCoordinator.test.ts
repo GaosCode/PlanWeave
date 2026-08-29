@@ -31,16 +31,16 @@ describe("RemoteBlockCoordinator Runtime lease and terminal writeback", () => {
     await fixture.coordinator.dispatch(
       endpointDispatchRequest({
         agentEndpoints: fixture.agentEndpoints,
-        locator: fixture.locator,
+        locator: fixture.dispatchLocator,
         blockRef: "T-001#B-001",
         idempotencyKey: "lease-artifact-binding"
       })
     );
 
-    expect(bindings).toHaveLength(2);
+    expect(bindings).toHaveLength(1);
     expect(fixture.materialize).toHaveBeenCalledWith(
       expect.objectContaining({ blockRef: "T-001#B-001" }),
-      bindings[1]!.artifacts
+      bindings[0]!.artifacts
     );
     for (const binding of bindings) expect(binding.release).toHaveBeenCalledOnce();
 
@@ -66,13 +66,13 @@ describe("RemoteBlockCoordinator Runtime lease and terminal writeback", () => {
       failureFixture.coordinator.dispatch(
         endpointDispatchRequest({
           agentEndpoints: failureFixture.agentEndpoints,
-          locator: failureFixture.locator,
+          locator: failureFixture.dispatchLocator,
           blockRef: "T-001#B-001",
           idempotencyKey: "lease-artifact-release-failure"
         })
       )
     ).rejects.toThrow("injected_materialize_failure");
-    expect(failedReleases).toHaveLength(2);
+    expect(failedReleases).toHaveLength(1);
     for (const release of failedReleases) expect(release).toHaveBeenCalledOnce();
   });
 
@@ -81,7 +81,7 @@ describe("RemoteBlockCoordinator Runtime lease and terminal writeback", () => {
     await fixture.coordinator.dispatch(
       endpointDispatchRequest({
         agentEndpoints: fixture.agentEndpoints,
-        locator: fixture.locator,
+        locator: fixture.dispatchLocator,
         blockRef: "T-001#B-001",
         idempotencyKey: "acquire-failure-first"
       })
@@ -89,7 +89,7 @@ describe("RemoteBlockCoordinator Runtime lease and terminal writeback", () => {
     await fixture.coordinator.dispatch(
       endpointDispatchRequest({
         agentEndpoints: fixture.agentEndpoints,
-        locator: fixture.locator,
+        locator: fixture.dispatchLocator,
         blockRef: "T-002#B-001",
         idempotencyKey: "acquire-failure-second"
       })
@@ -126,7 +126,7 @@ describe("RemoteBlockCoordinator Runtime lease and terminal writeback", () => {
     ).toEqual({ diagnostic_code: "agent_endpoint_unavailable" });
   });
 
-  it("re-inspects once when the pre-dispatch source snapshot changes", async () => {
+  it("does not consult Host inspect after Server candidate acceptance", async () => {
     const fixture = await setup(true);
     const inspect = vi.spyOn(fixture.runtime, "inspect");
     inspect.mockRejectedValueOnce(
@@ -140,16 +140,16 @@ describe("RemoteBlockCoordinator Runtime lease and terminal writeback", () => {
       fixture.coordinator.dispatch(
         endpointDispatchRequest({
           agentEndpoints: fixture.agentEndpoints,
-          locator: fixture.locator,
+          locator: fixture.dispatchLocator,
           blockRef: "T-001#B-001",
           idempotencyKey: "dispatch-source-change-reinspect"
         })
       )
     ).resolves.toMatchObject({ status: "activated" });
-    expect(inspect).toHaveBeenCalledTimes(2);
+    expect(inspect).not.toHaveBeenCalled();
   });
 
-  it("preserves a repeated pre-dispatch source conflict without creating an operation", async () => {
+  it("does not let a Host inspect failure replace Server candidate authority", async () => {
     const fixture = await setup(true);
     const inspect = vi
       .spyOn(fixture.runtime, "inspect")
@@ -164,16 +164,16 @@ describe("RemoteBlockCoordinator Runtime lease and terminal writeback", () => {
       fixture.coordinator.dispatch(
         endpointDispatchRequest({
           agentEndpoints: fixture.agentEndpoints,
-          locator: fixture.locator,
+          locator: fixture.dispatchLocator,
           blockRef: "T-001#B-001",
           idempotencyKey: "dispatch-repeated-source-change"
         })
       )
-    ).rejects.toMatchObject({ code: "remote_block_source_changed" });
-    expect(inspect).toHaveBeenCalledTimes(2);
+    ).resolves.toMatchObject({ status: "activated" });
+    expect(inspect).not.toHaveBeenCalled();
     expect(
       fixture.server.database.prepare("SELECT COUNT(*) AS count FROM remote_operations").get()
-    ).toEqual({ count: 0 });
+    ).toEqual({ count: 1 });
   });
 
   it("re-enters terminal completion through the Runtime authority", async () => {
@@ -181,7 +181,7 @@ describe("RemoteBlockCoordinator Runtime lease and terminal writeback", () => {
     const outcome = await fixture.coordinator.dispatch(
       endpointDispatchRequest({
         agentEndpoints: fixture.agentEndpoints,
-        locator: fixture.locator,
+        locator: fixture.dispatchLocator,
         blockRef: "T-001#B-001",
         idempotencyKey: "dispatch-request-complete"
       })
@@ -290,7 +290,7 @@ describe("RemoteBlockCoordinator Runtime lease and terminal writeback", () => {
     const outcome = await fixture.coordinator.dispatch(
       endpointDispatchRequest({
         agentEndpoints: fixture.agentEndpoints,
-        locator: fixture.locator,
+        locator: fixture.dispatchLocator,
         blockRef: "T-001#B-001",
         idempotencyKey: "dispatch-writeback-after-lease-expiry"
       })
@@ -388,7 +388,7 @@ describe("RemoteBlockCoordinator Runtime lease and terminal writeback", () => {
     const outcome = await fixture.coordinator.dispatch(
       endpointDispatchRequest({
         agentEndpoints: fixture.agentEndpoints,
-        locator: fixture.locator,
+        locator: fixture.dispatchLocator,
         blockRef: "T-001#B-001",
         idempotencyKey: "dispatch-writeback-result-conflict"
       })
@@ -483,7 +483,7 @@ describe("RemoteBlockCoordinator Runtime lease and terminal writeback", () => {
     const first = await fixture.coordinator.dispatch(
       endpointDispatchRequest({
         agentEndpoints: fixture.agentEndpoints,
-        locator: fixture.locator,
+        locator: fixture.dispatchLocator,
         blockRef: "T-001#B-001",
         idempotencyKey: "dispatch-reenter-pending-isolate-a"
       })
