@@ -14,6 +14,7 @@ import {
 } from "../renderer/hooks/useWorkspaceRuntime";
 import {
   collaborationRuntimeOperationsAllowed,
+  collaborationRuntimeResetAllowed,
   collaborationRuntimeStartAllowed,
   collaborationRuntimeUnavailableCode,
   collaborationRuntimeStatusKnown
@@ -80,7 +81,12 @@ function runtimeView(
     )
   };
   return {
-    schemaVersion: "canvas-runtime-view/v1" as const,
+    schemaVersion: "canvas-runtime-view/v2" as const,
+    authority: {
+      revision: runtimeRevision,
+      sourceRevision: `source-${runtimeRevision}`,
+      graphFingerprint: packageFingerprint
+    },
     state: { kind: "initialized" as const, runtimeRevision, status },
     execution: {
       schemaVersion: "canvas-runtime-availability/v1" as const,
@@ -138,7 +144,7 @@ function input(api: WorkspaceRuntimeAvailabilityBridge, enabled = true) {
 }
 
 describe("useWorkspaceRuntimeAvailability", () => {
-  it("allows Run preparation without enabling Reset for an unattached runtime", () => {
+  it("allows Server-first Run and Reset without an attached Runtime Host", () => {
     const uninitialized = { kind: "state_uninitialized" } as const;
     const unattached = {
       kind: "unavailable",
@@ -148,9 +154,11 @@ describe("useWorkspaceRuntimeAvailability", () => {
 
     expect(collaborationRuntimeStartAllowed(uninitialized)).toBe(true);
     expect(collaborationRuntimeOperationsAllowed(uninitialized)).toBe(false);
+    expect(collaborationRuntimeResetAllowed(uninitialized)).toBe(true);
     expect(collaborationRuntimeUnavailableCode(uninitialized)).toBeNull();
     expect(collaborationRuntimeStartAllowed(unattached)).toBe(true);
     expect(collaborationRuntimeOperationsAllowed(unattached)).toBe(false);
+    expect(collaborationRuntimeResetAllowed(unattached)).toBe(true);
     expect(collaborationRuntimeUnavailableCode(unattached)).toBeNull();
   });
 
@@ -408,6 +416,44 @@ describe("useWorkspaceRuntimeAvailability", () => {
 });
 
 describe("useWorkspaceRuntime", () => {
+  it("keeps legacy v1 availability readable without exposing Reset", () => {
+    const v2 = runtimeView(1);
+    const legacy = {
+      schemaVersion: "canvas-runtime-view/v1" as const,
+      state: v2.state,
+      execution: v2.execution
+    };
+    const api = {
+      getCollaborationStatus: vi.fn().mockRejectedValue(new Error("observer unavailable")),
+      readCollaborationCanvasBindingRuntimeAvailability: vi.fn(),
+      resetWorkspaceCanvasRuntime: vi.fn()
+    } satisfies WorkspaceRuntimeBridge;
+    const { result } = renderHook(() =>
+      useWorkspaceRuntime({
+        activeProfileId: "profile-1",
+        activeProjectId: scope.projectId,
+        graph,
+        sessionConnected: true,
+        binding: { kind: "remote", ...scope },
+        initialRuntimeAvailability: legacy,
+        locator: {
+          kind: "workspace",
+          connectionProfileId: "profile-1",
+          ...scope
+        },
+        setError: vi.fn(),
+        setSuccessMessage: vi.fn(),
+        t: createTranslator("en"),
+        api
+      })
+    );
+
+    expect(result.current.authoritativeRuntime).toEqual(legacy);
+    expect(result.current.resetWorkspaceRuntime).toBeUndefined();
+    expect(result.current.availability).toEqual({ kind: "available" });
+    expect(result.current.graph).not.toBeNull();
+  });
+
   it("does not initialize when opening a Workspace canvas or reading availability", async () => {
     const uninitializedRuntime = uninitializedRuntimeView();
     const api = {
@@ -502,6 +548,71 @@ describe("useWorkspaceRuntime", () => {
       "Runtime state reset from the authoritative Server projection."
     );
     expect(setError).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["offline", false, "host_offline"],
+    ["unattached", true, "runtime_not_attached"]
+  ] as const)("resets from Server content authority while the Runtime Host is %s", async (_scenario, uninitialized, reason) => {
+    const available = runtimeView(1, graph.packageFingerprint, "implemented");
+    const initialRuntime = {
+      ...available,
+      ...(uninitialized ? { state: { kind: "uninitialized" as const } } : {}),
+      execution: {
+        schemaVersion: "canvas-runtime-availability/v1" as const,
+        kind: "unavailable" as const,
+        reason,
+        hostId: "host-1"
+      }
+    };
+    const resetRuntime = runtimeView(2, graph.packageFingerprint, "ready");
+    const resetWorkspaceCanvasRuntime = vi.fn().mockResolvedValue({
+      type: "canvas.runtime.reset.accepted" as const,
+      operationId: "operation-offline",
+      runtimeRevision: 2,
+      sourceRevision: initialRuntime.authority.sourceRevision,
+      graphFingerprint: initialRuntime.authority.graphFingerprint,
+      status: resetRuntime.state.status
+    });
+    const api = {
+      getCollaborationStatus: vi.fn().mockRejectedValue(new Error("observer unavailable")),
+      readCollaborationCanvasBindingRuntimeAvailability: vi.fn(),
+      resetWorkspaceCanvasRuntime
+    } satisfies WorkspaceRuntimeBridge;
+    const { result } = renderHook(() =>
+      useWorkspaceRuntime({
+        activeProfileId: "profile-1",
+        activeProjectId: scope.projectId,
+        graph,
+        sessionConnected: true,
+        binding: { kind: "remote", ...scope },
+        initialRuntimeAvailability: initialRuntime,
+        locator: {
+          kind: "workspace",
+          connectionProfileId: "profile-1",
+          ...scope
+        },
+        setError: vi.fn(),
+        setSuccessMessage: vi.fn(),
+        t: createTranslator("en"),
+        api
+      })
+    );
+
+    await act(async () => {
+      await result.current.resetWorkspaceRuntime?.();
+    });
+
+    expect(resetWorkspaceCanvasRuntime).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedSourceRevision: initialRuntime.authority.sourceRevision,
+        expectedGraphFingerprint: initialRuntime.authority.graphFingerprint
+      })
+    );
+    expect(result.current.authoritativeRuntime?.state).toMatchObject({
+      kind: "initialized",
+      runtimeRevision: 2
+    });
   });
 
   it("does not reuse an accepted projection after leaving and reopening the Workspace canvas", async () => {

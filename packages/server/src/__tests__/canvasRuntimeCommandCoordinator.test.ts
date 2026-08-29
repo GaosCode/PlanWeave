@@ -16,7 +16,10 @@ import {
   type CanvasExecutionRuntimeLeasePort,
   type CanvasRuntimeResetCommand
 } from "../canvas/executionRuntimePort.js";
-import { readStableCanvasContentFingerprint } from "../canvas/contentFingerprint.js";
+import {
+  readStableCanvasContentFingerprint,
+  readStableCanvasRuntimeEvidence
+} from "../canvas/contentFingerprint.js";
 import { CanvasRuntimeRpcError } from "../canvas/runtimeRpcBroker.js";
 import { CanvasRuntimeRpcBroker } from "../canvas/runtimeRpcBroker.js";
 import { CanvasRuntimeHostLocator } from "../canvas/runtimeHostLocator.js";
@@ -36,7 +39,6 @@ import {
 } from "./support/canvasCommandServiceFixture.js";
 
 const scope = { workspaceId: "w", projectId: "p", canvasId: "default" } as const;
-const sourceRevision = `snapshot:${"b".repeat(64)}`;
 
 const unusedRuntime: RemoteBlockRuntimePort = {
   inspect: vi.fn(),
@@ -52,7 +54,7 @@ const unusedRuntime: RemoteBlockRuntimePort = {
 };
 const unusedArtifacts: RemoteBlockArtifactSource = { read: vi.fn() };
 
-function testResetResult(operationId: string, fingerprint: string) {
+function testResetResult(operationId: string, sourceRevision: string, fingerprint: string) {
   return {
     operationId,
     sourceRevision,
@@ -73,11 +75,14 @@ async function setup(options?: {
   activeLease?: boolean;
   persistFailure?: boolean;
   reconcileReset?: CanvasExecutionRuntimeLeasePort["reconcileReset"];
+  cleanupDiagnosticSink?: ReturnType<typeof vi.fn>;
 }) {
   const context = await fixture();
   const fingerprint = readStableCanvasContentFingerprint(context.contentVersions, scope);
+  const evidence = readStableCanvasRuntimeEvidence(context.contentVersions, scope);
   const head = context.contentVersions.head(scope);
-  if (!fingerprint || !head) throw new Error("test_content_authority_missing");
+  if (!fingerprint || !evidence || !head) throw new Error("test_content_authority_missing");
+  const sourceRevision = evidence.sourceRevision;
   let resetCount = 0;
   const reset = vi.fn(async (command: CanvasRuntimeResetCommand) => {
     resetCount += 1;
@@ -117,6 +122,7 @@ async function setup(options?: {
     acquire,
     ...(options?.reconcileReset ? { reconcileReset: options.reconcileReset } : {})
   };
+  const cleanupDiagnosticSink = options?.cleanupDiagnosticSink ?? vi.fn();
   const coordinator = new CanvasRuntimeCommandCoordinator({
     access: context.access,
     workspaceIdentity: new WorkspaceIdentityRepository(context.database),
@@ -125,6 +131,7 @@ async function setup(options?: {
     receipts,
     executionLeases,
     hasConflictingLease: () => options?.activeLease ?? false,
+    cleanupDiagnosticSink,
     commitTransaction: (action) => {
       if (options?.persistFailure) throw new Error("simulated_persist_failure");
       return inWriteTransaction(context.database, action);
@@ -146,6 +153,7 @@ async function setup(options?: {
       receipts,
       executionLeases,
       hasConflictingLease: () => options?.activeLease ?? false,
+      cleanupDiagnosticSink,
       commitTransaction: (action) => {
         if (persistFailure) throw new Error("simulated_persist_failure");
         return inWriteTransaction(context.database, action);
@@ -156,13 +164,15 @@ async function setup(options?: {
     acquire,
     body,
     coordinator,
+    cleanupDiagnosticSink,
     executionLeases,
     fingerprint,
     invalidated,
     receipts,
     reset,
     restartCoordinator,
-    runtimeStatuses
+    runtimeStatuses,
+    sourceRevision
   };
 }
 
@@ -183,13 +193,16 @@ describe("CanvasRuntimeCommandCoordinator", () => {
 
     expect(first).toEqual(duplicate);
     expect(first).toMatchObject({ type: "canvas.runtime.reset.accepted", runtimeRevision: 1 });
-    expect(test.reset).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => {
+      expect(test.reset).toHaveBeenCalledTimes(1);
+      expect(test.acquire).toHaveBeenCalledTimes(1);
+    });
     expect(test.invalidated).toHaveBeenCalledWith(scope, 1);
     expect(test.receipts.latestAcceptedBaseline(scope)).toMatchObject({
       runtimeRevision: 1,
       command: {
         operationId: "reset-once",
-        expectedSourceRevision: sourceRevision,
+        expectedSourceRevision: test.sourceRevision,
         expectedGraphFingerprint: test.fingerprint
       },
       status: { packageFingerprint: test.fingerprint }
@@ -209,7 +222,7 @@ describe("CanvasRuntimeCommandCoordinator", () => {
           await hostGate;
           return {
             operationId: command.operationId,
-            sourceRevision,
+            sourceRevision: test.sourceRevision,
             graphFingerprint: test.fingerprint,
             status: {
               schemaVersion: "canvas-runtime-status/v2",
@@ -236,13 +249,13 @@ describe("CanvasRuntimeCommandCoordinator", () => {
       body: test.body("reset-concurrent")
     });
     expect(test.acquire).toHaveBeenCalledTimes(1);
-    releaseHost();
     const [firstOutcome, duplicateOutcome] = await Promise.all([first, duplicate]);
     expect(firstOutcome).toEqual(duplicateOutcome);
     expect(firstOutcome).toMatchObject({ type: "canvas.runtime.reset.accepted" });
+    releaseHost();
   });
 
-  it("rejects ACL, leases, drift, Host offline, and timeout structurally", async () => {
+  it("rejects ACL, leases, and drift structurally", async () => {
     const denied = await setup();
     await expect(
       denied.coordinator.reset(actor("viewer"), {
@@ -284,32 +297,125 @@ describe("CanvasRuntimeCommandCoordinator", () => {
       })
     ).resolves.toMatchObject({ code: "source_drift" });
     expect(fingerprintDrifted.acquire).not.toHaveBeenCalled();
+  });
 
-    const offline = await setup({
+  it("commits Server authority before best-effort Host cleanup completes", async () => {
+    let releaseHost!: () => void;
+    const hostGate = new Promise<void>((resolve) => {
+      releaseHost = resolve;
+    });
+    const release = vi.fn();
+    const test = await setup({
+      acquire: async () => ({
+        runtime: unusedRuntime,
+        artifacts: unusedArtifacts,
+        reset: async (command) => {
+          await hostGate;
+          return testResetResult(
+            command.operationId,
+            command.expectedSourceRevision,
+            command.expectedGraphFingerprint
+          );
+        },
+        release
+      })
+    });
+
+    const operation = test.coordinator.reset(actor("owner"), {
+      projectId: "p",
+      canvasId: "default",
+      body: test.body("reset-server-first")
+    });
+    await expect(operation).resolves.toMatchObject({
+      type: "canvas.runtime.reset.accepted",
+      operationId: "reset-server-first",
+      runtimeRevision: 1
+    });
+    expect(release).not.toHaveBeenCalled();
+    expect(test.runtimeStatuses.read(scope)).toMatchObject({ runtimeRevision: 1 });
+    expect(test.receipts.latestAcceptedBaseline(scope)).toMatchObject({
+      runtimeRevision: 1,
+      command: { operationId: "reset-server-first" }
+    });
+
+    releaseHost();
+    await vi.waitFor(() => expect(release).toHaveBeenCalledOnce());
+  });
+
+  it.each([
+    ["offline", new CanvasRuntimeUnavailableError("host_offline")],
+    ["timeout", new CanvasRuntimeRpcError("canvas_runtime_reconcile_required", true, true)]
+  ])("keeps an accepted Server reset when Host cleanup is %s", async (failure, error) => {
+    const test = await setup({
       acquire: async () => {
-        throw new CanvasRuntimeUnavailableError("host_offline");
+        throw error;
       }
     });
-    await expect(
-      offline.coordinator.reset(actor("owner"), {
-        projectId: "p",
-        canvasId: "default",
-        body: offline.body("reset-offline")
-      })
-    ).resolves.toMatchObject({ code: "host_offline" });
 
-    const timedOut = await setup({
-      acquire: async () => {
-        throw new CanvasRuntimeRpcError("canvas_runtime_reconcile_required", true, true);
-      }
-    });
     await expect(
-      timedOut.coordinator.reset(actor("owner"), {
+      test.coordinator.reset(actor("owner"), {
         projectId: "p",
         canvasId: "default",
-        body: timedOut.body("reset-timeout")
+        body: test.body(`reset-${failure}`)
       })
-    ).resolves.toMatchObject({ code: "reconcile_required" });
+    ).resolves.toMatchObject({
+      type: "canvas.runtime.reset.accepted",
+      operationId: `reset-${failure}`,
+      runtimeRevision: 1
+    });
+    expect(test.runtimeStatuses.read(scope)).toMatchObject({ runtimeRevision: 1 });
+    await vi.waitFor(() => {
+      expect(test.cleanupDiagnosticSink).toHaveBeenCalledWith({
+        operationId: `reset-${failure}`,
+        scope,
+        stage: "acquire",
+        code: "runtime_cleanup_acquire_failed"
+      });
+    });
+  });
+
+  it("records a safe reset diagnostic and releases exactly once after a reset RPC timeout", async () => {
+    const release = vi.fn();
+    const cleanupDiagnosticSink = vi.fn(() => {
+      throw new Error("diagnostic_sink_failed");
+    });
+    const test = await setup({
+      cleanupDiagnosticSink,
+      acquire: async () => ({
+        runtime: unusedRuntime,
+        artifacts: unusedArtifacts,
+        reset: async () => {
+          throw new CanvasRuntimeRpcError("canvas_runtime_reconcile_required", true, true);
+        },
+        release
+      })
+    });
+
+    await expect(
+      test.coordinator.reset(actor("owner"), {
+        projectId: "p",
+        canvasId: "default",
+        body: test.body("reset-rpc-timeout")
+      })
+    ).resolves.toMatchObject({
+      type: "canvas.runtime.reset.accepted",
+      operationId: "reset-rpc-timeout",
+      runtimeRevision: 1
+    });
+    expect(test.runtimeStatuses.read(scope)).toMatchObject({ runtimeRevision: 1 });
+    expect(test.receipts.latestAcceptedBaseline(scope)).toMatchObject({
+      command: { operationId: "reset-rpc-timeout" },
+      runtimeRevision: 1
+    });
+    await vi.waitFor(() => {
+      expect(release).toHaveBeenCalledOnce();
+      expect(test.cleanupDiagnosticSink).toHaveBeenCalledWith({
+        operationId: "reset-rpc-timeout",
+        scope,
+        stage: "reset",
+        code: "runtime_cleanup_reset_failed"
+      });
+    });
   });
 
   it("reconciles a known Host result after the final Server transaction fails", async () => {
@@ -335,31 +441,15 @@ describe("CanvasRuntimeCommandCoordinator", () => {
     expect(test.reset).toHaveBeenCalledTimes(1);
   });
 
-  it("recovers a stale applying receipt after restart by querying the Host receipt", async () => {
-    let hostResult: Awaited<
-      ReturnType<NonNullable<CanvasExecutionRuntimeLeasePort["reconcileReset"]>>
-    >;
-    const test = await setup({
-      reconcileReset: async (_scope, _command) => hostResult
-    });
-    hostResult = {
-      kind: "succeeded",
-      result: {
-        operationId: "reset-restart",
-        sourceRevision,
-        graphFingerprint: test.fingerprint,
-        status: {
-          schemaVersion: "canvas-runtime-status/v2",
-          scope,
-          packageFingerprint: test.fingerprint,
-          capturedAt: "2026-08-22T00:00:01.000Z",
-          tasks: [],
-          blocks: []
-        }
-      }
-    };
+  it("recovers a stale receipt with legacy Host evidence from Server authority", async () => {
+    const test = await setup();
     const request = test.body("reset-restart");
     test.receipts.begin(scope, request);
+    test.receipts.recordHostResult(
+      scope,
+      request.operationId,
+      testResetResult(request.operationId, test.sourceRevision, test.fingerprint)
+    );
 
     await expect(
       test.restartCoordinator().reset(actor("owner"), {
@@ -368,10 +458,11 @@ describe("CanvasRuntimeCommandCoordinator", () => {
         body: request
       })
     ).resolves.toMatchObject({ type: "canvas.runtime.reset.accepted", runtimeRevision: 1 });
-    expect(test.acquire).not.toHaveBeenCalled();
+    expect(test.acquire).toHaveBeenCalledOnce();
+    expect(test.reset).toHaveBeenCalledOnce();
   });
 
-  it("reaches a durable Host receipt through the production composition router after restart", async () => {
+  it("commits a recovered receipt before clearing the production Host cache", async () => {
     const test = await setup();
     const hosts = new AgentHostRepository(test.database);
     const host = hosts.register("Runtime receipt Host").host;
@@ -448,12 +539,10 @@ describe("CanvasRuntimeCommandCoordinator", () => {
     await vi.waitFor(() => expect(deliveries).toHaveLength(1));
     const command = deliveries[0]?.command;
     if (command?.type !== "canvas_runtime.request") {
-      throw new Error("reset_status_command_expected");
+      throw new Error("runtime_acquire_command_expected");
     }
-    expect(command.operation).toEqual({
-      operation: "reset_status",
-      operationId: request.operationId
-    });
+    expect(command.operation.operation).toBe("acquire");
+    const runtimeLeaseId = randomUUID();
     broker.handleResponse(host.id, {
       type: "canvas_runtime.response",
       protocolVersion: agentHostProtocolVersion,
@@ -461,11 +550,54 @@ describe("CanvasRuntimeCommandCoordinator", () => {
       requestId: command.requestId,
       response: {
         outcome: "success",
+        operation: "acquire",
+        result: {
+          runtimeLeaseId,
+          sourceRevision: test.sourceRevision,
+          graphFingerprint: test.fingerprint,
+          acquiredAt: "2026-08-22T00:00:00.000Z",
+          expiresAt: "2099-08-22T00:01:00.000Z"
+        }
+      }
+    });
+    await vi.waitFor(() => expect(deliveries).toHaveLength(2));
+    const statusCommand = deliveries[1]?.command;
+    if (statusCommand?.type !== "canvas_runtime.request") {
+      throw new Error("reset_status_command_expected");
+    }
+    expect(statusCommand.operation).toEqual({
+      operation: "reset_status",
+      operationId: request.operationId
+    });
+    broker.handleResponse(host.id, {
+      type: "canvas_runtime.response",
+      protocolVersion: agentHostProtocolVersion,
+      messageId: randomUUID(),
+      requestId: statusCommand.requestId,
+      response: {
+        outcome: "success",
         operation: "reset_status",
         result: {
           kind: "succeeded",
-          result: testResetResult(request.operationId, test.fingerprint)
+          result: testResetResult(request.operationId, test.sourceRevision, test.fingerprint)
         }
+      }
+    });
+    await vi.waitFor(() => expect(deliveries).toHaveLength(3));
+    const releaseCommand = deliveries[2]?.command;
+    if (releaseCommand?.type !== "canvas_runtime.request") {
+      throw new Error("runtime_release_command_expected");
+    }
+    expect(releaseCommand.operation).toEqual({ operation: "release", runtimeLeaseId });
+    broker.handleResponse(host.id, {
+      type: "canvas_runtime.response",
+      protocolVersion: agentHostProtocolVersion,
+      messageId: randomUUID(),
+      requestId: releaseCommand.requestId,
+      response: {
+        outcome: "success",
+        operation: "release",
+        result: { released: true }
       }
     });
 
@@ -483,7 +615,11 @@ describe("CanvasRuntimeCommandCoordinator", () => {
         runtime: unusedRuntime,
         artifacts: unusedArtifacts,
         reset: async (command) => {
-          committedResult = testResetResult(command.operationId, test.fingerprint);
+          committedResult = testResetResult(
+            command.operationId,
+            command.expectedSourceRevision,
+            test.fingerprint
+          );
           throw new CanvasRuntimeRpcError("canvas_runtime_reconcile_required", true, true);
         },
         release: vi.fn()
@@ -508,7 +644,8 @@ describe("CanvasRuntimeCommandCoordinator", () => {
       acquire: async () => ({
         runtime: unusedRuntime,
         artifacts: unusedArtifacts,
-        reset: async (command) => testResetResult(command.operationId, test.fingerprint),
+        reset: async (command) =>
+          testResetResult(command.operationId, command.expectedSourceRevision, test.fingerprint),
         release: async () => {
           throw new Error("release_failed");
         }
@@ -521,6 +658,14 @@ describe("CanvasRuntimeCommandCoordinator", () => {
         body: test.body("reset-release-failure")
       })
     ).resolves.toMatchObject({ type: "canvas.runtime.reset.accepted", runtimeRevision: 1 });
+    await vi.waitFor(() => {
+      expect(test.cleanupDiagnosticSink).toHaveBeenCalledWith({
+        operationId: "reset-release-failure",
+        scope,
+        stage: "release",
+        code: "runtime_cleanup_release_failed"
+      });
+    });
   });
 
   it.each([
@@ -533,14 +678,18 @@ describe("CanvasRuntimeCommandCoordinator", () => {
         updatedAt: "2026-08-22T00:00:00.000Z"
       }
     ]
-  ] as const)("supersedes a Host-successful reset when %s revision advances", async (_kind, intent) => {
+  ] as const)("keeps a committed reset accepted when %s revision advances during Host cleanup", async (_kind, intent) => {
     let releaseHost!: () => void;
     const gate = new Promise<void>((resolve) => {
       releaseHost = resolve;
     });
     const routedReset = vi.fn(async (command: CanvasRuntimeResetCommand) => {
       await gate;
-      return testResetResult(command.operationId, command.expectedGraphFingerprint);
+      return testResetResult(
+        command.operationId,
+        command.expectedSourceRevision,
+        command.expectedGraphFingerprint
+      );
     });
     const test = await setup({
       acquire: async () => ({
@@ -558,8 +707,11 @@ describe("CanvasRuntimeCommandCoordinator", () => {
     await vi.waitFor(() => expect(test.acquire).toHaveBeenCalledOnce());
     await test.service.submit(actor("owner"), submitBody(`advance-${_kind}`, 0, intent));
     releaseHost();
-    await expect(operation).resolves.toMatchObject({ code: "source_drift" });
-    expect(test.runtimeStatuses.read(scope)).toBeNull();
+    await expect(operation).resolves.toMatchObject({
+      type: "canvas.runtime.reset.accepted",
+      runtimeRevision: 1
+    });
+    expect(test.runtimeStatuses.read(scope)).toMatchObject({ runtimeRevision: 1 });
     const oldRequest = test.body(`reset-${_kind}-drift`);
     await expect(
       test.restartCoordinator().reset(actor("owner"), {
@@ -567,25 +719,29 @@ describe("CanvasRuntimeCommandCoordinator", () => {
         canvasId: "default",
         body: oldRequest
       })
-    ).resolves.toMatchObject({ code: "source_drift" });
+    ).resolves.toMatchObject({
+      type: "canvas.runtime.reset.accepted",
+      runtimeRevision: 1
+    });
     const latestHead = test.contentVersions.head(scope);
-    const latestFingerprint = readStableCanvasContentFingerprint(test.contentVersions, scope);
-    if (!latestHead || !latestFingerprint) throw new Error("latest_content_authority_missing");
+    const latestEvidence = readStableCanvasRuntimeEvidence(test.contentVersions, scope);
+    if (!latestHead || !latestEvidence) throw new Error("latest_content_authority_missing");
     await expect(
       test.restartCoordinator().reset(actor("owner"), {
         projectId: "p",
         canvasId: "default",
         body: test.body(`reset-${_kind}-after-supersession`, {
           expectedContentRevision: latestHead.revision,
-          expectedGraphFingerprint: latestFingerprint
+          expectedSourceRevision: latestEvidence.sourceRevision,
+          expectedGraphFingerprint: latestEvidence.target.graphFingerprint
         })
       })
     ).resolves.toMatchObject({
       type: "canvas.runtime.reset.accepted",
       operationId: `reset-${_kind}-after-supersession`,
-      runtimeRevision: 1
+      runtimeRevision: 2
     });
-    expect(routedReset).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(routedReset).toHaveBeenCalledTimes(2));
   });
 
   it("advances Runtime revision for distinct successful resets", async () => {
@@ -603,5 +759,6 @@ describe("CanvasRuntimeCommandCoordinator", () => {
     expect(first).toMatchObject({ runtimeRevision: 1 });
     expect(second).toMatchObject({ runtimeRevision: 2 });
     expect(test.invalidated.mock.calls.map((call) => call[1])).toEqual([1, 2]);
+    await vi.waitFor(() => expect(test.reset).toHaveBeenCalledTimes(2));
   });
 });

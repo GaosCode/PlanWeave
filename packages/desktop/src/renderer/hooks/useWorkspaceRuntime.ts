@@ -5,7 +5,10 @@ import type {
   PlanWeaveCollaborationApi,
   RemoteCollaborationCanvasBindingInput
 } from "../../shared/collaboration";
-import type { CanvasRuntimeAvailability } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
+import type {
+  CanvasRuntimeAvailability,
+  CanvasRuntimeAvailabilityV2
+} from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import type { CanvasLocator } from "../../shared/canvasLocator";
 import { collaborationBridge } from "../bridge";
 import type { ProjectWorkspaceShellInput } from "../projectWorkspaceShell";
@@ -15,12 +18,13 @@ import {
   presentWorkspaceRuntimeResetError,
   workspaceRuntimeResetError
 } from "../collaboration/runtimeResetPresentation";
+import { collaborationRuntimeResetAllowed } from "../collaboration/runtimeAvailabilityView";
 
 export type WorkspaceRuntimeBridge = WorkspaceRuntimeAvailabilityBridge &
   Pick<PlanWeaveCollaborationApi, "resetWorkspaceCanvasRuntime">;
 
 function runtimeAvailabilityAfterAcceptedControl(
-  current: CanvasRuntimeAvailability,
+  current: CanvasRuntimeAvailabilityV2,
   outcome: CanvasRuntimeResetAccepted
 ): CanvasRuntimeAvailability {
   return {
@@ -38,7 +42,12 @@ function runtimeAvailabilityAfterAcceptedControl(
             graphFingerprint: outcome.graphFingerprint,
             status: outcome.status
           }
-        : current.execution
+        : current.execution,
+    authority: {
+      ...current.authority,
+      sourceRevision: outcome.sourceRevision,
+      graphFingerprint: outcome.graphFingerprint
+    }
   };
 }
 
@@ -89,28 +98,32 @@ export function useWorkspaceRuntime(input: {
     api
   });
   const resetWorkspaceRuntime = useCallback(async () => {
+    const currentRuntime = runtime.authoritativeRuntime;
+    const authority =
+      currentRuntime?.schemaVersion === "canvas-runtime-view/v2"
+        ? currentRuntime.authority
+        : undefined;
     if (
       input.locator?.kind !== "workspace" ||
       !input.binding ||
-      runtime.authoritativeRuntime?.execution.kind !== "available"
+      !currentRuntime ||
+      currentRuntime.schemaVersion !== "canvas-runtime-view/v2" ||
+      !authority ||
+      !collaborationRuntimeResetAllowed(runtime.availability)
     ) {
       throw workspaceRuntimeResetError(input.t, "unavailable");
     }
     if (!api) throw new Error(input.t("bridgeUnavailable"));
-    const currentRuntime = runtime.authoritativeRuntime;
     const previousRuntimeRevision =
-      runtime.authoritativeRuntime.state.kind === "initialized"
-        ? runtime.authoritativeRuntime.state.runtimeRevision
-        : 0;
+      currentRuntime.state.kind === "initialized" ? currentRuntime.state.runtimeRevision : 0;
     const scopeKey = `${input.locator.connectionProfileId}\u0000${input.locator.workspaceId}\u0000${input.locator.projectId}\u0000${input.locator.canvasId}`;
     const request =
       pendingResetOperation.current?.scopeKey === scopeKey
         ? pendingResetOperation.current.request
         : {
             operationId: crypto.randomUUID(),
-            expectedSourceRevision: runtime.authoritativeRuntime.execution.sourceRevision,
-            expectedGraphFingerprint:
-              runtime.authoritativeRuntime.execution.status.packageFingerprint,
+            expectedSourceRevision: authority.sourceRevision,
+            expectedGraphFingerprint: authority.graphFingerprint,
             reason: "Desktop workspace runtime reset requested."
           };
     pendingResetOperation.current = { scopeKey, request };
@@ -154,12 +167,17 @@ export function useWorkspaceRuntime(input: {
     input.setSuccessMessage,
     input.t,
     runtime.applyAcceptedRuntimeProjection,
-    runtime.authoritativeRuntime
+    runtime.authoritativeRuntime,
+    runtime.availability
   ]);
 
   return {
     ...runtime,
     workspaceRuntimeAuthorityKey,
-    resetWorkspaceRuntime: input.locator?.kind === "workspace" ? resetWorkspaceRuntime : undefined
+    resetWorkspaceRuntime:
+      input.locator?.kind === "workspace" &&
+      runtime.authoritativeRuntime?.schemaVersion === "canvas-runtime-view/v2"
+        ? resetWorkspaceRuntime
+        : undefined
   };
 }

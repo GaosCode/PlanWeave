@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { contentVersionRevisionSchema } from "./contentVersion.js";
 import { packageSnapshotSourceRevisionSchema } from "./packageSnapshot.js";
 import { agentHostIdSchema, timestampSchema } from "./primitives.js";
 import {
@@ -61,16 +62,44 @@ export const canvasRuntimeStateAvailabilitySchema = z.discriminatedUnion("kind",
 ]);
 export type CanvasRuntimeStateAvailability = z.infer<typeof canvasRuntimeStateAvailabilitySchema>;
 
+/** Server content authority used by commands even when no execution device is available. */
+export const canvasRuntimeContentAuthoritySchema = z
+  .object({
+    revision: contentVersionRevisionSchema,
+    sourceRevision: packageSnapshotSourceRevisionSchema,
+    graphFingerprint: canvasRuntimePackageFingerprintSchema
+  })
+  .strict();
+export type CanvasRuntimeContentAuthority = z.infer<typeof canvasRuntimeContentAuthoritySchema>;
+
 export const canvasRuntimeViewSchemaVersion = "canvas-runtime-view/v1" as const;
+export const canvasRuntimeViewSchemaVersionV2 = "canvas-runtime-view/v2" as const;
 
 /**
- * Shared-canvas Runtime read model. State remains readable when no execution device is online.
+ * Legacy shared-canvas Runtime read model. Kept exact so older strict clients can keep reading it.
  */
-export const canvasRuntimeAvailabilitySchema = z
+export const canvasRuntimeAvailabilityV1Schema = z
   .object({
     schemaVersion: z.literal(canvasRuntimeViewSchemaVersion),
     state: canvasRuntimeStateAvailabilitySchema,
     execution: canvasRuntimeExecutionAvailabilitySchema
   })
   .strict();
+
+/** Shared-canvas Runtime read model with Server content authority for control operations. */
+export const canvasRuntimeAvailabilityV2Schema = z
+  .object({
+    schemaVersion: z.literal(canvasRuntimeViewSchemaVersionV2),
+    authority: canvasRuntimeContentAuthoritySchema,
+    state: canvasRuntimeStateAvailabilitySchema,
+    execution: canvasRuntimeExecutionAvailabilitySchema
+  })
+  .strict();
+
+export const canvasRuntimeAvailabilitySchema = z.discriminatedUnion("schemaVersion", [
+  canvasRuntimeAvailabilityV1Schema,
+  canvasRuntimeAvailabilityV2Schema
+]);
 export type CanvasRuntimeAvailability = z.infer<typeof canvasRuntimeAvailabilitySchema>;
+export type CanvasRuntimeAvailabilityV1 = z.infer<typeof canvasRuntimeAvailabilityV1Schema>;
+export type CanvasRuntimeAvailabilityV2 = z.infer<typeof canvasRuntimeAvailabilityV2Schema>;

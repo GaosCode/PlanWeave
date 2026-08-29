@@ -4,7 +4,10 @@ import {
   canvasReconnectResponseSchema,
   type CanvasCommandOutcome
 } from "@planweave-ai/collaboration-protocol/canvas/commands";
-import { canvasRuntimeAvailabilitySchema } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
+import {
+  canvasRuntimeAvailabilityV1Schema,
+  canvasRuntimeAvailabilityV2Schema
+} from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import {
   canvasRuntimeInitializeOutcomeSchema,
   type CanvasRuntimeInitializeOutcome,
@@ -309,7 +312,19 @@ export async function handleCanvasCommandHttpRequest(
         projectId: routed.projectId,
         canvasId: routed.canvasId
       });
-      respond(response, 200, canvasRuntimeAvailabilitySchema.parse(availability));
+      if (url.searchParams.get("view") === "canvas-runtime-view/v2") {
+        respond(response, 200, canvasRuntimeAvailabilityV2Schema.parse(availability));
+      } else {
+        respond(
+          response,
+          200,
+          canvasRuntimeAvailabilityV1Schema.parse({
+            schemaVersion: "canvas-runtime-view/v1",
+            state: availability.state,
+            execution: availability.execution
+          })
+        );
+      }
       return true;
     }
     body = await readJson(request);

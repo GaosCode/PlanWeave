@@ -331,7 +331,9 @@ export function useAutoRunControl({
   const runtimeStartAllowed =
     collaborationRuntimeStartAllowed(runtimeAvailability) &&
     (!runtimeStateUninitialized || Boolean(startAutoRunScope));
-  const runtimeResetAllowed = collaborationRuntimeResetAllowed(runtimeAvailability);
+  const runtimeResetAllowed =
+    collaborationRuntimeResetAllowed(runtimeAvailability) &&
+    (canvasLocator?.kind !== "workspace" || Boolean(resetWorkspaceRuntime));
   const runtimeUnavailableCode = collaborationRuntimeUnavailableCode(runtimeAvailability);
   const selectedRemoteRunPhase: RemoteRunLifecyclePhase | null = (() => {
     const runtime = selectedBlock?.remoteExecution ?? null;

@@ -387,9 +387,16 @@ describe("CollaborationClient", () => {
     const fixture = await listen((req, res) => {
       expect(req.method).toBe("GET");
       expect(req.headers.authorization).toBe(`Bearer ${exampleHumanDeviceToken}`);
-      if (req.url?.endsWith("/canvas-available/runtime-availability")) {
+      if (
+        req.url?.endsWith("/canvas-available/runtime-availability?view=canvas-runtime-view%2Fv2")
+      ) {
         json(res, 200, {
-          schemaVersion: "canvas-runtime-view/v1",
+          schemaVersion: "canvas-runtime-view/v2",
+          authority: {
+            revision: 1,
+            sourceRevision: "src-revision-001",
+            graphFingerprint: status.packageFingerprint
+          },
           state: { kind: "initialized", runtimeRevision: 1, status },
           execution: {
             schemaVersion: "canvas-runtime-availability/v1",
@@ -402,7 +409,7 @@ describe("CollaborationClient", () => {
         return;
       }
       expect(req.url).toBe(
-        "/api/v1/projects/project-demo-001/canvases/canvas-detached/runtime-availability"
+        "/api/v1/projects/project-demo-001/canvases/canvas-detached/runtime-availability?view=canvas-runtime-view%2Fv2"
       );
       json(res, 200, {
         schemaVersion: "canvas-runtime-view/v1",

@@ -1,7 +1,7 @@
 import {
-  canvasRuntimeAvailabilitySchema,
+  canvasRuntimeAvailabilityV2Schema,
   canvasRuntimeExecutionAvailabilitySchema,
-  type CanvasRuntimeAvailability,
+  type CanvasRuntimeAvailabilityV2,
   type CanvasRuntimeExecutionAvailability
 } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import { canvasScopeRefSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
@@ -11,7 +11,7 @@ import type { ProjectAccessRepository } from "../projectAccessRepository.js";
 import type { ContentAuthorityStore } from "./contentAuthorityStore.js";
 import { authorizeCanvasContent } from "./policy.js";
 import type { CanvasRuntimeAvailabilityPort } from "./runtimePort.js";
-import { readStableCanvasContentFingerprint } from "./contentFingerprint.js";
+import { readStableCanvasRuntimeEvidence } from "./contentFingerprint.js";
 import type { CanvasRuntimeStatusRepository } from "./runtimeStatusRepository.js";
 
 export type CanvasRuntimeAvailabilityServiceOptions = {
@@ -53,9 +53,11 @@ export class CanvasRuntimeAvailabilityService {
   async read(
     actor: CollaborationAuthContext,
     input: { projectId: string; canvasId: string }
-  ): Promise<CanvasRuntimeAvailability> {
+  ): Promise<CanvasRuntimeAvailabilityV2> {
     const scope = this.authorize(actor, input);
-    const contentFingerprint = this.contentFingerprint(scope);
+    const contentEvidence = this.contentEvidence(scope);
+    if (!contentEvidence) throw new Error("canvas_runtime_availability_content_unavailable");
+    const contentFingerprint = contentEvidence.target.graphFingerprint;
     const stored = this.options.runtimeStatuses.read(scope);
     const state =
       contentFingerprint && stored?.status.packageFingerprint === contentFingerprint
@@ -80,8 +82,13 @@ export class CanvasRuntimeAvailabilityService {
           ? executionContentOutOfSync()
           : observed;
 
-    return canvasRuntimeAvailabilitySchema.parse({
-      schemaVersion: "canvas-runtime-view/v1",
+    return canvasRuntimeAvailabilityV2Schema.parse({
+      schemaVersion: "canvas-runtime-view/v2",
+      authority: {
+        revision: contentEvidence.target.revision,
+        sourceRevision: contentEvidence.sourceRevision,
+        graphFingerprint: contentEvidence.target.graphFingerprint
+      },
       state,
       execution
     });
@@ -104,13 +111,9 @@ export class CanvasRuntimeAvailabilityService {
     return canvasScopeRefSchema.parse(authorization.scope);
   }
 
-  private contentFingerprint(scope: {
-    workspaceId: string;
-    projectId: string;
-    canvasId: string;
-  }): string | undefined {
+  private contentEvidence(scope: { workspaceId: string; projectId: string; canvasId: string }) {
     try {
-      return readStableCanvasContentFingerprint(this.options.contentVersions, scope);
+      return readStableCanvasRuntimeEvidence(this.options.contentVersions, scope);
     } catch (error) {
       if (error instanceof Error && error.message === "canvas_content_head_mismatch") {
         throw new Error("canvas_runtime_availability_content_head_mismatch");

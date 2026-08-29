@@ -144,6 +144,22 @@ describe("canvas runtime availability HTTP", () => {
       execution: { kind: "available" }
     });
 
+    const authoritativeResponse = await fetch(
+      `${available.origin}/api/v1/projects/p/canvases/default/runtime-availability?view=canvas-runtime-view%2Fv2`,
+      { headers: { Authorization: `Bearer ${available.token}` } }
+    );
+    expect(authoritativeResponse.status).toBe(200);
+    await expect(authoritativeResponse.json()).resolves.toMatchObject({
+      schemaVersion: "canvas-runtime-view/v2",
+      authority: {
+        revision: expect.any(Number),
+        sourceRevision: expect.any(String),
+        graphFingerprint: expect.any(String)
+      },
+      state: { kind: "uninitialized" },
+      execution: { kind: "available" }
+    });
+
     const detached = await setup(() => new Date("2026-08-16T00:00:00.000Z"), {
       async readAvailability() {
         return {

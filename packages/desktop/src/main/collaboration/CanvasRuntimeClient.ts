@@ -25,7 +25,7 @@ export class CanvasRuntimeClient {
   readAvailability(canvasId: string, signal?: AbortSignal): Promise<CanvasRuntimeAvailability> {
     return this.transport.json(
       "GET",
-      `/api/v1/projects/${encodeURIComponent(this.projectId)}/canvases/${encodeURIComponent(canvasId)}/runtime-availability`,
+      `/api/v1/projects/${encodeURIComponent(this.projectId)}/canvases/${encodeURIComponent(canvasId)}/runtime-availability?view=canvas-runtime-view%2Fv2`,
       canvasRuntimeAvailabilitySchema,
       { signal }
     );

@@ -686,6 +686,40 @@ describe("auto run control hook actions", () => {
     expect(resetWorkspaceRuntime).not.toHaveBeenCalled();
   });
 
+  it("does not enable Workspace Reset when a legacy runtime view has no reset capability", async () => {
+    stubAutoRunControlBridge(createDesktopBridgeMock());
+    const { useAutoRunControl } = await loadAutoRunControl();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { result } = renderHook(() =>
+      useAutoRunControl({
+        autoRunState: null,
+        canvasLocator: {
+          kind: "workspace",
+          connectionProfileId: "profile-1",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          canvasId: "canvas-main"
+        },
+        openRunWorkspace: vi.fn(),
+        runtimeAvailability: { kind: "state_uninitialized" },
+        selectedCanvasId: "canvas-main",
+        selectedBlock: null,
+        selectedProject: null,
+        selectedTaskPanelId: null,
+        setAutoRunState: vi.fn(),
+        setError: vi.fn(),
+        t: createTranslator("en"),
+        tmuxMonitoringEnabled: false
+      })
+    );
+
+    expect(result.current.runtimeResetAllowed).toBe(false);
+    await act(async () => {
+      await result.current.resetRuntimeStateClick();
+    });
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
   it("projects the selected Block Server phase independently from scope lifecycle", async () => {
     stubAutoRunControlBridge(createDesktopBridgeMock());
     const { useAutoRunControl } = await loadAutoRunControl();

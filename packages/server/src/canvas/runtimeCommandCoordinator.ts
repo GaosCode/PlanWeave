@@ -13,12 +13,11 @@ import {
 import type { CollaborationAuthContext } from "../identity/auth.js";
 import type { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import type { ProjectAccessRepository } from "../projectAccessRepository.js";
-import { readStableCanvasContentFingerprint } from "./contentFingerprint.js";
+import { readStableCanvasRuntimeEvidence } from "./contentFingerprint.js";
 import type { ContentAuthorityStore } from "./contentAuthorityStore.js";
 import {
-  CanvasRuntimeResetConflictError,
-  CanvasRuntimeUnavailableError,
   type CanvasExecutionRuntimeLeasePort,
+  type CanvasRuntimeResetCommand,
   type RuntimeCanvasScope
 } from "./executionRuntimePort.js";
 import { authorizeCanvasCommand } from "./policy.js";
@@ -26,7 +25,6 @@ import type {
   CanvasRuntimeResetReceipt,
   CanvasRuntimeResetReceiptRepository
 } from "./runtimeCommandReceipts.js";
-import { CanvasRuntimeRpcError } from "./runtimeRpcBroker.js";
 import type { CanvasRuntimeStatusRepository } from "./runtimeStatusRepository.js";
 
 export class CanvasRuntimeResetError extends Error {
@@ -62,47 +60,41 @@ export type CanvasRuntimeCommandCoordinatorOptions = {
   executionLeases: CanvasExecutionRuntimeLeasePort;
   hasConflictingLease(scope: RuntimeCanvasScope): boolean;
   commitTransaction<T>(action: () => T): T;
+  cleanupDiagnosticSink?: CanvasRuntimeCleanupDiagnosticSink;
+};
+
+export type CanvasRuntimeCleanupDiagnostic = {
+  operationId: string;
+  scope: CanvasScopeRef;
+  stage: "acquire" | "reset" | "release";
+  code:
+    | "runtime_cleanup_acquire_failed"
+    | "runtime_cleanup_reset_failed"
+    | "runtime_cleanup_release_failed";
+};
+
+export type CanvasRuntimeCleanupDiagnosticSink = (
+  diagnostic: CanvasRuntimeCleanupDiagnostic
+) => void;
+
+export const logCanvasRuntimeCleanupDiagnostic: CanvasRuntimeCleanupDiagnosticSink = (
+  diagnostic
+) => {
+  console.warn(
+    JSON.stringify({
+      scope: "canvas-runtime",
+      event: "runtime_reset_cleanup_failed",
+      operationId: diagnostic.operationId,
+      canvasScope: diagnostic.scope,
+      stage: diagnostic.stage,
+      code: diagnostic.code
+    })
+  );
 };
 
 function authorizationError(code: string): CanvasRuntimeResetError {
   if (code === "forbidden" || code === "unauthorized" || code === "cross_scope") {
     return new CanvasRuntimeResetError("forbidden");
-  }
-  return new CanvasRuntimeResetError("unavailable");
-}
-
-function hostFailure(error: unknown): CanvasRuntimeResetError {
-  if (error instanceof CanvasRuntimeResetError) return error;
-  if (error instanceof CanvasRuntimeResetConflictError) {
-    return new CanvasRuntimeResetError(error.code);
-  }
-  if (error instanceof CanvasRuntimeUnavailableError) {
-    return new CanvasRuntimeResetError(
-      error.reason === "host_offline" ? "host_offline" : "unavailable"
-    );
-  }
-  if (error instanceof CanvasRuntimeRpcError) {
-    if (error.reconcileRequired) {
-      return new CanvasRuntimeResetError("reconcile_required");
-    }
-    if (
-      error.code === "canvas_runtime_host_offline" ||
-      error.code === "canvas_runtime_host_disconnected"
-    ) {
-      return new CanvasRuntimeResetError("host_offline");
-    }
-    if (error.code === "content_out_of_sync") {
-      return new CanvasRuntimeResetError("source_drift");
-    }
-    if (error.code === "active_lease") {
-      return new CanvasRuntimeResetError("active_lease");
-    }
-  }
-  if (error instanceof Error) {
-    if (error.message === "content_out_of_sync") return new CanvasRuntimeResetError("source_drift");
-    if (error.message === "active_lease" || /active work exists/i.test(error.message)) {
-      return new CanvasRuntimeResetError("active_lease");
-    }
   }
   return new CanvasRuntimeResetError("unavailable");
 }
@@ -149,13 +141,14 @@ export class CanvasRuntimeCommandCoordinator {
       }
       return rejected(request.operationId, "persist_failed");
     }
+    // A completed durable receipt is authoritative; cache cleanup is never replayed on duplicate.
     if (receipt.kind === "completed") return receipt.outcome;
     if (receipt.kind === "busy") return rejected(request.operationId, "active_lease");
 
     const key = `${scope.workspaceId}\u0000${scope.projectId}\u0000${scope.canvasId}\u0000${request.operationId}`;
     const running = this.inFlight.get(key);
     if (running) return running;
-    const operation = this.runReset(scope, request, receipt);
+    const operation = this.runReset(scope, request);
     this.inFlight.set(key, operation);
     try {
       return await operation;
@@ -166,8 +159,7 @@ export class CanvasRuntimeCommandCoordinator {
 
   private async runReset(
     scope: CanvasScopeRef,
-    request: ReturnType<typeof canvasRuntimeResetRequestSchema.parse>,
-    receipt: Exclude<CanvasRuntimeResetReceipt, { kind: "completed" | "busy" }>
+    request: ReturnType<typeof canvasRuntimeResetRequestSchema.parse>
   ): Promise<CanvasRuntimeResetOutcome> {
     const rejectAndComplete = (code: CanvasRuntimeResetFailureCode) => {
       try {
@@ -181,132 +173,46 @@ export class CanvasRuntimeCommandCoordinator {
       }
     };
 
-    let hostResult = receipt.kind === "recover" ? receipt.hostResult : undefined;
     const command = {
       operationId: request.operationId,
       expectedSourceRevision: request.expectedSourceRevision,
       expectedGraphFingerprint: request.expectedGraphFingerprint,
       ...(request.reason ? { reason: request.reason } : {})
     };
-    if (receipt.kind === "accepted") {
-      const head = this.options.contentVersions.head(scope);
-      const contentFingerprint = readStableCanvasContentFingerprint(
-        this.options.contentVersions,
-        scope
-      );
-      if (
-        !head ||
-        head.revision !== request.expectedContentRevision ||
-        !contentFingerprint ||
-        contentFingerprint !== request.expectedGraphFingerprint
-      ) {
-        return rejectAndComplete("source_drift");
-      }
-      if (this.options.hasConflictingLease(scope)) {
-        return rejectAndComplete("active_lease");
-      }
-      let lease: Awaited<ReturnType<CanvasExecutionRuntimeLeasePort["acquire"]>> | undefined;
-      try {
-        lease = await this.options.executionLeases.acquire(scope);
-        if (!lease.reset) throw new CanvasRuntimeUnavailableError();
-        hostResult = await lease.reset(command);
-      } catch (error) {
-        if (
-          error instanceof CanvasRuntimeUnavailableError &&
-          error.reason === "runtime_not_attached"
-        ) {
-          const authoritative = this.options.contentVersions.readVersion(scope, head.content);
-          hostResult = {
-            operationId: request.operationId,
-            sourceRevision: request.expectedSourceRevision,
-            graphFingerprint: request.expectedGraphFingerprint,
-            status: buildResetCanvasRuntimeStatusProjection({
-              content: authoritative.content,
-              scope,
-              packageFingerprint: request.expectedGraphFingerprint
-            })
-          };
-        } else {
-          const failure = hostFailure(error);
-          if (failure.code !== "reconcile_required") {
-            return rejectAndComplete(failure.code);
-          }
-          this.markUnknown(scope, request.operationId);
-        }
-      } finally {
-        if (lease) {
-          try {
-            await lease.release();
-          } catch {
-            // The reset result, not lease cleanup, determines Runtime authority.
-          }
-        }
-      }
-    }
-    if (!hostResult) {
-      const reconciliation = this.options.executionLeases.reconcileReset;
-      if (!reconciliation) {
-        this.markUnknown(scope, request.operationId);
-        return rejected(request.operationId, "reconcile_required");
-      }
-      try {
-        const reconciled = await reconciliation.call(this.options.executionLeases, scope, command);
-        if (reconciled.kind === "succeeded") {
-          hostResult = reconciled.result;
-        } else if (reconciled.kind === "failed" && !reconciled.error.reconcileRequired) {
-          return rejectAndComplete(
-            hostFailure(
-              new CanvasRuntimeRpcError(reconciled.error.code, reconciled.error.retryable, false)
-            ).code
-          );
-        } else {
-          this.markUnknown(scope, request.operationId);
-          return rejected(request.operationId, "reconcile_required");
-        }
-      } catch {
-        this.markUnknown(scope, request.operationId);
-        return rejected(request.operationId, "reconcile_required");
-      }
-    }
+    let outcome: CanvasRuntimeResetAccepted;
     try {
-      hostResult = this.options.receipts.recordHostResult(scope, request.operationId, hostResult);
-    } catch {
-      this.markUnknown(scope, request.operationId);
-      return rejected(request.operationId, "reconcile_required");
-    }
-    if (
-      hostResult.operationId !== request.operationId ||
-      hostResult.sourceRevision !== request.expectedSourceRevision ||
-      hostResult.graphFingerprint !== request.expectedGraphFingerprint ||
-      hostResult.status.packageFingerprint !== request.expectedGraphFingerprint ||
-      hostResult.status.scope.workspaceId !== scope.workspaceId ||
-      hostResult.status.scope.projectId !== scope.projectId ||
-      hostResult.status.scope.canvasId !== scope.canvasId
-    ) {
-      this.markUnknown(scope, request.operationId);
-      return rejected(request.operationId, "reconcile_required");
-    }
-    try {
-      return this.options.commitTransaction(() => {
-        const head = this.options.contentVersions.head(scope);
-        const fingerprint = readStableCanvasContentFingerprint(this.options.contentVersions, scope);
+      outcome = this.options.commitTransaction(() => {
+        const evidence = readStableCanvasRuntimeEvidence(this.options.contentVersions, scope);
         if (
-          !head ||
-          head.revision !== request.expectedContentRevision ||
-          fingerprint !== request.expectedGraphFingerprint
+          !evidence ||
+          evidence.target.revision !== request.expectedContentRevision ||
+          evidence.sourceRevision !== request.expectedSourceRevision ||
+          evidence.target.graphFingerprint !== request.expectedGraphFingerprint
         ) {
           throw new CanvasRuntimeContentSupersededError();
         }
-        const snapshot = this.options.runtimeStatuses.replaceFromExecution(hostResult.status);
-        const outcome: CanvasRuntimeResetAccepted = {
+        if (this.options.hasConflictingLease(scope)) {
+          throw new CanvasRuntimeResetError("active_lease");
+        }
+        const authoritative = this.options.contentVersions.readVersion(
+          scope,
+          evidence.target.content
+        );
+        const status = buildResetCanvasRuntimeStatusProjection({
+          content: authoritative.content,
+          scope,
+          packageFingerprint: evidence.target.graphFingerprint
+        });
+        const snapshot = this.options.runtimeStatuses.replaceFromExecution(status);
+        const accepted: CanvasRuntimeResetAccepted = {
           type: "canvas.runtime.reset.accepted",
           operationId: request.operationId,
           runtimeRevision: snapshot.runtimeRevision,
-          sourceRevision: hostResult.sourceRevision,
-          graphFingerprint: hostResult.graphFingerprint,
+          sourceRevision: evidence.sourceRevision,
+          graphFingerprint: evidence.target.graphFingerprint,
           status: snapshot.status
         };
-        const completed = this.options.receipts.complete(scope, request.operationId, outcome);
+        const completed = this.options.receipts.complete(scope, request.operationId, accepted);
         if (completed.type !== "canvas.runtime.reset.accepted") {
           throw new Error("canvas_runtime_reset_receipt_outcome_mismatch");
         }
@@ -316,6 +222,9 @@ export class CanvasRuntimeCommandCoordinator {
       if (error instanceof CanvasRuntimeContentSupersededError) {
         return rejectAndComplete("source_drift");
       }
+      if (error instanceof CanvasRuntimeResetError && error.code === "active_lease") {
+        return rejectAndComplete("active_lease");
+      }
       try {
         const latest = this.options.receipts.begin(scope, request);
         if (latest.kind === "completed") return latest.outcome;
@@ -324,6 +233,75 @@ export class CanvasRuntimeCommandCoordinator {
       }
       this.markUnknown(scope, request.operationId);
       return rejected(request.operationId, "reconcile_required");
+    }
+    this.startHostRuntimeCleanup(scope, command);
+    return outcome;
+  }
+
+  private startHostRuntimeCleanup(scope: CanvasScopeRef, command: CanvasRuntimeResetCommand): void {
+    void this.clearHostRuntimeBestEffort(scope, command).catch(() => {
+      this.reportCleanupFailure({
+        operationId: command.operationId,
+        scope,
+        stage: "reset",
+        code: "runtime_cleanup_reset_failed"
+      });
+    });
+  }
+
+  private async clearHostRuntimeBestEffort(
+    scope: CanvasScopeRef,
+    command: CanvasRuntimeResetCommand
+  ): Promise<void> {
+    let lease: Awaited<ReturnType<CanvasExecutionRuntimeLeasePort["acquire"]>> | undefined;
+    try {
+      lease = await this.options.executionLeases.acquire(scope);
+    } catch {
+      this.reportCleanupFailure({
+        operationId: command.operationId,
+        scope,
+        stage: "acquire",
+        code: "runtime_cleanup_acquire_failed"
+      });
+      return;
+    }
+    try {
+      if (!lease.reset) {
+        this.reportCleanupFailure({
+          operationId: command.operationId,
+          scope,
+          stage: "reset",
+          code: "runtime_cleanup_reset_failed"
+        });
+      } else {
+        await lease.reset(command);
+      }
+    } catch {
+      this.reportCleanupFailure({
+        operationId: command.operationId,
+        scope,
+        stage: "reset",
+        code: "runtime_cleanup_reset_failed"
+      });
+    } finally {
+      try {
+        await lease.release();
+      } catch {
+        this.reportCleanupFailure({
+          operationId: command.operationId,
+          scope,
+          stage: "release",
+          code: "runtime_cleanup_release_failed"
+        });
+      }
+    }
+  }
+
+  private reportCleanupFailure(diagnostic: CanvasRuntimeCleanupDiagnostic): void {
+    try {
+      (this.options.cleanupDiagnosticSink ?? logCanvasRuntimeCleanupDiagnostic)(diagnostic);
+    } catch {
+      // Diagnostics are observational and cannot invalidate an accepted durable reset receipt.
     }
   }
 

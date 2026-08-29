@@ -29,7 +29,10 @@ import type {
   CanvasExecutionRuntimeLeasePort,
   RuntimeCanvasScope
 } from "./executionRuntimePort.js";
-import { CanvasRuntimeCommandCoordinator } from "./runtimeCommandCoordinator.js";
+import {
+  CanvasRuntimeCommandCoordinator,
+  logCanvasRuntimeCleanupDiagnostic
+} from "./runtimeCommandCoordinator.js";
 import { CanvasRuntimeInitializationCoordinator } from "./runtimeInitializationCoordinator.js";
 import { CanvasRuntimeResetReceiptRepository } from "./runtimeCommandReceipts.js";
 import { createInvalidatingCanvasRuntimeStatusRepository } from "./runtimeStatusInvalidation.js";
@@ -172,6 +175,7 @@ export async function createCanvasCollaborationComposition(
           receipts: new CanvasRuntimeResetReceiptRepository(options.database, options.clock),
           executionLeases: options.runtimeCommand.executionLeases,
           hasConflictingLease: options.runtimeCommand.hasConflictingLease,
+          cleanupDiagnosticSink: logCanvasRuntimeCleanupDiagnostic,
           commitTransaction: (action) => inWriteTransaction(options.database, action)
         })
       : undefined;

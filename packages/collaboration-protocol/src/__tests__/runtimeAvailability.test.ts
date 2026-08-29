@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   canvasRuntimeAvailabilitySchema,
+  canvasRuntimeAvailabilityV1Schema,
+  canvasRuntimeAvailabilityV2Schema,
   canvasRuntimeExecutionAvailabilitySchema
 } from "../runtimeAvailability.js";
 
@@ -24,9 +26,14 @@ const status = {
 };
 
 describe("canvas runtime availability", () => {
-  it("keeps authoritative state when the execution device is unavailable", () => {
-    const parsed = canvasRuntimeAvailabilitySchema.parse({
-      schemaVersion: "canvas-runtime-view/v1",
+  it("keeps authoritative state in v2 when the execution device is unavailable", () => {
+    const parsed = canvasRuntimeAvailabilityV2Schema.parse({
+      schemaVersion: "canvas-runtime-view/v2",
+      authority: {
+        revision: 7,
+        sourceRevision: `snapshot:${"b".repeat(64)}`,
+        graphFingerprint: fingerprint
+      },
       state: { kind: "initialized", runtimeRevision: 1, status },
       execution: {
         schemaVersion: "canvas-runtime-availability/v1",
@@ -38,12 +45,13 @@ describe("canvas runtime availability", () => {
     });
 
     expect(parsed.state).toMatchObject({ kind: "initialized", runtimeRevision: 1 });
+    expect(parsed.authority).toMatchObject({ revision: 7, graphFingerprint: fingerprint });
     expect(parsed.execution.kind).toBe("unavailable");
   });
 
-  it("represents a canvas whose Server state has not been initialized", () => {
+  it("keeps the legacy v1 shape exact and authority-free", () => {
     expect(
-      canvasRuntimeAvailabilitySchema.parse({
+      canvasRuntimeAvailabilityV1Schema.parse({
         schemaVersion: "canvas-runtime-view/v1",
         state: { kind: "uninitialized" },
         execution: {
@@ -53,6 +61,41 @@ describe("canvas runtime availability", () => {
         }
       })
     ).toMatchObject({ state: { kind: "uninitialized" } });
+    expect(
+      canvasRuntimeAvailabilityV1Schema.safeParse({
+        schemaVersion: "canvas-runtime-view/v1",
+        authority: {
+          revision: 7,
+          sourceRevision: `snapshot:${"b".repeat(64)}`,
+          graphFingerprint: fingerprint
+        },
+        state: { kind: "uninitialized" },
+        execution: {
+          schemaVersion: "canvas-runtime-availability/v1",
+          kind: "unavailable",
+          reason: "runtime_not_attached"
+        }
+      }).success
+    ).toBe(false);
+  });
+
+  it("requires authority in v2 while the compatibility parser accepts v1 and v2", () => {
+    const legacy = {
+      schemaVersion: "canvas-runtime-view/v1" as const,
+      state: { kind: "uninitialized" as const },
+      execution: {
+        schemaVersion: "canvas-runtime-availability/v1" as const,
+        kind: "unavailable" as const,
+        reason: "runtime_not_attached" as const
+      }
+    };
+    expect(canvasRuntimeAvailabilitySchema.parse(legacy)).toEqual(legacy);
+    expect(
+      canvasRuntimeAvailabilityV2Schema.safeParse({
+        ...legacy,
+        schemaVersion: "canvas-runtime-view/v2"
+      }).success
+    ).toBe(false);
   });
 
   it("keeps Host execution evidence in a separate strict contract", () => {

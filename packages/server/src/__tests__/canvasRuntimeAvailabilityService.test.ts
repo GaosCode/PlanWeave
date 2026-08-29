@@ -5,6 +5,7 @@ import {
   type CanvasRuntimeAvailabilityPort
 } from "../canvas/index.js";
 import { createInvalidatingCanvasRuntimeStatusRepository } from "../canvas/runtimeStatusInvalidation.js";
+import { readStableCanvasRuntimeEvidence } from "../canvas/contentFingerprint.js";
 import { HumanObserverJournal } from "../humanObserverJournal.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import {
@@ -52,6 +53,13 @@ async function setup(runtimeAvailability?: CanvasRuntimeAvailabilityPort) {
   const fingerprint = projectCanvasReplicaDocument(
     decodeCanvasReplicaDocument(authoritative.content)
   ).packageFingerprint;
+  const evidence = readStableCanvasRuntimeEvidence(context.contentVersions, scope);
+  if (!evidence) throw new Error("test_runtime_authority_missing");
+  const authority = {
+    revision: evidence.target.revision,
+    sourceRevision: evidence.sourceRevision,
+    graphFingerprint: evidence.target.graphFingerprint
+  };
   const port = runtimeAvailability ?? availablePort(fingerprint);
   const readAvailability = vi.spyOn(port, "readAvailability");
   const runtimeStatuses = createInvalidatingCanvasRuntimeStatusRepository({
@@ -67,17 +75,18 @@ async function setup(runtimeAvailability?: CanvasRuntimeAvailabilityPort) {
     runtimeStatuses,
     clock: () => new Date(capturedAt)
   });
-  return { ...context, fingerprint, readAvailability, runtimeStatuses, service };
+  return { ...context, authority, fingerprint, readAvailability, runtimeStatuses, service };
 }
 
 describe("CanvasRuntimeAvailabilityService", () => {
   it("keeps shared state uninitialized until an authoritative execution result", async () => {
-    const { service, fingerprint, readAvailability } = await setup();
+    const { service, authority, fingerprint, readAvailability } = await setup();
 
     await expect(
       service.read(actor("viewer"), { projectId: "p", canvasId: "default" })
     ).resolves.toMatchObject({
-      schemaVersion: "canvas-runtime-view/v1",
+      schemaVersion: "canvas-runtime-view/v2",
+      authority,
       state: { kind: "uninitialized" },
       execution: {
         kind: "available",
@@ -89,7 +98,7 @@ describe("CanvasRuntimeAvailabilityService", () => {
   });
 
   it("keeps Server-authoritative state visible while no execution device is attached", async () => {
-    const { service, fingerprint, runtimeStatuses } = await setup({
+    const { service, authority, fingerprint, runtimeStatuses } = await setup({
       async readAvailability() {
         return {
           schemaVersion: "canvas-runtime-availability/v1",
@@ -103,7 +112,8 @@ describe("CanvasRuntimeAvailabilityService", () => {
     await expect(
       service.read(actor("viewer"), { projectId: "p", canvasId: "default" })
     ).resolves.toEqual({
-      schemaVersion: "canvas-runtime-view/v1",
+      schemaVersion: "canvas-runtime-view/v2",
+      authority,
       state: { kind: "initialized", runtimeRevision: 1, status: status(fingerprint) },
       execution: {
         schemaVersion: "canvas-runtime-availability/v1",
@@ -114,7 +124,7 @@ describe("CanvasRuntimeAvailabilityService", () => {
   });
 
   it("hides mismatched execution evidence without clearing Server state", async () => {
-    const { service, fingerprint, runtimeStatuses } = await setup(
+    const { service, authority, fingerprint, runtimeStatuses } = await setup(
       availablePort(`pkg-${"c".repeat(64)}`)
     );
     runtimeStatuses.replaceFromExecution(status(fingerprint));
@@ -122,7 +132,8 @@ describe("CanvasRuntimeAvailabilityService", () => {
     await expect(
       service.read(actor("viewer"), { projectId: "p", canvasId: "default" })
     ).resolves.toEqual({
-      schemaVersion: "canvas-runtime-view/v1",
+      schemaVersion: "canvas-runtime-view/v2",
+      authority,
       state: { kind: "initialized", runtimeRevision: 1, status: status(fingerprint) },
       execution: {
         schemaVersion: "canvas-runtime-availability/v1",
