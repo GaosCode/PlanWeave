@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { remoteDispatchIntentV3Schema } from "@planweave-ai/collaboration-protocol/remote-run";
+import { serverBuildRevision } from "../../../server/src/packageInfo.js";
 import {
   adminToken,
   configureWorkspaceAccess,
@@ -124,7 +125,7 @@ describe("self-hosted two-Desktop collaboration flow (OSS-006 B-002)", () => {
           detail: "canvas_feature_not_supported"
         }
       ],
-      ["/api/v1/licenses/entitlements", { error: "route_not_found" }],
+      ["/api/v1/licenses/entitlements", { error: "route_not_found", serverBuildRevision }],
       [
         "/api/v1/ssh/vps",
         {
@@ -133,7 +134,7 @@ describe("self-hosted two-Desktop collaboration flow (OSS-006 B-002)", () => {
           detail: "canvas_feature_not_supported"
         }
       ],
-      ["/api/v1/crdt/v1", { error: "route_not_found" }]
+      ["/api/v1/crdt/v1", { error: "route_not_found", serverBuildRevision }]
     ] as const) {
       await expectRouteUnavailable(fixture.origin, path, expected);
     }

@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import { serverBuildRevision } from "../../../server/src/packageInfo.js";
 import {
   RealProcessAcpHarness,
   type ProcessExitSnapshot
@@ -222,7 +223,10 @@ describe("packaged Host administration control plane", () => {
       })
     });
     expect(roleRejected.status).toBe(403);
-    await expect(roleRejected.json()).resolves.toEqual({ error: "operator_admin_required" });
+    await expect(roleRejected.json()).resolves.toEqual({
+      error: "operator_admin_required",
+      serverBuildRevision
+    });
 
     const copiedHandoffs: string[] = [];
     const handoff = await service.copyHostBootstrapHandoff(
