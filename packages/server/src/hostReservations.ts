@@ -366,6 +366,20 @@ export class HostReservationRepository {
     return reservation;
   }
 
+  isActiveForAttempt(input: {
+    leaseId: string;
+    executionAttemptId: string;
+    hostId: string;
+  }): boolean {
+    const reservation = this.getRequired(input.leaseId);
+    return (
+      reservation.executionAttemptId === input.executionAttemptId &&
+      reservation.hostId === input.hostId &&
+      reservation.status === "active" &&
+      Date.parse(reservation.leaseExpiresAt) > this.clock().getTime()
+    );
+  }
+
   expireDue(now = this.clock()): HostCapacityReservation[] {
     const leaseIds = this.database
       .prepare(

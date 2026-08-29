@@ -420,6 +420,24 @@ export class RemoteOperationRepository {
     return inWriteTransaction(this.database, () => {
       const operation = this.getRequired(operationId);
       if (operation.state === "claimed") return operation;
+      if (operation.state === "reserved" && operation.attempt.status === "reserved") {
+        const existing = this.database
+          .prepare(
+            `SELECT 1 FROM remote_operation_events
+             WHERE operation_id=? AND execution_attempt_id=? AND type='remote.operation.claimed'
+             LIMIT 1`
+          )
+          .get(operation.id, operation.executionAttemptId);
+        if (!existing) {
+          this.appendEvent(
+            operation.id,
+            operation.executionAttemptId,
+            "remote.operation.claimed",
+            this.clock().toISOString()
+          );
+        }
+        return this.getRequired(operation.id);
+      }
       if (operation.state !== "preparing") throw new Error("remote_operation_not_preparing");
       const now = this.clock().toISOString();
       this.database
@@ -512,7 +530,11 @@ export class RemoteOperationRepository {
         }
         return operation;
       }
-      if (operation.state !== "preparing" && operation.state !== "claimed") {
+      if (
+        operation.state !== "preparing" &&
+        operation.state !== "claimed" &&
+        operation.state !== "reserved"
+      ) {
         throw new Error("remote_operation_envelope_too_late");
       }
       const now = this.clock().toISOString();

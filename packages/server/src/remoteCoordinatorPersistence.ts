@@ -65,6 +65,14 @@ export class SqliteRemoteOperationCandidateRepository implements RemoteOperation
       )
       .run(operationId, canonical, new Date().toISOString());
   }
+
+  createWithCandidate(createOperation: () => RemoteOperation, candidate: unknown): RemoteOperation {
+    return inWriteTransaction(this.database, () => {
+      const operation = createOperation();
+      this.record(operation.id, candidate);
+      return operation;
+    });
+  }
 }
 
 export class SqliteRemoteDispatchPersistence implements RemoteDispatchPersistencePort {
@@ -188,8 +196,10 @@ export class SqliteRemoteDispatchPersistence implements RemoteDispatchPersistenc
     reservation: HostCapacityReservation;
     envelope: ExecutionEnvelope;
     envelopeDigest: string;
+    validateBeforeCommit?: () => void;
   }): void {
     inWriteTransaction(this.database, () => {
+      input.validateBeforeCommit?.();
       const existing = this.database
         .prepare("SELECT * FROM dispatches WHERE id=?")
         .get(input.operation.dispatchId);
@@ -308,22 +318,39 @@ export class SqliteRemoteDispatchPersistence implements RemoteDispatchPersistenc
          FROM dispatches WHERE id=?`
       )
       .get(operation.dispatchId);
-    if (!dispatch || typeof dispatch.host_id !== "string") {
-      throw new Error("remote_dispatch_not_found");
-    }
     const reservation = operation.attempt.leaseId
       ? this.database
-          .prepare("SELECT status FROM host_capacity_reservations WHERE lease_id=?")
+          .prepare(
+            `SELECT status,host_id,execution_attempt_id
+             FROM host_capacity_reservations WHERE lease_id=?`
+          )
           .get(operation.attempt.leaseId)
       : undefined;
+    const preparationRecovery =
+      !dispatch &&
+      (operation.attempt.status === "interrupted" ||
+        operation.attempt.status === "action_required") &&
+      typeof operation.attempt.hostId === "string" &&
+      typeof operation.attempt.leaseId === "string" &&
+      reservation?.status !== "active" &&
+      reservation?.host_id === operation.attempt.hostId &&
+      reservation?.execution_attempt_id === operation.executionAttemptId;
+    const hostId =
+      dispatch && typeof dispatch.host_id === "string"
+        ? dispatch.host_id
+        : preparationRecovery
+          ? operation.attempt.hostId
+          : undefined;
+    if (!hostId) throw new Error("remote_dispatch_not_found");
     const host = this.database
       .prepare("SELECT capabilities_json FROM agent_hosts WHERE id=?")
-      .get(dispatch.host_id);
+      .get(hostId);
     if (!host) throw new Error("remote_dispatch_host_not_found");
-    const recovery = dispatch.interruption_recovery_json
+    const recovery = dispatch?.interruption_recovery_json
       ? acpRecoveryIdentitySchema.parse(JSON.parse(String(dispatch.interruption_recovery_json)))
       : undefined;
     return {
+      dispatchState: preparationRecovery ? ("preparation" as const) : ("persisted" as const),
       operationId: operation.id,
       dispatchId: operation.dispatchId,
       executionAttemptId: operation.executionAttemptId,
@@ -331,8 +358,10 @@ export class SqliteRemoteDispatchPersistence implements RemoteDispatchPersistenc
       attemptVersion: operation.attempt.stateVersion,
       leaseId: operation.attempt.leaseId,
       leaseFenced: reservation?.status !== "active",
-      interruption:
-        dispatch.interruption_resumable === null || dispatch.interruption_resumable === undefined
+      interruption: preparationRecovery
+        ? { resumable: false as const }
+        : dispatch?.interruption_resumable === null ||
+            dispatch?.interruption_resumable === undefined
           ? undefined
           : { resumable: dispatch.interruption_resumable === 1, recovery },
       hostCapabilities: capabilitiesSchema.parse(JSON.parse(String(host.capabilities_json)))

@@ -1,6 +1,19 @@
 import { RemoteBlockRuntimeError, RemoteOwnershipConflictError } from "@planweave-ai/runtime";
 import { AgentEndpointCatalogError } from "./agentEndpointCatalog.js";
 import { CanvasRuntimeUnavailableError } from "./canvas/executionRuntimePort.js";
+import { RemoteCoordinatorCheckpointCrash } from "./remoteBlockCoordinatorPorts.js";
+import type { RemoteOperation } from "./remoteOperations.js";
+
+export type RemoteDispatchOutcome = {
+  operation: RemoteOperation;
+  status:
+    | "awaiting_host"
+    | "activated"
+    | "active"
+    | "wait_for_action"
+    | "awaiting_writeback"
+    | "terminal";
+};
 
 /**
  * Startup / batch reenter policy for a single remote operation.
@@ -85,7 +98,7 @@ export function classifyReenterFailure(error: unknown): ReenterFailureDecision {
   }
 
   const message = errorMessage(error);
-  if (message.startsWith("injected_crash:")) return "fatal";
+  if (error instanceof RemoteCoordinatorCheckpointCrash) return "fatal";
   if (error instanceof AggregateError) return "fatal";
 
   if (isWritebackDomainFailure(error) || isMissingActiveOwnership(error)) return "seal_failed";

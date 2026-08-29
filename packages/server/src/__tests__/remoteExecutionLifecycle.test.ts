@@ -11,6 +11,7 @@ function snapshot(
   overrides: Partial<RemoteExecutionLifecycleSnapshot> = {}
 ): RemoteExecutionLifecycleSnapshot {
   return {
+    dispatchState: "persisted",
     operationId: "operation-1",
     dispatchId: "dispatch-1",
     executionAttemptId: "attempt-1",
@@ -90,6 +91,46 @@ describe("remote execution lifecycle policy", () => {
     expect(() =>
       decideRemoteExecutionAction({ ...retry, newExecutionAttemptId: "attempt-1" }, snapshot())
     ).toThrowError();
+  });
+
+  it("allows only a new-attempt retry while dispatch is still in preparation", () => {
+    const preparation = snapshot({
+      dispatchState: "preparation",
+      interruption: { resumable: false }
+    });
+    expect(
+      decideRemoteExecutionAction(
+        action({
+          kind: "retry_new_attempt",
+          priorLeaseId: "lease-1",
+          newDispatchId: "dispatch-2",
+          newExecutionAttemptId: "attempt-2",
+          reason: "retry preparation"
+        }),
+        preparation
+      )
+    ).toEqual({ transition: "retry", sendsCommand: false });
+
+    for (const rejected of [
+      action({ kind: "block", leaseId: "lease-1" }),
+      action({
+        kind: "fail",
+        leaseId: "lease-1",
+        failure: { code: "manual_failure", message: "Stopped.", retryable: false }
+      }),
+      action({
+        kind: "resume_same_session",
+        priorLeaseId: "lease-1",
+        leaseId: "lease-2",
+        leaseExpiresAt: "2030-01-01T00:05:00.000Z",
+        recovery
+      }),
+      action({ kind: "cancel", leaseId: "lease-1" })
+    ]) {
+      expect(() => decideRemoteExecutionAction(rejected, preparation)).toThrowError(
+        "remote_preparation_action_requires_retry"
+      );
+    }
   });
 
   it("keeps fail, block, and cancel as separate decisions", () => {

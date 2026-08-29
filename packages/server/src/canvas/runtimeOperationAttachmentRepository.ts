@@ -196,6 +196,21 @@ export class CanvasRuntimeOperationAttachmentRepository {
     });
   }
 
+  get(
+    operationIdInput: string,
+    executionAttemptIdInput: string
+  ): CanvasRuntimeOperationAttachment | undefined {
+    const operationId = opaqueIdentifierSchema.parse(operationIdInput);
+    const executionAttemptId = opaqueIdentifierSchema.parse(executionAttemptIdInput);
+    const row = this.database
+      .prepare(
+        `SELECT ${selectColumns} FROM canvas_runtime_operation_attachments
+         WHERE operation_id=? AND execution_attempt_id=?`
+      )
+      .get(operationId, executionAttemptId) as AttachmentRow | undefined;
+    return row ? toAttachment(row) : undefined;
+  }
+
   listForOperation(operationIdInput: string): CanvasRuntimeOperationAttachment[] {
     const operationId = opaqueIdentifierSchema.parse(operationIdInput);
     return (

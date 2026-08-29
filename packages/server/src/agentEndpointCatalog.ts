@@ -249,6 +249,24 @@ export class AgentEndpointCatalog {
     return this.toResolved(candidate);
   }
 
+  resolveForSnapshot(
+    endpointIdInput: string,
+    workspaceIdInput: string,
+    requiredCapabilitiesInput: readonly string[]
+  ): ResolvedAgentEndpoint {
+    const endpointId = opaqueIdentifierSchema.parse(endpointIdInput);
+    workspaceIdSchema.parse(workspaceIdInput);
+    const requiredCapabilities = agentEndpointCapabilitiesSchema.parse(requiredCapabilitiesInput);
+    const candidate = this.findCandidateForResolve(endpointId);
+    if (!candidate) throw new AgentEndpointCatalogError("agent_endpoint_unknown");
+    if (
+      !requiredCapabilities.every((capability) => supportsRequiredCapability(candidate, capability))
+    ) {
+      throw new AgentEndpointCatalogError("agent_endpoint_incompatible");
+    }
+    return this.toResolved(candidate);
+  }
+
   resolveForReservedRun(
     endpointIdInput: string,
     workspaceIdInput: string,

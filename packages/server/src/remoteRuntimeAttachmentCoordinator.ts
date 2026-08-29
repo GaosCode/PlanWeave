@@ -5,9 +5,24 @@ import type { HostCapacityReservation } from "./hostReservations.js";
 import type { RemoteOperation } from "./remoteOperations.js";
 import type { RemoteRuntimeContentTargetPort } from "./remoteBlockCoordinatorPorts.js";
 
-export type RemoteRuntimeAttachmentPorts = {
+export class RuntimeAttachmentContentTargetError extends Error {
+  constructor(
+    readonly code:
+      | "runtime_attachment_content_target_conflict"
+      | "runtime_attachment_content_target_changed"
+  ) {
+    super(code);
+    this.name = "RuntimeAttachmentContentTargetError";
+  }
+}
+
+export type RemoteRuntimeAttachmentRecordPorts = {
   contentTargets: RemoteRuntimeContentTargetPort;
   record(input: RuntimeAttachmentRequest): void;
+};
+
+export type RemoteRuntimeMaterializationPorts = {
+  contentTargets: RemoteRuntimeContentTargetPort;
   project?(
     input: RuntimeAttachmentRequest & { lease: CanvasExecutionRuntimeLease }
   ): void | Promise<void>;
@@ -22,9 +37,8 @@ export async function attachWorkspaceRuntimeForAcceptedOperation(input: {
   operation: RemoteOperation;
   candidate: RemoteBlockDispatchCandidate;
   reservation: HostCapacityReservation;
-  lease: CanvasExecutionRuntimeLease;
-  ports: RemoteRuntimeAttachmentPorts;
-}): Promise<void> {
+  ports: RemoteRuntimeAttachmentRecordPorts;
+}): Promise<RuntimeAttachmentRequest> {
   const scope = {
     workspaceId: input.operation.workspaceId,
     projectId: input.operation.projectId,
@@ -35,7 +49,7 @@ export async function attachWorkspaceRuntimeForAcceptedOperation(input: {
     contentTarget.graphFingerprint !== input.operation.sourceFingerprint ||
     contentTarget.graphFingerprint !== input.candidate.graphFingerprint
   ) {
-    throw new Error("runtime_attachment_content_target_conflict");
+    throw new RuntimeAttachmentContentTargetError("runtime_attachment_content_target_conflict");
   }
   const attachment = {
     ...scope,
@@ -47,12 +61,40 @@ export async function attachWorkspaceRuntimeForAcceptedOperation(input: {
     graphFingerprint: contentTarget.graphFingerprint
   };
   input.ports.record(attachment);
-  await input.ports.project?.({ ...attachment, lease: input.lease });
-  if (input.ports.project) {
-    input.ports.confirmMaterializedRoute?.({
-      workspaceId: scope.workspaceId,
-      projectId: scope.projectId,
-      hostId: input.reservation.hostId
-    });
+  return attachment;
+}
+
+export function assertRuntimeAttachmentContentTarget(input: {
+  attachment: RuntimeAttachmentRequest;
+  candidate: RemoteBlockDispatchCandidate;
+  contentTargets: RemoteRuntimeContentTargetPort;
+}): void {
+  const current = input.contentTargets.read(input.attachment);
+  if (
+    current.revision !== input.attachment.contentRevision ||
+    current.graphFingerprint !== input.attachment.graphFingerprint ||
+    current.graphFingerprint !== input.candidate.graphFingerprint
+  ) {
+    throw new RuntimeAttachmentContentTargetError("runtime_attachment_content_target_changed");
   }
+}
+
+export async function materializeAttachedWorkspaceRuntime(input: {
+  attachment: RuntimeAttachmentRequest;
+  candidate: RemoteBlockDispatchCandidate;
+  lease: CanvasExecutionRuntimeLease;
+  ports: RemoteRuntimeMaterializationPorts;
+}): Promise<void> {
+  assertRuntimeAttachmentContentTarget({
+    attachment: input.attachment,
+    candidate: input.candidate,
+    contentTargets: input.ports.contentTargets
+  });
+  await input.ports.project?.({ ...input.attachment, lease: input.lease });
+  if (!input.ports.project) return;
+  input.ports.confirmMaterializedRoute?.({
+    workspaceId: input.attachment.workspaceId,
+    projectId: input.attachment.projectId,
+    hostId: input.attachment.hostId
+  });
 }

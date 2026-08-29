@@ -371,6 +371,8 @@ export function createRemoteBlockCoordination(
     assignmentGate,
     agentEndpoints,
     authorizeRemoteAgentUse: (input) => remoteAgentAccess.authorizeRemoteAgentUse(input),
+    authorizeRemoteAgentUseForSnapshot: (input) =>
+      remoteAgentAccess.authorizeRemoteAgentUseForSnapshot(input),
     endpointAuthorize,
     finalAuthorize,
     ownerPackageLocatorForHost: ({ hostId, candidate }) => {
@@ -385,6 +387,8 @@ export function createRemoteBlockCoordination(
         { attachments: runtimeOperationAttachments, database, clock },
         input
       ),
+    findRuntimeAttachment: (operationId, executionAttemptId) =>
+      runtimeOperationAttachments.get(operationId, executionAttemptId),
     ...(options.runtimeContentTargets
       ? { runtimeContentTargets: options.runtimeContentTargets }
       : {}),

@@ -99,6 +99,7 @@ export type RemoteExecutionActionRejectionCode = z.infer<
 >;
 
 export type RemoteExecutionLifecycleSnapshot = {
+  dispatchState: "persisted" | "preparation";
   operationId: string;
   dispatchId: string;
   executionAttemptId: string;
@@ -147,8 +148,12 @@ export function decideRemoteExecutionAction(
   snapshot: RemoteExecutionLifecycleSnapshot
 ): RemoteExecutionActionDecision {
   const action = remoteExecutionActionRequestSchema.parse(rawAction);
+  z.enum(["persisted", "preparation"]).parse(snapshot.dispatchState);
   remoteAttemptStatusSchema.parse(snapshot.attemptStatus);
   assertCommonIdentity(action, snapshot);
+  if (snapshot.dispatchState === "preparation" && action.kind !== "retry_new_attempt") {
+    throw new Error("remote_preparation_action_requires_retry");
+  }
 
   switch (action.kind) {
     case "resume_same_session": {

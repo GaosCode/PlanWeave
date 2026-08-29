@@ -129,6 +129,7 @@ function deferred<T>() {
 
 function runningSnapshot() {
   return {
+    dispatchState: "persisted" as const,
     operationId: cancelAction.operationId,
     dispatchId: cancelAction.dispatchId,
     executionAttemptId: cancelAction.executionAttemptId,
@@ -142,6 +143,7 @@ function runningSnapshot() {
 
 function retrySnapshot() {
   return {
+    dispatchState: "persisted" as const,
     operationId: retryAction.operationId,
     dispatchId: retryAction.dispatchId,
     executionAttemptId: retryAction.executionAttemptId,
@@ -185,6 +187,7 @@ describe("RemoteExecutionActionRepository", () => {
       repository,
       {
         snapshot: (request) => ({
+          dispatchState: "persisted",
           operationId: request.operationId,
           dispatchId: request.dispatchId,
           executionAttemptId: request.executionAttemptId,
@@ -276,6 +279,7 @@ describe("RemoteExecutionActionRepository", () => {
       repository,
       {
         snapshot: (request) => ({
+          dispatchState: "persisted",
           operationId: request.operationId,
           dispatchId: request.dispatchId,
           executionAttemptId: request.executionAttemptId,

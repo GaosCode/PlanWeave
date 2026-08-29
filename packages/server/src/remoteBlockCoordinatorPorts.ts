@@ -31,6 +31,7 @@ export type RemoteCoordinatorCheckpoint =
   | "after_envelope_persistence"
   | "after_input_materialization"
   | "after_host_reservation"
+  | "after_runtime_attachment"
   | "after_dispatch_persistence"
   | "after_runtime_binding"
   | "after_mailbox_enqueue"
@@ -42,6 +43,13 @@ export type RemoteCoordinatorCheckpoint =
   | "after_runtime_writeback"
   | "after_dispatch_terminal_persistence"
   | "after_terminal_persistence";
+
+export class RemoteCoordinatorCheckpointCrash extends Error {
+  constructor(readonly checkpoint: RemoteCoordinatorCheckpoint) {
+    super(`injected_crash:${checkpoint}`);
+    this.name = "RemoteCoordinatorCheckpointCrash";
+  }
+}
 
 export interface RemoteCoordinatorCheckpointPort {
   reached(checkpoint: RemoteCoordinatorCheckpoint): void | Promise<void>;
@@ -88,6 +96,10 @@ export function authorizedOperationHostId(operation: {
 export interface RemoteOperationCandidatePort {
   get(operationId: string): RemoteBlockDispatchCandidate | undefined;
   record(operationId: string, candidate: RemoteBlockDispatchCandidate): void;
+  createWithCandidate(
+    createOperation: () => RemoteOperation,
+    candidate: RemoteBlockDispatchCandidate
+  ): RemoteOperation;
 }
 
 export type ActivatedMailboxDelivery = {
@@ -129,6 +141,7 @@ export interface RemoteDispatchPersistencePort {
     reservation: HostCapacityReservation;
     envelope: ExecutionEnvelope;
     envelopeDigest: string;
+    validateBeforeCommit?: () => void;
   }): void;
   activate(input: {
     operation: RemoteOperation;

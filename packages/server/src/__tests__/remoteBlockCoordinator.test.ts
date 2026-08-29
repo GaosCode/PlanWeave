@@ -169,6 +169,7 @@ async function setupInterruptedV3EndpointOperation(idempotencyKey: string) {
     reason: "acp_session_lost",
     resumable: false
   });
+  await fixture.coordinator.reenter(dispatched.operation.id);
   const lease = fixture.reservations.getRequired(dispatch.leaseId);
   fixture.reservations.release({
     leaseId: lease.leaseId,
@@ -176,7 +177,6 @@ async function setupInterruptedV3EndpointOperation(idempotencyKey: string) {
     expectedVersion: lease.version,
     reason: "expired"
   });
-  await fixture.coordinator.reenter(dispatched.operation.id);
   return { fixture, operation: fixture.operations.getRequired(dispatched.operation.id), endpoint };
 }
 

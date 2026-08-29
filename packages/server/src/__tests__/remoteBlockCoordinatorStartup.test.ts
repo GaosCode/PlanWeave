@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   createRemoteBlockArtifactSource,
   createRemoteBlockRuntimePort,
+  remoteBlockDispatchCandidateSchema,
   RemoteOwnershipConflictError,
   resetRuntimeState,
   type RemoteBlockRuntimePort
@@ -23,9 +24,10 @@ import type { PlanweaveServer } from "../lifecycle.js";
 import { centralSchemaVersion, latestCentralSchemaVersion } from "../migrations.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import { ProjectAccessRepository } from "../projectAccessRepository.js";
-import type {
-  RemoteCoordinatorCheckpoint,
-  RemoteCoordinatorCheckpointPort
+import {
+  RemoteCoordinatorCheckpointCrash,
+  type RemoteCoordinatorCheckpoint,
+  type RemoteCoordinatorCheckpointPort
 } from "../remoteBlockCoordinatorPorts.js";
 import { RemoteRuntimePortRegistry } from "../remoteRuntimeLocator.js";
 import { WorkAssignmentRepository } from "../work/repository.js";
@@ -44,6 +46,7 @@ import {
   persistedTestAgentAccess,
   TEST_REMOTE_AGENT_OWNER_ID
 } from "./support/remoteAgentOwnerFixture.js";
+import { exactHostRuntimeRouteFixture } from "./support/exactHostRuntimeRoute.js";
 
 type StartedCoordination = Awaited<ReturnType<typeof startRemoteBlockCoordinationServer>>;
 type Coordination = StartedCoordination["coordination"];
@@ -62,7 +65,7 @@ class CrashOnce implements RemoteCoordinatorCheckpointPort {
   reached(checkpoint: RemoteCoordinatorCheckpoint): void {
     if (checkpoint === this.target && !this.crashed) {
       this.crashed = true;
-      throw new Error(`injected_crash:${checkpoint}`);
+      throw new RemoteCoordinatorCheckpointCrash(checkpoint);
     }
   }
 }
@@ -71,7 +74,7 @@ class CrashEveryTime implements RemoteCoordinatorCheckpointPort {
   constructor(readonly target: RemoteCoordinatorCheckpoint) {}
 
   reached(checkpoint: RemoteCoordinatorCheckpoint): void {
-    if (checkpoint === this.target) throw new Error(`injected_crash:${checkpoint}`);
+    if (checkpoint === this.target) throw new RemoteCoordinatorCheckpointCrash(checkpoint);
   }
 }
 
@@ -194,7 +197,27 @@ class StartupHarness {
         return {
           leaseDurationMs: 60_000,
           hostOfflineAfterMs: 60_000,
-          runtimeLeases: registry,
+          runtimeLeases: exactHostRuntimeRouteFixture(registry),
+          runtimeContentTargets: {
+            read: (scope) => {
+              const row = database
+                .prepare(
+                  `SELECT c.candidate_json
+                   FROM remote_operation_candidates c
+                   JOIN remote_operations o ON o.id=c.operation_id
+                   WHERE o.workspace_id=? AND o.project_id=? AND o.canvas_id=?
+                   ORDER BY o.created_at DESC,o.id DESC LIMIT 1`
+                )
+                .get(scope.workspaceId, scope.projectId, scope.canvasId);
+              if (!row || typeof row.candidate_json !== "string") {
+                throw new Error("test_runtime_content_target_missing");
+              }
+              const candidate = remoteBlockDispatchCandidateSchema.parse(
+                JSON.parse(row.candidate_json)
+              );
+              return { revision: 1, graphFingerprint: candidate.graphFingerprint };
+            }
+          },
           inputArtifacts: { materialize: async () => {} },
           artifactContent: { readReport: async (ref) => this.requireArtifacts().read(ref) },
           checkpoints
@@ -365,6 +388,7 @@ class StartupHarness {
       DROP TABLE canvas_workspace_publish_operations;
       DROP TABLE canvas_runtime_artifact_grants;
       DROP TABLE canvas_runtime_leases;
+      DROP TABLE canvas_runtime_operation_attachments;
       DROP TABLE canvas_runtime_host_bindings;
       DELETE FROM project_access_grants;
       DELETE FROM canvas_registry;
@@ -501,7 +525,7 @@ describe("RemoteBlockCoordinator startup reconciliation", () => {
     ).toEqual({ diagnostic_code: code });
   });
 
-  it("cancels a pre-dispatch claim after Runtime reset and continues startup", async () => {
+  it("recovers a reserved pre-dispatch attempt after Runtime reset", async () => {
     const harness = await StartupHarness.create();
     await harness.start(new CrashOnce("after_envelope_persistence"));
     harness.registerHost();
@@ -510,48 +534,40 @@ describe("RemoteBlockCoordinator startup reconciliation", () => {
     await expect(
       coordination.coordinator.dispatch(harness.request("runtime-reset-before-dispatch"))
     ).rejects.toThrowError("injected_crash:after_envelope_persistence");
-    const claimed = coordination.operations.findByCallerIdentity({
+    const reserved = coordination.operations.findByCallerIdentity({
       ...harness.locator,
       blockRef: "T-001#B-001",
       idempotencyKey: "runtime-reset-before-dispatch"
     });
-    expect(claimed).toMatchObject({
-      state: "claimed",
-      attempt: { status: "prepared", hostId: undefined, leaseId: undefined }
+    expect(reserved).toMatchObject({
+      state: "reserved",
+      attempt: { status: "reserved", hostId: expect.any(String), leaseId: expect.any(String) }
     });
     expect(
       harness
         .requireServer()
         .database.prepare("SELECT COUNT(*) AS count FROM dispatches WHERE id=?")
-        .get(claimed!.dispatchId)?.count
+        .get(reserved!.dispatchId)?.count
     ).toBe(0);
 
     await resetRuntimeState({ projectRoot: harness.workspace.root, force: true });
 
     const restarted = await harness.start();
-    expect(restarted.operations.getRequired(claimed!.id)).toMatchObject({
-      state: "cancelled",
-      attempt: { status: "cancelled" }
+    expect(restarted.operations.getRequired(reserved!.id)).toMatchObject({
+      state: "activated",
+      attempt: {
+        status: "activated",
+        hostId: reserved!.attempt.hostId,
+        leaseId: reserved!.attempt.leaseId
+      }
     });
-    expect(
-      harness
-        .requireServer()
-        .database.prepare(
-          "SELECT diagnostic_code,diagnostic_message FROM remote_operations WHERE id=?"
-        )
-        .get(claimed!.id)
-    ).toEqual({
-      diagnostic_code: "runtime_binding_reset",
-      diagnostic_message: "Runtime reset removed remote ownership before Host dispatch."
-    });
-    expect(restarted.operations.listNonTerminal()).toEqual([]);
     expect(
       eventCount(
         harness.requireServer().database,
         "remote_operation_events",
         "remote.attempt.cancelled"
       )
-    ).toBe(1);
+    ).toBe(0);
   });
 
   it("does not replay a settled retry and still reconciles other pending work", async () => {
@@ -678,7 +694,7 @@ describe("RemoteBlockCoordinator startup reconciliation", () => {
     "unassigned"
   ] as const)("upgrades a v17 database and seals %s NULL authority recovery locally", async (deniedTargetKind) => {
     const harness = await StartupHarness.create({ includeSecondTask: true });
-    const hostId = harness.registerHost();
+    const hostId = harness.registerHost(2);
     await harness.start(new CrashEveryTime("after_input_materialization"));
     const coordination = harness.requireCoordination();
 
@@ -726,7 +742,10 @@ describe("RemoteBlockCoordinator startup reconciliation", () => {
     expect(harness.requireServer().readiness().schemaVersion).toBe(latestCentralSchemaVersion);
 
     for (const operation of [denied, legal]) {
-      expect(restarted.operations.getRequired(operation.id)).toMatchObject({ state: "cancelled" });
+      expect(restarted.operations.getRequired(operation.id)).toMatchObject({
+        state: "failed",
+        attempt: { status: "failed" }
+      });
       expect(
         harness
           .requireServer()

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   createRemoteBlockArtifactSource,
   createRemoteBlockRuntimePort,
+  remoteBlockDispatchCandidateSchema,
   type PlanPackageManifest,
   type RemoteBlockDispatchCandidate,
   type RemoteBlockRuntimePort
@@ -18,9 +19,10 @@ import {
 import { ArtifactStore } from "../artifacts.js";
 import { createRemoteBlockCoordination } from "../distributedCoordination.js";
 import type { RemoteBlockCoordinationOptions } from "../distributedCoordination.js";
-import type {
-  RemoteCoordinatorCheckpoint,
-  RemoteCoordinatorCheckpointPort
+import {
+  RemoteCoordinatorCheckpointCrash,
+  type RemoteCoordinatorCheckpoint,
+  type RemoteCoordinatorCheckpointPort
 } from "../remoteBlockCoordinatorPorts.js";
 import { RemoteRuntimePortRegistry } from "../remoteRuntimeLocator.js";
 import { startPlanweaveServer, type PlanweaveServer } from "../lifecycle.js";
@@ -38,6 +40,7 @@ import {
   ownHostRemoteAgents,
   TEST_REMOTE_AGENT_OWNER_ID
 } from "./support/remoteAgentOwnerFixture.js";
+import { exactHostRuntimeRouteFixture } from "./support/exactHostRuntimeRoute.js";
 
 type Coordination = ReturnType<typeof createRemoteBlockCoordination>;
 
@@ -72,7 +75,7 @@ class CrashOnce implements RemoteCoordinatorCheckpointPort {
   reached(checkpoint: RemoteCoordinatorCheckpoint): void {
     if (checkpoint === this.target && !this.crashed) {
       this.crashed = true;
-      throw new Error(`injected_crash:${checkpoint}`);
+      throw new RemoteCoordinatorCheckpointCrash(checkpoint);
     }
   }
 }
@@ -83,6 +86,8 @@ class CoordinatorHarness {
   runtime?: RemoteBlockRuntimePort;
   artifacts?: ArtifactStore;
   private agentEndpointId?: string;
+  private contentRevision = 1;
+  private contentTargetFailure?: Error;
 
   private constructor(
     readonly workspace: Awaited<ReturnType<typeof createTestWorkspace>>,
@@ -155,7 +160,28 @@ class CoordinatorHarness {
     const options: RemoteBlockCoordinationOptions = {
       leaseDurationMs: 60_000,
       hostOfflineAfterMs: 60_000,
-      runtimeLeases: registry,
+      runtimeLeases: exactHostRuntimeRouteFixture(registry),
+      runtimeContentTargets: {
+        read: (scope) => {
+          if (this.contentTargetFailure) throw this.contentTargetFailure;
+          const row = this.requireServer()
+            .database.prepare(
+              `SELECT c.candidate_json
+               FROM remote_operation_candidates c
+               JOIN remote_operations o ON o.id=c.operation_id
+               WHERE o.workspace_id=? AND o.project_id=? AND o.canvas_id=?
+               ORDER BY o.created_at DESC,o.id DESC LIMIT 1`
+            )
+            .get(scope.workspaceId, scope.projectId, scope.canvasId);
+          if (!row || typeof row.candidate_json !== "string") {
+            throw new Error("test_runtime_content_target_missing");
+          }
+          const candidate = remoteBlockDispatchCandidateSchema.parse(
+            JSON.parse(row.candidate_json)
+          );
+          return { revision: this.contentRevision, graphFingerprint: candidate.graphFingerprint };
+        }
+      },
       inputArtifacts: { materialize },
       artifactContent: { readReport: async (ref) => this.requireArtifacts().read(ref) },
       checkpoints
@@ -250,6 +276,14 @@ class CoordinatorHarness {
     return host.id;
   }
 
+  advanceContentRevision(): void {
+    this.contentRevision += 1;
+  }
+
+  failContentTargetReads(error?: Error): void {
+    this.contentTargetFailure = error;
+  }
+
   request(blockRef = "T-001#B-001", idempotencyKey = "crash-matrix-request") {
     const request = endpointDispatchRequest({
       agentEndpoints: this.requireCoordination().agentEndpoints,
@@ -267,10 +301,11 @@ const dispatchCrashPoints = [
   "before_operation_commit",
   "after_operation_commit",
   "after_candidate_persistence",
+  "after_host_reservation",
+  "after_runtime_attachment",
   "after_runtime_claim",
   "after_envelope_persistence",
   "after_input_materialization",
-  "after_host_reservation",
   "after_dispatch_persistence",
   "after_runtime_binding",
   "after_mailbox_enqueue",
@@ -357,6 +392,7 @@ async function prepareInterruptedAction(harness: CoordinatorHarness, resumable: 
       ? { recovery: { acpSessionId: "session-action-crash", recoveryId: "recovery-action-crash" } }
       : {})
   });
+  await coordination.coordinator.reenter(outcome.operation.id);
   const lease = coordination.reservations.getRequired(dispatch.leaseId);
   coordination.reservations.release({
     leaseId: lease.leaseId,
@@ -364,7 +400,6 @@ async function prepareInterruptedAction(harness: CoordinatorHarness, resumable: 
     expectedVersion: lease.version,
     reason: "expired"
   });
-  await coordination.coordinator.reenter(outcome.operation.id);
   return { hostId, outcome, dispatch };
 }
 
@@ -409,6 +444,7 @@ async function prepareInterruptedV3Action(harness: CoordinatorHarness) {
     reason: "acp_session_lost",
     resumable: false
   });
+  await coordination.coordinator.reenter(outcome.operation.id);
   const lease = coordination.reservations.getRequired(dispatch.leaseId);
   coordination.reservations.release({
     leaseId: lease.leaseId,
@@ -416,7 +452,6 @@ async function prepareInterruptedV3Action(harness: CoordinatorHarness) {
     expectedVersion: lease.version,
     reason: "expired"
   });
-  await coordination.coordinator.reenter(outcome.operation.id);
   return { hostId, outcome, dispatch, endpoint };
 }
 
@@ -758,6 +793,32 @@ describe("RemoteBlockCoordinator crash reconciliation", () => {
       harness.requireCoordination().coordinator.dispatch(harness.request())
     ).rejects.toThrowError(`injected_crash:${checkpoint}`);
 
+    const crashedDatabase = harness.requireServer().database;
+    if (checkpoint === "after_host_reservation" || checkpoint === "after_runtime_attachment") {
+      expect(count(crashedDatabase, "host_capacity_reservations")).toBe(1);
+      expect(count(crashedDatabase, "dispatches")).toBe(0);
+      expect(count(crashedDatabase, "mailbox_messages")).toBe(0);
+      expect(
+        crashedDatabase
+          .prepare(
+            `SELECT COUNT(*) AS count FROM remote_operation_events
+             WHERE type='remote.operation.claimed'`
+          )
+          .get()?.count
+      ).toBe(0);
+      expect(count(crashedDatabase, "canvas_runtime_operation_attachments")).toBe(
+        checkpoint === "after_runtime_attachment" ? 1 : 0
+      );
+      expect(
+        crashedDatabase
+          .prepare(
+            `SELECT COUNT(*) AS count FROM canvas_runtime_host_bindings
+             WHERE route_selected=1`
+          )
+          .get()?.count
+      ).toBe(0);
+    }
+
     const coordination = await harness.restart();
     const recovered = await coordination.coordinator.dispatch(harness.request());
     expect(recovered.status).toBe("activated");
@@ -788,6 +849,211 @@ describe("RemoteBlockCoordinator crash reconciliation", () => {
         operationId: recovered.operation.id
       })
     ).resolves.toMatchObject({ ownership: { phase: "active" } });
+  });
+
+  it("fails closed when the Server content head advances after attachment", async () => {
+    const harness = await CoordinatorHarness.create();
+    harness.registerHost();
+    await harness.restart(new CrashOnce("after_runtime_attachment"));
+    await expect(
+      harness.requireCoordination().coordinator.dispatch(harness.request())
+    ).rejects.toThrowError("injected_crash:after_runtime_attachment");
+
+    harness.advanceContentRevision();
+    const coordination = await harness.restart();
+    await expect(coordination.coordinator.dispatch(harness.request())).rejects.toThrowError(
+      "runtime_attachment_content_target_changed"
+    );
+    const database = harness.requireServer().database;
+    expect(count(database, "canvas_runtime_operation_attachments")).toBe(1);
+    expect(count(database, "dispatches")).toBe(0);
+    expect(count(database, "mailbox_messages")).toBe(0);
+    expect(
+      database
+        .prepare(`SELECT status,COUNT(*) AS count FROM host_capacity_reservations GROUP BY status`)
+        .all()
+    ).toEqual([{ status: "expired", count: 1 }]);
+
+    const interrupted = coordination.operations.findByCallerIdentity(harness.request())!;
+    const priorAttemptId = interrupted.executionAttemptId;
+    const priorLeaseId = interrupted.attempt.leaseId!;
+    await expect(
+      coordination.coordinator.executeAction({
+        actionId: "retry-after-content-target-fence",
+        operationId: interrupted.id,
+        dispatchId: interrupted.dispatchId,
+        executionAttemptId: interrupted.executionAttemptId,
+        expectedAttemptVersion: interrupted.attempt.stateVersion,
+        kind: "retry_new_attempt",
+        priorLeaseId,
+        newDispatchId: "dispatch-after-content-target-fence",
+        newExecutionAttemptId: "attempt-after-content-target-fence",
+        reason: "retry against the new Server content head"
+      })
+    ).resolves.toMatchObject({ state: "settled" });
+    const retried = coordination.operations.getRequired(interrupted.id);
+    expect(retried).toMatchObject({
+      dispatchId: "dispatch-after-content-target-fence",
+      executionAttemptId: "attempt-after-content-target-fence",
+      state: "activated",
+      attempt: { hostId: interrupted.attempt.hostId }
+    });
+    expect(count(database, "remote_execution_attempts")).toBe(2);
+    expect(count(database, "canvas_runtime_operation_attachments")).toBe(2);
+    expect(count(database, "dispatches")).toBe(1);
+    expect(count(database, "mailbox_messages")).toBe(1);
+    expect(
+      database
+        .prepare(
+          `SELECT execution_attempt_id,reservation_lease_id,content_revision
+           FROM canvas_runtime_operation_attachments
+           WHERE operation_id=? ORDER BY content_revision`
+        )
+        .all(interrupted.id)
+    ).toEqual([
+      {
+        execution_attempt_id: priorAttemptId,
+        reservation_lease_id: priorLeaseId,
+        content_revision: 1
+      },
+      {
+        execution_attempt_id: "attempt-after-content-target-fence",
+        reservation_lease_id: retried.attempt.leaseId,
+        content_revision: 2
+      }
+    ]);
+  });
+
+  it("preserves the exact reservation when an unknown content target port failure occurs", async () => {
+    const harness = await CoordinatorHarness.create();
+    harness.registerHost();
+    await harness.restart(new CrashOnce("after_runtime_attachment"));
+    await expect(
+      harness.requireCoordination().coordinator.dispatch(harness.request())
+    ).rejects.toThrowError("injected_crash:after_runtime_attachment");
+    const beforeFailure = harness
+      .requireCoordination()
+      .operations.findByCallerIdentity(harness.request())!;
+    const leaseId = beforeFailure.attempt.leaseId!;
+
+    harness.failContentTargetReads(new Error("unknown_content_target_port_failure"));
+    let coordination = await harness.restart();
+    await expect(coordination.coordinator.dispatch(harness.request())).rejects.toThrowError(
+      "unknown_content_target_port_failure"
+    );
+    expect(coordination.reservations.getRequired(leaseId).status).toBe("active");
+    expect(coordination.operations.getRequired(beforeFailure.id)).toMatchObject({
+      executionAttemptId: beforeFailure.executionAttemptId,
+      attempt: { leaseId, hostId: beforeFailure.attempt.hostId }
+    });
+    expect(count(harness.requireServer().database, "dispatches")).toBe(0);
+    expect(count(harness.requireServer().database, "mailbox_messages")).toBe(0);
+
+    harness.failContentTargetReads();
+    coordination = await harness.restart();
+    const recovered = await coordination.coordinator.dispatch(harness.request());
+    expect(recovered).toMatchObject({
+      status: "activated",
+      operation: {
+        executionAttemptId: beforeFailure.executionAttemptId,
+        attempt: { leaseId, hostId: beforeFailure.attempt.hostId }
+      }
+    });
+    const database = harness.requireServer().database;
+    expect(count(database, "host_capacity_reservations")).toBe(1);
+    expect(count(database, "canvas_runtime_operation_attachments")).toBe(1);
+    expect(count(database, "dispatches")).toBe(1);
+    expect(count(database, "mailbox_messages")).toBe(1);
+  });
+
+  it("rejects non-retry actions for a fenced preparation attempt without partial mutation", async () => {
+    const harness = await CoordinatorHarness.create();
+    harness.registerHost();
+    await harness.restart(new CrashOnce("after_runtime_attachment"));
+    await expect(
+      harness.requireCoordination().coordinator.dispatch(harness.request())
+    ).rejects.toThrowError("injected_crash:after_runtime_attachment");
+    harness.advanceContentRevision();
+    const coordination = await harness.restart();
+    await expect(coordination.coordinator.dispatch(harness.request())).rejects.toThrowError(
+      "runtime_attachment_content_target_changed"
+    );
+    const operation = coordination.operations.findByCallerIdentity(harness.request())!;
+    const leaseId = operation.attempt.leaseId!;
+    const identity = {
+      operationId: operation.id,
+      dispatchId: operation.dispatchId,
+      executionAttemptId: operation.executionAttemptId,
+      expectedAttemptVersion: operation.attempt.stateVersion
+    };
+    const actions = [
+      {
+        ...identity,
+        actionId: "preparation-block-rejected",
+        kind: "block",
+        leaseId,
+        reason: "block must not apply during preparation"
+      },
+      {
+        ...identity,
+        actionId: "preparation-fail-rejected",
+        kind: "fail",
+        leaseId,
+        failure: { code: "manual_failure", message: "Stopped.", retryable: false },
+        reason: "fail must not apply during preparation"
+      },
+      {
+        ...identity,
+        actionId: "preparation-resume-rejected",
+        kind: "resume_same_session",
+        priorLeaseId: leaseId,
+        leaseId: "lease-preparation-resume-rejected",
+        leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+        recovery: {
+          acpSessionId: "session-preparation-rejected",
+          recoveryId: "recovery-preparation-rejected"
+        },
+        reason: "resume must not apply during preparation"
+      },
+      {
+        ...identity,
+        actionId: "preparation-cancel-rejected",
+        kind: "cancel",
+        leaseId,
+        reason: "cancel must not apply during preparation"
+      }
+    ] as const;
+
+    for (const action of actions) {
+      await expect(coordination.coordinator.executeAction(action)).rejects.toThrowError(
+        "remote_preparation_action_requires_retry"
+      );
+    }
+
+    expect(coordination.operations.getRequired(operation.id)).toEqual(operation);
+    expect(coordination.reservations.getRequired(leaseId).status).toBe("expired");
+    expect(count(harness.requireServer().database, "dispatches")).toBe(0);
+    expect(count(harness.requireServer().database, "mailbox_messages")).toBe(0);
+    expect(
+      harness
+        .requireServer()
+        .database.prepare(
+          `SELECT action_id,state,application_owner_token,application_claimed_at,
+                  application_decision_json
+           FROM remote_execution_actions ORDER BY action_id`
+        )
+        .all()
+    ).toEqual(
+      actions
+        .map((action) => ({
+          action_id: action.actionId,
+          state: "recorded",
+          application_owner_token: null,
+          application_claimed_at: null,
+          application_decision_json: null
+        }))
+        .sort((left, right) => left.action_id.localeCompare(right.action_id))
+    );
   });
 
   it("does not reactivate or republish after Host acceptance", async () => {
@@ -1146,7 +1412,7 @@ describe("RemoteBlockCoordinator concurrency reconciliation", () => {
     const waiting = coordination.operations
       .listNonTerminal()
       .find(
-        (operation) => operation.state === "claimed" && operation.attempt.status === "prepared"
+        (operation) => operation.state === "preparing" && operation.attempt.status === "prepared"
       );
     expect(waiting?.endpointSelection?.hostId).toBe(hostId);
 
@@ -1172,7 +1438,7 @@ describe("RemoteBlockCoordinator concurrency reconciliation", () => {
       /agent_endpoint_(unknown|incompatible)/
     );
     expect(coordination.operations.getRequired(waiting!.id)).toMatchObject({
-      state: "claimed",
+      state: "preparing",
       attempt: { status: "prepared" },
       endpointSelection: waiting!.endpointSelection
     });

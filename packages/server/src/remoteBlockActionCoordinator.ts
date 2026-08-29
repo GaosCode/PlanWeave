@@ -20,7 +20,7 @@ import type {
   RemoteBlockCoordinatorOptions,
   RemoteDispatchOutcome
 } from "./remoteBlockCoordinator.js";
-import type { RemoteBlockRuntimePort } from "@planweave-ai/runtime";
+import { RemoteOwnershipConflictError, type RemoteBlockRuntimePort } from "@planweave-ai/runtime";
 import type { MailboxMessage } from "./mailbox.js";
 import type { HostCapacityReservation } from "./hostReservations.js";
 import type { RemoteOperation } from "./remoteOperations.js";
@@ -78,9 +78,6 @@ export class RemoteBlockActionCoordinator {
 
   execute(rawAction: unknown): Promise<RemoteExecutionActionRecord> {
     const action = remoteExecutionActionRequestSchema.parse(rawAction);
-    if (action.kind === "cancel") {
-      this.options.operations.recordDiagnosticStage(action.operationId, "cancelling");
-    }
     return this.actionService.execute(action);
   }
 
@@ -111,7 +108,6 @@ export class RemoteBlockActionCoordinator {
   }
 
   async requestCancel(operationId: string, reason: string): Promise<void> {
-    this.options.operations.recordDiagnosticStage(operationId, "cancelling");
     const operation = this.options.operations.getRequired(operationId);
     if (!operation.attempt.leaseId) throw new Error("remote_attempt_not_bound");
     await this.execute({
@@ -234,6 +230,7 @@ export class RemoteBlockActionCoordinator {
     switch (decision.transition) {
       case "cancel": {
         if (action.kind !== "cancel") throw new Error("remote_action_decision_mismatch");
+        this.options.operations.recordDiagnosticStage(operation.id, "cancelling");
         const message = this.options.dispatches.enqueueCancel({ operation, action });
         this.publish(message);
         return "delivered";
@@ -275,13 +272,28 @@ export class RemoteBlockActionCoordinator {
           context === undefined ? undefined : dispatchHostSelectionSnapshotSchema.parse(context);
         if (operation.endpointSelection) this.lifecycle.authorizeEndpointOperation(operation);
         const agentAccess = this.lifecycle.reauthorizeAgentAccessForRetry(operation);
-        await this.withRuntime(operation, (runtime) =>
-          runtime.retryAttempt({
-            ...remoteBlockIdentity(operation),
-            newDispatchId: action.newDispatchId,
-            newExecutionAttemptId: action.newExecutionAttemptId
-          })
-        );
+        const retryRuntime = async () =>
+          await this.withRuntime(operation, (runtime) =>
+            runtime.retryAttempt({
+              ...remoteBlockIdentity(operation),
+              newDispatchId: action.newDispatchId,
+              newExecutionAttemptId: action.newExecutionAttemptId
+            })
+          );
+        if (this.options.dispatches.inspect(operation).dispatch) {
+          await retryRuntime();
+        } else {
+          try {
+            await retryRuntime();
+          } catch (error) {
+            if (
+              !(error instanceof RemoteOwnershipConflictError) ||
+              error.code !== "remote_ownership_not_active"
+            ) {
+              throw error;
+            }
+          }
+        }
         this.options.operations.retryAttempt({
           operationId: operation.id,
           priorExecutionAttemptId: operation.executionAttemptId,

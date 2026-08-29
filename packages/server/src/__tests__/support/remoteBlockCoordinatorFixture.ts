@@ -18,6 +18,7 @@ import { RemoteRuntimePortRegistry } from "../../remoteRuntimeLocator.js";
 import { WorkspaceIdentityRepository } from "../../identity/workspaceRepository.js";
 import { registerEndpointDispatchAccess } from "./endpointCoordinatorFixture.js";
 import { ownHostRemoteAgents, TEST_REMOTE_AGENT_OWNER_ID } from "./remoteAgentOwnerFixture.js";
+import { exactHostRuntimeRouteFixture } from "./exactHostRuntimeRoute.js";
 
 export const directories: string[] = [];
 const servers: PlanweaveServer[] = [];
@@ -92,7 +93,7 @@ export async function setup(
     {
       leaseDurationMs: 60_000,
       hostOfflineAfterMs: 60_000,
-      runtimeLeases: registry,
+      runtimeLeases: exactHostRuntimeRouteFixture(registry),
       runtimeContentTargets: {
         read: () => ({ revision: 1, graphFingerprint: runtimeCandidate.graphFingerprint })
       },

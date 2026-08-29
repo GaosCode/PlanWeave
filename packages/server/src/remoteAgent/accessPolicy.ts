@@ -113,6 +113,19 @@ export class RemoteAgentAccessPolicy {
   }
 
   authorizeRemoteAgentUse(rawInput: AuthorizeRemoteAgentUseInput): AuthorizedRemoteAgentUse {
+    return this.authorizeRemoteAgentUseWithResolver(rawInput, "availability");
+  }
+
+  authorizeRemoteAgentUseForSnapshot(
+    rawInput: AuthorizeRemoteAgentUseInput
+  ): AuthorizedRemoteAgentUse {
+    return this.authorizeRemoteAgentUseWithResolver(rawInput, "snapshot");
+  }
+
+  private authorizeRemoteAgentUseWithResolver(
+    rawInput: AuthorizeRemoteAgentUseInput,
+    resolver: "availability" | "snapshot"
+  ): AuthorizedRemoteAgentUse {
     const input = authorizeRemoteAgentUseInputSchema.parse(rawInput);
     const access = this.evaluateAccess({
       principal: input.principal,
@@ -128,7 +141,10 @@ export class RemoteAgentAccessPolicy {
       expectedReviewerRevision: input.expectedReviewerRevision,
       controlPlane: controlPlaneForTarget(input.target)
     });
-    const resolved = this.resolveAvailability(input, access.agent, access.agentAccessAuthority);
+    const resolved =
+      resolver === "snapshot"
+        ? this.resolveSnapshot(input, access.agent)
+        : this.resolveAvailability(input, access.agent, access.agentAccessAuthority);
     return authorizedRemoteAgentUseSchema.parse({
       remoteAgent: {
         endpointId: resolved.endpointId,
@@ -140,6 +156,26 @@ export class RemoteAgentAccessPolicy {
       agentAccessAuthority: access.agentAccessAuthority,
       resolvedAt: resolved.resolvedAt
     });
+  }
+
+  private resolveSnapshot(
+    input: z.infer<typeof authorizeRemoteAgentUseInputSchema>,
+    agent: RemoteAgentRecord
+  ): ResolvedAgentEndpoint {
+    const resolved = this.options.catalog.resolveForSnapshot(
+      input.endpointId,
+      mappingWorkspaceId(input.target, input.runtimeWorkspaceId),
+      input.requiredCapabilities
+    );
+    if (
+      resolved.endpointId !== agent.endpointId ||
+      resolved.hostId !== agent.hostId ||
+      resolved.profileId !== agent.profileId ||
+      resolved.agentId !== agent.agentId
+    ) {
+      throw new RemoteAgentAuthorizationError("remote_agent_not_found");
+    }
+    return resolved;
   }
 
   private requireHumanPrincipal(humanPrincipalId: string): void {
