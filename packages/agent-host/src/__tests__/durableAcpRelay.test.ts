@@ -1,14 +1,20 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { exampleExecuteDelivery, mailboxDeliverySchema } from "@planweave-ai/agent-host-protocol";
+import { executeAcp } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it } from "vitest";
 import { DurableAcpInteractionRelay } from "../execution/durableAcpRelay.js";
+import { agentHostRemoteEngineEventSchema } from "../execution/remoteAcpPorts.js";
 import { openAgentHostState, type AgentHostState } from "../state/agentHostState.js";
 import { acpCapabilitySnapshotTestValue } from "./support/acpCapabilitySnapshotTestValues.js";
 
 const directories: string[] = [];
 const states: AgentHostState[] = [];
+const mockAgentPath = fileURLToPath(
+  new URL("../../../runtime/src/__tests__/support/acpMockAgent.mjs", import.meta.url)
+);
 
 afterEach(async () => {
   for (const state of states.splice(0)) state.close();
@@ -17,7 +23,7 @@ afterEach(async () => {
   );
 });
 
-async function setup() {
+async function setup(options: { seedEvidence?: boolean } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "planweave-durable-acp-relay-"));
   directories.push(directory);
   const state = await openAgentHostState(join(directory, "state.sqlite"));
@@ -37,27 +43,29 @@ async function setup() {
     leaseId: delivery.command.leaseId,
     executionAttemptId: delivery.command.executionAttemptId
   };
-  state.append({
-    kind: "engine_event",
-    identity,
-    event: {
-      sequence: 1,
-      timestamp: "2026-07-23T00:00:00.000Z",
-      kind: "capability_snapshot",
-      snapshot: acpCapabilitySnapshotTestValue()
-    }
-  });
-  state.append({
-    kind: "engine_event",
-    identity,
-    event: {
-      sequence: 2,
-      timestamp: "2026-07-23T00:00:01.000Z",
-      kind: "session_started",
-      sessionId: "acp-session-relay-001",
-      loaded: false
-    }
-  });
+  if (options.seedEvidence !== false) {
+    state.append({
+      kind: "engine_event",
+      identity,
+      event: {
+        sequence: 1,
+        timestamp: "2026-07-23T00:00:00.000Z",
+        kind: "capability_snapshot",
+        snapshot: acpCapabilitySnapshotTestValue()
+      }
+    });
+    state.append({
+      kind: "engine_event",
+      identity,
+      event: {
+        sequence: 2,
+        timestamp: "2026-07-23T00:00:01.000Z",
+        kind: "session_started",
+        sessionId: "acp-session-relay-001",
+        loaded: false
+      }
+    });
+  }
   return { state, delivery, identity };
 }
 
@@ -102,6 +110,73 @@ describe("durable ACP relay", () => {
         })
       ])
     );
+  });
+
+  it("persists Host engine evidence that the v1 ACP relay cannot represent", async () => {
+    const { state, delivery, identity } = await setup({ seedEvidence: false });
+    const engineEvents: Array<ReturnType<typeof agentHostRemoteEngineEventSchema.parse>> = [];
+    const result = await executeAcp({
+      launch: { trusted: true, command: process.execPath, args: [mockAgentPath, "prompt-usage"] },
+      workspace: { cwd: process.cwd() },
+      env: Object.fromEntries(
+        Object.entries(process.env).filter(
+          (entry): entry is [string, string] => entry[1] !== undefined
+        )
+      ),
+      clientInfo: { name: "planweave-host-relay-characterization", version: "1.0.0" },
+      shutdown: { eofDrainMs: 25, terminateGraceMs: 25, cleanupDeadlineMs: 300 },
+      capabilityPolicy: { required: [], optional: [] },
+      prompt: "exercise Host engine relay evidence",
+      sessionStart: { kind: "new" },
+      limits: { operationTimeoutMs: 5_000, interactionTimeoutMs: 5_000 },
+      eventSink: (event) => {
+        if (event.kind !== "session_update") {
+          engineEvents.push(agentHostRemoteEngineEventSchema.parse(event));
+        }
+      }
+    });
+    expect(result.terminal.state).toBe("succeeded");
+    const nextSequence = Math.max(...engineEvents.map((event) => event.sequence)) + 1;
+    engineEvents.push(
+      agentHostRemoteEngineEventSchema.parse({
+        sequence: nextSequence,
+        timestamp: "2026-07-23T00:00:08.000Z",
+        kind: "interaction",
+        requestId: "permission-1",
+        interaction: "permission",
+        state: "requested"
+      })
+    );
+
+    for (const event of engineEvents) {
+      state.append({
+        kind: "engine_event",
+        identity,
+        event
+      });
+    }
+
+    expect(
+      state
+        .records(identity)
+        .map((record) => (record.kind === "engine_event" ? record.event.kind : record.kind))
+    ).toEqual([
+      "lifecycle",
+      "capability_snapshot",
+      "capabilities",
+      "session_started",
+      "lifecycle",
+      "usage",
+      "lifecycle",
+      "terminal",
+      "interaction"
+    ]);
+    expect(state.executionEvidence(delivery.sequence)).toMatchObject({
+      acpSessionId: expect.stringMatching(/^mock-session-/),
+      acpCapabilitySnapshot: { missing: [] },
+      eventCursor: 0
+    });
+    expect(state.pendingEvents().filter((event) => event.type === "acp.events")).toEqual([]);
   });
 
   it("settles permission exactly once after the mailbox response is durable", async () => {

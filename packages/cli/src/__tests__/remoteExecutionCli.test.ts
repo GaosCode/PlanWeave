@@ -3,9 +3,47 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRemoteBlockRuntimePort } from "@planweave-ai/runtime";
 import { describe, expect, it } from "vitest";
+import { createProgram } from "../index.js";
+import { commandOptionLongs, subcommandOptionLongs } from "./cliCommandTestHelpers.js";
 import { cliWorkflowTimeoutMs, repoRoot, runCli } from "./support/cliTestHarness.js";
 
 describe("remote execution CLI read models", () => {
+  it("has no remote dispatch command or remote interaction settlement identity", () => {
+    const commandNames = createProgram().commands.map((command) => command.name());
+    const runOptions = commandOptionLongs("run");
+    const interactionRespondOptions = subcommandOptionLongs("interaction", "respond");
+
+    expect(commandNames).not.toEqual(
+      expect.arrayContaining(["remote-run", "remote-operation", "workspace-execution"])
+    );
+    expect(runOptions).not.toEqual(
+      expect.arrayContaining(["--remote", "--agent-endpoint", "--workspace"])
+    );
+    expect(interactionRespondOptions).toEqual(
+      expect.arrayContaining([
+        "--record",
+        "--request",
+        "--lease",
+        "--option",
+        "--cancel",
+        "--source",
+        "--reason",
+        "--json",
+        "--canvas"
+      ])
+    );
+    expect(interactionRespondOptions).not.toEqual(
+      expect.arrayContaining([
+        "--operation",
+        "--dispatch",
+        "--execution-attempt",
+        "--acp-session",
+        "--session",
+        "--action"
+      ])
+    );
+  });
+
   it(
     "prints the canonical safe projection in status, explain, and doctor JSON",
     async () => {

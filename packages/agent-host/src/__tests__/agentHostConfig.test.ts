@@ -59,6 +59,30 @@ function input(directory: string, workspaceRoot: string) {
 }
 
 describe("Agent Host configuration", () => {
+  it("forwards a declared collaboration device credential through Host ACP resolution", async () => {
+    const controlCredentialName = "PLANWEAVE_COLLABORATION_DEVICE_TOKEN";
+    const { directory, workspaceRoot } = await setup();
+    const base = input(directory, workspaceRoot);
+    const config = parseAgentHostConfig({
+      ...base,
+      agentProfiles: [
+        {
+          ...base.agentProfiles[0],
+          environment: [{ name: controlCredentialName, required: true }]
+        }
+      ]
+    });
+
+    const resolved = await new ConfiguredAcpProfileResolver(config, {
+      PATH: process.env.PATH,
+      HOME: process.env.HOME,
+      [controlCredentialName]: "characterization-device-token-not-a-real-secret"
+    }).resolve("acp.test", "test-agent");
+
+    expect(Object.keys(resolved.env)).toContain(controlCredentialName);
+    expect(resolved.env[controlCredentialName]).toBeDefined();
+  });
+
   it("defaults, validates, and resolves ACP shutdown policy overrides", async () => {
     const { directory, workspaceRoot } = await setup();
     const base = input(directory, workspaceRoot);

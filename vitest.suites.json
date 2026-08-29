@@ -271,6 +271,7 @@
         "workspaceAgentEndpointRun.test.tsx",
         "workspaceCanvasPublishAuthority.test.ts",
         "workspaceCanvasSharingPanel.test.tsx",
+        "workspaceExecutionCharacterization.test.ts",
         "workspaceRemoteScopeScheduler.test.ts",
         "workspaceTabsLazyRoutes.test.tsx"
       ],
@@ -495,6 +496,7 @@
         "acpRunnerClaimRouting.test.ts",
         "acpRunnerLifecycle.test.ts",
         "advisoryDirectoryLock.test.ts",
+        "agentProcessEnvironmentIsolation.test.ts",
         "agentRunControlClient.test.ts",
         "agentRunControlEndpoint.test.ts",
         "agentRunControlLifecycle.test.ts",
