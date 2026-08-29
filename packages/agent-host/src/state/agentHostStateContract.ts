@@ -43,6 +43,7 @@ export const DEFAULT_AGENT_HOST_STATE_LIMITS: AgentHostStateLimits = {
 };
 
 export interface AgentHostStateRepository {
+  setRemoteRunnerEventProtocolVersion?(version: 1 | 2): void;
   close(): void;
   receive(input: ServerEvent): { stored: boolean; acknowledgement: HostEvent };
   lastAcknowledgedSequence(): number;

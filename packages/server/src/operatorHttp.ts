@@ -1,5 +1,8 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { opaqueIdentifierSchema } from "@planweave-ai/agent-host-protocol";
+import {
+  opaqueIdentifierSchema,
+  remoteRunnerEventServerCapabilitySchema
+} from "@planweave-ai/agent-host-protocol";
 import { RemoteBlockRuntimeError } from "@planweave-ai/runtime";
 import { z } from "zod";
 import { agentEndpointCatalogErrorCode } from "./agentEndpointCatalog.js";
@@ -31,6 +34,7 @@ const versionResponseSchema = z
     serverVersion: z.string().min(1).max(64),
     serverBuildRevision: buildRevisionSchema,
     protocolVersion: z.literal(1),
+    remoteRunnerEvents: remoteRunnerEventServerCapabilitySchema,
     limits: z
       .object({
         maxArtifactBytes: z.number().int().positive(),
@@ -54,6 +58,7 @@ export type OperatorHttpOptions = {
 };
 
 export type OperatorControlPort = {
+  remoteRunnerEventCapability?(): unknown;
   createEnrollmentGrant(principal: OperatorPrincipal, request: unknown): unknown;
   listHosts(principal: OperatorPrincipal, query: unknown): unknown;
   listAgentEndpoints(principal: OperatorPrincipal, query: unknown): unknown;
@@ -370,6 +375,9 @@ export async function handleOperatorHttpRequest(
           serverVersion: options.serverVersion,
           serverBuildRevision: options.serverBuildRevision,
           protocolVersion: 1,
+          remoteRunnerEvents: options.service.remoteRunnerEventCapability?.() ?? {
+            available: false
+          },
           limits: options.limits
         })
       );

@@ -10,7 +10,7 @@ const runtimeEntry = process.env.PLANWEAVE_BROWSER_BOUNDARY_RUNTIME_ENTRY
 const rendererSrc = process.env.PLANWEAVE_BROWSER_BOUNDARY_RENDERER_SRC
   ? resolve(process.env.PLANWEAVE_BROWSER_BOUNDARY_RENDERER_SRC)
   : resolve(repoRoot, "packages", "desktop", "src", "renderer");
-const browserSafePackages = new Set(["zod"]);
+const browserSafePackages = new Set(["zod", "@planweave-ai/agent-host-protocol/browser"]);
 
 function toDisplayPath(path) {
   return relative(repoRoot, path).split(sep).join("/") || path;

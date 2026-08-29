@@ -5,6 +5,7 @@ import {
   remoteDispatchIntentV3Schema,
   remoteDispatchVersionedIntentSchema,
   remoteEndpointOperationObservationSchema,
+  remoteEventReplaySchema,
   remoteOperationLookupQuerySchema,
   remoteOperationObservationSchema
 } from "../remoteRun.js";
@@ -197,5 +198,48 @@ describe("remote-run/v3 dispatch contract", () => {
       expect(() => legacyRemoteDispatchIntentV2Schema.parse({ ...v2, ...forbidden })).toThrow();
     }
     expect(() => legacyRemoteDispatchIntentV2Schema.parse(v3)).toThrow();
+  });
+
+  it("rejects replay payloads that mix v1 and v2 event contracts", () => {
+    const replay = {
+      executionAttemptId: "attempt-1",
+      afterCursor: 0,
+      cursor: 1,
+      highWatermark: 1,
+      hasMore: false
+    };
+    const v1Event = { cursor: 1, kind: "agent_message", text: "legacy" };
+    const v2Event = {
+      eventVersion: 2,
+      cursor: 1,
+      sourceSequence: 1,
+      timestamp: "2030-01-01T00:00:00.000Z",
+      fragment: {
+        kind: "runner_body",
+        body: {
+          kind: "output",
+          stream: "stdout",
+          content: "v2",
+          redaction: { classes: [], replaced: 0 }
+        }
+      }
+    };
+
+    expect(
+      remoteEventReplaySchema.safeParse({ ...replay, eventProtocolVersion: 1, events: [v1Event] })
+        .success
+    ).toBe(true);
+    expect(
+      remoteEventReplaySchema.safeParse({ ...replay, eventProtocolVersion: 2, events: [v2Event] })
+        .success
+    ).toBe(true);
+    expect(
+      remoteEventReplaySchema.safeParse({ ...replay, eventProtocolVersion: 1, events: [v2Event] })
+        .success
+    ).toBe(false);
+    expect(
+      remoteEventReplaySchema.safeParse({ ...replay, eventProtocolVersion: 2, events: [v1Event] })
+        .success
+    ).toBe(false);
   });
 });

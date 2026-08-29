@@ -1,16 +1,18 @@
 import {
   remoteHumanExecutionActionCommandSchema,
   type RemoteAttemptStatus,
-  type RemoteEventReplay,
   type RemoteHumanExecutionActionCommand,
   type RemoteInteractionView,
   type RemoteOperationObservation,
   type RemoteOperationState
 } from "@planweave-ai/collaboration-protocol/remote-run";
 import { type AssignmentDisplayProjection } from "@planweave-ai/collaboration-protocol/work/assignment";
-import type { RemoteBlockExecutionReadModel } from "@planweave-ai/runtime";
+import type {
+  ProjectedRemoteAcpEvent,
+  RemoteAcpReplayDiagnostic,
+  RemoteBlockExecutionReadModel
+} from "@planweave-ai/runtime";
 
-type NormalizedAcpEvent = RemoteEventReplay["events"][number];
 import type { CollaborationRemoteRunProjection } from "../../shared/collaborationReadModels.js";
 
 /**
@@ -96,7 +98,9 @@ export type RemoteRunPanelViewModel = {
   hostOnline: boolean | null;
   observerStatus: CollaborationRemoteRunProjection["status"] | null;
   pendingInteractions: RemoteInteractionView[];
-  events: NormalizedAcpEvent[];
+  eventProtocolVersion: 1 | 2 | null;
+  events: ProjectedRemoteAcpEvent[];
+  replayDiagnostics: RemoteAcpReplayDiagnostic[];
   eventCursor: number;
   eventsHasMore: boolean;
   actions: RemoteRunActionAvailability[];
@@ -289,11 +293,11 @@ export function projectRemoteRunIdentity(
  * Does not parse free-text logs.
  */
 export function adaptRemoteAcpEvents(
-  events: readonly NormalizedAcpEvent[],
+  events: readonly ProjectedRemoteAcpEvent[],
   options?: { afterCursor?: number }
-): NormalizedAcpEvent[] {
+): ProjectedRemoteAcpEvent[] {
   const after = options?.afterCursor ?? 0;
-  const byCursor = new Map<number, NormalizedAcpEvent>();
+  const byCursor = new Map<number, ProjectedRemoteAcpEvent>();
   for (const event of events) {
     if (event.cursor <= after) continue;
     const existing = byCursor.get(event.cursor);
@@ -426,7 +430,9 @@ export function projectRemoteRunPanelViewModel(input: {
   assignment: AssignmentDisplayProjection | null;
   observerRun: CollaborationRemoteRunProjection | null;
   pendingInteractions: readonly RemoteInteractionView[];
-  events: readonly NormalizedAcpEvent[];
+  eventProtocolVersion: 1 | 2 | null;
+  events: readonly ProjectedRemoteAcpEvent[];
+  replayDiagnostics: readonly RemoteAcpReplayDiagnostic[];
   eventCursor: number;
   eventsHasMore: boolean;
   authorized: boolean;
@@ -468,6 +474,7 @@ export function projectRemoteRunPanelViewModel(input: {
       diagnostics.push("operation_runtime_identity_mismatch");
     }
   }
+  diagnostics.push(...input.replayDiagnostics.map((diagnostic) => diagnostic.code));
 
   return {
     authority: "remote_dispatch",
@@ -490,7 +497,9 @@ export function projectRemoteRunPanelViewModel(input: {
     hostOnline: input.hostOnline ?? input.assignment?.host?.online ?? null,
     observerStatus: input.observerRun?.status ?? null,
     pendingInteractions: [...input.pendingInteractions],
+    eventProtocolVersion: input.eventProtocolVersion,
     events: adaptedEvents,
+    replayDiagnostics: [...input.replayDiagnostics],
     eventCursor: input.eventCursor,
     eventsHasMore: input.eventsHasMore,
     actions,

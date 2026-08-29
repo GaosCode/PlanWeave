@@ -10,6 +10,7 @@ import {
   interactionSettlementSchema,
   leaseIdSchema,
   normalizedAcpEventSchema,
+  remoteRunnerEventV2Schema,
   normalizedFailureSchema,
   opaqueIdentifierSchema,
   operatorEnrollmentGrantRequestSchema,
@@ -134,26 +135,40 @@ export const operatorActionViewSchema = z
     }
   });
 
-export const operatorEventReplaySchema = z
+const operatorEventReplayBaseSchema = z.object({
+  executionAttemptId: opaqueIdentifierSchema,
+  afterCursor: acpEventCursorSchema,
+  cursor: acpEventCursorSchema,
+  highWatermark: acpEventCursorSchema,
+  hasMore: z.boolean()
+});
+const operatorRetentionDiagnosticSchema = z
   .object({
-    executionAttemptId: opaqueIdentifierSchema,
-    afterCursor: acpEventCursorSchema,
-    cursor: acpEventCursorSchema,
-    highWatermark: acpEventCursorSchema,
-    hasMore: z.boolean(),
-    events: z.array(normalizedAcpEventSchema).max(ACP_EVENT_BATCH_MAX_COUNT),
-    diagnostics: z
-      .array(
-        z
-          .object({
-            code: z.literal("remote_acp_event_retention_gap"),
-            droppedThroughCursor: z.number().int().positive()
-          })
-          .strict()
-      )
-      .max(1)
+    code: z.literal("remote_acp_event_retention_gap"),
+    droppedThroughCursor: z.number().int().positive()
   })
   .strict();
+const operatorDegradedDiagnosticSchema = z
+  .object({ code: z.literal("remote_acp_event_contract_degraded") })
+  .strict();
+export const operatorEventReplaySchema = z.discriminatedUnion("eventProtocolVersion", [
+  operatorEventReplayBaseSchema
+    .extend({
+      eventProtocolVersion: z.literal(1),
+      events: z.array(normalizedAcpEventSchema).max(ACP_EVENT_BATCH_MAX_COUNT),
+      diagnostics: z
+        .array(z.union([operatorRetentionDiagnosticSchema, operatorDegradedDiagnosticSchema]))
+        .max(2)
+    })
+    .strict(),
+  operatorEventReplayBaseSchema
+    .extend({
+      eventProtocolVersion: z.literal(2),
+      events: z.array(remoteRunnerEventV2Schema).max(ACP_EVENT_BATCH_MAX_COUNT),
+      diagnostics: z.array(operatorRetentionDiagnosticSchema).max(1)
+    })
+    .strict()
+]);
 
 export const operatorInteractionViewSchema = z
   .object({

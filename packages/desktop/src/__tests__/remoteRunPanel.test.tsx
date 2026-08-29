@@ -186,12 +186,14 @@ function createApi(executionTarget: "exact_host" | "unassigned" = "exact_host") 
     dispatchCollaborationRemoteOperation: vi.fn(),
     executeCollaborationRemoteOperationAction: vi.fn(),
     replayCollaborationRemoteOperationEvents: vi.fn().mockResolvedValue({
+      eventProtocolVersion: 1,
       executionAttemptId: "attempt-1",
       afterCursor: 0,
       cursor: 1,
       highWatermark: 1,
       hasMore: false,
-      events: [{ cursor: 1, kind: "agent_message", text: "remote hello" }]
+      events: [{ cursor: 1, kind: "agent_message", text: "remote hello" }],
+      diagnostics: []
     }),
     listCollaborationRemoteOperationInteractions: vi.fn().mockResolvedValue({
       items: [],
@@ -249,6 +251,14 @@ describe("RemoteRunPanel", () => {
     });
     expect(screen.getByTestId("remote-run-events")).toBeInTheDocument();
     expect(screen.getByText(/remote hello/)).toBeInTheDocument();
+    expect(screen.getByTestId("remote-run-event")).toHaveAttribute(
+      "data-event-protocol-version",
+      "1"
+    );
+    expect(screen.getByTestId("remote-run-event")).toHaveAttribute(
+      "data-execution-attempt-id",
+      "attempt-1"
+    );
     expect(screen.getByText("Codex — Build Mac")).toBeInTheDocument();
     expect(screen.queryByText("host-1")).not.toBeInTheDocument();
     expect(screen.getByTestId("remote-run-notice")).toHaveTextContent(
@@ -258,6 +268,112 @@ describe("RemoteRunPanel", () => {
       "Legacy Host run settings are now read-only. Choose this device or a remote Agent."
     );
     expect(screen.queryByText("private-host-id")).not.toBeInTheDocument();
+  });
+
+  it("renders v2 Runner and engine evidence from the shared projection", async () => {
+    const api = createApi();
+    const observe = api.observeCollaborationRemoteOperation as ReturnType<typeof vi.fn>;
+    const v2Observation = await observe();
+    observe.mockResolvedValue({
+      ...v2Observation,
+      executionAttemptId: "attempt-v2",
+      attempt: {
+        ...v2Observation.attempt,
+        executionAttemptId: "attempt-v2"
+      }
+    });
+    observe.mockClear();
+    const replay = api.replayCollaborationRemoteOperationEvents as ReturnType<typeof vi.fn>;
+    replay.mockResolvedValue({
+      eventProtocolVersion: 2,
+      executionAttemptId: "attempt-v2",
+      afterCursor: 0,
+      cursor: 2,
+      highWatermark: 2,
+      hasMore: false,
+      diagnostics: [{ code: "remote_acp_event_retention_gap", droppedThroughCursor: 7 }],
+      events: [
+        {
+          eventVersion: 2,
+          cursor: 1,
+          sourceSequence: 51,
+          timestamp: "2030-01-01T00:00:01.000Z",
+          fragment: {
+            kind: "runner_body",
+            body: {
+              kind: "message",
+              role: "assistant",
+              messageId: "message-v2",
+              chunk: false,
+              content: "projected v2",
+              redaction: { classes: [], replaced: 0 }
+            }
+          }
+        },
+        {
+          eventVersion: 2,
+          cursor: 2,
+          sourceSequence: 52,
+          timestamp: "2030-01-01T00:00:02.000Z",
+          fragment: {
+            kind: "engine_evidence",
+            evidence: {
+              kind: "usage_snapshot",
+              usage: {
+                semantics: "cumulative_session_total",
+                totalTokens: 21,
+                inputTokens: 13,
+                outputTokens: 8,
+                thoughtTokens: null,
+                cachedReadTokens: null,
+                cachedWriteTokens: null
+              }
+            }
+          }
+        }
+      ]
+    });
+    const bridge = api as unknown as CollaborationReadBridgePort;
+    apis.push(bridge);
+    const shell = acquireCollaborationReadModelController(bridge);
+    await shell.controller.setActiveProject({
+      profileId: "profile-1",
+      projectId: "project-1",
+      canvasId: "default"
+    });
+
+    render(
+      <RemoteRunPanel
+        workItem={blockItem}
+        runtimeRemoteExecution={{
+          identity: { operationId: "op-1" },
+          phase: "active",
+          status: "owned",
+          actionRequired: false,
+          source: { revision: "rev-1", graphFingerprint: "fp-1" },
+          dispatchAttempt: { dispatchId: "dispatch-1", executionAttemptId: "attempt-1" }
+        }}
+        open
+        api={api}
+        t={createTranslator("en")}
+      />
+    );
+
+    await waitFor(() => expect(screen.getAllByTestId("remote-run-event")).toHaveLength(2));
+    expect(screen.getByText(/projected v2/)).toBeInTheDocument();
+    expect(screen.getByText(/Remote cumulative token usage: 21/)).toBeInTheDocument();
+    expect(screen.getAllByTestId("remote-run-event")[1]).toHaveAttribute(
+      "data-event-protocol-version",
+      "2"
+    );
+    expect(screen.getAllByTestId("remote-run-event")[1]).toHaveAttribute(
+      "data-event-source-sequence",
+      "52"
+    );
+    expect(screen.getAllByTestId("remote-run-event")[1]).toHaveAttribute(
+      "data-event-timestamp",
+      "2030-01-01T00:00:02.000Z"
+    );
   });
 
   it("does not show a migration notice for an unassigned legacy target", async () => {

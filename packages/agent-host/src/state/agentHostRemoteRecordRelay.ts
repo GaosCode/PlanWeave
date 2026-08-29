@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
-import type { NormalizedAcpEvent } from "@planweave-ai/agent-host-protocol";
+import type {
+  EngineEvidenceLeaf,
+  NormalizedAcpEvent,
+  RemoteRunnerEventFragment
+} from "@planweave-ai/agent-host-protocol";
+import { engineEvidenceLeafSchema } from "@planweave-ai/agent-host-protocol";
 import type { AgentHostRemoteExecutionRecord } from "../execution/remoteAcpPorts.js";
 import { parseAgentHostEvent } from "../protocol.js";
 import { AgentHostEventOutbox } from "./agentHostEventOutbox.js";
@@ -55,11 +60,130 @@ function normalizedProtocolEvent(
 }
 
 export class AgentHostRemoteRecordRelay {
+  private eventProtocolVersion: 1 | 2 = 1;
+
   constructor(
     private readonly executions: AgentHostExecutionRepository,
     private readonly events: AgentHostEventOutbox,
     private readonly remoteRecords: AgentHostRemoteExecutionRecordStore
   ) {}
+
+  setEventProtocolVersion(version: 1 | 2): void {
+    this.eventProtocolVersion = version;
+  }
+
+  private protocolVersionFor(
+    execution: NonNullable<ReturnType<AgentHostExecutionRepository["findByIdentity"]>>
+  ): 1 | 2 {
+    return (
+      this.executions.evidence(execution.sequence)?.eventProtocolVersion ??
+      this.eventProtocolVersion
+    );
+  }
+
+  private v2Fragment(
+    record: Extract<AgentHostRemoteExecutionRecord, { kind: "engine_event" }>
+  ): RemoteRunnerEventFragment {
+    const event = record.event;
+    switch (event.kind) {
+      case "session_update":
+        return { kind: "runner_body", body: event.body };
+      case "terminal":
+        return { kind: "engine_terminal", terminal: event.terminal };
+      case "usage":
+        return {
+          kind: "engine_evidence",
+          evidence: {
+            kind: "usage_snapshot",
+            usage: { semantics: "cumulative_session_total", ...event.usage }
+          }
+        };
+      case "capability_snapshot":
+        return {
+          kind: "engine_evidence",
+          evidence: {
+            kind: "capability_snapshot",
+            required: event.snapshot.required,
+            negotiated: event.snapshot.negotiated,
+            missing: event.snapshot.missing
+          }
+        };
+      case "capabilities":
+        return {
+          kind: "engine_evidence",
+          evidence: { kind: "capabilities", capabilities: event.capabilities }
+        };
+      case "session_started":
+        return {
+          kind: "engine_evidence",
+          evidence: { kind: "session_started", sessionId: event.sessionId, loaded: event.loaded }
+        };
+      case "interaction":
+        return {
+          kind: "engine_evidence",
+          evidence: engineEvidenceLeafSchema.parse({
+            kind: "interaction",
+            requestId: event.requestId,
+            interaction: event.interaction,
+            state: event.state,
+            ...(event.outcome === undefined ? {} : { outcome: event.outcome })
+          })
+        };
+      case "lifecycle":
+        return {
+          kind: "engine_evidence",
+          evidence: { kind: "lifecycle", state: event.state } as EngineEvidenceLeaf
+        };
+    }
+  }
+
+  private relayV2(execution: ReturnType<AgentHostExecutionRepository["findByIdentity"]>): void {
+    if (!execution) throw new Error("remote_execution_identity_not_found");
+    const evidence = this.executions.evidence(execution.sequence);
+    if (!evidence?.acpSessionId) return;
+    if (this.executions.pinEventProtocolVersion(execution.sequence, 2) !== 2) {
+      throw new Error("execution_event_protocol_version_conflict");
+    }
+    const records = this.remoteRecords.records({
+      dispatchId: evidence.dispatchId,
+      leaseId: evidence.leaseId,
+      executionAttemptId: evidence.executionAttemptId
+    });
+    const engineRecords = records.filter(
+      (candidate): candidate is Extract<AgentHostRemoteExecutionRecord, { kind: "engine_event" }> =>
+        candidate.kind === "engine_event"
+    );
+    const pending = engineRecords.slice(evidence.eventCursor);
+    for (const record of pending) {
+      const current = this.executions.evidence(execution.sequence);
+      if (!current?.acpSessionId) throw new Error("remote_execution_session_identity_stale");
+      const afterCursor = current.eventCursor;
+      const cursor = afterCursor + 1;
+      this.executions.advanceEventCursor(execution.sequence, afterCursor, cursor);
+      this.events.queue(
+        `acp.events.v2:${record.identity.dispatchId}:${record.identity.executionAttemptId}:${cursor}`,
+        parseAgentHostEvent({
+          type: "acp.events",
+          protocolVersion: 1,
+          eventProtocolVersion: 2,
+          messageId: randomUUID(),
+          ...record.identity,
+          acpSessionId: current.acpSessionId,
+          afterCursor,
+          cursor,
+          events: [
+            {
+              eventVersion: 2,
+              cursor,
+              sourceSequence: record.event.sequence,
+              timestamp: record.event.timestamp,
+              fragment: this.v2Fragment(record)
+            }
+          ]
+        })
+      );
+    }
+  }
 
   relay(record: AgentHostRemoteExecutionRecord): void {
     const execution = this.executions.findByIdentity(record.identity);
@@ -88,12 +212,23 @@ export class AgentHostRemoteRecordRelay {
             acpSessionId: record.event.sessionId
           }).slice("sha256:".length)}`
         });
+        if (this.protocolVersionFor(execution) === 2) this.relayV2(execution);
         return;
       }
       if (record.event.kind === "interaction" && record.event.state === "resolved") {
         if (execution.status === "interaction_wait") {
           this.executions.transition(execution.sequence, "running", "interaction_delivered");
         }
+        if (this.protocolVersionFor(execution) === 1) return;
+      }
+      if (this.protocolVersionFor(execution) === 2) {
+        if (record.event.kind === "session_update") {
+          const evidence = this.executions.evidence(execution.sequence);
+          if (!evidence?.acpSessionId || evidence.acpSessionId !== record.event.sessionId) {
+            throw new Error("remote_execution_session_identity_stale");
+          }
+        }
+        this.relayV2(execution);
         return;
       }
       if (record.event.kind !== "session_update") return;
@@ -104,6 +239,9 @@ export class AgentHostRemoteRecordRelay {
       const afterCursor = evidence.eventCursor;
       const event = normalizedProtocolEvent(record.event.body, afterCursor + 1);
       if (!event) return;
+      if (this.executions.pinEventProtocolVersion(execution.sequence, 1) !== 1) {
+        throw new Error("execution_event_protocol_version_conflict");
+      }
       this.executions.advanceEventCursor(execution.sequence, afterCursor, event.cursor);
       this.events.queue(
         `acp.events:${record.identity.dispatchId}:${record.identity.executionAttemptId}:${event.cursor}`,

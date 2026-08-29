@@ -1,10 +1,23 @@
-import type { AcpTimelineItem } from "@planweave-ai/runtime";
-import { projectRemoteAcpTimeline } from "@planweave-ai/runtime/browser";
+import type {
+  AcpTimelineItem,
+  ProjectedRemoteAcpEvent,
+  RemoteAcpReplayDiagnostic
+} from "@planweave-ai/runtime";
+import {
+  projectRemoteAcpProjectedTimeline,
+  projectRemoteAcpReplay
+} from "@planweave-ai/runtime/browser";
 import type {
   RemoteEventReplay,
   RemoteOperationObservation
 } from "@planweave-ai/collaboration-protocol/remote-run";
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  applyRemoteAcpReplayPage,
+  createRemoteAcpAttemptReplayState,
+  scopeRemoteAcpReplayToAttempt,
+  type RemoteAcpAttemptReplayState
+} from "../collaboration/remoteAcpReplayState";
 
 export type RemoteTaskWorkspaceConversationApi = {
   observe(operationId: string): Promise<RemoteOperationObservation>;
@@ -16,7 +29,10 @@ export type RemoteTaskWorkspaceConversationApi = {
 export type RemoteTaskWorkspaceConversation = {
   blockRef: string;
   error: string | null;
+  eventProtocolVersion: 1 | 2 | null;
+  executionAttemptId: string | null;
   operationId: string;
+  replayDiagnostics: readonly RemoteAcpReplayDiagnostic[];
   state: RemoteOperationObservation["state"] | "loading";
   timeline: readonly AcpTimelineItem[];
 };
@@ -27,11 +43,8 @@ const terminalStates = new Set<RemoteOperationObservation["state"]>([
   "cancelled"
 ]);
 
-type OperationEventCache = {
+type OperationEventCache = RemoteAcpAttemptReplayState & {
   key: string;
-  cursor: number;
-  events: RemoteEventReplay["events"];
-  executionAttemptId: string | null;
 };
 
 const operationCacheLimit = 8;
@@ -64,48 +77,25 @@ function isForbiddenError(error: unknown): boolean {
   return error instanceof Error && /(?:http_403|\b403\b|forbidden)/i.test(error.message);
 }
 
-function mergeEvents(
-  cached: RemoteEventReplay["events"],
-  incoming: RemoteEventReplay["events"]
-): RemoteEventReplay["events"] {
-  const byCursor = new Map(cached.map((event) => [event.cursor, event]));
-  for (const event of incoming) byCursor.set(event.cursor, event);
-  return [...byCursor.values()].sort((left, right) => left.cursor - right.cursor);
-}
-
 async function replayIncrementally(
   api: RemoteTaskWorkspaceConversationApi,
   operationId: string,
   cache: OperationEventCache
 ): Promise<OperationEventCache> {
-  let cachedEvents = cache.events;
-  let executionAttemptId = cache.executionAttemptId;
-  let afterCursor = cache.cursor;
-  let events: RemoteEventReplay["events"] = [];
+  let state: RemoteAcpAttemptReplayState = cache;
   for (;;) {
-    const replay = await api.replay(operationId, afterCursor);
-    const identityChanged =
-      executionAttemptId !== null && replay.executionAttemptId !== executionAttemptId;
-    const cursorRolledBack = replay.cursor < afterCursor || replay.highWatermark < afterCursor;
-    if ((identityChanged || cursorRolledBack) && afterCursor > 0) {
-      cachedEvents = [];
-      events = [];
-      executionAttemptId = null;
-      afterCursor = 0;
-      continue;
-    }
-    if (identityChanged || cursorRolledBack) cachedEvents = [];
-    events.push(...replay.events);
-    executionAttemptId = replay.executionAttemptId;
-    if (!replay.hasMore || replay.cursor <= afterCursor) {
-      return {
-        key: cache.key,
-        cursor: replay.cursor,
-        events: mergeEvents(cachedEvents, events),
-        executionAttemptId
-      };
-    }
-    afterCursor = replay.cursor;
+    const requestedAfterCursor = state.cursor;
+    const replay = await api.replay(operationId, requestedAfterCursor);
+    const projection = projectRemoteAcpReplay(replay);
+    state = applyRemoteAcpReplayPage({
+      state,
+      requestedAfterCursor,
+      cursor: replay.cursor,
+      hasMore: replay.hasMore,
+      projection
+    });
+    if (!replay.hasMore || replay.cursor <= requestedAfterCursor)
+      return { key: cache.key, ...state };
   }
 }
 
@@ -124,7 +114,9 @@ export function useRemoteTaskWorkspaceConversation(input: {
   const [snapshot, setSnapshot] = useState<{
     key: string;
     error: string | null;
-    events: RemoteEventReplay["events"];
+    events: ProjectedRemoteAcpEvent[];
+    eventProtocolVersion: 1 | 2 | null;
+    replayDiagnostics: RemoteAcpReplayDiagnostic[];
     state: RemoteTaskWorkspaceConversation["state"];
   } | null>(null);
   const key =
@@ -141,13 +133,11 @@ export function useRemoteTaskWorkspaceConversation(input: {
     const operationId = input.operationId;
     let cache = cachesRef.current.get(key) ?? {
       key,
-      cursor: 0,
-      events: [],
-      executionAttemptId: null
+      ...createRemoteAcpAttemptReplayState()
     };
     storeOperationCache(cachesRef.current, cache);
     let disposed = false;
-    let refreshInFlight = false;
+    let refreshGeneration = 0;
     let refreshStopped = false;
     let state: RemoteTaskWorkspaceConversation["state"] = input.initialState ?? "loading";
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -157,102 +147,81 @@ export function useRemoteTaskWorkspaceConversation(input: {
       }
     };
     const refresh = async () => {
-      if (disposed || refreshInFlight || refreshStopped || !documentIsVisible()) return;
-      refreshInFlight = true;
+      if (disposed || refreshStopped || !documentIsVisible()) return;
+      const generation = ++refreshGeneration;
+      const isCurrent = () => !disposed && generation === refreshGeneration;
+      let terminalObserved = false;
       if (timer) clearTimeout(timer);
       timer = null;
       try {
-        const observationPromise = api.observe(operationId);
-        let observationResult: PromiseSettledResult<RemoteOperationObservation>;
-        let replayResult: PromiseSettledResult<OperationEventCache> | null = null;
-        const canReplayBeforeObservation =
-          api.replayTerminal !== false ||
-          (input.initialState !== undefined && !terminalStates.has(input.initialState));
-        if (!canReplayBeforeObservation) {
-          observationResult = await Promise.resolve(observationPromise).then(
-            (value): PromiseFulfilledResult<RemoteOperationObservation> => ({
-              status: "fulfilled",
-              value
-            }),
-            (reason): PromiseRejectedResult => ({ status: "rejected", reason })
-          );
-          if (
-            observationResult.status === "fulfilled" &&
-            !terminalStates.has(observationResult.value.state)
-          ) {
-            replayResult = await Promise.resolve(replayIncrementally(api, operationId, cache)).then(
-              (value): PromiseFulfilledResult<OperationEventCache> => ({
-                status: "fulfilled",
-                value
-              }),
-              (reason): PromiseRejectedResult => ({ status: "rejected", reason })
-            );
-          }
-        } else {
-          [observationResult, replayResult] = await Promise.allSettled([
-            observationPromise,
-            replayIncrementally(api, operationId, cache)
-          ]);
-        }
-        if (disposed) return;
-
-        const observation =
-          observationResult.status === "fulfilled" ? observationResult.value : null;
-        const acceptReplayResult = !(
-          api.replayTerminal === false &&
-          observation &&
-          terminalStates.has(observation.state)
-        );
-        if (acceptReplayResult && replayResult?.status === "fulfilled") {
-          cache = replayResult.value;
+        const observation = await api.observe(operationId);
+        if (!isCurrent()) return;
+        state = observation.state;
+        const scoped = scopeRemoteAcpReplayToAttempt(cache, observation.executionAttemptId);
+        if (scoped !== cache) {
+          cache = { key, ...scoped };
           storeOperationCache(cachesRef.current, cache);
+          setSnapshot({
+            key,
+            error: null,
+            eventProtocolVersion: cache.eventProtocolVersion,
+            events: cache.events,
+            replayDiagnostics: cache.diagnostics,
+            state
+          });
         }
-        if (observation) state = observation.state;
-        const requestError =
-          observationResult.status === "rejected"
-            ? observationResult.reason
-            : acceptReplayResult && replayResult?.status === "rejected"
-              ? replayResult.reason
-              : null;
-        const failureError = observation?.failure
-          ? `${observation.failure.message} (${observation.failure.code})`
-          : null;
-        setSnapshot({
-          key,
-          error: failureError ?? (requestError === null ? null : errorMessage(requestError)),
-          events: cache.events,
-          state
-        });
-
-        if (observation && terminalStates.has(observation.state)) {
+        terminalObserved = terminalStates.has(observation.state);
+        if (terminalObserved) {
           refreshStopped = true;
           if (terminalReportedKeyRef.current !== key) {
             terminalReportedKeyRef.current = key;
             onTerminalRef.current();
           }
-          return;
         }
-        if (observation) terminalReportedKeyRef.current = null;
-        if (requestError !== null && isForbiddenError(requestError)) {
-          refreshStopped = true;
-          return;
+        const shouldReplay = api.replayTerminal !== false || !terminalStates.has(observation.state);
+        if (shouldReplay) {
+          const replayed = await replayIncrementally(api, operationId, cache);
+          if (!isCurrent()) return;
+          cache = replayed;
+          storeOperationCache(cachesRef.current, cache);
         }
+        const failureError = observation.failure
+          ? `${observation.failure.message} (${observation.failure.code})`
+          : null;
+        setSnapshot({
+          key,
+          error: failureError,
+          eventProtocolVersion: cache.eventProtocolVersion,
+          events: cache.events,
+          replayDiagnostics: cache.diagnostics,
+          state
+        });
+
+        if (terminalObserved) return;
+        terminalReportedKeyRef.current = null;
         schedule();
       } catch (error) {
-        if (disposed) return;
+        if (!isCurrent()) return;
         setSnapshot({
           key,
           error: errorMessage(error),
+          eventProtocolVersion: cache.eventProtocolVersion,
           events: cache.events,
+          replayDiagnostics: cache.diagnostics,
           state
         });
-        if (isForbiddenError(error)) refreshStopped = true;
+        if (terminalObserved || isForbiddenError(error)) refreshStopped = true;
         else schedule();
-      } finally {
-        refreshInFlight = false;
       }
     };
-    setSnapshot({ key, error: null, events: cache.events, state });
+    setSnapshot({
+      key,
+      error: null,
+      eventProtocolVersion: cache.eventProtocolVersion,
+      events: cache.events,
+      replayDiagnostics: cache.diagnostics,
+      state
+    });
     const unsubscribe = api.subscribe?.(() => void refresh()) ?? (() => undefined);
     const handleVisibilityChange = () => {
       if (documentIsVisible()) {
@@ -282,9 +251,12 @@ export function useRemoteTaskWorkspaceConversation(input: {
     return {
       blockRef: input.blockRef,
       error: visible?.error ?? null,
+      eventProtocolVersion: visible?.eventProtocolVersion ?? null,
+      executionAttemptId: cachesRef.current.get(key)?.executionAttemptId ?? null,
       operationId: input.operationId,
+      replayDiagnostics: visible?.replayDiagnostics ?? [],
       state: visible?.state ?? input.initialState ?? "loading",
-      timeline: projectRemoteAcpTimeline(visible?.events ?? [])
+      timeline: projectRemoteAcpProjectedTimeline(visible?.events ?? [])
     };
   }, [input.blockRef, input.initialState, input.operationId, key, snapshot]);
 }

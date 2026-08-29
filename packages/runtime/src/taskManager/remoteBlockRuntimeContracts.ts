@@ -6,6 +6,7 @@ import {
   executionEnvelopeSchema,
   normalizedFailureSchema,
   normalizedAcpEventSchema,
+  remoteRunnerEventV2Schema,
   opaqueIdentifierSchema,
   OUTPUT_MAX_ARTIFACT_BYTES
 } from "@planweave-ai/agent-host-protocol/browser";
@@ -182,7 +183,7 @@ export const remoteBlockCompletionInputSchema = remoteBlockRefIdentitySchema.ext
           z
             .object({
               timestamp: z.string().datetime(),
-              event: normalizedAcpEventSchema
+              event: z.union([normalizedAcpEventSchema, remoteRunnerEventV2Schema])
             })
             .strict()
         )

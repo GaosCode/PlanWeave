@@ -16,6 +16,7 @@ export {
   type HostCredentialRotationRequest,
   type HostCredentialRotationResponse
 } from "./credentialLifecycle.js";
+export { exampleRunnerBodyFragments } from "./fixtures/runnerEvents.js";
 export {
   deploymentEndpointSchema,
   deploymentServerOriginSchema,
@@ -91,6 +92,8 @@ export {
   type NormalizedAcpEvent,
   type NormalizedAcpEventBatch
 } from "./acpEvents.js";
+export * from "./runnerEvents.js";
+export * from "./runnerEventRedaction.js";
 export {
   INTERACTION_OPTION_MAX_COUNT,
   INTERACTION_TEXT_MAX_LENGTH,

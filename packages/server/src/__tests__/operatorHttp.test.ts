@@ -465,6 +465,7 @@ describe("operator HTTP boundary", () => {
     );
     await expect((await fetch(`${fixture.origin}/version`)).json()).resolves.toMatchObject({
       serverBuildRevision: "abcdef0123456789",
+      remoteRunnerEvents: { available: false },
       limits: { maxArtifactBytes: 1024, maxWebSocketPayloadBytes: 2048 }
     });
   });

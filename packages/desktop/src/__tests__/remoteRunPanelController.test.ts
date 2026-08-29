@@ -4,6 +4,10 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkItemRef } from "@planweave-ai/collaboration-protocol/core/primitives";
 import { eligibleHostBatchResponseSchema } from "@planweave-ai/collaboration-protocol/work/assignment";
+import type {
+  RemoteEventReplay,
+  RemoteOperationObservation
+} from "@planweave-ai/collaboration-protocol/remote-run";
 import {
   acquireCollaborationReadModelController,
   resetCollaborationReadModelHubForTests
@@ -150,6 +154,7 @@ function createApi() {
     createdAt: "2030-01-01T00:02:00.000Z"
   });
   const replay = vi.fn().mockResolvedValue({
+    eventProtocolVersion: 1,
     executionAttemptId: "attempt-1",
     afterCursor: 0,
     cursor: 2,
@@ -158,7 +163,8 @@ function createApi() {
     events: [
       { cursor: 1, kind: "agent_message", text: "hello" },
       { cursor: 2, kind: "tool_call", title: "edit", status: "completed" }
-    ]
+    ],
+    diagnostics: []
   });
   const listInteractions = vi.fn().mockResolvedValue({
     items: [
@@ -406,6 +412,484 @@ describe("useRemoteRunPanelController", () => {
     expect(result.current.viewModel.events).toHaveLength(2);
     expect(result.current.viewModel.pendingInteractions).toHaveLength(1);
     expect(result.current.viewModel.authority).toBe("remote_dispatch");
+  });
+
+  it.each([
+    ["above", 30],
+    ["below", 1]
+  ])("resets replay before a new attempt whose cursor is %s the old cursor", async (_case, cursor) => {
+    const { api, observe, replay } = createApi();
+    observe
+      .mockReset()
+      .mockResolvedValueOnce(observation("running"))
+      .mockResolvedValueOnce({
+        ...observation("running"),
+        executionAttemptId: "attempt-2",
+        attempt: { ...observation("running").attempt, executionAttemptId: "attempt-2" }
+      });
+    replay
+      .mockReset()
+      .mockResolvedValueOnce({
+        eventProtocolVersion: 1,
+        executionAttemptId: "attempt-1",
+        afterCursor: 0,
+        cursor: 20,
+        highWatermark: 20,
+        hasMore: false,
+        events: [{ cursor: 20, kind: "agent_message", text: "attempt A" }],
+        diagnostics: []
+      })
+      .mockResolvedValueOnce({
+        eventProtocolVersion: 1,
+        executionAttemptId: "attempt-2",
+        afterCursor: 0,
+        cursor,
+        highWatermark: cursor,
+        hasMore: false,
+        events: [{ cursor, kind: "agent_message", text: "attempt B" }],
+        diagnostics: []
+      });
+    const bridge = readBridge(api);
+    apis.push(bridge);
+    const shell = acquireCollaborationReadModelController(bridge);
+    await shell.controller.setActiveProject({
+      profileId: "profile-1",
+      projectId: "project-1",
+      canvasId: "default"
+    });
+
+    const { result } = renderHook(() =>
+      useRemoteRunPanelController({
+        workItem: blockItem,
+        runtimeRemoteExecution: activeRuntimeExecution,
+        open: true,
+        api,
+        t: createTranslator("en")
+      })
+    );
+
+    await waitFor(() => expect(result.current.viewModel.events[0]?.summary).toBe("attempt A"));
+    await act(async () => result.current.refresh());
+
+    expect(replay).toHaveBeenNthCalledWith(2, {
+      operationId: "op-1",
+      query: { afterCursor: 0 }
+    });
+    expect(result.current.viewModel.identity?.executionAttemptId).toBe("attempt-2");
+    expect(result.current.viewModel.eventCursor).toBe(cursor);
+    expect(result.current.viewModel.events.map((event) => event.summary)).toEqual(["attempt B"]);
+  });
+
+  it("ignores an old attempt pagination response after observation switches attempts", async () => {
+    const { api, observe, replay } = createApi();
+    const latePage = deferred<RemoteEventReplay>();
+    const attemptTwo = {
+      ...observation("running"),
+      executionAttemptId: "attempt-2",
+      attempt: { ...observation("running").attempt, executionAttemptId: "attempt-2" }
+    };
+    observe.mockReset().mockResolvedValueOnce(observation("running")).mockResolvedValue(attemptTwo);
+    replay
+      .mockReset()
+      .mockResolvedValueOnce({
+        eventProtocolVersion: 1,
+        executionAttemptId: "attempt-1",
+        afterCursor: 0,
+        cursor: 20,
+        highWatermark: 21,
+        hasMore: true,
+        events: [{ cursor: 20, kind: "agent_message", text: "attempt A" }],
+        diagnostics: []
+      })
+      .mockImplementationOnce(() => latePage.promise)
+      .mockResolvedValueOnce({
+        eventProtocolVersion: 2,
+        executionAttemptId: "attempt-2",
+        afterCursor: 0,
+        cursor: 1,
+        highWatermark: 1,
+        hasMore: false,
+        events: [
+          {
+            eventVersion: 2,
+            cursor: 1,
+            sourceSequence: 1,
+            timestamp: "2030-01-01T00:02:00.000Z",
+            fragment: {
+              kind: "runner_body",
+              body: {
+                kind: "message",
+                role: "assistant",
+                messageId: null,
+                chunk: false,
+                content: "attempt B",
+                redaction: { classes: [], replaced: 0 }
+              }
+            }
+          }
+        ],
+        diagnostics: []
+      });
+    const bridge = readBridge(api);
+    apis.push(bridge);
+    const shell = acquireCollaborationReadModelController(bridge);
+    await shell.controller.setActiveProject({
+      profileId: "profile-1",
+      projectId: "project-1",
+      canvasId: "default"
+    });
+    const { result } = renderHook(() =>
+      useRemoteRunPanelController({
+        workItem: blockItem,
+        runtimeRemoteExecution: activeRuntimeExecution,
+        open: true,
+        api,
+        t: createTranslator("en")
+      })
+    );
+    await waitFor(() => expect(result.current.viewModel.eventsHasMore).toBe(true));
+    let loadPromise!: Promise<void>;
+    act(() => {
+      loadPromise = result.current.loadMoreEvents();
+    });
+    await waitFor(() =>
+      expect(replay).toHaveBeenNthCalledWith(2, {
+        operationId: "op-1",
+        query: { afterCursor: 20 }
+      })
+    );
+    await act(async () => result.current.refresh());
+    expect(result.current.viewModel.events.map((event) => event.summary)).toEqual(["attempt B"]);
+
+    await act(async () => {
+      latePage.resolve({
+        eventProtocolVersion: 1,
+        executionAttemptId: "attempt-1",
+        afterCursor: 20,
+        cursor: 21,
+        highWatermark: 21,
+        hasMore: false,
+        events: [{ cursor: 21, kind: "agent_message", text: "late attempt A" }],
+        diagnostics: []
+      });
+      await loadPromise;
+    });
+    expect(result.current.viewModel.identity?.executionAttemptId).toBe("attempt-2");
+    expect(result.current.viewModel.events.map((event) => event.summary)).toEqual(["attempt B"]);
+  });
+
+  it("does not start old-attempt pagination while a refresh is discovering a new attempt", async () => {
+    const { api, observe, replay } = createApi();
+    const attemptTwoObservation = deferred<RemoteOperationObservation>();
+    const attemptTwo = {
+      ...observation("running"),
+      executionAttemptId: "attempt-2",
+      attempt: { ...observation("running").attempt, executionAttemptId: "attempt-2" }
+    };
+    observe
+      .mockReset()
+      .mockResolvedValueOnce(observation("running"))
+      .mockImplementationOnce(() => attemptTwoObservation.promise);
+    replay
+      .mockReset()
+      .mockResolvedValueOnce({
+        eventProtocolVersion: 1,
+        executionAttemptId: "attempt-1",
+        afterCursor: 0,
+        cursor: 20,
+        highWatermark: 21,
+        hasMore: true,
+        events: [{ cursor: 20, kind: "agent_message", text: "attempt A" }],
+        diagnostics: []
+      })
+      .mockResolvedValueOnce({
+        eventProtocolVersion: 2,
+        executionAttemptId: "attempt-2",
+        afterCursor: 0,
+        cursor: 1,
+        highWatermark: 1,
+        hasMore: false,
+        events: [
+          {
+            eventVersion: 2,
+            cursor: 1,
+            sourceSequence: 1,
+            timestamp: "2030-01-01T00:02:00.000Z",
+            fragment: {
+              kind: "runner_body",
+              body: {
+                kind: "message",
+                role: "assistant",
+                messageId: null,
+                chunk: false,
+                content: "attempt B",
+                redaction: { classes: [], replaced: 0 }
+              }
+            }
+          }
+        ],
+        diagnostics: []
+      });
+    const bridge = readBridge(api);
+    apis.push(bridge);
+    const shell = acquireCollaborationReadModelController(bridge);
+    await shell.controller.setActiveProject({
+      profileId: "profile-1",
+      projectId: "project-1",
+      canvasId: "default"
+    });
+    const { result } = renderHook(() =>
+      useRemoteRunPanelController({
+        workItem: blockItem,
+        runtimeRemoteExecution: activeRuntimeExecution,
+        open: true,
+        api,
+        t: createTranslator("en")
+      })
+    );
+    await waitFor(() => expect(result.current.viewModel.eventsHasMore).toBe(true));
+    let refreshPromise!: Promise<void>;
+    act(() => {
+      refreshPromise = result.current.refresh();
+    });
+    await waitFor(() => expect(observe).toHaveBeenCalledTimes(2));
+
+    await act(async () => result.current.loadMoreEvents());
+    expect(replay).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      attemptTwoObservation.resolve(attemptTwo);
+      await refreshPromise;
+    });
+    expect(replay).toHaveBeenNthCalledWith(2, {
+      operationId: "op-1",
+      query: { afterCursor: 0 }
+    });
+    expect(result.current.viewModel.identity?.executionAttemptId).toBe("attempt-2");
+    expect(result.current.viewModel.events.map((event) => event.summary)).toEqual(["attempt B"]);
+    expect(result.current.actionError).toBeNull();
+  });
+
+  it("releases pagination loading when a refresh fails and permits another page", async () => {
+    const { api, observe, replay } = createApi();
+    const oldPage = deferred<RemoteEventReplay>();
+    observe
+      .mockReset()
+      .mockResolvedValueOnce(observation("running"))
+      .mockRejectedValueOnce(new Error("observation unavailable"));
+    replay
+      .mockReset()
+      .mockResolvedValueOnce({
+        eventProtocolVersion: 1,
+        executionAttemptId: "attempt-1",
+        afterCursor: 0,
+        cursor: 20,
+        highWatermark: 21,
+        hasMore: true,
+        events: [{ cursor: 20, kind: "agent_message", text: "attempt A" }],
+        diagnostics: []
+      })
+      .mockImplementationOnce(() => oldPage.promise)
+      .mockResolvedValueOnce({
+        eventProtocolVersion: 1,
+        executionAttemptId: "attempt-1",
+        afterCursor: 20,
+        cursor: 21,
+        highWatermark: 21,
+        hasMore: false,
+        events: [{ cursor: 21, kind: "agent_message", text: "recovered page" }],
+        diagnostics: []
+      });
+    const bridge = readBridge(api);
+    apis.push(bridge);
+    const shell = acquireCollaborationReadModelController(bridge);
+    await shell.controller.setActiveProject({
+      profileId: "profile-1",
+      projectId: "project-1",
+      canvasId: "default"
+    });
+    const { result } = renderHook(() =>
+      useRemoteRunPanelController({
+        workItem: blockItem,
+        runtimeRemoteExecution: activeRuntimeExecution,
+        open: true,
+        api,
+        t: createTranslator("en")
+      })
+    );
+    await waitFor(() => expect(result.current.viewModel.eventsHasMore).toBe(true));
+    let oldPagePromise!: Promise<void>;
+    act(() => {
+      oldPagePromise = result.current.loadMoreEvents();
+    });
+    await waitFor(() => expect(result.current.loadingEvents).toBe(true));
+    await act(async () => result.current.refresh());
+    expect(result.current.loadingEvents).toBe(false);
+    expect(result.current.actionError).toContain("observation unavailable");
+
+    await act(async () => {
+      oldPage.resolve({
+        eventProtocolVersion: 1,
+        executionAttemptId: "attempt-1",
+        afterCursor: 20,
+        cursor: 21,
+        highWatermark: 21,
+        hasMore: false,
+        events: [{ cursor: 21, kind: "agent_message", text: "obsolete page" }],
+        diagnostics: []
+      });
+      await oldPagePromise;
+    });
+    expect(result.current.loadingEvents).toBe(false);
+
+    await act(async () => result.current.loadMoreEvents());
+    expect(replay).toHaveBeenNthCalledWith(3, {
+      operationId: "op-1",
+      query: { afterCursor: 20 }
+    });
+    expect(result.current.loadingEvents).toBe(false);
+    expect(result.current.viewModel.eventCursor).toBe(21);
+    expect(result.current.viewModel.events.map((event) => event.summary)).toEqual([
+      "attempt A",
+      "recovered page"
+    ]);
+  });
+
+  it("does not let an obsolete pagination finally clear a newer pagination owner", async () => {
+    const { api, observe, replay } = createApi();
+    const oldPage = deferred<RemoteEventReplay>();
+    const newPage = deferred<RemoteEventReplay>();
+    const attemptTwo = {
+      ...observation("running"),
+      executionAttemptId: "attempt-2",
+      attempt: { ...observation("running").attempt, executionAttemptId: "attempt-2" }
+    };
+    observe.mockReset().mockResolvedValueOnce(observation("running")).mockResolvedValue(attemptTwo);
+    replay
+      .mockReset()
+      .mockResolvedValueOnce({
+        eventProtocolVersion: 1,
+        executionAttemptId: "attempt-1",
+        afterCursor: 0,
+        cursor: 20,
+        highWatermark: 21,
+        hasMore: true,
+        events: [{ cursor: 20, kind: "agent_message", text: "attempt A" }],
+        diagnostics: []
+      })
+      .mockImplementationOnce(() => oldPage.promise)
+      .mockResolvedValueOnce({
+        eventProtocolVersion: 1,
+        executionAttemptId: "attempt-2",
+        afterCursor: 0,
+        cursor: 1,
+        highWatermark: 2,
+        hasMore: true,
+        events: [{ cursor: 1, kind: "agent_message", text: "attempt B" }],
+        diagnostics: []
+      })
+      .mockImplementationOnce(() => newPage.promise);
+    const bridge = readBridge(api);
+    apis.push(bridge);
+    const shell = acquireCollaborationReadModelController(bridge);
+    await shell.controller.setActiveProject({
+      profileId: "profile-1",
+      projectId: "project-1",
+      canvasId: "default"
+    });
+    const { result } = renderHook(() =>
+      useRemoteRunPanelController({
+        workItem: blockItem,
+        runtimeRemoteExecution: activeRuntimeExecution,
+        open: true,
+        api,
+        t: createTranslator("en")
+      })
+    );
+    await waitFor(() => expect(result.current.viewModel.eventsHasMore).toBe(true));
+    let oldPagePromise!: Promise<void>;
+    act(() => {
+      oldPagePromise = result.current.loadMoreEvents();
+    });
+    await waitFor(() => expect(replay).toHaveBeenCalledTimes(2));
+    await act(async () => result.current.refresh());
+
+    let newPagePromise!: Promise<void>;
+    act(() => {
+      newPagePromise = result.current.loadMoreEvents();
+    });
+    await waitFor(() => expect(replay).toHaveBeenCalledTimes(4));
+    expect(result.current.loadingEvents).toBe(true);
+
+    await act(async () => {
+      oldPage.resolve({
+        eventProtocolVersion: 1,
+        executionAttemptId: "attempt-1",
+        afterCursor: 20,
+        cursor: 21,
+        highWatermark: 21,
+        hasMore: false,
+        events: [{ cursor: 21, kind: "agent_message", text: "late attempt A" }],
+        diagnostics: []
+      });
+      await oldPagePromise;
+    });
+    expect(result.current.loadingEvents).toBe(true);
+
+    await act(async () => {
+      newPage.resolve({
+        eventProtocolVersion: 1,
+        executionAttemptId: "attempt-2",
+        afterCursor: 1,
+        cursor: 2,
+        highWatermark: 2,
+        hasMore: false,
+        events: [{ cursor: 2, kind: "agent_message", text: "new attempt page" }],
+        diagnostics: []
+      });
+      await newPagePromise;
+    });
+    expect(result.current.loadingEvents).toBe(false);
+    expect(result.current.viewModel.identity?.executionAttemptId).toBe("attempt-2");
+    expect(result.current.viewModel.events.map((event) => event.summary)).toEqual([
+      "attempt B",
+      "new attempt page"
+    ]);
+  });
+
+  it("rejects replay whose attempt does not match the observed attempt", async () => {
+    const { api, replay } = createApi();
+    replay.mockResolvedValueOnce({
+      eventProtocolVersion: 1,
+      executionAttemptId: "wrong-attempt",
+      afterCursor: 0,
+      cursor: 1,
+      highWatermark: 1,
+      hasMore: false,
+      events: [{ cursor: 1, kind: "agent_message", text: "wrong" }],
+      diagnostics: []
+    });
+    const bridge = readBridge(api);
+    apis.push(bridge);
+    const shell = acquireCollaborationReadModelController(bridge);
+    await shell.controller.setActiveProject({
+      profileId: "profile-1",
+      projectId: "project-1",
+      canvasId: "default"
+    });
+    const { result } = renderHook(() =>
+      useRemoteRunPanelController({
+        workItem: blockItem,
+        runtimeRemoteExecution: activeRuntimeExecution,
+        open: true,
+        api,
+        t: createTranslator("en")
+      })
+    );
+
+    await waitFor(() => expect(result.current.actionError).toContain("attempt_mismatch"));
+    expect(result.current.viewModel.events).toEqual([]);
+    expect(result.current.viewModel.eventCursor).toBe(0);
   });
 
   it("dispatches and cancels through the mock bridge", async () => {

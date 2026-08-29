@@ -4,7 +4,11 @@ import {
   canonicalizeJson,
   normalizedAcpEventBatchSchema,
   normalizedAcpEventSchema,
-  type NormalizedAcpEvent
+  remoteRunnerEventBatchV2Schema,
+  remoteRunnerEventV2Schema,
+  type EngineUsageSnapshotLeaf,
+  type NormalizedAcpEvent,
+  type RemoteRunnerEventV2
 } from "@planweave-ai/agent-host-protocol";
 import {
   RUNNER_EVENT_RETENTION_MAX_BYTES,
@@ -24,10 +28,11 @@ export type RemoteAcpEventReplay = {
   cursor: number;
   highWatermark: number;
   hasMore: boolean;
-  events: NormalizedAcpEvent[];
+  eventProtocolVersion: 1 | 2;
+  events: Array<NormalizedAcpEvent | RemoteRunnerEventV2>;
   diagnostics: Array<{
-    code: "remote_acp_event_retention_gap";
-    droppedThroughCursor: number;
+    code: "remote_acp_event_retention_gap" | "remote_acp_event_contract_degraded";
+    droppedThroughCursor?: number;
   }>;
 };
 
@@ -49,6 +54,7 @@ function emptyDroppedReplay(
     cursor: afterCursor,
     highWatermark: afterCursor,
     hasMore: false,
+    eventProtocolVersion: 1,
     events: [],
     diagnostics: []
   };
@@ -81,6 +87,11 @@ type RemoteAcpEventRepositoryOptions = {
   clock?: () => Date;
 };
 
+type RemoteAcpCounterDelta = {
+  usageSnapshotsAccepted: number;
+  usageSnapshotRegressions: number;
+};
+
 function redactEvent(event: NormalizedAcpEvent): NormalizedAcpEvent {
   switch (event.kind) {
     case "agent_message":
@@ -111,6 +122,17 @@ export class RemoteAcpEventRepository {
   private readonly maxEvents: number;
   private readonly maxBytes: number;
   private readonly clock: () => Date;
+  private readonly counters = {
+    v1Accepted: 0,
+    v2Accepted: 0,
+    v1Degraded: 0,
+    usageSnapshotsAccepted: 0,
+    usageSnapshotRegressions: 0
+  };
+
+  metrics(): Readonly<typeof this.counters> {
+    return { ...this.counters };
+  }
 
   constructor(
     private readonly database: SqliteDatabase,
@@ -131,8 +153,23 @@ export class RemoteAcpEventRepository {
   }
 
   ingest(hostId: string, messageId: string, rawBatch: unknown): RemoteAcpEventIngestResult {
-    const batch = normalizedAcpEventBatchSchema.parse(rawBatch);
-    const redactedEvents = batch.events.map(redactEvent);
+    const requestedVersion =
+      typeof rawBatch === "object" && rawBatch !== null && "eventProtocolVersion" in rawBatch
+        ? (rawBatch as { eventProtocolVersion?: unknown }).eventProtocolVersion
+        : 1;
+    const batch =
+      requestedVersion === 2
+        ? remoteRunnerEventBatchV2Schema.parse(rawBatch)
+        : normalizedAcpEventBatchSchema.parse(rawBatch);
+    const eventProtocolVersion = requestedVersion === 2 ? 2 : 1;
+    const redactedEvents: Array<NormalizedAcpEvent | RemoteRunnerEventV2> =
+      eventProtocolVersion === 1
+        ? batch.events.map((event) => redactEvent(event as NormalizedAcpEvent))
+        : ([...batch.events] as RemoteRunnerEventV2[]);
+    const counterDelta: RemoteAcpCounterDelta = {
+      usageSnapshotsAccepted: 0,
+      usageSnapshotRegressions: 0
+    };
     let dropReason: "remote_acp_event_attempt_not_writable" | undefined;
     const applied = this.inbox.process(hostId, messageId, batch.type, batch, () => {
       const identity = this.findWritableAttempt({
@@ -154,8 +191,9 @@ export class RemoteAcpEventRepository {
         this.database
           .prepare(
             `INSERT INTO remote_acp_event_streams(
-              execution_attempt_id,operation_id,dispatch_id,lease_id,host_id,acp_session_id,updated_at
-            ) VALUES (?,?,?,?,?,?,?)`
+              execution_attempt_id,operation_id,dispatch_id,lease_id,host_id,acp_session_id,
+              event_protocol_version,updated_at
+            ) VALUES (?,?,?,?,?,?,?,?)`
           )
           .run(
             batch.executionAttemptId,
@@ -164,13 +202,15 @@ export class RemoteAcpEventRepository {
             batch.leaseId,
             hostId,
             batch.acpSessionId,
+            eventProtocolVersion,
             now
           );
       } else if (
         stream.operation_id !== identity.operationId ||
         stream.dispatch_id !== batch.dispatchId ||
         stream.host_id !== hostId ||
-        stream.acp_session_id !== batch.acpSessionId
+        stream.acp_session_id !== batch.acpSessionId ||
+        Number(stream.event_protocol_version) !== eventProtocolVersion
       ) {
         throw new Error("remote_acp_event_stream_identity_conflict");
       } else if (stream.lease_id !== batch.leaseId) {
@@ -187,7 +227,22 @@ export class RemoteAcpEventRepository {
         .get(batch.executionAttemptId);
       const latestCursor = acpEventCursorSchema.parse(Number(current?.latest_cursor));
       const retainedFrom = z.number().int().positive().parse(current?.retained_from_cursor);
-      for (const event of redactedEvents) {
+      for (const candidate of redactedEvents) {
+        const candidateJson = canonicalizeJson(candidate);
+        const exactExisting = this.database
+          .prepare(
+            "SELECT event_json FROM remote_acp_events WHERE execution_attempt_id=? AND cursor=?"
+          )
+          .get(batch.executionAttemptId, candidate.cursor);
+        if (exactExisting?.event_json === candidateJson) continue;
+        const event =
+          eventProtocolVersion === 2
+            ? this.normalizeUsageSnapshot(
+                batch.executionAttemptId,
+                candidate as RemoteRunnerEventV2,
+                counterDelta
+              )
+            : candidate;
         if (event.cursor < retainedFrom) throw new Error("remote_acp_event_cursor_evicted");
         const eventJson = canonicalizeJson(event);
         const existing = this.database
@@ -217,10 +272,17 @@ export class RemoteAcpEventRepository {
         this.database
           .prepare(
             `INSERT INTO remote_acp_events(
-              execution_attempt_id,cursor,event_json,encoded_bytes,received_at
-            ) VALUES (?,?,?,?,?)`
+              execution_attempt_id,cursor,event_json,encoded_bytes,received_at,event_version
+            ) VALUES (?,?,?,?,?,?)`
           )
-          .run(batch.executionAttemptId, event.cursor, eventJson, encodedBytes, now);
+          .run(
+            batch.executionAttemptId,
+            event.cursor,
+            eventJson,
+            encodedBytes,
+            now,
+            eventProtocolVersion
+          );
       }
       this.enforceRetention(batch.executionAttemptId);
       this.database
@@ -239,6 +301,12 @@ export class RemoteAcpEventRepository {
         executionAttemptId: batch.executionAttemptId
       });
       return emptyDroppedReplay(batch.executionAttemptId, batch.afterCursor);
+    }
+    if (applied) {
+      if (eventProtocolVersion === 2) this.counters.v2Accepted += 1;
+      else this.counters.v1Accepted += 1;
+      this.counters.usageSnapshotsAccepted += counterDelta.usageSnapshotsAccepted;
+      this.counters.usageSnapshotRegressions += counterDelta.usageSnapshotRegressions;
     }
     // Idempotent retry: accept only when this batch's cursor was actually persisted.
     // Soft-dropped receipts leave no new events even if an earlier writable lease wrote a stream.
@@ -267,14 +335,19 @@ export class RemoteAcpEventRepository {
     const highWatermark = acpEventCursorSchema.parse(Number(stream.latest_cursor));
     if (afterCursor > highWatermark) throw new Error("remote_acp_event_replay_cursor_ahead");
     const retainedFrom = z.number().int().positive().parse(stream.retained_from_cursor);
+    if (Number(stream.event_protocol_version) === 1) this.counters.v1Degraded += 1;
     const effectiveAfterCursor = Math.max(afterCursor, retainedFrom - 1);
     const events = this.database
       .prepare(
-        `SELECT event_json FROM remote_acp_events
+        `SELECT event_json,event_version FROM remote_acp_events
          WHERE execution_attempt_id=? AND cursor>? ORDER BY cursor LIMIT ?`
       )
       .all(executionAttemptId, effectiveAfterCursor, ACP_EVENT_BATCH_MAX_COUNT)
-      .map((row) => normalizedAcpEventSchema.parse(JSON.parse(String(row.event_json))));
+      .map((row) =>
+        Number(row.event_version) === 2
+          ? remoteRunnerEventV2Schema.parse(JSON.parse(String(row.event_json)))
+          : normalizedAcpEventSchema.parse(JSON.parse(String(row.event_json)))
+      );
     const cursor = events.at(-1)?.cursor ?? effectiveAfterCursor;
     return {
       executionAttemptId,
@@ -283,15 +356,20 @@ export class RemoteAcpEventRepository {
       highWatermark,
       hasMore: cursor < highWatermark,
       events,
-      diagnostics:
-        afterCursor < retainedFrom - 1
+      eventProtocolVersion: Number(stream.event_protocol_version) === 2 ? 2 : 1,
+      diagnostics: [
+        ...(afterCursor < retainedFrom - 1
           ? [
               {
-                code: "remote_acp_event_retention_gap",
+                code: "remote_acp_event_retention_gap" as const,
                 droppedThroughCursor: retainedFrom - 1
               }
             ]
-          : []
+          : []),
+        ...(Number(stream.event_protocol_version) === 1
+          ? [{ code: "remote_acp_event_contract_degraded" as const }]
+          : [])
+      ]
     };
   }
 
@@ -306,6 +384,7 @@ export class RemoteAcpEventRepository {
         cursor: 0,
         highWatermark: 0,
         hasMore: false,
+        eventProtocolVersion: 1,
         events: [],
         diagnostics: []
       };
@@ -323,7 +402,7 @@ export class RemoteAcpEventRepository {
 
   readCompletionTranscript(executionAttemptId: string): {
     sessionId: string;
-    events: Array<{ timestamp: string; event: NormalizedAcpEvent }>;
+    events: Array<{ timestamp: string; event: NormalizedAcpEvent | RemoteRunnerEventV2 }>;
   } | null {
     const stream = this.database
       .prepare("SELECT * FROM remote_acp_event_streams WHERE execution_attempt_id=?")
@@ -336,15 +415,83 @@ export class RemoteAcpEventRepository {
       sessionId: String(stream.acp_session_id),
       events: this.database
         .prepare(
-          `SELECT event_json,received_at FROM remote_acp_events
+          `SELECT event_json,received_at,event_version FROM remote_acp_events
            WHERE execution_attempt_id=? ORDER BY cursor`
         )
         .all(executionAttemptId)
-        .map((row) => ({
-          timestamp: z.string().datetime().parse(row.received_at),
-          event: normalizedAcpEventSchema.parse(JSON.parse(String(row.event_json)))
-        }))
+        .map((row) => {
+          const event =
+            Number(row.event_version) === 2
+              ? remoteRunnerEventV2Schema.parse(JSON.parse(String(row.event_json)))
+              : normalizedAcpEventSchema.parse(JSON.parse(String(row.event_json)));
+          return {
+            timestamp:
+              "timestamp" in event ? event.timestamp : z.string().datetime().parse(row.received_at),
+            event
+          };
+        })
     };
+  }
+
+  private normalizeUsageSnapshot(
+    executionAttemptId: string,
+    event: RemoteRunnerEventV2,
+    counterDelta: RemoteAcpCounterDelta
+  ): RemoteRunnerEventV2 {
+    if (
+      event.fragment.kind !== "engine_evidence" ||
+      event.fragment.evidence.kind !== "usage_snapshot"
+    ) {
+      return event;
+    }
+    const stream = this.database
+      .prepare(
+        `SELECT usage_source_sequence,usage_snapshot_json FROM remote_acp_event_streams
+         WHERE execution_attempt_id=?`
+      )
+      .get(executionAttemptId);
+    const priorSequence =
+      stream?.usage_source_sequence == null ? null : Number(stream.usage_source_sequence);
+    const prior = stream?.usage_snapshot_json
+      ? (JSON.parse(String(stream.usage_snapshot_json)) as EngineUsageSnapshotLeaf)
+      : null;
+    const usage = event.fragment.evidence.usage;
+    const numericKeys = [
+      "totalTokens",
+      "inputTokens",
+      "outputTokens",
+      "thoughtTokens",
+      "cachedReadTokens",
+      "cachedWriteTokens"
+    ] as const;
+    const regressed =
+      (priorSequence !== null && event.sourceSequence <= priorSequence) ||
+      (prior !== null &&
+        numericKeys.some(
+          (key) => usage[key] !== null && prior[key] !== null && usage[key] < prior[key]
+        ));
+    if (regressed) {
+      counterDelta.usageSnapshotRegressions += 1;
+      return remoteRunnerEventV2Schema.parse({
+        ...event,
+        fragment: {
+          kind: "runner_body",
+          body: {
+            kind: "diagnostic",
+            code: "remote_usage_snapshot_regressed",
+            message: "Remote cumulative usage snapshot regressed and was ignored."
+          }
+        }
+      });
+    }
+    this.database
+      .prepare(
+        `UPDATE remote_acp_event_streams
+         SET usage_source_sequence=?,usage_snapshot_json=? WHERE execution_attempt_id=?`
+      )
+      .run(event.sourceSequence, canonicalizeJson(usage), executionAttemptId);
+    counterDelta.usageSnapshotsAccepted += 1;
+    return event;
   }
 
   private findWritableAttempt(input: {

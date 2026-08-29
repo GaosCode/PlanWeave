@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { parseAgentHostMailboxCommand } from "../protocol.js";
 import { inWriteTransaction, type SqliteDatabase } from "./sqliteDatabase.js";
 
-const CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION = 8;
+const CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION = 9;
+const PRE_REMOTE_RUNNER_EVENT_PROTOCOL_SCHEMA_VERSION = 8;
 const PRE_RESET_RESULT_SCHEMA_VERSION = 7;
 const PRE_RESET_OPERATION_SCHEMA_VERSION = 6;
 const PRE_CANVAS_RUNTIME_SCHEMA_VERSION = 5;
@@ -49,6 +50,7 @@ CREATE TABLE IF NOT EXISTS agent_host_executions (
   acp_session_id TEXT,
   acp_capabilities_json TEXT,
   recovery_id TEXT,
+  event_protocol_version INTEGER CHECK(event_protocol_version IN (1,2)),
   event_cursor INTEGER NOT NULL DEFAULT 0 CHECK(event_cursor >= 0),
   action_cursor INTEGER NOT NULL DEFAULT 0 CHECK(action_cursor >= 0),
   cancellation_intent_json TEXT,
@@ -428,6 +430,13 @@ const compactionRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
 const currentRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
   ...preCompactionRequiredTables,
   ...compactionRequiredTables,
+  agent_host_executions: {
+    ...preCompactionRequiredTables.agent_host_executions!,
+    columns: [
+      ...preCompactionRequiredTables.agent_host_executions!.columns,
+      "event_protocol_version"
+    ]
+  },
   agent_host_compacted_mailbox_receipts: {
     columns: [
       "sequence",
@@ -483,20 +492,30 @@ const currentRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
   }
 };
 
-const versionSevenRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
+const versionEightRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
   ...currentRequiredTables,
+  agent_host_executions: {
+    ...currentRequiredTables.agent_host_executions!,
+    columns: currentRequiredTables.agent_host_executions!.columns.filter(
+      (column) => column !== "event_protocol_version"
+    )
+  }
+};
+
+const versionSevenRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
+  ...versionEightRequiredTables,
   canvas_runtime_rpc_receipts: {
-    ...currentRequiredTables.canvas_runtime_rpc_receipts!,
-    columns: currentRequiredTables.canvas_runtime_rpc_receipts!.columns.filter(
+    ...versionEightRequiredTables.canvas_runtime_rpc_receipts!,
+    columns: versionEightRequiredTables.canvas_runtime_rpc_receipts!.columns.filter(
       (column) => column !== "reset_resolution_json"
     )
   }
 };
 
 const versionSixRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
-  ...currentRequiredTables,
+  ...versionEightRequiredTables,
   canvas_runtime_rpc_receipts: {
-    columns: currentRequiredTables.canvas_runtime_rpc_receipts!.columns.filter(
+    columns: versionEightRequiredTables.canvas_runtime_rpc_receipts!.columns.filter(
       (column) =>
         column !== "operation_id" &&
         column !== "operation_digest" &&
@@ -507,7 +526,7 @@ const versionSixRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
 };
 
 const versionFiveRequiredTables: Readonly<Record<string, RequiredTableShape>> = Object.fromEntries(
-  Object.entries(currentRequiredTables).filter(
+  Object.entries(versionEightRequiredTables).filter(
     ([table]) => table !== "canvas_runtime_rpc_receipts" && table !== "canvas_runtime_leases"
   )
 );
@@ -692,6 +711,19 @@ function addCanvasRuntimeResetOperationColumns(database: SqliteDatabase): void {
   );
 }
 
+function addRemoteRunnerEventProtocolColumn(database: SqliteDatabase): void {
+  const executionColumns = columns(database, "agent_host_executions");
+  if (!executionColumns.has("event_protocol_version")) {
+    database.exec(
+      "ALTER TABLE agent_host_executions ADD COLUMN event_protocol_version INTEGER CHECK(event_protocol_version IN (1,2))"
+    );
+  }
+  database.exec(
+    `UPDATE agent_host_executions SET event_protocol_version=1
+     WHERE event_protocol_version IS NULL AND event_cursor>0`
+  );
+}
+
 function backfillCommandDigests(database: SqliteDatabase): void {
   const rows = database
     .prepare("SELECT sequence,command_json FROM agent_host_inbox WHERE command_digest IS NULL")
@@ -793,6 +825,12 @@ export function initializeAgentHostStateSchema(database: SqliteDatabase): void {
     const priorVersion = storedSchemaVersion(database);
     if (priorVersion === CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION) {
       assertCurrentSchemaComplete(database);
+    } else if (priorVersion === PRE_REMOTE_RUNNER_EVENT_PROTOCOL_SCHEMA_VERSION) {
+      assertRequiredTablesAndVersion(
+        database,
+        versionEightRequiredTables,
+        PRE_REMOTE_RUNNER_EVENT_PROTOCOL_SCHEMA_VERSION
+      );
     } else if (priorVersion === PRE_RESET_RESULT_SCHEMA_VERSION) {
       assertRequiredTablesAndVersion(
         database,
@@ -825,6 +863,7 @@ export function initializeAgentHostStateSchema(database: SqliteDatabase): void {
     addLegacyInboxColumns(database);
     addInteractionSettlementColumns(database);
     addCanvasRuntimeResetOperationColumns(database);
+    addRemoteRunnerEventProtocolColumn(database);
     backfillCommandDigests(database);
     migratePrototypeExecutions(database);
     initializeMailboxCheckpoint(database);

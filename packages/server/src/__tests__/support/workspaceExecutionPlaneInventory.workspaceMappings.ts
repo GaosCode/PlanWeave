@@ -378,6 +378,14 @@ export const workspaceMappingsInventory = [
     "Dispatch fixture reports mapping ready."
   ),
   inventoryEntry(
+    "wm-fixture-remoteAcpEventV2",
+    "workspaceMappings",
+    "endpoint_readiness",
+    "packages/server/src/__tests__/support/remoteAcpEventV2Fixture.ts",
+    "workspaceMappings ready",
+    "Remote ACP v2 fixture reports mapping ready so its Host can reserve a writable attempt."
+  ),
+  inventoryEntry(
     "wm-fixture-gapHttp",
     "workspaceMappings",
     "legacy_agent_access",

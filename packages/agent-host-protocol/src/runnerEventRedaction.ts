@@ -1,0 +1,265 @@
+import { z } from "zod";
+
+export const runnerEventRedactionClassSchema = z.enum(["credential", "sensitive_content"]);
+export type RunnerEventRedactionClass = z.infer<typeof runnerEventRedactionClassSchema>;
+
+const authorizationPattern =
+  /\bauthorization\s*[:=]\s*(?:basic|bearer)\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\r\n,;]+)/gi;
+const credentialLabelPattern =
+  /\b(?:api[_-]?key|password|access[_-]?token|refresh[_-]?token|token)\s*[:=]\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\r\n,;]+)/gi;
+const jsonCredentialLabelPattern =
+  /"(?:api[_-]?key|password|access[_-]?token|refresh[_-]?token|token)"\s*:\s*"(?:\\.|[^"\\])*"/gi;
+const environmentCredentialPattern =
+  /\b(?:export\s+)?(?:[A-Z_][A-Z0-9_]*_)?(?:API_KEY|TOKEN|SECRET|PASSWORD)\s*=\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\r\n,;]+)/gi;
+const jsonEnvironmentCredentialPattern =
+  /["'](?:[A-Z_][A-Z0-9_]*_)?(?:API_KEY|TOKEN|SECRET|PASSWORD)["']\s*:\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;}]+)/gi;
+const sensitiveLabelPattern =
+  /\b(?:client[_-]?secret|session[_-]?cookie|set-cookie|cookie)\s*[:=]\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\r\n,;]+)/gi;
+const standaloneBasicAuthorizationPattern = /\bbasic\s+[A-Za-z0-9+/]+={0,2}/gi;
+const standaloneBearerAuthorizationPattern = /\bbearer\s+[A-Za-z0-9._~+/=-]{8,}/gi;
+const privateKeyPattern =
+  /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/g;
+const privateKeyMarkerPattern = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/i;
+const incompleteRedactionPattern =
+  /\[REDACTED:(?:CREDENTIAL|SENSITIVE_CONTENT)\][ \t]+(?![,;]|$)\S+/im;
+
+type RedactionRule = {
+  pattern: RegExp;
+  classification: RunnerEventRedactionClass;
+  replacement: string;
+  shouldRedact?: (match: string) => boolean;
+};
+
+function standaloneAuthorizationToken(match: string): string {
+  return match.replace(/^\s*(?:basic|bearer)\s+/i, "");
+}
+
+function isBasicCredential(match: string): boolean {
+  const token = standaloneAuthorizationToken(match);
+  if (token.length < 8 || token.length % 4 === 1) return false;
+  try {
+    return atob(token.padEnd(Math.ceil(token.length / 4) * 4, "=")).includes(":");
+  } catch {
+    return false;
+  }
+}
+
+const redactionRules: readonly RedactionRule[] = [
+  {
+    pattern: jsonEnvironmentCredentialPattern,
+    classification: "credential",
+    replacement: '"credential":"[REDACTED:CREDENTIAL]"'
+  },
+  {
+    pattern: jsonCredentialLabelPattern,
+    classification: "credential",
+    replacement: '"credential":"[REDACTED:CREDENTIAL]"'
+  },
+  {
+    pattern: privateKeyPattern,
+    classification: "credential",
+    replacement: "[REDACTED:CREDENTIAL]"
+  },
+  {
+    pattern: authorizationPattern,
+    classification: "credential",
+    replacement: "[REDACTED:CREDENTIAL]"
+  },
+  {
+    pattern: environmentCredentialPattern,
+    classification: "credential",
+    replacement: "[REDACTED:CREDENTIAL]"
+  },
+  {
+    pattern: credentialLabelPattern,
+    classification: "credential",
+    replacement: "[REDACTED:CREDENTIAL]"
+  },
+  {
+    pattern: sensitiveLabelPattern,
+    classification: "sensitive_content",
+    replacement: "[REDACTED:SENSITIVE_CONTENT]"
+  },
+  {
+    pattern: standaloneBasicAuthorizationPattern,
+    classification: "credential",
+    replacement: "[REDACTED:CREDENTIAL]",
+    shouldRedact: isBasicCredential
+  },
+  {
+    pattern: standaloneBearerAuthorizationPattern,
+    classification: "credential",
+    replacement: "[REDACTED:CREDENTIAL]"
+  }
+];
+
+function patternMatches(pattern: RegExp, value: string): boolean {
+  pattern.lastIndex = 0;
+  return pattern.test(value);
+}
+
+function ruleMatches(rule: RedactionRule, value: string): boolean {
+  rule.pattern.lastIndex = 0;
+  let match = rule.pattern.exec(value);
+  while (match !== null) {
+    if (!rule.shouldRedact || rule.shouldRedact(match[0])) {
+      rule.pattern.lastIndex = 0;
+      return true;
+    }
+    match = rule.pattern.exec(value);
+  }
+  rule.pattern.lastIndex = 0;
+  return false;
+}
+
+export function containsUnredactedRunnerEventSecret(value: string): boolean {
+  const decodedNewlines = value.replaceAll("\\n", "\n");
+  return (
+    redactionRules.some((rule) => ruleMatches(rule, decodedNewlines)) ||
+    patternMatches(privateKeyMarkerPattern, decodedNewlines) ||
+    patternMatches(incompleteRedactionPattern, decodedNewlines)
+  );
+}
+
+export function redactRunnerEventText(value: string): {
+  text: string;
+  classes: RunnerEventRedactionClass[];
+  replaced: number;
+} {
+  let text = value;
+  let replaced = 0;
+  const classes = new Set<RunnerEventRedactionClass>();
+  for (const rule of redactionRules) {
+    rule.pattern.lastIndex = 0;
+    text = text.replace(rule.pattern, (match) => {
+      if (rule.shouldRedact && !rule.shouldRedact(match)) return match;
+      replaced += 1;
+      classes.add(rule.classification);
+      return rule.replacement;
+    });
+  }
+  if (containsUnredactedRunnerEventSecret(text)) {
+    throw new Error("Runner event redaction left credential material in normalized content.");
+  }
+  return { text, classes: [...classes], replaced };
+}
+
+const protocolIdentityKeys = new Set([
+  "id",
+  "optionid",
+  "requestid",
+  "sessionid",
+  "toolcallid",
+  "messageid",
+  "interactionid",
+  "operationid",
+  "elicitationid",
+  "terminalid",
+  "planid",
+  "runid",
+  "executorrunid",
+  "desktoprunid",
+  "runsessionid"
+]);
+const sensitiveStructuredKeyEndings = [
+  "password",
+  "passphrase",
+  "secret",
+  "token",
+  "credential",
+  "authorization",
+  "apikey",
+  "cookie"
+] as const;
+
+function normalizedStructuredKey(key: string): string {
+  return key.replace(/[^a-z0-9]/gi, "").toLowerCase();
+}
+
+function isSensitiveStructuredKey(key: string): boolean {
+  const normalized = normalizedStructuredKey(key);
+  return sensitiveStructuredKeyEndings.some((ending) => normalized.endsWith(ending));
+}
+
+type StructuredRedactionLocation = "ordinary" | "acp_auth_methods" | "acp_auth_method";
+
+function isAcpTerminalAuthMethod(value: object): boolean {
+  return "type" in value && value.type === "terminal";
+}
+
+function redactStructuredValue(
+  value: unknown,
+  key: string | null,
+  ancestors: WeakSet<object>,
+  acpProtocol: boolean,
+  location: StructuredRedactionLocation
+): unknown {
+  const normalizedKey = key === null ? null : normalizedStructuredKey(key);
+  if (normalizedKey !== null && protocolIdentityKeys.has(normalizedKey)) {
+    if (typeof value === "string" || typeof value === "number" || value === null) return value;
+  }
+  if (key !== null && isSensitiveStructuredKey(key)) return "[REDACTED:CREDENTIAL]";
+  if (typeof value === "string") return redactRunnerEventText(value).text;
+  if (Array.isArray(value)) {
+    if (ancestors.has(value)) return "[REDACTED:SENSITIVE_CONTENT]";
+    ancestors.add(value);
+    const childLocation = location === "acp_auth_methods" ? "acp_auth_method" : "ordinary";
+    const result = value.map((item) =>
+      redactStructuredValue(item, null, ancestors, acpProtocol, childLocation)
+    );
+    ancestors.delete(value);
+    return result;
+  }
+  if (value !== null && typeof value === "object") {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      return "[REDACTED:SENSITIVE_CONTENT]";
+    }
+    if (ancestors.has(value)) return "[REDACTED:SENSITIVE_CONTENT]";
+    ancestors.add(value);
+    const terminalAuthMethod =
+      acpProtocol && location === "acp_auth_method" && isAcpTerminalAuthMethod(value);
+    const result = Object.fromEntries(
+      Object.entries(value).flatMap(([childKey, item]) => {
+        if (childKey === "_meta" || (terminalAuthMethod && childKey === "env")) return [];
+        const childLocation =
+          acpProtocol && childKey === "authMethods" ? "acp_auth_methods" : "ordinary";
+        return [
+          [childKey, redactStructuredValue(item, childKey, ancestors, acpProtocol, childLocation)]
+        ];
+      })
+    );
+    ancestors.delete(value);
+    return result;
+  }
+  return value;
+}
+
+export function redactRunnerEventPayload(value: unknown): unknown {
+  return redactStructuredValue(value, null, new WeakSet(), false, "ordinary");
+}
+
+export function redactAcpProtocolPayload(value: unknown): unknown {
+  return redactStructuredValue(value, null, new WeakSet(), true, "ordinary");
+}
+
+export function runnerEventUtf8ByteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
+}
+
+export function safeRunnerEventTextSchema(maxBytes: number, fieldName: string) {
+  return z.string().superRefine((value, context) => {
+    if (runnerEventUtf8ByteLength(value) > maxBytes) {
+      context.addIssue({
+        code: "custom",
+        message: `${fieldName} exceeds the ${maxBytes}-byte UTF-8 limit.`
+      });
+    }
+    if (containsUnredactedRunnerEventSecret(value)) {
+      context.addIssue({
+        code: "custom",
+        message: `${fieldName} contains unredacted credential material.`
+      });
+    }
+  });
+}

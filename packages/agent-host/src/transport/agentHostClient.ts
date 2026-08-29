@@ -1,6 +1,7 @@
 import { WebSocket } from "ws";
 import {
   CANVAS_RUNTIME_CAPABILITY,
+  remoteRunnerEventServerCapabilitySchema,
   type HostReadinessObservation
 } from "@planweave-ai/agent-host-protocol";
 import {
@@ -83,6 +84,16 @@ function endpoint(base: URL, path: string, websocket: boolean): URL {
   return result;
 }
 
+export function selectRemoteRunnerEventProtocolVersion(capability: unknown): 1 | 2 {
+  const parsed = remoteRunnerEventServerCapabilitySchema.safeParse(capability);
+  return parsed.success &&
+    parsed.data.available &&
+    parsed.data.preferredVersion === 2 &&
+    parsed.data.acceptedVersions.includes(2)
+    ? 2
+    : 1;
+}
+
 function executionFailure(error: unknown, aborted: boolean) {
   if (aborted) {
     return {
@@ -133,6 +144,9 @@ export class AgentHostClient implements HostTransport {
   private processing = Promise.resolve();
   private welcomed = false;
   private stopped = true;
+  private startupAbort?: AbortController;
+  private startup?: Promise<void>;
+  private lifecycleGeneration = 0;
   private serverClockOffsetMs = 0;
   private credentialRenewalInFlight?: Promise<void>;
 
@@ -174,10 +188,55 @@ export class AgentHostClient implements HostTransport {
 
   start(): void {
     if (!this.stopped) return;
+    const generation = ++this.lifecycleGeneration;
     this.stopped = false;
     this.options.state.recoverInterruptedExecutions();
     this.options.canvasRuntime?.recover();
-    this.connect();
+    const controller = new AbortController();
+    this.startupAbort = controller;
+    const startup = this.discoverRemoteRunnerEventProtocol(controller.signal)
+      .then(() => {
+        if (
+          !controller.signal.aborted &&
+          !this.stopped &&
+          this.lifecycleGeneration === generation
+        ) {
+          this.connect();
+        }
+      })
+      .catch(() => {
+        if (this.lifecycleGeneration === generation && !controller.signal.aborted) {
+          this.stopped = true;
+          this.transition({ state: "degraded", reason: "startup_failed" });
+        }
+      })
+      .finally(() => {
+        if (this.startupAbort === controller) this.startupAbort = undefined;
+        if (this.startup === startup) this.startup = undefined;
+      });
+    this.startup = startup;
+  }
+
+  private async discoverRemoteRunnerEventProtocol(signal: AbortSignal): Promise<void> {
+    const request = this.options.request;
+    const setVersion = this.options.state.setRemoteRunnerEventProtocolVersion?.bind(
+      this.options.state
+    );
+    if (!setVersion) return;
+    setVersion(1);
+    if (!request) return;
+    try {
+      const response = await request(endpoint(this.baseUrl, "/version", false), {
+        headers: { Accept: "application/json" },
+        signal
+      });
+      if (signal.aborted || !response.ok) return;
+      const body = (await response.json()) as { remoteRunnerEvents?: unknown };
+      if (signal.aborted) return;
+      setVersion(selectRemoteRunnerEventProtocolVersion(body.remoteRunnerEvents));
+    } catch {
+      if (!signal.aborted) setVersion(1);
+    }
   }
 
   status(): HostTransportStatus {
@@ -191,9 +250,12 @@ export class AgentHostClient implements HostTransport {
   }
 
   async stop(): Promise<void> {
-    if (this.currentStatus.state === "stopped") return;
+    if (this.stopped && this.currentStatus.state === "stopped" && !this.startup) return;
+    const generation = ++this.lifecycleGeneration;
     const reconciliationRequired = this.currentStatus.state === "reconciliation-required";
     this.stopped = true;
+    const startup = this.startup;
+    this.startupAbort?.abort();
     this.welcomed = false;
     this.inFlightEventIds.clear();
     if (this.reconnectTimer) this.clock.clearTimeout(this.reconnectTimer);
@@ -210,10 +272,13 @@ export class AgentHostClient implements HostTransport {
         })
       );
     }
+    if (startup) await this.waitBounded(startup);
     await this.waitBounded(this.processing);
     await this.waitBounded(Promise.allSettled([...this.runs]).then(() => undefined));
     await this.waitBounded(Promise.allSettled([...this.canvasRuns]).then(() => undefined));
-    if (!reconciliationRequired) this.transition({ state: "stopped" });
+    if (!reconciliationRequired && this.lifecycleGeneration === generation) {
+      this.transition({ state: "stopped" });
+    }
   }
 
   private connect(): void {

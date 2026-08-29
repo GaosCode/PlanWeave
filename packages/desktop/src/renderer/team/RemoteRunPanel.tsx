@@ -332,17 +332,15 @@ export function RemoteRunPanel({
               data-testid="remote-run-event"
               data-event-kind={event.kind}
               data-event-cursor={event.cursor}
+              data-event-protocol-version={event.eventProtocolVersion}
+              data-event-source-sequence={event.sourceSequence}
+              data-event-timestamp={event.timestamp}
+              data-execution-attempt-id={event.executionAttemptId}
             >
               <span className="text-muted-foreground">#{event.cursor} </span>
               <span>{event.kind}</span>
-              {"text" in event && event.text ? (
-                <span className="text-muted-foreground"> — {event.text.slice(0, 160)}</span>
-              ) : null}
-              {"title" in event && event.title ? (
-                <span className="text-muted-foreground"> — {event.title}</span>
-              ) : null}
-              {"message" in event && event.message ? (
-                <span className="text-muted-foreground"> — {event.message.slice(0, 160)}</span>
+              {event.summary ? (
+                <span className="text-muted-foreground"> — {event.summary.slice(0, 160)}</span>
               ) : null}
             </div>
           ))}

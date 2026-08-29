@@ -8,7 +8,11 @@ import type {
   ExecutionHost
 } from "@planweave-ai/runtime";
 import { acpCapabilitySnapshotSchema } from "@planweave-ai/runtime";
-import type { CanvasRuntimeLogicalScope } from "@planweave-ai/agent-host-protocol";
+import {
+  engineTerminalLeafSchema,
+  runnerBodyFragmentSchema,
+  type CanvasRuntimeLogicalScope
+} from "@planweave-ai/agent-host-protocol";
 import { z } from "zod";
 
 export const agentHostRemoteExecutionIdentitySchema = z
@@ -21,31 +25,6 @@ export const agentHostRemoteExecutionIdentitySchema = z
 export type AgentHostRemoteExecutionIdentity = z.infer<
   typeof agentHostRemoteExecutionIdentitySchema
 >;
-
-const terminalSchema = z.discriminatedUnion("state", [
-  z.object({ state: z.literal("succeeded"), stopReason: z.string() }).strict(),
-  z.object({ state: z.literal("cancelled"), message: z.string() }).strict(),
-  z
-    .object({
-      state: z.literal("failed"),
-      reason: z.enum([
-        "authentication_required",
-        "capability_missing",
-        "interaction_failed",
-        "interaction_timeout",
-        "limit_exceeded",
-        "operation_timeout",
-        "process_error",
-        "protocol_error",
-        "event_sink_failed",
-        "incomplete_response",
-        "cleanup_failed",
-        "unknown_error"
-      ]),
-      message: z.string()
-    })
-    .strict()
-]);
 
 const usageSchema = z
   .object({
@@ -104,7 +83,7 @@ export const agentHostRemoteEngineEventSchema = z.discriminatedUnion("kind", [
       ...eventBase,
       kind: z.literal("session_update"),
       sessionId: z.string(),
-      body: z.object({ kind: z.string() }).loose()
+      body: runnerBodyFragmentSchema
     })
     .strict(),
   z.object({ ...eventBase, kind: z.literal("usage"), usage: usageSchema }).strict(),
@@ -118,7 +97,9 @@ export const agentHostRemoteEngineEventSchema = z.discriminatedUnion("kind", [
       outcome: z.enum(["selected", "cancelled", "accepted", "declined"]).optional()
     })
     .strict(),
-  z.object({ ...eventBase, kind: z.literal("terminal"), terminal: terminalSchema }).strict()
+  z
+    .object({ ...eventBase, kind: z.literal("terminal"), terminal: engineTerminalLeafSchema })
+    .strict()
 ]);
 
 const permissionRequestSchema = z

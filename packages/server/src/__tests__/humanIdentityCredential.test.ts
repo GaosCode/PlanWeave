@@ -16,7 +16,7 @@ afterEach(() => {
 
 describe("human identity credentials", () => {
   it("issues, renews, and revokes independently of workspace sessions", async () => {
-    expect(latestCentralSchemaVersion).toBe(64);
+    expect(latestCentralSchemaVersion).toBe(65);
     const database = await openServerDatabase(":memory:", 5_000);
     databases.push(database);
     applyMigrations(database);

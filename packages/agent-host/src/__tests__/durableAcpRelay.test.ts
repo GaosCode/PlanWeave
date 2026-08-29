@@ -2,12 +2,18 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { exampleExecuteDelivery, mailboxDeliverySchema } from "@planweave-ai/agent-host-protocol";
+import {
+  exampleExecuteDelivery,
+  exampleRunnerBodyFragments,
+  hashExecutionEnvelope,
+  mailboxDeliverySchema
+} from "@planweave-ai/agent-host-protocol";
 import { executeAcp } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it } from "vitest";
 import { DurableAcpInteractionRelay } from "../execution/durableAcpRelay.js";
 import { agentHostRemoteEngineEventSchema } from "../execution/remoteAcpPorts.js";
 import { openAgentHostState, type AgentHostState } from "../state/agentHostState.js";
+import { openAgentHostDatabase } from "../state/sqliteDatabase.js";
 import { acpCapabilitySnapshotTestValue } from "./support/acpCapabilitySnapshotTestValues.js";
 
 const directories: string[] = [];
@@ -23,10 +29,12 @@ afterEach(async () => {
   );
 });
 
-async function setup(options: { seedEvidence?: boolean } = {}) {
+async function setup(options: { seedEvidence?: boolean; eventProtocolVersion?: 1 | 2 } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "planweave-durable-acp-relay-"));
   directories.push(directory);
-  const state = await openAgentHostState(join(directory, "state.sqlite"));
+  const databasePath = join(directory, "state.sqlite");
+  const state = await openAgentHostState(databasePath);
+  state.setRemoteRunnerEventProtocolVersion(options.eventProtocolVersion ?? 1);
   states.push(state);
   const delivery = mailboxDeliverySchema.parse({
     ...exampleExecuteDelivery,
@@ -66,10 +74,316 @@ async function setup(options: { seedEvidence?: boolean } = {}) {
       }
     });
   }
-  return { state, delivery, identity };
+  return { state, delivery, identity, databasePath };
+}
+
+function appendMessage(
+  state: AgentHostState,
+  identity: { dispatchId: string; leaseId: string; executionAttemptId: string },
+  sequence: number,
+  content: string
+): void {
+  state.append({
+    kind: "engine_event",
+    identity,
+    event: {
+      sequence,
+      timestamp: new Date(Date.UTC(2026, 6, 23, 0, 0, sequence)).toISOString(),
+      kind: "session_update",
+      sessionId: "acp-session-relay-001",
+      body: {
+        kind: "message",
+        role: "assistant",
+        messageId: `message-${sequence}`,
+        chunk: false,
+        content,
+        redaction: { classes: [], replaced: 0 }
+      }
+    }
+  });
+}
+
+async function downgradeStateToVersionEight(
+  state: AgentHostState,
+  databasePath: string,
+  eventCursor: number
+): Promise<void> {
+  states.splice(states.indexOf(state), 1);
+  state.close();
+  const database = await openAgentHostDatabase(databasePath, 5_000);
+  database.exec(`
+    ALTER TABLE agent_host_executions DROP COLUMN event_protocol_version;
+    UPDATE agent_host_state_schema SET version = 8;
+  `);
+  database.prepare("UPDATE agent_host_executions SET event_cursor = ?").run(eventCursor);
+  database.close();
 }
 
 describe("durable ACP relay", () => {
+  it("migrates started v8 attempts to v1 while leaving cursor-zero attempts negotiable", async () => {
+    const legacy = await setup({ eventProtocolVersion: 1 });
+    appendMessage(legacy.state, legacy.identity, 3, "legacy-before-upgrade");
+    const pendingBeforeUpgrade = legacy.state
+      .pendingEvents()
+      .find((candidate) => candidate.type === "acp.events");
+    expect(pendingBeforeUpgrade).toBeDefined();
+    await downgradeStateToVersionEight(legacy.state, legacy.databasePath, 1);
+
+    const migratedLegacy = await openAgentHostState(legacy.databasePath);
+    states.push(migratedLegacy);
+    expect(migratedLegacy.executionEvidence(legacy.delivery.sequence)?.eventProtocolVersion).toBe(
+      1
+    );
+    migratedLegacy.setRemoteRunnerEventProtocolVersion(2);
+    appendMessage(migratedLegacy, legacy.identity, 4, "legacy-after-upgrade");
+    expect(
+      migratedLegacy
+        .pendingEvents()
+        .filter((candidate) => candidate.type === "acp.events")
+        .every((candidate) => !("eventProtocolVersion" in candidate))
+    ).toBe(true);
+    expect(migratedLegacy.acknowledgeEvent(pendingBeforeUpgrade!.messageId)).toBe(true);
+    expect(migratedLegacy.pendingEvents()).not.toContainEqual(pendingBeforeUpgrade);
+
+    const fresh = await setup({ eventProtocolVersion: 1, seedEvidence: false });
+    await downgradeStateToVersionEight(fresh.state, fresh.databasePath, 0);
+    const migratedFresh = await openAgentHostState(fresh.databasePath);
+    states.push(migratedFresh);
+    expect(
+      migratedFresh.executionEvidence(fresh.delivery.sequence)?.eventProtocolVersion
+    ).toBeUndefined();
+    migratedFresh.setRemoteRunnerEventProtocolVersion(2);
+    migratedFresh.append({
+      kind: "engine_event",
+      identity: fresh.identity,
+      event: {
+        sequence: 1,
+        timestamp: "2026-07-23T00:02:00.000Z",
+        kind: "capability_snapshot",
+        snapshot: acpCapabilitySnapshotTestValue()
+      }
+    });
+    migratedFresh.append({
+      kind: "engine_event",
+      identity: fresh.identity,
+      event: {
+        sequence: 2,
+        timestamp: "2026-07-23T00:02:01.000Z",
+        kind: "session_started",
+        sessionId: "acp-session-relay-001",
+        loaded: false
+      }
+    });
+    expect(migratedFresh.executionEvidence(fresh.delivery.sequence)?.eventProtocolVersion).toBe(2);
+    expect(
+      migratedFresh
+        .pendingEvents()
+        .filter((candidate) => candidate.type === "acp.events")
+        .every(
+          (candidate) => "eventProtocolVersion" in candidate && candidate.eventProtocolVersion === 2
+        )
+    ).toBe(true);
+  });
+
+  it("pins v1 per attempt across restart, retry, and a later v2 preference", async () => {
+    const { state, delivery, identity, databasePath } = await setup({ eventProtocolVersion: 1 });
+    appendMessage(state, identity, 3, "v1-first");
+    const firstEvent = state
+      .pendingEvents()
+      .find(
+        (candidate) => candidate.type === "acp.events" && !("eventProtocolVersion" in candidate)
+      );
+    expect(firstEvent).toBeDefined();
+    expect(state.executionEvidence(delivery.sequence)?.eventProtocolVersion).toBe(1);
+
+    states.splice(states.indexOf(state), 1);
+    state.close();
+    const reopened = await openAgentHostState(databasePath);
+    states.push(reopened);
+    reopened.setRemoteRunnerEventProtocolVersion(2);
+    appendMessage(reopened, identity, 4, "v1-after-restart");
+    expect(reopened.executionEvidence(delivery.sequence)?.eventProtocolVersion).toBe(1);
+    expect(
+      reopened
+        .pendingEvents()
+        .filter((candidate) => candidate.type === "acp.events")
+        .every((candidate) => !("eventProtocolVersion" in candidate))
+    ).toBe(true);
+    appendMessage(reopened, identity, 4, "v1-after-restart");
+    expect(
+      reopened.pendingEvents().filter((candidate) => candidate.type === "acp.events")
+    ).toHaveLength(2);
+    expect(reopened.acknowledgeEvent(firstEvent!.messageId)).toBe(true);
+    expect(reopened.pendingEvents()).not.toContainEqual(firstEvent);
+  });
+
+  it("pins v2 per attempt across restart and a later v1 preference", async () => {
+    const { state, delivery, identity, databasePath } = await setup({ eventProtocolVersion: 2 });
+    appendMessage(state, identity, 3, "v2-first");
+    expect(state.executionEvidence(delivery.sequence)?.eventProtocolVersion).toBe(2);
+    const firstEvent = state
+      .pendingEvents()
+      .find((candidate) => candidate.type === "acp.events" && "eventProtocolVersion" in candidate);
+    expect(firstEvent).toBeDefined();
+
+    states.splice(states.indexOf(state), 1);
+    state.close();
+    const reopened = await openAgentHostState(databasePath);
+    states.push(reopened);
+    reopened.setRemoteRunnerEventProtocolVersion(1);
+    appendMessage(reopened, identity, 4, "v2-after-restart");
+    appendMessage(reopened, identity, 4, "v2-after-restart");
+    expect(reopened.executionEvidence(delivery.sequence)?.eventProtocolVersion).toBe(2);
+    const pending = reopened.pendingEvents().filter((candidate) => candidate.type === "acp.events");
+    expect(pending).toHaveLength(4);
+    expect(
+      pending.every(
+        (candidate) => "eventProtocolVersion" in candidate && candidate.eventProtocolVersion === 2
+      )
+    ).toBe(true);
+    expect(reopened.acknowledgeEvent(firstEvent!.messageId)).toBe(true);
+    expect(reopened.pendingEvents()).not.toContainEqual(firstEvent);
+  });
+
+  it("uses the latest preference for a new attempt", async () => {
+    const { state, delivery, identity } = await setup({ eventProtocolVersion: 1 });
+    appendMessage(state, identity, 3, "v1-attempt");
+    expect(state.executionEvidence(delivery.sequence)?.eventProtocolVersion).toBe(1);
+    if (delivery.command.type !== "execute_block") throw new Error("execute_block_required");
+
+    state.setRemoteRunnerEventProtocolVersion(2);
+    const envelope = {
+      ...delivery.command.envelope,
+      execution: { dispatchId: "dispatch-relay-002", attemptId: "attempt-relay-002" }
+    };
+    const nextDelivery = mailboxDeliverySchema.parse({
+      ...delivery,
+      sequence: 2,
+      previousSequence: 1,
+      messageId: "mailbox-relay-002",
+      command: {
+        ...delivery.command,
+        dispatchId: envelope.execution.dispatchId,
+        leaseId: "lease-relay-002",
+        executionAttemptId: envelope.execution.attemptId,
+        envelopeDigest: hashExecutionEnvelope(envelope),
+        envelope
+      }
+    });
+    state.receive(nextDelivery);
+    state.startExecution(nextDelivery.sequence);
+    const nextIdentity = {
+      dispatchId: nextDelivery.command.dispatchId,
+      leaseId: nextDelivery.command.leaseId,
+      executionAttemptId: nextDelivery.command.executionAttemptId
+    };
+    state.append({
+      kind: "engine_event",
+      identity: nextIdentity,
+      event: {
+        sequence: 1,
+        timestamp: "2026-07-23T00:01:00.000Z",
+        kind: "capability_snapshot",
+        snapshot: acpCapabilitySnapshotTestValue()
+      }
+    });
+    state.append({
+      kind: "engine_event",
+      identity: nextIdentity,
+      event: {
+        sequence: 2,
+        timestamp: "2026-07-23T00:01:01.000Z",
+        kind: "session_started",
+        sessionId: "acp-session-relay-001",
+        loaded: false
+      }
+    });
+    appendMessage(state, nextIdentity, 3, "v2-attempt");
+    expect(state.executionEvidence(nextDelivery.sequence)?.eventProtocolVersion).toBe(2);
+  });
+
+  it("relays every shared Runner body leaf through the v2 durable outbox", async () => {
+    const { state, identity } = await setup({ eventProtocolVersion: 2 });
+    for (const [index, body] of exampleRunnerBodyFragments.entries()) {
+      state.append({
+        kind: "engine_event",
+        identity,
+        event: {
+          sequence: index + 3,
+          timestamp: new Date(Date.UTC(2026, 6, 23, 0, 0, index + 2)).toISOString(),
+          kind: "session_update",
+          sessionId: "acp-session-relay-001",
+          body
+        }
+      });
+    }
+    const relayedBodies = state
+      .pendingEvents()
+      .filter((event) => event.type === "acp.events" && "eventProtocolVersion" in event)
+      .flatMap((event) => event.events)
+      .flatMap((event) => (event.fragment.kind === "runner_body" ? [event.fragment.body] : []));
+    expect(relayedBodies).toEqual(exampleRunnerBodyFragments);
+  });
+
+  it("rejects a v2 session update whose source session identity is stale", async () => {
+    const { state, identity, delivery } = await setup({ eventProtocolVersion: 2 });
+    expect(() =>
+      state.append({
+        kind: "engine_event",
+        identity,
+        event: {
+          sequence: 3,
+          timestamp: "2026-07-23T00:00:02.000Z",
+          kind: "session_update",
+          sessionId: "stale-session",
+          body: exampleRunnerBodyFragments[0]!
+        }
+      })
+    ).toThrowError("remote_execution_session_identity_stale");
+    expect(state.executionEvidence(delivery.sequence)?.eventCursor).toBe(2);
+  });
+
+  it("relays all durable engine evidence as v2 without converting terminal evidence", async () => {
+    const { state, identity } = await setup({ eventProtocolVersion: 2 });
+    state.append({
+      kind: "engine_event",
+      identity,
+      event: {
+        sequence: 3,
+        timestamp: "2026-07-23T00:00:02.000Z",
+        kind: "usage",
+        usage: {
+          totalTokens: 5,
+          inputTokens: 3,
+          outputTokens: 2,
+          thoughtTokens: null,
+          cachedReadTokens: null,
+          cachedWriteTokens: null
+        }
+      }
+    });
+    state.append({
+      kind: "engine_event",
+      identity,
+      event: {
+        sequence: 4,
+        timestamp: "2026-07-23T00:00:03.000Z",
+        kind: "terminal",
+        terminal: { state: "succeeded", stopReason: "end_turn" }
+      }
+    });
+
+    const v2 = state
+      .pendingEvents()
+      .filter((event) => event.type === "acp.events" && "eventProtocolVersion" in event);
+    expect(v2).toHaveLength(4);
+    expect(v2.map((event) => event.events[0]?.sourceSequence)).toEqual([1, 2, 3, 4]);
+    expect(v2.at(-1)?.events[0]?.fragment).toEqual({
+      kind: "engine_terminal",
+      terminal: { state: "succeeded", stopReason: "end_turn" }
+    });
+  });
+
   it("persists session and cursor evidence before queueing normalized ACP events", async () => {
     const { state, delivery, identity } = await setup();
     state.append({

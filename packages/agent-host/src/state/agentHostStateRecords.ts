@@ -47,6 +47,7 @@ export type AgentHostExecutionEvidence = {
   acpCapabilitySnapshot?: AcpCapabilitySnapshot;
   legacyAcpCapabilities?: JsonValue;
   recoveryId?: string;
+  eventProtocolVersion?: 1 | 2;
   eventCursor: number;
   actionCursor: number;
   cancellationIntent?: JsonValue;
@@ -85,6 +86,7 @@ export const executionEvidenceRowSchema = z.object({
   acp_session_id: z.string().nullable(),
   acp_capabilities_json: z.string().nullable(),
   recovery_id: z.string().nullable(),
+  event_protocol_version: z.union([z.literal(1), z.literal(2)]).nullable(),
   event_cursor: z.number().int().nonnegative(),
   action_cursor: z.number().int().nonnegative(),
   cancellation_intent_json: z.string().nullable(),
@@ -146,6 +148,7 @@ export function toExecutionEvidence(raw: Record<string, unknown>): AgentHostExec
         ? {}
         : { legacyAcpCapabilities: storedCapabilities }),
     recoveryId: row.recovery_id ?? undefined,
+    eventProtocolVersion: row.event_protocol_version ?? undefined,
     eventCursor: row.event_cursor,
     actionCursor: row.action_cursor,
     cancellationIntent: parseJson(row.cancellation_intent_json),

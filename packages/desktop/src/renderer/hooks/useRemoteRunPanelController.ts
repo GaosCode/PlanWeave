@@ -1,17 +1,22 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AssignmentDisplayProjection } from "@planweave-ai/collaboration-protocol/work/assignment";
 import type {
-  RemoteEventReplay,
   RemoteInteractionResponse,
   RemoteInteractionView,
   RemoteOperationObservation
 } from "@planweave-ai/collaboration-protocol/remote-run";
 import type { WorkItemRef } from "@planweave-ai/collaboration-protocol/core/primitives";
-import type { RemoteBlockExecutionReadModel } from "@planweave-ai/runtime";
-import type { DesktopCanvasReference } from "@planweave-ai/runtime";
+import { projectRemoteAcpReplay } from "@planweave-ai/runtime/browser";
+import type { DesktopCanvasReference, RemoteBlockExecutionReadModel } from "@planweave-ai/runtime";
 import type { RemoteAgentEndpoint } from "@planweave-ai/collaboration-protocol/agent-endpoint";
 import { bridge, collaborationBridge } from "../bridge";
 import { collaborationErrorMessage } from "../collaboration/formatCollaborationError";
+import {
+  applyRemoteAcpReplayPage,
+  createRemoteAcpAttemptReplayState,
+  remoteAcpReplayRequestMatchesState,
+  scopeRemoteAcpReplayToAttempt
+} from "../collaboration/remoteAcpReplayState";
 import {
   adaptRemoteAcpEvents,
   buildRemoteActionIdentity,
@@ -214,9 +219,11 @@ export function useRemoteRunPanelController(
   );
   const [refreshingAgentEndpoints, setRefreshingAgentEndpoints] = useState(false);
   const [pendingInteractions, setPendingInteractions] = useState<RemoteInteractionView[]>([]);
-  const [events, setEvents] = useState<RemoteEventReplay["events"]>([]);
-  const [eventCursor, setEventCursor] = useState(0);
-  const [eventsHasMore, setEventsHasMore] = useState(false);
+  const [replayState, setReplayState] = useState(createRemoteAcpAttemptReplayState);
+  const replayStateRef = useRef(replayState);
+  replayStateRef.current = replayState;
+  const refreshInFlightRef = useRef(false);
+  const loadingEventsRequestRef = useRef(0);
   const [loading, setLoading] = useState(false);
   const [loadingEvents, setLoadingEvents] = useState(false);
   const [loadingInteractions, setLoadingInteractions] = useState(false);
@@ -329,13 +336,15 @@ export function useRemoteRunPanelController(
       scopeKeyRef.current = scopeKey;
       scopeGenerationRef.current += 1;
       generationRef.current += 1;
+      refreshInFlightRef.current = false;
+      loadingEventsRequestRef.current += 1;
       endpointRequestGenerationRef.current += 1;
       observationRef.current = null;
       setObservation(null);
       setPendingInteractions([]);
-      setEvents([]);
-      setEventCursor(0);
-      setEventsHasMore(false);
+      const emptyReplay = createRemoteAcpAttemptReplayState();
+      replayStateRef.current = emptyReplay;
+      setReplayState(emptyReplay);
       setActionError(null);
       setConfirmKind(null);
       setLoading(false);
@@ -374,6 +383,9 @@ export function useRemoteRunPanelController(
     if (!isCurrentRefreshScope()) return;
     const generation = ++generationRef.current;
     const canWrite = () => generation === generationRef.current && isCurrentRefreshScope();
+    refreshInFlightRef.current = true;
+    const loadingEventsRequest = ++loadingEventsRequestRef.current;
+    setLoadingEvents(false);
     setLoading(true);
     setActionError(null);
     try {
@@ -387,9 +399,9 @@ export function useRemoteRunPanelController(
         if (canWrite()) {
           setObservation(null);
           setPendingInteractions([]);
-          setEvents([]);
-          setEventCursor(0);
-          setEventsHasMore(false);
+          const emptyReplay = createRemoteAcpAttemptReplayState();
+          replayStateRef.current = emptyReplay;
+          setReplayState(emptyReplay);
         }
         return;
       }
@@ -404,8 +416,17 @@ export function useRemoteRunPanelController(
           blockRef: args.workItem.blockRef
         })
       });
+      if (!merged) throw new Error("remote_operation_observation_scope_mismatch");
       observationRef.current = merged;
       setObservation(merged);
+      const attemptReplay = scopeRemoteAcpReplayToAttempt(
+        replayStateRef.current,
+        merged.executionAttemptId
+      );
+      if (attemptReplay !== replayStateRef.current) {
+        replayStateRef.current = attemptReplay;
+        setReplayState(attemptReplay);
+      }
 
       setLoadingInteractions(true);
       try {
@@ -420,19 +441,21 @@ export function useRemoteRunPanelController(
       }
 
       setLoadingEvents(true);
-      try {
-        const replay = await api.replayCollaborationRemoteOperationEvents({
-          operationId,
-          query: { afterCursor: 0 }
-        });
-        if (!canWrite()) return;
-        const adapted = adaptRemoteAcpEvents(replay.events);
-        setEvents(adapted);
-        setEventCursor(replay.cursor);
-        setEventsHasMore(replay.hasMore);
-      } finally {
-        if (canWrite()) setLoadingEvents(false);
-      }
+      const replay = await api.replayCollaborationRemoteOperationEvents({
+        operationId,
+        query: { afterCursor: attemptReplay.cursor }
+      });
+      if (!canWrite()) return;
+      const projection = projectRemoteAcpReplay(replay);
+      const nextReplay = applyRemoteAcpReplayPage({
+        state: attemptReplay,
+        requestedAfterCursor: attemptReplay.cursor,
+        cursor: replay.cursor,
+        hasMore: replay.hasMore,
+        projection
+      });
+      replayStateRef.current = nextReplay;
+      setReplayState(nextReplay);
     } catch (error) {
       if (!canWrite()) return;
       const mapped = mapBoundaryError(error);
@@ -441,7 +464,13 @@ export function useRemoteRunPanelController(
         setObservation(null);
       }
     } finally {
-      if (canWrite()) setLoading(false);
+      if (loadingEventsRequest === loadingEventsRequestRef.current) {
+        setLoadingEvents(false);
+      }
+      if (canWrite()) {
+        refreshInFlightRef.current = false;
+        setLoading(false);
+      }
     }
   }, [
     api,
@@ -472,26 +501,45 @@ export function useRemoteRunPanelController(
   ]);
 
   const loadMoreEvents = useCallback(async () => {
-    if (!api || !observation || !eventsHasMore) return;
+    if (!api || !observation || !replayState.hasMore || refreshInFlightRef.current) return;
     const generation = generationRef.current;
+    const requestedState = replayState;
+    const loadingEventsRequest = ++loadingEventsRequestRef.current;
     setLoadingEvents(true);
     setActionError(null);
     try {
       const replay = await api.replayCollaborationRemoteOperationEvents({
         operationId: observation.operationId,
-        query: { afterCursor: eventCursor }
+        query: { afterCursor: requestedState.cursor }
       });
-      if (generation !== generationRef.current) return;
-      setEvents((prev) => adaptRemoteAcpEvents([...prev, ...replay.events]));
-      setEventCursor(replay.cursor);
-      setEventsHasMore(replay.hasMore);
+      if (
+        generation !== generationRef.current ||
+        !remoteAcpReplayRequestMatchesState(requestedState, replayStateRef.current)
+      ) {
+        return;
+      }
+      const projection = projectRemoteAcpReplay(replay);
+      const nextReplay = applyRemoteAcpReplayPage({
+        state: requestedState,
+        requestedAfterCursor: requestedState.cursor,
+        cursor: replay.cursor,
+        hasMore: replay.hasMore,
+        projection
+      });
+      replayStateRef.current = nextReplay;
+      setReplayState(nextReplay);
     } catch (error) {
-      if (generation !== generationRef.current) return;
+      if (
+        generation !== generationRef.current ||
+        !remoteAcpReplayRequestMatchesState(requestedState, replayStateRef.current)
+      ) {
+        return;
+      }
       setActionError(collaborationErrorMessage(mapBoundaryError(error)));
     } finally {
-      if (generation === generationRef.current) setLoadingEvents(false);
+      if (loadingEventsRequest === loadingEventsRequestRef.current) setLoadingEvents(false);
     }
-  }, [api, observation, eventsHasMore, eventCursor]);
+  }, [api, observation, replayState]);
 
   const runAction = useCallback(
     async (
@@ -727,9 +775,11 @@ export function useRemoteRunPanelController(
       assignment,
       observerRun,
       pendingInteractions,
-      events,
-      eventCursor,
-      eventsHasMore,
+      eventProtocolVersion: replayState.eventProtocolVersion,
+      events: adaptRemoteAcpEvents(replayState.events),
+      replayDiagnostics: replayState.diagnostics,
+      eventCursor: replayState.cursor,
+      eventsHasMore: replayState.hasMore,
       authorized: localSelected
         ? Boolean(bridge && args.canvasRef)
         : !offline && Boolean(sessionConnected),
@@ -745,9 +795,7 @@ export function useRemoteRunPanelController(
     assignment,
     observerRun,
     pendingInteractions,
-    events,
-    eventCursor,
-    eventsHasMore,
+    replayState,
     offline,
     sessionConnected,
     agentEndpoints,

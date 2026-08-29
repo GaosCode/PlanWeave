@@ -665,7 +665,17 @@ export {
   projectAcpTimeline
 } from "./autoRun/acpConversationProjection.js";
 export type * from "./autoRun/acpConversationProjection.js";
-export { projectRemoteAcpTimeline } from "./autoRun/remoteAcpEventProjection.js";
+export {
+  mergeRemoteAcpReplayDiagnostics,
+  projectRemoteAcpReplay,
+  projectRemoteAcpProjectedTimeline,
+  projectRemoteAcpTimeline,
+  remoteAcpEventBody,
+  type ProjectedRemoteAcpEvent,
+  type RemoteAcpReplayDiagnostic,
+  type RemoteAcpReplayInput,
+  type RemoteAcpReplayProjection
+} from "./autoRun/remoteAcpEventProjection.js";
 export { writeAcpConversationProjection } from "./autoRun/acpConversationPersistence.js";
 export {
   ArtifactReferenceVerificationError,

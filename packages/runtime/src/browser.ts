@@ -23,7 +23,16 @@ export {
   projectTaskWorkspaceLiveSnapshot
 } from "./desktop/taskWorkspaceLiveProjection.js";
 export { composeTaskWorkspaceRuns } from "./desktop/taskWorkspaceCompose.js";
-export { projectRemoteAcpTimeline } from "./autoRun/remoteAcpEventProjection.js";
+export {
+  mergeRemoteAcpReplayDiagnostics,
+  projectRemoteAcpReplay,
+  projectRemoteAcpProjectedTimeline,
+  projectRemoteAcpTimeline,
+  type ProjectedRemoteAcpEvent,
+  type RemoteAcpReplayDiagnostic,
+  type RemoteAcpReplayInput,
+  type RemoteAcpReplayProjection
+} from "./autoRun/remoteAcpEventProjection.js";
 export {
   taskWorkspaceInputSchema,
   taskWorkspaceRunItemSchema,

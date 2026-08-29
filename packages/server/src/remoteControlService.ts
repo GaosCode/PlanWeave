@@ -116,6 +116,15 @@ export class RemoteControlService {
       : null;
   }
 
+  remoteRunnerEventCapability() {
+    return {
+      available: true as const,
+      acceptedVersions: [1, 2] as const,
+      preferredVersion: 2 as const,
+      ...this.options.events.metrics()
+    };
+  }
+
   createEnrollmentGrant(principal: OperatorPrincipal, rawRequest: unknown) {
     this.options.authorization.requireServerAdmin(principal);
     const request = operatorEnrollmentGrantRequestSchema.parse(rawRequest);

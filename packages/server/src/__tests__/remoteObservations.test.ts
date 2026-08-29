@@ -170,6 +170,69 @@ function interactionIdentity(
 }
 
 describe("remote ACP observations", () => {
+  it("persists strict v2 fragments and replaces regressed cumulative usage with a diagnostic", async () => {
+    const fixture = await setup();
+    const repository = new RemoteAcpEventRepository(fixture.server.database, {
+      clock: fixture.clock
+    });
+    const common = {
+      type: "acp.events" as const,
+      eventProtocolVersion: 2 as const,
+      dispatchId: fixture.operation.dispatchId,
+      leaseId: fixture.reservation.leaseId,
+      executionAttemptId: fixture.operation.executionAttemptId,
+      acpSessionId: "acp-session-1"
+    };
+    const usage = (cursor: number, sourceSequence: number, totalTokens: number) => ({
+      eventVersion: 2 as const,
+      cursor,
+      sourceSequence,
+      timestamp: `2030-01-01T00:00:0${cursor}.000Z`,
+      fragment: {
+        kind: "engine_evidence" as const,
+        evidence: {
+          kind: "usage_snapshot" as const,
+          usage: {
+            semantics: "cumulative_session_total" as const,
+            totalTokens,
+            inputTokens: totalTokens,
+            outputTokens: 0,
+            thoughtTokens: null,
+            cachedReadTokens: null,
+            cachedWriteTokens: null
+          }
+        }
+      }
+    });
+    const firstBatch = {
+      ...common,
+      afterCursor: 0,
+      cursor: 1,
+      events: [usage(1, 10, 10)]
+    };
+    repository.ingest(fixture.host.id, "v2-1", firstBatch);
+    repository.ingest(fixture.host.id, "v2-1-retry", firstBatch);
+    repository.ingest(fixture.host.id, "v2-2", {
+      ...common,
+      afterCursor: 1,
+      cursor: 2,
+      events: [usage(2, 11, 8)]
+    });
+
+    expect(repository.replay(fixture.operation.executionAttemptId)).toMatchObject({
+      eventProtocolVersion: 2,
+      events: [
+        { fragment: { evidence: { kind: "usage_snapshot" } } },
+        { fragment: { body: { code: "remote_usage_snapshot_regressed" } } }
+      ]
+    });
+    expect(repository.metrics()).toMatchObject({
+      v2Accepted: 3,
+      usageSnapshotsAccepted: 1,
+      usageSnapshotRegressions: 1
+    });
+  });
+
   it("replays monotonic redacted events and fails closed on conflict, gap, and retention loss", async () => {
     const fixture = await setup();
     const events = new RemoteAcpEventRepository(fixture.server.database, {
@@ -198,7 +261,10 @@ describe("remote ACP observations", () => {
       highWatermark: 3,
       hasMore: false,
       events: [{ cursor: 2 }, { cursor: 3 }],
-      diagnostics: [{ code: "remote_acp_event_retention_gap", droppedThroughCursor: 1 }]
+      diagnostics: [
+        { code: "remote_acp_event_retention_gap", droppedThroughCursor: 1 },
+        { code: "remote_acp_event_contract_degraded" }
+      ]
     });
     const persisted = fixture.server.database
       .prepare(

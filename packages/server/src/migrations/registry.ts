@@ -39,6 +39,7 @@ import { remoteAgentAccessSnapshotMigration } from "./remoteAgentAccessSnapshot.
 import { humanPrincipalWorkspaceBackfillMigration } from "./humanPrincipalWorkspaceBackfill.js";
 import { humanIdentityCredentialsMigration } from "./humanIdentityCredentials.js";
 import { remoteOperationDiagnosticsMigration } from "./remoteOperationDiagnostics.js";
+import { remoteRunnerEventsMigration } from "./remoteRunnerEvents.js";
 import type { Migration, MigrationModule } from "./types.js";
 
 const identityModule: MigrationModule = { name: "identity", migrations: identityMigrations };
@@ -104,7 +105,8 @@ export const migrationModules: readonly MigrationModule[] = [
       humanIdentityCredentialsMigration
     ]
   },
-  { name: "remote-operation-diagnostics", migrations: [remoteOperationDiagnosticsMigration] }
+  { name: "remote-operation-diagnostics", migrations: [remoteOperationDiagnosticsMigration] },
+  { name: "remote-runner-events", migrations: [remoteRunnerEventsMigration] }
 ];
 
 const flattened = migrationModules.flatMap((module) => module.migrations);

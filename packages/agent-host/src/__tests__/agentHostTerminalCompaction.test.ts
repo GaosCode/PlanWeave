@@ -421,7 +421,7 @@ describe("Agent Host terminal state compaction", () => {
     expect(reopened.receive(delivery(1)).stored).toBe(false);
     const inspected = await openAgentHostDatabase(path, 5_000);
     expect(inspected.prepare("SELECT version FROM agent_host_state_schema").get()).toMatchObject({
-      version: 8
+      version: 9
     });
     inspected.close();
   });
@@ -445,7 +445,7 @@ describe("Agent Host terminal state compaction", () => {
     expect(migrated.receive(delivery(1)).stored).toBe(false);
     const inspected = await openAgentHostDatabase(path, 5_000);
     expect(inspected.prepare("SELECT version FROM agent_host_state_schema").get()).toMatchObject({
-      version: 8
+      version: 9
     });
     expect(
       inspected
@@ -475,7 +475,7 @@ describe("Agent Host terminal state compaction", () => {
     states.push(migrated);
     const inspected = await openAgentHostDatabase(path, 5_000);
     expect(inspected.prepare("SELECT version FROM agent_host_state_schema").get()).toMatchObject({
-      version: 8
+      version: 9
     });
     expect(
       inspected
@@ -501,7 +501,7 @@ describe("Agent Host terminal state compaction", () => {
     states.push(migrated);
     const inspected = await openAgentHostDatabase(path, 5_000);
     expect(inspected.prepare("SELECT version FROM agent_host_state_schema").get()).toMatchObject({
-      version: 8
+      version: 9
     });
     expect(
       inspected
@@ -509,6 +509,37 @@ describe("Agent Host terminal state compaction", () => {
         .all()
         .map((row) => row.name)
     ).toContain("reset_resolution_json");
+    inspected.close();
+  });
+
+  it("migrates v8 executions to durable attempt-scoped event protocol versions", async () => {
+    const { path, state } = await setup();
+    state.receive(delivery(1));
+    state.receive(delivery(2));
+    state.close();
+    states.pop();
+    const v8 = await openAgentHostDatabase(path, 5_000);
+    v8.exec(`
+      ALTER TABLE agent_host_executions DROP COLUMN event_protocol_version;
+      UPDATE agent_host_executions SET event_cursor = 1 WHERE inbox_sequence = 1;
+      UPDATE agent_host_state_schema SET version=8;
+    `);
+    v8.close();
+
+    const migrated = await openAgentHostState(path);
+    states.push(migrated);
+    expect(migrated.executionEvidence(1)?.eventProtocolVersion).toBe(1);
+    expect(migrated.executionEvidence(2)?.eventProtocolVersion).toBeUndefined();
+    const inspected = await openAgentHostDatabase(path, 5_000);
+    expect(inspected.prepare("SELECT version FROM agent_host_state_schema").get()).toMatchObject({
+      version: 9
+    });
+    expect(
+      inspected
+        .prepare("PRAGMA table_info(agent_host_executions)")
+        .all()
+        .map((row) => row.name)
+    ).toContain("event_protocol_version");
     inspected.close();
   });
 

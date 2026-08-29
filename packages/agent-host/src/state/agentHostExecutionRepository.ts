@@ -22,7 +22,8 @@ JOIN agent_host_inbox i ON i.sequence=e.inbox_sequence`;
 const evidenceSelect = `
 SELECT inbox_sequence,dispatch_id,lease_id,execution_attempt_id,protocol_version,
        envelope_digest,envelope_version,workspace_id,agent_profile_id,source_revision,
-       status,acp_session_id,acp_capabilities_json,recovery_id,event_cursor,action_cursor,
+       status,acp_session_id,acp_capabilities_json,recovery_id,event_protocol_version,
+       event_cursor,action_cursor,
        cancellation_intent_json,recovery_intent_json,terminal_kind,terminal_payload_digest,
        terminal_event_message_id,terminal_acknowledged_at
 FROM agent_host_executions`;
@@ -322,6 +323,19 @@ export class AgentHostExecutionRepository {
       .run(cursor, sequence, afterCursor);
     if (updated.changes !== 1) throw new Error("execution_event_cursor_conflict");
     return cursor;
+  }
+
+  pinEventProtocolVersion(sequence: number, version: 1 | 2): 1 | 2 {
+    const current = this.requireEvidence(sequence);
+    if (current.eventProtocolVersion !== undefined) return current.eventProtocolVersion;
+    const updated = this.database
+      .prepare(
+        `UPDATE agent_host_executions SET event_protocol_version=?
+         WHERE inbox_sequence=? AND event_protocol_version IS NULL`
+      )
+      .run(version, sequence);
+    if (updated.changes !== 1) throw new Error("execution_event_protocol_version_conflict");
+    return this.requireEvidence(sequence).eventProtocolVersion!;
   }
 
   recordAction(sequence: number, input: unknown, createdAt = new Date().toISOString()): boolean {

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { normalizedAcpEventBatchSchema } from "./acpEvents.js";
+import { remoteRunnerEventBatchV2Schema } from "./runnerEvents.js";
 import { capabilitiesSchema } from "./capabilities.js";
 import { executionEnvelopeDigestSchema, executionEnvelopeSchema } from "./executionEnvelope.js";
 import { hashExecutionEnvelope } from "./executionEnvelopeHash.js";
@@ -162,7 +163,8 @@ const dispatchProgressSchema = durableHostEventSchema.extend({
   message: z.string().max(PROGRESS_MESSAGE_MAX_LENGTH).optional()
 });
 
-const acpEventObservationSchema = durableHostEventSchema.merge(normalizedAcpEventBatchSchema);
+const acpEventObservationV1Schema = durableHostEventSchema.merge(normalizedAcpEventBatchSchema);
+const acpEventObservationV2Schema = durableHostEventSchema.merge(remoteRunnerEventBatchV2Schema);
 const permissionRequestObservationSchema = durableHostEventSchema.merge(
   interactionRequestSchema.options[0]
 );
@@ -173,15 +175,16 @@ const authenticationRequestObservationSchema = durableHostEventSchema.merge(
   interactionRequestSchema.options[2]
 );
 
-export const observationEventSchema = z.discriminatedUnion("type", [
+export const observationEventSchema = z.union([
   dispatchProgressSchema,
-  acpEventObservationSchema,
+  acpEventObservationV1Schema,
+  acpEventObservationV2Schema,
   permissionRequestObservationSchema,
   elicitationRequestObservationSchema,
   authenticationRequestObservationSchema
 ]);
 
-export const hostEventSchema = z.discriminatedUnion("type", [
+export const hostEventSchema = z.union([
   ...hostToServerEventSchema.options,
   ...observationEventSchema.options
 ]);

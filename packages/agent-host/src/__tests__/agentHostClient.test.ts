@@ -170,6 +170,129 @@ function acknowledge(socket: import("ws").WebSocket, event: HostEvent): void {
 }
 
 describe("Agent Host outbound transport", () => {
+  it("resets protocol negotiation to v1 on restart before a non-2xx response", async () => {
+    const httpServer = createServer();
+    httpServers.push(httpServer);
+    const webSocketServer = new WebSocketServer({ server: httpServer });
+    webSocketServers.push(webSocketServer);
+    webSocketServer.on("connection", (socket) => {
+      socket.on("message", (data) => {
+        const event = JSON.parse(data.toString());
+        if (event.type === "host.hello") sendEvent(socket, welcome());
+      });
+    });
+    const port = await listen(httpServer);
+    const state = await openState();
+    const setVersion = vi.spyOn(state, "setRemoteRunnerEventProtocolVersion");
+    let versionStatus = 200;
+    const request = vi.fn(async () =>
+      versionStatus === 200
+        ? new Response(
+            JSON.stringify({
+              remoteRunnerEvents: {
+                available: true,
+                acceptedVersions: [1, 2],
+                preferredVersion: 2,
+                v1Accepted: 0,
+                v2Accepted: 0,
+                v1Degraded: 0,
+                usageSnapshotsAccepted: 0,
+                usageSnapshotRegressions: 0
+              }
+            }),
+            { status: 200, headers: { "content-type": "application/json" } }
+          )
+        : new Response("unavailable", { status: versionStatus })
+    );
+    const client = new AgentHostClient({
+      serverUrl: `http://127.0.0.1:${port}`,
+      hostId: "host-client-negotiation",
+      workspaceId: "workspace-client",
+      token: "host-token",
+      capabilities: ["test"],
+      capacity: 1,
+      state,
+      executor: { execute: vi.fn() },
+      request,
+      allowInsecureTransport: true
+    });
+    clients.push(client);
+
+    client.start();
+    await vi.waitFor(() => expect(client.status().state).toBe("connected"));
+    expect(setVersion.mock.calls.map(([version]) => version)).toEqual([1, 2]);
+    await client.stop();
+
+    versionStatus = 503;
+    client.start();
+    await vi.waitFor(() => {
+      expect(request).toHaveBeenCalledTimes(2);
+      expect(client.status().state).toBe("connected");
+    });
+    expect(setVersion.mock.calls.map(([version]) => version)).toEqual([1, 2, 1]);
+  });
+
+  it("cancels in-flight protocol discovery without opening a WebSocket", async () => {
+    const httpServer = createServer();
+    httpServers.push(httpServer);
+    const webSocketServer = new WebSocketServer({ server: httpServer });
+    webSocketServers.push(webSocketServer);
+    const connection = vi.fn();
+    webSocketServer.on("connection", connection);
+    const port = await listen(httpServer);
+    const state = await openState();
+    const discoveryStarted = deferred<void>();
+    const discoveryAborted = deferred<void>();
+    const lateResponse = deferred<Response>();
+    const request = vi.fn(
+      async (_input: string | URL | globalThis.Request, init?: RequestInit): Promise<Response> => {
+        discoveryStarted.resolve();
+        return await new Promise<Response>((resolve, reject) => {
+          const abort = () => {
+            discoveryAborted.resolve();
+            reject(new DOMException("The operation was aborted.", "AbortError"));
+          };
+          init?.signal?.addEventListener("abort", abort, { once: true });
+          lateResponse.promise.then(resolve, reject);
+        });
+      }
+    );
+    const client = new AgentHostClient({
+      serverUrl: `http://127.0.0.1:${port}`,
+      hostId: "host-client-cancel-discovery",
+      workspaceId: "workspace-client",
+      token: "host-token",
+      capabilities: ["test"],
+      capacity: 1,
+      state,
+      executor: { execute: vi.fn() },
+      request,
+      allowInsecureTransport: true
+    });
+    clients.push(client);
+
+    client.start();
+    await discoveryStarted.promise;
+    await client.stop();
+    await discoveryAborted.promise;
+    lateResponse.resolve(
+      new Response(
+        JSON.stringify({
+          remoteRunnerEvents: {
+            available: true,
+            acceptedVersions: [1, 2],
+            preferredVersion: 2
+          }
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(client.status().state).toBe("stopped");
+    expect(connection).not.toHaveBeenCalled();
+  });
+
   it("requires secure transport unless loopback development is explicit", async () => {
     const state = await openState();
     const executor: AgentHostExecutor = {

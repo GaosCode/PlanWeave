@@ -31,6 +31,7 @@ import type {
   AgentHostWorkspaceResolver,
   ResolvedAgentHostAcpProfile
 } from "./remoteAcpPorts.js";
+import { agentHostRemoteEngineEventSchema } from "./remoteAcpPorts.js";
 import { agentHostPackageVersion } from "../packageInfo.js";
 import { prepareInputArtifacts } from "./inputArtifactWorkspace.js";
 
@@ -361,7 +362,17 @@ export class RemoteAcpExecutor implements AgentHostExecutor {
             }
           },
           eventSink: async (event) => {
-            await this.options.outbox.append({ kind: "engine_event", identity, event });
+            if (
+              event.kind === "session_update" &&
+              (event.body.kind === "artifact" || event.body.kind === "terminal")
+            ) {
+              return;
+            }
+            await this.options.outbox.append({
+              kind: "engine_event",
+              identity,
+              event: agentHostRemoteEngineEventSchema.parse(event)
+            });
             if (
               context.sessionStart.kind === "load" &&
               event.kind === "session_started" &&

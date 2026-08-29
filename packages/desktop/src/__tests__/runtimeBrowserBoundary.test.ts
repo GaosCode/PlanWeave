@@ -70,6 +70,41 @@ describe("runtime browser boundary", () => {
     }
   });
 
+  it("allows only the Agent Host protocol browser entry", async () => {
+    const fixtureDir = await mkdtemp(resolve(tmpdir(), "planweave-browser-protocol-boundary-"));
+    const runtimeEntry = resolve(fixtureDir, "browser.ts");
+    const rendererDir = resolve(fixtureDir, "renderer");
+    await mkdir(rendererDir);
+    await writeFile(
+      runtimeEntry,
+      'export { runnerBodyFragmentSchema } from "@planweave-ai/agent-host-protocol/browser";\n'
+    );
+    await writeFile(resolve(rendererDir, "empty.ts"), "export {};\n");
+    const environment = {
+      ...process.env,
+      PLANWEAVE_BROWSER_BOUNDARY_RUNTIME_ENTRY: runtimeEntry,
+      PLANWEAVE_BROWSER_BOUNDARY_RENDERER_SRC: rendererDir
+    };
+
+    try {
+      await expect(
+        execFileAsync(process.execPath, [boundaryScript], { cwd: repoRoot, env: environment })
+      ).resolves.toMatchObject({ stderr: "" });
+
+      await writeFile(
+        runtimeEntry,
+        'export { runnerBodyFragmentSchema } from "@planweave-ai/agent-host-protocol";\n'
+      );
+      await expect(
+        execFileAsync(process.execPath, [boundaryScript], { cwd: repoRoot, env: environment })
+      ).rejects.toMatchObject({
+        stderr: expect.stringContaining("@planweave-ai/agent-host-protocol")
+      });
+    } finally {
+      await rm(fixtureDir, { recursive: true, force: true });
+    }
+  });
+
   it("rejects renderer value imports from the Node runtime entry", async () => {
     const fixtureDir = await mkdtemp(resolve(tmpdir(), "planweave-renderer-boundary-"));
     const runtimeEntry = resolve(fixtureDir, "browser.ts");

@@ -4,6 +4,7 @@ import type {
   RemoteInteractionView,
   RemoteOperationObservation
 } from "@planweave-ai/collaboration-protocol/remote-run";
+import type { ProjectedRemoteAcpEvent } from "@planweave-ai/runtime";
 import {
   adaptRemoteAcpEvents,
   buildRemoteActionIdentity,
@@ -69,6 +70,33 @@ function observation(
   };
 }
 
+function projectedMessage(
+  cursor: number,
+  summary: string,
+  overrides: Partial<ProjectedRemoteAcpEvent> = {}
+): ProjectedRemoteAcpEvent {
+  return {
+    eventProtocolVersion: 1,
+    executionAttemptId: "attempt-1",
+    cursor,
+    sourceSequence: cursor,
+    timestamp: "1970-01-01T00:00:00.000Z",
+    kind: "agent_message",
+    summary,
+    body: {
+      kind: "message",
+      role: "assistant",
+      messageId: null,
+      chunk: true,
+      content: summary,
+      redaction: { state: "clear", reasons: [], matchedKeyCount: 0 }
+    },
+    engineEvidence: null,
+    engineTerminal: null,
+    ...overrides
+  };
+}
+
 describe("remoteRunViewModels", () => {
   it("exposes an explicit action/state table", () => {
     expect(REMOTE_RUN_ACTION_STATE_TABLE.length).toBeGreaterThanOrEqual(6);
@@ -98,7 +126,9 @@ describe("remoteRunViewModels", () => {
       assignment: assignment(),
       observerRun: null,
       pendingInteractions: [],
+      eventProtocolVersion: null,
       events: [],
+      replayDiagnostics: [],
       eventCursor: 0,
       eventsHasMore: false,
       authorized: true,
@@ -148,15 +178,15 @@ describe("remoteRunViewModels", () => {
   it("dedupes and orders ACP events by cursor", () => {
     const adapted = adaptRemoteAcpEvents(
       [
-        { cursor: 3, kind: "agent_message", text: "third" },
-        { cursor: 1, kind: "agent_message", text: "first" },
-        { cursor: 2, kind: "agent_message", text: "second-old" },
-        { cursor: 2, kind: "agent_message", text: "second-new" }
+        projectedMessage(3, "third"),
+        projectedMessage(1, "first"),
+        projectedMessage(2, "second-old"),
+        projectedMessage(2, "second-new")
       ],
       { afterCursor: 0 }
     );
     expect(adapted.map((e) => e.cursor)).toEqual([1, 2, 3]);
-    expect(adapted[1]).toMatchObject({ text: "second-new" });
+    expect(adapted[1]).toMatchObject({ summary: "second-new" });
   });
 
   it("gates dispatch only on explicit Endpoint availability", () => {
@@ -166,7 +196,9 @@ describe("remoteRunViewModels", () => {
       assignment: assignment(),
       observerRun: null,
       pendingInteractions: [],
+      eventProtocolVersion: null,
       events: [],
+      replayDiagnostics: [],
       eventCursor: 0,
       eventsHasMore: false,
       authorized: true,
