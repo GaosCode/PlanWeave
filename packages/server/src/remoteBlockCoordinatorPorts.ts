@@ -21,6 +21,7 @@ import type {
   RemoteExecutionActionRequest,
   RemoteExecutionLifecycleSnapshot
 } from "./remoteExecutionLifecycle.js";
+import type { RuntimeContentTargetAuthorityPort } from "./canvas/runtimeContentTargetPort.js";
 
 export type RemoteCoordinatorCheckpoint =
   | "before_operation_commit"
@@ -51,6 +52,8 @@ export type RemoteRuntimeLocator = {
   projectId: string;
   canvasId: string;
 };
+
+export type RemoteRuntimeContentTargetPort = RuntimeContentTargetAuthorityPort;
 
 /** Project a domain record onto the exact Runtime lease scope contract. */
 export function remoteRuntimeLocator(locator: RemoteRuntimeLocator): RemoteRuntimeLocator {

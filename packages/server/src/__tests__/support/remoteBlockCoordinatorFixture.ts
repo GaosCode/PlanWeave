@@ -93,6 +93,9 @@ export async function setup(
       leaseDurationMs: 60_000,
       hostOfflineAfterMs: 60_000,
       runtimeLeases: registry,
+      runtimeContentTargets: {
+        read: () => ({ revision: 1, graphFingerprint: runtimeCandidate.graphFingerprint })
+      },
       inputArtifacts: { materialize },
       artifactContent: { readReport: async (ref) => artifacts.read(ref) },
       ownerEndpointScopeAuthorized: (scope) =>

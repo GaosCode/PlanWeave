@@ -14,8 +14,10 @@ import { ensureRuntimeAttachmentForOperation } from "./canvas/runtimeAttachment.
 import type {
   RemoteArtifactContentPort,
   RemoteCoordinatorCheckpointPort,
-  RemoteInputArtifactPort
+  RemoteInputArtifactPort,
+  RemoteRuntimeContentTargetPort
 } from "./remoteBlockCoordinatorPorts.js";
+import { CanvasRuntimeOperationAttachmentRepository } from "./canvas/runtimeOperationAttachmentRepository.js";
 import type { CanvasExecutionRuntimeRoutePort } from "./canvas/executionRuntimePort.js";
 import {
   SqliteRemoteDispatchPersistence,
@@ -68,6 +70,7 @@ export type RemoteBlockCoordinationOptions = {
   }): boolean;
   /** Idempotent Host evidence → Server Runtime projection after workspace attach. */
   ensureRuntimeProjection?: RemoteBlockCoordinatorOptions["ensureRuntimeProjection"];
+  runtimeContentTargets?: RemoteRuntimeContentTargetPort;
   eventRetentionMaxEvents?: number;
   eventRetentionMaxBytes?: number;
   /**
@@ -98,6 +101,12 @@ export function createRemoteBlockCoordination(
   const hosts = new AgentHostRepository(database, clock, (host) => {
     syncRemoteAgentsFromHost({ database, host, clock });
   });
+  const runtimeOperationAttachments = new CanvasRuntimeOperationAttachmentRepository(
+    database,
+    hosts,
+    clock,
+    options.runtimeContentTargets
+  );
   const mailbox = new DurableMailbox(database);
   const artifactAuthorization = new ArtifactAuthorizationRepository(database);
   const operations = new RemoteOperationRepository(database, options.clock);
@@ -373,12 +382,17 @@ export function createRemoteBlockCoordination(
     },
     ensureRuntimeAttachment: (input) =>
       ensureRuntimeAttachmentForOperation(
-        { bindings: hosts.runtimeBindings, database, clock },
+        { attachments: runtimeOperationAttachments, database, clock },
         input
       ),
+    ...(options.runtimeContentTargets
+      ? { runtimeContentTargets: options.runtimeContentTargets }
+      : {}),
     ...(options.ensureRuntimeProjection
       ? { ensureRuntimeProjection: options.ensureRuntimeProjection }
       : {}),
+    confirmRuntimeMaterializedRoute: (input) =>
+      hosts.runtimeBindings.confirmMaterializedRouteHost(input),
     serverInstanceOwnerToken: startupContext.serverInstanceOwnerToken,
     humanIdentity
   });
@@ -435,6 +449,7 @@ export function createRemoteBlockCoordination(
     hosts,
     mailbox,
     artifactAuthorization,
+    runtimeOperationAttachments,
     operations,
     actions,
     acpEvents,

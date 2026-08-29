@@ -481,17 +481,43 @@ export async function startPathlessCompositionWithGrantedHost(options: {
     listRuntimeBindings() {
       return database
         .prepare(
-          `SELECT host_id,readiness_status,operation_id,execution_attempt_id,host_generation
+          `SELECT host_id,readiness_status,route_selected
            FROM canvas_runtime_host_bindings
            WHERE workspace_id=? AND project_id=? ORDER BY host_id`
         )
         .all(workspaceId, projectId) as Array<{
         host_id: string;
         readiness_status: string;
-        operation_id: string | null;
-        execution_attempt_id: string | null;
-        host_generation: string | null;
+        route_selected: number;
       }>;
+    },
+    listRuntimeAttachments() {
+      return database
+        .prepare(
+          `SELECT operation_id,execution_attempt_id,host_id,host_generation,
+             content_revision,graph_fingerprint,reservation_lease_id
+           FROM canvas_runtime_operation_attachments
+           WHERE workspace_id=? AND project_id=? AND canvas_id=?
+           ORDER BY attached_at,operation_id,execution_attempt_id`
+        )
+        .all(workspaceId, projectId, canvasId) as Array<{
+        operation_id: string;
+        execution_attempt_id: string;
+        host_id: string;
+        host_generation: string;
+        content_revision: number;
+        graph_fingerprint: string;
+        reservation_lease_id: string;
+      }>;
+    },
+    contentHeadRevision() {
+      const row = database
+        .prepare(
+          `SELECT revision FROM canvas_content_heads
+           WHERE workspace_id=? AND project_id=? AND canvas_id=?`
+        )
+        .get(workspaceId, projectId, canvasId) as { revision: number } | undefined;
+      return row?.revision;
     },
     seedPeerRuntimeLease() {
       const peer = hosts.register("Peer Lease Host").host;

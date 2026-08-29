@@ -16,41 +16,28 @@ import type { RuntimeCanvasScope } from "./executionRuntimePort.js";
 export type CanvasRuntimeHostBinding = Omit<RuntimeCanvasScope, "canvasId"> & {
   hostId: string;
   readinessStatus: HostRuntimeProjectObservation["status"];
+  routeSelected: boolean;
   firstObservedAt: string;
   lastObservedAt: string;
-  operationId?: string;
-  executionAttemptId?: string;
-  hostGeneration?: string;
-  contentRevision?: number;
-  graphFingerprint?: string;
 };
 
-export type CanvasRuntimeOperationAttachmentInput = {
+export type CanvasRuntimeMaterializedRouteInput = {
   workspaceId: string;
   projectId: string;
   hostId: string;
-  hostGeneration: string;
-  operationId?: string;
-  executionAttemptId?: string;
-  contentRevision?: number;
-  graphFingerprint?: string;
 };
 
-const bindingSelectColumns = `workspace_id,project_id,host_id,readiness_status,first_observed_at,last_observed_at,
-         operation_id,execution_attempt_id,host_generation,content_revision,graph_fingerprint`;
+const bindingSelectColumns = `workspace_id,project_id,host_id,readiness_status,route_selected,
+         first_observed_at,last_observed_at`;
 
 type BindingRow = {
   workspace_id: string;
   project_id: string;
   host_id: string;
   readiness_status: HostRuntimeProjectObservation["status"];
+  route_selected: number;
   first_observed_at: string;
   last_observed_at: string;
-  operation_id: string | null;
-  execution_attempt_id: string | null;
-  host_generation: string | null;
-  content_revision: number | null;
-  graph_fingerprint: string | null;
 };
 
 function toBinding(row: BindingRow): CanvasRuntimeHostBinding {
@@ -59,15 +46,9 @@ function toBinding(row: BindingRow): CanvasRuntimeHostBinding {
     projectId: row.project_id,
     hostId: row.host_id,
     readinessStatus: row.readiness_status,
+    routeSelected: row.route_selected === 1,
     firstObservedAt: row.first_observed_at,
-    lastObservedAt: row.last_observed_at,
-    ...(row.operation_id ? { operationId: row.operation_id } : {}),
-    ...(row.execution_attempt_id ? { executionAttemptId: row.execution_attempt_id } : {}),
-    ...(row.host_generation ? { hostGeneration: row.host_generation } : {}),
-    ...(row.content_revision !== null && row.content_revision !== undefined
-      ? { contentRevision: Number(row.content_revision) }
-      : {}),
-    ...(row.graph_fingerprint ? { graphFingerprint: row.graph_fingerprint } : {})
+    lastObservedAt: row.last_observed_at
   };
 }
 
@@ -88,7 +69,7 @@ export class CanvasRuntimeHostBindingRepository {
       .prepare(
         `UPDATE canvas_runtime_host_bindings
          SET readiness_status='missing',last_observed_at=?
-         WHERE host_id=? AND operation_id IS NULL`
+         WHERE host_id=?`
       )
       .run(observedAt, hostId);
     for (const observation of observations ?? []) {
@@ -108,8 +89,7 @@ export class CanvasRuntimeHostBindingRepository {
         this.database
           .prepare(
             `UPDATE canvas_runtime_host_bindings
-             SET readiness_status='missing',last_observed_at=?,
-                 operation_id=NULL,execution_attempt_id=NULL
+             SET readiness_status='missing',last_observed_at=?
              WHERE host_id=? AND workspace_id=? AND project_id=?`
           )
           .run(observedAt, hostId, workspaceId, observation.projectId);
@@ -128,33 +108,22 @@ export class CanvasRuntimeHostBindingRepository {
   }
 
   /**
-   * Operation-scoped attachment or an active Runtime/capacity lease fences the
-   * project to one Host. Observation must not insert a second ready Host.
+   * A confirmed materialized route or an active Runtime/capacity lease fences
+   * the project to one Host. Observation must not reactivate another Host.
    */
   private fencedReadyHostId(
     workspaceId: string,
     projectId: string,
     nowIso: string
   ): string | undefined {
-    const attached = this.database
+    const selected = this.database
       .prepare(
-        `SELECT binding.host_id
-         FROM canvas_runtime_host_bindings binding
-         LEFT JOIN remote_operations operation ON operation.id=binding.operation_id
-         WHERE binding.workspace_id=? AND binding.project_id=? AND binding.operation_id IS NOT NULL
-         ORDER BY
-           CASE
-             WHEN operation.state NOT IN ('completed','failed','cancelled') THEN 0
-             WHEN operation.id IS NOT NULL THEN 1
-             ELSE 2
-           END,
-           operation.created_at DESC,
-           binding.first_observed_at DESC,
-           binding.host_id
+        `SELECT host_id FROM canvas_runtime_host_bindings
+         WHERE workspace_id=? AND project_id=? AND route_selected=1
          LIMIT 1`
       )
       .get(workspaceId, projectId) as { host_id: string } | undefined;
-    if (attached) return attached.host_id;
+    if (selected) return selected.host_id;
     const runtimeLease = this.database
       .prepare(
         `SELECT host_id FROM canvas_runtime_leases
@@ -198,63 +167,34 @@ export class CanvasRuntimeHostBindingRepository {
     return rows.map(toBinding);
   }
 
-  upsertOperationAttachment(
-    input: CanvasRuntimeOperationAttachmentInput
+  confirmMaterializedRouteHost(
+    input: CanvasRuntimeMaterializedRouteInput
   ): CanvasRuntimeHostBinding {
     this.hosts.getRequired(input.hostId);
     const workspaceId = workspaceIdSchema.parse(input.workspaceId);
     const projectId = opaqueIdentifierSchema.parse(input.projectId);
     const hostId = opaqueIdentifierSchema.parse(input.hostId);
-    const hostGeneration = opaqueIdentifierSchema.parse(input.hostGeneration);
-    const operationId =
-      input.operationId === undefined ? undefined : opaqueIdentifierSchema.parse(input.operationId);
-    const executionAttemptId =
-      input.executionAttemptId === undefined
-        ? undefined
-        : opaqueIdentifierSchema.parse(input.executionAttemptId);
     const observedAt = this.clock().toISOString();
     return inWriteTransaction(this.database, () => {
       this.database
         .prepare(
-          `INSERT INTO canvas_runtime_host_bindings(
-             workspace_id,project_id,host_id,readiness_status,first_observed_at,last_observed_at,
-             operation_id,execution_attempt_id,host_generation,content_revision,graph_fingerprint
-           ) VALUES (?,?,?,'ready',?,?,?,?,?,?,?)
-           ON CONFLICT(workspace_id,project_id,host_id) DO UPDATE SET
-             readiness_status='ready',
-             last_observed_at=excluded.last_observed_at,
-             operation_id=COALESCE(excluded.operation_id,canvas_runtime_host_bindings.operation_id),
-             execution_attempt_id=COALESCE(
-               excluded.execution_attempt_id,canvas_runtime_host_bindings.execution_attempt_id
-             ),
-             host_generation=excluded.host_generation,
-             content_revision=COALESCE(
-               excluded.content_revision,canvas_runtime_host_bindings.content_revision
-             ),
-             graph_fingerprint=COALESCE(
-               excluded.graph_fingerprint,canvas_runtime_host_bindings.graph_fingerprint
-             )`
-        )
-        .run(
-          workspaceId,
-          projectId,
-          hostId,
-          observedAt,
-          observedAt,
-          operationId ?? null,
-          executionAttemptId ?? null,
-          hostGeneration,
-          input.contentRevision ?? null,
-          input.graphFingerprint ?? null
-        );
-      this.database
-        .prepare(
           `UPDATE canvas_runtime_host_bindings
-           SET readiness_status='missing',last_observed_at=?,
-               operation_id=NULL,execution_attempt_id=NULL
+           SET readiness_status='missing',route_selected=0,last_observed_at=?
            WHERE workspace_id=? AND project_id=? AND host_id!=?`
         )
         .run(observedAt, workspaceId, projectId, hostId);
+      this.database
+        .prepare(
+          `INSERT INTO canvas_runtime_host_bindings(
+             workspace_id,project_id,host_id,readiness_status,route_selected,
+             first_observed_at,last_observed_at
+           ) VALUES (?,?,?,'ready',1,?,?)
+           ON CONFLICT(workspace_id,project_id,host_id) DO UPDATE SET
+             readiness_status='ready',
+             route_selected=1,
+             last_observed_at=excluded.last_observed_at`
+        )
+        .run(workspaceId, projectId, hostId, observedAt, observedAt);
       const row = this.database
         .prepare(
           `SELECT ${bindingSelectColumns}

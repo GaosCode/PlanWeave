@@ -180,22 +180,21 @@ async function setupInterruptedV3EndpointOperation(idempotencyKey: string) {
   return { fixture, operation: fixture.operations.getRequired(dispatched.operation.id), endpoint };
 }
 
-function listRuntimeBindings(
+function listRuntimeAttachments(
   database: SqliteDatabase,
   scope: { workspaceId: string; projectId: string }
 ) {
   return database
     .prepare(
-      `SELECT host_id,readiness_status,operation_id,execution_attempt_id,host_generation
-       FROM canvas_runtime_host_bindings
-       WHERE workspace_id=? AND project_id=? ORDER BY host_id`
+      `SELECT host_id,operation_id,execution_attempt_id,host_generation
+       FROM canvas_runtime_operation_attachments
+       WHERE workspace_id=? AND project_id=? ORDER BY attached_at,execution_attempt_id`
     )
     .all(scope.workspaceId, scope.projectId) as Array<{
     host_id: string;
-    readiness_status: string;
-    operation_id: string | null;
-    execution_attempt_id: string | null;
-    host_generation: string | null;
+    operation_id: string;
+    execution_attempt_id: string;
+    host_generation: string;
   }>;
 }
 
@@ -785,7 +784,7 @@ describe("RemoteBlockCoordinator", () => {
         .prepare("SELECT COUNT(*) AS count FROM remote_execution_attempts WHERE operation_id=?")
         .get(operation.id)
     ).toEqual({ count: 1 });
-    expect(listRuntimeBindings(fixture.server.database, fixture.locator)).toEqual([
+    expect(listRuntimeAttachments(fixture.server.database, fixture.locator)).toEqual([
       expect.objectContaining({
         host_id: fixture.host.id,
         operation_id: operation.id,
@@ -813,15 +812,23 @@ describe("RemoteBlockCoordinator", () => {
     expect(retried.endpointSelection).toEqual(operation.endpointSelection);
     expect(retried.endpointSelection?.endpointId).toBe(endpoint.endpointId);
     expect(retried.attempt.hostId).toBe(operation.endpointSelection?.hostId);
-    expect(listRuntimeBindings(fixture.server.database, fixture.locator)).toEqual([
-      expect.objectContaining({
-        host_id: fixture.host?.id,
-        host_generation: fixture.host?.id,
-        operation_id: retried.id,
-        execution_attempt_id: retried.executionAttemptId,
-        readiness_status: "ready"
-      })
-    ]);
+    expect(listRuntimeAttachments(fixture.server.database, fixture.locator)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          host_id: fixture.host?.id,
+          host_generation: fixture.host?.id,
+          operation_id: retried.id,
+          execution_attempt_id: operation.executionAttemptId
+        }),
+        expect.objectContaining({
+          host_id: fixture.host?.id,
+          host_generation: fixture.host?.id,
+          operation_id: retried.id,
+          execution_attempt_id: retried.executionAttemptId
+        })
+      ])
+    );
+    expect(listRuntimeAttachments(fixture.server.database, fixture.locator)).toHaveLength(2);
     expect(retried.executionAttemptId).toBe("attempt-v3-retry-same-endpoint");
   });
 
@@ -829,13 +836,12 @@ describe("RemoteBlockCoordinator", () => {
     const { fixture, operation } =
       await setupInterruptedV3EndpointOperation("v3-retry-active-lease");
     if (!fixture.host) throw new Error("expected_test_host");
-    const original = listRuntimeBindings(fixture.server.database, fixture.locator);
+    const original = listRuntimeAttachments(fixture.server.database, fixture.locator);
     expect(original).toEqual([
       expect.objectContaining({
         host_id: fixture.host.id,
         operation_id: operation.id,
-        execution_attempt_id: operation.executionAttemptId,
-        readiness_status: "ready"
+        execution_attempt_id: operation.executionAttemptId
       })
     ]);
     const peer = fixture.hosts.register("Peer Lease Host").host;
@@ -867,7 +873,7 @@ describe("RemoteBlockCoordinator", () => {
         reason: "peer lease must fail closed"
       })
     ).rejects.toThrow(CanvasRuntimeAttachmentConflictError);
-    expect(listRuntimeBindings(fixture.server.database, fixture.locator)).toEqual(original);
+    expect(listRuntimeAttachments(fixture.server.database, fixture.locator)).toEqual(original);
   });
 
   it("rejects v3 reentry on a stale Endpoint without changing the durable attempt", async () => {

@@ -222,20 +222,33 @@ describe("workspace execution plane HTTP gaps", () => {
         })
       )
     });
-    expect(dispatched.status).toBe(202);
-    await expect(dispatched.json()).resolves.toMatchObject({
-      agentEndpoint: { endpointId: fixture.endpointId }
+    const dispatchedBody = await dispatched.json();
+    expect({
+      status: dispatched.status,
+      body: dispatchedBody
+    }).toMatchObject({
+      status: 202,
+      body: { agentEndpoint: { endpointId: fixture.endpointId } }
     });
     expect(fixture.listRuntimeBindings()).toEqual([
       expect.objectContaining({
         host_id: fixture.hostId,
         readiness_status: "ready",
-        host_generation: fixture.hostId,
-        operation_id: expect.any(String),
-        execution_attempt_id: expect.any(String)
+        route_selected: 1
       })
     ]);
-    expect(fixture.listRuntimeBindings()[0]?.operation_id).not.toBeNull();
+    expect(fixture.listRuntimeBindings()[0]).not.toHaveProperty("operation_id");
+    expect(fixture.listRuntimeAttachments()).toEqual([
+      expect.objectContaining({
+        operation_id: expect.any(String),
+        execution_attempt_id: expect.any(String),
+        host_id: fixture.hostId,
+        host_generation: fixture.hostId,
+        content_revision: fixture.contentHeadRevision(),
+        graph_fingerprint: fixture.contentGraphFingerprint,
+        reservation_lease_id: expect.any(String)
+      })
+    ]);
     const availability = await fetch(
       `${fixture.origin}/api/v1/projects/${fixture.projectId}/canvases/${fixture.canvasId}/runtime-availability`,
       { headers: { Authorization: `Bearer ${fixture.ownerToken}` } }

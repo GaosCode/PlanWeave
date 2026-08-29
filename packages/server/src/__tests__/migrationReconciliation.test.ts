@@ -39,6 +39,7 @@ async function openDatabaseAtV26(): Promise<SqliteDatabase> {
     "canvas_workspace_publish_operations",
     "canvas_runtime_artifact_grants",
     "canvas_runtime_leases",
+    "canvas_runtime_operation_attachments",
     "canvas_runtime_host_bindings",
     "server_exposure_leases",
     "setup_code_host_enrollment_outcomes",
@@ -92,6 +93,9 @@ async function openDatabaseAtV53(): Promise<SqliteDatabase> {
     DROP TABLE IF EXISTS agent_host_remote_agent_defaults;
     DROP TABLE canvas_runtime_reset_operations;
     DROP TABLE canvas_workspace_publish_operations;
+    DROP TABLE canvas_runtime_operation_attachments;
+    DROP INDEX idx_canvas_runtime_host_binding_selected_route;
+    ALTER TABLE canvas_runtime_host_bindings DROP COLUMN route_selected;
     ALTER TABLE canvas_runtime_status_snapshots DROP COLUMN runtime_revision;
     DELETE FROM schema_migrations WHERE version >= 54;
   `);
@@ -202,7 +206,7 @@ describe("collaboration migration reconciliation", () => {
       { name: "host-credential-lifecycle", versions: [47] },
       { name: "host-installation-identity", versions: [48] },
       { name: "remote-operation-retention", versions: [49] },
-      { name: "canvas-runtime-host-binding", versions: [51, 62] },
+      { name: "canvas-runtime-host-binding", versions: [51, 62, 64] },
       { name: "canvas-runtime-artifact-grant", versions: [52] },
       { name: "canvas-runtime-status", versions: [53] },
       { name: "canvas-runtime-revision", versions: [56] },
@@ -210,7 +214,7 @@ describe("collaboration migration reconciliation", () => {
       { name: "remote-agent-registry", versions: [57, 58, 59, 60, 61] },
       { name: "remote-operation-diagnostics", versions: [63] }
     ]);
-    expect(latestCentralSchemaVersion).toBe(63);
+    expect(latestCentralSchemaVersion).toBe(64);
   });
 
   it("upgrades a representative v53 database through v58 exactly once", async () => {
@@ -244,7 +248,7 @@ describe("collaboration migration reconciliation", () => {
 
     applyMigrations(database);
 
-    expect(centralSchemaVersion(database)).toBe(63);
+    expect(centralSchemaVersion(database)).toBe(64);
     expect(
       database
         .prepare(

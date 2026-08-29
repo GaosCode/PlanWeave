@@ -70,13 +70,9 @@ describe("CanvasRuntimeHostLocator", () => {
       "project_id",
       "host_id",
       "readiness_status",
+      "route_selected",
       "first_observed_at",
-      "last_observed_at",
-      "operation_id",
-      "execution_attempt_id",
-      "host_generation",
-      "content_revision",
-      "graph_fingerprint"
+      "last_observed_at"
     ]);
   });
 
@@ -209,19 +205,16 @@ describe("CanvasRuntimeHostLocator", () => {
     });
   });
 
-  it("does not insert a second ready Host while an operation-scoped attachment exists", async () => {
+  it("does not insert a second ready Host while a materialized route is selected", async () => {
     const fixture = await setup();
     const first = fixture.hosts.register("Attached").host;
     const observer = fixture.hosts.register("Observer").host;
     fixture.report(first.id);
     fixture.active.add(first.id);
-    fixture.hosts.runtimeBindings.upsertOperationAttachment({
+    fixture.hosts.runtimeBindings.confirmMaterializedRouteHost({
       workspaceId: scope.workspaceId,
       projectId: scope.projectId,
-      hostId: first.id,
-      hostGeneration: first.id,
-      operationId: "operation-fenced",
-      executionAttemptId: "attempt-fenced"
+      hostId: first.id
     });
     fixture.report(observer.id);
     fixture.active.add(observer.id);
@@ -237,30 +230,24 @@ describe("CanvasRuntimeHostLocator", () => {
     const second = fixture.hosts.register("Second attachment").host;
     fixture.report(first.id);
     fixture.active.add(first.id);
-    fixture.hosts.runtimeBindings.upsertOperationAttachment({
+    fixture.hosts.runtimeBindings.confirmMaterializedRouteHost({
       workspaceId: scope.workspaceId,
       projectId: scope.projectId,
-      hostId: first.id,
-      hostGeneration: first.id,
-      operationId: "operation-first",
-      executionAttemptId: "attempt-first"
+      hostId: first.id
     });
 
     fixture.advanceTo("2026-08-20T01:01:00.000Z");
     fixture.report(second.id);
-    fixture.hosts.runtimeBindings.upsertOperationAttachment({
+    fixture.hosts.runtimeBindings.confirmMaterializedRouteHost({
       workspaceId: scope.workspaceId,
       projectId: scope.projectId,
-      hostId: second.id,
-      hostGeneration: second.id,
-      operationId: "operation-second",
-      executionAttemptId: "attempt-second"
+      hostId: second.id
     });
     fixture.active.add(second.id);
     fixture.database
       .prepare(
         `UPDATE canvas_runtime_host_bindings
-         SET readiness_status='ready',operation_id='operation-first',execution_attempt_id='attempt-first'
+         SET readiness_status='ready'
          WHERE workspace_id=? AND project_id=? AND host_id=?`
       )
       .run(scope.workspaceId, scope.projectId, first.id);
@@ -278,8 +265,7 @@ describe("CanvasRuntimeHostLocator", () => {
       expect.objectContaining({
         hostId: second.id,
         readinessStatus: "ready",
-        operationId: "operation-second",
-        executionAttemptId: "attempt-second"
+        routeSelected: true
       })
     ]);
     expect(bindings[0]).not.toHaveProperty("operationId");

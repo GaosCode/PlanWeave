@@ -156,6 +156,9 @@ export async function createDistributedServerComposition(
           clock,
           ownerRuntimeLeases: authoritativeExecutionRuntime,
           ownerRuntimeAvailability: ownerExecutionRuntime,
+          runtimeContentTargets: {
+            read: (scope) => readStableCanvasRuntimeContentTarget(contentVersions, scope)
+          },
           activity,
           getAuthorization: () => authorization,
           getHumanIdentity: () => humanIdentityForInteractions,

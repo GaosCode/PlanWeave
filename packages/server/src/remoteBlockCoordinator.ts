@@ -34,6 +34,7 @@ import {
   type CanvasExecutionRuntimeRoutePort
 } from "./canvas/executionRuntimePort.js";
 import type { RuntimeAttachmentRequest } from "./canvas/runtimeAttachment.js";
+import { attachWorkspaceRuntimeForAcceptedOperation } from "./remoteRuntimeAttachmentCoordinator.js";
 import { HostReservationRepository, type HostCapacityReservation } from "./hostReservations.js";
 import { RemoteOperationRepository, type RemoteOperation } from "./remoteOperations.js";
 import {
@@ -164,6 +165,7 @@ export type RemoteBlockCoordinatorOptions = {
   }) => OwnerPackageLocator | undefined;
   /** Server-internal Canvas Runtime routing after authorize/reserve. Not a Desktop Host. */
   ensureRuntimeAttachment?: (input: RuntimeAttachmentRequest) => void;
+  runtimeContentTargets?: import("./remoteBlockCoordinatorPorts.js").RemoteRuntimeContentTargetPort;
   /**
    * Idempotent Host evidence → Server Runtime projection after attach.
    * Shares the initialize coordinator persist writer; never resets Host state.
@@ -171,6 +173,11 @@ export type RemoteBlockCoordinatorOptions = {
   ensureRuntimeProjection?: (
     input: RuntimeAttachmentRequest & { lease: CanvasExecutionRuntimeLease }
   ) => void | Promise<void>;
+  confirmRuntimeMaterializedRoute?: (input: {
+    workspaceId: string;
+    projectId: string;
+    hostId: string;
+  }) => void;
   serverInstanceOwnerToken: string;
   humanIdentity: HumanPrincipalIdentity;
 };
@@ -623,25 +630,24 @@ export class RemoteBlockCoordinator {
       this.options.ensureRuntimeAttachment &&
       operation.endpointSelection?.authority.kind === "workspace_canvas"
     ) {
+      const runtimeContentTargets = this.options.runtimeContentTargets;
+      if (!runtimeContentTargets) throw new Error("runtime_content_target_port_missing");
       this.options.operations.recordDiagnosticStage(operation.id, "attaching_runtime");
-      this.options.ensureRuntimeAttachment({
-        workspaceId: operation.workspaceId,
-        projectId: operation.projectId,
-        canvasId: operation.canvasId,
-        hostId: reservation.hostId,
-        operationId: operation.id,
-        executionAttemptId: operation.executionAttemptId,
-        graphFingerprint: operation.sourceFingerprint
-      });
-      await this.options.ensureRuntimeProjection?.({
-        workspaceId: operation.workspaceId,
-        projectId: operation.projectId,
-        canvasId: operation.canvasId,
-        hostId: reservation.hostId,
-        operationId: operation.id,
-        executionAttemptId: operation.executionAttemptId,
-        graphFingerprint: operation.sourceFingerprint,
-        lease: runtimeLease
+      await attachWorkspaceRuntimeForAcceptedOperation({
+        operation,
+        candidate,
+        reservation,
+        lease: runtimeLease,
+        ports: {
+          contentTargets: runtimeContentTargets,
+          record: this.options.ensureRuntimeAttachment,
+          ...(this.options.ensureRuntimeProjection
+            ? { project: this.options.ensureRuntimeProjection }
+            : {}),
+          ...(this.options.confirmRuntimeMaterializedRoute
+            ? { confirmMaterializedRoute: this.options.confirmRuntimeMaterializedRoute }
+            : {})
+        }
       });
     }
     this.options.operations.recordDiagnosticStage(operation.id, "dispatching");

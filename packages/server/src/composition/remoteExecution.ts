@@ -35,6 +35,7 @@ import type {
 import type { WorkRuntimePackageFactsPort } from "../work/runtimePort.js";
 import { ContentAlignedWorkRuntimeFactsAdapter } from "../work/runtimeFactsAdapters.js";
 import { ContentVersionRepository } from "../canvas/contentVersionRepository.js";
+import type { RemoteRuntimeContentTargetPort } from "../remoteBlockCoordinatorPorts.js";
 
 export function createRemoteCoordinationOptions(input: {
   config: ServerConfig;
@@ -48,12 +49,14 @@ export function createRemoteCoordinationOptions(input: {
   ensureRuntimeProjection?: (
     input: RuntimeAttachmentRequest & { lease: CanvasExecutionRuntimeLease }
   ) => void | Promise<void>;
+  runtimeContentTargets?: RemoteRuntimeContentTargetPort;
 }) {
   return {
     leaseDurationMs: input.config.limits.leaseDurationMs,
     hostOfflineAfterMs: input.config.limits.hostOfflineAfterMs,
     clock: input.clock,
     runtimeLeases: input.ownerRuntimeLeases,
+    ...(input.runtimeContentTargets ? { runtimeContentTargets: input.runtimeContentTargets } : {}),
     ...(input.ensureRuntimeProjection
       ? { ensureRuntimeProjection: input.ensureRuntimeProjection }
       : {}),

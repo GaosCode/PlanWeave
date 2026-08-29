@@ -25,6 +25,7 @@ import { hostInstallationIdentityMigration } from "./hostInstallationIdentity.js
 import { remoteOperationRetentionMigration } from "./remoteOperationRetention.js";
 import { canvasRuntimeHostBindingMigration } from "./canvasRuntimeHostBinding.js";
 import { canvasRuntimeHostBindingEvidenceMigration } from "./canvasRuntimeHostBindingEvidence.js";
+import { canvasRuntimeOperationAttachmentMigration } from "./canvasRuntimeOperationAttachment.js";
 import { canvasRuntimeArtifactGrantMigration } from "./canvasRuntimeArtifactGrant.js";
 import { canvasRuntimeStatusMigration } from "./canvasRuntimeStatus.js";
 import { canvasRuntimeRevisionMigration } from "./canvasRuntimeRevision.js";
@@ -80,7 +81,11 @@ export const migrationModules: readonly MigrationModule[] = [
   { name: "remote-operation-retention", migrations: [remoteOperationRetentionMigration] },
   {
     name: "canvas-runtime-host-binding",
-    migrations: [canvasRuntimeHostBindingMigration, canvasRuntimeHostBindingEvidenceMigration]
+    migrations: [
+      canvasRuntimeHostBindingMigration,
+      canvasRuntimeHostBindingEvidenceMigration,
+      canvasRuntimeOperationAttachmentMigration
+    ]
   },
   { name: "canvas-runtime-artifact-grant", migrations: [canvasRuntimeArtifactGrantMigration] },
   { name: "canvas-runtime-status", migrations: [canvasRuntimeStatusMigration] },

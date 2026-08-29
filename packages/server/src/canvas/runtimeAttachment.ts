@@ -4,8 +4,8 @@ import {
   workspaceIdSchema
 } from "@planweave-ai/collaboration-protocol/core/primitives";
 import type { SqliteDatabase } from "../sqlite.js";
-import type { CanvasRuntimeHostBindingRepository } from "./runtimeHostLocator.js";
 import type { RuntimeCanvasScope } from "./executionRuntimePort.js";
+import type { CanvasRuntimeOperationAttachmentRepository } from "./runtimeOperationAttachmentRepository.js";
 
 /** Distinct from Reset: an active Runtime or capacity lease fences Host attachment. */
 export class CanvasRuntimeAttachmentConflictError extends Error {
@@ -17,26 +17,15 @@ export class CanvasRuntimeAttachmentConflictError extends Error {
 
 export type RuntimeAttachmentRequest = RuntimeCanvasScope & {
   hostId: string;
-  /** Ignored when the Host row exists; attachment stores `agent_hosts.id`. */
-  hostGeneration?: string;
-  operationId?: string;
-  executionAttemptId?: string;
-  reservationLeaseId?: string;
-  contentRevision?: number;
-  graphFingerprint?: string;
+  operationId: string;
+  executionAttemptId: string;
+  reservationLeaseId: string;
+  contentRevision: number;
+  graphFingerprint: string;
 };
 
-/** `agent_hosts.id` is the current execution generation of one installation. */
-function hostExecutionGenerationId(database: SqliteDatabase, hostId: string): string {
-  const row = database
-    .prepare("SELECT id FROM agent_hosts WHERE id=? AND revoked_at IS NULL")
-    .get(hostId) as { id: string } | undefined;
-  if (!row) throw new Error("agent_host_not_found");
-  return opaqueIdentifierSchema.parse(row.id);
-}
-
 export type RuntimeAttachmentOrchestratorOptions = {
-  bindings: CanvasRuntimeHostBindingRepository;
+  attachments: CanvasRuntimeOperationAttachmentRepository;
   database: SqliteDatabase;
   clock?: () => Date;
 };
@@ -45,7 +34,7 @@ function conflictingLeaseHostId(
   database: SqliteDatabase,
   scope: RuntimeCanvasScope,
   reservedHostId: string,
-  operationId: string | undefined,
+  operationId: string,
   nowIso: string
 ): string | undefined {
   const runtimeLease = database
@@ -69,16 +58,12 @@ function conflictingLeaseHostId(
        JOIN remote_operations o ON o.id=a.operation_id
        WHERE o.workspace_id=? AND o.project_id=?
          AND r.status='active' AND r.host_id!=?
-         AND (? IS NULL OR o.id!=?)
+         AND o.id!=?
        LIMIT 1`
     )
-    .get(
-      scope.workspaceId,
-      scope.projectId,
-      reservedHostId,
-      operationId ?? null,
-      operationId ?? null
-    ) as { host_id: string } | undefined;
+    .get(scope.workspaceId, scope.projectId, reservedHostId, operationId) as
+    | { host_id: string }
+    | undefined;
   return reservation?.host_id;
 }
 
@@ -96,11 +81,7 @@ export function ensureRuntimeAttachmentForOperation(
     canvasId: request.canvasId
   });
   const hostId = opaqueIdentifierSchema.parse(request.hostId);
-  const hostGeneration = hostExecutionGenerationId(options.database, hostId);
   workspaceIdSchema.parse(scope.workspaceId);
-  if (!request.operationId || !request.executionAttemptId) {
-    throw new Error("canvas_runtime_attachment_requires_accepted_operation");
-  }
   const nowIso = (options.clock ?? (() => new Date()))().toISOString();
   const conflictHostId = conflictingLeaseHostId(
     options.database,
@@ -112,14 +93,15 @@ export function ensureRuntimeAttachmentForOperation(
   if (conflictHostId) {
     throw new CanvasRuntimeAttachmentConflictError("active_lease");
   }
-  options.bindings.upsertOperationAttachment({
+  options.attachments.record({
     workspaceId: scope.workspaceId,
     projectId: scope.projectId,
+    canvasId: scope.canvasId,
     hostId,
-    hostGeneration,
-    ...(request.operationId ? { operationId: request.operationId } : {}),
-    ...(request.executionAttemptId ? { executionAttemptId: request.executionAttemptId } : {}),
-    ...(request.contentRevision !== undefined ? { contentRevision: request.contentRevision } : {}),
-    ...(request.graphFingerprint ? { graphFingerprint: request.graphFingerprint } : {})
+    operationId: request.operationId,
+    executionAttemptId: request.executionAttemptId,
+    reservationLeaseId: request.reservationLeaseId,
+    contentRevision: request.contentRevision,
+    graphFingerprint: request.graphFingerprint
   });
 }
