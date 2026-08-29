@@ -490,8 +490,21 @@ describe("Phase 5 catalog/dispatch authorization", () => {
         fileURLToPath(new URL("../composition/remoteExecution.ts", import.meta.url)),
         "utf8"
       );
+      const indexSource = readFileSync(
+        fileURLToPath(new URL("../index.ts", import.meta.url)),
+        "utf8"
+      );
       expect(coordinationSource).toContain("const coordinator = new RemoteBlockCoordinator({");
       expect((coordinationSource.match(/new RemoteBlockCoordinator\(/g) ?? []).length).toBe(1);
+      expect(coordinationSource).not.toContain(
+        "dispatchCandidates?: RemoteDispatchCandidateReaderPort"
+      );
+      expect(coordinationSource).not.toContain("options.dispatchCandidates ??");
+      expect(coordinationSource).toContain(
+        "dispatchCandidates: new ServerCanvasDispatchCandidateReader(contentVersions,"
+      );
+      expect(indexSource).not.toContain("RemoteBlockCoordinator,");
+      expect(indexSource).not.toContain("type RemoteBlockCoordinatorOptions,");
       expect(remoteExecutionSource).toContain("new HumanRemoteControlService({");
       expect(remoteExecutionSource).toContain("return new RemoteControlService({");
       expect(

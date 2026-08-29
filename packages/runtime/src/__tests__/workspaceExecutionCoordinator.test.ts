@@ -409,7 +409,7 @@ describe("WorkspaceExecutionCoordinator", () => {
     expect(f.dispatch).not.toHaveBeenCalled();
   });
 
-  it("revalidates the binding after Catalog and rejects drift before Dispatch", async () => {
+  it("revalidates the binding after Catalog and rejects drift before remote transport", async () => {
     const { root } = await createTestWorkspace();
     const executionRequest = request(root);
     const initial = await authorityResolver(root).resolve(
@@ -440,6 +440,11 @@ describe("WorkspaceExecutionCoordinator", () => {
     expect(f.workAuthority).toHaveBeenCalledTimes(1);
     expect(f.catalog).toHaveBeenCalledTimes(1);
     expect(f.dispatch).not.toHaveBeenCalled();
+    expect(f.recover).not.toHaveBeenCalled();
+    expect(f.observe).not.toHaveBeenCalled();
+    expect(f.replay).not.toHaveBeenCalled();
+    expect(f.interactions).not.toHaveBeenCalled();
+    expect(f.respond).not.toHaveBeenCalled();
   });
 
   it.each([

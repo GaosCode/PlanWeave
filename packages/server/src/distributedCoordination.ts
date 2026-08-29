@@ -15,7 +15,6 @@ import type {
   RemoteArtifactContentPort,
   RemoteContentAuthorizePort,
   RemoteCoordinatorCheckpointPort,
-  RemoteDispatchCandidateReaderPort,
   RemoteInputArtifactPort,
   RemoteRuntimeContentTargetPort
 } from "./remoteBlockCoordinatorPorts.js";
@@ -64,7 +63,6 @@ export type RemoteBlockCoordinationOptions = {
   hostOfflineAfterMs: number;
   clock?: () => Date;
   runtimeLeases: CanvasExecutionRuntimeRoutePort;
-  dispatchCandidates?: RemoteDispatchCandidateReaderPort;
   inputArtifacts: RemoteInputArtifactPort;
   artifactContent: RemoteArtifactContentPort;
   checkpoints?: RemoteCoordinatorCheckpointPort;
@@ -381,38 +379,36 @@ export function createRemoteBlockCoordination(
   const remoteDispatchPersistence = new SqliteRemoteDispatchPersistence(database);
   const coordinator = new RemoteBlockCoordinator({
     runtimeLeases: options.runtimeLeases,
-    dispatchCandidates:
-      options.dispatchCandidates ??
-      new ServerCanvasDispatchCandidateReader(contentVersions, {
-        read: async (scope) => {
-          const dependency = operations.findLatestByScope(scope);
-          if (!dependency || !["completed", "failed", "cancelled"].includes(dependency.state)) {
-            return undefined;
-          }
-          const row = database
-            .prepare("SELECT result_json FROM dispatches WHERE id=?")
-            .get(dependency.dispatchId);
-          const result = row?.result_json
-            ? dispatchResultSchema.parse(JSON.parse(String(row.result_json)))
-            : undefined;
-          const reportBytes = result
-            ? await options.artifactContent.readReport(result.reportArtifactRef)
-            : undefined;
-          const reportMediaType = result
-            ? await options.artifactContent.readReportMediaType?.(result.reportArtifactRef)
-            : undefined;
-          return {
-            state: dependency.state as "completed" | "failed" | "cancelled",
-            ...(result && reportBytes
-              ? {
-                  reportArtifactRef: result.reportArtifactRef,
-                  reportBytes,
-                  ...(reportMediaType ? { reportMediaType } : {})
-                }
-              : {})
-          };
+    dispatchCandidates: new ServerCanvasDispatchCandidateReader(contentVersions, {
+      read: async (scope) => {
+        const dependency = operations.findLatestByScope(scope);
+        if (!dependency || !["completed", "failed", "cancelled"].includes(dependency.state)) {
+          return undefined;
         }
-      }),
+        const row = database
+          .prepare("SELECT result_json FROM dispatches WHERE id=?")
+          .get(dependency.dispatchId);
+        const result = row?.result_json
+          ? dispatchResultSchema.parse(JSON.parse(String(row.result_json)))
+          : undefined;
+        const reportBytes = result
+          ? await options.artifactContent.readReport(result.reportArtifactRef)
+          : undefined;
+        const reportMediaType = result
+          ? await options.artifactContent.readReportMediaType?.(result.reportArtifactRef)
+          : undefined;
+        return {
+          state: dependency.state as "completed" | "failed" | "cancelled",
+          ...(result && reportBytes
+            ? {
+                reportArtifactRef: result.reportArtifactRef,
+                reportBytes,
+                ...(reportMediaType ? { reportMediaType } : {})
+              }
+            : {})
+        };
+      }
+    }),
     operations,
     actions,
     candidates,

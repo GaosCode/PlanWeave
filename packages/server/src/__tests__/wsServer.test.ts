@@ -167,7 +167,6 @@ async function createWsCoordination() {
   };
   const registry = new RemoteRuntimePortRegistry();
   const runtime = createRemoteBlockRuntimePort({ projectRoot: workspace.root });
-  const runtimeCandidate = await runtime.inspect({ ref: "T-001#B-001" });
   const capturedContent = await captureAuthorizedCanvasContent({
     projectRoot: workspace.root,
     canvasId: locator.canvasId,
@@ -192,11 +191,11 @@ async function createWsCoordination() {
     createRemoteBlockArtifactSource({ projectRoot: workspace.root }),
     async () => ({
       sourceRevision: `snapshot:${"a".repeat(64)}`,
-      graphFingerprint: runtimeCandidate.graphFingerprint,
+      graphFingerprint: contentTarget.graphFingerprint,
       status: {
         schemaVersion: "canvas-runtime-status/v2",
         scope: locator,
-        packageFingerprint: runtimeCandidate.graphFingerprint,
+        packageFingerprint: contentTarget.graphFingerprint,
         capturedAt: "2026-08-27T00:00:00.000Z",
         tasks: [],
         blocks: []
@@ -209,15 +208,6 @@ async function createWsCoordination() {
       leaseDurationMs: 60_000,
       hostOfflineAfterMs: 60_000,
       runtimeLeases: registry,
-      dispatchCandidates: {
-        read: (scope) => ({
-          ...runtimeCandidate,
-          workspaceId: scope.workspaceId,
-          projectId: scope.projectId,
-          canvasId: scope.canvasId,
-          blockRef: scope.blockRef
-        })
-      },
       runtimeContentTargets: {
         read: (scope) => readStableCanvasRuntimeContentTarget(contentVersions, scope)
       },

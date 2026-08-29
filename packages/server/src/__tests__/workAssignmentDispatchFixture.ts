@@ -2,6 +2,7 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { WORKSPACE_CANVAS_EXECUTION_CAPABILITY } from "@planweave-ai/agent-host-protocol";
 import {
+  captureAuthorizedCanvasContent,
   createRemoteBlockArtifactSource,
   createRemoteBlockRuntimePort,
   type PlanPackageManifest,
@@ -44,6 +45,8 @@ import {
   persistedTestAgentAccess
 } from "./support/remoteAgentOwnerFixture.js";
 import { runtimeFactsFromPackagePort } from "./workRuntimeFactsFixture.js";
+import { ContentVersionRepository } from "../canvas/contentVersionRepository.js";
+import { readStableCanvasRuntimeContentTarget } from "../canvas/contentFingerprint.js";
 
 const directories: string[] = [];
 const servers: PlanweaveServer[] = [];
@@ -127,10 +130,20 @@ export async function setup(
       })
     : undefined;
 
+  const capturedContent = await captureAuthorizedCanvasContent({
+    projectRoot: workspace.root,
+    canvasId: locator.canvasId,
+    expectedPackageDir: workspace.init.workspace.packageDir,
+    authorityProjectId: locator.projectId
+  });
+  const contentVersions = new ContentVersionRepository(server.database);
+  contentVersions.publishInitial({
+    scope: locator,
+    content: capturedContent.content,
+    createdBy: { kind: "system", id: "work-assignment-test" }
+  });
+  const contentTarget = readStableCanvasRuntimeContentTarget(contentVersions, locator);
   let activeRuntime: RemoteBlockRuntimePort | undefined;
-  const initializationCandidate = await createRemoteBlockRuntimePort({
-    projectRoot: workspace.root
-  }).inspect({ ref: "T-001#B-001" });
   const buildCoordination = (checkpoints?: RemoteCoordinatorCheckpointPort) => {
     const baseRuntime = createRemoteBlockRuntimePort({ projectRoot: workspace.root });
     const runtime = options.decorateRuntime?.(baseRuntime) ?? baseRuntime;
@@ -142,11 +155,11 @@ export async function setup(
       createRemoteBlockArtifactSource({ projectRoot: workspace.root }),
       async () => ({
         sourceRevision: `snapshot:${"a".repeat(64)}`,
-        graphFingerprint: initializationCandidate.graphFingerprint,
+        graphFingerprint: contentTarget.graphFingerprint,
         status: {
           schemaVersion: "canvas-runtime-status/v2",
           scope: locator,
-          packageFingerprint: initializationCandidate.graphFingerprint,
+          packageFingerprint: contentTarget.graphFingerprint,
           capturedAt: "2026-08-27T00:00:00.000Z",
           tasks: [],
           blocks: []
@@ -160,27 +173,18 @@ export async function setup(
         leaseDurationMs: 60_000,
         hostOfflineAfterMs: 60_000,
         runtimeLeases: registry,
-        dispatchCandidates: {
-          read: (scope) => ({
-            ...initializationCandidate,
-            workspaceId: scope.workspaceId,
-            projectId: scope.projectId,
-            canvasId: scope.canvasId,
-            blockRef: scope.blockRef
-          })
-        },
         runtimeContentTargets: {
-          read: () => ({
-            revision: 1,
-            graphFingerprint: initializationCandidate.graphFingerprint
-          })
+          read: (scope) => readStableCanvasRuntimeContentTarget(contentVersions, scope)
         },
         inputArtifacts: {
           materialize: async (candidate) => {
             if (candidate.inputArtifacts.length !== 0) throw new Error("unexpected_test_artifact");
           }
         },
-        artifactContent: { readReport: async (ref) => artifacts.read(ref) },
+        artifactContent: {
+          readReport: async (ref) => artifacts.read(ref),
+          readReportMediaType: async (ref) => artifacts.getRequired(ref).mediaType
+        },
         assignmentGate,
         checkpoints,
         ...(activityProjection

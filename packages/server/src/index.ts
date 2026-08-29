@@ -244,11 +244,9 @@ export {
   type RemoteExecutionActionState,
   type RemoteExecutionLifecycleSnapshot
 } from "./remoteExecutionLifecycle.js";
-export {
-  RemoteBlockCoordinator,
-  type RemoteBlockCoordinatorOptions,
-  type RemoteDispatchOutcome,
-  type RemoteEndpointDispatchRequest
+export type {
+  RemoteDispatchOutcome,
+  RemoteEndpointDispatchRequest
 } from "./remoteBlockCoordinator.js";
 export type {
   RemoteArtifactContentPort,

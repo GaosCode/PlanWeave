@@ -6,6 +6,10 @@ import * as serverApi from "../index.js";
 import type { DispatchServiceOptions } from "../index.js";
 // @ts-expect-error Dispatch writeback is intentionally internal to the coordinator.
 import type { DispatchWriteback as PublicDispatchWriteback } from "../index.js";
+// @ts-expect-error Raw coordinator construction is intentionally internal to the fixed Server composition.
+import type { RemoteBlockCoordinator } from "../index.js";
+// @ts-expect-error Raw coordinator options are intentionally internal to the fixed Server composition.
+import type { RemoteBlockCoordinatorOptions } from "../index.js";
 
 /** Compile-time guard: residual packageRef must not return to public DTOs. */
 type AssertNoPackageRefKey<T> = "packageRef" extends keyof T ? never : true;
@@ -19,7 +23,12 @@ const _writebackFailHasNoPackageRef: AssertNoPackageRefKey<
 void _dispatchRecordHasNoPackageRef;
 void _writebackCompleteHasNoPackageRef;
 void _writebackFailHasNoPackageRef;
-void (undefined as DispatchServiceOptions | PublicDispatchWriteback | undefined);
+void (undefined as
+  | DispatchServiceOptions
+  | PublicDispatchWriteback
+  | RemoteBlockCoordinator
+  | RemoteBlockCoordinatorOptions
+  | undefined);
 
 const _commentActivityHttpOptions: CommentActivityHttpOptions | undefined = undefined;
 void _commentActivityHttpOptions;
@@ -28,6 +37,7 @@ describe("server public export surface", () => {
   it("exports remote coordination and omits the retired thin dual factory", () => {
     expect(typeof serverApi.createRemoteBlockCoordination).toBe("function");
     expect(typeof serverApi.startRemoteBlockCoordinationServer).toBe("function");
+    expect(serverApi).not.toHaveProperty("RemoteBlockCoordinator");
     expect(serverApi).not.toHaveProperty("createDistributedCoordination");
     expect(serverApi).not.toHaveProperty("DistributedCoordinationOptions");
   });

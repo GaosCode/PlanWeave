@@ -5,7 +5,8 @@ import {
   captureAuthorizedCanvasContent,
   createRemoteBlockArtifactSource,
   createRemoteBlockRuntimePort,
-  type PlanPackageManifest
+  type PlanPackageManifest,
+  type RemoteBlockDispatchCandidate
 } from "@planweave-ai/runtime";
 import { afterEach, vi } from "vitest";
 import {
@@ -73,7 +74,6 @@ export async function setup(
   const runtime = createRemoteBlockRuntimePort({ projectRoot: workspace.root });
   const registry = new RemoteRuntimePortRegistry();
   const runtimeArtifacts = createRemoteBlockArtifactSource({ projectRoot: workspace.root });
-  const runtimeCandidate = await runtime.inspect({ ref: "T-001#B-001" });
   const capturedContent = await captureAuthorizedCanvasContent({
     projectRoot: workspace.root,
     canvasId: locator.canvasId,
@@ -98,7 +98,7 @@ export async function setup(
     status: {
       schemaVersion: "canvas-runtime-status/v2",
       scope,
-      packageFingerprint: runtimeCandidate.graphFingerprint,
+      packageFingerprint: contentTarget.graphFingerprint,
       capturedAt: "2026-08-27T00:00:00.000Z",
       tasks: [],
       blocks: []
@@ -106,7 +106,7 @@ export async function setup(
   });
   registry.bind(locator, runtime, runtimeArtifacts, runtimeInitializationEvidenceFor(locator));
   const artifacts = new ArtifactStore(server.database, dataDirectory, 1024 * 1024);
-  const materialize = vi.fn(async (candidate: Awaited<ReturnType<typeof runtime.inspect>>) => {
+  const materialize = vi.fn(async (candidate: RemoteBlockDispatchCandidate) => {
     if (candidate.inputArtifacts.length !== 0) throw new Error("unexpected_test_artifact");
   });
   const coordination = createRemoteBlockCoordination(
@@ -119,7 +119,10 @@ export async function setup(
         read: (scope) => readStableCanvasRuntimeContentTarget(contentVersions, scope)
       },
       inputArtifacts: { materialize },
-      artifactContent: { readReport: async (ref) => artifacts.read(ref) },
+      artifactContent: {
+        readReport: async (ref) => artifacts.read(ref),
+        readReportMediaType: async (ref) => artifacts.getRequired(ref).mediaType
+      },
       ownerEndpointScopeAuthorized: (scope) =>
         scope.workspaceId === locator.workspaceId &&
         scope.projectId === locator.projectId &&

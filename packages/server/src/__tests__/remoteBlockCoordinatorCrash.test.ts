@@ -43,6 +43,7 @@ import {
 } from "./support/remoteAgentOwnerFixture.js";
 import { exactHostRuntimeRouteFixture } from "./support/exactHostRuntimeRoute.js";
 import { ContentVersionRepository } from "../canvas/contentVersionRepository.js";
+import { readStableCanvasRuntimeContentTarget } from "../canvas/contentFingerprint.js";
 import { AuthorityRepository } from "../work/authorityRepository.js";
 
 type Coordination = ReturnType<typeof createRemoteBlockCoordination>;
@@ -93,9 +94,9 @@ class CoordinatorHarness {
   private bindingContentRevision = "1";
   private bindingGraphFingerprint = `pkg-${"0".repeat(64)}`;
   private contentTargetFailure?: Error;
-  private readonly dispatchCandidates = new Map<string, RemoteBlockDispatchCandidate>();
   runtimeAcquireCount = 0;
   runtimeInspectCount = 0;
+  materializeCount = 0;
 
   private constructor(
     readonly workspace: Awaited<ReturnType<typeof createTestWorkspace>>,
@@ -160,26 +161,9 @@ class CoordinatorHarness {
         createdBy: { kind: "human", id: "test-owner" }
       });
     }
-    for (const ref of ["T-001#B-001", "T-002#B-001"]) {
-      try {
-        this.dispatchCandidates.set(
-          ref,
-          remoteBlockDispatchCandidateSchema.parse({
-            ...(await this.runtime.inspect({ ref })),
-            workspaceId: this.locator.workspaceId
-          })
-        );
-      } catch {
-        // The optional second task is absent in the single-task fixture.
-      }
-    }
-    const contentHead = contentVersions.head(this.locator);
-    const primaryCandidate = this.dispatchCandidates.get("T-001#B-001");
-    if (!contentHead || !primaryCandidate) throw new Error("test_content_authority_missing");
-    this.bindingContentRevision = String(contentHead.revision);
-    this.bindingGraphFingerprint = primaryCandidate.graphFingerprint;
-    this.runtimeAcquireCount = 0;
-    this.runtimeInspectCount = 0;
+    const contentTarget = readStableCanvasRuntimeContentTarget(contentVersions, this.locator);
+    this.bindingContentRevision = String(contentTarget.revision);
+    this.bindingGraphFingerprint = contentTarget.graphFingerprint;
     const runtime = this.runtime;
     const routedRuntime: RemoteBlockRuntimePort = {
       ...runtime,
@@ -213,13 +197,6 @@ class CoordinatorHarness {
       runtimeLeases: exactHostRuntimeRouteFixture(registry, () => {
         this.runtimeAcquireCount += 1;
       }),
-      dispatchCandidates: {
-        read: ({ blockRef }) => {
-          const candidate = this.dispatchCandidates.get(blockRef);
-          if (!candidate) throw new Error("test_dispatch_candidate_missing");
-          return candidate;
-        }
-      },
       runtimeContentTargets: {
         read: (scope) => {
           if (this.contentTargetFailure) throw this.contentTargetFailure;
@@ -241,8 +218,16 @@ class CoordinatorHarness {
           return { revision: this.contentRevision, graphFingerprint: candidate.graphFingerprint };
         }
       },
-      inputArtifacts: { materialize },
-      artifactContent: { readReport: async (ref) => this.requireArtifacts().read(ref) },
+      inputArtifacts: {
+        materialize: async (candidate) => {
+          this.materializeCount += 1;
+          await materialize(candidate);
+        }
+      },
+      artifactContent: {
+        readReport: async (ref) => this.requireArtifacts().read(ref),
+        readReportMediaType: async (ref) => this.requireArtifacts().getRequired(ref).mediaType
+      },
       checkpoints
     };
     this.coordination = createRemoteBlockCoordination(this.server.database, options, {
@@ -873,7 +858,10 @@ describe("RemoteBlockCoordinator crash reconciliation", () => {
     if (checkpoint === "before_operation_commit") {
       expect(harness.runtimeAcquireCount).toBe(0);
       expect(harness.runtimeInspectCount).toBe(0);
+      expect(harness.materializeCount).toBe(0);
       expect(count(crashedDatabase, "remote_operations")).toBe(0);
+      expect(count(crashedDatabase, "dispatches")).toBe(0);
+      expect(count(crashedDatabase, "mailbox_messages")).toBe(0);
       expect(count(crashedDatabase, "host_capacity_reservations")).toBe(0);
       expect(count(crashedDatabase, "canvas_runtime_operation_attachments")).toBe(0);
     }
@@ -956,10 +944,15 @@ describe("RemoteBlockCoordinator crash reconciliation", () => {
     ).rejects.toMatchObject({ code: "work_revision_conflict" });
     expect(harness.runtimeAcquireCount).toBe(0);
     expect(harness.runtimeInspectCount).toBe(0);
-    expect(count(harness.requireServer().database, "remote_operations")).toBe(0);
+    expect(harness.materializeCount).toBe(0);
+    const database = harness.requireServer().database;
+    expect(count(database, "remote_operations")).toBe(0);
+    expect(count(database, "dispatches")).toBe(0);
+    expect(count(database, "mailbox_messages")).toBe(0);
+    expect(count(database, "canvas_runtime_operation_attachments")).toBe(0);
   });
 
-  it("rejects a content-head race in a custom-candidate composition before Host access", async () => {
+  it("rejects a content-head race from Server authority before Host access", async () => {
     const harness = await CoordinatorHarness.create();
     harness.registerHost();
     let advanced = false;
@@ -979,7 +972,12 @@ describe("RemoteBlockCoordinator crash reconciliation", () => {
     expect(advanced).toBe(true);
     expect(harness.runtimeAcquireCount).toBe(0);
     expect(harness.runtimeInspectCount).toBe(0);
-    expect(count(harness.requireServer().database, "remote_operations")).toBe(0);
+    expect(harness.materializeCount).toBe(0);
+    const database = harness.requireServer().database;
+    expect(count(database, "remote_operations")).toBe(0);
+    expect(count(database, "dispatches")).toBe(0);
+    expect(count(database, "mailbox_messages")).toBe(0);
+    expect(count(database, "canvas_runtime_operation_attachments")).toBe(0);
   });
 
   it("fails closed when a persisted legacy endpoint selection reenters current dispatch", async () => {
@@ -1272,51 +1270,108 @@ describe("RemoteBlockCoordinator crash reconciliation", () => {
 
   it("preserves one input grant and materialization across dispatch persistence restart", async () => {
     const harness = await CoordinatorHarness.create();
-    harness.registerHost();
-    const bytes = Buffer.from("durable coordinator input");
+    const hostId = harness.registerHost();
+    const bytes = Buffer.from("# Durable coordinator input\n");
     const artifact = await harness.requireArtifacts().put({
       expectedSha256: createHash("sha256").update(bytes).digest("hex"),
       expectedSizeBytes: bytes.byteLength,
-      mediaType: "text/plain",
+      mediaType: "text/markdown",
       chunks: (async function* () {
         yield bytes;
       })()
     });
-    const materialized = new Set<string>();
-    const decorateRuntime = (runtime: RemoteBlockRuntimePort): RemoteBlockRuntimePort => ({
-      ...runtime,
-      inspect: async (input) => {
-        const candidate = await runtime.inspect(input);
-        return {
-          ...candidate,
-          inputArtifacts: [
-            { artifactRef: artifact.ref, logicalName: "coordinator-input", mediaType: "text/plain" }
-          ]
-        };
-      }
+    const coordination = harness.requireCoordination();
+    const upstream = await coordination.coordinator.dispatch(
+      harness.request("T-001#B-001", "input-dependency-upstream")
+    );
+    const upstreamDispatch = coordination.dispatches.getRequired(upstream.operation.dispatchId);
+    coordination.dispatches.accept(
+      hostId,
+      "input-dependency-upstream-accepted",
+      upstreamDispatch.id,
+      upstreamDispatch.leaseId,
+      upstreamDispatch.executionAttemptId
+    );
+    const result = {
+      summary: "Authoritative upstream implementation result.",
+      reportArtifactRef: artifact.ref,
+      artifactRefs: []
+    };
+    const outputGrant = coordination.artifactAuthorization.createOutputGrant({
+      operationId: upstream.operation.id,
+      workspaceId: upstreamDispatch.workspaceId,
+      projectId: upstreamDispatch.projectId,
+      hostId,
+      dispatchId: upstreamDispatch.id,
+      leaseId: upstreamDispatch.leaseId,
+      executionAttemptId: upstreamDispatch.executionAttemptId,
+      permission: "report_write",
+      expectedSha256: artifact.sha256,
+      expectedSizeBytes: artifact.sizeBytes,
+      expectedMediaType: artifact.mediaType
     });
+    coordination.artifactAuthorization.acceptOutputUpload(
+      {
+        workspaceId: upstreamDispatch.workspaceId,
+        projectId: upstreamDispatch.projectId,
+        hostId,
+        dispatchId: upstreamDispatch.id,
+        leaseId: upstreamDispatch.leaseId,
+        executionAttemptId: upstreamDispatch.executionAttemptId,
+        grantId: outputGrant.grantId
+      },
+      artifact
+    );
+    harness
+      .requireServer()
+      .database.prepare(
+        "UPDATE dispatches SET status='awaiting_writeback',result_json=? WHERE id=?"
+      )
+      .run(JSON.stringify(result), upstreamDispatch.id);
+    await coordination.dispatches.complete(
+      hostId,
+      "input-dependency-upstream-completed",
+      upstreamDispatch.id,
+      upstreamDispatch.leaseId,
+      upstreamDispatch.executionAttemptId,
+      result
+    );
+    expect(coordination.operations.getRequired(upstream.operation.id).state).toBe("completed");
+
+    const materialized = new Set<string>();
     const materialize = async (candidate: RemoteBlockDispatchCandidate) => {
       for (const input of candidate.inputArtifacts) {
         await harness.requireArtifacts().read(input.artifactRef);
         materialized.add(input.artifactRef);
       }
     };
-    await harness.restart(
-      new CrashOnce("after_dispatch_persistence"),
-      decorateRuntime,
-      materialize
-    );
+    const downstreamRequest = harness.request("T-001#R-001", "input-dependency-downstream");
+    await harness.restart(new CrashOnce("after_dispatch_persistence"), undefined, materialize);
     await expect(
-      harness.requireCoordination().coordinator.dispatch(harness.request())
+      harness.requireCoordination().coordinator.dispatch(downstreamRequest)
     ).rejects.toThrowError("injected_crash:after_dispatch_persistence");
 
-    const restarted = await harness.restart(undefined, decorateRuntime, materialize);
-    await expect(restarted.coordinator.dispatch(harness.request())).resolves.toMatchObject({
+    const restarted = await harness.restart(undefined, undefined, materialize);
+    const recovered = await restarted.coordinator.dispatch(downstreamRequest);
+    await expect(Promise.resolve(recovered)).resolves.toMatchObject({
       status: "activated"
     });
     expect(materialized).toEqual(new Set([artifact.ref]));
-    expect(count(harness.requireServer().database, "artifact_grants")).toBe(1);
-    expect(count(harness.requireServer().database, "dispatch_artifact_links")).toBe(1);
+    const database = harness.requireServer().database;
+    expect(
+      database
+        .prepare(
+          "SELECT COUNT(*) AS count FROM artifact_grants WHERE dispatch_id=? AND permission='input_read'"
+        )
+        .get(recovered.operation.dispatchId)?.count
+    ).toBe(1);
+    expect(
+      database
+        .prepare(
+          "SELECT COUNT(*) AS count FROM dispatch_artifact_links WHERE dispatch_id=? AND purpose='input'"
+        )
+        .get(recovered.operation.dispatchId)?.count
+    ).toBe(1);
   });
 
   it("blocks a restarted legacy operation when its Runtime source has drifted", async () => {
