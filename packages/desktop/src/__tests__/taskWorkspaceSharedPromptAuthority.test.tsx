@@ -1,8 +1,9 @@
 /* @vitest-environment jsdom */
 
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceCanvasCommandsResult } from "../renderer/hooks/useWorkspaceCanvasCommands";
+import type { DesktopWorkspaceExecutionResponse } from "../shared/workspaceExecution";
 import {
   taskWorkspaceNavigationIdentity,
   workspaceBlockWorkspaceTarget,
@@ -18,7 +19,62 @@ import { navigation } from "./helpers/taskWorkspaceControllerModelFixture";
 import { taskWorkspaceSource } from "./helpers/taskWorkspaceControllerModelFixture";
 import "../renderer/task-workspace/workspaceTaskWorkspaceProjection";
 
+const workspaceExecutionBridgeMock = vi.hoisted(() => ({
+  startWorkspaceExecution: vi.fn(),
+  followWorkspaceExecution: vi.fn(),
+  respondWorkspaceExecution: vi.fn(),
+  cancelWorkspaceExecution: vi.fn()
+}));
+
+vi.mock("../renderer/bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../renderer/bridge")>();
+  return {
+    ...actual,
+    workspaceExecutionBridge: workspaceExecutionBridgeMock
+  };
+});
+
 afterEach(cleanupRendererTestEnvironment);
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
+function workspaceExecutionView(): DesktopWorkspaceExecutionResponse {
+  return {
+    version: "planweave.workspace-execution-view/v1",
+    handle: {
+      version: "planweave.workspace-execution-handle/v1",
+      target: "remote",
+      phase: "attempt",
+      runSessionId: "SESSION-0001",
+      authorityBindingId: `wxb:sha256:${"a".repeat(64)}`,
+      scope: { kind: "block", blockRef: "T-001#B-001" },
+      capabilities: { interactionResponse: true },
+      operationId: "operation-1",
+      operationRevision: 3,
+      dispatchId: "dispatch-1",
+      executionAttemptId: "attempt-1",
+      attemptStateVersion: 3,
+      leaseId: "lease-1",
+      agentEndpointId: "endpoint-windows",
+      cursor: { target: "remote", executionAttemptId: "attempt-1", eventCursor: 0 }
+    },
+    session: {
+      sessionId: "SESSION-0001",
+      stateVersion: 3,
+      phase: "running",
+      scope: { kind: "block", blockRef: "T-001#B-001" },
+      startedAt: "2026-08-24T00:01:00.000Z",
+      updatedAt: "2026-08-24T00:02:00.000Z",
+      finishedAt: null,
+      error: null,
+      interactionStatus: [],
+      evidence: { status: "complete", diagnostics: [] }
+    },
+    events: []
+  };
+}
 
 function sharedPromptProjection(): CollaborationCanvasReplicaProjection {
   return collaborationCanvasReplicaProjectionSchema.parse({
@@ -174,6 +230,9 @@ describe("Task Workspace shared prompt authority", () => {
         floorCursor: 0
       })
     };
+    workspaceExecutionBridgeMock.followWorkspaceExecution.mockResolvedValue(
+      workspaceExecutionView()
+    );
 
     const { result } = renderHook(() =>
       useControllerHarness(api, workspaceNavigation, workspaceCanvas, undefined, collaborationApi)
@@ -201,6 +260,17 @@ describe("Task Workspace shared prompt authority", () => {
         canvasId: "canvas-main"
       },
       blockRef: "T-001#B-001"
+    });
+    expect(workspaceExecutionBridgeMock.followWorkspaceExecution).toHaveBeenCalledWith({
+      locator: {
+        kind: "workspace",
+        connectionProfileId: "profile-workspace",
+        workspaceId: "workspace-1",
+        projectId: "project-1",
+        canvasId: "canvas-main"
+      },
+      blockRef: "T-001#B-001",
+      operationId: "operation-1"
     });
     expect(collaborationApi.lookupCollaborationRemoteOperation).not.toHaveBeenCalled();
   });

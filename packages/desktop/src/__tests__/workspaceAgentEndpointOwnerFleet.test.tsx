@@ -16,12 +16,7 @@ import {
 } from "../renderer/collaboration/agentEndpointPreferences";
 import type { AvailableAgentEndpoint } from "../renderer/collaboration/agentEndpointViewModel";
 import { useWorkspaceAgentEndpointRun } from "../renderer/hooks/useWorkspaceAgentEndpointRun";
-
-const operatorControlBridgeMock = vi.hoisted(() => ({
-  dispatchOwnerFleetRemoteOperation: vi.fn(),
-  observeOwnerFleetRemoteOperation: vi.fn(),
-  executeOwnerFleetRemoteOperationAction: vi.fn()
-}));
+import type { DesktopWorkspaceExecutionResponse } from "../shared/workspaceExecution";
 
 const bridgeMock = vi.hoisted(() => ({
   getBlockDetail: vi.fn(),
@@ -34,8 +29,7 @@ vi.mock("../renderer/bridge", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../renderer/bridge")>();
   return {
     ...actual,
-    bridge: bridgeMock,
-    operatorControlBridge: operatorControlBridgeMock
+    bridge: bridgeMock
   };
 });
 
@@ -104,7 +98,8 @@ const remoteEndpoint: AvailableAgentEndpoint = {
   available: true,
   unavailableReason: null,
   capabilities: ["acp.codex"],
-  remoteEndpointId: "endpoint-windows"
+  remoteEndpointId: "endpoint-windows",
+  agentId: "codex"
 };
 
 function operation(state: RemoteOperationObservation["state"]): RemoteOperationObservation {
@@ -125,6 +120,66 @@ function operation(state: RemoteOperationObservation["state"]): RemoteOperationO
       stateVersion: 1
     },
     runtime: { ref: "T-001#B-001", status: state === "completed" ? "completed" : "in_progress" }
+  };
+}
+
+function workspaceExecutionView(
+  phase: "running" | "completed" | "failed" | "stopped"
+): DesktopWorkspaceExecutionResponse {
+  return {
+    version: "planweave.workspace-execution-view/v1",
+    handle: {
+      version: "planweave.workspace-execution-handle/v1",
+      target: "remote",
+      phase: "attempt",
+      runSessionId: "SESSION-0001",
+      authorityBindingId: `wxb:sha256:${"a".repeat(64)}`,
+      scope: { kind: "block", blockRef: "T-001#B-001" },
+      capabilities: { interactionResponse: true },
+      operationId: "operation-1",
+      operationRevision: phase === "running" ? 1 : 2,
+      dispatchId: "dispatch-1",
+      executionAttemptId: "attempt-1",
+      attemptStateVersion: phase === "running" ? 1 : 2,
+      leaseId: "lease-1",
+      agentEndpointId: "endpoint-windows",
+      cursor: { target: "remote", executionAttemptId: "attempt-1", eventCursor: 1 }
+    },
+    session: {
+      sessionId: "SESSION-0001",
+      stateVersion: phase === "running" ? 1 : 2,
+      phase,
+      scope: { kind: "block", blockRef: "T-001#B-001" },
+      startedAt: "2026-08-05T00:00:00.000Z",
+      updatedAt: "2026-08-05T00:00:01.000Z",
+      finishedAt: phase === "running" ? null : "2026-08-05T00:00:01.000Z",
+      error: phase === "failed" ? "remote execution failed" : null,
+      interactionStatus: [],
+      evidence: { status: "complete", diagnostics: [] }
+    },
+    events:
+      phase === "running"
+        ? []
+        : [
+            {
+              version: "planweave.execution-event/v1",
+              eventId: `terminal-${phase}`,
+              observedAt: "2026-08-05T00:00:01.000Z",
+              runSessionId: "SESSION-0001",
+              scope: { kind: "block", blockRef: "T-001#B-001" },
+              source: {
+                target: "remote",
+                operationId: "operation-1",
+                executionAttemptId: "attempt-1",
+                cursor: 1
+              },
+              type: "run_terminal",
+              data: {
+                outcome:
+                  phase === "completed" ? "completed" : phase === "stopped" ? "cancelled" : "failed"
+              }
+            }
+          ]
   };
 }
 
@@ -198,9 +253,16 @@ function renderOwnerFleetRun(input?: {
   runtimeAvailability?:
     | { kind: "available" }
     | { kind: "unavailable"; reason: "runtime_not_attached"; statusKnown: true };
+  startWorkspaceExecution?: ReturnType<typeof vi.fn>;
+  followWorkspaceExecution?: ReturnType<typeof vi.fn>;
 }) {
   const setError = vi.fn();
-  const lifecycle = { onStarted: vi.fn(), onCompleted: vi.fn(), onFailed: vi.fn() };
+  const lifecycle = {
+    onStarted: vi.fn(),
+    onCompleted: vi.fn(),
+    onFailed: vi.fn(),
+    onCancelled: vi.fn()
+  };
   const startLocal = vi.fn(async () => localRunState("running"));
   const previewClaimNext =
     input?.previewClaimNext ??
@@ -219,14 +281,19 @@ function renderOwnerFleetRun(input?: {
   const getBlockDetail =
     input?.getBlockDetail ??
     vi.fn(async () => ({ ref: "T-001#B-001", status: "ready" as const, remoteExecution: null }));
+  const startWorkspaceExecution =
+    input?.startWorkspaceExecution ?? vi.fn(async () => workspaceExecutionView("running"));
+  const followWorkspaceExecution =
+    input?.followWorkspaceExecution ?? vi.fn(async () => workspaceExecutionView("completed"));
+  const respondWorkspaceExecution = vi.fn(async () => workspaceExecutionView("running"));
+  const cancelWorkspaceExecution = vi.fn(async () => workspaceExecutionView("stopped"));
   const readCollaborationCanvasBindingRuntimeAvailability = vi.fn(async () => ({
     schemaVersion: "canvas-runtime-view/v1" as const,
     state: {
       kind: "initialized" as const,
       runtimeRevision: 1,
       status: remoteScopeStatus([
-        operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation.mock.calls.length > 0 ||
-        dispatchCollaborationRemoteOperation.mock.calls.length > 0
+        startWorkspaceExecution.mock.calls.length > 0
           ? { ref: "T-001#B-001", status: "completed", dispatchable: false }
           : { ref: "T-001#B-001", status: "ready", dispatchable: true }
       ])
@@ -246,12 +313,6 @@ function renderOwnerFleetRun(input?: {
     }
   }));
   bridgeMock.getBlockDetail.mockImplementation(getBlockDetail);
-  operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation.mockResolvedValue(
-    operation("running")
-  );
-  operatorControlBridgeMock.observeOwnerFleetRemoteOperation.mockResolvedValue(
-    operation("completed")
-  );
 
   const hook = renderHook(() => {
     const startWithEndpoint = useWorkspaceAgentEndpointRun({
@@ -283,12 +344,18 @@ function renderOwnerFleetRun(input?: {
             canvasId: "canvas-main"
           }
         : null,
+      canvasLocator: input?.remoteCanvasOnly
+        ? {
+            kind: "workspace",
+            connectionProfileId: "profile-a",
+            workspaceId: "workspace-1",
+            projectId: "project-server",
+            canvasId: "canvas-main"
+          }
+        : null,
       selectedCanvasId: "canvas-main",
       selectedProject: input?.remoteCanvasOnly ? null : project,
       runtimeAvailability: input?.runtimeAvailability ?? { kind: "available" },
-      operatorProfileId: "profile-a",
-      humanPrincipalId: "human-owner-1",
-      ownerFleetDispatchEnabled: true,
       setError,
       api:
         input?.withCollaborationRuntime || input?.remoteCanvasOnly
@@ -306,15 +373,18 @@ function renderOwnerFleetRun(input?: {
         onAutoRunChanged: vi.fn(() => () => undefined)
       },
       stopLocal: vi.fn(async () => localRunState("stopped")),
-      waitForTerminal: vi.fn(async () => operation("completed")),
       previewClaimNext,
-      resolveLiveRemoteBinding: vi.fn(async () => null),
-      resolveRemoteContentAuthority: vi.fn(async () => ({
-        contentRevision: "1",
-        graphFingerprint: `pkg-${"a".repeat(64)}`
-      }))
+      workspaceExecutionApi: {
+        startWorkspaceExecution,
+        followWorkspaceExecution,
+        respondWorkspaceExecution,
+        cancelWorkspaceExecution
+      }
     });
-    return (scope: DesktopAutoRunScope) => startWithEndpoint(scope, startLocal, lifecycle);
+    return Object.assign(
+      (scope: DesktopAutoRunScope) => startWithEndpoint(scope, startLocal, lifecycle),
+      { stop: startWithEndpoint.stop }
+    );
   });
 
   return {
@@ -325,7 +395,11 @@ function renderOwnerFleetRun(input?: {
     dispatchCollaborationRemoteOperation,
     ensureWorkAuthority,
     previewClaimNext,
-    startLocal
+    startLocal,
+    startWorkspaceExecution,
+    followWorkspaceExecution,
+    respondWorkspaceExecution,
+    cancelWorkspaceExecution
   };
 }
 
@@ -405,42 +479,47 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
   });
 
   it("routes an explicitly selected remote Agent when canvas state is known without an attached Runtime", async () => {
-    const { result, lifecycle, setError, dispatchCollaborationRemoteOperation } =
-      renderOwnerFleetRun({
-        remoteCanvasOnly: true,
-        runtimeAvailability: {
-          kind: "unavailable",
-          reason: "runtime_not_attached",
-          statusKnown: true
-        }
-      });
+    const {
+      result,
+      lifecycle,
+      setError,
+      dispatchCollaborationRemoteOperation,
+      startWorkspaceExecution,
+      followWorkspaceExecution
+    } = renderOwnerFleetRun({
+      remoteCanvasOnly: true,
+      runtimeAvailability: {
+        kind: "unavailable",
+        reason: "runtime_not_attached",
+        statusKnown: true
+      }
+    });
 
     await act(() => result.current({ kind: "block", blockRef: "T-001#B-001" }));
 
     expect(dispatchCollaborationRemoteOperation).not.toHaveBeenCalled();
-    expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).toHaveBeenCalledWith({
-      profileId: "profile-a",
-      humanPrincipalId: "human-owner-1",
-      workspaceId: "workspace-1",
-      command: {
-        schemaVersion: "remote-run/v3",
+    const startInput = {
+      locator: {
+        kind: "workspace",
+        connectionProfileId: "profile-a",
+        workspaceId: "workspace-1",
         projectId: "project-server",
-        canvasId: "canvas-main",
-        blockRef: "T-001#B-001",
-        agentEndpointId: "endpoint-windows",
-        idempotencyKey: "desktop-dispatch-operation-fleet-1",
-        expectedResponsibilityRevision: 7,
-        expectedReviewerRevision: 11,
-        executionTargetRevision: 13,
-        contentRevision: "1",
-        graphFingerprint: `pkg-${"a".repeat(64)}`
-      }
+        canvasId: "canvas-main"
+      } as const,
+      blockRef: "T-001#B-001",
+      agentEndpointId: "endpoint-windows",
+      effectiveExecutor: { name: "codex", agentId: "codex" }
+    };
+    expect(startWorkspaceExecution).toHaveBeenCalledWith(startInput);
+    expect(followWorkspaceExecution).toHaveBeenCalledWith({
+      ...startInput,
+      sessionId: "SESSION-0001"
     });
     expect(lifecycle.onCompleted).toHaveBeenCalled();
     expect(setError).not.toHaveBeenCalled();
   });
 
-  it("fails closed for remote dispatch without a human principal", async () => {
+  it("fails closed for remote execution from a local canvas without a Workspace locator", async () => {
     const setError = vi.fn();
     const startLocal = vi.fn();
     const hook = renderHook(() =>
@@ -460,8 +539,6 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
         selectedCanvasId: "canvas-main",
         selectedProject: project,
         runtimeAvailability: { kind: "available" },
-        operatorProfileId: "profile-a",
-        ownerFleetDispatchEnabled: true,
         setError,
         api: null
       })
@@ -469,31 +546,18 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
 
     await act(() => hook.result.current({ kind: "block", blockRef: "T-001#B-001" }, startLocal));
 
-    expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).not.toHaveBeenCalled();
-    expect(setError).toHaveBeenCalledWith("human_principal_unavailable");
+    expect(startLocal).not.toHaveBeenCalled();
+    expect(setError).toHaveBeenCalledWith("workspace_execution_bridge_unavailable");
   });
 
-  it("dispatches through owner fleet operator control without collaboration controller", async () => {
-    const { result, lifecycle, setError } = renderOwnerFleetRun();
+  it("does not restore owner-fleet fallback for a local working copy", async () => {
+    const { result, lifecycle, setError, startWorkspaceExecution } = renderOwnerFleetRun();
 
     await act(() => result.current({ kind: "project" }));
 
-    expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).toHaveBeenCalledWith({
-      profileId: "profile-a",
-      humanPrincipalId: "human-owner-1",
-      command: expect.objectContaining({
-        schemaVersion: "remote-run/v3",
-        projectId: "project-local",
-        canvasId: "canvas-main",
-        blockRef: "T-001#B-001",
-        agentEndpointId: "endpoint-windows",
-        expectedResponsibilityRevision: 0,
-        expectedReviewerRevision: 0,
-        executionTargetRevision: 0
-      })
-    });
-    expect(lifecycle.onCompleted).toHaveBeenCalled();
-    expect(setError).not.toHaveBeenCalled();
+    expect(startWorkspaceExecution).not.toHaveBeenCalled();
+    expect(lifecycle.onCompleted).not.toHaveBeenCalled();
+    expect(setError).toHaveBeenCalledWith("workspace_execution_bridge_unavailable");
   });
 
   it("dispatches one remote Block without a local project or filesystem preflight", async () => {
@@ -504,32 +568,28 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
       setError,
       startLocal,
       dispatchCollaborationRemoteOperation,
-      ensureWorkAuthority
+      ensureWorkAuthority,
+      startWorkspaceExecution,
+      followWorkspaceExecution
     } = renderOwnerFleetRun({ remoteCanvasOnly: true });
 
     await act(() => result.current({ kind: "block", blockRef: "T-001#B-001" }));
 
     expect(dispatchCollaborationRemoteOperation).not.toHaveBeenCalled();
-    expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).toHaveBeenCalledWith(
-      expect.objectContaining({
-        profileId: "profile-a",
-        humanPrincipalId: "human-owner-1",
+    expect(startWorkspaceExecution).toHaveBeenCalledWith({
+      locator: {
+        kind: "workspace",
+        connectionProfileId: "profile-a",
         workspaceId: "workspace-1",
-        command: expect.objectContaining({
-          projectId: "project-server",
-          canvasId: "canvas-main",
-          blockRef: "T-001#B-001",
-          expectedResponsibilityRevision: 7,
-          expectedReviewerRevision: 11,
-          executionTargetRevision: 13
-        })
-      })
-    );
-    expect(ensureWorkAuthority).toHaveBeenCalledWith({
-      kind: "block",
-      canvasId: "canvas-main",
-      blockRef: "T-001#B-001"
+        projectId: "project-server",
+        canvasId: "canvas-main"
+      },
+      blockRef: "T-001#B-001",
+      agentEndpointId: "endpoint-windows",
+      effectiveExecutor: { name: "codex", agentId: "codex" }
     });
+    expect(followWorkspaceExecution).toHaveBeenCalledTimes(1);
+    expect(ensureWorkAuthority).not.toHaveBeenCalled();
     expect(previewClaimNext).not.toHaveBeenCalled();
     expect(bridgeMock.getBlockDetail).not.toHaveBeenCalled();
     expect(startLocal).not.toHaveBeenCalled();
@@ -571,8 +631,6 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
         selectedCanvasId: "canvas-main",
         selectedProject: null,
         runtimeAvailability: { kind: "available" },
-        operatorProfileId: "profile-a",
-        ownerFleetDispatchEnabled: true,
         setError,
         api: null
       })
@@ -581,7 +639,6 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
     await act(() => hook.result.current({ kind: "block", blockRef: "T-001#B-001" }, startLocal));
 
     expect(startLocal).not.toHaveBeenCalled();
-    expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).not.toHaveBeenCalled();
     expect(setError).toHaveBeenCalledWith(
       "agent_endpoint_unavailable:T-001#B-001:local:codex:agent_endpoint_unknown"
     );
@@ -594,25 +651,17 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
       previewClaimNext,
       setError,
       startLocal,
-      dispatchCollaborationRemoteOperation
+      dispatchCollaborationRemoteOperation,
+      startWorkspaceExecution,
+      followWorkspaceExecution
     } = renderOwnerFleetRun({ remoteCanvasOnly: true });
 
     await act(() => result.current({ kind: "task", taskId: "T-001" }));
 
     expect(setError).not.toHaveBeenCalled();
     expect(dispatchCollaborationRemoteOperation).not.toHaveBeenCalled();
-    expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).toHaveBeenCalledWith(
-      expect.objectContaining({
-        profileId: "profile-a",
-        humanPrincipalId: "human-owner-1",
-        workspaceId: "workspace-1",
-        command: expect.objectContaining({
-          projectId: "project-server",
-          canvasId: "canvas-main",
-          blockRef: "T-001#B-001"
-        })
-      })
-    );
+    expect(startWorkspaceExecution).toHaveBeenCalledTimes(1);
+    expect(followWorkspaceExecution).toHaveBeenCalledTimes(1);
     expect(previewClaimNext).not.toHaveBeenCalled();
     expect(startLocal).not.toHaveBeenCalled();
     expect(lifecycle.onCompleted).toHaveBeenCalledTimes(1);
@@ -626,51 +675,44 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
       previewClaimNext,
       setError,
       startLocal,
-      dispatchCollaborationRemoteOperation
+      dispatchCollaborationRemoteOperation,
+      startWorkspaceExecution,
+      followWorkspaceExecution
     } = renderOwnerFleetRun({ remoteCanvasOnly: true });
 
     await act(() => result.current({ kind: "project" }));
 
     expect(dispatchCollaborationRemoteOperation).not.toHaveBeenCalled();
-    expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).toHaveBeenCalledWith(
-      expect.objectContaining({
-        profileId: "profile-a",
-        humanPrincipalId: "human-owner-1",
-        workspaceId: "workspace-1",
-        command: expect.objectContaining({
-          projectId: "project-server",
-          canvasId: "canvas-main",
-          blockRef: "T-001#B-001"
-        })
-      })
-    );
+    expect(startWorkspaceExecution).toHaveBeenCalledTimes(1);
+    expect(followWorkspaceExecution).toHaveBeenCalledTimes(1);
     expect(previewClaimNext).not.toHaveBeenCalled();
     expect(startLocal).not.toHaveBeenCalled();
     expect(lifecycle.onCompleted).toHaveBeenCalledTimes(1);
     expect(setError).not.toHaveBeenCalled();
   });
 
-  it("keeps owner fleet authority when collaboration availability is present", async () => {
+  it("fails closed for a local working copy even when collaboration availability is present", async () => {
     const {
       result,
       lifecycle,
       setError,
       readCollaborationCanvasBindingRuntimeAvailability,
       dispatchCollaborationRemoteOperation,
-      ensureWorkAuthority
+      ensureWorkAuthority,
+      startWorkspaceExecution
     } = renderOwnerFleetRun({ withCollaborationRuntime: true });
 
     await act(() => result.current({ kind: "project" }));
 
-    expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).toHaveBeenCalled();
+    expect(startWorkspaceExecution).not.toHaveBeenCalled();
     expect(dispatchCollaborationRemoteOperation).not.toHaveBeenCalled();
     expect(readCollaborationCanvasBindingRuntimeAvailability).not.toHaveBeenCalled();
     expect(ensureWorkAuthority).not.toHaveBeenCalled();
-    expect(lifecycle.onCompleted).toHaveBeenCalledTimes(1);
-    expect(setError).not.toHaveBeenCalled();
+    expect(lifecycle.onCompleted).not.toHaveBeenCalled();
+    expect(setError).toHaveBeenCalledWith("workspace_execution_bridge_unavailable");
   });
 
-  it("treats owner fleet terminal observation as scope completion when local status lags", async () => {
+  it("treats coordinator terminal follow as scope completion when Workspace status lags", async () => {
     const previewClaimNext = vi
       .fn()
       .mockResolvedValueOnce({
@@ -683,122 +725,62 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
         reason: "claimed"
       })
       .mockResolvedValue({ kind: "none", reason: "no_claimable_blocks" });
-    operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation.mockResolvedValueOnce({
-      ...operation("running"),
-      operationId: "operation-fleet-lag"
+    const { result, lifecycle, setError, followWorkspaceExecution } = renderOwnerFleetRun({
+      previewClaimNext,
+      remoteCanvasOnly: true
     });
-    operatorControlBridgeMock.observeOwnerFleetRemoteOperation.mockResolvedValue({
-      ...operation("completed"),
-      operationId: "operation-fleet-lag"
-    });
-    const { result, lifecycle, setError } = renderOwnerFleetRun({ previewClaimNext });
 
     await act(() => result.current({ kind: "project" }));
 
-    expect(operatorControlBridgeMock.observeOwnerFleetRemoteOperation).toHaveBeenCalledWith({
-      profileId: "profile-a",
-      operationId: "operation-fleet-lag"
-    });
+    expect(followWorkspaceExecution).toHaveBeenCalledTimes(1);
     expect(lifecycle.onCompleted).toHaveBeenCalled();
     expect(setError).not.toHaveBeenCalledWith(expect.stringContaining("claim_bus_idle"));
   });
 
-  it("cancels Workspace scope coordination when the selected canvas changes", async () => {
-    const setError = vi.fn();
-    const lifecycle = {
-      onStarted: vi.fn(),
-      onCompleted: vi.fn(),
-      onFailed: vi.fn(),
-      onCancelled: vi.fn()
-    };
-    const startLocal = vi.fn();
-    const onCollaborationObserverSignal = vi.fn(() => () => undefined);
-    const readCollaborationCanvasBindingRuntimeAvailability = vi.fn(async () => ({
-      schemaVersion: "canvas-runtime-view/v1" as const,
-      state: {
-        kind: "initialized" as const,
-        runtimeRevision: 1,
-        status: remoteScopeStatus([
-          { ref: "T-001#B-001", status: "in_progress", dispatchable: false }
-        ])
-      },
-      execution: {
-        schemaVersion: "canvas-runtime-availability/v1" as const,
-        kind: "available" as const,
-        status: remoteScopeStatus([
-          { ref: "T-001#B-001", status: "in_progress", dispatchable: false }
-        ]),
-        sourceRevision: "source-revision-1",
-        graphFingerprint: graph.packageFingerprint
-      }
-    }));
-    const { result, rerender } = renderHook(
-      ({ canvasId }: { canvasId: string }) => {
-        const binding = {
-          kind: "remote" as const,
-          workspaceId: "workspace-1",
-          projectId: "project-server",
-          canvasId
-        };
-        return useWorkspaceAgentEndpointRun({
-          activeProjectId: "project-server",
-          agentEndpoints: [remoteEndpoint],
-          collaborationController: {
-            ensureWorkAuthority: vi.fn(async () => ({
-              revisions: {
-                responsibilityRevision: 7,
-                reviewerRevision: 11,
-                executionTargetRevision: 13
-              }
-            }))
-          },
-          canvasBinding: binding,
-          graph,
-          preferences: {
-            [remoteAgentEndpointPreferenceKey({
-              ...binding,
-              scope: { kind: "task", taskId: "T-001" }
-            })]: { kind: "remote", remoteEndpointId: "endpoint-windows" }
-          },
-          selectedCanvasId: canvasId,
-          selectedProject: null,
-          runtimeAvailability: { kind: "available" },
-          operatorProfileId: "profile-a",
-          ownerFleetDispatchEnabled: true,
-          setError,
-          api: {
-            dispatchCollaborationRemoteOperation: vi.fn(),
-            observeCollaborationRemoteOperation: vi.fn(),
-            executeCollaborationRemoteOperationAction: vi.fn(),
-            onCollaborationObserverSignal,
-            readCollaborationCanvasBindingRuntimeAvailability
-          }
-        });
-      },
-      { initialProps: { canvasId: "canvas-main" } }
+  it("cancels an active coordinator session when Workspace scope stop is requested", async () => {
+    const followWorkspaceExecution = vi.fn(
+      () => new Promise<DesktopWorkspaceExecutionResponse>(() => undefined)
     );
+    const { result, lifecycle, cancelWorkspaceExecution, startWorkspaceExecution, setError } =
+      renderOwnerFleetRun({ remoteCanvasOnly: true, followWorkspaceExecution });
 
     let running: Promise<void> | undefined;
     act(() => {
-      running = result.current({ kind: "task", taskId: "T-001" }, startLocal, lifecycle);
+      running = result.current({ kind: "block", blockRef: "T-001#B-001" });
     });
-    await vi.waitFor(() => expect(onCollaborationObserverSignal).toHaveBeenCalledTimes(1));
-    rerender({ canvasId: "canvas-next" });
+    await vi.waitFor(() => expect(startWorkspaceExecution).toHaveBeenCalledTimes(1));
+    await act(() => result.current.stop());
     await act(async () => running);
 
-    expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).not.toHaveBeenCalled();
+    expect(cancelWorkspaceExecution).toHaveBeenCalledWith({
+      locator: {
+        kind: "workspace",
+        connectionProfileId: "profile-a",
+        workspaceId: "workspace-1",
+        projectId: "project-server",
+        canvasId: "canvas-main"
+      },
+      blockRef: "T-001#B-001",
+      agentEndpointId: "endpoint-windows",
+      effectiveExecutor: { name: "codex", agentId: "codex" },
+      sessionId: "SESSION-0001",
+      actionId: "operation-fleet-1",
+      reason: "Desktop Auto Run stop requested."
+    });
     expect(lifecycle.onCompleted).not.toHaveBeenCalled();
-    expect(lifecycle.onFailed).not.toHaveBeenCalled();
     expect(lifecycle.onCancelled).toHaveBeenCalledTimes(1);
     expect(setError).not.toHaveBeenCalled();
   });
 
-  it("does not stale-complete a Workspace Block when its dispatch returns after a canvas switch", async () => {
-    let resolveDispatch: ((value: RemoteOperationObservation) => void) | undefined;
-    const dispatch = new Promise<RemoteOperationObservation>((resolve) => {
-      resolveDispatch = resolve;
+  it("cancels a stale coordinator start when its response returns after a canvas switch", async () => {
+    let resolveStart: ((value: DesktopWorkspaceExecutionResponse) => void) | undefined;
+    const startResponse = new Promise<DesktopWorkspaceExecutionResponse>((resolve) => {
+      resolveStart = resolve;
     });
-    const dispatchCollaborationRemoteOperation = vi.fn(() => dispatch);
+    const startWorkspaceExecution = vi.fn(() => startResponse);
+    const followWorkspaceExecution = vi.fn(async () => workspaceExecutionView("completed"));
+    const respondWorkspaceExecution = vi.fn(async () => workspaceExecutionView("running"));
+    const cancelWorkspaceExecution = vi.fn(async () => workspaceExecutionView("stopped"));
     const setError = vi.fn();
     const lifecycle = {
       onStarted: vi.fn(),
@@ -827,6 +809,13 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
             }))
           },
           canvasBinding: binding,
+          canvasLocator: {
+            kind: "workspace",
+            connectionProfileId: "profile-a",
+            workspaceId: binding.workspaceId,
+            projectId: binding.projectId,
+            canvasId
+          },
           graph,
           preferences: {
             [remoteAgentEndpointPreferenceKey({
@@ -837,28 +826,14 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
           selectedCanvasId: canvasId,
           selectedProject: null,
           runtimeAvailability: { kind: "available" },
-          operatorProfileId: "profile-a",
-          ownerFleetDispatchEnabled: true,
           setError,
-          api: {
-            dispatchCollaborationRemoteOperation,
-            observeCollaborationRemoteOperation: vi.fn(),
-            executeCollaborationRemoteOperationAction: vi.fn(),
-            onCollaborationObserverSignal: vi.fn(() => () => undefined),
-            readCollaborationCanvasBindingRuntimeAvailability: vi.fn(async () => ({
-              schemaVersion: "canvas-runtime-view/v2" as const,
-              authority: {
-                revision: 1,
-                sourceRevision: "source-revision-1",
-                graphFingerprint: `pkg-${"a".repeat(64)}`
-              },
-              state: { kind: "uninitialized" as const },
-              execution: {
-                schemaVersion: "canvas-runtime-availability/v1" as const,
-                kind: "unavailable" as const,
-                reason: "runtime_not_attached" as const
-              }
-            }))
+          api: null,
+          createId: () => "cancel-stale-1",
+          workspaceExecutionApi: {
+            startWorkspaceExecution,
+            followWorkspaceExecution,
+            respondWorkspaceExecution,
+            cancelWorkspaceExecution
           }
         });
       },
@@ -869,15 +844,23 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
     act(() => {
       running = result.current({ kind: "block", blockRef: "T-001#B-001" }, vi.fn(), lifecycle);
     });
-    await vi.waitFor(() => expect(dispatchCollaborationRemoteOperation).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(startWorkspaceExecution).toHaveBeenCalledTimes(1));
     rerender({ canvasId: "canvas-next" });
-    resolveDispatch?.(operation("completed"));
+    resolveStart?.(workspaceExecutionView("running"));
     await act(async () => running);
 
+    expect(cancelWorkspaceExecution).toHaveBeenCalledWith(
+      expect.objectContaining({
+        locator: expect.objectContaining({ canvasId: "canvas-main" }),
+        blockRef: "T-001#B-001",
+        sessionId: "SESSION-0001",
+        actionId: "cancel-stale-1"
+      })
+    );
+    expect(followWorkspaceExecution).not.toHaveBeenCalled();
     expect(lifecycle.onCompleted).not.toHaveBeenCalled();
     expect(lifecycle.onFailed).not.toHaveBeenCalled();
     expect(lifecycle.onCancelled).toHaveBeenCalledTimes(1);
-    expect(operatorControlBridgeMock.dispatchOwnerFleetRemoteOperation).not.toHaveBeenCalled();
     expect(setError).not.toHaveBeenCalled();
   });
 });
