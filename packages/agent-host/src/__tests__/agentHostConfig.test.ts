@@ -59,7 +59,7 @@ function input(directory: string, workspaceRoot: string) {
 }
 
 describe("Agent Host configuration", () => {
-  it("forwards a declared collaboration device credential through Host ACP resolution", async () => {
+  it("validates but does not materialize a declared control credential in Agent child env", async () => {
     const controlCredentialName = "PLANWEAVE_COLLABORATION_DEVICE_TOKEN";
     const { directory, workspaceRoot } = await setup();
     const base = input(directory, workspaceRoot);
@@ -79,8 +79,10 @@ describe("Agent Host configuration", () => {
       [controlCredentialName]: "characterization-device-token-not-a-real-secret"
     }).resolve("acp.test", "test-agent");
 
-    expect(Object.keys(resolved.env)).toContain(controlCredentialName);
-    expect(resolved.env[controlCredentialName]).toBeDefined();
+    expect(Object.keys(resolved.env)).not.toContain(controlCredentialName);
+    expect(Object.values(resolved.env)).not.toContain(
+      "characterization-device-token-not-a-real-secret"
+    );
   });
 
   it("defaults, validates, and resolves ACP shutdown policy overrides", async () => {

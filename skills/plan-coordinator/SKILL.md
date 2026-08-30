@@ -105,6 +105,16 @@ The coordinator may submit an artifact after a worker returns it, but must not a
 - Determine the outcome from terminal state, metadata, diagnostics, report/review result, artifacts, and submitted state.
 - For executor failures, timeouts, stale current refs, missing reports, or inconsistent submitted state, stop dependent dispatch and route to `plan-recovery`.
 
+## Remote Agent CLI Execution
+
+- Remote Workspace execution requires preconfigured CLI connection metadata and a process-memory credential. Select a profile with `--connection-profile <profile-id>` when more than one profile is configured, and provide `PLANWEAVE_COLLABORATION_DEVICE_TOKEN` in the coordinator process environment. The CLI does not perform login, read Electron secure storage, or provide zero-configuration authentication.
+- Preflight the authorized Remote Agent catalog with `<pw> agent-endpoints list --canvas <canvas-id> --connection-profile <profile-id> --json`. A missing credential, wrong Workspace authority, zero eligible endpoints, or multiple eligible endpoints is a blocking result; do not bypass it with operator routes or Desktop IPC.
+- Dispatch one block through the shared Workspace execution coordinator with `<pw> run --once --target remote --scope block --block <ref> --agent-endpoint <endpoint-id> --connection-profile <profile-id> --event-format execution-v1`. Omit `--agent-endpoint` only when the authorized catalog has exactly one eligible endpoint. Use `--target auto` only when local execution is acceptable; the CLI probes local availability before choosing one authority and never launches locally before remote fallback.
+- Treat each `execution-event/v1` NDJSON line as an independent schema-valid event. Preserve its session id, attempt, cursor, and retention fields when recording evidence. A transport failure is retryable and is not a terminal execution event.
+- On `action_required`, inspect `<pw> interaction list --session <session-id> --connection-profile <profile-id> --json`, then settle the complete interaction identity with `<pw> interaction respond --session <session-id> --dispatch <dispatch-id> --lease <lease-id> --attempt <execution-attempt-id> --acp-session <acp-session-id> --action <action-id> --option <value> --connection-profile <profile-id>`. Use `--cancel` only when the requested interaction supports cancellation; do not reproduce the Server settlement state machine.
+- After interruption or coordinator restart, resume the exact persisted operation with `<pw> run-session <session-id> --follow --event-format execution-v1 --connection-profile <profile-id>`. Recovery is bound to the stored canvas, block, and idempotency identity; never substitute the latest operation in that scope.
+- Interpret stable exits as follows: `0` accepted/terminal success, `2` usage, `3` connection selection, `4` credential/authentication, `5` authority/conflict, `6` endpoint selection/unavailable, `7` action required, `8` terminal execution failure, `9` retryable transport/probe failure, and `130` Ctrl-C.
+
 ## Review And Feedback
 
 - Review gates are sequential control points.

@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { skillRemoteRunTemplate } from "./support/workspaceExecutionSkillCommands.js";
 
 const repoRoot = resolve(import.meta.dirname, "../../../..");
 
@@ -117,6 +118,7 @@ describe("agent skill contract docs", () => {
     expect(coordinator).toContain(
       "configured runner (CLI or ACP) owns the work: `<pw> run --once --scope block --block <ref>`"
     );
+    expect(coordinator).toContain(skillRemoteRunTemplate);
     expect(coordinator).toContain(
       "Select the observation path from the run's `runnerKind`, capabilities, session identity, and record metadata."
     );
@@ -135,6 +137,18 @@ describe("agent skill contract docs", () => {
     expect(coordinator).toContain(
       "For ACP runs, follow ordered runner events and resolve permission or elicitation requests through the runtime-provided interaction identity and capability."
     );
+    for (const marker of [
+      "PLANWEAVE_COLLABORATION_DEVICE_TOKEN",
+      "agent-endpoints list",
+      "--target remote",
+      "interaction list --session",
+      "interaction respond --session",
+      "run-session <session-id> --follow",
+      "never substitute the latest operation",
+      "The CLI does not perform login"
+    ]) {
+      expect(coordinator).toContain(marker);
+    }
     expect(coordinator).toContain(
       "For CLI runs, use the terminal monitoring, attach commands, and captured-output artifacts present in the run record."
     );

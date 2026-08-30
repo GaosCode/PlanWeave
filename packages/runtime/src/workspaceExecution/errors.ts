@@ -25,8 +25,21 @@ export type WorkspaceExecutionErrorCode =
   | "remote_interaction_snapshot_unstable"
   | "remote_interaction_response_unavailable"
   | "remote_interaction_expired"
+  | "remote_interaction_not_found"
+  | "remote_interaction_already_settled"
+  | "human_cross_project_forbidden"
   | "remote_writeback_failed"
-  | "remote_observation_unavailable";
+  | "remote_observation_unavailable"
+  | (string & {});
+
+export type WorkspaceExecutionFailureKind =
+  | "usage"
+  | "authentication"
+  | "authorization"
+  | "not_found"
+  | "conflict"
+  | "unavailable"
+  | "execution";
 
 export class WorkspaceExecutionError extends Error {
   readonly name = "WorkspaceExecutionError";
@@ -35,7 +48,8 @@ export class WorkspaceExecutionError extends Error {
     readonly code: WorkspaceExecutionErrorCode,
     message: string = code,
     readonly retryable = false,
-    options?: ErrorOptions
+    options?: ErrorOptions,
+    readonly failureKind?: WorkspaceExecutionFailureKind
   ) {
     super(message, options);
   }
@@ -45,7 +59,34 @@ export function workspaceExecutionPortError(
   error: unknown,
   code: WorkspaceExecutionErrorCode
 ): WorkspaceExecutionError {
-  return error instanceof WorkspaceExecutionError
-    ? error
-    : new WorkspaceExecutionError(code, code, true, { cause: error });
+  if (error instanceof WorkspaceExecutionError) return error;
+  const failure =
+    typeof error === "object" && error !== null
+      ? (error as {
+          code?: unknown;
+          retryable?: unknown;
+          failureKind?: unknown;
+        })
+      : undefined;
+  const safeCode =
+    typeof failure?.code === "string" && /^[a-z][a-z0-9_]{0,127}$/.test(failure.code)
+      ? failure.code
+      : code;
+  const failureKinds: readonly WorkspaceExecutionFailureKind[] = [
+    "usage",
+    "authentication",
+    "authorization",
+    "not_found",
+    "conflict",
+    "unavailable",
+    "execution"
+  ];
+  const failureKind = failureKinds.find((candidate) => candidate === failure?.failureKind);
+  return new WorkspaceExecutionError(
+    safeCode,
+    safeCode,
+    typeof failure?.retryable === "boolean" ? failure.retryable : true,
+    { cause: error },
+    failureKind
+  );
 }

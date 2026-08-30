@@ -61,9 +61,31 @@ async function submitNeedsChangesWithHook(
 
 afterEach(() => {
   delete process.env.PLANWEAVE_HOME;
+  delete process.env.PLANWEAVE_COLLABORATION_DEVICE_TOKEN;
 });
 
 describe("review hook execution boundary", () => {
+  it("strips execution-control credentials from the actual review hook child", async () => {
+    process.env.PLANWEAVE_COLLABORATION_DEVICE_TOKEN =
+      "characterization-device-token-not-a-real-secret";
+
+    await expect(
+      runReviewHookProcess({
+        command: process.execPath,
+        args: [
+          "-e",
+          'process.stdout.write(process.env.PLANWEAVE_COLLABORATION_DEVICE_TOKEN ? "present" : "missing")'
+        ],
+        cwd: process.cwd(),
+        stdin: "{}",
+        limits: {
+          timeoutMs: 1_000,
+          stdoutLimitBytes: 1_024,
+          stderrLimitBytes: 1_024
+        }
+      })
+    ).resolves.toBe("missing");
+  });
   it("refuses an untrusted hook and surfaces blocked status with an actionable reason", async () => {
     const hook = executableHook(
       "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => { const parsed = JSON.parse(input); process.stdout.write(JSON.stringify({ action: 'use_feedback', feedbackPrompt: 'Hooked ' + parsed.reviewBlockRef })); });"

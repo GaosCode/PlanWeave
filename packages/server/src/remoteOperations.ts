@@ -27,30 +27,22 @@ import {
   type PersistedRemoteAgentAccessSnapshot
 } from "./remoteAgent/schema.js";
 import { requireRemoteOperationDiagnosticRetryability } from "./remoteOperationDiagnosticRetryability.js";
+import {
+  findLatestRemoteOperationByScope,
+  findRemoteOperationByCallerIdentity,
+  findRemoteOperationByIdempotencyKeyInScope,
+  findRemoteOperationByIdInScope,
+  getRemoteOperationByDispatchId,
+  getRemoteOperationInWorkspace,
+  listNonTerminalRemoteOperations,
+  remoteOperationBlockRefSchema,
+  remoteOperationIdempotencyKeySchema,
+  type RemoteOperationIdempotencyScope,
+  type RemoteOperationIdScope,
+  type RemoteOperationScope
+} from "./remoteOperationLookup.js";
 
-const boundedKeySchema = z
-  .string()
-  .min(1)
-  .max(256)
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: persisted keys reject C0 controls and DEL.
-  .regex(/^[^\u0000-\u001f\u007f]+$/);
-const blockRefSchema = z
-  .string()
-  .min(3)
-  .max(257)
-  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*#[A-Za-z0-9][A-Za-z0-9._:-]*$/);
 const timestampSchema = z.iso.datetime();
-const remoteOperationScopeSchema = z
-  .object({
-    workspaceId: workspaceIdSchema,
-    projectId: opaqueIdentifierSchema,
-    canvasId: opaqueIdentifierSchema,
-    blockRef: blockRefSchema
-  })
-  .strict();
-const remoteOperationIdScopeSchema = remoteOperationScopeSchema.extend({
-  operationId: opaqueIdentifierSchema
-});
 
 export const remoteOperationStateSchema = z.enum([
   "preparing",
@@ -105,9 +97,9 @@ export const createRemoteOperationInputSchema = z
     workspaceId: workspaceIdSchema,
     projectId: opaqueIdentifierSchema,
     canvasId: opaqueIdentifierSchema,
-    blockRef: blockRefSchema,
+    blockRef: remoteOperationBlockRefSchema,
     ownershipGeneration: opaqueIdentifierSchema,
-    idempotencyKey: boundedKeySchema,
+    idempotencyKey: remoteOperationIdempotencyKeySchema,
     sourceFingerprint: opaqueIdentifierSchema,
     requiredCapabilities: capabilitiesSchema,
     /**
@@ -126,9 +118,9 @@ const operationRowSchema = z
     workspace_id: workspaceIdSchema,
     project_id: opaqueIdentifierSchema,
     canvas_id: opaqueIdentifierSchema,
-    block_ref: blockRefSchema,
+    block_ref: remoteOperationBlockRefSchema,
     ownership_generation: opaqueIdentifierSchema,
-    idempotency_key: boundedKeySchema,
+    idempotency_key: remoteOperationIdempotencyKeySchema,
     request_fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
     source_fingerprint: opaqueIdentifierSchema,
     required_capabilities_json: z.string(),
@@ -139,7 +131,7 @@ const operationRowSchema = z
       .string()
       .regex(/^envelope:sha256:[a-f0-9]{64}$/)
       .nullable(),
-    envelope_reference: boundedKeySchema.nullable(),
+    envelope_reference: remoteOperationIdempotencyKeySchema.nullable(),
     host_selection_json: z.string().nullable(),
     endpoint_selection_json: z.string().nullable(),
     agent_access_json: z.string().nullable(),
@@ -157,7 +149,7 @@ const attemptRowSchema = z
     workspace_id: workspaceIdSchema,
     project_id: opaqueIdentifierSchema,
     canvas_id: opaqueIdentifierSchema,
-    block_ref: blockRefSchema,
+    block_ref: remoteOperationBlockRefSchema,
     ownership_generation: opaqueIdentifierSchema,
     status: remoteAttemptStatusSchema,
     host_id: opaqueIdentifierSchema.nullable(),
@@ -521,7 +513,9 @@ export class RemoteOperationRepository {
       .regex(/^envelope:sha256:[a-f0-9]{64}$/)
       .parse(input.digest);
     const reference =
-      input.reference === undefined ? undefined : boundedKeySchema.parse(input.reference);
+      input.reference === undefined
+        ? undefined
+        : remoteOperationIdempotencyKeySchema.parse(input.reference);
     return inWriteTransaction(this.database, () => {
       const operation = this.getRequired(input.operationId);
       if (operation.envelopeDigest) {
@@ -647,10 +641,9 @@ export class RemoteOperationRepository {
   }
 
   getInWorkspace(workspaceId: string, operationId: string): RemoteOperation | undefined {
-    const row = this.database
-      .prepare(`SELECT id FROM remote_operations WHERE workspace_id=? AND id=?`)
-      .get(workspaceIdSchema.parse(workspaceId), opaqueIdentifierSchema.parse(operationId));
-    return typeof row?.id === "string" ? this.getRequired(row.id) : undefined;
+    return getRemoteOperationInWorkspace(this.database, workspaceId, operationId, (id) =>
+      this.getRequired(id)
+    );
   }
 
   getRequiredInWorkspace(workspaceId: string, operationId: string): RemoteOperation {
@@ -659,83 +652,32 @@ export class RemoteOperationRepository {
     return operation;
   }
 
-  findLatestByScope(rawScope: {
-    workspaceId: string;
-    projectId: string;
-    canvasId: string;
-    blockRef: string;
-  }): RemoteOperation | undefined {
-    const scope = remoteOperationScopeSchema.parse(rawScope);
-    const row = this.database
-      .prepare(
-        `SELECT id FROM remote_operations
-         WHERE workspace_id=? AND project_id=? AND canvas_id=? AND block_ref=?
-         ORDER BY created_at DESC,rowid DESC LIMIT 1`
-      )
-      .get(scope.workspaceId, scope.projectId, scope.canvasId, scope.blockRef);
-    return typeof row?.id === "string" ? this.getRequired(row.id) : undefined;
+  findLatestByScope(rawScope: RemoteOperationScope): RemoteOperation | undefined {
+    return findLatestRemoteOperationByScope(this.database, rawScope, (id) => this.getRequired(id));
   }
 
-  findByOperationIdInScope(rawScope: {
-    workspaceId: string;
-    projectId: string;
-    canvasId: string;
-    blockRef: string;
-    operationId: string;
-  }): RemoteOperation | undefined {
-    const scope = remoteOperationIdScopeSchema.parse(rawScope);
-    const row = this.database
-      .prepare(
-        `SELECT id FROM remote_operations
-         WHERE workspace_id=? AND project_id=? AND canvas_id=? AND block_ref=? AND id=?`
-      )
-      .get(scope.workspaceId, scope.projectId, scope.canvasId, scope.blockRef, scope.operationId);
-    return typeof row?.id === "string" ? this.getRequired(row.id) : undefined;
+  findByOperationIdInScope(rawScope: RemoteOperationIdScope): RemoteOperation | undefined {
+    return findRemoteOperationByIdInScope(this.database, rawScope, (id) => this.getRequired(id));
+  }
+
+  findByIdempotencyKeyInScope(
+    rawScope: RemoteOperationIdempotencyScope
+  ): RemoteOperation | undefined {
+    return findRemoteOperationByIdempotencyKeyInScope(this.database, rawScope, (id) =>
+      this.getRequired(id)
+    );
   }
 
   getByDispatchId(dispatchId: string): RemoteOperation | undefined {
-    const row = this.database
-      .prepare("SELECT id FROM remote_operations WHERE dispatch_id=?")
-      .get(dispatchId);
-    return typeof row?.id === "string" ? this.getRequired(row.id) : undefined;
+    return getRemoteOperationByDispatchId(this.database, dispatchId, (id) => this.getRequired(id));
   }
 
-  findByCallerIdentity(input: {
-    workspaceId: string;
-    projectId: string;
-    canvasId: string;
-    blockRef: string;
-    idempotencyKey: string;
-  }): RemoteOperation | undefined {
-    const rows = this.database
-      .prepare(
-        `SELECT id FROM remote_operations
-         WHERE workspace_id=? AND project_id=? AND canvas_id=? AND block_ref=? AND idempotency_key=?
-         ORDER BY created_at DESC,id DESC LIMIT 2`
-      )
-      .all(
-        input.workspaceId,
-        input.projectId,
-        input.canvasId,
-        input.blockRef,
-        input.idempotencyKey
-      );
-    if (rows.length > 1) throw new Error("remote_operation_generation_ambiguous");
-    const id = rows[0]?.id;
-    return typeof id === "string" ? this.getRequired(id) : undefined;
+  findByCallerIdentity(input: RemoteOperationIdempotencyScope): RemoteOperation | undefined {
+    return findRemoteOperationByCallerIdentity(this.database, input, (id) => this.getRequired(id));
   }
 
   listNonTerminal(): RemoteOperation[] {
-    return this.database
-      .prepare(
-        `SELECT id FROM remote_operations
-         WHERE state NOT IN ('completed','failed','cancelled') ORDER BY created_at,id`
-      )
-      .all()
-      .map((row) => {
-        if (typeof row.id !== "string") throw new Error("remote_operation_row_invalid");
-        return this.getRequired(row.id);
-      });
+    return listNonTerminalRemoteOperations(this.database, (id) => this.getRequired(id));
   }
 
   retryAttempt(input: {

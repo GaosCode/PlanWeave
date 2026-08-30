@@ -1,15 +1,9 @@
 import {
-  ACP_EVENT_BATCH_MAX_COUNT,
-  acpEventCursorSchema,
   acpRecoveryIdentitySchema,
   blockRefSchema,
   dispatchIdSchema,
   executionAttemptIdSchema,
-  interactionRequestSchema,
-  interactionSettlementSchema,
   leaseIdSchema,
-  normalizedAcpEventSchema,
-  remoteRunnerEventV2Schema,
   normalizedFailureSchema,
   opaqueIdentifierSchema
 } from "@planweave-ai/agent-host-protocol/browser";
@@ -18,6 +12,23 @@ import { collaborationRevisionSchema, responsibilitySchemaVersion } from "./resp
 import { executionTargetSchemaVersion } from "./executionTarget.js";
 import { timestampSchema, workItemRefSchema } from "./primitives.js";
 import { availableRemoteAgentEndpointSchema } from "./agentEndpoint.js";
+
+export {
+  remoteInteractionPageQuerySchema,
+  remoteInteractionPageSchema,
+  remoteInteractionResponseSchema,
+  remoteInteractionViewSchema,
+  type RemoteInteractionPage,
+  type RemoteInteractionPageQuery,
+  type RemoteInteractionResponse,
+  type RemoteInteractionView
+} from "./remoteInteraction.js";
+export {
+  remoteEventQuerySchema,
+  remoteEventReplaySchema,
+  type RemoteEventQuery,
+  type RemoteEventReplay
+} from "./remoteEventReplay.js";
 
 /**
  * Human-facing remote ACP run observation / control wire contracts.
@@ -504,83 +515,6 @@ export const remoteActionViewSchema = z
   });
 export type RemoteActionView = z.infer<typeof remoteActionViewSchema>;
 
-const remoteEventReplayBaseSchema = z.object({
-  executionAttemptId: opaqueIdentifierSchema,
-  afterCursor: acpEventCursorSchema,
-  cursor: acpEventCursorSchema,
-  highWatermark: acpEventCursorSchema,
-  hasMore: z.boolean()
-});
-const retentionDiagnosticSchema = z
-  .object({
-    code: z.literal("remote_acp_event_retention_gap"),
-    droppedThroughCursor: z.number().int().positive()
-  })
-  .strict();
-const degradedDiagnosticSchema = z
-  .object({ code: z.literal("remote_acp_event_contract_degraded") })
-  .strict();
-export const remoteEventReplaySchema = z.discriminatedUnion("eventProtocolVersion", [
-  remoteEventReplayBaseSchema
-    .extend({
-      eventProtocolVersion: z.literal(1),
-      events: z.array(normalizedAcpEventSchema).max(ACP_EVENT_BATCH_MAX_COUNT),
-      diagnostics: z
-        .array(z.union([retentionDiagnosticSchema, degradedDiagnosticSchema]))
-        .max(2)
-        .optional()
-    })
-    .strict(),
-  remoteEventReplayBaseSchema
-    .extend({
-      eventProtocolVersion: z.literal(2),
-      events: z.array(remoteRunnerEventV2Schema).max(ACP_EVENT_BATCH_MAX_COUNT),
-      diagnostics: z.array(retentionDiagnosticSchema).max(1).optional()
-    })
-    .strict()
-]);
-export type RemoteEventReplay = z.infer<typeof remoteEventReplaySchema>;
-
-export const remoteEventQuerySchema = z
-  .object({
-    afterCursor: z.number().int().nonnegative().default(0)
-  })
-  .strict();
-export type RemoteEventQuery = z.infer<typeof remoteEventQuerySchema>;
-
-export const remoteInteractionViewSchema = z
-  .object({
-    request: interactionRequestSchema,
-    operationId: opaqueIdentifierSchema,
-    hostId: opaqueIdentifierSchema,
-    status: z.enum(["pending", "settled", "expired"]),
-    createdAt: timestampSchema,
-    settlement: interactionSettlementSchema.optional(),
-    settledBy: opaqueIdentifierSchema.optional(),
-    settledAt: timestampSchema.optional()
-  })
-  .strict();
-export type RemoteInteractionView = z.infer<typeof remoteInteractionViewSchema>;
-
-export const remoteInteractionPageSchema = z
-  .object({
-    items: z.array(remoteInteractionViewSchema).max(100),
-    nextCursor: z.number().int().positive().nullable()
-  })
-  .strict();
-export type RemoteInteractionPage = z.infer<typeof remoteInteractionPageSchema>;
-
-export const remoteInteractionPageQuerySchema = z
-  .object({
-    cursor: z.number().int().nonnegative().default(0),
-    limit: z.number().int().min(1).max(100).default(50)
-  })
-  .strict();
-export type RemoteInteractionPageQuery = z.infer<typeof remoteInteractionPageQuerySchema>;
-
-export const remoteInteractionResponseSchema = interactionSettlementSchema;
-export type RemoteInteractionResponse = z.infer<typeof remoteInteractionResponseSchema>;
-
 /** Optional lookup helper when UI knows WorkItemRef + optional operationId. */
 export const remoteOperationLookupQuerySchema = z
   .object({
@@ -588,7 +522,8 @@ export const remoteOperationLookupQuerySchema = z
     workItem: workItemRefSchema.optional(),
     blockRef: blockRefSchema.optional(),
     operationId: opaqueIdentifierSchema.optional(),
-    dispatchId: opaqueIdentifierSchema.optional()
+    dispatchId: opaqueIdentifierSchema.optional(),
+    idempotencyKey: remoteDispatchIntentV3Schema.shape.idempotencyKey.optional()
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -596,6 +531,13 @@ export const remoteOperationLookupQuerySchema = z
       ctx.addIssue({
         code: "custom",
         message: "Remote operation lookup requires at least one identity field."
+      });
+    }
+    if (value.idempotencyKey && (!value.canvasId || !value.blockRef)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["idempotencyKey"],
+        message: "Idempotency lookup requires canvasId and blockRef."
       });
     }
   });

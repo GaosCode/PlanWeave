@@ -1,5 +1,9 @@
 import { PlanWeaveWorkspaceNotInitializedError } from "@planweave-ai/runtime";
 import { AcpProfilesJsonError } from "./commands/acpProfiles.js";
+import {
+  WorkspaceExecutionCliError,
+  workspaceExecutionExitCode
+} from "./workspaceExecution/errors.js";
 
 export function workspaceNotInitializedJson(
   error: PlanWeaveWorkspaceNotInitializedError
@@ -37,6 +41,7 @@ export function formatWorkspaceNotInitialized(
 }
 
 export function formatCliError(error: unknown): string {
+  if (error instanceof WorkspaceExecutionCliError) return `Error: ${error.code}`;
   if (error instanceof AcpProfilesJsonError) return JSON.stringify(error.envelope);
   if (error instanceof PlanWeaveWorkspaceNotInitializedError) {
     return formatWorkspaceNotInitialized(error);
@@ -46,3 +51,5 @@ export function formatCliError(error: unknown): string {
   }
   return `Error: ${String(error)}`;
 }
+
+export { workspaceExecutionExitCode };

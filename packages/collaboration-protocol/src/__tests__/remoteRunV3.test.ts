@@ -47,6 +47,20 @@ describe("remote-run/v3 dispatch contract", () => {
         blockRef: "T-001#B-001"
       })
     ).toEqual({ canvasId: "default", blockRef: "T-001#B-001" });
+    expect(
+      remoteOperationLookupQuerySchema.parse({
+        canvasId: "default",
+        blockRef: "T-001#B-001",
+        idempotencyKey: "dispatch-once"
+      })
+    ).toEqual({
+      canvasId: "default",
+      blockRef: "T-001#B-001",
+      idempotencyKey: "dispatch-once"
+    });
+    expect(() =>
+      remoteOperationLookupQuerySchema.parse({ idempotencyKey: "dispatch-once" })
+    ).toThrow();
   });
 
   it("rejects endpoint observations that mix in an internal Host ID", () => {

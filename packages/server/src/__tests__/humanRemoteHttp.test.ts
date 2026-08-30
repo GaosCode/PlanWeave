@@ -29,6 +29,7 @@ import { HumanRemoteControlService } from "../humanRemoteControlService.js";
 import { handleHumanRemoteHttpRequest } from "../humanRemoteHttp.js";
 import { startPlanweaveServer, type PlanweaveServer } from "../lifecycle.js";
 import { ProjectAccessRepository } from "../projectAccessRepository.js";
+import { RemoteOperationLookupConflictError } from "../remoteOperationLookup.js";
 import { RemoteRuntimePortRegistry } from "../remoteRuntimeLocator.js";
 import { AuthorityRepository } from "../work/authorityRepository.js";
 import { ownHostRemoteAgents } from "./support/remoteAgentOwnerFixture.js";
@@ -510,6 +511,48 @@ describe("human remote operation HTTP", () => {
     expect(exact.status).toBe(200);
     await expect(exact.json()).resolves.toMatchObject({ operationId: operation.operationId });
 
+    const exactIdempotency = await fetch(
+      `${collection}?${new URLSearchParams({
+        canvasId: fixture.canvasId,
+        blockRef: fixture.blockRef,
+        idempotencyKey: "block-operation-lookup"
+      })}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    expect(exactIdempotency.status).toBe(200);
+    await expect(exactIdempotency.json()).resolves.toMatchObject({
+      operationId: operation.operationId
+    });
+
+    vi.spyOn(fixture.coordination.operations, "findByIdempotencyKeyInScope").mockImplementationOnce(
+      () => {
+        throw new RemoteOperationLookupConflictError();
+      }
+    );
+    const ambiguous = await fetch(
+      `${collection}?${new URLSearchParams({
+        canvasId: fixture.canvasId,
+        blockRef: fixture.blockRef,
+        idempotencyKey: "block-operation-lookup"
+      })}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    expect(ambiguous.status).toBe(409);
+    await expect(ambiguous.json()).resolves.toEqual({
+      error: "human_remote_operation_conflict"
+    });
+
+    const unknownIdempotency = await fetch(
+      `${collection}?${new URLSearchParams({
+        canvasId: fixture.canvasId,
+        blockRef: fixture.blockRef,
+        idempotencyKey: "block-operation-missing"
+      })}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    expect(unknownIdempotency.status).toBe(200);
+    await expect(unknownIdempotency.json()).resolves.toBeNull();
+
     const outsideScope = await fetch(
       `${collection}?${new URLSearchParams({
         canvasId: fixture.canvasId,
@@ -551,6 +594,58 @@ describe("human remote operation HTTP", () => {
     );
     expect(foreignCanvas.status).toBe(403);
     await expect(foreignCanvas.json()).resolves.toEqual({ error: "authority_scope_forbidden" });
+  });
+
+  it("uses the activated dispatch transaction projection without a second Runtime acquire", async () => {
+    const fixture = await setup();
+    const token = await bootstrap(fixture.origin, fixture.projectId, "dispatch-projection-owner");
+    const queryRuntime = vi.spyOn(fixture.coordination.coordinator, "query");
+    const collection = `${fixture.origin}/api/v1/projects/${fixture.projectId}/remote-operations`;
+    const dispatched = await fetch(collection, {
+      method: "POST",
+      headers: headers(token),
+      body: JSON.stringify(remoteDispatchBody(fixture, "dispatch-projection"))
+    });
+    expect(dispatched.status).toBe(202);
+    const body = (await dispatched.json()) as {
+      operationId: string;
+      dispatchId: string;
+      executionAttemptId: string;
+      runtime: {
+        ownership?: {
+          operationId: string;
+          dispatchId?: string;
+          executionAttemptId?: string;
+        };
+      };
+    };
+    expect(queryRuntime).not.toHaveBeenCalled();
+    expect(body.runtime.ownership).toEqual({
+      operationId: body.operationId,
+      phase: "active",
+      dispatchId: body.dispatchId,
+      executionAttemptId: body.executionAttemptId
+    });
+
+    const observed = await fetch(`${collection}/${body.operationId}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    expect(observed.status).toBe(200);
+    expect(queryRuntime).toHaveBeenCalledTimes(1);
+
+    queryRuntime.mockClear();
+    const operation = fixture.coordination.operations.getRequired(body.operationId);
+    vi.spyOn(fixture.coordination.coordinator, "dispatch").mockResolvedValueOnce({
+      operation,
+      status: "awaiting_host"
+    });
+    const nonActivated = await fetch(collection, {
+      method: "POST",
+      headers: headers(token),
+      body: JSON.stringify(remoteDispatchBody(fixture, "dispatch-non-activated"))
+    });
+    expect(nonActivated.status).toBe(202);
+    expect(queryRuntime).toHaveBeenCalledTimes(1);
   });
 
   it("returns a stable conflict when a selected Agent Endpoint no longer exists", async () => {
@@ -734,6 +829,54 @@ describe("human remote operation HTTP", () => {
     });
     expect(settled.status).toBe(200);
     await expect(settled.json()).resolves.toMatchObject({ status: "settled" });
+
+    const afterSettlement = await fetch(
+      `${collection}/${operation.operationId}/interactions?cursor=0&limit=20`,
+      { headers: { Authorization: `Bearer ${member.deviceToken}` } }
+    );
+    expect(afterSettlement.status).toBe(200);
+    await expect(afterSettlement.json()).resolves.toEqual({ items: [], nextCursor: null });
+
+    const conflictingSettlement = await fetch(
+      `${collection}/${operation.operationId}/interactions/respond`,
+      {
+        method: "POST",
+        headers: headers(member.deviceToken),
+        body: JSON.stringify({ ...settlement, decision: "allow_once" })
+      }
+    );
+    expect(conflictingSettlement.status).toBe(409);
+    await expect(conflictingSettlement.json()).resolves.toEqual({
+      error: "remote_interaction_already_settled"
+    });
+
+    const expiredRequest = {
+      ...request,
+      actionId: "permission-human-expired",
+      acpSessionId: "acp-human-expired",
+      expiresAt: "2000-01-01T00:00:00.000Z"
+    };
+    fixture.coordination.interactions.recordRequest(
+      fixture.host.id,
+      "human-request-expired",
+      expiredRequest
+    );
+    const expiredSettlement = await fetch(
+      `${collection}/${operation.operationId}/interactions/respond`,
+      {
+        method: "POST",
+        headers: headers(member.deviceToken),
+        body: JSON.stringify({
+          ...settlement,
+          actionId: expiredRequest.actionId,
+          acpSessionId: expiredRequest.acpSessionId
+        })
+      }
+    );
+    expect(expiredSettlement.status).toBe(409);
+    await expect(expiredSettlement.json()).resolves.toEqual({
+      error: "remote_interaction_expired"
+    });
 
     const action = await fetch(`${collection}/${operation.operationId}/actions`, {
       method: "POST",

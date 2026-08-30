@@ -21,9 +21,12 @@ export type {
   WindowsProcessInvocation
 } from "./process/windowsManagedProcess.js";
 export {
+  AgentProcessEnvironmentPolicy,
   AgentEnvironmentMissingError,
+  DEFAULT_EXECUTION_CONTROL_SECRET_NAMES,
   agentProcessEnv,
   agentProcessEnvRecord,
+  defaultAgentProcessEnvironmentPolicy,
   agentProcessPath,
   resolveCurrentAgentProcessEnvironment,
   resolveAgentProcessEnvironment,

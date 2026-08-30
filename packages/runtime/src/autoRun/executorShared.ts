@@ -11,7 +11,10 @@ import {
   spawnManagedProcess,
   type ManagedProcessTree
 } from "../process/managedProcessTree.js";
-import { agentProcessEnv } from "../process/agentProcessEnv.js";
+import {
+  agentProcessEnv,
+  defaultAgentProcessEnvironmentPolicy
+} from "../process/agentProcessEnv.js";
 import { prepareExecutionHostInvocation } from "../process/wslExecutionHost.js";
 import { isCommandTrusted, untrustedExecutorCommandError } from "../taskManager/hookTrustStore.js";
 import type {
@@ -435,7 +438,10 @@ export async function execWithStdin(options: {
 }): Promise<StdinCommandResult> {
   const maxStdoutBytes = options.maxStdoutBytes ?? DEFAULT_EXECUTOR_MAX_STDOUT_BYTES;
   const maxStderrBytes = options.maxStderrBytes ?? DEFAULT_EXECUTOR_MAX_STDERR_BYTES;
-  const env = { ...agentProcessEnv(), ...(options.env ?? {}) };
+  const env = defaultAgentProcessEnvironmentPolicy.apply({
+    ...agentProcessEnv(),
+    ...(options.env ?? {})
+  });
   const prepared = await prepareExecutionHostInvocation({
     host: options.host ?? { kind: "native" },
     command: options.command,
@@ -687,7 +693,10 @@ export async function execWithStreaming(options: {
   await mkdir(dirname(options.stdoutPath), { recursive: true });
   await mkdir(dirname(options.stderrPath), { recursive: true });
 
-  const env = { ...agentProcessEnv(), ...(options.env ?? {}) };
+  const env = defaultAgentProcessEnvironmentPolicy.apply({
+    ...agentProcessEnv(),
+    ...(options.env ?? {})
+  });
   const prepared = await prepareExecutionHostInvocation({
     host: options.host ?? { kind: "native" },
     command: options.command,

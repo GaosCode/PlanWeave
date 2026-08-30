@@ -47,7 +47,8 @@ import { registerMcpCommand } from "./commands/mcp.js";
 import { registerTrustCommand } from "./commands/trust.js";
 import { registerAgentHostCommand } from "./commands/agentHost.js";
 import { registerAcpProfilesCommand } from "./commands/acpProfiles.js";
-import { formatCliError } from "./errors.js";
+import { registerAgentEndpointsCommand } from "./commands/agentEndpoints.js";
+import { formatCliError, workspaceExecutionExitCode } from "./errors.js";
 import { addProjectRootOption } from "./projectRoot.js";
 
 const require = createRequire(import.meta.url);
@@ -104,6 +105,7 @@ export function createProgram(): Command {
   registerTrustCommand(program);
   registerAgentHostCommand(program);
   registerAcpProfilesCommand(program);
+  registerAgentEndpointsCommand(program);
   registerHelpCommand(program);
 
   return program;
@@ -130,6 +132,6 @@ if (isCliEntrypoint(import.meta.url, process.argv[1])) {
     } else {
       console.error(formatCliError(error));
     }
-    process.exitCode = 1;
+    process.exitCode = workspaceExecutionExitCode(error);
   }
 }

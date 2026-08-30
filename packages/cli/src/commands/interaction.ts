@@ -6,19 +6,40 @@ import {
   RunnerInteractionApiError,
   type RunnerInteractionSnapshot
 } from "@planweave-ai/runtime";
-import { addCanvasOption, resolveCliCanvasId, type CanvasCommandOptions } from "../cliWorkspace.js";
+import {
+  addCanvasOption,
+  resolveCliCanvasId,
+  resolveCliPackageWorkspace,
+  type CanvasCommandOptions
+} from "../cliWorkspace.js";
 import { resolveCliProjectRoot } from "../projectRoot.js";
+import {
+  createRemoteSessionContext,
+  interactionResponse,
+  listRemoteSessionInteractions
+} from "../workspaceExecution/session.js";
+import { WorkspaceExecutionCliError } from "../workspaceExecution/errors.js";
 
-type InteractionListOptions = CanvasCommandOptions & { json?: boolean };
+type InteractionListOptions = CanvasCommandOptions & {
+  json?: boolean;
+  session?: string;
+  connectionProfile?: string;
+};
 type InteractionRespondOptions = CanvasCommandOptions & {
-  record: string;
-  request: string;
-  lease: string;
+  record?: string;
+  request?: string;
+  lease?: string;
   option?: string;
   cancel?: boolean;
-  source: string;
+  source?: string;
   reason?: string;
   json?: boolean;
+  session?: string;
+  action?: string;
+  dispatch?: string;
+  attempt?: string;
+  acpSession?: string;
+  connectionProfile?: string;
 };
 
 async function interactionCanvasRef(options: CanvasCommandOptions) {
@@ -69,8 +90,26 @@ export function registerInteractionCommand(program: Command): void {
     interaction
       .command("list")
       .description("List actionable pending runner interactions")
+      .option("--session <sessionId>", "list Remote Agent interactions for a run session")
+      .option("--connection-profile <profileId>", "select a preconfigured Workspace connection")
       .option("--json", "print JSON output")
   ).action(async (options: InteractionListOptions) => {
+    if (options.session) {
+      const items = await listRemoteSessionInteractions({
+        projectRoot: await resolveCliPackageWorkspace(options),
+        sessionId: options.session,
+        connectionProfile: options.connectionProfile
+      });
+      const pending = items.filter((item) => item.status === "pending");
+      if (options.json) console.log(JSON.stringify(pending, null, 2));
+      else if (pending.length === 0) console.log("No actionable remote interactions.");
+      else {
+        for (const item of pending) {
+          console.log(`${item.request.actionId}\t${item.request.type}\t${item.request.expiresAt}`);
+        }
+      }
+      return;
+    }
     try {
       const interactions = await listPendingRunnerInteractions(await interactionCanvasRef(options));
       if (options.json) {
@@ -91,15 +130,78 @@ export function registerInteractionCommand(program: Command): void {
     interaction
       .command("respond")
       .description("Submit one runner interaction decision")
-      .requiredOption("--record <recordId>", "runner record id")
-      .requiredOption("--request <requestId>", "runner interaction request id")
-      .requiredOption("--lease <ownerLeaseId>", "runner owner lease id")
+      .option("--record <recordId>", "runner record id")
+      .option("--request <requestId>", "runner interaction request id")
+      .option("--lease <ownerLeaseId>", "runner owner lease id")
       .option("--option <optionId>", "select an advertised permission option")
       .option("--cancel", "cancel the permission request")
-      .requiredOption("--source <clientLabel>", "stable audit label for the decision client")
+      .option("--source <clientLabel>", "stable audit label for the local runner decision client")
       .option("--reason <text>", "audit reason (required with --cancel)")
+      .option("--session <sessionId>", "respond to a Remote Agent interaction by run session")
+      .option("--action <actionId>", "remote interaction action id")
+      .option("--dispatch <dispatchId>", "remote interaction dispatch id")
+      .option("--attempt <executionAttemptId>", "remote interaction execution attempt id")
+      .option("--acp-session <acpSessionId>", "remote interaction ACP session id")
+      .option("--connection-profile <profileId>", "select a preconfigured Workspace connection")
       .option("--json", "print JSON output")
   ).action(async (options: InteractionRespondOptions) => {
+    if (options.session) {
+      if (
+        !options.action ||
+        !options.dispatch ||
+        !options.lease ||
+        !options.attempt ||
+        !options.acpSession ||
+        (options.option === undefined) === (options.cancel !== true)
+      ) {
+        throw new WorkspaceExecutionCliError("workspace_execution_usage_invalid", 2);
+      }
+      const projectRoot = await resolveCliPackageWorkspace(options);
+      const interactions = await listRemoteSessionInteractions({
+        projectRoot,
+        sessionId: options.session,
+        connectionProfile: options.connectionProfile
+      });
+      const selected = interactions.find(
+        (item) =>
+          item.request.actionId === options.action &&
+          item.request.dispatchId === options.dispatch &&
+          item.request.leaseId === options.lease &&
+          item.request.executionAttemptId === options.attempt &&
+          item.request.acpSessionId === options.acpSession
+      );
+      if (!selected) {
+        throw new WorkspaceExecutionCliError("remote_interaction_not_found", 7);
+      }
+      if (selected.status === "expired") {
+        throw new WorkspaceExecutionCliError("remote_interaction_expired", 7);
+      }
+      if (selected.status === "settled") {
+        throw new WorkspaceExecutionCliError("remote_interaction_already_settled", 7);
+      }
+      const context = await createRemoteSessionContext({
+        projectRoot,
+        sessionId: options.session,
+        connectionProfile: options.connectionProfile
+      });
+      const event = await context.coordinator.respond({
+        request: context.request,
+        sessionId: options.session,
+        response: interactionResponse({
+          request: selected.request,
+          option: options.option,
+          cancel: options.cancel
+        })
+      });
+      if (options.json) console.log(JSON.stringify(event, null, 2));
+      else console.log(`Remote interaction ${options.action} accepted.`);
+      return;
+    }
+    if (!options.record || !options.request || !options.lease || !options.source) {
+      throw new Error(
+        "local interaction respond requires --record, --request, --lease, and --source."
+      );
+    }
     if ((options.option === undefined) === (options.cancel !== true)) {
       throw new Error("interaction respond requires exactly one of --option or --cancel.");
     }

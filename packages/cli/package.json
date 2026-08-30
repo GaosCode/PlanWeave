@@ -51,6 +51,7 @@
   },
   "dependencies": {
     "@planweave-ai/agent-host": "workspace:*",
+    "@planweave-ai/collaboration-protocol": "workspace:*",
     "@planweave-ai/mcp": "workspace:*",
     "@planweave-ai/runtime": "workspace:*",
     "commander": "^14.0.2"

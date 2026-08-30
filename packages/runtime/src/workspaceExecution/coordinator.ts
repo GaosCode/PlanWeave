@@ -196,7 +196,7 @@ export class WorkspaceExecutionCoordinator {
       }
       const resumable = await this.findScopedSession(binding.bindingId, request);
       if (resumable) {
-        return this.resumeOrRecover(request, binding, resumable, signal);
+        return this.resumeOrRecover(binding, resumable, signal);
       }
       let currentAuthority: Awaited<ReturnType<WorkAuthorityPort["ensure"]>>;
       try {
@@ -261,7 +261,7 @@ export class WorkspaceExecutionCoordinator {
     ) {
       throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
     }
-    return this.resumeOrRecover(request, binding, detail.session, signal);
+    return this.resumeOrRecover(binding, detail.session, signal);
   }
 
   async respond(input: {
@@ -309,7 +309,6 @@ export class WorkspaceExecutionCoordinator {
   }
 
   private async resumeOrRecover(
-    request: WorkspaceExecutionRequest,
     binding: Extract<ValidatedWorkspaceAuthorityBinding, { kind: "remote" }>,
     session: RunSessionState & {
       workspaceExecution: NonNullable<RunSessionState["workspaceExecution"]>;
@@ -330,24 +329,7 @@ export class WorkspaceExecutionCoordinator {
     if (intent === null) throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
     const recovered = await this.input.remote.recover({ binding, session, intent, signal });
     if (recovered) return this.acceptCheckpoint(binding, session, recovered, undefined, signal);
-    if (!request.effectiveExecutor) {
-      throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
-    }
-    const target = {
-      target: "remote" as const,
-      agentEndpointId: intent.agentEndpointId,
-      agentProfileId: request.effectiveExecutor.name,
-      agentId: request.effectiveExecutor.agentId
-    };
-    const snapshot = await this.input.remote.launch({
-      request,
-      binding,
-      target,
-      session,
-      intent,
-      signal
-    });
-    return this.acceptCheckpoint(binding, session, snapshot, target, signal);
+    throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
   }
 
   private async findScopedSession(
@@ -422,6 +404,7 @@ export class WorkspaceExecutionCoordinator {
             projectExecutionSelectedEvent({
               handle: persistedHandle,
               target: selectedTarget,
+              connectionProfileId: binding.connectionProfileId,
               clock: this.input.clock
             })
           ]

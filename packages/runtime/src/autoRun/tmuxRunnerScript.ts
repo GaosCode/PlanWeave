@@ -4,6 +4,12 @@ import { createReadStream, createWriteStream } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 
 const config = JSON.parse(await readFile(${JSON.stringify(configPath)}, "utf8"));
+const childEnvironment = { ...process.env, ...(config.env ?? {}) };
+for (const name of config.strippedEnvironmentNames ?? []) {
+  for (const key of Object.keys(childEnvironment)) {
+    if (key.toLowerCase() === String(name).toLowerCase()) delete childEnvironment[key];
+  }
+}
 const stdoutLog = createWriteStream(config.stdoutPath, { flags: "a" });
 const stderrLog = createWriteStream(config.stderrPath, { flags: "a" });
 let timedOut = false;
@@ -181,7 +187,7 @@ async function finish(exitCode, errorMessage) {
 
 child = spawn(config.command, config.args, {
   cwd: config.cwd,
-  env: { ...process.env, ...(config.env ?? {}) },
+  env: childEnvironment,
   stdio: ["pipe", "pipe", "pipe"]
 });
 void writeHeartbeat({ pid: child.pid ?? null });

@@ -2,9 +2,11 @@ import type { Command } from "commander";
 import {
   getAutoRunStatus,
   getLatestAutoRunSummary,
+  getRunSession,
   isFailedAutoRunTerminalPhase,
   readRunnerRecordReadModelForArtifact,
   tailAutoRunEvents,
+  workspaceExecutionEventSchema,
   type AutoRunEventTailItem,
   type RunnerRecordReadModel,
   type PackageWorkspaceRef
@@ -16,7 +18,16 @@ import {
   type CanvasCommandOptions
 } from "../cliWorkspace.js";
 import { explicitCliProjectRoot } from "../projectRoot.js";
-import { formatAutoRunEventTailItem, formatRunStatusHuman } from "./formatters/runFormatters.js";
+import {
+  formatAutoRunEventTailItem,
+  formatRunSessionDetail,
+  formatRunStatusHuman
+} from "./formatters/runFormatters.js";
+import { followRemoteSession } from "../workspaceExecution/session.js";
+import {
+  WorkspaceExecutionCliError,
+  workspaceExecutionResultExitCode
+} from "../workspaceExecution/errors.js";
 
 function shellQuoteArg(value: string): string {
   return /^[A-Za-z0-9_@%+=:,./-]+$/.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`;
@@ -186,65 +197,136 @@ export function registerRunStatusCommand(program: Command): void {
         "--follow",
         "after the status snapshot, stream Auto Run events until terminal state or Ctrl-C"
       )
-  ).action(async (options: { json?: boolean; follow?: boolean } & CanvasCommandOptions) => {
-    const workspace = await resolveCliPackageWorkspace(options);
-    const status = await getAutoRunStatus({ projectRoot: workspace });
-    if (options.json) {
-      console.log(JSON.stringify(status, null, 2));
-    } else {
-      console.log(formatRunStatusHuman(status, { defaultStartCommand: formatRunCommand(options) }));
-    }
+      .option("--session <sessionId>", "show or follow one persisted Workspace execution session")
+      .option("--event-format <format>", "remote event format: legacy or execution-v1")
+      .option("--connection-profile <profileId>", "select a preconfigured Workspace connection")
+  ).action(
+    async (
+      options: {
+        json?: boolean;
+        follow?: boolean;
+        session?: string;
+        eventFormat?: string;
+        connectionProfile?: string;
+      } & CanvasCommandOptions
+    ) => {
+      const workspace = await resolveCliPackageWorkspace(options);
+      if (options.session) {
+        const detail = await getRunSession(workspace, options.session);
+        const runnerReadModel = await readRunnerRecordReadModelForArtifact(
+          detail.session.latestRecordPath
+        );
+        const output = { ...detail, runnerReadModel };
+        if (!options.follow) {
+          console.log(
+            options.json ? JSON.stringify(output, null, 2) : formatRunSessionDetail(output)
+          );
+          return;
+        }
+        if (
+          options.eventFormat !== undefined &&
+          options.eventFormat !== "execution-v1" &&
+          options.eventFormat !== "legacy"
+        ) {
+          throw new WorkspaceExecutionCliError("workspace_execution_usage_invalid", 2);
+        }
+        if (detail.session.workspaceExecution?.binding.kind !== "remote") {
+          throw new WorkspaceExecutionCliError("workspace_execution_usage_invalid", 2);
+        }
+        const abort = new AbortController();
+        const onSigInt = () => {
+          abort.abort();
+          process.exitCode = 130;
+        };
+        process.once("SIGINT", onSigInt);
+        const emitted = new Set<string>();
+        try {
+          const followed = await followRemoteSession({
+            projectRoot: workspace,
+            sessionId: options.session,
+            connectionProfile: options.connectionProfile,
+            signal: abort.signal,
+            onResult(result) {
+              for (const event of result.events) {
+                const parsed = workspaceExecutionEventSchema.parse(event);
+                if (emitted.has(parsed.eventId)) continue;
+                emitted.add(parsed.eventId);
+                console.log(
+                  options.json || options.eventFormat === "execution-v1"
+                    ? JSON.stringify(parsed)
+                    : `${parsed.type} ${parsed.eventId}`
+                );
+              }
+            }
+          });
+          process.exitCode = workspaceExecutionResultExitCode(followed);
+        } catch (error) {
+          if (!abort.signal.aborted) throw error;
+        } finally {
+          process.off("SIGINT", onSigInt);
+        }
+        return;
+      }
+      const status = await getAutoRunStatus({ projectRoot: workspace });
+      if (options.json) {
+        console.log(JSON.stringify(status, null, 2));
+      } else {
+        console.log(
+          formatRunStatusHuman(status, { defaultStartCommand: formatRunCommand(options) })
+        );
+      }
 
-    if (options.follow !== true) {
-      return;
-    }
+      if (options.follow !== true) {
+        return;
+      }
 
-    const rootPath = packageRootPath(workspace);
-    const canvasId = desktopCanvasId(workspace, options);
-    const latest = await getLatestAutoRunSummary(rootPath, canvasId);
-    const followTarget = selectRunStatusFollowTarget(status, latest);
-    if (followTarget?.kind === "runner_record") {
+      const rootPath = packageRootPath(workspace);
+      const canvasId = desktopCanvasId(workspace, options);
+      const latest = await getLatestAutoRunSummary(rootPath, canvasId);
+      const followTarget = selectRunStatusFollowTarget(status, latest);
+      if (followTarget?.kind === "runner_record") {
+        const abort = new AbortController();
+        const onSigInt = (): void => abort.abort();
+        process.on("SIGINT", onSigInt);
+        try {
+          await followLatestRunnerRecord(
+            followTarget.metadataPath,
+            options.json === true,
+            abort.signal
+          );
+        } finally {
+          process.off("SIGINT", onSigInt);
+        }
+        return;
+      }
+      if (!followTarget) {
+        if (!options.json) {
+          console.log("events: none (no Auto Run session found)");
+        }
+        return;
+      }
+
       const abort = new AbortController();
-      const onSigInt = (): void => abort.abort();
+      const onSigInt = (): void => {
+        abort.abort();
+      };
       process.on("SIGINT", onSigInt);
       try {
-        await followLatestRunnerRecord(
-          followTarget.metadataPath,
-          options.json === true,
-          abort.signal
-        );
+        let terminalPhase: string | null = null;
+        for await (const item of tailAutoRunEvents(workspace, canvasId, followTarget.runId, {
+          signal: abort.signal
+        })) {
+          printTailItem(item, options.json === true);
+          if (item.kind === "terminal") {
+            terminalPhase = item.phase;
+          }
+        }
+        if (isFailedAutoRunTerminalPhase(terminalPhase)) {
+          process.exitCode = 1;
+        }
       } finally {
         process.off("SIGINT", onSigInt);
       }
-      return;
     }
-    if (!followTarget) {
-      if (!options.json) {
-        console.log("events: none (no Auto Run session found)");
-      }
-      return;
-    }
-
-    const abort = new AbortController();
-    const onSigInt = (): void => {
-      abort.abort();
-    };
-    process.on("SIGINT", onSigInt);
-    try {
-      let terminalPhase: string | null = null;
-      for await (const item of tailAutoRunEvents(workspace, canvasId, followTarget.runId, {
-        signal: abort.signal
-      })) {
-        printTailItem(item, options.json === true);
-        if (item.kind === "terminal") {
-          terminalPhase = item.phase;
-        }
-      }
-      if (isFailedAutoRunTerminalPhase(terminalPhase)) {
-        process.exitCode = 1;
-      }
-    } finally {
-      process.off("SIGINT", onSigInt);
-    }
-  });
+  );
 }

@@ -81,6 +81,9 @@ importers:
       '@planweave-ai/agent-host':
         specifier: workspace:*
         version: link:../agent-host
+      '@planweave-ai/collaboration-protocol':
+        specifier: workspace:*
+        version: link:../collaboration-protocol
       '@planweave-ai/mcp':
         specifier: workspace:*
         version: link:../mcp

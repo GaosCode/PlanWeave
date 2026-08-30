@@ -163,6 +163,16 @@ function safeError(error: unknown): { status: number; code: string } {
     if (error.code.includes("forbidden") || error.code.includes("project_mismatch")) {
       return { status: 403, code: error.code };
     }
+    if (error.code === "remote_interaction_not_found") {
+      return { status: 404, code: error.code };
+    }
+    if (
+      error.code === "remote_interaction_expired" ||
+      error.code === "remote_interaction_already_settled" ||
+      error.code === "human_remote_operation_conflict"
+    ) {
+      return { status: 409, code: error.code };
+    }
     if (error.code.includes("mismatch")) return { status: 409, code: error.code };
     return { status: 400, code: error.code };
   }
@@ -256,7 +266,7 @@ export async function handleHumanRemoteHttpRequest(
         respond(response, 202, await options.service.dispatch(scope, await readJson(request)));
         break;
       case "lookup": {
-        const parameters = query(url, ["canvasId", "blockRef", "operationId"]);
+        const parameters = query(url, ["canvasId", "blockRef", "operationId", "idempotencyKey"]);
         respond(response, 200, await options.service.lookupLatestOperation(scope, parameters));
         break;
       }

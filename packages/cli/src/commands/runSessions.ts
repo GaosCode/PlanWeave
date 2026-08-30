@@ -8,6 +8,7 @@ import {
   listRunSessions,
   readRunnerRecordReadModelForArtifact,
   tailAutoRunEvents,
+  workspaceExecutionEventSchema,
   type AutoRunEventTailItem,
   type PackageWorkspaceRef,
   type PrunePlan
@@ -24,6 +25,8 @@ import {
   formatRunSessionDetail,
   formatRunSessions
 } from "./formatters/runFormatters.js";
+import { followRemoteSession } from "../workspaceExecution/session.js";
+import { workspaceExecutionResultExitCode } from "../workspaceExecution/errors.js";
 
 type JsonCommandOptions = {
   json?: boolean;
@@ -33,6 +36,12 @@ type EventsCommandOptions = {
   follow?: boolean;
   json?: boolean;
 } & CanvasCommandOptions;
+
+type RunSessionCommandOptions = JsonCommandOptions & {
+  follow?: boolean;
+  eventFormat?: string;
+  connectionProfile?: string;
+};
 
 /** When the workspace is already canvas-resolved, do not pass canvasId again. */
 function desktopCanvasId(ref: PackageWorkspaceRef, options: CanvasCommandOptions): string | null {
@@ -217,17 +226,67 @@ export function registerRunSessionsCommands(program: Command): void {
       .argument("<session-id>")
       .description("Show one PlanWeave run/reset session")
       .option("--json", "print JSON output")
-  ).action(async (sessionId: string, options: JsonCommandOptions) => {
-    const result = await getRunSession(await resolveCliPackageWorkspace(options), sessionId);
+      .option("--follow", "follow a remote Workspace execution until terminal or action required")
+      .option("--event-format <format>", "remote event format: legacy or execution-v1")
+      .option("--connection-profile <profileId>", "select a preconfigured Workspace connection")
+  ).action(async (sessionId: string, options: RunSessionCommandOptions) => {
+    const projectRoot = await resolveCliPackageWorkspace(options);
+    const result = await getRunSession(projectRoot, sessionId);
     const runnerReadModel = await readRunnerRecordReadModelForArtifact(
       result.session.latestRecordPath
     );
     const output = { ...result, runnerReadModel };
-    if (options.json) {
+    if (options.json && options.follow !== true) {
       console.log(JSON.stringify(output, null, 2));
       return;
     }
-    console.log(formatRunSessionDetail(output));
+    if (options.follow !== true) console.log(formatRunSessionDetail(output));
+    if (options.follow !== true) return;
+    if (
+      options.eventFormat !== undefined &&
+      options.eventFormat !== "legacy" &&
+      options.eventFormat !== "execution-v1"
+    ) {
+      throw new Error("run-session --event-format must be legacy or execution-v1.");
+    }
+    if (
+      !result.session.workspaceExecution ||
+      result.session.workspaceExecution.binding.kind !== "remote"
+    ) {
+      throw new Error("run-session --follow requires a remote Workspace execution session.");
+    }
+    const abort = new AbortController();
+    const onSigInt = () => {
+      abort.abort();
+      process.exitCode = 130;
+    };
+    process.once("SIGINT", onSigInt);
+    const emitted = new Set<string>();
+    try {
+      const followed = await followRemoteSession({
+        projectRoot,
+        sessionId,
+        connectionProfile: options.connectionProfile,
+        signal: abort.signal,
+        onResult(result) {
+          for (const event of result.events) {
+            const parsed = workspaceExecutionEventSchema.parse(event);
+            if (emitted.has(parsed.eventId)) continue;
+            emitted.add(parsed.eventId);
+            if (options.eventFormat === "execution-v1" || options.json) {
+              process.stdout.write(`${JSON.stringify(parsed)}\n`);
+            } else {
+              console.log(`${parsed.type} ${parsed.eventId}`);
+            }
+          }
+        }
+      });
+      process.exitCode = workspaceExecutionResultExitCode(followed);
+    } catch (error) {
+      if (!abort.signal.aborted) throw error;
+    } finally {
+      process.off("SIGINT", onSigInt);
+    }
   });
 }
 

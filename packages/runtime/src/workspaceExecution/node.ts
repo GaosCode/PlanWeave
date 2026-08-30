@@ -16,7 +16,7 @@ export { WorkspaceExecutionCoordinator } from "./coordinator.js";
 export type { WorkspaceExecutionCoordinatorResult } from "./coordinator.js";
 export { WorkspaceExecutionError } from "./errors.js";
 export { workspaceExecutionPortError } from "./errors.js";
-export type { WorkspaceExecutionErrorCode } from "./errors.js";
+export type { WorkspaceExecutionErrorCode, WorkspaceExecutionFailureKind } from "./errors.js";
 export {
   executionScopeEquals,
   projectActionRequiredEvent,

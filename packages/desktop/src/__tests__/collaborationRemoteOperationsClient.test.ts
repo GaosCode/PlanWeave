@@ -173,6 +173,19 @@ describe("CollaborationRemoteOperationsClient", () => {
       expect.anything(),
       { signal: undefined }
     );
+
+    const idempotent = fixture(observation({ operationId: "operation-idempotent" }));
+    await idempotent.client.lookupRemoteOperation({
+      canvasId: "default",
+      blockRef: "T-1#B-1",
+      idempotencyKey: "dispatch-once"
+    });
+    expect(idempotent.json).toHaveBeenCalledWith(
+      "GET",
+      "/api/v1/projects/project-demo-001/remote-operations?canvasId=default&blockRef=T-1%23B-1&idempotencyKey=dispatch-once",
+      expect.anything(),
+      { signal: undefined }
+    );
   });
 
   it("rejects a v3 response that leaks attempt.hostId", async () => {

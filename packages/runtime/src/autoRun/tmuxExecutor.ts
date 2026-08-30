@@ -3,7 +3,10 @@ import { createHash } from "node:crypto";
 import { chmod, mkdir, open, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { isNodeFileNotFoundError, optionalStat } from "../fs/optionalFile.js";
-import { agentProcessEnv } from "../process/agentProcessEnv.js";
+import {
+  agentProcessEnv,
+  defaultAgentProcessEnvironmentPolicy
+} from "../process/agentProcessEnv.js";
 import { tmuxRunnerSource } from "./tmuxRunnerScript.js";
 
 export type TmuxSessionInfo = {
@@ -369,7 +372,8 @@ export async function runCommandInTmux(options: RunInTmuxOptions): Promise<{
         command: options.command,
         args: options.args,
         cwd: options.cwd,
-        env: options.env ?? {},
+        env: defaultAgentProcessEnvironmentPolicy.apply(options.env ?? {}),
+        strippedEnvironmentNames: defaultAgentProcessEnvironmentPolicy.executionControlSecretNames,
         stdinPath,
         stdoutPath: options.stdoutPath,
         stderrPath: options.stderrPath,

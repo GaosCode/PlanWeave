@@ -13,6 +13,11 @@ import {
   type CanvasCommandOptions
 } from "../cliWorkspace.js";
 import { formatRunResult } from "./formatters/runFormatters.js";
+import { executeWorkspaceRun } from "../workspaceExecution/run.js";
+import {
+  WorkspaceExecutionCliError,
+  workspaceExecutionResultExitCode
+} from "../workspaceExecution/errors.js";
 
 export function registerRunCommand(program: Command): void {
   addCanvasOption(
@@ -32,6 +37,14 @@ export function registerRunCommand(program: Command): void {
       .option("--timeout <ms>", "bound each executor operation in milliseconds")
       .option("--json", "print JSON output")
       .option("--event-stream", "print versioned NDJSON run events")
+      .option("--target <policy>", "execution target: local, remote, or auto")
+      .option("--agent-endpoint <endpointId>", "select one Remote Agent endpoint")
+      .option("--connection-profile <profileId>", "select a preconfigured Workspace connection")
+      .option("--event-format <format>", "workspace event format: legacy or execution-v1")
+      .option(
+        "--follow",
+        "follow the selected Workspace execution until terminal or action required"
+      )
   ).action(
     async (
       options: {
@@ -48,10 +61,59 @@ export function registerRunCommand(program: Command): void {
         timeout?: string;
         json?: boolean;
         eventStream?: boolean;
+        target?: string;
+        agentEndpoint?: string;
+        connectionProfile?: string;
+        eventFormat?: string;
+        follow?: boolean;
       } & CanvasCommandOptions
     ) => {
       if (options.json === true && options.eventStream === true) {
         throw new Error("--event-stream cannot be combined with --json.");
+      }
+      const workspaceExecution =
+        options.target !== undefined ||
+        options.agentEndpoint !== undefined ||
+        options.connectionProfile !== undefined ||
+        options.eventFormat !== undefined ||
+        options.follow === true;
+      if (workspaceExecution) {
+        if (
+          options.json ||
+          options.eventStream ||
+          options.reset ||
+          options.force ||
+          options.reason
+        ) {
+          throw new WorkspaceExecutionCliError("workspace_execution_usage_invalid", 2);
+        }
+        if (options.parallel || options.stepLimit || options.timeout) {
+          throw new WorkspaceExecutionCliError("workspace_execution_usage_invalid", 2);
+        }
+        const target = parseWorkspaceTarget(options.target);
+        const eventFormat = parseWorkspaceEventFormat(options.eventFormat);
+        const abort = new AbortController();
+        const onSigInt = (): void => abort.abort();
+        process.once("SIGINT", onSigInt);
+        try {
+          const result = await executeWorkspaceRun({
+            ...options,
+            target,
+            eventFormat,
+            scope: parseRunScope(options) ?? { kind: "project" },
+            signal: abort.signal
+          });
+          process.exitCode = workspaceExecutionResultExitCode(result);
+        } catch (error) {
+          if (abort.signal.aborted) {
+            process.exitCode = 130;
+            return;
+          }
+          throw error;
+        } finally {
+          process.off("SIGINT", onSigInt);
+        }
+        return;
       }
       const projectRoot = await resolveCliPackageWorkspace(options);
       const abort = new AbortController();
@@ -113,7 +175,7 @@ function createCliInteractionObserver(eventStream: boolean): RunnerInteractionOb
   };
 }
 
-function parseRunScope(options: {
+export function parseRunScope(options: {
   scope?: string;
   task?: string;
   block?: string;
@@ -144,6 +206,22 @@ function parseRunScope(options: {
     throw new Error("--task cannot be combined with --scope block.");
   }
   return { kind: "block", blockRef: options.block };
+}
+
+function parseWorkspaceTarget(value: string | undefined): "local" | "remote" | "auto" {
+  const target = value ?? "auto";
+  if (target !== "local" && target !== "remote" && target !== "auto") {
+    throw new WorkspaceExecutionCliError("workspace_execution_usage_invalid", 2);
+  }
+  return target;
+}
+
+function parseWorkspaceEventFormat(value: string | undefined): "legacy" | "execution-v1" {
+  const format = value ?? "legacy";
+  if (format !== "legacy" && format !== "execution-v1") {
+    throw new WorkspaceExecutionCliError("workspace_execution_usage_invalid", 2);
+  }
+  return format;
 }
 
 function parseStepLimit(value: string | undefined): number | undefined {

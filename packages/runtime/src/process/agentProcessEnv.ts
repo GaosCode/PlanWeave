@@ -6,6 +6,9 @@ import {
 } from "../acpProfile/schema.js";
 
 const posixSystemPathEntries = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"];
+export const DEFAULT_EXECUTION_CONTROL_SECRET_NAMES = [
+  "PLANWEAVE_COLLABORATION_DEVICE_TOKEN"
+] as const;
 let agentProcessEnvironmentOverlay: Readonly<NodeJS.ProcessEnv> | null = null;
 
 function environmentValue(env: NodeJS.ProcessEnv | undefined, name: string): string | undefined {
@@ -83,6 +86,27 @@ function definedEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined)
   );
 }
+
+export class AgentProcessEnvironmentPolicy {
+  readonly executionControlSecretNames: readonly string[];
+
+  constructor(
+    executionControlSecretNames: readonly string[] = DEFAULT_EXECUTION_CONTROL_SECRET_NAMES
+  ) {
+    this.executionControlSecretNames = Object.freeze([
+      ...new Set(executionControlSecretNames.map((name) => name.trim()).filter(Boolean))
+    ]);
+  }
+
+  apply(environment: Readonly<NodeJS.ProcessEnv>): NodeJS.ProcessEnv {
+    const forbidden = new Set(this.executionControlSecretNames.map((name) => name.toLowerCase()));
+    return Object.fromEntries(
+      Object.entries(environment).filter(([name]) => !forbidden.has(name.toLowerCase()))
+    );
+  }
+}
+
+export const defaultAgentProcessEnvironmentPolicy = new AgentProcessEnvironmentPolicy();
 
 function mergedAgentProcessEnvironment(
   baseEnv: NodeJS.ProcessEnv,
@@ -187,9 +211,10 @@ export function resolveAgentProcessEnvironment(input: {
   }
   if (missingNames.length > 0) throw new AgentEnvironmentMissingError(missingNames);
 
+  const isolated = defaultAgentProcessEnvironmentPolicy.apply(env);
   return Object.freeze({
-    env: Object.freeze({ ...env }),
-    availableNames: Object.freeze(Object.keys(env))
+    env: Object.freeze({ ...isolated }) as Readonly<Record<string, string>>,
+    availableNames: Object.freeze(Object.keys(isolated))
   });
 }
 
@@ -247,7 +272,7 @@ export function agentProcessEnv(options?: {
     env: baseEnv,
     envPath: environmentValue(baseEnv, "PATH")
   });
-  const nextEnv: NodeJS.ProcessEnv = { ...baseEnv };
+  const nextEnv = defaultAgentProcessEnvironmentPolicy.apply(baseEnv);
   for (const key of Object.keys(nextEnv)) {
     if (key.toLowerCase() === "path") {
       delete nextEnv[key];

@@ -11,6 +11,7 @@ import {
   remoteEndpointOperationObservationSchema,
   remoteOperationLookupQuerySchema,
   remoteOperationObservationSchema,
+  remoteRuntimeBindingProjectionSchema,
   type RemoteRuntimeBindingProjection
 } from "@planweave-ai/collaboration-protocol/remote-run";
 import type {
@@ -27,6 +28,7 @@ import { toHumanEndpointSnapshot } from "./endpointSelection.js";
 import { CanvasRuntimeUnavailableError } from "./canvas/executionRuntimePort.js";
 import { CanvasRuntimeRpcError } from "./canvas/runtimeRpcBroker.js";
 import { buildRemoteOperationDiagnostics } from "./remoteOperationDiagnostics.js";
+import { RemoteOperationLookupConflictError } from "./remoteOperationLookup.js";
 
 export class HumanRemoteControlError extends Error {
   constructor(readonly code: string) {
@@ -138,15 +140,32 @@ export class HumanRemoteControlService {
     } catch (error) {
       throwMappedDispatchRuntimeFailure(error);
     }
-    return this.observeOperation(scope, outcome.operation.id);
+    const runtime =
+      outcome.status === "activated"
+        ? remoteRuntimeBindingProjectionSchema.parse({
+            ref: outcome.operation.blockRef,
+            status: "in_progress",
+            ownership: {
+              operationId: outcome.operation.id,
+              phase: "active",
+              dispatchId: outcome.operation.dispatchId,
+              executionAttemptId: outcome.operation.executionAttemptId
+            }
+          })
+        : undefined;
+    return this.observeOperation(scope, outcome.operation.id, runtime);
   }
 
-  async observeOperation(scope: AuthenticatedCollaborationScope, operationId: string) {
+  async observeOperation(
+    scope: AuthenticatedCollaborationScope,
+    operationId: string,
+    dispatchedRuntime?: RemoteRuntimeBindingProjection
+  ) {
     const operation = this.operationFor(scope, operationId);
     const dispatch = this.options.dispatches.get(operation.dispatchId);
     const runtime = isTerminalOperation(operation)
       ? terminalRuntimeProjection(operation)
-      : await this.options.coordinator.query(operation.id);
+      : (dispatchedRuntime ?? (await this.options.coordinator.query(operation.id)));
     const observation = {
       operationId: operation.id,
       projectId: operation.projectId,
@@ -225,20 +244,36 @@ export class HumanRemoteControlService {
       throw new HumanRemoteControlError("human_remote_operation_scope_required");
     }
     this.options.authorizeCanvas?.(context, { workspaceId, projectId, canvasId: query.canvasId });
-    const operation = query.operationId
-      ? this.options.operations.findByOperationIdInScope({
-          workspaceId,
-          projectId,
-          canvasId: query.canvasId,
-          blockRef: query.blockRef,
-          operationId: query.operationId
-        })
-      : this.options.operations.findLatestByScope({
-          workspaceId,
-          projectId,
-          canvasId: query.canvasId,
-          blockRef: query.blockRef
-        });
+    let operation: RemoteOperation | undefined;
+    try {
+      operation = query.operationId
+        ? this.options.operations.findByOperationIdInScope({
+            workspaceId,
+            projectId,
+            canvasId: query.canvasId,
+            blockRef: query.blockRef,
+            operationId: query.operationId
+          })
+        : query.idempotencyKey
+          ? this.options.operations.findByIdempotencyKeyInScope({
+              workspaceId,
+              projectId,
+              canvasId: query.canvasId,
+              blockRef: query.blockRef,
+              idempotencyKey: query.idempotencyKey
+            })
+          : this.options.operations.findLatestByScope({
+              workspaceId,
+              projectId,
+              canvasId: query.canvasId,
+              blockRef: query.blockRef
+            });
+    } catch (error) {
+      if (error instanceof RemoteOperationLookupConflictError) {
+        throw new HumanRemoteControlError("human_remote_operation_conflict");
+      }
+      throw error;
+    }
     return operation ? this.observeOperation(scope, operation.id) : null;
   }
 
@@ -303,13 +338,31 @@ export class HumanRemoteControlService {
     ) {
       throw new HumanRemoteControlError("human_remote_interaction_operation_mismatch");
     }
-    return toHumanInteractionView(
-      this.options.interactions.settle({
-        hostId: operation.attempt.hostId,
-        responderId: scope.actor.humanPrincipalId,
-        settlement
-      })
-    );
+    try {
+      return toHumanInteractionView(
+        this.options.interactions.settle({
+          hostId: operation.attempt.hostId,
+          responderId: scope.actor.humanPrincipalId,
+          settlement
+        })
+      );
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === "remote_interaction_expired") {
+          throw new HumanRemoteControlError("remote_interaction_expired");
+        }
+        if (error.message === "remote_interaction_settlement_conflict") {
+          throw new HumanRemoteControlError("remote_interaction_already_settled");
+        }
+        if (error.message === "remote_interaction_not_found") {
+          throw new HumanRemoteControlError("remote_interaction_not_found");
+        }
+        if (error.message === "remote_interaction_responder_unauthorized") {
+          throw new HumanRemoteControlError("human_cross_project_forbidden");
+        }
+      }
+      throw error;
+    }
   }
 
   private authorize(context: CollaborationAuthContext, projectId: string): void {

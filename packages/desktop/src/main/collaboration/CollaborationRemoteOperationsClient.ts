@@ -138,6 +138,7 @@ export class CollaborationRemoteOperationsClient implements CollaborationRemoteO
     }
     const params = new URLSearchParams({ canvasId: parsed.canvasId, blockRef: parsed.blockRef });
     if (parsed.operationId) params.set("operationId", parsed.operationId);
+    if (parsed.idempotencyKey) params.set("idempotencyKey", parsed.idempotencyKey);
     return this.transport.json(
       "GET",
       `/api/v1/projects/${encodeURIComponent(this.projectId)}/remote-operations?${params}`,

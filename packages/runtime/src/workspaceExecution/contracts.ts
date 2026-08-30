@@ -402,12 +402,17 @@ const runnerEventDataSchema = z.discriminatedUnion("eventProtocolVersion", [
   z.object({ eventProtocolVersion: z.literal(2), event: remoteRunnerEventV2Schema }).strict()
 ]);
 
+const executionSelectedDataSchema = z.discriminatedUnion("target", [
+  z.object({ target: z.literal("local") }).strict(),
+  remoteEndpointTargetSchema.extend({ connectionProfileId: identifierSchema }).strict()
+]);
+
 export const workspaceExecutionEventSchema = z.discriminatedUnion("type", [
   z
     .object({
       ...executionEventBaseShape,
       type: z.literal("execution_selected"),
-      data: workspaceExecutionTargetSchema
+      data: executionSelectedDataSchema
     })
     .strict(),
   z

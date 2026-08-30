@@ -12,6 +12,7 @@ import {
   type WorkspaceExecutionTarget
 } from "./contracts.js";
 import type { RemoteWorkspaceAdapterSnapshot, WorkspaceExecutionTerminal } from "./ports.js";
+import { remoteInteractionIdentityKey } from "./remoteExecutionAdapter.js";
 
 type Clock = () => Date;
 
@@ -33,6 +34,7 @@ function remoteBase(handle: RemoteWorkspaceExecutionHandle, cursor: number, cloc
 export function projectExecutionSelectedEvent(input: {
   handle: LocalWorkspaceExecutionHandle | RemoteWorkspaceExecutionHandle;
   target: WorkspaceExecutionTarget;
+  connectionProfileId?: string;
   clock?: Clock;
 }): WorkspaceExecutionEvent {
   const clock = input.clock ?? (() => new Date());
@@ -57,7 +59,10 @@ export function projectExecutionSelectedEvent(input: {
     scope: input.handle.scope,
     source,
     type: "execution_selected",
-    data: input.target
+    data:
+      input.target.target === "remote"
+        ? { ...input.target, connectionProfileId: input.connectionProfileId }
+        : input.target
   });
 }
 
@@ -267,10 +272,11 @@ export function projectRemoteInteractionEvent(
   interaction: RemoteInteractionView,
   clock: Clock = () => new Date()
 ): WorkspaceExecutionEvent {
+  const identityKey = remoteInteractionIdentityKey(interaction);
   if (interaction.status === "settled" && interaction.settlement) {
     return workspaceExecutionEventSchema.parse({
       ...remoteBase(handle, handle.cursor.eventCursor, clock),
-      eventId: `${handle.operationId}:interaction:${interaction.request.actionId}:settled`,
+      eventId: `${handle.operationId}:interaction:${identityKey}:settled`,
       type: "interaction_resolved",
       data: interaction.settlement
     });
@@ -278,7 +284,7 @@ export function projectRemoteInteractionEvent(
   if (interaction.status === "expired") {
     return workspaceExecutionEventSchema.parse({
       ...remoteBase(handle, handle.cursor.eventCursor, clock),
-      eventId: `${handle.operationId}:interaction:${interaction.request.actionId}:expired`,
+      eventId: `${handle.operationId}:interaction:${identityKey}:expired`,
       type: "runner_diagnostic",
       data: {
         code: "remote_interaction_expired",
@@ -290,7 +296,7 @@ export function projectRemoteInteractionEvent(
   }
   return workspaceExecutionEventSchema.parse({
     ...remoteBase(handle, handle.cursor.eventCursor, clock),
-    eventId: `${handle.operationId}:interaction:${interaction.request.actionId}:pending`,
+    eventId: `${handle.operationId}:interaction:${identityKey}:pending`,
     type: "interaction_required",
     data: interaction.request
   });

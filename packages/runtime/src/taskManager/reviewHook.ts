@@ -3,6 +3,7 @@ import {
   DEFAULT_PROCESS_TREE_GRACE_MS,
   spawnManagedProcess
 } from "../process/managedProcessTree.js";
+import { defaultAgentProcessEnvironmentPolicy } from "../process/agentProcessEnv.js";
 import type {
   ManifestReviewBlock,
   ManifestTaskNode,
@@ -76,6 +77,7 @@ export async function runReviewHookProcess(options: ReviewHookProcessOptions): P
       command: options.command,
       args: options.args,
       cwd: options.cwd,
+      env: defaultAgentProcessEnvironmentPolicy.apply(process.env),
       graceMs: REVIEW_HOOK_FORCE_KILL_GRACE_MS
     });
     const stdoutChunks: Buffer[] = [];
