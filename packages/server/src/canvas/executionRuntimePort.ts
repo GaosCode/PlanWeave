@@ -1,5 +1,6 @@
 import type { CanvasRuntimeStatusProjection } from "@planweave-ai/collaboration-protocol/canvas/status";
 import type { RemoteBlockArtifactSource, RemoteBlockRuntimePort } from "@planweave-ai/runtime";
+import type { RuntimeReadAuthority } from "./runtimeAuthorityCandidates.js";
 
 export type RuntimeCanvasScope = {
   workspaceId: string;
@@ -69,6 +70,14 @@ export interface CanvasExecutionRuntimeLeasePort {
     scope: RuntimeCanvasScope,
     command: CanvasRuntimeResetCommand
   ): Promise<CanvasRuntimeResetReconciliation>;
+}
+
+/** Selects one exact execution cache using the current Server content authority. */
+export interface CanvasRuntimeAuthorityWinnerLeasePort extends CanvasExecutionRuntimeLeasePort {
+  acquireAuthorityWinner(
+    scope: RuntimeCanvasScope,
+    authority: RuntimeReadAuthority
+  ): CanvasExecutionRuntimeLease | Promise<CanvasExecutionRuntimeLease>;
 }
 
 /** Execution-adapter routing seam. Host evidence never enters the logical Runtime scope. */

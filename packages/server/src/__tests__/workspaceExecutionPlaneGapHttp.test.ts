@@ -99,6 +99,9 @@ async function startCanvasCommandHttp(options: { activeLease?: boolean } = {}) {
     executionLeases: {
       acquire() {
         throw new CanvasRuntimeUnavailableError("runtime_not_attached");
+      },
+      acquireAuthorityWinner() {
+        throw new CanvasRuntimeUnavailableError("runtime_not_attached");
       }
     },
     hasConflictingLease: () => options.activeLease ?? false,

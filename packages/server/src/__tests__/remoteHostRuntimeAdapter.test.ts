@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AuthoritySelectingCanvasRuntimeRouter,
+  LocalFirstCanvasExecutionRuntimeRouter,
   RemoteHostCanvasRuntimeAdapter
 } from "../canvas/remoteHostRuntimeAdapter.js";
 import { RemoteOwnershipConflictError } from "@planweave-ai/runtime";
@@ -415,6 +416,116 @@ describe("RemoteHostCanvasRuntimeAdapter", () => {
     await expect(firstRelease).resolves.toBeUndefined();
     await expect(secondRelease).resolves.toBeUndefined();
     expect(fixture.deliveries).toHaveLength(3);
+  });
+
+  it.each([
+    "authority-selecting",
+    "local-first"
+  ] as const)("%s routing honors an explicit remote Host when a local Runtime exists", async (kind) => {
+    const fixture = await setup();
+    const decoy = fixture.addHost("Decoy Runtime");
+    const localAcquire = vi.fn(() => ({ runtime: {}, artifacts: {}, release: vi.fn() }));
+    const localScopes = { hasRuntimeProject: () => true, hasRuntimeScope: () => true };
+    const router =
+      kind === "authority-selecting"
+        ? new AuthoritySelectingCanvasRuntimeRouter(
+            {
+              readAvailability: async () => ({
+                schemaVersion: "canvas-runtime-availability/v1",
+                kind: "unavailable",
+                reason: "runtime_not_attached"
+              })
+            },
+            { acquire: localAcquire },
+            localScopes
+          )
+        : new LocalFirstCanvasExecutionRuntimeRouter({ acquire: localAcquire }, localScopes);
+    router.attachRemote(fixture.adapter);
+
+    const acquiring = router.acquireForHost(scope, fixture.host.id);
+    expect(localAcquire).not.toHaveBeenCalled();
+    const acquireCommand = commandAt(fixture.deliveries, 0);
+    expect(acquireCommand.operation).toMatchObject({ operation: "acquire" });
+    respond(fixture.broker, fixture.host.id, acquireCommand, {
+      outcome: "success",
+      operation: "acquire",
+      result: {
+        runtimeLeaseId: randomUUID(),
+        sourceRevision: runtimeSourceRevision,
+        graphFingerprint: runtimeContentTarget.graphFingerprint,
+        acquiredAt: "2026-08-20T00:00:00.000Z",
+        expiresAt: "2099-08-20T00:01:00.000Z"
+      }
+    });
+
+    await expect(acquiring).resolves.toMatchObject({ runtime: expect.any(Object) });
+    expect(localAcquire).not.toHaveBeenCalled();
+    expect(decoy.deliveries).toHaveLength(0);
+  });
+
+  it.each([
+    "authority-selecting",
+    "local-first"
+  ] as const)("%s routing fails closed when the explicit remote Host route is unavailable", async (kind) => {
+    const fixture = await setup();
+    const decoy = fixture.addHost("Decoy Runtime");
+    const localAcquire = vi.fn(() => ({ runtime: {}, artifacts: {}, release: vi.fn() }));
+    const localScopes = { hasRuntimeProject: () => true, hasRuntimeScope: () => true };
+    const router =
+      kind === "authority-selecting"
+        ? new AuthoritySelectingCanvasRuntimeRouter(
+            {
+              readAvailability: async () => ({
+                schemaVersion: "canvas-runtime-availability/v1",
+                kind: "unavailable",
+                reason: "runtime_not_attached"
+              })
+            },
+            { acquire: localAcquire },
+            localScopes
+          )
+        : new LocalFirstCanvasExecutionRuntimeRouter({ acquire: localAcquire }, localScopes);
+    router.attachRemote(fixture.adapter);
+
+    await expect(router.acquireForHost(scope, randomUUID())).rejects.toMatchObject({
+      reason: "runtime_not_attached"
+    });
+    expect(localAcquire).not.toHaveBeenCalled();
+    expect(fixture.deliveries).toHaveLength(0);
+    expect(decoy.deliveries).toHaveLength(0);
+  });
+
+  it("acquires the attached local Runtime when it is the exact authority winner", async () => {
+    const localLease = { runtime: {}, artifacts: {}, release: vi.fn() };
+    const localAcquire = vi.fn(() => localLease);
+    const router = new AuthoritySelectingCanvasRuntimeRouter(
+      {
+        readAvailability: async () => ({
+          schemaVersion: "canvas-runtime-availability/v1",
+          kind: "available",
+          sourceRevision: runtimeSourceRevision,
+          graphFingerprint: runtimeContentTarget.graphFingerprint,
+          status: {
+            schemaVersion: "canvas-runtime-status/v2",
+            scope,
+            packageFingerprint: runtimeContentTarget.graphFingerprint,
+            capturedAt: "2026-08-20T00:00:00.000Z",
+            tasks: [],
+            blocks: []
+          }
+        })
+      },
+      { acquire: localAcquire },
+      { hasRuntimeProject: () => true, hasRuntimeScope: () => true }
+    );
+
+    await expect(
+      router.acquireAuthorityWinner(scope, {
+        target: runtimeContentTarget,
+        sourceRevision: runtimeSourceRevision
+      })
+    ).resolves.toBe(localLease);
+    expect(localAcquire).toHaveBeenCalledOnce();
   });
 
   it("restores Host ownership errors at the remote Runtime domain boundary", async () => {

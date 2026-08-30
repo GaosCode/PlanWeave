@@ -19,7 +19,7 @@ import type {
   CanvasRuntimeAuthorityAvailabilityPort
 } from "../canvas/runtimePort.js";
 import type {
-  CanvasExecutionRuntimeLeasePort,
+  CanvasRuntimeAuthorityWinnerLeasePort,
   RuntimeCanvasScope
 } from "../canvas/executionRuntimePort.js";
 import type { CanvasRuntimeAttachment } from "../canvas/collaborationComposition.js";
@@ -47,7 +47,7 @@ export async function createTransportComposition(
     initialContentCapture: CanvasInitialContentCapturePort;
     runtimeAvailability: CanvasRuntimeAuthorityAvailabilityPort;
     runtimeCommand?: {
-      executionLeases: CanvasExecutionRuntimeLeasePort;
+      executionLeases: CanvasRuntimeAuthorityWinnerLeasePort;
       hasConflictingLease(scope: RuntimeCanvasScope): boolean;
     };
     runtimeRpc: CanvasRuntimeRpcBroker;

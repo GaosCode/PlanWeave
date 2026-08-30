@@ -16,7 +16,10 @@ import {
   canvasRuntimeExecutionAvailabilitySchema,
   type CanvasRuntimeExecutionAvailability
 } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
-import type { CanvasScopeRef } from "@planweave-ai/collaboration-protocol/core/primitives";
+import {
+  canvasScopeRefSchema,
+  type CanvasScopeRef
+} from "@planweave-ai/collaboration-protocol/core/primitives";
 import { canvasRuntimeStatusProjectionSchema } from "@planweave-ai/collaboration-protocol/canvas/status";
 import {
   remoteBlockArtifactReadInputSchema,
@@ -41,8 +44,9 @@ import { canonicalRemoteRuntimePort } from "../canonicalRemoteRuntimePort.js";
 import type {
   CanvasExecutionRuntimeLease,
   CanvasExecutionRuntimeLeasePort,
-  CanvasRuntimeScopeAvailabilityPort,
   CanvasExecutionRuntimeRoutePort,
+  CanvasRuntimeAuthorityWinnerLeasePort,
+  CanvasRuntimeScopeAvailabilityPort,
   RuntimeCanvasScope
 } from "./executionRuntimePort.js";
 import {
@@ -784,7 +788,7 @@ export class RemoteHostCanvasRuntimeAdapter
 export class AuthoritySelectingCanvasRuntimeRouter
   implements
     CanvasRuntimeAuthorityAvailabilityPort,
-    CanvasExecutionRuntimeLeasePort,
+    CanvasRuntimeAuthorityWinnerLeasePort,
     CanvasRuntimeScopeAvailabilityPort
 {
   private remote: RemoteHostCanvasRuntimeAdapter | undefined;
@@ -805,6 +809,41 @@ export class AuthoritySelectingCanvasRuntimeRouter
     capturedAt: string | undefined,
     authority: RuntimeReadAuthority
   ) {
+    const result = await this.selectAvailabilityForAuthority(scope, capturedAt, authority);
+    if (result.kind === "available") return result.value;
+    return result.value ?? unavailableExecution(result.reason);
+  }
+
+  async acquireAuthorityWinner(
+    scopeInput: RuntimeCanvasScope,
+    authority: RuntimeReadAuthority
+  ): Promise<CanvasExecutionRuntimeLease> {
+    const scope = canvasRuntimeLogicalScopeSchema.parse(scopeInput);
+    const result = await this.selectAvailabilityForAuthority(scope, undefined, authority);
+    if (result.kind === "unavailable") {
+      if (result.reason === "content_out_of_sync") {
+        throw new CanvasRuntimeResetConflictError("source_drift");
+      }
+      throw new CanvasRuntimeUnavailableError(result.reason);
+    }
+    if (result.candidateId === "local") {
+      return this.localLeases.acquire(scope);
+    }
+    const hostId = result.candidateId.startsWith("host:")
+      ? result.candidateId.slice("host:".length)
+      : undefined;
+    if (!hostId || result.value.hostId !== hostId || !this.remote) {
+      throw new Error("canvas_runtime_authority_candidate_identity_invalid");
+    }
+    return this.remote.acquireForHost(scope, hostId);
+  }
+
+  private async selectAvailabilityForAuthority(
+    scopeInput: RuntimeCanvasScope,
+    capturedAt: string | undefined,
+    authority: RuntimeReadAuthority
+  ) {
+    const scope = canvasScopeRefSchema.parse(scopeInput);
     const logical = canvasRuntimeLogicalScopeSchema.parse(scope);
     const candidates: RuntimeAuthorityCandidate<CanvasRuntimeExecutionAvailability>[] = [];
     if (this.localScopes.hasRuntimeScope(logical)) {
@@ -831,8 +870,7 @@ export class AuthoritySelectingCanvasRuntimeRouter
           code: diagnostic.code
         })
     });
-    if (result.kind === "available") return result.value;
-    return result.value ?? unavailableExecution(result.reason);
+    return result;
   }
 
   acquire(scope: RuntimeCanvasScope): Promise<CanvasExecutionRuntimeLease> {
@@ -843,9 +881,6 @@ export class AuthoritySelectingCanvasRuntimeRouter
   }
 
   acquireForHost(scope: RuntimeCanvasScope, hostId: string): Promise<CanvasExecutionRuntimeLease> {
-    if (this.localScopes.hasRuntimeScope(scope)) {
-      return Promise.resolve(this.localLeases.acquire(scope));
-    }
     if (!this.remote) return Promise.reject(new CanvasRuntimeUnavailableError());
     return this.remote.acquireForHost(scope, hostId);
   }
@@ -896,9 +931,6 @@ export class LocalFirstCanvasExecutionRuntimeRouter implements CanvasExecutionRu
   }
 
   acquireForHost(scope: RuntimeCanvasScope, hostId: string): Promise<CanvasExecutionRuntimeLease> {
-    if (this.localScopes.hasRuntimeScope(scope)) {
-      return Promise.resolve(this.localLeases.acquire(scope));
-    }
     if (!this.remote) return Promise.reject(new CanvasRuntimeUnavailableError());
     return this.remote.acquireForHost(scope, hostId);
   }

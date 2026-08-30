@@ -26,7 +26,7 @@ import type {
   CanvasRuntimeAuthorityAvailabilityPort
 } from "./runtimePort.js";
 import type {
-  CanvasExecutionRuntimeLeasePort,
+  CanvasRuntimeAuthorityWinnerLeasePort,
   RuntimeCanvasScope
 } from "./executionRuntimePort.js";
 import {
@@ -55,7 +55,7 @@ export type CanvasCollaborationCompositionOptions = {
   initialContentCapture: CanvasInitialContentCapturePort;
   runtimeAvailability: CanvasRuntimeAuthorityAvailabilityPort;
   runtimeCommand?: {
-    executionLeases: CanvasExecutionRuntimeLeasePort;
+    executionLeases: CanvasRuntimeAuthorityWinnerLeasePort;
     hasConflictingLease(scope: RuntimeCanvasScope): boolean;
   };
   observerJournal: HumanObserverJournal;

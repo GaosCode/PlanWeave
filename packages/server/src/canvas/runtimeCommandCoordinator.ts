@@ -16,10 +16,11 @@ import type { ProjectAccessRepository } from "../projectAccessRepository.js";
 import { readStableCanvasRuntimeEvidence } from "./contentFingerprint.js";
 import type { ContentAuthorityStore } from "./contentAuthorityStore.js";
 import {
-  type CanvasExecutionRuntimeLeasePort,
+  type CanvasRuntimeAuthorityWinnerLeasePort,
   type CanvasRuntimeResetCommand,
   type RuntimeCanvasScope
 } from "./executionRuntimePort.js";
+import type { RuntimeReadAuthority } from "./runtimeAuthorityCandidates.js";
 import { authorizeCanvasCommand } from "./policy.js";
 import type {
   CanvasRuntimeResetReceipt,
@@ -57,7 +58,7 @@ export type CanvasRuntimeCommandCoordinatorOptions = {
   contentVersions: ContentAuthorityStore;
   runtimeStatuses: CanvasRuntimeStatusRepository;
   receipts: CanvasRuntimeResetReceiptRepository;
-  executionLeases: CanvasExecutionRuntimeLeasePort;
+  executionLeases: CanvasRuntimeAuthorityWinnerLeasePort;
   hasConflictingLease(scope: RuntimeCanvasScope): boolean;
   commitTransaction<T>(action: () => T): T;
   cleanupDiagnosticSink?: CanvasRuntimeCleanupDiagnosticSink;
@@ -179,9 +180,9 @@ export class CanvasRuntimeCommandCoordinator {
       expectedGraphFingerprint: request.expectedGraphFingerprint,
       ...(request.reason ? { reason: request.reason } : {})
     };
-    let outcome: CanvasRuntimeResetAccepted;
+    let committed: { outcome: CanvasRuntimeResetAccepted; authority: RuntimeReadAuthority };
     try {
-      outcome = this.options.commitTransaction(() => {
+      committed = this.options.commitTransaction(() => {
         const evidence = readStableCanvasRuntimeEvidence(this.options.contentVersions, scope);
         if (
           !evidence ||
@@ -216,7 +217,7 @@ export class CanvasRuntimeCommandCoordinator {
         if (completed.type !== "canvas.runtime.reset.accepted") {
           throw new Error("canvas_runtime_reset_receipt_outcome_mismatch");
         }
-        return completed;
+        return { outcome: completed, authority: evidence };
       });
     } catch (error) {
       if (error instanceof CanvasRuntimeContentSupersededError) {
@@ -234,12 +235,16 @@ export class CanvasRuntimeCommandCoordinator {
       this.markUnknown(scope, request.operationId);
       return rejected(request.operationId, "reconcile_required");
     }
-    this.startHostRuntimeCleanup(scope, command);
-    return outcome;
+    this.startHostRuntimeCleanup(scope, command, committed.authority);
+    return committed.outcome;
   }
 
-  private startHostRuntimeCleanup(scope: CanvasScopeRef, command: CanvasRuntimeResetCommand): void {
-    void this.clearHostRuntimeBestEffort(scope, command).catch(() => {
+  private startHostRuntimeCleanup(
+    scope: CanvasScopeRef,
+    command: CanvasRuntimeResetCommand,
+    authority: RuntimeReadAuthority
+  ): void {
+    void this.clearHostRuntimeBestEffort(scope, command, authority).catch(() => {
       this.reportCleanupFailure({
         operationId: command.operationId,
         scope,
@@ -251,11 +256,14 @@ export class CanvasRuntimeCommandCoordinator {
 
   private async clearHostRuntimeBestEffort(
     scope: CanvasScopeRef,
-    command: CanvasRuntimeResetCommand
+    command: CanvasRuntimeResetCommand,
+    authority: RuntimeReadAuthority
   ): Promise<void> {
-    let lease: Awaited<ReturnType<CanvasExecutionRuntimeLeasePort["acquire"]>> | undefined;
+    let lease:
+      | Awaited<ReturnType<CanvasRuntimeAuthorityWinnerLeasePort["acquireAuthorityWinner"]>>
+      | undefined;
     try {
-      lease = await this.options.executionLeases.acquire(scope);
+      lease = await this.options.executionLeases.acquireAuthorityWinner(scope, authority);
     } catch {
       this.reportCleanupFailure({
         operationId: command.operationId,

@@ -14,6 +14,7 @@ import {
 import {
   CanvasRuntimeUnavailableError,
   type CanvasExecutionRuntimeLeasePort,
+  type CanvasRuntimeAuthorityWinnerLeasePort,
   type CanvasRuntimeResetCommand
 } from "../canvas/executionRuntimePort.js";
 import {
@@ -72,6 +73,7 @@ function testResetResult(operationId: string, sourceRevision: string, fingerprin
 
 async function setup(options?: {
   acquire?: CanvasExecutionRuntimeLeasePort["acquire"];
+  acquireAuthorityWinner?: CanvasRuntimeAuthorityWinnerLeasePort["acquireAuthorityWinner"];
   activeLease?: boolean;
   persistFailure?: boolean;
   reconcileReset?: CanvasExecutionRuntimeLeasePort["reconcileReset"];
@@ -118,8 +120,12 @@ async function setup(options?: {
     }
   );
   const receipts = new CanvasRuntimeResetReceiptRepository(context.database);
-  const executionLeases: CanvasExecutionRuntimeLeasePort = {
+  const acquireAuthorityWinner = vi.fn(
+    options?.acquireAuthorityWinner ?? ((runtimeScope) => acquire(runtimeScope))
+  );
+  const executionLeases: CanvasRuntimeAuthorityWinnerLeasePort = {
     acquire,
+    acquireAuthorityWinner,
     ...(options?.reconcileReset ? { reconcileReset: options.reconcileReset } : {})
   };
   const cleanupDiagnosticSink = options?.cleanupDiagnosticSink ?? vi.fn();
@@ -162,6 +168,7 @@ async function setup(options?: {
   return {
     ...context,
     acquire,
+    acquireAuthorityWinner,
     body,
     coordinator,
     cleanupDiagnosticSink,
@@ -197,6 +204,13 @@ describe("CanvasRuntimeCommandCoordinator", () => {
       expect(test.reset).toHaveBeenCalledTimes(1);
       expect(test.acquire).toHaveBeenCalledTimes(1);
     });
+    expect(test.acquireAuthorityWinner).toHaveBeenCalledWith(
+      scope,
+      expect.objectContaining({
+        sourceRevision: test.sourceRevision,
+        target: expect.objectContaining({ graphFingerprint: test.fingerprint })
+      })
+    );
     expect(test.invalidated).toHaveBeenCalledWith(scope, 1);
     expect(test.receipts.latestAcceptedBaseline(scope)).toMatchObject({
       runtimeRevision: 1,
@@ -462,7 +476,7 @@ describe("CanvasRuntimeCommandCoordinator", () => {
     expect(test.reset).toHaveBeenCalledOnce();
   });
 
-  it("commits a recovered receipt before clearing the production Host cache", async () => {
+  it("clears the exact remote authority winner when the attached local Runtime is stale", async () => {
     const test = await setup();
     const hosts = new AgentHostRepository(test.database);
     const host = hosts.register("Runtime receipt Host").host;
@@ -473,13 +487,25 @@ describe("CanvasRuntimeCommandCoordinator", () => {
         { workspaceId: scope.workspaceId, projectId: scope.projectId, status: "ready" }
       ]
     });
+    const decoyHost = hosts.register("Decoy Runtime receipt Host").host;
+    hosts.reportOnline(decoyHost.id, [CANVAS_RUNTIME_CAPABILITY], 1, {
+      workspaceMappings: [{ workspaceId: scope.workspaceId, status: "ready" }],
+      acpProfiles: [],
+      runtimeProjects: [
+        { workspaceId: scope.workspaceId, projectId: scope.projectId, status: "ready" }
+      ]
+    });
     const mailbox = new DurableMailbox(test.database);
     const broker = new CanvasRuntimeRpcBroker(test.database, hosts, mailbox, {
       requestTimeoutMs: 1_000
     });
-    broker.attachSessionLookup({ isActive: (hostId) => hostId === host.id });
+    broker.attachSessionLookup({
+      isActive: (hostId) => hostId === host.id || hostId === decoyHost.id
+    });
     const deliveries: MailboxMessage[] = [];
+    const decoyDeliveries: MailboxMessage[] = [];
     mailbox.subscribe(host.id, (message) => deliveries.push(message));
+    mailbox.subscribe(decoyHost.id, (message) => decoyDeliveries.push(message));
     const locator = new CanvasRuntimeHostLocator(hosts.runtimeBindings, hosts, broker, test.access);
     const remote = new RemoteHostCanvasRuntimeAdapter(
       locator,
@@ -503,18 +529,27 @@ describe("CanvasRuntimeCommandCoordinator", () => {
         artifacts: new ArtifactStore(test.database, "/not-observed", 1_024)
       }
     );
+    const localAcquire = vi.fn(async () => {
+      throw new Error("stale_local_should_not_be_acquired");
+    });
+    const localReadAvailability = vi.fn(async () => ({
+      schemaVersion: "canvas-runtime-availability/v1" as const,
+      kind: "available" as const,
+      sourceRevision: `snapshot:${"d".repeat(64)}`,
+      graphFingerprint: test.fingerprint,
+      status: {
+        schemaVersion: "canvas-runtime-status/v2" as const,
+        scope,
+        packageFingerprint: test.fingerprint,
+        capturedAt: "2026-08-22T00:00:00.000Z",
+        tasks: [],
+        blocks: []
+      }
+    }));
     const router = new AuthoritySelectingCanvasRuntimeRouter(
-      {
-        readAvailability: async () => {
-          throw new Error("local_should_not_run");
-        }
-      },
-      {
-        acquire: async () => {
-          throw new Error("local_should_not_run");
-        }
-      },
-      { hasRuntimeProject: () => false, hasRuntimeScope: () => false }
+      { readAvailability: localReadAvailability },
+      { acquire: localAcquire },
+      { hasRuntimeProject: () => true, hasRuntimeScope: () => true }
     );
     router.attachRemote(remote);
     const receipts = new CanvasRuntimeResetReceiptRepository(test.database);
@@ -537,17 +572,52 @@ describe("CanvasRuntimeCommandCoordinator", () => {
       body: request
     });
     await vi.waitFor(() => expect(deliveries).toHaveLength(1));
-    const command = deliveries[0]?.command;
-    if (command?.type !== "canvas_runtime.request") {
+    await vi.waitFor(() => expect(decoyDeliveries).toHaveLength(1));
+    const availabilityCommand = deliveries[0]?.command;
+    if (availabilityCommand?.type !== "canvas_runtime.request") {
+      throw new Error("runtime_availability_command_expected");
+    }
+    await expect(recovering).resolves.toMatchObject({
+      type: "canvas.runtime.reset.accepted",
+      operationId: request.operationId,
+      runtimeRevision: 1
+    });
+    expect(availabilityCommand.operation.operation).toBe("availability");
+    broker.handleResponse(host.id, {
+      type: "canvas_runtime.response",
+      protocolVersion: agentHostProtocolVersion,
+      messageId: randomUUID(),
+      requestId: availabilityCommand.requestId,
+      response: {
+        outcome: "success",
+        operation: "availability",
+        result: {
+          kind: "available",
+          sourceRevision: test.sourceRevision,
+          graphFingerprint: test.fingerprint,
+          status: {
+            schemaVersion: "canvas-runtime-status/v2",
+            scope,
+            packageFingerprint: test.fingerprint,
+            capturedAt: "2026-08-22T00:00:00.000Z",
+            tasks: [],
+            blocks: []
+          }
+        }
+      }
+    });
+    await vi.waitFor(() => expect(deliveries).toHaveLength(2));
+    const acquireCommand = deliveries[1]?.command;
+    if (acquireCommand?.type !== "canvas_runtime.request") {
       throw new Error("runtime_acquire_command_expected");
     }
-    expect(command.operation.operation).toBe("acquire");
+    expect(acquireCommand.operation.operation).toBe("acquire");
     const runtimeLeaseId = randomUUID();
     broker.handleResponse(host.id, {
       type: "canvas_runtime.response",
       protocolVersion: agentHostProtocolVersion,
       messageId: randomUUID(),
-      requestId: command.requestId,
+      requestId: acquireCommand.requestId,
       response: {
         outcome: "success",
         operation: "acquire",
@@ -560,8 +630,8 @@ describe("CanvasRuntimeCommandCoordinator", () => {
         }
       }
     });
-    await vi.waitFor(() => expect(deliveries).toHaveLength(2));
-    const statusCommand = deliveries[1]?.command;
+    await vi.waitFor(() => expect(deliveries).toHaveLength(3));
+    const statusCommand = deliveries[2]?.command;
     if (statusCommand?.type !== "canvas_runtime.request") {
       throw new Error("reset_status_command_expected");
     }
@@ -577,14 +647,32 @@ describe("CanvasRuntimeCommandCoordinator", () => {
       response: {
         outcome: "success",
         operation: "reset_status",
-        result: {
-          kind: "succeeded",
-          result: testResetResult(request.operationId, test.sourceRevision, test.fingerprint)
-        }
+        result: { kind: "not_found" }
       }
     });
-    await vi.waitFor(() => expect(deliveries).toHaveLength(3));
-    const releaseCommand = deliveries[2]?.command;
+    await vi.waitFor(() => expect(deliveries).toHaveLength(4));
+    const resetCommand = deliveries[3]?.command;
+    if (resetCommand?.type !== "canvas_runtime.request") {
+      throw new Error("runtime_reset_command_expected");
+    }
+    expect(resetCommand.operation).toMatchObject({
+      operation: "reset",
+      runtimeLeaseId,
+      evidence: { operationId: request.operationId }
+    });
+    broker.handleResponse(host.id, {
+      type: "canvas_runtime.response",
+      protocolVersion: agentHostProtocolVersion,
+      messageId: randomUUID(),
+      requestId: resetCommand.requestId,
+      response: {
+        outcome: "success",
+        operation: "reset",
+        result: testResetResult(request.operationId, test.sourceRevision, test.fingerprint)
+      }
+    });
+    await vi.waitFor(() => expect(deliveries).toHaveLength(5));
+    const releaseCommand = deliveries[4]?.command;
     if (releaseCommand?.type !== "canvas_runtime.request") {
       throw new Error("runtime_release_command_expected");
     }
@@ -601,11 +689,15 @@ describe("CanvasRuntimeCommandCoordinator", () => {
       }
     });
 
-    await expect(recovering).resolves.toMatchObject({
-      type: "canvas.runtime.reset.accepted",
-      operationId: request.operationId,
-      runtimeRevision: 1
-    });
+    expect(localReadAvailability).toHaveBeenCalledOnce();
+    expect(localAcquire).not.toHaveBeenCalled();
+    expect(
+      decoyDeliveries.flatMap((delivery) =>
+        delivery.command.type === "canvas_runtime.request"
+          ? [delivery.command.operation.operation]
+          : []
+      )
+    ).toEqual(["availability"]);
   });
 
   it("keeps a Host-committed response loss recoverable under the original operation ID", async () => {
