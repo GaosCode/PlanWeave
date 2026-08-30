@@ -1,7 +1,10 @@
 import { createServer, type Server as HttpServer } from "node:http";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { WORKSPACE_CANVAS_EXECUTION_CAPABILITY } from "@planweave-ai/agent-host-protocol";
+import {
+  CANVAS_RUNTIME_CAPABILITY,
+  WORKSPACE_CANVAS_EXECUTION_CAPABILITY
+} from "@planweave-ai/agent-host-protocol";
 import type { PlanPackageManifest } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
@@ -20,13 +23,14 @@ import { ProjectAccessRepository } from "../../../server/src/projectAccessReposi
 import { WorkspaceIdentityRepository } from "../../../server/src/identity/workspaceRepository.js";
 import { openServerDatabase } from "../../../server/src/sqlite.js";
 import { ContentVersionRepository } from "../../../server/src/canvas/contentVersionRepository.js";
-import { readStableCanvasRuntimeContentTarget } from "../../../server/src/canvas/contentFingerprint.js";
+import { readStableCanvasRuntimeEvidence } from "../../../server/src/canvas/contentFingerprint.js";
 import { legacyWorkspaceIdForProject } from "../../../server/src/__tests__/support/legacyWorkspaceId.js";
 import { seedOperatorSessions } from "../../../server/src/__tests__/support/operatorAuthFixture.js";
 import {
   createDistributedServerComposition,
   type DistributedServerComposition
 } from "../../../server/src/serverComposition.js";
+import { attachFixtureCanvasRuntimeResponder } from "./support/selfHostedTwoClientE2E.js";
 
 const directories: string[] = [];
 const servers: HttpServer[] = [];
@@ -119,6 +123,7 @@ async function setup(options?: { secondWorkspace?: boolean }) {
     workspaceId,
     secondWorkspaceId,
     projectRoot: workspace.root,
+    packageDir: workspace.init.workspace.packageDir,
     databasePath: config.databasePath,
     origin: `http://127.0.0.1:${address.port}`,
     adminToken: compositionAdminToken
@@ -196,6 +201,21 @@ function createHostMessageInbox(socket: WebSocket) {
   }> = [];
   socket.on("message", (data) => {
     const message = JSON.parse(data.toString()) as Record<string, unknown>;
+    const command = message.command as { type?: unknown } | undefined;
+    if (
+      message.type === "mailbox.message" &&
+      (command?.type === "canvas_runtime.request" || command?.type === "canvas_runtime.cancel")
+    ) {
+      return;
+    }
+    if (
+      message.type === "host.event_ack" &&
+      typeof message.messageId === "string" &&
+      (message.messageId.startsWith("fixture-mailbox-") ||
+        message.messageId.startsWith("fixture-runtime-"))
+    ) {
+      return;
+    }
     const waiter = waiters.shift();
     if (!waiter) {
       messages.push(message);
@@ -244,6 +264,9 @@ async function connectEnrolledHost(input: {
   origin: string;
   adminToken: string;
   workspaceId: string;
+  projectRoot: string;
+  packageDir: string;
+  databasePath: string;
   ownerHumanPrincipalId: string;
   accessMode?: "unrestricted" | "workspace_restricted";
   createWorkspaceGrant?: boolean;
@@ -276,7 +299,12 @@ async function connectEnrolledHost(input: {
     installationId: "21fb9ea9-4e0d-49fb-a06c-a0fc71e7341e",
     credentialToken,
     displayName: "Desktop E2E Host",
-    capabilities: ["acp.codex", "acp.session.load", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
+    capabilities: [
+      "acp.codex",
+      "acp.session.load",
+      CANVAS_RUNTIME_CAPABILITY,
+      WORKSPACE_CANVAS_EXECUTION_CAPABILITY
+    ],
     capacity: 1
   };
   const exchangeResponse = await fetch(`${input.origin}/agent-hosts/enrollments/exchange`, {
@@ -319,10 +347,17 @@ async function connectEnrolledHost(input: {
     })
   );
   await expect(welcomePromise).resolves.toMatchObject({ type: "host.welcome" });
+  const runtimeTrace = attachFixtureCanvasRuntimeResponder({
+    socket,
+    databasePath: input.databasePath,
+    projectRoot: input.projectRoot,
+    packageDir: input.packageDir
+  });
   return {
     socket,
     hostId: exchange.hostId,
     workspaceId: grant.workspaceId,
+    runtimeOperations: runtimeTrace.operations,
     next: (expectedType: string) => nextHostMessageOfType(() => inbox.next(), expectedType)
   };
 }
@@ -427,12 +462,16 @@ async function readContentAuthority(input: {
 }) {
   const database = await openServerDatabase(input.databasePath, 5_000);
   try {
-    const target = readStableCanvasRuntimeContentTarget(new ContentVersionRepository(database), {
+    const evidence = readStableCanvasRuntimeEvidence(new ContentVersionRepository(database), {
       workspaceId: input.workspaceId,
       projectId: input.projectId,
       canvasId: input.canvasId
     });
-    return { contentRevision: String(target.revision), graphFingerprint: target.graphFingerprint };
+    if (!evidence) throw new Error("desktop_e2e_content_evidence_missing");
+    return {
+      contentRevision: evidence.sourceRevision,
+      graphFingerprint: evidence.target.graphFingerprint
+    };
   } finally {
     database.close();
   }
@@ -591,6 +630,9 @@ describe("Desktop CollaborationClient against the Server composition", () => {
       origin: fixture.origin,
       adminToken: fixture.adminToken,
       workspaceId: fixture.workspaceId,
+      projectRoot: fixture.projectRoot,
+      packageDir: fixture.packageDir,
+      databasePath: fixture.databasePath,
       ownerHumanPrincipalId: workspaceOwnerHumanPrincipalId
     });
     const endpointPage = await workspaceOwner.listAgentEndpoints({
@@ -626,16 +668,6 @@ describe("Desktop CollaborationClient against the Server composition", () => {
       leaseId: string;
       executionAttemptId: string;
     };
-    const sequence = execute.sequence as number;
-    host.socket.send(
-      JSON.stringify({
-        type: "mailbox.ack",
-        protocolVersion: 1,
-        messageId: "desktop-e2e-mailbox-ack",
-        sequence
-      })
-    );
-    await expect(host.next("host.event_ack")).resolves.toMatchObject({ type: "host.event_ack" });
     host.socket.send(
       JSON.stringify({
         type: "dispatch.accepted",
@@ -717,6 +749,7 @@ describe("Desktop CollaborationClient against the Server composition", () => {
       kind: "not_found",
       httpStatus: 404
     });
+    expect(host.runtimeOperations).not.toContain("inspect");
   });
 
   it("lets the same workspace human keep an unrestricted agent after joining another workspace", async () => {
@@ -726,10 +759,13 @@ describe("Desktop CollaborationClient against the Server composition", () => {
         fixture,
         ownerBootstrap
       });
-    await connectEnrolledHost({
+    const host = await connectEnrolledHost({
       origin: fixture.origin,
       adminToken: fixture.adminToken,
       workspaceId: fixture.workspaceId,
+      projectRoot: fixture.projectRoot,
+      packageDir: fixture.packageDir,
+      databasePath: fixture.databasePath,
       ownerHumanPrincipalId: workspaceOwnerHumanPrincipalId,
       accessMode: "unrestricted",
       createWorkspaceGrant: false
@@ -806,6 +842,7 @@ describe("Desktop CollaborationClient against the Server composition", () => {
       canvasId: blockWorkItem.canvasId
     });
     expect(workspaceBCatalog.items.some((endpoint) => endpoint.status === "available")).toBe(true);
+    expect(host.runtimeOperations).not.toContain("inspect");
   });
 
   it("dispatches an unrestricted owner agent in workspace B without a grant", async () => {
@@ -820,6 +857,9 @@ describe("Desktop CollaborationClient against the Server composition", () => {
       origin: fixture.origin,
       adminToken: fixture.adminToken,
       workspaceId: fixture.workspaceId,
+      projectRoot: fixture.projectRoot,
+      packageDir: fixture.packageDir,
+      databasePath: fixture.databasePath,
       ownerHumanPrincipalId: owner.humanPrincipalId,
       accessMode: "unrestricted",
       createWorkspaceGrant: false,
@@ -889,16 +929,6 @@ describe("Desktop CollaborationClient against the Server composition", () => {
       leaseId: string;
       executionAttemptId: string;
     };
-    const sequence = execute.sequence as number;
-    host.socket.send(
-      JSON.stringify({
-        type: "mailbox.ack",
-        protocolVersion: 1,
-        messageId: "desktop-e2e-workspace-b-mailbox-ack",
-        sequence
-      })
-    );
-    await expect(host.next("host.event_ack")).resolves.toMatchObject({ type: "host.event_ack" });
     host.socket.send(
       JSON.stringify({
         type: "dispatch.accepted",
@@ -936,6 +966,7 @@ describe("Desktop CollaborationClient against the Server composition", () => {
     expect(replayed.events).toEqual([
       expect.objectContaining({ kind: "agent_message", text: "workspace b writeback" })
     ]);
+    expect(host.runtimeOperations).not.toContain("inspect");
   });
 
   it("replays only disconnected observer events and reports catchup before refetch", async () => {

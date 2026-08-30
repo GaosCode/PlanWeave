@@ -3,10 +3,11 @@ import { remoteDispatchIntentV3Schema } from "@planweave-ai/collaboration-protoc
 import { workAuthorityProjectionSchema } from "@planweave-ai/collaboration-protocol/work/authority";
 import { serverBuildRevision } from "../../../server/src/packageInfo.js";
 import { ContentVersionRepository } from "../../../server/src/canvas/contentVersionRepository.js";
-import { readStableCanvasRuntimeContentTarget } from "../../../server/src/canvas/contentFingerprint.js";
+import { readStableCanvasRuntimeEvidence } from "../../../server/src/canvas/contentFingerprint.js";
 import { openServerDatabase } from "../../../server/src/sqlite.js";
 import {
   adminToken,
+  connectFixtureCanvasRuntimeHost,
   configureWorkspaceAccess,
   deviceToken,
   discoverContentHead,
@@ -28,12 +29,16 @@ async function readContentAuthority(input: {
 }) {
   const database = await openServerDatabase(input.databasePath, 5_000);
   try {
-    const target = readStableCanvasRuntimeContentTarget(new ContentVersionRepository(database), {
+    const evidence = readStableCanvasRuntimeEvidence(new ContentVersionRepository(database), {
       workspaceId: input.workspaceId,
       projectId: input.projectId,
       canvasId: input.canvasId
     });
-    return { contentRevision: String(target.revision), graphFingerprint: target.graphFingerprint };
+    if (!evidence) throw new Error("desktop_e2e_content_evidence_missing");
+    return {
+      contentRevision: evidence.sourceRevision,
+      graphFingerprint: evidence.target.graphFingerprint
+    };
   } finally {
     database.close();
   }
@@ -192,6 +197,15 @@ describe("self-hosted two-Desktop collaboration flow (OSS-006 B-002)", () => {
       projectId: fixture.projectId,
       ownerId: ownerCredential.humanPrincipalId,
       memberId: memberCredential.humanPrincipalId
+    });
+    const runtimeTrace = await connectFixtureCanvasRuntimeHost({
+      origin: fixture.origin,
+      hostId: configured.hostId,
+      hostToken: configured.hostToken,
+      workspaceId: fixture.workspaceId,
+      databasePath: fixture.databasePath,
+      projectRoot: fixture.projectRoot,
+      packageDir: fixture.packageDir
     });
     try {
       // Server composition bootstraps trusted canvas content at startup (publishInitial).
@@ -607,6 +621,7 @@ describe("self-hosted two-Desktop collaboration flow (OSS-006 B-002)", () => {
         }
       );
       expect(revokedCommand.status).toBe(401);
+      expect(runtimeTrace.operations).not.toContain("inspect");
     } finally {
       configured.database.close();
     }

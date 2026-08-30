@@ -1,10 +1,21 @@
 import { rm } from "node:fs/promises";
 import { createServer, type Server as HttpServer } from "node:http";
 import { join } from "node:path";
-import { WORKSPACE_CANVAS_EXECUTION_CAPABILITY } from "@planweave-ai/agent-host-protocol";
+import { randomUUID } from "node:crypto";
+import {
+  CANVAS_RUNTIME_CAPABILITY,
+  WORKSPACE_CANVAS_EXECUTION_CAPABILITY,
+  agentHostProtocolVersion,
+  canvasRuntimeRequestCommandSchema,
+  canvasRuntimeResponseEventSchema,
+  type CanvasRuntimeLogicalScope,
+  type CanvasRuntimeOperation
+} from "@planweave-ai/agent-host-protocol";
 import {
   applyDefaultCanvasWorkspaceMigration,
   createCanvasWorkspace,
+  createRemoteBlockRuntimePort,
+  readAuthorizedCanvasRuntimeStatus,
   resolveTaskCanvasWorkspace,
   saveDesktopLayout
 } from "@planweave-ai/runtime";
@@ -19,6 +30,8 @@ import { AgentHostRepository } from "../../../../server/src/hosts.js";
 import { hashOperatorToken } from "../../../../server/src/operatorAuth.js";
 import { ProjectAccessRepository } from "../../../../server/src/projectAccessRepository.js";
 import { openServerDatabase, type SqliteDatabase } from "../../../../server/src/sqlite.js";
+import { ContentVersionRepository } from "../../../../server/src/canvas/contentVersionRepository.js";
+import { readStableCanvasRuntimeEvidence } from "../../../../server/src/canvas/contentFingerprint.js";
 import { legacyWorkspaceIdForProject } from "../../../../server/src/__tests__/support/legacyWorkspaceId.js";
 import { seedOperatorSessions } from "../../../../server/src/__tests__/support/operatorAuthFixture.js";
 import { ownHostRemoteAgents } from "../../../../server/src/__tests__/support/remoteAgentOwnerFixture.js";
@@ -34,9 +47,15 @@ import { CollaborationWorkspaceConnection } from "../../main/collaboration/colla
 const directories: string[] = [];
 const servers: HttpServer[] = [];
 const compositions: DistributedServerComposition[] = [];
+const runtimeHostSockets: WebSocket[] = [];
 export const adminToken = `pw_operator_${"F".repeat(43)}`;
 
 afterEach(async () => {
+  for (const socket of runtimeHostSockets.splice(0)) {
+    if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+      socket.terminate();
+    }
+  }
   for (const composition of compositions.splice(0)) await composition.close();
   await Promise.all(
     servers.splice(0).map((server) => new Promise<void>((resolve) => server.close(resolve)))
@@ -111,6 +130,8 @@ export async function setupSelfHostedTwoClientFixture() {
     workspaceId,
     origin,
     home: workspace.home,
+    projectRoot: workspace.root,
+    packageDir: canonicalWorkspace.packageDir,
     databasePath: config.databasePath,
     initialContent
   };
@@ -202,7 +223,7 @@ export async function configureWorkspaceAccess(input: {
   projectId: string;
   ownerId: string;
   memberId: string;
-}): Promise<{ database: SqliteDatabase; hostId: string }> {
+}): Promise<{ database: SqliteDatabase; hostId: string; hostToken: string }> {
   const database = await openServerDatabase(input.databasePath, 5_000);
   const access = new ProjectAccessRepository(database);
   access.initializeProjectOwner(input.workspaceId, input.projectId, input.ownerId);
@@ -224,7 +245,8 @@ export async function configureWorkspaceAccess(input: {
   const hosts = new AgentHostRepository(database, undefined, (host) => {
     syncRemoteAgentsFromHost({ database, host, clock: () => new Date() });
   });
-  const host = hosts.register("E2E exact-block host").host;
+  const registration = hosts.register("E2E exact-block host");
+  const host = registration.host;
   ownHostRemoteAgents({
     database,
     hostId: host.id,
@@ -233,19 +255,269 @@ export async function configureWorkspaceAccess(input: {
     grantWorkspaceId: input.workspaceId
   });
   hosts.bindToWorkspace(host.id, input.workspaceId);
-  hosts.reportOnline(host.id, ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY], 1, {
-    workspaceMappings: [{ workspaceId: input.workspaceId, status: "ready" }],
-    acpProfiles: [
-      {
-        profileId: "codex-acp",
-        agentId: "codex",
-        displayName: "Test Agent",
-        status: "ready",
-        capabilities: ["acp.codex"]
+  hosts.reportOnline(
+    host.id,
+    ["acp.codex", CANVAS_RUNTIME_CAPABILITY, WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
+    1,
+    {
+      workspaceMappings: [{ workspaceId: input.workspaceId, status: "ready" }],
+      acpProfiles: [
+        {
+          profileId: "codex-acp",
+          agentId: "codex",
+          displayName: "Test Agent",
+          status: "ready",
+          capabilities: ["acp.codex"]
+        }
+      ]
+    }
+  );
+  return { database, hostId: host.id, hostToken: registration.token };
+}
+
+type FixtureRuntimeAuthority = {
+  sourceRevision: string;
+  graphFingerprint: string;
+};
+
+export type FixtureCanvasRuntimeTrace = {
+  operations: Array<CanvasRuntimeOperation["operation"]>;
+};
+
+async function readFixtureRuntimeAuthority(input: {
+  databasePath: string;
+  scope: CanvasRuntimeLogicalScope;
+}): Promise<FixtureRuntimeAuthority> {
+  const database = await openServerDatabase(input.databasePath, 5_000);
+  try {
+    const evidence = readStableCanvasRuntimeEvidence(
+      new ContentVersionRepository(database),
+      input.scope
+    );
+    if (!evidence) throw new Error("desktop_e2e_content_evidence_missing");
+    return {
+      sourceRevision: evidence.sourceRevision,
+      graphFingerprint: evidence.target.graphFingerprint
+    };
+  } finally {
+    database.close();
+  }
+}
+
+function fixtureRuntimeError(operation: CanvasRuntimeOperation["operation"], code: string) {
+  return {
+    outcome: "error" as const,
+    operation,
+    error: {
+      code,
+      message: "The Canvas Runtime fixture could not complete the request.",
+      retryable: false
+    }
+  };
+}
+
+function fixtureRuntimeErrorCode(error: unknown): string {
+  return error !== null &&
+    typeof error === "object" &&
+    "code" in error &&
+    typeof error.code === "string"
+    ? error.code
+    : "canvas_runtime_operation_failed";
+}
+
+function fixtureRuntimeSuccess(operation: CanvasRuntimeOperation["operation"], result: unknown) {
+  return { outcome: "success" as const, operation, result };
+}
+
+async function answerFixtureRuntimeRequest(input: {
+  runtime: ReturnType<typeof createRemoteBlockRuntimePort>;
+  scope: CanvasRuntimeLogicalScope;
+  operation: CanvasRuntimeOperation;
+  projectRoot: string;
+  packageDir: string;
+  authority: FixtureRuntimeAuthority;
+}): Promise<Record<string, unknown>> {
+  const { runtime, scope, operation, projectRoot, packageDir, authority } = input;
+  try {
+    switch (operation.operation) {
+      case "availability": {
+        const status = await readAuthorizedCanvasRuntimeStatus({
+          projectRoot,
+          canvasId: scope.canvasId,
+          expectedPackageDir: packageDir,
+          scope
+        });
+        return fixtureRuntimeSuccess("availability", {
+          kind: "available",
+          status,
+          ...authority
+        });
       }
-    ]
+      case "acquire": {
+        const acquiredAt = new Date().toISOString();
+        return fixtureRuntimeSuccess("acquire", {
+          runtimeLeaseId: randomUUID(),
+          ...authority,
+          acquiredAt,
+          expiresAt: new Date(Date.now() + 60_000).toISOString()
+        });
+      }
+      case "release":
+        return fixtureRuntimeSuccess("release", { released: true });
+      case "status":
+        return fixtureRuntimeSuccess(
+          "status",
+          await readAuthorizedCanvasRuntimeStatus({
+            projectRoot,
+            canvasId: scope.canvasId,
+            expectedPackageDir: packageDir,
+            scope
+          })
+        );
+      case "claim":
+        return fixtureRuntimeSuccess("claim", await runtime.claim(operation.input));
+      case "activate":
+        return fixtureRuntimeSuccess("activate", await runtime.activate(operation.input));
+      case "query":
+        return fixtureRuntimeSuccess("query", await runtime.query(operation.input));
+      case "reconcile":
+        return fixtureRuntimeSuccess("reconcile", await runtime.reconcile(operation.input));
+      default:
+        return fixtureRuntimeError(operation.operation, "canvas_runtime_operation_failed");
+    }
+  } catch (error) {
+    return fixtureRuntimeError(operation.operation, fixtureRuntimeErrorCode(error));
+  }
+}
+
+export function attachFixtureCanvasRuntimeResponder(input: {
+  socket: WebSocket;
+  databasePath: string;
+  projectRoot: string;
+  packageDir: string;
+}): FixtureCanvasRuntimeTrace {
+  const runtime = createRemoteBlockRuntimePort({ projectRoot: input.projectRoot });
+  const trace: FixtureCanvasRuntimeTrace = { operations: [] };
+  input.socket.on("message", (data) => {
+    const event = JSON.parse(data.toString()) as {
+      type?: unknown;
+      messageId?: unknown;
+      sequence?: unknown;
+      command?: unknown;
+    };
+    if (event.type !== "mailbox.message") return;
+    if (typeof event.sequence !== "number" || typeof event.messageId !== "string") return;
+    input.socket.send(
+      JSON.stringify({
+        type: "mailbox.ack",
+        protocolVersion: agentHostProtocolVersion,
+        messageId: `fixture-mailbox-${event.messageId}`,
+        sequence: event.sequence
+      })
+    );
+    const command = canvasRuntimeRequestCommandSchema.safeParse(event.command);
+    if (!command.success) return;
+    trace.operations.push(command.data.operation.operation);
+    const sendResponse = (response: Record<string, unknown>) => {
+      if (input.socket.readyState !== WebSocket.OPEN) return;
+      input.socket.send(
+        JSON.stringify(
+          canvasRuntimeResponseEventSchema.parse({
+            type: "canvas_runtime.response",
+            protocolVersion: agentHostProtocolVersion,
+            messageId: `fixture-runtime-${command.data.requestId}`,
+            requestId: command.data.requestId,
+            response
+          })
+        )
+      );
+    };
+    void (async () => {
+      try {
+        const authority = await readFixtureRuntimeAuthority({
+          databasePath: input.databasePath,
+          scope: command.data.scope
+        });
+        sendResponse(
+          await answerFixtureRuntimeRequest({
+            runtime,
+            scope: command.data.scope,
+            operation: command.data.operation,
+            projectRoot: input.projectRoot,
+            packageDir: input.packageDir,
+            authority
+          })
+        );
+      } catch (error) {
+        sendResponse(
+          fixtureRuntimeError(command.data.operation.operation, fixtureRuntimeErrorCode(error))
+        );
+      }
+    })().catch(() => undefined);
   });
-  return { database, hostId: host.id };
+  return trace;
+}
+
+export async function connectFixtureCanvasRuntimeHost(input: {
+  origin: string;
+  hostId: string;
+  hostToken: string;
+  workspaceId: string;
+  databasePath: string;
+  projectRoot: string;
+  packageDir: string;
+}): Promise<FixtureCanvasRuntimeTrace> {
+  const socket = new WebSocket(
+    `${input.origin.replace(/^http:/, "ws:")}/agent-hosts/${input.hostId}/connect?workspaceId=${encodeURIComponent(input.workspaceId)}`,
+    { headers: { Authorization: `Bearer ${input.hostToken}` } }
+  );
+  runtimeHostSockets.push(socket);
+  await new Promise<void>((resolve, reject) => {
+    socket.once("open", resolve);
+    socket.once("error", reject);
+  });
+  const welcomed = new Promise<void>((resolve, reject) => {
+    const onMessage = (data: WebSocket.RawData) => {
+      const event = JSON.parse(data.toString()) as { type?: unknown; code?: unknown };
+      if (event.type === "host.welcome") {
+        socket.off("message", onMessage);
+        resolve();
+      } else if (event.type === "protocol.error") {
+        socket.off("message", onMessage);
+        reject(new Error(typeof event.code === "string" ? event.code : "host_hello_rejected"));
+      }
+    };
+    socket.on("message", onMessage);
+  });
+  socket.send(
+    JSON.stringify({
+      type: "host.hello",
+      protocolVersion: agentHostProtocolVersion,
+      lastAcknowledgedSequence: 0,
+      capabilities: [
+        "acp.codex",
+        "acp.session.load",
+        CANVAS_RUNTIME_CAPABILITY,
+        WORKSPACE_CANVAS_EXECUTION_CAPABILITY
+      ],
+      capacity: 1,
+      readiness: {
+        workspaceMappings: [{ workspaceId: input.workspaceId, status: "ready" }],
+        acpProfiles: [
+          {
+            profileId: "codex-acp",
+            agentId: "codex",
+            displayName: "Test Agent",
+            status: "ready",
+            capabilities: ["acp.codex", "acp.session.load"]
+          }
+        ],
+        runtimeProjects: []
+      }
+    })
+  );
+  await welcomed;
+  return attachFixtureCanvasRuntimeResponder({ socket, ...input });
 }
 
 export async function openPresence(
