@@ -86,7 +86,13 @@ async function remoteWorkspace(input: {
     authorityMismatch: input.authorityMismatch,
     replayTransition: input.replayTransition,
     httpFailure: input.httpFailure,
-    recoveryMiss: input.recoveryMiss
+    recoveryMiss: input.recoveryMiss,
+    registryCanvases: [
+      {
+        canvasId: "default",
+        publishSource: { localProjectId: init.workspace.id, localCanvasId: "default" }
+      }
+    ]
   });
   const serverOrigin = await server.start();
   await writeWorkspaceExecutionProfiles({ home, serverOrigin });
@@ -230,7 +236,13 @@ describe("remote execution CLI", () => {
       const server = new WorkspaceExecutionHttpHarness({
         sourceRevision,
         graphFingerprint,
-        dispatchMode: "action_required"
+        dispatchMode: "action_required",
+        registryCanvases: [
+          {
+            canvasId: "default",
+            publishSource: { localProjectId: init.workspace.id, localCanvasId: "default" }
+          }
+        ]
       });
       const serverOrigin = await server.start();
       try {

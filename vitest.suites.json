@@ -45,6 +45,7 @@
         "packageExportCli.test.ts",
         "projectGraphCli.test.ts",
         "projectRoot.test.ts",
+        "remoteCanvasBindingCli.test.ts",
         "remoteExecutionCli.test.ts",
         "workspaceExecutionCredential.test.ts",
         "runIndexCli.test.ts",

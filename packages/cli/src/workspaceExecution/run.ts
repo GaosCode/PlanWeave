@@ -21,6 +21,7 @@ import {
   CliWorkspaceConnectionProvider,
   ProcessMemoryWorkspaceCredentialProvider
 } from "./connection.js";
+import { resolveCliRemoteCanvasId } from "./canvasBinding.js";
 import { WorkspaceExecutionCliError } from "./errors.js";
 import { createCliWorkspaceExecutionHttpPorts } from "./httpPorts.js";
 import { createWorkspaceJsonTransport } from "./httpTransport.js";
@@ -168,13 +169,18 @@ export async function executeWorkspaceRun(
       options.connectionProfile
     );
     const credential = new ProcessMemoryWorkspaceCredentialProvider().get();
-    const ports = createCliWorkspaceExecutionHttpPorts({
-      connection,
-      transport: createWorkspaceJsonTransport({
-        serverOrigin: connection.serverOrigin,
-        credential
-      })
+    const transport = createWorkspaceJsonTransport({
+      serverOrigin: connection.serverOrigin,
+      credential
     });
+    const canvasId = await resolveCliRemoteCanvasId({
+      packageWorkspace: projectRoot,
+      localCanvasId: resolveCliCanvasId(options) ?? "default",
+      connection,
+      transport,
+      signal: options.signal
+    });
+    const ports = createCliWorkspaceExecutionHttpPorts({ connection, transport });
     const authority = createWorkspaceAuthorityBindingResolver({
       local: createLocalPackageAuthoritySource(),
       remote: ports.authoritySource
@@ -199,7 +205,7 @@ export async function executeWorkspaceRun(
         serverOrigin: connection.serverOrigin,
         workspaceId: connection.workspaceId,
         projectId: connection.projectId,
-        canvasId: resolveCliCanvasId(options) ?? "default"
+        canvasId
       },
       scope: options.scope,
       trigger: "cli",

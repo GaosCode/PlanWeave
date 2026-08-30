@@ -13,6 +13,7 @@ import {
   remoteOperationObservationSchema
 } from "@planweave-ai/collaboration-protocol/remote-run";
 import { workAuthorityProjectionSchema } from "@planweave-ai/collaboration-protocol/work/authority";
+import { collaborationWorkScopeSchema } from "@planweave-ai/collaboration-protocol/work/responsibility";
 import type {
   RemoteAgentCatalogPort,
   RemoteOperationCommandPort,
@@ -46,12 +47,15 @@ export function createCliWorkspaceExecutionHttpPorts(input: {
   listAgentEndpoints(canvasId: string, signal?: AbortSignal): Promise<RemoteAgentEndpointList>;
 } {
   const { connection, transport } = input;
-  const getWorkAuthority = (blockRef: string, signal?: AbortSignal) => {
-    const scope = { kind: "block" as const, blockRef };
+  const getWorkAuthority = (
+    locator: { workspaceId: string; projectId: string; canvasId: string; blockRef: string },
+    signal?: AbortSignal
+  ) => {
+    const scope = collaborationWorkScopeSchema.parse({ kind: "block", ...locator });
     const query = new URLSearchParams({ scope: JSON.stringify(scope) });
     return transport.json(
       "GET",
-      projectPath(connection.projectId, `/assignments/authority?${query}`),
+      projectPath(locator.projectId, `/assignments/authority?${query}`),
       workAuthorityProjectionSchema,
       { signal }
     );
@@ -69,13 +73,30 @@ export function createCliWorkspaceExecutionHttpPorts(input: {
     );
   };
   const workAuthority: WorkAuthorityPort = {
-    ensure: ({ binding }, signal) => getWorkAuthority(binding.blockRef, signal)
+    ensure: ({ binding }, signal) =>
+      getWorkAuthority(
+        {
+          workspaceId: binding.workspaceId,
+          projectId: binding.projectId,
+          canvasId: binding.canvasId,
+          blockRef: binding.blockRef
+        },
+        signal
+      )
   };
   return {
     listAgentEndpoints,
     authoritySource: {
       async inspect(locator, blockRef, signal) {
-        const authority = await getWorkAuthority(blockRef, signal);
+        const authority = await getWorkAuthority(
+          {
+            workspaceId: locator.workspaceId,
+            projectId: locator.projectId,
+            canvasId: locator.canvasId,
+            blockRef
+          },
+          signal
+        );
         const availability = await transport.json(
           "GET",
           projectPath(

@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { remoteAgentEndpointListSchema } from "@planweave-ai/collaboration-protocol/agent-endpoint";
 import { canvasRuntimeAvailabilityV2Schema } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
+import { canvasAccessPageSchema } from "@planweave-ai/collaboration-protocol/access/project";
 import {
   remoteDispatchIntentV3Schema,
   remoteEndpointOperationObservationSchema,
@@ -15,6 +16,10 @@ import {
   type RemoteOperationObservation
 } from "@planweave-ai/collaboration-protocol/remote-run";
 import { workAuthorityProjectionSchema } from "@planweave-ai/collaboration-protocol/work/authority";
+import {
+  collaborationWorkScopeSchema,
+  type CollaborationWorkScope
+} from "@planweave-ai/collaboration-protocol/work/responsibility";
 
 export const workspaceExecutionToken = `pw_hdev_${"a".repeat(43)}`;
 
@@ -29,12 +34,9 @@ const endpoint = {
   status: "available" as const
 };
 
-const scope = {
-  kind: "block" as const,
-  workspaceId: "workspace-1",
-  projectId: "project-1",
-  canvasId: "default",
-  blockRef: "T-001#B-001"
+export type WorkspaceExecutionRegistryCanvas = {
+  canvasId: string;
+  publishSource: { localProjectId: string; localCanvasId: string } | null;
 };
 
 type DispatchMode =
@@ -67,6 +69,8 @@ export class WorkspaceExecutionHttpHarness {
   readonly calls: string[] = [];
   readonly recoveryQueries: URLSearchParams[] = [];
   readonly replayQueries: number[] = [];
+  readonly authorityScopes: CollaborationWorkScope[] = [];
+  readonly catalogCanvasIds: string[] = [];
   readonly dispatchReceived: Promise<void>;
   private resolveDispatchReceived!: () => void;
   private server: Server | null = null;
@@ -86,6 +90,8 @@ export class WorkspaceExecutionHttpHarness {
       replayTransition?: boolean;
       httpFailure?: WorkspaceExecutionHttpFailure;
       recoveryMiss?: boolean;
+      registryCanvases: readonly WorkspaceExecutionRegistryCanvas[];
+      registryPageSize?: number;
     }
   ) {
     this.dispatchReceived = new Promise((resolve) => {
@@ -166,7 +172,57 @@ export class WorkspaceExecutionHttpHarness {
         writeJson(response, this.input.httpFailure.status, { error: this.input.httpFailure.code });
         return;
       }
-      writeJson(response, 200, this.workAuthority());
+      const rawScope = url.searchParams.get("scope");
+      const parsedScope = collaborationWorkScopeSchema.safeParse(
+        rawScope === null ? null : JSON.parse(rawScope)
+      );
+      if (!parsedScope.success || url.searchParams.size !== 1) {
+        writeJson(response, 400, { error: "fake_authority_scope_invalid" });
+        return;
+      }
+      this.authorityScopes.push(parsedScope.data);
+      writeJson(response, 200, this.workAuthority(parsedScope.data));
+      return;
+    }
+    if (url.pathname === "/api/v1/registry/projects/project-1/canvases" && method === "GET") {
+      const cursor = Number(url.searchParams.get("cursor"));
+      const limit = Number(url.searchParams.get("limit"));
+      if (
+        url.searchParams.size !== 2 ||
+        !Number.isInteger(cursor) ||
+        cursor < 0 ||
+        !Number.isInteger(limit) ||
+        limit < 1 ||
+        limit > 100
+      ) {
+        writeJson(response, 400, { error: "fake_registry_query_invalid" });
+        return;
+      }
+      const canvases = this.registryCanvases();
+      const pageSize = Math.min(limit, this.input.registryPageSize ?? limit);
+      const items = canvases.slice(cursor, cursor + pageSize).map((canvas, index) => ({
+        schemaVersion: "project-access/v1" as const,
+        registry: {
+          projectRegistryId: "registry-project-1",
+          canvasRegistryId: `registry-canvas-${cursor + index + 1}`,
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          canvasId: canvas.canvasId
+        },
+        visibility: "shared" as const,
+        acl: { revision: 1, updatedAt: "2030-01-01T00:00:00.000Z" },
+        owner: "human-1",
+        publishSource: canvas.publishSource,
+        updatedAt: "2030-01-01T00:00:00.000Z"
+      }));
+      writeJson(
+        response,
+        200,
+        canvasAccessPageSchema.parse({
+          items,
+          nextCursor: cursor + items.length < canvases.length ? cursor + items.length : null
+        })
+      );
       return;
     }
     if (url.pathname.endsWith("/runtime-availability") && method === "GET") {
@@ -178,6 +234,16 @@ export class WorkspaceExecutionHttpHarness {
         writeJson(response, this.input.httpFailure.status, { error: this.input.httpFailure.code });
         return;
       }
+      const canvasId = url.searchParams.get("canvasId");
+      if (
+        url.searchParams.size !== 2 ||
+        url.searchParams.get("workspaceId") !== "workspace-1" ||
+        !canvasId
+      ) {
+        writeJson(response, 400, { error: "fake_catalog_scope_invalid" });
+        return;
+      }
+      this.catalogCanvasIds.push(canvasId);
       const count = this.input.endpointCount ?? 1;
       writeJson(
         response,
@@ -330,7 +396,11 @@ export class WorkspaceExecutionHttpHarness {
     writeJson(response, 404, { error: "not_found" });
   }
 
-  private workAuthority() {
+  private registryCanvases(): readonly WorkspaceExecutionRegistryCanvas[] {
+    return this.input.registryCanvases;
+  }
+
+  private workAuthority(scope: CollaborationWorkScope) {
     return workAuthorityProjectionSchema.parse({
       schemaVersion: "work-authority/v1",
       scope,
@@ -409,9 +479,9 @@ export class WorkspaceExecutionHttpHarness {
     const dispatchId = this.replayTransitionCompleted() ? "dispatch-2" : "dispatch-1";
     return remoteEndpointOperationObservationSchema.parse({
       operationId: "operation-1",
-      projectId: "project-1",
-      canvasId: "default",
-      blockRef: "T-001#B-001",
+      projectId: this.dispatchIntent.projectId,
+      canvasId: this.dispatchIntent.canvasId,
+      blockRef: this.dispatchIntent.blockRef,
       state,
       dispatchId,
       executionAttemptId: attemptId,
@@ -433,7 +503,11 @@ export class WorkspaceExecutionHttpHarness {
         stage: state === "action_required" ? "running" : "terminal",
         revision,
         attemptId,
-        locator: { workspaceId: "workspace-1", projectId: "project-1", canvasId: "default" },
+        locator: {
+          workspaceId: "workspace-1",
+          projectId: this.dispatchIntent.projectId,
+          canvasId: this.dispatchIntent.canvasId
+        },
         endpointId: endpoint.endpointId,
         authorityRevisions: { responsibility: 1, reviewer: 2, executionTarget: 3 },
         content: {

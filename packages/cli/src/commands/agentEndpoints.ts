@@ -4,6 +4,7 @@ import {
   CliWorkspaceConnectionProvider,
   ProcessMemoryWorkspaceCredentialProvider
 } from "../workspaceExecution/connection.js";
+import { resolveCliRemoteCanvasId } from "../workspaceExecution/canvasBinding.js";
 import { createCliWorkspaceExecutionHttpPorts } from "../workspaceExecution/httpPorts.js";
 import { createWorkspaceJsonTransport } from "../workspaceExecution/httpTransport.js";
 
@@ -17,19 +18,23 @@ export function registerAgentEndpointsCommand(program: Command): void {
     .option("--connection-profile <profileId>", "select a preconfigured Workspace connection")
     .option("--json", "print JSON output")
     .action(async (options: { canvas?: string; connectionProfile?: string; json?: boolean }) => {
-      await resolveCliPackageWorkspace(options);
+      const packageWorkspace = await resolveCliPackageWorkspace(options);
       const connection = await new CliWorkspaceConnectionProvider().resolve(
         options.connectionProfile
       );
       const credential = new ProcessMemoryWorkspaceCredentialProvider().get();
-      const ports = createCliWorkspaceExecutionHttpPorts({
-        connection,
-        transport: createWorkspaceJsonTransport({
-          serverOrigin: connection.serverOrigin,
-          credential
-        })
+      const transport = createWorkspaceJsonTransport({
+        serverOrigin: connection.serverOrigin,
+        credential
       });
-      const result = await ports.listAgentEndpoints(resolveCliCanvasId(options) ?? "default");
+      const canvasId = await resolveCliRemoteCanvasId({
+        packageWorkspace,
+        localCanvasId: resolveCliCanvasId(options) ?? "default",
+        connection,
+        transport
+      });
+      const ports = createCliWorkspaceExecutionHttpPorts({ connection, transport });
+      const result = await ports.listAgentEndpoints(canvasId);
       if (options.json) {
         console.log(JSON.stringify(result, null, 2));
         return;
