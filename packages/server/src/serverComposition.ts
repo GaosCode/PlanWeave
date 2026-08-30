@@ -58,7 +58,8 @@ import { CanvasRuntimeResetReceiptRepository } from "./canvas/runtimeCommandRece
 import { ContentVersionRepository } from "./canvas/contentVersionRepository.js";
 import {
   readStableCanvasRuntimeAuthority,
-  readStableCanvasRuntimeContentTarget
+  readStableCanvasRuntimeContentTarget,
+  readStableCanvasRuntimeEvidence
 } from "./canvas/contentFingerprint.js";
 import { createInvalidatingCanvasRuntimeStatusRepository } from "./canvas/runtimeStatusInvalidation.js";
 import { projectCanvasRuntimeFromAcquiredLease } from "./canvas/runtimeInitializationCoordinator.js";
@@ -258,7 +259,9 @@ export async function createDistributedServerComposition(
     collaborationRuntime.attachRemote(remoteCanvasRuntime);
     executionRuntime.attachRemote(remoteCanvasRuntime);
     workRuntimeFacts.attachRemote(
-      new RemoteHostWorkRuntimeFactsAdapter(runtimeHostLocator, runtimeRpc, runtimeContentTargets)
+      new RemoteHostWorkRuntimeFactsAdapter(runtimeHostLocator, runtimeRpc, {
+        read: (scope) => readStableCanvasRuntimeEvidence(contentVersions, scope)
+      })
     );
     const identityServices = createIdentityServices({
       database: server.database,

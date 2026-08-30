@@ -1,12 +1,10 @@
 import { canvasRuntimeJsonValueSchema } from "@planweave-ai/agent-host-protocol";
 import {
   parseResolveWorkItemsResult,
-  resolveWorkItemsRequestSchema
+  resolveWorkItemsRequestSchema,
+  type ResolveWorkItemsResult
 } from "@planweave-ai/collaboration-protocol/work/package-facts";
-import {
-  CanvasRuntimeHostAmbiguousError,
-  type CanvasRuntimeHostLocator
-} from "../canvas/runtimeHostLocator.js";
+import type { CanvasRuntimeHostLocator } from "../canvas/runtimeHostLocator.js";
 import { CanvasRuntimeRpcError, type CanvasRuntimeRpcBroker } from "../canvas/runtimeRpcBroker.js";
 import type {
   WorkRuntimeFactsLease,
@@ -27,54 +25,82 @@ const contentDriftErrorCodes = new Set([
   "runtime_package_location_mismatch"
 ]);
 
+const deviceUnavailableErrorCodes = new Set([
+  "canvas_runtime_host_offline",
+  "canvas_runtime_rpc_deadline_exceeded",
+  "canvas_runtime_host_disconnected",
+  "canvas_runtime_host_superseded",
+  "canvas_runtime_host_revoked"
+]);
+
+type HostFactsObservation =
+  | { kind: "match"; result: ResolveWorkItemsResult }
+  | { kind: "content_out_of_sync" }
+  | { kind: "host_offline" };
+
 /** Bounded read-only Work facts RPC. It never acquires an execution Runtime lease. */
 export class RemoteHostWorkRuntimeFactsAdapter implements WorkRuntimePackageFactsPort {
   constructor(
     private readonly locator: CanvasRuntimeHostLocator,
     private readonly broker: CanvasRuntimeRpcBroker,
-    private readonly contentTargets: {
-      read(scope: WorkRuntimeFactsRequest["scope"]): CanvasRuntimeContentTarget;
+    private readonly contentAuthority: {
+      read(
+        scope: WorkRuntimeFactsRequest["scope"]
+      ): { target: CanvasRuntimeContentTarget; sourceRevision: string } | undefined;
     }
   ) {}
 
   async acquireFacts(input: WorkRuntimeFactsRequest): Promise<WorkRuntimeFactsLease | undefined> {
     const request = resolveWorkItemsRequestSchema.parse({ workItems: input.workItems });
-    let located: ReturnType<CanvasRuntimeHostLocator["locate"]>;
-    try {
-      located = this.locator.locate(input.scope);
-    } catch (error) {
-      if (error instanceof CanvasRuntimeHostAmbiguousError) {
-        throw new WorkRuntimeUnavailableError("canvas_runtime_host_ambiguous");
-      }
-      throw error;
-    }
+    const located = this.locator.locateCandidates(input.scope);
     if (located.kind === "unavailable") throw new WorkRuntimeUnavailableError(located.reason);
+    const authority = this.contentAuthority.read(input.scope);
+    if (!authority) throw new WorkRuntimeUnavailableError("content_out_of_sync");
 
+    const observations = await Promise.all(
+      located.hostIds.map((hostId) =>
+        this.readHostFacts(hostId, input, request, authority.target, authority.sourceRevision)
+      )
+    );
+    const match = observations.find(
+      (observation): observation is Extract<HostFactsObservation, { kind: "match" }> =>
+        observation.kind === "match"
+    );
+    if (match) return factsLease(input, match.result);
+    if (observations.some((observation) => observation.kind === "content_out_of_sync")) {
+      throw new WorkRuntimeUnavailableError("content_out_of_sync");
+    }
+    throw new WorkRuntimeUnavailableError("host_offline");
+  }
+
+  private async readHostFacts(
+    hostId: string,
+    input: WorkRuntimeFactsRequest,
+    request: ReturnType<typeof resolveWorkItemsRequestSchema.parse>,
+    contentTarget: CanvasRuntimeContentTarget,
+    sourceRevision: string
+  ): Promise<HostFactsObservation> {
     let response: Awaited<ReturnType<CanvasRuntimeRpcBroker["request"]>>;
     try {
       response = await this.broker.request(
-        located.hostId,
+        hostId,
         input.scope,
         {
           operation: "resolve_work_items",
-          contentTarget: this.contentTargets.read(input.scope),
+          contentTarget,
           input: canvasRuntimeJsonValueSchema.parse(request)
         },
-        this.broker.attachmentVersion(located.hostId)
+        this.broker.attachmentVersion(hostId)
       );
     } catch (error) {
-      if (
-        error instanceof CanvasRuntimeRpcError &&
-        (error.code === "canvas_runtime_host_offline" ||
-          error.code === "canvas_runtime_rpc_deadline_exceeded")
-      ) {
-        throw new WorkRuntimeUnavailableError("host_offline");
+      if (error instanceof CanvasRuntimeRpcError && deviceUnavailableErrorCodes.has(error.code)) {
+        return { kind: "host_offline" };
       }
       throw error;
     }
     if (response.outcome === "error") {
       if (contentDriftErrorCodes.has(response.error.code)) {
-        throw new WorkRuntimeUnavailableError("content_out_of_sync");
+        return { kind: "content_out_of_sync" };
       }
       throw new CanvasRuntimeRpcError(
         response.error.code,
@@ -85,6 +111,13 @@ export class RemoteHostWorkRuntimeFactsAdapter implements WorkRuntimePackageFact
     if (response.operation !== "resolve_work_items") {
       throw new Error("canvas_runtime_response_operation_mismatch");
     }
-    return factsLease(input, parseResolveWorkItemsResult(request, response.result));
+    const result = parseResolveWorkItemsResult(request, response.result);
+    if (
+      result.sourceRevision !== sourceRevision ||
+      result.graphFingerprint !== contentTarget.graphFingerprint
+    ) {
+      return { kind: "content_out_of_sync" };
+    }
+    return { kind: "match", result };
   }
 }

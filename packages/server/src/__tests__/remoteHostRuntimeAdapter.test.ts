@@ -42,6 +42,7 @@ const runtimeContentTarget = {
   },
   graphFingerprint: `pkg-${"a".repeat(64)}`
 };
+const runtimeSourceRevision = "snapshot:test";
 
 afterEach(() => {
   for (const database of databases.splice(0)) database.close();
@@ -92,16 +93,23 @@ async function setup(requestTimeoutMs = 1_000) {
       broker.attachmentVersion(lease.hostId) === lease.attachmentVersion
   });
   const contentTargets = { read: () => runtimeContentTarget };
+  const readContentAuthority = vi.fn(() => ({
+    target: runtimeContentTarget,
+    sourceRevision: runtimeSourceRevision
+  }));
   const adapter = new RemoteHostCanvasRuntimeAdapter(locator, broker, contentTargets, {
     grants,
     artifacts: new ArtifactStore(database, "/not-observed", 1024 * 1024)
   });
-  const factsAdapter = new RemoteHostWorkRuntimeFactsAdapter(locator, broker, contentTargets);
+  const factsAdapter = new RemoteHostWorkRuntimeFactsAdapter(locator, broker, {
+    read: readContentAuthority
+  });
   return {
     adapter,
     factsAdapter,
     broker,
     locator,
+    readContentAuthority,
     deliveries,
     host,
     database,
@@ -144,6 +152,25 @@ function respond(
     requestId: command.requestId,
     response
   });
+}
+
+function taskFactsResult(
+  sourceRevision = runtimeSourceRevision,
+  graphFingerprint = runtimeContentTarget.graphFingerprint
+) {
+  return {
+    sourceRevision,
+    graphFingerprint,
+    facts: [
+      {
+        kind: "task",
+        canvasId: scope.canvasId,
+        taskId: "T-001",
+        exists: true,
+        requiredCapabilities: []
+      }
+    ]
+  };
 }
 
 describe("RemoteHostCanvasRuntimeAdapter", () => {
@@ -236,6 +263,154 @@ describe("RemoteHostCanvasRuntimeAdapter", () => {
     expect(() => lease?.package.resolveWorkItem(workItems[0]!)).toThrow(
       "runtime_package_scope_released"
     );
+  });
+
+  it("selects exact Task and Project facts from two Hosts while generic Runtime routing stays ambiguous", async () => {
+    const fixture = await setup();
+    const second = fixture.addHost("Current Project Runtime");
+    const workItems = [{ kind: "task" as const, canvasId: scope.canvasId, taskId: "T-001" }];
+
+    expect(() => fixture.adapter.acquire(scope)).toThrow(CanvasRuntimeHostAmbiguousError);
+    const pending = fixture.factsAdapter.acquireFacts({ scope, workItems });
+    const staleCommand = commandAt(fixture.deliveries, 0);
+    const exactCommand = commandAt(second.deliveries, 0);
+    expect(staleCommand.scope).toEqual(scope);
+    expect(exactCommand.scope).toEqual(scope);
+    expect(staleCommand.operation).toMatchObject({ contentTarget: runtimeContentTarget });
+    expect(exactCommand.operation).toMatchObject({ contentTarget: runtimeContentTarget });
+
+    respond(fixture.broker, fixture.host.id, staleCommand, {
+      outcome: "success",
+      operation: "resolve_work_items",
+      result: taskFactsResult(`snapshot:${"d".repeat(64)}`)
+    });
+    respond(fixture.broker, second.host.id, exactCommand, {
+      outcome: "success",
+      operation: "resolve_work_items",
+      result: taskFactsResult()
+    });
+
+    const lease = await pending;
+    expect(lease?.evidence).toEqual({
+      sourceRevision: runtimeSourceRevision,
+      graphFingerprint: runtimeContentTarget.graphFingerprint
+    });
+    expect(lease?.package.resolveWorkItem(workItems[0]!)).toMatchObject({
+      kind: "task",
+      taskId: "T-001",
+      exists: true
+    });
+    expect(fixture.readContentAuthority).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses an exact facts peer when another candidate disconnects", async () => {
+    const fixture = await setup();
+    const second = fixture.addHost("Exact Runtime");
+    const workItems = [{ kind: "task" as const, canvasId: scope.canvasId, taskId: "T-001" }];
+    const pending = fixture.factsAdapter.acquireFacts({ scope, workItems });
+    const exactCommand = commandAt(second.deliveries, 0);
+
+    fixture.disconnectHost(fixture.host.id);
+    respond(fixture.broker, second.host.id, exactCommand, {
+      outcome: "success",
+      operation: "resolve_work_items",
+      result: taskFactsResult()
+    });
+
+    await expect(pending).resolves.toMatchObject({
+      evidence: {
+        sourceRevision: runtimeSourceRevision,
+        graphFingerprint: runtimeContentTarget.graphFingerprint
+      }
+    });
+  });
+
+  it("fails with content_out_of_sync when no Host facts match Server authority", async () => {
+    const fixture = await setup();
+    const second = fixture.addHost("Drifted Runtime");
+    const pending = fixture.factsAdapter.acquireFacts({
+      scope,
+      workItems: [{ kind: "task", canvasId: scope.canvasId, taskId: "T-001" }]
+    });
+
+    respond(fixture.broker, fixture.host.id, commandAt(fixture.deliveries, 0), {
+      outcome: "success",
+      operation: "resolve_work_items",
+      result: taskFactsResult(runtimeSourceRevision, `pkg-${"d".repeat(64)}`)
+    });
+    respond(fixture.broker, second.host.id, commandAt(second.deliveries, 0), {
+      outcome: "error",
+      operation: "resolve_work_items",
+      error: {
+        code: "runtime_project_identity_mismatch",
+        message: "The Runtime Project does not match Server authority.",
+        retryable: false
+      }
+    });
+
+    await expect(pending).rejects.toMatchObject({ code: "content_out_of_sync" });
+  });
+
+  it("fails with host_offline when every candidate facts request times out", async () => {
+    const fixture = await setup(20);
+    const second = fixture.addHost("Offline Runtime");
+
+    await expect(
+      fixture.factsAdapter.acquireFacts({
+        scope,
+        workItems: [{ kind: "task", canvasId: scope.canvasId, taskId: "T-001" }]
+      })
+    ).rejects.toMatchObject({ code: "host_offline" });
+    expect(fixture.deliveries).toHaveLength(1);
+    expect(second.deliveries).toHaveLength(1);
+  });
+
+  it("does not hide an unknown facts RPC error behind an exact peer", async () => {
+    const fixture = await setup();
+    const second = fixture.addHost("Failing Runtime");
+    const pending = fixture.factsAdapter.acquireFacts({
+      scope,
+      workItems: [{ kind: "task", canvasId: scope.canvasId, taskId: "T-001" }]
+    });
+
+    respond(fixture.broker, fixture.host.id, commandAt(fixture.deliveries, 0), {
+      outcome: "success",
+      operation: "resolve_work_items",
+      result: taskFactsResult()
+    });
+    respond(fixture.broker, second.host.id, commandAt(second.deliveries, 0), {
+      outcome: "error",
+      operation: "resolve_work_items",
+      error: {
+        code: "unexpected_facts_failure",
+        message: "Unexpected Work facts failure.",
+        retryable: false
+      }
+    });
+
+    await expect(pending).rejects.toMatchObject({ code: "unexpected_facts_failure" });
+  });
+
+  it("does not hide malformed facts behind an exact peer", async () => {
+    const fixture = await setup();
+    const second = fixture.addHost("Malformed Runtime");
+    const pending = fixture.factsAdapter.acquireFacts({
+      scope,
+      workItems: [{ kind: "task", canvasId: scope.canvasId, taskId: "T-001" }]
+    });
+
+    respond(fixture.broker, fixture.host.id, commandAt(fixture.deliveries, 0), {
+      outcome: "success",
+      operation: "resolve_work_items",
+      result: taskFactsResult()
+    });
+    respond(fixture.broker, second.host.id, commandAt(second.deliveries, 0), {
+      outcome: "success",
+      operation: "resolve_work_items",
+      result: { ...taskFactsResult(), facts: [] }
+    });
+
+    await expect(pending).rejects.toMatchObject({ name: "ZodError" });
   });
 
   it("serves remote availability with no local trusted project", async () => {
