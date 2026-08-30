@@ -27,13 +27,16 @@ function status(packageFingerprint: string) {
   };
 }
 
-function availablePort(graphFingerprint: string): CanvasRuntimeAvailabilityPort {
+function availablePort(
+  graphFingerprint: string,
+  sourceRevision = `snapshot:${"b".repeat(64)}`
+): CanvasRuntimeAvailabilityPort {
   return {
     async readAvailability(requestedScope, requestedAt) {
       return {
         schemaVersion: "canvas-runtime-availability/v1",
         kind: "available",
-        sourceRevision: `snapshot:${"b".repeat(64)}`,
+        sourceRevision,
         graphFingerprint,
         status: {
           ...status(graphFingerprint),
@@ -60,7 +63,7 @@ async function setup(runtimeAvailability?: CanvasRuntimeAvailabilityPort) {
     sourceRevision: evidence.sourceRevision,
     graphFingerprint: evidence.target.graphFingerprint
   };
-  const port = runtimeAvailability ?? availablePort(fingerprint);
+  const port = runtimeAvailability ?? availablePort(fingerprint, authority.sourceRevision);
   const readAvailability = vi.spyOn(port, "readAvailability");
   const runtimeStatuses = createInvalidatingCanvasRuntimeStatusRepository({
     database: context.database,
@@ -137,6 +140,39 @@ describe("CanvasRuntimeAvailabilityService", () => {
       state: { kind: "initialized", runtimeRevision: 1, status: status(fingerprint) },
       execution: {
         schemaVersion: "canvas-runtime-availability/v1",
+        kind: "unavailable",
+        reason: "content_out_of_sync"
+      }
+    });
+  });
+
+  it("rejects stale source evidence even when the package fingerprint still matches", async () => {
+    let graphFingerprint: string | undefined;
+    const stalePort: CanvasRuntimeAvailabilityPort = {
+      async readAvailability(requestedScope, requestedAt) {
+        if (!graphFingerprint) throw new Error("test_graph_fingerprint_missing");
+        return {
+          schemaVersion: "canvas-runtime-availability/v1",
+          kind: "available",
+          sourceRevision: `snapshot:${"c".repeat(64)}`,
+          graphFingerprint,
+          status: {
+            ...status(graphFingerprint),
+            scope: requestedScope,
+            capturedAt: requestedAt ?? capturedAt
+          }
+        };
+      }
+    };
+    const { service, authority, fingerprint } = await setup(stalePort);
+    graphFingerprint = fingerprint;
+
+    await expect(
+      service.read(actor("viewer"), { projectId: "p", canvasId: "default" })
+    ).resolves.toMatchObject({
+      schemaVersion: "canvas-runtime-view/v2",
+      authority,
+      execution: {
         kind: "unavailable",
         reason: "content_out_of_sync"
       }

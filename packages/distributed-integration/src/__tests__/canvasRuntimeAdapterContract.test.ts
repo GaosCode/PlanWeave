@@ -49,15 +49,6 @@ import {
 } from "./support/canvasRuntimeAdapterContract.js";
 
 const blockRef = "T-001#B-001";
-const contentTarget = canvasRuntimeContentTargetSchema.parse({
-  revision: 1,
-  content: {
-    versionId: `version-${"c".repeat(64)}`,
-    canonicalDigest: "c".repeat(64),
-    verification: "complete" as const
-  },
-  graphFingerprint: `pkg-${"a".repeat(64)}`
-});
 
 function validClaim(candidate: RemoteBlockDispatchCandidate) {
   return remoteBlockClaimInputSchema.parse({
@@ -282,6 +273,17 @@ type RemoteContractFixture = CanvasRuntimeAdapterContractFixture & {
 
 async function createRemoteFixture(): Promise<RemoteContractFixture> {
   const local = await createLocalFixture();
+  const localAvailability = await local.adapter.readAvailability(local.scope);
+  if (localAvailability.kind !== "available") throw new Error("local_contract_unavailable");
+  const contentTarget = canvasRuntimeContentTargetSchema.parse({
+    revision: 1,
+    content: {
+      versionId: `version-${"c".repeat(64)}`,
+      canonicalDigest: "c".repeat(64),
+      verification: "complete"
+    },
+    graphFingerprint: localAvailability.graphFingerprint
+  });
   const database = await openServerDatabase(":memory:", 5_000);
   applyMigrations(database);
   new WorkspaceIdentityRepository(database).ensureConfiguredWorkspace(local.scope.workspaceId);

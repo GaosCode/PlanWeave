@@ -118,6 +118,10 @@ export type LocatedCanvasRuntimeHost =
   | { kind: "available"; hostId: string }
   | { kind: "unavailable"; reason: "runtime_not_attached" | "host_offline"; lastSeenAt?: string };
 
+export type LocatedCanvasRuntimeHostCandidates =
+  | { kind: "available"; hostIds: readonly string[] }
+  | { kind: "unavailable"; reason: "runtime_not_attached" | "host_offline"; lastSeenAt?: string };
+
 export class CanvasRuntimeHostAmbiguousError extends Error {
   constructor(readonly hostIds: readonly string[]) {
     super(`canvas_runtime_host_ambiguous:${hostIds.join(",")}`);
@@ -135,8 +139,18 @@ export class CanvasRuntimeHostLocator {
   ) {}
 
   locate(scopeInput: RuntimeCanvasScope): LocatedCanvasRuntimeHost {
+    const candidates = this.locateCandidates(scopeInput);
+    if (candidates.kind === "unavailable") return candidates;
+    if (candidates.hostIds.length > 1) {
+      throw new CanvasRuntimeHostAmbiguousError(candidates.hostIds);
+    }
+    return { kind: "available", hostId: candidates.hostIds[0]! };
+  }
+
+  /** Enumerates every viable Host for read-only evidence aggregation. */
+  locateCandidates(scopeInput: RuntimeCanvasScope): LocatedCanvasRuntimeHostCandidates {
     const scope = this.assertScopeAvailable(scopeInput);
-    return this.locateBindings(this.bindings.list(scope));
+    return this.locateBindingCandidates(this.bindings.list(scope));
   }
 
   /**
@@ -187,15 +201,12 @@ export class CanvasRuntimeHostLocator {
     const scope = projectScopeRefSchema.parse(scopeInput);
     const project = this.projectAccess.registry.projectInternal(scope.workspaceId, scope.projectId);
     if (!project || project.revokedAt !== null) return false;
-    try {
-      return this.locateBindings(this.bindings.listProject(scope)).kind === "available";
-    } catch (error) {
-      if (error instanceof CanvasRuntimeHostAmbiguousError) return false;
-      throw error;
-    }
+    return this.locateBindingCandidates(this.bindings.listProject(scope)).kind === "available";
   }
 
-  private locateBindings(bindings: readonly CanvasRuntimeHostBinding[]): LocatedCanvasRuntimeHost {
+  private locateBindingCandidates(
+    bindings: readonly CanvasRuntimeHostBinding[]
+  ): LocatedCanvasRuntimeHostCandidates {
     if (bindings.length === 0) {
       return { kind: "unavailable", reason: "runtime_not_attached" };
     }
@@ -212,11 +223,9 @@ export class CanvasRuntimeHostLocator {
       }
       return [{ binding, host }];
     });
-    if (candidates.length > 1) {
-      throw new CanvasRuntimeHostAmbiguousError(candidates.map(({ host }) => host.id));
+    if (candidates.length > 0) {
+      return { kind: "available", hostIds: candidates.map(({ host }) => host.id) };
     }
-    const candidate = candidates[0];
-    if (candidate) return { kind: "available", hostId: candidate.host.id };
     const lastSeenAt = bindings
       .map(({ hostId }) => this.hosts.get(hostId)?.lastSeenAt)
       .filter((value): value is string => value !== undefined)

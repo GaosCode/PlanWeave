@@ -42,6 +42,23 @@ function sameScope(
   );
 }
 
+type AuthorityAwareRuntimeAvailabilityPort = CanvasRuntimeAvailabilityPort & {
+  readAvailabilityForAuthority(
+    scope: { workspaceId: string; projectId: string; canvasId: string },
+    capturedAt: string | undefined,
+    authority: NonNullable<ReturnType<typeof readStableCanvasRuntimeEvidence>>
+  ): Promise<CanvasRuntimeExecutionAvailability>;
+};
+
+function supportsAuthorityAwareRead(
+  port: CanvasRuntimeAvailabilityPort
+): port is AuthorityAwareRuntimeAvailabilityPort {
+  return (
+    "readAvailabilityForAuthority" in port &&
+    typeof port.readAvailabilityForAuthority === "function"
+  );
+}
+
 /** Authorizes one logical Canvas read and combines Server state with device execution evidence. */
 export class CanvasRuntimeAvailabilityService {
   private readonly clock: () => Date;
@@ -68,15 +85,23 @@ export class CanvasRuntimeAvailabilityService {
           }
         : { kind: "uninitialized" as const };
 
+    const capturedAt = this.clock().toISOString();
     const observed = canvasRuntimeExecutionAvailabilitySchema.parse(
-      await this.options.runtimeAvailability.readAvailability(scope, this.clock().toISOString())
+      await (supportsAuthorityAwareRead(this.options.runtimeAvailability)
+        ? this.options.runtimeAvailability.readAvailabilityForAuthority(
+            scope,
+            capturedAt,
+            contentEvidence
+          )
+        : this.options.runtimeAvailability.readAvailability(scope, capturedAt))
     );
     const execution =
       contentFingerprint &&
       observed.kind === "available" &&
       sameScope(observed.status.scope, scope) &&
       observed.status.packageFingerprint === observed.graphFingerprint &&
-      observed.graphFingerprint === contentFingerprint
+      observed.graphFingerprint === contentFingerprint &&
+      observed.sourceRevision === contentEvidence.sourceRevision
         ? observed
         : observed.kind === "available"
           ? executionContentOutOfSync()

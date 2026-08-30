@@ -13,6 +13,7 @@ import { canvasCommandServiceFixture } from "./support/canvasCommandServiceFixtu
 import type { CanvasRuntimeAvailabilityPort } from "../canvas/runtimePort.js";
 import { CanvasRuntimeInitializationCoordinator } from "../canvas/runtimeInitializationCoordinator.js";
 import { inWriteTransaction } from "../sqlite.js";
+import { readStableCanvasRuntimeEvidence } from "../canvas/contentFingerprint.js";
 
 const servers: HttpServer[] = [];
 
@@ -24,7 +25,29 @@ afterEach(async () => {
 });
 
 async function setup(clock: () => Date, runtimeAvailability?: CanvasRuntimeAvailabilityPort) {
-  const fixture = await canvasCommandServiceFixture({ runtimeAvailability });
+  let runtimeEvidence: ReturnType<typeof readStableCanvasRuntimeEvidence> | undefined;
+  const effectiveRuntimeAvailability: CanvasRuntimeAvailabilityPort = runtimeAvailability ?? {
+    async readAvailability(scope, capturedAt) {
+      if (!runtimeEvidence) throw new Error("test_runtime_authority_missing");
+      return {
+        schemaVersion: "canvas-runtime-availability/v1",
+        kind: "available",
+        sourceRevision: runtimeEvidence.sourceRevision,
+        graphFingerprint: runtimeEvidence.target.graphFingerprint,
+        status: {
+          schemaVersion: "canvas-runtime-status/v2",
+          scope,
+          packageFingerprint: runtimeEvidence.target.graphFingerprint,
+          capturedAt: capturedAt ?? clock().toISOString(),
+          tasks: [],
+          blocks: []
+        }
+      };
+    }
+  };
+  const fixture = await canvasCommandServiceFixture({
+    runtimeAvailability: effectiveRuntimeAvailability
+  });
   const {
     service,
     runtimeAvailabilityService,
@@ -33,6 +56,12 @@ async function setup(clock: () => Date, runtimeAvailability?: CanvasRuntimeAvail
     contentVersions,
     runtimeStatuses
   } = fixture;
+  runtimeEvidence = readStableCanvasRuntimeEvidence(contentVersions, {
+    workspaceId: "w",
+    projectId: "p",
+    canvasId: "default"
+  });
+  if (!runtimeEvidence) throw new Error("test_runtime_authority_missing");
   const repository = new HumanIdentityRepository(database);
   const workspaceIdentity = new WorkspaceIdentityRepository(database);
   const token = mintHumanDeviceToken();

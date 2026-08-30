@@ -153,6 +153,11 @@ describe("CanvasRuntimeHostLocator", () => {
 
   it("rejects multiple active candidates instead of guessing", async () => {
     const fixture = await setup();
+    const secondScope = { ...scope, canvasId: "secondary" };
+    fixture.projectAccess.registerCanvasInternal({
+      ...secondScope,
+      packageDir: "/runtime/project/secondary-package"
+    });
     const first = fixture.hosts.register("First").host;
     const second = fixture.hosts.register("Second").host;
     fixture.report(first.id);
@@ -160,7 +165,22 @@ describe("CanvasRuntimeHostLocator", () => {
     fixture.active.add(first.id);
     fixture.active.add(second.id);
 
+    expect(fixture.locator.locateCandidates(scope)).toEqual({
+      kind: "available",
+      hostIds: [first.id, second.id].sort()
+    });
+    expect(fixture.locator.locateCandidates(secondScope)).toEqual({
+      kind: "available",
+      hostIds: [first.id, second.id].sort()
+    });
+    expect(
+      fixture.locator.hasAvailableProject({
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId
+      })
+    ).toBe(true);
     expect(() => fixture.locator.locate(scope)).toThrow(CanvasRuntimeHostAmbiguousError);
+    expect(() => fixture.locator.locate(secondScope)).toThrow(CanvasRuntimeHostAmbiguousError);
   });
 
   it("checks the Server registry before consulting Host advertisement", async () => {
