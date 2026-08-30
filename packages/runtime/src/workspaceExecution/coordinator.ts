@@ -1,17 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { RemoteInteractionResponse } from "@planweave-ai/collaboration-protocol/remote-run";
-import {
-  appendRunSessionEvent,
-  createRunSession,
-  getRunSession,
-  listRunSessions,
-  updateRunSession,
-  withRunSessionScopeLock
-} from "../runSessions/repository.js";
-import type { RunSessionState, RunSessionTrigger } from "../runSessions/types.js";
+import type { RunSessionTrigger } from "../runSessions/types.js";
 import {
   remoteWorkspaceExecutionHandleSchema,
+  workspaceExecutionAuthorityLocatorSchema,
   workspaceExecutionRequestSchema,
+  workspaceExecutionScopeSchema,
   workspaceExecutionSessionStateSchema,
   type RemoteWorkspaceExecutionHandle,
   type WorkspaceExecutionDispatchIntent,
@@ -50,20 +44,18 @@ import {
   remoteSessionState
 } from "./sessionCheckpoint.js";
 import { resolveWorkspaceExecutionTarget } from "./targetResolution.js";
+import {
+  createPackageWorkspaceExecutionSessionRepository,
+  packageSessionStorageForBinding,
+  type WorkspaceExecutionSessionRecord,
+  type WorkspaceExecutionSessionRepositoryPort,
+  type WorkspaceExecutionSessionStorage
+} from "./sessionRepository.js";
 
 export type WorkspaceExecutionCoordinatorResult = {
   handle: WorkspaceExecutionHandle;
-  session: RunSessionState;
+  session: WorkspaceExecutionSessionRecord;
   events: WorkspaceExecutionEvent[];
-};
-
-type RunSessionRepositoryPort = {
-  create: typeof createRunSession;
-  get: typeof getRunSession;
-  list: typeof listRunSessions;
-  update: typeof updateRunSession;
-  appendEvent: typeof appendRunSessionEvent;
-  withScopeLock: typeof withRunSessionScopeLock;
 };
 
 const terminalPhases = new Set(["completed", "failed", "stopped"]);
@@ -75,11 +67,11 @@ function runSessionTrigger(trigger: WorkspaceExecutionRequest["trigger"]): RunSe
 }
 
 function bindingMatchesSession(
-  session: RunSessionState,
+  session: WorkspaceExecutionSessionRecord,
   bindingId: string,
   request: WorkspaceExecutionRequest
-): session is RunSessionState & {
-  workspaceExecution: NonNullable<RunSessionState["workspaceExecution"]>;
+): session is WorkspaceExecutionSessionRecord & {
+  workspaceExecution: NonNullable<WorkspaceExecutionSessionRecord["workspaceExecution"]>;
 } {
   return Boolean(
     session.workspaceExecution &&
@@ -109,7 +101,7 @@ function remoteIntent(input: {
 }
 
 export class WorkspaceExecutionCoordinator {
-  private readonly sessions: RunSessionRepositoryPort;
+  private readonly sessions: WorkspaceExecutionSessionRepositoryPort;
 
   constructor(
     private readonly input: {
@@ -118,19 +110,15 @@ export class WorkspaceExecutionCoordinator {
       workAuthority: WorkAuthorityPort;
       local: LocalWorkspaceExecutionAdapter;
       remote: RemoteWorkspaceExecutionAdapter;
-      sessions?: RunSessionRepositoryPort;
+      sessions?: WorkspaceExecutionSessionRepositoryPort;
+      sessionStorage?: (
+        binding: ValidatedWorkspaceAuthorityBinding
+      ) => WorkspaceExecutionSessionStorage;
       clock?: () => Date;
       idempotencyKey?: () => string;
     }
   ) {
-    this.sessions = input.sessions ?? {
-      create: createRunSession,
-      get: getRunSession,
-      list: listRunSessions,
-      update: updateRunSession,
-      appendEvent: appendRunSessionEvent,
-      withScopeLock: withRunSessionScopeLock
-    };
+    this.sessions = input.sessions ?? createPackageWorkspaceExecutionSessionRepository();
   }
 
   async execute(
@@ -139,6 +127,7 @@ export class WorkspaceExecutionCoordinator {
   ): Promise<WorkspaceExecutionCoordinatorResult> {
     const request = workspaceExecutionRequestSchema.parse(rawRequest);
     const binding = await this.input.authority.resolve(request.authority, request.scope, signal);
+    const storage = this.sessionStorage(binding);
 
     if (request.target.policy === "local") {
       const target = resolveWorkspaceExecutionTarget(request);
@@ -152,7 +141,7 @@ export class WorkspaceExecutionCoordinator {
         evidence: { status: "complete", diagnostics: [] }
       });
       const persisted = await this.sessions.update(
-        binding.packageWorkspace,
+        storage,
         snapshot.session.sessionId,
         {
           workspaceExecution,
@@ -190,13 +179,13 @@ export class WorkspaceExecutionCoordinator {
       };
     }
 
-    return this.sessions.withScopeLock(binding.packageWorkspace, request.scope, async () => {
+    return this.sessions.withScopeLock(storage, request.scope, async () => {
       if (binding.kind !== "remote" || !request.effectiveExecutor) {
         throw new WorkspaceExecutionError("workspace_execution_authority_mismatch");
       }
-      const resumable = await this.findScopedSession(binding.bindingId, request);
+      const resumable = await this.findScopedSession(storage, binding.bindingId, request);
       if (resumable) {
-        return this.resumeOrRecover(binding, resumable, signal);
+        return this.resumeOrRecover(storage, binding, resumable, signal);
       }
       let currentAuthority: Awaited<ReturnType<WorkAuthorityPort["ensure"]>>;
       try {
@@ -227,8 +216,7 @@ export class WorkspaceExecutionCoordinator {
         endpointId: target.agentEndpointId,
         idempotencyKey: `workspace-execution-${(this.input.idempotencyKey ?? randomUUID)()}`
       });
-      const session = await this.sessions.create({
-        projectRoot: binding.packageWorkspace,
+      const session = await this.sessions.create(storage, {
         kind: "run",
         trigger: runSessionTrigger(request.trigger),
         scope: request.scope,
@@ -243,7 +231,7 @@ export class WorkspaceExecutionCoordinator {
         intent,
         signal
       });
-      return this.acceptCheckpoint(binding, session, snapshot, target, signal);
+      return this.acceptCheckpoint(storage, binding, session, snapshot, target, signal);
     });
   }
 
@@ -254,14 +242,82 @@ export class WorkspaceExecutionCoordinator {
   ): Promise<WorkspaceExecutionCoordinatorResult> {
     const request = workspaceExecutionRequestSchema.parse(rawRequest);
     const binding = await this.input.authority.resolve(request.authority, request.scope, signal);
-    const detail = await this.sessions.get(binding.packageWorkspace, sessionId);
+    const storage = this.sessionStorage(binding);
+    const detail = await this.sessions.get(storage, sessionId);
     if (
       !bindingMatchesSession(detail.session, binding.bindingId, request) ||
       binding.kind !== "remote"
     ) {
       throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
     }
-    return this.resumeOrRecover(binding, detail.session, signal);
+    return this.resumeOrRecover(storage, binding, detail.session, signal);
+  }
+
+  async observeExisting(input: {
+    authority: unknown;
+    scope: unknown;
+    operationId: string;
+    signal?: AbortSignal;
+  }): Promise<WorkspaceExecutionCoordinatorResult> {
+    const scope = workspaceExecutionScopeSchema.parse(input.scope);
+    const authority = workspaceExecutionAuthorityLocatorSchema.parse(input.authority);
+    const binding = await this.input.authority.resolve(authority, scope, input.signal);
+    if (binding.kind !== "remote" || scope.kind !== "block") {
+      throw new WorkspaceExecutionError("workspace_execution_remote_binding_required");
+    }
+    const inspected = await this.input.remote.inspectExisting({
+      binding,
+      operationId: input.operationId,
+      signal: input.signal
+    });
+    const storage = this.sessionStorage(binding);
+    return this.sessions.withScopeLock(storage, scope, async () => {
+      const listed = await this.sessions.list(storage);
+      if (listed.diagnostics.length > 0) {
+        throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
+      }
+      const operationSessions = listed.sessions.filter((session) => {
+        const state = session.workspaceExecution;
+        return (
+          state?.observedOperationId === input.operationId ||
+          (state?.handle?.target === "remote" && state.handle.operationId === input.operationId)
+        );
+      });
+      if (operationSessions.length > 1) {
+        throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
+      }
+      const existing = operationSessions[0];
+      if (existing) {
+        if (
+          !existing.workspaceExecution ||
+          existing.workspaceExecution.binding.bindingId !== binding.bindingId ||
+          !executionScopeEquals(existing.scope, scope)
+        ) {
+          throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
+        }
+        return this.resumeOrRecover(
+          storage,
+          binding,
+          { ...existing, workspaceExecution: existing.workspaceExecution },
+          input.signal
+        );
+      }
+      const session = await this.sessions.create(storage, {
+        kind: "run",
+        trigger: "desktop",
+        scope,
+        phase: "running",
+        workspaceExecution: remoteSessionState(binding, null, null, undefined, input.operationId)
+      });
+      const snapshot = await this.input.remote.attachExisting({
+        binding,
+        session,
+        observation: inspected.observation,
+        agentEndpointId: inspected.agentEndpointId,
+        signal: input.signal
+      });
+      return this.acceptCheckpoint(storage, binding, session, snapshot, undefined, input.signal);
+    });
   }
 
   async respond(input: {
@@ -276,7 +332,8 @@ export class WorkspaceExecutionCoordinator {
       request.scope,
       input.signal
     );
-    const detail = await this.sessions.get(binding.packageWorkspace, input.sessionId);
+    const storage = this.sessionStorage(binding);
+    const detail = await this.sessions.get(storage, input.sessionId);
     if (!bindingMatchesSession(detail.session, binding.bindingId, request)) {
       throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
     }
@@ -302,6 +359,7 @@ export class WorkspaceExecutionCoordinator {
     });
     await persistRemoteInteraction({
       sessions: this.sessions,
+      storage,
       original: detail.session,
       interaction
     });
@@ -309,9 +367,10 @@ export class WorkspaceExecutionCoordinator {
   }
 
   private async resumeOrRecover(
+    storage: WorkspaceExecutionSessionStorage,
     binding: Extract<ValidatedWorkspaceAuthorityBinding, { kind: "remote" }>,
-    session: RunSessionState & {
-      workspaceExecution: NonNullable<RunSessionState["workspaceExecution"]>;
+    session: WorkspaceExecutionSessionRecord & {
+      workspaceExecution: NonNullable<WorkspaceExecutionSessionRecord["workspaceExecution"]>;
     },
     signal?: AbortSignal
   ): Promise<WorkspaceExecutionCoordinatorResult> {
@@ -320,28 +379,30 @@ export class WorkspaceExecutionCoordinator {
     );
     if (handle.success) {
       if (terminalPhases.has(session.phase)) {
-        return this.collectEvidence(binding, session, handle.data, [], signal);
+        return this.collectEvidence(storage, binding, session, handle.data, [], signal);
       }
       const snapshot = await this.input.remote.follow({ handle: handle.data, binding, signal });
-      return this.acceptCheckpoint(binding, session, snapshot, undefined, signal);
+      return this.acceptCheckpoint(storage, binding, session, snapshot, undefined, signal);
     }
     const intent = session.workspaceExecution.dispatchIntent;
     if (intent === null) throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
     const recovered = await this.input.remote.recover({ binding, session, intent, signal });
-    if (recovered) return this.acceptCheckpoint(binding, session, recovered, undefined, signal);
+    if (recovered)
+      return this.acceptCheckpoint(storage, binding, session, recovered, undefined, signal);
     throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
   }
 
   private async findScopedSession(
+    storage: WorkspaceExecutionSessionStorage,
     bindingId: string,
     request: WorkspaceExecutionRequest
   ): Promise<
-    | (RunSessionState & {
-        workspaceExecution: NonNullable<RunSessionState["workspaceExecution"]>;
+    | (WorkspaceExecutionSessionRecord & {
+        workspaceExecution: NonNullable<WorkspaceExecutionSessionRecord["workspaceExecution"]>;
       })
     | null
   > {
-    const listed = await this.sessions.list(request.authority.packageWorkspace);
+    const listed = await this.sessions.list(storage);
     if (listed.diagnostics.length > 0) {
       throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
     }
@@ -357,8 +418,9 @@ export class WorkspaceExecutionCoordinator {
   }
 
   private async acceptCheckpoint(
+    storage: WorkspaceExecutionSessionStorage,
     binding: Extract<ValidatedWorkspaceAuthorityBinding, { kind: "remote" }>,
-    session: RunSessionState,
+    session: WorkspaceExecutionSessionRecord,
     snapshot: RemoteWorkspaceAdapterSnapshot,
     selectedTarget:
       | Extract<ReturnType<typeof resolveWorkspaceExecutionTarget>, { target: "remote" }>
@@ -367,6 +429,7 @@ export class WorkspaceExecutionCoordinator {
   ): Promise<WorkspaceExecutionCoordinatorResult> {
     const persisted = await persistRemoteObservation({
       sessions: this.sessions,
+      storage,
       binding,
       original: session,
       snapshot,
@@ -380,7 +443,7 @@ export class WorkspaceExecutionCoordinator {
       (!terminalPhases.has(persisted.phase) || snapshot.terminal.terminal);
     if (checkpointAccepted) {
       await this.sessions.appendEvent(
-        binding.packageWorkspace,
+        storage,
         persisted.sessionId,
         "workspace_execution_checkpoint",
         {
@@ -420,12 +483,20 @@ export class WorkspaceExecutionCoordinator {
           })
         : [])
     ];
-    return this.collectEvidence(binding, persisted, persistedHandle, checkpointEvents, signal);
+    return this.collectEvidence(
+      storage,
+      binding,
+      persisted,
+      persistedHandle,
+      checkpointEvents,
+      signal
+    );
   }
 
   private async collectEvidence(
+    storage: WorkspaceExecutionSessionStorage,
     binding: Extract<ValidatedWorkspaceAuthorityBinding, { kind: "remote" }>,
-    session: RunSessionState,
+    session: WorkspaceExecutionSessionRecord,
     handle: RemoteWorkspaceExecutionHandle,
     checkpointEvents: WorkspaceExecutionEvent[],
     signal?: AbortSignal
@@ -434,6 +505,7 @@ export class WorkspaceExecutionCoordinator {
       const evidence = await this.input.remote.collectEvidence({ handle, binding, signal });
       const persisted = await persistRemoteEvidence({
         sessions: this.sessions,
+        storage,
         original: session,
         handle: evidence.handle,
         interactions: evidence.interactions.items
@@ -452,6 +524,7 @@ export class WorkspaceExecutionCoordinator {
     } catch (error) {
       const persisted = await persistRemoteEvidenceDiagnostic({
         sessions: this.sessions,
+        storage,
         original: session,
         error,
         clock: this.input.clock
@@ -461,5 +534,11 @@ export class WorkspaceExecutionCoordinator {
       );
       return { handle: currentHandle, session: persisted, events: checkpointEvents };
     }
+  }
+
+  private sessionStorage(
+    binding: ValidatedWorkspaceAuthorityBinding
+  ): WorkspaceExecutionSessionStorage {
+    return (this.input.sessionStorage ?? packageSessionStorageForBinding)(binding);
   }
 }

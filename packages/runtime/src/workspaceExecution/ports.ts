@@ -9,6 +9,7 @@ import type {
 } from "@planweave-ai/collaboration-protocol/remote-run";
 import type { WorkAuthorityProjection } from "@planweave-ai/collaboration-protocol/work/authority";
 import type { RunSessionState } from "../runSessions/types.js";
+import type { WorkspaceExecutionSessionRecord } from "./sessionRepository.js";
 import type {
   LocalWorkspaceExecutionHandle,
   RemoteWorkspaceAuthorityBinding,
@@ -128,17 +129,29 @@ export interface LocalWorkspaceExecutionAdapter {
 }
 
 export interface RemoteWorkspaceExecutionAdapter {
+  inspectExisting(input: {
+    binding: ValidatedWorkspaceAuthorityBinding;
+    operationId: string;
+    signal?: AbortSignal;
+  }): Promise<{ observation: RemoteOperationObservation; agentEndpointId: string }>;
+  attachExisting(input: {
+    binding: ValidatedWorkspaceAuthorityBinding;
+    session: WorkspaceExecutionSessionRecord;
+    observation: RemoteOperationObservation;
+    agentEndpointId: string;
+    signal?: AbortSignal;
+  }): Promise<RemoteWorkspaceAdapterSnapshot>;
   launch(input: {
     request: WorkspaceExecutionRequest;
     binding: ValidatedWorkspaceAuthorityBinding;
     target: Extract<WorkspaceExecutionTarget, { target: "remote" }>;
-    session: RunSessionState;
+    session: WorkspaceExecutionSessionRecord;
     intent: WorkspaceExecutionDispatchIntent;
     signal?: AbortSignal;
   }): Promise<RemoteWorkspaceAdapterSnapshot>;
   recover(input: {
     binding: ValidatedWorkspaceAuthorityBinding;
-    session: RunSessionState;
+    session: WorkspaceExecutionSessionRecord;
     intent: WorkspaceExecutionDispatchIntent;
     signal?: AbortSignal;
   }): Promise<RemoteWorkspaceAdapterSnapshot | null>;

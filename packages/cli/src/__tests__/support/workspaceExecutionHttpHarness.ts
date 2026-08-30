@@ -128,6 +128,22 @@ export class WorkspaceExecutionHttpHarness {
     this.settlementFailure = failure;
   }
 
+  seedPersistedOperation(): void {
+    this.dispatchIntent = remoteDispatchIntentV3Schema.parse({
+      schemaVersion: "remote-run/v3",
+      projectId: "project-1",
+      canvasId: "default",
+      blockRef: "T-001#B-001",
+      agentEndpointId: "endpoint-codex",
+      idempotencyKey: "pre-t005-dispatch",
+      expectedResponsibilityRevision: 1,
+      expectedReviewerRevision: 2,
+      executionTargetRevision: 3,
+      contentRevision: this.input.sourceRevision,
+      graphFingerprint: this.input.graphFingerprint
+    });
+  }
+
   get dispatchCount(): number {
     return this.calls.filter((call) => call === "POST /api/v1/projects/project-1/remote-operations")
       .length;

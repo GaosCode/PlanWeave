@@ -32,7 +32,6 @@ const localAuthoritySnapshotSchema = z
 
 const remoteAuthoritySnapshotSchema = z
   .object({
-    packageWorkspace: z.string().trim().min(1).max(4_096),
     connectionProfileId: z.string().trim().min(1).max(256),
     serverOrigin: z
       .string()
@@ -80,8 +79,28 @@ export interface WorkspaceAuthorityBindingPort {
   ): Promise<ValidatedWorkspaceAuthorityBinding>;
 }
 
-function bindingId(value: Omit<WorkspaceAuthorityBinding, "bindingId">): string {
+function bindingId(value: unknown): string {
   return `wxb:sha256:${createHash("sha256").update(stableJson(value)).digest("hex")}`;
+}
+
+function remoteBindingIdentityValue(
+  value: Omit<RemoteWorkspaceAuthorityBinding, "bindingId">
+): unknown {
+  if (value.contentAuthority.kind === "server_canvas") return value;
+  return {
+    version: value.version,
+    kind: value.kind,
+    packageWorkspace: value.contentAuthority.packageWorkspace,
+    connectionProfileId: value.connectionProfileId,
+    serverOrigin: value.serverOrigin,
+    workspaceId: value.workspaceId,
+    projectId: value.projectId,
+    canvasId: value.canvasId,
+    blockRef: value.blockRef,
+    authorityRevisions: value.authorityRevisions,
+    contentRevision: value.contentRevision,
+    graphFingerprint: value.graphFingerprint
+  };
 }
 
 function validateContent(
@@ -170,7 +189,6 @@ export function createWorkspaceAuthorityBindingResolver(input: {
         await input.remote.inspect(locator, scope.blockRef, signal)
       );
       const authorityMatches =
-        snapshot.packageWorkspace === locator.packageWorkspace &&
         snapshot.connectionProfileId === locator.connectionProfileId &&
         snapshot.serverOrigin === locator.serverOrigin &&
         snapshot.workspaceId === locator.workspaceId &&
@@ -180,11 +198,13 @@ export function createWorkspaceAuthorityBindingResolver(input: {
       if (!authorityMatches) {
         throw new WorkspaceExecutionError("workspace_execution_authority_mismatch");
       }
-      validateContent(locator.expected, snapshot);
+      if (locator.contentAuthority.kind === "package_snapshot") {
+        validateContent(locator.contentAuthority.expected, snapshot);
+      }
       const withoutId = {
         version: "planweave.workspace-authority-binding/v1" as const,
         kind: "remote" as const,
-        packageWorkspace: snapshot.packageWorkspace,
+        contentAuthority: locator.contentAuthority,
         connectionProfileId: snapshot.connectionProfileId,
         serverOrigin: snapshot.serverOrigin,
         workspaceId: snapshot.workspaceId,
@@ -198,7 +218,7 @@ export function createWorkspaceAuthorityBindingResolver(input: {
       return brand(
         remoteWorkspaceAuthorityBindingSchema.parse({
           ...withoutId,
-          bindingId: bindingId(withoutId)
+          bindingId: bindingId(remoteBindingIdentityValue(withoutId))
         })
       );
     }

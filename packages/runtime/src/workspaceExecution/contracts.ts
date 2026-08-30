@@ -36,6 +36,11 @@ const packageAuthorityLocatorShape = {
   expected: expectedContentSchema
 };
 
+export const workspaceContentAuthoritySchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("package_snapshot"), ...packageAuthorityLocatorShape }).strict(),
+  z.object({ kind: z.literal("server_canvas") }).strict()
+]);
+
 export const localWorkspaceAuthorityLocatorSchema = z
   .object({ kind: z.literal("local_package"), ...packageAuthorityLocatorShape })
   .strict();
@@ -43,7 +48,7 @@ export const localWorkspaceAuthorityLocatorSchema = z
 export const remoteWorkspaceAuthorityLocatorSchema = z
   .object({
     kind: z.literal("workspace_canvas"),
-    ...packageAuthorityLocatorShape,
+    contentAuthority: workspaceContentAuthoritySchema,
     connectionProfileId: identifierSchema,
     serverOrigin: canonicalServerOriginSchema,
     workspaceId: identifierSchema,
@@ -68,7 +73,6 @@ export const workspaceAuthorityRevisionsSchema = z
 const bindingBaseShape = {
   version: z.literal("planweave.workspace-authority-binding/v1"),
   bindingId: bindingIdSchema,
-  packageWorkspace: z.string().trim().min(1).max(4_096),
   contentRevision: contentRevisionSchema,
   graphFingerprint: graphFingerprintSchema
 };
@@ -77,6 +81,7 @@ export const localWorkspaceAuthorityBindingSchema = z
   .object({
     ...bindingBaseShape,
     kind: z.literal("local"),
+    packageWorkspace: z.string().trim().min(1).max(4_096),
     canvasId: identifierSchema,
     scope: workspaceExecutionScopeSchema
   })
@@ -86,6 +91,22 @@ export const remoteWorkspaceAuthorityBindingSchema = z
   .object({
     ...bindingBaseShape,
     kind: z.literal("remote"),
+    contentAuthority: workspaceContentAuthoritySchema,
+    connectionProfileId: identifierSchema,
+    serverOrigin: canonicalServerOriginSchema,
+    workspaceId: identifierSchema,
+    projectId: identifierSchema,
+    canvasId: identifierSchema,
+    blockRef: blockRefSchema,
+    authorityRevisions: workspaceAuthorityRevisionsSchema
+  })
+  .strict();
+
+const legacyRemoteWorkspaceAuthorityBindingV1Schema = z
+  .object({
+    ...bindingBaseShape,
+    kind: z.literal("remote"),
+    packageWorkspace: z.string().trim().min(1).max(4_096),
     connectionProfileId: identifierSchema,
     serverOrigin: canonicalServerOriginSchema,
     workspaceId: identifierSchema,
@@ -292,11 +313,12 @@ const workspaceExecutionEvidenceSchema = z
   })
   .strict();
 
-export const workspaceExecutionSessionStateSchema = z
+const workspaceExecutionSessionStateV1Schema = z
   .object({
     version: z.literal("planweave.workspace-execution-session/v1"),
     binding: workspaceAuthorityBindingSchema,
     dispatchIntent: remoteDispatchIntentStateSchema.nullable(),
+    observedOperationId: identifierSchema.optional(),
     handle: workspaceExecutionHandleSchema.nullable(),
     interactions: z.array(workspaceExecutionInteractionIdentitySchema).max(10_000),
     evidence: workspaceExecutionEvidenceSchema
@@ -342,18 +364,23 @@ export const workspaceExecutionSessionStateSchema = z
     }
     if (value.binding.kind === "remote") {
       if (
-        value.dispatchIntent === null ||
-        value.dispatchIntent.projectId !== value.binding.projectId ||
-        value.dispatchIntent.canvasId !== value.binding.canvasId ||
-        value.dispatchIntent.blockRef !== value.binding.blockRef ||
-        value.dispatchIntent.expectedResponsibilityRevision !==
-          value.binding.authorityRevisions.responsibilityRevision ||
-        value.dispatchIntent.expectedReviewerRevision !==
-          value.binding.authorityRevisions.reviewerRevision ||
-        value.dispatchIntent.executionTargetRevision !==
-          value.binding.authorityRevisions.executionTargetRevision ||
-        value.dispatchIntent.contentRevision !== value.binding.contentRevision ||
-        value.dispatchIntent.graphFingerprint !== value.binding.graphFingerprint
+        (value.dispatchIntent === null && value.observedOperationId === undefined) ||
+        (value.dispatchIntent !== null && value.observedOperationId !== undefined) ||
+        (value.observedOperationId !== undefined &&
+          value.handle?.target === "remote" &&
+          value.handle.operationId !== value.observedOperationId) ||
+        (value.dispatchIntent !== null &&
+          (value.dispatchIntent.projectId !== value.binding.projectId ||
+            value.dispatchIntent.canvasId !== value.binding.canvasId ||
+            value.dispatchIntent.blockRef !== value.binding.blockRef ||
+            value.dispatchIntent.expectedResponsibilityRevision !==
+              value.binding.authorityRevisions.responsibilityRevision ||
+            value.dispatchIntent.expectedReviewerRevision !==
+              value.binding.authorityRevisions.reviewerRevision ||
+            value.dispatchIntent.executionTargetRevision !==
+              value.binding.authorityRevisions.executionTargetRevision ||
+            value.dispatchIntent.contentRevision !== value.binding.contentRevision ||
+            value.dispatchIntent.graphFingerprint !== value.binding.graphFingerprint))
       ) {
         context.addIssue({
           code: "custom",
@@ -361,7 +388,7 @@ export const workspaceExecutionSessionStateSchema = z
           message: "workspace_execution_dispatch_intent_mismatch"
         });
       }
-    } else if (value.dispatchIntent !== null) {
+    } else if (value.dispatchIntent !== null || value.observedOperationId !== undefined) {
       context.addIssue({
         code: "custom",
         path: ["dispatchIntent"],
@@ -369,6 +396,32 @@ export const workspaceExecutionSessionStateSchema = z
       });
     }
   });
+
+function normalizeLegacyWorkspaceExecutionSession(value: unknown): unknown {
+  if (!value || typeof value !== "object" || !("binding" in value)) return value;
+  const legacyBinding = legacyRemoteWorkspaceAuthorityBindingV1Schema.safeParse(value.binding);
+  if (!legacyBinding.success) return value;
+  const { packageWorkspace, ...binding } = legacyBinding.data;
+  return {
+    ...value,
+    binding: {
+      ...binding,
+      contentAuthority: {
+        kind: "package_snapshot",
+        packageWorkspace,
+        expected: {
+          contentRevision: binding.contentRevision,
+          graphFingerprint: binding.graphFingerprint
+        }
+      }
+    }
+  };
+}
+
+export const workspaceExecutionSessionStateSchema = z.preprocess(
+  normalizeLegacyWorkspaceExecutionSession,
+  workspaceExecutionSessionStateV1Schema
+);
 
 const executionEventSourceSchema = z.discriminatedUnion("target", [
   z
@@ -511,6 +564,7 @@ export type WorkspaceExecutionAuthorityLocator = z.infer<
 >;
 export type LocalWorkspaceAuthorityLocator = z.infer<typeof localWorkspaceAuthorityLocatorSchema>;
 export type RemoteWorkspaceAuthorityLocator = z.infer<typeof remoteWorkspaceAuthorityLocatorSchema>;
+export type WorkspaceContentAuthority = z.infer<typeof workspaceContentAuthoritySchema>;
 export type WorkspaceAuthorityRevisions = z.infer<typeof workspaceAuthorityRevisionsSchema>;
 export type WorkspaceAuthorityBinding = z.infer<typeof workspaceAuthorityBindingSchema>;
 export type LocalWorkspaceAuthorityBinding = z.infer<typeof localWorkspaceAuthorityBindingSchema>;

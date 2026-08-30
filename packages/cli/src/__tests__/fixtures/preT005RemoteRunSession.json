@@ -1,0 +1,72 @@
+{
+  "stateVersion": 1,
+  "sessionId": "SESSION-0001",
+  "kind": "run",
+  "trigger": "manual",
+  "projectRoot": "__PACKAGE_WORKSPACE__",
+  "canvasId": "default",
+  "scope": { "kind": "block", "blockRef": "T-001#B-001" },
+  "phase": "blocked",
+  "startedAt": "2030-01-01T00:00:00.000Z",
+  "updatedAt": "2030-01-01T00:00:01.000Z",
+  "finishedAt": null,
+  "reset": null,
+  "autoRun": null,
+  "latestRecordId": null,
+  "latestRecordPath": null,
+  "workspaceExecution": {
+    "version": "planweave.workspace-execution-session/v1",
+    "binding": {
+      "version": "planweave.workspace-authority-binding/v1",
+      "bindingId": "__BINDING_ID__",
+      "kind": "remote",
+      "packageWorkspace": "__PACKAGE_WORKSPACE__",
+      "connectionProfileId": "profile-1",
+      "serverOrigin": "__SERVER_ORIGIN__",
+      "workspaceId": "workspace-1",
+      "projectId": "project-1",
+      "canvasId": "default",
+      "blockRef": "T-001#B-001",
+      "authorityRevisions": {
+        "responsibilityRevision": 1,
+        "reviewerRevision": 2,
+        "executionTargetRevision": 3
+      },
+      "contentRevision": "snapshot:pre-t005",
+      "graphFingerprint": "pkg-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "dispatchIntent": {
+      "schemaVersion": "remote-run/v3",
+      "projectId": "project-1",
+      "canvasId": "default",
+      "blockRef": "T-001#B-001",
+      "agentEndpointId": "endpoint-codex",
+      "idempotencyKey": "pre-t005-dispatch",
+      "expectedResponsibilityRevision": 1,
+      "expectedReviewerRevision": 2,
+      "executionTargetRevision": 3,
+      "contentRevision": "snapshot:pre-t005",
+      "graphFingerprint": "pkg-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "handle": {
+      "version": "planweave.workspace-execution-handle/v1",
+      "target": "remote",
+      "phase": "attempt",
+      "runSessionId": "SESSION-0001",
+      "authorityBindingId": "__BINDING_ID__",
+      "scope": { "kind": "block", "blockRef": "T-001#B-001" },
+      "capabilities": { "interactionResponse": true },
+      "operationId": "operation-1",
+      "operationRevision": 1,
+      "dispatchId": "dispatch-1",
+      "executionAttemptId": "attempt-1",
+      "attemptStateVersion": 1,
+      "leaseId": "lease-1",
+      "agentEndpointId": "endpoint-codex",
+      "cursor": { "target": "remote", "executionAttemptId": "attempt-1", "eventCursor": 0 }
+    },
+    "interactions": [],
+    "evidence": { "status": "pending", "diagnostics": [] }
+  },
+  "error": null
+}

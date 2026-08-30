@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { cp, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -153,6 +154,16 @@ async function runInterruptedCli(input: {
   return { ...(await closed), stdout, stderr };
 }
 
+function stableFixtureJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableFixtureJson).join(",")}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableFixtureJson(record[key])}`)
+    .join(",")}}`;
+}
+
 describe("remote execution CLI", () => {
   it("exposes the Coordinator-backed target, endpoint, connection, and event flags", () => {
     const commandNames = createProgram().commands.map((command) => command.name());
@@ -188,6 +199,116 @@ describe("remote execution CLI", () => {
     );
     expect(interactionRespondOptions).not.toEqual(expect.arrayContaining(["--operation"]));
   });
+
+  it(
+    "restores an original pre-T005 v1 session across status, interaction, and follow subprocesses",
+    async () => {
+      const home = await mkdtemp(join(tmpdir(), "planweave-pre-t005-cli-"));
+      const env = {
+        ...process.env,
+        PLANWEAVE_HOME: home,
+        PLANWEAVE_COLLABORATION_DEVICE_TOKEN: workspaceExecutionToken
+      };
+      const init = JSON.parse((await runCli(["init", "--project-graph", "--json"], env)).stdout);
+      await cp(join(repoRoot, "examples/basic-plan-package/package"), init.workspace.packageDir, {
+        recursive: true,
+        force: true
+      });
+      const manifestPath = join(init.workspace.packageDir, "manifest.json");
+      const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+      manifest.execution.defaultExecutor = "codex-acp";
+      manifest.executors = {
+        "codex-acp": {
+          adapter: "agent",
+          agent: "codex",
+          runner: { transport: "acp" }
+        }
+      };
+      await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+      const sourceRevision = "snapshot:pre-t005";
+      const graphFingerprint = `pkg-${"b".repeat(64)}`;
+      const server = new WorkspaceExecutionHttpHarness({
+        sourceRevision,
+        graphFingerprint,
+        dispatchMode: "action_required"
+      });
+      const serverOrigin = await server.start();
+      try {
+        server.seedPersistedOperation();
+        await writeWorkspaceExecutionProfiles({ home, serverOrigin });
+        const legacyIdentity = {
+          version: "planweave.workspace-authority-binding/v1",
+          kind: "remote",
+          packageWorkspace: init.workspace.workspaceRoot,
+          connectionProfileId: "profile-1",
+          serverOrigin,
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          canvasId: "default",
+          blockRef: "T-001#B-001",
+          authorityRevisions: {
+            responsibilityRevision: 1,
+            reviewerRevision: 2,
+            executionTargetRevision: 3
+          },
+          contentRevision: sourceRevision,
+          graphFingerprint
+        };
+        const bindingId = `wxb:sha256:${createHash("sha256")
+          .update(stableFixtureJson(legacyIdentity))
+          .digest("hex")}`;
+        const rawFixture = await readFile(
+          join(import.meta.dirname, "fixtures/preT005RemoteRunSession.json"),
+          "utf8"
+        );
+        const sessionRoot = join(init.workspace.resultsDir, "run-sessions", "SESSION-0001");
+        await mkdir(sessionRoot, { recursive: true });
+        await writeFile(
+          join(sessionRoot, "session.json"),
+          rawFixture
+            .replaceAll("__SERVER_ORIGIN__", serverOrigin)
+            .replaceAll("__PACKAGE_WORKSPACE__", init.workspace.workspaceRoot)
+            .replaceAll("__BINDING_ID__", bindingId),
+          "utf8"
+        );
+
+        const status = JSON.parse(
+          (await runCli(["run-status", "--session", "SESSION-0001", "--json"], env)).stdout
+        );
+        expect(status.session.workspaceExecution).toMatchObject({
+          binding: {
+            bindingId,
+            contentAuthority: {
+              kind: "package_snapshot",
+              packageWorkspace: init.workspace.workspaceRoot
+            }
+          },
+          handle: { authorityBindingId: bindingId }
+        });
+
+        const interactions = JSON.parse(
+          (await runCli(skillInteractionListArgv("SESSION-0001", "profile-1"), env)).stdout
+        );
+        expect(interactions).toEqual([
+          expect.objectContaining({ request: expect.objectContaining({ actionId: "action-1" }) })
+        ]);
+
+        const followed = await runCliExpectFailure(
+          skillRunSessionResumeArgv("SESSION-0001", "profile-1"),
+          env
+        );
+        expect(followed.code).toBe(7);
+        expect(executionEvents(followed.stdout).map((event) => event.type)).toEqual(
+          expect.arrayContaining(["operation_observed", "action_required", "interaction_required"])
+        );
+        expect(server.catalogCount).toBe(0);
+        expect(server.dispatchCount).toBe(0);
+      } finally {
+        await server.stop();
+      }
+    },
+    cliWorkflowTimeoutMs
+  );
 
   it(
     "prints the canonical safe projection in status, explain, and doctor JSON",

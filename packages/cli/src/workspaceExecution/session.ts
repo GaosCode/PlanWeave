@@ -21,10 +21,6 @@ import { WorkspaceExecutionCliError } from "./errors.js";
 import { createCliWorkspaceExecutionHttpPorts } from "./httpPorts.js";
 import { createWorkspaceJsonTransport } from "./httpTransport.js";
 
-function workspacePath(workspace: PackageWorkspaceRef): string {
-  return typeof workspace === "string" ? workspace : workspace.packageDir;
-}
-
 export async function createRemoteSessionContext(input: {
   projectRoot: PackageWorkspaceRef;
   sessionId: string;
@@ -62,7 +58,6 @@ export async function createRemoteSessionContext(input: {
   const credential = new ProcessMemoryWorkspaceCredentialProvider().get();
   const ports = createCliWorkspaceExecutionHttpPorts({
     connection,
-    packageWorkspace: workspacePath(input.projectRoot),
     transport: createWorkspaceJsonTransport({
       serverOrigin: connection.serverOrigin,
       credential
@@ -88,16 +83,12 @@ export async function createRemoteSessionContext(input: {
   const request: WorkspaceExecutionRequest = {
     authority: {
       kind: "workspace_canvas",
-      packageWorkspace: storedBinding.packageWorkspace,
+      contentAuthority: storedBinding.contentAuthority,
       connectionProfileId: storedBinding.connectionProfileId,
       serverOrigin: storedBinding.serverOrigin,
       workspaceId: storedBinding.workspaceId,
       projectId: storedBinding.projectId,
-      canvasId: storedBinding.canvasId,
-      expected: {
-        contentRevision: storedBinding.contentRevision,
-        graphFingerprint: storedBinding.graphFingerprint
-      }
+      canvasId: storedBinding.canvasId
     },
     scope,
     trigger: "cli",

@@ -17,14 +17,13 @@ export function registerAgentEndpointsCommand(program: Command): void {
     .option("--connection-profile <profileId>", "select a preconfigured Workspace connection")
     .option("--json", "print JSON output")
     .action(async (options: { canvas?: string; connectionProfile?: string; json?: boolean }) => {
-      const workspace = await resolveCliPackageWorkspace(options);
+      await resolveCliPackageWorkspace(options);
       const connection = await new CliWorkspaceConnectionProvider().resolve(
         options.connectionProfile
       );
       const credential = new ProcessMemoryWorkspaceCredentialProvider().get();
       const ports = createCliWorkspaceExecutionHttpPorts({
         connection,
-        packageWorkspace: typeof workspace === "string" ? workspace : workspace.packageDir,
         transport: createWorkspaceJsonTransport({
           serverOrigin: connection.serverOrigin,
           credential

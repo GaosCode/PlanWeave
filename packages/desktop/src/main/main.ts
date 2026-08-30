@@ -23,6 +23,7 @@ import { applyPersistedPlanweaveHomeSetting } from "./desktopSettingsStore.js";
 import { initializeFirstLaunchExample } from "./firstLaunchExample.js";
 import { registerPackageWatchHandlers } from "./packageWatch.js";
 import { registerRuntimeBridgeHandlers } from "./runtimeBridgeHandlers.js";
+import { registerWorkspaceExecutionHandlers } from "./workspaceExecutionHandlers.js";
 import { registerRuntimeStateWatchHandlers } from "./runtimeStateWatch.js";
 import { registerWindowAppearanceHandlers } from "./windowAppearance.js";
 import { createWindow } from "./window.js";
@@ -160,12 +161,13 @@ function startDesktopApplication(): void {
         safeStorage: credentialStorage,
         credentialsPath: activeCredentialPaths.operatorCredentialsFile
       });
-      registerCollaborationHandlers({
+      const collaboration = registerCollaborationHandlers({
         safeStorage: credentialStorage,
         credentialsPath: activeCredentialPaths.collaborationCredentialsFile,
         invitationsPath: activeCredentialPaths.collaborationInvitationsFile,
         coordinatorCredentialsPath: activeCredentialPaths.coordinatorCredentialsFile
       });
+      registerWorkspaceExecutionHandlers({ collaboration });
       registerApplicationMenu({ checkForUpdates: checkForAppUpdate });
 
       app.whenReady().then(() => {

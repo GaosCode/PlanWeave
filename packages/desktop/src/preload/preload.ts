@@ -85,6 +85,7 @@ import {
   type PlanWeaveWindowApi
 } from "../shared/windowAppearance.js";
 import { createDesktopBridgeInvokeApi } from "./bridgeInvocation.js";
+import { createWorkspaceExecutionPreloadApi } from "./workspaceExecutionPreloadBridge.js";
 
 const invokeApi = createDesktopBridgeInvokeApi((channel, ...args) =>
   ipcRenderer.invoke(channel, ...args)
@@ -183,6 +184,12 @@ const api: DesktopBridgeApi = {
 };
 
 contextBridge.exposeInMainWorld("planweave", api);
+
+const workspaceExecutionApi = createWorkspaceExecutionPreloadApi((channel, input) =>
+  ipcRenderer.invoke(channel, input)
+);
+
+contextBridge.exposeInMainWorld("planweaveWorkspaceExecution", workspaceExecutionApi);
 
 const desktopSettingsApi: PlanWeaveDesktopSettingsApi = {
   getDesktopSettings: async () =>

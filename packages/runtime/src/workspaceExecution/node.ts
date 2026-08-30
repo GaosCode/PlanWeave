@@ -14,6 +14,19 @@ export type {
 } from "./authorityBinding.js";
 export { WorkspaceExecutionCoordinator } from "./coordinator.js";
 export type { WorkspaceExecutionCoordinatorResult } from "./coordinator.js";
+export { projectWorkspaceExecutionCoordinatorView } from "./nodeView.js";
+export {
+  createPackageWorkspaceExecutionSessionRepository,
+  parseWorkspaceExecutionSessionRecord,
+  packageSessionStorageForBinding,
+  WorkspaceExecutionSessionVersionConflictError
+} from "./sessionRepository.js";
+export type {
+  WorkspaceExecutionSessionRecord,
+  WorkspaceExecutionSessionCreateInput,
+  WorkspaceExecutionSessionRepositoryPort,
+  WorkspaceExecutionSessionStorage
+} from "./sessionRepository.js";
 export { WorkspaceExecutionError } from "./errors.js";
 export { workspaceExecutionPortError } from "./errors.js";
 export type { WorkspaceExecutionErrorCode, WorkspaceExecutionFailureKind } from "./errors.js";

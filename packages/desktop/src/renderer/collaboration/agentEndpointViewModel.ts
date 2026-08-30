@@ -12,6 +12,7 @@ export type AvailableAgentEndpoint = {
   capabilities: string[];
   localExecutorName?: string;
   remoteEndpointId?: string;
+  agentId?: string;
 };
 
 export function agentEndpointsForCanvasAuthority(
@@ -187,7 +188,8 @@ export function buildAvailableAgentEndpoints(input: {
             : profileCompatible && capabilitiesCompatible
               ? null
               : "agent_endpoint_incompatible",
-        remoteEndpointId: endpoint.endpointId
+        remoteEndpointId: endpoint.endpointId,
+        agentId: endpoint.agentId
       };
     });
   return [...local, ...remote];
@@ -231,7 +233,8 @@ export function buildAgentEndpointCatalog(input: {
               : "agent_endpoint_incompatible"
             : (endpoint.unavailableReason ?? "agent_endpoint_unavailable"),
         capabilities: [...endpoint.capabilities],
-        remoteEndpointId: endpoint.endpointId
+        remoteEndpointId: endpoint.endpointId,
+        agentId: endpoint.agentId
       };
     });
   return [...local, ...remote];

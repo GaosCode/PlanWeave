@@ -25,20 +25,22 @@ const revisions = {
 function remoteLocator(overrides: Record<string, unknown> = {}) {
   return {
     kind: "workspace_canvas" as const,
-    packageWorkspace: "/workspace/project",
+    contentAuthority: {
+      kind: "package_snapshot" as const,
+      packageWorkspace: "/workspace/project",
+      expected: { contentRevision: "snapshot:revision-1", graphFingerprint: fingerprint }
+    },
     connectionProfileId: "profile-1",
     serverOrigin: "https://planweave.example",
     workspaceId: "workspace-1",
     projectId: "project-1",
     canvasId: "default",
-    expected: { contentRevision: "snapshot:revision-1", graphFingerprint: fingerprint },
     ...overrides
   };
 }
 
 function remoteSnapshot(overrides: Record<string, unknown> = {}) {
   return {
-    packageWorkspace: "/workspace/project",
     connectionProfileId: "profile-1",
     serverOrigin: "https://planweave.example",
     workspaceId: "workspace-1",
@@ -53,6 +55,57 @@ function remoteSnapshot(overrides: Record<string, unknown> = {}) {
 }
 
 describe("workspace execution authority binding", () => {
+  it("binds a Server Canvas without accepting a package path or renderer revision", async () => {
+    const resolver = createWorkspaceAuthorityBindingResolver({
+      local: { inspect: vi.fn() },
+      remote: { inspect: vi.fn(async () => remoteSnapshot()) }
+    });
+    const locator = {
+      ...remoteLocator(),
+      contentAuthority: { kind: "server_canvas" as const }
+    };
+    const binding = await resolver.resolve(locator, {
+      kind: "block",
+      blockRef: "T-001#B-001"
+    });
+
+    expect(binding).toMatchObject({
+      kind: "remote",
+      contentAuthority: { kind: "server_canvas" },
+      contentRevision: "snapshot:revision-1",
+      graphFingerprint: fingerprint
+    });
+    expect(binding).not.toHaveProperty("packageWorkspace");
+    expect(() =>
+      workspaceExecutionRequestSchema.parse({
+        authority: {
+          ...locator,
+          contentAuthority: { kind: "server_canvas", packageWorkspace: "/forged" }
+        },
+        scope: { kind: "block", blockRef: "T-001#B-001" },
+        trigger: "desktop",
+        target: { policy: "remote" },
+        effectiveExecutor: { name: "codex-acp", agentId: "codex" },
+        eventFormat: "execution-v1"
+      })
+    ).toThrow();
+  });
+
+  it("includes the content authority kind in the stable binding identity", async () => {
+    const resolver = createWorkspaceAuthorityBindingResolver({
+      local: { inspect: vi.fn() },
+      remote: { inspect: vi.fn(async () => remoteSnapshot()) }
+    });
+    const scope = { kind: "block" as const, blockRef: "T-001#B-001" };
+    const packageBinding = await resolver.resolve(remoteLocator(), scope);
+    const serverBinding = await resolver.resolve(
+      { ...remoteLocator(), contentAuthority: { kind: "server_canvas" } },
+      scope
+    );
+
+    expect(packageBinding.bindingId).not.toBe(serverBinding.bindingId);
+  });
+
   it("creates a stable canonical binding and prevents unvalidated DTOs from entering adapters", async () => {
     const resolver = createWorkspaceAuthorityBindingResolver({
       local: { inspect: vi.fn() },
@@ -70,7 +123,7 @@ describe("workspace execution authority binding", () => {
     expect(first).toEqual(second);
     expect(first).toMatchObject({
       kind: "remote",
-      bindingId: expect.stringMatching(/^wxb:sha256:[a-f0-9]{64}$/),
+      bindingId: "wxb:sha256:828553e4dc55538a607d6b7b7325cb7c44e377916e90857f879828da7339905c",
       connectionProfileId: "profile-1",
       serverOrigin: "https://planweave.example",
       workspaceId: "workspace-1",

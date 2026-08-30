@@ -169,7 +169,7 @@ export function projectRemoteExecutionEvents(input: {
   }
   events.push(
     workspaceExecutionEventSchema.parse({
-      ...remoteBase(handle, handle.operationRevision, clock),
+      ...remoteBase(handle, handle.cursor.eventCursor, clock),
       eventId: `${handle.operationId}:operation:${handle.operationRevision}`,
       type: "operation_observed",
       data: {
@@ -191,7 +191,7 @@ export function projectRemoteExecutionEvents(input: {
   if (observation.diagnostics?.error) {
     events.push(
       workspaceExecutionEventSchema.parse({
-        ...remoteBase(handle, handle.operationRevision, clock),
+        ...remoteBase(handle, handle.cursor.eventCursor, clock),
         eventId: `${handle.operationId}:diagnostic:${handle.operationRevision}`,
         type: "runner_diagnostic",
         data: {

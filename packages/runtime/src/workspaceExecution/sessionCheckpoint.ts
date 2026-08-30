@@ -1,11 +1,5 @@
 import type { RemoteInteractionView } from "@planweave-ai/collaboration-protocol/remote-run";
 import {
-  getRunSession,
-  RunSessionStateVersionConflictError,
-  updateRunSession
-} from "../runSessions/repository.js";
-import type { RunSessionState } from "../runSessions/types.js";
-import {
   remoteWorkspaceExecutionHandleSchema,
   workspaceExecutionSessionStateSchema,
   type RemoteWorkspaceExecutionHandle,
@@ -16,13 +10,14 @@ import type { ValidatedWorkspaceAuthorityBinding } from "./authorityBinding.js";
 import { WorkspaceExecutionError } from "./errors.js";
 import type { RemoteWorkspaceAdapterSnapshot } from "./ports.js";
 import { remoteInteractionIdentityKey } from "./remoteExecutionAdapter.js";
+import {
+  WorkspaceExecutionSessionVersionConflictError,
+  type WorkspaceExecutionSessionRecord,
+  type WorkspaceExecutionSessionRepositoryPort,
+  type WorkspaceExecutionSessionStorage
+} from "./sessionRepository.js";
 
 type ValidatedRemoteBinding = Extract<ValidatedWorkspaceAuthorityBinding, { kind: "remote" }>;
-
-export type SessionCheckpointRepository = {
-  get: typeof getRunSession;
-  update: typeof updateRunSession;
-};
 
 type Clock = () => Date;
 
@@ -32,14 +27,16 @@ function terminalPhase(outcome: "completed" | "failed" | "cancelled") {
 
 export function remoteSessionState(
   binding: ValidatedRemoteBinding,
-  intent: WorkspaceExecutionDispatchIntent,
+  intent: WorkspaceExecutionDispatchIntent | null,
   handle: RemoteWorkspaceExecutionHandle | null,
-  previous?: WorkspaceExecutionSessionState
+  previous?: WorkspaceExecutionSessionState,
+  observedOperationId?: string
 ): WorkspaceExecutionSessionState {
   return workspaceExecutionSessionStateSchema.parse({
     version: "planweave.workspace-execution-session/v1",
     binding,
     dispatchIntent: intent,
+    ...(observedOperationId ? { observedOperationId } : {}),
     handle,
     interactions: previous?.interactions ?? [],
     evidence: previous?.evidence ?? { status: "pending", diagnostics: [] }
@@ -62,16 +59,16 @@ function interactionRecords(
 }
 
 export async function persistRemoteObservation(input: {
-  sessions: SessionCheckpointRepository;
+  sessions: WorkspaceExecutionSessionRepositoryPort;
+  storage: WorkspaceExecutionSessionStorage;
   binding: ValidatedRemoteBinding;
-  original: RunSessionState;
+  original: WorkspaceExecutionSessionRecord;
   snapshot: RemoteWorkspaceAdapterSnapshot;
   clock?: Clock;
-}): Promise<RunSessionState> {
+}): Promise<WorkspaceExecutionSessionRecord> {
   let expected = input.original;
   for (;;) {
-    const current = (await input.sessions.get(input.binding.packageWorkspace, expected.sessionId))
-      .session;
+    const current = (await input.sessions.get(input.storage, expected.sessionId)).session;
     const currentHandle = remoteWorkspaceExecutionHandleSchema.safeParse(
       current.workspaceExecution?.handle
     );
@@ -83,17 +80,21 @@ export async function persistRemoteObservation(input: {
       return current;
     }
     const intent = current.workspaceExecution?.dispatchIntent;
-    if (!intent) throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
+    const observedOperationId = current.workspaceExecution?.observedOperationId;
+    if (!intent && observedOperationId !== input.snapshot.handle.operationId) {
+      throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
+    }
     const terminal = input.snapshot.terminal;
     const workspaceExecution = remoteSessionState(
       input.binding,
-      intent,
+      intent ?? null,
       input.snapshot.handle,
-      current.workspaceExecution ?? undefined
+      current.workspaceExecution ?? undefined,
+      observedOperationId
     );
     try {
       return await input.sessions.update(
-        input.binding.packageWorkspace,
+        input.storage,
         current.sessionId,
         {
           workspaceExecution,
@@ -109,19 +110,19 @@ export async function persistRemoteObservation(input: {
         { expectedStateVersion: current.stateVersion }
       );
     } catch (error) {
-      if (!(error instanceof RunSessionStateVersionConflictError)) throw error;
-      expected = (await input.sessions.get(input.binding.packageWorkspace, current.sessionId))
-        .session;
+      if (!(error instanceof WorkspaceExecutionSessionVersionConflictError)) throw error;
+      expected = (await input.sessions.get(input.storage, current.sessionId)).session;
     }
   }
 }
 
 export async function persistRemoteEvidence(input: {
-  sessions: SessionCheckpointRepository;
-  original: RunSessionState;
+  sessions: WorkspaceExecutionSessionRepositoryPort;
+  storage: WorkspaceExecutionSessionStorage;
+  original: WorkspaceExecutionSessionRecord;
   handle: RemoteWorkspaceExecutionHandle;
   interactions: RemoteInteractionView[];
-}): Promise<RunSessionState> {
+}): Promise<WorkspaceExecutionSessionRecord> {
   let current = input.original;
   for (;;) {
     const state = current.workspaceExecution;
@@ -145,24 +146,25 @@ export async function persistRemoteEvidence(input: {
     });
     try {
       return await input.sessions.update(
-        current.projectRoot,
+        input.storage,
         current.sessionId,
         { workspaceExecution },
         { expectedStateVersion: current.stateVersion }
       );
     } catch (error) {
-      if (!(error instanceof RunSessionStateVersionConflictError)) throw error;
-      current = (await input.sessions.get(current.projectRoot, current.sessionId)).session;
+      if (!(error instanceof WorkspaceExecutionSessionVersionConflictError)) throw error;
+      current = (await input.sessions.get(input.storage, current.sessionId)).session;
     }
   }
 }
 
 export async function persistRemoteEvidenceDiagnostic(input: {
-  sessions: SessionCheckpointRepository;
-  original: RunSessionState;
+  sessions: WorkspaceExecutionSessionRepositoryPort;
+  storage: WorkspaceExecutionSessionStorage;
+  original: WorkspaceExecutionSessionRecord;
   error: unknown;
   clock?: Clock;
-}): Promise<RunSessionState> {
+}): Promise<WorkspaceExecutionSessionRecord> {
   let current = input.original;
   for (;;) {
     const state = current.workspaceExecution;
@@ -184,23 +186,24 @@ export async function persistRemoteEvidenceDiagnostic(input: {
     });
     try {
       return await input.sessions.update(
-        current.projectRoot,
+        input.storage,
         current.sessionId,
         { workspaceExecution },
         { expectedStateVersion: current.stateVersion }
       );
     } catch (error) {
-      if (!(error instanceof RunSessionStateVersionConflictError)) throw error;
-      current = (await input.sessions.get(current.projectRoot, current.sessionId)).session;
+      if (!(error instanceof WorkspaceExecutionSessionVersionConflictError)) throw error;
+      current = (await input.sessions.get(input.storage, current.sessionId)).session;
     }
   }
 }
 
 export async function persistRemoteInteraction(input: {
-  sessions: SessionCheckpointRepository;
-  original: RunSessionState;
+  sessions: WorkspaceExecutionSessionRepositoryPort;
+  storage: WorkspaceExecutionSessionStorage;
+  original: WorkspaceExecutionSessionRecord;
   interaction: RemoteInteractionView;
-}): Promise<RunSessionState> {
+}): Promise<WorkspaceExecutionSessionRecord> {
   let current = input.original;
   for (;;) {
     const state = current.workspaceExecution;
@@ -211,14 +214,14 @@ export async function persistRemoteInteraction(input: {
     });
     try {
       return await input.sessions.update(
-        current.projectRoot,
+        input.storage,
         current.sessionId,
         { workspaceExecution },
         { expectedStateVersion: current.stateVersion }
       );
     } catch (error) {
-      if (!(error instanceof RunSessionStateVersionConflictError)) throw error;
-      current = (await input.sessions.get(current.projectRoot, current.sessionId)).session;
+      if (!(error instanceof WorkspaceExecutionSessionVersionConflictError)) throw error;
+      current = (await input.sessions.get(input.storage, current.sessionId)).session;
     }
   }
 }

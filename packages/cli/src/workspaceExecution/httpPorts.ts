@@ -35,7 +35,6 @@ function operationPath(projectId: string, operationId?: string): string {
 
 export function createCliWorkspaceExecutionHttpPorts(input: {
   connection: CliWorkspaceConnection;
-  packageWorkspace: string;
   transport: WorkspaceJsonTransport;
 }): {
   authoritySource: RemoteWorkspaceAuthoritySourcePort;
@@ -87,7 +86,6 @@ export function createCliWorkspaceExecutionHttpPorts(input: {
           { signal }
         );
         return {
-          packageWorkspace: input.packageWorkspace,
           connectionProfileId: connection.profileId,
           serverOrigin: connection.serverOrigin,
           workspaceId: connection.workspaceId,

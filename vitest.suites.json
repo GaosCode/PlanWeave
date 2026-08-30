@@ -64,7 +64,6 @@
         "agentCapabilityProbeSessionCache.test.tsx",
         "agentEndpointPreferences.test.ts",
         "agentEndpointRunPlan.test.ts",
-        "agentEndpointBlockExecutor.test.ts",
         "agentEndpointScopeRun.test.ts",
         "agentPrompt.test.ts",
         "agentShellEnvironment.test.ts",
@@ -270,6 +269,7 @@
         "workspaceAccessScopeSelector.test.tsx",
         "workspaceAgentEndpointOwnerFleet.test.tsx",
         "workspaceAgentEndpointRun.test.tsx",
+        "workspaceAgentEndpointRunCancellation.test.tsx",
         "workspaceCanvasPublishAuthority.test.ts",
         "workspaceCanvasSharingPanel.test.tsx",
         "workspaceExecutionCharacterization.test.ts",
@@ -353,14 +353,15 @@
         "selfHostedTwoClientE2E.test.ts",
         "sharedIdentityCredentialClear.test.ts",
         "smokeProcessGate.test.ts",
-        "tailscaleProxyTwoDesktopE2E.test.ts"
+        "tailscaleProxyTwoDesktopE2E.test.ts",
+        "workspaceExecutionProcessBoundary.test.ts"
       ],
       "platform": ["agentToolsWindows.test.ts", "runtimeStateWatch.test.ts"],
       "performance": []
     },
     {
       "root": "packages/desktop/src/renderer/collaboration",
-      "unit": ["agentEndpointViewModel.test.ts", "remoteTaskEndpointRun.test.ts"],
+      "unit": ["agentEndpointViewModel.test.ts"],
       "integration": [],
       "platform": [],
       "performance": []
@@ -473,6 +474,7 @@
         "taskStatus.test.ts",
         "validationSummary.test.ts",
         "workspaceExecutionAuthorityBinding.test.ts",
+        "workspaceExecutionView.test.ts",
         "windowsProcessInvocation.test.ts",
         "wslExecutionHost.test.ts"
       ],
@@ -634,7 +636,8 @@
         "validatePackage.test.ts",
         "windowsJobProcessContract.test.ts",
         "workspaceExecutionArchitectureBoundaries.test.ts",
-        "workspaceExecutionCoordinator.test.ts"
+        "workspaceExecutionCoordinator.test.ts",
+        "workspaceExecutionCoordinatorObserve.test.ts"
       ],
       "platform": [
         "agentRunControlServer.test.ts",

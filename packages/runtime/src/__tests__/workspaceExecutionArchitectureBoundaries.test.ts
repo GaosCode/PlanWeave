@@ -75,7 +75,14 @@ describe("workspace execution architecture boundaries", () => {
           version: "planweave.workspace-authority-binding/v1",
           kind: "remote",
           bindingId: handle.authorityBindingId,
-          packageWorkspace: "/workspace/project",
+          contentAuthority: {
+            kind: "package_snapshot",
+            packageWorkspace: "/workspace/project",
+            expected: {
+              contentRevision: "snapshot:revision-1",
+              graphFingerprint: `pkg-${"b".repeat(64)}`
+            }
+          },
           connectionProfileId: "profile-1",
           serverOrigin: "https://planweave.example",
           workspaceId: "workspace-1",
@@ -116,7 +123,14 @@ describe("workspace execution architecture boundaries", () => {
           version: "planweave.workspace-authority-binding/v1",
           kind: "remote",
           bindingId: handle.authorityBindingId,
-          packageWorkspace: "/workspace/project",
+          contentAuthority: {
+            kind: "package_snapshot",
+            packageWorkspace: "/workspace/project",
+            expected: {
+              contentRevision: "snapshot:revision-1",
+              graphFingerprint: `pkg-${"b".repeat(64)}`
+            }
+          },
           connectionProfileId: "profile-1",
           serverOrigin: "https://planweave.example",
           workspaceId: "workspace-1",
@@ -173,7 +187,14 @@ describe("workspace execution architecture boundaries", () => {
       version: "planweave.workspace-authority-binding/v1" as const,
       kind: "remote" as const,
       bindingId: `wxb:sha256:${"a".repeat(64)}`,
-      packageWorkspace: "/workspace/project",
+      contentAuthority: {
+        kind: "package_snapshot" as const,
+        packageWorkspace: "/workspace/project",
+        expected: {
+          contentRevision: "snapshot:revision-1",
+          graphFingerprint: `pkg-${"b".repeat(64)}`
+        }
+      },
       connectionProfileId: "profile-1",
       serverOrigin: "https://planweave.example",
       workspaceId: "workspace-1",
@@ -226,5 +247,66 @@ describe("workspace execution architecture boundaries", () => {
         })
       ).toThrow("workspace_execution_dispatch_intent_mismatch");
     }
+  });
+
+  it("strictly normalizes the original remote v1 binding without changing its identity", () => {
+    const bindingId = `wxb:sha256:${"a".repeat(64)}`;
+    const legacyBinding = {
+      version: "planweave.workspace-authority-binding/v1",
+      bindingId,
+      kind: "remote",
+      packageWorkspace: "/pre-t005/package",
+      connectionProfileId: "profile-1",
+      serverOrigin: "https://planweave.example",
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+      canvasId: "default",
+      blockRef: "T-001#B-001",
+      authorityRevisions: {
+        responsibilityRevision: 1,
+        reviewerRevision: 2,
+        executionTargetRevision: 3
+      },
+      contentRevision: "snapshot:pre-t005",
+      graphFingerprint: `pkg-${"b".repeat(64)}`
+    };
+    const session = {
+      version: "planweave.workspace-execution-session/v1",
+      binding: legacyBinding,
+      dispatchIntent: {
+        schemaVersion: "remote-run/v3",
+        projectId: "project-1",
+        canvasId: "default",
+        blockRef: "T-001#B-001",
+        agentEndpointId: "endpoint-1",
+        idempotencyKey: "intent-1",
+        expectedResponsibilityRevision: 1,
+        expectedReviewerRevision: 2,
+        executionTargetRevision: 3,
+        contentRevision: "snapshot:pre-t005",
+        graphFingerprint: `pkg-${"b".repeat(64)}`
+      },
+      handle: null,
+      interactions: [],
+      evidence: { status: "pending", diagnostics: [] }
+    };
+
+    expect(workspaceExecutionSessionStateSchema.parse(session).binding).toMatchObject({
+      bindingId,
+      contentAuthority: {
+        kind: "package_snapshot",
+        packageWorkspace: "/pre-t005/package",
+        expected: {
+          contentRevision: "snapshot:pre-t005",
+          graphFingerprint: `pkg-${"b".repeat(64)}`
+        }
+      }
+    });
+    expect(() =>
+      workspaceExecutionSessionStateSchema.parse({
+        ...session,
+        binding: { ...legacyBinding, token: "secret" }
+      })
+    ).toThrow();
   });
 });

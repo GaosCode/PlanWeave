@@ -6,8 +6,6 @@ import type {
   DesktopGraphViewModel,
   DesktopProjectSummary
 } from "@planweave-ai/runtime";
-import type { WorkItemRef } from "@planweave-ai/collaboration-protocol/core/primitives";
-import type { RemoteOperationObservation } from "@planweave-ai/collaboration-protocol/remote-run";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { PlanWeaveCollaborationApi } from "../../shared/collaboration";
 import type { RemoteCollaborationCanvasBindingInput } from "../../shared/collaboration";
@@ -17,18 +15,21 @@ import {
   bridge,
   collaborationBridge,
   desktopCanvasReference,
-  operatorControlBridge
+  workspaceExecutionBridge
 } from "../bridge";
+import type { WorkspaceCanvasLocator } from "../../shared/canvasLocator";
+import type {
+  DesktopWorkspaceExecutionStartInput,
+  PlanWeaveWorkspaceExecutionApi
+} from "../../shared/workspaceExecution";
+import { projectWorkspaceExecutionTimeline } from "@planweave-ai/runtime/browser";
 import {
-  createAgentEndpointBlockExecutor,
-  type RemoteOperationControl,
-  type ResolveLiveRemoteBinding
-} from "../collaboration/agentEndpointBlockExecutor";
-import { createOwnerFleetRemoteDispatchApi } from "../collaboration/ownerFleetRemoteDispatch";
-import { createAgentEndpointRunPlan } from "../collaboration/agentEndpointRunPlan";
+  createAgentEndpointRunPlan,
+  type AgentEndpointBlockSelection
+} from "../collaboration/agentEndpointRunPlan";
+import { createLocalAgentEndpointBlockExecutor } from "../collaboration/localAgentEndpointBlockExecutor";
 import type { AvailableAgentEndpoint } from "../collaboration/agentEndpointViewModel";
 import { createRemoteEndpointDispatchGate } from "../collaboration/remoteEndpointDispatchGate";
-import { buildRemoteActionIdentity } from "../collaboration/remoteRunViewModels";
 import { runWorkspaceRemoteScopeFromAvailability } from "../collaboration/workspaceRemoteScopeScheduler";
 import {
   type LocalAutoRunObserver,
@@ -37,18 +38,11 @@ import {
   waitForLocalAutoRunTerminal
 } from "../collaboration/agentEndpointScopeRun";
 import { runClaimBusScope } from "../collaboration/claimBusScheduler";
-import { waitForRemoteOperationTerminal } from "../collaboration/remoteTaskEndpointRun";
 import type { CollaborationRuntimeAvailabilityView } from "../collaboration/runtimeAvailabilityView";
 import {
   collaborationRuntimeStartAllowed,
   collaborationRuntimeUnavailableCode
 } from "../collaboration/runtimeAvailabilityView";
-
-const OWNER_FLEET_TERMINAL_OPERATION_STATES = new Set<RemoteOperationObservation["state"]>([
-  "completed",
-  "failed",
-  "cancelled"
-]);
 
 function waitForWorkspaceRuntimeProjectionChange(input: {
   api: Pick<PlanWeaveCollaborationApi, "onCollaborationObserverSignal">;
@@ -105,23 +99,26 @@ function createDispatchId(): string {
   return crypto.randomUUID();
 }
 
-function wrapOwnerFleetApiForOperationTracking(
-  api: ReturnType<typeof createOwnerFleetRemoteDispatchApi>,
-  operationsByBlockRef: Map<string, string>
-): ReturnType<typeof createOwnerFleetRemoteDispatchApi> {
-  return {
-    ...api,
-    dispatchOwnerFleetRemoteOperation: async (dispatchInput) => {
-      const observation = await api.dispatchOwnerFleetRemoteOperation(dispatchInput);
-      operationsByBlockRef.set(dispatchInput.command.blockRef, observation.operationId);
-      return observation;
-    }
-  };
+function waitForWorkspaceExecutionFollow(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.reject(new Error("workspace_remote_scope_cancelled"));
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", cancel);
+      resolve();
+    }, 500);
+    const cancel = () => {
+      clearTimeout(timer);
+      reject(new Error("workspace_remote_scope_cancelled"));
+    };
+    signal.addEventListener("abort", cancel, { once: true });
+  });
 }
 
 type ActiveEndpointScopeRun = {
+  cancellationRequests: Map<string, Promise<void>>;
   controller: AbortController;
-  operations: Map<string, RemoteOperationControl>;
+  pendingWorkspaceStarts: Set<Promise<void>>;
+  workspaceSessions: Map<string, { input: DesktopWorkspaceExecutionStartInput; sessionId: string }>;
 };
 
 type GraphTask = DesktopGraphViewModel["tasks"][number];
@@ -129,39 +126,25 @@ type GraphTask = DesktopGraphViewModel["tasks"][number];
 type WorkspaceAgentEndpointRunInput = {
   activeProjectId: string | null;
   agentEndpoints: readonly AvailableAgentEndpoint[];
-  collaborationController: {
-    ensureWorkAuthority: (workItem: WorkItemRef) => Promise<{
-      revisions: {
-        responsibilityRevision: number;
-        reviewerRevision: number;
-        executionTargetRevision: number;
-      };
-    } | null>;
-  } | null;
+  collaborationController: object | null;
   canvasBinding?: RemoteCollaborationCanvasBindingInput | null;
+  canvasLocator?: WorkspaceCanvasLocator | null;
   graph: DesktopGraphViewModel | null;
   preferences: DesktopUiSettings["execution"]["agentEndpointPreferences"];
   selectedCanvasId: string | null;
   selectedProject: DesktopProjectSummary | null;
-  operatorProfileId?: string | null;
-  humanPrincipalId?: string | null;
-  ownerFleetDispatchEnabled?: boolean;
   runtimeAvailability: CollaborationRuntimeAvailabilityView;
   workspaceRuntimeAuthorityKey?: string | null;
   setError: (message: string | null) => void;
   api?: Pick<
     PlanWeaveCollaborationApi,
-    | "dispatchCollaborationRemoteOperation"
-    | "observeCollaborationRemoteOperation"
-    | "executeCollaborationRemoteOperationAction"
-    | "onCollaborationObserverSignal"
-    | "readCollaborationCanvasBindingRuntimeAvailability"
+    "onCollaborationObserverSignal" | "readCollaborationCanvasBindingRuntimeAvailability"
   > | null;
   createId?: () => string;
   localAutoRunApi?: LocalAutoRunObserver | null;
   waitForLocalTerminal?: typeof waitForLocalAutoRunTerminal;
   waitForLocalUnit?: typeof waitForClaimBusLocalAutoRunUnit;
-  waitForTerminal?: typeof waitForRemoteOperationTerminal;
+  workspaceExecutionApi?: PlanWeaveWorkspaceExecutionApi | null;
   /** Injectable stop for claim-bus one-unit release (defaults to bridge.stopAutoRun). */
   stopLocal?: (runId: string) => Promise<unknown>;
   /**
@@ -172,15 +155,6 @@ type WorkspaceAgentEndpointRunInput = {
     ref: DesktopCanvasReference,
     scope: DesktopAutoRunScope
   ) => Promise<ClaimResult>;
-  /**
-   * Live remoteExecution binding for existing-operation recovery (defaults to getBlockDetail).
-   * Must not use the renderer graph snapshot from run start.
-   */
-  resolveLiveRemoteBinding?: ResolveLiveRemoteBinding;
-  resolveRemoteContentAuthority?: () => Promise<{
-    contentRevision: string;
-    graphFingerprint: string;
-  } | null>;
 };
 
 export type LocalAutoRunScopeStarter = (
@@ -218,6 +192,10 @@ export function useWorkspaceAgentEndpointRun(
   input: WorkspaceAgentEndpointRunInput
 ): WorkspaceAgentEndpointScopeController {
   const api = input.api === undefined ? collaborationBridge : input.api;
+  const executionApi =
+    input.workspaceExecutionApi === undefined
+      ? workspaceExecutionBridge
+      : input.workspaceExecutionApi;
   const createId = input.createId ?? createDispatchId;
   const activeEndpointScopeRun = useRef<ActiveEndpointScopeRun | null>(null);
   const executionScopeIdentity = input.canvasBinding
@@ -226,11 +204,41 @@ export function useWorkspaceAgentEndpointRun(
     : `${input.selectedProject?.rootPath ?? "no-project"}:${input.selectedCanvasId ?? "no-canvas"}`;
   const previousExecutionScopeIdentity = useRef(executionScopeIdentity);
   const activeExecutionScopeIdentity = useRef(executionScopeIdentity);
+  const executionRequestEpoch = useRef(0);
   activeExecutionScopeIdentity.current = executionScopeIdentity;
+
+  const cancelWorkspaceSession = useCallback(
+    (
+      activeRun: ActiveEndpointScopeRun,
+      blockRef: string,
+      session: { input: DesktopWorkspaceExecutionStartInput; sessionId: string }
+    ): Promise<void> => {
+      const existing = activeRun.cancellationRequests.get(session.sessionId);
+      if (existing) return existing;
+      const api =
+        input.workspaceExecutionApi === undefined
+          ? workspaceExecutionBridge
+          : input.workspaceExecutionApi;
+      if (!api) return Promise.reject(new Error("workspace_execution_bridge_unavailable"));
+      activeRun.workspaceSessions.delete(blockRef);
+      const cancellation = api
+        .cancelWorkspaceExecution({
+          ...session.input,
+          sessionId: session.sessionId,
+          actionId: createId(),
+          reason: "Desktop Auto Run stop requested."
+        })
+        .then(() => undefined);
+      activeRun.cancellationRequests.set(session.sessionId, cancellation);
+      return cancellation;
+    },
+    [createId, input.workspaceExecutionApi]
+  );
 
   useEffect(() => {
     if (previousExecutionScopeIdentity.current !== executionScopeIdentity) {
       previousExecutionScopeIdentity.current = executionScopeIdentity;
+      executionRequestEpoch.current += 1;
       activeEndpointScopeRun.current?.controller.abort();
     }
   }, [executionScopeIdentity]);
@@ -294,21 +302,9 @@ export function useWorkspaceAgentEndpointRun(
           : [...plan.selectionByBlockRef.values()].some(
               (selection) => selection.endpoint.source === "remote"
             );
-      const ownerFleetReady =
-        Boolean(input.ownerFleetDispatchEnabled) &&
-        Boolean(input.operatorProfileId) &&
-        Boolean(operatorControlBridge);
-      const humanPrincipalId = input.humanPrincipalId?.trim() || null;
       const usesWorkspaceRuntime = remoteBinding !== null;
-      const usesOperatorAgentDispatch =
-        usesRemoteEndpoint && ownerFleetReady && Boolean(humanPrincipalId);
-      const collaborationReady = Boolean(
-        input.collaborationController && api && input.activeProjectId
-      );
-      if (usesRemoteEndpoint && !usesOperatorAgentDispatch && !collaborationReady) {
-        input.setError(
-          humanPrincipalId ? "owner_fleet_dispatch_unavailable" : "human_principal_unavailable"
-        );
+      if (usesRemoteEndpoint && (!executionApi || !input.canvasLocator)) {
+        input.setError("workspace_execution_bridge_unavailable");
         return;
       }
       if (
@@ -350,13 +346,31 @@ export function useWorkspaceAgentEndpointRun(
       }
 
       const controller = new AbortController();
-      const activeRun: ActiveEndpointScopeRun = { controller, operations: new Map() };
+      const activeRun: ActiveEndpointScopeRun = {
+        cancellationRequests: new Map(),
+        controller,
+        pendingWorkspaceStarts: new Set(),
+        workspaceSessions: new Map()
+      };
+      const requestEpoch = executionRequestEpoch.current;
+      const requestScopeIdentity = executionScopeIdentity;
+      const requestIsCurrent = () =>
+        !(
+          controller.signal.aborted ||
+          executionRequestEpoch.current !== requestEpoch ||
+          activeExecutionScopeIdentity.current !== requestScopeIdentity ||
+          activeEndpointScopeRun.current !== activeRun
+        );
+      const assertCurrentRequest = () => {
+        if (!requestIsCurrent()) {
+          throw new Error("workspace_remote_scope_cancelled");
+        }
+      };
       activeEndpointScopeRun.current = activeRun;
       const completeLifecycle = () => {
         if (controller.signal.aborted) throw new Error("workspace_remote_scope_cancelled");
         lifecycle?.onCompleted();
       };
-      const ownerFleetOperationsByBlockRef = new Map<string, string>();
       const remoteDispatchGate = createRemoteEndpointDispatchGate();
       lifecycle?.onStarted();
       const stopLocal =
@@ -377,86 +391,103 @@ export function useWorkspaceAgentEndpointRun(
           plan.kind === "coordinated_block"
             ? new Map([[plan.selection.block.ref, plan.selection]])
             : plan.selectionByBlockRef;
-        const resolveLiveRemoteBinding: ResolveLiveRemoteBinding =
-          input.resolveLiveRemoteBinding ??
-          (async (blockRef) => {
-            if (!bridge || !canvasRef) return null;
-            const detail = await bridge.getBlockDetail(canvasRef, blockRef);
-            return detail.remoteExecution;
-          });
-        const ownerFleetApi =
-          usesOperatorAgentDispatch && input.operatorProfileId && humanPrincipalId
-            ? wrapOwnerFleetApiForOperationTracking(
-                createOwnerFleetRemoteDispatchApi({
-                  operatorProfileId: input.operatorProfileId,
-                  humanPrincipalId,
-                  ...(remoteBinding?.workspaceId ? { workspaceId: remoteBinding.workspaceId } : {}),
-                  fleetApi: operatorControlBridge!
-                }),
-                ownerFleetOperationsByBlockRef
-              )
-            : null;
-        const executeBlock = createAgentEndpointBlockExecutor({
-          activeProjectId: executionProjectId,
-          canvasId: selectedCanvasId,
-          selectionByBlockRef,
-          collaborationController: input.collaborationController,
-          api: usesOperatorAgentDispatch ? null : api,
-          ownerFleetApi,
-          resolveRemoteWorkAuthority: usesWorkspaceRuntime
-            ? undefined
-            : async () => ({
-                revisions: {
-                  responsibilityRevision: 0,
-                  reviewerRevision: 0,
-                  executionTargetRevision: 0
-                }
-              }),
-          resolveRemoteContentAuthority:
-            input.resolveRemoteContentAuthority ??
-            (api && remoteBinding
-              ? async () => {
-                  const availability =
-                    await api.readCollaborationCanvasBindingRuntimeAvailability(remoteBinding);
-                  if (!availability || availability.schemaVersion !== "canvas-runtime-view/v2") {
-                    return null;
-                  }
-                  return {
-                    contentRevision: String(availability.authority.revision),
-                    graphFingerprint: availability.authority.graphFingerprint
-                  };
-                }
-              : undefined),
-          resolveLiveRemoteBinding,
-          createId,
+        const executeWorkspaceSelection = async (
+          selection: AgentEndpointBlockSelection,
+          signal: AbortSignal
+        ) => {
+          if (!executionApi || !input.canvasLocator) {
+            throw new Error("workspace_execution_bridge_unavailable");
+          }
+          const endpointId = selection.endpoint.remoteEndpointId;
+          const agentId = selection.endpoint.agentId;
+          if (!endpointId || !agentId) {
+            throw new Error(`agent_endpoint_selection_missing:${selection.block.ref}`);
+          }
+          const startInput: DesktopWorkspaceExecutionStartInput = {
+            locator: input.canvasLocator,
+            blockRef: selection.block.ref,
+            agentEndpointId: endpointId,
+            effectiveExecutor: {
+              name: selection.endpoint.executorName,
+              agentId
+            }
+          };
+          const startSettlement = executionApi.startWorkspaceExecution(startInput).then(
+            async (view) => {
+              const session = { input: startInput, sessionId: view.session.sessionId };
+              if (!requestIsCurrent()) {
+                await cancelWorkspaceSession(activeRun, selection.block.ref, session);
+                return { kind: "cancelled" as const };
+              }
+              activeRun.workspaceSessions.set(selection.block.ref, session);
+              return { kind: "started" as const, view };
+            },
+            (error: unknown) => {
+              throw error;
+            }
+          );
+          const pendingStart = startSettlement.then(() => undefined);
+          void pendingStart.catch(() => undefined);
+          activeRun.pendingWorkspaceStarts.add(pendingStart);
+          let settlement: Awaited<typeof startSettlement>;
+          try {
+            settlement = await startSettlement;
+          } finally {
+            activeRun.pendingWorkspaceStarts.delete(pendingStart);
+          }
+          if (settlement.kind === "cancelled") {
+            throw new Error("workspace_remote_scope_cancelled");
+          }
+          let view = settlement.view;
+          const sessionId = view.session.sessionId;
+          const events = [...view.events];
+          try {
+            for (;;) {
+              if (signal.aborted) throw new Error("workspace_remote_scope_cancelled");
+              const timeline = projectWorkspaceExecutionTimeline(events);
+              if (timeline.terminalOutcome === "completed") return;
+              if (timeline.terminalOutcome) {
+                throw new Error(
+                  view.session.error ??
+                    `remote_agent_block_${timeline.terminalOutcome}:${selection.block.ref}`
+                );
+              }
+              if (view.session.phase === "failed" || view.session.phase === "stopped") {
+                throw new Error(
+                  view.session.error ??
+                    `remote_agent_block_${view.session.phase}:${selection.block.ref}`
+                );
+              }
+              if (view.events.some((event) => event.type === "action_required")) {
+                throw new Error(`remote_agent_block_action_required:${selection.block.ref}`);
+              }
+              await waitForWorkspaceExecutionFollow(signal);
+              view = await executionApi.followWorkspaceExecution({ ...startInput, sessionId });
+              assertCurrentRequest();
+              events.push(...view.events);
+            }
+          } finally {
+            if (!signal.aborted) {
+              activeRun.workspaceSessions.delete(selection.block.ref);
+            }
+          }
+        };
+        const executeLocalBlock = createLocalAgentEndpointBlockExecutor({
           startLocal,
           stopLocal,
           localAutoRunApi: input.localAutoRunApi,
-          waitForLocalUnit: input.waitForLocalUnit,
-          waitForRemoteTerminal: input.waitForTerminal,
-          onRemoteOperation: async (operation) => {
-            const operationId = operation.observation.operationId;
-            if (OWNER_FLEET_TERMINAL_OPERATION_STATES.has(operation.observation.state)) {
-              activeRun.operations.delete(operationId);
-              return;
-            }
-            activeRun.operations.set(operationId, operation);
-            if (!activeRun.controller.signal.aborted) return;
-            await operation.executeAction(
-              buildRemoteActionIdentity({
-                observation: operation.observation,
-                kind: "cancel",
-                actionId: createId(),
-                reason: "Desktop Auto Run stop requested."
-              })
-            );
-          }
+          waitForLocalUnit: input.waitForLocalUnit
         });
 
         const executeSelectionByRef = async (ref: string, signal?: AbortSignal) => {
           const selection = selectionByBlockRef.get(ref);
           if (!selection) throw new Error(`agent_endpoint_selection_missing:${ref}`);
-          await executeBlock(selection.task, selection.block, signal);
+          if (selection.endpoint.source === "remote") {
+            if (!signal) throw new Error("workspace_execution_abort_signal_required");
+            await executeWorkspaceSelection(selection, signal);
+            return;
+          }
+          await executeLocalBlock(selection, signal);
         };
 
         if (remoteCanvasOnly) {
@@ -490,14 +521,13 @@ export function useWorkspaceAgentEndpointRun(
           const selection = selectionByBlockRef.get(ref);
           if (!selection) throw new Error(`agent_endpoint_selection_missing:${ref}`);
           if (selection.endpoint.source === "local") {
-            await executeBlock(selection.task, selection.block, signal);
+            await executeLocalBlock(selection, signal);
             return;
           }
-          const endpointId = selection.endpoint.remoteEndpointId;
-          if (!endpointId) throw new Error(`agent_endpoint_selection_missing:${ref}`);
+          if (!signal) throw new Error("workspace_execution_abort_signal_required");
           await remoteDispatchGate.run({
-            endpointId,
-            execute: () => executeBlock(selection.task, selection.block, signal),
+            endpointId: selection.endpoint.remoteEndpointId ?? selection.endpoint.id,
+            execute: () => executeWorkspaceSelection(selection, signal),
             signal
           });
         };
@@ -510,27 +540,16 @@ export function useWorkspaceAgentEndpointRun(
                 .filter((task) => taskIds.has(task.taskId))
                 .flatMap((task) => task.blocks.map((block) => block.ref));
 
-        const isOwnerFleetBlockSatisfied = async (blockRef: string): Promise<boolean> => {
-          const selection = selectionByBlockRef.get(blockRef);
-          if (selection?.endpoint.source === "remote") {
-            const operationId = ownerFleetOperationsByBlockRef.get(blockRef);
-            if (operationId && ownerFleetApi) {
-              const observation = await ownerFleetApi.observeOwnerFleetRemoteOperation({
-                operationId
-              });
-              if (observation.state === "completed") return true;
-              if (OWNER_FLEET_TERMINAL_OPERATION_STATES.has(observation.state)) return false;
-            }
-          }
+        const isBlockSatisfied = async (blockRef: string): Promise<boolean> => {
           if (!bridge) throw new Error("desktop_bridge_unavailable");
           const detail = await bridge.getBlockDetail(canvasRef, blockRef);
           return detail.status === "completed";
         };
 
-        const isOwnerFleetScopeSatisfied = async (options?: { refresh?: boolean }) => {
+        const isScopeSatisfied = async (options?: { refresh?: boolean }) => {
           const check = async () => {
             for (const blockRef of scopedBlockRefs) {
-              if (!(await isOwnerFleetBlockSatisfied(blockRef))) return false;
+              if (!(await isBlockSatisfied(blockRef))) return false;
             }
             return true;
           };
@@ -572,7 +591,7 @@ export function useWorkspaceAgentEndpointRun(
           completion: {
             isSatisfied: async (options) => {
               if (!usesWorkspaceRuntime) {
-                return isOwnerFleetScopeSatisfied(options);
+                return isScopeSatisfied(options);
               }
               const readAvailability = async () => {
                 if (!api) throw new Error("collaboration_runtime_availability_unavailable");
@@ -640,27 +659,24 @@ export function useWorkspaceAgentEndpointRun(
     },
     [
       api,
-      createId,
+      executionScopeIdentity,
       input.activeProjectId,
       input.agentEndpoints,
       input.collaborationController,
       input.canvasBinding,
+      input.canvasLocator,
       input.graph,
       input.localAutoRunApi,
       input.preferences,
       input.previewClaimNext,
-      input.resolveRemoteContentAuthority,
-      input.resolveLiveRemoteBinding,
       input.selectedCanvasId,
       input.selectedProject,
-      input.operatorProfileId,
-      input.humanPrincipalId,
-      input.ownerFleetDispatchEnabled,
       input.runtimeAvailability,
       input.setError,
       input.stopLocal,
       input.waitForLocalUnit,
-      input.waitForTerminal
+      cancelWorkspaceSession,
+      executionApi
     ]
   );
 
@@ -668,19 +684,13 @@ export function useWorkspaceAgentEndpointRun(
     const activeRun = activeEndpointScopeRun.current;
     if (!activeRun) return;
     activeRun.controller.abort();
-    const cancellations = [...activeRun.operations.values()].map(async (operation) => {
-      const observation = await operation.observe();
-      if (OWNER_FLEET_TERMINAL_OPERATION_STATES.has(observation.state)) return;
-      await operation.executeAction(
-        buildRemoteActionIdentity({
-          observation,
-          kind: "cancel",
-          actionId: createId(),
-          reason: "Desktop Auto Run stop requested."
-        })
-      );
-    });
-    const results = await Promise.allSettled(cancellations);
+    const workspaceCancellations = [...activeRun.workspaceSessions.entries()].map(
+      ([blockRef, session]) => cancelWorkspaceSession(activeRun, blockRef, session)
+    );
+    const results = await Promise.allSettled([
+      ...activeRun.pendingWorkspaceStarts,
+      ...workspaceCancellations
+    ]);
     const failures = results.filter((result) => result.status === "rejected");
     if (failures.length > 0) {
       throw new AggregateError(
@@ -688,7 +698,7 @@ export function useWorkspaceAgentEndpointRun(
         "workspace_remote_scope_cancel_failed"
       );
     }
-  }, [createId]);
+  }, [cancelWorkspaceSession]);
 
   return useMemo(() => Object.assign(startScope, { stop }), [startScope, stop]);
 }

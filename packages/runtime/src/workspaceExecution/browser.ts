@@ -6,6 +6,7 @@ export {
   remoteWorkspaceAuthorityBindingSchema,
   remoteWorkspaceAuthorityLocatorSchema,
   remoteWorkspaceExecutionHandleSchema,
+  workspaceContentAuthoritySchema,
   workspaceAuthorityBindingSchema,
   workspaceAuthorityRevisionsSchema,
   workspaceExecutionAuthorityLocatorSchema,
@@ -25,6 +26,7 @@ export type {
   RemoteWorkspaceAuthorityBinding,
   RemoteWorkspaceAuthorityLocator,
   RemoteWorkspaceExecutionHandle,
+  WorkspaceContentAuthority,
   WorkspaceAuthorityBinding,
   WorkspaceAuthorityRevisions,
   WorkspaceExecutionAuthorityLocator,
@@ -36,3 +38,13 @@ export type {
   WorkspaceExecutionSessionState,
   WorkspaceExecutionTarget
 } from "./contracts.js";
+export {
+  projectWorkspaceExecutionTimeline,
+  workspaceExecutionCoordinatorViewSchema,
+  workspaceExecutionSessionViewSchema,
+  workspaceExecutionTimelineSchema
+} from "./view.js";
+export type {
+  WorkspaceExecutionCoordinatorView,
+  WorkspaceExecutionTimeline
+} from "./view.js";

@@ -273,6 +273,28 @@ export function createRemoteWorkspaceExecutionAdapter(input: {
   }
 
   return {
+    async inspectExisting({ binding, operationId, signal }) {
+      assertRemoteBinding(binding);
+      let observation: RemoteOperationObservation;
+      try {
+        observation = await input.query.observe({ binding, operationId }, signal);
+      } catch (error) {
+        throw workspaceExecutionPortError(error, "remote_observation_unavailable");
+      }
+      const endpointId = observation.agentEndpoint?.endpointId;
+      if (!endpointId) throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
+      assertObservationIdentity({ observation, binding, operationId, endpointId });
+      return { observation, agentEndpointId: endpointId };
+    },
+    async attachExisting({ binding, session, observation, agentEndpointId }) {
+      assertRemoteBinding(binding);
+      return snapshotFromObservation({
+        observation,
+        binding,
+        runSessionId: session.sessionId,
+        endpointId: agentEndpointId
+      });
+    },
     async launch({ binding, target, session, intent, signal }) {
       assertRemoteBinding(binding);
       let authority: Awaited<ReturnType<WorkAuthorityPort["ensure"]>>;

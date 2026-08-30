@@ -28,12 +28,14 @@ export type RemoteTaskWorkspaceConversationApi = {
 
 export type RemoteTaskWorkspaceConversation = {
   blockRef: string;
+  cursor: number;
   error: string | null;
   eventProtocolVersion: 1 | 2 | null;
   executionAttemptId: string | null;
   operationId: string;
   replayDiagnostics: readonly RemoteAcpReplayDiagnostic[];
   state: RemoteOperationObservation["state"] | "loading";
+  terminalOutcome: "completed" | "failed" | "cancelled" | null;
   timeline: readonly AcpTimelineItem[];
 };
 
@@ -250,12 +252,21 @@ export function useRemoteTaskWorkspaceConversation(input: {
     const visible = snapshot?.key === key ? snapshot : null;
     return {
       blockRef: input.blockRef,
+      cursor: cachesRef.current.get(key)?.cursor ?? 0,
       error: visible?.error ?? null,
       eventProtocolVersion: visible?.eventProtocolVersion ?? null,
       executionAttemptId: cachesRef.current.get(key)?.executionAttemptId ?? null,
       operationId: input.operationId,
       replayDiagnostics: visible?.replayDiagnostics ?? [],
       state: visible?.state ?? input.initialState ?? "loading",
+      terminalOutcome:
+        visible?.state === "completed"
+          ? "completed"
+          : visible?.state === "failed"
+            ? "failed"
+            : visible?.state === "cancelled"
+              ? "cancelled"
+              : null,
       timeline: projectRemoteAcpProjectedTimeline(visible?.events ?? [])
     };
   }, [input.blockRef, input.initialState, input.operationId, key, snapshot]);

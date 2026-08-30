@@ -129,6 +129,12 @@ export async function executeWorkspaceRun(
       },
       local: createLocalWorkspaceExecutionAdapter(),
       remote: {
+        async inspectExisting() {
+          throw new WorkspaceExecutionCliError("workspace_connection_required", 3);
+        },
+        async attachExisting() {
+          throw new WorkspaceExecutionCliError("workspace_connection_required", 3);
+        },
         async launch() {
           throw new WorkspaceExecutionCliError("workspace_connection_required", 3);
         },
@@ -164,7 +170,6 @@ export async function executeWorkspaceRun(
     const credential = new ProcessMemoryWorkspaceCredentialProvider().get();
     const ports = createCliWorkspaceExecutionHttpPorts({
       connection,
-      packageWorkspace,
       transport: createWorkspaceJsonTransport({
         serverOrigin: connection.serverOrigin,
         credential
@@ -189,8 +194,7 @@ export async function executeWorkspaceRun(
     request = {
       authority: {
         kind: "workspace_canvas",
-        packageWorkspace,
-        expected,
+        contentAuthority: { kind: "package_snapshot", packageWorkspace, expected },
         connectionProfileId: connection.profileId,
         serverOrigin: connection.serverOrigin,
         workspaceId: connection.workspaceId,
