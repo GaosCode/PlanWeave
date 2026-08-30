@@ -22,7 +22,10 @@ import { registerEndpointDispatchAccess } from "./endpointCoordinatorFixture.js"
 import { ownHostRemoteAgents, TEST_REMOTE_AGENT_OWNER_ID } from "./remoteAgentOwnerFixture.js";
 import { exactHostRuntimeRouteFixture } from "./exactHostRuntimeRoute.js";
 import { ContentVersionRepository } from "../../canvas/contentVersionRepository.js";
-import { readStableCanvasRuntimeContentTarget } from "../../canvas/contentFingerprint.js";
+import {
+  readStableCanvasRuntimeContentTarget,
+  readStableCanvasRuntimeEvidence
+} from "../../canvas/contentFingerprint.js";
 
 export const directories: string[] = [];
 const servers: PlanweaveServer[] = [];
@@ -86,10 +89,12 @@ export async function setup(
     content: capturedContent.content,
     createdBy: { kind: "human", id: "test-owner" }
   });
-  const contentTarget = readStableCanvasRuntimeContentTarget(contentVersions, locator);
+  const contentEvidence = readStableCanvasRuntimeEvidence(contentVersions, locator);
+  if (!contentEvidence) throw new Error("remote_block_content_evidence_missing");
+  const contentTarget = contentEvidence.target;
   const dispatchLocator = {
     ...locator,
-    contentRevision: String(contentTarget.revision),
+    contentRevision: contentEvidence.sourceRevision,
     graphFingerprint: contentTarget.graphFingerprint
   };
   const runtimeInitializationEvidenceFor = (scope: typeof locator) => async () => ({

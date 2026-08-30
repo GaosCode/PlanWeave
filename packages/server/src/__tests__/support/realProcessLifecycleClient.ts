@@ -18,7 +18,7 @@ import {
 } from "./realProcessAcpHarness.js";
 import { TEST_REMOTE_AGENT_OWNER_ID } from "./remoteAgentOwnerFixture.js";
 import { ContentVersionRepository } from "../../canvas/contentVersionRepository.js";
-import { readStableCanvasRuntimeContentTarget } from "../../canvas/contentFingerprint.js";
+import { readStableCanvasRuntimeEvidence } from "../../canvas/contentFingerprint.js";
 import { AuthorityRepository } from "../../work/authorityRepository.js";
 
 const require = createRequire(import.meta.url);
@@ -226,8 +226,8 @@ export class RealProcessLifecycleClient {
          WHERE project_id=? AND canvas_id=? AND revision>0`
       )
       .get(this.harness.projectId, canvasId) as { workspace_id: string } | undefined;
-    const content = scopeRow
-      ? readStableCanvasRuntimeContentTarget(new ContentVersionRepository(database), {
+    const contentEvidence = scopeRow
+      ? readStableCanvasRuntimeEvidence(new ContentVersionRepository(database), {
           workspaceId: scopeRow.workspace_id,
           projectId: this.harness.projectId,
           canvasId
@@ -243,13 +243,13 @@ export class RealProcessLifecycleClient {
         })
       : undefined;
     database.close();
-    if (!content || !revisions) throw new Error("real_process_content_authority_missing");
+    if (!contentEvidence || !revisions) throw new Error("real_process_content_authority_missing");
     return {
       expectedResponsibilityRevision: revisions.responsibilityRevision,
       expectedReviewerRevision: revisions.reviewerRevision,
       executionTargetRevision: revisions.executionTargetRevision,
-      contentRevision: String(content.revision),
-      graphFingerprint: content.graphFingerprint
+      contentRevision: contentEvidence.sourceRevision,
+      graphFingerprint: contentEvidence.target.graphFingerprint
     };
   }
 

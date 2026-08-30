@@ -22,7 +22,7 @@ import { CanvasRuntimeOperationAttachmentRepository } from "./canvas/runtimeOper
 import { ServerCanvasDispatchCandidateReader } from "./canvas/remoteDispatchCandidateReader.js";
 import { dispatchResultSchema } from "./protocol.js";
 import { ContentVersionRepository } from "./canvas/contentVersionRepository.js";
-import { readStableCanvasRuntimeContentTarget } from "./canvas/contentFingerprint.js";
+import { readStableCanvasRuntimeEvidence } from "./canvas/contentFingerprint.js";
 import type { CanvasExecutionRuntimeRoutePort } from "./canvas/executionRuntimePort.js";
 import {
   SqliteRemoteDispatchPersistence,
@@ -219,14 +219,15 @@ export function createRemoteBlockCoordination(
     clock: options.clock
   });
   const contentAuthorize: RemoteContentAuthorizePort = (input) => {
-    const current = readStableCanvasRuntimeContentTarget(contentVersions, {
+    const evidence = readStableCanvasRuntimeEvidence(contentVersions, {
       workspaceId: input.workspaceId,
       projectId: input.projectId,
       canvasId: input.canvasId
     });
+    if (!evidence) throw new Error("canvas_content_head_changed");
     if (
-      String(current.revision) !== input.contentRevision ||
-      current.graphFingerprint !== input.graphFingerprint
+      evidence.sourceRevision !== input.contentRevision ||
+      evidence.target.graphFingerprint !== input.graphFingerprint
     ) {
       throw new Error("canvas_content_revision_conflict");
     }

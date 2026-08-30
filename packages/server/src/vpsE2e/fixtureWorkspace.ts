@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  capturePackageSnapshot,
   initWorkspace,
   loadPlanGraphPackage,
   writeProjectGraph,
@@ -84,6 +85,7 @@ export type FixtureWorkspace = {
   home: string;
   root: string;
   projectId: string;
+  sourceRevision: string;
   graphFingerprint: string;
   ownedRoots: string[];
 };
@@ -115,10 +117,12 @@ export async function createFixtureWorkspace(): Promise<FixtureWorkspace> {
   });
 
   const loaded = await loadPlanGraphPackage(init.workspace);
+  const captured = await capturePackageSnapshot({ projectRoot: init.workspace });
   return {
     home,
     root,
     projectId: init.workspace.id,
+    sourceRevision: captured.snapshot.sourceRevision,
     graphFingerprint: loaded.graph.packageFingerprint,
     ownedRoots: [home, root]
   };

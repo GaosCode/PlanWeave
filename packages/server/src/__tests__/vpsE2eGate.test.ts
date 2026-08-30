@@ -24,7 +24,7 @@ import {
 
 const roots: string[] = [];
 const fixtureContentAuthority = {
-  contentRevision: "1",
+  contentRevision: `snapshot:${"a".repeat(64)}`,
   graphFingerprint: `pkg-${"a".repeat(64)}`
 };
 

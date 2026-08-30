@@ -43,7 +43,7 @@ import {
 } from "./support/remoteAgentOwnerFixture.js";
 import { exactHostRuntimeRouteFixture } from "./support/exactHostRuntimeRoute.js";
 import { ContentVersionRepository } from "../canvas/contentVersionRepository.js";
-import { readStableCanvasRuntimeContentTarget } from "../canvas/contentFingerprint.js";
+import { readStableCanvasRuntimeEvidence } from "../canvas/contentFingerprint.js";
 import { AuthorityRepository } from "../work/authorityRepository.js";
 
 type Coordination = ReturnType<typeof createRemoteBlockCoordination>;
@@ -91,7 +91,7 @@ class CoordinatorHarness {
   artifacts?: ArtifactStore;
   private agentEndpointId?: string;
   private contentRevision = 1;
-  private bindingContentRevision = "1";
+  private bindingContentRevision = `snapshot:${"0".repeat(64)}`;
   private bindingGraphFingerprint = `pkg-${"0".repeat(64)}`;
   private contentTargetFailure?: Error;
   runtimeAcquireCount = 0;
@@ -161,9 +161,10 @@ class CoordinatorHarness {
         createdBy: { kind: "human", id: "test-owner" }
       });
     }
-    const contentTarget = readStableCanvasRuntimeContentTarget(contentVersions, this.locator);
-    this.bindingContentRevision = String(contentTarget.revision);
-    this.bindingGraphFingerprint = contentTarget.graphFingerprint;
+    const contentEvidence = readStableCanvasRuntimeEvidence(contentVersions, this.locator);
+    if (!contentEvidence) throw new Error("test_content_evidence_missing");
+    this.bindingContentRevision = contentEvidence.sourceRevision;
+    this.bindingGraphFingerprint = contentEvidence.target.graphFingerprint;
     const runtime = this.runtime;
     const routedRuntime: RemoteBlockRuntimePort = {
       ...runtime,
@@ -324,15 +325,32 @@ class CoordinatorHarness {
     this.contentRevision += 1;
   }
 
-  advanceAuthoritativeContentHead(): void {
+  async prepareAuthoritativeContentHeadAdvance(): Promise<() => void> {
+    await appendFile(
+      join(this.workspace.init.workspace.packageDir, "nodes", "T-001", "prompt.md"),
+      "\nAuthoritative content race.\n"
+    );
     const repository = new ContentVersionRepository(this.requireServer().database);
+    const captured = await captureAuthorizedCanvasContent({
+      projectRoot: this.workspace.root,
+      canvasId: this.locator.canvasId,
+      expectedPackageDir: this.workspace.init.workspace.packageDir,
+      authorityProjectId: this.locator.projectId
+    });
+    const persisted = repository.persistImmutable({
+      scope: this.locator,
+      content: captured.content,
+      createdBy: { kind: "human", id: "content-race-test-owner" }
+    });
     const current = repository.head(this.locator);
     if (!current) throw new Error("test_content_head_missing");
-    repository.advanceHeadForSqliteCommit({
-      scope: this.locator,
-      expectedRevision: current.revision,
-      content: current.content
-    });
+    return () => {
+      new ContentVersionRepository(this.requireServer().database).advanceHeadForSqliteCommit({
+        scope: this.locator,
+        expectedRevision: current.revision,
+        content: persisted.completed
+      });
+    };
   }
 
   failContentTargetReads(error?: Error): void {
@@ -915,6 +933,21 @@ describe("RemoteBlockCoordinator crash reconciliation", () => {
     ).resolves.toMatchObject({ ownership: { phase: "active" } });
   });
 
+  it("commits a Runtime package snapshot source revision", async () => {
+    const harness = await CoordinatorHarness.create();
+    harness.registerHost();
+    const request = harness.request("T-001#B-001", "snapshot-source-revision");
+
+    expect(request.contentRevision).toMatch(/^snapshot:[a-f0-9]{64}$/);
+    await expect(
+      harness.requireCoordination().coordinator.dispatch(request)
+    ).resolves.toMatchObject({
+      status: "activated",
+      operation: { state: "activated", ownershipGeneration: request.contentRevision }
+    });
+    expect(count(harness.requireServer().database, "remote_operations")).toBe(1);
+  });
+
   it("rejects authority mismatch before Host acquire or inspect", async () => {
     const harness = await CoordinatorHarness.create();
     harness.registerHost();
@@ -949,11 +982,12 @@ describe("RemoteBlockCoordinator crash reconciliation", () => {
     const harness = await CoordinatorHarness.create();
     harness.registerHost();
     let advanced = false;
+    const advanceAuthoritativeContentHead = await harness.prepareAuthoritativeContentHeadAdvance();
     await harness.restart({
       reached(checkpoint) {
         if (checkpoint === "before_operation_commit" && !advanced) {
           advanced = true;
-          harness.advanceAuthoritativeContentHead();
+          advanceAuthoritativeContentHead();
         }
       }
     });

@@ -13,7 +13,7 @@ import {
 } from "../../../runtime/src/__tests__/promptTestHelpers.js";
 import { latestCentralSchemaVersion } from "../migrations.js";
 import { ContentVersionRepository } from "../canvas/contentVersionRepository.js";
-import { readStableCanvasRuntimeContentTarget } from "../canvas/contentFingerprint.js";
+import { readStableCanvasRuntimeEvidence } from "../canvas/contentFingerprint.js";
 import { hashOperatorToken } from "../operatorAuth.js";
 import { openServerDatabase } from "../sqlite.js";
 import { AuthorityRepository } from "../work/authorityRepository.js";
@@ -441,7 +441,7 @@ describe("remote operator walkthrough", () => {
       canvasId: "default",
       blockRef: "T-001#B-001"
     };
-    const contentTarget = readStableCanvasRuntimeContentTarget(
+    const contentEvidence = readStableCanvasRuntimeEvidence(
       new ContentVersionRepository(authorityDatabase),
       {
         workspaceId: dispatchScope.workspaceId,
@@ -449,6 +449,7 @@ describe("remote operator walkthrough", () => {
         canvasId: dispatchScope.canvasId
       }
     );
+    if (!contentEvidence) throw new Error("operator_content_evidence_missing");
     const revisions = new AuthorityRepository(authorityDatabase).currentRevisions({
       kind: "block",
       ...dispatchScope
@@ -458,8 +459,8 @@ describe("remote operator walkthrough", () => {
       expectedResponsibilityRevision: revisions.responsibilityRevision,
       expectedReviewerRevision: revisions.reviewerRevision,
       executionTargetRevision: revisions.executionTargetRevision,
-      contentRevision: String(contentTarget.revision),
-      graphFingerprint: contentTarget.graphFingerprint
+      contentRevision: contentEvidence.sourceRevision,
+      graphFingerprint: contentEvidence.target.graphFingerprint
     };
 
     for (const schemaVersion of ["remote-run/v1", "remote-run/v2"]) {

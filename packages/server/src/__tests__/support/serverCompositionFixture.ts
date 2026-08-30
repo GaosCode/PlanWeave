@@ -23,7 +23,7 @@ import {
 import { openServerDatabase } from "../../sqlite.js";
 import { AuthorityRepository } from "../../work/authorityRepository.js";
 import { ContentVersionRepository } from "../../canvas/contentVersionRepository.js";
-import { readStableCanvasRuntimeContentTarget } from "../../canvas/contentFingerprint.js";
+import { readStableCanvasRuntimeEvidence } from "../../canvas/contentFingerprint.js";
 
 export const adminToken = `pw_operator_${"A".repeat(43)}`;
 export const projectToken = `pw_operator_${"B".repeat(43)}`;
@@ -79,11 +79,15 @@ export async function readDispatchAuthority(input: {
 }) {
   const database = await openServerDatabase(input.databasePath, 5_000);
   try {
-    const content = readStableCanvasRuntimeContentTarget(new ContentVersionRepository(database), {
-      workspaceId: input.workspaceId,
-      projectId: input.projectId,
-      canvasId: input.canvasId
-    });
+    const contentEvidence = readStableCanvasRuntimeEvidence(
+      new ContentVersionRepository(database),
+      {
+        workspaceId: input.workspaceId,
+        projectId: input.projectId,
+        canvasId: input.canvasId
+      }
+    );
+    if (!contentEvidence) throw new Error("server_composition_content_evidence_missing");
     const revisions = new AuthorityRepository(database).currentRevisions({
       kind: "block",
       workspaceId: input.workspaceId,
@@ -95,8 +99,8 @@ export async function readDispatchAuthority(input: {
       expectedResponsibilityRevision: revisions.responsibilityRevision,
       expectedReviewerRevision: revisions.reviewerRevision,
       executionTargetRevision: revisions.executionTargetRevision,
-      contentRevision: String(content.revision),
-      graphFingerprint: content.graphFingerprint
+      contentRevision: contentEvidence.sourceRevision,
+      graphFingerprint: contentEvidence.target.graphFingerprint
     };
   } finally {
     database.close();

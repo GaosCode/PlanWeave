@@ -15,7 +15,10 @@ import {
   createTestWorkspace
 } from "../../../runtime/src/__tests__/promptTestHelpers.js";
 import { ArtifactStore } from "../artifacts.js";
-import { readStableCanvasRuntimeContentTarget } from "../canvas/contentFingerprint.js";
+import {
+  readStableCanvasRuntimeContentTarget,
+  readStableCanvasRuntimeEvidence
+} from "../canvas/contentFingerprint.js";
 import { ContentVersionRepository } from "../canvas/contentVersionRepository.js";
 import { canonicalRemoteRuntimePort } from "../canonicalRemoteRuntimePort.js";
 import { createRemoteBlockCoordination } from "../distributedCoordination.js";
@@ -118,11 +121,13 @@ async function setup() {
     content: capturedContent.content,
     createdBy: { kind: "human", id: "human-remote-http-test" }
   });
-  const contentTarget = readStableCanvasRuntimeContentTarget(contentVersions, {
+  const contentEvidence = readStableCanvasRuntimeEvidence(contentVersions, {
     workspaceId,
     projectId,
     canvasId
   });
+  if (!contentEvidence) throw new Error("human_remote_content_evidence_missing");
+  const contentTarget = contentEvidence.target;
   const registry = new RemoteRuntimePortRegistry();
   const runtime = createRemoteBlockRuntimePort({ projectRoot: workspace.root });
   const canonicalRuntime = canonicalRemoteRuntimePort(runtime, workspaceId);
@@ -284,7 +289,7 @@ async function setup() {
       expectedResponsibilityRevision: authorityRevisions.responsibilityRevision,
       expectedReviewerRevision: authorityRevisions.reviewerRevision,
       executionTargetRevision: executionTarget.revision,
-      contentRevision: String(contentTarget.revision),
+      contentRevision: contentEvidence.sourceRevision,
       graphFingerprint: contentTarget.graphFingerprint
     },
     setAcceptingMutations(value: boolean) {

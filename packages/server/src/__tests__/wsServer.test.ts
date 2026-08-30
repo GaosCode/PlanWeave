@@ -18,7 +18,10 @@ import { createRemoteBlockCoordination } from "../distributedCoordination.js";
 import { canonicalRemoteRuntimePort } from "../canonicalRemoteRuntimePort.js";
 import { CanvasRuntimeRpcBroker } from "../canvas/runtimeRpcBroker.js";
 import { ContentVersionRepository } from "../canvas/contentVersionRepository.js";
-import { readStableCanvasRuntimeContentTarget } from "../canvas/contentFingerprint.js";
+import {
+  readStableCanvasRuntimeContentTarget,
+  readStableCanvasRuntimeEvidence
+} from "../canvas/contentFingerprint.js";
 import { RemoteRuntimePortRegistry } from "../remoteRuntimeLocator.js";
 import { HostEnrollmentService } from "../hostEnrollment.js";
 import { hashOperatorToken, OperatorTokenRegistry } from "../operatorAuth.js";
@@ -180,10 +183,12 @@ async function createWsCoordination() {
     content: capturedContent.content,
     createdBy: { kind: "system", id: "ws-server-test" }
   });
-  const contentTarget = readStableCanvasRuntimeContentTarget(contentVersions, locator);
+  const contentEvidence = readStableCanvasRuntimeEvidence(contentVersions, locator);
+  if (!contentEvidence) throw new Error("ws_server_content_evidence_missing");
+  const contentTarget = contentEvidence.target;
   const dispatchLocator = {
     ...locator,
-    contentRevision: String(contentTarget.revision),
+    contentRevision: contentEvidence.sourceRevision,
     graphFingerprint: contentTarget.graphFingerprint
   };
   registry.bind(

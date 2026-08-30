@@ -35,7 +35,10 @@ import type { AssignmentTarget } from "../work/schemas.js";
 import { canonicalRemoteRuntimePort } from "../canonicalRemoteRuntimePort.js";
 import { CanvasRuntimeUnavailableError } from "../canvas/executionRuntimePort.js";
 import { ContentVersionRepository } from "../canvas/contentVersionRepository.js";
-import { readStableCanvasRuntimeContentTarget } from "../canvas/contentFingerprint.js";
+import {
+  readStableCanvasRuntimeContentTarget,
+  readStableCanvasRuntimeEvidence
+} from "../canvas/contentFingerprint.js";
 import type { DispatchHostSelectionSnapshot } from "../work/dispatchIntegration.js";
 import {
   endpointDispatchRequest,
@@ -288,16 +291,17 @@ class StartupHarness {
   }
 
   request(idempotencyKey: string) {
-    const contentTarget = readStableCanvasRuntimeContentTarget(
+    const contentEvidence = readStableCanvasRuntimeEvidence(
       new ContentVersionRepository(this.requireServer().database),
       this.locator
     );
+    if (!contentEvidence) throw new Error("startup_content_evidence_missing");
     const request = endpointDispatchRequest({
       agentEndpoints: this.requireCoordination().agentEndpoints,
       locator: {
         ...this.locator,
-        contentRevision: String(contentTarget.revision),
-        graphFingerprint: contentTarget.graphFingerprint
+        contentRevision: contentEvidence.sourceRevision,
+        graphFingerprint: contentEvidence.target.graphFingerprint
       },
       blockRef: "T-001#B-001",
       idempotencyKey,

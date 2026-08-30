@@ -553,7 +553,7 @@ export async function runLocalTlsFixture(options: {
         expectedResponsibilityRevision: 0,
         expectedReviewerRevision: 0,
         executionTargetRevision: 0,
-        contentRevision: "1",
+        contentRevision: workspace.sourceRevision,
         graphFingerprint: workspace.graphFingerprint
       })
     });

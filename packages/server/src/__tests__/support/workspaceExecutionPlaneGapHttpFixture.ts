@@ -360,7 +360,7 @@ export async function startGrantedHostCatalogDispatchHttp(options: { mapWorkspac
       expectedResponsibilityRevision: authorityRevisions.responsibilityRevision,
       expectedReviewerRevision: authorityRevisions.reviewerRevision,
       executionTargetRevision: authorityRevisions.executionTargetRevision,
-      contentRevision: String(contentEvidence.target.revision),
+      contentRevision: contentEvidence.sourceRevision,
       graphFingerprint: contentEvidence.target.graphFingerprint
     }
   };
@@ -479,11 +479,13 @@ export async function startPathlessCompositionWithGrantedHost(options: {
     content: captured.content,
     createdBy: { kind: "system", id: "pathless-gap-content" }
   });
-  const contentTarget = readStableCanvasRuntimeContentTarget(contentVersions, {
+  const contentEvidence = readStableCanvasRuntimeEvidence(contentVersions, {
     workspaceId,
     projectId,
     canvasId
   });
+  if (!contentEvidence) throw new Error("workspace_gap_content_evidence_missing");
+  const contentTarget = contentEvidence.target;
   const contentGraphFingerprint = contentTarget.graphFingerprint;
   const liveOptions =
     options.liveCanvasRuntime === undefined
@@ -532,7 +534,7 @@ export async function startPathlessCompositionWithGrantedHost(options: {
         expectedResponsibilityRevision: revisions.responsibilityRevision,
         expectedReviewerRevision: revisions.reviewerRevision,
         executionTargetRevision: revisions.executionTargetRevision,
-        contentRevision: String(contentTarget.revision),
+        contentRevision: contentEvidence.sourceRevision,
         graphFingerprint: contentTarget.graphFingerprint
       };
     })(),

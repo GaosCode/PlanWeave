@@ -17,7 +17,7 @@ import { ProjectAccessRepository } from "../projectAccessRepository.js";
 import { AuthorityRepository } from "../work/authorityRepository.js";
 import { CanvasRuntimeAttachmentConflictError } from "../canvas/runtimeAttachment.js";
 import { ContentVersionRepository } from "../canvas/contentVersionRepository.js";
-import { readStableCanvasRuntimeContentTarget } from "../canvas/contentFingerprint.js";
+import { readStableCanvasRuntimeEvidence } from "../canvas/contentFingerprint.js";
 import { RuntimeArtifactGrantRepository } from "../canvas/runtimeArtifactGrantRepository.js";
 import {
   endpointDispatchRequest,
@@ -524,14 +524,12 @@ describe("RemoteBlockCoordinator", () => {
       content: secondContent.content,
       createdBy: { kind: "system", id: "second-workspace-test" }
     });
-    const secondContentTarget = readStableCanvasRuntimeContentTarget(
-      contentVersions,
-      secondLocator
-    );
+    const secondContentEvidence = readStableCanvasRuntimeEvidence(contentVersions, secondLocator);
+    if (!secondContentEvidence) throw new Error("second_workspace_content_evidence_missing");
     const secondDispatchLocator = {
       ...secondLocator,
-      contentRevision: String(secondContentTarget.revision),
-      graphFingerprint: secondContentTarget.graphFingerprint
+      contentRevision: secondContentEvidence.sourceRevision,
+      graphFingerprint: secondContentEvidence.target.graphFingerprint
     };
     const host = fixture.hosts.register("Second Workspace Host").host;
     ownHostRemoteAgents({
