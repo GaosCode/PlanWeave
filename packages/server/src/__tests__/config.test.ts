@@ -6,6 +6,7 @@ import { hashOperatorToken } from "../operatorAuth.js";
 import {
   parseServerConfig,
   resolveServerConfigPath,
+  serverConfigFileInput,
   serverConfigSchema,
   serverConfigSummary
 } from "../config.js";
@@ -63,6 +64,7 @@ describe("server config", () => {
     expect(config.databasePath).toBe(join(input.dataDirectory, "planweave-server.sqlite"));
     expect(config.operatorSessionTtlMs).toBe(30 * 24 * 60 * 60 * 1_000);
     expect(config.limits.canvasRuntimeAvailabilityTimeoutMs).toBe(15_000);
+    expect(config.limits.canvasRuntimeFactsTimeoutMs).toBe(15_000);
     expect(config.version).toBe("server-config/v2");
     expect(config.transport.mode).toBe("direct_https");
     expect(serverConfigSummary(config)).toEqual({
@@ -185,6 +187,30 @@ describe("server config", () => {
       parseServerConfig({
         ...input,
         limits: { canvasRuntimeAvailabilityTimeoutMs: 120_001 }
+      })
+    ).toThrow();
+  });
+
+  it("defaults and bounds the Canvas Runtime facts timeout for v1 and v2 configs", async () => {
+    const input = await secureConfig();
+    const normalized = parseServerConfig({ ...input, limits: { busyTimeoutMs: 7_500 } });
+    expect(normalized.limits.canvasRuntimeFactsTimeoutMs).toBe(15_000);
+    expect(
+      parseServerConfig({
+        ...serverConfigFileInput(normalized),
+        limits: { ...normalized.limits, canvasRuntimeFactsTimeoutMs: 1_000 }
+      }).limits.canvasRuntimeFactsTimeoutMs
+    ).toBe(1_000);
+    expect(() =>
+      parseServerConfig({
+        ...input,
+        limits: { canvasRuntimeFactsTimeoutMs: 999 }
+      })
+    ).toThrow();
+    expect(() =>
+      parseServerConfig({
+        ...input,
+        limits: { canvasRuntimeFactsTimeoutMs: 120_001 }
       })
     ).toThrow();
   });

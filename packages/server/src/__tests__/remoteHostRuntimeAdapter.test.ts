@@ -58,7 +58,8 @@ async function setup(requestTimeoutMs = 1_000) {
     environment.broker,
     {
       read: readContentAuthority
-    }
+    },
+    { requestTimeoutMs }
   );
   return {
     ...environment,
@@ -280,9 +281,10 @@ describe("RemoteHostCanvasRuntimeAdapter", () => {
     ).rejects.toMatchObject({ code: "host_offline" });
     expect(fixture.deliveries).toHaveLength(1);
     expect(second.deliveries).toHaveLength(1);
+    expect(fixture.broker.pendingCount()).toBe(0);
   });
 
-  it("does not hide an unknown facts RPC error behind an exact peer", async () => {
+  it("uses exact facts when another peer returns an unknown RPC error", async () => {
     const fixture = await setup();
     const second = fixture.addHost("Failing Runtime");
     const pending = fixture.factsAdapter.acquireFacts({
@@ -305,10 +307,15 @@ describe("RemoteHostCanvasRuntimeAdapter", () => {
       }
     });
 
-    await expect(pending).rejects.toMatchObject({ code: "unexpected_facts_failure" });
+    await expect(pending).resolves.toMatchObject({
+      evidence: {
+        sourceRevision: runtimeSourceRevision,
+        graphFingerprint: runtimeContentTarget.graphFingerprint
+      }
+    });
   });
 
-  it("does not hide malformed facts behind an exact peer", async () => {
+  it("uses exact facts when another peer returns malformed facts", async () => {
     const fixture = await setup();
     const second = fixture.addHost("Malformed Runtime");
     const pending = fixture.factsAdapter.acquireFacts({
@@ -325,6 +332,33 @@ describe("RemoteHostCanvasRuntimeAdapter", () => {
       outcome: "success",
       operation: "resolve_work_items",
       result: { ...taskFactsResult(), facts: [] }
+    });
+
+    await expect(pending).resolves.toMatchObject({
+      evidence: {
+        sourceRevision: runtimeSourceRevision,
+        graphFingerprint: runtimeContentTarget.graphFingerprint
+      }
+    });
+  });
+
+  it("fails closed with malformed facts when no exact peer exists", async () => {
+    const fixture = await setup();
+    const second = fixture.addHost("Drifted Runtime");
+    const pending = fixture.factsAdapter.acquireFacts({
+      scope,
+      workItems: [{ kind: "task", canvasId: scope.canvasId, taskId: "T-001" }]
+    });
+
+    respond(fixture.broker, fixture.host.id, commandAt(fixture.deliveries, 0), {
+      outcome: "success",
+      operation: "resolve_work_items",
+      result: { ...taskFactsResult(), facts: [] }
+    });
+    respond(fixture.broker, second.host.id, commandAt(second.deliveries, 0), {
+      outcome: "success",
+      operation: "resolve_work_items",
+      result: taskFactsResult(`snapshot:${"d".repeat(64)}`)
     });
 
     await expect(pending).rejects.toMatchObject({ name: "ZodError" });

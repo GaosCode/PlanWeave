@@ -262,9 +262,16 @@ export async function createDistributedServerComposition(
     collaborationRuntime.attachRemote(remoteCanvasRuntime);
     executionRuntime.attachRemote(remoteCanvasRuntime);
     workRuntimeFacts.attachRemote(
-      new RemoteHostWorkRuntimeFactsAdapter(runtimeHostLocator, runtimeRpc, {
-        read: (scope) => readStableCanvasRuntimeEvidence(contentVersions, scope)
-      })
+      new RemoteHostWorkRuntimeFactsAdapter(
+        runtimeHostLocator,
+        runtimeRpc,
+        {
+          read: (scope) => readStableCanvasRuntimeEvidence(contentVersions, scope)
+        },
+        {
+          requestTimeoutMs: config.limits.canvasRuntimeFactsTimeoutMs
+        }
+      )
     );
     const identityServices = createIdentityServices({
       database: server.database,
