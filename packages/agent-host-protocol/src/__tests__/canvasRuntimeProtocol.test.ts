@@ -4,6 +4,7 @@ import {
   CANVAS_RUNTIME_JSON_MAX_ARRAY_ITEMS,
   CANVAS_RUNTIME_JSON_MAX_BYTES,
   CANVAS_RUNTIME_JSON_MAX_DEPTH,
+  CANVAS_RUNTIME_JSON_MAX_OBJECT_KEYS,
   CANVAS_RUNTIME_JSON_MAX_STRING_LENGTH,
   CANVAS_RUNTIME_RESET_REASON_MAX_LENGTH,
   canvasRuntimeArtifactMetadataSchema,
@@ -18,6 +19,7 @@ import {
   hasCanvasRuntimeCapability,
   hostHelloSchema,
   mailboxCommandSchema,
+  remoteRunnerEventV2Schema,
   serverToHostCommandSchema
 } from "../index.js";
 
@@ -364,6 +366,16 @@ describe("Canvas Runtime control protocol", () => {
         Array.from({ length: CANVAS_RUNTIME_JSON_MAX_ARRAY_ITEMS + 1 }, () => null)
       )
     ).toThrow();
+    expect(() =>
+      canvasRuntimeJsonValueSchema.parse(
+        Object.fromEntries(
+          Array.from({ length: CANVAS_RUNTIME_JSON_MAX_OBJECT_KEYS + 1 }, (_, index) => [
+            `field-${index}`,
+            null
+          ])
+        )
+      )
+    ).toThrow("object is too large");
     const stringsWithinIndividualLimit = Object.fromEntries(
       Array.from({ length: 9 }, (_, index) => [
         `field-${index}`,
@@ -376,9 +388,12 @@ describe("Canvas Runtime control protocol", () => {
     expect(() => canvasRuntimeJsonValueSchema.parse(stringsWithinIndividualLimit)).toThrow(
       "payload is too large"
     );
-    let nested: unknown = "leaf";
-    for (let index = 0; index <= CANVAS_RUNTIME_JSON_MAX_DEPTH; index += 1) nested = [nested];
-    expect(() => canvasRuntimeJsonValueSchema.parse(nested)).toThrow();
+    let atMaximumDepth: unknown = "leaf";
+    for (let index = 0; index < CANVAS_RUNTIME_JSON_MAX_DEPTH; index += 1) {
+      atMaximumDepth = [atMaximumDepth];
+    }
+    expect(canvasRuntimeJsonValueSchema.parse(atMaximumDepth)).toEqual(atMaximumDepth);
+    expect(() => canvasRuntimeJsonValueSchema.parse([atMaximumDepth])).toThrow();
   });
 
   it("binds artifact metadata to its digest and rejects bytes or base64 side channels", () => {
@@ -449,6 +464,109 @@ describe("Canvas Runtime control protocol", () => {
         })
       ).toThrow();
     }
+  });
+
+  it("accepts complete v2 transcripts through Runtime completion artifact transfer", () => {
+    const sha256 = "a".repeat(64);
+    const timestamp = "2030-01-01T00:00:00.000Z";
+    const outputEvent = {
+      eventVersion: 2,
+      cursor: 1,
+      sourceSequence: 1,
+      timestamp,
+      fragment: {
+        kind: "runner_body",
+        body: {
+          kind: "output",
+          stream: "stdout",
+          content: "[REDACTED:CREDENTIAL]",
+          redaction: { classes: ["credential", "sensitive_content"], replaced: 1 }
+        }
+      }
+    };
+    const configurationEvent = {
+      eventVersion: 2,
+      cursor: 2,
+      sourceSequence: 2,
+      timestamp,
+      fragment: {
+        kind: "runner_body",
+        body: {
+          kind: "session_configuration_snapshot",
+          phase: "initial",
+          configuration: {
+            modes: {
+              currentModeId: "agent",
+              availableModes: [{ id: "agent", name: "Agent", description: "Full agent mode" }]
+            },
+            configOptions: [
+              {
+                id: "model",
+                type: "select",
+                name: "Model",
+                description: "Execution model",
+                category: "model",
+                currentValue: "gpt-5",
+                options: [
+                  {
+                    value: "gpt-5",
+                    name: "GPT-5",
+                    description: "Frontier model",
+                    group: "OpenAI"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    };
+    expect(remoteRunnerEventV2Schema.parse(outputEvent)).toEqual(outputEvent);
+    expect(remoteRunnerEventV2Schema.parse(configurationEvent)).toEqual(configurationEvent);
+
+    const domainInput = {
+      ref: "T-001#B-001",
+      operationId: evidence.operationId,
+      controlPlane: "collaboration",
+      sourceRevision: evidence.sourceRevision,
+      graphFingerprint: evidence.graphFingerprint,
+      dispatchId: "dispatch-a",
+      executionAttemptId: "attempt-a",
+      reportArtifactRef: `artifact:sha256:${sha256}`,
+      transcript: {
+        sessionId: "session-a",
+        executor: "codex-acp",
+        agentId: "codex",
+        events: [
+          { timestamp, event: outputEvent },
+          { timestamp, event: configurationEvent }
+        ]
+      }
+    };
+    const transfer = {
+      version: "canvas-runtime-artifact-transfer/v1",
+      grantId: "runtime-artifact-grant-a",
+      direction: "download",
+      runtimeLeaseId: "runtime-lease-a",
+      artifactRef: `artifact:sha256:${sha256}`,
+      sha256,
+      sizeBytes: 42,
+      mediaType: "text/markdown",
+      expiresAt: deadline
+    };
+    const transferInput = { domainInput, transfer };
+
+    expect(canvasRuntimeArtifactTransferInputSchema.parse(transferInput)).toEqual(transferInput);
+    expect(
+      canvasRuntimeRequestCommandSchema.parse(
+        request({
+          operation: "complete",
+          runtimeLeaseId: transfer.runtimeLeaseId,
+          evidence,
+          input: transferInput
+        })
+      )
+    ).toMatchObject({ operation: { operation: "complete", input: transferInput } });
   });
 
   it("requires a structured reset success with matching evidence and rejects ok-only results", () => {
