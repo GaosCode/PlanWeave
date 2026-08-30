@@ -965,7 +965,7 @@ describe("useRemoteRunPanelController", () => {
       expectedResponsibilityRevision: 0,
       expectedReviewerRevision: 0,
       executionTargetRevision: 1,
-      contentRevision: "1",
+      contentRevision: "source-revision-1",
       graphFingerprint: `pkg-${"a".repeat(64)}`
     });
 

@@ -635,7 +635,7 @@ export function useRemoteRunPanelController(
           expectedResponsibilityRevision: revisions.responsibilityRevision,
           expectedReviewerRevision: revisions.reviewerRevision,
           executionTargetRevision: revisions.executionTargetRevision,
-          contentRevision: String(availability.authority.revision),
+          contentRevision: availability.authority.sourceRevision,
           graphFingerprint: availability.authority.graphFingerprint
         });
         if (isCurrentScope()) {
