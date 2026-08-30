@@ -19,8 +19,7 @@ import type {
   RemoteDispatchPersistencePort,
   RemoteInputArtifactPort,
   RemoteMailboxPublisherPort,
-  RemoteOperationCandidatePort,
-  RemoteRuntimeLocator
+  RemoteOperationCandidatePort
 } from "./remoteBlockCoordinatorPorts.js";
 import {
   acquireRemoteRuntimeLease,
@@ -141,14 +140,12 @@ export class RemoteBlockCoordinator {
   }
 
   private async withRuntime<T>(
-    locator: RemoteRuntimeLocator,
+    record: RemoteOperation,
     operation: (runtime: RemoteBlockRuntimePort) => Promise<T>
   ): Promise<T> {
-    const acquired = await acquireRemoteRuntimeLease(
-      this.options.runtimeLeases,
-      locator,
-      undefined
-    );
+    const hostId = record.attempt.hostId;
+    if (!hostId) throw new CanvasRuntimeUnavailableError("runtime_not_attached");
+    const acquired = await acquireRemoteRuntimeLease(this.options.runtimeLeases, record, hostId);
     try {
       return await operation(acquired.runtime);
     } finally {

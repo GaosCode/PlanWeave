@@ -2,8 +2,9 @@ import type { RemoteBlockDispatchCandidate, RemoteBlockRuntimePort } from "@plan
 import { remoteBlockFailureInputSchema } from "@planweave-ai/runtime";
 import type {
   CanvasExecutionRuntimeLease,
-  CanvasExecutionRuntimeLeasePort
+  CanvasExecutionRuntimeRoutePort
 } from "./canvas/executionRuntimePort.js";
+import { CanvasRuntimeUnavailableError } from "./canvas/executionRuntimePort.js";
 import type { HostCapacityReservation } from "./hostReservations.js";
 import { HostReservationRepository } from "./hostReservations.js";
 import { remoteBlockIdentity } from "./remoteBlockIdentity.js";
@@ -26,7 +27,7 @@ import {
 type TerminalStatus = "completed" | "failed" | "cancelled";
 
 export type RemoteBlockWritebackCoordinatorOptions = {
-  runtimeLeases: CanvasExecutionRuntimeLeasePort;
+  runtimeLeases: CanvasExecutionRuntimeRoutePort;
   operations: RemoteOperationRepository;
   candidates: RemoteOperationCandidatePort;
   reservations: HostReservationRepository;
@@ -51,7 +52,7 @@ export class RemoteBlockWritebackCoordinator {
       return;
     }
     const operation = this.options.operations.getRequired(operationId);
-    const lease = await this.options.runtimeLeases.acquire(remoteRuntimeLocator(operation));
+    const lease = await this.acquireAttemptRuntime(operation);
     try {
       await this.completeWithLease(operationId, lease);
     } finally {
@@ -65,7 +66,7 @@ export class RemoteBlockWritebackCoordinator {
       return;
     }
     const operation = this.options.operations.getRequired(operationId);
-    const lease = await this.options.runtimeLeases.acquire(remoteRuntimeLocator(operation));
+    const lease = await this.acquireAttemptRuntime(operation);
     try {
       await this.failWithLease(operationId, lease);
     } finally {
@@ -88,9 +89,7 @@ export class RemoteBlockWritebackCoordinator {
       if (existingLease) {
         await this.sealRejectedWriteback(current, error, existingLease.runtime);
       } else {
-        const runtimeLease = await this.options.runtimeLeases.acquire(
-          remoteRuntimeLocator(current)
-        );
+        const runtimeLease = await this.acquireAttemptRuntime(current);
         try {
           await this.sealRejectedWriteback(current, error, runtimeLease.runtime);
         } finally {
@@ -149,6 +148,14 @@ export class RemoteBlockWritebackCoordinator {
       leaseId: reservation.leaseId,
       status
     });
+  }
+
+  private acquireAttemptRuntime(
+    operation: RemoteOperation
+  ): CanvasExecutionRuntimeLease | Promise<CanvasExecutionRuntimeLease> {
+    const hostId = operation.attempt.hostId;
+    if (!hostId) throw new CanvasRuntimeUnavailableError("runtime_not_attached");
+    return this.options.runtimeLeases.acquireForHost(remoteRuntimeLocator(operation), hostId);
   }
 
   private async completeWithLease(

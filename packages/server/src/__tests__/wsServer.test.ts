@@ -40,6 +40,7 @@ import {
 } from "./support/endpointCoordinatorFixture.js";
 import { ownHostRemoteAgents } from "./support/remoteAgentOwnerFixture.js";
 import { seedLegacyRemoteOperation } from "./support/legacyRemoteOperationSeed.js";
+import { exactHostRuntimeRouteFixture } from "./support/exactHostRuntimeRoute.js";
 
 const directories: string[] = [];
 const databases: PlanweaveServer[] = [];
@@ -207,7 +208,7 @@ async function createWsCoordination() {
     {
       leaseDurationMs: 60_000,
       hostOfflineAfterMs: 60_000,
-      runtimeLeases: registry,
+      runtimeLeases: exactHostRuntimeRouteFixture(registry),
       runtimeContentTargets: {
         read: (scope) => readStableCanvasRuntimeContentTarget(contentVersions, scope)
       },

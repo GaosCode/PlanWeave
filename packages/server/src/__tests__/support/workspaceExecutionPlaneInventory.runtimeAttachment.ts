@@ -413,6 +413,30 @@ export const runtimeNotAttachedInventory = [
     "Remote coordinator coverage keeps the internal preparation diagnostic stable."
   ),
   inventoryEntry(
+    "rna-remote-block-writeback-attempt-host",
+    "runtime_not_attached",
+    "runtime_attachment",
+    "packages/server/src/remoteBlockWritebackCoordinator.ts",
+    "acquireAttemptRuntime runtime_not_attached",
+    "Terminal writeback fails closed when durable attempt Host attachment evidence is absent; generic Runtime acquisition is forbidden."
+  ),
+  inventoryEntry(
+    "rna-remote-block-query-attempt-host",
+    "runtime_not_attached",
+    "runtime_attachment",
+    "packages/server/src/remoteBlockCoordinator.ts",
+    "withRuntime runtime_not_attached",
+    "Operation query fails closed when the durable attempt has no attached Host; generic Runtime acquisition is forbidden."
+  ),
+  inventoryEntry(
+    "rna-test-remote-block-attempt-host-route",
+    "runtime_not_attached",
+    "runtime_attachment",
+    "packages/server/src/__tests__/remoteBlockWritebackCoordinator.test.ts",
+    "query without durable attempt Host returns runtime_not_attached",
+    "Writeback/query regression coverage requires exact attempt Host routing and rejects generic Runtime acquisition."
+  ),
+  inventoryEntry(
     "rna-test-startup-action-recovery",
     "runtime_not_attached",
     "runtime_attachment",

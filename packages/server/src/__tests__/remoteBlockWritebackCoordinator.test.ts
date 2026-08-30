@@ -2,13 +2,72 @@ import { createHash } from "node:crypto";
 import {
   createRemoteBlockArtifactSource,
   getTaskWorkspaceRunDetail,
-  RemoteBlockRuntimeError
+  RemoteBlockRuntimeError,
+  type RemoteBlockArtifactSource,
+  type RemoteBlockRuntimePort
 } from "@planweave-ai/runtime";
 import { describe, expect, it, vi } from "vitest";
 import { AgentEndpointCatalogError } from "../agentEndpointCatalog.js";
 import { canonicalRemoteRuntimePort } from "../canonicalRemoteRuntimePort.js";
 import { endpointDispatchRequest } from "./support/endpointCoordinatorFixture.js";
+import { seedLegacyRemoteOperation } from "./support/legacyRemoteOperationSeed.js";
 import { remoteManifest, setup } from "./support/remoteBlockCoordinatorFixture.js";
+
+function useTargetAndDecoyAttemptRuntimeRoute(
+  fixture: Awaited<ReturnType<typeof setup>>,
+  targetHostId: string | undefined
+) {
+  // biome-ignore lint/complexity/useLiteralKeys: the strict test route replaces a private injected dependency.
+  const route = fixture.coordinator["options"].runtimeLeases;
+  const acquire = vi.spyOn(route, "acquire").mockImplementation(() => {
+    throw new Error("generic_runtime_acquire_forbidden");
+  });
+  const decoyHostId = fixture.hosts.register("Decoy Runtime Host").host.id;
+  const decoyTransport = vi.fn();
+  const decoyMaterialize = vi.fn();
+  const decoyRuntime = {
+    inspect: vi.fn(),
+    claim: vi.fn(),
+    activate: vi.fn(),
+    query: vi.fn(),
+    reconcile: vi.fn(),
+    markInterrupted: vi.fn(),
+    resumeAttempt: vi.fn(),
+    retryAttempt: vi.fn(),
+    complete: vi.fn(),
+    fail: vi.fn()
+  } satisfies RemoteBlockRuntimePort;
+  const decoyArtifacts = { read: vi.fn() } satisfies RemoteBlockArtifactSource;
+  const acquireForHost = vi.spyOn(route, "acquireForHost").mockImplementation((scope, hostId) => {
+    if (targetHostId && hostId === targetHostId) return fixture.registry.acquire(scope);
+    if (hostId !== decoyHostId) throw new Error("unexpected_runtime_host");
+    decoyTransport(scope, hostId);
+    decoyMaterialize(scope, hostId);
+    return {
+      runtime: decoyRuntime,
+      artifacts: decoyArtifacts,
+      release: vi.fn()
+    };
+  });
+  return {
+    acquire,
+    acquireForHost,
+    decoyHostId,
+    decoyTransport,
+    decoyMaterialize,
+    decoyRuntime
+  };
+}
+
+function expectDecoyRuntimeUnused(
+  route: ReturnType<typeof useTargetAndDecoyAttemptRuntimeRoute>
+): void {
+  expect(route.decoyTransport).not.toHaveBeenCalled();
+  expect(route.decoyMaterialize).not.toHaveBeenCalled();
+  expect(route.decoyRuntime.query).not.toHaveBeenCalled();
+  expect(route.decoyRuntime.complete).not.toHaveBeenCalled();
+  expect(route.decoyRuntime.fail).not.toHaveBeenCalled();
+}
 
 describe("RemoteBlockCoordinator Runtime lease and terminal writeback", () => {
   it("uses one acquired Runtime binding for execution and artifacts and releases every lease once", async () => {
@@ -244,6 +303,10 @@ describe("RemoteBlockCoordinator Runtime lease and terminal writeback", () => {
       },
       artifact
     );
+    const runtimeRoute = useTargetAndDecoyAttemptRuntimeRoute(fixture, dispatch.hostId);
+    await expect(fixture.coordinator.query(outcome.operation.id)).resolves.toMatchObject({
+      ownership: { phase: "active" }
+    });
     await fixture.dispatches.complete(
       dispatch.hostId,
       "complete-coordinator",
@@ -256,9 +319,17 @@ describe("RemoteBlockCoordinator Runtime lease and terminal writeback", () => {
         artifactRefs: []
       }
     );
+    await fixture.coordinator.complete(outcome.operation.id);
     await expect(
       fixture.runtime.query({ ref: "T-001#B-001", operationId: outcome.operation.id })
     ).resolves.toMatchObject({ status: "completed" });
+    expect(runtimeRoute.acquire).not.toHaveBeenCalled();
+    expect(runtimeRoute.acquireForHost.mock.calls).toEqual([
+      [fixture.locator, dispatch.hostId],
+      [fixture.locator, dispatch.hostId],
+      [fixture.locator, dispatch.hostId]
+    ]);
+    expectDecoyRuntimeUnused(runtimeRoute);
     expect(fixture.operations.getRequired(outcome.operation.id).state).toBe("completed");
     const binding = await fixture.runtime.query({
       ref: "T-001#B-001",
@@ -282,6 +353,75 @@ describe("RemoteBlockCoordinator Runtime lease and terminal writeback", () => {
         })
       ])
     );
+  });
+
+  it("writes terminal failure through the durable attempt Host route", async () => {
+    const fixture = await setup(true);
+    const outcome = await fixture.coordinator.dispatch(
+      endpointDispatchRequest({
+        agentEndpoints: fixture.agentEndpoints,
+        locator: fixture.dispatchLocator,
+        blockRef: "T-001#B-001",
+        idempotencyKey: "dispatch-request-fail-exact-host"
+      })
+    );
+    const dispatch = fixture.dispatches.getRequired(outcome.operation.dispatchId);
+    fixture.dispatches.accept(
+      dispatch.hostId,
+      "accept-failure-exact-host",
+      dispatch.id,
+      dispatch.leaseId,
+      dispatch.executionAttemptId
+    );
+    const runtimeRoute = useTargetAndDecoyAttemptRuntimeRoute(fixture, dispatch.hostId);
+
+    await fixture.dispatches.fail(
+      dispatch.hostId,
+      "fail-coordinator-exact-host",
+      dispatch.id,
+      dispatch.leaseId,
+      dispatch.executionAttemptId,
+      { code: "remote_test_failure", message: "Failed on the remote Host.", retryable: false }
+    );
+
+    expect(runtimeRoute.acquire).not.toHaveBeenCalled();
+    expect(runtimeRoute.acquireForHost).toHaveBeenCalledOnce();
+    expect(runtimeRoute.acquireForHost).toHaveBeenCalledWith(fixture.locator, dispatch.hostId);
+    expectDecoyRuntimeUnused(runtimeRoute);
+    expect(fixture.operations.getRequired(outcome.operation.id).state).toBe("failed");
+    await expect(
+      fixture.runtime.query({ ref: "T-001#B-001", operationId: outcome.operation.id })
+    ).resolves.toMatchObject({ status: "blocked" });
+  });
+
+  it("fails query closed before a durable attempt Host is selected", async () => {
+    const fixture = await setup(false);
+    const candidate = await fixture.registry.resolve(fixture.locator).inspect({
+      ref: "T-001#B-001"
+    });
+    const operation = seedLegacyRemoteOperation({
+      database: fixture.server.database,
+      operations: fixture.operations,
+      locator: fixture.locator,
+      candidate,
+      idempotencyKey: "query-without-attempt-host",
+      hostSelection: {
+        workspaceId: fixture.locator.workspaceId,
+        assignmentRevision: 0,
+        target: { kind: "automatic_host" },
+        selection: "automatic",
+        requiredCapabilities: candidate.requiredCapabilities
+      }
+    });
+    const runtimeRoute = useTargetAndDecoyAttemptRuntimeRoute(fixture, undefined);
+
+    await expect(fixture.coordinator.query(operation.id)).rejects.toMatchObject({
+      message: "canvas_runtime_unavailable",
+      reason: "runtime_not_attached"
+    });
+    expect(runtimeRoute.acquire).not.toHaveBeenCalled();
+    expect(runtimeRoute.acquireForHost).not.toHaveBeenCalled();
+    expectDecoyRuntimeUnused(runtimeRoute);
   });
 
   it("seals awaiting_writeback after the host reservation expires and the endpoint goes away", async () => {
@@ -370,10 +510,15 @@ describe("RemoteBlockCoordinator Runtime lease and terminal writeback", () => {
     fixture.server.database
       .prepare("UPDATE agent_hosts SET last_seen_at=? WHERE id=?")
       .run("2020-01-01T00:00:00.000Z", fixture.host.id);
+    const runtimeRoute = useTargetAndDecoyAttemptRuntimeRoute(fixture, dispatch.hostId);
 
     await expect(fixture.coordinator.reenter(outcome.operation.id)).resolves.toMatchObject({
       status: "terminal"
     });
+    expect(runtimeRoute.acquire).not.toHaveBeenCalled();
+    expect(runtimeRoute.acquireForHost).toHaveBeenCalledOnce();
+    expect(runtimeRoute.acquireForHost).toHaveBeenCalledWith(fixture.locator, dispatch.hostId);
+    expectDecoyRuntimeUnused(runtimeRoute);
     expect(fixture.operations.getRequired(outcome.operation.id).state).toBe("completed");
     expect(fixture.dispatches.getRequired(dispatch.id).status).toBe("completed");
     await expect(
@@ -463,10 +608,15 @@ describe("RemoteBlockCoordinator Runtime lease and terminal writeback", () => {
         "Remote review result for 'T-001#R-001' is not valid review-result JSON."
       )
     );
+    const runtimeRoute = useTargetAndDecoyAttemptRuntimeRoute(fixture, dispatch.hostId);
 
     await expect(fixture.coordinator.reenter(outcome.operation.id)).resolves.toMatchObject({
       status: "terminal"
     });
+    expect(runtimeRoute.acquire).not.toHaveBeenCalled();
+    expect(runtimeRoute.acquireForHost).toHaveBeenCalledOnce();
+    expect(runtimeRoute.acquireForHost).toHaveBeenCalledWith(fixture.locator, dispatch.hostId);
+    expectDecoyRuntimeUnused(runtimeRoute);
     expect(fixture.operations.getRequired(outcome.operation.id).state).toBe("failed");
     expect(fixture.dispatches.getRequired(dispatch.id).status).toBe("failed");
     expect(
@@ -557,10 +707,17 @@ describe("RemoteBlockCoordinator Runtime lease and terminal writeback", () => {
         "Remote source changed before writeback."
       )
     );
+    const runtimeRoute = useTargetAndDecoyAttemptRuntimeRoute(fixture, dispatch.hostId);
 
     await expect(fixture.coordinator.reenterPending()).resolves.toEqual(
       expect.arrayContaining([expect.objectContaining({ status: "terminal" })])
     );
+    expect(runtimeRoute.acquire).not.toHaveBeenCalled();
+    expect(runtimeRoute.acquireForHost.mock.calls).toEqual([
+      [fixture.locator, dispatch.hostId],
+      [fixture.locator, dispatch.hostId]
+    ]);
+    expectDecoyRuntimeUnused(runtimeRoute);
     expect(fixture.operations.getRequired(first.operation.id).state).toBe("failed");
     expect(fixture.dispatches.getRequired(dispatch.id).status).toBe("failed");
     expect(
