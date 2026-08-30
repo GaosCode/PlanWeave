@@ -1,11 +1,16 @@
 import {
   CANVAS_RUNTIME_CAPABILITY,
   agentHostProtocolVersion,
+  type CanvasRuntimeCancelCommand,
   type CanvasRuntimeRequestCommand
 } from "@planweave-ai/agent-host-protocol";
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CanvasRuntimeRpcBroker, CanvasRuntimeRpcError } from "../canvas/runtimeRpcBroker.js";
+import {
+  CanvasRuntimeRpcBroker,
+  CanvasRuntimeRpcError,
+  type CanvasRuntimeRpcDiagnosticSink
+} from "../canvas/runtimeRpcBroker.js";
 import { AgentHostRepository } from "../hosts.js";
 import { DurableMailbox, type MailboxMessage } from "../mailbox.js";
 import { applyMigrations } from "../migrations.js";
@@ -29,7 +34,7 @@ afterEach(() => {
   for (const database of databases.splice(0)) database.close();
 });
 
-async function setup(timeout = 1_000) {
+async function setup(timeout = 1_000, diagnosticSink?: CanvasRuntimeRpcDiagnosticSink) {
   const database = await openServerDatabase(":memory:", 5_000);
   databases.push(database);
   applyMigrations(database);
@@ -40,7 +45,8 @@ async function setup(timeout = 1_000) {
   const active = new Set([host.id]);
   const broker = new CanvasRuntimeRpcBroker(database, hosts, mailbox, {
     requestTimeoutMs: timeout,
-    clock: () => new Date("2026-08-20T00:00:00.000Z")
+    clock: () => new Date("2026-08-20T00:00:00.000Z"),
+    ...(diagnosticSink ? { diagnosticSink } : {})
   });
   broker.attachSessionLookup({ isActive: (hostId) => active.has(hostId) });
   const deliveries: MailboxMessage[] = [];
@@ -51,6 +57,13 @@ async function setup(timeout = 1_000) {
 function requestCommand(message: MailboxMessage): CanvasRuntimeRequestCommand {
   if (message.command.type !== "canvas_runtime.request") {
     throw new Error("test_canvas_runtime_request_expected");
+  }
+  return message.command;
+}
+
+function cancelCommand(message: MailboxMessage): CanvasRuntimeCancelCommand {
+  if (message.command.type !== "canvas_runtime.cancel") {
+    throw new Error("test_canvas_runtime_cancel_expected");
   }
   return message.command;
 }
@@ -131,6 +144,185 @@ describe("CanvasRuntimeRpcBroker", () => {
     expect(
       fixture.broker.authorizesContentTransfer(fixture.host.id, scope, contentTarget.content)
     ).toBe(false);
+  });
+
+  it("cancels a pending read before a response and safely ignores late responses", async () => {
+    const fixture = await setup();
+    const handle = fixture.broker.requestCancellableRead(
+      fixture.host.id,
+      scope,
+      availabilityOperation
+    );
+    const cancelled = expect(handle.response).rejects.toEqual(
+      new CanvasRuntimeRpcError("canvas_runtime_rpc_cancelled", false, false)
+    );
+    const request = requestCommand(fixture.deliveries[0]!);
+    expect(
+      fixture.broker.authorizesContentTransfer(fixture.host.id, scope, contentTarget.content)
+    ).toBe(true);
+
+    expect(handle.cancel()).toBe(true);
+
+    await cancelled;
+    expect(fixture.broker.pendingCount()).toBe(0);
+    expect(
+      fixture.broker.authorizesContentTransfer(fixture.host.id, scope, contentTarget.content)
+    ).toBe(false);
+    const cancellation = cancelCommand(fixture.deliveries[1]!);
+    expect(fixture.deliveries[1]?.hostId).toBe(fixture.host.id);
+    expect(cancellation).toMatchObject({
+      targetRequestId: request.requestId,
+      scope,
+      deadline: "2026-08-20T00:00:01.000Z"
+    });
+    expect(cancellation.requestId).not.toBe(request.requestId);
+
+    const late = availabilityResponse(request, "host_offline");
+    expect(fixture.broker.handleResponse(fixture.host.id, late)).toBe(true);
+    expect(fixture.broker.handleResponse(fixture.host.id, late)).toBe(false);
+    expect(
+      fixture.broker.handleResponse(fixture.host.id, {
+        type: "canvas_runtime.response",
+        protocolVersion: agentHostProtocolVersion,
+        messageId: randomUUID(),
+        requestId: cancellation.requestId,
+        response: {
+          outcome: "success",
+          operation: "cancel",
+          result: { targetRequestId: request.requestId, cancelled: true }
+        }
+      })
+    ).toBe(true);
+    expect(fixture.broker.pendingCount()).toBe(0);
+  });
+
+  it("does not cancel or enqueue a notification after the response wins", async () => {
+    const fixture = await setup();
+    const handle = fixture.broker.requestCancellableRead(
+      fixture.host.id,
+      scope,
+      availabilityOperation
+    );
+    const command = requestCommand(fixture.deliveries[0]!);
+
+    fixture.broker.handleResponse(
+      fixture.host.id,
+      availabilityResponse(command, "runtime_not_attached")
+    );
+
+    await expect(handle.response).resolves.toMatchObject({ operation: "availability" });
+    expect(handle.cancel()).toBe(false);
+    expect(fixture.deliveries).toHaveLength(1);
+  });
+
+  it("fences repeated cancellation to one local settlement and one Host notification", async () => {
+    const fixture = await setup();
+    const handle = fixture.broker.requestCancellableRead(
+      fixture.host.id,
+      scope,
+      availabilityOperation
+    );
+    const cancelled = expect(handle.response).rejects.toMatchObject({
+      code: "canvas_runtime_rpc_cancelled"
+    });
+
+    expect(handle.cancel()).toBe(true);
+    expect(handle.cancel()).toBe(false);
+
+    await cancelled;
+    expect(fixture.deliveries.map(({ command }) => command.type)).toEqual([
+      "canvas_runtime.request",
+      "canvas_runtime.cancel"
+    ]);
+  });
+
+  it("allows resolve_work_items cancellation but rejects other Runtime operations", async () => {
+    const fixture = await setup();
+    const handle = fixture.broker.requestCancellableRead(fixture.host.id, scope, {
+      operation: "resolve_work_items",
+      contentTarget,
+      input: { workItems: [] }
+    });
+    const cancelled = expect(handle.response).rejects.toMatchObject({
+      code: "canvas_runtime_rpc_cancelled"
+    });
+
+    expect(requestCommand(fixture.deliveries[0]!).operation.operation).toBe("resolve_work_items");
+    expect(handle.cancel()).toBe(true);
+    await cancelled;
+
+    expect(() =>
+      Reflect.apply(fixture.broker.requestCancellableRead, fixture.broker, [
+        fixture.host.id,
+        scope,
+        { operation: "acquire", contentTarget }
+      ])
+    ).toThrow("canvas_runtime_rpc_cancellation_unsupported");
+  });
+
+  it("fences cancellation against Host detach in either order", async () => {
+    const detached = await setup();
+    const detachedHandle = detached.broker.requestCancellableRead(
+      detached.host.id,
+      scope,
+      availabilityOperation
+    );
+    const disconnected = expect(detachedHandle.response).rejects.toMatchObject({
+      code: "canvas_runtime_host_disconnected"
+    });
+    detached.broker.detachHost(detached.host.id, "disconnected");
+    expect(detachedHandle.cancel()).toBe(false);
+    await disconnected;
+    expect(detached.deliveries).toHaveLength(1);
+
+    const cancelled = await setup();
+    const cancelledHandle = cancelled.broker.requestCancellableRead(
+      cancelled.host.id,
+      scope,
+      availabilityOperation
+    );
+    const cancellation = expect(cancelledHandle.response).rejects.toMatchObject({
+      code: "canvas_runtime_rpc_cancelled"
+    });
+    expect(cancelledHandle.cancel()).toBe(true);
+    cancelled.broker.detachHost(cancelled.host.id, "disconnected");
+    await cancellation;
+    expect(cancelled.deliveries).toHaveLength(2);
+    expect(cancelled.broker.pendingCount()).toBe(0);
+  });
+
+  it("keeps local cancellation authoritative when Host notification publish fails", async () => {
+    const diagnosticSink = vi.fn<CanvasRuntimeRpcDiagnosticSink>();
+    const fixture = await setup(1_000, diagnosticSink);
+    fixture.mailbox.subscribe(fixture.host.id, (message) => {
+      if (message.command.type === "canvas_runtime.cancel") {
+        throw new Error("secret:/private/runtime/cancel");
+      }
+    });
+    const handle = fixture.broker.requestCancellableRead(
+      fixture.host.id,
+      scope,
+      availabilityOperation
+    );
+    const cancelled = expect(handle.response).rejects.toMatchObject({
+      code: "canvas_runtime_rpc_cancelled"
+    });
+
+    expect(handle.cancel()).toBe(true);
+
+    await cancelled;
+    expect(fixture.broker.pendingCount()).toBe(0);
+    expect(
+      fixture.broker.authorizesContentTransfer(fixture.host.id, scope, contentTarget.content)
+    ).toBe(false);
+    expect(diagnosticSink).toHaveBeenCalledWith({
+      hostId: fixture.host.id,
+      operation: "availability",
+      category: "cancel_publish_failed",
+      code: "canvas_runtime_cancel_publish_failed"
+    });
+    expect(JSON.stringify(diagnosticSink.mock.calls)).not.toContain("secret");
+    expect(JSON.stringify(diagnosticSink.mock.calls)).not.toContain("/private/runtime");
   });
 
   it("persists and ignores orphan/duplicate durable responses after restart", async () => {

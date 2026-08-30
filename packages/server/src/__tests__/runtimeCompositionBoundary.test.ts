@@ -14,6 +14,14 @@ const runtimeRouterSource = readFileSync(
   fileURLToPath(new URL("../canvas/remoteHostRuntimeAdapter.ts", import.meta.url)),
   "utf8"
 );
+const remoteFactsSource = readFileSync(
+  fileURLToPath(new URL("../work/remoteHostRuntimeFactsAdapter.ts", import.meta.url)),
+  "utf8"
+);
+const remoteExecutionSource = readFileSync(
+  fileURLToPath(new URL("../composition/remoteExecution.ts", import.meta.url)),
+  "utf8"
+);
 const removedStatusSurfaceSources = [
   "../canvas/runtimePort.ts",
   "../canvas/localFilesystemRuntimeAdapter.ts",
@@ -33,7 +41,9 @@ describe("Runtime composition boundary", () => {
     expect(transportSource).toContain("runtimeAttachments: readonly CanvasRuntimeAttachment[]");
     expect(transportSource).not.toContain("TrustedRuntimeRegistry");
     expect(transportSource).not.toContain("runtimeRegistry:");
-    expect(transportSource).toContain("runtimeAvailability: CanvasRuntimeAvailabilityPort");
+    expect(transportSource).toContain(
+      "runtimeAvailability: CanvasRuntimeAuthorityAvailabilityPort"
+    );
     expect(transportSource).not.toContain("CanvasRuntimeStatusPort");
     expect(transportSource).not.toContain("runtimeStatus:");
     expect(compositionRootSource).toContain("...registries.runtimeRegistry.locators");
@@ -41,7 +51,7 @@ describe("Runtime composition boundary", () => {
     expect(compositionRootSource).toContain("initialContentCapture,");
     expect(compositionRootSource).toContain("runtimeAvailability: collaborationRuntime");
     expect(compositionRootSource).toContain(
-      "const collaborationRuntime = new LocalFirstCanvasRuntimeRouter("
+      "const collaborationRuntime = new AuthoritySelectingCanvasRuntimeRouter("
     );
     expect(compositionRootSource).toContain("executionLeases: collaborationRuntime");
     expect(compositionRootSource).toContain(
@@ -58,5 +68,16 @@ describe("Runtime composition boundary", () => {
     expect(removedStatusSurfaceSources).not.toContain("readRuntimeStatus");
     expect(removedStatusSurfaceSources).not.toContain('kind: "runtime_status_read"');
     expect(removedStatusSurfaceSources).not.toContain("runtimeStatus:");
+  });
+
+  it("does not expose raw remote reads or accept a generic Work facts port in production", () => {
+    expect(runtimeRouterSource).not.toContain("async readAvailability(");
+    expect(runtimeRouterSource).toContain("readAvailabilityForAuthority(");
+    expect(remoteFactsSource).not.toContain("async acquireFacts(");
+    expect(remoteFactsSource).toContain("factCandidates(");
+    expect(remoteExecutionSource).toContain(
+      "workRuntimeFacts: AuthoritySelectingWorkRuntimeFactsAdapter"
+    );
+    expect(remoteExecutionSource).not.toContain("workRuntimeFacts: WorkRuntimePackageFactsPort");
   });
 });

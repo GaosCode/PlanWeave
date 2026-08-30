@@ -23,7 +23,7 @@ import type { CompleteContentVersion } from "@planweave-ai/collaboration-protoco
 import { canvasScopeRefSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import type {
   CanvasInitialContentCapturePort,
-  CanvasRuntimeAvailabilityPort
+  CanvasRuntimeAuthorityAvailabilityPort
 } from "./runtimePort.js";
 import type {
   CanvasExecutionRuntimeLeasePort,
@@ -53,7 +53,7 @@ export type CanvasCollaborationCompositionOptions = {
   authorizationChanges: AuthorizationChangeSignal;
   runtimeAttachments: readonly CanvasRuntimeAttachment[];
   initialContentCapture: CanvasInitialContentCapturePort;
-  runtimeAvailability: CanvasRuntimeAvailabilityPort;
+  runtimeAvailability: CanvasRuntimeAuthorityAvailabilityPort;
   runtimeCommand?: {
     executionLeases: CanvasExecutionRuntimeLeasePort;
     hasConflictingLease(scope: RuntimeCanvasScope): boolean;

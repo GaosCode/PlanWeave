@@ -1,17 +1,18 @@
 import { canvasRuntimeJsonValueSchema } from "@planweave-ai/agent-host-protocol";
 import {
   parseResolveWorkItemsResult,
-  resolveWorkItemsRequestSchema,
-  type ResolveWorkItemsResult
+  resolveWorkItemsRequestSchema
 } from "@planweave-ai/collaboration-protocol/work/package-facts";
 import type { CanvasRuntimeHostLocator } from "../canvas/runtimeHostLocator.js";
 import { CanvasRuntimeRpcError, type CanvasRuntimeRpcBroker } from "../canvas/runtimeRpcBroker.js";
-import type {
-  WorkRuntimeFactsLease,
-  WorkRuntimeFactsRequest,
-  WorkRuntimePackageFactsPort
-} from "./runtimePort.js";
-import { WorkRuntimeUnavailableError } from "./runtimePort.js";
+import {
+  type RuntimeAuthorityCandidate,
+  type RuntimeAuthorityCandidateDiagnostic,
+  type RuntimeAuthorityCandidateHandle,
+  type RuntimeAuthorityCandidateObservation,
+  type RuntimeReadAuthority
+} from "../canvas/runtimeAuthorityCandidates.js";
+import type { WorkRuntimeFactsLease, WorkRuntimeFactsRequest } from "./runtimePort.js";
 import { factsLease } from "./runtimeFactsAdapters.js";
 import type { CanvasRuntimeContentTarget } from "@planweave-ai/collaboration-protocol/content/version";
 
@@ -33,116 +34,72 @@ const deviceUnavailableErrorCodes = new Set([
   "canvas_runtime_host_revoked"
 ]);
 
-type HostFactsObservation =
-  | { kind: "match"; result: ResolveWorkItemsResult }
-  | { kind: "content_out_of_sync" }
-  | { kind: "host_offline" };
-
-type SettledHostFactsObservation =
-  | { kind: "observation"; observation: HostFactsObservation }
-  | { kind: "error"; error: unknown };
-
 type RemoteHostWorkRuntimeFactsAdapterOptions = {
   requestTimeoutMs: number;
+  diagnosticSink?: (diagnostic: RuntimeAuthorityCandidateDiagnostic) => void;
 };
 
+function factsDiagnosticCode(error: unknown): string {
+  return error instanceof CanvasRuntimeRpcError
+    ? error.code
+    : "work_runtime_facts_candidate_unknown";
+}
+
+function logFactsDiagnostic(diagnostic: RuntimeAuthorityCandidateDiagnostic): void {
+  console.warn("work_runtime_facts_candidate_error", diagnostic);
+}
+
 /** Bounded read-only Work facts RPC. It never acquires an execution Runtime lease. */
-export class RemoteHostWorkRuntimeFactsAdapter implements WorkRuntimePackageFactsPort {
+export class RemoteHostWorkRuntimeFactsAdapter {
   constructor(
     private readonly locator: CanvasRuntimeHostLocator,
     private readonly broker: CanvasRuntimeRpcBroker,
-    private readonly contentAuthority: {
-      read(
-        scope: WorkRuntimeFactsRequest["scope"]
-      ): { target: CanvasRuntimeContentTarget; sourceRevision: string } | undefined;
-    },
     private readonly options: RemoteHostWorkRuntimeFactsAdapterOptions
   ) {}
 
-  async acquireFacts(input: WorkRuntimeFactsRequest): Promise<WorkRuntimeFactsLease | undefined> {
-    const request = resolveWorkItemsRequestSchema.parse({ workItems: input.workItems });
-    const located = this.locator.locateCandidates(input.scope);
-    if (located.kind === "unavailable") throw new WorkRuntimeUnavailableError(located.reason);
-    const authority = this.contentAuthority.read(input.scope);
-    if (!authority) throw new WorkRuntimeUnavailableError("content_out_of_sync");
-
-    const match = await this.firstExactFacts(
-      located.hostIds,
-      input,
-      request,
-      authority.target,
-      authority.sourceRevision
-    );
-    return factsLease(input, match);
-  }
-
-  private firstExactFacts(
-    hostIds: readonly string[],
+  factCandidates(
     input: WorkRuntimeFactsRequest,
     request: ReturnType<typeof resolveWorkItemsRequestSchema.parse>,
-    contentTarget: CanvasRuntimeContentTarget,
-    sourceRevision: string
-  ): Promise<ResolveWorkItemsResult> {
-    return new Promise((resolve, reject) => {
-      const settled: Array<SettledHostFactsObservation | undefined> = new Array(hostIds.length);
-      let remaining = hostIds.length;
-      let resolved = false;
-
-      const finishWithoutMatch = (): void => {
-        const unknown = settled.find(
-          (entry): entry is Extract<SettledHostFactsObservation, { kind: "error" }> =>
-            entry?.kind === "error"
-        );
-        if (unknown) {
-          reject(unknown.error);
-          return;
+    authority: RuntimeReadAuthority
+  ): RuntimeAuthorityCandidate<WorkRuntimeFactsLease>[] {
+    const located = this.locator.locateCandidates(input.scope);
+    if (located.kind === "unavailable") {
+      return [
+        {
+          id: "remote",
+          start: () => ({
+            response: Promise.resolve({ kind: "unavailable", reason: located.reason }),
+            cancel: () => false
+          })
         }
-        if (
-          settled.some(
-            (entry) =>
-              entry?.kind === "observation" && entry.observation.kind === "content_out_of_sync"
-          )
-        ) {
-          reject(new WorkRuntimeUnavailableError("content_out_of_sync"));
-          return;
-        }
-        reject(new WorkRuntimeUnavailableError("host_offline"));
-      };
-
-      hostIds.forEach((hostId, index) => {
-        void this.readHostFacts(hostId, input, request, contentTarget, sourceRevision).then(
-          (observation) => {
-            if (observation.kind === "match") {
-              if (!resolved) {
-                resolved = true;
-                resolve(observation.result);
-              }
-              return;
-            }
-            settled[index] = { kind: "observation", observation };
-            remaining -= 1;
-            if (!resolved && remaining === 0) finishWithoutMatch();
-          },
-          (error: unknown) => {
-            settled[index] = { kind: "error", error };
-            remaining -= 1;
-            if (!resolved && remaining === 0) finishWithoutMatch();
-          }
-        );
-      });
-    });
+      ];
+    }
+    return located.hostIds.map((hostId) => ({
+      id: `host:${hostId}`,
+      start: () => this.startHostFacts(hostId, input, request, authority.target)
+    }));
   }
 
-  private async readHostFacts(
+  reportDiagnostic(diagnostic: RuntimeAuthorityCandidateDiagnostic): void {
+    try {
+      (this.options.diagnosticSink ?? logFactsDiagnostic)(diagnostic);
+    } catch {
+      // Diagnostics are observational and cannot prevent a candidate from settling.
+    }
+  }
+
+  diagnosticCode(error: unknown): string {
+    return factsDiagnosticCode(error);
+  }
+
+  private startHostFacts(
     hostId: string,
     input: WorkRuntimeFactsRequest,
     request: ReturnType<typeof resolveWorkItemsRequestSchema.parse>,
-    contentTarget: CanvasRuntimeContentTarget,
-    sourceRevision: string
-  ): Promise<HostFactsObservation> {
-    let response: Awaited<ReturnType<CanvasRuntimeRpcBroker["request"]>>;
+    contentTarget: CanvasRuntimeContentTarget
+  ): RuntimeAuthorityCandidateHandle<WorkRuntimeFactsLease> {
     try {
-      response = await this.broker.request(
+      const handle = this.broker.requestCancellableRead(
         hostId,
         input.scope,
         {
@@ -153,15 +110,40 @@ export class RemoteHostWorkRuntimeFactsAdapter implements WorkRuntimePackageFact
         this.broker.attachmentVersion(hostId),
         { requestTimeoutMs: this.options.requestTimeoutMs }
       );
+      return {
+        response: this.readHostFactsResponse(handle.response, input, request),
+        cancel: () => {
+          return handle.cancel();
+        }
+      };
     } catch (error) {
       if (error instanceof CanvasRuntimeRpcError && deviceUnavailableErrorCodes.has(error.code)) {
-        return { kind: "host_offline" };
+        return {
+          response: Promise.resolve({ kind: "unavailable", reason: "host_offline" }),
+          cancel: () => false
+        };
+      }
+      return { response: Promise.reject(error), cancel: () => false };
+    }
+  }
+
+  private async readHostFactsResponse(
+    responsePromise: ReturnType<CanvasRuntimeRpcBroker["requestCancellableRead"]>["response"],
+    input: WorkRuntimeFactsRequest,
+    request: ReturnType<typeof resolveWorkItemsRequestSchema.parse>
+  ): Promise<RuntimeAuthorityCandidateObservation<WorkRuntimeFactsLease>> {
+    let response: Awaited<typeof responsePromise>;
+    try {
+      response = await responsePromise;
+    } catch (error) {
+      if (error instanceof CanvasRuntimeRpcError && deviceUnavailableErrorCodes.has(error.code)) {
+        return { kind: "unavailable", reason: "host_offline" };
       }
       throw error;
     }
     if (response.outcome === "error") {
       if (contentDriftErrorCodes.has(response.error.code)) {
-        return { kind: "content_out_of_sync" };
+        return { kind: "unavailable", reason: "content_out_of_sync" };
       }
       throw new CanvasRuntimeRpcError(
         response.error.code,
@@ -173,12 +155,13 @@ export class RemoteHostWorkRuntimeFactsAdapter implements WorkRuntimePackageFact
       throw new Error("canvas_runtime_response_operation_mismatch");
     }
     const result = parseResolveWorkItemsResult(request, response.result);
-    if (
-      result.sourceRevision !== sourceRevision ||
-      result.graphFingerprint !== contentTarget.graphFingerprint
-    ) {
-      return { kind: "content_out_of_sync" };
-    }
-    return { kind: "match", result };
+    return {
+      kind: "available",
+      evidence: {
+        sourceRevision: result.sourceRevision,
+        graphFingerprint: result.graphFingerprint
+      },
+      value: factsLease(input, result)
+    };
   }
 }

@@ -42,6 +42,7 @@ export { CanvasOperationRetentionMaintenance } from "./operationRetentionMainten
 export type {
   CanvasInitialContentCapturePort,
   CanvasPackageSnapshotRuntimePort,
+  CanvasRuntimeAuthorityAvailabilityPort,
   CanvasRuntimeAvailabilityPort,
   LocalFilesystemCanvasRuntimePort
 } from "./runtimePort.js";

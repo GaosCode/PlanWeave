@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { decodeCanvasReplicaDocument, projectCanvasReplicaDocument } from "@planweave-ai/runtime";
 import {
   CanvasRuntimeAvailabilityService,
+  type CanvasRuntimeAuthorityAvailabilityPort,
   type CanvasRuntimeAvailabilityPort
 } from "../canvas/index.js";
 import { createInvalidatingCanvasRuntimeStatusRepository } from "../canvas/runtimeStatusInvalidation.js";
@@ -65,6 +66,10 @@ async function setup(runtimeAvailability?: CanvasRuntimeAvailabilityPort) {
   };
   const port = runtimeAvailability ?? availablePort(fingerprint, authority.sourceRevision);
   const readAvailability = vi.spyOn(port, "readAvailability");
+  const authorityPort: CanvasRuntimeAuthorityAvailabilityPort = {
+    readAvailabilityForAuthority: (requestedScope, requestedAt) =>
+      port.readAvailability(requestedScope, requestedAt)
+  };
   const runtimeStatuses = createInvalidatingCanvasRuntimeStatusRepository({
     database: context.database,
     observerJournal: new HumanObserverJournal(context.database, 100),
@@ -74,7 +79,7 @@ async function setup(runtimeAvailability?: CanvasRuntimeAvailabilityPort) {
     access: context.access,
     workspaceIdentity: new WorkspaceIdentityRepository(context.database),
     contentVersions: context.contentVersions,
-    runtimeAvailability: port,
+    runtimeAvailability: authorityPort,
     runtimeStatuses,
     clock: () => new Date(capturedAt)
   });

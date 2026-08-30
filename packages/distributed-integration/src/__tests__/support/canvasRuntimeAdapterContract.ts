@@ -1,4 +1,5 @@
-import type { CanvasRuntimeAvailabilityPort } from "../../../../server/src/canvas/runtimePort.js";
+import type { CanvasRuntimeAuthorityAvailabilityPort } from "../../../../server/src/canvas/runtimePort.js";
+import type { RuntimeReadAuthority } from "../../../../server/src/canvas/runtimeAuthorityCandidates.js";
 import type {
   CanvasExecutionRuntimeLeasePort,
   RuntimeCanvasScope
@@ -10,7 +11,8 @@ import { describe, expect, it } from "vitest";
 export type CanvasRuntimeAdapterContractFixture = {
   scope: CanvasScopeRef & RuntimeCanvasScope;
   blockRef: string;
-  adapter: CanvasRuntimeAvailabilityPort & CanvasExecutionRuntimeLeasePort;
+  authority: RuntimeReadAuthority;
+  adapter: CanvasRuntimeAuthorityAvailabilityPort & CanvasExecutionRuntimeLeasePort;
   detach(): void | Promise<void>;
   releaseDelegateCalls(): number;
   sourceDriftError: Readonly<Record<string, unknown>>;
@@ -42,9 +44,31 @@ export function registerCanvasRuntimeAdapterContract(
     it("shares availability, evidence, drift, release and detach semantics", async () => {
       const fixture = await create();
       try {
-        const availability = await fixture.adapter.readAvailability(fixture.scope);
+        const availability = await fixture.adapter.readAvailabilityForAuthority(
+          fixture.scope,
+          undefined,
+          fixture.authority
+        );
         expect(availability).toMatchObject({ kind: "available", status: { scope: fixture.scope } });
         if (availability.kind !== "available") throw new Error("contract_runtime_unavailable");
+        const mismatchedAuthorities = [
+          {
+            ...fixture.authority,
+            sourceRevision: `snapshot:${"f".repeat(64)}`
+          },
+          {
+            ...fixture.authority,
+            target: {
+              ...fixture.authority.target,
+              graphFingerprint: `pkg-${"f".repeat(64)}`
+            }
+          }
+        ];
+        for (const authority of mismatchedAuthorities) {
+          await expect(
+            fixture.adapter.readAvailabilityForAuthority(fixture.scope, undefined, authority)
+          ).resolves.toMatchObject({ kind: "unavailable", reason: "content_out_of_sync" });
+        }
 
         const lease = await fixture.adapter.acquire(fixture.scope);
         const candidate = await lease.runtime.inspect({ ref: fixture.blockRef });
@@ -87,9 +111,9 @@ export function registerCanvasRuntimeAdapterContract(
         expect(fixture.releaseDelegateCalls()).toBe(1);
 
         await fixture.detach();
-        await expect(fixture.adapter.readAvailability(fixture.scope)).resolves.toMatchObject({
-          kind: "unavailable"
-        });
+        await expect(
+          fixture.adapter.readAvailabilityForAuthority(fixture.scope, undefined, fixture.authority)
+        ).resolves.toMatchObject({ kind: "unavailable" });
         await expect(fixture.adapter.acquire(fixture.scope)).rejects.toMatchObject(
           fixture.unavailableAcquireError
         );

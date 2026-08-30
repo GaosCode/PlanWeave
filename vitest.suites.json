@@ -904,6 +904,7 @@
         "runtimeAttachment.test.ts",
         "runtimeCompositionBoundary.test.ts",
         "runtimeHostLocator.test.ts",
+        "runtimeAuthorityCandidates.test.ts",
         "runtimeProjectRegistry.test.ts",
         "runtimeContentHttp.test.ts",
         "runtimeRpcBroker.test.ts",

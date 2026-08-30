@@ -32,9 +32,7 @@ import type {
   CanvasRuntimeScopeAvailabilityPort,
   OwnerCanvasRuntimeScopeResolverPort
 } from "../canvas/executionRuntimePort.js";
-import type { WorkRuntimePackageFactsPort } from "../work/runtimePort.js";
-import { ContentAlignedWorkRuntimeFactsAdapter } from "../work/runtimeFactsAdapters.js";
-import { ContentVersionRepository } from "../canvas/contentVersionRepository.js";
+import type { AuthoritySelectingWorkRuntimeFactsAdapter } from "../work/runtimeFactsAdapters.js";
 import type { RemoteRuntimeContentTargetPort } from "../remoteBlockCoordinatorPorts.js";
 
 export function createRemoteCoordinationOptions(input: {
@@ -153,7 +151,7 @@ export function createRemoteExecutionComposition(input: {
   clock: () => Date;
   coordination: Coordination;
   ownerRuntimeScopes: OwnerCanvasRuntimeScopeResolverPort;
-  workRuntimeFacts: WorkRuntimePackageFactsPort;
+  workRuntimeFacts: AuthoritySelectingWorkRuntimeFactsAdapter;
   workspaceIdentity: WorkspaceIdentityRepository;
   projectAccess: ProjectAccessRepository;
   authorization: OperatorTokenRegistry;
@@ -171,10 +169,7 @@ export function createRemoteExecutionComposition(input: {
   const assignmentServices = new Map<string, WorkAssignmentService>();
   const authorityServices = new Map<string, AuthorityService>();
   const authorityRepository = new AuthorityRepository(input.database, { clock: input.clock });
-  const runtimeFacts = new ContentAlignedWorkRuntimeFactsAdapter(
-    input.workRuntimeFacts,
-    new ContentVersionRepository(input.database, input.clock)
-  );
+  const runtimeFacts = input.workRuntimeFacts;
   const acquireAuthorityService = (workspaceId: string, projectId: string, canvasId: string) => {
     if (!input.workspaceIdentity.workspaceExists(workspaceId)) return undefined;
     const project = input.projectAccess.registry.projectInternal(workspaceId, projectId);

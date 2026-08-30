@@ -171,7 +171,10 @@ export async function canvasCommandServiceFixture(options?: {
     access,
     workspaceIdentity,
     contentVersions,
-    runtimeAvailability,
+    runtimeAvailability: {
+      readAvailabilityForAuthority: (scope, capturedAt) =>
+        runtimeAvailability.readAvailability(scope, capturedAt)
+    },
     runtimeStatuses,
     clock: () => new Date("2026-01-02T00:00:00.000Z")
   });

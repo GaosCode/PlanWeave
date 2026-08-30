@@ -333,6 +333,38 @@ export const runtimeNotAttachedInventory = [
     "Remote adapter tests map missing bindings to unattached."
   ),
   inventoryEntry(
+    "rna-test-remoteHostRuntimeAvailability",
+    "runtime_not_attached",
+    "runtime_attachment",
+    "packages/server/src/__tests__/remoteHostRuntimeAvailability.test.ts",
+    "reason runtime_not_attached",
+    "Authority-aware availability tests preserve the unattached projection when no exact candidate exists."
+  ),
+  inventoryEntry(
+    "rna-runtimeAuthorityCandidates",
+    "runtime_not_attached",
+    "runtime_attachment",
+    "packages/server/src/canvas/runtimeAuthorityCandidates.ts",
+    "RuntimeCandidateUnavailableReason",
+    "Read-only authority aggregation uses unattached as the safe result when no runtime candidate exists."
+  ),
+  inventoryEntry(
+    "rna-test-runtimeAuthorityCandidates",
+    "runtime_not_attached",
+    "runtime_attachment",
+    "packages/server/src/__tests__/runtimeAuthorityCandidates.test.ts",
+    "reason runtime_not_attached",
+    "Authority candidate tests cover stable unavailable selection without choosing a mutation route."
+  ),
+  inventoryEntry(
+    "rna-workRuntimeFactsAdapter",
+    "runtime_not_attached",
+    "runtime_attachment",
+    "packages/server/src/work/runtimeFactsAdapters.ts",
+    "reason runtime_not_attached",
+    "Work facts authority selection represents a missing local Runtime as an unattached read candidate."
+  ),
+  inventoryEntry(
     "rna-test-runtimeHostLocator",
     "runtime_not_attached",
     "runtime_attachment",

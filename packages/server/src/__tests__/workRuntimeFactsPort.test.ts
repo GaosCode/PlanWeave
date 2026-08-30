@@ -1,6 +1,10 @@
 import { canvasScopeRefSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { RemoteHostWorkRuntimeFactsAdapter } from "../work/remoteHostRuntimeFactsAdapter.js";
+import {
+  AuthoritySelectingWorkRuntimeFactsAdapter,
+  factsLease
+} from "../work/runtimeFactsAdapters.js";
 import { withWorkRuntimeFacts, WorkRuntimeUnavailableError } from "../work/runtimePort.js";
 import type { WorkItemRef } from "../work/schemas.js";
 import {
@@ -38,20 +42,24 @@ afterEach(() => {
   for (const environment of environments.splice(0)) environment.close();
 });
 
-async function setupRemoteFacts(timeoutMs = 50) {
+async function setupRemoteFacts(timeoutMs = 50, diagnosticSink = vi.fn()) {
   const environment = await createRemoteHostRuntimeTestEnvironment({
     scope: remoteScope,
     requestTimeoutMs: 5_000
   });
   environments.push(environment);
   const second = environment.addHost("Second Runtime");
-  const facts = new RemoteHostWorkRuntimeFactsAdapter(
+  const remoteFacts = new RemoteHostWorkRuntimeFactsAdapter(
     environment.locator,
     environment.broker,
-    { read: () => ({ target: contentTarget, sourceRevision }) },
-    { requestTimeoutMs: timeoutMs }
+    { requestTimeoutMs: timeoutMs, diagnosticSink }
   );
-  return { ...environment, second, facts };
+  const facts = new AuthoritySelectingWorkRuntimeFactsAdapter(
+    { acquireFacts: async () => undefined },
+    { read: () => ({ target: contentTarget, sourceRevision }) }
+  );
+  facts.attachRemote(remoteFacts);
+  return { ...environment, second, facts, remoteFacts, diagnosticSink };
 }
 
 function exactFactsResult() {
@@ -168,8 +176,6 @@ describe("RemoteHostWorkRuntimeFactsAdapter peer settlement", () => {
     respondExact(fixture, true);
 
     await expect(pending).resolves.toMatchObject({ evidence: { sourceRevision } });
-    expect(fixture.broker.pendingCount()).toBe(1);
-    await vi.advanceTimersByTimeAsync(50);
     expect(fixture.broker.pendingCount()).toBe(0);
   });
 
@@ -237,5 +243,173 @@ describe("RemoteHostWorkRuntimeFactsAdapter peer settlement", () => {
     });
 
     await expect(pending).rejects.toMatchObject({ code: "content_out_of_sync" });
+  });
+});
+
+describe("AuthoritySelectingWorkRuntimeFactsAdapter", () => {
+  it("releases stale local facts and selects exact remote authority", async () => {
+    const fixture = await setupRemoteFacts();
+    const releaseLocal = vi.fn();
+    const local = {
+      acquireFacts: vi.fn(async (input: Parameters<typeof factsLease>[0]) => {
+        const lease = factsLease(input, {
+          ...exactFactsResult(),
+          sourceRevision: "snapshot:stale"
+        });
+        return { ...lease, release: releaseLocal };
+      })
+    };
+    const selector = new AuthoritySelectingWorkRuntimeFactsAdapter(local, {
+      read: () => ({ target: contentTarget, sourceRevision })
+    });
+    selector.attachRemote(fixture.remoteFacts);
+
+    const pending = selector.acquireFacts({ scope: remoteScope, workItems: remoteItems });
+    respondExact(fixture);
+
+    await expect(pending).resolves.toMatchObject({ evidence: { sourceRevision } });
+    expect(releaseLocal).toHaveBeenCalledOnce();
+    expect(fixture.broker.pendingCount()).toBe(0);
+  });
+
+  it("keeps exact local facts while diagnosing a settled remote failure", async () => {
+    const fixture = await setupRemoteFacts();
+    fixture.disconnectHost(fixture.second.host.id);
+    const local = {
+      acquireFacts: async (input: Parameters<typeof factsLease>[0]) =>
+        factsLease(input, exactFactsResult())
+    };
+    const selector = new AuthoritySelectingWorkRuntimeFactsAdapter(local, {
+      read: () => ({ target: contentTarget, sourceRevision })
+    });
+    selector.attachRemote(fixture.remoteFacts);
+
+    const pending = selector.acquireFacts({ scope: remoteScope, workItems: remoteItems });
+    respondUnknown(fixture, fixture.host.id, fixture.deliveries, "unexpected_facts_failure");
+
+    await expect(pending).resolves.toMatchObject({ evidence: { sourceRevision } });
+    await vi.waitFor(() =>
+      expect(fixture.diagnosticSink).toHaveBeenCalledWith({
+        candidateId: `host:${fixture.host.id}`,
+        category: "peer_error",
+        code: "unexpected_facts_failure"
+      })
+    );
+    expect(fixture.broker.pendingCount()).toBe(0);
+  });
+
+  it("fails content_out_of_sync when every local and remote candidate drifts", async () => {
+    const fixture = await setupRemoteFacts();
+    const releaseLocal = vi.fn();
+    const local = {
+      acquireFacts: async (input: Parameters<typeof factsLease>[0]) => {
+        const lease = factsLease(input, {
+          ...exactFactsResult(),
+          sourceRevision: "snapshot:local-stale"
+        });
+        return { ...lease, release: releaseLocal };
+      }
+    };
+    const selector = new AuthoritySelectingWorkRuntimeFactsAdapter(local, {
+      read: () => ({ target: contentTarget, sourceRevision })
+    });
+    selector.attachRemote(fixture.remoteFacts);
+    const pending = selector.acquireFacts({ scope: remoteScope, workItems: remoteItems });
+    for (const peer of [fixture, fixture.second]) {
+      respond(fixture.broker, peer.host.id, commandAt(peer.deliveries, 0), {
+        outcome: "success",
+        operation: "resolve_work_items",
+        result: { ...exactFactsResult(), sourceRevision: "snapshot:remote-stale" }
+      });
+    }
+
+    await expect(pending).rejects.toEqual(new WorkRuntimeUnavailableError("content_out_of_sync"));
+    expect(releaseLocal).toHaveBeenCalledOnce();
+  });
+
+  it("preserves content_out_of_sync when asynchronous winner release fails", async () => {
+    const release = vi.fn(async () => {
+      throw new Error("async_release_failed");
+    });
+    const local = {
+      acquireFacts: async (input: Parameters<typeof factsLease>[0]) => ({
+        ...factsLease(input, exactFactsResult()),
+        release
+      })
+    };
+    const read = vi
+      .fn()
+      .mockReturnValueOnce({ target: contentTarget, sourceRevision })
+      .mockReturnValueOnce({
+        target: { ...contentTarget, revision: contentTarget.revision + 1 },
+        sourceRevision: "snapshot:changed"
+      });
+    const selector = new AuthoritySelectingWorkRuntimeFactsAdapter(local, { read });
+
+    await expect(
+      selector.acquireFacts({ scope: remoteScope, workItems: remoteItems })
+    ).rejects.toEqual(new WorkRuntimeUnavailableError("content_out_of_sync"));
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it("preserves an authority read error when synchronous winner release fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const release = vi.fn(() => {
+      throw new Error("secret:/private/runtime/release");
+    });
+    const local = {
+      acquireFacts: async (input: Parameters<typeof factsLease>[0]) => ({
+        ...factsLease(input, exactFactsResult()),
+        release
+      })
+    };
+    const read = vi
+      .fn()
+      .mockReturnValueOnce({ target: contentTarget, sourceRevision })
+      .mockImplementationOnce(() => {
+        throw new Error("authority_read_failed");
+      });
+    const selector = new AuthoritySelectingWorkRuntimeFactsAdapter(local, { read });
+
+    await expect(
+      selector.acquireFacts({ scope: remoteScope, workItems: remoteItems })
+    ).rejects.toThrow("authority_read_failed");
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(release).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledWith("work_runtime_facts_candidate_error", {
+      candidateId: "local",
+      category: "peer_error",
+      code: "work_runtime_facts_candidate_unknown"
+    });
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("secret");
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("/private/runtime");
+  });
+
+  it("isolates a throwing cleanup logger from the authority error", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {
+      throw new Error("logger_failed");
+    });
+    const release = vi.fn(async () => {
+      throw new Error("release_failed");
+    });
+    const local = {
+      acquireFacts: async (input: Parameters<typeof factsLease>[0]) => ({
+        ...factsLease(input, exactFactsResult()),
+        release
+      })
+    };
+    const read = vi
+      .fn()
+      .mockReturnValueOnce({ target: contentTarget, sourceRevision })
+      .mockImplementationOnce(() => {
+        throw new Error("authority_read_failed");
+      });
+    const selector = new AuthoritySelectingWorkRuntimeFactsAdapter(local, { read });
+
+    await expect(
+      selector.acquireFacts({ scope: remoteScope, workItems: remoteItems })
+    ).rejects.toThrow("authority_read_failed");
+    expect(release).toHaveBeenCalledOnce();
   });
 });

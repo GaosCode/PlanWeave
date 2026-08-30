@@ -322,6 +322,14 @@ export const workspaceMappingsInventory = [
     "Remote runtime adapter tests report mapping ready."
   ),
   inventoryEntry(
+    "wm-remoteHostRuntimeTestEnvironment",
+    "workspaceMappings",
+    "endpoint_readiness",
+    "packages/server/src/__tests__/support/remoteHostRuntimeTestEnvironment.ts",
+    "workspaceMappings ready",
+    "Shared remote Runtime test environment reports project-scoped Host readiness observations."
+  ),
+  inventoryEntry(
     "wm-remoteObservations-test",
     "workspaceMappings",
     "endpoint_readiness",

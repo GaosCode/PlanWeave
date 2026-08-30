@@ -2,12 +2,13 @@ import { canvasScopeRefSchema } from "@planweave-ai/collaboration-protocol/core/
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  LocalFirstCanvasRuntimeRouter,
+  AuthoritySelectingCanvasRuntimeRouter,
   RemoteHostCanvasRuntimeAdapter
 } from "../canvas/remoteHostRuntimeAdapter.js";
 import { RemoteOwnershipConflictError } from "@planweave-ai/runtime";
 import { CanvasRuntimeHostAmbiguousError } from "../canvas/runtimeHostLocator.js";
 import { RemoteHostWorkRuntimeFactsAdapter } from "../work/remoteHostRuntimeFactsAdapter.js";
+import { AuthoritySelectingWorkRuntimeFactsAdapter } from "../work/runtimeFactsAdapters.js";
 import {
   createRemoteHostRuntimeTestEnvironment,
   type RemoteHostRuntimeTestEnvironment,
@@ -53,18 +54,21 @@ async function setup(requestTimeoutMs = 1_000) {
       artifacts: environment.artifacts
     }
   );
-  const factsAdapter = new RemoteHostWorkRuntimeFactsAdapter(
+  const remoteFactsAdapter = new RemoteHostWorkRuntimeFactsAdapter(
     environment.locator,
     environment.broker,
-    {
-      read: readContentAuthority
-    },
     { requestTimeoutMs }
   );
+  const factsAdapter = new AuthoritySelectingWorkRuntimeFactsAdapter(
+    { acquireFacts: async () => undefined },
+    { read: readContentAuthority }
+  );
+  factsAdapter.attachRemote(remoteFactsAdapter);
   return {
     ...environment,
     adapter,
     factsAdapter,
+    remoteFactsAdapter,
     readContentAuthority,
     disconnect() {
       environment.disconnectHost(environment.host.id);
@@ -92,7 +96,7 @@ function taskFactsResult(
 }
 
 describe("RemoteHostCanvasRuntimeAdapter", () => {
-  it("distinguishes missing bindings from disconnected Host sessions", async () => {
+  it("fails safely when neither local nor remote Work facts are available", async () => {
     const missing = await setup();
     missing.database.prepare("DELETE FROM canvas_runtime_host_bindings").run();
     await expect(
@@ -109,7 +113,7 @@ describe("RemoteHostCanvasRuntimeAdapter", () => {
         scope,
         workItems: [{ kind: "task", canvasId: scope.canvasId, taskId: "T-001" }]
       })
-    ).rejects.toMatchObject({ code: "host_offline" });
+    ).rejects.toMatchObject({ code: "runtime_not_attached" });
     expect(offline.deliveries).toHaveLength(0);
   });
 
@@ -218,7 +222,7 @@ describe("RemoteHostCanvasRuntimeAdapter", () => {
       taskId: "T-001",
       exists: true
     });
-    expect(fixture.readContentAuthority).toHaveBeenCalledTimes(1);
+    expect(fixture.readContentAuthority).toHaveBeenCalledTimes(2);
   });
 
   it("uses an exact facts peer when another candidate disconnects", async () => {
@@ -269,7 +273,7 @@ describe("RemoteHostCanvasRuntimeAdapter", () => {
     await expect(pending).rejects.toMatchObject({ code: "content_out_of_sync" });
   });
 
-  it("fails with host_offline when every candidate facts request times out", async () => {
+  it("prefers the unattached local candidate when every remote facts request times out", async () => {
     const fixture = await setup(20);
     const second = fixture.addHost("Offline Runtime");
 
@@ -278,7 +282,7 @@ describe("RemoteHostCanvasRuntimeAdapter", () => {
         scope,
         workItems: [{ kind: "task", canvasId: scope.canvasId, taskId: "T-001" }]
       })
-    ).rejects.toMatchObject({ code: "host_offline" });
+    ).rejects.toMatchObject({ code: "runtime_not_attached" });
     expect(fixture.deliveries).toHaveLength(1);
     expect(second.deliveries).toHaveLength(1);
     expect(fixture.broker.pendingCount()).toBe(0);
@@ -648,7 +652,7 @@ describe("RemoteHostCanvasRuntimeAdapter", () => {
 
   it("queries the durable Host reset receipt without acquiring a second lease", async () => {
     const fixture = await setup();
-    const router = new LocalFirstCanvasRuntimeRouter(
+    const router = new AuthoritySelectingCanvasRuntimeRouter(
       {
         readAvailability: async () => {
           throw new Error("local_should_not_run");
@@ -710,13 +714,18 @@ describe("RemoteHostCanvasRuntimeAdapter", () => {
       kind: "unavailable" as const,
       reason: "runtime_not_attached" as const
     }));
-    const router = new LocalFirstCanvasRuntimeRouter(
+    const router = new AuthoritySelectingCanvasRuntimeRouter(
       { readAvailability: localRead },
       { acquire: localAcquire, reconcileReset: localReconcile },
       { hasRuntimeProject: () => true, hasRuntimeScope: () => true }
     );
 
-    await expect(router.readAvailability(scope)).resolves.toMatchObject({
+    await expect(
+      router.readAvailabilityForAuthority(scope, undefined, {
+        target: runtimeContentTarget,
+        sourceRevision: runtimeSourceRevision
+      })
+    ).resolves.toMatchObject({
       kind: "unavailable",
       reason: "runtime_not_attached"
     });

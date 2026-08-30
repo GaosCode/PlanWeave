@@ -16,7 +16,7 @@ import type { AuthorizationChangeSignal } from "../authorizationChangeSignal.js"
 import type { SqliteDatabase } from "../sqlite.js";
 import type {
   CanvasInitialContentCapturePort,
-  CanvasRuntimeAvailabilityPort
+  CanvasRuntimeAuthorityAvailabilityPort
 } from "../canvas/runtimePort.js";
 import type {
   CanvasExecutionRuntimeLeasePort,
@@ -45,7 +45,7 @@ export async function createTransportComposition(
     coordination: Coordination;
     runtimeAttachments: readonly CanvasRuntimeAttachment[];
     initialContentCapture: CanvasInitialContentCapturePort;
-    runtimeAvailability: CanvasRuntimeAvailabilityPort;
+    runtimeAvailability: CanvasRuntimeAuthorityAvailabilityPort;
     runtimeCommand?: {
       executionLeases: CanvasExecutionRuntimeLeasePort;
       hasConflictingLease(scope: RuntimeCanvasScope): boolean;

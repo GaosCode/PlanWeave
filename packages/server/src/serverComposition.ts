@@ -41,13 +41,13 @@ import {
 import { createLocalFilesystemCanvasRuntimeAdapter } from "./canvas/localFilesystemRuntimeAdapter.js";
 import { LocalFilesystemExecutionRuntimeAdapter } from "./canvas/localFilesystemExecutionRuntimeAdapter.js";
 import {
-  LocalFilesystemWorkRuntimeFactsAdapter,
-  LocalFirstWorkRuntimeFactsAdapter
+  AuthoritySelectingWorkRuntimeFactsAdapter,
+  LocalFilesystemWorkRuntimeFactsAdapter
 } from "./work/runtimeFactsAdapters.js";
 import { RemoteHostWorkRuntimeFactsAdapter } from "./work/remoteHostRuntimeFactsAdapter.js";
 import {
   LocalFirstCanvasExecutionRuntimeRouter,
-  LocalFirstCanvasRuntimeRouter,
+  AuthoritySelectingCanvasRuntimeRouter,
   RemoteHostCanvasRuntimeAdapter
 } from "./canvas/remoteHostRuntimeAdapter.js";
 import { CanvasRuntimeRpcBroker } from "./canvas/runtimeRpcBroker.js";
@@ -113,10 +113,10 @@ export async function createDistributedServerComposition(
   const ownerExecutionRuntime = new LocalFilesystemExecutionRuntimeAdapter(
     registries.ownerRuntimeRegistry
   );
-  const workRuntimeFacts = new LocalFirstWorkRuntimeFactsAdapter(
-    new LocalFilesystemWorkRuntimeFactsAdapter(registries.runtimeRegistry)
+  const localWorkRuntimeFacts = new LocalFilesystemWorkRuntimeFactsAdapter(
+    registries.runtimeRegistry
   );
-  const collaborationRuntime = new LocalFirstCanvasRuntimeRouter(
+  const collaborationRuntime = new AuthoritySelectingCanvasRuntimeRouter(
     localCanvasRuntime,
     localExecutionRuntime,
     localExecutionRuntime
@@ -247,6 +247,14 @@ export async function createDistributedServerComposition(
       read: (scope: { workspaceId: string; projectId: string; canvasId: string }) =>
         readStableCanvasRuntimeContentTarget(contentVersions, scope)
     };
+    const runtimeContentAuthority = {
+      read: (scope: { workspaceId: string; projectId: string; canvasId: string }) =>
+        readStableCanvasRuntimeEvidence(contentVersions, scope)
+    };
+    const workRuntimeFacts = new AuthoritySelectingWorkRuntimeFactsAdapter(
+      localWorkRuntimeFacts,
+      runtimeContentAuthority
+    );
     const remoteCanvasRuntime = new RemoteHostCanvasRuntimeAdapter(
       runtimeHostLocator,
       runtimeRpc,
@@ -262,16 +270,9 @@ export async function createDistributedServerComposition(
     collaborationRuntime.attachRemote(remoteCanvasRuntime);
     executionRuntime.attachRemote(remoteCanvasRuntime);
     workRuntimeFacts.attachRemote(
-      new RemoteHostWorkRuntimeFactsAdapter(
-        runtimeHostLocator,
-        runtimeRpc,
-        {
-          read: (scope) => readStableCanvasRuntimeEvidence(contentVersions, scope)
-        },
-        {
-          requestTimeoutMs: config.limits.canvasRuntimeFactsTimeoutMs
-        }
-      )
+      new RemoteHostWorkRuntimeFactsAdapter(runtimeHostLocator, runtimeRpc, {
+        requestTimeoutMs: config.limits.canvasRuntimeFactsTimeoutMs
+      })
     );
     const identityServices = createIdentityServices({
       database: server.database,

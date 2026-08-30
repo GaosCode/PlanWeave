@@ -11,7 +11,10 @@ import {
   remoteBlockDispatchCandidateSchema,
   remoteBlockInspectInputSchema
 } from "@planweave-ai/runtime";
-import { canvasRuntimeExecutionAvailabilitySchema } from "../../../collaboration-protocol/src/runtimeAvailability.js";
+import {
+  canvasRuntimeExecutionAvailabilitySchema,
+  type CanvasRuntimeExecutionAvailability
+} from "../../../collaboration-protocol/src/runtimeAvailability.js";
 import { canvasRuntimeContentTargetSchema } from "../../../collaboration-protocol/src/contentVersion.js";
 import { canvasScopeRefSchema } from "../../../collaboration-protocol/src/primitives.js";
 import { randomUUID } from "node:crypto";
@@ -34,7 +37,11 @@ import { RemoteHostCanvasRuntimeAdapter } from "../../../server/src/canvas/remot
 import { RuntimeArtifactGrantRepository } from "../../../server/src/canvas/runtimeArtifactGrantRepository.js";
 import { CanvasRuntimeHostLocator } from "../../../server/src/canvas/runtimeHostLocator.js";
 import { CanvasRuntimeRpcBroker } from "../../../server/src/canvas/runtimeRpcBroker.js";
-import type { CanvasRuntimeAvailabilityPort } from "../../../server/src/canvas/runtimePort.js";
+import type {
+  CanvasRuntimeAuthorityAvailabilityPort,
+  CanvasRuntimeAvailabilityPort
+} from "../../../server/src/canvas/runtimePort.js";
+import type { RuntimeReadAuthority } from "../../../server/src/canvas/runtimeAuthorityCandidates.js";
 import { AgentHostRepository } from "../../../server/src/hosts.js";
 import { WorkspaceIdentityRepository } from "../../../server/src/identity/workspaceRepository.js";
 import { DurableMailbox } from "../../../server/src/mailbox.js";
@@ -63,10 +70,48 @@ function validClaim(candidate: RemoteBlockDispatchCandidate) {
 function combineAdapter(
   availability: CanvasRuntimeAvailabilityPort,
   leases: CanvasExecutionRuntimeLeasePort
-): CanvasRuntimeAvailabilityPort & CanvasExecutionRuntimeLeasePort {
+): CanvasRuntimeAuthorityAvailabilityPort & CanvasExecutionRuntimeLeasePort {
   return {
-    readAvailability: availability.readAvailability.bind(availability),
+    async readAvailabilityForAuthority(scope, capturedAt, authority) {
+      return alignAvailabilityToAuthority(
+        await availability.readAvailability(scope, capturedAt),
+        authority
+      );
+    },
     acquire: leases.acquire.bind(leases)
+  };
+}
+
+function alignAvailabilityToAuthority(
+  availability: CanvasRuntimeExecutionAvailability,
+  authority: RuntimeReadAuthority
+): CanvasRuntimeExecutionAvailability {
+  if (
+    availability.kind === "available" &&
+    (availability.sourceRevision !== authority.sourceRevision ||
+      availability.graphFingerprint !== authority.target.graphFingerprint)
+  ) {
+    return canvasRuntimeExecutionAvailabilitySchema.parse({
+      schemaVersion: "canvas-runtime-availability/v1",
+      kind: "unavailable",
+      reason: "content_out_of_sync"
+    });
+  }
+  return availability;
+}
+
+function contractAuthority(sourceRevision: string, graphFingerprint: string): RuntimeReadAuthority {
+  return {
+    sourceRevision,
+    target: canvasRuntimeContentTargetSchema.parse({
+      revision: 1,
+      content: {
+        versionId: `version-${"c".repeat(64)}`,
+        canonicalDigest: "c".repeat(64),
+        verification: "complete"
+      },
+      graphFingerprint
+    })
   };
 }
 
@@ -101,9 +146,12 @@ async function createLocalFixture(): Promise<CanvasRuntimeAdapterContractFixture
       locationAttached ? trusted.resolveExactCanvasLocation(input) : undefined
   });
   const execution = new LocalFilesystemExecutionRuntimeAdapter(trusted);
+  const observed = await availability.readAvailability(scope);
+  if (observed.kind !== "available") throw new Error("local_contract_unavailable");
   return {
     scope,
     blockRef,
+    authority: contractAuthority(observed.sourceRevision, observed.graphFingerprint),
     adapter: combineAdapter(availability, execution),
     detach() {
       locationAttached = false;
@@ -207,15 +255,16 @@ async function createInMemoryFixture(): Promise<CanvasRuntimeAdapterContractFixt
       throw new Error("not_implemented");
     }
   };
-  const adapter: CanvasRuntimeAvailabilityPort & CanvasExecutionRuntimeLeasePort = {
-    async readAvailability() {
-      return attached
+  const adapter: CanvasRuntimeAuthorityAvailabilityPort & CanvasExecutionRuntimeLeasePort = {
+    async readAvailabilityForAuthority(_scope, _capturedAt, authority) {
+      const observed = attached
         ? availability
         : canvasRuntimeExecutionAvailabilitySchema.parse({
             schemaVersion: "canvas-runtime-availability/v1",
             kind: "unavailable",
             reason: "runtime_not_attached"
           });
+      return alignAvailabilityToAuthority(observed, authority);
     },
     async acquire() {
       if (!attached) throw new Error("canvas_runtime_unavailable");
@@ -252,6 +301,7 @@ async function createInMemoryFixture(): Promise<CanvasRuntimeAdapterContractFixt
   return {
     scope,
     blockRef,
+    authority: contractAuthority(sourceRevision, graphFingerprint),
     adapter,
     detach() {
       attached = false;
@@ -273,17 +323,13 @@ type RemoteContractFixture = CanvasRuntimeAdapterContractFixture & {
 
 async function createRemoteFixture(): Promise<RemoteContractFixture> {
   const local = await createLocalFixture();
-  const localAvailability = await local.adapter.readAvailability(local.scope);
+  const localAvailability = await local.adapter.readAvailabilityForAuthority(
+    local.scope,
+    undefined,
+    local.authority
+  );
   if (localAvailability.kind !== "available") throw new Error("local_contract_unavailable");
-  const contentTarget = canvasRuntimeContentTargetSchema.parse({
-    revision: 1,
-    content: {
-      versionId: `version-${"c".repeat(64)}`,
-      canonicalDigest: "c".repeat(64),
-      verification: "complete"
-    },
-    graphFingerprint: localAvailability.graphFingerprint
-  });
+  const contentTarget = local.authority.target;
   const database = await openServerDatabase(":memory:", 5_000);
   applyMigrations(database);
   new WorkspaceIdentityRepository(database).ensureConfiguredWorkspace(local.scope.workspaceId);
@@ -353,7 +399,11 @@ async function createRemoteFixture(): Promise<RemoteContractFixture> {
       }
       try {
         if (operation.operation === "availability") {
-          const result = await local.adapter.readAvailability(local.scope);
+          const result = await local.adapter.readAvailabilityForAuthority(
+            local.scope,
+            undefined,
+            local.authority
+          );
           if (result.kind !== "available") throw new Error("local_contract_unavailable");
           const { schemaVersion: _schemaVersion, ...portable } = result;
           respond(command, { outcome: "success", operation: "availability", result: portable });
@@ -361,7 +411,11 @@ async function createRemoteFixture(): Promise<RemoteContractFixture> {
         }
         if (operation.operation === "acquire") {
           const lease = await local.adapter.acquire(local.scope);
-          const result = await local.adapter.readAvailability(local.scope);
+          const result = await local.adapter.readAvailabilityForAuthority(
+            local.scope,
+            undefined,
+            local.authority
+          );
           if (result.kind !== "available") throw new Error("local_contract_unavailable");
           const runtimeLeaseId = randomUUID();
           hostLeases.set(runtimeLeaseId, lease);
@@ -457,6 +511,7 @@ async function createRemoteFixture(): Promise<RemoteContractFixture> {
   return {
     scope: local.scope,
     blockRef,
+    authority: local.authority,
     adapter: raw,
     detach() {
       attached = false;

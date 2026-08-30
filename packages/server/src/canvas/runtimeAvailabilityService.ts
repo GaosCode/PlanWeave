@@ -10,7 +10,7 @@ import type { WorkspaceIdentityRepository } from "../identity/workspaceRepositor
 import type { ProjectAccessRepository } from "../projectAccessRepository.js";
 import type { ContentAuthorityStore } from "./contentAuthorityStore.js";
 import { authorizeCanvasContent } from "./policy.js";
-import type { CanvasRuntimeAvailabilityPort } from "./runtimePort.js";
+import type { CanvasRuntimeAuthorityAvailabilityPort } from "./runtimePort.js";
 import { readStableCanvasRuntimeEvidence } from "./contentFingerprint.js";
 import type { CanvasRuntimeStatusRepository } from "./runtimeStatusRepository.js";
 
@@ -18,7 +18,7 @@ export type CanvasRuntimeAvailabilityServiceOptions = {
   access: ProjectAccessRepository;
   workspaceIdentity: WorkspaceIdentityRepository;
   contentVersions: ContentAuthorityStore;
-  runtimeAvailability: CanvasRuntimeAvailabilityPort;
+  runtimeAvailability: CanvasRuntimeAuthorityAvailabilityPort;
   runtimeStatuses: CanvasRuntimeStatusRepository;
   clock?: () => Date;
 };
@@ -39,23 +39,6 @@ function sameScope(
     left.workspaceId === right.workspaceId &&
     left.projectId === right.projectId &&
     left.canvasId === right.canvasId
-  );
-}
-
-type AuthorityAwareRuntimeAvailabilityPort = CanvasRuntimeAvailabilityPort & {
-  readAvailabilityForAuthority(
-    scope: { workspaceId: string; projectId: string; canvasId: string },
-    capturedAt: string | undefined,
-    authority: NonNullable<ReturnType<typeof readStableCanvasRuntimeEvidence>>
-  ): Promise<CanvasRuntimeExecutionAvailability>;
-};
-
-function supportsAuthorityAwareRead(
-  port: CanvasRuntimeAvailabilityPort
-): port is AuthorityAwareRuntimeAvailabilityPort {
-  return (
-    "readAvailabilityForAuthority" in port &&
-    typeof port.readAvailabilityForAuthority === "function"
   );
 }
 
@@ -87,13 +70,11 @@ export class CanvasRuntimeAvailabilityService {
 
     const capturedAt = this.clock().toISOString();
     const observed = canvasRuntimeExecutionAvailabilitySchema.parse(
-      await (supportsAuthorityAwareRead(this.options.runtimeAvailability)
-        ? this.options.runtimeAvailability.readAvailabilityForAuthority(
-            scope,
-            capturedAt,
-            contentEvidence
-          )
-        : this.options.runtimeAvailability.readAvailability(scope, capturedAt))
+      await this.options.runtimeAvailability.readAvailabilityForAuthority(
+        scope,
+        capturedAt,
+        contentEvidence
+      )
     );
     const execution =
       contentFingerprint &&

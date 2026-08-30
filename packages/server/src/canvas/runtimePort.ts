@@ -2,11 +2,20 @@ import type { CanvasRuntimeExecutionAvailability } from "@planweave-ai/collabora
 import type { CompleteContentVersion } from "@planweave-ai/collaboration-protocol/content/version";
 import type { CanvasScopeRef } from "@planweave-ai/collaboration-protocol/core/primitives";
 import type { CapturedPackageSnapshot } from "@planweave-ai/runtime";
+import type { RuntimeReadAuthority } from "./runtimeAuthorityCandidates.js";
 
 export type CanvasRuntimeAvailabilityPort = {
   readAvailability(
     scope: CanvasScopeRef,
     capturedAt?: string
+  ): Promise<CanvasRuntimeExecutionAvailability>;
+};
+
+export type CanvasRuntimeAuthorityAvailabilityPort = {
+  readAvailabilityForAuthority(
+    scope: CanvasScopeRef,
+    capturedAt: string | undefined,
+    authority: RuntimeReadAuthority
   ): Promise<CanvasRuntimeExecutionAvailability>;
 };
 

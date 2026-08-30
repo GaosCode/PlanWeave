@@ -1,12 +1,14 @@
 import {
   CANVAS_RUNTIME_CAPABILITY,
   agentHostProtocolVersion,
+  canvasRuntimeCancelCommandSchema,
   canvasRuntimeOperationSchema,
   canvasRuntimeRequestCommandSchema,
   canvasRuntimeRequestIdSchema,
   canvasRuntimeResponseEventSchema,
   type CanvasRuntimeLogicalScope,
   type CanvasRuntimeOperation,
+  type CanvasRuntimeRequestCommand,
   type CanvasRuntimeResponsePayload
 } from "@planweave-ai/agent-host-protocol";
 import {
@@ -25,6 +27,10 @@ import type { CanvasRuntimeHostSessionLookup } from "./runtimeHostLocator.js";
 
 type RuntimeResponse = CanvasRuntimeResponsePayload["response"];
 type RuntimeResponseEvent = Extract<HostEvent, { type: "canvas_runtime.response" }>;
+type CancellableReadOperation = Extract<
+  CanvasRuntimeOperation,
+  { operation: "availability" | "resolve_work_items" }
+>;
 
 type PendingRequest = {
   hostId: string;
@@ -48,6 +54,11 @@ const mutationOperations = new Set<CanvasRuntimeOperation["operation"]>([
   "reset"
 ]);
 
+const cancellableReadOperations = new Set<CanvasRuntimeOperation["operation"]>([
+  "availability",
+  "resolve_work_items"
+]);
+
 export class CanvasRuntimeRpcError extends Error {
   constructor(
     readonly code: string,
@@ -62,17 +73,38 @@ export class CanvasRuntimeRpcError extends Error {
 export type CanvasRuntimeRpcBrokerOptions = {
   requestTimeoutMs: number;
   clock?: () => Date;
+  diagnosticSink?: CanvasRuntimeRpcDiagnosticSink;
 };
 
 export type CanvasRuntimeRpcRequestOptions = {
   requestTimeoutMs?: number;
 };
 
+export type CanvasRuntimeRpcDiagnostic = {
+  hostId: string;
+  operation: CancellableReadOperation["operation"];
+  category: "cancel_publish_failed";
+  code: "canvas_runtime_cancel_publish_failed";
+};
+
+export type CanvasRuntimeRpcDiagnosticSink = (diagnostic: CanvasRuntimeRpcDiagnostic) => void;
+
+export type CanvasRuntimeRpcReadHandle = {
+  response: Promise<RuntimeResponse>;
+  cancel(): boolean;
+};
+
+type InternalRequestHandle = CanvasRuntimeRpcReadHandle;
+
 function parseRequestTimeoutMs(value: number): number {
   if (!Number.isSafeInteger(value) || value < 1) {
     throw new Error("canvas_runtime_rpc_timeout_invalid");
   }
   return value;
+}
+
+function logCanvasRuntimeRpcDiagnostic(diagnostic: CanvasRuntimeRpcDiagnostic): void {
+  console.warn("canvas_runtime_rpc_diagnostic", diagnostic);
 }
 
 /** Correlates durable Runtime RPC requests while the existing WS owns session truth. */
@@ -116,7 +148,36 @@ export class CanvasRuntimeRpcBroker implements CanvasRuntimeHostSessionLookup {
     expectedAttachmentVersion?: number,
     requestOptions: CanvasRuntimeRpcRequestOptions = {}
   ): Promise<RuntimeResponse> {
+    return this.startRequest(
+      hostId,
+      scope,
+      canvasRuntimeOperationSchema.parse(rawOperation),
+      expectedAttachmentVersion,
+      requestOptions
+    ).response;
+  }
+
+  requestCancellableRead(
+    hostId: string,
+    scope: CanvasRuntimeLogicalScope,
+    rawOperation: CancellableReadOperation,
+    expectedAttachmentVersion?: number,
+    requestOptions: CanvasRuntimeRpcRequestOptions = {}
+  ): CanvasRuntimeRpcReadHandle {
     const operation = canvasRuntimeOperationSchema.parse(rawOperation);
+    if (!cancellableReadOperations.has(operation.operation)) {
+      throw new Error("canvas_runtime_rpc_cancellation_unsupported");
+    }
+    return this.startRequest(hostId, scope, operation, expectedAttachmentVersion, requestOptions);
+  }
+
+  private startRequest(
+    hostId: string,
+    scope: CanvasRuntimeLogicalScope,
+    operation: CanvasRuntimeOperation,
+    expectedAttachmentVersion: number | undefined,
+    requestOptions: CanvasRuntimeRpcRequestOptions
+  ): InternalRequestHandle {
     const mutation = mutationOperations.has(operation.operation);
     const requestTimeoutMs = parseRequestTimeoutMs(
       requestOptions.requestTimeoutMs ?? this.options.requestTimeoutMs
@@ -142,7 +203,8 @@ export class CanvasRuntimeRpcBroker implements CanvasRuntimeHostSessionLookup {
       deadline,
       operation
     });
-    return new Promise<RuntimeResponse>((resolve, reject) => {
+    let capturedPending: PendingRequest | undefined;
+    const response = new Promise<RuntimeResponse>((resolve, reject) => {
       const pending: PendingRequest = {
         hostId,
         scope,
@@ -167,6 +229,7 @@ export class CanvasRuntimeRpcBroker implements CanvasRuntimeHostSessionLookup {
         resolve,
         reject
       };
+      capturedPending = pending;
       this.pending.set(requestId, pending);
       try {
         const message = this.mailbox.enqueue(hostId, command);
@@ -177,6 +240,56 @@ export class CanvasRuntimeRpcBroker implements CanvasRuntimeHostSessionLookup {
         reject(error instanceof Error ? error : new Error("canvas_runtime_rpc_publish_failed"));
       }
     });
+    return {
+      response,
+      cancel: () => {
+        const pending = capturedPending;
+        if (!pending || this.pending.get(requestId) !== pending) return false;
+        clearTimeout(pending.timer);
+        this.pending.delete(requestId);
+        pending.reject(new CanvasRuntimeRpcError("canvas_runtime_rpc_cancelled", false, false));
+        this.publishCancellation(pending.hostId, command, requestTimeoutMs);
+        return true;
+      }
+    };
+  }
+
+  private publishCancellation(
+    hostId: string,
+    target: CanvasRuntimeRequestCommand,
+    requestTimeoutMs: number
+  ): void {
+    const operation = target.operation.operation;
+    if (operation !== "availability" && operation !== "resolve_work_items") {
+      throw new Error("canvas_runtime_rpc_cancellation_unsupported");
+    }
+    const command = canvasRuntimeCancelCommandSchema.parse({
+      type: "canvas_runtime.cancel",
+      protocolVersion: agentHostProtocolVersion,
+      requestId: canvasRuntimeRequestIdSchema.parse(randomUUID()),
+      targetRequestId: target.requestId,
+      scope: target.scope,
+      deadline: new Date(this.clock().getTime() + requestTimeoutMs).toISOString()
+    });
+    try {
+      const message = this.mailbox.enqueue(hostId, command);
+      this.mailbox.publish(message);
+    } catch {
+      this.reportDiagnostic({
+        hostId,
+        operation,
+        category: "cancel_publish_failed",
+        code: "canvas_runtime_cancel_publish_failed"
+      });
+    }
+  }
+
+  private reportDiagnostic(diagnostic: CanvasRuntimeRpcDiagnostic): void {
+    try {
+      (this.options.diagnosticSink ?? logCanvasRuntimeRpcDiagnostic)(diagnostic);
+    } catch {
+      // Diagnostics are observational and cannot prevent local request cancellation.
+    }
   }
 
   handleResponse(hostId: string, rawEvent: RuntimeResponseEvent): boolean {

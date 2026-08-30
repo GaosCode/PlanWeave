@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { CanvasRuntimeUnavailableError } from "../canvas/executionRuntimePort.js";
 import { CanvasRuntimeHostAmbiguousError } from "../canvas/runtimeHostLocator.js";
 import {
-  LocalFirstCanvasRuntimeRouter,
+  AuthoritySelectingCanvasRuntimeRouter,
   RemoteHostCanvasRuntimeAdapter
 } from "../canvas/remoteHostRuntimeAdapter.js";
 import {
@@ -27,6 +27,10 @@ const runtimeContentTarget = {
     verification: "complete" as const
   },
   graphFingerprint: `pkg-${"a".repeat(64)}`
+};
+const runtimeAuthority = {
+  target: runtimeContentTarget,
+  sourceRevision: `snapshot:${"b".repeat(64)}`
 };
 
 afterEach(() => {
@@ -80,10 +84,14 @@ function availableAvailabilityResponse(sourceRevision: string, capturedAt: strin
   };
 }
 
+function readRemoteAvailability(fixture: Awaited<ReturnType<typeof setup>>) {
+  return fixture.adapter.readAvailabilityForAuthority(scope, undefined, runtimeAuthority);
+}
+
 describe("Remote Host Canvas Runtime availability", () => {
   it("serves remote availability with no local trusted project", async () => {
     const fixture = await setup();
-    const router = new LocalFirstCanvasRuntimeRouter(
+    const router = new AuthoritySelectingCanvasRuntimeRouter(
       {
         async readAvailability() {
           throw new Error("local_should_not_run");
@@ -98,7 +106,10 @@ describe("Remote Host Canvas Runtime availability", () => {
     );
     router.attachRemote(fixture.adapter);
 
-    const pending = router.readAvailability(scope, "2026-08-20T00:00:00.000Z");
+    const pending = router.readAvailabilityForAuthority(scope, "2026-08-20T00:00:00.000Z", {
+      target: runtimeContentTarget,
+      sourceRevision: `snapshot:${"b".repeat(64)}`
+    });
     const command = commandAt(fixture.deliveries, 0);
     expect(command.operation).toMatchObject({
       operation: "availability",
@@ -129,6 +140,96 @@ describe("Remote Host Canvas Runtime availability", () => {
       graphFingerprint,
       status: { scope }
     });
+  });
+
+  it("selects exact remote authority when an attached local Runtime is stale", async () => {
+    const fixture = await setup();
+    const currentSourceRevision = `snapshot:${"b".repeat(64)}`;
+    const localRead = vi.fn(async () => ({
+      schemaVersion: "canvas-runtime-availability/v1" as const,
+      kind: "available" as const,
+      sourceRevision: `snapshot:${"d".repeat(64)}`,
+      graphFingerprint: runtimeContentTarget.graphFingerprint,
+      status: {
+        schemaVersion: "canvas-runtime-status/v2" as const,
+        scope,
+        packageFingerprint: runtimeContentTarget.graphFingerprint,
+        capturedAt: "2026-08-20T00:00:00.000Z",
+        tasks: [],
+        blocks: []
+      }
+    }));
+    const router = new AuthoritySelectingCanvasRuntimeRouter(
+      { readAvailability: localRead },
+      { acquire: () => Promise.reject(new Error("not_observed")) },
+      { hasRuntimeProject: () => true, hasRuntimeScope: () => true }
+    );
+    router.attachRemote(fixture.adapter);
+
+    const pending = router.readAvailabilityForAuthority(scope, undefined, {
+      target: runtimeContentTarget,
+      sourceRevision: currentSourceRevision
+    });
+    respond(
+      fixture.broker,
+      fixture.host.id,
+      commandAt(fixture.deliveries, 0),
+      availableAvailabilityResponse(currentSourceRevision, "2026-08-20T00:00:01.000Z")
+    );
+
+    await expect(pending).resolves.toMatchObject({
+      kind: "available",
+      hostId: fixture.host.id,
+      sourceRevision: currentSourceRevision
+    });
+    expect(localRead).toHaveBeenCalledOnce();
+  });
+
+  it("keeps exact local authority when a remote peer fails", async () => {
+    const diagnosticSink = vi.fn();
+    const fixture = await setup(1_000, { diagnosticSink });
+    const localRead = vi.fn(async () => ({
+      schemaVersion: "canvas-runtime-availability/v1" as const,
+      kind: "available" as const,
+      sourceRevision: `snapshot:${"b".repeat(64)}`,
+      graphFingerprint: runtimeContentTarget.graphFingerprint,
+      status: {
+        schemaVersion: "canvas-runtime-status/v2" as const,
+        scope,
+        packageFingerprint: runtimeContentTarget.graphFingerprint,
+        capturedAt: "2026-08-20T00:00:00.000Z",
+        tasks: [],
+        blocks: []
+      }
+    }));
+    const router = new AuthoritySelectingCanvasRuntimeRouter(
+      { readAvailability: localRead },
+      { acquire: () => Promise.reject(new Error("not_observed")) },
+      { hasRuntimeProject: () => true, hasRuntimeScope: () => true }
+    );
+    router.attachRemote(fixture.adapter);
+
+    const pending = router.readAvailabilityForAuthority(scope, undefined, {
+      target: runtimeContentTarget,
+      sourceRevision: `snapshot:${"b".repeat(64)}`
+    });
+    respond(fixture.broker, fixture.host.id, commandAt(fixture.deliveries, 0), {
+      outcome: "error",
+      operation: "availability",
+      error: { code: "unexpected_remote_failure", message: "secret", retryable: false }
+    });
+
+    const observed = await pending;
+    expect(observed).toMatchObject({ kind: "available" });
+    expect(observed).not.toHaveProperty("hostId");
+    await vi.waitFor(() =>
+      expect(diagnosticSink).toHaveBeenCalledWith({
+        hostId: fixture.host.id,
+        category: "peer_error",
+        code: "unexpected_remote_failure"
+      })
+    );
+    expect(fixture.broker.pendingCount()).toBe(0);
   });
 
   it("aggregates matching read evidence while generic routing remains ambiguous", async () => {
@@ -215,13 +316,15 @@ describe("Remote Host Canvas Runtime availability", () => {
       kind: "available",
       hostId: fixture.host.id
     });
-    expect(fixture.broker.pendingCount()).toBe(1);
-    await vi.advanceTimersByTimeAsync(50);
     expect(fixture.broker.pendingCount()).toBe(0);
-    expect(diagnosticSink).not.toHaveBeenCalled();
+    expect(diagnosticSink).toHaveBeenCalledWith({
+      hostId: expect.any(String),
+      category: "cancelled",
+      code: "runtime_authority_candidate_cancelled"
+    });
   });
 
-  it("diagnoses unknown peers before and after an exact authority winner", async () => {
+  it("diagnoses an unknown peer before the winner and cancels a pending loser", async () => {
     const diagnosticSink = vi.fn();
     const fixture = await setup(1_000, { diagnosticSink });
     const winner = fixture.addHost("Current Runtime");
@@ -271,8 +374,8 @@ describe("Remote Host Canvas Runtime availability", () => {
       [
         {
           hostId: lateFailure.host.id,
-          category: "peer_error",
-          code: "invalid_operation_input"
+          category: "cancelled",
+          code: "runtime_authority_candidate_cancelled"
         }
       ]
     ]);
@@ -296,7 +399,7 @@ describe("Remote Host Canvas Runtime availability", () => {
           index === 0 ? "first_host_failure" : "second_host_failure"
         ])
     );
-    const pending = fixture.adapter.readAvailability(scope);
+    const pending = readRemoteAvailability(fixture);
     const settled = pending.catch((error: unknown) => error);
     const secondErrorCode = errorCodes.get(second.host.id);
     const firstErrorCode = errorCodes.get(fixture.host.id);
@@ -340,7 +443,7 @@ describe("Remote Host Canvas Runtime availability", () => {
   it("returns a safe unavailable result when no Host provides matching evidence", async () => {
     const fixture = await setup();
     const second = fixture.addHost("Second Runtime");
-    const pending = fixture.adapter.readAvailability(scope);
+    const pending = readRemoteAvailability(fixture);
     const failedCommand = commandAt(fixture.deliveries, 0);
     const mismatchedCommand = commandAt(second.deliveries, 0);
     respond(fixture.broker, fixture.host.id, failedCommand, {
@@ -376,7 +479,7 @@ describe("Remote Host Canvas Runtime availability", () => {
   it("contains rejected Host reads instead of rejecting availability", async () => {
     const fixture = await setup(10);
 
-    await expect(fixture.adapter.readAvailability(scope)).resolves.toMatchObject({
+    await expect(readRemoteAvailability(fixture)).resolves.toMatchObject({
       kind: "unavailable",
       reason: "host_offline",
       hostId: fixture.host.id
@@ -386,7 +489,7 @@ describe("Remote Host Canvas Runtime availability", () => {
   it("prefers an attached-but-missing Runtime over another offline Host", async () => {
     const fixture = await setup();
     const second = fixture.addHost("Second Runtime");
-    const pending = fixture.adapter.readAvailability(scope);
+    const pending = readRemoteAvailability(fixture);
     const secondCommand = commandAt(second.deliveries, 0);
 
     respond(fixture.broker, second.host.id, secondCommand, {
@@ -405,7 +508,7 @@ describe("Remote Host Canvas Runtime availability", () => {
 
   it("does not hide an unclassified Host domain error", async () => {
     const fixture = await setup();
-    const pending = fixture.adapter.readAvailability(scope);
+    const pending = readRemoteAvailability(fixture);
     respond(fixture.broker, fixture.host.id, commandAt(fixture.deliveries, 0), {
       outcome: "error",
       operation: "availability",

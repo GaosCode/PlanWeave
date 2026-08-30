@@ -24,7 +24,7 @@ import { CanvasRuntimeRpcError } from "../canvas/runtimeRpcBroker.js";
 import { CanvasRuntimeRpcBroker } from "../canvas/runtimeRpcBroker.js";
 import { CanvasRuntimeHostLocator } from "../canvas/runtimeHostLocator.js";
 import {
-  LocalFirstCanvasRuntimeRouter,
+  AuthoritySelectingCanvasRuntimeRouter,
   RemoteHostCanvasRuntimeAdapter
 } from "../canvas/remoteHostRuntimeAdapter.js";
 import { RuntimeArtifactGrantRepository } from "../canvas/runtimeArtifactGrantRepository.js";
@@ -503,7 +503,7 @@ describe("CanvasRuntimeCommandCoordinator", () => {
         artifacts: new ArtifactStore(test.database, "/not-observed", 1_024)
       }
     );
-    const router = new LocalFirstCanvasRuntimeRouter(
+    const router = new AuthoritySelectingCanvasRuntimeRouter(
       {
         readAvailability: async () => {
           throw new Error("local_should_not_run");

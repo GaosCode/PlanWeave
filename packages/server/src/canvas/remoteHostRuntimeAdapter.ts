@@ -49,22 +49,27 @@ import {
   CanvasRuntimeUnavailableError,
   CanvasRuntimeResetConflictError
 } from "./executionRuntimePort.js";
-import type { CanvasRuntimeAvailabilityPort } from "./runtimePort.js";
+import type {
+  CanvasRuntimeAuthorityAvailabilityPort,
+  CanvasRuntimeAvailabilityPort
+} from "./runtimePort.js";
 import { CanvasRuntimeHostLocator } from "./runtimeHostLocator.js";
 import { CanvasRuntimeRpcBroker, CanvasRuntimeRpcError } from "./runtimeRpcBroker.js";
 import type { ArtifactStore } from "../artifacts.js";
 import type { RuntimeArtifactGrantRepository } from "./runtimeArtifactGrantRepository.js";
 import type { CanvasRuntimeContentTarget } from "@planweave-ai/collaboration-protocol/content/version";
+import {
+  firstExactRuntimeAuthorityCandidate,
+  type RuntimeAuthorityCandidate,
+  type RuntimeAuthorityCandidateHandle,
+  type RuntimeAuthorityCandidateObservation,
+  type RuntimeReadAuthority
+} from "./runtimeAuthorityCandidates.js";
 
 type RuntimeResponse = CanvasRuntimeResponsePayload["response"];
-type CanvasRuntimeAvailabilityAuthority = {
-  target: CanvasRuntimeContentTarget;
-  sourceRevision: string;
-};
-
 type CanvasRuntimeAvailabilityDiagnostic = {
   hostId: string;
-  category: "peer_error";
+  category: "peer_error" | "cancelled";
   code: string;
 };
 
@@ -157,6 +162,32 @@ function unavailableExecution(
   });
 }
 
+function availabilityCandidateObservation(
+  observation: CanvasRuntimeExecutionAvailability
+): RuntimeAuthorityCandidateObservation<CanvasRuntimeExecutionAvailability> {
+  return observation.kind === "available"
+    ? {
+        kind: "available",
+        evidence: {
+          sourceRevision: observation.sourceRevision,
+          graphFingerprint: observation.graphFingerprint
+        },
+        value: observation
+      }
+    : { kind: "unavailable", reason: observation.reason, value: observation };
+}
+
+function matchesAvailabilityScope(
+  observation: CanvasRuntimeExecutionAvailability,
+  scope: RuntimeCanvasScope
+): boolean {
+  return (
+    observation.kind === "available" &&
+    sameRuntimeScope(observation.status.scope, scope) &&
+    observation.status.packageFingerprint === observation.graphFingerprint
+  );
+}
+
 const availabilityDeviceUnavailableCodes = new Set([
   "canvas_runtime_host_offline",
   "canvas_runtime_rpc_deadline_exceeded",
@@ -186,7 +217,7 @@ function logCanvasRuntimeAvailabilityDiagnostic(
 /** Remote Runtime seam. Artifact bytes remain an explicit HTTP data-plane follow-up. */
 export class RemoteHostCanvasRuntimeAdapter
   implements
-    CanvasRuntimeAvailabilityPort,
+    CanvasRuntimeAuthorityAvailabilityPort,
     CanvasExecutionRuntimeRoutePort,
     CanvasRuntimeScopeAvailabilityPort
 {
@@ -211,149 +242,85 @@ export class RemoteHostCanvasRuntimeAdapter
     return this.locator.hasAvailableProject(scope);
   }
 
-  async readAvailability(
-    scopeInput: CanvasScopeRef,
-    _capturedAt?: string
-  ): Promise<CanvasRuntimeExecutionAvailability> {
-    const scope = canvasRuntimeLogicalScopeSchema.parse(scopeInput);
-    return this.readAvailabilityFromCandidates(scope, this.contentTargets.read(scope));
-  }
-
   readAvailabilityForAuthority(
     scopeInput: CanvasScopeRef,
     _capturedAt: string | undefined,
-    authority: CanvasRuntimeAvailabilityAuthority
+    authority: RuntimeReadAuthority
   ): Promise<CanvasRuntimeExecutionAvailability> {
     const scope = canvasRuntimeLogicalScopeSchema.parse(scopeInput);
-    return this.readAvailabilityFromCandidates(
-      scope,
-      authority.target,
-      canvasRuntimeSourceRevisionSchema.parse(authority.sourceRevision)
-    );
+    return this.aggregateAvailability(scope, {
+      target: authority.target,
+      sourceRevision: canvasRuntimeSourceRevisionSchema.parse(authority.sourceRevision)
+    });
   }
 
-  private async readAvailabilityFromCandidates(
+  availabilityCandidates(
     scope: RuntimeCanvasScope,
-    contentTarget: CanvasRuntimeContentTarget,
-    expectedSourceRevision?: string
-  ): Promise<CanvasRuntimeExecutionAvailability> {
+    authority: RuntimeReadAuthority
+  ): RuntimeAuthorityCandidate<CanvasRuntimeExecutionAvailability>[] {
     const located = this.locator.locateCandidates(scope);
     if (located.kind === "unavailable") {
-      return unavailableExecution(
+      const unavailable = unavailableExecution(
         located.reason,
         located.lastSeenAt ? { lastSeenAt: located.lastSeenAt } : undefined
       );
+      return [
+        {
+          id: "remote",
+          start: () => ({
+            response: Promise.resolve({
+              kind: "unavailable",
+              reason: located.reason,
+              value: unavailable
+            }),
+            cancel: () => false
+          })
+        }
+      ];
     }
-    type Settlement =
-      | { kind: "observation"; observation: CanvasRuntimeExecutionAvailability }
-      | { kind: "error"; error: unknown };
-    const settlements: Array<Settlement | undefined> = Array.from({
-      length: located.hostIds.length
-    });
-    let remaining = located.hostIds.length;
-    let completed = false;
-
-    return new Promise<CanvasRuntimeExecutionAvailability>((resolve, reject) => {
-      const settle = (index: number, settlement: Settlement) => {
-        settlements[index] = settlement;
-        remaining -= 1;
-        if (
-          settlement.kind === "observation" &&
-          this.matchesAvailabilityAuthority(
-            settlement.observation,
-            scope,
-            contentTarget,
-            expectedSourceRevision
-          )
-        ) {
-          if (!completed) {
-            completed = true;
-            resolve(settlement.observation);
-          }
-          return;
-        }
-        if (remaining !== 0 || completed) return;
-
-        const unknownError = settlements.find(
-          (candidate): candidate is Extract<Settlement, { kind: "error" }> =>
-            candidate?.kind === "error"
-        );
-        if (unknownError) {
-          completed = true;
-          reject(unknownError.error);
-          return;
-        }
-        const observations = settlements.flatMap((candidate) =>
-          candidate?.kind === "observation" ? [candidate.observation] : []
-        );
-        const reasonPriority = [
-          "content_out_of_sync",
-          "runtime_not_attached",
-          "host_offline"
-        ] as const;
-        for (const reason of reasonPriority) {
-          const unavailable = observations.find(
-            (observation) => observation.kind === "unavailable" && observation.reason === reason
-          );
-          if (unavailable) {
-            completed = true;
-            resolve(unavailable);
-            return;
-          }
-        }
-        completed = true;
-        resolve(unavailableExecution("content_out_of_sync"));
-      };
-
-      located.hostIds.forEach((hostId, index) => {
-        void this.readHostAvailability(hostId, scope, contentTarget, expectedSourceRevision).then(
-          (observation) => settle(index, { kind: "observation", observation }),
-          (error: unknown) => {
-            this.reportAvailabilityPeerError(hostId, error);
-            settle(index, { kind: "error", error });
-          }
-        );
-      });
-    });
+    return located.hostIds.map((hostId) => ({
+      id: `host:${hostId}`,
+      start: () => this.startHostAvailability(hostId, scope, authority.target)
+    }));
   }
 
-  private reportAvailabilityPeerError(hostId: string, error: unknown): void {
+  private async aggregateAvailability(
+    scope: RuntimeCanvasScope,
+    authority: RuntimeReadAuthority
+  ): Promise<CanvasRuntimeExecutionAvailability> {
+    const result = await firstExactRuntimeAuthorityCandidate({
+      authority,
+      candidates: this.availabilityCandidates(scope, authority),
+      matches: (observation) => matchesAvailabilityScope(observation, scope),
+      diagnosticCode: availabilityDiagnosticCode,
+      diagnose: (diagnostic) =>
+        this.reportAvailabilityDiagnostic({
+          hostId: diagnostic.candidateId.replace(/^host:/, ""),
+          category: diagnostic.category,
+          code: diagnostic.code
+        })
+    });
+    if (result.kind === "available") return result.value;
+    return result.value ?? unavailableExecution(result.reason);
+  }
+
+  reportAvailabilityDiagnostic(diagnostic: CanvasRuntimeAvailabilityDiagnostic): void {
     try {
-      (this.availabilityOptions.diagnosticSink ?? logCanvasRuntimeAvailabilityDiagnostic)({
-        hostId,
-        category: "peer_error",
-        code: availabilityDiagnosticCode(error)
-      });
+      (this.availabilityOptions.diagnosticSink ?? logCanvasRuntimeAvailabilityDiagnostic)(
+        diagnostic
+      );
     } catch {
       // Diagnostics are observational and cannot prevent a peer from settling.
     }
   }
 
-  private matchesAvailabilityAuthority(
-    observation: CanvasRuntimeExecutionAvailability,
-    scope: RuntimeCanvasScope,
-    contentTarget: CanvasRuntimeContentTarget,
-    expectedSourceRevision?: string
-  ): observation is Extract<CanvasRuntimeExecutionAvailability, { kind: "available" }> {
-    return (
-      observation.kind === "available" &&
-      sameRuntimeScope(observation.status.scope, scope) &&
-      observation.graphFingerprint === contentTarget.graphFingerprint &&
-      observation.status.packageFingerprint === contentTarget.graphFingerprint &&
-      (expectedSourceRevision === undefined ||
-        observation.sourceRevision === expectedSourceRevision)
-    );
-  }
-
-  private async readHostAvailability(
+  private startHostAvailability(
     hostId: string,
     scope: RuntimeCanvasScope,
-    contentTarget: CanvasRuntimeContentTarget,
-    expectedSourceRevision?: string
-  ): Promise<CanvasRuntimeExecutionAvailability> {
-    let response: RuntimeResponse;
+    contentTarget: CanvasRuntimeContentTarget
+  ): RuntimeAuthorityCandidateHandle<CanvasRuntimeExecutionAvailability> {
     try {
-      response = await this.broker.request(
+      const handle = this.broker.requestCancellableRead(
         hostId,
         scope,
         {
@@ -365,6 +332,36 @@ export class RemoteHostCanvasRuntimeAdapter
           requestTimeoutMs: this.availabilityOptions.requestTimeoutMs
         }
       );
+      return {
+        response: this.readHostAvailabilityResponse(handle.response, hostId).then(
+          availabilityCandidateObservation
+        ),
+        cancel: () => {
+          return handle.cancel();
+        }
+      };
+    } catch (error) {
+      if (isAvailabilityDeviceUnavailableError(error)) {
+        return {
+          response: Promise.resolve({
+            kind: "unavailable",
+            reason: "host_offline",
+            value: unavailableExecution("host_offline", { hostId })
+          }),
+          cancel: () => false
+        };
+      }
+      return { response: Promise.reject(error), cancel: () => false };
+    }
+  }
+
+  private async readHostAvailabilityResponse(
+    responsePromise: Promise<RuntimeResponse>,
+    hostId: string
+  ): Promise<CanvasRuntimeExecutionAvailability> {
+    let response: RuntimeResponse;
+    try {
+      response = await responsePromise;
     } catch (error) {
       if (isAvailabilityDeviceUnavailableError(error)) {
         return unavailableExecution("host_offline", { hostId });
@@ -380,16 +377,6 @@ export class RemoteHostCanvasRuntimeAdapter
       ...response.result,
       hostId
     });
-    if (
-      observation.kind === "available" &&
-      (!sameRuntimeScope(observation.status.scope, scope) ||
-        observation.graphFingerprint !== contentTarget.graphFingerprint ||
-        observation.status.packageFingerprint !== contentTarget.graphFingerprint ||
-        (expectedSourceRevision !== undefined &&
-          observation.sourceRevision !== expectedSourceRevision))
-    ) {
-      return unavailableExecution("content_out_of_sync", { hostId });
-    }
     return observation;
   }
 
@@ -793,10 +780,10 @@ export class RemoteHostCanvasRuntimeAdapter
   }
 }
 
-/** Local bindings have explicit priority; remote resolution is consulted only when local misses. */
-export class LocalFirstCanvasRuntimeRouter
+/** Selects read evidence by Server authority while preserving local-first mutation routing. */
+export class AuthoritySelectingCanvasRuntimeRouter
   implements
-    CanvasRuntimeAvailabilityPort,
+    CanvasRuntimeAuthorityAvailabilityPort,
     CanvasExecutionRuntimeLeasePort,
     CanvasRuntimeScopeAvailabilityPort
 {
@@ -813,38 +800,39 @@ export class LocalFirstCanvasRuntimeRouter
     this.remote = remote;
   }
 
-  readAvailability(scope: CanvasScopeRef, capturedAt?: string) {
-    if (this.localScopes.hasRuntimeScope(scope)) {
-      return this.localAvailability.readAvailability(scope, capturedAt);
-    }
-    if (this.remote) return this.remote.readAvailability(scope, capturedAt);
-    return Promise.resolve(
-      canvasRuntimeExecutionAvailabilitySchema.parse({
-        schemaVersion: "canvas-runtime-availability/v1",
-        kind: "unavailable",
-        reason: "runtime_not_attached"
-      })
-    );
-  }
-
-  readAvailabilityForAuthority(
+  async readAvailabilityForAuthority(
     scope: CanvasScopeRef,
     capturedAt: string | undefined,
-    authority: CanvasRuntimeAvailabilityAuthority
+    authority: RuntimeReadAuthority
   ) {
-    if (this.localScopes.hasRuntimeScope(scope)) {
-      return this.localAvailability.readAvailability(scope, capturedAt);
+    const logical = canvasRuntimeLogicalScopeSchema.parse(scope);
+    const candidates: RuntimeAuthorityCandidate<CanvasRuntimeExecutionAvailability>[] = [];
+    if (this.localScopes.hasRuntimeScope(logical)) {
+      candidates.push({
+        id: "local",
+        start: () => ({
+          response: this.localAvailability
+            .readAvailability(scope, capturedAt)
+            .then(availabilityCandidateObservation),
+          cancel: () => false
+        })
+      });
     }
-    if (this.remote) {
-      return this.remote.readAvailabilityForAuthority(scope, capturedAt, authority);
-    }
-    return Promise.resolve(
-      canvasRuntimeExecutionAvailabilitySchema.parse({
-        schemaVersion: "canvas-runtime-availability/v1",
-        kind: "unavailable",
-        reason: "runtime_not_attached"
-      })
-    );
+    if (this.remote) candidates.push(...this.remote.availabilityCandidates(logical, authority));
+    const result = await firstExactRuntimeAuthorityCandidate({
+      authority,
+      candidates,
+      matches: (observation) => matchesAvailabilityScope(observation, logical),
+      diagnosticCode: availabilityDiagnosticCode,
+      diagnose: (diagnostic) =>
+        this.remote?.reportAvailabilityDiagnostic({
+          hostId: diagnostic.candidateId.replace(/^host:/, ""),
+          category: diagnostic.category,
+          code: diagnostic.code
+        })
+    });
+    if (result.kind === "available") return result.value;
+    return result.value ?? unavailableExecution(result.reason);
   }
 
   acquire(scope: RuntimeCanvasScope): Promise<CanvasExecutionRuntimeLease> {

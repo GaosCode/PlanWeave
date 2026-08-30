@@ -8,8 +8,12 @@ import {
   loadPlanGraphPackage,
   resolveTaskCanvasWorkspace
 } from "@planweave-ai/runtime";
-import type { ContentAuthorityStore } from "../canvas/contentAuthorityStore.js";
-import { readStableCanvasRuntimeEvidence } from "../canvas/contentFingerprint.js";
+import {
+  firstExactRuntimeAuthorityCandidate,
+  type RuntimeAuthorityCandidate,
+  type RuntimeAuthorityCandidateDiagnostic,
+  type RuntimeReadAuthority
+} from "../canvas/runtimeAuthorityCandidates.js";
 import type { TrustedRuntimeRegistry } from "../runtimeProjectRegistry.js";
 import type { WorkItemRef } from "./schemas.js";
 import type {
@@ -117,47 +121,95 @@ export class LocalFilesystemWorkRuntimeFactsAdapter implements WorkRuntimePackag
   }
 }
 
-export class LocalFirstWorkRuntimeFactsAdapter implements WorkRuntimePackageFactsPort {
-  private remote?: WorkRuntimePackageFactsPort;
+export class AuthoritySelectingWorkRuntimeFactsAdapter implements WorkRuntimePackageFactsPort {
+  private remote?: {
+    factCandidates(
+      input: WorkRuntimeFactsRequest,
+      request: ReturnType<typeof resolveWorkItemsRequestSchema.parse>,
+      authority: RuntimeReadAuthority
+    ): RuntimeAuthorityCandidate<WorkRuntimeFactsLease>[];
+    reportDiagnostic(diagnostic: RuntimeAuthorityCandidateDiagnostic): void;
+    diagnosticCode(error: unknown): string;
+  };
+  constructor(
+    private readonly local: WorkRuntimePackageFactsPort,
+    private readonly contentAuthority: {
+      read(scope: WorkRuntimeFactsRequest["scope"]): RuntimeReadAuthority | undefined;
+    }
+  ) {}
 
-  constructor(private readonly local: WorkRuntimePackageFactsPort) {}
-
-  attachRemote(remote: WorkRuntimePackageFactsPort): void {
+  attachRemote(remote: NonNullable<AuthoritySelectingWorkRuntimeFactsAdapter["remote"]>): void {
+    if (this.remote) throw new Error("remote_work_runtime_facts_already_attached");
     this.remote = remote;
   }
 
   async acquireFacts(input: WorkRuntimeFactsRequest): Promise<WorkRuntimeFactsLease | undefined> {
-    const local = await this.local.acquireFacts(input);
-    return local ?? this.remote?.acquireFacts(input);
-  }
-}
-
-export class ContentAlignedWorkRuntimeFactsAdapter implements WorkRuntimePackageFactsPort {
-  constructor(
-    private readonly delegate: WorkRuntimePackageFactsPort,
-    private readonly content: ContentAuthorityStore
-  ) {}
-
-  async acquireFacts(input: WorkRuntimeFactsRequest): Promise<WorkRuntimeFactsLease | undefined> {
-    const lease = await this.delegate.acquireFacts(input);
-    if (!lease) return undefined;
-    try {
-      const authority = readStableCanvasRuntimeEvidence(this.content, input.scope);
-      if (
-        !authority ||
-        authority.target.graphFingerprint !== lease.evidence.graphFingerprint ||
-        authority.sourceRevision !== lease.evidence.sourceRevision
-      ) {
+    const request = resolveWorkItemsRequestSchema.parse({ workItems: input.workItems });
+    const authority = this.contentAuthority.read(input.scope);
+    if (!authority) throw new WorkRuntimeUnavailableError("content_out_of_sync");
+    const local: RuntimeAuthorityCandidate<WorkRuntimeFactsLease> = {
+      id: "local",
+      start: () => ({
+        response: this.local
+          .acquireFacts(input)
+          .then((lease) =>
+            lease
+              ? { kind: "available" as const, evidence: lease.evidence, value: lease }
+              : { kind: "unavailable" as const, reason: "runtime_not_attached" as const }
+          ),
+        cancel: () => false
+      })
+    };
+    const result = await firstExactRuntimeAuthorityCandidate({
+      authority,
+      candidates: [local, ...(this.remote?.factCandidates(input, request, authority) ?? [])],
+      discard: (lease) => lease.release(),
+      diagnosticCode: (error) =>
+        this.remote?.diagnosticCode(error) ??
+        (error instanceof WorkRuntimeUnavailableError
+          ? error.code
+          : "work_runtime_facts_candidate_unknown"),
+      diagnose: (diagnostic) => this.remote?.reportDiagnostic(diagnostic)
+    });
+    if (result.kind === "available") {
+      try {
+        const currentAuthority = this.contentAuthority.read(input.scope);
+        if (
+          currentAuthority &&
+          currentAuthority.sourceRevision === authority.sourceRevision &&
+          currentAuthority.target.graphFingerprint === authority.target.graphFingerprint &&
+          currentAuthority.target.revision === authority.target.revision &&
+          currentAuthority.target.content.versionId === authority.target.content.versionId &&
+          currentAuthority.target.content.canonicalDigest ===
+            authority.target.content.canonicalDigest
+        ) {
+          return result.value;
+        }
         throw new WorkRuntimeUnavailableError("content_out_of_sync");
+      } catch (error) {
+        await Promise.resolve()
+          .then(() => result.value.release())
+          .catch((releaseError: unknown) => {
+            const diagnostic = {
+              candidateId: result.candidateId,
+              category: "peer_error" as const,
+              code:
+                this.remote?.diagnosticCode(releaseError) ??
+                (releaseError instanceof WorkRuntimeUnavailableError
+                  ? releaseError.code
+                  : "work_runtime_facts_candidate_unknown")
+            };
+            try {
+              if (this.remote) this.remote.reportDiagnostic(diagnostic);
+              else console.warn("work_runtime_facts_candidate_error", diagnostic);
+            } catch {
+              // Cleanup diagnostics are observational and cannot replace the authority error.
+            }
+          });
+        throw error;
       }
-      return lease;
-    } catch (error) {
-      await lease.release();
-      if (error instanceof WorkRuntimeUnavailableError) throw error;
-      if (error instanceof Error && error.message === "canvas_content_head_mismatch") {
-        throw new WorkRuntimeUnavailableError("content_out_of_sync");
-      }
-      throw error;
     }
+    if (!this.remote && result.reason === "runtime_not_attached") return undefined;
+    throw new WorkRuntimeUnavailableError(result.reason);
   }
 }
