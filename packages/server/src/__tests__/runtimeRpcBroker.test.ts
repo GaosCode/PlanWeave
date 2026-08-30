@@ -180,6 +180,57 @@ describe("CanvasRuntimeRpcBroker", () => {
     });
   });
 
+  it("applies a per-request timeout without changing the default mutation timeout", async () => {
+    vi.useFakeTimers();
+    const fixture = await setup(1_000);
+    const availability = fixture.broker.request(
+      fixture.host.id,
+      scope,
+      availabilityOperation,
+      undefined,
+      { requestTimeoutMs: 25 }
+    );
+    const availabilityAssertion = expect(availability).rejects.toMatchObject({
+      code: "canvas_runtime_rpc_deadline_exceeded",
+      reconcileRequired: false
+    });
+    const operationId = randomUUID();
+    const mutation = fixture.broker.request(fixture.host.id, scope, {
+      operation: "claim",
+      runtimeLeaseId: randomUUID(),
+      evidence: {
+        operationId,
+        sourceRevision: `snapshot:${"a".repeat(64)}`,
+        graphFingerprint: `pkg-${"b".repeat(64)}`
+      },
+      input: {
+        operationId,
+        sourceRevision: `snapshot:${"a".repeat(64)}`,
+        graphFingerprint: `pkg-${"b".repeat(64)}`
+      }
+    });
+    const availabilityCommand = requestCommand(fixture.deliveries[0]!);
+    const mutationCommand = requestCommand(fixture.deliveries[1]!);
+
+    expect(availabilityCommand.deadline).toBe("2026-08-20T00:00:00.025Z");
+    expect(mutationCommand.deadline).toBe("2026-08-20T00:00:01.000Z");
+    expect(
+      fixture.broker.authorizesContentTransfer(fixture.host.id, scope, contentTarget.content)
+    ).toBe(true);
+    await vi.advanceTimersByTimeAsync(25);
+    await availabilityAssertion;
+    expect(fixture.broker.pendingCount()).toBe(1);
+    expect(
+      fixture.broker.authorizesContentTransfer(fixture.host.id, scope, contentTarget.content)
+    ).toBe(false);
+
+    fixture.broker.detachHost(fixture.host.id, "disconnected");
+    await expect(mutation).rejects.toMatchObject({
+      code: "canvas_runtime_reconcile_required",
+      reconcileRequired: true
+    });
+  });
+
   it.each([
     ["disconnected", "canvas_runtime_host_disconnected"],
     ["superseded", "canvas_runtime_host_superseded"],

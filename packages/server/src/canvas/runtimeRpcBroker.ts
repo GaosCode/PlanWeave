@@ -64,6 +64,17 @@ export type CanvasRuntimeRpcBrokerOptions = {
   clock?: () => Date;
 };
 
+export type CanvasRuntimeRpcRequestOptions = {
+  requestTimeoutMs?: number;
+};
+
+function parseRequestTimeoutMs(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new Error("canvas_runtime_rpc_timeout_invalid");
+  }
+  return value;
+}
+
 /** Correlates durable Runtime RPC requests while the existing WS owns session truth. */
 export class CanvasRuntimeRpcBroker implements CanvasRuntimeHostSessionLookup {
   private readonly inbox: HostEventInbox;
@@ -78,9 +89,7 @@ export class CanvasRuntimeRpcBroker implements CanvasRuntimeHostSessionLookup {
     private readonly mailbox: DurableMailbox,
     private readonly options: CanvasRuntimeRpcBrokerOptions
   ) {
-    if (!Number.isSafeInteger(options.requestTimeoutMs) || options.requestTimeoutMs < 1) {
-      throw new Error("canvas_runtime_rpc_timeout_invalid");
-    }
+    parseRequestTimeoutMs(options.requestTimeoutMs);
     this.inbox = new HostEventInbox(database);
     this.clock = options.clock ?? (() => new Date());
   }
@@ -104,10 +113,14 @@ export class CanvasRuntimeRpcBroker implements CanvasRuntimeHostSessionLookup {
     hostId: string,
     scope: CanvasRuntimeLogicalScope,
     rawOperation: CanvasRuntimeOperation,
-    expectedAttachmentVersion?: number
+    expectedAttachmentVersion?: number,
+    requestOptions: CanvasRuntimeRpcRequestOptions = {}
   ): Promise<RuntimeResponse> {
     const operation = canvasRuntimeOperationSchema.parse(rawOperation);
     const mutation = mutationOperations.has(operation.operation);
+    const requestTimeoutMs = parseRequestTimeoutMs(
+      requestOptions.requestTimeoutMs ?? this.options.requestTimeoutMs
+    );
     if (
       !this.isActive(hostId) ||
       (expectedAttachmentVersion !== undefined &&
@@ -120,7 +133,7 @@ export class CanvasRuntimeRpcBroker implements CanvasRuntimeHostSessionLookup {
       );
     }
     const requestId = canvasRuntimeRequestIdSchema.parse(randomUUID());
-    const deadline = new Date(this.clock().getTime() + this.options.requestTimeoutMs).toISOString();
+    const deadline = new Date(this.clock().getTime() + requestTimeoutMs).toISOString();
     const command = canvasRuntimeRequestCommandSchema.parse({
       type: "canvas_runtime.request",
       protocolVersion: agentHostProtocolVersion,
@@ -150,7 +163,7 @@ export class CanvasRuntimeRpcBroker implements CanvasRuntimeHostSessionLookup {
               )
             );
           }
-        }, this.options.requestTimeoutMs),
+        }, requestTimeoutMs),
         resolve,
         reject
       };

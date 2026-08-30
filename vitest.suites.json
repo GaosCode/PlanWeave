@@ -888,6 +888,7 @@
         "remoteExecutionActions.test.ts",
         "remoteExecutionLifecycle.test.ts",
         "remoteHostRuntimeAdapter.test.ts",
+        "remoteHostRuntimeAvailability.test.ts",
         "remoteAcpEventsV2.test.ts",
         "remoteObservations.test.ts",
         "remoteOperationRetention.test.ts",

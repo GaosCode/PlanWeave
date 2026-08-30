@@ -1,8 +1,3 @@
-import {
-  CANVAS_RUNTIME_CAPABILITY,
-  agentHostProtocolVersion,
-  type CanvasRuntimeRequestCommand
-} from "@planweave-ai/agent-host-protocol";
 import { canvasScopeRefSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -11,23 +6,16 @@ import {
   RemoteHostCanvasRuntimeAdapter
 } from "../canvas/remoteHostRuntimeAdapter.js";
 import { RemoteOwnershipConflictError } from "@planweave-ai/runtime";
-import {
-  CanvasRuntimeHostAmbiguousError,
-  CanvasRuntimeHostLocator
-} from "../canvas/runtimeHostLocator.js";
-import { CanvasRuntimeRpcBroker } from "../canvas/runtimeRpcBroker.js";
-import { CanvasRuntimeUnavailableError } from "../canvas/executionRuntimePort.js";
-import { AgentHostRepository } from "../hosts.js";
-import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
-import { DurableMailbox, type MailboxMessage } from "../mailbox.js";
-import { applyMigrations } from "../migrations.js";
-import { ProjectAccessRepository } from "../projectAccessRepository.js";
-import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
-import { ArtifactStore } from "../artifacts.js";
-import { RuntimeArtifactGrantRepository } from "../canvas/runtimeArtifactGrantRepository.js";
+import { CanvasRuntimeHostAmbiguousError } from "../canvas/runtimeHostLocator.js";
 import { RemoteHostWorkRuntimeFactsAdapter } from "../work/remoteHostRuntimeFactsAdapter.js";
+import {
+  createRemoteHostRuntimeTestEnvironment,
+  type RemoteHostRuntimeTestEnvironment,
+  respondToRuntimeRequest as respond,
+  runtimeRequestCommandAt as commandAt
+} from "./support/remoteHostRuntimeTestEnvironment.js";
 
-const databases: SqliteDatabase[] = [];
+const environments: RemoteHostRuntimeTestEnvironment[] = [];
 const scope = canvasScopeRefSchema.parse({
   workspaceId: "workspace-remote-adapter",
   projectId: "project-remote-adapter",
@@ -45,113 +33,42 @@ const runtimeContentTarget = {
 const runtimeSourceRevision = "snapshot:test";
 
 afterEach(() => {
-  for (const database of databases.splice(0)) database.close();
+  for (const environment of environments.splice(0)) environment.close();
 });
 
 async function setup(requestTimeoutMs = 1_000) {
-  const database = await openServerDatabase(":memory:", 5_000);
-  databases.push(database);
-  applyMigrations(database);
-  new WorkspaceIdentityRepository(database).ensureConfiguredWorkspace(scope.workspaceId);
-  const projectAccess = new ProjectAccessRepository(database);
-  projectAccess.registerProjectInternal({
-    workspaceId: scope.workspaceId,
-    projectId: scope.projectId,
-    projectRoot: "/runtime/project"
-  });
-  projectAccess.registerCanvasInternal({ ...scope, packageDir: "/runtime/project/package" });
-  database
-    .prepare("UPDATE project_registry SET project_root_internal=NULL WHERE project_id=?")
-    .run(scope.projectId);
-  database
-    .prepare("UPDATE canvas_registry SET package_dir_internal=NULL WHERE project_id=?")
-    .run(scope.projectId);
-  const hosts = new AgentHostRepository(database);
-  const reportRuntimeHost = (hostId: string) =>
-    hosts.reportOnline(hostId, [CANVAS_RUNTIME_CAPABILITY], 1, {
-      workspaceMappings: [{ workspaceId: scope.workspaceId, status: "ready" }],
-      acpProfiles: [],
-      runtimeProjects: [
-        { workspaceId: scope.workspaceId, projectId: scope.projectId, status: "ready" }
-      ]
-    });
-  const host = hosts.register("Remote Runtime").host;
-  reportRuntimeHost(host.id);
-  const mailbox = new DurableMailbox(database);
-  const broker = new CanvasRuntimeRpcBroker(database, hosts, mailbox, {
-    requestTimeoutMs
-  });
-  const activeHostIds = new Set([host.id]);
-  broker.attachSessionLookup({ isActive: (hostId) => activeHostIds.has(hostId) });
-  const deliveries: MailboxMessage[] = [];
-  mailbox.subscribe(host.id, (message) => deliveries.push(message));
-  const locator = new CanvasRuntimeHostLocator(hosts.runtimeBindings, hosts, broker, projectAccess);
-  const grants = new RuntimeArtifactGrantRepository(database, {
-    maxArtifactBytes: 1024 * 1024,
-    leaseActive: (lease) =>
-      broker.isActive(lease.hostId) &&
-      broker.attachmentVersion(lease.hostId) === lease.attachmentVersion
-  });
+  const environment = await createRemoteHostRuntimeTestEnvironment({ scope, requestTimeoutMs });
+  environments.push(environment);
   const contentTargets = { read: () => runtimeContentTarget };
   const readContentAuthority = vi.fn(() => ({
     target: runtimeContentTarget,
     sourceRevision: runtimeSourceRevision
   }));
-  const adapter = new RemoteHostCanvasRuntimeAdapter(locator, broker, contentTargets, {
-    grants,
-    artifacts: new ArtifactStore(database, "/not-observed", 1024 * 1024)
-  });
-  const factsAdapter = new RemoteHostWorkRuntimeFactsAdapter(locator, broker, {
-    read: readContentAuthority
-  });
+  const adapter = new RemoteHostCanvasRuntimeAdapter(
+    environment.locator,
+    environment.broker,
+    contentTargets,
+    {
+      grants: environment.grants,
+      artifacts: environment.artifacts
+    }
+  );
+  const factsAdapter = new RemoteHostWorkRuntimeFactsAdapter(
+    environment.locator,
+    environment.broker,
+    {
+      read: readContentAuthority
+    }
+  );
   return {
+    ...environment,
     adapter,
     factsAdapter,
-    broker,
-    locator,
     readContentAuthority,
-    deliveries,
-    host,
-    database,
-    addHost(name: string) {
-      const additionalHost = hosts.register(name).host;
-      reportRuntimeHost(additionalHost.id);
-      activeHostIds.add(additionalHost.id);
-      const hostDeliveries: MailboxMessage[] = [];
-      mailbox.subscribe(additionalHost.id, (message) => hostDeliveries.push(message));
-      return { host: additionalHost, deliveries: hostDeliveries };
-    },
-    disconnectHost(hostId: string) {
-      activeHostIds.delete(hostId);
-      broker.detachHost(hostId, "disconnected");
-    },
     disconnect() {
-      this.disconnectHost(host.id);
+      environment.disconnectHost(environment.host.id);
     }
   };
-}
-
-function commandAt(deliveries: MailboxMessage[], index: number): CanvasRuntimeRequestCommand {
-  const command = deliveries[index]?.command;
-  if (command?.type !== "canvas_runtime.request") {
-    throw new Error("test_canvas_runtime_request_expected");
-  }
-  return command;
-}
-
-function respond(
-  broker: CanvasRuntimeRpcBroker,
-  hostId: string,
-  command: CanvasRuntimeRequestCommand,
-  response: Record<string, unknown>
-) {
-  broker.handleResponse(hostId, {
-    type: "canvas_runtime.response",
-    protocolVersion: agentHostProtocolVersion,
-    messageId: randomUUID(),
-    requestId: command.requestId,
-    response
-  });
 }
 
 function taskFactsResult(
@@ -411,209 +328,6 @@ describe("RemoteHostCanvasRuntimeAdapter", () => {
     });
 
     await expect(pending).rejects.toMatchObject({ name: "ZodError" });
-  });
-
-  it("serves remote availability with no local trusted project", async () => {
-    const fixture = await setup();
-    const router = new LocalFirstCanvasRuntimeRouter(
-      {
-        async readAvailability() {
-          throw new Error("local_should_not_run");
-        }
-      },
-      {
-        acquire() {
-          throw new CanvasRuntimeUnavailableError();
-        }
-      },
-      { hasRuntimeProject: () => false, hasRuntimeScope: () => false }
-    );
-    router.attachRemote(fixture.adapter);
-
-    const pending = router.readAvailability(scope, "2026-08-20T00:00:00.000Z");
-    const command = commandAt(fixture.deliveries, 0);
-    expect(command.operation).toMatchObject({
-      operation: "availability",
-      contentTarget: runtimeContentTarget
-    });
-    const graphFingerprint = `pkg-${"a".repeat(64)}`;
-    respond(fixture.broker, fixture.host.id, command, {
-      outcome: "success",
-      operation: "availability",
-      result: {
-        kind: "available",
-        sourceRevision: `snapshot:${"b".repeat(64)}`,
-        graphFingerprint,
-        status: {
-          schemaVersion: "canvas-runtime-status/v2",
-          scope,
-          packageFingerprint: graphFingerprint,
-          capturedAt: "2026-08-20T00:00:00.000Z",
-          tasks: [],
-          blocks: []
-        }
-      }
-    });
-
-    await expect(pending).resolves.toMatchObject({
-      kind: "available",
-      hostId: fixture.host.id,
-      graphFingerprint,
-      status: { scope }
-    });
-  });
-
-  it("aggregates matching read evidence while generic routing remains ambiguous", async () => {
-    const fixture = await setup();
-    const second = fixture.addHost("Second Runtime");
-
-    expect(fixture.adapter.hasRuntimeScope(scope)).toBe(true);
-    expect(
-      fixture.adapter.hasRuntimeProject({
-        workspaceId: scope.workspaceId,
-        projectId: scope.projectId
-      })
-    ).toBe(true);
-    expect(() => fixture.adapter.acquire(scope)).toThrow(CanvasRuntimeHostAmbiguousError);
-
-    const currentSourceRevision = `snapshot:${"b".repeat(64)}`;
-    const pending = fixture.adapter.readAvailabilityForAuthority(scope, undefined, {
-      target: runtimeContentTarget,
-      sourceRevision: currentSourceRevision
-    });
-    const staleCommand = commandAt(fixture.deliveries, 0);
-    const currentCommand = commandAt(second.deliveries, 0);
-    respond(fixture.broker, fixture.host.id, staleCommand, {
-      outcome: "success",
-      operation: "availability",
-      result: {
-        kind: "available",
-        sourceRevision: `snapshot:${"e".repeat(64)}`,
-        graphFingerprint: runtimeContentTarget.graphFingerprint,
-        status: {
-          schemaVersion: "canvas-runtime-status/v2",
-          scope,
-          packageFingerprint: runtimeContentTarget.graphFingerprint,
-          capturedAt: "2026-08-20T00:00:00.000Z",
-          tasks: [],
-          blocks: []
-        }
-      }
-    });
-    respond(fixture.broker, second.host.id, currentCommand, {
-      outcome: "success",
-      operation: "availability",
-      result: {
-        kind: "available",
-        sourceRevision: currentSourceRevision,
-        graphFingerprint: runtimeContentTarget.graphFingerprint,
-        status: {
-          schemaVersion: "canvas-runtime-status/v2",
-          scope,
-          packageFingerprint: runtimeContentTarget.graphFingerprint,
-          capturedAt: "2026-08-20T00:00:01.000Z",
-          tasks: [],
-          blocks: []
-        }
-      }
-    });
-
-    await expect(pending).resolves.toMatchObject({
-      kind: "available",
-      hostId: second.host.id,
-      graphFingerprint: runtimeContentTarget.graphFingerprint
-    });
-  });
-
-  it("does not hide unexpected locator failures in scope availability", async () => {
-    const fixture = await setup();
-    vi.spyOn(fixture.locator, "locateCandidates").mockImplementationOnce(() => {
-      throw new Error("unexpected_locator_failure");
-    });
-
-    expect(() => fixture.adapter.hasRuntimeScope(scope)).toThrow("unexpected_locator_failure");
-  });
-
-  it("returns a safe unavailable result when no Host provides matching evidence", async () => {
-    const fixture = await setup();
-    const second = fixture.addHost("Second Runtime");
-    const pending = fixture.adapter.readAvailability(scope);
-    const failedCommand = commandAt(fixture.deliveries, 0);
-    const mismatchedCommand = commandAt(second.deliveries, 0);
-    respond(fixture.broker, fixture.host.id, failedCommand, {
-      outcome: "success",
-      operation: "availability",
-      result: { kind: "unavailable", reason: "host_offline" }
-    });
-    const mismatchedFingerprint = `pkg-${"d".repeat(64)}`;
-    respond(fixture.broker, second.host.id, mismatchedCommand, {
-      outcome: "success",
-      operation: "availability",
-      result: {
-        kind: "available",
-        sourceRevision: `snapshot:${"e".repeat(64)}`,
-        graphFingerprint: mismatchedFingerprint,
-        status: {
-          schemaVersion: "canvas-runtime-status/v2",
-          scope,
-          packageFingerprint: mismatchedFingerprint,
-          capturedAt: "2026-08-20T00:00:00.000Z",
-          tasks: [],
-          blocks: []
-        }
-      }
-    });
-
-    await expect(pending).resolves.toMatchObject({
-      kind: "unavailable",
-      reason: "content_out_of_sync"
-    });
-  });
-
-  it("contains rejected Host reads instead of rejecting availability", async () => {
-    const fixture = await setup(10);
-
-    await expect(fixture.adapter.readAvailability(scope)).resolves.toMatchObject({
-      kind: "unavailable",
-      reason: "host_offline",
-      hostId: fixture.host.id
-    });
-  });
-
-  it("prefers an attached-but-missing Runtime over another offline Host", async () => {
-    const fixture = await setup();
-    const second = fixture.addHost("Second Runtime");
-    const pending = fixture.adapter.readAvailability(scope);
-    const secondCommand = commandAt(second.deliveries, 0);
-
-    respond(fixture.broker, second.host.id, secondCommand, {
-      outcome: "success",
-      operation: "availability",
-      result: { kind: "unavailable", reason: "runtime_not_attached" }
-    });
-    fixture.disconnectHost(fixture.host.id);
-
-    await expect(pending).resolves.toMatchObject({
-      kind: "unavailable",
-      reason: "runtime_not_attached",
-      hostId: second.host.id
-    });
-  });
-
-  it("does not hide an unclassified Host domain error", async () => {
-    const fixture = await setup();
-    const pending = fixture.adapter.readAvailability(scope);
-    respond(fixture.broker, fixture.host.id, commandAt(fixture.deliveries, 0), {
-      outcome: "error",
-      operation: "availability",
-      error: {
-        code: "runtime_canvas_not_found",
-        message: "The Canvas Runtime resolver failed.",
-        retryable: false
-      }
-    });
-
-    await expect(pending).rejects.toMatchObject({ code: "runtime_canvas_not_found" });
   });
 
   it("acquires one remote lease and releases it exactly once", async () => {

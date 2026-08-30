@@ -254,6 +254,9 @@ export async function createDistributedServerComposition(
       {
         grants: runtimeArtifactGrants,
         artifacts: initializedActivity.artifactStore
+      },
+      {
+        requestTimeoutMs: config.limits.canvasRuntimeAvailabilityTimeoutMs
       }
     );
     collaborationRuntime.attachRemote(remoteCanvasRuntime);

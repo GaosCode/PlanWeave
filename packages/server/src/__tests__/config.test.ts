@@ -62,6 +62,7 @@ describe("server config", () => {
 
     expect(config.databasePath).toBe(join(input.dataDirectory, "planweave-server.sqlite"));
     expect(config.operatorSessionTtlMs).toBe(30 * 24 * 60 * 60 * 1_000);
+    expect(config.limits.canvasRuntimeAvailabilityTimeoutMs).toBe(15_000);
     expect(config.version).toBe("server-config/v2");
     expect(config.transport.mode).toBe("direct_https");
     expect(serverConfigSummary(config)).toEqual({
@@ -166,6 +167,26 @@ describe("server config", () => {
         limits: { heartbeatIntervalMs: 90_000, hostOfflineAfterMs: 90_000 }
       })
     ).toThrow("server_heartbeat_must_precede_offline");
+  });
+
+  it("defaults and bounds the Canvas Runtime availability timeout for legacy configs", async () => {
+    const input = await secureConfig();
+    expect(
+      parseServerConfig({ ...input, limits: { busyTimeoutMs: 7_500 } }).limits
+        .canvasRuntimeAvailabilityTimeoutMs
+    ).toBe(15_000);
+    expect(() =>
+      parseServerConfig({
+        ...input,
+        limits: { canvasRuntimeAvailabilityTimeoutMs: 999 }
+      })
+    ).toThrow();
+    expect(() =>
+      parseServerConfig({
+        ...input,
+        limits: { canvasRuntimeAvailabilityTimeoutMs: 120_001 }
+      })
+    ).toThrow();
   });
 
   it("bounds the configured operator session lifetime", async () => {
