@@ -880,14 +880,7 @@ describe("RemoteBlockCoordinator crash reconciliation", () => {
       expect(count(crashedDatabase, "canvas_runtime_operation_attachments")).toBe(
         checkpoint === "after_runtime_attachment" ? 1 : 0
       );
-      expect(
-        crashedDatabase
-          .prepare(
-            `SELECT COUNT(*) AS count FROM canvas_runtime_host_bindings
-             WHERE route_selected=1`
-          )
-          .get()?.count
-      ).toBe(0);
+      expect(count(crashedDatabase, "canvas_runtime_host_bindings")).toBe(0);
     }
 
     const coordination = await harness.restart();

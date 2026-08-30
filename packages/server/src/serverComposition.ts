@@ -236,7 +236,7 @@ export async function createDistributedServerComposition(
         ) {
           return false;
         }
-        const located = runtimeHostLocator.locate(lease);
+        const located = runtimeHostLocator.locateAuthorizedHost(lease, lease.hostId);
         return located.kind === "available" && located.hostId === lease.hostId;
       }
     });

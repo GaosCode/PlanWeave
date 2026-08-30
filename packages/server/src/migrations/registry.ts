@@ -26,6 +26,7 @@ import { remoteOperationRetentionMigration } from "./remoteOperationRetention.js
 import { canvasRuntimeHostBindingMigration } from "./canvasRuntimeHostBinding.js";
 import { canvasRuntimeHostBindingEvidenceMigration } from "./canvasRuntimeHostBindingEvidence.js";
 import { canvasRuntimeOperationAttachmentMigration } from "./canvasRuntimeOperationAttachment.js";
+import { canvasRuntimeHostBindingReadinessMigration } from "./canvasRuntimeHostBindingReadiness.js";
 import { canvasRuntimeArtifactGrantMigration } from "./canvasRuntimeArtifactGrant.js";
 import { canvasRuntimeStatusMigration } from "./canvasRuntimeStatus.js";
 import { canvasRuntimeRevisionMigration } from "./canvasRuntimeRevision.js";
@@ -85,7 +86,8 @@ export const migrationModules: readonly MigrationModule[] = [
     migrations: [
       canvasRuntimeHostBindingMigration,
       canvasRuntimeHostBindingEvidenceMigration,
-      canvasRuntimeOperationAttachmentMigration
+      canvasRuntimeOperationAttachmentMigration,
+      canvasRuntimeHostBindingReadinessMigration
     ]
   },
   { name: "canvas-runtime-artifact-grant", migrations: [canvasRuntimeArtifactGrantMigration] },

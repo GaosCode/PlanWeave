@@ -239,14 +239,7 @@ describe("workspace execution plane HTTP gaps", () => {
       status: 202,
       body: { agentEndpoint: { endpointId: fixture.endpointId } }
     });
-    expect(fixture.listRuntimeBindings()).toEqual([
-      expect.objectContaining({
-        host_id: fixture.hostId,
-        readiness_status: "ready",
-        route_selected: 1
-      })
-    ]);
-    expect(fixture.listRuntimeBindings()[0]).not.toHaveProperty("operation_id");
+    expect(fixture.listRuntimeBindings()).toEqual([]);
     expect(fixture.listRuntimeAttachments()).toEqual([
       expect.objectContaining({
         operation_id: expect.any(String),
@@ -298,7 +291,7 @@ describe("workspace execution plane HTTP gaps", () => {
     });
     expect(second.status).toBe(202);
     await expect(second.json()).resolves.toMatchObject({ operationId: firstBody.operationId });
-    expect(fixture.listRuntimeBindings()).toHaveLength(1);
+    expect(fixture.listRuntimeBindings()).toEqual([]);
     expect(fixture.countOperations()).toBe(1);
     expect(fixture.countActiveReservations()).toBe(1);
   });

@@ -26,11 +26,6 @@ export type RemoteRuntimeMaterializationPorts = {
   project?(
     input: RuntimeAttachmentRequest & { lease: CanvasExecutionRuntimeLease }
   ): void | Promise<void>;
-  confirmMaterializedRoute?(input: {
-    workspaceId: string;
-    projectId: string;
-    hostId: string;
-  }): void;
 };
 
 export async function attachWorkspaceRuntimeForAcceptedOperation(input: {
@@ -95,10 +90,4 @@ export async function materializeAttachedWorkspaceRuntime(input: {
     contentTargets: input.ports.contentTargets
   });
   await input.ports.project?.({ ...input.attachment, lease: input.lease });
-  if (!input.ports.project) return;
-  input.ports.confirmMaterializedRoute?.({
-    workspaceId: input.attachment.workspaceId,
-    projectId: input.attachment.projectId,
-    hostId: input.attachment.hostId
-  });
 }

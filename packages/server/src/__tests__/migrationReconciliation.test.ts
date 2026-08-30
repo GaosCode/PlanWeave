@@ -13,6 +13,7 @@ import {
   latestCentralSchemaVersion
 } from "../migrations.js";
 import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
+import { AgentHostRepository } from "../hosts.js";
 
 const databases: SqliteDatabase[] = [];
 
@@ -94,8 +95,6 @@ async function openDatabaseAtV53(): Promise<SqliteDatabase> {
     DROP TABLE canvas_runtime_reset_operations;
     DROP TABLE canvas_workspace_publish_operations;
     DROP TABLE canvas_runtime_operation_attachments;
-    DROP INDEX idx_canvas_runtime_host_binding_selected_route;
-    ALTER TABLE canvas_runtime_host_bindings DROP COLUMN route_selected;
     ALTER TABLE canvas_runtime_status_snapshots DROP COLUMN runtime_revision;
     DELETE FROM schema_migrations WHERE version >= 54;
   `);
@@ -206,7 +205,7 @@ describe("collaboration migration reconciliation", () => {
       { name: "host-credential-lifecycle", versions: [47] },
       { name: "host-installation-identity", versions: [48] },
       { name: "remote-operation-retention", versions: [49] },
-      { name: "canvas-runtime-host-binding", versions: [51, 62, 64] },
+      { name: "canvas-runtime-host-binding", versions: [51, 62, 64, 66] },
       { name: "canvas-runtime-artifact-grant", versions: [52] },
       { name: "canvas-runtime-status", versions: [53] },
       { name: "canvas-runtime-revision", versions: [56] },
@@ -215,7 +214,84 @@ describe("collaboration migration reconciliation", () => {
       { name: "remote-operation-diagnostics", versions: [63] },
       { name: "remote-runner-events", versions: [65] }
     ]);
-    expect(latestCentralSchemaVersion).toBe(65);
+    expect(latestCentralSchemaVersion).toBe(66);
+  });
+
+  it("removes project route selection atomically and replays v66 idempotently", async () => {
+    const database = await openDatabase();
+    applyMigrations(database);
+    const hosts = new AgentHostRepository(database);
+    const first = hosts.register("First Runtime Host").host;
+    const second = hosts.register("Second Runtime Host").host;
+    database.exec(`
+      ALTER TABLE canvas_runtime_host_bindings
+        ADD COLUMN route_selected INTEGER NOT NULL DEFAULT 0 CHECK(route_selected IN (0,1));
+      CREATE UNIQUE INDEX idx_canvas_runtime_host_binding_selected_route
+        ON canvas_runtime_host_bindings(workspace_id,project_id) WHERE route_selected=1;
+    `);
+    const insert = database.prepare(
+      `INSERT INTO canvas_runtime_host_bindings(
+         workspace_id,project_id,host_id,readiness_status,route_selected,
+         first_observed_at,last_observed_at
+       ) VALUES ('workspace-v66','project-v66',?,'ready',?,
+         '2026-08-30T00:00:00.000Z','2026-08-30T00:01:00.000Z')`
+    );
+    insert.run(first.id, 1);
+    insert.run(second.id, 0);
+    database.prepare("DELETE FROM schema_migrations WHERE version=66").run();
+    database.exec(`
+      CREATE TRIGGER fail_v66_marker
+      BEFORE INSERT ON schema_migrations
+      WHEN NEW.version=66
+      BEGIN
+        SELECT RAISE(ABORT, 'fail_v66_marker');
+      END;
+    `);
+
+    expect(() => applyMigrations(database)).toThrow("fail_v66_marker");
+    expect(
+      database
+        .prepare("SELECT name FROM pragma_table_info('canvas_runtime_host_bindings')")
+        .all()
+        .map((column) => column.name)
+    ).toContain("route_selected");
+    expect(
+      database.prepare("SELECT 1 FROM schema_migrations WHERE version=66").get()
+    ).toBeUndefined();
+    expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+
+    database.exec("DROP TRIGGER fail_v66_marker");
+    applyMigrations(database);
+    expect(
+      database
+        .prepare("SELECT name FROM pragma_table_info('canvas_runtime_host_bindings')")
+        .all()
+        .map((column) => column.name)
+    ).toEqual([
+      "workspace_id",
+      "project_id",
+      "host_id",
+      "readiness_status",
+      "first_observed_at",
+      "last_observed_at"
+    ]);
+    expect(
+      database
+        .prepare(
+          `SELECT host_id,readiness_status FROM canvas_runtime_host_bindings
+           WHERE workspace_id='workspace-v66' AND project_id='project-v66' ORDER BY host_id`
+        )
+        .all()
+    ).toEqual(
+      [first.id, second.id].sort().map((hostId) => ({ host_id: hostId, readiness_status: "ready" }))
+    );
+    expect(
+      database.prepare("SELECT 1 AS present FROM schema_migrations WHERE version=66").get()
+    ).toEqual({
+      present: 1
+    });
+    expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+    expect(() => applyMigrations(database)).not.toThrow();
   });
 
   it("upgrades a representative v53 database through v58 exactly once", async () => {
@@ -249,7 +325,7 @@ describe("collaboration migration reconciliation", () => {
 
     applyMigrations(database);
 
-    expect(centralSchemaVersion(database)).toBe(65);
+    expect(centralSchemaVersion(database)).toBe(66);
     expect(
       database
         .prepare(

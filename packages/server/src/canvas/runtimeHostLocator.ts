@@ -10,24 +10,17 @@ import {
 } from "@planweave-ai/collaboration-protocol/core/primitives";
 import type { AgentHostRepository } from "../hosts.js";
 import type { ProjectAccessRepository } from "../projectAccessRepository.js";
-import { inWriteTransaction, type SqliteDatabase } from "../sqlite.js";
+import type { SqliteDatabase } from "../sqlite.js";
 import type { RuntimeCanvasScope } from "./executionRuntimePort.js";
 
 export type CanvasRuntimeHostBinding = Omit<RuntimeCanvasScope, "canvasId"> & {
   hostId: string;
   readinessStatus: HostRuntimeProjectObservation["status"];
-  routeSelected: boolean;
   firstObservedAt: string;
   lastObservedAt: string;
 };
 
-export type CanvasRuntimeMaterializedRouteInput = {
-  workspaceId: string;
-  projectId: string;
-  hostId: string;
-};
-
-const bindingSelectColumns = `workspace_id,project_id,host_id,readiness_status,route_selected,
+const bindingSelectColumns = `workspace_id,project_id,host_id,readiness_status,
          first_observed_at,last_observed_at`;
 
 type BindingRow = {
@@ -35,7 +28,6 @@ type BindingRow = {
   project_id: string;
   host_id: string;
   readiness_status: HostRuntimeProjectObservation["status"];
-  route_selected: number;
   first_observed_at: string;
   last_observed_at: string;
 };
@@ -46,7 +38,6 @@ function toBinding(row: BindingRow): CanvasRuntimeHostBinding {
     projectId: row.project_id,
     hostId: row.host_id,
     readinessStatus: row.readiness_status,
-    routeSelected: row.route_selected === 1,
     firstObservedAt: row.first_observed_at,
     lastObservedAt: row.last_observed_at
   };
@@ -84,17 +75,6 @@ export class CanvasRuntimeHostBindingRepository {
           .run(observation.status, observedAt, hostId, workspaceId, observation.projectId);
         continue;
       }
-      const fencedHostId = this.fencedReadyHostId(workspaceId, observation.projectId, observedAt);
-      if (fencedHostId !== undefined && fencedHostId !== hostId) {
-        this.database
-          .prepare(
-            `UPDATE canvas_runtime_host_bindings
-             SET readiness_status='missing',last_observed_at=?
-             WHERE host_id=? AND workspace_id=? AND project_id=?`
-          )
-          .run(observedAt, hostId, workspaceId, observation.projectId);
-        continue;
-      }
       this.database
         .prepare(
           `INSERT INTO canvas_runtime_host_bindings(
@@ -105,44 +85,6 @@ export class CanvasRuntimeHostBindingRepository {
         )
         .run(workspaceId, observation.projectId, hostId, observedAt, observedAt);
     }
-  }
-
-  /**
-   * A confirmed materialized route or an active Runtime/capacity lease fences
-   * the project to one Host. Observation must not reactivate another Host.
-   */
-  private fencedReadyHostId(
-    workspaceId: string,
-    projectId: string,
-    nowIso: string
-  ): string | undefined {
-    const selected = this.database
-      .prepare(
-        `SELECT host_id FROM canvas_runtime_host_bindings
-         WHERE workspace_id=? AND project_id=? AND route_selected=1
-         LIMIT 1`
-      )
-      .get(workspaceId, projectId) as { host_id: string } | undefined;
-    if (selected) return selected.host_id;
-    const runtimeLease = this.database
-      .prepare(
-        `SELECT host_id FROM canvas_runtime_leases
-         WHERE workspace_id=? AND project_id=? AND status='active' AND expires_at>?
-         LIMIT 1`
-      )
-      .get(workspaceId, projectId, nowIso) as { host_id: string } | undefined;
-    if (runtimeLease) return runtimeLease.host_id;
-    const reservation = this.database
-      .prepare(
-        `SELECT r.host_id AS host_id
-         FROM host_capacity_reservations r
-         JOIN remote_execution_attempts a ON a.execution_attempt_id=r.execution_attempt_id
-         JOIN remote_operations o ON o.id=a.operation_id
-         WHERE o.workspace_id=? AND o.project_id=? AND r.status='active'
-         LIMIT 1`
-      )
-      .get(workspaceId, projectId) as { host_id: string } | undefined;
-    return reservation?.host_id;
   }
 
   list(scopeInput: RuntimeCanvasScope): CanvasRuntimeHostBinding[] {
@@ -165,46 +107,6 @@ export class CanvasRuntimeHostBindingRepository {
       )
       .all(scope.workspaceId, scope.projectId) as BindingRow[];
     return rows.map(toBinding);
-  }
-
-  confirmMaterializedRouteHost(
-    input: CanvasRuntimeMaterializedRouteInput
-  ): CanvasRuntimeHostBinding {
-    this.hosts.getRequired(input.hostId);
-    const workspaceId = workspaceIdSchema.parse(input.workspaceId);
-    const projectId = opaqueIdentifierSchema.parse(input.projectId);
-    const hostId = opaqueIdentifierSchema.parse(input.hostId);
-    const observedAt = this.clock().toISOString();
-    return inWriteTransaction(this.database, () => {
-      this.database
-        .prepare(
-          `UPDATE canvas_runtime_host_bindings
-           SET readiness_status='missing',route_selected=0,last_observed_at=?
-           WHERE workspace_id=? AND project_id=? AND host_id!=?`
-        )
-        .run(observedAt, workspaceId, projectId, hostId);
-      this.database
-        .prepare(
-          `INSERT INTO canvas_runtime_host_bindings(
-             workspace_id,project_id,host_id,readiness_status,route_selected,
-             first_observed_at,last_observed_at
-           ) VALUES (?,?,?,'ready',1,?,?)
-           ON CONFLICT(workspace_id,project_id,host_id) DO UPDATE SET
-             readiness_status='ready',
-             route_selected=1,
-             last_observed_at=excluded.last_observed_at`
-        )
-        .run(workspaceId, projectId, hostId, observedAt, observedAt);
-      const row = this.database
-        .prepare(
-          `SELECT ${bindingSelectColumns}
-           FROM canvas_runtime_host_bindings
-           WHERE workspace_id=? AND project_id=? AND host_id=?`
-        )
-        .get(workspaceId, projectId, hostId) as BindingRow | undefined;
-      if (!row) throw new Error("canvas_runtime_attachment_missing_after_upsert");
-      return toBinding(row);
-    });
   }
 }
 

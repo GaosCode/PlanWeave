@@ -44,6 +44,10 @@ describe("Runtime composition boundary", () => {
       "const collaborationRuntime = new LocalFirstCanvasRuntimeRouter("
     );
     expect(compositionRootSource).toContain("executionLeases: collaborationRuntime");
+    expect(compositionRootSource).toContain(
+      "runtimeHostLocator.locateAuthorizedHost(lease, lease.hostId)"
+    );
+    expect(compositionRootSource).not.toContain("runtimeHostLocator.locate(lease)");
     expect(runtimeRouterSource).toContain("reconcileReset(");
     expect(runtimeRouterSource).toContain("return this.remote.reconcileReset(scope, command)");
     expect(compositionRootSource).not.toContain("runtimeStatus: localCanvasRuntime");

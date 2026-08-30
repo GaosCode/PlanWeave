@@ -930,6 +930,11 @@ describe("RemoteBlockCoordinator", () => {
       })
     ).rejects.toThrow(CanvasRuntimeAttachmentConflictError);
     expect(listRuntimeAttachments(fixture.server.database, fixture.locator)).toEqual(original);
+    const failedAttempt = fixture.operations.getRequired(operation.id).attempt;
+    expect(failedAttempt.executionAttemptId).toBe("attempt-v3-retry-active-lease");
+    expect(failedAttempt.leaseId).toBeDefined();
+    if (!failedAttempt.leaseId) throw new Error("failed_attempt_lease_missing");
+    expect(fixture.reservations.getRequired(failedAttempt.leaseId).status).toBe("expired");
   });
 
   it("rejects v3 reentry on a stale Endpoint without changing the durable attempt", async () => {

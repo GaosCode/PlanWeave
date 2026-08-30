@@ -1,7 +1,10 @@
 import type { RemoteBlockDispatchCandidate } from "@planweave-ai/runtime";
 import { AgentEndpointCatalogError, type AgentEndpointCatalog } from "./agentEndpointCatalog.js";
 import { CanvasRuntimeUnavailableError } from "./canvas/executionRuntimePort.js";
-import type { RuntimeAttachmentRequest } from "./canvas/runtimeAttachment.js";
+import {
+  CanvasRuntimeAttachmentConflictError,
+  type RuntimeAttachmentRequest
+} from "./canvas/runtimeAttachment.js";
 import type { HostCapacityReservation, HostReservationRepository } from "./hostReservations.js";
 import type {
   RemoteCoordinatorCheckpoint,
@@ -139,6 +142,7 @@ export class RemoteDispatchPreparationCoordinator {
   ): void {
     if (
       !(error instanceof RuntimeAttachmentContentTargetError) &&
+      !(error instanceof CanvasRuntimeAttachmentConflictError) &&
       !(error instanceof CanvasRuntimeUnavailableError) &&
       !(error instanceof AgentEndpointCatalogError)
     ) {

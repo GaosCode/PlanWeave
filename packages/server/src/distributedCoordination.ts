@@ -447,8 +447,6 @@ export function createRemoteBlockCoordination(
     ...(options.ensureRuntimeProjection
       ? { ensureRuntimeProjection: options.ensureRuntimeProjection }
       : {}),
-    confirmRuntimeMaterializedRoute: (input) =>
-      hosts.runtimeBindings.confirmMaterializedRouteHost(input),
     serverInstanceOwnerToken: startupContext.serverInstanceOwnerToken,
     humanIdentity
   });

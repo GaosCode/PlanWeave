@@ -155,14 +155,12 @@ async function setup() {
 function downgradeToLegacyRuntimeBindingSchema(database: SqliteDatabase): void {
   database.exec(`
     DROP TABLE canvas_runtime_operation_attachments;
-    DROP INDEX idx_canvas_runtime_host_binding_selected_route;
-    ALTER TABLE canvas_runtime_host_bindings DROP COLUMN route_selected;
     ALTER TABLE canvas_runtime_host_bindings ADD COLUMN operation_id TEXT;
     ALTER TABLE canvas_runtime_host_bindings ADD COLUMN execution_attempt_id TEXT;
     ALTER TABLE canvas_runtime_host_bindings ADD COLUMN host_generation TEXT;
     ALTER TABLE canvas_runtime_host_bindings ADD COLUMN content_revision INTEGER;
     ALTER TABLE canvas_runtime_host_bindings ADD COLUMN graph_fingerprint TEXT;
-    DELETE FROM schema_migrations WHERE version=64;
+    DELETE FROM schema_migrations WHERE version IN (64,66);
   `);
 }
 
@@ -274,7 +272,6 @@ describe("ensureRuntimeAttachmentForOperation", () => {
         "project_id",
         "host_id",
         "readiness_status",
-        "route_selected",
         "first_observed_at",
         "last_observed_at"
       ]);
@@ -386,24 +383,25 @@ describe("ensureRuntimeAttachmentForOperation", () => {
 
   it("persists independent evidence for two Canvases in one project", async () => {
     const fixture = await setup();
-    const host = fixture.hosts.register("Attach Host").host;
+    const firstHost = fixture.hosts.register("First Canvas Host").host;
+    const secondHost = fixture.hosts.register("Second Canvas Host").host;
     fixture.registerCanvas("secondary");
     fixture.seedAcceptedOperation({
       operationId: "operation-attach-1",
       executionAttemptId: "attempt-attach-1",
       reservationLeaseId: "lease-attach-1",
-      hostId: host.id
+      hostId: firstHost.id
     });
     fixture.seedAcceptedOperation({
       operationId: "operation-attach-2",
       executionAttemptId: "attempt-attach-2",
       reservationLeaseId: "lease-attach-2",
-      hostId: host.id,
+      hostId: secondHost.id,
       canvasId: "secondary"
     });
     const firstRequest = {
       ...scope,
-      hostId: host.id,
+      hostId: firstHost.id,
       operationId: "operation-attach-1",
       executionAttemptId: "attempt-attach-1",
       reservationLeaseId: "lease-attach-1",
@@ -415,7 +413,7 @@ describe("ensureRuntimeAttachmentForOperation", () => {
     fixture.attach({
       ...scope,
       canvasId: "secondary",
-      hostId: host.id,
+      hostId: secondHost.id,
       operationId: "operation-attach-2",
       executionAttemptId: "attempt-attach-2",
       reservationLeaseId: "lease-attach-2",
@@ -428,6 +426,80 @@ describe("ensureRuntimeAttachmentForOperation", () => {
       expect.objectContaining({ canvasId: "secondary", contentRevision: 9 })
     ]);
     expect(fixture.hosts.runtimeBindings.list(scope)).toEqual([]);
+  });
+
+  it("rejects a second Host reservation for the same Canvas", async () => {
+    const fixture = await setup();
+    const firstHost = fixture.hosts.register("First Canvas Host").host;
+    const secondHost = fixture.hosts.register("Conflicting Canvas Host").host;
+    fixture.seedAcceptedOperation({
+      operationId: "operation-canvas-first",
+      executionAttemptId: "attempt-canvas-first",
+      reservationLeaseId: "lease-canvas-first",
+      hostId: firstHost.id
+    });
+    fixture.attach({
+      ...scope,
+      hostId: firstHost.id,
+      operationId: "operation-canvas-first",
+      executionAttemptId: "attempt-canvas-first",
+      reservationLeaseId: "lease-canvas-first",
+      contentRevision: 7,
+      graphFingerprint
+    });
+    fixture.seedAcceptedOperation({
+      operationId: "operation-canvas-conflict",
+      executionAttemptId: "attempt-canvas-conflict",
+      reservationLeaseId: "lease-canvas-conflict",
+      hostId: secondHost.id
+    });
+
+    expect(() =>
+      fixture.attach({
+        ...scope,
+        hostId: secondHost.id,
+        operationId: "operation-canvas-conflict",
+        executionAttemptId: "attempt-canvas-conflict",
+        reservationLeaseId: "lease-canvas-conflict",
+        contentRevision: 7,
+        graphFingerprint
+      })
+    ).toThrow("canvas_runtime_attachment_active_lease");
+    expect(fixture.attachments.listForOperation("operation-canvas-first")).toHaveLength(1);
+    expect(fixture.attachments.listForOperation("operation-canvas-conflict")).toEqual([]);
+  });
+
+  it("does not fence a Canvas with an expired reservation", async () => {
+    const fixture = await setup();
+    const expiredHost = fixture.hosts.register("Expired Reservation Host").host;
+    const currentHost = fixture.hosts.register("Current Reservation Host").host;
+    fixture.seedAcceptedOperation({
+      operationId: "operation-expired-reservation",
+      executionAttemptId: "attempt-expired-reservation",
+      reservationLeaseId: "lease-expired-reservation",
+      hostId: expiredHost.id
+    });
+    fixture.database
+      .prepare("UPDATE host_capacity_reservations SET lease_expires_at=? WHERE lease_id=?")
+      .run("2026-08-25T23:59:59.000Z", "lease-expired-reservation");
+    fixture.seedAcceptedOperation({
+      operationId: "operation-current-reservation",
+      executionAttemptId: "attempt-current-reservation",
+      reservationLeaseId: "lease-current-reservation",
+      hostId: currentHost.id
+    });
+
+    fixture.attach({
+      ...scope,
+      hostId: currentHost.id,
+      operationId: "operation-current-reservation",
+      executionAttemptId: "attempt-current-reservation",
+      reservationLeaseId: "lease-current-reservation",
+      contentRevision: 7,
+      graphFingerprint
+    });
+
+    expect(fixture.attachments.listForOperation("operation-current-reservation")).toHaveLength(1);
   });
 
   it("keeps prior evidence when one operation retries with a new attempt", async () => {

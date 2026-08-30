@@ -541,14 +541,13 @@ export async function startPathlessCompositionWithGrantedHost(options: {
     listRuntimeBindings() {
       return database
         .prepare(
-          `SELECT host_id,readiness_status,route_selected
+          `SELECT host_id,readiness_status
            FROM canvas_runtime_host_bindings
            WHERE workspace_id=? AND project_id=? ORDER BY host_id`
         )
         .all(workspaceId, projectId) as Array<{
         host_id: string;
         readiness_status: string;
-        route_selected: number;
       }>;
     },
     listRuntimeAttachments() {

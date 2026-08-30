@@ -124,11 +124,6 @@ export type RemoteBlockCoordinatorOptions = {
   ensureRuntimeProjection?: (
     input: RuntimeAttachmentRequest & { lease: CanvasExecutionRuntimeLease }
   ) => void | Promise<void>;
-  confirmRuntimeMaterializedRoute?: (input: {
-    workspaceId: string;
-    projectId: string;
-    hostId: string;
-  }) => void;
   serverInstanceOwnerToken: string;
   humanIdentity: HumanPrincipalIdentity;
 };
@@ -400,9 +395,6 @@ export class RemoteBlockCoordinator {
           contentTargets: runtimeContentTargets,
           ...(this.options.ensureRuntimeProjection
             ? { project: this.options.ensureRuntimeProjection }
-            : {}),
-          ...(this.options.confirmRuntimeMaterializedRoute
-            ? { confirmMaterializedRoute: this.options.confirmRuntimeMaterializedRoute }
             : {})
         }
       });

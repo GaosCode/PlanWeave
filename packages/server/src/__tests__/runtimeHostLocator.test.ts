@@ -70,7 +70,6 @@ describe("CanvasRuntimeHostLocator", () => {
       "project_id",
       "host_id",
       "readiness_status",
-      "route_selected",
       "first_observed_at",
       "last_observed_at"
     ]);
@@ -205,71 +204,55 @@ describe("CanvasRuntimeHostLocator", () => {
     });
   });
 
-  it("does not insert a second ready Host while a materialized route is selected", async () => {
+  it("keeps both Host readiness observations and leaves generic routing ambiguous", async () => {
     const fixture = await setup();
-    const first = fixture.hosts.register("Attached").host;
-    const observer = fixture.hosts.register("Observer").host;
+    const first = fixture.hosts.register("First").host;
+    const second = fixture.hosts.register("Second").host;
     fixture.report(first.id);
-    fixture.active.add(first.id);
-    fixture.hosts.runtimeBindings.confirmMaterializedRouteHost({
-      workspaceId: scope.workspaceId,
-      projectId: scope.projectId,
-      hostId: first.id
-    });
-    fixture.report(observer.id);
-    fixture.active.add(observer.id);
-    expect(fixture.hosts.runtimeBindings.list(scope)).toEqual([
-      expect.objectContaining({ hostId: first.id, readinessStatus: "ready" })
-    ]);
-    expect(fixture.locator.locate(scope)).toEqual({ kind: "available", hostId: first.id });
-  });
-
-  it("replaces the operation attachment without allowing a stale Host heartbeat to reactivate", async () => {
-    const fixture = await setup();
-    const first = fixture.hosts.register("First attachment").host;
-    const second = fixture.hosts.register("Second attachment").host;
-    fixture.report(first.id);
-    fixture.active.add(first.id);
-    fixture.hosts.runtimeBindings.confirmMaterializedRouteHost({
-      workspaceId: scope.workspaceId,
-      projectId: scope.projectId,
-      hostId: first.id
-    });
-
-    fixture.advanceTo("2026-08-20T01:01:00.000Z");
     fixture.report(second.id);
-    fixture.hosts.runtimeBindings.confirmMaterializedRouteHost({
-      workspaceId: scope.workspaceId,
-      projectId: scope.projectId,
+    fixture.advanceTo("2026-08-20T01:01:00.000Z");
+    fixture.report(first.id);
+    fixture.report(second.id);
+    fixture.active.add(first.id);
+    fixture.active.add(second.id);
+
+    expect(fixture.hosts.runtimeBindings.list(scope)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ hostId: first.id, readinessStatus: "ready" }),
+        expect.objectContaining({ hostId: second.id, readinessStatus: "ready" })
+      ])
+    );
+    expect(() => fixture.locator.locate(scope)).toThrow(CanvasRuntimeHostAmbiguousError);
+    expect(fixture.locator.locateAuthorizedHost(scope, first.id)).toEqual({
+      kind: "available",
+      hostId: first.id
+    });
+    expect(fixture.locator.locateAuthorizedHost(scope, second.id)).toEqual({
+      kind: "available",
       hostId: second.id
     });
-    fixture.active.add(second.id);
-    fixture.database
-      .prepare(
-        `UPDATE canvas_runtime_host_bindings
-         SET readiness_status='ready'
-         WHERE workspace_id=? AND project_id=? AND host_id=?`
-      )
-      .run(scope.workspaceId, scope.projectId, first.id);
+  });
 
-    fixture.advanceTo("2026-08-20T01:02:00.000Z");
+  it("does not let one Host heartbeat overwrite another Host readiness", async () => {
+    const fixture = await setup();
+    const first = fixture.hosts.register("First").host;
+    const second = fixture.hosts.register("Second").host;
     fixture.report(first.id);
     fixture.report(second.id);
-
+    fixture.report(first.id);
     const bindings = fixture.hosts.runtimeBindings.list(scope);
-    expect(bindings).toEqual([
-      expect.objectContaining({
-        hostId: first.id,
-        readinessStatus: "missing"
-      }),
-      expect.objectContaining({
-        hostId: second.id,
-        readinessStatus: "ready",
-        routeSelected: true
-      })
-    ]);
-    expect(bindings[0]).not.toHaveProperty("operationId");
-    expect(bindings[0]).not.toHaveProperty("executionAttemptId");
-    expect(fixture.locator.locate(scope)).toEqual({ kind: "available", hostId: second.id });
+    expect(bindings).toHaveLength(2);
+    expect(bindings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          hostId: first.id,
+          readinessStatus: "ready"
+        }),
+        expect.objectContaining({
+          hostId: second.id,
+          readinessStatus: "ready"
+        })
+      ])
+    );
   });
 });
