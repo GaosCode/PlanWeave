@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import {
   compileTaskGraph,
   decodeCanvasReplicaDocument,
-  executorRunnerEvidenceForManifest,
+  executorRunnerEvidenceForPublishedManifest,
   projectCanvasReplicaDocument,
   parseRemoteReviewResultBytes,
   remoteBlockDispatchCandidateSchema,
@@ -98,7 +98,7 @@ export class ServerCanvasDispatchCandidateReader implements RemoteDispatchCandid
     }
     const effectiveExecutor =
       block.executor ?? task.executor ?? document.manifest.execution.defaultExecutor ?? "default";
-    const runner = executorRunnerEvidenceForManifest(document.manifest, effectiveExecutor);
+    const runner = executorRunnerEvidenceForPublishedManifest(document.manifest, effectiveExecutor);
     if (runner.runnerKind !== "acp" || !runner.agentId) {
       throw new RemoteBlockRuntimeError(
         "remote_block_executor_not_acp",

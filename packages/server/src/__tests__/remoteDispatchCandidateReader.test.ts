@@ -41,6 +41,31 @@ describe("ServerCanvasDispatchCandidateReader", () => {
     );
   });
 
+  it("resolves published executor evidence without reading Desktop settings", async () => {
+    const fixture = await setup(false);
+    const previousSettingsFile = process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE;
+    process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE = fixture.workspace.root;
+    try {
+      const reader = new ServerCanvasDispatchCandidateReader(
+        new ContentVersionRepository(fixture.server.database)
+      );
+
+      const candidate = await reader.read({ ...fixture.locator, blockRef: "T-001#B-001" });
+
+      expect(candidate).toMatchObject({
+        effectiveExecutor: "codex-acp",
+        agentId: "codex",
+        agentProfileId: "codex-acp"
+      });
+    } finally {
+      if (previousSettingsFile === undefined) {
+        delete process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE;
+      } else {
+        process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE = previousSettingsFile;
+      }
+    }
+  });
+
   it("fails closed for missing, failed, and unverifiable implementation dependencies", async () => {
     const fixture = await setup(false);
     const evidence = new Map<string, ReturnType<typeof markdownEvidence> | { state: "failed" }>();

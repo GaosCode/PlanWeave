@@ -137,7 +137,10 @@ export {
   shutdownActiveAgentRuns,
   shutdownDesktopAgentRun
 } from "./autoRun/activeAgentRunRegistry.js";
-export { executorRunnerEvidenceForManifest } from "./autoRun/executors.js";
+export {
+  executorRunnerEvidenceForManifest,
+  executorRunnerEvidenceForPublishedManifest
+} from "./autoRun/executors.js";
 export {
   normalizeProjectMetadata,
   projectWorkspacePaths,

@@ -383,6 +383,22 @@ export function executorRunnerEvidenceForManifest(
   executorName: string
 ): AutoRunRunnerEvidence {
   const profile = profilesByName(manifest)[executorName];
+  return runnerEvidence(executorName, profile);
+}
+
+/** Resolve published package authority without consulting per-device Desktop settings. */
+export function executorRunnerEvidenceForPublishedManifest(
+  manifest: PlanPackageManifest,
+  executorName: string
+): AutoRunRunnerEvidence {
+  const profile = builtinExecutorProfiles[executorName] ?? manifest.executors?.[executorName];
+  return runnerEvidence(executorName, profile);
+}
+
+function runnerEvidence(
+  executorName: string,
+  profile: ExecutorProfile | undefined
+): AutoRunRunnerEvidence {
   return {
     effectiveExecutor: executorName,
     agentId: profile?.adapter === "agent" ? profile.agent : null,
