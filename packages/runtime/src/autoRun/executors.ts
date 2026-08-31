@@ -391,7 +391,7 @@ export function executorRunnerEvidenceForPublishedManifest(
   manifest: PlanPackageManifest,
   executorName: string
 ): AutoRunRunnerEvidence {
-  const profile = builtinExecutorProfiles[executorName] ?? manifest.executors?.[executorName];
+  const profile = manifest.executors?.[executorName] ?? builtinExecutorProfiles[executorName];
   return runnerEvidence(executorName, profile);
 }
 

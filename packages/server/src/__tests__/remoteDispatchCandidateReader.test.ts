@@ -66,6 +66,30 @@ describe("ServerCanvasDispatchCandidateReader", () => {
     }
   });
 
+  it("prefers a published ACP profile over a same-name built-in CLI profile", async () => {
+    const manifest = remoteManifest();
+    manifest.execution.defaultExecutor = "codex";
+    manifest.executors = {
+      codex: {
+        adapter: "agent",
+        agent: "codex",
+        runner: { transport: "acp" }
+      }
+    };
+    const fixture = await setup(false, manifest);
+    const reader = new ServerCanvasDispatchCandidateReader(
+      new ContentVersionRepository(fixture.server.database)
+    );
+
+    const candidate = await reader.read({ ...fixture.locator, blockRef: "T-001#B-001" });
+
+    expect(candidate).toMatchObject({
+      effectiveExecutor: "codex",
+      agentId: "codex",
+      agentProfileId: "codex"
+    });
+  });
+
   it("fails closed for missing, failed, and unverifiable implementation dependencies", async () => {
     const fixture = await setup(false);
     const evidence = new Map<string, ReturnType<typeof markdownEvidence> | { state: "failed" }>();
