@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { normalizedAcpEventBatchSchema } from "./acpEvents.js";
 import { remoteRunnerEventBatchV2Schema } from "./runnerEvents.js";
 import { capabilitiesSchema } from "./capabilities.js";
 import { executionEnvelopeDigestSchema, executionEnvelopeSchema } from "./executionEnvelope.js";
@@ -163,7 +162,6 @@ const dispatchProgressSchema = durableHostEventSchema.extend({
   message: z.string().max(PROGRESS_MESSAGE_MAX_LENGTH).optional()
 });
 
-const acpEventObservationV1Schema = durableHostEventSchema.merge(normalizedAcpEventBatchSchema);
 const acpEventObservationV2Schema = durableHostEventSchema.merge(remoteRunnerEventBatchV2Schema);
 const permissionRequestObservationSchema = durableHostEventSchema.merge(
   interactionRequestSchema.options[0]
@@ -177,7 +175,6 @@ const authenticationRequestObservationSchema = durableHostEventSchema.merge(
 
 export const observationEventSchema = z.union([
   dispatchProgressSchema,
-  acpEventObservationV1Schema,
   acpEventObservationV2Schema,
   permissionRequestObservationSchema,
   elicitationRequestObservationSchema,

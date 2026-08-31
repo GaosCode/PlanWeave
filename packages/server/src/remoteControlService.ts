@@ -126,7 +126,7 @@ export class RemoteControlService {
   remoteRunnerEventCapability() {
     return {
       available: true as const,
-      acceptedVersions: [1, 2] as const,
+      acceptedVersions: [2] as const,
       preferredVersion: 2 as const,
       ...this.options.events.metrics()
     };

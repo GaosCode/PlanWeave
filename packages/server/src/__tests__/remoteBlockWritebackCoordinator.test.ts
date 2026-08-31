@@ -264,6 +264,7 @@ describe("RemoteBlockCoordinator Runtime lease and terminal writeback", () => {
     );
     fixture.acpEvents.ingest(dispatch.hostId, "remote-acp-message-1", {
       type: "acp.events",
+      eventProtocolVersion: 2,
       dispatchId: dispatch.id,
       leaseId: dispatch.leaseId,
       executionAttemptId: dispatch.executionAttemptId,
@@ -272,9 +273,21 @@ describe("RemoteBlockCoordinator Runtime lease and terminal writeback", () => {
       cursor: 1,
       events: [
         {
+          eventVersion: 2,
           cursor: 1,
-          kind: "agent_message",
-          text: "Created the requested file on the remote Host."
+          sourceSequence: 1,
+          timestamp: "2030-01-01T00:00:01.000Z",
+          fragment: {
+            kind: "runner_body",
+            body: {
+              kind: "message",
+              role: "assistant",
+              messageId: "remote-message-1",
+              chunk: false,
+              content: "Created the requested file on the remote Host.",
+              redaction: { classes: [], replaced: 0 }
+            }
+          }
         }
       ]
     });
@@ -346,8 +359,13 @@ describe("RemoteBlockCoordinator Runtime lease and terminal writeback", () => {
     expect(fixture.acpEvents.replay(dispatch.executionAttemptId, 0).events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          kind: "agent_message",
-          text: "Created the requested file on the remote Host."
+          eventVersion: 2,
+          fragment: expect.objectContaining({
+            body: expect.objectContaining({
+              kind: "message",
+              content: "Created the requested file on the remote Host."
+            })
+          })
         })
       ])
     );

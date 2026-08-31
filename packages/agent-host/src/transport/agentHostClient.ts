@@ -63,7 +63,7 @@ export type AgentHostClientOptions = {
   >;
   allowInsecureTransport?: boolean;
   ca?: string[];
-  request?: typeof fetch;
+  request: typeof fetch;
   reconnect?: Partial<ReconnectBackoffOptions>;
   clock?: HostTransportClock;
   random?: () => number;
@@ -84,14 +84,12 @@ function endpoint(base: URL, path: string, websocket: boolean): URL {
   return result;
 }
 
-export function selectRemoteRunnerEventProtocolVersion(capability: unknown): 1 | 2 {
+export function selectRemoteRunnerEventProtocolVersion(capability: unknown): 2 {
   const parsed = remoteRunnerEventServerCapabilitySchema.safeParse(capability);
-  return parsed.success &&
-    parsed.data.available &&
-    parsed.data.preferredVersion === 2 &&
-    parsed.data.acceptedVersions.includes(2)
-    ? 2
-    : 1;
+  if (!parsed.success || !parsed.data.available) {
+    throw new Error("remote_runner_event_v2_required");
+  }
+  return 2;
 }
 
 function executionFailure(error: unknown, aborted: boolean) {
@@ -219,24 +217,18 @@ export class AgentHostClient implements HostTransport {
 
   private async discoverRemoteRunnerEventProtocol(signal: AbortSignal): Promise<void> {
     const request = this.options.request;
-    const setVersion = this.options.state.setRemoteRunnerEventProtocolVersion?.bind(
+    const setVersion = this.options.state.setRemoteRunnerEventProtocolVersion.bind(
       this.options.state
     );
-    if (!setVersion) return;
-    setVersion(1);
-    if (!request) return;
-    try {
-      const response = await request(endpoint(this.baseUrl, "/version", false), {
-        headers: { Accept: "application/json" },
-        signal
-      });
-      if (signal.aborted || !response.ok) return;
-      const body = (await response.json()) as { remoteRunnerEvents?: unknown };
-      if (signal.aborted) return;
-      setVersion(selectRemoteRunnerEventProtocolVersion(body.remoteRunnerEvents));
-    } catch {
-      if (!signal.aborted) setVersion(1);
-    }
+    const response = await request(endpoint(this.baseUrl, "/version", false), {
+      headers: { Accept: "application/json" },
+      signal
+    });
+    if (signal.aborted) return;
+    if (!response.ok) throw new Error("remote_runner_event_capability_discovery_failed");
+    const body = (await response.json()) as { remoteRunnerEvents?: unknown };
+    if (signal.aborted) return;
+    setVersion(selectRemoteRunnerEventProtocolVersion(body.remoteRunnerEvents));
   }
 
   status(): HostTransportStatus {

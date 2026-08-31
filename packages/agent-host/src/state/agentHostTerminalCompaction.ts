@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizedAcpEventBatchSchema } from "@planweave-ai/agent-host-protocol";
 import {
   parseAgentHostEvent,
   parseAgentHostMailboxCommand,
@@ -356,7 +357,31 @@ export class AgentHostTerminalCompactionRepository {
       .all(candidate.dispatch_id, candidate.execution_attempt_id, ...inboxSequences);
     let terminalEventFound = false;
     for (const row of outboxRows) {
-      const event = parseAgentHostEvent(JSON.parse(String(row.event_json)));
+      const input = JSON.parse(String(row.event_json)) as unknown;
+      if (
+        typeof input === "object" &&
+        input !== null &&
+        "type" in input &&
+        input.type === "acp.events" &&
+        (!("eventProtocolVersion" in input) || input.eventProtocolVersion === 1)
+      ) {
+        normalizedAcpEventBatchSchema.parse({
+          type: "acp.events",
+          dispatchId: "dispatchId" in input ? input.dispatchId : undefined,
+          leaseId: "leaseId" in input ? input.leaseId : undefined,
+          executionAttemptId: "executionAttemptId" in input ? input.executionAttemptId : undefined,
+          acpSessionId: "acpSessionId" in input ? input.acpSessionId : undefined,
+          afterCursor: "afterCursor" in input ? input.afterCursor : undefined,
+          cursor: "cursor" in input ? input.cursor : undefined,
+          events: "events" in input ? input.events : undefined
+        });
+        if (!row.acknowledged_at) return false;
+        if (String(row.message_id) === candidate.terminal_event_message_id) {
+          terminalEventFound = true;
+        }
+        continue;
+      }
+      const event = parseAgentHostEvent(input);
       if (!row.acknowledged_at) return false;
       if (String(row.message_id) === candidate.terminal_event_message_id) {
         terminalEventFound = true;

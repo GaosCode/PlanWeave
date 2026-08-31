@@ -17,6 +17,7 @@ import { WebSocketServer } from "ws";
 import type { AgentHostExecutor } from "../execution/agentHostExecutor.js";
 import { openAgentHostState } from "../state/agentHostState.js";
 import { AgentHostClient } from "../transport/agentHostClient.js";
+import { remoteRunnerEventV2Request } from "./support/remoteRunnerEventCapabilityTestValues.js";
 
 const cleanups: Array<() => Promise<void> | void> = [];
 
@@ -122,6 +123,7 @@ describe("Agent Host adversarial executor failure", () => {
       capacity: 1,
       state,
       executor,
+      request: remoteRunnerEventV2Request,
       allowInsecureTransport: true
     });
     cleanups.push(() => client.stop());

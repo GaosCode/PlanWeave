@@ -22,8 +22,8 @@ export const remoteRunnerEventServerCapabilitySchema = z.discriminatedUnion("ava
   z.object({ available: z.literal(false) }).strict(),
   remoteRunnerEventCountersSchema.extend({
     available: z.literal(true),
-    acceptedVersions: z.tuple([z.literal(1), z.literal(2)]),
-    preferredVersion: remoteRunnerEventProtocolVersionSchema
+    acceptedVersions: z.tuple([z.literal(2)]),
+    preferredVersion: z.literal(2)
   })
 ]);
 export const REMOTE_RUNNER_EVENT_V2_MAX_COUNT = 128 as const;

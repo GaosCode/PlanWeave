@@ -724,6 +724,24 @@ function addRemoteRunnerEventProtocolColumn(database: SqliteDatabase): void {
   );
 }
 
+function assertNoLegacyRemoteRunnerEventsInOutbox(database: SqliteDatabase): void {
+  const rows = database
+    .prepare("SELECT event_json FROM agent_host_outbox WHERE acknowledged_at IS NULL")
+    .all();
+  for (const row of rows) {
+    const event = JSON.parse(String(row.event_json)) as unknown;
+    if (
+      typeof event === "object" &&
+      event !== null &&
+      "type" in event &&
+      event.type === "acp.events" &&
+      (!("eventProtocolVersion" in event) || event.eventProtocolVersion === 1)
+    ) {
+      throw new Error("remote_runner_event_v1_outbox_present");
+    }
+  }
+}
+
 function backfillCommandDigests(database: SqliteDatabase): void {
   const rows = database
     .prepare("SELECT sequence,command_json FROM agent_host_inbox WHERE command_digest IS NULL")
@@ -860,6 +878,7 @@ export function initializeAgentHostStateSchema(database: SqliteDatabase): void {
       }
     }
     database.exec(baseSchema);
+    assertNoLegacyRemoteRunnerEventsInOutbox(database);
     addLegacyInboxColumns(database);
     addInteractionSettlementColumns(database);
     addCanvasRuntimeResetOperationColumns(database);

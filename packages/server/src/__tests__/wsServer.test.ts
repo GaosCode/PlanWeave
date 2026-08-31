@@ -804,6 +804,7 @@ describe("agent host WebSocket transport", () => {
       JSON.stringify({
         type: "acp.events",
         protocolVersion: 1,
+        eventProtocolVersion: 2,
         messageId: "acp-observation-1",
         dispatchId: dispatch.id,
         leaseId: dispatch.leaseId,
@@ -811,7 +812,25 @@ describe("agent host WebSocket transport", () => {
         acpSessionId: "session-observation-1",
         afterCursor: 0,
         cursor: 1,
-        events: [{ cursor: 1, kind: "agent_message", text: "Remote progress" }]
+        events: [
+          {
+            eventVersion: 2,
+            cursor: 1,
+            sourceSequence: 1,
+            timestamp: "2030-01-01T00:00:01.000Z",
+            fragment: {
+              kind: "runner_body",
+              body: {
+                kind: "message",
+                role: "assistant",
+                messageId: "ws-message-1",
+                chunk: false,
+                content: "Remote progress",
+                redaction: { classes: [], replaced: 0 }
+              }
+            }
+          }
+        ]
       })
     );
     await expect(firstEvents.next()).resolves.toMatchObject({
@@ -838,7 +857,11 @@ describe("agent host WebSocket transport", () => {
       messageId: "permission-observation-1"
     });
     expect(coordination.acpEvents.replay(dispatch.executionAttemptId, 0).events).toEqual([
-      expect.objectContaining({ cursor: 1, kind: "agent_message" })
+      expect.objectContaining({
+        cursor: 1,
+        eventVersion: 2,
+        fragment: expect.objectContaining({ body: expect.objectContaining({ kind: "message" }) })
+      })
     ]);
     expect(coordination.interactions.listPending(outcome.operation.id)).toHaveLength(1);
     database.database
@@ -1237,10 +1260,29 @@ describe("agent host WebSocket transport", () => {
       {
         type: "acp.events",
         messageId: "soft-drop-acp",
+        eventProtocolVersion: 2,
         acpSessionId: "session-1",
         afterCursor: 0,
         cursor: 1,
-        events: [{ cursor: 1, kind: "agent_message", text: "late after interrupt" }]
+        events: [
+          {
+            eventVersion: 2,
+            cursor: 1,
+            sourceSequence: 1,
+            timestamp: "2030-01-01T00:00:01.000Z",
+            fragment: {
+              kind: "runner_body",
+              body: {
+                kind: "message",
+                role: "assistant",
+                messageId: "soft-drop-message-1",
+                chunk: false,
+                content: "late after interrupt",
+                redaction: { classes: [], replaced: 0 }
+              }
+            }
+          }
+        ]
       },
       {
         type: "interaction.permission_requested",

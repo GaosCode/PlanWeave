@@ -604,7 +604,7 @@ export class AgentHostState implements AgentHostStateRepository {
     });
   }
 
-  setRemoteRunnerEventProtocolVersion(version: 1 | 2): void {
+  setRemoteRunnerEventProtocolVersion(version: 2): void {
     this.remoteRelay.setEventProtocolVersion(version);
   }
 

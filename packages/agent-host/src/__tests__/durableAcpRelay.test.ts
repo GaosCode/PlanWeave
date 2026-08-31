@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   exampleExecuteDelivery,
+  exampleLegacyAcpEventBatchV1,
   exampleRunnerBodyFragments,
   hashExecutionEnvelope,
   mailboxDeliverySchema
@@ -29,12 +30,14 @@ afterEach(async () => {
   );
 });
 
-async function setup(options: { seedEvidence?: boolean; eventProtocolVersion?: 1 | 2 } = {}) {
+async function setup(options: { negotiateEventProtocol?: boolean; seedEvidence?: boolean } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "planweave-durable-acp-relay-"));
   directories.push(directory);
   const databasePath = join(directory, "state.sqlite");
   const state = await openAgentHostState(databasePath);
-  state.setRemoteRunnerEventProtocolVersion(options.eventProtocolVersion ?? 1);
+  if (options.negotiateEventProtocol !== false) {
+    state.setRemoteRunnerEventProtocolVersion(2);
+  }
   states.push(state);
   const delivery = mailboxDeliverySchema.parse({
     ...exampleExecuteDelivery,
@@ -120,13 +123,67 @@ async function downgradeStateToVersionEight(
 }
 
 describe("durable ACP relay", () => {
-  it("migrates started v8 attempts to v1 while leaving cursor-zero attempts negotiable", async () => {
-    const legacy = await setup({ eventProtocolVersion: 1 });
-    appendMessage(legacy.state, legacy.identity, 3, "legacy-before-upgrade");
-    const pendingBeforeUpgrade = legacy.state
-      .pendingEvents()
-      .find((candidate) => candidate.type === "acp.events");
-    expect(pendingBeforeUpgrade).toBeDefined();
+  it("requires explicit capability negotiation before writing live runner events", async () => {
+    const { state, identity } = await setup({
+      negotiateEventProtocol: false,
+      seedEvidence: false
+    });
+
+    expect(() =>
+      state.append({
+        kind: "engine_event",
+        identity,
+        event: {
+          sequence: 1,
+          timestamp: "2026-07-23T00:00:00.000Z",
+          kind: "capability_snapshot",
+          snapshot: acpCapabilitySnapshotTestValue()
+        }
+      })
+    ).toThrow("remote_runner_event_v2_required");
+    expect(state.records(identity)).toEqual([]);
+    expect(state.pendingEvents().filter((event) => event.type === "acp.events")).toEqual([]);
+  });
+
+  it("refuses to open state containing a persisted live v1 outbox event", async () => {
+    const seeded = await setup({ seedEvidence: false });
+    states.splice(states.indexOf(seeded.state), 1);
+    seeded.state.close();
+    const database = await openAgentHostDatabase(seeded.databasePath, 5_000);
+    database
+      .prepare(
+        `INSERT INTO agent_host_outbox(message_id,event_key,event_json,created_at)
+         VALUES(?,?,?,?)`
+      )
+      .run(
+        exampleLegacyAcpEventBatchV1.messageId,
+        "acp.events.v1:legacy-persisted",
+        JSON.stringify(exampleLegacyAcpEventBatchV1),
+        "2026-07-23T00:00:00.000Z"
+      );
+    database.close();
+
+    await expect(openAgentHostState(seeded.databasePath)).rejects.toThrow(
+      "remote_runner_event_v1_outbox_present"
+    );
+
+    const inspected = await openAgentHostDatabase(seeded.databasePath, 5_000);
+    expect(
+      inspected
+        .prepare("SELECT event_json,acknowledged_at FROM agent_host_outbox WHERE event_key=?")
+        .get("acp.events.v1:legacy-persisted")
+    ).toMatchObject({
+      event_json: JSON.stringify(exampleLegacyAcpEventBatchV1),
+      acknowledged_at: null
+    });
+    expect(inspected.prepare("SELECT version FROM agent_host_state_schema").get()).toMatchObject({
+      version: 9
+    });
+    inspected.close();
+  });
+
+  it("keeps migrated v1 attempts readable but refuses to write new live v1 events", async () => {
+    const legacy = await setup({ seedEvidence: false });
     await downgradeStateToVersionEight(legacy.state, legacy.databasePath, 1);
 
     const migratedLegacy = await openAgentHostState(legacy.databasePath);
@@ -135,17 +192,23 @@ describe("durable ACP relay", () => {
       1
     );
     migratedLegacy.setRemoteRunnerEventProtocolVersion(2);
-    appendMessage(migratedLegacy, legacy.identity, 4, "legacy-after-upgrade");
-    expect(
-      migratedLegacy
-        .pendingEvents()
-        .filter((candidate) => candidate.type === "acp.events")
-        .every((candidate) => !("eventProtocolVersion" in candidate))
-    ).toBe(true);
-    expect(migratedLegacy.acknowledgeEvent(pendingBeforeUpgrade!.messageId)).toBe(true);
-    expect(migratedLegacy.pendingEvents()).not.toContainEqual(pendingBeforeUpgrade);
+    expect(() =>
+      migratedLegacy.append({
+        kind: "engine_event",
+        identity: legacy.identity,
+        event: {
+          sequence: 1,
+          timestamp: "2026-07-23T00:01:00.000Z",
+          kind: "capability_snapshot",
+          snapshot: acpCapabilitySnapshotTestValue()
+        }
+      })
+    ).toThrow("remote_runner_event_v2_required");
+    expect(migratedLegacy.pendingEvents().filter((event) => event.type === "acp.events")).toEqual(
+      []
+    );
 
-    const fresh = await setup({ eventProtocolVersion: 1, seedEvidence: false });
+    const fresh = await setup({ seedEvidence: false });
     await downgradeStateToVersionEight(fresh.state, fresh.databasePath, 0);
     const migratedFresh = await openAgentHostState(fresh.databasePath);
     states.push(migratedFresh);
@@ -185,40 +248,8 @@ describe("durable ACP relay", () => {
     ).toBe(true);
   });
 
-  it("pins v1 per attempt across restart, retry, and a later v2 preference", async () => {
-    const { state, delivery, identity, databasePath } = await setup({ eventProtocolVersion: 1 });
-    appendMessage(state, identity, 3, "v1-first");
-    const firstEvent = state
-      .pendingEvents()
-      .find(
-        (candidate) => candidate.type === "acp.events" && !("eventProtocolVersion" in candidate)
-      );
-    expect(firstEvent).toBeDefined();
-    expect(state.executionEvidence(delivery.sequence)?.eventProtocolVersion).toBe(1);
-
-    states.splice(states.indexOf(state), 1);
-    state.close();
-    const reopened = await openAgentHostState(databasePath);
-    states.push(reopened);
-    reopened.setRemoteRunnerEventProtocolVersion(2);
-    appendMessage(reopened, identity, 4, "v1-after-restart");
-    expect(reopened.executionEvidence(delivery.sequence)?.eventProtocolVersion).toBe(1);
-    expect(
-      reopened
-        .pendingEvents()
-        .filter((candidate) => candidate.type === "acp.events")
-        .every((candidate) => !("eventProtocolVersion" in candidate))
-    ).toBe(true);
-    appendMessage(reopened, identity, 4, "v1-after-restart");
-    expect(
-      reopened.pendingEvents().filter((candidate) => candidate.type === "acp.events")
-    ).toHaveLength(2);
-    expect(reopened.acknowledgeEvent(firstEvent!.messageId)).toBe(true);
-    expect(reopened.pendingEvents()).not.toContainEqual(firstEvent);
-  });
-
-  it("pins v2 per attempt across restart and a later v1 preference", async () => {
-    const { state, delivery, identity, databasePath } = await setup({ eventProtocolVersion: 2 });
+  it("pins v2 per attempt across restart", async () => {
+    const { state, delivery, identity, databasePath } = await setup();
     appendMessage(state, identity, 3, "v2-first");
     expect(state.executionEvidence(delivery.sequence)?.eventProtocolVersion).toBe(2);
     const firstEvent = state
@@ -230,7 +261,7 @@ describe("durable ACP relay", () => {
     state.close();
     const reopened = await openAgentHostState(databasePath);
     states.push(reopened);
-    reopened.setRemoteRunnerEventProtocolVersion(1);
+    reopened.setRemoteRunnerEventProtocolVersion(2);
     appendMessage(reopened, identity, 4, "v2-after-restart");
     appendMessage(reopened, identity, 4, "v2-after-restart");
     expect(reopened.executionEvidence(delivery.sequence)?.eventProtocolVersion).toBe(2);
@@ -245,10 +276,10 @@ describe("durable ACP relay", () => {
     expect(reopened.pendingEvents()).not.toContainEqual(firstEvent);
   });
 
-  it("uses the latest preference for a new attempt", async () => {
-    const { state, delivery, identity } = await setup({ eventProtocolVersion: 1 });
-    appendMessage(state, identity, 3, "v1-attempt");
-    expect(state.executionEvidence(delivery.sequence)?.eventProtocolVersion).toBe(1);
+  it("uses v2 for every new attempt", async () => {
+    const { state, delivery, identity } = await setup();
+    appendMessage(state, identity, 3, "first-attempt");
+    expect(state.executionEvidence(delivery.sequence)?.eventProtocolVersion).toBe(2);
     if (delivery.command.type !== "execute_block") throw new Error("execute_block_required");
 
     state.setRemoteRunnerEventProtocolVersion(2);
@@ -303,7 +334,7 @@ describe("durable ACP relay", () => {
   });
 
   it("relays every shared Runner body leaf through the v2 durable outbox", async () => {
-    const { state, identity } = await setup({ eventProtocolVersion: 2 });
+    const { state, identity } = await setup();
     for (const [index, body] of exampleRunnerBodyFragments.entries()) {
       state.append({
         kind: "engine_event",
@@ -326,7 +357,7 @@ describe("durable ACP relay", () => {
   });
 
   it("rejects a v2 session update whose source session identity is stale", async () => {
-    const { state, identity, delivery } = await setup({ eventProtocolVersion: 2 });
+    const { state, identity, delivery } = await setup();
     expect(() =>
       state.append({
         kind: "engine_event",
@@ -344,7 +375,7 @@ describe("durable ACP relay", () => {
   });
 
   it("relays all durable engine evidence as v2 without converting terminal evidence", async () => {
-    const { state, identity } = await setup({ eventProtocolVersion: 2 });
+    const { state, identity } = await setup();
     state.append({
       kind: "engine_event",
       identity,
@@ -411,22 +442,30 @@ describe("durable ACP relay", () => {
         negotiated: expect.arrayContaining(["history-load"]),
         missing: []
       },
-      eventCursor: 1
+      eventCursor: 3,
+      eventProtocolVersion: 2
     });
     expect(state.pendingEvents()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           type: "acp.events",
           acpSessionId: "acp-session-relay-001",
-          afterCursor: 0,
-          cursor: 1,
-          events: [{ cursor: 1, kind: "agent_message", text: "durably relayed" }]
+          eventProtocolVersion: 2,
+          afterCursor: 2,
+          cursor: 3,
+          events: [
+            expect.objectContaining({
+              cursor: 3,
+              sourceSequence: 3,
+              fragment: expect.objectContaining({ kind: "runner_body" })
+            })
+          ]
         })
       ])
     );
   });
 
-  it("persists Host engine evidence that the v1 ACP relay cannot represent", async () => {
+  it("persists and relays every Host engine evidence leaf through v2", async () => {
     const { state, delivery, identity } = await setup({ seedEvidence: false });
     const engineEvents: Array<ReturnType<typeof agentHostRemoteEngineEventSchema.parse>> = [];
     const result = await executeAcp({
@@ -488,9 +527,12 @@ describe("durable ACP relay", () => {
     expect(state.executionEvidence(delivery.sequence)).toMatchObject({
       acpSessionId: expect.stringMatching(/^mock-session-/),
       acpCapabilitySnapshot: { missing: [] },
-      eventCursor: 0
+      eventCursor: engineEvents.length,
+      eventProtocolVersion: 2
     });
-    expect(state.pendingEvents().filter((event) => event.type === "acp.events")).toEqual([]);
+    expect(state.pendingEvents().filter((event) => event.type === "acp.events")).toHaveLength(
+      engineEvents.length
+    );
   });
 
   it("settles permission exactly once after the mailbox response is durable", async () => {

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   exampleExecuteDelivery,
+  exampleLegacyAcpEventBatchV1,
   executeBlockCommandSchema,
   hashExecutionEnvelope
 } from "@planweave-ai/agent-host-protocol";
@@ -119,6 +120,53 @@ function count(database: Awaited<ReturnType<typeof openAgentHostDatabase>>, tabl
 }
 
 describe("Agent Host terminal state compaction", () => {
+  it("compacts acknowledged historical v1 runner events without reopening live v1", async () => {
+    const { path, state } = await setup();
+    const message = delivery(1);
+    const received = state.receive(message);
+    state.acknowledgeEvent(received.acknowledgement.messageId);
+    state.startExecution(1);
+    acknowledgeByType(state, "dispatch.accepted");
+    state.completeExecution(1, result);
+    state.close();
+    states.pop();
+
+    const database = await openAgentHostDatabase(path, 5_000);
+    const legacyEvent = {
+      ...exampleLegacyAcpEventBatchV1,
+      dispatchId: message.command.dispatchId,
+      leaseId: message.command.leaseId,
+      executionAttemptId: message.command.executionAttemptId
+    };
+    database
+      .prepare(
+        `INSERT INTO agent_host_outbox(
+          message_id,event_key,event_json,created_at,acknowledged_at
+        ) VALUES(?,?,?,?,?)`
+      )
+      .run(
+        legacyEvent.messageId,
+        "acp.events.v1:acknowledged-history",
+        JSON.stringify(legacyEvent),
+        "2026-07-23T00:00:00.000Z",
+        "2026-07-23T00:00:01.000Z"
+      );
+    database.close();
+
+    const reopened = await openAgentHostState(path);
+    states.push(reopened);
+    acknowledgeByType(reopened, "dispatch.completed");
+
+    const inspected = await openAgentHostDatabase(path, 5_000);
+    expect(count(inspected, "agent_host_executions")).toBe(0);
+    expect(
+      inspected
+        .prepare("SELECT event_json FROM agent_host_outbox WHERE event_key=?")
+        .get("acp.events.v1:acknowledged-history")
+    ).toBeUndefined();
+    inspected.close();
+  });
+
   it("retains terminal executions until the terminal event is acknowledged", async () => {
     const { path, state } = await setup();
     const received = state.receive(delivery(1));
@@ -183,6 +231,7 @@ describe("Agent Host terminal state compaction", () => {
       sizeBytes: 12,
       mediaType: "text/markdown"
     });
+    state.setRemoteRunnerEventProtocolVersion(2);
     state.append({
       kind: "engine_event",
       identity: {

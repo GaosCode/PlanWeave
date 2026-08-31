@@ -89,6 +89,7 @@ export {
 export {
   agentHostProtocolGoldenFixtures,
   exampleAcpEventBatch,
+  exampleLegacyAcpEventBatchV1,
   exampleAuthenticationRequired,
   exampleAuthenticationSettlement,
   exampleExecuteDelivery,

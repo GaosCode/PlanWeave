@@ -323,6 +323,7 @@ describe("authoritative Agent Host execution state", () => {
         mediaType: "application/octet-stream"
       })
     ).toThrow("execution_artifact_retention_limit_exceeded");
+    state.setRemoteRunnerEventProtocolVersion(2);
     state.append(lifecycleRecord(1));
     expect(() => state.append(lifecycleRecord(2, "running"))).toThrow(
       "remote_execution_record_retention_limit_exceeded"

@@ -23,6 +23,9 @@ describe("versioned Agent Host protocol", () => {
     expect(hostEventSchema.parse(agentHostProtocolGoldenFixtures.acpEventBatch)).toEqual(
       agentHostProtocolGoldenFixtures.acpEventBatch
     );
+    expect(() =>
+      hostEventSchema.parse(agentHostProtocolGoldenFixtures.legacyAcpEventBatchV1)
+    ).toThrow();
     expect(hostEventSchema.parse(agentHostProtocolGoldenFixtures.interrupted)).toEqual(
       agentHostProtocolGoldenFixtures.interrupted
     );
@@ -109,13 +112,13 @@ describe("versioned Agent Host protocol", () => {
       protocolVersion: _protocolVersion,
       messageId: _messageId,
       ...batch
-    } = agentHostProtocolGoldenFixtures.acpEventBatch;
+    } = agentHostProtocolGoldenFixtures.legacyAcpEventBatchV1;
     expect(() =>
       normalizedAcpEventBatchSchema.parse({
         ...batch,
         events: [
-          agentHostProtocolGoldenFixtures.acpEventBatch.events[0],
-          { ...agentHostProtocolGoldenFixtures.acpEventBatch.events[1], cursor: 3 }
+          agentHostProtocolGoldenFixtures.legacyAcpEventBatchV1.events[0],
+          { ...agentHostProtocolGoldenFixtures.legacyAcpEventBatchV1.events[1], cursor: 3 }
         ],
         cursor: 3
       })

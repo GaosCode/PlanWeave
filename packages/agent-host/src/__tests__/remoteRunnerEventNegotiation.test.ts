@@ -10,35 +10,25 @@ const counters = {
 };
 
 describe("remote Runner event negotiation", () => {
-  it("uses v2 only when the capability is available and explicitly preferred", () => {
-    expect(selectRemoteRunnerEventProtocolVersion({ available: false })).toBe(1);
+  it("selects v2 only from an explicit v2-only capability", () => {
     expect(
       selectRemoteRunnerEventProtocolVersion({
         available: true,
-        acceptedVersions: [1, 2],
-        preferredVersion: 1,
-        ...counters
-      })
-    ).toBe(1);
-    expect(
-      selectRemoteRunnerEventProtocolVersion({
-        available: true,
-        acceptedVersions: [1, 2],
+        acceptedVersions: [2],
         preferredVersion: 2,
         ...counters
       })
     ).toBe(2);
   });
 
-  it("falls back to v1 for absent, malformed, or future capability data", () => {
-    expect(selectRemoteRunnerEventProtocolVersion(undefined)).toBe(1);
-    expect(
-      selectRemoteRunnerEventProtocolVersion({
-        available: true,
-        acceptedVersions: [1, 2],
-        preferredVersion: 3,
-        ...counters
-      })
-    ).toBe(1);
+  it.each([
+    undefined,
+    { available: false },
+    { available: true, acceptedVersions: [1, 2], preferredVersion: 2, ...counters },
+    { available: true, acceptedVersions: [2], preferredVersion: 3, ...counters }
+  ])("fails closed for absent, unavailable, legacy, or malformed capability data", (value) => {
+    expect(() => selectRemoteRunnerEventProtocolVersion(value)).toThrow(
+      "remote_runner_event_v2_required"
+    );
   });
 });

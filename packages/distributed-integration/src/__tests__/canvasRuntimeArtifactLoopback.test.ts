@@ -294,6 +294,25 @@ async function setup() {
     state: hostState,
     executor,
     canvasRuntime,
+    request: async (input, init) => {
+      const url = input instanceof Request ? new URL(input.url) : new URL(String(input));
+      if (url.pathname !== "/version") return await fetch(input, init);
+      return new Response(
+        JSON.stringify({
+          remoteRunnerEvents: {
+            available: true,
+            acceptedVersions: [2],
+            preferredVersion: 2,
+            v1Accepted: 0,
+            v2Accepted: 0,
+            v1Degraded: 0,
+            usageSnapshotsAccepted: 0,
+            usageSnapshotRegressions: 0
+          }
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    },
     allowInsecureTransport: true
   });
   clients.push(client);

@@ -124,13 +124,32 @@ function eventBatch(
 ) {
   return {
     type: "acp.events" as const,
+    eventProtocolVersion: 2 as const,
     dispatchId: fixture.operation.dispatchId,
     leaseId: input.leaseId ?? fixture.reservation.leaseId,
     executionAttemptId: fixture.operation.executionAttemptId,
     acpSessionId: "acp-session-1",
     afterCursor: input.afterCursor,
     cursor: input.cursor,
-    events: [{ cursor: input.cursor, kind: "agent_message" as const, text: input.text }]
+    events: [
+      {
+        eventVersion: 2 as const,
+        cursor: input.cursor,
+        sourceSequence: input.cursor,
+        timestamp: new Date(Date.UTC(2030, 0, 1, 0, 0, input.cursor)).toISOString(),
+        fragment: {
+          kind: "runner_body" as const,
+          body: {
+            kind: "message" as const,
+            role: "assistant" as const,
+            messageId: `message-${input.cursor}`,
+            chunk: false,
+            content: input.text,
+            redaction: { classes: [], replaced: 0 }
+          }
+        }
+      }
+    ]
   };
 }
 
@@ -233,7 +252,7 @@ describe("remote ACP observations", () => {
     });
   });
 
-  it("replays monotonic redacted events and fails closed on conflict, gap, and retention loss", async () => {
+  it("replays monotonic v2 events and fails closed on conflict, gap, and retention loss", async () => {
     const fixture = await setup();
     const events = new RemoteAcpEventRepository(fixture.server.database, {
       maxEvents: 2,
@@ -248,7 +267,7 @@ describe("remote ACP observations", () => {
     events.ingest(
       fixture.host.id,
       "event-2",
-      eventBatch(fixture, { afterCursor: 1, cursor: 2, text: "token=secret-value" })
+      eventBatch(fixture, { afterCursor: 1, cursor: 2, text: "credential redacted" })
     );
     events.ingest(
       fixture.host.id,
@@ -261,10 +280,7 @@ describe("remote ACP observations", () => {
       highWatermark: 3,
       hasMore: false,
       events: [{ cursor: 2 }, { cursor: 3 }],
-      diagnostics: [
-        { code: "remote_acp_event_retention_gap", droppedThroughCursor: 1 },
-        { code: "remote_acp_event_contract_degraded" }
-      ]
+      diagnostics: [{ code: "remote_acp_event_retention_gap", droppedThroughCursor: 1 }]
     });
     const persisted = fixture.server.database
       .prepare(
@@ -297,31 +313,40 @@ describe("remote ACP observations", () => {
     });
     repository.ingest(fixture.host.id, "page-1", {
       type: "acp.events",
+      eventProtocolVersion: 2,
       dispatchId: fixture.operation.dispatchId,
       leaseId: fixture.reservation.leaseId,
       executionAttemptId: fixture.operation.executionAttemptId,
       acpSessionId: "acp-session-1",
       afterCursor: 0,
       cursor: 128,
-      events: Array.from({ length: 128 }, (_, index) => ({
-        cursor: index + 1,
-        kind: "agent_message" as const,
-        text: `event-${index + 1}`
-      }))
+      events: Array.from(
+        { length: 128 },
+        (_, index) =>
+          eventBatch(fixture, {
+            afterCursor: index,
+            cursor: index + 1,
+            text: `event-${index + 1}`
+          }).events[0]
+      )
     });
     repository.ingest(fixture.host.id, "page-2", {
       type: "acp.events",
+      eventProtocolVersion: 2,
       dispatchId: fixture.operation.dispatchId,
       leaseId: fixture.reservation.leaseId,
       executionAttemptId: fixture.operation.executionAttemptId,
       acpSessionId: "acp-session-1",
       afterCursor: 128,
       cursor: 130,
-      events: [129, 130].map((cursor) => ({
-        cursor,
-        kind: "agent_message" as const,
-        text: `event-${cursor}`
-      }))
+      events: [129, 130].map(
+        (cursor) =>
+          eventBatch(fixture, {
+            afterCursor: cursor - 1,
+            cursor,
+            text: `event-${cursor}`
+          }).events[0]
+      )
     });
 
     expect(repository.replay(fixture.operation.executionAttemptId, 0)).toMatchObject({

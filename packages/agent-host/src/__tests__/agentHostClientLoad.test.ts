@@ -17,6 +17,7 @@ import { WebSocketServer } from "ws";
 import type { AgentHostExecutor } from "../execution/agentHostExecutor.js";
 import { openAgentHostState, type AgentHostState } from "../state/agentHostState.js";
 import { AgentHostClient } from "../transport/agentHostClient.js";
+import { remoteRunnerEventV2Request } from "./support/remoteRunnerEventCapabilityTestValues.js";
 
 const directories: string[] = [];
 const states: AgentHostState[] = [];
@@ -145,6 +146,7 @@ function createClient(
     capacity: 1,
     state,
     executor,
+    request: remoteRunnerEventV2Request,
     allowInsecureTransport: true,
     ...options
   });

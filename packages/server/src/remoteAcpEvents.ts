@@ -2,7 +2,6 @@ import {
   ACP_EVENT_BATCH_MAX_COUNT,
   acpEventCursorSchema,
   canonicalizeJson,
-  normalizedAcpEventBatchSchema,
   normalizedAcpEventSchema,
   remoteRunnerEventBatchV2Schema,
   remoteRunnerEventV2Schema,
@@ -12,8 +11,7 @@ import {
 } from "@planweave-ai/agent-host-protocol";
 import {
   RUNNER_EVENT_RETENTION_MAX_BYTES,
-  RUNNER_EVENT_RETENTION_MAX_EVENTS,
-  redactRunnerEventText
+  RUNNER_EVENT_RETENTION_MAX_EVENTS
 } from "@planweave-ai/runtime";
 import { z } from "zod";
 import { HostEventInbox } from "./hostEvents.js";
@@ -54,7 +52,7 @@ function emptyDroppedReplay(
     cursor: afterCursor,
     highWatermark: afterCursor,
     hasMore: false,
-    eventProtocolVersion: 1,
+    eventProtocolVersion: 2,
     events: [],
     diagnostics: []
   };
@@ -92,31 +90,6 @@ type RemoteAcpCounterDelta = {
   usageSnapshotRegressions: number;
 };
 
-function redactEvent(event: NormalizedAcpEvent): NormalizedAcpEvent {
-  switch (event.kind) {
-    case "agent_message":
-      return normalizedAcpEventSchema.parse({
-        ...event,
-        text: redactRunnerEventText(event.text).text
-      });
-    case "plan":
-      return normalizedAcpEventSchema.parse({
-        ...event,
-        text: redactRunnerEventText(event.text).text
-      });
-    case "diagnostic":
-      return normalizedAcpEventSchema.parse({
-        ...event,
-        message: redactRunnerEventText(event.message).text
-      });
-    case "tool_call":
-      return normalizedAcpEventSchema.parse({
-        ...event,
-        title: redactRunnerEventText(event.title).text
-      });
-  }
-}
-
 export class RemoteAcpEventRepository {
   private readonly inbox: HostEventInbox;
   private readonly maxEvents: number;
@@ -153,19 +126,9 @@ export class RemoteAcpEventRepository {
   }
 
   ingest(hostId: string, messageId: string, rawBatch: unknown): RemoteAcpEventIngestResult {
-    const requestedVersion =
-      typeof rawBatch === "object" && rawBatch !== null && "eventProtocolVersion" in rawBatch
-        ? (rawBatch as { eventProtocolVersion?: unknown }).eventProtocolVersion
-        : 1;
-    const batch =
-      requestedVersion === 2
-        ? remoteRunnerEventBatchV2Schema.parse(rawBatch)
-        : normalizedAcpEventBatchSchema.parse(rawBatch);
-    const eventProtocolVersion = requestedVersion === 2 ? 2 : 1;
-    const redactedEvents: Array<NormalizedAcpEvent | RemoteRunnerEventV2> =
-      eventProtocolVersion === 1
-        ? batch.events.map((event) => redactEvent(event as NormalizedAcpEvent))
-        : ([...batch.events] as RemoteRunnerEventV2[]);
+    const batch = remoteRunnerEventBatchV2Schema.parse(rawBatch);
+    const eventProtocolVersion = 2 as const;
+    const redactedEvents: RemoteRunnerEventV2[] = [...batch.events];
     const counterDelta: RemoteAcpCounterDelta = {
       usageSnapshotsAccepted: 0,
       usageSnapshotRegressions: 0
@@ -235,14 +198,11 @@ export class RemoteAcpEventRepository {
           )
           .get(batch.executionAttemptId, candidate.cursor);
         if (exactExisting?.event_json === candidateJson) continue;
-        const event =
-          eventProtocolVersion === 2
-            ? this.normalizeUsageSnapshot(
-                batch.executionAttemptId,
-                candidate as RemoteRunnerEventV2,
-                counterDelta
-              )
-            : candidate;
+        const event = this.normalizeUsageSnapshot(
+          batch.executionAttemptId,
+          candidate,
+          counterDelta
+        );
         if (event.cursor < retainedFrom) throw new Error("remote_acp_event_cursor_evicted");
         const eventJson = canonicalizeJson(event);
         const existing = this.database
@@ -303,8 +263,7 @@ export class RemoteAcpEventRepository {
       return emptyDroppedReplay(batch.executionAttemptId, batch.afterCursor);
     }
     if (applied) {
-      if (eventProtocolVersion === 2) this.counters.v2Accepted += 1;
-      else this.counters.v1Accepted += 1;
+      this.counters.v2Accepted += 1;
       this.counters.usageSnapshotsAccepted += counterDelta.usageSnapshotsAccepted;
       this.counters.usageSnapshotRegressions += counterDelta.usageSnapshotRegressions;
     }
@@ -384,7 +343,7 @@ export class RemoteAcpEventRepository {
         cursor: 0,
         highWatermark: 0,
         hasMore: false,
-        eventProtocolVersion: 1,
+        eventProtocolVersion: 2,
         events: [],
         diagnostics: []
       };

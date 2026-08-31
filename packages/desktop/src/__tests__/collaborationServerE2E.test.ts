@@ -683,6 +683,7 @@ describe("Desktop CollaborationClient against the Server composition", () => {
       JSON.stringify({
         type: "acp.events",
         protocolVersion: 1,
+        eventProtocolVersion: 2,
         messageId: "desktop-e2e-acp-events",
         dispatchId: command.dispatchId,
         leaseId: command.leaseId,
@@ -690,7 +691,25 @@ describe("Desktop CollaborationClient against the Server composition", () => {
         acpSessionId: "desktop-e2e-acp-session",
         afterCursor: 0,
         cursor: 1,
-        events: [{ cursor: 1, kind: "agent_message", text: "desktop e2e event" }]
+        events: [
+          {
+            eventVersion: 2,
+            cursor: 1,
+            sourceSequence: 1,
+            timestamp: "2030-01-01T00:00:01.000Z",
+            fragment: {
+              kind: "runner_body",
+              body: {
+                kind: "message",
+                role: "assistant",
+                messageId: "desktop-e2e-message-1",
+                chunk: false,
+                content: "desktop e2e event",
+                redaction: { classes: [], replaced: 0 }
+              }
+            }
+          }
+        ]
       })
     );
     await expect(host.next("host.event_ack")).resolves.toMatchObject({ type: "host.event_ack" });
@@ -708,8 +727,10 @@ describe("Desktop CollaborationClient against the Server composition", () => {
     expect(replayedEvents.events).toEqual([
       expect.objectContaining({
         cursor: 1,
-        kind: "agent_message",
-        text: "desktop e2e event"
+        eventVersion: 2,
+        fragment: expect.objectContaining({
+          body: expect.objectContaining({ kind: "message", content: "desktop e2e event" })
+        })
       })
     ]);
     const events = await workspaceOwner.replayRemoteOperationEvents(remote.operationId, {
@@ -944,6 +965,7 @@ describe("Desktop CollaborationClient against the Server composition", () => {
       JSON.stringify({
         type: "acp.events",
         protocolVersion: 1,
+        eventProtocolVersion: 2,
         messageId: "desktop-e2e-workspace-b-acp-events",
         dispatchId: command.dispatchId,
         leaseId: command.leaseId,
@@ -951,7 +973,25 @@ describe("Desktop CollaborationClient against the Server composition", () => {
         acpSessionId: "desktop-e2e-workspace-b-acp",
         afterCursor: 0,
         cursor: 1,
-        events: [{ cursor: 1, kind: "agent_message", text: "workspace b writeback" }]
+        events: [
+          {
+            eventVersion: 2,
+            cursor: 1,
+            sourceSequence: 1,
+            timestamp: "2030-01-01T00:00:01.000Z",
+            fragment: {
+              kind: "runner_body",
+              body: {
+                kind: "message",
+                role: "assistant",
+                messageId: "desktop-e2e-workspace-b-message-1",
+                chunk: false,
+                content: "workspace b writeback",
+                redaction: { classes: [], replaced: 0 }
+              }
+            }
+          }
+        ]
       })
     );
     await expect(host.next("host.event_ack")).resolves.toMatchObject({ type: "host.event_ack" });
@@ -964,7 +1004,12 @@ describe("Desktop CollaborationClient against the Server composition", () => {
       afterCursor: 0
     });
     expect(replayed.events).toEqual([
-      expect.objectContaining({ kind: "agent_message", text: "workspace b writeback" })
+      expect.objectContaining({
+        eventVersion: 2,
+        fragment: expect.objectContaining({
+          body: expect.objectContaining({ kind: "message", content: "workspace b writeback" })
+        })
+      })
     ]);
     expect(host.runtimeOperations).not.toContain("inspect");
   });

@@ -1,4 +1,5 @@
 import { hostEventSchema, hostHelloSchema, serverEventSchema } from "../agentHostProtocol.js";
+import { normalizedAcpEventBatchSchema } from "../acpEvents.js";
 import { executionEnvelopeSchema } from "../executionEnvelope.js";
 import { interactionSettlementSchema } from "../interactions.js";
 import {
@@ -59,6 +60,7 @@ export const exampleAcpEventBatch = hostEventSchema.parse({
   type: "acp.events",
   protocolVersion,
   messageId: "host-event-acp-001",
+  eventProtocolVersion: 2,
   dispatchId,
   leaseId,
   executionAttemptId,
@@ -66,10 +68,59 @@ export const exampleAcpEventBatch = hostEventSchema.parse({
   afterCursor: 0,
   cursor: 2,
   events: [
-    { cursor: 1, kind: "agent_message", text: "Starting the assigned block." },
-    { cursor: 2, kind: "tool_call", title: "Run focused tests", status: "running" }
+    {
+      eventVersion: 2,
+      cursor: 1,
+      sourceSequence: 1,
+      timestamp: "2030-01-01T00:00:01.000Z",
+      fragment: {
+        kind: "runner_body",
+        body: {
+          kind: "message",
+          role: "assistant",
+          messageId: "message-demo-001",
+          chunk: false,
+          content: "Starting the assigned block.",
+          redaction: { classes: [], replaced: 0 }
+        }
+      }
+    },
+    {
+      eventVersion: 2,
+      cursor: 2,
+      sourceSequence: 2,
+      timestamp: "2030-01-01T00:00:02.000Z",
+      fragment: {
+        kind: "runner_body",
+        body: {
+          kind: "tool_call",
+          callId: "tool-demo-001",
+          title: "Run focused tests",
+          status: "in_progress",
+          content: null
+        }
+      }
+    }
   ]
 });
+
+export const exampleLegacyAcpEventBatchV1 = {
+  protocolVersion,
+  messageId: "host-event-acp-v1-001",
+  ...normalizedAcpEventBatchSchema.parse({
+    type: "acp.events",
+    dispatchId,
+    leaseId,
+    executionAttemptId,
+    acpSessionId: "acp-session-v1-001",
+    afterCursor: 0,
+    cursor: 2,
+    events: [
+      { cursor: 1, kind: "agent_message", text: "Historical progress." },
+      { cursor: 2, kind: "tool_call", title: "Historical tool", status: "running" }
+    ]
+  })
+};
 
 export const exampleInterruptedEvent = hostEventSchema.parse({
   type: "dispatch.interrupted",
@@ -112,6 +163,7 @@ export const agentHostProtocolGoldenFixtures = {
   executeDelivery: exampleExecuteDelivery,
   resumeDelivery: exampleResumeDelivery,
   acpEventBatch: exampleAcpEventBatch,
+  legacyAcpEventBatchV1: exampleLegacyAcpEventBatchV1,
   interrupted: exampleInterruptedEvent,
   authenticationRequired: exampleAuthenticationRequired,
   authenticationSettlement: exampleAuthenticationSettlement

@@ -121,6 +121,33 @@ describe("remote ACP events v2", () => {
     expect(repository.replay(fixture.operation.executionAttemptId).events).toHaveLength(1);
   });
 
+  it("rejects missing and explicit v1 live batches without advancing v1 metrics", async () => {
+    const fixture = await setup();
+    const repository = new RemoteAcpEventRepository(fixture.server.database, {
+      clock: fixture.clock
+    });
+    const legacy = {
+      type: "acp.events",
+      dispatchId: fixture.operation.dispatchId,
+      leaseId: fixture.reservation.leaseId,
+      executionAttemptId: fixture.operation.executionAttemptId,
+      acpSessionId: "session-v1",
+      afterCursor: 0,
+      cursor: 1,
+      events: [{ cursor: 1, kind: "agent_message", text: "legacy" }]
+    };
+
+    expect(() => repository.ingest(fixture.host.id, "missing-version", legacy)).toThrow();
+    expect(() =>
+      repository.ingest(fixture.host.id, "explicit-v1", {
+        ...legacy,
+        eventProtocolVersion: 1
+      })
+    ).toThrow();
+    expect(repository.metrics()).toMatchObject({ v1Accepted: 0, v2Accepted: 0 });
+    expect(repository.hasStream(fixture.operation.executionAttemptId)).toBe(false);
+  });
+
   it("reports v2 retention loss and both v1 degraded diagnostics", async () => {
     const fixture = await setup();
     const v2 = new RemoteAcpEventRepository(fixture.server.database, {
@@ -146,22 +173,44 @@ describe("remote ACP events v2", () => {
     fixture.server.database
       .prepare("DELETE FROM remote_acp_event_streams WHERE execution_attempt_id=?")
       .run(fixture.operation.executionAttemptId);
+    const historicalEvent = JSON.stringify({
+      cursor: 2,
+      kind: "agent_message",
+      text: "second"
+    });
+    fixture.server.database
+      .prepare(
+        `INSERT INTO remote_acp_event_streams(
+          execution_attempt_id,operation_id,dispatch_id,lease_id,host_id,acp_session_id,
+          latest_cursor,retained_from_cursor,retained_count,retained_bytes,dropped_count,
+          event_protocol_version,updated_at
+        ) VALUES (?,?,?,?,?,?,2,2,1,?,1,1,?)`
+      )
+      .run(
+        fixture.operation.executionAttemptId,
+        fixture.operation.id,
+        fixture.operation.dispatchId,
+        fixture.reservation.leaseId,
+        fixture.host.id,
+        "session-v1",
+        Buffer.byteLength(historicalEvent),
+        fixture.clock().toISOString()
+      );
+    fixture.server.database
+      .prepare(
+        `INSERT INTO remote_acp_events(
+          execution_attempt_id,cursor,event_json,encoded_bytes,received_at
+        ) VALUES (?,2,?,?,?)`
+      )
+      .run(
+        fixture.operation.executionAttemptId,
+        historicalEvent,
+        Buffer.byteLength(historicalEvent),
+        fixture.clock().toISOString()
+      );
     const v1 = new RemoteAcpEventRepository(fixture.server.database, {
       maxEvents: 1,
       clock: fixture.clock
-    });
-    v1.ingest(fixture.host.id, "retention-v1", {
-      type: "acp.events",
-      dispatchId: fixture.operation.dispatchId,
-      leaseId: fixture.reservation.leaseId,
-      executionAttemptId: fixture.operation.executionAttemptId,
-      acpSessionId: "session-v1",
-      afterCursor: 0,
-      cursor: 2,
-      events: [
-        { cursor: 1, kind: "agent_message", text: "first" },
-        { cursor: 2, kind: "agent_message", text: "second" }
-      ]
     });
     expect(v1.replay(fixture.operation.executionAttemptId).diagnostics).toEqual([
       { code: "remote_acp_event_retention_gap", droppedThroughCursor: 1 },

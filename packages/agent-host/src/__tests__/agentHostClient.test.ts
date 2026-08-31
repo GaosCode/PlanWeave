@@ -20,6 +20,7 @@ import { AgentHostExecutionError, type AgentHostExecutor } from "../execution/ag
 import { openAgentHostState, type AgentHostState } from "../state/agentHostState.js";
 import { AgentHostClient } from "../transport/agentHostClient.js";
 import { FakeHostTransportClock } from "./support/hostTransportTestClock.js";
+import { remoteRunnerEventV2Request } from "./support/remoteRunnerEventCapabilityTestValues.js";
 
 const directories: string[] = [];
 const states: AgentHostState[] = [];
@@ -170,7 +171,7 @@ function acknowledge(socket: import("ws").WebSocket, event: HostEvent): void {
 }
 
 describe("Agent Host outbound transport", () => {
-  it("resets protocol negotiation to v1 on restart before a non-2xx response", async () => {
+  it("requires successful v2 discovery before opening the Host socket", async () => {
     const httpServer = createServer();
     httpServers.push(httpServer);
     const webSocketServer = new WebSocketServer({ server: httpServer });
@@ -191,7 +192,7 @@ describe("Agent Host outbound transport", () => {
             JSON.stringify({
               remoteRunnerEvents: {
                 available: true,
-                acceptedVersions: [1, 2],
+                acceptedVersions: [2],
                 preferredVersion: 2,
                 v1Accepted: 0,
                 v2Accepted: 0,
@@ -220,16 +221,16 @@ describe("Agent Host outbound transport", () => {
 
     client.start();
     await vi.waitFor(() => expect(client.status().state).toBe("connected"));
-    expect(setVersion.mock.calls.map(([version]) => version)).toEqual([1, 2]);
+    expect(setVersion.mock.calls.map(([version]) => version)).toEqual([2]);
     await client.stop();
 
     versionStatus = 503;
     client.start();
     await vi.waitFor(() => {
       expect(request).toHaveBeenCalledTimes(2);
-      expect(client.status().state).toBe("connected");
+      expect(client.status()).toEqual({ state: "degraded", reason: "startup_failed" });
     });
-    expect(setVersion.mock.calls.map(([version]) => version)).toEqual([1, 2, 1]);
+    expect(setVersion.mock.calls.map(([version]) => version)).toEqual([2]);
   });
 
   it("cancels in-flight protocol discovery without opening a WebSocket", async () => {
@@ -280,7 +281,7 @@ describe("Agent Host outbound transport", () => {
         JSON.stringify({
           remoteRunnerEvents: {
             available: true,
-            acceptedVersions: [1, 2],
+            acceptedVersions: [2],
             preferredVersion: 2
           }
         }),
@@ -309,7 +310,8 @@ describe("Agent Host outbound transport", () => {
           capabilities: ["test"],
           capacity: 1,
           state,
-          executor
+          executor,
+          request: remoteRunnerEventV2Request
         })
     ).toThrow("agent_host_secure_transport_required");
   });
@@ -346,6 +348,7 @@ describe("Agent Host outbound transport", () => {
       capacity: 1,
       state,
       executor,
+      request: remoteRunnerEventV2Request,
       allowInsecureTransport: true
     });
     clients.push(client);
@@ -452,6 +455,7 @@ describe("Agent Host outbound transport", () => {
       capacity: 1,
       state,
       executor,
+      request: remoteRunnerEventV2Request,
       allowInsecureTransport: true
     });
     clients.push(client);
@@ -524,6 +528,7 @@ describe("Agent Host outbound transport", () => {
       capacity: 1,
       state,
       executor,
+      request: remoteRunnerEventV2Request,
       allowInsecureTransport: true
     });
     clients.push(client);
@@ -586,6 +591,7 @@ describe("Agent Host outbound transport", () => {
       capacity: 1,
       state,
       executor,
+      request: remoteRunnerEventV2Request,
       allowInsecureTransport: true
     });
     clients.push(client);
@@ -672,6 +678,7 @@ describe("Agent Host outbound transport", () => {
       capacity: 1,
       state,
       executor,
+      request: remoteRunnerEventV2Request,
       allowInsecureTransport: true
     });
     clients.push(client);
@@ -727,6 +734,7 @@ describe("Agent Host outbound transport", () => {
       capacity: 1,
       state,
       executor,
+      request: remoteRunnerEventV2Request,
       allowInsecureTransport: true,
       reconnect: { initialDelayMs: 100, maxDelayMs: 1_000 },
       clock,
@@ -771,6 +779,7 @@ describe("Agent Host outbound transport", () => {
       capacity: 1,
       state,
       executor: { execute: vi.fn() },
+      request: remoteRunnerEventV2Request,
       allowInsecureTransport: true,
       clock
     });
@@ -832,6 +841,7 @@ describe("Agent Host outbound transport", () => {
       capacity: 1,
       state,
       executor: { execute: vi.fn() },
+      request: remoteRunnerEventV2Request,
       allowInsecureTransport: true,
       clock
     });
@@ -899,6 +909,7 @@ describe("Agent Host outbound transport", () => {
           };
         }
       },
+      request: remoteRunnerEventV2Request,
       allowInsecureTransport: true,
       clock,
       limits: { shutdownTimeoutMs: 100 }
@@ -960,6 +971,7 @@ describe("Agent Host outbound transport", () => {
       state,
       executor: { execute: vi.fn() },
       canvasRuntime,
+      request: remoteRunnerEventV2Request,
       allowInsecureTransport: true
     });
     clients.push(client);

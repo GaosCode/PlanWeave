@@ -780,13 +780,32 @@ describe("human remote operation HTTP", () => {
     });
     fixture.coordination.acpEvents.ingest(fixture.host.id, "human-event-1", {
       type: "acp.events",
+      eventProtocolVersion: 2,
       dispatchId: operation.dispatchId,
       leaseId: operation.attempt.leaseId,
       executionAttemptId: operation.executionAttemptId,
       acpSessionId: "acp-human-1",
       afterCursor: 0,
       cursor: 1,
-      events: [{ cursor: 1, kind: "agent_message", text: "Remote progress" }]
+      events: [
+        {
+          eventVersion: 2,
+          cursor: 1,
+          sourceSequence: 1,
+          timestamp: "2030-01-01T00:00:01.000Z",
+          fragment: {
+            kind: "runner_body",
+            body: {
+              kind: "message",
+              role: "assistant",
+              messageId: "human-message-1",
+              chunk: false,
+              content: "Remote progress",
+              redaction: { classes: [], replaced: 0 }
+            }
+          }
+        }
+      ]
     });
     const events = await fetch(`${collection}/${operation.operationId}/events?afterCursor=0`, {
       headers: { Authorization: `Bearer ${member.deviceToken}` }
@@ -794,7 +813,15 @@ describe("human remote operation HTTP", () => {
     expect(events.status).toBe(200);
     await expect(events.json()).resolves.toMatchObject({
       afterCursor: 0,
-      events: [{ cursor: 1, kind: "agent_message", text: "Remote progress" }]
+      eventProtocolVersion: 2,
+      events: [
+        expect.objectContaining({
+          cursor: 1,
+          fragment: expect.objectContaining({
+            body: expect.objectContaining({ kind: "message", content: "Remote progress" })
+          })
+        })
+      ]
     });
 
     const request = {
