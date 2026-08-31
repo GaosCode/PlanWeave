@@ -990,7 +990,7 @@ describe("remote execution CLI", () => {
   );
 
   it(
-    "fails closed when exact interrupted-dispatch recovery returns no operation",
+    "retries the exact interrupted dispatch when recovery confirms no operation",
     async () => {
       const fixture = await remoteWorkspace({
         dispatchMode: "hold_for_recovery",
@@ -1013,17 +1013,24 @@ describe("remote execution CLI", () => {
           })
         });
 
-        const failed = await runCliExpectFailure(
+        const recovered = await runCli(
           skillRunSessionResumeArgv(session.sessionId, "profile-1"),
           fixture.env
         );
-        expect(failed).toMatchObject({ code: 8, stdout: "" });
-        expect(failed.stderr).toContain("workspace_execution_resume_mismatch");
-        expect(failed.stderr).not.toContain(
+        expect(executionEvents(recovered.stdout).map((event) => event.type)).toEqual(
+          expect.arrayContaining(["operation_observed", "writeback_observed", "run_terminal"])
+        );
+        expect(recovered.stdout).not.toContain(
           session.workspaceExecution?.dispatchIntent?.idempotencyKey ?? "missing-key"
         );
-        expect(fixture.server.dispatchCount).toBe(1);
+        expect(fixture.server.dispatchCount).toBe(2);
         expect(fixture.server.recoveryQueries).toHaveLength(1);
+        expect(Object.fromEntries(fixture.server.recoveryQueries[0]!)).toEqual({
+          canvasId: "default",
+          blockRef: "T-001#B-001",
+          idempotencyKey: session.workspaceExecution?.dispatchIntent?.idempotencyKey
+        });
+        expect((await listRunSessions(fixture.init.workspace)).sessions).toHaveLength(1);
       } finally {
         await fixture.server.stop();
       }

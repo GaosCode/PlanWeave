@@ -265,7 +265,11 @@ export class WorkspaceExecutionHttpHarness {
         writeJson(response, this.input.httpFailure.status, { error: this.input.httpFailure.code });
         return;
       }
-      if (this.input.dispatchMode === "hold_for_recovery") return;
+      if (
+        this.input.dispatchMode === "hold_for_recovery" &&
+        !(this.input.recoveryMiss === true && this.dispatchCount > 1)
+      )
+        return;
       writeJson(response, 202, this.observation(this.operationState(), 1));
       return;
     }

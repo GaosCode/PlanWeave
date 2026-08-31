@@ -185,7 +185,7 @@ export class WorkspaceExecutionCoordinator {
       }
       const resumable = await this.findScopedSession(storage, binding.bindingId, request);
       if (resumable) {
-        return this.resumeOrRecover(storage, binding, resumable, signal);
+        return this.resumeOrRecover(storage, binding, resumable, request, signal);
       }
       let currentAuthority: Awaited<ReturnType<WorkAuthorityPort["ensure"]>>;
       try {
@@ -250,7 +250,7 @@ export class WorkspaceExecutionCoordinator {
     ) {
       throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
     }
-    return this.resumeOrRecover(storage, binding, detail.session, signal);
+    return this.resumeOrRecover(storage, binding, detail.session, request, signal);
   }
 
   async observeExisting(input: {
@@ -299,6 +299,7 @@ export class WorkspaceExecutionCoordinator {
           storage,
           binding,
           { ...existing, workspaceExecution: existing.workspaceExecution },
+          undefined,
           input.signal
         );
       }
@@ -372,6 +373,7 @@ export class WorkspaceExecutionCoordinator {
     session: WorkspaceExecutionSessionRecord & {
       workspaceExecution: NonNullable<WorkspaceExecutionSessionRecord["workspaceExecution"]>;
     },
+    request?: WorkspaceExecutionRequest,
     signal?: AbortSignal
   ): Promise<WorkspaceExecutionCoordinatorResult> {
     const handle = remoteWorkspaceExecutionHandleSchema.safeParse(
@@ -389,7 +391,41 @@ export class WorkspaceExecutionCoordinator {
     const recovered = await this.input.remote.recover({ binding, session, intent, signal });
     if (recovered)
       return this.acceptCheckpoint(storage, binding, session, recovered, undefined, signal);
-    throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
+    if (!request || !request.effectiveExecutor) {
+      throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
+    }
+    let catalog: Awaited<ReturnType<RemoteAgentCatalogPort["list"]>>;
+    try {
+      catalog = await this.input.catalog.list(
+        { binding, executor: request.effectiveExecutor },
+        signal
+      );
+    } catch (error) {
+      throw workspaceExecutionPortError(error, "remote_catalog_unavailable");
+    }
+    const rebound = await this.input.authority.resolve(request.authority, request.scope, signal);
+    if (rebound.kind !== "remote" || rebound.bindingId !== binding.bindingId) {
+      throw new WorkspaceExecutionError("workspace_execution_authority_mismatch");
+    }
+    const target = resolveWorkspaceExecutionTarget(
+      {
+        ...request,
+        target: { policy: "remote", agentEndpointId: intent.agentEndpointId }
+      },
+      catalog
+    );
+    if (target.target !== "remote" || target.agentEndpointId !== intent.agentEndpointId) {
+      throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
+    }
+    const relaunched = await this.input.remote.launch({
+      request,
+      binding,
+      target,
+      session,
+      intent,
+      signal
+    });
+    return this.acceptCheckpoint(storage, binding, session, relaunched, target, signal);
   }
 
   private async findScopedSession(

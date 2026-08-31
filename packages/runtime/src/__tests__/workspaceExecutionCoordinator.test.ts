@@ -540,6 +540,36 @@ describe("WorkspaceExecutionCoordinator", () => {
     expect((await listRunSessions(root)).sessions).toHaveLength(1);
   });
 
+  it("retries the exact dispatch intent when recovery confirms no operation", async () => {
+    const { root } = await createTestWorkspace();
+    let dispatchCount = 0;
+    const f = fixture({
+      packageWorkspace: root,
+      dispatch: async () => {
+        dispatchCount += 1;
+        if (dispatchCount === 1) throw new Error("connection reset before response");
+        return observation();
+      },
+      recover: async () => null
+    });
+
+    await expect(f.coordinator.execute(request(root))).rejects.toMatchObject({
+      code: "remote_dispatch_unavailable"
+    });
+    const pending = (await listRunSessions(root)).sessions[0];
+    const intent = pending?.workspaceExecution?.dispatchIntent;
+    expect(intent).not.toBeNull();
+
+    const retried = await f.coordinator.execute(request(root));
+
+    expect(retried.handle.operationId).toBe("operation-1");
+    expect(retried.handle.runSessionId).toBe(pending?.sessionId);
+    expect(f.recover).toHaveBeenCalledTimes(1);
+    expect(f.dispatch).toHaveBeenCalledTimes(2);
+    expect(f.dispatch).toHaveBeenNthCalledWith(2, expect.objectContaining({ intent }), undefined);
+    expect((await listRunSessions(root)).sessions).toHaveLength(1);
+  });
+
   it.each([
     "update",
     "append"
