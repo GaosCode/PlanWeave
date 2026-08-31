@@ -648,6 +648,45 @@ describe("WorkspaceExecutionCoordinator", () => {
     });
   });
 
+  it("terminalizes a session when the attempt advances without an operation revision change", async () => {
+    const { root } = await createTestWorkspace();
+    let calls = 0;
+    const f = fixture({
+      packageWorkspace: root,
+      observe: async () => {
+        calls += 1;
+        return calls === 1
+          ? observation({ revision: 2, attemptStateVersion: 2 })
+          : observation({
+              state: "completed",
+              attemptStatus: "completed",
+              revision: 2,
+              attemptStateVersion: 3
+            });
+      },
+      interactions: async () => pendingInteraction("attempt-1")
+    });
+    const started = await f.coordinator.execute(request(root));
+    const running = await f.coordinator.follow(request(root), started.handle.runSessionId);
+    expect(running.session).toMatchObject({
+      phase: "running",
+      workspaceExecution: {
+        handle: { operationRevision: 2, attemptStateVersion: 2 },
+        interactions: [expect.objectContaining({ status: "pending" })]
+      }
+    });
+
+    const completed = await f.coordinator.follow(request(root), started.handle.runSessionId);
+
+    expect(completed.session).toMatchObject({
+      phase: "completed",
+      workspaceExecution: {
+        handle: { operationRevision: 2, attemptStateVersion: 3 },
+        interactions: [expect.objectContaining({ status: "expired" })]
+      }
+    });
+  });
+
   it("rejects every mismatched launch identity before persisting a handle", async () => {
     const cases: Array<
       [string, (value: RemoteOperationObservation) => RemoteOperationObservation]

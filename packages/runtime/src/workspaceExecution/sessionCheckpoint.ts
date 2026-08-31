@@ -25,6 +25,14 @@ function terminalPhase(outcome: "completed" | "failed" | "cancelled") {
   return outcome === "completed" ? "completed" : outcome === "cancelled" ? "stopped" : "failed";
 }
 
+function terminalInteractions(
+  interactions: WorkspaceExecutionSessionState["interactions"]
+): WorkspaceExecutionSessionState["interactions"] {
+  return interactions.map((interaction) =>
+    interaction.status === "pending" ? { ...interaction, status: "expired" as const } : interaction
+  );
+}
+
 export function remoteSessionState(
   binding: ValidatedRemoteBinding,
   intent: WorkspaceExecutionDispatchIntent | null,
@@ -73,11 +81,19 @@ export async function persistRemoteObservation(input: {
       current.workspaceExecution?.handle
     );
     if (["completed", "failed", "stopped"].includes(current.phase)) return current;
-    if (
-      currentHandle.success &&
-      currentHandle.data.operationRevision >= input.snapshot.handle.operationRevision
-    ) {
-      return current;
+    if (currentHandle.success) {
+      const currentAttemptVersion = currentHandle.data.attemptStateVersion ?? -1;
+      const snapshotAttemptVersion = input.snapshot.handle.attemptStateVersion ?? -1;
+      const observationIsOlder =
+        currentHandle.data.operationRevision > input.snapshot.handle.operationRevision ||
+        (currentHandle.data.operationRevision === input.snapshot.handle.operationRevision &&
+          currentAttemptVersion > snapshotAttemptVersion);
+      const observationIsAlreadyApplied =
+        currentHandle.data.operationRevision === input.snapshot.handle.operationRevision &&
+        currentAttemptVersion === snapshotAttemptVersion &&
+        (!input.snapshot.terminal.terminal ||
+          ["completed", "failed", "stopped"].includes(current.phase));
+      if (observationIsOlder || observationIsAlreadyApplied) return current;
     }
     const intent = current.workspaceExecution?.dispatchIntent;
     const observedOperationId = current.workspaceExecution?.observedOperationId;
@@ -92,6 +108,9 @@ export async function persistRemoteObservation(input: {
       current.workspaceExecution ?? undefined,
       observedOperationId
     );
+    if (terminal.terminal) {
+      workspaceExecution.interactions = terminalInteractions(workspaceExecution.interactions);
+    }
     try {
       return await input.sessions.update(
         input.storage,
