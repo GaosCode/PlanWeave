@@ -16,9 +16,10 @@ import {
 } from "./contracts.js";
 import type { ValidatedWorkspaceAuthorityBinding } from "./authorityBinding.js";
 import { WorkspaceExecutionError } from "./errors.js";
+import type { PackageWorkspaceRef } from "../types.js";
 
 export type WorkspaceExecutionSessionStorage =
-  | { kind: "package"; packageWorkspace: string }
+  | { kind: "package"; packageWorkspace: PackageWorkspaceRef }
   | { kind: "namespace"; namespace: string };
 
 export type WorkspaceExecutionSessionRecord = Omit<RunSessionState, "projectRoot">;
@@ -92,7 +93,7 @@ export interface WorkspaceExecutionSessionRepositoryPort {
 
 export class WorkspaceExecutionSessionVersionConflictError extends Error {}
 
-function packageWorkspace(storage: WorkspaceExecutionSessionStorage): string {
+function packageWorkspace(storage: WorkspaceExecutionSessionStorage): PackageWorkspaceRef {
   if (storage.kind !== "package") {
     throw new WorkspaceExecutionError("workspace_execution_session_storage_unavailable");
   }

@@ -1,7 +1,11 @@
 import { cp, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { capturePackageSnapshot, loadPlanGraphPackage } from "@planweave-ai/runtime";
+import {
+  capturePackageSnapshot,
+  listRunSessions,
+  loadPlanGraphPackage
+} from "@planweave-ai/runtime";
 import { describe, expect, it } from "vitest";
 import {
   cliWorkflowTimeoutMs,
@@ -109,6 +113,16 @@ describe("remote Canvas binding CLI", () => {
           blockRef: "T-001#B-001"
         });
         expect(fixture.server.dispatchCount).toBe(1);
+        const sessions = await listRunSessions(fixture.init.workspace);
+        expect(sessions.diagnostics).toEqual([]);
+        expect(sessions.sessions).toHaveLength(1);
+        expect(sessions.sessions[0]).toMatchObject({
+          canvasId: "default",
+          scope: { kind: "block", blockRef: "T-001#B-001" },
+          workspaceExecution: {
+            binding: { canvasId: "remote-canvas-7" }
+          }
+        });
       } finally {
         await fixture.server.stop();
       }
