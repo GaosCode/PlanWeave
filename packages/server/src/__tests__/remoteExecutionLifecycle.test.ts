@@ -20,7 +20,7 @@ function snapshot(
     leaseId: "lease-1",
     leaseFenced: true,
     interruption: { resumable: true, recovery },
-    hostCapabilities: ["acp.codex", "acp.session.load"],
+    hostCapabilities: ["acp.codex"],
     ...overrides
   };
 }
@@ -54,9 +54,6 @@ describe("remote execution lifecycle policy", () => {
       transition: "resume",
       sendsCommand: true
     });
-    expect(() =>
-      decideRemoteExecutionAction(resume, snapshot({ hostCapabilities: ["acp.codex"] }))
-    ).toThrowError("remote_resume_session_load_unsupported");
     expect(() =>
       decideRemoteExecutionAction(
         { ...resume, recovery: { ...recovery, recoveryId: "recovery-foreign" } },

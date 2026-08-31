@@ -465,7 +465,7 @@ export class HostReservationRepository {
       const onlineAfter = new Date(now.getTime() - this.options.hostOfflineAfterMs).toISOString();
       const hostRow = this.database
         .prepare(
-          `SELECT capabilities_json,capacity,
+          `SELECT capacity,
              (SELECT COUNT(*) FROM host_capacity_reservations r
                WHERE r.host_id=agent_hosts.id AND r.status='active'
                  AND ${capacityManagedReservationSql}) AS active_reservations
@@ -475,10 +475,6 @@ export class HostReservationRepository {
         )
         .get(prior.hostId, onlineAfter, now.toISOString());
       if (!hostRow) throw new Error("remote_resume_host_unavailable");
-      const capabilities = capabilitiesSchema.parse(JSON.parse(String(hostRow.capabilities_json)));
-      if (!capabilities.includes("acp.session.load")) {
-        throw new Error("remote_resume_session_load_unsupported");
-      }
       const capacity = z.number().int().positive().parse(hostRow.capacity);
       const activeReservations = z.number().int().nonnegative().parse(hostRow.active_reservations);
       if (occupiesCapacity && activeReservations >= capacity) {

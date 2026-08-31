@@ -161,9 +161,6 @@ export function decideRemoteExecutionAction(
       if (snapshot.attemptStatus !== "interrupted" || !snapshot.leaseFenced) {
         throw new Error("remote_resume_attempt_not_interrupted_and_fenced");
       }
-      if (!snapshot.hostCapabilities.includes("acp.session.load")) {
-        throw new Error("remote_resume_session_load_unsupported");
-      }
       const recovery = snapshot.interruption?.recovery;
       if (!snapshot.interruption?.resumable || !recovery) {
         throw new Error("remote_resume_recovery_evidence_missing");

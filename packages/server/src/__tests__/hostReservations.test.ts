@@ -799,7 +799,7 @@ describe("HostReservationRepository", () => {
     );
     if (!workspaceId) throw new Error("workspace_mapping_missing");
     hosts.bindToWorkspace(host.id, workspaceId);
-    reportReady(hosts, host.id, workspaceId, ["linux", "acp.session.load"], 1);
+    reportReady(hosts, host.id, workspaceId, ["linux", "acp.codex"], 1);
     const operations = new RemoteOperationRepository(server.database, clock);
     const reservations = new HostReservationRepository(server.database, {
       clock,
@@ -829,7 +829,7 @@ describe("HostReservationRepository", () => {
       state: "interrupted",
       attempt: { status: "interrupted", executionAttemptId: running.executionAttemptId }
     });
-    reportReady(hosts, host.id, workspaceId, ["linux", "acp.session.load"], 1);
+    reportReady(hosts, host.id, workspaceId, ["linux", "acp.codex"], 1);
 
     const resumed = reservations.resumeSameAttempt({
       priorLeaseId: original.leaseId,
@@ -917,7 +917,7 @@ describe("HostReservationRepository", () => {
     );
     if (!workspaceId) throw new Error("workspace_mapping_missing");
     hosts.bindToWorkspace(host.id, workspaceId);
-    reportReady(hosts, host.id, workspaceId, ["linux", "acp.session.load"], 1);
+    reportReady(hosts, host.id, workspaceId, ["linux", "acp.codex"], 1);
     const operations = new RemoteOperationRepository(server.database, clock);
     const reservations = new HostReservationRepository(server.database, {
       clock,
@@ -934,7 +934,7 @@ describe("HostReservationRepository", () => {
     });
     now = new Date("2030-01-01T00:01:00.000Z");
     reservations.expireDue(now);
-    reportReady(hosts, host.id, workspaceId, ["linux", "acp.session.load"], 1);
+    reportReady(hosts, host.id, workspaceId, ["linux", "acp.codex"], 1);
     reservations.reserve(createOperation(operations, workspaceId, "B-008").id, executionProfile);
     const interrupted = operations.getRequired(interruptedOperation.id);
 
