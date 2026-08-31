@@ -90,6 +90,16 @@ describe("desktop release configuration", () => {
     expect(source).toContain("process.env.npm_execpath");
     expect(source).toContain("process.execPath");
     expect(source).not.toContain('run("pnpm"');
+    const buildInvocation =
+      'const buildServer = pnpmInvocation(["--filter", "@planweave-ai/server", "build"]);';
+    const awaitedBuild = "await run(buildServer.command, buildServer.args);";
+    const cleanOutput = "await rm(outputRoot, { recursive: true, force: true });";
+    const deployInvocation = "const deploy = pnpmInvocation([";
+    expect(source).toContain(buildInvocation);
+    expect(source).toContain(awaitedBuild);
+    expect(source.indexOf(buildInvocation)).toBeLessThan(source.indexOf(awaitedBuild));
+    expect(source.indexOf(awaitedBuild)).toBeLessThan(source.indexOf(cleanOutput));
+    expect(source.indexOf(awaitedBuild)).toBeLessThan(source.indexOf(deployInvocation));
     expect(source).toContain("--config.node-linker=hoisted");
     expect(source).toContain("await import('@agentclientprotocol/sdk')");
     expect(source).toContain("await import('@planweave-ai/runtime')");

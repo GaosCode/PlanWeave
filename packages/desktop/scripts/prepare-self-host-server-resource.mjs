@@ -55,6 +55,8 @@ async function assertPortableDirectory(directory) {
   }
 }
 
+const buildServer = pnpmInvocation(["--filter", "@planweave-ai/server", "build"]);
+await run(buildServer.command, buildServer.args);
 await rm(outputRoot, { recursive: true, force: true });
 await mkdir(imageRoot, { recursive: true });
 const deploy = pnpmInvocation([
