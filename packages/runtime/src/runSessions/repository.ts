@@ -2,7 +2,7 @@ import { appendFile, mkdir, readFile, rm } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { withAdvisoryDirectoryLock } from "../fs/advisoryDirectoryLock.js";
-import { optionalReaddir } from "../fs/optionalFile.js";
+import { optionalReaddir, optionalStat } from "../fs/optionalFile.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import { commandCanvasIdForWorkspace } from "../taskManager/canvasCommandScope.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
@@ -560,7 +560,16 @@ export async function getRunSession(
 ): Promise<RunSessionDetail> {
   assertValidRunSessionId(sessionId);
   const workspace = await resolveSessionWorkspace(projectRoot);
-  const read = await readSessionState(workspace, sessionId);
+  if (!(await optionalStat(sessionSummaryPath(workspace, sessionId)))) {
+    throw new Error(`Run session '${sessionId}' could not be read.`);
+  }
+  const read = await withAdvisoryDirectoryLock(
+    {
+      lockPath: sessionMutationLockPath(workspace, sessionId),
+      operation: "run-session-read"
+    },
+    () => readSessionState(workspace, sessionId)
+  );
   if (!read.session) {
     throw new Error(`Run session '${sessionId}' could not be read.`);
   }

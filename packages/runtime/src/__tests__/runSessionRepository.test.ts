@@ -1,6 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { describe, expect, it } from "vitest";
+import { withAdvisoryDirectoryLock } from "../fs/advisoryDirectoryLock.js";
 import {
   appendRunSessionEvent,
   createRunSession,
@@ -94,6 +96,45 @@ describe("run session repository", () => {
       recordId: "T-001#B-001::RUN-001"
     });
     expect(detail.diagnostics).toEqual([]);
+  });
+
+  it("waits for an in-flight session update before reading coordinator state", async () => {
+    const { root, init } = await createTestWorkspace();
+    const session = await createRunSession({ projectRoot: root, kind: "run" });
+    const lockPath = join(
+      init.workspace.resultsDir,
+      "run-sessions",
+      session.sessionId,
+      ".session-mutation.lock"
+    );
+    let releaseUpdate!: () => void;
+    let markLockAcquired!: () => void;
+    const updateReleased = new Promise<void>((resolve) => {
+      releaseUpdate = resolve;
+    });
+    const lockAcquired = new Promise<void>((resolve) => {
+      markLockAcquired = resolve;
+    });
+    const update = withAdvisoryDirectoryLock(
+      { lockPath, operation: "run-session-test-update" },
+      async () => {
+        markLockAcquired();
+        await updateReleased;
+        await updateRunSession(root, session.sessionId, { phase: "completed" });
+      }
+    );
+    await lockAcquired;
+
+    const read = getRunSession(root, session.sessionId);
+    const firstSettled = await Promise.race([
+      read.then(() => "read" as const),
+      delay(75).then(() => "waiting" as const)
+    ]);
+
+    releaseUpdate();
+    await update;
+    expect(firstSettled).toBe("waiting");
+    await expect(read).resolves.toMatchObject({ session: { phase: "completed" } });
   });
 
   it("lists newest sessions first", async () => {

@@ -14,8 +14,8 @@ import {
 } from "../cliWorkspace.js";
 import { resolveCliProjectRoot } from "../projectRoot.js";
 import {
-  createRemoteSessionContext,
   interactionResponse,
+  loadRemoteSessionInteractions,
   listRemoteSessionInteractions
 } from "../workspaceExecution/session.js";
 import { WorkspaceExecutionCliError } from "../workspaceExecution/errors.js";
@@ -157,7 +157,7 @@ export function registerInteractionCommand(program: Command): void {
         throw new WorkspaceExecutionCliError("workspace_execution_usage_invalid", 2);
       }
       const projectRoot = await resolveCliPackageWorkspace(options);
-      const interactions = await listRemoteSessionInteractions({
+      const { context, items: interactions } = await loadRemoteSessionInteractions({
         projectRoot,
         sessionId: options.session,
         connectionProfile: options.connectionProfile
@@ -179,11 +179,6 @@ export function registerInteractionCommand(program: Command): void {
       if (selected.status === "settled") {
         throw new WorkspaceExecutionCliError("remote_interaction_already_settled", 7);
       }
-      const context = await createRemoteSessionContext({
-        projectRoot,
-        sessionId: options.session,
-        connectionProfile: options.connectionProfile
-      });
       const event = await context.coordinator.respond({
         request: context.request,
         sessionId: options.session,

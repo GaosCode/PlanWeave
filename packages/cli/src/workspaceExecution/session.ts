@@ -166,6 +166,14 @@ export async function listRemoteSessionInteractions(input: {
   sessionId: string;
   connectionProfile?: string;
 }) {
+  return (await loadRemoteSessionInteractions(input)).items;
+}
+
+export async function loadRemoteSessionInteractions(input: {
+  projectRoot: PackageWorkspaceRef;
+  sessionId: string;
+  connectionProfile?: string;
+}) {
   const context = await createRemoteSessionContext(input);
   const binding = context.binding;
   if (binding.kind !== "remote") {
@@ -183,7 +191,7 @@ export async function listRemoteSessionInteractions(input: {
       cursor
     });
     items.push(...page.items);
-    if (page.nextCursor === null) return items;
+    if (page.nextCursor === null) return { context, items };
     cursor = page.nextCursor;
   }
 }
