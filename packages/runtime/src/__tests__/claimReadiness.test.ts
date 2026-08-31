@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { remoteBlockDispatchReadiness } from "../index.js";
 import { claimBlock, claimNext } from "../taskManager/claimScheduler.js";
 import { submitBlockResult, submitFeedback, submitReviewResult } from "../taskManager/index.js";
 import { buildClaimReadiness, reviewClaimForm } from "../taskManager/claimReadiness.js";
@@ -11,6 +12,45 @@ import {
 } from "./promptTestHelpers.js";
 
 describe("claim readiness", () => {
+  it("publishes remote dispatch readiness for implementations and required reviews", async () => {
+    const { root } = await createTestWorkspace();
+    const initial = await loadRuntime({ projectRoot: root });
+
+    expect(
+      remoteBlockDispatchReadiness({
+        graph: initial.graph,
+        manifest: initial.manifest,
+        state: initial.state,
+        ref: "T-001#B-001"
+      }).dispatchable
+    ).toBe(true);
+    expect(
+      remoteBlockDispatchReadiness({
+        graph: initial.graph,
+        manifest: initial.manifest,
+        state: initial.state,
+        ref: "T-001#R-001"
+      }).dispatchable
+    ).toBe(false);
+
+    await claimNext({ projectRoot: root });
+    await submitBlockResult({
+      projectRoot: root,
+      ref: "T-001#B-001",
+      reportPath: await writeReport(root, "remote-readiness.md")
+    });
+    const afterImplementation = await loadRuntime({ projectRoot: root });
+
+    expect(
+      remoteBlockDispatchReadiness({
+        graph: afterImplementation.graph,
+        manifest: afterImplementation.manifest,
+        state: afterImplementation.state,
+        ref: "T-001#R-001"
+      }).dispatchable
+    ).toBe(true);
+  });
+
   it("derives claim hints and next claimable refs without mutating runtime state", async () => {
     const { root } = await createTestWorkspace();
     const context = await loadRuntime({ projectRoot: root });

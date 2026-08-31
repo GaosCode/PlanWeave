@@ -1,5 +1,7 @@
 export { claimDispatchedBlock } from "./claimBlockDispatch.js";
 export { claimBlock, claimBlockType, claimNext, claimTask } from "./claimScheduler.js";
+export { remoteBlockDispatchReadiness } from "./remoteBlockDispatchReadiness.js";
+export type { RemoteBlockDispatchReadiness } from "./remoteBlockDispatchReadiness.js";
 export { explainBlock, getCurrentWork } from "./executorApi.js";
 export { runDoctor } from "./doctor.js";
 export { runProjectDoctor } from "./projectDoctor.js";

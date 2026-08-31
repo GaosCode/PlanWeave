@@ -10,6 +10,7 @@ import {
   loadDesktopGraphViewModelContext,
   type DesktopGraphViewModelContext
 } from "./graph/readModel.js";
+import { remoteBlockDispatchReadiness } from "../taskManager/remoteBlockDispatchReadiness.js";
 
 export type ReadAuthorizedCanvasRuntimeStatusInput = {
   projectRoot: PackageWorkspaceRef;
@@ -59,7 +60,6 @@ export async function buildAuthorizedCanvasRuntimeStatusProjection(input: {
       compiledGraph: context.graph
     }
   });
-  const claimHintByRef = new Map(context.claimReadiness.claimHints.map((hint) => [hint.ref, hint]));
   return canvasRuntimeStatusProjectionSchema.parse({
     schemaVersion: "canvas-runtime-status/v2",
     scope: input.scope,
@@ -73,15 +73,18 @@ export async function buildAuthorizedCanvasRuntimeStatusProjection(input: {
     blocks: context.status.blocks.map((block) => {
       const state = context.state.blocks[block.ref];
       if (!state) throw new Error(`runtime_block_state_missing:${block.ref}`);
-      const claimHint = claimHintByRef.get(block.ref);
-      if (!claimHint) throw new Error(`runtime_claim_hint_missing:${block.ref}`);
       return {
         ref: block.ref,
         status: block.status,
         completionReason: state.completionReason ?? null,
         blockedReason: state.blockedReason ?? null,
         divergenceReason: state.divergenceReason ?? null,
-        dispatchable: claimHint.dispatchable
+        dispatchable: remoteBlockDispatchReadiness({
+          graph: context.graph,
+          manifest: context.manifest,
+          state: context.state,
+          ref: block.ref
+        }).dispatchable
       };
     })
   });

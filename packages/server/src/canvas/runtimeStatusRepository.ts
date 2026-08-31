@@ -13,6 +13,7 @@ import {
   createEmptyState,
   ensureStateForManifest,
   parseBlockRef,
+  remoteBlockDispatchReadiness,
   type PlanPackageManifest,
   type RuntimeState
 } from "@planweave-ai/runtime";
@@ -95,11 +96,10 @@ function mergeRemoteMutationStatus(
     throw new Error("canvas_runtime_status_graph_identity_mismatch");
   }
   const currentTasks = new Map(current.tasks.map((task) => [task.taskId, task]));
-  const currentBlocks = new Map(current.blocks.map((block) => [block.ref, block]));
   const incomingBlocks = new Map(incoming.blocks.map((block) => [block.ref, block]));
-  const selectedBlocks = incoming.blocks.map((block) => {
-    if (block.ref === blockRef) return block;
-    return requireCurrentEntry(currentBlocks.get(block.ref));
+  const selectedBlocks = current.blocks.map((block) => {
+    if (block.ref === blockRef) return requireCurrentEntry(incomingBlocks.get(block.ref));
+    return block;
   });
   const targetBlock = requireCurrentEntry(graph.blocksByRef.get(blockRef));
   const feedbackCounts = new Map(
@@ -111,8 +111,30 @@ function mergeRemoteMutationStatus(
       requireCurrentEntry(incoming.tasks.find((task) => task.taskId === taskId)).openFeedbackCount
     );
   }
+  const feedbackTaskIds = new Set(
+    Array.from(feedbackCounts)
+      .filter(([, count]) => count > 0)
+      .map(([feedbackTaskId]) => feedbackTaskId)
+  );
   const state: RuntimeState = {
     ...createEmptyState(),
+    currentRefs: selectedBlocks
+      .filter((block) => {
+        if (block.status !== "in_progress") return false;
+        const blockType = graph.blocksByRef.get(block.ref)?.type;
+        const blockTaskId = graph.blockTaskByRef.get(block.ref);
+        return !(
+          blockType === "review" &&
+          blockTaskId !== undefined &&
+          feedbackTaskIds.has(blockTaskId)
+        );
+      })
+      .map((block) => block.ref),
+    currentReviewBlockRef:
+      selectedBlocks.find(
+        (block) =>
+          block.status === "in_progress" && graph.blocksByRef.get(block.ref)?.type === "review"
+      )?.ref ?? null,
     tasks: Object.fromEntries(currentTasks),
     blocks: Object.fromEntries(
       selectedBlocks.map((block) => [
@@ -129,37 +151,46 @@ function mergeRemoteMutationStatus(
   };
   for (const [feedbackTaskId, count] of feedbackCounts) {
     if (count === 0) continue;
-    const reviewRef = graph.reviewBlocksByTask.get(feedbackTaskId)?.[0];
+    const reviewRef =
+      targetBlock.type === "review" && feedbackTaskId === taskId
+        ? blockRef
+        : graph.reviewBlocksByTask.get(feedbackTaskId)?.[0];
     if (!reviewRef) throw new Error("canvas_runtime_status_feedback_source_missing");
-    for (let index = 0; index < count; index += 1) {
-      state.feedback[`projection:${feedbackTaskId}:${index}`] = {
-        status: "open",
-        sourceReviewBlockRef: reviewRef,
-        latestSubmissionId: null,
-        content: ""
-      };
-    }
+    const feedbackId = `projection:${feedbackTaskId}`;
+    state.feedback[feedbackId] = {
+      status: "open",
+      sourceReviewBlockRef: reviewRef,
+      latestSubmissionId: null,
+      content: ""
+    };
+    state.currentFeedbackId ??= feedbackId;
   }
   const derived = ensureStateForManifest(manifest, state);
   return canvasRuntimeStatusProjectionSchema.parse({
     ...incoming,
-    tasks: incoming.tasks.map((task) => ({
-      taskId: task.taskId,
-      ...requireCurrentEntry(derived.tasks[task.taskId])
-    })),
-    blocks: incoming.blocks.map((block) => {
-      const selected = requireCurrentEntry(selectedBlocks.find((entry) => entry.ref === block.ref));
-      const status = requireCurrentEntry(derived.blocks[block.ref]).status;
-      const matchingIncoming = requireCurrentEntry(incomingBlocks.get(block.ref));
+    tasks: current.tasks.map((task) => {
+      const taskState = requireCurrentEntry(derived.tasks[task.taskId]);
+      const openFeedbackCount = feedbackCounts.get(task.taskId);
+      if (openFeedbackCount === undefined) {
+        throw new Error("canvas_runtime_status_identity_mismatch");
+      }
+      return {
+        taskId: task.taskId,
+        status: taskState.status,
+        openFeedbackCount
+      };
+    }),
+    blocks: selectedBlocks.map((selected) => {
+      const blockState = requireCurrentEntry(derived.blocks[selected.ref]);
       return {
         ...selected,
-        status,
-        dispatchable:
-          selected.status === status
-            ? selected.dispatchable
-            : matchingIncoming.status === status
-              ? matchingIncoming.dispatchable
-              : false
+        status: blockState.status,
+        dispatchable: remoteBlockDispatchReadiness({
+          graph,
+          manifest,
+          state: derived,
+          ref: selected.ref
+        }).dispatchable
       };
     })
   });

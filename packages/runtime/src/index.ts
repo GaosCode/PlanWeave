@@ -171,6 +171,8 @@ export {
 } from "./schemaDocs/index.js";
 export { loadPackage } from "./package/loadPackage.js";
 export { createEmptyState, ensureStateForManifest } from "./state.js";
+export { remoteBlockDispatchReadiness } from "./taskManager/remoteBlockDispatchReadiness.js";
+export type { RemoteBlockDispatchReadiness } from "./taskManager/remoteBlockDispatchReadiness.js";
 export {
   createManagedProjectFromAuthoritativeContent,
   materializeAuthoritativeCanvasContent,

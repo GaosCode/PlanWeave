@@ -1,6 +1,5 @@
 import type { PackageWorkspaceRef } from "../types.js";
 import { commandCanvasIdForWorkspace } from "./canvasCommandScope.js";
-import { reviewClaimForm } from "./claimReadiness.js";
 import { projectBlockerReason } from "./claimReadinessRules.js";
 import { createProjectGraphClaimGuard } from "./projectGraphClaimGuard.js";
 import {
@@ -14,12 +13,9 @@ import {
   remoteBlockSourceSnapshot
 } from "./remoteBlockSourceSnapshot.js";
 import { loadRuntimeReadonly, type RuntimeContext } from "./runtimeContext.js";
+import { remoteBlockDispatchReadiness } from "./remoteBlockDispatchReadiness.js";
 import type { BlockType } from "../types.js";
-import {
-  canDispatchImplementationBlock,
-  effectiveBlockExecutor,
-  validateClaimScope
-} from "./selectors.js";
+import { effectiveBlockExecutor, validateClaimScope } from "./selectors.js";
 
 /**
  * Remote Host ACP can execute every auto-run block type in the package model
@@ -56,28 +52,20 @@ export async function assertRemoteBlockDispatchable(
   context: RuntimeContext,
   ref: string
 ): Promise<void> {
-  const blockType = assertRemoteBlockExecutable(context, ref);
+  assertRemoteBlockExecutable(context, ref);
   const taskId = context.graph.blockTaskByRef.get(ref);
   const blocker = projectBlockerReason(await createProjectGraphClaimGuard(context), taskId);
   if (blocker) {
     throw new RemoteBlockRuntimeError("remote_block_not_dispatchable", blocker);
   }
-  if (blockType === "implementation") {
-    if (
-      !canDispatchImplementationBlock(context.graph, context.state, ref, {
-        maxConcurrent: context.manifest.execution.parallel.maxConcurrent
-      })
-    ) {
-      throw new RemoteBlockRuntimeError(
-        "remote_block_not_dispatchable",
-        `Block '${ref}' is not dispatchable right now.`
-      );
-    }
-    return;
-  }
-  const form = reviewClaimForm(context.graph, context.state, ref);
-  if (form.kind === "not_claimable") {
-    throw new RemoteBlockRuntimeError("remote_block_not_dispatchable", form.reason);
+  const readiness = remoteBlockDispatchReadiness({
+    graph: context.graph,
+    manifest: context.manifest,
+    state: context.state,
+    ref
+  });
+  if (!readiness.dispatchable) {
+    throw new RemoteBlockRuntimeError("remote_block_not_dispatchable", readiness.reason);
   }
 }
 

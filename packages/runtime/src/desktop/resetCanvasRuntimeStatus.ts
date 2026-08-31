@@ -4,7 +4,7 @@ import {
 } from "@planweave-ai/collaboration-protocol/canvas/status";
 import { compileTaskGraph } from "../graph/compileTaskGraph.js";
 import { createEmptyState, ensureStateForManifest } from "../state.js";
-import { buildClaimReadiness } from "../taskManager/claimReadiness.js";
+import { remoteBlockDispatchReadiness } from "../taskManager/remoteBlockDispatchReadiness.js";
 import { validateAuthoritativeCanvasContent } from "./contentVersionValidation.js";
 
 /** Builds the deterministic empty Runtime projection for a Server-authoritative reset. */
@@ -17,9 +17,6 @@ export function buildResetCanvasRuntimeStatusProjection(input: {
   const { manifest } = validateAuthoritativeCanvasContent(input.content);
   const graph = compileTaskGraph(manifest);
   const state = ensureStateForManifest(manifest, createEmptyState());
-  const claimHintByRef = new Map(
-    buildClaimReadiness({ graph, manifest, state }).claimHints.map((hint) => [hint.ref, hint])
-  );
   return canvasRuntimeStatusProjectionSchema.parse({
     schemaVersion: "canvas-runtime-status/v2",
     scope: input.scope,
@@ -36,16 +33,14 @@ export function buildResetCanvasRuntimeStatusProjection(input: {
     }),
     blocks: graph.blockRefsInManifestOrder.map((ref) => {
       const block = state.blocks[ref];
-      const claimHint = claimHintByRef.get(ref);
       if (!block) throw new Error(`runtime_block_state_missing:${ref}`);
-      if (!claimHint) throw new Error(`runtime_claim_hint_missing:${ref}`);
       return {
         ref,
         status: block.status,
         completionReason: block.completionReason ?? null,
         blockedReason: block.blockedReason ?? null,
         divergenceReason: block.divergenceReason ?? null,
-        dispatchable: claimHint.dispatchable
+        dispatchable: remoteBlockDispatchReadiness({ graph, manifest, state, ref }).dispatchable
       };
     })
   });

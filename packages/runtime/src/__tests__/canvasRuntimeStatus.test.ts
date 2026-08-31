@@ -6,7 +6,7 @@ import {
 } from "../desktop/canvasRuntimeStatus.js";
 import { loadDesktopGraphViewModelContext } from "../desktop/graph/readModel.js";
 import { readState, writeState } from "../state.js";
-import { createTestWorkspace } from "./promptTestHelpers.js";
+import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
 
 const directories: string[] = [];
 
@@ -54,6 +54,65 @@ describe("authorized canvas runtime status", () => {
       dispatchable: false
     });
     expect(JSON.stringify(projection)).not.toContain("private-run-id");
+  });
+
+  it("projects required reviews through remote dispatch readiness", async () => {
+    const fixture = await createTestWorkspace();
+    directories.push(fixture.home, fixture.root);
+    const initialContext = await loadDesktopGraphViewModelContext(fixture.init.workspace);
+    const initial = await buildAuthorizedCanvasRuntimeStatusProjection({
+      context: initialContext,
+      scope: { workspaceId: "w", projectId: "p", canvasId: "default" }
+    });
+    expect(initial.blocks.find((block) => block.ref === "T-001#R-001")?.dispatchable).toBe(false);
+
+    const state = await readState(fixture.init.workspace.stateFile);
+    state.blocks["T-001#B-001"] = { status: "completed", lastRunId: "RUN-001" };
+    await writeState(fixture.init.workspace.stateFile, state);
+    const readyContext = await loadDesktopGraphViewModelContext(fixture.init.workspace);
+    const ready = await buildAuthorizedCanvasRuntimeStatusProjection({
+      context: readyContext,
+      scope: { workspaceId: "w", projectId: "p", canvasId: "default" }
+    });
+
+    expect(ready.blocks.find((block) => block.ref === "T-001#R-001")).toMatchObject({
+      status: "ready",
+      dispatchable: true
+    });
+  });
+
+  it("does not charge an open-feedback review against remote dispatch capacity", async () => {
+    const fixture = await createTestWorkspace(
+      basicManifest({ parallel: true, maxConcurrent: 1, includeSecondTask: true })
+    );
+    directories.push(fixture.home, fixture.root);
+    const state = await readState(fixture.init.workspace.stateFile);
+    state.blocks["T-001#B-001"] = { status: "completed", lastRunId: "RUN-001" };
+    state.blocks["T-001#R-001"] = { status: "in_progress", lastRunId: "RUN-002" };
+    state.currentRefs = [];
+    state.currentReviewBlockRef = "T-001#R-001";
+    state.currentFeedbackId = "FE-001";
+    state.feedback["FE-001"] = {
+      status: "open",
+      sourceReviewBlockRef: "T-001#R-001",
+      latestSubmissionId: null,
+      content: "Review feedback"
+    };
+    await writeState(fixture.init.workspace.stateFile, state);
+    const context = await loadDesktopGraphViewModelContext(fixture.init.workspace);
+    const projection = await buildAuthorizedCanvasRuntimeStatusProjection({
+      context,
+      scope: { workspaceId: "w", projectId: "p", canvasId: "default" }
+    });
+
+    expect(projection.blocks.find((block) => block.ref === "T-001#R-001")).toMatchObject({
+      status: "in_progress",
+      dispatchable: false
+    });
+    expect(projection.blocks.find((block) => block.ref === "T-002#B-001")).toMatchObject({
+      status: "ready",
+      dispatchable: true
+    });
   });
 
   it("rejects a package path outside the authorized canvas", async () => {
