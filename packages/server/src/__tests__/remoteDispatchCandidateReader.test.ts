@@ -90,6 +90,38 @@ describe("ServerCanvasDispatchCandidateReader", () => {
     });
   });
 
+  it("accepts a built-in Agent profile when a remote Endpoint owns the transport", async () => {
+    const manifest = remoteManifest();
+    manifest.execution.defaultExecutor = "codex";
+    delete manifest.executors;
+    const fixture = await setup(false, manifest);
+    const reader = new ServerCanvasDispatchCandidateReader(
+      new ContentVersionRepository(fixture.server.database)
+    );
+
+    const candidate = await reader.read({ ...fixture.locator, blockRef: "T-001#B-001" });
+
+    expect(candidate).toMatchObject({
+      effectiveExecutor: "codex",
+      agentId: "codex",
+      agentProfileId: "codex"
+    });
+  });
+
+  it("fails closed when the published executor does not identify an Agent", async () => {
+    const manifest = remoteManifest();
+    manifest.execution.defaultExecutor = "manual";
+    manifest.executors = { manual: { adapter: "manual" } };
+    const fixture = await setup(false, manifest);
+    const reader = new ServerCanvasDispatchCandidateReader(
+      new ContentVersionRepository(fixture.server.database)
+    );
+
+    await expect(
+      reader.read({ ...fixture.locator, blockRef: "T-001#B-001" })
+    ).rejects.toMatchObject({ code: "remote_block_executor_not_acp" });
+  });
+
   it("fails closed for missing, failed, and unverifiable implementation dependencies", async () => {
     const fixture = await setup(false);
     const evidence = new Map<string, ReturnType<typeof markdownEvidence> | { state: "failed" }>();

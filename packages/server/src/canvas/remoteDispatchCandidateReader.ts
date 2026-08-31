@@ -99,10 +99,10 @@ export class ServerCanvasDispatchCandidateReader implements RemoteDispatchCandid
     const effectiveExecutor =
       block.executor ?? task.executor ?? document.manifest.execution.defaultExecutor ?? "default";
     const runner = executorRunnerEvidenceForPublishedManifest(document.manifest, effectiveExecutor);
-    if (runner.runnerKind !== "acp" || !runner.agentId) {
+    if (!runner.agentId) {
       throw new RemoteBlockRuntimeError(
         "remote_block_executor_not_acp",
-        `Executor '${effectiveExecutor}' for '${input.blockRef}' is not an ACP agent profile.`
+        `Executor '${effectiveExecutor}' for '${input.blockRef}' does not identify an Agent.`
       );
     }
     const taskPrompt = document.promptMarkdownByPath[task.prompt];
