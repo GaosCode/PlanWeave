@@ -400,39 +400,6 @@ export class RemoteAcpEventRepository {
     );
   }
 
-  readCompletionTranscript(executionAttemptId: string): {
-    sessionId: string;
-    events: Array<{ timestamp: string; event: NormalizedAcpEvent | RemoteRunnerEventV2 }>;
-  } | null {
-    const stream = this.database
-      .prepare("SELECT * FROM remote_acp_event_streams WHERE execution_attempt_id=?")
-      .get(executionAttemptId);
-    if (!stream) return null;
-    if (Number(stream.dropped_count) > 0) {
-      throw new Error("remote_acp_event_transcript_truncated");
-    }
-    return {
-      sessionId: String(stream.acp_session_id),
-      events: this.database
-        .prepare(
-          `SELECT event_json,received_at,event_version FROM remote_acp_events
-           WHERE execution_attempt_id=? ORDER BY cursor`
-        )
-        .all(executionAttemptId)
-        .map((row) => {
-          const event =
-            Number(row.event_version) === 2
-              ? remoteRunnerEventV2Schema.parse(JSON.parse(String(row.event_json)))
-              : normalizedAcpEventSchema.parse(JSON.parse(String(row.event_json)));
-          return {
-            timestamp:
-              "timestamp" in event ? event.timestamp : z.string().datetime().parse(row.received_at),
-            event
-          };
-        })
-    };
-  }
-
   private normalizeUsageSnapshot(
     executionAttemptId: string,
     event: RemoteRunnerEventV2,

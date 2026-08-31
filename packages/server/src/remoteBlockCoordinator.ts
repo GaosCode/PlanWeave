@@ -11,7 +11,6 @@ import {
 } from "@planweave-ai/runtime";
 import type {
   RemoteArtifactContentPort,
-  RemoteAcpTranscriptPort,
   RemoteCoordinatorCheckpoint,
   RemoteCoordinatorCheckpointPort,
   RemoteContentAuthorizePort,
@@ -87,7 +86,6 @@ export type RemoteBlockCoordinatorOptions = {
   mailbox: RemoteMailboxPublisherPort;
   inputArtifacts: RemoteInputArtifactPort;
   artifactContent: RemoteArtifactContentPort;
-  acpTranscript: RemoteAcpTranscriptPort;
   checkpoints?: RemoteCoordinatorCheckpointPort;
   assignmentGate?: AssignmentDispatchGate;
   agentEndpoints?: AgentEndpointCatalog;
@@ -872,7 +870,6 @@ export class RemoteBlockCoordinator {
       reservations: this.options.reservations,
       dispatches: this.options.dispatches,
       artifactContent: this.options.artifactContent,
-      acpTranscript: this.options.acpTranscript,
       checkpoint: (point) => this.checkpoint(point),
       authorizeActiveWriteback: (operation, candidate, reservation) => {
         if (operation.endpointSelection) {

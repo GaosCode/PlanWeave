@@ -9,7 +9,6 @@ import type { HostCapacityReservation } from "./hostReservations.js";
 import { HostReservationRepository } from "./hostReservations.js";
 import { remoteBlockIdentity } from "./remoteBlockIdentity.js";
 import type {
-  RemoteAcpTranscriptPort,
   RemoteArtifactContentPort,
   RemoteCoordinatorCheckpoint,
   RemoteDispatchPersistencePort,
@@ -33,7 +32,6 @@ export type RemoteBlockWritebackCoordinatorOptions = {
   reservations: HostReservationRepository;
   dispatches: RemoteDispatchPersistencePort;
   artifactContent: RemoteArtifactContentPort;
-  acpTranscript: RemoteAcpTranscriptPort;
   checkpoint(point: RemoteCoordinatorCheckpoint): Promise<void>;
   authorizeActiveWriteback(
     operation: RemoteOperation,
@@ -175,25 +173,12 @@ export class RemoteBlockWritebackCoordinator {
     const reportBytes = new Uint8Array(
       await this.options.artifactContent.readReport(reportArtifactRef)
     );
-    const candidate = this.options.candidates.get(operation.id);
-    if (!candidate) throw new Error("remote_operation_candidate_missing");
-    const observedTranscript = this.options.acpTranscript.readCompletionTranscript(
-      operation.executionAttemptId
-    );
-    const transcript = observedTranscript
-      ? {
-          ...observedTranscript,
-          executor: candidate.effectiveExecutor,
-          agentId: candidate.agentId
-        }
-      : null;
     await this.options.checkpoint("before_runtime_writeback");
     try {
       await runtimeLease.runtime.complete({
         ...remoteBlockIdentity(operation),
         reportArtifactRef,
-        reportBytes,
-        ...(transcript ? { transcript } : {})
+        reportBytes
       });
     } catch (error) {
       if (!isWritebackDomainFailure(error)) throw error;

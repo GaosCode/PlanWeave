@@ -343,16 +343,15 @@ describe("RemoteBlockCoordinator Runtime lease and terminal writeback", () => {
       taskId: "T-001",
       recordId: `T-001#B-001::${runId}`
     });
-    expect(detail.record.runnerReadModel?.events).toEqual(
+    expect(fixture.acpEvents.replay(dispatch.executionAttemptId, 0).events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          body: expect.objectContaining({
-            kind: "message",
-            content: "Created the requested file on the remote Host."
-          })
+          kind: "agent_message",
+          text: "Created the requested file on the remote Host."
         })
       ])
     );
+    expect(detail.record.runnerReadModel).toBeNull();
   });
 
   it("writes terminal failure through the durable attempt Host route", async () => {
