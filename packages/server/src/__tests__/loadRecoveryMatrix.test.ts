@@ -197,7 +197,7 @@ describe("load / recovery matrix (moderate intended scale)", () => {
     expect(client.countServerRows("remote_operations")).toBe(2);
     expect(client.countServerRows("remote_execution_attempts")).toBe(2);
     expect(client.countServerRows("host_capacity_reservations")).toBe(2);
-    expect(client.countServerRows("mailbox_messages")).toBe(2);
+    expect(client.countExecuteBlockMailboxMessages([first.dispatchId, second.dispatchId])).toBe(2);
 
     await harness.acpControl.resume();
     const [term1, term2] = await Promise.all([

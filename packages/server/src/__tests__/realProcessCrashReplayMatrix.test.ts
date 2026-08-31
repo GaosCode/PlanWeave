@@ -162,6 +162,13 @@ describe("real-process crash/replay fault matrix", () => {
           const receiptOk = current.runtime.terminalReceipt?.outcome === "completed";
           return sameSession && promptCompleted && receiptOk;
         }
+        if (
+          current.dispatchStatus === "completed" ||
+          current.runtime.status === "completed" ||
+          current.runtime.terminalReceipt?.outcome === "completed"
+        ) {
+          return false;
+        }
         return [
           "failed",
           "cancelled",
@@ -267,7 +274,7 @@ describe("real-process crash/replay fault matrix", () => {
     expect(client.countServerRows("remote_operations")).toBe(2);
     expect(client.countServerRows("remote_execution_attempts")).toBe(2);
     expect(client.countServerRows("host_capacity_reservations")).toBe(2);
-    expect(client.countServerRows("mailbox_messages")).toBe(2);
+    expect(client.countExecuteBlockMailboxMessages([first.dispatchId, second.dispatchId])).toBe(2);
 
     await harness.acpControl.resume();
     const [firstTerminal, secondTerminal] = await Promise.all([

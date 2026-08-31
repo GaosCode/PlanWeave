@@ -693,7 +693,7 @@ describe("real-process adversarial authorization matrix", () => {
       };
     };
     const persistenceBaseline = async () => ({
-      operation: await client.observe(view.operationId),
+      operation: client.readServerOperationPersistence(view.operationId),
       dispatch: client.readServerDispatch(view.dispatchId),
       attemptCount: client.countServerRows("remote_execution_attempts", "operation_id=?", [
         view.operationId
@@ -939,9 +939,9 @@ describe("real-process adversarial authorization matrix", () => {
       { status: 401, error: "Unauthorized" }
     );
 
-    const stillLive = await client.observe(dispatched.operationId);
-    expect(stillLive.state).not.toBe("completed");
-    expect(stillLive.runtime.terminalReceipt?.outcome).not.toBe("completed");
+    const stillPersisted = client.readServerOperationPersistence(dispatched.operationId);
+    expect(stillPersisted.operation.state).not.toBe("completed");
+    expect(client.readServerDispatch(dispatched.dispatchId).status).not.toBe("completed");
     expect(client.readServerEnvelopeCanonical(view.dispatchId)).toBe(envelopeBefore);
     expect(
       client.countServerRows("remote_execution_attempts", "operation_id=?", [view.operationId])

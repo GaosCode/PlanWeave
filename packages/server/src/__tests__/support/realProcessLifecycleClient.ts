@@ -306,6 +306,15 @@ export class RealProcessLifecycleClient {
     }
   }
 
+  countExecuteBlockMailboxMessages(dispatchIds: readonly string[]): number {
+    if (dispatchIds.length === 0) return 0;
+    return this.countServerRows(
+      "mailbox_messages",
+      `json_extract(command_json, '$.type')='execute_block' AND json_extract(command_json, '$.dispatchId') IN (${dispatchIds.map(() => "?").join(",")})`,
+      [...dispatchIds]
+    );
+  }
+
   countLifecycleFragment(fragment: string): number {
     // lifecycle.log is harness-owned ACP control evidence (not production Server logs).
     const path = this.harness.paths.acpLifecycle;
@@ -679,6 +688,29 @@ export class RealProcessLifecycleClient {
         .get(dispatchId) as ServerDispatchRow | undefined;
       if (!row) throw new Error(`real_process_lifecycle_dispatch_row_missing:${dispatchId}`);
       return row;
+    } finally {
+      database.close();
+    }
+  }
+
+  readServerOperationPersistence(operationId: string): {
+    operation: Record<string, unknown>;
+    attempts: Array<Record<string, unknown>>;
+  } {
+    const database = openSqlite(this.serverDatabasePath());
+    try {
+      const operation = database
+        .prepare("SELECT * FROM remote_operations WHERE id=?")
+        .get(operationId);
+      if (!operation) {
+        throw new Error(`real_process_lifecycle_operation_row_missing:${operationId}`);
+      }
+      const attempts = database
+        .prepare(
+          "SELECT * FROM remote_execution_attempts WHERE operation_id=? ORDER BY created_at,execution_attempt_id"
+        )
+        .all(operationId);
+      return { operation, attempts };
     } finally {
       database.close();
     }
