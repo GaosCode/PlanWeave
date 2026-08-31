@@ -36,21 +36,17 @@ describe("real-process lifecycle dispatch waits", () => {
     const view = operationView({
       state: "failed",
       dispatchStatus: "failed",
+      failure: {
+        code: "remote_runtime_writeback_failed",
+        message: "writeback rejected",
+        retryable: false
+      },
       runtime: {
         ref: "T-001#B-001",
         status: "failed",
         terminalReceipt: {
           outcome: "failed",
-          operationId: "operation-1",
-          sourceRevision: "source-1",
-          graphFingerprint: "graph-1",
-          dispatchId: "dispatch-1",
-          executionAttemptId: "attempt-1",
-          failure: {
-            code: "remote_runtime_writeback_failed",
-            message: "writeback rejected",
-            retryable: false
-          }
+          operationId: "operation-1"
         }
       }
     });

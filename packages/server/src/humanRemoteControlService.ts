@@ -29,6 +29,11 @@ import { CanvasRuntimeUnavailableError } from "./canvas/executionRuntimePort.js"
 import { CanvasRuntimeRpcError } from "./canvas/runtimeRpcBroker.js";
 import { buildRemoteOperationDiagnostics } from "./remoteOperationDiagnostics.js";
 import { RemoteOperationLookupConflictError } from "./remoteOperationLookup.js";
+import {
+  isTerminalRemoteOperation,
+  projectRemoteOperationRuntime,
+  projectTerminalRemoteOperationRuntime
+} from "./remoteOperationRuntimeProjection.js";
 
 export class HumanRemoteControlError extends Error {
   constructor(readonly code: string) {
@@ -163,9 +168,11 @@ export class HumanRemoteControlService {
   ) {
     const operation = this.operationFor(scope, operationId);
     const dispatch = this.options.dispatches.get(operation.dispatchId);
-    const runtime = isTerminalOperation(operation)
-      ? terminalRuntimeProjection(operation)
-      : (dispatchedRuntime ?? (await this.options.coordinator.query(operation.id)));
+    const runtime = projectRemoteOperationRuntime(
+      isTerminalRemoteOperation(operation)
+        ? projectTerminalRemoteOperationRuntime(operation)
+        : (dispatchedRuntime ?? (await this.options.coordinator.query(operation.id)))
+    );
     const observation = {
       operationId: operation.id,
       projectId: operation.projectId,
@@ -199,37 +206,7 @@ export class HumanRemoteControlService {
         failure: dispatch?.failure,
         diagnostic: this.options.operations.getRequiredDiagnostic(operation.id)
       }),
-      runtime: {
-        ref: runtime.ref,
-        status: runtime.status,
-        ...(runtime.ownership
-          ? {
-              ownership: {
-                operationId: runtime.ownership.operationId,
-                phase: runtime.ownership.phase,
-                ...(runtime.ownership.phase === "active"
-                  ? {
-                      dispatchId: runtime.ownership.dispatchId,
-                      executionAttemptId: runtime.ownership.executionAttemptId
-                    }
-                  : {})
-              }
-            }
-          : {}),
-        ...(runtime.interruption ? { interruption: runtime.interruption } : {}),
-        ...(runtime.terminalReceipt
-          ? {
-              terminalReceipt: {
-                operationId: runtime.terminalReceipt.operationId,
-                outcome: runtime.terminalReceipt.outcome
-              }
-            }
-          : {}),
-        ...(runtime.blockedReason !== undefined ? { blockedReason: runtime.blockedReason } : {}),
-        ...(runtime.divergenceReason !== undefined
-          ? { divergenceReason: runtime.divergenceReason }
-          : {})
-      }
+      runtime
     };
     return operation.endpointSelection
       ? remoteEndpointOperationObservationSchema.parse(observation)
@@ -398,38 +375,6 @@ export class HumanRemoteControlService {
     });
     return operation;
   }
-}
-
-function isTerminalOperation(operation: RemoteOperation): boolean {
-  return (
-    operation.state === "completed" ||
-    operation.state === "failed" ||
-    operation.state === "cancelled"
-  );
-}
-
-function terminalRuntimeProjection(operation: RemoteOperation): RemoteRuntimeBindingProjection {
-  if (!isTerminalOperation(operation)) {
-    throw new Error("terminal_runtime_projection_requires_terminal_operation");
-  }
-  return {
-    ref: operation.blockRef,
-    status:
-      operation.state === "completed"
-        ? "completed"
-        : operation.state === "failed"
-          ? "blocked"
-          : "cancelled",
-    terminalReceipt: {
-      operationId: operation.id,
-      outcome:
-        operation.state === "completed"
-          ? "completed"
-          : operation.state === "failed"
-            ? "failed"
-            : "cancelled"
-    }
-  };
 }
 
 function toHumanInteractionView(interaction: ReturnType<RemoteInteractionService["getRequired"]>) {

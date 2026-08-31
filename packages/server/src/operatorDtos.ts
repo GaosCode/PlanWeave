@@ -28,6 +28,7 @@ import {
 import {
   remoteDispatchIntentV3Schema,
   remoteOperationDiagnosticsSchema,
+  remoteRuntimeBindingProjectionSchema,
   type RemoteDispatchIntentV3
 } from "@planweave-ai/collaboration-protocol/remote-run";
 import { availableRemoteAgentEndpointSchema } from "@planweave-ai/collaboration-protocol/agent-endpoint";
@@ -77,7 +78,7 @@ const operatorAttemptViewSchema = z
   })
   .strict();
 
-export const operatorOperationViewSchema = z
+const operatorOperationViewBaseSchema = z
   .object({
     operationId: opaqueIdentifierSchema,
     projectId: opaqueIdentifierSchema,
@@ -98,19 +99,40 @@ export const operatorOperationViewSchema = z
     attempt: operatorAttemptViewSchema,
     dispatchStatus: dispatchStatusSchema.optional(),
     failure: normalizedFailureSchema.optional(),
-    diagnostics: remoteOperationDiagnosticsSchema,
-    runtime: remoteBlockBindingViewSchema
+    diagnostics: remoteOperationDiagnosticsSchema
   })
+  .strict();
+
+function refineOperatorOperationView(
+  observation: z.infer<typeof operatorOperationViewBaseSchema>,
+  context: z.RefinementCtx
+) {
+  if (observation.agentEndpoint && observation.attempt.hostId !== undefined) {
+    context.addIssue({
+      code: "custom",
+      path: ["attempt", "hostId"],
+      message: "endpoint_observation_must_redact_host_id"
+    });
+  }
+}
+
+export const operatorLegacyOperationViewSchema = operatorOperationViewBaseSchema
+  .extend({ runtime: remoteBlockBindingViewSchema })
   .strict()
-  .superRefine((observation, context) => {
-    if (observation.agentEndpoint && observation.attempt.hostId !== undefined) {
-      context.addIssue({
-        code: "custom",
-        path: ["attempt", "hostId"],
-        message: "endpoint_observation_must_redact_host_id"
-      });
-    }
-  });
+  .superRefine(refineOperatorOperationView);
+
+export const operatorPublicOperationViewSchema = operatorOperationViewBaseSchema
+  .extend({ runtime: remoteRuntimeBindingProjectionSchema })
+  .strict()
+  .superRefine(refineOperatorOperationView);
+
+export const operatorOperationViewSchema = z.union([
+  operatorPublicOperationViewSchema,
+  operatorLegacyOperationViewSchema
+]);
+
+export const operatorOperationRuntimeWireSchema = z.enum(["legacy-rich", "public-runtime-v1"]);
+export type OperatorOperationRuntimeWire = z.infer<typeof operatorOperationRuntimeWireSchema>;
 
 export const operatorActionViewSchema = z
   .object({

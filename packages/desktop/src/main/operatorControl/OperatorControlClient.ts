@@ -12,7 +12,10 @@ import {
   type OperatorHostPage,
   type OperatorHostView
 } from "@planweave-ai/agent-host-protocol";
-import { remoteEventReplaySchema } from "@planweave-ai/collaboration-protocol/remote-run";
+import {
+  OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE,
+  remoteEventReplaySchema
+} from "@planweave-ai/collaboration-protocol/remote-run";
 import {
   remoteAgentEndpointListSchema,
   type RemoteAgentEndpointList
@@ -229,7 +232,10 @@ export class OperatorControlClient {
       ...(workspaceId === undefined ? {} : { workspaceId })
     };
     return operatorObservationToRemoteRun(
-      await this.json("POST", "/api/v1/remote-operations", z.object({}).passthrough(), { body })
+      await this.json("POST", "/api/v1/remote-operations", z.object({}).passthrough(), {
+        body,
+        accept: OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE
+      })
     );
   }
 
@@ -240,7 +246,8 @@ export class OperatorControlClient {
       await this.json(
         "GET",
         `/api/v1/remote-operations/${encodeURIComponent(id)}`,
-        z.object({}).passthrough()
+        z.object({}).passthrough(),
+        { accept: OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE }
       )
     );
   }
@@ -368,7 +375,7 @@ export class OperatorControlClient {
     method: "GET" | "POST",
     path: string,
     schema: ZodType<T>,
-    options: { body?: unknown } = {}
+    options: { body?: unknown; accept?: string } = {}
   ): Promise<T> {
     this.ensureOpen();
     const token = await this.options.credential.getOperatorToken();
@@ -380,7 +387,7 @@ export class OperatorControlClient {
       throw new OperatorControlError({ kind: "unauthorized", code: "operator_credential_invalid" });
     }
     const headers: Record<string, string> = {
-      accept: "application/json",
+      accept: options.accept ?? "application/json",
       authorization: `Bearer ${parsedToken.data}`
     };
     if (options.body !== undefined) headers["content-type"] = "application/json; charset=utf-8";

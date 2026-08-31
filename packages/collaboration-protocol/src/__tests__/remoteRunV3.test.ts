@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE,
   legacyRemoteDispatchIntentV2Schema,
   remoteDispatchIntentSchema,
   remoteDispatchIntentV3Schema,
@@ -25,6 +26,12 @@ const v3 = {
 };
 
 describe("remote-run/v3 dispatch contract", () => {
+  it("publishes the versioned Operator public Runtime media type", () => {
+    expect(OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE).toBe(
+      "application/vnd.planweave.operator-operation.public-runtime-v1+json"
+    );
+  });
+
   it("accepts only the endpoint-scoped authority fields", () => {
     expect(remoteDispatchIntentV3Schema.parse(v3)).toEqual(v3);
     const { executionTargetRevision: _, ...missingTargetRevision } = v3;

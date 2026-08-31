@@ -12,8 +12,10 @@ import {
   operatorInteractionPageSchema,
   operatorInteractionResponseSchema,
   operatorInteractionViewSchema,
-  operatorOperationViewSchema,
+  operatorLegacyOperationViewSchema,
+  operatorPublicOperationViewSchema,
   operatorPageQuerySchema,
+  type OperatorOperationRuntimeWire,
   type OperatorOperationView
 } from "./operatorDtos.js";
 import {
@@ -60,6 +62,11 @@ import { RemoteOperationRepository, type RemoteOperation } from "./remoteOperati
 import { DispatchService } from "./dispatches.js";
 import { toHumanEndpointSnapshot } from "./endpointSelection.js";
 import { WorkspaceIdentityRepository } from "./identity/workspaceRepository.js";
+import {
+  isTerminalRemoteOperation,
+  projectRemoteOperationRuntime,
+  projectTerminalRemoteOperationRuntime
+} from "./remoteOperationRuntimeProjection.js";
 
 export type RemoteControlServiceOptions = {
   authorization: OperatorTokenRegistry;
@@ -256,7 +263,11 @@ export class RemoteControlService {
     );
   }
 
-  async dispatch(principal: OperatorPrincipal, rawRequest: unknown) {
+  async dispatch(
+    principal: OperatorPrincipal,
+    rawRequest: unknown,
+    runtimeWire: OperatorOperationRuntimeWire = "legacy-rich"
+  ) {
     if (
       rawRequest !== null &&
       typeof rawRequest === "object" &&
@@ -289,7 +300,7 @@ export class RemoteControlService {
         targetKind: "workspace_canvas",
         callerHumanPrincipalId: request.humanPrincipalId
       });
-      return this.observeOperation(principal, outcome.operation.id);
+      return this.observeOperation(principal, outcome.operation.id, runtimeWire);
     }
     this.options.authorization.authorizeProject(principal, request.projectId);
     if (request.humanPrincipalId === undefined) {
@@ -329,17 +340,25 @@ export class RemoteControlService {
       targetKind: ownerScope ? "owner_canvas" : "workspace_canvas",
       callerHumanPrincipalId: request.humanPrincipalId
     });
-    return this.observeOperation(principal, outcome.operation.id);
+    return this.observeOperation(principal, outcome.operation.id, runtimeWire);
   }
 
   async observeOperation(
     principal: OperatorPrincipal,
-    operationId: string
+    operationId: string,
+    runtimeWire: OperatorOperationRuntimeWire = "legacy-rich"
   ): Promise<OperatorOperationView> {
     const operation = this.operationFor(principal, operationId);
-    const runtime = await this.options.coordinator.query(operation.id);
+    const queriedRuntime =
+      runtimeWire === "public-runtime-v1" && isTerminalRemoteOperation(operation)
+        ? projectTerminalRemoteOperationRuntime(operation)
+        : await this.options.coordinator.query(operation.id);
+    const runtime =
+      runtimeWire === "public-runtime-v1"
+        ? projectRemoteOperationRuntime(queriedRuntime)
+        : queriedRuntime;
     const dispatch = this.options.dispatches.get(operation.dispatchId);
-    return operatorOperationViewSchema.parse({
+    const view = {
       operationId: operation.id,
       projectId: operation.projectId,
       canvasId: operation.canvasId,
@@ -375,7 +394,10 @@ export class RemoteControlService {
         diagnostic: this.options.operations.getRequiredDiagnostic(operation.id)
       }),
       runtime
-    });
+    };
+    return runtimeWire === "public-runtime-v1"
+      ? operatorPublicOperationViewSchema.parse(view)
+      : operatorLegacyOperationViewSchema.parse(view);
   }
 
   async executeAction(principal: OperatorPrincipal, operationId: string, rawAction: unknown) {

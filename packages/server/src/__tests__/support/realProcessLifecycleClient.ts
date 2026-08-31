@@ -12,6 +12,7 @@ import {
   type RemoteAgentEndpoint,
   type RemoteAgentEndpointList
 } from "@planweave-ai/collaboration-protocol/agent-endpoint";
+import { OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE } from "@planweave-ai/collaboration-protocol/remote-run";
 import {
   REAL_PROCESS_ACP_HARNESS_DEFAULT_TIMEOUT_MS,
   type RealProcessAcpHarness
@@ -33,6 +34,7 @@ export type OperatorOperationView = {
   state: string;
   dispatchId: string;
   executionAttemptId: string;
+  envelopeDigest?: string;
   createdAt: string;
   updatedAt: string;
   terminalAt?: string;
@@ -47,19 +49,15 @@ export type OperatorOperationView = {
     stateVersion: number;
   };
   dispatchStatus?: string;
+  failure?: { code: string; message: string; retryable: boolean };
   runtime: {
     ref: string;
     status: string;
     ownership?: { phase?: string };
     terminalReceipt?: {
-      outcome: string;
-      operationId: string;
-      sourceRevision: string;
-      graphFingerprint: string;
-      dispatchId: string;
-      executionAttemptId: string;
-      runId?: string;
-      failure?: { code: string; message: string; retryable: boolean };
+      outcome?: "completed" | "failed" | "blocked" | "cancelled";
+      operationId?: string;
+      summary?: string;
     };
     blockedReason?: string;
   };
@@ -133,7 +131,7 @@ export function expectedDispatchStatusReached(
   if (typeof view.dispatchStatus === "string" && allowed.has(view.dispatchStatus)) return true;
   const isTerminal = ["completed", "failed", "cancelled"].includes(view.state);
   if (!isTerminal) return false;
-  const failureCode = view.runtime.terminalReceipt?.failure?.code ?? "none";
+  const failureCode = view.failure?.code ?? "none";
   throw new TerminalDispatchStatusError(
     `real_process_lifecycle_terminal_dispatch_mismatch:operation_state=${view.state}:dispatch_status=${view.dispatchStatus ?? "none"}:failure_code=${failureCode}`
   );
@@ -205,6 +203,7 @@ export class RealProcessLifecycleClient {
     return this.rawRequest({
       method: "POST",
       path: "/api/v1/remote-operations",
+      headers: { Accept: OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE },
       body: {
         schemaVersion: "remote-run/v3",
         projectId: this.harness.projectId,
@@ -335,7 +334,12 @@ export class RealProcessLifecycleClient {
   async observe(operationId: string): Promise<OperatorOperationView> {
     const response = await fetch(
       `${this.harness.origin}/api/v1/remote-operations/${encodeURIComponent(operationId)}`,
-      { headers: this.headers() }
+      {
+        headers: {
+          ...this.headers(),
+          Accept: OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE
+        }
+      }
     );
     const body = (await response.json()) as OperatorOperationView & { error?: string };
     if (response.status !== 200) {
@@ -369,6 +373,99 @@ export class RealProcessLifecycleClient {
       (view) => ["completed", "failed", "cancelled"].includes(view.state),
       "terminal"
     );
+  }
+
+  async waitForHostRuntimeBlockState(
+    dispatchId: string,
+    blockRef: string,
+    statuses: readonly string[],
+    hostDataDir = this.harness.paths.hostData,
+    canvasId = "default"
+  ): Promise<{ status?: string; lastRunId?: string; completionReason?: string }> {
+    const receipt = this.readHostTerminalReceipt(dispatchId, hostDataDir);
+    if (!receipt) {
+      throw new Error(`real_process_lifecycle_host_terminal_receipt_missing:${dispatchId}`);
+    }
+    const statePath = join(
+      hostDataDir,
+      "runtime-canvases",
+      receipt.workspace_id,
+      canvasId,
+      "projects",
+      this.harness.projectId,
+      "canvases",
+      canvasId,
+      "state.json"
+    );
+    const localRef = blockRef.split("#").at(-1) ?? blockRef;
+    let latest: { status?: string; lastRunId?: string; completionReason?: string } | undefined;
+    await waitFor(
+      () => {
+        if (!existsSync(statePath)) return false;
+        const state = JSON.parse(readFileSync(statePath, "utf8")) as {
+          blocks?: Record<
+            string,
+            { status?: string; lastRunId?: string; completionReason?: string }
+          >;
+        };
+        latest = state.blocks?.[blockRef] ?? state.blocks?.[localRef];
+        return latest?.status !== undefined && statuses.includes(latest.status);
+      },
+      { timeoutMs: this.timeoutMs, label: `host-runtime-block-state:${blockRef}` }
+    );
+    if (!latest) throw new Error(`real_process_lifecycle_runtime_block_missing:${blockRef}`);
+    return latest;
+  }
+
+  async waitForServerRuntimeBlockStatus(
+    dispatchId: string,
+    blockRef: string,
+    statuses: readonly string[],
+    canvasId = "default",
+    dispatchable?: boolean
+  ): Promise<{ ref: string; status: string; dispatchable?: boolean }> {
+    const receipt = this.readHostTerminalReceipt(dispatchId);
+    if (!receipt) {
+      throw new Error(`real_process_lifecycle_host_terminal_receipt_missing:${dispatchId}`);
+    }
+    let latest: { ref: string; status: string; dispatchable?: boolean } | undefined;
+    try {
+      await waitFor(
+        () => {
+          const database = openSqlite(this.serverDatabasePath());
+          try {
+            const row = database
+              .prepare(
+                `SELECT status_json FROM canvas_runtime_status_snapshots
+                 WHERE workspace_id=? AND project_id=? AND canvas_id=?`
+              )
+              .get(receipt.workspace_id, this.harness.projectId, canvasId) as
+              | { status_json?: string }
+              | undefined;
+            if (!row?.status_json) return false;
+            const status = JSON.parse(row.status_json) as {
+              blocks?: Array<{ ref: string; status: string; dispatchable?: boolean }>;
+            };
+            latest = status.blocks?.find((block) => block.ref === blockRef);
+            return (
+              latest !== undefined &&
+              statuses.includes(latest.status) &&
+              (dispatchable === undefined || latest.dispatchable === dispatchable)
+            );
+          } finally {
+            database.close();
+          }
+        },
+        { timeoutMs: this.timeoutMs, label: `server-runtime-block-status:${blockRef}` }
+      );
+    } catch (error) {
+      throw new Error(
+        `real_process_lifecycle_server_runtime_block_not_ready:${blockRef}:${JSON.stringify(latest ?? null)}`,
+        { cause: error }
+      );
+    }
+    if (!latest) throw new Error(`real_process_lifecycle_server_runtime_block_missing:${blockRef}`);
+    return latest;
   }
 
   async waitForDispatchStatus(
@@ -659,7 +756,14 @@ export class RealProcessLifecycleClient {
     hostDataDir = this.harness.paths.hostData
   ):
     | {
+        dispatch_id: string;
         execution_attempt_id: string;
+        lease_id: string;
+        envelope_digest: string;
+        envelope_version: number;
+        workspace_id: string;
+        agent_profile_id: string;
+        source_revision: string;
         terminal_kind: string;
         terminal_payload_digest: string;
       }
@@ -668,13 +772,21 @@ export class RealProcessLifecycleClient {
     try {
       return database
         .prepare(
-          `SELECT execution_attempt_id,terminal_kind,terminal_payload_digest
+          `SELECT dispatch_id,execution_attempt_id,lease_id,envelope_digest,envelope_version,
+                  workspace_id,agent_profile_id,source_revision,terminal_kind,terminal_payload_digest
            FROM agent_host_terminal_execution_receipts
            WHERE dispatch_id=?`
         )
         .get(dispatchId) as
         | {
+            dispatch_id: string;
             execution_attempt_id: string;
+            lease_id: string;
+            envelope_digest: string;
+            envelope_version: number;
+            workspace_id: string;
+            agent_profile_id: string;
+            source_revision: string;
             terminal_kind: string;
             terminal_payload_digest: string;
           }

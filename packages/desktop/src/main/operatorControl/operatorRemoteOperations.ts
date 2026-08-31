@@ -1,8 +1,10 @@
 import {
+  OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE,
   remoteActionViewSchema,
   remoteDispatchIntentV3Schema,
   remoteHumanExecutionActionCommandSchema,
   remoteOperationObservationSchema,
+  remoteRuntimeBindingProjectionSchema,
   type RemoteActionView,
   type RemoteDispatchIntentV3,
   type RemoteHumanExecutionActionCommand,
@@ -24,7 +26,7 @@ const operatorOperationViewSchema = z
     updatedAt: z.string().min(1),
     terminalAt: z.string().optional(),
     attempt: z.object({}).passthrough(),
-    runtime: remoteBlockBindingViewSchema,
+    runtime: z.union([remoteRuntimeBindingProjectionSchema, remoteBlockBindingViewSchema]),
     dispatchStatus: z.string().optional(),
     failure: z.object({}).passthrough().optional(),
     diagnostics: z.object({}).passthrough().optional(),
@@ -60,7 +62,7 @@ export function operatorObservationToRemoteRun(input: unknown): RemoteOperationO
         ? {
             ownership: {
               operationId: ownership.operationId,
-              phase: ownership.phase,
+              ...(ownership.phase !== undefined ? { phase: ownership.phase } : {}),
               ...(ownership.phase === "active"
                 ? {
                     dispatchId: ownership.dispatchId,
@@ -74,8 +76,13 @@ export function operatorObservationToRemoteRun(input: unknown): RemoteOperationO
       ...(terminalReceipt
         ? {
             terminalReceipt: {
-              operationId: terminalReceipt.operationId,
-              outcome: terminalReceipt.outcome
+              ...(terminalReceipt.operationId !== undefined
+                ? { operationId: terminalReceipt.operationId }
+                : {}),
+              ...(terminalReceipt.outcome !== undefined
+                ? { outcome: terminalReceipt.outcome }
+                : {}),
+              ...("summary" in terminalReceipt ? { summary: terminalReceipt.summary } : {})
             }
           }
         : {}),
@@ -103,14 +110,17 @@ export function createOperatorRemoteOperationsPort(input: {
     method: "GET" | "POST",
     path: string,
     schema: ZodType<T>,
-    options?: { body?: unknown }
+    options?: { body?: unknown; accept?: string }
   ): Promise<T>;
 }): OperatorRemoteOperationsPort {
   return {
     async dispatchRemoteOperation(command) {
       const body = remoteDispatchIntentV3Schema.parse(command);
       return operatorObservationToRemoteRun(
-        await input.json("POST", "/api/v1/remote-operations", operatorOperationViewSchema, { body })
+        await input.json("POST", "/api/v1/remote-operations", operatorOperationViewSchema, {
+          body,
+          accept: OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE
+        })
       );
     },
     async observeRemoteOperation(operationId) {
@@ -118,7 +128,8 @@ export function createOperatorRemoteOperationsPort(input: {
         await input.json(
           "GET",
           `/api/v1/remote-operations/${encodeURIComponent(operationId)}`,
-          operatorOperationViewSchema
+          operatorOperationViewSchema,
+          { accept: OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE }
         )
       );
     },

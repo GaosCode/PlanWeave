@@ -1,6 +1,6 @@
 import { createServer, type Server as HttpServer } from "node:http";
 import { WORKSPACE_CANVAS_EXECUTION_CAPABILITY } from "@planweave-ai/agent-host-protocol";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRemoteBlockCoordination } from "../distributedCoordination.js";
 import { HostEnrollmentService } from "../hostEnrollment.js";
 import { OperatorSessionStore } from "../identity/operatorSessionStore.js";
@@ -185,6 +185,105 @@ function registerWorkspaceHost(fixture: Awaited<ReturnType<typeof setup>>) {
 }
 
 describe("RemoteControlService owner fleet control plane", () => {
+  it("serves a persisted terminal operation without querying its exact Host Runtime", async () => {
+    const fixture = await setup();
+    const operation = fixture.coordination.operations.markClaimed(
+      fixture.coordination.operations.create({
+        workspaceId: fixture.workspaceId,
+        projectId: "project-a",
+        canvasId: "canvas-a",
+        blockRef: "T-001#B-001",
+        ownershipGeneration: "generation-terminal-observe",
+        idempotencyKey: "owner-terminal-observe",
+        sourceFingerprint: "source-terminal-observe",
+        requiredCapabilities: ["acp.codex"]
+      }).id
+    );
+    const terminal = fixture.coordination.operations.cancelClaimedAfterRuntimeReset({
+      operationId: operation.id,
+      executionAttemptId: operation.executionAttemptId
+    });
+    const query = vi
+      .spyOn(fixture.coordination.coordinator, "query")
+      .mockRejectedValue(new Error("exact_host_runtime_must_not_be_queried"));
+
+    const response = await fetch(`${fixture.origin}/api/v1/remote-operations/${terminal.id}`, {
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        Accept: "application/vnd.planweave.operator-operation.public-runtime-v1+json"
+      }
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      operationId: terminal.id,
+      state: "cancelled",
+      runtime: {
+        ref: terminal.blockRef,
+        status: "cancelled",
+        terminalReceipt: { operationId: terminal.id, outcome: "cancelled" }
+      }
+    });
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it("returns a dispatch that is already terminal without querying its exact Host Runtime", async () => {
+    const fixture = await setup();
+    const operation = fixture.coordination.operations.markClaimed(
+      fixture.coordination.operations.create({
+        workspaceId: fixture.workspaceId,
+        projectId: "project-a",
+        canvasId: "canvas-a",
+        blockRef: "T-001#B-002",
+        ownershipGeneration: "generation-terminal-dispatch",
+        idempotencyKey: "owner-terminal-dispatch-persisted",
+        sourceFingerprint: "source-terminal-dispatch",
+        requiredCapabilities: ["acp.codex"]
+      }).id
+    );
+    const terminal = fixture.coordination.operations.cancelClaimedAfterRuntimeReset({
+      operationId: operation.id,
+      executionAttemptId: operation.executionAttemptId
+    });
+    vi.spyOn(fixture.coordination.coordinator, "dispatch").mockResolvedValueOnce({
+      operation: terminal,
+      status: "terminal"
+    });
+    const query = vi
+      .spyOn(fixture.coordination.coordinator, "query")
+      .mockRejectedValue(new Error("exact_host_runtime_must_not_be_queried"));
+
+    const result = await fixture.service.dispatch(
+      fixture.principal,
+      {
+        schemaVersion: "remote-run/v3",
+        projectId: "project-a",
+        canvasId: "canvas-a",
+        blockRef: terminal.blockRef,
+        idempotencyKey: "owner-terminal-dispatch-request",
+        agentEndpointId: "endpoint-terminal-dispatch",
+        humanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID,
+        expectedResponsibilityRevision: 1,
+        expectedReviewerRevision: 1,
+        executionTargetRevision: 1,
+        contentRevision: "1",
+        graphFingerprint: `pkg-${"b".repeat(64)}`
+      },
+      "public-runtime-v1"
+    );
+
+    expect(result).toMatchObject({
+      operationId: terminal.id,
+      state: "cancelled",
+      runtime: {
+        ref: terminal.blockRef,
+        status: "cancelled",
+        terminalReceipt: { operationId: terminal.id, outcome: "cancelled" }
+      }
+    });
+    expect(query).not.toHaveBeenCalled();
+  });
+
   it("returns an empty event replay before the owner operation emits its first ACP event", async () => {
     const fixture = await setup();
     const operation = fixture.coordination.operations.create({

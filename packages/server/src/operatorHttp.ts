@@ -4,6 +4,7 @@ import {
   remoteRunnerEventServerCapabilitySchema
 } from "@planweave-ai/agent-host-protocol";
 import { RemoteBlockRuntimeError } from "@planweave-ai/runtime";
+import { OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE } from "@planweave-ai/collaboration-protocol/remote-run";
 import { z } from "zod";
 import { agentEndpointCatalogErrorCode } from "./agentEndpointCatalog.js";
 import { remoteAgentAuthorizationErrorCode } from "./remoteAgent/errors.js";
@@ -18,6 +19,8 @@ import { serverReadinessSchema, type ServerReadiness } from "./readiness.js";
 import { DispatchAssignmentError } from "./work/dispatchIntegration.js";
 import { RemoteExecutionActionRejectedError } from "./remoteExecutionActions.js";
 import { CanvasRuntimeRpcError } from "./canvas/runtimeRpcBroker.js";
+import { CanvasRuntimeUnavailableError } from "./canvas/executionRuntimePort.js";
+import type { OperatorOperationRuntimeWire } from "./operatorDtos.js";
 import {
   operatorNetworkTransportAllowed,
   type TransportAdmissionPolicy
@@ -69,8 +72,16 @@ export type OperatorControlPort = {
     hostId: string,
     request: unknown
   ): unknown;
-  dispatch(principal: OperatorPrincipal, request: unknown): Promise<unknown>;
-  observeOperation(principal: OperatorPrincipal, operationId: string): Promise<unknown>;
+  dispatch(
+    principal: OperatorPrincipal,
+    request: unknown,
+    runtimeWire?: OperatorOperationRuntimeWire
+  ): Promise<unknown>;
+  observeOperation(
+    principal: OperatorPrincipal,
+    operationId: string,
+    runtimeWire?: OperatorOperationRuntimeWire
+  ): Promise<unknown>;
   executeAction(
     principal: OperatorPrincipal,
     operationId: string,
@@ -214,8 +225,34 @@ function query(url: URL, allowed: readonly string[]): Record<string, string | un
   return result;
 }
 
+function operationRuntimeWire(accept: string | string[] | undefined): OperatorOperationRuntimeWire {
+  const values = Array.isArray(accept) ? accept : accept === undefined ? [] : [accept];
+  const publicRuntimeRequested = values.some((value) =>
+    value.split(",").some((entry) => {
+      const mediaType = entry.split(";", 1)[0]?.trim().toLowerCase();
+      return mediaType === OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE;
+    })
+  );
+  return publicRuntimeRequested ? "public-runtime-v1" : "legacy-rich";
+}
+
+function varyOnAccept(response: ServerResponse): void {
+  const existing = response.getHeader("Vary");
+  if (existing === undefined) {
+    response.setHeader("Vary", "Accept");
+    return;
+  }
+  const values = Array.isArray(existing) ? existing.map(String) : String(existing).split(",");
+  if (!values.some((value) => value.trim().toLowerCase() === "accept")) {
+    response.setHeader("Vary", `${String(existing)}, Accept`);
+  }
+}
+
 function safeError(error: unknown): { status: number; code: string } {
   if (error instanceof z.ZodError) return { status: 400, code: "operator_request_invalid" };
+  if (error instanceof CanvasRuntimeUnavailableError) {
+    return { status: 503, code: "canvas_runtime_unavailable" };
+  }
   if (error instanceof CanvasRuntimeRpcError) {
     if (error.code === "remote_block_not_found") return { status: 404, code: error.code };
     if (
@@ -224,6 +261,13 @@ function safeError(error: unknown): { status: number; code: string } {
       error.code === "remote_block_result_conflict"
     ) {
       return { status: 409, code: error.code };
+    }
+    if (
+      error.code === "canvas_runtime_host_offline" ||
+      error.code === "canvas_runtime_rpc_deadline_exceeded" ||
+      error.code === "canvas_runtime_reconcile_required"
+    ) {
+      return { status: 503, code: error.code };
     }
   }
   if (error instanceof RemoteBlockRuntimeError) {
@@ -470,14 +514,28 @@ export async function handleOperatorHttpRequest(
         break;
       case "dispatch":
         query(url, []);
-        respond(response, 202, await options.service.dispatch(principal, await readJson(request)));
+        varyOnAccept(response);
+        respond(
+          response,
+          202,
+          await options.service.dispatch(
+            principal,
+            await readJson(request),
+            operationRuntimeWire(request.headers.accept)
+          )
+        );
         break;
       case "get_operation":
         query(url, []);
+        varyOnAccept(response);
         respond(
           response,
           200,
-          await options.service.observeOperation(principal, matched.operationId)
+          await options.service.observeOperation(
+            principal,
+            matched.operationId,
+            operationRuntimeWire(request.headers.accept)
+          )
         );
         break;
       case "action":

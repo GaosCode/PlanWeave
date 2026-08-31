@@ -5,7 +5,7 @@
  * and asserts exact identities across Server/Host/Runtime read models.
  */
 import { createHash } from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { normalizedFailureSchema } from "@planweave-ai/agent-host-protocol";
 import { claimBlock, createRemoteBlockRuntimePort, submitBlockResult } from "@planweave-ai/runtime";
@@ -40,6 +40,20 @@ async function createHarness(
   return { harness, client: new RealProcessLifecycleClient(harness, 60_000) };
 }
 
+async function restartPrimaryHostWithAcpScenario(
+  harness: RealProcessAcpHarness,
+  scenario: string
+): Promise<void> {
+  const config = JSON.parse(await readFile(harness.paths.hostConfig, "utf8")) as {
+    agentProfiles?: Array<{ args?: string[] }>;
+  };
+  const args = config.agentProfiles?.[0]?.args;
+  if (!args || args.length < 2) throw new Error("real_process_harness_acp_profile_missing");
+  args[1] = scenario;
+  await writeFile(harness.paths.hostConfig, JSON.stringify(config), "utf8");
+  await harness.restartHost();
+}
+
 function assertIdentityChain(
   view: Awaited<ReturnType<RealProcessLifecycleClient["observe"]>>,
   expected: {
@@ -57,11 +71,7 @@ function assertIdentityChain(
   if (expected.leaseId) {
     expect(view.attempt.leaseId).toBe(expected.leaseId);
   }
-  if (view.runtime.terminalReceipt) {
-    expect(view.runtime.terminalReceipt.operationId).toBe(expected.operationId);
-    expect(view.runtime.terminalReceipt.dispatchId).toBe(expected.dispatchId);
-    expect(view.runtime.terminalReceipt.executionAttemptId).toBe(expected.executionAttemptId);
-  }
+  expect(view.runtime.terminalReceipt?.operationId).toBe(expected.operationId);
 }
 
 describe("real-process remote Block lifecycle", () => {
@@ -126,10 +136,7 @@ describe("real-process remote Block lifecycle", () => {
         status: "completed",
         terminalReceipt: {
           outcome: "completed",
-          operationId: identities.operationId,
-          dispatchId: identities.dispatchId,
-          executionAttemptId: identities.executionAttemptId,
-          runId: expect.any(String)
+          operationId: identities.operationId
         }
       }
     });
@@ -170,6 +177,19 @@ describe("real-process remote Block lifecycle", () => {
       },
       output: { reportRequired: true }
     });
+    const hostReceipt = client.readHostTerminalReceipt(identities.dispatchId);
+    expect(hostReceipt).toMatchObject({
+      dispatch_id: identities.dispatchId,
+      execution_attempt_id: identities.executionAttemptId,
+      lease_id: identities.leaseId,
+      envelope_digest: dispatched.envelopeDigest,
+      envelope_version: 1,
+      workspace_id: envelope.workspaceId,
+      agent_profile_id: envelope.agentProfileId,
+      source_revision: envelope.sourceRevision,
+      terminal_kind: "completed",
+      terminal_payload_digest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/)
+    });
 
     const events = await client.listEvents(dispatched.operationId, 0);
     expect(events.executionAttemptId).toBe(identities.executionAttemptId);
@@ -184,21 +204,23 @@ describe("real-process remote Block lifecycle", () => {
     ).toBe(true);
 
     // Authoritative Runtime results land under the project home.
+    if (!hostReceipt) throw new Error("host_terminal_receipt_missing");
     const canvasHome = join(
-      harness.paths.projectHome,
+      harness.paths.hostData,
+      "runtime-canvases",
+      hostReceipt.workspace_id,
+      "default",
       "projects",
       harness.projectId,
       "canvases",
       "default"
     );
-    const statePath = join(canvasHome, "state.json");
-    const state = JSON.parse(await readFile(statePath, "utf8")) as {
-      blocks: Record<string, { status?: string; lastRunId?: string }>;
-      current?: { ref?: string } | null;
-    };
-    const blockState = state.blocks["T-001#B-001"] ?? state.blocks["B-001"];
-    expect(blockState?.status).toBe("completed");
-    const runId = terminal.runtime.terminalReceipt?.runId ?? blockState?.lastRunId;
+    const blockState = await client.waitForHostRuntimeBlockState(
+      identities.dispatchId,
+      "T-001#B-001",
+      ["completed"]
+    );
+    const runId = blockState.lastRunId;
     expect(runId).toEqual(expect.stringMatching(/^RUN-/));
 
     // Byte-level: Runtime report.md must match Server artifact blob and digest.
@@ -259,6 +281,19 @@ describe("real-process remote Block lifecycle", () => {
       state: "completed",
       dispatchStatus: "completed"
     });
+    await client.waitForHostRuntimeBlockState(implementation.dispatchId, "T-001#B-001", [
+      "completed"
+    ]);
+    await client.waitForServerRuntimeBlockStatus(implementation.dispatchId, "T-001#B-001", [
+      "completed"
+    ]);
+    await client.waitForServerRuntimeBlockStatus(
+      implementation.dispatchId,
+      "T-001#R-001",
+      ["ready"],
+      "default",
+      true
+    );
     const implementationResult = JSON.parse(
       String(client.readServerDispatch(implementation.dispatchId).result_json)
     ) as { reportArtifactRef: string };
@@ -266,15 +301,9 @@ describe("real-process remote Block lifecycle", () => {
       "text/markdown"
     );
 
-    const reviewHost = await harness.startSecondaryHost({
-      key: `review-${verdict}`,
-      displayName: `Review Host ${verdict}`,
-      capabilities: ["acp.codex"],
-      capacity: 1,
-      acpScenario: scenario
-    });
+    await restartPrimaryHostWithAcpScenario(harness, scenario);
     const reviewEndpoint = await client.availableAgentEndpointForHostDisplayName(
-      reviewHost.handle.displayName
+      primary.displayName
     );
     const review = await client.dispatch({
       blockRef: "T-001#R-001",
@@ -284,6 +313,11 @@ describe("real-process remote Block lifecycle", () => {
     await expect(
       client.waitForPersistedOperationState(review.operationId, ["completed"])
     ).resolves.toMatchObject({ state: "completed" });
+    const reviewState = await client.waitForHostRuntimeBlockState(
+      review.dispatchId,
+      "T-001#R-001",
+      [expectedStatus]
+    );
     expect(client.readServerDispatch(review.dispatchId).status).toBe("completed");
 
     const result = JSON.parse(String(client.readServerDispatch(review.dispatchId).result_json)) as {
@@ -292,24 +326,11 @@ describe("real-process remote Block lifecycle", () => {
     expect(client.readServerArtifactBytes(result.reportArtifactRef).toString("utf8")).toContain(
       `"verdict":"${verdict}"`
     );
-    const state = JSON.parse(
-      await readFile(
-        join(
-          harness.paths.projectHome,
-          "projects",
-          harness.projectId,
-          "canvases",
-          "default",
-          "state.json"
-        ),
-        "utf8"
-      )
-    ) as { blocks: Record<string, { status?: string; completionReason?: string }> };
-    expect(state.blocks["T-001#R-001"]?.status).toBe(expectedStatus);
+    expect(reviewState.status).toBe(expectedStatus);
     if (verdict === "passed") {
-      expect(state.blocks["T-001#R-001"]?.completionReason).toBe("passed");
+      expect(reviewState.completionReason).toBe("passed");
     }
-    expect(await readFile(join(reviewHost.handle.controlDir, "lifecycle.log"), "utf8")).toContain(
+    expect(await readFile(join(harness.paths.control, "lifecycle.log"), "utf8")).toContain(
       "review prompt verified"
     );
   }, 120_000);
@@ -331,19 +352,17 @@ describe("real-process remote Block lifecycle", () => {
     expect(terminal.state).toBe("failed");
     expect(terminal.dispatchStatus).toBe("failed");
     expect(terminal.runtime.status).toBe("blocked");
-    expect(terminal.runtime.terminalReceipt).toMatchObject({
-      outcome: "failed",
-      dispatchId: dispatched.dispatchId,
-      executionAttemptId: dispatched.executionAttemptId,
-      failure: { code: "acp_incomplete_response", retryable: false }
-    });
+    expect(terminal.runtime.terminalReceipt).toMatchObject({ outcome: "failed" });
+    expect(terminal.failure).toMatchObject({ code: "acp_incomplete_response", retryable: false });
     const dispatchRow = client.readServerDispatch(dispatched.dispatchId);
     if (!dispatchRow.failure_json) throw new Error("host_terminal_failure_missing");
     const deliveredFailure = normalizedFailureSchema.parse(JSON.parse(dispatchRow.failure_json));
     expect(deliveredFailure.code).toEqual(expect.any(String));
     expect(deliveredFailure.retryable).toBe(false);
     expect(client.readHostTerminalReceipt(dispatched.dispatchId)).toMatchObject({
+      dispatch_id: dispatched.dispatchId,
       execution_attempt_id: dispatched.executionAttemptId,
+      lease_id: dispatched.attempt.leaseId,
       terminal_kind: "failed",
       terminal_payload_digest: `sha256:${createHash("sha256")
         .update(JSON.stringify(deliveredFailure))
@@ -399,9 +418,17 @@ describe("real-process remote Block lifecycle", () => {
     });
     expect(terminal.state).toBe("cancelled");
     expect(terminal.dispatchStatus).toBe("cancelled");
-    expect(terminal.runtime.terminalReceipt).toMatchObject({
-      outcome: "failed",
-      failure: { code: "execution_cancelled", retryable: false }
+    expect(terminal.runtime.terminalReceipt).toMatchObject({ outcome: "cancelled" });
+    expect(terminal.failure).toMatchObject({ code: "execution_cancelled", retryable: false });
+    const cancellationFailure = normalizedFailureSchema.parse(terminal.failure);
+    expect(client.readHostTerminalReceipt(dispatched.dispatchId)).toMatchObject({
+      dispatch_id: dispatched.dispatchId,
+      execution_attempt_id: dispatched.executionAttemptId,
+      lease_id: before.attempt.leaseId,
+      terminal_kind: "cancelled",
+      terminal_payload_digest: `sha256:${createHash("sha256")
+        .update(JSON.stringify(cancellationFailure))
+        .digest("hex")}`
     });
   }, 90_000);
 

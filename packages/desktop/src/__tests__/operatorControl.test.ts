@@ -811,6 +811,55 @@ describe("Desktop operator control trust boundary", () => {
     );
   });
 
+  it("negotiates the public Runtime wire only for operation views", async () => {
+    const accepts: string[] = [];
+    const request = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      accepts.push(new Headers(init?.headers).get("accept") ?? "");
+      if (String(input).endsWith("/api/v1/hosts?cursor=0&limit=100")) {
+        return new Response(JSON.stringify({ items: [], nextCursor: null }), { status: 200 });
+      }
+      return new Response(
+        JSON.stringify({
+          operationId: "operation-owner-001",
+          projectId: "project-a",
+          canvasId: "canvas-main",
+          blockRef: "T-001#B-001",
+          state: "cancelled",
+          dispatchId: "dispatch-owner-001",
+          executionAttemptId: "attempt-owner-001",
+          createdAt: "2026-08-03T08:00:00.000Z",
+          updatedAt: "2026-08-03T08:00:01.000Z",
+          terminalAt: "2026-08-03T08:00:01.000Z",
+          attempt: {
+            executionAttemptId: "attempt-owner-001",
+            dispatchId: "dispatch-owner-001",
+            status: "cancelled",
+            stateVersion: 1
+          },
+          runtime: {
+            ref: "T-001#B-001",
+            status: "cancelled",
+            terminalReceipt: { operationId: "operation-owner-001", outcome: "cancelled" }
+          }
+        }),
+        { status: 200 }
+      );
+    });
+    const client = new OperatorControlClient({
+      profile: profile("profile-a"),
+      credential: { getOperatorToken: () => tokenA },
+      request
+    });
+
+    await client.listHosts({ cursor: 0, limit: 100 });
+    await client.observeRemoteOperation("operation-owner-001");
+
+    expect(accepts).toEqual([
+      "application/json",
+      "application/vnd.planweave.operator-operation.public-runtime-v1+json"
+    ]);
+  });
+
   it("requests one Host credential renewal through the fixed operator endpoint", async () => {
     const request = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe(

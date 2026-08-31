@@ -78,6 +78,9 @@ export const remoteDispatchStatusSchema = z.enum([
 ]);
 export type RemoteDispatchStatus = z.infer<typeof remoteDispatchStatusSchema>;
 
+export const OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE =
+  "application/vnd.planweave.operator-operation.public-runtime-v1+json";
+
 /** Safe Runtime binding projection for human observation (no paths/tokens). */
 export const remoteRuntimeBindingProjectionSchema = z
   .object({

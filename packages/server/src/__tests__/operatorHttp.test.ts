@@ -1,7 +1,9 @@
 import { createServer, type Server as HttpServer } from "node:http";
 import { RemoteBlockRuntimeError } from "@planweave-ai/runtime";
+import { OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE } from "@planweave-ai/collaboration-protocol/remote-run";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentEndpointCatalogError } from "../agentEndpointCatalog.js";
+import { CanvasRuntimeUnavailableError } from "../canvas/executionRuntimePort.js";
 import { CanvasRuntimeRpcError } from "../canvas/runtimeRpcBroker.js";
 import { applyMigrations } from "../migrations.js";
 import { OperatorSessionStore } from "../identity/operatorSessionStore.js";
@@ -148,6 +150,54 @@ const expectedError = (error: string) => ({
 });
 
 describe("operator HTTP boundary", () => {
+  it("keeps legacy operation views by default and negotiates public Runtime views via Accept", async () => {
+    const fixture = await setup(true);
+    vi.mocked(fixture.service.observeOperation).mockResolvedValue({ operationId: "operation-1" });
+
+    const legacy = await fetch(`${fixture.origin}/api/v1/remote-operations/operation-1`, {
+      headers: authorization
+    });
+    const publicRuntime = await fetch(`${fixture.origin}/api/v1/remote-operations/operation-1`, {
+      headers: {
+        ...authorization,
+        Accept: `application/json, ${OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE}; q=0.9`
+      }
+    });
+    const publicDispatch = await fetch(`${fixture.origin}/api/v1/remote-operations`, {
+      method: "POST",
+      headers: {
+        ...authorization,
+        Accept: `${OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE}; profile=desktop`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({ projectId: "project-a" })
+    });
+
+    expect(legacy.status).toBe(200);
+    expect(legacy.headers.get("vary")).toBe("Accept");
+    expect(publicRuntime.status).toBe(200);
+    expect(publicRuntime.headers.get("vary")).toBe("Accept");
+    expect(publicDispatch.status).toBe(202);
+    expect(publicDispatch.headers.get("vary")).toBe("Accept");
+    expect(fixture.service.observeOperation).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      "operation-1",
+      "legacy-rich"
+    );
+    expect(fixture.service.observeOperation).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      "operation-1",
+      "public-runtime-v1"
+    );
+    expect(fixture.service.dispatch).toHaveBeenCalledWith(
+      expect.anything(),
+      { projectId: "project-a" },
+      "public-runtime-v1"
+    );
+  });
+
   it("rejects malformed injected build revisions instead of hiding deployment metadata", () => {
     expect(resolveServerBuildRevision({})).toBe("development");
     expect(
@@ -452,6 +502,32 @@ describe("operator HTTP boundary", () => {
 
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual(expectedError("remote_block_not_dispatchable"));
+  });
+
+  it.each([
+    [new CanvasRuntimeUnavailableError("host_offline"), "canvas_runtime_unavailable"],
+    [
+      new CanvasRuntimeRpcError("canvas_runtime_host_offline", true, false),
+      "canvas_runtime_host_offline"
+    ],
+    [
+      new CanvasRuntimeRpcError("canvas_runtime_rpc_deadline_exceeded", true, false),
+      "canvas_runtime_rpc_deadline_exceeded"
+    ],
+    [
+      new CanvasRuntimeRpcError("canvas_runtime_reconcile_required", true, true),
+      "canvas_runtime_reconcile_required"
+    ]
+  ] as const)("maps an active Runtime observation failure to 503 %s", async (error, code) => {
+    const fixture = await setup(true);
+    vi.mocked(fixture.service.observeOperation).mockRejectedValueOnce(error);
+
+    const response = await fetch(`${fixture.origin}/api/v1/remote-operations/operation-1`, {
+      headers: authorization
+    });
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual(expectedError(code));
   });
 
   it("serves public health and delegates bounded host pagination", async () => {
