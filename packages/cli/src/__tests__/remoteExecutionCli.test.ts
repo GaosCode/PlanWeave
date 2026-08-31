@@ -49,6 +49,7 @@ async function remoteWorkspace(input: {
   replayTransition?: boolean;
   httpFailure?: WorkspaceExecutionHttpFailure;
   recoveryMiss?: boolean;
+  localCanvasId?: string;
 }) {
   const home = await mkdtemp(join(tmpdir(), "planweave-remote-cli-"));
   const env = {
@@ -57,11 +58,40 @@ async function remoteWorkspace(input: {
     PLANWEAVE_COLLABORATION_DEVICE_TOKEN: workspaceExecutionToken
   };
   const init = JSON.parse((await runCli(["init", "--project-graph", "--json"], env)).stdout);
-  await cp(join(repoRoot, "examples/basic-plan-package/package"), init.workspace.packageDir, {
+  const localCanvasId = input.localCanvasId ?? "default";
+  let createdCanvas: {
+    canvasRoot: string;
+    packageDir: string;
+    manifestPath: string;
+    statePath: string;
+    resultsDir: string;
+  } | null = null;
+  if (localCanvasId !== "default") {
+    createdCanvas = JSON.parse(
+      (
+        await runCli(
+          ["canvas", "create", "--id", localCanvasId, "--title", "Remote CLI Canvas", "--json"],
+          env
+        )
+      ).stdout
+    );
+  }
+  const workspace =
+    localCanvasId === "default"
+      ? init.workspace
+      : {
+          ...init.workspace,
+          workspaceRoot: createdCanvas!.canvasRoot,
+          packageDir: createdCanvas!.packageDir,
+          manifestFile: createdCanvas!.manifestPath,
+          stateFile: createdCanvas!.statePath,
+          resultsDir: createdCanvas!.resultsDir
+        };
+  await cp(join(repoRoot, "examples/basic-plan-package/package"), workspace.packageDir, {
     recursive: true,
     force: true
   });
-  const manifestPath = join(init.workspace.packageDir, "manifest.json");
+  const manifestPath = join(workspace.packageDir, "manifest.json");
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   if (!input.localAvailable) {
     manifest.execution.defaultExecutor = "missing-codex";
@@ -74,8 +104,8 @@ async function remoteWorkspace(input: {
     };
   }
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
-  const captured = await capturePackageSnapshot({ projectRoot: init.workspace });
-  const graph = await loadPlanGraphPackage(init.workspace);
+  const captured = await capturePackageSnapshot({ projectRoot: workspace });
+  const graph = await loadPlanGraphPackage(workspace);
   const server = new WorkspaceExecutionHttpHarness({
     sourceRevision: captured.snapshot.sourceRevision,
     graphFingerprint: graph.graph.packageFingerprint,
@@ -90,13 +120,13 @@ async function remoteWorkspace(input: {
     registryCanvases: [
       {
         canvasId: "default",
-        publishSource: { localProjectId: init.workspace.id, localCanvasId: "default" }
+        publishSource: { localProjectId: init.workspace.id, localCanvasId }
       }
     ]
   });
   const serverOrigin = await server.start();
   await writeWorkspaceExecutionProfiles({ home, serverOrigin });
-  return { env, init, server, serverOrigin };
+  return { env, init, workspace, localCanvasId, server, serverOrigin };
 }
 
 function executionEvents(stdout: string) {
@@ -873,6 +903,65 @@ describe("remote execution CLI", () => {
           exitCode
         );
         expect(status.code).toBe(exitCode);
+      } finally {
+        await fixture.server.stop();
+      }
+    },
+    cliWorkflowTimeoutMs
+  );
+
+  it(
+    "follows a persisted remote session from the selected non-default canvas",
+    async () => {
+      const fixture = await remoteWorkspace({
+        dispatchMode: "completed",
+        localCanvasId: "remote-cli"
+      });
+      try {
+        const started = await runCli(
+          [
+            "run",
+            "--once",
+            "--scope",
+            "block",
+            "--block",
+            "T-001#B-001",
+            "--target",
+            "remote",
+            "--agent-endpoint",
+            "endpoint-codex",
+            "--connection-profile",
+            "profile-1",
+            "--event-format",
+            "execution-v1",
+            "--canvas",
+            fixture.localCanvasId
+          ],
+          fixture.env
+        );
+        const sessionId = executionEvents(started.stdout)[0]!.runSessionId;
+
+        const followed = await runCli(
+          [
+            "run-status",
+            "--session",
+            sessionId,
+            "--follow",
+            "--event-format",
+            "execution-v1",
+            "--connection-profile",
+            "profile-1",
+            "--canvas",
+            fixture.localCanvasId
+          ],
+          fixture.env
+        );
+
+        expect(followed.stderr).toBe("");
+        expect((await listRunSessions(fixture.workspace)).sessions[0]).toMatchObject({
+          sessionId,
+          phase: "completed"
+        });
       } finally {
         await fixture.server.stop();
       }
