@@ -17,7 +17,7 @@ import {
   desktopCanvasReference,
   workspaceExecutionBridge
 } from "../bridge";
-import type { WorkspaceCanvasLocator } from "../../shared/canvasLocator";
+import type { CanvasLocator } from "../../shared/canvasLocator";
 import type {
   DesktopWorkspaceExecutionStartInput,
   PlanWeaveWorkspaceExecutionApi
@@ -128,11 +128,13 @@ type WorkspaceAgentEndpointRunInput = {
   agentEndpoints: readonly AvailableAgentEndpoint[];
   collaborationController: object | null;
   canvasBinding?: RemoteCollaborationCanvasBindingInput | null;
-  canvasLocator?: WorkspaceCanvasLocator | null;
+  canvasLocator?: CanvasLocator | null;
   graph: DesktopGraphViewModel | null;
   preferences: DesktopUiSettings["execution"]["agentEndpointPreferences"];
   selectedCanvasId: string | null;
   selectedProject: DesktopProjectSummary | null;
+  operatorProfileId?: string | null;
+  humanPrincipalId?: string | null;
   runtimeAvailability: CollaborationRuntimeAvailabilityView;
   workspaceRuntimeAuthorityKey?: string | null;
   setError: (message: string | null) => void;
@@ -288,14 +290,6 @@ export function useWorkspaceAgentEndpointRun(
         await startLocal(plan.scope);
         return;
       }
-      if (!collaborationRuntimeStartAllowed(input.runtimeAvailability)) {
-        const message =
-          collaborationRuntimeUnavailableCode(input.runtimeAvailability) ??
-          "collaboration_runtime_unavailable";
-        input.setError(message);
-        lifecycle?.onFailed(message);
-        return;
-      }
       const usesRemoteEndpoint =
         plan.kind === "coordinated_block"
           ? plan.selection.endpoint.source === "remote"
@@ -303,6 +297,14 @@ export function useWorkspaceAgentEndpointRun(
               (selection) => selection.endpoint.source === "remote"
             );
       const usesWorkspaceRuntime = remoteBinding !== null;
+      if (usesWorkspaceRuntime && !collaborationRuntimeStartAllowed(input.runtimeAvailability)) {
+        const message =
+          collaborationRuntimeUnavailableCode(input.runtimeAvailability) ??
+          "collaboration_runtime_unavailable";
+        input.setError(message);
+        lifecycle?.onFailed(message);
+        return;
+      }
       if (usesRemoteEndpoint && (!executionApi || !input.canvasLocator)) {
         input.setError("workspace_execution_bridge_unavailable");
         return;
@@ -333,6 +335,7 @@ export function useWorkspaceAgentEndpointRun(
 
       const selectedProject = input.selectedProject;
       const selectedCanvasId = input.selectedCanvasId;
+      const graphProjectId = input.graph.projectId;
       const canvasRef = selectedProject
         ? desktopCanvasReference(selectedProject, selectedCanvasId)
         : null;
@@ -403,15 +406,36 @@ export function useWorkspaceAgentEndpointRun(
           if (!endpointId || !agentId) {
             throw new Error(`agent_endpoint_selection_missing:${selection.block.ref}`);
           }
-          const startInput: DesktopWorkspaceExecutionStartInput = {
-            locator: input.canvasLocator,
-            blockRef: selection.block.ref,
-            agentEndpointId: endpointId,
-            effectiveExecutor: {
-              name: selection.endpoint.executorName,
-              agentId
-            }
+          const effectiveExecutor = {
+            name: selection.endpoint.executorName,
+            agentId
           };
+          let startInput: DesktopWorkspaceExecutionStartInput;
+          if (input.canvasLocator.kind === "workspace") {
+            startInput = {
+              locator: input.canvasLocator,
+              blockRef: selection.block.ref,
+              agentEndpointId: endpointId,
+              effectiveExecutor
+            };
+          } else {
+            if (!input.selectedProject || !input.operatorProfileId || !input.humanPrincipalId) {
+              throw new Error("owner_canvas_execution_authority_unavailable");
+            }
+            startInput = {
+              locator: {
+                kind: "owner_canvas",
+                operatorProfileId: input.operatorProfileId,
+                humanPrincipalId: input.humanPrincipalId,
+                projectRoot: input.selectedProject.rootPath,
+                projectId: graphProjectId,
+                canvasId: input.canvasLocator.canvasId
+              },
+              blockRef: selection.block.ref,
+              agentEndpointId: endpointId,
+              effectiveExecutor
+            };
+          }
           const startSettlement = executionApi.startWorkspaceExecution(startInput).then(
             async (view) => {
               const session = { input: startInput, sessionId: view.session.sessionId };
@@ -667,6 +691,8 @@ export function useWorkspaceAgentEndpointRun(
       input.canvasLocator,
       input.graph,
       input.localAutoRunApi,
+      input.operatorProfileId,
+      input.humanPrincipalId,
       input.preferences,
       input.previewClaimNext,
       input.selectedCanvasId,

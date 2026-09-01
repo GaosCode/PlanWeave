@@ -29,7 +29,7 @@ import { useDesktopSettingsBridge } from "./hooks/useDesktopSettingsBridge";
 import { useOwnerControlPlaneAvailability } from "./hooks/useOwnerControlPlaneAvailability";
 import { useWorkspaceAgentEndpointCatalog } from "./hooks/useWorkspaceAgentEndpointCatalog";
 import { useCollaborationStatus } from "./hooks/useCollaborationStatus";
-import { resolveDesktopHumanPrincipalId } from "./collaboration/desktopHumanPrincipal";
+import type { RemoteRunExecutionLocator } from "./hooks/useRemoteRunPanelController";
 
 function supportedLanguage(value: string | null): Language {
   return value === "en" || value === "zh-CN" ? value : "zh-CN";
@@ -199,14 +199,34 @@ export function BlockInspectorWindow() {
   const workspaceCanvas = null;
   const ownerControlPlane = useOwnerControlPlaneAvailability();
   const { status: collaborationStatus } = useCollaborationStatus();
-  const humanPrincipalId = useMemo(
-    () => resolveDesktopHumanPrincipalId({ collaborationStatus }),
-    [collaborationStatus]
-  );
   const catalogLocator = useMemo(() => {
     if (!graph?.projectId || !canvasId) return null;
     return { projectId: graph.projectId, canvasId };
   }, [canvasId, graph?.projectId]);
+  const executionLocator = useMemo<RemoteRunExecutionLocator | null>(() => {
+    if (
+      !ownerControlPlane.operatorProfileId ||
+      !ownerControlPlane.humanPrincipalId ||
+      !graph?.projectId ||
+      !projectRoot
+    ) {
+      return null;
+    }
+    return {
+      kind: "owner_canvas",
+      operatorProfileId: ownerControlPlane.operatorProfileId,
+      humanPrincipalId: ownerControlPlane.humanPrincipalId,
+      projectRoot,
+      projectId: graph.projectId,
+      canvasId: canvasId ?? "default"
+    };
+  }, [
+    canvasId,
+    graph?.projectId,
+    ownerControlPlane.humanPrincipalId,
+    ownerControlPlane.operatorProfileId,
+    projectRoot
+  ]);
   const agentEndpointCatalog = useWorkspaceAgentEndpointCatalog({
     agentDetections,
     agentTransport: settings.execution.agentTransport,
@@ -214,7 +234,7 @@ export function BlockInspectorWindow() {
     fleetCatalogBlockedCode: ownerControlPlane.fleetCatalogBlockedCode,
     graph,
     operatorProfileId: ownerControlPlane.operatorProfileId,
-    humanPrincipalId,
+    humanPrincipalId: ownerControlPlane.humanPrincipalId,
     locator: catalogLocator,
     collaborationApi: collaborationBridge,
     sessionConnected: collaborationStatus?.session.phase === "connected",
@@ -502,6 +522,7 @@ export function BlockInspectorWindow() {
       blockRunRecords={blockRunRecords}
       agentDetections={agentDetections}
       canvasRef={{ projectRoot, canvasId }}
+      executionLocator={executionLocator}
       className="inset-0 h-screen w-screen min-w-0 rounded-none border-0 shadow-none ring-0"
       error={error}
       executorOptions={graph?.executorOptions ?? []}

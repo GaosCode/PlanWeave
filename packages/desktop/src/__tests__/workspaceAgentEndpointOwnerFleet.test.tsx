@@ -252,7 +252,8 @@ function renderOwnerFleetRun(input?: {
   remoteCanvasOnly?: boolean;
   runtimeAvailability?:
     | { kind: "available" }
-    | { kind: "unavailable"; reason: "runtime_not_attached"; statusKnown: true };
+    | { kind: "unavailable"; reason: "runtime_not_attached"; statusKnown: true }
+    | { kind: "session_disconnected"; statusKnown: false };
   startWorkspaceExecution?: ReturnType<typeof vi.fn>;
   followWorkspaceExecution?: ReturnType<typeof vi.fn>;
 }) {
@@ -278,13 +279,20 @@ function renderOwnerFleetRun(input?: {
         reason: "claimed"
       })
       .mockResolvedValue({ kind: "none", reason: "no_claimable_blocks" });
-  const getBlockDetail =
-    input?.getBlockDetail ??
-    vi.fn(async () => ({ ref: "T-001#B-001", status: "ready" as const, remoteExecution: null }));
   const startWorkspaceExecution =
     input?.startWorkspaceExecution ?? vi.fn(async () => workspaceExecutionView("running"));
   const followWorkspaceExecution =
     input?.followWorkspaceExecution ?? vi.fn(async () => workspaceExecutionView("completed"));
+  const getBlockDetail =
+    input?.getBlockDetail ??
+    vi.fn(async () => ({
+      ref: "T-001#B-001",
+      status:
+        followWorkspaceExecution.mock.calls.length > 0
+          ? ("completed" as const)
+          : ("ready" as const),
+      remoteExecution: null
+    }));
   const respondWorkspaceExecution = vi.fn(async () => workspaceExecutionView("running"));
   const cancelWorkspaceExecution = vi.fn(async () => workspaceExecutionView("stopped"));
   const readCollaborationCanvasBindingRuntimeAvailability = vi.fn(async () => ({
@@ -347,12 +355,14 @@ function renderOwnerFleetRun(input?: {
       canvasLocator: input?.remoteCanvasOnly
         ? {
             kind: "workspace",
-            connectionProfileId: "profile-a",
+            connectionProfileId: "profile-server-b",
             workspaceId: "workspace-1",
             projectId: "project-server",
             canvasId: "canvas-main"
           }
-        : null,
+        : { kind: "local", projectId: "project-local", canvasId: "canvas-main" },
+      operatorProfileId: "profile-server-a",
+      humanPrincipalId: "human-owner",
       selectedCanvasId: "canvas-main",
       selectedProject: input?.remoteCanvasOnly ? null : project,
       runtimeAvailability: input?.runtimeAvailability ?? { kind: "available" },
@@ -408,41 +418,26 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
     vi.clearAllMocks();
   });
 
-  it.each([
-    ["local", true],
-    ["remote", false]
-  ] as const)("routes %s endpoint work by its plan when the Server is disconnected", async (source, runsLocally) => {
+  it("routes local endpoint work locally when the collaboration Server is disconnected", async () => {
     const setError = vi.fn();
     const lifecycle = { onStarted: vi.fn(), onCompleted: vi.fn(), onFailed: vi.fn() };
     const previewClaimNext = vi.fn();
     const startLocal = vi.fn();
     const dispatchCollaborationRemoteOperation = vi.fn();
-    const endpoint: AvailableAgentEndpoint =
-      source === "remote"
-        ? remoteEndpoint
-        : {
-            ...remoteEndpoint,
-            id: "local:codex",
-            source: "local",
-            locationName: null,
-            remoteEndpointId: null
-          };
+    const endpoint: AvailableAgentEndpoint = {
+      ...remoteEndpoint,
+      id: "local:codex",
+      source: "local",
+      locationName: null,
+      remoteEndpointId: null
+    };
     const hook = renderHook(() => {
       const startWithEndpoint = useWorkspaceAgentEndpointRun({
         activeProjectId: "project-server",
         agentEndpoints: [endpoint],
         collaborationController: { ensureWorkAuthority: vi.fn() },
         graph,
-        preferences:
-          source === "remote"
-            ? {
-                [agentEndpointPreferenceKey({
-                  projectRoot: project.rootPath,
-                  canvasId: "canvas-main",
-                  scope: { kind: "task", taskId: "T-001" }
-                })]: { kind: "remote", remoteEndpointId: "endpoint-windows" }
-              }
-            : {},
+        preferences: {},
         selectedCanvasId: "canvas-main",
         selectedProject: project,
         runtimeAvailability: {
@@ -465,20 +460,12 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
     await act(() => hook.result.current({ kind: "project" }));
 
     expect(previewClaimNext).not.toHaveBeenCalled();
-    if (runsLocally) {
-      expect(startLocal).toHaveBeenCalledWith({ kind: "project" });
-    } else {
-      expect(startLocal).not.toHaveBeenCalled();
-    }
+    expect(startLocal).toHaveBeenCalledWith({ kind: "project" });
     expect(dispatchCollaborationRemoteOperation).not.toHaveBeenCalled();
-    if (runsLocally) {
-      expect(setError).not.toHaveBeenCalled();
-    } else {
-      expect(setError).toHaveBeenCalledWith("collaboration_session_disconnected");
-    }
+    expect(setError).not.toHaveBeenCalled();
   });
 
-  it("routes an explicitly selected remote Agent when canvas state is known without an attached Runtime", async () => {
+  it("routes Workspace execution through its locator profile when the active owner profile is on another Server", async () => {
     const {
       result,
       lifecycle,
@@ -501,7 +488,7 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
     const startInput = {
       locator: {
         kind: "workspace",
-        connectionProfileId: "profile-a",
+        connectionProfileId: "profile-server-b",
         workspaceId: "workspace-1",
         projectId: "project-server",
         canvasId: "canvas-main"
@@ -519,45 +506,41 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
     expect(setError).not.toHaveBeenCalled();
   });
 
-  it("fails closed for remote execution from a local canvas without a Workspace locator", async () => {
-    const setError = vi.fn();
-    const startLocal = vi.fn();
-    const hook = renderHook(() =>
-      useWorkspaceAgentEndpointRun({
-        activeProjectId: null,
-        agentEndpoints: [remoteEndpoint],
-        collaborationController: null,
-        canvasBinding: null,
-        graph,
-        preferences: {
-          [agentEndpointPreferenceKey({
-            projectRoot: project.rootPath,
-            canvasId: "canvas-main",
-            scope: { kind: "task", taskId: "T-001" }
-          })]: { kind: "remote", remoteEndpointId: "endpoint-windows" }
-        },
-        selectedCanvasId: "canvas-main",
-        selectedProject: project,
-        runtimeAvailability: { kind: "available" },
-        setError,
-        api: null
-      })
-    );
+  it("dispatches a Remote Agent from an ordinary Canvas without Workspace authority", async () => {
+    const {
+      result,
+      lifecycle,
+      setError,
+      startLocal,
+      startWorkspaceExecution,
+      followWorkspaceExecution
+    } = renderOwnerFleetRun({
+      runtimeAvailability: { kind: "session_disconnected", statusKnown: false }
+    });
 
-    await act(() => hook.result.current({ kind: "block", blockRef: "T-001#B-001" }, startLocal));
+    await act(() => result.current({ kind: "block", blockRef: "T-001#B-001" }));
 
+    const startInput = {
+      locator: {
+        kind: "owner_canvas",
+        operatorProfileId: "profile-server-a",
+        humanPrincipalId: "human-owner",
+        projectRoot: project.rootPath,
+        projectId: graph.projectId,
+        canvasId: "canvas-main"
+      } as const,
+      blockRef: "T-001#B-001",
+      agentEndpointId: "endpoint-windows",
+      effectiveExecutor: { name: "codex", agentId: "codex" }
+    };
+    expect(startWorkspaceExecution).toHaveBeenCalledWith(startInput);
+    expect(followWorkspaceExecution).toHaveBeenCalledWith({
+      ...startInput,
+      sessionId: "SESSION-0001"
+    });
     expect(startLocal).not.toHaveBeenCalled();
-    expect(setError).toHaveBeenCalledWith("workspace_execution_bridge_unavailable");
-  });
-
-  it("does not restore owner-fleet fallback for a local working copy", async () => {
-    const { result, lifecycle, setError, startWorkspaceExecution } = renderOwnerFleetRun();
-
-    await act(() => result.current({ kind: "project" }));
-
-    expect(startWorkspaceExecution).not.toHaveBeenCalled();
-    expect(lifecycle.onCompleted).not.toHaveBeenCalled();
-    expect(setError).toHaveBeenCalledWith("workspace_execution_bridge_unavailable");
+    expect(lifecycle.onCompleted).toHaveBeenCalledTimes(1);
+    expect(setError).not.toHaveBeenCalled();
   });
 
   it("dispatches one remote Block without a local project or filesystem preflight", async () => {
@@ -579,7 +562,7 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
     expect(startWorkspaceExecution).toHaveBeenCalledWith({
       locator: {
         kind: "workspace",
-        connectionProfileId: "profile-a",
+        connectionProfileId: "profile-server-b",
         workspaceId: "workspace-1",
         projectId: "project-server",
         canvasId: "canvas-main"
@@ -691,7 +674,7 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
     expect(setError).not.toHaveBeenCalled();
   });
 
-  it("fails closed for a local working copy even when collaboration availability is present", async () => {
+  it("does not route an ordinary Canvas Remote Agent through collaboration runtime APIs", async () => {
     const {
       result,
       lifecycle,
@@ -704,12 +687,12 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
 
     await act(() => result.current({ kind: "project" }));
 
-    expect(startWorkspaceExecution).not.toHaveBeenCalled();
+    expect(startWorkspaceExecution).toHaveBeenCalledTimes(1);
     expect(dispatchCollaborationRemoteOperation).not.toHaveBeenCalled();
     expect(readCollaborationCanvasBindingRuntimeAvailability).not.toHaveBeenCalled();
     expect(ensureWorkAuthority).not.toHaveBeenCalled();
-    expect(lifecycle.onCompleted).not.toHaveBeenCalled();
-    expect(setError).toHaveBeenCalledWith("workspace_execution_bridge_unavailable");
+    expect(lifecycle.onCompleted).toHaveBeenCalledTimes(1);
+    expect(setError).not.toHaveBeenCalled();
   });
 
   it("treats coordinator terminal follow as scope completion when Workspace status lags", async () => {
@@ -755,7 +738,7 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
     expect(cancelWorkspaceExecution).toHaveBeenCalledWith({
       locator: {
         kind: "workspace",
-        connectionProfileId: "profile-a",
+        connectionProfileId: "profile-server-b",
         workspaceId: "workspace-1",
         projectId: "project-server",
         canvasId: "canvas-main"
@@ -811,7 +794,7 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
           canvasBinding: binding,
           canvasLocator: {
             kind: "workspace",
-            connectionProfileId: "profile-a",
+            connectionProfileId: "profile-server-b",
             workspaceId: binding.workspaceId,
             projectId: binding.projectId,
             canvasId

@@ -20,11 +20,8 @@ export const operatorControlInvokeChannels = {
   repairLocalAgentHost: "planweave-operator:repairLocalAgentHost",
   registerLocalAgentHost: "planweave-operator:registerLocalAgentHost",
   enrollLocalAgentHost: "planweave-operator:enrollLocalAgentHost",
-  dispatchOwnerFleetRemoteOperation: "planweave-operator:dispatchOwnerFleetRemoteOperation",
   observeOwnerFleetRemoteOperation: "planweave-operator:observeOwnerFleetRemoteOperation",
   replayOwnerFleetRemoteOperationEvents: "planweave-operator:replayOwnerFleetRemoteOperationEvents",
-  executeOwnerFleetRemoteOperationAction:
-    "planweave-operator:executeOwnerFleetRemoteOperationAction",
   listRemoteAgents: "planweave-operator:listRemoteAgents",
   setRemoteAgentAccessMode: "planweave-operator:setRemoteAgentAccessMode",
   grantRemoteAgentWorkspace: "planweave-operator:grantRemoteAgentWorkspace",

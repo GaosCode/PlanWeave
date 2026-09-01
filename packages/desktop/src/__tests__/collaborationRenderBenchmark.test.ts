@@ -359,45 +359,6 @@ describe("collaboration render / subscription audit", () => {
     shell.release();
   });
 
-  it("loads remote observation only after the panel opens", async () => {
-    const { api, observe, replay } = createAuditApi();
-    trackedApis.push(api);
-    const shell = acquireCollaborationReadModelController(api);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "default"
-    });
-
-    const { result, rerender } = renderHook(
-      ({ open }: { open: boolean }) =>
-        useRemoteRunPanelController({
-          workItem: blockItem,
-          runtimeRemoteExecution: {
-            identity: { operationId: "op-1" },
-            phase: "active",
-            status: "owned",
-            actionRequired: false,
-            source: { revision: "rev-1", graphFingerprint: "fp-1" },
-            dispatchAttempt: { dispatchId: "dispatch-1", executionAttemptId: "attempt-1" }
-          },
-          open,
-          api,
-          t: createTranslator("en")
-        }),
-      { initialProps: { open: false } }
-    );
-
-    expect(observe).not.toHaveBeenCalled();
-    rerender({ open: true });
-    await waitFor(() => {
-      expect(observe).toHaveBeenCalledWith({ operationId: "op-1" });
-      expect(result.current.viewModel.identity?.operationId).toBe("op-1");
-    });
-    expect(replay).toHaveBeenCalled();
-    shell.release();
-  });
-
   it("loads people invitation/device details only when detailsOpen", async () => {
     const { api, listInvitations, listDevices, listMembers } = createAuditApi();
     trackedApis.push(api);

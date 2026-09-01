@@ -13,7 +13,8 @@ const startAutoRun = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock("../renderer/bridge", () => ({
   bridge: { startAutoRun },
-  collaborationBridge: null
+  collaborationBridge: null,
+  workspaceExecutionBridge: null
 }));
 
 const blockItem: WorkItemRef = {

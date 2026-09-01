@@ -157,11 +157,14 @@ function startDesktopApplication(): void {
         credentialStorage,
         credentialStorageMode: activeCredentialStorageMode
       });
+      let collaboration: ReturnType<typeof registerCollaborationHandlers> | null = null;
       registerOperatorControlHandlers({
         safeStorage: credentialStorage,
-        credentialsPath: activeCredentialPaths.operatorCredentialsFile
+        credentialsPath: activeCredentialPaths.operatorCredentialsFile,
+        resolveHumanIdentityCredential: (input) =>
+          collaboration?.resolveOperatorHumanIdentityCredential(input) ?? Promise.resolve(null)
       });
-      const collaboration = registerCollaborationHandlers({
+      collaboration = registerCollaborationHandlers({
         safeStorage: credentialStorage,
         credentialsPath: activeCredentialPaths.collaborationCredentialsFile,
         invitationsPath: activeCredentialPaths.collaborationInvitationsFile,

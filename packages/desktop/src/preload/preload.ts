@@ -540,8 +540,6 @@ const collaborationApi: PlanWeaveCollaborationApi = {
     ipcRenderer.invoke(collaborationInvokeChannels.readCollaborationCommentAttachment, input),
   listCollaborationAgentEndpoints: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.listCollaborationAgentEndpoints, input),
-  dispatchCollaborationRemoteOperation: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.dispatchCollaborationRemoteOperation, input),
   observeCollaborationRemoteOperation: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.observeCollaborationRemoteOperation, input),
   lookupCollaborationRemoteOperation: async (input) =>
@@ -550,25 +548,10 @@ const collaborationApi: PlanWeaveCollaborationApi = {
     ipcRenderer.invoke(collaborationInvokeChannels.lookupWorkspaceRemoteOperation, input),
   observeWorkspaceRemoteOperation: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.observeWorkspaceRemoteOperation, input),
-  executeCollaborationRemoteOperationAction: async (input) =>
-    ipcRenderer.invoke(
-      collaborationInvokeChannels.executeCollaborationRemoteOperationAction,
-      input
-    ),
   replayCollaborationRemoteOperationEvents: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.replayCollaborationRemoteOperationEvents, input),
   replayWorkspaceRemoteOperationEvents: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.replayWorkspaceRemoteOperationEvents, input),
-  listCollaborationRemoteOperationInteractions: async (input) =>
-    ipcRenderer.invoke(
-      collaborationInvokeChannels.listCollaborationRemoteOperationInteractions,
-      input
-    ),
-  settleCollaborationRemoteOperationInteraction: async (input) =>
-    ipcRenderer.invoke(
-      collaborationInvokeChannels.settleCollaborationRemoteOperationInteraction,
-      input
-    ),
   onCollaborationStatusChanged: (callback) => {
     const listener = (_event: IpcRendererEvent, payload: CollaborationStatus) => callback(payload);
     ipcRenderer.on(collaborationStatusChangedChannel, listener);
@@ -636,14 +619,10 @@ const operatorControlApi: PlanWeaveOperatorControlApi = {
     ipcRenderer.invoke(operatorControlInvokeChannels.registerLocalAgentHost, input),
   enrollOperatorLocalAgentHost: async (input) =>
     ipcRenderer.invoke(operatorControlInvokeChannels.enrollLocalAgentHost, input),
-  dispatchOwnerFleetRemoteOperation: async (input) =>
-    ipcRenderer.invoke(operatorControlInvokeChannels.dispatchOwnerFleetRemoteOperation, input),
   observeOwnerFleetRemoteOperation: async (input) =>
     ipcRenderer.invoke(operatorControlInvokeChannels.observeOwnerFleetRemoteOperation, input),
   replayOwnerFleetRemoteOperationEvents: async (input) =>
     ipcRenderer.invoke(operatorControlInvokeChannels.replayOwnerFleetRemoteOperationEvents, input),
-  executeOwnerFleetRemoteOperationAction: async (input) =>
-    ipcRenderer.invoke(operatorControlInvokeChannels.executeOwnerFleetRemoteOperationAction, input),
   listOperatorRemoteAgents: async (input) =>
     ipcRenderer.invoke(operatorControlInvokeChannels.listRemoteAgents, input),
   setOperatorRemoteAgentAccessMode: async (input) =>

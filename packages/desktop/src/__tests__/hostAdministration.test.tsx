@@ -65,6 +65,7 @@ const status = () => ({
         tlsTrust: "system_ca" as const
       },
       operatorId: "operator-a",
+      humanPrincipalId: "owner-human-1",
       hasOperatorCredential: true,
       operatorCredentialPersistence: "persisted" as const,
       updatedAt: "2030-01-01T00:00:00.000Z",

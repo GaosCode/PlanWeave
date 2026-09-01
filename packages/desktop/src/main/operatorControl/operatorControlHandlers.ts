@@ -158,20 +158,12 @@ export function registerOperatorControlHandlers(
     active.enrollLocalAgentHost(input)
   );
   ipcMain.handle(
-    operatorControlInvokeChannels.dispatchOwnerFleetRemoteOperation,
-    (_event, input: unknown) => active.dispatchOwnerFleetRemoteOperation(input)
-  );
-  ipcMain.handle(
     operatorControlInvokeChannels.observeOwnerFleetRemoteOperation,
     (_event, input: unknown) => active.observeOwnerFleetRemoteOperation(input)
   );
   ipcMain.handle(
     operatorControlInvokeChannels.replayOwnerFleetRemoteOperationEvents,
     (_event, input: unknown) => active.replayOwnerFleetRemoteOperationEvents(input)
-  );
-  ipcMain.handle(
-    operatorControlInvokeChannels.executeOwnerFleetRemoteOperationAction,
-    (_event, input: unknown) => active.executeOwnerFleetRemoteOperationAction(input)
   );
   ipcMain.handle(operatorControlInvokeChannels.listRemoteAgents, (_event, input: unknown) =>
     active.listRemoteAgents(input)

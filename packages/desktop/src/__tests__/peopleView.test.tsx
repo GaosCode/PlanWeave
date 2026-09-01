@@ -55,6 +55,7 @@ function invitationHandoff(invitationToken: string, invitationId = "invitation-1
 }
 
 beforeEach(() => {
+  useHostAdministrationController.mockReset();
   useHostAdministrationController.mockReturnValue(idleHostController);
 });
 
@@ -174,6 +175,7 @@ describe("PeopleView", () => {
       />
     );
     expect(await screen.findByTestId("people-workspace-section")).toBeVisible();
+    expect(useHostAdministrationController).toHaveBeenCalledWith();
     expect(screen.queryByTestId("people-section-nav")).not.toBeInTheDocument();
 
     emitStatus?.({

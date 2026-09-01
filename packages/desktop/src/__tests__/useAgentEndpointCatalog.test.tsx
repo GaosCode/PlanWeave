@@ -460,8 +460,11 @@ describe("useAgentEndpointCatalog principal and locator", () => {
     expect(result.current.errorCode).toBe("human_principal_unavailable");
   });
 
-  it("fails closed when a Workspace locator has no collaboration session", async () => {
-    const listOperatorAgentEndpoints = vi.fn();
+  it("uses the owner fleet for a Workspace locator without requiring a collaboration session", async () => {
+    const listOperatorAgentEndpoints = vi.fn(async () => ({
+      schemaVersion: "agent-endpoint-list/v1" as const,
+      items: [online]
+    }));
     const listCollaborationAgentEndpoints = vi.fn();
     const { result } = renderHook(() =>
       useAgentEndpointCatalog({
@@ -476,13 +479,22 @@ describe("useAgentEndpointCatalog principal and locator", () => {
       })
     );
     await act(async () => undefined);
-    expect(listOperatorAgentEndpoints).not.toHaveBeenCalled();
+    expect(listOperatorAgentEndpoints).toHaveBeenCalledWith({
+      profileId: "operator-profile-1",
+      humanPrincipalId: "human-owner-1",
+      projectId: "project-server",
+      canvasId: "canvas-main",
+      workspaceId: "workspace-1"
+    });
     expect(listCollaborationAgentEndpoints).not.toHaveBeenCalled();
-    expect(result.current.errorCode).toBe("collaboration_session_disconnected");
+    expect(result.current.errorCode).toBeNull();
   });
 
-  it("fails closed when a connected Workspace locator has no collaboration catalog API", async () => {
-    const listOperatorAgentEndpoints = vi.fn();
+  it("uses the owner fleet for a connected Workspace locator without a collaboration catalog API", async () => {
+    const listOperatorAgentEndpoints = vi.fn(async () => ({
+      schemaVersion: "agent-endpoint-list/v1" as const,
+      items: [online]
+    }));
     const { result } = renderHook(() =>
       useAgentEndpointCatalog({
         fleetApi: { listOperatorAgentEndpoints },
@@ -496,18 +508,21 @@ describe("useAgentEndpointCatalog principal and locator", () => {
       })
     );
     await act(async () => undefined);
-    expect(listOperatorAgentEndpoints).not.toHaveBeenCalled();
-    expect(result.current.errorCode).toBe("collaboration_agent_endpoint_catalog_unavailable");
+    expect(listOperatorAgentEndpoints).toHaveBeenCalledWith({
+      profileId: "operator-profile-1",
+      humanPrincipalId: "human-owner-1",
+      projectId: "project-server",
+      canvasId: "canvas-main",
+      workspaceId: "workspace-1"
+    });
+    expect(result.current.errorCode).toBeNull();
   });
 
-  it("uses the collaboration authority for a connected Workspace even when operator control is enabled", async () => {
-    const listOperatorAgentEndpoints = vi.fn().mockRejectedValue(
-      new OperatorControlError({
-        kind: "forbidden",
-        code: "operator_scope_forbidden",
-        httpStatus: 403
-      })
-    );
+  it("uses the Human-owned fleet for a Workspace when operator control is enabled", async () => {
+    const listOperatorAgentEndpoints = vi.fn(async () => ({
+      schemaVersion: "agent-endpoint-list/v1" as const,
+      items: [online]
+    }));
     const listCollaborationAgentEndpoints = vi.fn(async () => ({
       schemaVersion: "agent-endpoint-list/v1" as const,
       items: [online]
@@ -526,13 +541,14 @@ describe("useAgentEndpointCatalog principal and locator", () => {
     );
 
     await act(async () => undefined);
-    expect(listOperatorAgentEndpoints).not.toHaveBeenCalled();
-    expect(listCollaborationAgentEndpoints).toHaveBeenCalledWith({
+    expect(listOperatorAgentEndpoints).toHaveBeenCalledWith({
+      profileId: "operator-profile-1",
       projectId: "project-server",
       canvasId: "canvas-main",
       workspaceId: "workspace-1",
       humanPrincipalId: "human-member-1"
     });
+    expect(listCollaborationAgentEndpoints).not.toHaveBeenCalled();
     expect(result.current.errorCode).toBeNull();
     expect(
       result.current.endpoints.find((endpoint) => endpoint.id === "remote:endpoint-windows")

@@ -88,7 +88,8 @@ vi.mock("../renderer/hooks/useWorkspaceRuntime", () => ({
   })
 }));
 
-vi.mock("../renderer/hooks/useOwnerControlPlaneAvailability", () => ({
+vi.mock("../renderer/hooks/useOwnerControlPlaneAvailability", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../renderer/hooks/useOwnerControlPlaneAvailability")>()),
   useOwnerControlPlaneAvailability: () => ({
     fleetCatalogEnabled: true,
     operatorProfileId: "profile-remote-owner",

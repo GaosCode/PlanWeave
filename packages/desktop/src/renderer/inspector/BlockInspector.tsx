@@ -43,6 +43,7 @@ import {
 } from "../collaboration/agentEndpointViewModel";
 import { AssigneeInspectorField } from "../team/AssigneeInspectorField";
 import { RemoteRunPanel } from "../team/RemoteRunPanel";
+import type { RemoteRunExecutionLocator } from "../hooks/useRemoteRunPanelController";
 import { WorkItemCollaborationPanel } from "../team/WorkItemCollaborationPanel";
 import { statusVariant } from "../viewHelpers";
 import { AutoGrowingTextarea } from "./AutoGrowingTextarea";
@@ -59,6 +60,7 @@ type BlockInspectorProps = {
   blockReviewAttempts: DesktopReviewAttemptSummary[];
   blockRunRecords: DesktopBlockRunRecordSummary[];
   canvasRef?: DesktopCanvasReference | null;
+  executionLocator?: RemoteRunExecutionLocator | null;
   className?: string;
   error: string | null;
   executorOptions: string[];
@@ -99,6 +101,7 @@ export function BlockInspector({
   blockReviewAttempts,
   blockRunRecords,
   canvasRef,
+  executionLocator,
   className,
   error,
   executorOptions,
@@ -442,6 +445,7 @@ export function BlockInspector({
               runtimeRemoteExecution={selectedBlock.remoteExecution}
               localAutoRunActive={localAutoRunActive}
               canvasRef={canvasRef}
+              executionLocator={executionLocator}
               localAgentEndpoints={localAgentEndpoints}
               inheritAgentEndpointLabel={t("inheritExecutor")}
               onAgentEndpointChange={onAgentEndpointChange}

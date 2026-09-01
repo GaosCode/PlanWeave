@@ -38,7 +38,7 @@ describe("localOperatorBackend resolution", () => {
     ).toBe(true);
   });
 
-  it("matches advertised origin for non-local profile ids", () => {
+  it("does not infer local ownership from a mutable advertised origin", () => {
     expect(
       isLocalOwnedOperatorProfile(
         {
@@ -47,7 +47,7 @@ describe("localOperatorBackend resolution", () => {
         },
         snapshot({ advertisedOrigin: "https://owner-device.example.ts.net/" })
       )
-    ).toBe(true);
+    ).toBe(false);
     expect(
       isLocalOwnedOperatorProfile(
         {

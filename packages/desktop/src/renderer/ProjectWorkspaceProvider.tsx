@@ -23,12 +23,13 @@ import { useGraphDeleteActions } from "./hooks/useGraphDeleteActions";
 import { useTaskNodeFocus } from "./hooks/useTaskNodeFocus";
 import { useTaskExecutorActions } from "./hooks/useTaskExecutorActions";
 import { useTaskAgentEndpointSelection } from "./hooks/useTaskAgentEndpointSelection";
-import { useOwnerControlPlaneAvailability } from "./hooks/useOwnerControlPlaneAvailability";
+import {
+  deriveCanvasAgentAuthority,
+  useOwnerControlPlaneAvailability
+} from "./hooks/useOwnerControlPlaneAvailability";
 import { useWorkspaceAgentEndpointCatalog } from "./hooks/useWorkspaceAgentEndpointCatalog";
 import { useWorkspaceAgentEndpointRun } from "./hooks/useWorkspaceAgentEndpointRun";
 import { agentEndpointsForCanvasAuthority } from "./collaboration/agentEndpointViewModel";
-import { resolveDesktopHumanPrincipalId } from "./collaboration/desktopHumanPrincipal";
-import { resolveCurrentMembership } from "./collaboration/peopleViewModels";
 import { useDesktopProjectActions } from "./hooks/useDesktopProjectActions";
 import { useGraphFlowModel } from "./hooks/useGraphFlowModel";
 import { useGraphHistoryActions } from "./hooks/useGraphHistoryActions";
@@ -212,18 +213,12 @@ export function ProjectWorkspaceProvider({
     [refreshProjects, remoteWorkspace.refresh]
   );
   const ownerControlPlane = useOwnerControlPlaneAvailability();
-  const humanPrincipalId = useMemo(
-    () =>
-      resolveDesktopHumanPrincipalId({
-        collaborationStatus: collaborationSurface.status,
-        membershipHumanPrincipalId:
-          resolveCurrentMembership({
-            members: collaborationSurface.viewModel?.members ?? [],
-            status: collaborationSurface.status
-          })?.humanPrincipalId ?? null
-      }),
-    [collaborationSurface.status, collaborationSurface.viewModel]
-  );
+  const canvasAgentAuthority = deriveCanvasAgentAuthority({
+    canvasLocator,
+    collaborationMembers: collaborationSurface.viewModel?.members ?? [],
+    collaborationStatus: collaborationSurface.status,
+    ownerControlPlane
+  });
   const catalogLocator = useMemo(() => {
     if (!canvasLocator) return null;
     if (canvasLocator.kind === "local") {
@@ -239,11 +234,11 @@ export function ProjectWorkspaceProvider({
   const agentEndpointCatalog = useWorkspaceAgentEndpointCatalog({
     agentDetections,
     agentTransport: settings.execution.agentTransport,
-    enabled: ownerControlPlane.fleetCatalogEnabled,
-    fleetCatalogBlockedCode: ownerControlPlane.fleetCatalogBlockedCode,
+    enabled: canvasAgentAuthority.fleetCatalogEnabled,
+    fleetCatalogBlockedCode: canvasAgentAuthority.fleetCatalogBlockedCode,
     graph,
-    operatorProfileId: ownerControlPlane.operatorProfileId,
-    humanPrincipalId,
+    operatorProfileId: canvasAgentAuthority.operatorProfileId,
+    humanPrincipalId: canvasAgentAuthority.humanPrincipalId,
     locator: catalogLocator,
     collaborationApi: collaborationBridge,
     sessionConnected: collaborationSurface.sessionConnected,
@@ -411,6 +406,8 @@ export function ProjectWorkspaceProvider({
     agentEndpointPreferences: settings.execution.agentEndpointPreferences,
     history: appHistory,
     operatorProfileId: ownerControlPlane.operatorProfileId,
+    ownerHumanPrincipalId: ownerControlPlane.humanPrincipalId,
+    ownerProjectId: graph?.projectId ?? null,
     saveAgentEndpointPreference: agentEndpointCatalog.savePreference,
     workspaceCanvas: workspaceCanvasCommands
   });
@@ -457,11 +454,13 @@ export function ProjectWorkspaceProvider({
     agentEndpoints: canvasAgentEndpoints,
     collaborationController: collaborationSurface.controller,
     canvasBinding,
-    canvasLocator: canvasLocator?.kind === "workspace" ? canvasLocator : null,
+    canvasLocator,
     graph,
     preferences: settings.execution.agentEndpointPreferences,
     selectedCanvasId: activeCanvasId,
     selectedProject,
+    operatorProfileId: ownerControlPlane.operatorProfileId,
+    humanPrincipalId: canvasAgentAuthority.humanPrincipalId,
     runtimeAvailability: collaborationRuntime.availability,
     workspaceRuntimeAuthorityKey: collaborationRuntime.workspaceRuntimeAuthorityKey,
     setError

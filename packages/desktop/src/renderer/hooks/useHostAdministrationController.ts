@@ -14,8 +14,6 @@ import {
   type OperatorProfileView
 } from "../../shared/operatorControl";
 import { operatorControlBridge } from "../bridge";
-import { resolveDesktopHumanPrincipalId } from "../collaboration/desktopHumanPrincipal";
-import { useCollaborationStatus } from "./useCollaborationStatus";
 import {
   HOST_INVENTORY_PAGE_SIZE,
   mergeHostInventory,
@@ -181,11 +179,6 @@ function enrollmentOwnerFields(humanPrincipalId: string, workspaceId: string | n
 export function useHostAdministrationController(
   options: HostAdministrationControllerOptions = {}
 ): HostAdministrationController {
-  const { status: collaborationStatus } = useCollaborationStatus();
-  const humanPrincipalId = useMemo(
-    () => resolveDesktopHumanPrincipalId({ collaborationStatus }),
-    [collaborationStatus]
-  );
   const enrollmentWorkspaceId = options.enrollmentWorkspaceId ?? null;
   const [status, setStatus] = useState<OperatorControlStatus | null>(null);
   const [hostSnapshot, setHostSnapshot] = useState<HostInventorySnapshot | null>(null);
@@ -224,6 +217,7 @@ export function useHostAdministrationController(
     () => status?.profiles.find((profile) => profile.profileId === status.activeProfileId) ?? null,
     [status]
   );
+  const humanPrincipalId = activeProfile?.humanPrincipalId ?? null;
   const activeProfileId = activeProfile?.profileId;
   const activeProfileHasOperatorCredential = activeProfile?.hasOperatorCredential === true;
   const hostAuthorityIdentity = activeProfile

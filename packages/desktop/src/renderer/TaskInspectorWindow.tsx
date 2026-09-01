@@ -12,7 +12,6 @@ import { useTaskAgentEndpointSelection } from "./hooks/useTaskAgentEndpointSelec
 import { useOwnerControlPlaneAvailability } from "./hooks/useOwnerControlPlaneAvailability";
 import { useWorkspaceAgentEndpointCatalog } from "./hooks/useWorkspaceAgentEndpointCatalog";
 import { useCollaborationStatus } from "./hooks/useCollaborationStatus";
-import { resolveDesktopHumanPrincipalId } from "./collaboration/desktopHumanPrincipal";
 
 function supportedLanguage(value: string | null): Language {
   return value === "en" || value === "zh-CN" ? value : "zh-CN";
@@ -100,10 +99,6 @@ export function TaskInspectorWindow() {
   const workspaceCanvas = null;
   const ownerControlPlane = useOwnerControlPlaneAvailability();
   const { status: collaborationStatus } = useCollaborationStatus();
-  const humanPrincipalId = useMemo(
-    () => resolveDesktopHumanPrincipalId({ collaborationStatus }),
-    [collaborationStatus]
-  );
   const catalogLocator = useMemo(() => {
     if (!graph?.projectId || !canvasId) return null;
     return { projectId: graph.projectId, canvasId };
@@ -115,7 +110,7 @@ export function TaskInspectorWindow() {
     fleetCatalogBlockedCode: ownerControlPlane.fleetCatalogBlockedCode,
     graph,
     operatorProfileId: ownerControlPlane.operatorProfileId,
-    humanPrincipalId,
+    humanPrincipalId: ownerControlPlane.humanPrincipalId,
     locator: catalogLocator,
     collaborationApi: collaborationBridge,
     sessionConnected: collaborationStatus?.session.phase === "connected",

@@ -1,39 +1,25 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { AssignmentDisplayProjection } from "@planweave-ai/collaboration-protocol/work/assignment";
 import type {
   RemoteInteractionResponse,
-  RemoteInteractionView,
-  RemoteOperationObservation
+  RemoteInteractionView
 } from "@planweave-ai/collaboration-protocol/remote-run";
 import type { WorkItemRef } from "@planweave-ai/collaboration-protocol/core/primitives";
-import { projectRemoteAcpReplay } from "@planweave-ai/runtime/browser";
-import type { DesktopCanvasReference, RemoteBlockExecutionReadModel } from "@planweave-ai/runtime";
 import type { RemoteAgentEndpoint } from "@planweave-ai/collaboration-protocol/agent-endpoint";
-import { bridge, collaborationBridge } from "../bridge";
-import { collaborationErrorMessage } from "../collaboration/formatCollaborationError";
 import {
-  applyRemoteAcpReplayPage,
-  createRemoteAcpAttemptReplayState,
-  remoteAcpReplayRequestMatchesState,
-  scopeRemoteAcpReplayToAttempt
-} from "../collaboration/remoteAcpReplayState";
+  type DesktopCanvasReference,
+  type ProjectedRemoteAcpEvent,
+  type RemoteBlockExecutionReadModel
+} from "@planweave-ai/runtime";
 import {
-  adaptRemoteAcpEvents,
-  buildRemoteActionIdentity,
-  projectRemoteRunPanelViewModel,
-  type RemoteRunAuthorizedActionKind,
-  type RemoteRunPanelViewModel
-} from "../collaboration/remoteRunViewModels";
-import type { createTranslator } from "../i18n";
-import type { PlanWeaveCollaborationApi } from "../../shared/collaboration.js";
-import {
-  workItemKey,
-  type CollaborationBoundaryErrorView,
-  type CollaborationRemoteRunProjection
-} from "../../shared/collaborationReadModels.js";
-import { useCollaborationReadModels } from "./useCollaborationReadModels";
-import { useCollaborationStatus } from "./useCollaborationStatus";
-import { isCollaborationSessionConnected } from "../collaboration/sessionState";
+  projectRemoteAcpReplay,
+  projectWorkspaceExecutionTimeline
+} from "@planweave-ai/runtime/browser";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type {
+  DesktopWorkspaceExecutionResponse,
+  DesktopOwnerCanvasExecutionLocator,
+  PlanWeaveWorkspaceExecutionApi
+} from "../../shared/workspaceExecution.js";
+import { bridge, workspaceExecutionBridge } from "../bridge";
 import {
   buildAvailableAgentEndpoints,
   type AvailableAgentEndpoint,
@@ -41,11 +27,13 @@ import {
   type LogicalAgentEndpointInput
 } from "../collaboration/agentEndpointViewModel";
 import {
-  remoteOperationScopeKey,
-  selectRemoteOperationObservation
-} from "../collaboration/remoteProjectionMerge";
+  projectRemoteRunPanelViewModel,
+  type RemoteRunActionAvailability,
+  type RemoteRunAuthorizedActionKind,
+  type RemoteRunPanelViewModel
+} from "../collaboration/remoteRunViewModels";
+import type { createTranslator } from "../i18n";
 
-/** Derive a logical-executor directory from local Endpoint rows for discovery fallback. */
 export function logicalExecutorsFromLocalAgentEndpoints(
   local: readonly LocalAgentEndpointInput[]
 ): LogicalAgentEndpointInput[] {
@@ -64,28 +52,27 @@ export function logicalExecutorsFromLocalAgentEndpoints(
   });
 }
 
+export type RemoteRunExecutionLocator = DesktopOwnerCanvasExecutionLocator;
+
 export type UseRemoteRunPanelControllerArgs = {
   agentEndpoints?: readonly AvailableAgentEndpoint[];
   workItem: WorkItemRef | null;
-  /** Runtime remoteExecution projection for the selected Block (local authority). */
   runtimeRemoteExecution?: RemoteBlockExecutionReadModel | null;
-  /** True when a local Auto Run record is active for the same Block. */
   localAutoRunActive?: boolean;
   canvasRef?: DesktopCanvasReference | null;
+  executionLocator?: RemoteRunExecutionLocator | null;
   localAgentEndpoints?: readonly LocalAgentEndpointInput[];
-  /** Same logical-executor directory used by catalog builders (discovery fallback). */
   logicalExecutors?: readonly LogicalAgentEndpointInput[];
   requiredProfileId?: string | null;
   requiredAgentId?: RemoteAgentEndpoint["agentId"] | null;
   requiredCapabilities?: readonly string[];
   open: boolean;
-  api?: PlanWeaveCollaborationApi | null;
+  executionApi?: PlanWeaveWorkspaceExecutionApi | null;
   onAgentEndpointChange?: (endpointId: string) => void;
   refreshAgentEndpoints?: () => Promise<void>;
   refreshingAgentEndpoints?: boolean;
   selectedAgentEndpointId?: string | null;
   t: ReturnType<typeof createTranslator>;
-  /** Optional clock/random for deterministic tests. */
   createId?: () => string;
 };
 
@@ -102,743 +89,424 @@ export type UseRemoteRunPanelControllerResult = {
   refreshingAgentEndpoints: boolean;
   legacyHostTargetPresent: boolean;
   refreshAgentEndpoints: () => Promise<void>;
-  confirmKind: "cancel" | "retry_new_attempt" | "fail_interruption" | null;
-  setConfirmKind: (kind: "cancel" | "retry_new_attempt" | "fail_interruption" | null) => void;
+  confirmKind: "cancel" | null;
+  setConfirmKind: (kind: "cancel" | null) => void;
   refresh: () => Promise<void>;
   loadMoreEvents: () => Promise<void>;
   dispatch: () => Promise<void>;
   cancel: (reason: string) => Promise<void>;
-  failInterruption: (reason: string) => Promise<void>;
-  /** Resume sends only the human intent; Server materializes lease and recovery fields. */
   resume: (reason: string) => Promise<void>;
-  retryNewAttempt: (input: {
-    newDispatchId: string;
-    newExecutionAttemptId: string;
-    reason: string;
-  }) => Promise<void>;
-  answerInteraction: (settlement: RemoteInteractionResponse) => Promise<void>;
+  answerInteraction: (response: RemoteInteractionResponse) => Promise<void>;
 };
 
-function mapBoundaryError(error: unknown): CollaborationBoundaryErrorView {
-  if (
-    error &&
-    typeof error === "object" &&
-    "kind" in error &&
-    "code" in error &&
-    "message" in error &&
-    "retryable" in error
-  ) {
-    return error as CollaborationBoundaryErrorView;
-  }
+function descriptor(
+  endpoint: AvailableAgentEndpoint | undefined,
+  args: UseRemoteRunPanelControllerArgs,
+  fallbackId?: string
+) {
+  const agentEndpointId = endpoint?.remoteEndpointId ?? fallbackId;
+  const name = endpoint?.executorName ?? args.requiredProfileId;
+  const agentId = endpoint?.agentId ?? args.requiredAgentId;
+  if (!agentEndpointId || !name || !agentId)
+    throw new Error("remote_execution_identity_unavailable");
+  return { agentEndpointId, effectiveExecutor: { name, agentId } };
+}
+
+function phase(view: DesktopWorkspaceExecutionResponse) {
   return {
-    kind: "unknown",
-    code: "collaboration_remote_run_error",
-    message: error instanceof Error ? error.message : "remote_run_error",
-    retryable: true
-  };
+    created: "preparing",
+    running: "running",
+    blocked: "action_required",
+    completed: "terminal_success",
+    failed: "terminal_failure",
+    stopped: "terminal_cancelled"
+  }[view.session.phase] as RemoteRunPanelViewModel["phase"];
 }
 
-function resolveOperationId(input: {
-  runtime: RemoteBlockExecutionReadModel | null | undefined;
-  assignment: AssignmentDisplayProjection | null;
-  observerRun: CollaborationRemoteRunProjection | null;
-  observation: RemoteOperationObservation | null;
-}): string | null {
-  if (input.observation?.operationId) return input.observation.operationId;
-  if (input.runtime?.identity.operationId) return input.runtime.identity.operationId;
-  return null;
+function actions(
+  view: DesktopWorkspaceExecutionResponse,
+  pending: number
+): RemoteRunActionAvailability[] {
+  const active = view.session.phase === "running" || view.session.phase === "blocked";
+  return [
+    { kind: "dispatch", available: false, reason: "wrong_lifecycle" },
+    pending
+      ? { kind: "answer_interaction", available: true, requiresConfirm: false }
+      : { kind: "answer_interaction", available: false, reason: "no_pending_interaction" },
+    active
+      ? { kind: "cancel", available: true, requiresConfirm: true }
+      : { kind: "cancel", available: false, reason: "wrong_lifecycle" },
+    view.session.phase === "blocked"
+      ? { kind: "resume_same_session", available: true, requiresConfirm: false }
+      : { kind: "resume_same_session", available: false, reason: "wrong_lifecycle" },
+    { kind: "fail_interruption", available: false, reason: "wrong_lifecycle" },
+    { kind: "retry_new_attempt", available: false, reason: "wrong_lifecycle" }
+  ];
 }
 
-/**
- * Observes and controls a remote ACP run for one Block WorkItemRef.
- * Loads deep diagnostics only when open; never merges local Auto Run authority.
- */
+function remoteEndpointId(view: DesktopWorkspaceExecutionResponse | null): string | undefined {
+  return view?.handle.target === "remote" ? view.handle.agentEndpointId : undefined;
+}
+
+function pendingInteractionsFor(view: DesktopWorkspaceExecutionResponse): RemoteInteractionView[] {
+  if (view.handle.target !== "remote") return [];
+  const pendingActionIds = new Set(
+    projectWorkspaceExecutionTimeline(view.events).pendingInteractions
+  );
+  const pending: RemoteInteractionView[] = [];
+  for (const event of view.events) {
+    if (event.type !== "interaction_required" || !pendingActionIds.has(event.data.actionId)) {
+      continue;
+    }
+    pending.push({
+      request: event.data,
+      operationId: view.handle.operationId,
+      hostId: view.handle.agentEndpointId,
+      status: "pending",
+      createdAt: event.observedAt
+    });
+  }
+  return pending;
+}
+
+function projectedRemoteEventsFor(
+  view: DesktopWorkspaceExecutionResponse
+): ProjectedRemoteAcpEvent[] {
+  const projected: ProjectedRemoteAcpEvent[] = [];
+  for (const event of view.events) {
+    if (
+      event.type !== "runner_event" ||
+      event.source.target !== "remote" ||
+      !event.source.executionAttemptId
+    ) {
+      continue;
+    }
+    const executionAttemptId = event.source.executionAttemptId;
+    if (event.data.eventProtocolVersion === 1) {
+      projected.push(
+        ...projectRemoteAcpReplay({
+          executionAttemptId,
+          eventProtocolVersion: 1,
+          events: [event.data.event]
+        }).events
+      );
+    } else {
+      projected.push(
+        ...projectRemoteAcpReplay({
+          executionAttemptId,
+          eventProtocolVersion: 2,
+          events: [event.data.event]
+        }).events
+      );
+    }
+  }
+  return projected;
+}
+
 export function useRemoteRunPanelController(
   args: UseRemoteRunPanelControllerArgs
 ): UseRemoteRunPanelControllerResult {
-  const api = args.api === undefined ? collaborationBridge : args.api;
-  const createId =
-    args.createId ??
-    (() => {
-      if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-        return crypto.randomUUID();
-      }
-      return `remote-action-${Date.now()}`;
-    });
-  const { status } = useCollaborationStatus({ api });
-  const { snapshot, controller: readModelController } = useCollaborationReadModels({
-    api,
-    profileId: null,
-    projectId: null,
-    manageActiveProject: false
-  });
-
-  const sessionConnected = isCollaborationSessionConnected(status);
-  const offline =
-    !api ||
-    !sessionConnected ||
-    status?.session.phase === "error" ||
-    snapshot.syncPhase === "auth_expired" ||
-    snapshot.syncPhase === "disconnected";
-
-  const workKey = args.workItem ? workItemKey(args.workItem) : null;
-  const assignment =
-    workKey && snapshot.assignmentsByWorkItem[workKey]
-      ? snapshot.assignmentsByWorkItem[workKey]!
-      : null;
-  const workAuthority =
-    workKey && snapshot.workAuthorityByWorkItem[workKey]
-      ? snapshot.workAuthorityByWorkItem[workKey]!
-      : null;
-  const legacyHostTargetPresent =
-    workAuthority?.executionTarget?.target.kind === "exact_host" ||
-    workAuthority?.executionTarget?.target.kind === "automatic_host";
-
-  // Ensure independent authority projections are available for dispatch CAS.
-  useEffect(() => {
-    if (!args.open || !args.workItem || args.workItem.kind !== "block" || !readModelController)
-      return;
-    void readModelController.ensureWorkAuthority(args.workItem).catch(() => undefined);
-  }, [args.open, args.workItem, readModelController]);
-
-  const observerRun = useMemo(() => {
-    if (!args.workItem) return null;
-    const key = workItemKey(args.workItem);
-    return (
-      Object.values(snapshot.remoteRunsByDispatchId).find((run) => {
-        if (!run.workItem) return false;
-        return workItemKey(run.workItem) === key;
-      }) ?? null
-    );
-  }, [args.workItem, snapshot.remoteRunsByDispatchId]);
-
-  const [observation, setObservation] = useState<RemoteOperationObservation | null>(null);
-  const [remoteAgentEndpoints, setRemoteAgentEndpoints] = useState<RemoteAgentEndpoint[]>([]);
-  const [selectedAgentEndpointIdState, setSelectedAgentEndpointIdState] = useState<string | null>(
-    null
-  );
-  const [refreshingAgentEndpoints, setRefreshingAgentEndpoints] = useState(false);
-  const [pendingInteractions, setPendingInteractions] = useState<RemoteInteractionView[]>([]);
-  const [replayState, setReplayState] = useState(createRemoteAcpAttemptReplayState);
-  const replayStateRef = useRef(replayState);
-  replayStateRef.current = replayState;
-  const refreshInFlightRef = useRef(false);
-  const loadingEventsRequestRef = useRef(0);
+  const executionApi =
+    args.executionApi === undefined ? workspaceExecutionBridge : args.executionApi;
+  const [view, setView] = useState<DesktopWorkspaceExecutionResponse | null>(null);
+  const [selectedState, setSelectedState] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [loadingEvents, setLoadingEvents] = useState(false);
-  const [loadingInteractions, setLoadingInteractions] = useState(false);
   const [actionInFlight, setActionInFlight] = useState<RemoteRunAuthorizedActionKind | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [confirmKind, setConfirmKind] = useState<
-    "cancel" | "retry_new_attempt" | "fail_interruption" | null
-  >(null);
-  const observationRef = useRef<RemoteOperationObservation | null>(null);
-  observationRef.current = observation;
-  const generationRef = useRef(0);
-  const endpointRequestGenerationRef = useRef(0);
+  const [confirmKind, setConfirmKind] = useState<"cancel" | null>(null);
   const scopeGenerationRef = useRef(0);
-  const workspaceId = status?.workspaceConnection.workspaceId ?? null;
-  const scopeKey = JSON.stringify([snapshot.projectId ?? null, workspaceId, workKey]);
-  const scopeKeyRef = useRef(scopeKey);
-
-  const discoveredAgentEndpoints = useMemo(() => {
-    const logicalExecutors =
-      args.logicalExecutors ??
-      logicalExecutorsFromLocalAgentEndpoints(args.localAgentEndpoints ?? []);
-    return buildAvailableAgentEndpoints({
-      local: args.localAgentEndpoints ?? [],
-      remote: remoteAgentEndpoints,
-      logicalExecutors,
-      requiredProfileId: args.requiredProfileId ?? null,
-      requiredAgentId: args.requiredAgentId ?? null,
-      requiredCapabilities: args.requiredCapabilities ?? []
-    });
-  }, [
-    args.localAgentEndpoints,
-    args.logicalExecutors,
-    args.requiredCapabilities,
-    args.requiredAgentId,
-    args.requiredProfileId,
-    remoteAgentEndpoints
-  ]);
-  const agentEndpoints = args.agentEndpoints ?? discoveredAgentEndpoints;
-  const hasProvidedAgentEndpoints = args.agentEndpoints !== undefined;
+  const existingOperationId = args.runtimeRemoteExecution?.identity.operationId;
+  const executionScopeKey = args.executionLocator
+    ? [
+        args.executionLocator.operatorProfileId,
+        args.executionLocator.humanPrincipalId,
+        args.executionLocator.projectRoot,
+        args.executionLocator.projectId,
+        args.executionLocator.canvasId,
+        args.workItem?.kind === "block" ? args.workItem.blockRef : ""
+      ].join("\u0000")
+    : "";
+  const executionScopeRef = useRef(executionScopeKey);
+  const autoFollowKey = args.open ? `${executionScopeKey}\u0000${existingOperationId ?? ""}` : null;
+  const logicalExecutors =
+    args.logicalExecutors ??
+    logicalExecutorsFromLocalAgentEndpoints(args.localAgentEndpoints ?? []);
+  const discovered = useMemo(
+    () =>
+      buildAvailableAgentEndpoints({
+        local: args.localAgentEndpoints ?? [],
+        remote: [],
+        logicalExecutors,
+        requiredProfileId: args.requiredProfileId ?? null,
+        requiredAgentId: args.requiredAgentId ?? null,
+        requiredCapabilities: args.requiredCapabilities ?? []
+      }),
+    [
+      args.localAgentEndpoints,
+      args.requiredAgentId,
+      args.requiredCapabilities,
+      args.requiredProfileId,
+      logicalExecutors
+    ]
+  );
+  const agentEndpoints = args.agentEndpoints ?? discovered;
   const selectedAgentEndpointId =
-    args.selectedAgentEndpointId === undefined
-      ? selectedAgentEndpointIdState
-      : args.selectedAgentEndpointId;
+    args.selectedAgentEndpointId === undefined ? selectedState : args.selectedAgentEndpointId;
+  const selectedEndpoint = agentEndpoints.find((item) => item.id === selectedAgentEndpointId);
   const setSelectedAgentEndpointId = useCallback(
-    (endpointId: string) => {
-      if (args.onAgentEndpointChange) args.onAgentEndpointChange(endpointId);
-      else setSelectedAgentEndpointIdState(endpointId);
+    (id: string) => {
+      args.onAgentEndpointChange ? args.onAgentEndpointChange(id) : setSelectedState(id);
     },
     [args.onAgentEndpointChange]
   );
-
-  const workItemCanvasId = args.workItem?.canvasId;
   const refreshAgentEndpoints = useCallback(async () => {
-    if (args.refreshAgentEndpoints) {
-      await args.refreshAgentEndpoints();
-      return;
-    }
-    if (hasProvidedAgentEndpoints) {
-      setRefreshingAgentEndpoints(false);
-      return;
-    }
-    const requestGeneration = ++endpointRequestGenerationRef.current;
-    const requestScopeKey = scopeKey;
-    const requestScopeGeneration = scopeGenerationRef.current;
-    if (!api?.listCollaborationAgentEndpoints || !sessionConnected) {
-      if (
-        requestGeneration === endpointRequestGenerationRef.current &&
-        requestScopeKey === scopeKeyRef.current &&
-        requestScopeGeneration === scopeGenerationRef.current
-      ) {
-        setRemoteAgentEndpoints([]);
-        setRefreshingAgentEndpoints(false);
-      }
-      return;
-    }
-    setRefreshingAgentEndpoints(true);
-    try {
-      const list = await api.listCollaborationAgentEndpoints({
-        ...(workItemCanvasId ? { canvasId: workItemCanvasId } : {}),
-        ...(workspaceId ? { workspaceId } : {})
-      });
-      if (
-        requestGeneration === endpointRequestGenerationRef.current &&
-        requestScopeKey === scopeKeyRef.current &&
-        requestScopeGeneration === scopeGenerationRef.current
-      ) {
-        setRemoteAgentEndpoints(list.items);
-      }
-    } finally {
-      if (
-        requestGeneration === endpointRequestGenerationRef.current &&
-        requestScopeKey === scopeKeyRef.current &&
-        requestScopeGeneration === scopeGenerationRef.current
-      ) {
-        setRefreshingAgentEndpoints(false);
-      }
-    }
-  }, [
-    api,
-    args.refreshAgentEndpoints,
-    hasProvidedAgentEndpoints,
-    sessionConnected,
-    scopeKey,
-    workItemCanvasId,
-    workspaceId
-  ]);
-
-  useLayoutEffect(() => {
-    if (scopeKeyRef.current !== scopeKey) {
-      scopeKeyRef.current = scopeKey;
-      scopeGenerationRef.current += 1;
-      generationRef.current += 1;
-      refreshInFlightRef.current = false;
-      loadingEventsRequestRef.current += 1;
-      endpointRequestGenerationRef.current += 1;
-      observationRef.current = null;
-      setObservation(null);
-      setPendingInteractions([]);
-      const emptyReplay = createRemoteAcpAttemptReplayState();
-      replayStateRef.current = emptyReplay;
-      setReplayState(emptyReplay);
-      setActionError(null);
-      setConfirmKind(null);
-      setLoading(false);
-      setLoadingEvents(false);
-      setLoadingInteractions(false);
-      setActionInFlight(null);
-      setRefreshingAgentEndpoints(false);
-      setRemoteAgentEndpoints([]);
-      setSelectedAgentEndpointIdState(null);
-    }
-  }, [scopeKey]);
-
+    if (args.refreshAgentEndpoints) return args.refreshAgentEndpoints();
+  }, [args.refreshAgentEndpoints]);
   useEffect(() => {
-    if (!args.open) return;
-    const requestScopeKey = scopeKey;
-    const requestScopeGeneration = scopeGenerationRef.current;
-    void refreshAgentEndpoints().catch((error) => {
-      if (
-        requestScopeKey !== scopeKeyRef.current ||
-        requestScopeGeneration !== scopeGenerationRef.current
-      ) {
-        return;
-      }
-      setActionError(collaborationErrorMessage(mapBoundaryError(error)));
-    });
-  }, [args.open, refreshAgentEndpoints, scopeKey]);
+    if (args.open) void refreshAgentEndpoints().catch((error) => setActionError(String(error)));
+  }, [args.open, refreshAgentEndpoints]);
+  useEffect(() => {
+    if (executionScopeRef.current === executionScopeKey) return;
+    executionScopeRef.current = executionScopeKey;
+    scopeGenerationRef.current += 1;
+    setView(null);
+    setActionError(null);
+  }, [executionScopeKey]);
 
-  const refresh = useCallback(async () => {
-    if (!api || !args.open || !args.workItem || args.workItem.kind !== "block") return;
-    if (!sessionConnected) return;
-    const requestScopeKey = scopeKey;
-    const requestScopeGeneration = scopeGenerationRef.current;
-    const isCurrentRefreshScope = () =>
-      requestScopeKey === scopeKeyRef.current &&
-      requestScopeGeneration === scopeGenerationRef.current;
-    if (!isCurrentRefreshScope()) return;
-    const generation = ++generationRef.current;
-    const canWrite = () => generation === generationRef.current && isCurrentRefreshScope();
-    refreshInFlightRef.current = true;
-    const loadingEventsRequest = ++loadingEventsRequestRef.current;
-    setLoadingEvents(false);
+  const currentRemoteEndpointId = remoteEndpointId(view);
+  const endpointForView = currentRemoteEndpointId
+    ? (agentEndpoints.find((item) => item.remoteEndpointId === currentRemoteEndpointId) ??
+      selectedEndpoint)
+    : selectedEndpoint;
+  const follow = useCallback(async () => {
+    if (!executionApi || !args.executionLocator || args.workItem?.kind !== "block") return;
+    const scopeGeneration = scopeGenerationRef.current;
     setLoading(true);
     setActionError(null);
     try {
-      const operationId = resolveOperationId({
-        runtime: args.runtimeRemoteExecution,
-        assignment,
-        observerRun,
-        observation: observationRef.current
-      });
-      if (!operationId) {
-        if (canWrite()) {
-          setObservation(null);
-          setPendingInteractions([]);
-          const emptyReplay = createRemoteAcpAttemptReplayState();
-          replayStateRef.current = emptyReplay;
-          setReplayState(emptyReplay);
-        }
-        return;
-      }
-      const next = await api.observeCollaborationRemoteOperation({ operationId });
-      if (!canWrite()) return;
-      const merged = selectRemoteOperationObservation({
-        current: observationRef.current,
-        incoming: next,
-        expectedScopeKey: remoteOperationScopeKey({
-          projectId: snapshot.projectId ?? next.projectId,
-          canvasId: args.workItem.canvasId,
-          blockRef: args.workItem.blockRef
-        })
-      });
-      if (!merged) throw new Error("remote_operation_observation_scope_mismatch");
-      observationRef.current = merged;
-      setObservation(merged);
-      const attemptReplay = scopeRemoteAcpReplayToAttempt(
-        replayStateRef.current,
-        merged.executionAttemptId
-      );
-      if (attemptReplay !== replayStateRef.current) {
-        replayStateRef.current = attemptReplay;
-        setReplayState(attemptReplay);
-      }
-
-      setLoadingInteractions(true);
-      try {
-        const page = await api.listCollaborationRemoteOperationInteractions({
-          operationId,
-          query: { cursor: 0, limit: 50 }
-        });
-        if (!canWrite()) return;
-        setPendingInteractions(page.items.filter((item) => item.status === "pending"));
-      } finally {
-        if (canWrite()) setLoadingInteractions(false);
-      }
-
-      setLoadingEvents(true);
-      const replay = await api.replayCollaborationRemoteOperationEvents({
-        operationId,
-        query: { afterCursor: attemptReplay.cursor }
-      });
-      if (!canWrite()) return;
-      const projection = projectRemoteAcpReplay(replay);
-      const nextReplay = applyRemoteAcpReplayPage({
-        state: attemptReplay,
-        requestedAfterCursor: attemptReplay.cursor,
-        cursor: replay.cursor,
-        hasMore: replay.hasMore,
-        projection
-      });
-      replayStateRef.current = nextReplay;
-      setReplayState(nextReplay);
+      const next = view
+        ? await executionApi.followWorkspaceExecution({
+            locator: args.executionLocator,
+            blockRef: args.workItem.blockRef,
+            ...descriptor(endpointForView, args, currentRemoteEndpointId),
+            sessionId: view.session.sessionId
+          })
+        : existingOperationId
+          ? await executionApi.followWorkspaceExecution({
+              locator: args.executionLocator,
+              blockRef: args.workItem.blockRef,
+              operationId: existingOperationId
+            })
+          : null;
+      if (next && scopeGenerationRef.current === scopeGeneration) setView(next);
     } catch (error) {
-      if (!canWrite()) return;
-      const mapped = mapBoundaryError(error);
-      setActionError(collaborationErrorMessage(mapped));
-      if (mapped.kind === "auth" || mapped.code.includes("auth")) {
-        setObservation(null);
+      if (scopeGenerationRef.current === scopeGeneration) {
+        setActionError(error instanceof Error ? error.message : String(error));
       }
     } finally {
-      if (loadingEventsRequest === loadingEventsRequestRef.current) {
-        setLoadingEvents(false);
-      }
-      if (canWrite()) {
-        refreshInFlightRef.current = false;
-        setLoading(false);
-      }
+      if (scopeGenerationRef.current === scopeGeneration) setLoading(false);
     }
-  }, [
-    api,
-    args.open,
-    args.workItem,
-    args.runtimeRemoteExecution,
-    sessionConnected,
-    assignment,
-    observerRun,
-    scopeKey,
-    snapshot.projectId
-  ]);
-
-  // Refresh when observer remote-run milestones advance for this work item.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: observer milestone-driven refresh
+  }, [args, currentRemoteEndpointId, endpointForView, executionApi, existingOperationId, view]);
+  const followRef = useRef(follow);
   useEffect(() => {
-    if (!args.open) return;
-    void refresh();
-    // Refresh when observer remote-run milestones advance for this work item.
-    // deliberate on observer status only — not every refresh identity churn
-  }, [
-    args.open,
-    workKey,
-    observerRun?.status,
-    observerRun?.updatedAt,
-    args.runtimeRemoteExecution?.identity.operationId,
-    sessionConnected
-  ]);
-
-  const loadMoreEvents = useCallback(async () => {
-    if (!api || !observation || !replayState.hasMore || refreshInFlightRef.current) return;
-    const generation = generationRef.current;
-    const requestedState = replayState;
-    const loadingEventsRequest = ++loadingEventsRequestRef.current;
-    setLoadingEvents(true);
-    setActionError(null);
-    try {
-      const replay = await api.replayCollaborationRemoteOperationEvents({
-        operationId: observation.operationId,
-        query: { afterCursor: requestedState.cursor }
-      });
-      if (
-        generation !== generationRef.current ||
-        !remoteAcpReplayRequestMatchesState(requestedState, replayStateRef.current)
-      ) {
-        return;
-      }
-      const projection = projectRemoteAcpReplay(replay);
-      const nextReplay = applyRemoteAcpReplayPage({
-        state: requestedState,
-        requestedAfterCursor: requestedState.cursor,
-        cursor: replay.cursor,
-        hasMore: replay.hasMore,
-        projection
-      });
-      replayStateRef.current = nextReplay;
-      setReplayState(nextReplay);
-    } catch (error) {
-      if (
-        generation !== generationRef.current ||
-        !remoteAcpReplayRequestMatchesState(requestedState, replayStateRef.current)
-      ) {
-        return;
-      }
-      setActionError(collaborationErrorMessage(mapBoundaryError(error)));
-    } finally {
-      if (loadingEventsRequest === loadingEventsRequestRef.current) setLoadingEvents(false);
-    }
-  }, [api, observation, replayState]);
-
-  const runAction = useCallback(
+    followRef.current = follow;
+  }, [follow]);
+  useEffect(() => {
+    if (autoFollowKey) void followRef.current();
+  }, [autoFollowKey]);
+  const run = useCallback(
     async (
       kind: RemoteRunAuthorizedActionKind,
-      execute: (isCurrentScope: () => boolean) => Promise<void>
-    ): Promise<void> => {
+      call: () => Promise<DesktopWorkspaceExecutionResponse | undefined>
+    ) => {
       if (actionInFlight) return;
-      const actionScopeKey = scopeKey;
-      const actionScopeGeneration = scopeGenerationRef.current;
-      const isCurrentScope = () =>
-        actionScopeKey === scopeKeyRef.current &&
-        actionScopeGeneration === scopeGenerationRef.current;
+      const scopeGeneration = scopeGenerationRef.current;
       setActionInFlight(kind);
       setActionError(null);
       try {
-        await execute(isCurrentScope);
-        if (!isCurrentScope()) return;
-        setConfirmKind(null);
-        await refresh();
+        const next = await call();
+        if (scopeGenerationRef.current === scopeGeneration) {
+          if (next) setView(next);
+          setConfirmKind(null);
+        }
       } catch (error) {
-        if (!isCurrentScope()) return;
-        const mapped = mapBoundaryError(error);
-        setActionError(collaborationErrorMessage(mapped));
-        if (
-          (mapped.kind === "conflict" || mapped.code.includes("stale")) &&
-          !mapped.code.startsWith("agent_endpoint_")
-        ) {
-          await refresh();
+        if (scopeGenerationRef.current === scopeGeneration) {
+          setActionError(error instanceof Error ? error.message : String(error));
         }
       } finally {
-        if (isCurrentScope()) setActionInFlight(null);
+        if (scopeGenerationRef.current === scopeGeneration) setActionInFlight(null);
       }
     },
-    [actionInFlight, refresh, scopeKey]
+    [actionInFlight]
   );
-
   const dispatch = useCallback(async () => {
     const workItem = args.workItem;
-    if (!workItem || workItem.kind !== "block") return;
-    const selectedEndpoint = agentEndpoints.find(
-      (endpoint) => endpoint.id === selectedAgentEndpointId
-    );
-    if (!selectedEndpoint?.available) {
-      setActionError("agent_endpoint_selection_required");
-      return;
-    }
-    if (selectedEndpoint.source === "local") {
-      await runAction("dispatch", async () => {
-        if (!bridge || !args.canvasRef) throw new Error("local_agent_endpoint_unavailable");
-        if (!selectedEndpoint.localExecutorName) {
-          throw new Error("agent_endpoint_selection_required");
-        }
+    if (workItem?.kind !== "block" || !selectedEndpoint?.available)
+      return setActionError("agent_endpoint_selection_required");
+    if (selectedEndpoint.source === "local")
+      return run("dispatch", async () => {
+        if (!bridge || !args.canvasRef || !selectedEndpoint.localExecutorName)
+          throw new Error("local_agent_endpoint_unavailable");
         await bridge.startAutoRun(
           args.canvasRef,
           { kind: "block", blockRef: workItem.blockRef },
           20,
           { executorOverride: selectedEndpoint.localExecutorName }
         );
+        return undefined;
       });
-      return;
-    }
-    if (!api) return;
-    const projectId =
-      snapshot.projectId ??
-      status?.profiles.find((profile) => profile.profileId === status.activeProfileId)?.projectId ??
-      null;
-    if (!projectId) {
-      setActionError("collaboration_project_unavailable");
-      return;
-    }
-    await runAction("dispatch", async (isCurrentScope) => {
-      if (!workAuthority) throw new Error("work_authority_unavailable");
-      const revisions = workAuthority.revisions;
-      if (!selectedEndpoint.remoteEndpointId) throw new Error("agent_endpoint_selection_required");
-      if (!workspaceId) throw new Error("remote_content_authority_unavailable");
-      const availability = await api.readCollaborationCanvasBindingRuntimeAvailability({
-        kind: "remote",
-        workspaceId,
-        projectId,
-        canvasId: workItem.canvasId
-      });
-      if (!availability || availability.schemaVersion !== "canvas-runtime-view/v2") {
-        throw new Error("remote_content_authority_unavailable");
-      }
-      try {
-        const result = await api.dispatchCollaborationRemoteOperation({
-          schemaVersion: "remote-run/v3",
-          projectId,
-          canvasId: workItem.canvasId,
-          blockRef: workItem.blockRef,
-          agentEndpointId: selectedEndpoint.remoteEndpointId,
-          idempotencyKey: `desktop-dispatch-${createId()}`,
-          expectedResponsibilityRevision: revisions.responsibilityRevision,
-          expectedReviewerRevision: revisions.reviewerRevision,
-          executionTargetRevision: revisions.executionTargetRevision,
-          contentRevision: availability.authority.sourceRevision,
-          graphFingerprint: availability.authority.graphFingerprint
-        });
-        if (isCurrentScope()) {
-          const merged = selectRemoteOperationObservation({
-            current: observationRef.current,
-            incoming: result,
-            expectedScopeKey: remoteOperationScopeKey({
-              projectId,
-              canvasId: workItem.canvasId,
-              blockRef: workItem.blockRef
-            })
-          });
-          observationRef.current = merged;
-          setObservation(merged);
-        }
-      } catch (error) {
-        const mapped = mapBoundaryError(error);
-        if (
-          isCurrentScope() &&
-          mapped.kind === "conflict" &&
-          mapped.code.startsWith("agent_endpoint_")
-        ) {
-          try {
-            await refreshAgentEndpoints();
-          } catch (refreshError) {
-            console.warn(collaborationErrorMessage(mapBoundaryError(refreshError)));
-          }
-        }
-        throw error;
-      }
-    });
-  }, [
-    api,
-    args.workItem,
-    runAction,
-    createId,
-    snapshot.projectId,
-    status,
-    workAuthority,
-    agentEndpoints,
-    selectedAgentEndpointId,
-    args.canvasRef,
-    refreshAgentEndpoints,
-    workspaceId
-  ]);
-
+    if (!executionApi || !args.executionLocator)
+      return setActionError("workspace_execution_locator_unavailable");
+    return run("dispatch", () =>
+      executionApi.startWorkspaceExecution({
+        locator: args.executionLocator!,
+        blockRef: workItem.blockRef,
+        ...descriptor(selectedEndpoint, args)
+      })
+    );
+  }, [args, executionApi, run, selectedEndpoint]);
   const cancel = useCallback(
     async (reason: string) => {
-      if (!api || !observation) return;
-      await runAction("cancel", async () => {
-        const action = buildRemoteActionIdentity({
-          observation,
-          kind: "cancel",
-          actionId: createId(),
+      const workItem = args.workItem;
+      if (!executionApi || !args.executionLocator || !view || workItem?.kind !== "block") return;
+      return run("cancel", () =>
+        executionApi.cancelWorkspaceExecution({
+          locator: args.executionLocator!,
+          blockRef: workItem.blockRef,
+          ...descriptor(endpointForView, args, currentRemoteEndpointId),
+          sessionId: view.session.sessionId,
+          actionId: args.createId?.() ?? crypto.randomUUID(),
           reason
-        });
-        await api.executeCollaborationRemoteOperationAction({
-          operationId: observation.operationId,
-          action
-        });
-      });
+        })
+      );
     },
-    [api, observation, runAction, createId]
+    [args, currentRemoteEndpointId, endpointForView, executionApi, run, view]
   );
-
-  const failInterruption = useCallback(
-    async (reason: string) => {
-      if (!api || !observation) return;
-      await runAction("fail_interruption", async () => {
-        const action = buildRemoteActionIdentity({
-          observation,
-          kind: "fail",
-          actionId: createId(),
-          reason,
-          failure: {
-            code: "remote_execution_failed",
-            message: reason,
-            retryable: false
-          }
-        });
-        await api.executeCollaborationRemoteOperationAction({
-          operationId: observation.operationId,
-          action
-        });
-      });
-    },
-    [api, observation, runAction, createId]
-  );
-
   const resume = useCallback(
-    async (reason: string) => {
-      if (!api || !observation) return;
-      await runAction("resume_same_session", async () => {
-        const action = buildRemoteActionIdentity({
-          observation,
-          kind: "resume_same_session",
-          actionId: createId(),
-          reason
-        });
-        await api.executeCollaborationRemoteOperationAction({
-          operationId: observation.operationId,
-          action
-        });
-      });
+    async (_reason: string) => {
+      await follow();
     },
-    [api, observation, runAction, createId]
+    [follow]
   );
-
-  const retryNewAttempt = useCallback(
-    async (input: { newDispatchId: string; newExecutionAttemptId: string; reason: string }) => {
-      if (!api || !observation) return;
-      await runAction("retry_new_attempt", async () => {
-        const action = buildRemoteActionIdentity({
-          observation,
-          kind: "retry_new_attempt",
-          actionId: createId(),
-          reason: input.reason,
-          newDispatchId: input.newDispatchId,
-          newExecutionAttemptId: input.newExecutionAttemptId
-        });
-        await api.executeCollaborationRemoteOperationAction({
-          operationId: observation.operationId,
-          action
-        });
-      });
-    },
-    [api, observation, runAction, createId]
-  );
-
   const answerInteraction = useCallback(
-    async (settlement: RemoteInteractionResponse) => {
-      if (!api || !observation) return;
-      await runAction("answer_interaction", async () => {
-        await api.settleCollaborationRemoteOperationInteraction({
-          operationId: observation.operationId,
-          settlement
-        });
-      });
+    async (response: RemoteInteractionResponse) => {
+      const workItem = args.workItem;
+      if (!executionApi || !args.executionLocator || !view || workItem?.kind !== "block") return;
+      return run("answer_interaction", () =>
+        executionApi.respondWorkspaceExecution({
+          locator: args.executionLocator!,
+          blockRef: workItem.blockRef,
+          ...descriptor(endpointForView, args, currentRemoteEndpointId),
+          sessionId: view.session.sessionId,
+          response
+        })
+      );
     },
-    [api, observation, runAction]
+    [args, currentRemoteEndpointId, endpointForView, executionApi, run, view]
   );
 
-  const viewModel = useMemo(() => {
-    const selectedEndpoint = agentEndpoints.find(
-      (endpoint) => endpoint.id === selectedAgentEndpointId
-    );
-    const localSelected = selectedEndpoint?.source === "local";
-    return projectRemoteRunPanelViewModel({
-      observation,
-      runtime: args.runtimeRemoteExecution ?? null,
-      assignment,
-      observerRun,
-      pendingInteractions,
-      eventProtocolVersion: replayState.eventProtocolVersion,
-      events: adaptRemoteAcpEvents(replayState.events),
-      replayDiagnostics: replayState.diagnostics,
-      eventCursor: replayState.cursor,
-      eventsHasMore: replayState.hasMore,
-      authorized: localSelected
+  const base = projectRemoteRunPanelViewModel({
+    observation: null,
+    runtime: args.runtimeRemoteExecution ?? null,
+    assignment: null,
+    observerRun: null,
+    pendingInteractions: [],
+    eventProtocolVersion: null,
+    events: [],
+    replayDiagnostics: [],
+    eventCursor: 0,
+    eventsHasMore: false,
+    authorized:
+      selectedEndpoint?.source === "local"
         ? Boolean(bridge && args.canvasRef)
-        : !offline && Boolean(sessionConnected),
-      offline: localSelected ? false : Boolean(offline),
-      localAutoRunActive: Boolean(args.localAutoRunActive),
-      hostOnline: assignment?.host?.online ?? null,
-      endpointDispatchAvailable: Boolean(selectedEndpoint?.available)
-    });
-  }, [
-    observation,
-    args.runtimeRemoteExecution,
-    args.localAutoRunActive,
-    assignment,
-    observerRun,
-    pendingInteractions,
-    replayState,
-    offline,
-    sessionConnected,
-    agentEndpoints,
-    selectedAgentEndpointId,
-    args.canvasRef
-  ]);
-
+        : Boolean(executionApi && args.executionLocator),
+    offline: selectedEndpoint?.source === "remote" && !executionApi,
+    localAutoRunActive: Boolean(args.localAutoRunActive),
+    endpointDispatchAvailable: Boolean(selectedEndpoint?.available)
+  });
+  const viewModel = useMemo<RemoteRunPanelViewModel>(() => {
+    if (!view || view.handle.target !== "remote") return base;
+    const pending = pendingInteractionsFor(view);
+    const events = projectedRemoteEventsFor(view);
+    const state = (
+      {
+        created: "preparing",
+        running: "running",
+        blocked: "action_required",
+        completed: "completed",
+        failed: "failed",
+        stopped: "cancelled"
+      } as const
+    )[view.session.phase];
+    const attempt = (
+      {
+        created: "prepared",
+        running: "running",
+        blocked: "action_required",
+        completed: "completed",
+        failed: "failed",
+        stopped: "cancelled"
+      } as const
+    )[view.session.phase];
+    const h = view.handle;
+    return {
+      ...base,
+      phase: phase(view),
+      operationState: state,
+      attemptStatus: attempt,
+      identity:
+        h.executionAttemptId && h.attemptStateVersion !== null
+          ? {
+              operationId: h.operationId,
+              dispatchId: h.dispatchId,
+              executionAttemptId: h.executionAttemptId,
+              attemptVersion: h.attemptStateVersion,
+              hostId: null,
+              agentEndpoint: null,
+              leaseId: h.leaseId,
+              leaseExpiresAt: null,
+              acpSessionId: pending[0]?.request.acpSessionId ?? null,
+              recoveryId: null,
+              blockRef: args.workItem?.kind === "block" ? args.workItem.blockRef : "",
+              canvasId: args.workItem?.canvasId ?? "",
+              projectId:
+                args.executionLocator && "projectId" in args.executionLocator
+                  ? args.executionLocator.projectId
+                  : ""
+            }
+          : null,
+      pendingInteractions: pending,
+      eventProtocolVersion: events.at(-1)?.eventProtocolVersion ?? null,
+      events,
+      eventCursor: h.cursor.eventCursor,
+      eventsHasMore: false,
+      actions: actions(view, pending.length),
+      actionRequired: view.session.phase === "blocked" || pending.length > 0,
+      interruptionResumable: view.session.phase === "blocked",
+      runtimeBindingSummary: `${view.session.phase}/${view.session.evidence.status}`,
+      diagnostics: view.session.evidence.diagnostics.map((item) => item.code)
+    };
+  }, [args.executionLocator, args.workItem, base, view]);
   return {
     viewModel,
     loading,
-    loadingEvents,
-    loadingInteractions,
+    loadingEvents: loading,
+    loadingInteractions: loading,
     actionInFlight,
     actionError,
     agentEndpoints,
     selectedAgentEndpointId,
     setSelectedAgentEndpointId,
-    refreshingAgentEndpoints: args.refreshingAgentEndpoints ?? refreshingAgentEndpoints,
-    legacyHostTargetPresent,
+    refreshingAgentEndpoints: args.refreshingAgentEndpoints ?? false,
+    legacyHostTargetPresent: false,
     refreshAgentEndpoints,
     confirmKind,
     setConfirmKind,
-    refresh,
-    loadMoreEvents,
+    refresh: follow,
+    loadMoreEvents: follow,
     dispatch,
     cancel,
-    failInterruption,
     resume,
-    retryNewAttempt,
     answerInteraction
   };
 }

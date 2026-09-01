@@ -13,8 +13,11 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { createTranslator } from "../i18n";
-import { useRemoteRunPanelController } from "../hooks/useRemoteRunPanelController";
-import type { PlanWeaveCollaborationApi } from "../../shared/collaboration.js";
+import {
+  useRemoteRunPanelController,
+  type RemoteRunExecutionLocator
+} from "../hooks/useRemoteRunPanelController";
+import type { PlanWeaveWorkspaceExecutionApi } from "../../shared/workspaceExecution.js";
 import type { RemoteRunAuthorizedActionKind } from "../collaboration/remoteRunViewModels";
 import { remoteRunLifecyclePhaseLabel } from "../collaboration/remoteRunLifecycleCopy";
 import { formatAgentEndpointUnavailableReason } from "../collaboration/formatAgentEndpointUnavailableReason";
@@ -34,13 +37,14 @@ export type RemoteRunPanelProps = {
   runtimeRemoteExecution?: RemoteBlockExecutionReadModel | null;
   localAutoRunActive?: boolean;
   canvasRef?: DesktopCanvasReference | null;
+  executionLocator?: RemoteRunExecutionLocator | null;
   localAgentEndpoints?: readonly LocalAgentEndpointInput[];
   logicalExecutors?: readonly LogicalAgentEndpointInput[];
   requiredProfileId?: string | null;
   requiredAgentId?: RemoteAgentEndpoint["agentId"] | null;
   requiredCapabilities?: readonly string[];
   open?: boolean;
-  api?: PlanWeaveCollaborationApi | null;
+  executionApi?: PlanWeaveWorkspaceExecutionApi | null;
   onAgentEndpointChange?: (endpointId: string) => void;
   inheritAgentEndpointLabel?: string;
   onRefreshAgentEndpoints?: () => Promise<void>;
@@ -78,13 +82,14 @@ export function RemoteRunPanel({
   runtimeRemoteExecution = null,
   localAutoRunActive = false,
   canvasRef = null,
+  executionLocator = null,
   localAgentEndpoints = [],
   logicalExecutors,
   requiredProfileId = null,
   requiredAgentId = null,
   requiredCapabilities = [],
   open = true,
-  api,
+  executionApi,
   onAgentEndpointChange,
   inheritAgentEndpointLabel,
   onRefreshAgentEndpoints,
@@ -99,13 +104,14 @@ export function RemoteRunPanel({
     runtimeRemoteExecution,
     localAutoRunActive,
     canvasRef,
+    executionLocator,
     localAgentEndpoints,
     logicalExecutors,
     requiredProfileId,
     requiredAgentId,
     requiredCapabilities,
     open,
-    api,
+    executionApi,
     onAgentEndpointChange,
     refreshAgentEndpoints: onRefreshAgentEndpoints,
     refreshingAgentEndpoints,
@@ -114,7 +120,13 @@ export function RemoteRunPanel({
   });
 
   const availableActions = useMemo(
-    () => controller.viewModel.actions.filter((action) => action.available),
+    () =>
+      controller.viewModel.actions.filter(
+        (action) =>
+          action.available &&
+          action.kind !== "fail_interruption" &&
+          action.kind !== "retry_new_attempt"
+      ),
     [controller.viewModel.actions]
   );
 
@@ -369,30 +381,14 @@ export function RemoteRunPanel({
           className="flex flex-col gap-1 rounded-md border border-destructive/40 bg-destructive/5 p-2"
           data-testid="remote-run-confirm"
         >
-          <p className="text-[11px]">
-            {controller.confirmKind === "cancel"
-              ? t("remoteRunConfirmCancel")
-              : controller.confirmKind === "retry_new_attempt"
-                ? t("remoteRunConfirmRetry")
-                : t("remoteRunConfirmFail")}
-          </p>
+          <p className="text-[11px]">{t("remoteRunConfirmCancel")}</p>
           <div className="flex flex-wrap gap-1">
             <Button
               size="sm"
               variant="destructive"
               data-testid="remote-run-confirm-yes"
               onClick={() => {
-                if (controller.confirmKind === "cancel") {
-                  void controller.cancel(t("remoteRunDefaultCancelReason"));
-                } else if (controller.confirmKind === "fail_interruption") {
-                  void controller.failInterruption(t("remoteRunDefaultFailReason"));
-                } else if (controller.confirmKind === "retry_new_attempt" && identity) {
-                  void controller.retryNewAttempt({
-                    newDispatchId: `dispatch-retry-${Date.now()}`,
-                    newExecutionAttemptId: `attempt-retry-${Date.now()}`,
-                    reason: t("remoteRunDefaultRetryReason")
-                  });
-                }
+                void controller.cancel(t("remoteRunDefaultCancelReason"));
               }}
             >
               {t("remoteRunConfirmYes")}
@@ -421,11 +417,6 @@ export function RemoteRunPanel({
               if (!action.available) return;
               if (action.requiresConfirm) {
                 if (action.kind === "cancel") controller.setConfirmKind("cancel");
-                else if (action.kind === "retry_new_attempt") {
-                  controller.setConfirmKind("retry_new_attempt");
-                } else if (action.kind === "fail_interruption") {
-                  controller.setConfirmKind("fail_interruption");
-                }
                 return;
               }
               if (action.kind === "dispatch") void controller.dispatch();

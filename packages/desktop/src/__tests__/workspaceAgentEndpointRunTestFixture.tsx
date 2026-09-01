@@ -20,9 +20,7 @@ import {
 } from "./helpers/collaborationRuntimeAvailabilityFixture";
 
 const operatorControlBridgeMock = vi.hoisted(() => ({
-  dispatchOwnerFleetRemoteOperation: vi.fn(),
-  observeOwnerFleetRemoteOperation: vi.fn(),
-  executeOwnerFleetRemoteOperationAction: vi.fn()
+  observeOwnerFleetRemoteOperation: vi.fn()
 }));
 
 const bridgeMock = vi.hoisted(() => ({

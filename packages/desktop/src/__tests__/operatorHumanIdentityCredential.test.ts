@@ -1,0 +1,103 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  exampleHumanDeviceToken,
+  exampleHumanIdentityToken
+} from "@planweave-ai/collaboration-protocol/fixtures/collaboration";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { CollaborationCredentialVault } from "../main/collaboration/collaborationCredentialVault.js";
+import { resolveOperatorHumanIdentityCredential } from "../main/collaboration/operatorHumanIdentityCredential.js";
+import { CollaborationProfileStore } from "../main/collaboration/collaborationProfileStore.js";
+
+const tempRoots: string[] = [];
+
+async function temporaryDirectory(): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "planweave-operator-human-"));
+  tempRoots.push(root);
+  return root;
+}
+
+const safeStorage = {
+  isEncryptionAvailable: vi.fn(() => true),
+  encryptString: vi.fn((value: string) => Buffer.from(value, "utf8")),
+  decryptString: vi.fn((value: Buffer) => value.toString("utf8"))
+};
+
+function profile(profileId: string, projectId: string) {
+  const serverOrigin = "https://operator.example.test/";
+  return {
+    profileId,
+    displayName: profileId,
+    serverBaseUrl: serverOrigin,
+    projectId,
+    allowInsecureTransport: false,
+    endpoint: {
+      topology: "public_https" as const,
+      serverOrigin,
+      allowedClientOrigins: [serverOrigin],
+      tlsTrust: "system_ca" as const
+    }
+  };
+}
+
+afterEach(async () => {
+  await Promise.all(tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
+
+describe("resolveOperatorHumanIdentityCredential", () => {
+  it("resolves the Human by Server origin without depending on the active Workspace", async () => {
+    const root = await temporaryDirectory();
+    const profiles = new CollaborationProfileStore({ profilesPath: join(root, "profiles.json") });
+    const vault = new CollaborationCredentialVault({
+      paths: { credentialsPath: join(root, "credentials.json") },
+      safeStorage
+    });
+    await profiles.upsert(profile("workspace-a", "project-a"));
+    await profiles.upsert(profile("workspace-b", "project-b"));
+    await profiles.setActiveProfileId("workspace-b");
+    await vault.setDeviceToken("workspace-a", exampleHumanDeviceToken, {
+      humanPrincipalId: "human-owner-1",
+      identityToken: exampleHumanIdentityToken
+    });
+
+    await expect(
+      resolveOperatorHumanIdentityCredential({
+        profiles,
+        vault,
+        serverBaseUrl: "https://operator.example.test/",
+        humanPrincipalId: "human-owner-1"
+      })
+    ).resolves.toEqual({
+      humanPrincipalId: "human-owner-1",
+      identityToken: exampleHumanIdentityToken
+    });
+  });
+
+  it("fails closed when a Server origin has credentials for multiple Humans", async () => {
+    const root = await temporaryDirectory();
+    const profiles = new CollaborationProfileStore({ profilesPath: join(root, "profiles.json") });
+    const vault = new CollaborationCredentialVault({
+      paths: { credentialsPath: join(root, "credentials.json") },
+      safeStorage
+    });
+    await profiles.upsert(profile("workspace-a", "project-a"));
+    await profiles.upsert(profile("workspace-b", "project-b"));
+    await vault.setDeviceToken("workspace-a", exampleHumanDeviceToken, {
+      humanPrincipalId: "human-owner-1",
+      identityToken: exampleHumanIdentityToken
+    });
+    await vault.setDeviceToken("workspace-b", `pw_hdev_${"B".repeat(43)}`, {
+      humanPrincipalId: "human-owner-2",
+      identityToken: `pw_hid_${"B".repeat(43)}`
+    });
+
+    await expect(
+      resolveOperatorHumanIdentityCredential({
+        profiles,
+        vault,
+        serverBaseUrl: "https://operator.example.test/"
+      })
+    ).resolves.toBeNull();
+  });
+});

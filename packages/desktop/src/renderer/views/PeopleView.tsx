@@ -131,9 +131,7 @@ export function PeopleView({
     error: collaborationStatusError,
     refresh: refreshCollaborationStatus
   } = useCollaborationStatus({ api });
-  const hostController = useHostAdministrationController({
-    enrollmentWorkspaceId: status?.workspaceConnection.workspaceId ?? null
-  });
+  const hostController = useHostAdministrationController();
 
   const activeProfile = useMemo(() => {
     if (!status?.activeProfileId) return null;

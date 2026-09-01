@@ -166,11 +166,7 @@ function createDefaultService(options: CollaborationServiceOptions = {}): Collab
     onCanvasReplicaSignal: options.onCanvasReplicaSignal ?? publishCanvasReplicaSignalToRenderers,
     onWorkspaceCanvasProjection:
       options.onWorkspaceCanvasProjection ?? publishWorkspaceCanvasProjectionToRenderers,
-    bindLiveOperatorToOrigin:
-      options.bindLiveOperatorToOrigin ??
-      (async (serverBaseUrl) => {
-        await getOperatorControlService().bindActiveProfileToLiveOrigin(serverBaseUrl);
-      })
+    bindLiveOperatorToOrigin: options.bindLiveOperatorToOrigin
   });
 }
 
@@ -806,10 +802,6 @@ export function registerCollaborationHandlers(
     (_event, input: unknown) => active.listAgentEndpoints(input)
   );
   ipcMain.handle(
-    collaborationInvokeChannels.dispatchCollaborationRemoteOperation,
-    (_event, input: unknown) => active.dispatchRemoteOperation(input)
-  );
-  ipcMain.handle(
     collaborationInvokeChannels.observeCollaborationRemoteOperation,
     (_event, input: unknown) => active.observeRemoteOperation(input)
   );
@@ -826,24 +818,12 @@ export function registerCollaborationHandlers(
     (_event, input: unknown) => active.observeWorkspaceRemoteOperation(input)
   );
   ipcMain.handle(
-    collaborationInvokeChannels.executeCollaborationRemoteOperationAction,
-    (_event, input: unknown) => active.executeRemoteOperationAction(input)
-  );
-  ipcMain.handle(
     collaborationInvokeChannels.replayCollaborationRemoteOperationEvents,
     (_event, input: unknown) => active.replayRemoteOperationEvents(input)
   );
   ipcMain.handle(
     collaborationInvokeChannels.replayWorkspaceRemoteOperationEvents,
     (_event, input: unknown) => active.replayWorkspaceRemoteOperationEvents(input)
-  );
-  ipcMain.handle(
-    collaborationInvokeChannels.listCollaborationRemoteOperationInteractions,
-    (_event, input: unknown) => active.listRemoteOperationInteractions(input)
-  );
-  ipcMain.handle(
-    collaborationInvokeChannels.settleCollaborationRemoteOperationInteraction,
-    (_event, input: unknown) => active.settleRemoteOperationInteraction(input)
   );
 
   return active;

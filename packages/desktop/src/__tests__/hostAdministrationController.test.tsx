@@ -23,7 +23,7 @@ vi.mock("../renderer/hooks/useCollaborationStatus", () => ({
   useCollaborationStatus: () => ({
     status: {
       activeProfileId: "collab-1",
-      profiles: [{ profileId: "collab-1", humanPrincipalId: "owner-human-1" }],
+      profiles: [{ profileId: "collab-1", humanPrincipalId: "workspace-human-other" }],
       session: { phase: "connected" }
     },
     loading: false,
@@ -49,6 +49,7 @@ function profile(
       tlsTrust: "system_ca" as const
     },
     operatorId: `operator-${profileId}`,
+    humanPrincipalId: "owner-human-1",
     hasOperatorCredential: true,
     operatorCredentialPersistence: "persisted" as const,
     updatedAt: "2030-01-01T00:00:00.000Z",

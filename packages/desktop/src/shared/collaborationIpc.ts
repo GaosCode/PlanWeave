@@ -101,19 +101,13 @@ export const collaborationInvokeChannels = {
   finalizeCollaborationPendingAttachment: "planweave-collaboration:finalizePendingAttachment",
   readCollaborationCommentAttachment: "planweave-collaboration:readCommentAttachment",
   listCollaborationAgentEndpoints: "planweave-collaboration:listAgentEndpoints",
-  dispatchCollaborationRemoteOperation: "planweave-collaboration:dispatchRemoteOperation",
   observeCollaborationRemoteOperation: "planweave-collaboration:observeRemoteOperation",
   lookupCollaborationRemoteOperation: "planweave-collaboration:lookupRemoteOperation",
   lookupWorkspaceRemoteOperation: "planweave-collaboration:lookupWorkspaceRemoteOperation",
   observeWorkspaceRemoteOperation: "planweave-collaboration:observeWorkspaceRemoteOperation",
-  executeCollaborationRemoteOperationAction: "planweave-collaboration:executeRemoteOperationAction",
   replayCollaborationRemoteOperationEvents: "planweave-collaboration:replayRemoteOperationEvents",
   replayWorkspaceRemoteOperationEvents:
-    "planweave-collaboration:replayWorkspaceRemoteOperationEvents",
-  listCollaborationRemoteOperationInteractions:
-    "planweave-collaboration:listRemoteOperationInteractions",
-  settleCollaborationRemoteOperationInteraction:
-    "planweave-collaboration:settleRemoteOperationInteraction"
+    "planweave-collaboration:replayWorkspaceRemoteOperationEvents"
 } as const;
 
 export const collaborationStatusChangedChannel = "planweave-collaboration:statusChanged";

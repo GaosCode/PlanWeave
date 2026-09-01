@@ -1,20 +1,30 @@
 import {
+  OUTPUT_MAX_ARTIFACT_BYTES,
+  OPERATOR_OWNER_TERMINAL_RESULT_MEDIA_TYPE,
+  OPERATOR_OWNER_TERMINAL_RESULT_METADATA_HEADER,
   operatorEnrollmentGrantRequestSchema,
   operatorEnrollmentGrantResponseSchema,
   operatorHostPageSchema,
   operatorHostRenewalRequestSchema,
   operatorHostRenewalResponseSchema,
   operatorHostRevokeResponseSchema,
+  operatorOwnerTerminalResultMetadataSchema,
   operatorPageQuerySchema,
   operatorTokenSchema,
   opaqueIdentifierSchema,
   type OperatorEnrollmentGrantResponse,
   type OperatorHostPage,
-  type OperatorHostView
+  type OperatorHostView,
+  type OperatorOwnerTerminalResultPayload
 } from "@planweave-ai/agent-host-protocol";
 import {
   OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE,
-  remoteEventReplaySchema
+  remoteEventReplaySchema,
+  remoteInteractionPageQuerySchema,
+  remoteInteractionPageSchema,
+  remoteInteractionResponseSchema,
+  remoteInteractionViewSchema,
+  type RemoteInteractionResponse
 } from "@planweave-ai/collaboration-protocol/remote-run";
 import {
   remoteAgentEndpointListSchema,
@@ -24,6 +34,20 @@ import {
   setupCodeIssueResponseSchema,
   type SetupCodeIssueResponse
 } from "@planweave-ai/collaboration-protocol/setup";
+import {
+  ownerCanvasMaterializationHeadViewSchema,
+  ownerCanvasMaterializationRequestMetadataSchema,
+  ownerCanvasMaterializationResultSchema,
+  ownerCanvasMaterializationScopeSchema,
+  ownerCanvasMaterializationUploadCompleteFrameSchema,
+  ownerCanvasMaterializationUploadHeaderFrameSchema,
+  ownerCanvasMaterializationUploadLimits,
+  ownerCanvasMaterializationUploadMediaType,
+  ownerCanvasMaterializationUploadMemberFrameSchema,
+  type OwnerCanvasMaterializationRequest,
+  type OwnerCanvasMaterializationScope
+} from "@planweave-ai/collaboration-protocol/owner-canvas/materialization";
+import { humanIdentityTokenSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import { z, type ZodType } from "zod";
 import {
   OperatorControlError,
@@ -50,6 +74,9 @@ const OPERATOR_JSON_BODY_MAX_BYTES = 64 * 1024;
 
 export type OperatorCredentialPort = {
   getOperatorToken(): string | undefined | Promise<string | undefined>;
+  getHumanIdentityToken?(
+    humanPrincipalId: string
+  ): string | undefined | Promise<string | undefined>;
 };
 
 export type OperatorControlClientOptions = {
@@ -176,15 +203,20 @@ export class OperatorControlClient {
     return this.json(
       "GET",
       `/api/v1/agent-endpoints?${params.toString()}`,
-      remoteAgentEndpointListSchema
+      remoteAgentEndpointListSchema,
+      { humanPrincipalId: parsed.humanPrincipalId }
     );
   }
 
   async createEnrollmentGrant(
     input: OperatorCreateEnrollmentGrantInput["request"]
   ): Promise<OperatorEnrollmentGrantResponse> {
+    const request = operatorEnrollmentGrantRequestSchema.parse(input);
     return this.json("POST", "/api/v1/host-enrollments", operatorEnrollmentGrantResponseSchema, {
-      body: operatorEnrollmentGrantRequestSchema.parse(input)
+      body: request,
+      ...(request.ownerHumanPrincipalId === undefined
+        ? {}
+        : { humanPrincipalId: request.ownerHumanPrincipalId })
     });
   }
 
@@ -234,12 +266,145 @@ export class OperatorControlClient {
     return operatorObservationToRemoteRun(
       await this.json("POST", "/api/v1/remote-operations", z.object({}).passthrough(), {
         body,
-        accept: OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE
+        accept: OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE,
+        humanPrincipalId
       })
     );
   }
 
-  async observeRemoteOperation(operationId: string) {
+  async inspectOwnerCanvasMaterializationHead(scope: OwnerCanvasMaterializationScope) {
+    const parsed = ownerCanvasMaterializationScopeSchema.parse(scope);
+    const params = new URLSearchParams({
+      ownerHumanPrincipalId: parsed.ownerHumanPrincipalId,
+      projectId: parsed.projectId,
+      canvasId: parsed.canvasId
+    });
+    return this.json(
+      "GET",
+      `/api/v1/owner-canvas-materializations/head?${params.toString()}`,
+      ownerCanvasMaterializationHeadViewSchema,
+      { humanPrincipalId: parsed.ownerHumanPrincipalId }
+    );
+  }
+
+  async materializeOwnerCanvas(request: OwnerCanvasMaterializationRequest) {
+    const metadata = ownerCanvasMaterializationRequestMetadataSchema.parse({
+      schemaVersion: request.schemaVersion,
+      materializationId: request.materializationId,
+      scope: request.scope,
+      expectedHead: request.expectedHead
+    });
+    const lines = [
+      JSON.stringify(
+        ownerCanvasMaterializationUploadHeaderFrameSchema.parse({
+          type: "header",
+          request: metadata
+        })
+      ),
+      ...request.content.members.map((member, index) =>
+        JSON.stringify(
+          ownerCanvasMaterializationUploadMemberFrameSchema.parse({ type: "member", index, member })
+        )
+      ),
+      JSON.stringify(
+        ownerCanvasMaterializationUploadCompleteFrameSchema.parse({
+          type: "complete",
+          canonicalDigest: request.content.canonicalDigest,
+          totalBytes: request.content.totalBytes,
+          memberCount: request.content.members.length
+        })
+      )
+    ];
+    if (
+      lines.some(
+        (line) =>
+          Buffer.byteLength(line, "utf8") > ownerCanvasMaterializationUploadLimits.maxFrameBytes
+      )
+    ) {
+      throw new OperatorControlError({
+        kind: "payload_too_large",
+        code: "owner_canvas_materialization_frame_too_large"
+      });
+    }
+    const body = `${lines.join("\n")}\n`;
+    if (Buffer.byteLength(body, "utf8") > ownerCanvasMaterializationUploadLimits.maxWireBytes) {
+      throw new OperatorControlError({
+        kind: "payload_too_large",
+        code: "owner_canvas_materialization_body_too_large"
+      });
+    }
+    return this.json(
+      "POST",
+      "/api/v1/owner-canvas-materializations",
+      ownerCanvasMaterializationResultSchema,
+      {
+        rawBody: body,
+        contentType: ownerCanvasMaterializationUploadMediaType,
+        humanPrincipalId: metadata.scope.ownerHumanPrincipalId
+      }
+    );
+  }
+
+  async readOwnerRemoteOperationTerminalResult(operationId: string, humanPrincipalId?: string) {
+    const id = opaqueIdentifierSchema.parse(operationId);
+    const response = await this.send(
+      `/api/v1/remote-operations/${encodeURIComponent(id)}/terminal-result`,
+      {
+        method: "GET",
+        headers: await this.authorizedHeaders(
+          OPERATOR_OWNER_TERMINAL_RESULT_MEDIA_TYPE,
+          humanPrincipalId
+        )
+      }
+    );
+    if (!response.ok) {
+      throw errorFromHttp(response.status, await this.readTextLimited(response));
+    }
+    const mediaType = response.headers.get("content-type")?.split(";", 1)[0]?.trim();
+    if (mediaType !== OPERATOR_OWNER_TERMINAL_RESULT_MEDIA_TYPE) {
+      await response.body?.cancel();
+      throw new OperatorControlError({
+        kind: "protocol",
+        code: "operator_response_invalid"
+      });
+    }
+    const encodedMetadata = response.headers.get(OPERATOR_OWNER_TERMINAL_RESULT_METADATA_HEADER);
+    if (
+      !encodedMetadata ||
+      encodedMetadata.length > OPERATOR_JSON_BODY_MAX_BYTES * 2 ||
+      !/^[A-Za-z0-9_-]+$/.test(encodedMetadata)
+    ) {
+      await response.body?.cancel();
+      throw new OperatorControlError({
+        kind: "protocol",
+        code: "operator_response_invalid"
+      });
+    }
+    let metadata: OperatorOwnerTerminalResultPayload["metadata"];
+    try {
+      const metadataBytes = Buffer.from(encodedMetadata, "base64url");
+      if (metadataBytes.byteLength > OPERATOR_JSON_BODY_MAX_BYTES) throw new Error();
+      metadata = operatorOwnerTerminalResultMetadataSchema.parse(
+        JSON.parse(metadataBytes.toString("utf8"))
+      );
+    } catch {
+      await response.body?.cancel();
+      throw new OperatorControlError({
+        kind: "protocol",
+        code: "operator_response_invalid"
+      });
+    }
+    return {
+      metadata,
+      reportBytes: await this.readBytesLimited(
+        response,
+        OUTPUT_MAX_ARTIFACT_BYTES,
+        "operator_terminal_result_too_large"
+      )
+    } satisfies OperatorOwnerTerminalResultPayload;
+  }
+
+  async observeRemoteOperation(operationId: string, humanPrincipalId?: string) {
     const { operatorObservationToRemoteRun } = await import("./operatorRemoteOperations.js");
     const id = opaqueIdentifierSchema.parse(operationId);
     return operatorObservationToRemoteRun(
@@ -247,18 +412,62 @@ export class OperatorControlClient {
         "GET",
         `/api/v1/remote-operations/${encodeURIComponent(id)}`,
         z.object({}).passthrough(),
-        { accept: OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE }
+        {
+          accept: OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE,
+          ...(humanPrincipalId ? { humanPrincipalId } : {})
+        }
       )
     );
   }
 
-  async replayRemoteOperationEvents(operationId: string, afterCursor: number) {
+  async replayRemoteOperationEvents(
+    operationId: string,
+    afterCursor: number,
+    humanPrincipalId?: string
+  ) {
     const id = opaqueIdentifierSchema.parse(operationId);
     const params = new URLSearchParams({ afterCursor: String(afterCursor) });
     return this.json(
       "GET",
       `/api/v1/remote-operations/${encodeURIComponent(id)}/events?${params.toString()}`,
-      remoteEventReplaySchema
+      remoteEventReplaySchema,
+      humanPrincipalId ? { humanPrincipalId } : undefined
+    );
+  }
+
+  async listRemoteOperationInteractions(
+    operationId: string,
+    cursor = 0,
+    humanPrincipalId?: string
+  ) {
+    const id = opaqueIdentifierSchema.parse(operationId);
+    const query = remoteInteractionPageQuerySchema.parse({ cursor });
+    const params = new URLSearchParams({
+      cursor: String(query.cursor),
+      limit: String(query.limit)
+    });
+    return this.json(
+      "GET",
+      `/api/v1/remote-operations/${encodeURIComponent(id)}/interactions?${params.toString()}`,
+      remoteInteractionPageSchema,
+      humanPrincipalId ? { humanPrincipalId } : undefined
+    );
+  }
+
+  async settleRemoteOperationInteraction(
+    operationId: string,
+    response: RemoteInteractionResponse,
+    humanPrincipalId?: string
+  ) {
+    const id = opaqueIdentifierSchema.parse(operationId);
+    return this.json(
+      "POST",
+      `/api/v1/remote-operations/${encodeURIComponent(id)}/interactions/respond`,
+      remoteInteractionViewSchema,
+      {
+        body: remoteInteractionResponseSchema.parse(response),
+        ...(humanPrincipalId ? { humanPrincipalId } : {})
+      }
     );
   }
 
@@ -269,7 +478,8 @@ export class OperatorControlClient {
     return this.json(
       "GET",
       `/api/v1/remote-agents?${params.toString()}`,
-      operatorRemoteAgentListSchema
+      operatorRemoteAgentListSchema,
+      { humanPrincipalId: query.humanPrincipalId }
     );
   }
 
@@ -287,7 +497,8 @@ export class OperatorControlClient {
           ...(input.expectedPolicyRevision === undefined
             ? {}
             : { expectedPolicyRevision: input.expectedPolicyRevision })
-        }
+        },
+        humanPrincipalId: input.humanPrincipalId
       }
     );
   }
@@ -306,7 +517,8 @@ export class OperatorControlClient {
           ...(input.expectedGrantRevision === undefined
             ? {}
             : { expectedGrantRevision: input.expectedGrantRevision })
-        }
+        },
+        humanPrincipalId: input.humanPrincipalId
       }
     );
   }
@@ -318,7 +530,10 @@ export class OperatorControlClient {
       "POST",
       `/api/v1/remote-agents/${encodeURIComponent(input.endpointId)}/grants/${encodeURIComponent(input.workspaceId)}/revoke`,
       operatorRemoteAgentViewSchema,
-      { body: { humanPrincipalId: input.humanPrincipalId } }
+      {
+        body: { humanPrincipalId: input.humanPrincipalId },
+        humanPrincipalId: input.humanPrincipalId
+      }
     );
   }
 
@@ -329,7 +544,10 @@ export class OperatorControlClient {
       "POST",
       `/api/v1/remote-agents/${encodeURIComponent(input.endpointId)}/revoke`,
       operatorRemoteAgentViewSchema,
-      { body: { humanPrincipalId: input.humanPrincipalId } }
+      {
+        body: { humanPrincipalId: input.humanPrincipalId },
+        humanPrincipalId: input.humanPrincipalId
+      }
     );
   }
 
@@ -346,7 +564,8 @@ export class OperatorControlClient {
 
   async executeRemoteOperationAction(
     operationId: string,
-    action: import("@planweave-ai/collaboration-protocol/remote-run").RemoteHumanExecutionActionCommand
+    action: import("@planweave-ai/collaboration-protocol/remote-run").RemoteHumanExecutionActionCommand,
+    humanPrincipalId?: string
   ) {
     const { remoteHumanExecutionActionCommandSchema, remoteActionViewSchema } = await import(
       "@planweave-ai/collaboration-protocol/remote-run"
@@ -356,7 +575,10 @@ export class OperatorControlClient {
       "POST",
       `/api/v1/remote-operations/${encodeURIComponent(id)}/actions`,
       remoteActionViewSchema,
-      { body: remoteHumanExecutionActionCommandSchema.parse(action) }
+      {
+        body: remoteHumanExecutionActionCommandSchema.parse(action),
+        ...(humanPrincipalId ? { humanPrincipalId } : {})
+      }
     );
   }
 
@@ -375,26 +597,30 @@ export class OperatorControlClient {
     method: "GET" | "POST",
     path: string,
     schema: ZodType<T>,
-    options: { body?: unknown; accept?: string } = {}
+    options: {
+      body?: unknown;
+      rawBody?: string;
+      contentType?: string;
+      accept?: string;
+      humanPrincipalId?: string;
+    } = {}
   ): Promise<T> {
     this.ensureOpen();
-    const token = await this.options.credential.getOperatorToken();
-    if (!token) {
-      throw new OperatorControlError({ kind: "unauthorized", code: "operator_credential_missing" });
+    const headers = await this.authorizedHeaders(
+      options.accept ?? "application/json",
+      options.humanPrincipalId
+    );
+    if (options.body !== undefined && options.rawBody !== undefined) {
+      throw new OperatorControlError({ kind: "validation", code: "operator_body_invalid" });
     }
-    const parsedToken = operatorTokenSchema.safeParse(token);
-    if (!parsedToken.success) {
-      throw new OperatorControlError({ kind: "unauthorized", code: "operator_credential_invalid" });
+    if (options.body !== undefined || options.rawBody !== undefined) {
+      headers["content-type"] = options.contentType ?? "application/json; charset=utf-8";
     }
-    const headers: Record<string, string> = {
-      accept: options.accept ?? "application/json",
-      authorization: `Bearer ${parsedToken.data}`
-    };
-    if (options.body !== undefined) headers["content-type"] = "application/json; charset=utf-8";
     const response = await this.send(path, {
       method,
       headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body)
+      body:
+        options.rawBody ?? (options.body === undefined ? undefined : JSON.stringify(options.body))
     });
     const text = await this.readTextLimited(response);
     if (!response.ok) throw errorFromHttp(response.status, text);
@@ -415,6 +641,42 @@ export class OperatorControlClient {
         code: "operator_response_invalid"
       });
     }
+  }
+
+  private async authorizedHeaders(
+    accept: string,
+    humanPrincipalId?: string
+  ): Promise<Record<string, string>> {
+    const token = await this.options.credential.getOperatorToken();
+    if (!token) {
+      throw new OperatorControlError({ kind: "unauthorized", code: "operator_credential_missing" });
+    }
+    const parsedToken = operatorTokenSchema.safeParse(token);
+    if (!parsedToken.success) {
+      throw new OperatorControlError({ kind: "unauthorized", code: "operator_credential_invalid" });
+    }
+    const headers: Record<string, string> = {
+      accept,
+      authorization: `Bearer ${parsedToken.data}`
+    };
+    if (humanPrincipalId) {
+      const identityToken = await this.options.credential.getHumanIdentityToken?.(humanPrincipalId);
+      if (identityToken === undefined) {
+        throw new OperatorControlError({
+          kind: "unauthorized",
+          code: "operator_human_identity_credential_missing"
+        });
+      }
+      const parsedIdentityToken = humanIdentityTokenSchema.safeParse(identityToken);
+      if (!parsedIdentityToken.success) {
+        throw new OperatorControlError({
+          kind: "unauthorized",
+          code: "operator_human_identity_credential_invalid"
+        });
+      }
+      headers["x-planweave-human-identity"] = `Bearer ${parsedIdentityToken.data}`;
+    }
+    return headers;
   }
 
   private async send(
@@ -478,6 +740,44 @@ export class OperatorControlClient {
       chunks.map((chunk) => Buffer.from(chunk)),
       totalBytes
     ).toString("utf8");
+  }
+
+  private async readBytesLimited(
+    response: Response,
+    maxBytes: number,
+    tooLargeCode: string
+  ): Promise<Uint8Array> {
+    const declared = response.headers.get("content-length");
+    if (declared && /^\d+$/.test(declared) && Number(declared) > maxBytes) {
+      await response.body?.cancel();
+      throw new OperatorControlError({
+        kind: "payload_too_large",
+        code: tooLargeCode,
+        httpStatus: response.status
+      });
+    }
+    const reader = response.body?.getReader();
+    if (!reader) return new Uint8Array();
+    const chunks: Uint8Array[] = [];
+    let totalBytes = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel();
+        throw new OperatorControlError({
+          kind: "payload_too_large",
+          code: tooLargeCode,
+          httpStatus: response.status
+        });
+      }
+      chunks.push(value);
+    }
+    return Buffer.concat(
+      chunks.map((chunk) => Buffer.from(chunk)),
+      totalBytes
+    );
   }
 }
 

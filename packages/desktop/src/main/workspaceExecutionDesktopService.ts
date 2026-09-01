@@ -1,16 +1,20 @@
 import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { remoteHumanExecutionActionCommandSchema } from "@planweave-ai/collaboration-protocol/remote-run";
+import { dispatchIdSchema, executionAttemptIdSchema } from "@planweave-ai/agent-host-protocol";
 import {
   WorkspaceExecutionCoordinator,
+  RemoteOwnershipConflictError,
   createRemoteWorkspaceExecutionAdapter,
   createWorkspaceAuthorityBindingResolver,
   projectWorkspaceExecutionCoordinatorView,
   type RemoteWorkspaceAuthorityBinding,
   type ValidatedWorkspaceAuthorityBinding,
+  type WorkspaceCanvasRemoteAuthorityBinding,
   type WorkspaceExecutionCoordinatorView,
   type WorkspaceExecutionRequest,
-  type WorkspaceExecutionSessionStorage
+  type WorkspaceExecutionSessionStorage,
+  type RemoteBlockRuntimePort
 } from "@planweave-ai/runtime";
 import type {
   DesktopWorkspaceExecutionCancelInput,
@@ -22,14 +26,134 @@ import type { WorkspaceCanvasLocator } from "../shared/canvasLocator.js";
 import { CollaborationService } from "./collaboration/collaborationService.js";
 import type { CollaborationClient } from "./collaboration/CollaborationClient.js";
 import { desktopHomePaths } from "./planweaveHomePaths.js";
+import type { OperatorControlService } from "./operatorControl/operatorControlService.js";
 import { DesktopWorkspaceExecutionSessionRepository } from "./workspaceExecutionDesktopSessionRepository.js";
+import {
+  withOwnerCanvasExistingExecutionCoordinator,
+  withOwnerCanvasExecutionCoordinator,
+  type OwnerCanvasRemoteOperations
+} from "./workspaceExecutionOwnerCanvas.js";
 
 type RemoteBinding = ValidatedWorkspaceAuthorityBinding & RemoteWorkspaceAuthorityBinding;
-type RemoteOperationsCancellationPort = Pick<
-  ReturnType<CollaborationClient["remoteOperations"]>,
-  "executeRemoteOperationAction" | "observeRemoteOperation"
+type WorkspaceRemoteBinding = ValidatedWorkspaceAuthorityBinding &
+  WorkspaceCanvasRemoteAuthorityBinding;
+type OwnerCanvasExecutionInput = Extract<
+  DesktopWorkspaceExecutionStartInput,
+  { locator: { kind: "owner_canvas" } }
 >;
+type WorkspaceCanvasExecutionInput = Extract<
+  DesktopWorkspaceExecutionStartInput,
+  { locator: { kind: "workspace" } }
+>;
+type RemoteOperationsCancellationPort =
+  | Pick<
+      ReturnType<CollaborationClient["remoteOperations"]>,
+      "executeRemoteOperationAction" | "observeRemoteOperation"
+    >
+  | OwnerCanvasRemoteOperations;
 type WorkspaceExecutionCancelOutcome = "already_terminal" | "remote_terminal" | "cancelled";
+
+type OwnerLocalWritebackContext = {
+  request: WorkspaceExecutionRequest & { authority: { kind: "owner_canvas" } };
+  view: WorkspaceExecutionCoordinatorView;
+  runtime: RemoteBlockRuntimePort;
+  remoteOperations: OwnerCanvasRemoteOperations;
+};
+
+function isOwnerCanvasExecutionInput(
+  input: DesktopWorkspaceExecutionStartInput
+): input is OwnerCanvasExecutionInput {
+  return input.locator.kind === "owner_canvas";
+}
+
+function requireWorkspaceRemoteBinding(binding: RemoteBinding): WorkspaceRemoteBinding {
+  if (!("workspaceId" in binding)) {
+    throw new Error("workspace_execution_authority_kind_mismatch");
+  }
+  return binding;
+}
+
+async function writeBackOwnerCanvasExecution(input: OwnerLocalWritebackContext): Promise<void> {
+  if (input.view.handle.target !== "remote" || input.request.scope.kind !== "block") {
+    throw new Error("owner_canvas_remote_block_handle_required");
+  }
+  const handle = input.view.handle;
+  if (!handle.executionAttemptId) return;
+  const ref = input.request.scope.blockRef;
+  const source = input.request.authority.expected;
+  try {
+    const existing = await input.runtime.query({ ref, operationId: handle.operationId });
+    if (existing.terminalReceipt) return;
+  } catch (error) {
+    if (
+      !(error instanceof RemoteOwnershipConflictError) ||
+      error.code !== "remote_ownership_not_active"
+    ) {
+      throw error;
+    }
+    await input.runtime.claim({
+      ref,
+      operationId: handle.operationId,
+      controlPlane: "owner",
+      sourceRevision: source.contentRevision,
+      graphFingerprint: source.graphFingerprint
+    });
+  }
+  const identity = {
+    ref,
+    operationId: handle.operationId,
+    controlPlane: "owner" as const,
+    sourceRevision: source.contentRevision,
+    graphFingerprint: source.graphFingerprint,
+    dispatchId: dispatchIdSchema.parse(handle.dispatchId),
+    executionAttemptId: executionAttemptIdSchema.parse(handle.executionAttemptId)
+  };
+  await input.runtime.activate(identity);
+  if (input.view.session.phase === "completed") {
+    const result = await input.remoteOperations.readOwnerRemoteOperationTerminalResult(
+      handle.operationId
+    );
+    const metadata = result.metadata;
+    if (
+      metadata.operationId !== handle.operationId ||
+      metadata.projectId !== input.request.authority.projectId ||
+      metadata.canvasId !== input.request.authority.canvasId ||
+      metadata.blockRef !== ref ||
+      metadata.sourceRevision !== source.contentRevision ||
+      metadata.graphFingerprint !== source.graphFingerprint ||
+      metadata.dispatchId !== handle.dispatchId ||
+      metadata.executionAttemptId !== handle.executionAttemptId
+    ) {
+      throw new Error("owner_canvas_terminal_result_identity_mismatch");
+    }
+    await input.runtime.complete({
+      ...identity,
+      reportArtifactRef: metadata.reportArtifactRef,
+      reportBytes: new Uint8Array(result.reportBytes)
+    });
+    return;
+  }
+  if (input.view.session.phase === "failed" || input.view.session.phase === "stopped") {
+    await input.runtime.fail({
+      ...identity,
+      failure: {
+        code:
+          input.view.session.phase === "stopped"
+            ? "execution_cancelled"
+            : "remote_execution_failed",
+        message:
+          input.view.session.error ??
+          (input.view.session.phase === "stopped"
+            ? "Remote operation was cancelled."
+            : "Remote operation failed."),
+        retryable: input.view.session.phase === "stopped"
+      },
+      ...(input.request.effectiveExecutor?.agentId
+        ? { agentId: input.request.effectiveExecutor.agentId }
+        : {})
+    });
+  }
+}
 
 export async function cancelActiveWorkspaceExecution(input: {
   current: WorkspaceExecutionCoordinatorView;
@@ -111,7 +235,10 @@ function namespaceFor(input: {
   };
 }
 
-function requestFor(input: DesktopWorkspaceExecutionStartInput, serverOrigin: string) {
+function requestFor(
+  input: Extract<DesktopWorkspaceExecutionStartInput, { locator: { kind: "workspace" } }>,
+  serverOrigin: string
+) {
   return {
     authority: {
       kind: "workspace_canvas",
@@ -135,6 +262,7 @@ export class WorkspaceExecutionDesktopService {
 
   constructor(
     private readonly collaboration: CollaborationService,
+    private readonly operatorControl: Pick<OperatorControlService, "withExecutionProfile">,
     sessionsRoot = join(desktopHomePaths().collaborationDir, "workspace-execution")
   ) {
     this.sessions = new DesktopWorkspaceExecutionSessionRepository(sessionsRoot);
@@ -142,26 +270,63 @@ export class WorkspaceExecutionDesktopService {
 
   start(input: DesktopWorkspaceExecutionStartInput) {
     return this.withRequestCoordinator(
-      input.locator,
-      async ({ coordinator, request }) =>
-        projectWorkspaceExecutionCoordinatorView(await coordinator.execute(request)),
+      async ({ coordinator, request, remoteOperations, localRuntime }) => {
+        const view = projectWorkspaceExecutionCoordinatorView(await coordinator.execute(request));
+        if (localRuntime && request.authority.kind === "owner_canvas") {
+          await writeBackOwnerCanvasExecution({
+            request: request as OwnerLocalWritebackContext["request"],
+            view,
+            runtime: localRuntime,
+            remoteOperations: remoteOperations as OwnerCanvasRemoteOperations
+          });
+        }
+        return view;
+      },
       input
     );
   }
 
   follow(input: DesktopWorkspaceExecutionFollowInput) {
     if ("operationId" in input) {
-      return this.withBoundCoordinator(input.locator, async ({ coordinator, serverOrigin }) =>
+      if (input.locator.kind === "owner_canvas") {
+        const locator = input.locator;
+        return withOwnerCanvasExistingExecutionCoordinator({
+          blockRef: input.blockRef,
+          locator,
+          operationId: input.operationId,
+          operatorControl: this.operatorControl,
+          sessions: this.sessions,
+          operation: ({ coordinator, expected, serverOrigin }) =>
+            coordinator
+              .observeExisting({
+                authority: {
+                  kind: "owner_canvas",
+                  packageWorkspace: locator.projectRoot,
+                  expected,
+                  connectionProfileId: locator.operatorProfileId,
+                  serverOrigin,
+                  humanPrincipalId: locator.humanPrincipalId,
+                  projectId: locator.projectId,
+                  canvasId: locator.canvasId
+                },
+                scope: { kind: "block", blockRef: input.blockRef },
+                operationId: input.operationId
+              })
+              .then(projectWorkspaceExecutionCoordinatorView)
+        });
+      }
+      const locator = input.locator;
+      return this.withBoundCoordinator(locator, async ({ coordinator, serverOrigin }) =>
         projectWorkspaceExecutionCoordinatorView(
           await coordinator.observeExisting({
             authority: {
               kind: "workspace_canvas",
               contentAuthority: { kind: "server_canvas" },
-              connectionProfileId: input.locator.connectionProfileId,
+              connectionProfileId: locator.connectionProfileId,
               serverOrigin,
-              workspaceId: input.locator.workspaceId,
-              projectId: input.locator.projectId,
-              canvasId: input.locator.canvasId
+              workspaceId: locator.workspaceId,
+              projectId: locator.projectId,
+              canvasId: locator.canvasId
             },
             scope: { kind: "block", blockRef: input.blockRef },
             operationId: input.operationId
@@ -170,27 +335,44 @@ export class WorkspaceExecutionDesktopService {
       );
     }
     return this.withRequestCoordinator(
-      input.locator,
-      async ({ coordinator, request }) =>
-        projectWorkspaceExecutionCoordinatorView(
+      async ({ coordinator, request, remoteOperations, localRuntime }) => {
+        const view = projectWorkspaceExecutionCoordinatorView(
           await coordinator.follow(request, input.sessionId)
-        ),
+        );
+        if (localRuntime && request.authority.kind === "owner_canvas") {
+          await writeBackOwnerCanvasExecution({
+            request: request as OwnerLocalWritebackContext["request"],
+            view,
+            runtime: localRuntime,
+            remoteOperations: remoteOperations as OwnerCanvasRemoteOperations
+          });
+        }
+        return view;
+      },
       input
     );
   }
 
   respond(input: DesktopWorkspaceExecutionRespondInput) {
     return this.withRequestCoordinator(
-      input.locator,
-      async ({ coordinator, request }) => {
+      async ({ coordinator, request, remoteOperations, localRuntime }) => {
         await coordinator.respond({
           request,
           sessionId: input.sessionId,
           response: input.response
         });
-        return projectWorkspaceExecutionCoordinatorView(
+        const view = projectWorkspaceExecutionCoordinatorView(
           await coordinator.follow(request, input.sessionId)
         );
+        if (localRuntime && request.authority.kind === "owner_canvas") {
+          await writeBackOwnerCanvasExecution({
+            request: request as OwnerLocalWritebackContext["request"],
+            view,
+            runtime: localRuntime,
+            remoteOperations: remoteOperations as OwnerCanvasRemoteOperations
+          });
+        }
+        return view;
       },
       input
     );
@@ -198,33 +380,57 @@ export class WorkspaceExecutionDesktopService {
 
   cancel(input: DesktopWorkspaceExecutionCancelInput) {
     return this.withRequestCoordinator(
-      input.locator,
-      async ({ coordinator, request, client }) => {
-        return cancelWorkspaceExecutionSession({
+      async ({ coordinator, request, remoteOperations, localRuntime }) => {
+        const view = await cancelWorkspaceExecutionSession({
           follow: async () =>
             projectWorkspaceExecutionCoordinatorView(
               await coordinator.follow(request, input.sessionId)
             ),
           actionId: input.actionId,
           reason: input.reason,
-          remoteOperations: client.remoteOperations()
+          remoteOperations
         });
+        if (localRuntime && request.authority.kind === "owner_canvas") {
+          await writeBackOwnerCanvasExecution({
+            request: request as OwnerLocalWritebackContext["request"],
+            view,
+            runtime: localRuntime,
+            remoteOperations: remoteOperations as OwnerCanvasRemoteOperations
+          });
+        }
+        return view;
       },
       input
     );
   }
 
   private withRequestCoordinator<T>(
-    locator: WorkspaceCanvasLocator,
     operation: (context: {
       coordinator: WorkspaceExecutionCoordinator;
       request: WorkspaceExecutionRequest;
-      client: CollaborationClient;
+      remoteOperations: RemoteOperationsCancellationPort;
+      localRuntime?: RemoteBlockRuntimePort;
     }) => Promise<T>,
-    input: DesktopWorkspaceExecutionStartInput
+    input: DesktopWorkspaceExecutionStartInput & { sessionId?: string }
   ): Promise<T> {
-    return this.withBoundCoordinator(locator, ({ coordinator, client, serverOrigin }) =>
-      operation({ coordinator, request: requestFor(input, serverOrigin), client })
+    if (isOwnerCanvasExecutionInput(input)) {
+      return withOwnerCanvasExecutionCoordinator({
+        requestInput: input,
+        operatorControl: this.operatorControl,
+        sessions: this.sessions,
+        ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
+        operation
+      });
+    }
+    const workspaceInput: WorkspaceCanvasExecutionInput = input;
+    return this.withBoundCoordinator(
+      workspaceInput.locator,
+      ({ coordinator, client, serverOrigin }) =>
+        operation({
+          coordinator,
+          request: requestFor(workspaceInput, serverOrigin),
+          remoteOperations: client.remoteOperations()
+        })
     );
   }
 
@@ -301,15 +507,17 @@ export class WorkspaceExecutionDesktopService {
       const coordinator = new WorkspaceExecutionCoordinator({
         authority,
         catalog: {
-          list: ({ binding }, signal) =>
-            remote.listAgentEndpoints(
+          list: ({ binding }, signal) => {
+            const workspaceBinding = requireWorkspaceRemoteBinding(binding);
+            return remote.listAgentEndpoints(
               {
-                workspaceId: binding.workspaceId,
-                projectId: binding.projectId,
-                canvasId: binding.canvasId
+                workspaceId: workspaceBinding.workspaceId,
+                projectId: workspaceBinding.projectId,
+                canvasId: workspaceBinding.canvasId
               },
               signal
-            )
+            );
+          }
         },
         workAuthority,
         local: {

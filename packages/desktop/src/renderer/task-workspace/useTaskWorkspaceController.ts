@@ -142,6 +142,8 @@ export function useTaskWorkspaceController(options: {
     "observeOwnerFleetRemoteOperation" | "replayOwnerFleetRemoteOperationEvents"
   > | null;
   operatorProfileId?: string | null;
+  ownerHumanPrincipalId?: string | null;
+  ownerProjectId?: string | null;
   history: AppViewHistoryController;
   saveAgentEndpointPreference: (
     key: string,
@@ -157,6 +159,8 @@ export function useTaskWorkspaceController(options: {
     collaborationApi = collaborationBridge,
     operatorApi = operatorControlBridge,
     operatorProfileId = null,
+    ownerHumanPrincipalId = null,
+    ownerProjectId = null,
     history,
     saveAgentEndpointPreference,
     workspaceCanvas = null
@@ -527,6 +531,17 @@ export function useTaskWorkspaceController(options: {
     onTerminal: refresh,
     operatorApi,
     operatorProfileId,
+    ownerLocator:
+      localNavigation && operatorProfileId && ownerHumanPrincipalId && ownerProjectId
+        ? {
+            kind: "owner_canvas",
+            operatorProfileId,
+            humanPrincipalId: ownerHumanPrincipalId,
+            projectRoot: localNavigation.projectRoot,
+            projectId: ownerProjectId,
+            canvasId: localNavigation.canvasId
+          }
+        : null,
     scopeKey: key,
     selectedBlockRef,
     workspaceExecutionApi: workspaceExecutionBridge,

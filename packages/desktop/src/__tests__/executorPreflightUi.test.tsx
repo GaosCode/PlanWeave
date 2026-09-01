@@ -31,6 +31,7 @@ const bridgeMock = vi.hoisted(() => ({
 vi.mock("../renderer/bridge", () => ({
   bridge: bridgeMock.api,
   collaborationBridge: null,
+  workspaceExecutionBridge: null,
   desktopCanvasReference: (project: DesktopProjectSummary, canvasId?: string | null) => ({
     projectRoot: project.rootPath,
     canvasId
@@ -234,7 +235,7 @@ afterEach(() => {
 });
 
 describe("executor preflight desktop UI", () => {
-  it("shows only detections for the selected agent transport", () => {
+  it("shows only detections for selected agent transport", () => {
     const detections = [
       {
         runnerKind: "cli" as const,

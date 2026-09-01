@@ -107,13 +107,7 @@ import {
 import type { PlanWeaveCollaborationRuntimeAvailabilityApi } from "./collaborationRuntimeAvailability.js";
 import type { WorkspaceCanvasSharingApi } from "./workspaceCanvasSharing.js";
 import {
-  type RemoteActionView,
-  type RemoteDispatchIntentV3,
   type RemoteEventReplay,
-  type RemoteHumanExecutionActionCommand,
-  type RemoteInteractionPage,
-  type RemoteInteractionResponse,
-  type RemoteInteractionView,
   type RemoteOperationObservation
 } from "@planweave-ai/collaboration-protocol/remote-run";
 import type { RemoteAgentEndpointList } from "@planweave-ai/collaboration-protocol/agent-endpoint";
@@ -137,7 +131,6 @@ import type {
   CollaborationObserverSignal,
   CollaborationPageQueryInput,
   CollaborationRemoteEventQueryInput,
-  CollaborationRemoteInteractionPageQueryInput,
   CollaborationRemoteOperationLookupInput,
   CollaborationRemoteOperationIdInput,
   CollaborationWorkspaceRemoteEventReplayInput,
@@ -987,9 +980,6 @@ export type PlanWeaveCollaborationApi = WorkspaceCanvasSharingApi & {
   listCollaborationAgentEndpoints: (
     input?: CollaborationListAgentEndpointsInput
   ) => Promise<RemoteAgentEndpointList>;
-  dispatchCollaborationRemoteOperation: (
-    input: RemoteDispatchIntentV3
-  ) => Promise<RemoteOperationObservation>;
   observeCollaborationRemoteOperation: (
     input: CollaborationRemoteOperationIdInput
   ) => Promise<RemoteOperationObservation>;
@@ -1002,10 +992,6 @@ export type PlanWeaveCollaborationApi = WorkspaceCanvasSharingApi & {
   observeWorkspaceRemoteOperation: (
     input: CollaborationWorkspaceRemoteOperationIdInput
   ) => Promise<RemoteOperationObservation>;
-  executeCollaborationRemoteOperationAction: (input: {
-    operationId: string;
-    action: RemoteHumanExecutionActionCommand;
-  }) => Promise<RemoteActionView>;
   replayCollaborationRemoteOperationEvents: (input: {
     operationId: string;
     query?: CollaborationRemoteEventQueryInput;
@@ -1013,14 +999,6 @@ export type PlanWeaveCollaborationApi = WorkspaceCanvasSharingApi & {
   replayWorkspaceRemoteOperationEvents: (
     input: CollaborationWorkspaceRemoteEventReplayInput
   ) => Promise<RemoteEventReplay>;
-  listCollaborationRemoteOperationInteractions: (input: {
-    operationId: string;
-    query?: CollaborationRemoteInteractionPageQueryInput;
-  }) => Promise<RemoteInteractionPage>;
-  settleCollaborationRemoteOperationInteraction: (input: {
-    operationId: string;
-    settlement: RemoteInteractionResponse;
-  }) => Promise<RemoteInteractionView>;
   onCollaborationStatusChanged: (callback: (status: CollaborationStatus) => void) => () => void;
   onCollaborationOperationDiagnosticsChanged: (
     callback: (

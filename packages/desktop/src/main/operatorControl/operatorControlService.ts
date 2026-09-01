@@ -20,10 +20,8 @@ import {
   operatorProfileIdInputSchema,
   operatorRevokeHostInputSchema,
   operatorRenewHostCredentialInputSchema,
-  operatorDispatchOwnerFleetRemoteOperationInputSchema,
   operatorObserveOwnerFleetRemoteOperationInputSchema,
   operatorReplayOwnerFleetRemoteOperationEventsInputSchema,
-  operatorExecuteOwnerFleetRemoteOperationActionInputSchema,
   operatorListRemoteAgentsInputSchema,
   operatorSetRemoteAgentAccessModeInputSchema,
   operatorGrantRemoteAgentWorkspaceInputSchema,
@@ -79,6 +77,11 @@ export type OperatorControlClientFactory = (
   options: OperatorControlClientOptions
 ) => OperatorControlClient;
 
+export type OperatorHumanIdentityCredential = {
+  humanPrincipalId: string;
+  identityToken: string;
+};
+
 export type OperatorControlServiceOptions = {
   profileStore?: OperatorProfileStore;
   vault?: OperatorCredentialVault;
@@ -92,6 +95,10 @@ export type OperatorControlServiceOptions = {
   localAgentHost?: LocalAgentHostProvisioner;
   /** Test injection; production uses the coordinator-registered backend port. */
   localOperatorBackend?: LocalOperatorBackendPort | null;
+  resolveHumanIdentityCredential?: (input: {
+    serverBaseUrl: string;
+    humanPrincipalId?: string;
+  }) => Promise<OperatorHumanIdentityCredential | null>;
 };
 
 function nowIso(clock?: { now(): Date }): string {
@@ -123,6 +130,7 @@ function toPublicProfile(
     hasOperatorCredential: boolean;
     operatorCredentialPersistence: OperatorCredentialPersistence;
     operatorId: string | null;
+    humanPrincipalId: string | null;
   }
 ): OperatorProfileView {
   return {
@@ -133,6 +141,7 @@ function toPublicProfile(
     hostedByThisDesktop,
     ...(profile.endpoint ? { endpoint: profile.endpoint } : {}),
     operatorId: credential.operatorId ?? profile.operatorId ?? null,
+    humanPrincipalId: credential.humanPrincipalId,
     hasOperatorCredential: credential.hasOperatorCredential,
     operatorCredentialPersistence: credential.operatorCredentialPersistence,
     updatedAt: profile.updatedAt
@@ -149,6 +158,7 @@ export class OperatorControlService {
   private readonly onStatusChange?: (status: OperatorControlStatus) => void;
   private readonly localAgentHost: LocalAgentHostProvisioner;
   private readonly localOperatorBackend: LocalOperatorBackendPort | null | undefined;
+  private readonly resolveHumanIdentityCredential?: OperatorControlServiceOptions["resolveHumanIdentityCredential"];
   private disposed = false;
   private queue: Promise<unknown> = Promise.resolve();
   private lastErrorCode: string | null = null;
@@ -172,6 +182,7 @@ export class OperatorControlService {
     this.onStatusChange = options.onStatusChange;
     this.localAgentHost = options.localAgentHost ?? unavailableLocalAgentHostProvisioner();
     this.localOperatorBackend = options.localOperatorBackend;
+    this.resolveHumanIdentityCredential = options.resolveHumanIdentityCredential;
   }
 
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {
@@ -203,11 +214,15 @@ export class OperatorControlService {
     for (const profile of profiles) {
       const persistence = await this.vault.persistenceFor(profile.profileId);
       const metadata = await this.vault.getMetadata(profile.profileId);
+      const humanIdentity = await this.resolveHumanIdentityCredential?.({
+        serverBaseUrl: profile.serverBaseUrl
+      });
       views.push(
         toPublicProfile(profile, isLocalOwnedOperatorProfile(profile, localBackendSnapshot), {
           hasOperatorCredential: persistence !== "missing",
           operatorCredentialPersistence: persistence,
-          operatorId: metadata?.operatorId ?? null
+          operatorId: metadata?.operatorId ?? null,
+          humanPrincipalId: humanIdentity?.humanPrincipalId ?? null
         })
       );
     }
@@ -838,23 +853,16 @@ export class OperatorControlService {
     });
   }
 
-  async dispatchOwnerFleetRemoteOperation(input: unknown) {
-    assertNoSmuggledOperatorSecrets(input, "dispatchOwnerFleetRemoteOperation", {
-      allowedRootFields: ["command"]
-    });
-    const parsed = operatorDispatchOwnerFleetRemoteOperationInputSchema.parse(input);
-    return this.enqueue(() =>
-      this.withProfile(parsed, (client, value) =>
-        client.dispatchRemoteOperation(value.command, value.humanPrincipalId, value.workspaceId)
-      )
-    );
-  }
-
   async observeOwnerFleetRemoteOperation(input: unknown) {
     assertNoSmuggledOperatorSecrets(input, "observeOwnerFleetRemoteOperation");
     const parsed = operatorObserveOwnerFleetRemoteOperationInputSchema.parse(input);
     return this.enqueue(() =>
-      this.withProfile(parsed, (client, value) => client.observeRemoteOperation(value.operationId))
+      this.withProfile(parsed, async (client, value) =>
+        client.observeRemoteOperation(
+          value.operationId,
+          await this.requireProfileHumanPrincipalId(client)
+        )
+      )
     );
   }
 
@@ -862,8 +870,12 @@ export class OperatorControlService {
     assertNoSmuggledOperatorSecrets(input, "replayOwnerFleetRemoteOperationEvents");
     const parsed = operatorReplayOwnerFleetRemoteOperationEventsInputSchema.parse(input);
     return this.enqueue(() =>
-      this.withProfile(parsed, (client, value) =>
-        client.replayRemoteOperationEvents(value.operationId, value.query.afterCursor)
+      this.withProfile(parsed, async (client, value) =>
+        client.replayRemoteOperationEvents(
+          value.operationId,
+          value.query.afterCursor,
+          await this.requireProfileHumanPrincipalId(client)
+        )
       )
     );
   }
@@ -952,14 +964,13 @@ export class OperatorControlService {
     );
   }
 
-  async executeOwnerFleetRemoteOperationAction(input: unknown) {
-    assertNoSmuggledOperatorSecrets(input, "executeOwnerFleetRemoteOperationAction");
-    const parsed = operatorExecuteOwnerFleetRemoteOperationActionInputSchema.parse(input);
-    return this.enqueue(() =>
-      this.withProfile(parsed, (client, value) =>
-        client.executeRemoteOperationAction(value.operationId, value.action)
-      )
-    );
+  /** Main-process execution seam; credentials never leave the profile-scoped client callback. */
+  async withExecutionProfile<T>(
+    profileId: string,
+    action: (client: OperatorControlClient) => Promise<T>
+  ): Promise<T> {
+    const parsed = operatorProfileIdInputSchema.parse({ profileId });
+    return this.enqueue(() => this.withProfile(parsed, (client) => action(client)));
   }
 
   private async withProfile<T, P extends { profileId: string }>(
@@ -997,7 +1008,16 @@ export class OperatorControlService {
           : {}),
         ...(profile.operatorId ? { operatorId: profile.operatorId } : {})
       }),
-      credential: { getOperatorToken: () => this.vault.getOperatorToken(parsed.profileId) },
+      credential: {
+        getOperatorToken: () => this.vault.getOperatorToken(parsed.profileId),
+        getHumanIdentityToken: async (humanPrincipalId) =>
+          (
+            await this.resolveHumanIdentityCredential?.({
+              serverBaseUrl: effective.serverBaseUrl,
+              humanPrincipalId
+            })
+          )?.identityToken
+      },
       request: this.request
     });
     try {
@@ -1011,6 +1031,19 @@ export class OperatorControlService {
     } finally {
       client.dispose();
     }
+  }
+
+  private async requireProfileHumanPrincipalId(client: OperatorControlClient): Promise<string> {
+    const identity = await this.resolveHumanIdentityCredential?.({
+      serverBaseUrl: client.connectionProfile.serverBaseUrl
+    });
+    if (!identity) {
+      throw new OperatorControlError({
+        kind: "unauthorized",
+        code: "operator_human_identity_credential_missing"
+      });
+    }
+    return identity.humanPrincipalId;
   }
 
   async shutdown(): Promise<void> {

@@ -2,7 +2,10 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { exampleSetupCodeIssueResponse } from "@planweave-ai/collaboration-protocol/fixtures/collaboration";
+import {
+  exampleHumanIdentityToken,
+  exampleSetupCodeIssueResponse
+} from "@planweave-ai/collaboration-protocol/fixtures/collaboration";
 import { parseCollaborationSetupHandoffV1 } from "@planweave-ai/collaboration-protocol/handoff/setup";
 import {
   parseAgentHostSetupHandoff,
@@ -22,7 +25,6 @@ import { OperatorProfileStore } from "../main/operatorControl/operatorProfileSto
 import {
   assertNoSmuggledOperatorSecrets,
   operatorControlProfileSchema,
-  operatorDispatchOwnerFleetRemoteOperationInputSchema,
   operatorImportCredentialInputSchema,
   operatorListAgentEndpointsInputSchema
 } from "../shared/operatorControl.js";
@@ -58,7 +60,7 @@ const profile = (profileId: string, serverBaseUrl = "https://operator.example.te
 });
 
 describe("Desktop operator control trust boundary", () => {
-  it("requires humanPrincipalId on operator catalog and dispatch IPC inputs", () => {
+  it("requires humanPrincipalId on operator catalog IPC inputs", () => {
     expect(() => operatorListAgentEndpointsInputSchema.parse({ profileId: "profile-a" })).toThrow();
     expect(
       operatorListAgentEndpointsInputSchema.parse({
@@ -73,22 +75,6 @@ describe("Desktop operator control trust boundary", () => {
       projectId: "project-a",
       canvasId: "canvas-main"
     });
-    expect(() =>
-      operatorDispatchOwnerFleetRemoteOperationInputSchema.parse({
-        profileId: "profile-a",
-        command: {
-          schemaVersion: "remote-run/v3",
-          projectId: "project-a",
-          canvasId: "canvas-main",
-          blockRef: "T-001#B-001",
-          agentEndpointId: "endpoint-1",
-          idempotencyKey: "idem-1",
-          expectedResponsibilityRevision: 0,
-          expectedReviewerRevision: 0,
-          executionTargetRevision: 0
-        }
-      })
-    ).toThrow();
   });
 
   it("keeps credential material out of the renderer import contract", () => {
@@ -123,33 +109,6 @@ describe("Desktop operator control trust boundary", () => {
         "large"
       )
     ).toThrow(/too many/);
-  });
-
-  it("allows a declared root command while still rejecting nested transport escapes", () => {
-    expect(() =>
-      assertNoSmuggledOperatorSecrets(
-        {
-          profileId: "profile-a",
-          command: { schemaVersion: "remote-run/v3", projectId: "project-a" }
-        },
-        "dispatchOwnerFleetRemoteOperation",
-        { allowedRootFields: ["command"] }
-      )
-    ).not.toThrow();
-    expect(() =>
-      assertNoSmuggledOperatorSecrets(
-        {
-          profileId: "profile-a",
-          command: {
-            schemaVersion: "remote-run/v3",
-            projectId: "project-a",
-            transport: { path: "/tmp/smuggled-credential" }
-          }
-        },
-        "dispatchOwnerFleetRemoteOperation",
-        { allowedRootFields: ["command"] }
-      )
-    ).toThrow(/field "path" is not allowed/);
   });
 
   it("uses safeStorage or explicit session-only persistence without plaintext", async () => {
@@ -690,11 +649,16 @@ describe("Desktop operator control trust boundary", () => {
   });
 
   it("uses only bounded application endpoints and maps 401/403/malformed responses", async () => {
-    const requests: Array<{ url: string; authorization: string | null }> = [];
+    const requests: Array<{
+      url: string;
+      authorization: string | null;
+      humanIdentity: string | null;
+    }> = [];
     const request = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       requests.push({
         url: String(input),
-        authorization: new Headers(init?.headers).get("authorization")
+        authorization: new Headers(init?.headers).get("authorization"),
+        humanIdentity: new Headers(init?.headers).get("x-planweave-human-identity")
       });
       const url = String(input);
       if (url.includes("/api/v1/agent-endpoints")) {
@@ -707,7 +671,11 @@ describe("Desktop operator control trust boundary", () => {
     });
     const client = new OperatorControlClient({
       profile: profile("profile-a"),
-      credential: { getOperatorToken: () => tokenA },
+      credential: {
+        getOperatorToken: () => tokenA,
+        getHumanIdentityToken: (humanPrincipalId) =>
+          humanPrincipalId === "human-owner-1" ? exampleHumanIdentityToken : undefined
+      },
       request
     });
     await expect(client.listHosts({ cursor: 0, limit: 100 })).resolves.toEqual({
@@ -726,14 +694,33 @@ describe("Desktop operator control trust boundary", () => {
     });
     expect(requests[0]).toMatchObject({
       url: expect.stringContaining("/api/v1/hosts?cursor=0&limit=100"),
-      authorization: `Bearer ${tokenA}`
+      authorization: `Bearer ${tokenA}`,
+      humanIdentity: null
     });
     expect(requests[1]).toMatchObject({
       url: expect.stringContaining(
         "/api/v1/agent-endpoints?projectId=project-a&humanPrincipalId=human-owner-1&canvasId=canvas-main"
       ),
-      authorization: `Bearer ${tokenA}`
+      authorization: `Bearer ${tokenA}`,
+      humanIdentity: `Bearer ${exampleHumanIdentityToken}`
     });
+
+    const missingHumanClient = new OperatorControlClient({
+      profile: profile("profile-a"),
+      credential: { getOperatorToken: () => tokenA },
+      request
+    });
+    await expect(
+      missingHumanClient.listAgentEndpoints({
+        humanPrincipalId: "human-owner-1",
+        projectId: "project-a",
+        canvasId: "canvas-main"
+      })
+    ).rejects.toMatchObject({
+      kind: "unauthorized",
+      code: "operator_human_identity_credential_missing"
+    });
+    expect(request).toHaveBeenCalledTimes(2);
 
     request.mockResolvedValueOnce(
       new Response(JSON.stringify({ error: "operator_unauthorized" }), { status: 401 })
@@ -896,17 +883,43 @@ describe("Desktop operator control trust boundary", () => {
   it("keeps remote Operator profiles on their persisted serverBaseUrl", async () => {
     const directory = await root("planweave-operator-remote-no-bypass-");
     const seenBases: string[] = [];
+    const humanIdentityHeaders: Array<string | null> = [];
+    const resolveHumanIdentityCredential = vi.fn(
+      async (input: { serverBaseUrl: string; humanPrincipalId?: string }) =>
+        input.humanPrincipalId && input.humanPrincipalId !== "human-owner-1"
+          ? null
+          : {
+              humanPrincipalId: "human-owner-1",
+              identityToken: exampleHumanIdentityToken
+            }
+    );
     const createClient = vi.fn(
       (options: ConstructorParameters<typeof OperatorControlClient>[0]) => {
         seenBases.push(options.profile.serverBaseUrl);
         return new OperatorControlClient({
           ...options,
-          request: vi.fn(
-            async () =>
-              new Response(JSON.stringify({ schemaVersion: "agent-endpoint-list/v1", items: [] }), {
-                status: 200
-              })
-          )
+          request: vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+            humanIdentityHeaders.push(new Headers(init?.headers).get("x-planweave-human-identity"));
+            if (String(input).includes("/events?")) {
+              return new Response(
+                JSON.stringify({
+                  eventProtocolVersion: 2,
+                  executionAttemptId: "attempt-owner-001",
+                  afterCursor: 0,
+                  cursor: 0,
+                  highWatermark: 0,
+                  hasMore: false,
+                  events: [],
+                  diagnostics: []
+                }),
+                { status: 200 }
+              );
+            }
+            return new Response(
+              JSON.stringify({ schemaVersion: "agent-endpoint-list/v1", items: [] }),
+              { status: 200 }
+            );
+          })
         });
       }
     );
@@ -917,6 +930,7 @@ describe("Desktop operator control trust boundary", () => {
         safeStorage: safeStorage(true)
       }),
       createClient,
+      resolveHumanIdentityCredential,
       localOperatorBackend: {
         getSnapshot: () => ({
           running: true,
@@ -940,8 +954,29 @@ describe("Desktop operator control trust boundary", () => {
       schemaVersion: "agent-endpoint-list/v1",
       items: []
     });
-    expect((await service.getStatus()).profiles[0]?.hostedByThisDesktop).toBe(false);
-    expect(seenBases).toEqual(["https://remote-operator.example/"]);
+    await expect(
+      service.replayOwnerFleetRemoteOperationEvents({
+        profileId: "profile-remote",
+        operationId: "operation-owner-001",
+        query: { afterCursor: 0 }
+      })
+    ).resolves.toMatchObject({ executionAttemptId: "attempt-owner-001", events: [] });
+    expect((await service.getStatus()).profiles[0]).toMatchObject({
+      hostedByThisDesktop: false,
+      humanPrincipalId: "human-owner-1"
+    });
+    expect(seenBases).toEqual([
+      "https://remote-operator.example/",
+      "https://remote-operator.example/"
+    ]);
+    expect(humanIdentityHeaders).toEqual([
+      `Bearer ${exampleHumanIdentityToken}`,
+      `Bearer ${exampleHumanIdentityToken}`
+    ]);
+    expect(resolveHumanIdentityCredential).toHaveBeenCalledWith({
+      serverBaseUrl: "https://remote-operator.example/",
+      humanPrincipalId: "human-owner-1"
+    });
   });
 
   it("copies a member setup code in main and returns only redacted handoff metadata", async () => {

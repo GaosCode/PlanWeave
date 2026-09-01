@@ -8,6 +8,7 @@ import {
 } from "../shared/workspaceExecution.js";
 import { workspaceExecutionInvokeChannels } from "../shared/workspaceExecutionIpc.js";
 import type { CollaborationService } from "./collaboration/collaborationService.js";
+import { getOperatorControlService } from "./operatorControl/operatorControlHandlers.js";
 import { WorkspaceExecutionDesktopService } from "./workspaceExecutionDesktopService.js";
 import { workspaceExecutionHandlerResult } from "./workspaceExecutionIpcResult.js";
 
@@ -15,7 +16,9 @@ export function registerWorkspaceExecutionHandlers(input: {
   collaboration: CollaborationService;
   service?: WorkspaceExecutionDesktopService;
 }): WorkspaceExecutionDesktopService {
-  const service = input.service ?? new WorkspaceExecutionDesktopService(input.collaboration);
+  const service =
+    input.service ??
+    new WorkspaceExecutionDesktopService(input.collaboration, getOperatorControlService());
   ipcMain.handle(workspaceExecutionInvokeChannels.start, async (_event, rawInput) =>
     workspaceExecutionHandlerResult(async () =>
       desktopWorkspaceExecutionResponseSchema.parse(

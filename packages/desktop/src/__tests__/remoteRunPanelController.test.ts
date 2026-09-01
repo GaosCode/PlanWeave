@@ -1,22 +1,17 @@
 /* @vitest-environment jsdom */
 
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { WorkItemRef } from "@planweave-ai/collaboration-protocol/core/primitives";
-import { eligibleHostBatchResponseSchema } from "@planweave-ai/collaboration-protocol/work/assignment";
-import type {
-  RemoteEventReplay,
-  RemoteOperationObservation
-} from "@planweave-ai/collaboration-protocol/remote-run";
-import {
-  acquireCollaborationReadModelController,
-  resetCollaborationReadModelHubForTests
-} from "../renderer/collaboration/collaborationReadModelHub";
-import type { CollaborationReadBridgePort } from "../renderer/collaboration/CollaborationReadModelController";
-import { toCollaborationReadBridge } from "../renderer/collaboration/collaborationReadBridge";
+import type { AvailableAgentEndpoint } from "../renderer/collaboration/agentEndpointViewModel";
 import { useRemoteRunPanelController } from "../renderer/hooks/useRemoteRunPanelController";
 import { createTranslator } from "../renderer/i18n";
-import type { CollaborationStatus, PlanWeaveCollaborationApi } from "../shared/collaboration";
+import {
+  desktopWorkspaceExecutionResponseSchema,
+  type DesktopOwnerCanvasExecutionLocator,
+  type DesktopWorkspaceExecutionResponse,
+  type PlanWeaveWorkspaceExecutionApi
+} from "../shared/workspaceExecution";
 
 const blockItem: WorkItemRef = {
   kind: "block",
@@ -24,1700 +19,255 @@ const blockItem: WorkItemRef = {
   blockRef: "T-1#B-1"
 };
 
-const activeRuntimeExecution = {
-  identity: { operationId: "op-1" },
+const locator: DesktopOwnerCanvasExecutionLocator = {
+  kind: "owner_canvas",
+  operatorProfileId: "profile-public",
+  humanPrincipalId: "human-1",
+  projectRoot: "/tmp/project",
+  projectId: "project-1",
+  canvasId: "default"
+};
+
+const endpoint: AvailableAgentEndpoint = {
+  id: "remote:endpoint-vps",
+  source: "remote",
+  executorName: "codex-acp",
+  displayName: "Codex",
+  locationName: "VPS",
+  available: true,
+  unavailableReason: null,
+  capabilities: ["acp.codex"],
+  remoteEndpointId: "endpoint-vps",
+  agentId: "codex"
+};
+
+const runtimeRemoteExecution = {
+  identity: { operationId: "operation-1" },
   phase: "active",
   status: "owned",
   actionRequired: false,
-  source: { revision: "rev-1", graphFingerprint: "fp-1" },
+  source: { revision: "rev-1", graphFingerprint: `pkg-${"b".repeat(64)}` },
   dispatchAttempt: { dispatchId: "dispatch-1", executionAttemptId: "attempt-1" }
 } as const;
 
-const availableLocalEndpoint = {
-  executorName: "codex-acp",
-  displayName: "Codex",
-  locationName: "This device",
-  capabilities: ["acp.codex"],
-  available: true,
-  unavailableReason: null
-} as const;
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (reason: unknown) => void;
-  const promise = new Promise<T>((promiseResolve, promiseReject) => {
-    resolve = promiseResolve;
-    reject = promiseReject;
-  });
-  return { promise, resolve, reject };
-}
-
-function connectedStatus(): CollaborationStatus {
-  return {
-    profiles: [
-      {
-        profileId: "profile-1",
-        displayName: "Demo",
-        serverBaseUrl: "https://example.test",
-        projectId: "project-1",
-        allowInsecureTransport: false,
-        hasDeviceCredential: true,
-        deviceCredentialPersistence: "persisted",
-        deviceCredentialId: "device-1",
-        humanPrincipalId: "human-1",
-        updatedAt: "2030-01-01T00:00:00.000Z"
-      }
-    ],
-    activeProfileId: "profile-1",
-    credentialStorage: "available",
-    nonPersistenceWarning: null,
+function remoteView(input?: {
+  phase?: "running" | "blocked" | "completed" | "failed" | "stopped";
+  operationId?: string;
+  includeInteraction?: boolean;
+}): DesktopWorkspaceExecutionResponse {
+  const operationId = input?.operationId ?? "operation-1";
+  const phase = input?.phase ?? "running";
+  const source = {
+    target: "remote" as const,
+    operationId,
+    executionAttemptId: "attempt-1",
+    cursor: 1
+  };
+  const eventBase = {
+    version: "planweave.execution-event/v1" as const,
+    observedAt: "2030-01-01T00:00:01.000Z",
+    runSessionId: "SESSION-0001",
+    scope: { kind: "block" as const, blockRef: blockItem.blockRef },
+    source
+  };
+  return desktopWorkspaceExecutionResponseSchema.parse({
+    version: "planweave.workspace-execution-view/v1",
+    handle: {
+      version: "planweave.workspace-execution-handle/v1",
+      runSessionId: "SESSION-0001",
+      authorityBindingId: `wxb:sha256:${"a".repeat(64)}`,
+      scope: { kind: "block", blockRef: blockItem.blockRef },
+      capabilities: { interactionResponse: true },
+      target: "remote",
+      phase: "acp_session",
+      operationId,
+      operationRevision: 2,
+      dispatchId: "dispatch-1",
+      executionAttemptId: "attempt-1",
+      attemptStateVersion: 1,
+      leaseId: "lease-1",
+      agentEndpointId: "endpoint-vps",
+      cursor: { target: "remote", executionAttemptId: "attempt-1", eventCursor: 1 }
+    },
     session: {
-      phase: "connected",
-      activeProfileId: "profile-1",
-      detail: null,
-      lastErrorCode: null,
-      lastErrorMessage: null
+      sessionId: "SESSION-0001",
+      stateVersion: 2,
+      phase,
+      scope: { kind: "block", blockRef: blockItem.blockRef },
+      startedAt: "2030-01-01T00:00:00.000Z",
+      updatedAt: "2030-01-01T00:00:01.000Z",
+      finishedAt: ["completed", "failed", "stopped"].includes(phase)
+        ? "2030-01-01T00:00:01.000Z"
+        : null,
+      error: null,
+      interactionStatus: input?.includeInteraction
+        ? [{ key: `wxi:sha256:${"c".repeat(64)}`, status: "pending" }]
+        : [],
+      evidence: { status: "pending", diagnostics: [] }
     },
-    updatedAt: "2030-01-01T00:00:00.000Z",
-    workspaceConnection: {
-      schemaVersion: "workspace-setup/v1",
-      status: "connected",
-      profile: {
-        schemaVersion: "workspace-setup/v1",
-        profileId: "workspace-profile-1",
-        displayName: "Workspace Demo",
-        serverBaseUrl: "https://example.test",
-        workspaceId: "workspace-1",
-        allowInsecureTransport: false
-      },
-      workspaceId: "workspace-1",
-      workspaceDisplayName: "Workspace Demo",
-      connectedAt: "2030-01-01T00:00:00.000Z",
-      error: null
-    },
-    workspacePicker: { schemaVersion: "workspace-setup/v1", items: [], nextCursor: null }
-  };
-}
-
-function observation(state: "running" | "interrupted" | "completed" = "running") {
-  return {
-    operationId: "op-1",
-    projectId: "project-1",
-    canvasId: "default",
-    blockRef: "T-1#B-1",
-    state,
-    dispatchId: "dispatch-1",
-    executionAttemptId: "attempt-1",
-    createdAt: "2030-01-01T00:00:00.000Z",
-    updatedAt: "2030-01-01T00:01:00.000Z",
-    attempt: {
-      executionAttemptId: "attempt-1",
-      dispatchId: "dispatch-1",
-      status: state === "running" ? ("running" as const) : (state as "interrupted" | "completed"),
-      hostId: "host-1",
-      leaseId: "lease-1",
-      leaseExpiresAt: "2030-01-01T01:00:00.000Z",
-      stateVersion: 2
-    },
-    dispatchStatus: state === "running" ? ("running" as const) : undefined,
-    runtime: {
-      ref: "T-1#B-1",
-      status: state === "completed" ? "completed" : "in_progress",
-      interruption:
-        state === "interrupted"
-          ? {
-              reason: "transport_lost",
-              resumable: true,
-              recovery: { acpSessionId: "session-1", recoveryId: "recovery-1" }
-            }
-          : undefined
-    }
-  };
-}
-
-function createApi() {
-  const status = connectedStatus();
-  const observe = vi.fn().mockResolvedValue(observation("running"));
-  const dispatch = vi.fn().mockResolvedValue(observation("running"));
-  const executeAction = vi.fn().mockResolvedValue({
-    request: {
-      kind: "cancel",
-      actionId: "a1",
-      operationId: "op-1",
-      dispatchId: "dispatch-1",
-      executionAttemptId: "attempt-1",
-      expectedAttemptVersion: 2,
-      leaseId: "lease-1",
-      reason: "stop"
-    },
-    state: "recorded",
-    createdAt: "2030-01-01T00:02:00.000Z"
-  });
-  const replay = vi.fn().mockResolvedValue({
-    eventProtocolVersion: 1,
-    executionAttemptId: "attempt-1",
-    afterCursor: 0,
-    cursor: 2,
-    highWatermark: 2,
-    hasMore: false,
     events: [
-      { cursor: 1, kind: "agent_message", text: "hello" },
-      { cursor: 2, kind: "tool_call", title: "edit", status: "completed" }
-    ],
-    diagnostics: []
-  });
-  const listInteractions = vi.fn().mockResolvedValue({
-    items: [
       {
-        request: {
-          type: "interaction.permission_requested",
-          title: "Write",
-          description: "Allow write",
-          actionId: "ia-1",
-          dispatchId: "dispatch-1",
-          leaseId: "lease-1",
-          executionAttemptId: "attempt-1",
-          acpSessionId: "session-1",
-          expiresAt: "2030-01-01T02:00:00.000Z"
-        },
-        operationId: "op-1",
-        hostId: "host-1",
-        status: "pending",
-        createdAt: "2030-01-01T00:30:00.000Z"
-      }
-    ],
-    nextCursor: null
-  });
-  const settle = vi
-    .fn()
-    .mockImplementation(async (input: { settlement: { actionId: string } }) => ({
-      request: {
-        type: "interaction.permission_requested",
-        title: "Write",
-        description: "Allow write",
-        actionId: input.settlement.actionId,
-        dispatchId: "dispatch-1",
-        leaseId: "lease-1",
-        executionAttemptId: "attempt-1",
-        acpSessionId: "session-1",
-        expiresAt: "2030-01-01T02:00:00.000Z"
+        ...eventBase,
+        eventId: "runner-1",
+        type: "runner_event",
+        data: {
+          eventProtocolVersion: 1,
+          event: { cursor: 1, kind: "agent_message", text: "remote hello" }
+        }
       },
-      operationId: "op-1",
-      hostId: "host-1",
-      status: "settled",
-      createdAt: "2030-01-01T00:30:00.000Z"
-    }));
-  const listAgentEndpoints = vi.fn().mockResolvedValue({
-    schemaVersion: "agent-endpoint-list/v1",
-    items: [
-      {
-        schemaVersion: "agent-endpoint/v1",
-        endpointId: "endpoint-vps",
-        profileId: "codex-acp",
-        agentId: "codex",
-        displayName: "Codex",
-        hostDisplayName: "VPS",
-        status: "available",
-        capabilities: ["acp.codex"]
-      }
+      ...(input?.includeInteraction
+        ? [
+            {
+              ...eventBase,
+              eventId: "interaction-1",
+              type: "interaction_required",
+              data: {
+                type: "interaction.permission_requested",
+                title: "Write",
+                description: "Allow write",
+                actionId: "action-1",
+                dispatchId: "dispatch-1",
+                leaseId: "lease-1",
+                executionAttemptId: "attempt-1",
+                acpSessionId: "acp-session-1",
+                expiresAt: "2030-01-01T01:00:00.000Z"
+              }
+            }
+          ]
+        : [])
     ]
   });
+}
 
-  const api = {
-    upsertCollaborationProfile: vi.fn(),
-    getCollaborationStatus: vi.fn().mockResolvedValue(status),
-    onCollaborationStatusChanged: vi.fn(() => () => undefined),
-    onCollaborationObserverSignal: vi.fn(() => () => undefined),
-    readCollaborationCanvasBindingRuntimeAvailability: vi.fn().mockResolvedValue({
-      schemaVersion: "canvas-runtime-view/v2",
-      authority: {
-        revision: 1,
-        sourceRevision: "source-revision-1",
-        graphFingerprint: `pkg-${"a".repeat(64)}`
-      },
-      state: { kind: "uninitialized" },
-      execution: {
-        schemaVersion: "canvas-runtime-availability/v1",
-        kind: "unavailable",
-        reason: "runtime_not_attached"
-      }
-    }),
-    listCollaborationMembers: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
-    listCollaborationAssignments: vi.fn().mockResolvedValue({
-      items: [
-        {
-          projectId: "project-1",
-          workItem: blockItem,
-          target: { kind: "exact_host", hostId: "host-1" },
-          revision: 1,
-          availability: { status: "ready", reason: "ready" },
-          host: {
-            hostId: "host-1",
-            displayName: "Host",
-            online: true,
-            authorizedForProject: true,
-            revoked: false,
-            capabilitiesSatisfied: true
-          }
-        }
-      ],
-      nextCursor: null
-    }),
-    listCollaborationActivity: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
-    listCollaborationComments: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
-    listCollaborationEligibleAssignees: vi.fn().mockResolvedValue({
-      humans: [],
-      hosts: []
-    }),
-    getCollaborationWorkAuthority: vi.fn().mockResolvedValue({
-      schemaVersion: "work-authority/v1",
-      scope: {
-        kind: "block",
-        workspaceId: "workspace-1",
-        projectId: "project-1",
-        canvasId: "default",
-        blockRef: "T-1#B-001"
-      },
-      responsibility: {
-        schemaVersion: "responsibility/v1",
-        scope: {
-          kind: "block",
-          workspaceId: "workspace-1",
-          projectId: "project-1",
-          canvasId: "default",
-          blockRef: "T-1#B-001"
-        },
-        principal: null,
-        revision: 0,
-        updatedAt: "2030-01-01T00:00:00.000Z",
-        availability: "unassigned"
-      },
-      reviewer: {
-        schemaVersion: "review-assignment/v1",
-        scope: {
-          kind: "block",
-          workspaceId: "workspace-1",
-          projectId: "project-1",
-          canvasId: "default",
-          blockRef: "T-1#B-001"
-        },
-        principal: null,
-        revision: 0,
-        updatedAt: "2030-01-01T00:00:00.000Z",
-        availability: "unassigned"
-      },
-      executionTarget: {
-        schemaVersion: "execution-target/v1",
-        scope: {
-          kind: "block",
-          workspaceId: "workspace-1",
-          projectId: "project-1",
-          canvasId: "default",
-          blockRef: "T-1#B-001"
-        },
-        target: { kind: "exact_host", hostId: "host-1" },
-        revision: 1,
-        updatedAt: "2030-01-01T00:00:00.000Z",
-        availability: { status: "ready", reason: "ready" }
-      },
-      revisions: {
-        responsibilityRevision: 0,
-        reviewerRevision: 0,
-        executionTargetRevision: 1
-      },
-      selectedHost: {
-        hostId: "host-1",
-        availabilityReason: "ready",
-        lease: { status: "none", leaseId: null, expiresAt: null },
-        authorization: {
-          schemaVersion: "host-authorization/v1",
-          scope: {
-            kind: "block",
-            workspaceId: "workspace-1",
-            projectId: "project-1",
-            canvasId: "default",
-            blockRef: "T-1#B-001"
-          },
-          hostId: "host-1",
-          decision: "deny",
-          reason: "lease_missing",
-          currentRevisions: {
-            responsibilityRevision: 0,
-            reviewerRevision: 0,
-            executionTargetRevision: 1
-          },
-          evaluatedAt: "2030-01-01T00:00:00.000Z"
-        }
-      },
-      evaluatedAt: "2030-01-01T00:00:00.000Z"
-    }),
-    updateCollaborationResponsibility: vi.fn(),
-    updateCollaborationReviewer: vi.fn(),
-    listCollaborationAgentEndpoints: listAgentEndpoints,
-    observeCollaborationRemoteOperation: observe,
-    dispatchCollaborationRemoteOperation: dispatch,
-    executeCollaborationRemoteOperationAction: executeAction,
-    replayCollaborationRemoteOperationEvents: replay,
-    listCollaborationRemoteOperationInteractions: listInteractions,
-    settleCollaborationRemoteOperationInteraction: settle,
-    listCollaborationEligibleHostsBatch: vi.fn(async ({ workItems }) =>
-      eligibleHostBatchResponseSchema.parse({
-        items: workItems.map((workItem, index) => ({ index, workItem, hostIds: [] })),
-        hosts: []
-      })
-    )
-  } as PlanWeaveCollaborationApi;
-
-  return {
-    api,
-    observe,
-    dispatch,
-    executeAction,
-    replay,
-    listInteractions,
-    settle,
-    listAgentEndpoints
+function apiReturning(view: DesktopWorkspaceExecutionResponse) {
+  const start = vi.fn().mockResolvedValue(view);
+  const follow = vi.fn().mockResolvedValue(view);
+  const cancel = vi.fn().mockResolvedValue(view);
+  const respond = vi.fn().mockResolvedValue(view);
+  const api: PlanWeaveWorkspaceExecutionApi = {
+    startWorkspaceExecution: start,
+    followWorkspaceExecution: follow,
+    cancelWorkspaceExecution: cancel,
+    respondWorkspaceExecution: respond
   };
+  return { api, start, follow, cancel, respond };
 }
 
-const apis: CollaborationReadBridgePort[] = [];
-
-function readBridge(api: PlanWeaveCollaborationApi): CollaborationReadBridgePort {
-  const bridge = toCollaborationReadBridge(api);
-  if (!bridge) throw new Error("collaboration_read_bridge_missing");
-  return bridge;
+function renderController(input: {
+  api: PlanWeaveWorkspaceExecutionApi;
+  runtime?: typeof runtimeRemoteExecution | null;
+  executionLocator?: DesktopOwnerCanvasExecutionLocator;
+}) {
+  return renderHook(
+    ({ executionLocator }) =>
+      useRemoteRunPanelController({
+        agentEndpoints: [endpoint],
+        workItem: blockItem,
+        runtimeRemoteExecution: input.runtime ?? null,
+        executionLocator,
+        executionApi: input.api,
+        open: true,
+        selectedAgentEndpointId: endpoint.id,
+        t: createTranslator("en"),
+        createId: () => "action-cancel"
+      }),
+    { initialProps: { executionLocator: input.executionLocator ?? locator } }
+  );
 }
-
-afterEach(() => {
-  while (apis.length > 0) {
-    resetCollaborationReadModelHubForTests(apis.pop());
-  }
-});
 
 describe("useRemoteRunPanelController", () => {
-  it("loads observation, events, and interactions when open", async () => {
-    const { api, observe, replay, listInteractions } = createApi();
-    const bridge = readBridge(api);
-    apis.push(bridge);
-    const shell = acquireCollaborationReadModelController(bridge);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "default"
-    });
+  it("dispatches an ordinary owner Canvas through the shared Coordinator API", async () => {
+    const fixture = apiReturning(remoteView());
+    const { result } = renderController({ api: fixture.api });
 
-    const { result } = renderHook(() =>
-      useRemoteRunPanelController({
-        workItem: blockItem,
-        runtimeRemoteExecution: activeRuntimeExecution,
-        open: true,
-        api,
-        t: createTranslator("en"),
-        createId: () => "id-fixed"
-      })
-    );
+    await act(async () => result.current.dispatch());
 
-    await waitFor(() => {
-      expect(observe).toHaveBeenCalledWith({ operationId: "op-1" });
-      expect(result.current.viewModel.identity?.operationId).toBe("op-1");
-    });
-    expect(replay).toHaveBeenCalled();
-    expect(listInteractions).toHaveBeenCalled();
-    expect(result.current.viewModel.events).toHaveLength(2);
-    expect(result.current.viewModel.pendingInteractions).toHaveLength(1);
-    expect(result.current.viewModel.authority).toBe("remote_dispatch");
-  });
-
-  it.each([
-    ["above", 30],
-    ["below", 1]
-  ])("resets replay before a new attempt whose cursor is %s the old cursor", async (_case, cursor) => {
-    const { api, observe, replay } = createApi();
-    observe
-      .mockReset()
-      .mockResolvedValueOnce(observation("running"))
-      .mockResolvedValueOnce({
-        ...observation("running"),
-        executionAttemptId: "attempt-2",
-        attempt: { ...observation("running").attempt, executionAttemptId: "attempt-2" }
-      });
-    replay
-      .mockReset()
-      .mockResolvedValueOnce({
-        eventProtocolVersion: 1,
-        executionAttemptId: "attempt-1",
-        afterCursor: 0,
-        cursor: 20,
-        highWatermark: 20,
-        hasMore: false,
-        events: [{ cursor: 20, kind: "agent_message", text: "attempt A" }],
-        diagnostics: []
-      })
-      .mockResolvedValueOnce({
-        eventProtocolVersion: 1,
-        executionAttemptId: "attempt-2",
-        afterCursor: 0,
-        cursor,
-        highWatermark: cursor,
-        hasMore: false,
-        events: [{ cursor, kind: "agent_message", text: "attempt B" }],
-        diagnostics: []
-      });
-    const bridge = readBridge(api);
-    apis.push(bridge);
-    const shell = acquireCollaborationReadModelController(bridge);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "default"
-    });
-
-    const { result } = renderHook(() =>
-      useRemoteRunPanelController({
-        workItem: blockItem,
-        runtimeRemoteExecution: activeRuntimeExecution,
-        open: true,
-        api,
-        t: createTranslator("en")
-      })
-    );
-
-    await waitFor(() => expect(result.current.viewModel.events[0]?.summary).toBe("attempt A"));
-    await act(async () => result.current.refresh());
-
-    expect(replay).toHaveBeenNthCalledWith(2, {
-      operationId: "op-1",
-      query: { afterCursor: 0 }
-    });
-    expect(result.current.viewModel.identity?.executionAttemptId).toBe("attempt-2");
-    expect(result.current.viewModel.eventCursor).toBe(cursor);
-    expect(result.current.viewModel.events.map((event) => event.summary)).toEqual(["attempt B"]);
-  });
-
-  it("ignores an old attempt pagination response after observation switches attempts", async () => {
-    const { api, observe, replay } = createApi();
-    const latePage = deferred<RemoteEventReplay>();
-    const attemptTwo = {
-      ...observation("running"),
-      executionAttemptId: "attempt-2",
-      attempt: { ...observation("running").attempt, executionAttemptId: "attempt-2" }
-    };
-    observe.mockReset().mockResolvedValueOnce(observation("running")).mockResolvedValue(attemptTwo);
-    replay
-      .mockReset()
-      .mockResolvedValueOnce({
-        eventProtocolVersion: 1,
-        executionAttemptId: "attempt-1",
-        afterCursor: 0,
-        cursor: 20,
-        highWatermark: 21,
-        hasMore: true,
-        events: [{ cursor: 20, kind: "agent_message", text: "attempt A" }],
-        diagnostics: []
-      })
-      .mockImplementationOnce(() => latePage.promise)
-      .mockResolvedValueOnce({
-        eventProtocolVersion: 2,
-        executionAttemptId: "attempt-2",
-        afterCursor: 0,
-        cursor: 1,
-        highWatermark: 1,
-        hasMore: false,
-        events: [
-          {
-            eventVersion: 2,
-            cursor: 1,
-            sourceSequence: 1,
-            timestamp: "2030-01-01T00:02:00.000Z",
-            fragment: {
-              kind: "runner_body",
-              body: {
-                kind: "message",
-                role: "assistant",
-                messageId: null,
-                chunk: false,
-                content: "attempt B",
-                redaction: { classes: [], replaced: 0 }
-              }
-            }
-          }
-        ],
-        diagnostics: []
-      });
-    const bridge = readBridge(api);
-    apis.push(bridge);
-    const shell = acquireCollaborationReadModelController(bridge);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "default"
-    });
-    const { result } = renderHook(() =>
-      useRemoteRunPanelController({
-        workItem: blockItem,
-        runtimeRemoteExecution: activeRuntimeExecution,
-        open: true,
-        api,
-        t: createTranslator("en")
-      })
-    );
-    await waitFor(() => expect(result.current.viewModel.eventsHasMore).toBe(true));
-    let loadPromise!: Promise<void>;
-    act(() => {
-      loadPromise = result.current.loadMoreEvents();
-    });
-    await waitFor(() =>
-      expect(replay).toHaveBeenNthCalledWith(2, {
-        operationId: "op-1",
-        query: { afterCursor: 20 }
-      })
-    );
-    await act(async () => result.current.refresh());
-    expect(result.current.viewModel.events.map((event) => event.summary)).toEqual(["attempt B"]);
-
-    await act(async () => {
-      latePage.resolve({
-        eventProtocolVersion: 1,
-        executionAttemptId: "attempt-1",
-        afterCursor: 20,
-        cursor: 21,
-        highWatermark: 21,
-        hasMore: false,
-        events: [{ cursor: 21, kind: "agent_message", text: "late attempt A" }],
-        diagnostics: []
-      });
-      await loadPromise;
-    });
-    expect(result.current.viewModel.identity?.executionAttemptId).toBe("attempt-2");
-    expect(result.current.viewModel.events.map((event) => event.summary)).toEqual(["attempt B"]);
-  });
-
-  it("does not start old-attempt pagination while a refresh is discovering a new attempt", async () => {
-    const { api, observe, replay } = createApi();
-    const attemptTwoObservation = deferred<RemoteOperationObservation>();
-    const attemptTwo = {
-      ...observation("running"),
-      executionAttemptId: "attempt-2",
-      attempt: { ...observation("running").attempt, executionAttemptId: "attempt-2" }
-    };
-    observe
-      .mockReset()
-      .mockResolvedValueOnce(observation("running"))
-      .mockImplementationOnce(() => attemptTwoObservation.promise);
-    replay
-      .mockReset()
-      .mockResolvedValueOnce({
-        eventProtocolVersion: 1,
-        executionAttemptId: "attempt-1",
-        afterCursor: 0,
-        cursor: 20,
-        highWatermark: 21,
-        hasMore: true,
-        events: [{ cursor: 20, kind: "agent_message", text: "attempt A" }],
-        diagnostics: []
-      })
-      .mockResolvedValueOnce({
-        eventProtocolVersion: 2,
-        executionAttemptId: "attempt-2",
-        afterCursor: 0,
-        cursor: 1,
-        highWatermark: 1,
-        hasMore: false,
-        events: [
-          {
-            eventVersion: 2,
-            cursor: 1,
-            sourceSequence: 1,
-            timestamp: "2030-01-01T00:02:00.000Z",
-            fragment: {
-              kind: "runner_body",
-              body: {
-                kind: "message",
-                role: "assistant",
-                messageId: null,
-                chunk: false,
-                content: "attempt B",
-                redaction: { classes: [], replaced: 0 }
-              }
-            }
-          }
-        ],
-        diagnostics: []
-      });
-    const bridge = readBridge(api);
-    apis.push(bridge);
-    const shell = acquireCollaborationReadModelController(bridge);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "default"
-    });
-    const { result } = renderHook(() =>
-      useRemoteRunPanelController({
-        workItem: blockItem,
-        runtimeRemoteExecution: activeRuntimeExecution,
-        open: true,
-        api,
-        t: createTranslator("en")
-      })
-    );
-    await waitFor(() => expect(result.current.viewModel.eventsHasMore).toBe(true));
-    let refreshPromise!: Promise<void>;
-    act(() => {
-      refreshPromise = result.current.refresh();
-    });
-    await waitFor(() => expect(observe).toHaveBeenCalledTimes(2));
-
-    await act(async () => result.current.loadMoreEvents());
-    expect(replay).toHaveBeenCalledTimes(1);
-
-    await act(async () => {
-      attemptTwoObservation.resolve(attemptTwo);
-      await refreshPromise;
-    });
-    expect(replay).toHaveBeenNthCalledWith(2, {
-      operationId: "op-1",
-      query: { afterCursor: 0 }
-    });
-    expect(result.current.viewModel.identity?.executionAttemptId).toBe("attempt-2");
-    expect(result.current.viewModel.events.map((event) => event.summary)).toEqual(["attempt B"]);
-    expect(result.current.actionError).toBeNull();
-  });
-
-  it("releases pagination loading when a refresh fails and permits another page", async () => {
-    const { api, observe, replay } = createApi();
-    const oldPage = deferred<RemoteEventReplay>();
-    observe
-      .mockReset()
-      .mockResolvedValueOnce(observation("running"))
-      .mockRejectedValueOnce(new Error("observation unavailable"));
-    replay
-      .mockReset()
-      .mockResolvedValueOnce({
-        eventProtocolVersion: 1,
-        executionAttemptId: "attempt-1",
-        afterCursor: 0,
-        cursor: 20,
-        highWatermark: 21,
-        hasMore: true,
-        events: [{ cursor: 20, kind: "agent_message", text: "attempt A" }],
-        diagnostics: []
-      })
-      .mockImplementationOnce(() => oldPage.promise)
-      .mockResolvedValueOnce({
-        eventProtocolVersion: 1,
-        executionAttemptId: "attempt-1",
-        afterCursor: 20,
-        cursor: 21,
-        highWatermark: 21,
-        hasMore: false,
-        events: [{ cursor: 21, kind: "agent_message", text: "recovered page" }],
-        diagnostics: []
-      });
-    const bridge = readBridge(api);
-    apis.push(bridge);
-    const shell = acquireCollaborationReadModelController(bridge);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "default"
-    });
-    const { result } = renderHook(() =>
-      useRemoteRunPanelController({
-        workItem: blockItem,
-        runtimeRemoteExecution: activeRuntimeExecution,
-        open: true,
-        api,
-        t: createTranslator("en")
-      })
-    );
-    await waitFor(() => expect(result.current.viewModel.eventsHasMore).toBe(true));
-    let oldPagePromise!: Promise<void>;
-    act(() => {
-      oldPagePromise = result.current.loadMoreEvents();
-    });
-    await waitFor(() => expect(result.current.loadingEvents).toBe(true));
-    await act(async () => result.current.refresh());
-    expect(result.current.loadingEvents).toBe(false);
-    expect(result.current.actionError).toContain("observation unavailable");
-
-    await act(async () => {
-      oldPage.resolve({
-        eventProtocolVersion: 1,
-        executionAttemptId: "attempt-1",
-        afterCursor: 20,
-        cursor: 21,
-        highWatermark: 21,
-        hasMore: false,
-        events: [{ cursor: 21, kind: "agent_message", text: "obsolete page" }],
-        diagnostics: []
-      });
-      await oldPagePromise;
-    });
-    expect(result.current.loadingEvents).toBe(false);
-
-    await act(async () => result.current.loadMoreEvents());
-    expect(replay).toHaveBeenNthCalledWith(3, {
-      operationId: "op-1",
-      query: { afterCursor: 20 }
-    });
-    expect(result.current.loadingEvents).toBe(false);
-    expect(result.current.viewModel.eventCursor).toBe(21);
-    expect(result.current.viewModel.events.map((event) => event.summary)).toEqual([
-      "attempt A",
-      "recovered page"
-    ]);
-  });
-
-  it("does not let an obsolete pagination finally clear a newer pagination owner", async () => {
-    const { api, observe, replay } = createApi();
-    const oldPage = deferred<RemoteEventReplay>();
-    const newPage = deferred<RemoteEventReplay>();
-    const attemptTwo = {
-      ...observation("running"),
-      executionAttemptId: "attempt-2",
-      attempt: { ...observation("running").attempt, executionAttemptId: "attempt-2" }
-    };
-    observe.mockReset().mockResolvedValueOnce(observation("running")).mockResolvedValue(attemptTwo);
-    replay
-      .mockReset()
-      .mockResolvedValueOnce({
-        eventProtocolVersion: 1,
-        executionAttemptId: "attempt-1",
-        afterCursor: 0,
-        cursor: 20,
-        highWatermark: 21,
-        hasMore: true,
-        events: [{ cursor: 20, kind: "agent_message", text: "attempt A" }],
-        diagnostics: []
-      })
-      .mockImplementationOnce(() => oldPage.promise)
-      .mockResolvedValueOnce({
-        eventProtocolVersion: 1,
-        executionAttemptId: "attempt-2",
-        afterCursor: 0,
-        cursor: 1,
-        highWatermark: 2,
-        hasMore: true,
-        events: [{ cursor: 1, kind: "agent_message", text: "attempt B" }],
-        diagnostics: []
-      })
-      .mockImplementationOnce(() => newPage.promise);
-    const bridge = readBridge(api);
-    apis.push(bridge);
-    const shell = acquireCollaborationReadModelController(bridge);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "default"
-    });
-    const { result } = renderHook(() =>
-      useRemoteRunPanelController({
-        workItem: blockItem,
-        runtimeRemoteExecution: activeRuntimeExecution,
-        open: true,
-        api,
-        t: createTranslator("en")
-      })
-    );
-    await waitFor(() => expect(result.current.viewModel.eventsHasMore).toBe(true));
-    let oldPagePromise!: Promise<void>;
-    act(() => {
-      oldPagePromise = result.current.loadMoreEvents();
-    });
-    await waitFor(() => expect(replay).toHaveBeenCalledTimes(2));
-    await act(async () => result.current.refresh());
-
-    let newPagePromise!: Promise<void>;
-    act(() => {
-      newPagePromise = result.current.loadMoreEvents();
-    });
-    await waitFor(() => expect(replay).toHaveBeenCalledTimes(4));
-    expect(result.current.loadingEvents).toBe(true);
-
-    await act(async () => {
-      oldPage.resolve({
-        eventProtocolVersion: 1,
-        executionAttemptId: "attempt-1",
-        afterCursor: 20,
-        cursor: 21,
-        highWatermark: 21,
-        hasMore: false,
-        events: [{ cursor: 21, kind: "agent_message", text: "late attempt A" }],
-        diagnostics: []
-      });
-      await oldPagePromise;
-    });
-    expect(result.current.loadingEvents).toBe(true);
-
-    await act(async () => {
-      newPage.resolve({
-        eventProtocolVersion: 1,
-        executionAttemptId: "attempt-2",
-        afterCursor: 1,
-        cursor: 2,
-        highWatermark: 2,
-        hasMore: false,
-        events: [{ cursor: 2, kind: "agent_message", text: "new attempt page" }],
-        diagnostics: []
-      });
-      await newPagePromise;
-    });
-    expect(result.current.loadingEvents).toBe(false);
-    expect(result.current.viewModel.identity?.executionAttemptId).toBe("attempt-2");
-    expect(result.current.viewModel.events.map((event) => event.summary)).toEqual([
-      "attempt B",
-      "new attempt page"
-    ]);
-  });
-
-  it("rejects replay whose attempt does not match the observed attempt", async () => {
-    const { api, replay } = createApi();
-    replay.mockResolvedValueOnce({
-      eventProtocolVersion: 1,
-      executionAttemptId: "wrong-attempt",
-      afterCursor: 0,
-      cursor: 1,
-      highWatermark: 1,
-      hasMore: false,
-      events: [{ cursor: 1, kind: "agent_message", text: "wrong" }],
-      diagnostics: []
-    });
-    const bridge = readBridge(api);
-    apis.push(bridge);
-    const shell = acquireCollaborationReadModelController(bridge);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "default"
-    });
-    const { result } = renderHook(() =>
-      useRemoteRunPanelController({
-        workItem: blockItem,
-        runtimeRemoteExecution: activeRuntimeExecution,
-        open: true,
-        api,
-        t: createTranslator("en")
-      })
-    );
-
-    await waitFor(() => expect(result.current.actionError).toContain("attempt_mismatch"));
-    expect(result.current.viewModel.events).toEqual([]);
-    expect(result.current.viewModel.eventCursor).toBe(0);
-  });
-
-  it("dispatches and cancels through the mock bridge", async () => {
-    const { api, dispatch, executeAction, observe } = createApi();
-    observe.mockResolvedValueOnce(observation("running"));
-    const bridge = readBridge(api);
-    apis.push(bridge);
-    const shell = acquireCollaborationReadModelController(bridge);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "default"
-    });
-
-    const { result } = renderHook(() =>
-      useRemoteRunPanelController({
-        agentEndpoints: [
-          {
-            id: "remote:endpoint-vps",
-            source: "remote",
-            executorName: "codex",
-            displayName: "Codex",
-            locationName: "VPS",
-            capabilities: ["acp.codex"],
-            available: true,
-            unavailableReason: null,
-            remoteEndpointId: "endpoint-vps"
-          }
-        ],
-        workItem: blockItem,
-        runtimeRemoteExecution: activeRuntimeExecution,
-        open: true,
-        api,
-        selectedAgentEndpointId: "remote:endpoint-vps",
-        t: createTranslator("en"),
-        createId: () => "id-fixed"
-      })
-    );
-
-    await waitFor(() => {
-      expect(result.current.viewModel.identity).not.toBeNull();
-      expect(result.current.agentEndpoints).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ id: "remote:endpoint-vps", available: true })
-        ])
-      );
-    });
-
-    await act(async () => {
-      await result.current.dispatch();
-    });
-    expect(dispatch).toHaveBeenCalledWith({
-      schemaVersion: "remote-run/v3",
-      projectId: "project-1",
-      canvasId: "default",
-      blockRef: "T-1#B-1",
+    expect(fixture.start).toHaveBeenCalledWith({
+      locator,
+      blockRef: blockItem.blockRef,
       agentEndpointId: "endpoint-vps",
-      idempotencyKey: "desktop-dispatch-id-fixed",
-      expectedResponsibilityRevision: 0,
-      expectedReviewerRevision: 0,
-      executionTargetRevision: 1,
-      contentRevision: "source-revision-1",
-      graphFingerprint: `pkg-${"a".repeat(64)}`
+      effectiveExecutor: { name: "codex-acp", agentId: "codex" }
     });
-
-    await act(async () => {
-      await result.current.cancel("stop please");
-    });
-    expect(executeAction).toHaveBeenCalledWith(
-      expect.objectContaining({
-        operationId: "op-1",
-        action: expect.objectContaining({ kind: "cancel", reason: "stop please" })
-      })
-    );
+    expect(result.current.viewModel.identity?.operationId).toBe("operation-1");
   });
 
-  it("reloads endpoints and clears selection when the block or canvas scope changes", async () => {
-    const { api, listAgentEndpoints } = createApi();
-    listAgentEndpoints.mockResolvedValueOnce({
-      schemaVersion: "agent-endpoint-list/v1",
-      items: [
-        {
-          schemaVersion: "agent-endpoint/v1",
-          endpointId: "endpoint-vps",
-          profileId: "codex-acp",
-          agentId: "codex",
-          displayName: "Codex",
-          hostDisplayName: "VPS",
-          status: "available",
-          capabilities: ["acp.codex"]
-        }
-      ]
-    });
-    listAgentEndpoints.mockResolvedValue({
-      schemaVersion: "agent-endpoint-list/v1",
-      items: [
-        {
-          schemaVersion: "agent-endpoint/v1",
-          endpointId: "endpoint-new-scope",
-          profileId: "codex-acp",
-          agentId: "codex",
-          displayName: "Codex",
-          hostDisplayName: "New Scope Host",
-          status: "available",
-          capabilities: ["acp.codex"]
-        }
-      ]
-    });
-    const bridge = readBridge(api);
-    apis.push(bridge);
-    const shell = acquireCollaborationReadModelController(bridge);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "default"
+  it("attaches an existing operation, then follows the Coordinator session", async () => {
+    const fixture = apiReturning(remoteView());
+    const { result } = renderController({ api: fixture.api, runtime: runtimeRemoteExecution });
+
+    await waitFor(() => expect(result.current.viewModel.identity?.operationId).toBe("operation-1"));
+    expect(fixture.follow).toHaveBeenNthCalledWith(1, {
+      locator,
+      blockRef: blockItem.blockRef,
+      operationId: "operation-1"
     });
 
-    const { result, rerender } = renderHook(
-      ({ workItem }: { workItem: WorkItemRef }) =>
-        useRemoteRunPanelController({
-          workItem,
-          runtimeRemoteExecution: activeRuntimeExecution,
-          open: true,
-          localAgentEndpoints: [availableLocalEndpoint],
-          requiredProfileId: "codex-acp",
-          api,
-          t: createTranslator("en")
-        }),
-      { initialProps: { workItem: blockItem } }
-    );
-
-    await waitFor(() => {
-      expect(result.current.viewModel.identity).not.toBeNull();
-      expect(result.current.agentEndpoints).toEqual(
-        expect.arrayContaining([expect.objectContaining({ id: "remote:endpoint-vps" })])
-      );
+    await act(async () => result.current.refresh());
+    expect(fixture.follow).toHaveBeenLastCalledWith({
+      locator,
+      blockRef: blockItem.blockRef,
+      agentEndpointId: "endpoint-vps",
+      effectiveExecutor: { name: "codex-acp", agentId: "codex" },
+      sessionId: "SESSION-0001"
     });
-    act(() => result.current.setSelectedAgentEndpointId("remote:endpoint-vps"));
-    await waitFor(() => expect(result.current.selectedAgentEndpointId).toBe("remote:endpoint-vps"));
-
-    rerender({
-      workItem: {
-        kind: "block",
-        canvasId: "secondary",
-        blockRef: "T-2#B-1"
-      }
-    });
-
-    await waitFor(() => {
-      expect(result.current.selectedAgentEndpointId).toBeNull();
-      expect(result.current.agentEndpoints).toEqual(
-        expect.arrayContaining([expect.objectContaining({ id: "remote:endpoint-new-scope" })])
-      );
-    });
-    expect(listAgentEndpoints).toHaveBeenCalledTimes(2);
-    expect(listAgentEndpoints).toHaveBeenNthCalledWith(1, {
-      canvasId: "default",
-      workspaceId: "workspace-1"
-    });
-    expect(listAgentEndpoints).toHaveBeenNthCalledWith(2, {
-      canvasId: "secondary",
-      workspaceId: "workspace-1"
-    });
+    expect(result.current.viewModel.events[0]?.summary).toBe("remote hello");
   });
 
-  it("does not let an old scope endpoint request overwrite the new scope", async () => {
-    const { api, listAgentEndpoints } = createApi();
-    let resolveOld: ((value: Awaited<ReturnType<typeof listAgentEndpoints>>) => void) | undefined;
-    let resolveNew: ((value: Awaited<ReturnType<typeof listAgentEndpoints>>) => void) | undefined;
-    listAgentEndpoints.mockImplementationOnce(
-      () => new Promise((resolve) => (resolveOld = resolve))
-    );
-    listAgentEndpoints.mockImplementationOnce(
-      () => new Promise((resolve) => (resolveNew = resolve))
-    );
-    const bridge = readBridge(api);
-    apis.push(bridge);
-    const shell = acquireCollaborationReadModelController(bridge);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "default"
-    });
+  it("routes interaction response and cancellation through the Coordinator API", async () => {
+    const fixture = apiReturning(remoteView({ phase: "blocked", includeInteraction: true }));
+    const { result } = renderController({ api: fixture.api, runtime: runtimeRemoteExecution });
+    await waitFor(() => expect(result.current.viewModel.pendingInteractions).toHaveLength(1));
 
-    const { result, rerender } = renderHook(
-      ({ workItem }: { workItem: WorkItemRef }) =>
-        useRemoteRunPanelController({
-          workItem,
-          open: true,
-          localAgentEndpoints: [availableLocalEndpoint],
-          requiredProfileId: "codex-acp",
-          api,
-          t: createTranslator("en")
-        }),
-      { initialProps: { workItem: blockItem } }
-    );
-    await waitFor(() => expect(listAgentEndpoints).toHaveBeenCalledOnce());
-    rerender({ workItem: { kind: "block", canvasId: "next", blockRef: "T-2#B-1" } });
-    await waitFor(() => expect(listAgentEndpoints).toHaveBeenCalledTimes(2));
-
-    await act(async () => {
-      resolveNew?.({
-        schemaVersion: "agent-endpoint-list/v1",
-        items: [
-          {
-            schemaVersion: "agent-endpoint/v1",
-            endpointId: "endpoint-new",
-            profileId: "codex-acp",
-            agentId: "codex",
-            displayName: "Codex",
-            hostDisplayName: "New Host",
-            status: "available",
-            capabilities: ["acp.codex"]
-          }
-        ]
-      });
-    });
-    await waitFor(() =>
-      expect(result.current.agentEndpoints).toEqual(
-        expect.arrayContaining([expect.objectContaining({ id: "remote:endpoint-new" })])
-      )
-    );
-    await act(async () => {
-      resolveOld?.({ schemaVersion: "agent-endpoint-list/v1", items: [] });
-    });
-    expect(result.current.agentEndpoints).toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: "remote:endpoint-new" })])
-    );
-  });
-
-  it.each([
-    {
-      label: "resolves late",
-      settlement: "resolve",
-      initial: blockItem,
-      next: { kind: "block", canvasId: "next", blockRef: "T-2#B-1" } as const
-    },
-    {
-      label: "rejects late",
-      settlement: "reject",
-      initial: blockItem,
-      next: { kind: "block", canvasId: "next", blockRef: "T-2#B-1" } as const
-    },
-    {
-      label: "resolves after a delimiter-colliding scope commits",
-      settlement: "resolve",
-      initial: { kind: "block", canvasId: "a:b", blockRef: "T#B" } as const,
-      next: { kind: "block", canvasId: "a", blockRef: "b:T#B" } as const
-    }
-  ] as const)("keeps the new scope clean when an old dispatch $label", async (testCase) => {
-    const { api, dispatch, listAgentEndpoints } = createApi();
-    const { settlement } = testCase;
-    const collisionCase = testCase.initial.canvasId === "a:b";
-    const pendingDispatch = deferred<ReturnType<typeof observation>>();
-    dispatch.mockImplementationOnce(() => pendingDispatch.promise);
-    if (collisionCase) {
-      vi.mocked(api.observeCollaborationRemoteOperation).mockResolvedValue({
-        ...observation("running"),
-        canvasId: testCase.initial.canvasId,
-        blockRef: testCase.initial.blockRef
-      });
-      const authorityTemplate = await api.getCollaborationWorkAuthority({ workItem: blockItem });
-      const assignmentFor = (workItem: WorkItemRef, hostId: string, revision: number) => ({
-        projectId: "project-1",
-        workItem,
-        target: { kind: "exact_host" as const, hostId },
-        revision,
-        availability: { status: "ready" as const, reason: "ready" as const },
-        host: {
-          hostId,
-          displayName: hostId,
-          online: true,
-          authorizedForProject: true,
-          revoked: false,
-          capabilitiesSatisfied: true
-        }
-      });
-      vi.mocked(api.listCollaborationAssignments).mockResolvedValue({
-        items: [
-          assignmentFor(testCase.initial, "host-old", 11),
-          assignmentFor(testCase.next, "host-new", 22)
-        ],
-        nextCursor: null
-      });
-      vi.mocked(api.getCollaborationWorkAuthority).mockImplementation(async ({ workItem }) => {
-        const revision = workItem.canvasId === "a:b" ? 11 : 22;
-        const scope = { ...authorityTemplate.scope, ...workItem };
-        return {
-          ...authorityTemplate,
-          scope,
-          responsibility: { ...authorityTemplate.responsibility, scope, revision },
-          reviewer: { ...authorityTemplate.reviewer, scope, revision },
-          revisions: {
-            ...authorityTemplate.revisions,
-            responsibilityRevision: revision,
-            reviewerRevision: revision
-          }
-        };
-      });
-      dispatch.mockResolvedValueOnce({
-        ...observation("running"),
-        operationId: "op-new",
-        canvasId: testCase.next.canvasId,
-        blockRef: testCase.next.blockRef
-      });
-    }
-    const bridge = readBridge(api);
-    apis.push(bridge);
-    const shell = acquireCollaborationReadModelController(bridge);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "default"
-    });
-    if (collisionCase) {
-      for (const [cursor, workItem, dispatchId, remoteRunStatus] of [
-        [1, testCase.initial, "dispatch-old", "started"],
-        [2, testCase.next, "dispatch-new", "progress"]
-      ] as const) {
-        shell.controller.handleObserverSignalForTests({
-          type: "human.observer.event",
-          profileId: "profile-1",
-          projectId: "project-1",
-          event: {
-            type: "human.observer.event",
-            protocolVersion: 1,
-            cursor,
-            previousCursor: cursor - 1,
-            occurredAt: `2030-01-01T00:0${cursor}:00.000Z`,
-            kind: "remote_run",
-            dispatchId,
-            remoteRunStatus,
-            workItem
-          }
-        });
-      }
-      await Promise.resolve();
-    }
-
-    const { result, rerender } = renderHook(
-      ({ workItem, runtime }: { workItem: WorkItemRef; runtime: boolean }) =>
-        useRemoteRunPanelController({
-          workItem,
-          runtimeRemoteExecution: runtime ? activeRuntimeExecution : null,
-          open: true,
-          localAgentEndpoints: [availableLocalEndpoint],
-          requiredProfileId: "codex-acp",
-          api,
-          t: createTranslator("en"),
-          createId: () => `late-dispatch-${settlement}`
-        }),
-      { initialProps: { workItem: testCase.initial, runtime: true } }
-    );
-
-    await waitFor(() => {
-      expect(result.current.viewModel.identity).not.toBeNull();
-      expect(result.current.agentEndpoints).toEqual(
-        expect.arrayContaining([expect.objectContaining({ id: "remote:endpoint-vps" })])
-      );
-      if (collisionCase) {
-        expect(result.current.viewModel.assignment?.workItem).toEqual(testCase.initial);
-        expect(result.current.viewModel.observerStatus).toBe("started");
-      }
-    });
-    act(() => result.current.setSelectedAgentEndpointId("remote:endpoint-vps"));
-    let dispatchPromise!: Promise<void>;
-    act(() => {
-      dispatchPromise = result.current.dispatch();
-    });
-    await waitFor(() => expect(dispatch).toHaveBeenCalledOnce());
-
-    rerender({
-      workItem: testCase.next,
-      runtime: false
-    });
-    await waitFor(() => {
-      expect(result.current.viewModel.identity).toBeNull();
-      expect(result.current.actionError).toBeNull();
-      expect(result.current.actionInFlight).toBeNull();
-      expect(listAgentEndpoints).toHaveBeenCalledTimes(2);
-      if (collisionCase) {
-        expect(result.current.viewModel.assignment?.workItem).toEqual(testCase.next);
-        expect(result.current.viewModel.observerStatus).toBe("progress");
-      }
-    });
-
-    let newScopeIdentity = result.current.viewModel.identity;
-    let newScopeEndpointId = result.current.selectedAgentEndpointId;
-    if (collisionCase) {
-      act(() => result.current.setSelectedAgentEndpointId("remote:endpoint-vps"));
-      await act(async () => result.current.dispatch());
-      expect(dispatch).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          canvasId: "a",
-          blockRef: "b:T#B",
-          expectedResponsibilityRevision: 22,
-          expectedReviewerRevision: 22,
-          executionTargetRevision: 1
-        })
-      );
-      newScopeIdentity = result.current.viewModel.identity;
-      newScopeEndpointId = result.current.selectedAgentEndpointId;
-    }
-
-    await act(async () => {
-      if (settlement === "resolve") {
-        pendingDispatch.resolve(observation("running"));
-      } else {
-        pendingDispatch.reject(new Error("late dispatch failure"));
-      }
-      await dispatchPromise;
-    });
-
-    expect(result.current.viewModel.identity).toEqual(newScopeIdentity);
-    expect(result.current.actionError).toBeNull();
-    expect(result.current.actionInFlight).toBeNull();
-    expect(result.current.selectedAgentEndpointId).toBe(newScopeEndpointId);
-  });
-
-  it("does not refresh an old operation after a delayed shared action settles", async () => {
-    const { api, executeAction, observe } = createApi();
-    const pendingAction = deferred<Awaited<ReturnType<typeof executeAction>>>();
-    executeAction.mockImplementationOnce(() => pendingAction.promise);
-    const bridge = readBridge(api);
-    apis.push(bridge);
-    const shell = acquireCollaborationReadModelController(bridge);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "default"
-    });
-
-    const { result, rerender } = renderHook(
-      ({ workItem, runtime }: { workItem: WorkItemRef; runtime: boolean }) =>
-        useRemoteRunPanelController({
-          workItem,
-          runtimeRemoteExecution: runtime ? activeRuntimeExecution : null,
-          open: true,
-          api,
-          t: createTranslator("en"),
-          createId: () => "late-action"
-        }),
-      { initialProps: { workItem: blockItem, runtime: true } }
-    );
-    await waitFor(() => expect(result.current.viewModel.identity).not.toBeNull());
-
-    let actionPromise!: Promise<void>;
-    act(() => {
-      actionPromise = result.current.cancel("stop old scope");
-    });
-    await waitFor(() => expect(executeAction).toHaveBeenCalledOnce());
-    rerender({
-      workItem: { kind: "block", canvasId: "next", blockRef: "T-2#B-1" },
-      runtime: false
-    });
-    await waitFor(() => expect(result.current.actionInFlight).toBeNull());
-    const observeCallsBeforeSettlement = observe.mock.calls.length;
-
-    await act(async () => {
-      pendingAction.resolve({
-        request: {
-          kind: "cancel",
-          actionId: "late-action",
-          operationId: "op-1",
-          dispatchId: "dispatch-1",
-          executionAttemptId: "attempt-1",
-          expectedAttemptVersion: 2,
-          leaseId: "lease-1",
-          reason: "stop old scope"
-        },
-        state: "recorded",
-        createdAt: "2030-01-01T00:02:00.000Z"
-      });
-      await actionPromise;
-    });
-
-    expect(observe).toHaveBeenCalledTimes(observeCallsBeforeSettlement);
-    expect(result.current.viewModel.identity).toBeNull();
-    expect(result.current.actionError).toBeNull();
-  });
-
-  it("ignores an old scope endpoint rejection after the new scope loads", async () => {
-    const { api, listAgentEndpoints } = createApi();
-    const oldRequest = deferred<Awaited<ReturnType<typeof listAgentEndpoints>>>();
-    listAgentEndpoints.mockImplementationOnce(() => oldRequest.promise);
-    listAgentEndpoints.mockResolvedValueOnce({
-      schemaVersion: "agent-endpoint-list/v1",
-      items: [
-        {
-          schemaVersion: "agent-endpoint/v1",
-          endpointId: "endpoint-new",
-          profileId: "codex-acp",
-          agentId: "codex",
-          displayName: "Codex",
-          hostDisplayName: "New Host",
-          status: "available",
-          capabilities: ["acp.codex"]
-        }
-      ]
-    });
-    const bridge = readBridge(api);
-    apis.push(bridge);
-    const shell = acquireCollaborationReadModelController(bridge);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "default"
-    });
-
-    const { result, rerender } = renderHook(
-      ({ workItem }: { workItem: WorkItemRef }) =>
-        useRemoteRunPanelController({
-          workItem,
-          open: true,
-          localAgentEndpoints: [availableLocalEndpoint],
-          requiredProfileId: "codex-acp",
-          api,
-          t: createTranslator("en")
-        }),
-      { initialProps: { workItem: blockItem } }
-    );
-    await waitFor(() => expect(listAgentEndpoints).toHaveBeenCalledOnce());
-    rerender({ workItem: { kind: "block", canvasId: "next", blockRef: "T-2#B-1" } });
-    await waitFor(() => {
-      expect(result.current.agentEndpoints).toEqual(
-        expect.arrayContaining([expect.objectContaining({ id: "remote:endpoint-new" })])
-      );
-      expect(result.current.refreshingAgentEndpoints).toBe(false);
-    });
-    act(() => result.current.setSelectedAgentEndpointId("remote:endpoint-new"));
-    await waitFor(() => expect(result.current.selectedAgentEndpointId).toBe("remote:endpoint-new"));
-
-    await act(async () => {
-      oldRequest.reject(new Error("old scope endpoint failure"));
-      await oldRequest.promise.catch(() => undefined);
-    });
-
-    expect(result.current.agentEndpoints).toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: "remote:endpoint-new" })])
-    );
-    expect(result.current.selectedAgentEndpointId).toBe("remote:endpoint-new");
-    expect(result.current.actionError).toBeNull();
-    expect(result.current.refreshingAgentEndpoints).toBe(false);
-  });
-
-  it("refreshes endpoints and keeps the unavailable selection explicit after a dispatch conflict", async () => {
-    const { api, dispatch, listAgentEndpoints } = createApi();
-    dispatch.mockRejectedValueOnce({
-      kind: "conflict",
-      code: "agent_endpoint_unavailable",
-      message: "agent_endpoint_unavailable",
-      retryable: true
-    });
-    const bridge = readBridge(api);
-    apis.push(bridge);
-    const shell = acquireCollaborationReadModelController(bridge);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "default"
-    });
-
-    const { result } = renderHook(() =>
-      useRemoteRunPanelController({
-        workItem: blockItem,
-        runtimeRemoteExecution: activeRuntimeExecution,
-        open: true,
-        localAgentEndpoints: [availableLocalEndpoint],
-        requiredProfileId: "codex-acp",
-        api,
-        t: createTranslator("en"),
-        createId: () => "conflict"
-      })
-    );
-
-    await waitFor(() => {
-      expect(result.current.viewModel.identity).not.toBeNull();
-      expect(result.current.agentEndpoints).toEqual(
-        expect.arrayContaining([expect.objectContaining({ id: "remote:endpoint-vps" })])
-      );
-    });
-    act(() => result.current.setSelectedAgentEndpointId("remote:endpoint-vps"));
-    await waitFor(() => expect(result.current.selectedAgentEndpointId).toBe("remote:endpoint-vps"));
-
-    await act(async () => result.current.dispatch());
-
-    expect(dispatch).toHaveBeenCalledOnce();
-    expect(listAgentEndpoints).toHaveBeenCalledTimes(2);
-    expect(result.current.selectedAgentEndpointId).toBe("remote:endpoint-vps");
-    expect(result.current.refreshingAgentEndpoints).toBe(false);
-    expect(result.current.actionError).toContain("agent_endpoint_unavailable");
-
-    act(() => result.current.setSelectedAgentEndpointId("remote:endpoint-vps"));
-    dispatch.mockRejectedValueOnce({
-      kind: "conflict",
-      code: "agent_endpoint_unavailable",
-      message: "agent_endpoint_unavailable",
-      retryable: true
-    });
-    listAgentEndpoints.mockRejectedValueOnce(new Error("catalog refresh failed"));
-    await act(async () => result.current.dispatch());
-
-    expect(listAgentEndpoints).toHaveBeenCalledTimes(3);
-    expect(result.current.selectedAgentEndpointId).toBe("remote:endpoint-vps");
-    expect(result.current.actionError).toContain("agent_endpoint_unavailable");
-  });
-
-  it("keeps endpoint selection and skips catalog refresh for non-endpoint errors", async () => {
-    const { api, dispatch, listAgentEndpoints } = createApi();
-    dispatch.mockRejectedValueOnce({
-      kind: "transport",
-      code: "collaboration_request_failed",
-      message: "network failed",
-      retryable: true
-    });
-    const bridge = readBridge(api);
-    apis.push(bridge);
-    const shell = acquireCollaborationReadModelController(bridge);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "default"
-    });
-
-    const { result } = renderHook(() =>
-      useRemoteRunPanelController({
-        workItem: blockItem,
-        runtimeRemoteExecution: activeRuntimeExecution,
-        open: true,
-        localAgentEndpoints: [availableLocalEndpoint],
-        requiredProfileId: "codex-acp",
-        api,
-        t: createTranslator("en")
-      })
-    );
-
-    await waitFor(() =>
-      expect(result.current.agentEndpoints).toEqual(
-        expect.arrayContaining([expect.objectContaining({ id: "remote:endpoint-vps" })])
-      )
-    );
-    act(() => result.current.setSelectedAgentEndpointId("remote:endpoint-vps"));
-    await act(async () => result.current.dispatch());
-
-    expect(listAgentEndpoints).toHaveBeenCalledOnce();
-    expect(result.current.selectedAgentEndpointId).toBe("remote:endpoint-vps");
-    expect(result.current.actionError).toContain("network failed");
-  });
-
-  it("settles one pending permission interaction", async () => {
-    const { api, settle } = createApi();
-    const bridge = readBridge(api);
-    apis.push(bridge);
-    const shell = acquireCollaborationReadModelController(bridge);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "default"
-    });
-
-    const { result } = renderHook(() =>
-      useRemoteRunPanelController({
-        workItem: blockItem,
-        runtimeRemoteExecution: {
-          identity: { operationId: "op-1" },
-          phase: "active",
-          status: "owned",
-          actionRequired: true,
-          source: { revision: "rev-1", graphFingerprint: "fp-1" },
-          dispatchAttempt: { dispatchId: "dispatch-1", executionAttemptId: "attempt-1" }
-        },
-        open: true,
-        api,
-        t: createTranslator("en"),
-        createId: () => "id-fixed"
-      })
-    );
-
-    await waitFor(() => expect(result.current.viewModel.pendingInteractions.length).toBe(1));
-
-    await act(async () => {
-      await result.current.answerInteraction({
+    const request = result.current.viewModel.pendingInteractions[0]?.request;
+    if (!request) throw new Error("missing_interaction_fixture");
+    await act(async () =>
+      result.current.answerInteraction({
         type: "interaction.permission_response",
         decision: "allow_once",
-        actionId: "ia-1",
-        dispatchId: "dispatch-1",
-        leaseId: "lease-1",
-        executionAttemptId: "attempt-1",
-        acpSessionId: "session-1"
-      });
-    });
-    expect(settle).toHaveBeenCalledWith(
+        actionId: request.actionId,
+        dispatchId: request.dispatchId,
+        leaseId: request.leaseId,
+        executionAttemptId: request.executionAttemptId,
+        acpSessionId: request.acpSessionId
+      })
+    );
+    await act(async () => result.current.cancel("stop"));
+
+    expect(fixture.respond).toHaveBeenCalledOnce();
+    expect(fixture.cancel).toHaveBeenCalledWith(
       expect.objectContaining({
-        operationId: "op-1",
-        settlement: expect.objectContaining({
-          type: "interaction.permission_response",
-          decision: "allow_once"
-        })
+        locator,
+        sessionId: "SESSION-0001",
+        actionId: "action-cancel",
+        reason: "stop"
       })
     );
   });
 
-  it("sends server-owned resume intent without minting lease or recovery", async () => {
-    const { api, executeAction, observe } = createApi();
-    observe.mockResolvedValue(observation("interrupted"));
-    executeAction.mockResolvedValue({
-      request: {
-        kind: "resume_same_session",
-        actionId: "id-lease",
-        operationId: "op-1",
-        dispatchId: "dispatch-1",
-        executionAttemptId: "attempt-1",
-        expectedAttemptVersion: 2,
-        priorLeaseId: "lease-1",
-        leaseId: "id-lease",
-        leaseExpiresAt: "2030-01-01T00:00:25.000Z",
-        recovery: { acpSessionId: "session-1", recoveryId: "recovery-1" },
-        reason: "resume"
-      },
-      state: "settled"
+  it("ignores a late result after the owner Canvas scope changes", async () => {
+    let resolveOld!: (view: DesktopWorkspaceExecutionResponse) => void;
+    const old = new Promise<DesktopWorkspaceExecutionResponse>((resolve) => {
+      resolveOld = resolve;
     });
-    const bridge = readBridge(api);
-    apis.push(bridge);
-    const shell = acquireCollaborationReadModelController(bridge);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "default"
-    });
+    const follow = vi
+      .fn()
+      .mockImplementationOnce(() => old)
+      .mockResolvedValueOnce(remoteView({ operationId: "operation-new" }));
+    const api: PlanWeaveWorkspaceExecutionApi = {
+      startWorkspaceExecution: vi.fn(),
+      followWorkspaceExecution: follow,
+      cancelWorkspaceExecution: vi.fn(),
+      respondWorkspaceExecution: vi.fn()
+    };
+    const { result, rerender } = renderController({ api, runtime: runtimeRemoteExecution });
+    rerender({ executionLocator: { ...locator, canvasId: "next" } });
 
-    let leaseSeq = 0;
-    const { result } = renderHook(() =>
-      useRemoteRunPanelController({
-        workItem: blockItem,
-        runtimeRemoteExecution: {
-          identity: { operationId: "op-1" },
-          phase: "active",
-          status: "interrupted",
-          actionRequired: true,
-          source: { revision: "rev-1", graphFingerprint: "fp-1" },
-          dispatchAttempt: { dispatchId: "dispatch-1", executionAttemptId: "attempt-1" }
-        },
-        open: true,
-        api,
-        t: createTranslator("en"),
-        createId: () => `id-lease-${leaseSeq++}`
-      })
+    await waitFor(() =>
+      expect(result.current.viewModel.identity?.operationId).toBe("operation-new")
     );
+    resolveOld(remoteView({ operationId: "operation-old" }));
+    await act(async () => Promise.resolve());
 
-    await waitFor(() => {
-      expect(result.current.viewModel.identity?.recoveryId).toBe("recovery-1");
-      expect(result.current.viewModel.phase).toBe("interrupted");
-    });
-
-    await act(async () => {
-      await result.current.resume("resume please");
-    });
-
-    expect(executeAction).toHaveBeenCalledWith(
-      expect.objectContaining({
-        operationId: "op-1",
-        action: expect.objectContaining({
-          kind: "resume_same_session",
-          priorLeaseId: "lease-1",
-          reason: "resume please"
-        })
-      })
-    );
-    const action = executeAction.mock.calls[0]?.[0]?.action as Record<string, unknown>;
-    expect(action).not.toHaveProperty("leaseId");
-    expect(action).not.toHaveProperty("leaseExpiresAt");
-    expect(action).not.toHaveProperty("recovery");
-  });
-
-  it("clears observation state on project switch generation", async () => {
-    const { api } = createApi();
-    const bridge = readBridge(api);
-    apis.push(bridge);
-    const shell = acquireCollaborationReadModelController(bridge);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "default"
-    });
-
-    const { result } = renderHook(() =>
-      useRemoteRunPanelController({
-        workItem: blockItem,
-        runtimeRemoteExecution: {
-          identity: { operationId: "op-1" },
-          phase: "active",
-          status: "owned",
-          actionRequired: false,
-          source: { revision: "rev-1", graphFingerprint: "fp-1" },
-          dispatchAttempt: { dispatchId: "dispatch-1", executionAttemptId: "attempt-1" }
-        },
-        open: true,
-        api,
-        t: createTranslator("en")
-      })
-    );
-
-    await waitFor(() => expect(result.current.viewModel.identity).not.toBeNull());
-
-    await act(async () => {
-      await shell.controller.setActiveProject({
-        profileId: "profile-1",
-        projectId: "project-2",
-        canvasId: "default"
-      });
-    });
-
-    await waitFor(() => {
-      expect(result.current.viewModel.identity).toBeNull();
-    });
+    expect(result.current.viewModel.identity?.operationId).toBe("operation-new");
   });
 });

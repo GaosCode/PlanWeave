@@ -7,47 +7,90 @@ import { remoteInteractionResponseSchema } from "@planweave-ai/collaboration-pro
 import { workspaceCanvasLocatorSchema } from "./canvasLocator.js";
 
 const identifierSchema = z.string().trim().min(1).max(256);
+const blockExecutionShape = {
+  blockRef: z.string().trim().min(3).max(512),
+  agentEndpointId: identifierSchema,
+  effectiveExecutor: effectiveWorkspaceExecutorSchema
+};
 
-export const desktopWorkspaceExecutionStartInputSchema = z
+const desktopWorkspaceCanvasExecutionStartInputSchema = z
   .object({
     locator: workspaceCanvasLocatorSchema,
-    blockRef: z.string().trim().min(3).max(512),
-    agentEndpointId: identifierSchema,
-    effectiveExecutor: effectiveWorkspaceExecutorSchema
+    ...blockExecutionShape
   })
   .strict();
 
-const desktopWorkspaceExecutionSessionFollowInputSchema = desktopWorkspaceExecutionStartInputSchema
-  .extend({ sessionId: z.string().regex(/^SESSION-\d{4,}$/) })
-  .strict();
-
-const desktopWorkspaceExecutionExistingFollowInputSchema = z
+export const desktopOwnerCanvasExecutionLocatorSchema = z
   .object({
-    locator: workspaceCanvasLocatorSchema,
-    blockRef: z.string().trim().min(3).max(512),
-    operationId: identifierSchema
+    kind: z.literal("owner_canvas"),
+    operatorProfileId: identifierSchema,
+    humanPrincipalId: identifierSchema,
+    projectRoot: z.string().trim().min(1).max(4_096),
+    projectId: identifierSchema,
+    canvasId: identifierSchema
   })
   .strict();
+
+const desktopOwnerCanvasExecutionStartInputSchema = z
+  .object({ locator: desktopOwnerCanvasExecutionLocatorSchema, ...blockExecutionShape })
+  .strict();
+
+export const desktopWorkspaceExecutionStartInputSchema = z.union([
+  desktopWorkspaceCanvasExecutionStartInputSchema,
+  desktopOwnerCanvasExecutionStartInputSchema
+]);
+
+const sessionIdShape = { sessionId: z.string().regex(/^SESSION-\d{4,}$/) };
+const desktopWorkspaceExecutionSessionFollowInputSchema = z.union([
+  desktopWorkspaceCanvasExecutionStartInputSchema.extend(sessionIdShape).strict(),
+  desktopOwnerCanvasExecutionStartInputSchema.extend(sessionIdShape).strict()
+]);
+
+const desktopWorkspaceExecutionExistingFollowInputSchema = z.union([
+  z
+    .object({
+      locator: workspaceCanvasLocatorSchema,
+      blockRef: z.string().trim().min(3).max(512),
+      operationId: identifierSchema
+    })
+    .strict(),
+  z
+    .object({
+      locator: desktopOwnerCanvasExecutionLocatorSchema,
+      blockRef: z.string().trim().min(3).max(512),
+      operationId: identifierSchema
+    })
+    .strict()
+]);
 
 export const desktopWorkspaceExecutionFollowInputSchema = z.union([
   desktopWorkspaceExecutionSessionFollowInputSchema,
   desktopWorkspaceExecutionExistingFollowInputSchema
 ]);
 
-export const desktopWorkspaceExecutionCancelInputSchema =
-  desktopWorkspaceExecutionSessionFollowInputSchema
-    .extend({ actionId: identifierSchema, reason: z.string().trim().min(1).max(2_048) })
-    .strict();
+const cancellationShape = {
+  ...sessionIdShape,
+  actionId: identifierSchema,
+  reason: z.string().trim().min(1).max(2_048)
+};
+export const desktopWorkspaceExecutionCancelInputSchema = z.union([
+  desktopWorkspaceCanvasExecutionStartInputSchema.extend(cancellationShape).strict(),
+  desktopOwnerCanvasExecutionStartInputSchema.extend(cancellationShape).strict()
+]);
 
-export const desktopWorkspaceExecutionRespondInputSchema =
-  desktopWorkspaceExecutionSessionFollowInputSchema
-    .extend({ response: remoteInteractionResponseSchema })
-    .strict();
+const responseShape = { ...sessionIdShape, response: remoteInteractionResponseSchema };
+export const desktopWorkspaceExecutionRespondInputSchema = z.union([
+  desktopWorkspaceCanvasExecutionStartInputSchema.extend(responseShape).strict(),
+  desktopOwnerCanvasExecutionStartInputSchema.extend(responseShape).strict()
+]);
 
 export const desktopWorkspaceExecutionResponseSchema = workspaceExecutionCoordinatorViewSchema;
 
 export type DesktopWorkspaceExecutionStartInput = z.infer<
   typeof desktopWorkspaceExecutionStartInputSchema
+>;
+export type DesktopOwnerCanvasExecutionLocator = z.infer<
+  typeof desktopOwnerCanvasExecutionLocatorSchema
 >;
 export type DesktopWorkspaceExecutionFollowInput = z.infer<
   typeof desktopWorkspaceExecutionFollowInputSchema

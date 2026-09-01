@@ -369,9 +369,6 @@ describe("desktop IPC contract", () => {
     expect(collaborationInvokeChannels.readCollaborationCommentAttachment).toBe(
       "planweave-collaboration:readCommentAttachment"
     );
-    expect(collaborationInvokeChannels.dispatchCollaborationRemoteOperation).toBe(
-      "planweave-collaboration:dispatchRemoteOperation"
-    );
     expect(collaborationInvokeChannels.observeCollaborationRemoteOperation).toBe(
       "planweave-collaboration:observeRemoteOperation"
     );
@@ -384,20 +381,11 @@ describe("desktop IPC contract", () => {
     expect(collaborationInvokeChannels.observeWorkspaceRemoteOperation).toBe(
       "planweave-collaboration:observeWorkspaceRemoteOperation"
     );
-    expect(collaborationInvokeChannels.executeCollaborationRemoteOperationAction).toBe(
-      "planweave-collaboration:executeRemoteOperationAction"
-    );
     expect(collaborationInvokeChannels.replayCollaborationRemoteOperationEvents).toBe(
       "planweave-collaboration:replayRemoteOperationEvents"
     );
     expect(collaborationInvokeChannels.replayWorkspaceRemoteOperationEvents).toBe(
       "planweave-collaboration:replayWorkspaceRemoteOperationEvents"
-    );
-    expect(collaborationInvokeChannels.listCollaborationRemoteOperationInteractions).toBe(
-      "planweave-collaboration:listRemoteOperationInteractions"
-    );
-    expect(collaborationInvokeChannels.settleCollaborationRemoteOperationInteraction).toBe(
-      "planweave-collaboration:settleRemoteOperationInteraction"
     );
     expect(collaborationStatusChangedChannel).toBe("planweave-collaboration:statusChanged");
     expect(collaborationObserverSignalChannel).toBe("planweave-collaboration:observerSignal");

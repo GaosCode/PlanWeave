@@ -268,6 +268,7 @@ async function connectEnrolledHost(input: {
   packageDir: string;
   databasePath: string;
   ownerHumanPrincipalId: string;
+  ownerHumanIdentityToken: string;
   accessMode?: "unrestricted" | "workspace_restricted";
   createWorkspaceGrant?: boolean;
   enrollmentAttemptId?: string;
@@ -276,6 +277,7 @@ async function connectEnrolledHost(input: {
     method: "POST",
     headers: {
       Authorization: `Bearer ${input.adminToken}`,
+      "x-planweave-human-identity": `Bearer ${input.ownerHumanIdentityToken}`,
       "content-type": "application/json"
     },
     body: JSON.stringify({
@@ -329,6 +331,7 @@ async function connectEnrolledHost(input: {
     JSON.stringify({
       type: "host.hello",
       protocolVersion: 1,
+      supportedExecutionEnvelopeVersions: [1, 2],
       lastAcknowledgedSequence: 0,
       capabilities: enrollmentRequest.capabilities,
       capacity: 1,
@@ -622,10 +625,8 @@ describe("Desktop CollaborationClient against the Server composition", () => {
 
   it("maps remote action, event, interaction, and error routes through the client", async () => {
     const { fixture, ownerBootstrap } = await createIdentityFixture();
-    const { workspaceOwner, workspaceOwnerHumanPrincipalId } = await configureWorkspaceWorkAccess({
-      fixture,
-      ownerBootstrap
-    });
+    const { workspaceOwner, workspaceOwnerHumanPrincipalId, workspaceOwnerIdentityToken } =
+      await configureWorkspaceWorkAccess({ fixture, ownerBootstrap });
     const host = await connectEnrolledHost({
       origin: fixture.origin,
       adminToken: fixture.adminToken,
@@ -633,7 +634,8 @@ describe("Desktop CollaborationClient against the Server composition", () => {
       projectRoot: fixture.projectRoot,
       packageDir: fixture.packageDir,
       databasePath: fixture.databasePath,
-      ownerHumanPrincipalId: workspaceOwnerHumanPrincipalId
+      ownerHumanPrincipalId: workspaceOwnerHumanPrincipalId,
+      ownerHumanIdentityToken: workspaceOwnerIdentityToken
     });
     const endpointPage = await workspaceOwner.listAgentEndpoints({
       workspaceId: fixture.workspaceId,
@@ -788,6 +790,7 @@ describe("Desktop CollaborationClient against the Server composition", () => {
       packageDir: fixture.packageDir,
       databasePath: fixture.databasePath,
       ownerHumanPrincipalId: workspaceOwnerHumanPrincipalId,
+      ownerHumanIdentityToken: workspaceOwnerIdentityToken,
       accessMode: "unrestricted",
       createWorkspaceGrant: false
     });
@@ -882,6 +885,7 @@ describe("Desktop CollaborationClient against the Server composition", () => {
       packageDir: fixture.packageDir,
       databasePath: fixture.databasePath,
       ownerHumanPrincipalId: owner.humanPrincipalId,
+      ownerHumanIdentityToken: owner.identityToken,
       accessMode: "unrestricted",
       createWorkspaceGrant: false,
       enrollmentAttemptId: "desktop-e2e-workspace-b-dispatch-host"

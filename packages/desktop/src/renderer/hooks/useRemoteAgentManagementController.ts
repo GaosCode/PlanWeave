@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { collaborationBridge, operatorControlBridge } from "../bridge";
-import { resolveDesktopHumanPrincipalId } from "../collaboration/desktopHumanPrincipal";
 import { useCollaborationStatus } from "./useCollaborationStatus";
 import { useOwnerControlPlaneAvailability } from "./useOwnerControlPlaneAvailability";
 import { OperatorControlError, type OperatorRemoteAgentView } from "../../shared/operatorControl";
@@ -38,10 +37,7 @@ function publicError(error: unknown): string {
 export function useRemoteAgentManagementController(): RemoteAgentManagementController {
   const ownerControlPlane = useOwnerControlPlaneAvailability();
   const { status } = useCollaborationStatus();
-  const humanPrincipalId = useMemo(
-    () => resolveDesktopHumanPrincipalId({ collaborationStatus: status }),
-    [status]
-  );
+  const humanPrincipalId = ownerControlPlane.humanPrincipalId;
   const operatorProfileId = ownerControlPlane.operatorProfileId;
   const [agents, setAgents] = useState<OperatorRemoteAgentView[]>([]);
   const [people, setPeople] = useState<RemoteAgentPeopleOption[]>([]);

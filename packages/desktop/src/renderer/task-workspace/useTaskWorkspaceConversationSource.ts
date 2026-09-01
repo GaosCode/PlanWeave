@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import type { PlanWeaveCollaborationApi } from "../../shared/collaboration";
 import type { PlanWeaveOperatorControlApi } from "../../shared/operatorControl";
 import type { PlanWeaveWorkspaceExecutionApi } from "../../shared/workspaceExecution";
+import type { DesktopOwnerCanvasExecutionLocator } from "../../shared/workspaceExecution";
 import type { WorkspaceTaskWorkspaceNavigationIdentity } from "../taskWorkspaceNavigation";
 import { remoteTaskWorkspaceConversationSource } from "./remoteTaskWorkspaceConversationSource";
 import { useRemoteTaskWorkspaceConversation } from "./useRemoteTaskWorkspaceConversation";
@@ -35,6 +36,7 @@ export function useTaskWorkspaceConversationSource(input: {
     "observeOwnerFleetRemoteOperation" | "replayOwnerFleetRemoteOperationEvents"
   > | null;
   operatorProfileId: string | null;
+  ownerLocator: DesktopOwnerCanvasExecutionLocator | null;
   scopeKey: string;
   selectedBlockRef: string;
   workspaceExecutionApi: PlanWeaveWorkspaceExecutionApi | null;
@@ -53,9 +55,12 @@ export function useTaskWorkspaceConversationSource(input: {
       blockRef: input.selectedBlockRef
     };
   }, [input.selectedBlockRef, input.workspaceNavigation]);
+  const coordinatorScope =
+    workspaceScope ??
+    (input.ownerLocator ? { locator: input.ownerLocator, blockRef: input.selectedBlockRef } : null);
   const legacyApi = useMemo(
     () =>
-      input.execution?.controlPlane && !workspaceScope
+      input.execution?.controlPlane && !coordinatorScope
         ? remoteTaskWorkspaceConversationSource({
             controlPlane: input.execution.controlPlane,
             collaborationApi: input.collaborationApi,
@@ -68,12 +73,12 @@ export function useTaskWorkspaceConversationSource(input: {
       input.execution?.controlPlane,
       input.operatorApi,
       input.operatorProfileId,
-      workspaceScope
+      coordinatorScope
     ]
   );
   const operationId = input.execution?.identity.operationId ?? null;
   const legacyConversation = useRemoteTaskWorkspaceConversation({
-    api: workspaceScope ? null : legacyApi,
+    api: coordinatorScope ? null : legacyApi,
     blockRef: input.selectedBlockRef || null,
     cacheScopeKey: input.scopeKey,
     initialState: projectedRemoteConversationState(input.execution),
@@ -82,11 +87,11 @@ export function useTaskWorkspaceConversationSource(input: {
   });
   const workspaceConversation = useWorkspaceExecutionTaskWorkspaceConversation({
     api: input.workspaceExecutionApi,
-    locator: workspaceScope?.locator ?? null,
+    locator: coordinatorScope?.locator ?? null,
     blockRef: input.selectedBlockRef || null,
     operationId,
     scopeKey: input.scopeKey,
     onTerminal: input.onTerminal
   });
-  return workspaceScope ? workspaceConversation : legacyConversation;
+  return coordinatorScope ? workspaceConversation : legacyConversation;
 }

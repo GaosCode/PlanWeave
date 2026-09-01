@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
+import type { CollaborationStatus } from "../shared/collaboration";
 import type { OperatorControlStatus, OperatorProfileView } from "../shared/operatorControl";
-import { deriveFleetCatalogBlockedCode } from "../renderer/hooks/useOwnerControlPlaneAvailability";
+import {
+  deriveCanvasAgentAuthority,
+  deriveCanvasFleetCatalogAuthority,
+  deriveFleetCatalogBlockedCode
+} from "../renderer/hooks/useOwnerControlPlaneAvailability";
 
 function profile(overrides: Partial<OperatorProfileView> = {}): OperatorProfileView {
   return {
@@ -10,6 +15,7 @@ function profile(overrides: Partial<OperatorProfileView> = {}): OperatorProfileV
     allowInsecureTransport: false,
     hostedByThisDesktop: false,
     operatorId: "operator-1",
+    humanPrincipalId: "human-owner-1",
     hasOperatorCredential: true,
     operatorCredentialPersistence: "persisted",
     updatedAt: "2026-01-01T00:00:00.000Z",
@@ -80,5 +86,112 @@ describe("deriveFleetCatalogBlockedCode", () => {
     expect(deriveFleetCatalogBlockedCode(status(), { bridgeAvailable: false })).toBe(
       "operator_bridge_unavailable"
     );
+  });
+});
+
+describe("deriveCanvasFleetCatalogAuthority", () => {
+  it("keeps the active Human fleet for an ordinary Canvas", () => {
+    expect(deriveCanvasFleetCatalogAuthority({ status: status(), bridgeAvailable: true })).toEqual({
+      fleetCatalogEnabled: true,
+      operatorProfileId: "profile-1",
+      fleetCatalogBlockedCode: null
+    });
+  });
+
+  it("selects the Operator profile on the Workspace authority Server, not the global active Server", () => {
+    expect(
+      deriveCanvasFleetCatalogAuthority({
+        status: status({
+          activeProfileId: "profile-server-a",
+          profiles: [
+            profile({
+              profileId: "profile-server-a",
+              serverBaseUrl: "https://server-a.example.test"
+            }),
+            profile({
+              profileId: "profile-server-b",
+              serverBaseUrl: "https://server-b.example.test"
+            })
+          ]
+        }),
+        workspaceServerBaseUrl: "https://server-b.example.test",
+        preferredProfileId: "profile-server-b",
+        bridgeAvailable: true
+      })
+    ).toEqual({
+      fleetCatalogEnabled: true,
+      operatorProfileId: "profile-server-b",
+      fleetCatalogBlockedCode: null
+    });
+  });
+
+  it("falls back to the Workspace collaboration catalog when no same-origin profile exists", () => {
+    expect(
+      deriveCanvasFleetCatalogAuthority({
+        status: status({
+          activeProfileId: "profile-server-a",
+          profiles: [
+            profile({
+              profileId: "profile-server-a",
+              serverBaseUrl: "https://server-a.example.test"
+            })
+          ]
+        }),
+        workspaceServerBaseUrl: "https://server-b.example.test",
+        preferredProfileId: "profile-server-b",
+        bridgeAvailable: true
+      })
+    ).toEqual({
+      fleetCatalogEnabled: false,
+      operatorProfileId: null,
+      fleetCatalogBlockedCode: null
+    });
+  });
+});
+
+describe("deriveCanvasAgentAuthority", () => {
+  it("does not borrow an active Workspace Human when an ordinary Canvas owner is ambiguous", () => {
+    expect(
+      deriveCanvasAgentAuthority({
+        canvasLocator: { kind: "local", projectId: "project-a", canvasId: "default" },
+        collaborationMembers: [
+          {
+            membershipId: "membership-b",
+            humanPrincipalId: "human-b",
+            displayName: "Human B",
+            role: "owner",
+            revision: 1,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+            revokedAt: null
+          }
+        ],
+        collaborationStatus: {
+          activeProfileId: "workspace-profile-b",
+          profiles: [
+            {
+              profileId: "workspace-profile-b",
+              displayName: "Workspace B",
+              serverBaseUrl: "https://server.example.test",
+              projectId: "project-b",
+              allowInsecureTransport: false,
+              humanPrincipalId: "human-b",
+              hasDeviceCredential: true,
+              deviceCredentialPersistence: "persisted",
+              connectionState: "ready",
+              updatedAt: "2026-01-01T00:00:00.000Z"
+            }
+          ]
+        } as CollaborationStatus,
+        ownerControlPlane: {
+          fleetCatalogEnabled: true,
+          operatorProfileId: "operator-profile",
+          humanPrincipalId: null,
+          fleetCatalogBlockedCode: null,
+          status: status(),
+          refresh: async () => undefined
+        }
+      })
+    ).toMatchObject({ humanPrincipalId: null, operatorProfileId: "operator-profile" });
   });
 });

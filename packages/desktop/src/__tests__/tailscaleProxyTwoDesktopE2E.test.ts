@@ -148,6 +148,7 @@ describe("Tailscale proxy with two Desktop clients", () => {
       JSON.stringify({
         type: "host.hello",
         protocolVersion: 1,
+        supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
         capabilities: ["acp.codex"],
         capacity: 1,

@@ -101,6 +101,10 @@ import { createWorkspaceCanvasSnapshotSessionComposition } from "./WorkspaceCanv
 import type { WorkspaceCanvasLocator } from "../../shared/canvasLocator.js";
 import { resolveWorkspaceRemoteAuthorityProfile } from "./workspaceRemoteAuthorityProfile.js";
 import { withWorkspaceBoundCollaborationClient } from "./withWorkspaceBoundCollaborationClient.js";
+import {
+  resolveOperatorHumanIdentityCredential,
+  type OperatorHumanIdentityCredentialInput
+} from "./operatorHumanIdentityCredential.js";
 export type {
   CollaborationClientFactory,
   CollaborationServiceOptions
@@ -535,6 +539,14 @@ export class CollaborationService {
   /** Main-only identity lookup for local coordinator authorization; never crosses IPC. */
   async activeHumanPrincipalId(profileId: string): Promise<string | null> {
     return this.profileLifecycle.activeHumanPrincipalId(profileId);
+  }
+
+  async resolveOperatorHumanIdentityCredential(input: OperatorHumanIdentityCredentialInput) {
+    return resolveOperatorHumanIdentityCredential({
+      profiles: this.profiles,
+      vault: this.vault,
+      ...input
+    });
   }
 
   /** Main-only compatibility migration from the former global loopback profile. */

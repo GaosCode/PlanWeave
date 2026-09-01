@@ -28,24 +28,11 @@ export function getLocalOperatorBackendPort(): LocalOperatorBackendPort | null {
   return registeredBackend;
 }
 
-export function normalizeOperatorOrigin(url: string): string {
-  return new URL(url).origin;
-}
-
 export function isLocalOwnedOperatorProfile(
   profile: { profileId: string; serverBaseUrl: string },
-  snapshot: LocalOperatorBackendSnapshot | null
+  _snapshot: LocalOperatorBackendSnapshot | null
 ): boolean {
-  if (profile.profileId === LOCAL_OPERATOR_PROFILE_ID) return true;
-  if (!snapshot?.advertisedOrigin) return false;
-  try {
-    return (
-      normalizeOperatorOrigin(profile.serverBaseUrl) ===
-      normalizeOperatorOrigin(snapshot.advertisedOrigin)
-    );
-  } catch {
-    return false;
-  }
+  return profile.profileId === LOCAL_OPERATOR_PROFILE_ID;
 }
 
 /**

@@ -174,6 +174,35 @@ describe("packaged Host administration control plane", () => {
     harnesses.push(harness);
     await harness.startServer();
     await harness.waitForServerReadyz();
+    const ownerBootstrapResponse = await fetch(
+      `${harness.origin}/api/v1/projects/${harness.projectId}/human/bootstrap`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          displayName: "Packaged Host Owner",
+          humanPrincipalId: "packaged-host-owner"
+        })
+      }
+    );
+    expect(ownerBootstrapResponse.status).toBe(201);
+    const ownerBootstrap = (await ownerBootstrapResponse.json()) as {
+      deviceToken: string;
+      principal: { humanPrincipalId: string };
+    };
+    const identityResponse = await fetch(`${harness.origin}/api/v1/human-identity/recover`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        schemaVersion: "human-identity/v1",
+        existingDeviceToken: ownerBootstrap.deviceToken
+      })
+    });
+    expect(identityResponse.status).toBe(200);
+    const ownerIdentity = (await identityResponse.json()) as {
+      humanPrincipalId: string;
+      identityToken: string;
+    };
 
     const desktopRoot = await mkdtemp(join(tmpdir(), "planweave-desktop-host-admin-"));
     roots.push(desktopRoot);
@@ -194,7 +223,11 @@ describe("packaged Host administration control plane", () => {
       profileStorePaths: { profilesPath: join(desktopRoot, "profiles.json") },
       credentialsPath: join(desktopRoot, "credentials.json"),
       safeStorage: unavailableSafeStorage,
-      request: fetch
+      request: fetch,
+      resolveHumanIdentityCredential: async ({ humanPrincipalId }) =>
+        humanPrincipalId === undefined || humanPrincipalId === ownerIdentity.humanPrincipalId
+          ? ownerIdentity
+          : null
     });
     await service.ensureMainOwnedServerProfile({
       profile,
@@ -234,7 +267,8 @@ describe("packaged Host administration control plane", () => {
         profileId,
         request: {
           expiresAt: new Date(Date.now() + 60_000).toISOString(),
-          credentialPolicy: { lifetimeDays: 180, renewal: "automatic" }
+          credentialPolicy: { lifetimeDays: 180, renewal: "automatic" },
+          ownerHumanPrincipalId: ownerIdentity.humanPrincipalId
         }
       },
       (content) => copiedHandoffs.push(content)
@@ -312,7 +346,8 @@ describe("packaged Host administration control plane", () => {
       profileId,
       request: {
         expiresAt: new Date(Date.now() + 1_000).toISOString(),
-        credentialPolicy: { lifetimeDays: 180, renewal: "automatic" }
+        credentialPolicy: { lifetimeDays: 180, renewal: "automatic" },
+        ownerHumanPrincipalId: ownerIdentity.humanPrincipalId
       }
     });
     await wait(1_500);

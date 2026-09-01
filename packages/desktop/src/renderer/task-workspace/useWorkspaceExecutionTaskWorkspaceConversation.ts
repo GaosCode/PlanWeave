@@ -5,6 +5,7 @@ import {
 } from "@planweave-ai/runtime/browser";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
+  DesktopOwnerCanvasExecutionLocator,
   DesktopWorkspaceExecutionResponse,
   PlanWeaveWorkspaceExecutionApi
 } from "../../shared/workspaceExecution";
@@ -89,7 +90,7 @@ function storeCache(
 
 export function useWorkspaceExecutionTaskWorkspaceConversation(input: {
   api: PlanWeaveWorkspaceExecutionApi | null;
-  locator: WorkspaceCanvasLocator | null;
+  locator: WorkspaceCanvasLocator | DesktopOwnerCanvasExecutionLocator | null;
   blockRef: string | null;
   operationId: string | null;
   scopeKey: string;
@@ -98,28 +99,33 @@ export function useWorkspaceExecutionTaskWorkspaceConversation(input: {
   const cachesRef = useRef(new Map<string, WorkspaceExecutionConversationCache>());
   const onTerminalRef = useRef(input.onTerminal);
   onTerminalRef.current = input.onTerminal;
-  const connectionProfileId = input.locator?.connectionProfileId ?? null;
-  const workspaceId = input.locator?.workspaceId ?? null;
-  const projectId = input.locator?.projectId ?? null;
-  const canvasId = input.locator?.canvasId ?? null;
-  const locator = useMemo(
-    () =>
-      connectionProfileId && workspaceId && projectId && canvasId
-        ? {
-            kind: "workspace" as const,
-            connectionProfileId,
-            workspaceId,
-            projectId,
-            canvasId
-          }
-        : null,
-    [canvasId, connectionProfileId, projectId, workspaceId]
-  );
-  const locatorIdentity = locator
-    ? [locator.connectionProfileId, locator.workspaceId, locator.projectId, locator.canvasId].join(
-        "\u0000"
-      )
+  const locatorKey = input.locator
+    ? input.locator.kind === "workspace"
+      ? [
+          input.locator.kind,
+          input.locator.connectionProfileId,
+          input.locator.workspaceId,
+          input.locator.projectId,
+          input.locator.canvasId
+        ].join("\u0000")
+      : [
+          input.locator.kind,
+          input.locator.operatorProfileId,
+          input.locator.humanPrincipalId,
+          input.locator.projectRoot,
+          input.locator.projectId,
+          input.locator.canvasId
+        ].join("\u0000")
     : null;
+  const locatorRef = useRef<{
+    key: string | null;
+    value: WorkspaceCanvasLocator | DesktopOwnerCanvasExecutionLocator | null;
+  }>({ key: null, value: null });
+  if (locatorRef.current.key !== locatorKey) {
+    locatorRef.current = { key: locatorKey, value: input.locator };
+  }
+  const locator = locatorRef.current.value;
+  const locatorIdentity = locatorKey;
   const key =
     locatorIdentity && input.blockRef && input.operationId
       ? `${locatorIdentity}\u0000${input.scopeKey}\u0000${input.operationId}\u0000${input.blockRef}`
@@ -167,7 +173,11 @@ export function useWorkspaceExecutionTaskWorkspaceConversation(input: {
       if (timer) clearTimeout(timer);
       timer = null;
       try {
-        const view = await api.followWorkspaceExecution({ locator, blockRef, operationId });
+        const view = await api.followWorkspaceExecution(
+          locator.kind === "workspace"
+            ? { locator, blockRef, operationId }
+            : { locator, blockRef, operationId }
+        );
         if (disposed || epoch !== requestEpoch) return;
         transientFailures = 0;
         for (const event of view.events) cache.events.set(event.eventId, event);

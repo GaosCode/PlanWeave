@@ -137,7 +137,11 @@ describe("Operator control local readiness", () => {
           advertisedOrigin: "https://owner-device.example.ts.net/"
         }),
         whenRunning: vi.fn()
-      }
+      },
+      resolveHumanIdentityCredential: async ({ humanPrincipalId }) => ({
+        humanPrincipalId: humanPrincipalId ?? "human-owner-1",
+        identityToken: `pw_hid_${"H".repeat(43)}`
+      })
     });
     await service.upsertProfile(profile());
     await service.importCredential({
