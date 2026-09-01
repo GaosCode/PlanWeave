@@ -86,7 +86,10 @@ function welcome(): ServerEvent {
   });
 }
 
-function executeDelivery(sequence = 1): Extract<ServerEvent, { type: "mailbox.message" }> {
+function executeDelivery(
+  sequence = 1,
+  envelopeOverrides: Record<string, unknown> = {}
+): Extract<ServerEvent, { type: "mailbox.message" }> {
   const suffix = String(sequence).padStart(3, "0");
   const envelope = executionEnvelopeSchema.parse({
     ...exampleExecutionEnvelopeInput,
@@ -114,7 +117,8 @@ function executeDelivery(sequence = 1): Extract<ServerEvent, { type: "mailbox.me
     },
     trace: {
       correlationId: "correlation-client-001"
-    }
+    },
+    ...envelopeOverrides
   });
   return mailboxDeliverySchema.parse({
     type: "mailbox.message",
@@ -316,9 +320,15 @@ describe("Agent Host outbound transport", () => {
     ).toThrow("agent_host_secure_transport_required");
   });
 
-  it("rejects an execution envelope outside the local credential Workspace before execution", async () => {
-    const failed = deferred<Extract<HostEvent, { type: "dispatch.failed" }>>();
-    const executor: AgentHostExecutor = { execute: vi.fn() };
+  it("executes an unrestricted Workspace envelope outside the legacy credential Workspace", async () => {
+    const completed = deferred<Extract<HostEvent, { type: "dispatch.completed" }>>();
+    const executor: AgentHostExecutor = {
+      execute: vi.fn(async () => ({
+        summary: "Cross-Workspace execution completed.",
+        reportArtifactRef: `artifact:sha256:${"a".repeat(64)}`,
+        artifactRefs: []
+      }))
+    };
     const httpServer = createServer();
     httpServers.push(httpServer);
     const webSocketServer = new WebSocketServer({ server: httpServer });
@@ -334,7 +344,7 @@ describe("Agent Host outbound transport", () => {
         }
         const event = hostEventSchema.parse(raw);
         acknowledge(socket, event);
-        if (event.type === "dispatch.failed") failed.resolve(event);
+        if (event.type === "dispatch.completed") completed.resolve(event);
       });
     });
     const port = await listen(httpServer);
@@ -354,13 +364,60 @@ describe("Agent Host outbound transport", () => {
     clients.push(client);
     client.start();
 
-    await expect(failed.promise).resolves.toMatchObject({
-      failure: {
-        code: "host_workspace_mismatch",
-        retryable: false
-      }
+    await expect(completed.promise).resolves.toMatchObject({
+      result: { summary: "Cross-Workspace execution completed." }
     });
-    expect(executor.execute).not.toHaveBeenCalled();
+    expect(executor.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("executes an owner Canvas envelope independently of the local credential Workspace", async () => {
+    const completed = deferred<Extract<HostEvent, { type: "dispatch.completed" }>>();
+    const executor: AgentHostExecutor = {
+      execute: vi.fn(async () => ({
+        summary: "Owner Canvas execution completed.",
+        reportArtifactRef: `artifact:sha256:${"a".repeat(64)}`,
+        artifactRefs: []
+      }))
+    };
+    const httpServer = createServer();
+    httpServers.push(httpServer);
+    const webSocketServer = new WebSocketServer({ server: httpServer });
+    webSocketServers.push(webSocketServer);
+    webSocketServer.on("connection", (socket) => {
+      socket.on("message", (data) => {
+        const raw = JSON.parse(data.toString());
+        if (raw.type === "host.hello") {
+          hostHelloSchema.parse(raw);
+          sendEvent(socket, welcome());
+          sendEvent(socket, executeDelivery(1, { runtimeAuthority: "owner_canvas" }));
+          return;
+        }
+        const event = hostEventSchema.parse(raw);
+        acknowledge(socket, event);
+        if (event.type === "dispatch.completed") completed.resolve(event);
+      });
+    });
+    const port = await listen(httpServer);
+    const state = await openState();
+    const client = new AgentHostClient({
+      serverUrl: `http://127.0.0.1:${port}`,
+      hostId: "host-client-001",
+      workspaceId: "workspace-other",
+      token: "host-token",
+      capabilities: ["test"],
+      capacity: 1,
+      state,
+      executor,
+      request: remoteRunnerEventV2Request,
+      allowInsecureTransport: true
+    });
+    clients.push(client);
+    client.start();
+
+    await expect(completed.promise).resolves.toMatchObject({
+      result: { summary: "Owner Canvas execution completed." }
+    });
+    expect(executor.execute).toHaveBeenCalledTimes(1);
   });
 
   it("executes a dispatch and retries a dispatch-scoped artifact upload", async () => {

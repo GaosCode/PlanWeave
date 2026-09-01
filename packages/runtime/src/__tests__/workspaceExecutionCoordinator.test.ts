@@ -115,6 +115,84 @@ describe("WorkspaceExecutionCoordinator", () => {
     expect(f.dispatch).not.toHaveBeenCalled();
   });
 
+  it("dispatches an owner Canvas Remote Agent from local package authority without Workspace authority", async () => {
+    const { root } = await createTestWorkspace();
+    const captured = await capturePackageSnapshot({ projectRoot: root });
+    const loaded = await loadPlanGraphPackage(root);
+    const zeroRevisions = {
+      responsibilityRevision: 0,
+      reviewerRevision: 0,
+      executionTargetRevision: 0
+    };
+    const ownerObservation = observation({
+      projectId: loaded.workspace.id,
+      locatorWorkspaceId: "internal-runtime-workspace",
+      authorityRevisions: zeroRevisions,
+      contentRevision: captured.snapshot.sourceRevision,
+      graphFingerprint: loaded.graph.packageFingerprint
+    });
+    const ownerAuthority = createWorkspaceAuthorityBindingResolver({
+      local: createLocalPackageAuthoritySource(),
+      remote: { inspect: vi.fn() }
+    });
+    const f = fixture({
+      packageWorkspace: root,
+      authority: ownerAuthority,
+      workAuthority: async () => null,
+      dispatch: async () => ownerObservation
+    });
+    const ownerRequest = {
+      authority: {
+        kind: "owner_canvas" as const,
+        packageWorkspace: root,
+        expected: {
+          contentRevision: captured.snapshot.sourceRevision,
+          graphFingerprint: loaded.graph.packageFingerprint
+        },
+        connectionProfileId: "profile-owner",
+        serverOrigin: "https://planweave.example",
+        humanPrincipalId: "human-owner",
+        projectId: loaded.workspace.id,
+        canvasId: "default"
+      },
+      scope: { kind: "block" as const, blockRef: "T-001#B-001" },
+      trigger: "desktop" as const,
+      target: { policy: "remote" as const, agentEndpointId: "endpoint-codex" },
+      effectiveExecutor: { name: "codex-acp", agentId: "codex" },
+      eventFormat: "execution-v1" as const
+    };
+
+    const result = await f.coordinator.execute(ownerRequest);
+
+    expect(result.handle.target).toBe("remote");
+    expect(f.catalog).toHaveBeenCalledTimes(1);
+    expect(f.dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        binding: expect.objectContaining({
+          authorityKind: "owner_canvas",
+          humanPrincipalId: "human-owner",
+          projectId: loaded.workspace.id,
+          canvasId: "default",
+          authorityRevisions: zeroRevisions
+        }),
+        intent: expect.objectContaining({
+          projectId: loaded.workspace.id,
+          canvasId: "default",
+          expectedResponsibilityRevision: 0,
+          expectedReviewerRevision: 0,
+          executionTargetRevision: 0,
+          contentRevision: captured.snapshot.sourceRevision,
+          graphFingerprint: loaded.graph.packageFingerprint
+        })
+      }),
+      undefined
+    );
+    expect(f.workAuthority).toHaveBeenCalledTimes(2);
+    await expect(
+      Promise.all(f.workAuthority.mock.results.map((call) => call.value))
+    ).resolves.toEqual([null, null]);
+  });
+
   it("revalidates the binding after Catalog and rejects drift before remote transport", async () => {
     const { root } = await createTestWorkspace();
     const executionRequest = request(root);

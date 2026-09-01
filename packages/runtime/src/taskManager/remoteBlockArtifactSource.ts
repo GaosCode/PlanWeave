@@ -3,7 +3,7 @@ import {
   OUTPUT_MAX_ARTIFACT_BYTES,
   blockRefSchema,
   dispatchInputArtifactSchema,
-  executionEnvelopeSchema
+  executionEnvelopeFieldSchemas
 } from "@planweave-ai/agent-host-protocol/browser";
 import { z } from "zod";
 import { withCanvasLock } from "../fs/withCanvasLock.js";
@@ -15,7 +15,7 @@ import { loadRuntime } from "./runtimeContext.js";
 export const remoteBlockArtifactReadInputSchema = z
   .object({
     targetBlockRef: blockRefSchema,
-    sourceRevision: executionEnvelopeSchema.shape.sourceRevision,
+    sourceRevision: executionEnvelopeFieldSchemas.sourceRevision,
     artifactRef: dispatchInputArtifactSchema.shape.artifactRef,
     logicalName: dispatchInputArtifactSchema.shape.logicalName,
     mediaType: dispatchInputArtifactSchema.shape.mediaType.unwrap()

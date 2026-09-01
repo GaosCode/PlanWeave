@@ -1,9 +1,13 @@
 import { z } from "zod";
+import { artifactRefSchema } from "./artifacts.js";
 import { capabilitiesSchema } from "./capabilities.js";
 import { hostEnrollmentCodeSchema } from "./agentHostCredentials.js";
+import { blockRefSchema } from "./blockRef.js";
 import { opaqueIdentifierSchema } from "./identifiers.js";
 import { hostReadinessObservationSchema } from "./hostReadiness.js";
 import { hostCredentialPolicySchema } from "./credentialLifecycle.js";
+import { dispatchIdSchema, executionAttemptIdSchema } from "./executionIdentity.js";
+import { SOURCE_IDENTITY_MAX_LENGTH } from "./limits.js";
 
 /** Bounded operator credential accepted by Server and held only by Desktop main. */
 export const operatorTokenSchema = z
@@ -41,11 +45,10 @@ export const operatorEnrollmentGrantRequestSchema = z
   .strict()
   .superRefine((value, context) => {
     const hasOwner = value.ownerHumanPrincipalId !== undefined;
-    const hasAccessMode = value.accessMode !== undefined;
-    if (hasOwner !== hasAccessMode) {
+    if (!hasOwner && value.accessMode !== undefined) {
       context.addIssue({
         code: "custom",
-        message: "owner_and_access_mode_required_together"
+        message: "access_mode_requires_owner"
       });
     }
     if (value.createWorkspaceGrant === true) {
@@ -130,6 +133,33 @@ export const operatorHostRevokeResponseSchema = operatorHostViewSchema;
 export const operatorHostRenewalRequestSchema = z.object({}).strict();
 export const operatorHostRenewalResponseSchema = operatorHostViewSchema;
 
+export const OPERATOR_OWNER_TERMINAL_RESULT_MEDIA_TYPE =
+  "application/vnd.planweave.owner-terminal-result.v1+octet-stream";
+export const OPERATOR_OWNER_TERMINAL_RESULT_METADATA_HEADER =
+  "x-planweave-owner-terminal-result-metadata";
+
+const operatorOwnerTerminalResultSourceRevisionSchema = z
+  .string()
+  .min(1)
+  .max(SOURCE_IDENTITY_MAX_LENGTH)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
+
+/** Private Owner-canvas writeback metadata paired with the terminal report byte stream. */
+export const operatorOwnerTerminalResultMetadataSchema = z
+  .object({
+    operationId: opaqueIdentifierSchema,
+    projectId: opaqueIdentifierSchema,
+    canvasId: opaqueIdentifierSchema,
+    blockRef: blockRefSchema,
+    controlPlane: z.literal("owner"),
+    sourceRevision: operatorOwnerTerminalResultSourceRevisionSchema,
+    graphFingerprint: z.string().regex(/^pkg-[a-f0-9]{64}$/),
+    dispatchId: dispatchIdSchema,
+    executionAttemptId: executionAttemptIdSchema,
+    reportArtifactRef: artifactRefSchema
+  })
+  .strict();
+
 export type OperatorEnrollmentGrantRequest = z.infer<typeof operatorEnrollmentGrantRequestSchema>;
 export type OperatorEnrollmentGrantResponse = z.infer<typeof operatorEnrollmentGrantResponseSchema>;
 export type OperatorHostView = z.infer<typeof operatorHostViewSchema>;
@@ -138,3 +168,10 @@ export type OperatorHostAvailabilityReason = z.infer<typeof operatorHostAvailabi
 export type OperatorHostPage = z.infer<typeof operatorHostPageSchema>;
 export type OperatorPageQuery = z.infer<typeof operatorPageQuerySchema>;
 export type OperatorHostRenewalRequest = z.infer<typeof operatorHostRenewalRequestSchema>;
+export type OperatorOwnerTerminalResultMetadata = z.infer<
+  typeof operatorOwnerTerminalResultMetadataSchema
+>;
+export type OperatorOwnerTerminalResultPayload = {
+  metadata: OperatorOwnerTerminalResultMetadata;
+  reportBytes: Uint8Array;
+};

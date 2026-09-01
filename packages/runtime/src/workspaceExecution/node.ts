@@ -1,6 +1,7 @@
 export {
   assertValidatedWorkspaceAuthorityBinding,
   assertRemoteWorkAuthorityMatchesBinding,
+  isOwnerCanvasRemoteAuthorityBinding,
   createLocalPackageAuthoritySource,
   createWorkspaceAuthorityBindingResolver
 } from "./authorityBinding.js";

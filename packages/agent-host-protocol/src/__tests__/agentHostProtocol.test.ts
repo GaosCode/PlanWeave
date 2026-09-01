@@ -17,6 +17,9 @@ describe("versioned Agent Host protocol", () => {
     expect(serverEventSchema.parse(agentHostProtocolGoldenFixtures.executeDelivery)).toEqual(
       agentHostProtocolGoldenFixtures.executeDelivery
     );
+    expect(serverEventSchema.parse(agentHostProtocolGoldenFixtures.executeDeliveryV1)).toEqual(
+      agentHostProtocolGoldenFixtures.executeDeliveryV1
+    );
     expect(serverEventSchema.parse(agentHostProtocolGoldenFixtures.resumeDelivery)).toEqual(
       agentHostProtocolGoldenFixtures.resumeDelivery
     );

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { artifactMediaTypeSchema } from "./artifactMediaType.js";
 import { artifactRefSchema } from "./artifacts.js";
 import { blockRefSchema } from "./blockRef.js";
-import { capabilitiesSchema, hasWorkspaceCanvasExecutionCapability } from "./capabilities.js";
+import { capabilitiesSchema, hasCanvasRuntimeExecutionCapability } from "./capabilities.js";
 import { canonicalizeJson } from "./canonicalJson.js";
 import { executionIdentitySchema } from "./executionIdentity.js";
 import { opaqueIdentifierSchema } from "./identifiers.js";
@@ -21,7 +21,9 @@ import {
   SOURCE_IDENTITY_MAX_LENGTH
 } from "./limits.js";
 import { ownerPackageLocatorSchema } from "./ownerPackageLocator.js";
-import { agentHostProtocolVersionSchema } from "./version.js";
+
+/** Current incompatible Execution Envelope wire shape. */
+export const executionEnvelopeProtocolVersion = 2 as const;
 
 /** Digest algorithm used for Execution Envelope content addressing. */
 export const executionEnvelopeDigestAlgorithm = "sha256" as const;
@@ -48,6 +50,9 @@ const sourceIdentitySchema = z
   .min(1)
   .max(SOURCE_IDENTITY_MAX_LENGTH)
   .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
+
+export const executionRuntimeAuthoritySchema = z.enum(["owner_canvas", "workspace_canvas"]);
+export type ExecutionRuntimeAuthority = z.infer<typeof executionRuntimeAuthoritySchema>;
 
 /**
  * Outcome of a dependency Block as summarized for a downstream envelope.
@@ -137,7 +142,7 @@ export const traceCorrelationSchema = z
 
 export type TraceCorrelation = z.infer<typeof traceCorrelationSchema>;
 
-/** Exact managed Runtime working-set evidence for Workspace Canvas execution. */
+/** Exact managed Runtime working-set evidence for Canvas execution. */
 export const runtimeMaterializationEvidenceSchema = z
   .object({
     sourceRevision: sourceIdentitySchema,
@@ -154,9 +159,8 @@ export type RuntimeMaterializationEvidence = z.infer<typeof runtimeMaterializati
  * arbitrary environment maps, credentials/tokens, Git/worktree/merge policy,
  * and provider-specific secrets. Unknown fields are rejected by `.strict()`.
  */
-export const executionEnvelopeSchema = z
+const executionEnvelopeCommonSchema = z
   .object({
-    protocolVersion: agentHostProtocolVersionSchema,
     execution: executionIdentitySchema,
     projectId: opaqueIdentifierSchema,
     canvasId: opaqueIdentifierSchema,
@@ -167,7 +171,7 @@ export const executionEnvelopeSchema = z
     sourceRevision: sourceIdentitySchema,
     /** Optional additional graph fingerprint when distinct from sourceRevision. */
     graphFingerprint: sourceIdentitySchema.optional(),
-    /** Exact materialization evidence; present only for managed Workspace Canvas execution. */
+    /** Exact materialization evidence; present only for managed Canvas Runtime execution. */
     runtimeMaterialization: runtimeMaterializationEvidenceSchema.optional(),
     renderedPrompt: boundedUtf8String({ minBytes: 1, maxBytes: RENDERED_PROMPT_MAX_LENGTH }),
     acceptance: z
@@ -187,18 +191,35 @@ export const executionEnvelopeSchema = z
     output: outputContractSchema,
     trace: traceCorrelationSchema
   })
-  .strict()
+  .strict();
+
+/** Historical v1 wire shape retained for persisted dispatch replay. */
+const executionEnvelopeV1Schema = executionEnvelopeCommonSchema
+  .extend({ protocolVersion: z.literal(1) })
+  .strict();
+
+/** Current v2 shape with explicit, Server-authorized Runtime scope. */
+const executionEnvelopeV2Schema = executionEnvelopeCommonSchema
+  .extend({
+    protocolVersion: z.literal(executionEnvelopeProtocolVersion),
+    /** Host must not infer Runtime authority from workspaceId shape. */
+    runtimeAuthority: executionRuntimeAuthoritySchema
+  })
+  .strict();
+
+export const executionEnvelopeSchema = z
+  .discriminatedUnion("protocolVersion", [executionEnvelopeV1Schema, executionEnvelopeV2Schema])
   .superRefine((envelope, context) => {
-    const workspaceCanvasExecution = hasWorkspaceCanvasExecutionCapability(
+    const managedCanvasExecution = hasCanvasRuntimeExecutionCapability(
       envelope.requiredCapabilities
     );
-    if (workspaceCanvasExecution !== (envelope.runtimeMaterialization !== undefined)) {
+    if (managedCanvasExecution !== (envelope.runtimeMaterialization !== undefined)) {
       context.addIssue({
         code: "custom",
         path: ["runtimeMaterialization"],
-        message: workspaceCanvasExecution
-          ? "Workspace Canvas execution requires Runtime materialization evidence."
-          : "Runtime materialization evidence is reserved for Workspace Canvas execution."
+        message: managedCanvasExecution
+          ? "Managed Canvas execution requires Runtime materialization evidence."
+          : "Runtime materialization evidence is reserved for managed Canvas execution."
       });
     }
     if (!envelope.blockRef.startsWith(`${envelope.taskId}#`)) {
@@ -220,6 +241,9 @@ export const executionEnvelopeSchema = z
       });
     }
   });
+
+/** Shared field schemas for producers that assemble current v2 envelope inputs. */
+export const executionEnvelopeFieldSchemas = executionEnvelopeV2Schema.shape;
 
 export type ExecutionEnvelope = z.infer<typeof executionEnvelopeSchema>;
 export type ExecutionEnvelopeInput = z.input<typeof executionEnvelopeSchema>;

@@ -72,7 +72,7 @@ describe("authoritative Agent Host execution state", () => {
       ...identity(),
       protocolVersion: 1,
       envelopeDigest: exampleExecuteDelivery.command.envelopeDigest,
-      envelopeVersion: 1,
+      envelopeVersion: exampleExecuteDelivery.command.envelope.protocolVersion,
       workspaceId: exampleExecuteDelivery.command.envelope.workspaceId,
       agentProfileId: exampleExecuteDelivery.command.envelope.agentProfileId,
       sourceRevision: exampleExecuteDelivery.command.envelope.sourceRevision,

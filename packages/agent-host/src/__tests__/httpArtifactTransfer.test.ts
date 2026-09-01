@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:http";
-import { exampleExecuteDelivery } from "@planweave-ai/agent-host-protocol";
+import {
+  exampleExecuteDelivery,
+  exampleExecuteDeliveryV1
+} from "@planweave-ai/agent-host-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { HttpArtifactClient } from "../artifacts/httpArtifactTransfer.js";
 
@@ -31,21 +34,56 @@ async function listen(
     client: new HttpArtifactClient({
       baseUrl: new URL(origin),
       hostId: "host-artifact-test",
-      workspaceId: "workspace-artifact-test",
       token: "host-token"
     })
   };
 }
 
-function command() {
+function command(runtimeAuthority: "owner_canvas" | "workspace_canvas" = "workspace_canvas") {
   return {
     ...exampleExecuteDelivery.command,
     leaseId: "lease-artifact-test",
-    leaseExpiresAt: "2030-01-01T00:00:00.000Z"
+    leaseExpiresAt: "2030-01-01T00:00:00.000Z",
+    envelope: {
+      ...exampleExecuteDelivery.command.envelope,
+      runtimeAuthority
+    }
   };
 }
 
 describe("HttpArtifactClient", () => {
+  it("preserves historical v1 Workspace artifact scoping", async () => {
+    const bytes = Buffer.from("legacy input", "utf8");
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    let requestUrl: string | undefined;
+    const { client } = await listen((request, response) => {
+      requestUrl = request.url;
+      response.writeHead(200, {
+        "content-type": "text/plain",
+        "content-length": bytes.byteLength
+      });
+      response.end(bytes);
+    });
+    const legacyCommand = {
+      ...exampleExecuteDeliveryV1.command,
+      leaseId: "lease-artifact-v1"
+    };
+    if (legacyCommand.type !== "execute_block") throw new Error("execute_command_expected");
+
+    await expect(
+      client
+        .forExecution(legacyCommand, () => undefined, new AbortController().signal)
+        .download({
+          artifactRef: `artifact:sha256:${sha256}`,
+          logicalName: "legacy-input",
+          mediaType: "text/plain"
+        })
+    ).resolves.toEqual({ bytes, mediaType: "text/plain" });
+    expect(new URL(requestUrl ?? "", "http://planweave.test").searchParams.get("workspaceId")).toBe(
+      exampleExecuteDeliveryV1.command.envelope.workspaceId
+    );
+  });
+
   it("downloads a scoped input, verifies metadata and digest, then records evidence", async () => {
     const bytes = Buffer.from("verified input", "utf8");
     const sha256 = createHash("sha256").update(bytes).digest("hex");
@@ -75,6 +113,9 @@ describe("HttpArtifactClient", () => {
     ).resolves.toEqual({ bytes, mediaType: "text/plain" });
     expect(seen.authorization).toBe("Bearer host-token");
     expect(seen.url).toContain(`/artifacts/${sha256}`);
+    expect(new URL(seen.url ?? "", "http://planweave.test").searchParams.get("workspaceId")).toBe(
+      exampleExecuteDelivery.command.envelope.workspaceId
+    );
     expect(evidence).toEqual([
       expect.objectContaining({
         direction: "input",
@@ -84,6 +125,36 @@ describe("HttpArtifactClient", () => {
         mediaType: "text/plain"
       })
     ]);
+  });
+
+  it("does not couple owner Canvas artifact transfer to a Host Workspace scope", async () => {
+    const bytes = Buffer.from("owner canvas input", "utf8");
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    let requestUrl: string | undefined;
+    const { client } = await listen((request, response) => {
+      requestUrl = request.url;
+      response.writeHead(200, {
+        "content-type": "text/plain",
+        "content-length": bytes.byteLength
+      });
+      response.end(bytes);
+    });
+    const transfer = client.forExecution(
+      command("owner_canvas"),
+      () => undefined,
+      new AbortController().signal
+    );
+
+    await expect(
+      transfer.download({
+        artifactRef: `artifact:sha256:${sha256}`,
+        logicalName: "owner-input",
+        mediaType: "text/plain"
+      })
+    ).resolves.toEqual({ bytes, mediaType: "text/plain" });
+    expect(new URL(requestUrl ?? "", "http://planweave.test").searchParams.has("workspaceId")).toBe(
+      false
+    );
   });
 
   it("rejects input hash, size, and media-type mismatches without recording evidence", async () => {

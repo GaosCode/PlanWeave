@@ -1,7 +1,11 @@
 import { z } from "zod";
 import { remoteRunnerEventBatchV2Schema } from "./runnerEvents.js";
 import { capabilitiesSchema } from "./capabilities.js";
-import { executionEnvelopeDigestSchema, executionEnvelopeSchema } from "./executionEnvelope.js";
+import {
+  executionEnvelopeDigestSchema,
+  executionEnvelopeProtocolVersion,
+  executionEnvelopeSchema
+} from "./executionEnvelope.js";
 import { hashExecutionEnvelope } from "./executionEnvelopeHash.js";
 import { executionAttemptIdSchema, dispatchIdSchema } from "./executionIdentity.js";
 import { opaqueIdentifierSchema } from "./identifiers.js";
@@ -34,8 +38,16 @@ export const ACTIVE_LEASE_MAX_COUNT = 128 as const;
 const versionedSchema = z.object({ protocolVersion: agentHostProtocolVersionSchema }).strict();
 const durableHostEventSchema = versionedSchema.extend({ messageId: mailboxMessageIdSchema });
 
+export const supportedExecutionEnvelopeVersionsSchema = z
+  .array(z.union([z.literal(1), z.literal(executionEnvelopeProtocolVersion)]))
+  .min(1)
+  .max(2)
+  .refine((versions) => new Set(versions).size === versions.length, "Duplicate envelope version.");
+
 export const hostHelloSchema = versionedSchema.extend({
   type: z.literal("host.hello"),
+  /** Optional only so a new Server can parse and explicitly reject a legacy Host at handshake. */
+  supportedExecutionEnvelopeVersions: supportedExecutionEnvelopeVersionsSchema.optional(),
   lastAcknowledgedSequence: mailboxSequenceSchema,
   capabilities: capabilitiesSchema,
   capacity: hostCapacitySchema,

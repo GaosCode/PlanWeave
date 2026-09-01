@@ -13,8 +13,8 @@ import {
 } from "@planweave-ai/runtime";
 import { parseAgentHostExecuteCommand } from "../protocol.js";
 import {
-  hasLegacyWorkspaceCanvasExecutionCapability,
-  hasWorkspaceCanvasExecutionCapability
+  hasCanvasRuntimeExecutionCapability,
+  hasLegacyWorkspaceCanvasExecutionCapability
 } from "@planweave-ai/agent-host-protocol";
 import {
   AgentHostExecutionError,
@@ -237,11 +237,11 @@ export class RemoteAcpExecutor implements AgentHostExecutor {
     let profile: Awaited<ReturnType<AgentHostAcpProfileResolver["resolve"]>>;
     try {
       let workspaceResolution: ReturnType<AgentHostWorkspaceResolver["resolve"]>;
-      const workspaceCanvasExecution = hasWorkspaceCanvasExecutionCapability(
+      const managedCanvasExecution = hasCanvasRuntimeExecutionCapability(
         command.envelope.requiredCapabilities
       );
       if (
-        !workspaceCanvasExecution &&
+        !managedCanvasExecution &&
         hasLegacyWorkspaceCanvasExecutionCapability(command.envelope.requiredCapabilities)
       ) {
         throw failure(
@@ -249,7 +249,7 @@ export class RemoteAcpExecutor implements AgentHostExecutor {
           "Legacy Workspace execution cannot resume without exact Runtime materialization evidence."
         );
       }
-      if (!workspaceCanvasExecution) {
+      if (!managedCanvasExecution) {
         workspaceResolution = this.options.workspaceResolver.resolve(
           command.envelope.workspaceId,
           command.envelope.ownerPackageLocator
@@ -282,7 +282,7 @@ export class RemoteAcpExecutor implements AgentHostExecutor {
       if (error instanceof AgentHostExecutionError) throw error;
       if (context.sessionStart.kind === "load") throw new AgentHostSessionLoadError();
       if (
-        hasWorkspaceCanvasExecutionCapability(command.envelope.requiredCapabilities) &&
+        hasCanvasRuntimeExecutionCapability(command.envelope.requiredCapabilities) &&
         error instanceof Error &&
         error.message === "runtime_materialization_evidence_mismatch"
       ) {

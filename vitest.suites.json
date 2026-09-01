@@ -681,6 +681,7 @@
         "canvasLiveSync.test.ts",
         "contentVersion.test.ts",
         "contracts.test.ts",
+        "ownerCanvasMaterialization.test.ts",
         "deploymentContracts.test.ts",
         "humanIdentityCredential.test.ts",
         "humanInvitationContracts.test.ts",

@@ -4,6 +4,7 @@ import {
   operatorEnrollmentGrantResponseSchema,
   operatorHostRenewalRequestSchema,
   operatorHostPageSchema,
+  operatorOwnerTerminalResultMetadataSchema,
   operatorPageQuerySchema,
   operatorTokenSchema
 } from "../index.js";
@@ -116,7 +117,7 @@ describe("operator control wire contracts", () => {
     expect(() => operatorHostRenewalRequestSchema.parse({ lifetimeDays: 180 })).toThrow();
   });
 
-  it("accepts explicit Remote Agent owner fields and rejects incomplete combinations", () => {
+  it("defaults an explicitly owned Remote Agent to unrestricted access", () => {
     const base = {
       expiresAt: "2030-01-01T00:00:00.000Z",
       credentialPolicy: { lifetimeDays: 180, renewal: "automatic" as const }
@@ -141,12 +142,12 @@ describe("operator control wire contracts", () => {
         createWorkspaceGrant: true
       })
     ).toMatchObject({ createWorkspaceGrant: true, workspaceId: "workspace-1" });
-    expect(() =>
+    expect(
       operatorEnrollmentGrantRequestSchema.parse({
         ...base,
         ownerHumanPrincipalId: "owner-human-1"
       })
-    ).toThrow();
+    ).toMatchObject({ ownerHumanPrincipalId: "owner-human-1" });
     expect(() =>
       operatorEnrollmentGrantRequestSchema.parse({
         ...base,
@@ -167,6 +168,28 @@ describe("operator control wire contracts", () => {
         workspaceId: "workspace-1",
         createWorkspaceGrant: true
       })
+    ).toThrow();
+  });
+
+  it("owns the strict Owner terminal-result transport metadata contract", () => {
+    const metadata = {
+      operationId: "operation-owner-1",
+      projectId: "project-owner-1",
+      canvasId: "canvas-owner-1",
+      blockRef: "T-001#B-001",
+      controlPlane: "owner" as const,
+      sourceRevision: "source-revision-1",
+      graphFingerprint: `pkg-${"a".repeat(64)}`,
+      dispatchId: "dispatch-owner-1",
+      executionAttemptId: "attempt-owner-1",
+      reportArtifactRef: `artifact:sha256:${"b".repeat(64)}`
+    };
+    expect(operatorOwnerTerminalResultMetadataSchema.parse(metadata)).toEqual(metadata);
+    expect(() =>
+      operatorOwnerTerminalResultMetadataSchema.parse({ ...metadata, controlPlane: "workspace" })
+    ).toThrow();
+    expect(() =>
+      operatorOwnerTerminalResultMetadataSchema.parse({ ...metadata, reportBytes: "private" })
     ).toThrow();
   });
 });

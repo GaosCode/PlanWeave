@@ -4,7 +4,9 @@ import { executionEnvelopeSchema } from "../executionEnvelope.js";
 import { interactionSettlementSchema } from "../interactions.js";
 import {
   exampleExecutionEnvelopeDigest,
-  exampleExecutionEnvelopeInput
+  exampleExecutionEnvelopeInput,
+  exampleExecutionEnvelopeV1Digest,
+  exampleExecutionEnvelopeV1Input
 } from "./executionEnvelope.js";
 
 const protocolVersion = 1 as const;
@@ -16,6 +18,7 @@ const leaseId = "lease-demo-001";
 export const exampleHostHello = hostHelloSchema.parse({
   type: "host.hello",
   protocolVersion,
+  supportedExecutionEnvelopeVersions: [1, 2],
   lastAcknowledgedSequence: 0,
   capabilities: ["acp.codex", "workspace.git"],
   capacity: 2
@@ -36,6 +39,24 @@ export const exampleExecuteDelivery = serverEventSchema.parse({
     leaseExpiresAt: "2030-01-01T00:00:00.000Z",
     envelopeDigest: exampleExecutionEnvelopeDigest,
     envelope
+  }
+});
+
+export const exampleExecuteDeliveryV1 = serverEventSchema.parse({
+  type: "mailbox.message",
+  protocolVersion,
+  sequence: 1,
+  previousSequence: 0,
+  messageId: "mailbox-execute-v1-001",
+  command: {
+    type: "execute_block",
+    protocolVersion,
+    dispatchId: exampleExecutionEnvelopeV1Input.execution.dispatchId,
+    leaseId,
+    executionAttemptId: exampleExecutionEnvelopeV1Input.execution.attemptId,
+    leaseExpiresAt: "2030-01-01T00:00:00.000Z",
+    envelopeDigest: exampleExecutionEnvelopeV1Digest,
+    envelope: exampleExecutionEnvelopeV1Input
   }
 });
 
@@ -161,6 +182,7 @@ export const exampleAuthenticationSettlement = interactionSettlementSchema.parse
 export const agentHostProtocolGoldenFixtures = {
   hello: exampleHostHello,
   executeDelivery: exampleExecuteDelivery,
+  executeDeliveryV1: exampleExecuteDeliveryV1,
   resumeDelivery: exampleResumeDelivery,
   acpEventBatch: exampleAcpEventBatch,
   legacyAcpEventBatchV1: exampleLegacyAcpEventBatchV1,

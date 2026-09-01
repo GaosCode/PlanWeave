@@ -42,7 +42,11 @@ export const workspaceContentAuthoritySchema = z.discriminatedUnion("kind", [
 ]);
 
 export const localWorkspaceAuthorityLocatorSchema = z
-  .object({ kind: z.literal("local_package"), ...packageAuthorityLocatorShape })
+  .object({
+    kind: z.literal("local_package"),
+    ...packageAuthorityLocatorShape,
+    canvasId: identifierSchema.optional()
+  })
   .strict();
 
 export const remoteWorkspaceAuthorityLocatorSchema = z
@@ -57,9 +61,22 @@ export const remoteWorkspaceAuthorityLocatorSchema = z
   })
   .strict();
 
+export const ownerCanvasRemoteAuthorityLocatorSchema = z
+  .object({
+    kind: z.literal("owner_canvas"),
+    ...packageAuthorityLocatorShape,
+    connectionProfileId: identifierSchema,
+    serverOrigin: canonicalServerOriginSchema,
+    humanPrincipalId: identifierSchema,
+    projectId: identifierSchema,
+    canvasId: identifierSchema
+  })
+  .strict();
+
 export const workspaceExecutionAuthorityLocatorSchema = z.discriminatedUnion("kind", [
   localWorkspaceAuthorityLocatorSchema,
-  remoteWorkspaceAuthorityLocatorSchema
+  remoteWorkspaceAuthorityLocatorSchema,
+  ownerCanvasRemoteAuthorityLocatorSchema
 ]);
 
 export const workspaceAuthorityRevisionsSchema = z
@@ -87,7 +104,7 @@ export const localWorkspaceAuthorityBindingSchema = z
   })
   .strict();
 
-export const remoteWorkspaceAuthorityBindingSchema = z
+export const workspaceCanvasRemoteAuthorityBindingSchema = z
   .object({
     ...bindingBaseShape,
     kind: z.literal("remote"),
@@ -101,6 +118,27 @@ export const remoteWorkspaceAuthorityBindingSchema = z
     authorityRevisions: workspaceAuthorityRevisionsSchema
   })
   .strict();
+
+export const ownerCanvasRemoteAuthorityBindingSchema = z
+  .object({
+    ...bindingBaseShape,
+    kind: z.literal("remote"),
+    authorityKind: z.literal("owner_canvas"),
+    contentAuthority: workspaceContentAuthoritySchema.options[0],
+    connectionProfileId: identifierSchema,
+    serverOrigin: canonicalServerOriginSchema,
+    humanPrincipalId: identifierSchema,
+    projectId: identifierSchema,
+    canvasId: identifierSchema,
+    blockRef: blockRefSchema,
+    authorityRevisions: workspaceAuthorityRevisionsSchema
+  })
+  .strict();
+
+export const remoteWorkspaceAuthorityBindingSchema = z.union([
+  workspaceCanvasRemoteAuthorityBindingSchema,
+  ownerCanvasRemoteAuthorityBindingSchema
+]);
 
 const legacyRemoteWorkspaceAuthorityBindingV1Schema = z
   .object({
@@ -117,7 +155,7 @@ const legacyRemoteWorkspaceAuthorityBindingV1Schema = z
   })
   .strict();
 
-export const workspaceAuthorityBindingSchema = z.discriminatedUnion("kind", [
+export const workspaceAuthorityBindingSchema = z.union([
   localWorkspaceAuthorityBindingSchema,
   remoteWorkspaceAuthorityBindingSchema
 ]);
@@ -161,7 +199,7 @@ export const workspaceExecutionRequestSchema = z
         message: "local_authority_required"
       });
     }
-    if (value.target.policy !== "local" && value.authority.kind !== "workspace_canvas") {
+    if (value.target.policy !== "local" && value.authority.kind === "local_package") {
       context.addIssue({
         code: "custom",
         path: ["authority"],
@@ -564,11 +602,20 @@ export type WorkspaceExecutionAuthorityLocator = z.infer<
 >;
 export type LocalWorkspaceAuthorityLocator = z.infer<typeof localWorkspaceAuthorityLocatorSchema>;
 export type RemoteWorkspaceAuthorityLocator = z.infer<typeof remoteWorkspaceAuthorityLocatorSchema>;
+export type OwnerCanvasRemoteAuthorityLocator = z.infer<
+  typeof ownerCanvasRemoteAuthorityLocatorSchema
+>;
 export type WorkspaceContentAuthority = z.infer<typeof workspaceContentAuthoritySchema>;
 export type WorkspaceAuthorityRevisions = z.infer<typeof workspaceAuthorityRevisionsSchema>;
 export type WorkspaceAuthorityBinding = z.infer<typeof workspaceAuthorityBindingSchema>;
 export type LocalWorkspaceAuthorityBinding = z.infer<typeof localWorkspaceAuthorityBindingSchema>;
 export type RemoteWorkspaceAuthorityBinding = z.infer<typeof remoteWorkspaceAuthorityBindingSchema>;
+export type WorkspaceCanvasRemoteAuthorityBinding = z.infer<
+  typeof workspaceCanvasRemoteAuthorityBindingSchema
+>;
+export type OwnerCanvasRemoteAuthorityBinding = z.infer<
+  typeof ownerCanvasRemoteAuthorityBindingSchema
+>;
 export type WorkspaceExecutionRequest = z.infer<typeof workspaceExecutionRequestSchema>;
 export type WorkspaceExecutionTarget = z.infer<typeof workspaceExecutionTargetSchema>;
 export type WorkspaceExecutionCursor = z.infer<typeof workspaceExecutionCursorSchema>;

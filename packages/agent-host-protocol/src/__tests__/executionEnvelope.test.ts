@@ -14,7 +14,9 @@ import {
 import { hashExecutionEnvelope, parseAndHashExecutionEnvelope } from "../executionEnvelopeHash.js";
 import {
   exampleExecutionEnvelopeDigest,
-  exampleExecutionEnvelopeInput
+  exampleExecutionEnvelopeInput,
+  exampleExecutionEnvelopeV1Digest,
+  exampleExecutionEnvelopeV1Input
 } from "../fixtures/executionEnvelope.js";
 import {
   ACCEPTANCE_MAX_COUNT,
@@ -58,7 +60,9 @@ describe("ExecutionEnvelope schema", () => {
     const consumed = parseExecutionEnvelope(wire);
 
     expect(consumed).toEqual(produced);
-    expect(consumed.protocolVersion).toBe(1);
+    expect(consumed.protocolVersion).toBe(2);
+    if (consumed.protocolVersion !== 2) throw new Error("execution_envelope_v2_expected");
+    expect(consumed.runtimeAuthority).toBe("workspace_canvas");
     expect(consumed.workspaceId).toBe("workspace.planweave-core");
     expect(consumed.agentId).toBe("codex");
     expect(consumed.agentProfileId).toBe("acp.codex");
@@ -73,7 +77,7 @@ describe("ExecutionEnvelope schema", () => {
     );
   });
 
-  it("requires Runtime materialization evidence only for Workspace Canvas execution", () => {
+  it("requires Runtime materialization evidence only for managed Canvas execution", () => {
     expectRejects(() =>
       parseExecutionEnvelope(
         validEnvelope({ requiredCapabilities: [WORKSPACE_CANVAS_EXECUTION_CAPABILITY] })
@@ -105,7 +109,18 @@ describe("ExecutionEnvelope schema", () => {
     );
   });
 
-  it("keeps legacy v1 envelopes parseable without accepting v2 materialization fields", () => {
+  it("requires an explicit Server-authorized Runtime scope in v2", () => {
+    const { runtimeAuthority: _runtimeAuthority, ...missingAuthority } = validEnvelope();
+    expectRejects(() => parseExecutionEnvelope(missingAuthority));
+    expectRejects(() =>
+      parseExecutionEnvelope(validEnvelope({ runtimeAuthority: "project_canvas" }))
+    );
+    expect(
+      parseExecutionEnvelope(validEnvelope({ runtimeAuthority: "owner_canvas" }))
+    ).toMatchObject({ runtimeAuthority: "owner_canvas" });
+  });
+
+  it("keeps legacy Canvas capability semantics parseable in v2", () => {
     expect(
       parseExecutionEnvelope(
         validEnvelope({
@@ -231,9 +246,21 @@ describe("ExecutionEnvelope schema", () => {
   });
 
   it("rejects incompatible protocol versions instead of coercing them", () => {
-    expectRejects(() => parseExecutionEnvelope(validEnvelope({ protocolVersion: 2 })));
+    expectRejects(() => parseExecutionEnvelope(validEnvelope({ protocolVersion: 3 })));
     expectRejects(() => parseExecutionEnvelope(validEnvelope({ protocolVersion: "1" })));
     expectRejects(() => parseExecutionEnvelope(validEnvelope({ protocolVersion: 0 })));
+  });
+
+  it("parses the fixed historical v1 shape and rejects v2 fields as unknown", () => {
+    const parsed = parseExecutionEnvelope(exampleExecutionEnvelopeV1Input);
+    expect(parsed.protocolVersion).toBe(1);
+    expect(parsed).not.toHaveProperty("runtimeAuthority");
+    expect(() =>
+      parseExecutionEnvelope({
+        ...exampleExecutionEnvelopeV1Input,
+        runtimeAuthority: "workspace_canvas"
+      })
+    ).toThrow();
   });
 
   it("accepts implementation and review block types whose task segment matches taskId", () => {
@@ -355,6 +382,7 @@ describe("ExecutionEnvelope content addressing", () => {
       session: exampleExecutionEnvelopeInput.session,
       agentProfileId: exampleExecutionEnvelopeInput.agentProfileId,
       agentId: exampleExecutionEnvelopeInput.agentId,
+      runtimeAuthority: exampleExecutionEnvelopeInput.runtimeAuthority,
       workspaceId: exampleExecutionEnvelopeInput.workspaceId,
       inputArtifacts: exampleExecutionEnvelopeInput.inputArtifacts,
       dependencySummaries: exampleExecutionEnvelopeInput.dependencySummaries,
@@ -381,6 +409,15 @@ describe("ExecutionEnvelope content addressing", () => {
   it("locks the example fixture digest for cross-package contract consumers", () => {
     const { digest } = parseAndHashExecutionEnvelope(exampleExecutionEnvelopeInput);
     expect(digest).toBe(exampleExecutionEnvelopeDigest);
+  });
+
+  it("replays the fixed historical v1 canonical bytes and digest", () => {
+    const { digest, envelope } = parseAndHashExecutionEnvelope(exampleExecutionEnvelopeV1Input);
+    expect(envelope.protocolVersion).toBe(1);
+    expect(digest).toBe(exampleExecutionEnvelopeV1Digest);
+    expect(hashExecutionEnvelope(JSON.parse(canonicalizeJson(envelope)))).toBe(
+      exampleExecutionEnvelopeV1Digest
+    );
   });
 
   it("changes digest when any material field changes", () => {

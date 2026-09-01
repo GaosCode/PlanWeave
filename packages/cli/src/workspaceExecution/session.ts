@@ -32,7 +32,7 @@ export async function createRemoteSessionContext(input: {
     detail.session.workspaceExecution?.handle
   );
   const dispatchIntent = detail.session.workspaceExecution?.dispatchIntent;
-  if (!storedBinding || storedBinding.kind !== "remote") {
+  if (!storedBinding || storedBinding.kind !== "remote" || "authorityKind" in storedBinding) {
     throw new WorkspaceExecutionCliError("workspace_execution_usage_invalid", 2);
   }
   let agentEndpointId: string;

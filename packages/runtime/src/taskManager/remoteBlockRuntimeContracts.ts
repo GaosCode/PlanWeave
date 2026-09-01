@@ -3,7 +3,7 @@ import {
   blockRefSchema,
   dispatchIdSchema,
   executionAttemptIdSchema,
-  executionEnvelopeSchema,
+  executionEnvelopeFieldSchemas,
   normalizedFailureSchema,
   normalizedAcpEventSchema,
   remoteRunnerEventV2Schema,
@@ -21,7 +21,7 @@ import {
 } from "../schema/remoteOwnership.js";
 import { blockStatuses } from "../types/state.js";
 
-const envelopeShape = executionEnvelopeSchema.shape;
+const envelopeShape = executionEnvelopeFieldSchemas;
 
 const publicRemoteFailureCodes = [
   "acp_incomplete_response",

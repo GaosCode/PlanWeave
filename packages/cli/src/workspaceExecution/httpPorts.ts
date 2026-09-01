@@ -18,8 +18,11 @@ import type {
   RemoteAgentCatalogPort,
   RemoteOperationCommandPort,
   RemoteOperationQueryPort,
+  RemoteWorkspaceAuthorityBinding,
   RemoteWorkspaceAuthoritySourcePort,
+  ValidatedWorkspaceAuthorityBinding,
   WorkAuthorityPort,
+  WorkspaceCanvasRemoteAuthorityBinding,
   WorkspaceExecutionInteractionPort
 } from "@planweave-ai/runtime";
 import type { CliWorkspaceConnection } from "./connection.js";
@@ -32,6 +35,18 @@ function projectPath(projectId: string, suffix: string): string {
 function operationPath(projectId: string, operationId?: string): string {
   const base = projectPath(projectId, "/remote-operations");
   return operationId ? `${base}/${encodeURIComponent(operationId)}` : base;
+}
+
+type CliRemoteBinding = ValidatedWorkspaceAuthorityBinding & RemoteWorkspaceAuthorityBinding;
+type CliWorkspaceBinding = ValidatedWorkspaceAuthorityBinding &
+  WorkspaceCanvasRemoteAuthorityBinding;
+
+function requireCliWorkspaceBinding(
+  binding: CliRemoteBinding
+): asserts binding is CliWorkspaceBinding {
+  if ("authorityKind" in binding) {
+    throw new Error("workspace_execution_owner_canvas_unsupported");
+  }
 }
 
 export function createCliWorkspaceExecutionHttpPorts(input: {
@@ -73,8 +88,9 @@ export function createCliWorkspaceExecutionHttpPorts(input: {
     );
   };
   const workAuthority: WorkAuthorityPort = {
-    ensure: ({ binding }, signal) =>
-      getWorkAuthority(
+    ensure: ({ binding }, signal) => {
+      requireCliWorkspaceBinding(binding);
+      return getWorkAuthority(
         {
           workspaceId: binding.workspaceId,
           projectId: binding.projectId,
@@ -82,7 +98,8 @@ export function createCliWorkspaceExecutionHttpPorts(input: {
           blockRef: binding.blockRef
         },
         signal
-      )
+      );
+    }
   };
   return {
     listAgentEndpoints,

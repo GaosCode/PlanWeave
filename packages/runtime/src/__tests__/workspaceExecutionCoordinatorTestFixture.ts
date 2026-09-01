@@ -129,13 +129,18 @@ export function observation(
     revision?: number;
     attemptStateVersion?: number;
     attemptStatus?: RemoteOperationObservation["attempt"]["status"];
+    projectId?: string;
+    locatorWorkspaceId?: string;
+    authorityRevisions?: typeof revisions;
+    contentRevision?: string;
+    graphFingerprint?: string;
   } = {}
 ) {
   const attemptId = input.attemptId ?? "attempt-1";
   const state = input.state ?? "running";
   return remoteOperationObservationSchema.parse({
     operationId: "operation-1",
-    projectId: "project-1",
+    projectId: input.projectId ?? "project-1",
     canvasId: "default",
     blockRef: "T-001#B-001",
     state,
@@ -160,10 +165,21 @@ export function observation(
             : "running",
       revision: input.revision ?? 1,
       attemptId,
-      locator: { workspaceId: "workspace-1", projectId: "project-1", canvasId: "default" },
+      locator: {
+        workspaceId: input.locatorWorkspaceId ?? "workspace-1",
+        projectId: input.projectId ?? "project-1",
+        canvasId: "default"
+      },
       endpointId: "endpoint-codex",
-      authorityRevisions: { responsibility: 1, reviewer: 2, executionTarget: 3 },
-      content: { revision: "snapshot:revision-1", fingerprint },
+      authorityRevisions: {
+        responsibility: input.authorityRevisions?.responsibilityRevision ?? 1,
+        reviewer: input.authorityRevisions?.reviewerRevision ?? 2,
+        executionTarget: input.authorityRevisions?.executionTargetRevision ?? 3
+      },
+      content: {
+        revision: input.contentRevision ?? "snapshot:revision-1",
+        fingerprint: input.graphFingerprint ?? fingerprint
+      },
       startedAt: "2030-01-01T00:00:00.000Z",
       updatedAt: `2030-01-01T00:00:0${input.revision ?? 1}.000Z`,
       ...(state === "completed" ? { terminalAt: "2030-01-01T00:00:09.000Z" } : {})
@@ -178,7 +194,7 @@ export function observation(
 export function fixture(input: {
   packageWorkspace: string;
   authority?: ReturnType<typeof authorityResolver>;
-  workAuthority?: () => Promise<ReturnType<typeof workAuthority>>;
+  workAuthority?: () => Promise<ReturnType<typeof workAuthority> | null>;
   dispatch?: () => Promise<RemoteOperationObservation>;
   recover?: () => Promise<RemoteOperationObservation | null>;
   observe?: () => Promise<RemoteOperationObservation>;

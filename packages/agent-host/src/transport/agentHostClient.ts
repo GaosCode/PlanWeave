@@ -178,7 +178,6 @@ export class AgentHostClient implements HostTransport {
     return new HttpArtifactClient({
       baseUrl: this.baseUrl,
       hostId: this.options.hostId,
-      workspaceId: this.options.workspaceId,
       token,
       request: this.options.request
     });
@@ -295,6 +294,7 @@ export class AgentHostClient implements HostTransport {
       const hello = serializeAgentHostHello({
         type: "host.hello",
         protocolVersion: 1,
+        supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: this.options.state.lastAcknowledgedSequence(),
         capabilities: this.capabilities,
         capacity: this.options.capacity,
@@ -559,16 +559,6 @@ export class AgentHostClient implements HostTransport {
     sessionStart: AgentHostExecutionContext["sessionStart"]
   ): Promise<void> {
     try {
-      if (
-        this.options.workspaceId !== undefined &&
-        execution.command.envelope.workspaceId !== this.options.workspaceId
-      ) {
-        throw new AgentHostExecutionError({
-          code: "host_workspace_mismatch",
-          message: "The execution envelope workspace does not match the local Host credential.",
-          retryable: false
-        });
-      }
       const result = parseAgentHostDispatchResult(
         await this.options.executor.execute(execution.command, {
           signal: controller.signal,

@@ -12,7 +12,6 @@ import { parseAgentHostArtifactRef, type ArtifactRef } from "../protocol.js";
 export type HttpArtifactTransferOptions = {
   baseUrl: URL;
   hostId: string;
-  workspaceId?: string;
   token: string;
   request?: typeof fetch;
 };
@@ -56,8 +55,11 @@ export class HttpArtifactClient {
       `/dispatches/${encodeURIComponent(command.dispatchId)}` +
       `/leases/${encodeURIComponent(command.leaseId)}` +
       `/attempts/${encodeURIComponent(command.executionAttemptId)}/artifacts/${sha256}`;
-    if (this.options.workspaceId !== undefined) {
-      url.searchParams.set("workspaceId", this.options.workspaceId);
+    if (
+      command.envelope.protocolVersion === 1 ||
+      command.envelope.runtimeAuthority === "workspace_canvas"
+    ) {
+      url.searchParams.set("workspaceId", command.envelope.workspaceId);
     }
     return url;
   }

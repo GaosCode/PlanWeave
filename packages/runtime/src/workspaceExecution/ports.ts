@@ -35,7 +35,7 @@ export interface WorkAuthorityPort {
   ensure(
     input: { binding: ValidatedWorkspaceAuthorityBinding & RemoteWorkspaceAuthorityBinding },
     signal?: AbortSignal
-  ): Promise<WorkAuthorityProjection>;
+  ): Promise<WorkAuthorityProjection | null>;
 }
 
 export interface RemoteOperationCommandPort {

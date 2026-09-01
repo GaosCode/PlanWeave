@@ -53,6 +53,10 @@
       "types": "./dist/contentVersionTransfer.d.ts",
       "import": "./dist/contentVersionTransfer.js"
     },
+    "./owner-canvas/materialization": {
+      "types": "./dist/ownerCanvasMaterialization.d.ts",
+      "import": "./dist/ownerCanvasMaterialization.js"
+    },
     "./work/assignment": {
       "types": "./dist/assignment.d.ts",
       "import": "./dist/assignment.js"

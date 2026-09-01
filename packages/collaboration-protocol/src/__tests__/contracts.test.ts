@@ -45,6 +45,7 @@ const productionExportPaths = [
   "./content/snapshot",
   "./content/version",
   "./content/transfer",
+  "./owner-canvas/materialization",
   "./work/assignment",
   "./work/responsibility",
   "./work/review",

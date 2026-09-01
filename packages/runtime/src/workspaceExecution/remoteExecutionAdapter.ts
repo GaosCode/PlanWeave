@@ -15,6 +15,7 @@ import {
 import {
   assertRemoteWorkAuthorityMatchesBinding,
   assertValidatedWorkspaceAuthorityBinding,
+  isOwnerCanvasRemoteAuthorityBinding,
   type ValidatedWorkspaceAuthorityBinding
 } from "./authorityBinding.js";
 import { WorkspaceExecutionError, workspaceExecutionPortError } from "./errors.js";
@@ -86,7 +87,8 @@ function assertObservationIdentity(input: {
     observation.executionAttemptId !== observation.attempt.executionAttemptId ||
     diagnostics === undefined ||
     diagnostics.attemptId !== observation.executionAttemptId ||
-    diagnostics.locator.workspaceId !== binding.workspaceId ||
+    (!isOwnerCanvasRemoteAuthorityBinding(binding) &&
+      diagnostics.locator.workspaceId !== binding.workspaceId) ||
     diagnostics.locator.projectId !== binding.projectId ||
     diagnostics.locator.canvasId !== binding.canvasId ||
     diagnostics.endpointId !== input.endpointId ||

@@ -16,9 +16,15 @@ export const INTERNAL_CAPABILITY_PREFIX = "planweave.internal." as const;
 export const LEGACY_WORKSPACE_CANVAS_EXECUTION_CAPABILITY =
   `${INTERNAL_CAPABILITY_PREFIX}workspace-canvas-execution.v1` as const;
 
-/** Code capability for managed Workspace Canvas execution with exact materialization evidence. */
-export const WORKSPACE_CANVAS_EXECUTION_CAPABILITY =
+/**
+ * Capability for managed Canvas Runtime execution with exact materialization evidence.
+ * The wire token is retained for rolling compatibility with existing Hosts.
+ */
+export const CANVAS_RUNTIME_EXECUTION_CAPABILITY =
   `${INTERNAL_CAPABILITY_PREFIX}workspace-canvas-execution.v2` as const;
+
+/** @deprecated Use CANVAS_RUNTIME_EXECUTION_CAPABILITY. */
+export const WORKSPACE_CANVAS_EXECUTION_CAPABILITY = CANVAS_RUNTIME_EXECUTION_CAPABILITY;
 
 /**
  * Portable Host capability token (plan intent / scheduling).
@@ -54,7 +60,11 @@ export function hasCanvasRuntimeCapability(capabilities: readonly string[]): boo
 }
 
 export function hasWorkspaceCanvasExecutionCapability(capabilities: readonly string[]): boolean {
-  return capabilitiesSchema.parse(capabilities).includes(WORKSPACE_CANVAS_EXECUTION_CAPABILITY);
+  return hasCanvasRuntimeExecutionCapability(capabilities);
+}
+
+export function hasCanvasRuntimeExecutionCapability(capabilities: readonly string[]): boolean {
+  return capabilitiesSchema.parse(capabilities).includes(CANVAS_RUNTIME_EXECUTION_CAPABILITY);
 }
 
 export function hasLegacyWorkspaceCanvasExecutionCapability(

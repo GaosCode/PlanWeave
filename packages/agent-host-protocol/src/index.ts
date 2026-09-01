@@ -62,7 +62,10 @@ export {
   executionEnvelopeDigestAlgorithm,
   executionEnvelopeDigestPrefix,
   executionEnvelopeDigestSchema,
+  executionEnvelopeFieldSchemas,
+  executionEnvelopeProtocolVersion,
   executionEnvelopeSchema,
+  executionRuntimeAuthoritySchema,
   isExecutionEnvelopeDigest,
   outputContractSchema,
   parseExecutionEnvelope,
@@ -74,6 +77,7 @@ export {
   type ExecutionEnvelope,
   type ExecutionEnvelopeDigest,
   type ExecutionEnvelopeInput,
+  type ExecutionRuntimeAuthority,
   type OutputContract,
   type RequestedAcpSessionConfig,
   type TraceCorrelation
@@ -84,7 +88,9 @@ export {
 } from "./executionEnvelopeHash.js";
 export {
   exampleExecutionEnvelopeDigest,
-  exampleExecutionEnvelopeInput
+  exampleExecutionEnvelopeInput,
+  exampleExecutionEnvelopeV1Digest,
+  exampleExecutionEnvelopeV1Input
 } from "./fixtures/executionEnvelope.js";
 export {
   agentHostProtocolGoldenFixtures,
@@ -93,6 +99,7 @@ export {
   exampleAuthenticationRequired,
   exampleAuthenticationSettlement,
   exampleExecuteDelivery,
+  exampleExecuteDeliveryV1,
   exampleHostHello,
   exampleInterruptedEvent,
   exampleResumeDelivery
@@ -118,12 +125,14 @@ export {
   CAPABILITIES_MAX_COUNT,
   CAPABILITY_MAX_LENGTH,
   CANVAS_RUNTIME_CAPABILITY,
+  CANVAS_RUNTIME_EXECUTION_CAPABILITY,
   INTERNAL_CAPABILITY_PREFIX,
   LEGACY_WORKSPACE_CANVAS_EXECUTION_CAPABILITY,
   WORKSPACE_CANVAS_EXECUTION_CAPABILITY,
   capabilitiesSchema,
   capabilitySchema,
   hasCanvasRuntimeCapability,
+  hasCanvasRuntimeExecutionCapability,
   hasLegacyWorkspaceCanvasExecutionCapability,
   hasWorkspaceCanvasExecutionCapability,
   userRequiredCapabilitiesSchema,
@@ -246,6 +255,7 @@ export {
   resumeExecutionCommandSchema,
   serverEventSchema,
   serverToHostCommandSchema,
+  supportedExecutionEnvelopeVersionsSchema,
   type HostEvent,
   type HostHello,
   type HostToServerEvent,
@@ -305,6 +315,8 @@ export {
   type InteractionSettlement
 } from "./interactions.js";
 export {
+  OPERATOR_OWNER_TERMINAL_RESULT_MEDIA_TYPE,
+  OPERATOR_OWNER_TERMINAL_RESULT_METADATA_HEADER,
   operatorEnrollmentGrantRequestSchema,
   operatorEnrollmentGrantResponseSchema,
   operatorHostAvailabilityReasonSchema,
@@ -314,6 +326,7 @@ export {
   operatorHostRenewalRequestSchema,
   operatorHostRenewalResponseSchema,
   operatorHostViewSchema,
+  operatorOwnerTerminalResultMetadataSchema,
   operatorPageQuerySchema,
   operatorTokenSchema,
   type OperatorEnrollmentGrantRequest,
@@ -323,6 +336,8 @@ export {
   type OperatorHostPage,
   type OperatorHostView,
   type OperatorHostRenewalRequest,
+  type OperatorOwnerTerminalResultMetadata,
+  type OperatorOwnerTerminalResultPayload,
   type OperatorPageQuery
 } from "./operatorControl.js";
 export {
