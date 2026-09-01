@@ -37,7 +37,7 @@ async function fixture() {
   const host = hosts.register("Build Mac").host;
   const repo = new RemoteAgentRepository(database, () => now);
   const management = new RemoteAgentManagementService(repo, new HumanPrincipalIdentity(database));
-  return { database, host, repo, management, workspaceA, workspaceB };
+  return { database, host, hosts, repo, management, workspaceA, workspaceB };
 }
 
 describe("remote agent management service", () => {
@@ -110,6 +110,116 @@ describe("remote agent management service", () => {
     expect(() => management.get({ endpointId: owned.endpointId })).toThrow(
       new RemoteAgentAuthorizationError("remote_agent_not_found")
     );
+  });
+
+  it("lists only active endpoints without merging distinct Hosts that share a name", async () => {
+    const { hosts, repo, management } = await fixture();
+    const activeA = hosts.register("Shared device name").host;
+    const activeB = hosts.register("Shared device name").host;
+    const revokedHost = hosts.register("Revoked device").host;
+    const activeAgentA = repo.registerOrRestoreFromProfile({
+      hostId: activeA.id,
+      profileId: "profile-active-a",
+      agentId: "codex-a",
+      displayName: "Codex A",
+      now: now.toISOString(),
+      ownerHumanPrincipalId: "owner-human-1",
+      accessMode: "workspace_restricted"
+    });
+    const activeAgentB = repo.registerOrRestoreFromProfile({
+      hostId: activeB.id,
+      profileId: "profile-active-b",
+      agentId: "codex-b",
+      displayName: "Codex B",
+      now: now.toISOString(),
+      ownerHumanPrincipalId: "owner-human-1",
+      accessMode: "workspace_restricted"
+    });
+    const revokedAgent = repo.registerOrRestoreFromProfile({
+      hostId: activeA.id,
+      profileId: "profile-revoked-agent",
+      agentId: "revoked-agent",
+      displayName: "Revoked Agent",
+      now: now.toISOString(),
+      ownerHumanPrincipalId: "owner-human-1",
+      accessMode: "workspace_restricted"
+    });
+    repo.revokeAgent(revokedAgent.endpointId);
+    const revokedHostAgent = repo.registerOrRestoreFromProfile({
+      hostId: revokedHost.id,
+      profileId: "profile-revoked-host",
+      agentId: "revoked-host-agent",
+      displayName: "Revoked Host Agent",
+      now: now.toISOString(),
+      ownerHumanPrincipalId: "owner-human-1",
+      accessMode: "workspace_restricted"
+    });
+    const repairOnRevokedHost = repo.registerOrRestoreFromProfile({
+      hostId: revokedHost.id,
+      profileId: "profile-repair",
+      agentId: "repair",
+      displayName: "Repair",
+      now: now.toISOString()
+    });
+    hosts.revoke(revokedHost.id);
+
+    const firstGeneration = hosts.registerInstallationGeneration({
+      installationId: "4b3ba96d-0f84-4cf4-aac5-87ef90f58ec2",
+      displayName: "Re-enrolled device",
+      token: `pw_host_${"a".repeat(43)}`,
+      capabilities: [],
+      capacity: 1,
+      credentialExpiresAt: "2027-08-03T08:00:00.000Z",
+      credentialPolicy: { lifetimeDays: 180, renewal: "automatic" }
+    }).host;
+    const supersededAgent = repo.registerOrRestoreFromProfile({
+      hostId: firstGeneration.id,
+      profileId: "profile-superseded",
+      agentId: "superseded-agent",
+      displayName: "Superseded Agent",
+      now: now.toISOString(),
+      ownerHumanPrincipalId: "owner-human-1",
+      accessMode: "workspace_restricted"
+    });
+    const currentGeneration = hosts.registerInstallationGeneration({
+      installationId: "4b3ba96d-0f84-4cf4-aac5-87ef90f58ec2",
+      supersedesHostId: firstGeneration.id,
+      displayName: "Re-enrolled device",
+      token: `pw_host_${"b".repeat(43)}`,
+      capabilities: [],
+      capacity: 1,
+      credentialExpiresAt: "2027-08-03T08:00:00.000Z",
+      credentialPolicy: { lifetimeDays: 180, renewal: "automatic" }
+    }).host;
+    const currentGenerationAgent = repo.registerOrRestoreFromProfile({
+      hostId: currentGeneration.id,
+      profileId: "profile-current",
+      agentId: "current-agent",
+      displayName: "Current Agent",
+      now: now.toISOString(),
+      ownerHumanPrincipalId: "owner-human-1",
+      accessMode: "workspace_restricted"
+    });
+
+    expect(management.listOwned("owner-human-1").map((agent) => agent.endpointId)).toEqual([
+      activeAgentA.endpointId,
+      activeAgentB.endpointId,
+      currentGenerationAgent.endpointId
+    ]);
+    expect(management.listOwnershipRepairRequired()).toEqual([]);
+    expect(management.listManaged("owner-human-1").map((agent) => agent.endpointId)).toEqual([
+      activeAgentA.endpointId,
+      activeAgentB.endpointId,
+      currentGenerationAgent.endpointId
+    ]);
+    for (const historical of [
+      revokedAgent,
+      revokedHostAgent,
+      repairOnRevokedHost,
+      supersededAgent
+    ]) {
+      expect(repo.getByEndpointId(historical.endpointId)).toBeDefined();
+    }
   });
 
   it("refuses setAccessMode and grant while ownership is repair-required", async () => {

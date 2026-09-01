@@ -172,9 +172,14 @@ export class RemoteAgentRepository {
     const placeholders = parsed.map(() => "?").join(",");
     return this.database
       .prepare(
-        `SELECT * FROM remote_agents
-         WHERE owner_human_principal_id IN (${placeholders}) AND ownership_repair_required=0
-         ORDER BY display_name, endpoint_id`
+        `SELECT r.* FROM remote_agents r
+         JOIN agent_hosts h ON h.id=r.host_id
+         WHERE r.owner_human_principal_id IN (${placeholders})
+           AND r.ownership_repair_required=0
+           AND r.revoked_at IS NULL
+           AND h.revoked_at IS NULL
+           AND h.superseded_at IS NULL
+         ORDER BY r.display_name, r.endpoint_id`
       )
       .all(...parsed)
       .map(mapAgentRow);
@@ -183,9 +188,13 @@ export class RemoteAgentRepository {
   listOwnershipRepairRequired(): RemoteAgentRecord[] {
     return this.database
       .prepare(
-        `SELECT * FROM remote_agents
-         WHERE ownership_repair_required=1 AND revoked_at IS NULL
-         ORDER BY display_name, endpoint_id`
+        `SELECT r.* FROM remote_agents r
+         JOIN agent_hosts h ON h.id=r.host_id
+         WHERE r.ownership_repair_required=1
+           AND r.revoked_at IS NULL
+           AND h.revoked_at IS NULL
+           AND h.superseded_at IS NULL
+         ORDER BY r.display_name, r.endpoint_id`
       )
       .all()
       .map(mapAgentRow);
