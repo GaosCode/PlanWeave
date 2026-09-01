@@ -424,15 +424,15 @@ describe("useAgentEndpointCatalog principal and locator", () => {
     expect(result.current.errorCode).toBe("human_principal_unavailable");
   });
 
-  it("passes workspace locator on the operator catalog request", async () => {
-    const listOperatorAgentEndpoints = vi.fn(async () => ({
-      schemaVersion: "agent-endpoint-list/v1" as const,
-      items: [online]
-    }));
-    renderHook(() =>
+  it("fails closed when a Workspace locator has no collaboration session", async () => {
+    const listOperatorAgentEndpoints = vi.fn();
+    const listCollaborationAgentEndpoints = vi.fn();
+    const { result } = renderHook(() =>
       useAgentEndpointCatalog({
         fleetApi: { listOperatorAgentEndpoints },
+        collaborationApi: { listCollaborationAgentEndpoints },
         enabled: true,
+        sessionConnected: false,
         logicalExecutors: [localCodex],
         operatorProfileId: "operator-profile-1",
         humanPrincipalId: "human-owner-1",
@@ -440,13 +440,28 @@ describe("useAgentEndpointCatalog principal and locator", () => {
       })
     );
     await act(async () => undefined);
-    expect(listOperatorAgentEndpoints).toHaveBeenCalledWith({
-      profileId: "operator-profile-1",
-      humanPrincipalId: "human-owner-1",
-      projectId: "project-server",
-      canvasId: "canvas-main",
-      workspaceId: "workspace-1"
-    });
+    expect(listOperatorAgentEndpoints).not.toHaveBeenCalled();
+    expect(listCollaborationAgentEndpoints).not.toHaveBeenCalled();
+    expect(result.current.errorCode).toBe("collaboration_session_disconnected");
+  });
+
+  it("fails closed when a connected Workspace locator has no collaboration catalog API", async () => {
+    const listOperatorAgentEndpoints = vi.fn();
+    const { result } = renderHook(() =>
+      useAgentEndpointCatalog({
+        fleetApi: { listOperatorAgentEndpoints },
+        collaborationApi: null,
+        enabled: true,
+        sessionConnected: true,
+        logicalExecutors: [localCodex],
+        operatorProfileId: "operator-profile-1",
+        humanPrincipalId: "human-owner-1",
+        locator: workspaceLocator
+      })
+    );
+    await act(async () => undefined);
+    expect(listOperatorAgentEndpoints).not.toHaveBeenCalled();
+    expect(result.current.errorCode).toBe("collaboration_agent_endpoint_catalog_unavailable");
   });
 
   it("uses the collaboration authority for a connected Workspace even when operator control is enabled", async () => {

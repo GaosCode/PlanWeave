@@ -29,6 +29,9 @@ export const agentEndpointCatalogRefreshIntervalMs = 30_000;
 export const agentEndpointCatalogRetryAfterFailureMs = 2_000;
 
 export const HUMAN_PRINCIPAL_UNAVAILABLE_CODE = "human_principal_unavailable";
+export const COLLABORATION_SESSION_DISCONNECTED_CODE = "collaboration_session_disconnected";
+export const COLLABORATION_AGENT_ENDPOINT_CATALOG_UNAVAILABLE_CODE =
+  "collaboration_agent_endpoint_catalog_unavailable";
 
 const nonRetryableOperatorKinds = new Set([
   "validation",
@@ -156,17 +159,23 @@ export function useAgentEndpointCatalog(input: {
       setRefreshing(false);
       return;
     }
+    const workspaceAuthority = requestLocator.workspaceId !== undefined;
     const useCollaboration = Boolean(
-      requestLocator.workspaceId && input.sessionConnected && listCollaborationEndpoints
+      workspaceAuthority && input.sessionConnected && listCollaborationEndpoints
     );
     const useOperator = Boolean(
-      !useCollaboration && input.enabled && requestProfileId && listFleetEndpoints
+      !workspaceAuthority && input.enabled && requestProfileId && listFleetEndpoints
     );
     if (!useOperator && !useCollaboration) {
       clearRetryTimer();
       setRemoteEndpoints([]);
-      setError(input.fleetCatalogBlockedCode ?? null);
-      setErrorCode(input.fleetCatalogBlockedCode ?? null);
+      const code = workspaceAuthority
+        ? input.sessionConnected
+          ? COLLABORATION_AGENT_ENDPOINT_CATALOG_UNAVAILABLE_CODE
+          : COLLABORATION_SESSION_DISCONNECTED_CODE
+        : (input.fleetCatalogBlockedCode ?? null);
+      setError(code);
+      setErrorCode(code);
       setRefreshing(false);
       return;
     }
