@@ -210,10 +210,10 @@ export function BlockInspectorWindow() {
   const agentEndpointCatalog = useWorkspaceAgentEndpointCatalog({
     agentDetections,
     agentTransport: settings.execution.agentTransport,
-    enabled: ownerControlPlane.fleetCatalogEnabled,
-    fleetCatalogBlockedCode: ownerControlPlane.fleetCatalogBlockedCode,
+    enabled: ownerControlPlane.localFleetCatalogEnabled,
+    fleetCatalogBlockedCode: ownerControlPlane.localFleetCatalogBlockedCode,
     graph,
-    operatorProfileId: ownerControlPlane.operatorProfileId,
+    operatorProfileId: ownerControlPlane.localOperatorProfileId,
     humanPrincipalId,
     locator: catalogLocator,
     collaborationApi: collaborationBridge,

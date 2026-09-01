@@ -69,6 +69,7 @@ describe("remote agent management service", () => {
       expect.arrayContaining([
         expect.objectContaining({
           endpointId: owned.endpointId,
+          hostId: host.id,
           grants: [expect.objectContaining({ workspaceId: workspaceA })]
         }),
         expect.objectContaining({

@@ -256,7 +256,7 @@ export function HostAdministrationContent({
         t={t}
       />
 
-      <RemoteAgentManagementCard t={t} />
+      <RemoteAgentManagementCard hosts={hosts} t={t} />
 
       <HostBootstrapCard
         activeProfile={activeProfile}

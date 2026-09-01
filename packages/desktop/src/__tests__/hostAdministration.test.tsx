@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTranslator } from "../renderer/i18n";
@@ -9,6 +9,8 @@ import { HostAdministrationSection } from "../renderer/settings/HostAdministrati
 import { HostMemberSetupCard } from "../renderer/settings/HostMemberSetupCard";
 import { SettingsConnectionsSection } from "../renderer/settings/SettingsConnectionsSection";
 import { LocalAgentHostCard } from "../renderer/settings/LocalAgentHostCard";
+import { RemoteAgentManagementCard } from "../renderer/settings/RemoteAgentManagementCard";
+import type { RemoteAgentManagementController } from "../renderer/hooks/useRemoteAgentManagementController";
 
 const bridgeMock = vi.hoisted(() => ({
   getOperatorControlStatus: vi.fn(),
@@ -264,6 +266,71 @@ afterEach(() => {
 });
 
 describe("Agent Host settings", () => {
+  it("selects a device before exposing that device's Agents", async () => {
+    const user = userEvent.setup();
+    const controller: RemoteAgentManagementController = {
+      agents: [
+        {
+          endpointId: "endpoint-codex",
+          hostId: "host-1",
+          displayName: "Codex",
+          accessMode: "workspace_restricted",
+          ownershipRepairRequired: false,
+          ownerHumanPrincipalId: "owner-human-1",
+          policyRevision: 1,
+          revokedAt: null,
+          grants: []
+        },
+        {
+          endpointId: "endpoint-pi",
+          hostId: "host-2",
+          displayName: "Pi",
+          accessMode: "workspace_restricted",
+          ownershipRepairRequired: false,
+          ownerHumanPrincipalId: "owner-human-1",
+          policyRevision: 1,
+          revokedAt: null,
+          grants: []
+        }
+      ],
+      people: [],
+      humanPrincipalId: "owner-human-1",
+      operatorProfileId: "profile-a",
+      loading: false,
+      busy: false,
+      error: null,
+      refresh: vi.fn().mockResolvedValue(undefined),
+      setAccessMode: vi.fn().mockResolvedValue(true),
+      grantWorkspace: vi.fn().mockResolvedValue(true),
+      revokeGrant: vi.fn().mockResolvedValue(true),
+      revokeAgent: vi.fn().mockResolvedValue(true),
+      repairOwnership: vi.fn().mockResolvedValue(true)
+    };
+
+    render(
+      <RemoteAgentManagementCard
+        controller={controller}
+        hosts={[
+          host,
+          { ...host, id: "host-2", displayName: "VPS", online: true },
+          { ...host, id: "host-3", displayName: "No Agent Host", online: true },
+          { ...host, id: "host-4", displayName: "VPS", online: false }
+        ]}
+        t={createTranslator("en")}
+      />
+    );
+
+    expect(screen.getByTestId("remote-agent-row-endpoint-codex")).toBeInTheDocument();
+    expect(screen.queryByTestId("remote-agent-row-endpoint-pi")).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("remote-agent-device-host-2"));
+
+    expect(screen.queryByTestId("remote-agent-row-endpoint-codex")).not.toBeInTheDocument();
+    expect(screen.getByTestId("remote-agent-row-endpoint-pi")).toBeInTheDocument();
+    expect(screen.queryByTestId("remote-agent-device-host-3")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("remote-agent-device-host-4")).not.toBeInTheDocument();
+  });
+
   it("still allows handoff enrollment while this computer hosts its own Server", () => {
     render(
       <LocalAgentHostCard
@@ -448,7 +515,9 @@ describe("Agent Host settings", () => {
     expect(await screen.findByTestId("host-availability-status-host-1")).toHaveTextContent(
       "Offline"
     );
-    expect(screen.getByText("Build Host")).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("host-availability")).getByText("Build Host")
+    ).toBeInTheDocument();
 
     for (const internalValue of [
       "profile-a",
@@ -520,14 +589,15 @@ describe("Agent Host settings", () => {
     expect(await screen.findByTestId("host-availability-partial")).toHaveTextContent(
       "This list is not complete yet"
     );
-    expect(screen.getByText("Host 0")).toBeInTheDocument();
-    expect(screen.getByText("Host 4")).toBeInTheDocument();
-    expect(screen.queryByText("Host 5")).not.toBeInTheDocument();
+    const availability = within(screen.getByTestId("host-availability"));
+    expect(availability.getByText("Host 0")).toBeInTheDocument();
+    expect(availability.getByText("Host 4")).toBeInTheDocument();
+    expect(availability.queryByText("Host 5")).not.toBeInTheDocument();
 
     await user.click(screen.getByTestId("host-availability-load-more"));
 
-    expect(await screen.findByText("Host 5")).toBeInTheDocument();
-    expect(screen.getByText("Host 0")).toBeInTheDocument();
+    expect(await availability.findByText("Host 5")).toBeInTheDocument();
+    expect(availability.getByText("Host 0")).toBeInTheDocument();
     expect(screen.queryByTestId("host-availability-partial")).not.toBeInTheDocument();
     expect(bridgeMock.listOperatorHosts.mock.calls.map(([input]) => input.query.cursor)).toEqual([
       0, 1, 2, 3, 4, 5
@@ -565,7 +635,8 @@ describe("Agent Host settings", () => {
   it("keeps the authoritative Host snapshot when a later refresh fails", async () => {
     const user = userEvent.setup();
     render(<HostAdministrationSection t={createTranslator("en")} />);
-    expect(await screen.findByText("Build Host")).toBeInTheDocument();
+    const availability = within(screen.getByTestId("host-availability"));
+    expect(await availability.findByText("Build Host")).toBeInTheDocument();
 
     bridgeMock.listOperatorHosts
       .mockResolvedValueOnce({
@@ -580,8 +651,8 @@ describe("Agent Host settings", () => {
         "PlanWeave Server cannot be reached. Check your network and try again."
       )
     ).toBeInTheDocument();
-    expect(screen.getByText("Build Host")).toBeInTheDocument();
-    expect(screen.queryByText("Uncommitted first page")).not.toBeInTheDocument();
+    expect(availability.getByText("Build Host")).toBeInTheDocument();
+    expect(availability.queryByText("Uncommitted first page")).not.toBeInTheDocument();
     expect(screen.queryByTestId("host-availability-unavailable")).not.toBeInTheDocument();
   });
 
@@ -616,7 +687,8 @@ describe("Agent Host settings", () => {
       activeProfileId: "profile-b"
     };
     await act(async () => statusListener?.(profileBStatus));
-    expect(await screen.findByText("Profile B Host")).toBeInTheDocument();
+    const availability = within(screen.getByTestId("host-availability"));
+    expect(await availability.findByText("Profile B Host")).toBeInTheDocument();
 
     await act(async () => {
       profileARead.resolve({
@@ -626,8 +698,8 @@ describe("Agent Host settings", () => {
       await profileARead.promise;
     });
 
-    expect(screen.getByText("Profile B Host")).toBeInTheDocument();
-    expect(screen.queryByText("Late Profile A Host")).not.toBeInTheDocument();
+    expect(availability.getByText("Profile B Host")).toBeInTheDocument();
+    expect(availability.queryByText("Late Profile A Host")).not.toBeInTheDocument();
   });
 
   it("uses the Server availability result but explains the action without protocol jargon", async () => {

@@ -245,6 +245,7 @@ export const operatorRemoteAgentGrantViewSchema = z
 export const operatorRemoteAgentViewSchema = z
   .object({
     endpointId: operatorProfileIdSchema,
+    hostId: operatorProfileIdSchema,
     displayName: z.string().trim().min(1).max(128),
     accessMode: z.enum(["unrestricted", "workspace_restricted"]),
     ownershipRepairRequired: z.boolean(),

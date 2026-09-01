@@ -226,19 +226,30 @@ export function ProjectWorkspaceProvider({
   );
   const catalogLocator = useMemo(() => {
     if (!canvasLocator) return null;
+    if (canvasLocator.kind === "local") {
+      if (!graph?.projectId) return null;
+      return { projectId: graph.projectId, canvasId: canvasLocator.canvasId };
+    }
     return {
       projectId: canvasLocator.projectId,
       canvasId: canvasLocator.canvasId,
-      ...(canvasLocator.kind === "workspace" ? { workspaceId: canvasLocator.workspaceId } : {})
+      workspaceId: canvasLocator.workspaceId
     };
-  }, [canvasLocator]);
+  }, [canvasLocator, graph?.projectId]);
+  const localCanvasAuthority = canvasLocator?.kind !== "workspace";
   const agentEndpointCatalog = useWorkspaceAgentEndpointCatalog({
     agentDetections,
     agentTransport: settings.execution.agentTransport,
-    enabled: ownerControlPlane.fleetCatalogEnabled,
-    fleetCatalogBlockedCode: ownerControlPlane.fleetCatalogBlockedCode,
+    enabled: localCanvasAuthority
+      ? ownerControlPlane.localFleetCatalogEnabled
+      : ownerControlPlane.fleetCatalogEnabled,
+    fleetCatalogBlockedCode: localCanvasAuthority
+      ? ownerControlPlane.localFleetCatalogBlockedCode
+      : ownerControlPlane.fleetCatalogBlockedCode,
     graph,
-    operatorProfileId: ownerControlPlane.operatorProfileId,
+    operatorProfileId: localCanvasAuthority
+      ? ownerControlPlane.localOperatorProfileId
+      : ownerControlPlane.operatorProfileId,
     humanPrincipalId,
     locator: catalogLocator,
     collaborationApi: collaborationBridge,

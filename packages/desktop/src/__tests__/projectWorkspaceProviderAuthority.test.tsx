@@ -93,6 +93,9 @@ vi.mock("../renderer/hooks/useOwnerControlPlaneAvailability", () => ({
     fleetCatalogEnabled: false,
     operatorProfileId: null,
     fleetCatalogBlockedCode: "operator_bridge_unavailable",
+    localFleetCatalogEnabled: true,
+    localOperatorProfileId: "profile-local-owner",
+    localFleetCatalogBlockedCode: null,
     status: null,
     refresh: vi.fn().mockResolvedValue(undefined)
   })
@@ -103,16 +106,20 @@ const stubs = vi.hoisted(() => {
   const asyncCall = vi.fn().mockResolvedValue(undefined);
   return { asyncCall, sync };
 });
+const endpointCatalogProbe = vi.hoisted(() => ({ input: null as unknown }));
 
 vi.mock("../renderer/hooks/useLerpedNodeDrag", () => ({
   useLerpedNodeDrag: () => ({ commitDragTargets: () => [], onNodesChange: stubs.sync })
 }));
 vi.mock("../renderer/hooks/useWorkspaceAgentEndpointCatalog", () => ({
-  useWorkspaceAgentEndpointCatalog: () => ({
-    endpoints: [],
-    errorCode: null,
-    savePreference: stubs.asyncCall
-  })
+  useWorkspaceAgentEndpointCatalog: (input: unknown) => {
+    endpointCatalogProbe.input = input;
+    return {
+      endpoints: [],
+      errorCode: null,
+      savePreference: stubs.asyncCall
+    };
+  }
 }));
 vi.mock("../renderer/hooks/useSelectedBlock", () => ({
   useSelectedBlock: () => ({
@@ -416,6 +423,7 @@ function workspaceSettings(): DesktopUiSettings {
 
 beforeEach(() => {
   bridges.status.current = null;
+  endpointCatalogProbe.input = null;
   for (const target of [bridges.desktop.target, bridges.collaboration.target]) {
     for (const key of Reflect.ownKeys(target)) Reflect.deleteProperty(target, key);
   }
@@ -617,6 +625,31 @@ describe("ProjectWorkspaceProvider startup authority", () => {
     );
     await waitFor(() => expect(current?.shell.selectedProject?.projectId).toBe(project.projectId));
     expect(Reflect.has(bridges.collaboration.target, "openWorkspaceCanvasSession")).toBe(false);
+  });
+
+  it("loads the Local canvas endpoint catalog with the graph authority project id", async () => {
+    bridges.desktop.target.getDesktopProjectSnapshot = vi.fn().mockResolvedValue(
+      projectSnapshot({
+        graph: { ...projectSnapshot().graph, projectId: "authority-project-1" }
+      })
+    );
+
+    render(
+      <ProviderHarness
+        initialSettings={{ ...workspaceSettings(), lastOpenedWorkspaceLocator: null }}
+        onSettings={vi.fn()}
+        onValue={vi.fn()}
+      />
+    );
+
+    await waitFor(() =>
+      expect(endpointCatalogProbe.input).toMatchObject({
+        locator: { projectId: "authority-project-1", canvasId: "canvas-main" },
+        enabled: true,
+        operatorProfileId: "profile-local-owner",
+        fleetCatalogBlockedCode: null
+      })
+    );
   });
 
   it("refreshes the Server-authorized canvas catalog with the Local project catalog", async () => {

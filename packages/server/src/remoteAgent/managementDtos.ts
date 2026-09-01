@@ -22,6 +22,7 @@ export const remoteAgentManagementGrantViewSchema = z
 export const remoteAgentManagementAgentViewSchema = z
   .object({
     endpointId: opaqueIdentifierSchema,
+    hostId: opaqueIdentifierSchema,
     displayName: z.string().trim().min(1).max(128),
     accessMode: remoteAgentAccessModeSchema,
     ownershipRepairRequired: z.boolean(),
@@ -82,6 +83,7 @@ export function toRemoteAgentManagementAgentView(
 ): RemoteAgentManagementAgentView {
   return remoteAgentManagementAgentViewSchema.parse({
     endpointId: agent.endpointId,
+    hostId: agent.hostId,
     displayName: agent.displayName,
     accessMode: agent.accessMode,
     ownershipRepairRequired: agent.ownershipRepairRequired,

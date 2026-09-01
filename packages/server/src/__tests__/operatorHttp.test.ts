@@ -36,6 +36,7 @@ afterEach(async () => {
 
 const managedAgent = {
   endpointId: "endpoint-1",
+  hostId: "host-1",
   displayName: "Codex",
   accessMode: "workspace_restricted" as const,
   ownershipRepairRequired: false,

@@ -156,12 +156,11 @@ export function useAgentEndpointCatalog(input: {
       setRefreshing(false);
       return;
     }
-    const useOperator = Boolean(input.enabled && requestProfileId && listFleetEndpoints);
     const useCollaboration = Boolean(
-      !useOperator &&
-        requestLocator.workspaceId &&
-        input.sessionConnected &&
-        listCollaborationEndpoints
+      requestLocator.workspaceId && input.sessionConnected && listCollaborationEndpoints
+    );
+    const useOperator = Boolean(
+      !useCollaboration && input.enabled && requestProfileId && listFleetEndpoints
     );
     if (!useOperator && !useCollaboration) {
       clearRetryTimer();

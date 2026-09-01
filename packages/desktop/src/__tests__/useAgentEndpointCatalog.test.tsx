@@ -449,6 +449,45 @@ describe("useAgentEndpointCatalog principal and locator", () => {
     });
   });
 
+  it("uses the collaboration authority for a connected Workspace even when operator control is enabled", async () => {
+    const listOperatorAgentEndpoints = vi.fn().mockRejectedValue(
+      new OperatorControlError({
+        kind: "forbidden",
+        code: "operator_scope_forbidden",
+        httpStatus: 403
+      })
+    );
+    const listCollaborationAgentEndpoints = vi.fn(async () => ({
+      schemaVersion: "agent-endpoint-list/v1" as const,
+      items: [online]
+    }));
+    const { result } = renderHook(() =>
+      useAgentEndpointCatalog({
+        fleetApi: { listOperatorAgentEndpoints },
+        collaborationApi: { listCollaborationAgentEndpoints },
+        enabled: true,
+        sessionConnected: true,
+        logicalExecutors: [localCodex],
+        operatorProfileId: "operator-profile-1",
+        humanPrincipalId: "human-member-1",
+        locator: workspaceLocator
+      })
+    );
+
+    await act(async () => undefined);
+    expect(listOperatorAgentEndpoints).not.toHaveBeenCalled();
+    expect(listCollaborationAgentEndpoints).toHaveBeenCalledWith({
+      projectId: "project-server",
+      canvasId: "canvas-main",
+      workspaceId: "workspace-1",
+      humanPrincipalId: "human-member-1"
+    });
+    expect(result.current.errorCode).toBeNull();
+    expect(
+      result.current.endpoints.find((endpoint) => endpoint.id === "remote:endpoint-windows")
+    ).toMatchObject({ source: "remote", available: true });
+  });
+
   it("uses the collaboration catalog when operator is unavailable but the session is connected", async () => {
     const listOperatorAgentEndpoints = vi.fn();
     const listCollaborationAgentEndpoints = vi.fn(async () => ({

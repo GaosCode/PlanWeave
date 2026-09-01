@@ -1,7 +1,14 @@
 export const remoteAgentManagementEnCatalog = {
   remoteAgentManagementTitle: "Remote Agents",
   remoteAgentManagementDescription:
-    "Manage access mode and Workspace grants for Agents you own. Host credentials stay on the device page.",
+    "Choose a device, then manage the Agents it exposes and their Workspace access.",
+  remoteAgentManagementDevices: "Devices",
+  remoteAgentManagementExposedAgents: "Exposed Agents",
+  remoteAgentManagementNoAgentsForDevice: "This device does not expose any owned Agents.",
+  remoteAgentManagementUnknownDevice: "Unknown device",
+  remoteAgentManagementDeviceOnline: "Online",
+  remoteAgentManagementDeviceOffline: "Offline",
+  remoteAgentManagementPermissions: "Access and grants",
   remoteAgentManagementRefresh: "Refresh",
   remoteAgentManagementEmpty: "No Remote Agents are registered for this person yet.",
   remoteAgentManagementNoPrincipal:
