@@ -119,6 +119,7 @@ async function initialize(socket: WebSocket): Promise<void> {
     JSON.stringify({
       type: "host.hello",
       protocolVersion: 1,
+      supportedExecutionEnvelopeVersions: [1, 2],
       lastAcknowledgedSequence: 0,
       capabilities: [CANVAS_RUNTIME_CAPABILITY],
       capacity: 1,

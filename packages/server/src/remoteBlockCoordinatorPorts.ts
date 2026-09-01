@@ -151,6 +151,7 @@ export type RemoteDispatchReconciliationState = {
 
 export interface RemoteDispatchPersistencePort {
   inspect(operation: RemoteOperation): RemoteDispatchReconciliationState;
+  readEnvelope(operation: RemoteOperation): ExecutionEnvelope;
   prepare(input: {
     operation: RemoteOperation;
     reservation: HostCapacityReservation;

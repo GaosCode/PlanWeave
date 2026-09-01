@@ -1,12 +1,9 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createRemoteBlockArtifactSource, type PlanPackageManifest } from "@planweave-ai/runtime";
+import { createRemoteBlockArtifactSource } from "@planweave-ai/runtime";
 import { describe, expect, it, vi } from "vitest";
-import {
-  ownerPackageLocatorForRun,
-  WORKSPACE_CANVAS_EXECUTION_CAPABILITY
-} from "@planweave-ai/agent-host-protocol";
+import { WORKSPACE_CANVAS_EXECUTION_CAPABILITY } from "@planweave-ai/agent-host-protocol";
 import { RemoteAgentAuthorizationError } from "../remoteAgent/errors.js";
 import { basicManifest } from "../../../runtime/src/__tests__/promptTestHelpers.js";
 import { endpointIdFor } from "../agentEndpointCatalog.js";
@@ -25,106 +22,12 @@ import {
   workspaceExecutionCandidate
 } from "./support/endpointCoordinatorFixture.js";
 import { seedLegacyRemoteOperation } from "./support/legacyRemoteOperationSeed.js";
-import { remoteManifest, setup } from "./support/remoteBlockCoordinatorFixture.js";
+import { setup } from "./support/remoteBlockCoordinatorFixture.js";
 import {
   ownHostRemoteAgents,
   TEST_REMOTE_AGENT_OWNER_ID
 } from "./support/remoteAgentOwnerFixture.js";
 import type { SqliteDatabase } from "../sqlite.js";
-
-async function setupFleetUnboundHost(manifest: PlanPackageManifest = remoteManifest()) {
-  const fixture = await setup(false, manifest);
-  const host = fixture.hosts.register("Fleet Unbound Host").host;
-  ownHostRemoteAgents({
-    database: fixture.server.database,
-    hostId: host.id
-  });
-  fixture.hosts.reportOnline(host.id, ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY], 1, {
-    workspaceMappings: [],
-    acpProfiles: [
-      {
-        profileId: "codex-acp",
-        agentId: "codex",
-        displayName: "Test Agent",
-        status: "ready",
-        capabilities: ["acp.codex"]
-      }
-    ]
-  });
-  const access = new ProjectAccessRepository(fixture.server.database);
-  access.registerProjectInternal({
-    workspaceId: fixture.locator.workspaceId,
-    projectId: fixture.locator.projectId,
-    projectRoot: fixture.workspace.root
-  });
-  access.registerCanvasInternal({
-    workspaceId: fixture.locator.workspaceId,
-    projectId: fixture.locator.projectId,
-    canvasId: fixture.locator.canvasId,
-    packageDir: fixture.workspace.init.workspace.packageDir
-  });
-  return { ...fixture, host };
-}
-
-async function completeDispatchToTerminal(
-  fixture: Awaited<ReturnType<typeof setupFleetUnboundHost>>,
-  outcome: Awaited<ReturnType<typeof fixture.coordinator.dispatch>>
-) {
-  const report = Buffer.from("# Remote result\n\nCompleted by the remote host.\n");
-  const artifact = await fixture.artifacts.put({
-    expectedSha256: createHash("sha256").update(report).digest("hex"),
-    expectedSizeBytes: report.byteLength,
-    mediaType: "text/markdown",
-    chunks: (async function* () {
-      yield report;
-    })()
-  });
-  const dispatch = fixture.dispatches.getRequired(outcome.operation.dispatchId);
-  fixture.dispatches.accept(
-    fixture.host?.id ?? "",
-    "accept-fleet-unbound",
-    dispatch.id,
-    dispatch.leaseId,
-    dispatch.executionAttemptId
-  );
-  const grant = fixture.artifactAuthorization.createOutputGrant({
-    operationId: "fleet-unbound-completion-report",
-    workspaceId: dispatch.workspaceId,
-    projectId: dispatch.projectId,
-    hostId: dispatch.hostId,
-    dispatchId: dispatch.id,
-    leaseId: dispatch.leaseId,
-    executionAttemptId: dispatch.executionAttemptId,
-    permission: "report_write",
-    expectedSha256: artifact.sha256,
-    expectedSizeBytes: artifact.sizeBytes,
-    expectedMediaType: artifact.mediaType
-  });
-  fixture.artifactAuthorization.acceptOutputUpload(
-    {
-      workspaceId: dispatch.workspaceId,
-      projectId: dispatch.projectId,
-      hostId: dispatch.hostId,
-      dispatchId: dispatch.id,
-      leaseId: dispatch.leaseId,
-      executionAttemptId: dispatch.executionAttemptId,
-      grantId: grant.grantId
-    },
-    artifact
-  );
-  await fixture.dispatches.complete(
-    dispatch.hostId,
-    "complete-fleet-unbound",
-    dispatch.id,
-    dispatch.leaseId,
-    dispatch.executionAttemptId,
-    {
-      summary: "Remote completion.",
-      reportArtifactRef: artifact.ref,
-      artifactRefs: []
-    }
-  );
-}
 
 async function setupInterruptedV3EndpointOperation(idempotencyKey: string) {
   const fixture = await setup(true);
@@ -992,115 +895,5 @@ describe("RemoteBlockCoordinator", () => {
     expect(() => unbindable.resolve(fixture.locator)).toThrowError(
       "remote_runtime_locator_unresolved"
     );
-  });
-
-  it("D2: dispatches an unbound fleet host to completion with ownerPackageLocator in the envelope", async () => {
-    const fixture = await setupFleetUnboundHost();
-    const endpoint = fixture.agentEndpoints.listVisibleFleet().items[0];
-    if (!endpoint) throw new Error("expected_fleet_endpoint");
-    expect(endpoint.status).toBe("available");
-
-    const outcome = await fixture.coordinator.dispatch({
-      ...fixture.dispatchLocator,
-      blockRef: "T-001#B-001",
-      idempotencyKey: "fleet-unbound-dispatch",
-      agentEndpointId: endpoint.endpointId,
-      expectedResponsibilityRevision: 0,
-      expectedReviewerRevision: 0,
-      executionTargetRevision: 0,
-      targetKind: "owner_canvas",
-      callerHumanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
-    });
-    expect(outcome.status).toBe("activated");
-
-    const expectedLocator = ownerPackageLocatorForRun({
-      projectId: fixture.locator.projectId,
-      canvasId: fixture.locator.canvasId
-    });
-    expect(fixture.mailbox.listAfter(fixture.host?.id ?? "", 0)[0]?.command).toMatchObject({
-      envelope: {
-        ownerPackageLocator: expectedLocator
-      }
-    });
-
-    await completeDispatchToTerminal(fixture, outcome);
-    expect(fixture.operations.getRequired(outcome.operation.id).state).toBe("completed");
-    await expect(
-      fixture.runtime.query({ ref: "T-001#B-001", operationId: outcome.operation.id })
-    ).resolves.toMatchObject({ status: "completed" });
-  });
-
-  it("dispatches an unrestricted owner agent to a workspace canvas without host mapping", async () => {
-    const fixture = await setupFleetUnboundHost();
-    const endpoint = fixture.agentEndpoints.listVisibleFleet().items[0];
-    if (!endpoint) throw new Error("expected_fleet_endpoint");
-    expect(endpoint.status).toBe("available");
-    expect(fixture.agentEndpoints.listVisible(fixture.locator.workspaceId).items[0]).toMatchObject({
-      status: "available"
-    });
-
-    const outcome = await fixture.coordinator.dispatch({
-      ...fixture.dispatchLocator,
-      blockRef: "T-001#B-001",
-      idempotencyKey: "workspace-unmapped-unrestricted-dispatch",
-      agentEndpointId: endpoint.endpointId,
-      expectedResponsibilityRevision: 0,
-      expectedReviewerRevision: 0,
-      executionTargetRevision: 0,
-      targetKind: "workspace_canvas",
-      callerHumanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
-    });
-    expect(outcome.status).toBe("activated");
-    expect(outcome.operation.agentAccess?.authorized).toMatchObject({
-      runtimeAuthority: {
-        kind: "workspace_canvas",
-        workspaceId: fixture.locator.workspaceId
-      },
-      agentAccessAuthority: { kind: "agent_owner" }
-    });
-    expect(fixture.mailbox.listAfter(fixture.host.id, 0)).toHaveLength(1);
-  });
-
-  it("lets canvas concurrency admit multiple Owner Fleet operations beyond collaboration Host capacity", async () => {
-    const manifest = remoteManifest();
-    const secondTask = basicManifest({ includeSecondTask: true }).nodes.find(
-      (node) => node.id === "T-002"
-    );
-    if (!secondTask) throw new Error("expected_second_task");
-    manifest.nodes.push(secondTask);
-    manifest.execution.parallel = { enabled: true, maxConcurrent: 2 };
-    const fixture = await setupFleetUnboundHost(manifest);
-    const endpoint = fixture.agentEndpoints.listVisibleFleet().items[0];
-    if (!endpoint) throw new Error("expected_fleet_endpoint");
-
-    const dispatchOwner = (blockRef: string, idempotencyKey: string) =>
-      fixture.coordinator.dispatch({
-        ...fixture.dispatchLocator,
-        blockRef,
-        idempotencyKey,
-        agentEndpointId: endpoint.endpointId,
-        targetKind: "owner_canvas",
-        expectedResponsibilityRevision: 0,
-        expectedReviewerRevision: 0,
-        executionTargetRevision: 0,
-        callerHumanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
-      });
-
-    const first = await dispatchOwner("T-001#B-001", "owner-capacity-first");
-    const second = await dispatchOwner("T-002#B-001", "owner-capacity-second");
-
-    expect(first.status).toBe("activated");
-    expect(second.status).toBe("activated");
-    expect(fixture.mailbox.listAfter(fixture.host.id, 0)).toHaveLength(2);
-    expect(fixture.reservations.activeCountsForHosts([fixture.host.id]).get(fixture.host.id)).toBe(
-      0
-    );
-    expect(
-      fixture.server.database
-        .prepare(
-          "SELECT COUNT(*) AS active FROM host_capacity_reservations WHERE host_id=? AND status='active'"
-        )
-        .get(fixture.host.id)
-    ).toEqual({ active: 2 });
   });
 });

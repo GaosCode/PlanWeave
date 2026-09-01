@@ -7,7 +7,11 @@
 import { createHash } from "node:crypto";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { normalizedFailureSchema } from "@planweave-ai/agent-host-protocol";
+import {
+  CANVAS_RUNTIME_EXECUTION_CAPABILITY,
+  executionEnvelopeProtocolVersion,
+  normalizedFailureSchema
+} from "@planweave-ai/agent-host-protocol";
 import { claimBlock, createRemoteBlockRuntimePort, submitBlockResult } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it } from "vitest";
 import { writeReport } from "../../../runtime/src/__tests__/promptTestHelpers.js";
@@ -170,7 +174,7 @@ describe("real-process remote Block lifecycle", () => {
     const envelope = client.readServerEnvelope(identities.dispatchId);
     expect(envelope).toMatchObject({
       blockRef: "T-001#B-001",
-      requiredCapabilities: ["acp.codex"],
+      requiredCapabilities: ["acp.codex", CANVAS_RUNTIME_EXECUTION_CAPABILITY],
       execution: {
         dispatchId: identities.dispatchId,
         attemptId: identities.executionAttemptId
@@ -183,7 +187,7 @@ describe("real-process remote Block lifecycle", () => {
       execution_attempt_id: identities.executionAttemptId,
       lease_id: identities.leaseId,
       envelope_digest: dispatched.envelopeDigest,
-      envelope_version: 1,
+      envelope_version: executionEnvelopeProtocolVersion,
       workspace_id: envelope.workspaceId,
       agent_profile_id: envelope.agentProfileId,
       source_revision: envelope.sourceRevision,

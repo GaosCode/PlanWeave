@@ -7,6 +7,7 @@ export {
   dispatchResultSchema,
   dispatchIdSchema,
   executionEnvelopeSchema,
+  executionEnvelopeProtocolVersion,
   executionAttemptIdSchema,
   hashExecutionEnvelope,
   hostEventSchema,

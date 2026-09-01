@@ -1,9 +1,10 @@
 import {
   OUTPUT_MAX_ARTIFACT_BYTES,
   OUTPUT_MAX_ARTIFACT_COUNT,
-  WORKSPACE_CANVAS_EXECUTION_CAPABILITY,
+  CANVAS_RUNTIME_EXECUTION_CAPABILITY,
   agentHostProtocolVersion,
   assertAgentHostProtocolCompatible,
+  executionEnvelopeProtocolVersion,
   executionEnvelopeSchema,
   type OwnerPackageLocator
 } from "@planweave-ai/agent-host-protocol";
@@ -26,14 +27,14 @@ export function buildRemoteBlockExecutionEnvelope(
   if (targetKind === undefined) {
     throw new Error("remote_operation_endpoint_selection_missing");
   }
-  const workspaceCapabilityPersisted = operation.requiredCapabilities.includes(
-    WORKSPACE_CANVAS_EXECUTION_CAPABILITY
+  const runtimeCapabilityPersisted = operation.requiredCapabilities.includes(
+    CANVAS_RUNTIME_EXECUTION_CAPABILITY
   );
-  if (workspaceCapabilityPersisted !== (targetKind === "workspace_canvas")) {
+  if (runtimeCapabilityPersisted !== (runtimeMaterialization !== undefined)) {
     throw new Error("remote_operation_runtime_capability_mismatch");
   }
   return executionEnvelopeSchema.parse({
-    protocolVersion: agentHostProtocolVersion,
+    protocolVersion: executionEnvelopeProtocolVersion,
     execution: {
       dispatchId: operation.dispatchId,
       attemptId: operation.executionAttemptId
@@ -57,6 +58,7 @@ export function buildRemoteBlockExecutionEnvelope(
     acceptance: candidate.acceptance,
     dependencySummaries: candidate.dependencySummaries,
     inputArtifacts: candidate.inputArtifacts,
+    runtimeAuthority: targetKind,
     workspaceId: candidate.workspaceId,
     ...(ownerPackageLocator === undefined ? {} : { ownerPackageLocator }),
     agentId: operation.endpointSelection?.agentId ?? candidate.agentId,

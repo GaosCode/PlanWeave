@@ -107,6 +107,7 @@ describe("Tailscale HTTPS proxy transport", () => {
       JSON.stringify({
         type: "host.hello",
         protocolVersion: 1,
+        supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
         capabilities: ["acp.codex"],
         capacity: 1,

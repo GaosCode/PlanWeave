@@ -2,7 +2,6 @@ import {
   ACP_EVENT_BATCH_MAX_COUNT,
   acpEventCursorSchema,
   blockRefSchema,
-  artifactRefSchema,
   dispatchIdSchema,
   executionAttemptIdSchema,
   executionEnvelopeDigestSchema,
@@ -19,7 +18,12 @@ import {
   operatorHostRenewalRequestSchema,
   operatorHostRenewalResponseSchema,
   operatorHostViewSchema,
-  operatorPageQuerySchema
+  operatorPageQuerySchema,
+  OPERATOR_OWNER_TERMINAL_RESULT_MEDIA_TYPE,
+  OPERATOR_OWNER_TERMINAL_RESULT_METADATA_HEADER,
+  operatorOwnerTerminalResultMetadataSchema,
+  type OperatorOwnerTerminalResultMetadata,
+  type OperatorOwnerTerminalResultPayload
 } from "@planweave-ai/agent-host-protocol";
 import {
   humanPrincipalIdSchema,
@@ -49,7 +53,12 @@ export {
   operatorHostRenewalRequestSchema,
   operatorHostRenewalResponseSchema,
   operatorHostViewSchema,
-  operatorPageQuerySchema
+  operatorPageQuerySchema,
+  OPERATOR_OWNER_TERMINAL_RESULT_MEDIA_TYPE,
+  OPERATOR_OWNER_TERMINAL_RESULT_METADATA_HEADER,
+  operatorOwnerTerminalResultMetadataSchema,
+  type OperatorOwnerTerminalResultMetadata,
+  type OperatorOwnerTerminalResultPayload
 };
 
 const timestampSchema = z.iso.datetime();
@@ -88,7 +97,6 @@ const operatorOperationViewBaseSchema = z
     dispatchId: dispatchIdSchema,
     executionAttemptId: executionAttemptIdSchema,
     envelopeDigest: executionEnvelopeDigestSchema.optional(),
-    reportArtifactRef: artifactRefSchema.optional(),
     createdAt: timestampSchema,
     updatedAt: timestampSchema,
     terminalAt: timestampSchema.optional(),

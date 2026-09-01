@@ -4,6 +4,7 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
   CANVAS_RUNTIME_CAPABILITY,
+  exampleExecuteDeliveryV1,
   WORKSPACE_CANVAS_EXECUTION_CAPABILITY
 } from "@planweave-ai/agent-host-protocol";
 import {
@@ -244,6 +245,58 @@ async function createWsCoordination() {
 }
 
 describe("agent host WebSocket transport", () => {
+  it.each([
+    { label: "missing envelope versions", supportedVersions: undefined, pendingV1: false },
+    { label: "v2-only with pending v1", supportedVersions: [2], pendingV1: true }
+  ])("rejects a Host with $label before it can remain online", async (input) => {
+    const { coordination } = await createWsCoordination();
+    const registration = coordination.hosts.register("Legacy Host");
+    coordination.hosts.reportOnline(registration.host.id, ["acp.codex"], 1);
+    if (input.pendingV1) {
+      coordination.mailbox.enqueue(registration.host.id, exampleExecuteDeliveryV1.command);
+    }
+    const httpServer = createServer();
+    httpServers.push(httpServer);
+    await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
+    const address = httpServer.address();
+    if (!address || typeof address === "string") throw new Error("Expected an HTTP port.");
+    webSocketServers.push(
+      attachAgentHostWebSocketServer({
+        server: httpServer,
+        hosts: coordination.hosts,
+        mailbox: coordination.mailbox,
+        dispatches: coordination.dispatches,
+        acpEvents: coordination.acpEvents,
+        interactions: coordination.interactions,
+        actions: coordination.actions,
+        heartbeatIntervalMs: 30_000,
+        leaseDurationMs: 60_000,
+        transportAdmission: loopbackHttpTransportAdmission
+      })
+    );
+    expect(coordination.hosts.getRequired(registration.host.id).lastSeenAt).toBeUndefined();
+    const socket = await openSocket(
+      `ws://127.0.0.1:${address.port}/agent-hosts/${registration.host.id}/connect`,
+      registration.token
+    );
+    const events = eventStream(socket);
+    socket.send(
+      JSON.stringify({
+        type: "host.hello",
+        protocolVersion: 1,
+        ...(input.supportedVersions
+          ? { supportedExecutionEnvelopeVersions: input.supportedVersions }
+          : {}),
+        lastAcknowledgedSequence: 0,
+        capabilities: ["acp.codex"],
+        capacity: 1
+      })
+    );
+
+    await expect(events.next()).resolves.toMatchObject({ type: "protocol.error" });
+    expect(coordination.hosts.getRequired(registration.host.id).lastSeenAt).toBeUndefined();
+  });
+
   it("does not block Host event acknowledgements while availability recovery waits on Host RPC", async () => {
     const { coordination } = await createWsCoordination();
     const registration = coordination.hosts.register("Recovery Host");
@@ -281,6 +334,7 @@ describe("agent host WebSocket transport", () => {
       JSON.stringify({
         type: "host.hello",
         protocolVersion: 1,
+        supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
         capabilities: ["acp.codex"],
         capacity: 1,
@@ -403,6 +457,7 @@ describe("agent host WebSocket transport", () => {
       JSON.stringify({
         type: "host.hello",
         protocolVersion: 1,
+        supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
         capabilities: ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
         capacity: 1,
@@ -453,6 +508,7 @@ describe("agent host WebSocket transport", () => {
       coordinator: coordination.coordinator,
       events: coordination.acpEvents,
       interactions: coordination.interactions,
+      artifactContent: { readReport: async () => new Uint8Array() },
       disconnectHost: transport.disconnectHost,
       workspaceIdentity,
       authorizeProjectScope: () => {}
@@ -548,6 +604,7 @@ describe("agent host WebSocket transport", () => {
       JSON.stringify({
         type: "host.hello",
         protocolVersion: 1,
+        supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
         capabilities: [
           "acp.codex",
@@ -762,6 +819,7 @@ describe("agent host WebSocket transport", () => {
       JSON.stringify({
         type: "host.hello",
         protocolVersion: 1,
+        supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
         capabilities: ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
         capacity: 1,
@@ -899,6 +957,7 @@ describe("agent host WebSocket transport", () => {
       JSON.stringify({
         type: "host.hello",
         protocolVersion: 1,
+        supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
         capabilities: ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
         capacity: 1,
@@ -973,6 +1032,7 @@ describe("agent host WebSocket transport", () => {
       JSON.stringify({
         type: "host.hello",
         protocolVersion: 1,
+        supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
         capabilities: ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
         capacity: 1,
@@ -1029,6 +1089,7 @@ describe("agent host WebSocket transport", () => {
       JSON.stringify({
         type: "host.hello",
         protocolVersion: 1,
+        supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
         capabilities: ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
         capacity: 1,
@@ -1067,6 +1128,7 @@ describe("agent host WebSocket transport", () => {
       JSON.stringify({
         type: "host.hello",
         protocolVersion: 1,
+        supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
         capabilities: ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
         capacity: 1,
@@ -1121,6 +1183,7 @@ describe("agent host WebSocket transport", () => {
       JSON.stringify({
         type: "host.hello",
         protocolVersion: 1,
+        supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
         capabilities: ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
         capacity: 1,

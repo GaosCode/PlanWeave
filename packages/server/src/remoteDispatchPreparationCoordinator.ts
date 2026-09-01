@@ -3,6 +3,7 @@ import { AgentEndpointCatalogError, type AgentEndpointCatalog } from "./agentEnd
 import { CanvasRuntimeUnavailableError } from "./canvas/executionRuntimePort.js";
 import {
   CanvasRuntimeAttachmentConflictError,
+  type RuntimeAttachmentRecordRequest,
   type RuntimeAttachmentRequest
 } from "./canvas/runtimeAttachment.js";
 import type { HostCapacityReservation, HostReservationRepository } from "./hostReservations.js";
@@ -25,7 +26,7 @@ type PreparationPorts = {
   dispatches: RemoteDispatchPersistencePort;
   agentEndpoints?: AgentEndpointCatalog;
   runtimeContentTargets?: RemoteRuntimeContentTargetPort;
-  ensureRuntimeAttachment?: (input: RuntimeAttachmentRequest) => void;
+  ensureRuntimeAttachment?: (input: RuntimeAttachmentRecordRequest) => void;
   findRuntimeAttachment?: (
     operationId: string,
     executionAttemptId: string

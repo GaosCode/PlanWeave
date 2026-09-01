@@ -135,7 +135,8 @@ export class CanvasRuntimeHostLocator {
     private readonly bindings: CanvasRuntimeHostBindingRepository,
     private readonly hosts: AgentHostRepository,
     private readonly sessions: CanvasRuntimeHostSessionLookup,
-    private readonly projectAccess: ProjectAccessRepository
+    private readonly projectAccess: ProjectAccessRepository,
+    private readonly ownerScopeAvailable?: (scope: RuntimeCanvasScope) => boolean
   ) {}
 
   locate(scopeInput: RuntimeCanvasScope): LocatedCanvasRuntimeHost {
@@ -191,7 +192,9 @@ export class CanvasRuntimeHostLocator {
       scope.projectId,
       scope.canvasId
     );
-    if (!project || project.revokedAt !== null || !canvas || canvas.revokedAt !== null) {
+    const collaborationScopeAvailable =
+      !!project && project.revokedAt === null && !!canvas && canvas.revokedAt === null;
+    if (!collaborationScopeAvailable && this.ownerScopeAvailable?.(scope) !== true) {
       throw new Error("canvas_runtime_scope_unavailable");
     }
     return scope;

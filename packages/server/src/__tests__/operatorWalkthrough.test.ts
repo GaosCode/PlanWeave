@@ -281,11 +281,25 @@ describe("remote operator walkthrough", () => {
     );
     expect(bootstrap.status).toBe(201);
     const { deviceToken } = (await bootstrap.json()) as { deviceToken: string };
+    const identityResponse = await fetch(`${origin}/api/v1/human-identity/recover`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        schemaVersion: "human-identity/v1",
+        existingDeviceToken: deviceToken
+      })
+    });
+    expect(identityResponse.status).toBe(200);
+    const { identityToken } = (await identityResponse.json()) as { identityToken: string };
 
     const enrollmentExpiresAt = new Date(Date.now() + 10 * 60_000).toISOString();
     const grantResponse = await fetch(`${origin}/api/v1/host-enrollments`, {
       method: "POST",
-      headers: { ...authorization, "content-type": "application/json" },
+      headers: {
+        ...authorization,
+        "x-planweave-human-identity": `Bearer ${identityToken}`,
+        "content-type": "application/json"
+      },
       body: JSON.stringify({
         workspaceId: legacyWorkspaceIdForProject(workspace.init.workspace.id),
         expiresAt: enrollmentExpiresAt,
@@ -489,9 +503,14 @@ describe("remote operator walkthrough", () => {
     // Production success requires Host acceptance (leased/running) and a terminal outcome.
     const dispatchResponse = await fetch(`${origin}/api/v1/remote-operations`, {
       method: "POST",
-      headers: { ...authorization, "content-type": "application/json" },
+      headers: {
+        ...authorization,
+        "x-planweave-human-identity": `Bearer ${identityToken}`,
+        "content-type": "application/json"
+      },
       body: JSON.stringify({
         schemaVersion: "remote-run/v3",
+        workspaceId: grant.workspaceId,
         projectId: workspace.init.workspace.id,
         canvasId: "default",
         blockRef: "T-001#B-001",

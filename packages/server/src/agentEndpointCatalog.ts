@@ -9,8 +9,8 @@ import {
   type RemoteAgentEndpointList
 } from "@planweave-ai/collaboration-protocol/agent-endpoint";
 import {
-  opaqueIdentifierSchema,
-  WORKSPACE_CANVAS_EXECUTION_CAPABILITY
+  CANVAS_RUNTIME_EXECUTION_CAPABILITY,
+  opaqueIdentifierSchema
 } from "@planweave-ai/agent-host-protocol";
 import { createHash } from "node:crypto";
 import { workspaceIdSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
@@ -79,7 +79,7 @@ type InternalCandidate = {
 function supportsRequiredCapability(candidate: InternalCandidate, capability: string): boolean {
   if (!candidate.host.capabilities.includes(capability)) return false;
   return (
-    capability === WORKSPACE_CANVAS_EXECUTION_CAPABILITY ||
+    capability === CANVAS_RUNTIME_EXECUTION_CAPABILITY ||
     candidate.profile.capabilities.includes(capability)
   );
 }
@@ -146,7 +146,7 @@ function unavailableReason(
   }
   if (
     requireWorkspaceCanvasExecution &&
-    !host.capabilities.includes(WORKSPACE_CANVAS_EXECUTION_CAPABILITY)
+    !host.capabilities.includes(CANVAS_RUNTIME_EXECUTION_CAPABILITY)
   ) {
     return "host_capability_missing";
   }

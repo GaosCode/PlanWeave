@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import {
+  OUTPUT_MAX_ARTIFACT_BYTES,
   opaqueIdentifierSchema,
   remoteRunnerEventServerCapabilitySchema
 } from "@planweave-ai/agent-host-protocol";
@@ -14,19 +15,32 @@ import {
   type RemoteAgentManagementPort,
   type RemoteAgentManagementRoute
 } from "./remoteAgent/managementHttp.js";
-import { OperatorTokenRegistry, type OperatorPrincipal } from "./operatorAuth.js";
+import {
+  OperatorTokenRegistry,
+  type OperatorPrincipal,
+  type OperatorRequestPrincipal
+} from "./operatorAuth.js";
+import type { HumanIdentityCredentialStore } from "./identity/humanIdentityCredentialStore.js";
 import { serverReadinessSchema, type ServerReadiness } from "./readiness.js";
 import { DispatchAssignmentError } from "./work/dispatchIntegration.js";
 import { RemoteExecutionActionRejectedError } from "./remoteExecutionActions.js";
 import { CanvasRuntimeRpcError } from "./canvas/runtimeRpcBroker.js";
 import { CanvasRuntimeUnavailableError } from "./canvas/executionRuntimePort.js";
-import type { OperatorOperationRuntimeWire } from "./operatorDtos.js";
+import { readOwnerCanvasMaterializationUpload } from "./canvas/ownerCanvasMaterializationHttp.js";
+import {
+  OPERATOR_OWNER_TERMINAL_RESULT_MEDIA_TYPE,
+  OPERATOR_OWNER_TERMINAL_RESULT_METADATA_HEADER,
+  operatorOwnerTerminalResultMetadataSchema,
+  type OperatorOperationRuntimeWire,
+  type OperatorOwnerTerminalResultPayload
+} from "./operatorDtos.js";
 import {
   operatorNetworkTransportAllowed,
   type TransportAdmissionPolicy
 } from "./insecureTransport.js";
 
 const MAX_OPERATOR_BODY_BYTES = 64 * 1024;
+const OPERATOR_HUMAN_IDENTITY_HEADER = "x-planweave-human-identity";
 
 const buildRevisionSchema = z.string().regex(/^(?:[0-9a-f]{7,64}|development)$/);
 const healthResponseSchema = z
@@ -49,6 +63,7 @@ const versionResponseSchema = z
 
 export type OperatorHttpOptions = {
   authorization: OperatorTokenRegistry;
+  humanIdentityCredentials: HumanIdentityCredentialStore;
   service: OperatorControlPort;
   readiness(): ServerReadiness;
   serverVersion: string;
@@ -62,38 +77,55 @@ export type OperatorHttpOptions = {
 
 export type OperatorControlPort = {
   remoteRunnerEventCapability?(): unknown;
-  createEnrollmentGrant(principal: OperatorPrincipal, request: unknown): unknown;
+  createEnrollmentGrant(principal: OperatorRequestPrincipal, request: unknown): unknown;
   listHosts(principal: OperatorPrincipal, query: unknown): unknown;
-  listAgentEndpoints(principal: OperatorPrincipal, query: unknown): unknown;
+  listAgentEndpoints(principal: OperatorRequestPrincipal, query: unknown): unknown;
   getHost(principal: OperatorPrincipal, hostId: string): unknown;
   revokeHost(principal: OperatorPrincipal, hostId: string): unknown;
   requestHostCredentialRenewal(
-    principal: OperatorPrincipal,
+    principal: OperatorRequestPrincipal,
     hostId: string,
     request: unknown
   ): unknown;
   dispatch(
-    principal: OperatorPrincipal,
+    principal: OperatorRequestPrincipal,
     request: unknown,
     runtimeWire?: OperatorOperationRuntimeWire
   ): Promise<unknown>;
   observeOperation(
-    principal: OperatorPrincipal,
+    principal: OperatorRequestPrincipal,
     operationId: string,
     runtimeWire?: OperatorOperationRuntimeWire
   ): Promise<unknown>;
+  readOwnerOperationTerminalResult(
+    principal: OperatorRequestPrincipal,
+    operationId: string
+  ): Promise<OperatorOwnerTerminalResultPayload>;
+  inspectOwnerCanvasMaterializationHead(
+    principal: OperatorRequestPrincipal,
+    scope: unknown
+  ): unknown;
+  materializeOwnerCanvas(principal: OperatorRequestPrincipal, request: unknown): unknown;
   executeAction(
-    principal: OperatorPrincipal,
+    principal: OperatorRequestPrincipal,
     operationId: string,
     request: unknown
   ): Promise<unknown>;
-  replayEvents(principal: OperatorPrincipal, operationId: string, afterCursor: unknown): unknown;
+  replayEvents(
+    principal: OperatorRequestPrincipal,
+    operationId: string,
+    afterCursor: unknown
+  ): unknown;
   listPendingInteractions(
-    principal: OperatorPrincipal,
+    principal: OperatorRequestPrincipal,
     operationId: string,
     query: unknown
   ): unknown;
-  settleInteraction(principal: OperatorPrincipal, operationId: string, request: unknown): unknown;
+  settleInteraction(
+    principal: OperatorRequestPrincipal,
+    operationId: string,
+    request: unknown
+  ): unknown;
 } & RemoteAgentManagementPort;
 
 type OperatorRoute =
@@ -105,8 +137,15 @@ type OperatorRoute =
   | { kind: "list_agent_endpoints" }
   | { kind: "get_host" | "revoke_host" | "renew_host_credential"; hostId: string }
   | { kind: "dispatch" }
+  | { kind: "owner_canvas_materialization_head" | "owner_canvas_materialize" }
   | {
-      kind: "get_operation" | "action" | "events" | "interactions" | "settle_interaction";
+      kind:
+        | "get_operation"
+        | "terminal_result"
+        | "action"
+        | "events"
+        | "interactions"
+        | "settle_interaction";
       operationId: string;
     }
   | RemoteAgentManagementRoute;
@@ -117,6 +156,20 @@ function decodeIdentifier(value: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function attachHumanIdentity(
+  request: IncomingMessage,
+  principal: OperatorPrincipal,
+  credentials: HumanIdentityCredentialStore
+): OperatorRequestPrincipal {
+  const authorization = request.headers[OPERATOR_HUMAN_IDENTITY_HEADER];
+  if (authorization === undefined) return principal;
+  if (Array.isArray(authorization)) throw new Error("operator_human_identity_unauthorized");
+  const match = /^Bearer (\S+)$/.exec(authorization.trim());
+  const identity = match ? credentials.authenticate(match[1]) : undefined;
+  if (!identity) throw new Error("operator_human_identity_unauthorized");
+  return { ...principal, humanPrincipalId: identity.humanPrincipalId };
 }
 
 function route(request: IncomingMessage, pathname: string): OperatorRoute | undefined {
@@ -134,6 +187,12 @@ function route(request: IncomingMessage, pathname: string): OperatorRoute | unde
   }
   if (request.method === "POST" && pathname === "/api/v1/remote-operations") {
     return { kind: "dispatch" };
+  }
+  if (request.method === "GET" && pathname === "/api/v1/owner-canvas-materializations/head") {
+    return { kind: "owner_canvas_materialization_head" };
+  }
+  if (request.method === "POST" && pathname === "/api/v1/owner-canvas-materializations") {
+    return { kind: "owner_canvas_materialize" };
   }
   const remoteAgentRoute = matchRemoteAgentManagementRoute(
     request.method,
@@ -154,13 +213,16 @@ function route(request: IncomingMessage, pathname: string): OperatorRoute | unde
     }
   }
   const operation =
-    /^\/api\/v1\/remote-operations\/([^/]+)(?:\/(actions|events|interactions)(\/respond)?)?$/.exec(
+    /^\/api\/v1\/remote-operations\/([^/]+)(?:\/(actions|events|interactions|terminal-result)(\/respond)?)?$/.exec(
       pathname
     );
   if (!operation) return undefined;
   const operationId = decodeIdentifier(operation[1]);
   if (!operationId) return undefined;
   if (request.method === "GET" && !operation[2]) return { kind: "get_operation", operationId };
+  if (request.method === "GET" && operation[2] === "terminal-result" && !operation[3]) {
+    return { kind: "terminal_result", operationId };
+  }
   if (request.method === "POST" && operation[2] === "actions" && !operation[3]) {
     return { kind: "action", operationId };
   }
@@ -181,6 +243,25 @@ function respond(response: ServerResponse, status: number, body: unknown): void 
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "content-length": bytes.byteLength,
+    "cache-control": "no-store"
+  });
+  response.end(bytes);
+}
+
+function respondOwnerTerminalResult(
+  response: ServerResponse,
+  payload: OperatorOwnerTerminalResultPayload
+): void {
+  const metadata = operatorOwnerTerminalResultMetadataSchema.parse(payload.metadata);
+  const bytes = Buffer.from(payload.reportBytes);
+  if (bytes.byteLength > OUTPUT_MAX_ARTIFACT_BYTES) {
+    throw new Error("operator_terminal_result_too_large");
+  }
+  const encodedMetadata = Buffer.from(JSON.stringify(metadata), "utf8").toString("base64url");
+  response.writeHead(200, {
+    "content-type": OPERATOR_OWNER_TERMINAL_RESULT_MEDIA_TYPE,
+    "content-length": bytes.byteLength,
+    [OPERATOR_OWNER_TERMINAL_RESULT_METADATA_HEADER]: encodedMetadata,
     "cache-control": "no-store"
   });
   response.end(bytes);
@@ -334,6 +415,20 @@ function safeError(error: unknown): { status: number; code: string } {
       code: error.message === "operator_body_too_large" ? error.message : "operator_request_invalid"
     };
   }
+  if (
+    error.message.startsWith("owner_canvas_materialization_") ||
+    error.message.startsWith("content_version_")
+  ) {
+    if (error.message.endsWith("too_large")) return { status: 413, code: error.message };
+    if (
+      error.message.includes("conflict") ||
+      error.message === "owner_canvas_materialization_active_operation"
+    ) {
+      return { status: 409, code: error.message };
+    }
+    if (error.message.endsWith("unavailable")) return { status: 503, code: error.message };
+    return { status: 400, code: "operator_request_invalid" };
+  }
   if (error.message.startsWith("operator_project_forbidden")) {
     return { status: 403, code: "operator_scope_forbidden" };
   }
@@ -349,6 +444,12 @@ function safeError(error: unknown): { status: number; code: string } {
   }
   if (error.message === "operator_server_admin_required") {
     return { status: 403, code: "operator_admin_required" };
+  }
+  if (error.message === "operator_human_identity_unauthorized") {
+    return { status: 401, code: error.message };
+  }
+  if (error.message === "operator_human_identity_forbidden") {
+    return { status: 403, code: error.message };
   }
   if (error.message.includes("not_found"))
     return { status: 404, code: "operator_resource_not_found" };
@@ -435,8 +536,8 @@ export async function handleOperatorHttpRequest(
       });
       return true;
     }
-    const principal = options.authorization.authenticate(request.headers.authorization);
-    if (!principal) {
+    const operatorPrincipal = options.authorization.authenticate(request.headers.authorization);
+    if (!operatorPrincipal) {
       request.resume();
       respond(response, 401, {
         error: "operator_unauthorized",
@@ -444,6 +545,11 @@ export async function handleOperatorHttpRequest(
       });
       return true;
     }
+    const principal = attachHumanIdentity(
+      request,
+      operatorPrincipal,
+      options.humanIdentityCredentials
+    );
     switch (matched.kind) {
       case "create_enrollment":
         query(url, []);
@@ -467,7 +573,12 @@ export async function handleOperatorHttpRequest(
           "canvasId",
           "workspaceId"
         ]);
-        if (endpointQuery.workspaceId === undefined) {
+        if (
+          endpointQuery.projectId === undefined &&
+          endpointQuery.humanPrincipalId === undefined &&
+          endpointQuery.canvasId === undefined &&
+          endpointQuery.workspaceId === undefined
+        ) {
           options.authorization.requireServerAdmin(principal);
         }
         respond(response, 200, options.service.listAgentEndpoints(principal, endpointQuery));
@@ -478,6 +589,18 @@ export async function handleOperatorHttpRequest(
       case "grant_remote_agent_workspace":
       case "revoke_remote_agent_grant":
       case "revoke_remote_agent":
+        await handleRemoteAgentManagementHttp({
+          route: matched,
+          principal,
+          service: options.service,
+          url,
+          request,
+          query,
+          readJson,
+          respond,
+          response
+        });
+        break;
       case "repair_remote_agent_ownership":
         options.authorization.requireServerAdmin(principal);
         await handleRemoteAgentManagementHttp({
@@ -525,6 +648,26 @@ export async function handleOperatorHttpRequest(
           )
         );
         break;
+      case "owner_canvas_materialization_head": {
+        const parameters = query(url, ["ownerHumanPrincipalId", "projectId", "canvasId"]);
+        respond(
+          response,
+          200,
+          options.service.inspectOwnerCanvasMaterializationHead(principal, parameters)
+        );
+        break;
+      }
+      case "owner_canvas_materialize":
+        query(url, []);
+        respond(
+          response,
+          201,
+          options.service.materializeOwnerCanvas(
+            principal,
+            await readOwnerCanvasMaterializationUpload(request)
+          )
+        );
+        break;
       case "get_operation":
         query(url, []);
         varyOnAccept(response);
@@ -536,6 +679,13 @@ export async function handleOperatorHttpRequest(
             matched.operationId,
             operationRuntimeWire(request.headers.accept)
           )
+        );
+        break;
+      case "terminal_result":
+        query(url, []);
+        respondOwnerTerminalResult(
+          response,
+          await options.service.readOwnerOperationTerminalResult(principal, matched.operationId)
         );
         break;
       case "action":

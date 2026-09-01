@@ -42,9 +42,44 @@ function setup() {
   return setupServerCompositionFixture({ directories, httpServers, compositions });
 }
 
+async function bootstrapHumanIdentity(input: {
+  origin: string;
+  projectId: string;
+  humanPrincipalId: string;
+}): Promise<string> {
+  const bootstrap = await fetch(
+    `${input.origin}/api/v1/projects/${input.projectId}/human/bootstrap`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        displayName: "Trusted Remote Agent Owner",
+        humanPrincipalId: input.humanPrincipalId
+      })
+    }
+  );
+  expect(bootstrap.status).toBe(201);
+  const { deviceToken } = (await bootstrap.json()) as { deviceToken: string };
+  const recovered = await fetch(`${input.origin}/api/v1/human-identity/recover`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      schemaVersion: "human-identity/v1",
+      existingDeviceToken: deviceToken
+    })
+  });
+  expect(recovered.status).toBe(200);
+  return ((await recovered.json()) as { identityToken: string }).identityToken;
+}
+
 describe("distributed server composition Stage H contracts", () => {
   it("lists stable redacted Agent Endpoints through the operator-admin project scope", async () => {
     const fixture = await setup();
+    const ownerIdentityToken = await bootstrapHumanIdentity({
+      origin: fixture.origin,
+      projectId: fixture.projectId,
+      humanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
+    });
     const database = await openServerDatabase(fixture.databasePath, 5_000);
     const hosts = new AgentHostRepository(
       database,
@@ -76,7 +111,12 @@ describe("distributed server composition Stage H contracts", () => {
 
     const endpointUrl = `${fixture.origin}/api/v1/agent-endpoints?projectId=${encodeURIComponent(fixture.projectId)}&canvasId=default&humanPrincipalId=${encodeURIComponent(TEST_REMOTE_AGENT_OWNER_ID)}`;
     const request = () =>
-      fetch(endpointUrl, { headers: { Authorization: `Bearer ${adminToken}` } });
+      fetch(endpointUrl, {
+        headers: {
+          Authorization: `Bearer ${adminToken}`,
+          "x-planweave-human-identity": `Bearer ${ownerIdentityToken}`
+        }
+      });
     const first = await request();
     const second = await request();
     expect(first.status).toBe(200);
@@ -106,14 +146,24 @@ describe("distributed server composition Stage H contracts", () => {
     }
 
     const nonAdmin = await fetch(endpointUrl, {
-      headers: { Authorization: `Bearer ${projectToken}` }
+      headers: {
+        Authorization: `Bearer ${projectToken}`,
+        "x-planweave-human-identity": `Bearer ${ownerIdentityToken}`
+      }
     });
-    expect(nonAdmin.status).toBe(403);
+    expect(nonAdmin.status).toBe(200);
+    await expect(nonAdmin.json()).resolves.toEqual(firstPage);
     const crossProject = await fetch(
       `${fixture.origin}/api/v1/agent-endpoints?projectId=unknown-project&canvasId=default&humanPrincipalId=${encodeURIComponent(TEST_REMOTE_AGENT_OWNER_ID)}`,
-      { headers: { Authorization: `Bearer ${adminToken}` } }
+      {
+        headers: {
+          Authorization: `Bearer ${adminToken}`,
+          "x-planweave-human-identity": `Bearer ${ownerIdentityToken}`
+        }
+      }
     );
-    expect(crossProject.status).toBe(403);
+    expect(crossProject.status).toBe(200);
+    await expect(crossProject.json()).resolves.toEqual(firstPage);
   });
 
   it("wires health, enrollment, legacy dispatch rejection, pagination, and shutdown", async () => {
@@ -136,6 +186,18 @@ describe("distributed server composition Stage H contracts", () => {
     const trustedOwner = (await trustedBootstrap.json()) as {
       deviceToken: string;
       principal: { humanPrincipalId: string };
+    };
+    const trustedIdentityResponse = await fetch(`${fixture.origin}/api/v1/human-identity/recover`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        schemaVersion: "human-identity/v1",
+        existingDeviceToken: trustedOwner.deviceToken
+      })
+    });
+    expect(trustedIdentityResponse.status).toBe(200);
+    const { identityToken: trustedIdentityToken } = (await trustedIdentityResponse.json()) as {
+      identityToken: string;
     };
 
     const legacyScope = {
@@ -232,7 +294,10 @@ describe("distributed server composition Stage H contracts", () => {
 
     const enrollment = await fetch(`${fixture.origin}/api/v1/host-enrollments`, {
       method: "POST",
-      headers: jsonHeaders(adminToken),
+      headers: {
+        ...jsonHeaders(adminToken),
+        "x-planweave-human-identity": `Bearer ${trustedIdentityToken}`
+      },
       body: JSON.stringify({
         expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
         credentialPolicy: { lifetimeDays: 180, renewal: "automatic" }
@@ -253,10 +318,15 @@ describe("distributed server composition Stage H contracts", () => {
       expectedReviewerRevision: 0,
       expectedExecutionTargetRevision: fixture.executionTargetRevision
     };
-    const dispatch = async (token: string, body = request) =>
+    const dispatch = async (token: string, body = request, humanIdentityToken?: string) =>
       fetch(`${fixture.origin}/api/v1/remote-operations`, {
         method: "POST",
-        headers: jsonHeaders(token),
+        headers: {
+          ...jsonHeaders(token),
+          ...(humanIdentityToken
+            ? { "x-planweave-human-identity": `Bearer ${humanIdentityToken}` }
+            : {})
+        },
         body: JSON.stringify(body)
       });
     const first = await dispatch(adminToken);
@@ -272,15 +342,20 @@ describe("distributed server composition Stage H contracts", () => {
       serverBuildRevision: "development"
     });
 
-    const forbidden = await dispatch(projectToken, {
-      schemaVersion: "remote-run/v3",
-      projectId: "different-project",
-      canvasId: request.canvasId,
-      blockRef: request.blockRef,
-      agentEndpointId: "endpoint-unauthorized",
-      idempotencyKey: request.idempotencyKey,
-      ...fixture.dispatchAuthority
-    });
+    const forbidden = await dispatch(
+      projectToken,
+      {
+        schemaVersion: "remote-run/v3",
+        projectId: "different-project",
+        canvasId: request.canvasId,
+        blockRef: request.blockRef,
+        agentEndpointId: "endpoint-unauthorized",
+        idempotencyKey: request.idempotencyKey,
+        ...fixture.dispatchAuthority,
+        humanPrincipalId: trustedOwner.principal.humanPrincipalId
+      },
+      trustedIdentityToken
+    );
     expect(forbidden.status).toBe(403);
     const hosts = await fetch(`${fixture.origin}/api/v1/hosts?limit=1`, {
       headers: { Authorization: `Bearer ${adminToken}` }

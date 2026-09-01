@@ -373,6 +373,7 @@ export class RealProcessAcpHarness {
 
   private server: ManagedChild | undefined;
   private host: ManagedChild | undefined;
+  private remoteAgentOwnerIdentityToken: string | undefined;
   private enrolled = false;
   private disposed = false;
   private readonly ownedRoots: string[] = [];
@@ -552,6 +553,15 @@ export class RealProcessAcpHarness {
 
   authorizationHeaders(): Record<string, string> {
     return { Authorization: `Bearer ${this.operatorToken}` };
+  }
+
+  remoteAgentOwnerIdentityHeaders(): Record<string, string> {
+    if (!this.remoteAgentOwnerIdentityToken) {
+      throw new Error("real_process_harness_remote_agent_identity_missing");
+    }
+    return {
+      "x-planweave-human-identity": `Bearer ${this.remoteAgentOwnerIdentityToken}`
+    };
   }
 
   redactedServerLogs(): ProcessLogBuffer {
@@ -828,6 +838,7 @@ export class RealProcessAcpHarness {
   }
 
   async ensureRemoteAgentOwner(): Promise<void> {
+    if (this.remoteAgentOwnerIdentityToken) return;
     const response = await fetch(
       `${this.origin}/api/v1/projects/${this.projectId}/human/bootstrap`,
       {
@@ -839,11 +850,32 @@ export class RealProcessAcpHarness {
         })
       }
     );
-    if (response.status !== 201 && response.status !== 200 && response.status !== 409) {
+    if (response.status !== 201) {
       throw new Error(
         `real_process_harness_remote_agent_owner_failed:${response.status}\n${this.diagnostics()}`
       );
     }
+    const bootstrap = z
+      .object({ deviceToken: z.string().min(1) })
+      .passthrough()
+      .parse(await response.json());
+    const identityResponse = await fetch(`${this.origin}/api/v1/human-identity/recover`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        schemaVersion: "human-identity/v1",
+        existingDeviceToken: bootstrap.deviceToken
+      })
+    });
+    if (identityResponse.status !== 200) {
+      throw new Error(
+        `real_process_harness_remote_agent_identity_failed:${identityResponse.status}\n${this.diagnostics()}`
+      );
+    }
+    this.remoteAgentOwnerIdentityToken = z
+      .object({ identityToken: z.string().min(1) })
+      .passthrough()
+      .parse(await identityResponse.json()).identityToken;
   }
 
   async enrollHost(): Promise<void> {
@@ -854,6 +886,7 @@ export class RealProcessAcpHarness {
       method: "POST",
       headers: {
         ...this.authorizationHeaders(),
+        "x-planweave-human-identity": `Bearer ${this.remoteAgentOwnerIdentityToken}`,
         "content-type": "application/json"
       },
       body: JSON.stringify({
@@ -1002,6 +1035,7 @@ export class RealProcessAcpHarness {
       method: "POST",
       headers: {
         ...this.authorizationHeaders(),
+        "x-planweave-human-identity": `Bearer ${this.remoteAgentOwnerIdentityToken}`,
         "content-type": "application/json"
       },
       body: JSON.stringify({

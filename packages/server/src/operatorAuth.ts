@@ -31,6 +31,13 @@ export const authenticatedOperatorPrincipalSchema = operatorCredentialPrincipalS
   .strict();
 export const operatorPrincipalSchema = authenticatedOperatorPrincipalSchema;
 export type OperatorPrincipal = z.infer<typeof authenticatedOperatorPrincipalSchema>;
+/**
+ * Request-scoped Human identity proven independently from the Operator session.
+ * Operator credentials select a Server control plane; they do not prove Human ownership.
+ */
+export type OperatorRequestPrincipal = OperatorPrincipal & {
+  humanPrincipalId?: string;
+};
 export type OperatorCredential = z.input<typeof operatorCredentialSchema>;
 
 export function hashOperatorToken(token: string): string {

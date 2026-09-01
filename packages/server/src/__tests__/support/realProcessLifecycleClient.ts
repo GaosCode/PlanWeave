@@ -12,7 +12,9 @@ import {
   type RemoteAgentEndpoint,
   type RemoteAgentEndpointList
 } from "@planweave-ai/collaboration-protocol/agent-endpoint";
+import { ownerCanvasMaterializationUploadMediaType } from "@planweave-ai/collaboration-protocol/owner-canvas/materialization";
 import { OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE } from "@planweave-ai/collaboration-protocol/remote-run";
+import { captureAuthorizedCanvasContent } from "@planweave-ai/runtime";
 import {
   REAL_PROCESS_ACP_HARNESS_DEFAULT_TIMEOUT_MS,
   type RealProcessAcpHarness
@@ -161,6 +163,11 @@ async function waitFor(
 }
 
 export class RealProcessLifecycleClient {
+  private readonly ownerCanvasAuthority = new Map<
+    string,
+    { contentRevision: string; graphFingerprint: string }
+  >();
+
   constructor(
     readonly harness: RealProcessAcpHarness,
     readonly timeoutMs = REAL_PROCESS_ACP_HARNESS_DEFAULT_TIMEOUT_MS * 3
@@ -170,9 +177,13 @@ export class RealProcessLifecycleClient {
     return json
       ? {
           ...this.harness.authorizationHeaders(),
+          ...this.harness.remoteAgentOwnerIdentityHeaders(),
           "content-type": "application/json"
         }
-      : this.harness.authorizationHeaders();
+      : {
+          ...this.harness.authorizationHeaders(),
+          ...this.harness.remoteAgentOwnerIdentityHeaders()
+        };
   }
 
   async dispatch(input: {
@@ -199,11 +210,14 @@ export class RealProcessLifecycleClient {
   }): Promise<{ status: number; body: unknown; text: string }> {
     const canvasId = input.canvasId ?? "default";
     const agentEndpointId = input.agentEndpointId ?? (await this.availableAgentEndpointId());
-    const authority = this.dispatchAuthority(input.blockRef, canvasId);
+    const authority = await this.ensureOwnerCanvasAuthority(canvasId);
     return this.rawRequest({
       method: "POST",
       path: "/api/v1/remote-operations",
-      headers: { Accept: OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE },
+      headers: {
+        Accept: OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE,
+        ...this.harness.remoteAgentOwnerIdentityHeaders()
+      },
       body: {
         schemaVersion: "remote-run/v3",
         projectId: this.harness.projectId,
@@ -211,13 +225,85 @@ export class RealProcessLifecycleClient {
         blockRef: input.blockRef,
         agentEndpointId,
         idempotencyKey: input.idempotencyKey,
+        expectedResponsibilityRevision: 0,
+        expectedReviewerRevision: 0,
+        executionTargetRevision: 0,
         ...authority,
         humanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
       }
     });
   }
 
+  private async ensureOwnerCanvasAuthority(
+    canvasId: string
+  ): Promise<{ contentRevision: string; graphFingerprint: string }> {
+    const cached = this.ownerCanvasAuthority.get(canvasId);
+    if (cached) return cached;
+    const captured = await captureAuthorizedCanvasContent({
+      projectRoot: this.harness.paths.projectRoot,
+      canvasId,
+      authorityProjectId: this.harness.projectId
+    });
+    const frames = [
+      {
+        type: "header",
+        request: {
+          schemaVersion: "owner-canvas-materialization/v1",
+          materializationId: `real-process-${canvasId}-${captured.content.canonicalDigest}`,
+          scope: {
+            ownerHumanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID,
+            projectId: this.harness.projectId,
+            canvasId
+          },
+          expectedHead: { kind: "absent" }
+        }
+      },
+      ...captured.content.members.map((member, index) => ({ type: "member", index, member })),
+      {
+        type: "complete",
+        canonicalDigest: captured.content.canonicalDigest,
+        totalBytes: captured.content.totalBytes,
+        memberCount: captured.content.members.length
+      }
+    ];
+    const result = await this.rawRequest({
+      method: "POST",
+      path: "/api/v1/owner-canvas-materializations",
+      headers: { "content-type": ownerCanvasMaterializationUploadMediaType },
+      body: `${frames.map((frame) => JSON.stringify(frame)).join("\n")}\n`
+    });
+    const body = result.body as {
+      contentRevision?: string;
+      graphFingerprint?: string;
+      error?: string;
+    };
+    if (
+      result.status !== 201 ||
+      typeof body.contentRevision !== "string" ||
+      typeof body.graphFingerprint !== "string"
+    ) {
+      throw new Error(
+        `real_process_owner_canvas_materialization_failed:${result.status}:${body.error ?? result.text}`
+      );
+    }
+    const authority = {
+      contentRevision: body.contentRevision,
+      graphFingerprint: body.graphFingerprint
+    };
+    this.ownerCanvasAuthority.set(canvasId, authority);
+    return authority;
+  }
+
   dispatchAuthority(blockRef: string, canvasId = "default") {
+    const ownerAuthority = this.ownerCanvasAuthority.get(canvasId);
+    if (ownerAuthority) {
+      return {
+        expectedResponsibilityRevision: 0,
+        expectedReviewerRevision: 0,
+        executionTargetRevision: 0,
+        ...ownerAuthority
+      };
+    }
     const database = openSqlite(this.serverDatabasePath());
     const scopeRow = database
       .prepare(
@@ -264,6 +350,9 @@ export class RealProcessLifecycleClient {
     headers?: Record<string, string>;
   }): Promise<{ status: number; body: unknown; text: string }> {
     const headers: Record<string, string> = { ...(input.headers ?? {}) };
+    if (!("x-planweave-human-identity" in headers)) {
+      Object.assign(headers, this.harness.remoteAgentOwnerIdentityHeaders());
+    }
     if (input.authorization === undefined) {
       Object.assign(headers, this.harness.authorizationHeaders());
     } else if (input.authorization !== null) {

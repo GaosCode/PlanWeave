@@ -1,6 +1,6 @@
 import {
-  userRequiredCapabilitiesSchema,
-  WORKSPACE_CANVAS_EXECUTION_CAPABILITY
+  CANVAS_RUNTIME_EXECUTION_CAPABILITY,
+  userRequiredCapabilitiesSchema
 } from "@planweave-ai/agent-host-protocol";
 import { workspaceIdSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import {
@@ -70,20 +70,13 @@ type AcceptancePorts = {
 };
 
 function candidateForRuntimeTarget(
-  candidate: RemoteBlockDispatchCandidate,
-  targetKind: RemoteEndpointDispatchRequest["targetKind"]
+  candidate: RemoteBlockDispatchCandidate
 ): RemoteBlockDispatchCandidate {
   const userRequiredCapabilities = userRequiredCapabilitiesSchema.parse(
     candidate.requiredCapabilities
   );
-  if (targetKind === "owner_canvas") {
-    return remoteBlockDispatchCandidateSchema.parse({
-      ...candidate,
-      requiredCapabilities: userRequiredCapabilities
-    });
-  }
   const requiredCapabilities = new Set(userRequiredCapabilities);
-  requiredCapabilities.add(WORKSPACE_CANVAS_EXECUTION_CAPABILITY);
+  requiredCapabilities.add(CANVAS_RUNTIME_EXECUTION_CAPABILITY);
   return remoteBlockDispatchCandidateSchema.parse({
     ...candidate,
     requiredCapabilities: [...requiredCapabilities]
@@ -120,8 +113,7 @@ export async function acceptRemoteBlockDispatch(
       principal: { humanPrincipalId: callerHumanPrincipalId },
       endpointId: request.agentEndpointId,
       target,
-      requiredCapabilities:
-        request.targetKind === "workspace_canvas" ? [WORKSPACE_CANVAS_EXECUTION_CAPABILITY] : [],
+      requiredCapabilities: [CANVAS_RUNTIME_EXECUTION_CAPABILITY],
       runtimeWorkspaceId: request.workspaceId,
       blockRef: request.blockRef,
       expectedResponsibilityRevision: request.expectedResponsibilityRevision,
@@ -129,10 +121,7 @@ export async function acceptRemoteBlockDispatch(
       executionTargetRevision: request.executionTargetRevision
     });
   }
-  const candidate = candidateForRuntimeTarget(
-    await ports.dispatchCandidates.read(request),
-    request.targetKind
-  );
+  const candidate = candidateForRuntimeTarget(await ports.dispatchCandidates.read(request));
   if (
     candidate.workspaceId !== request.workspaceId ||
     candidate.projectId !== request.projectId ||

@@ -478,6 +478,16 @@ export class AgentHostRepository {
     return host;
   }
 
+  reportProtocolIncompatible(hostId: string): void {
+    this.database
+      .prepare("UPDATE agent_hosts SET last_seen_at=NULL,readiness_json=NULL WHERE id=?")
+      .run(hostId);
+  }
+
+  requireProtocolReauthentication(): void {
+    this.database.prepare("UPDATE agent_hosts SET last_seen_at=NULL,readiness_json=NULL").run();
+  }
+
   touch(hostId: string, at = new Date(), readiness?: HostReadinessObservation): void {
     const updated = this.database
       .prepare(

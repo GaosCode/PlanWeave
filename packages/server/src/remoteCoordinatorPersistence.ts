@@ -7,6 +7,7 @@ import {
   interruptionReasonSchema,
   mailboxCommandSchema,
   normalizedFailureSchema,
+  executionEnvelopeSchema,
   type ExecutionEnvelope
 } from "@planweave-ai/agent-host-protocol";
 import { remoteBlockDispatchCandidateSchema } from "@planweave-ai/runtime";
@@ -189,6 +190,20 @@ export class SqliteRemoteDispatchPersistence implements RemoteDispatchPersistenc
       },
       mailbox
     };
+  }
+
+  readEnvelope(operation: RemoteOperation): ExecutionEnvelope {
+    const row = this.database
+      .prepare(
+        "SELECT envelope_digest,canonical_json FROM dispatch_execution_envelopes WHERE dispatch_id=?"
+      )
+      .get(operation.dispatchId);
+    if (!row) throw new Error("dispatch_envelope_provenance_missing");
+    const envelope = executionEnvelopeSchema.parse(JSON.parse(String(row.canonical_json)));
+    if (row.envelope_digest !== operation.envelopeDigest) {
+      throw new Error("dispatch_envelope_identity_conflict");
+    }
+    return envelope;
   }
 
   prepare(input: {

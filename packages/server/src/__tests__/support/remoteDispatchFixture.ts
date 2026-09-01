@@ -1,4 +1,5 @@
 import {
+  agentHostProtocolVersion,
   executionEnvelopeSchema,
   hashExecutionEnvelope,
   mailboxCommandSchema,
@@ -93,7 +94,7 @@ export function createRemoteDispatchFixture(
     reservation,
     command: mailboxCommandSchema.parse({
       type: "execute_block",
-      protocolVersion: envelope.protocolVersion,
+      protocolVersion: agentHostProtocolVersion,
       dispatchId: operation.dispatchId,
       leaseId: reservation.leaseId,
       executionAttemptId: operation.executionAttemptId,

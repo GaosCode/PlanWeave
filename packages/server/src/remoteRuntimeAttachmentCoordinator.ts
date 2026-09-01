@@ -1,6 +1,9 @@
 import type { RemoteBlockDispatchCandidate } from "@planweave-ai/runtime";
 import type { CanvasExecutionRuntimeLease } from "./canvas/executionRuntimePort.js";
-import type { RuntimeAttachmentRequest } from "./canvas/runtimeAttachment.js";
+import type {
+  RuntimeAttachmentRecordRequest,
+  RuntimeAttachmentRequest
+} from "./canvas/runtimeAttachment.js";
 import type { HostCapacityReservation } from "./hostReservations.js";
 import type { RemoteOperation } from "./remoteOperations.js";
 import type { RemoteRuntimeContentTargetPort } from "./remoteBlockCoordinatorPorts.js";
@@ -18,7 +21,7 @@ export class RuntimeAttachmentContentTargetError extends Error {
 
 export type RemoteRuntimeAttachmentRecordPorts = {
   contentTargets: RemoteRuntimeContentTargetPort;
-  record(input: RuntimeAttachmentRequest): void;
+  record(input: RuntimeAttachmentRecordRequest): void;
 };
 
 export type RemoteRuntimeMaterializationPorts = {
@@ -40,6 +43,10 @@ export async function attachWorkspaceRuntimeForAcceptedOperation(input: {
     canvasId: input.operation.canvasId
   };
   const contentTarget = input.ports.contentTargets.read(scope);
+  const runtimeAuthority = input.operation.endpointSelection?.authority.kind;
+  if (runtimeAuthority === undefined) {
+    throw new Error("remote_operation_endpoint_selection_missing");
+  }
   if (
     contentTarget.graphFingerprint !== input.operation.sourceFingerprint ||
     contentTarget.graphFingerprint !== input.candidate.graphFingerprint
@@ -55,7 +62,7 @@ export async function attachWorkspaceRuntimeForAcceptedOperation(input: {
     contentRevision: contentTarget.revision,
     graphFingerprint: contentTarget.graphFingerprint
   };
-  input.ports.record(attachment);
+  input.ports.record({ ...attachment, runtimeAuthority });
   return attachment;
 }
 

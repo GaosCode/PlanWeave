@@ -34,6 +34,10 @@ import type {
 } from "../canvas/executionRuntimePort.js";
 import type { AuthoritySelectingWorkRuntimeFactsAdapter } from "../work/runtimeFactsAdapters.js";
 import type { RemoteRuntimeContentTargetPort } from "../remoteBlockCoordinatorPorts.js";
+import type { RemoteArtifactContentPort } from "../remoteBlockCoordinatorPorts.js";
+import type { OwnerCanvasMaterializationRepository } from "../canvas/ownerCanvasMaterializationRepository.js";
+import type { OwnerCanvasMaterializationService } from "../canvas/ownerCanvasMaterializationService.js";
+import { humanPrincipalIdSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 
 export function createRemoteCoordinationOptions(input: {
   config: ServerConfig;
@@ -48,6 +52,11 @@ export function createRemoteCoordinationOptions(input: {
     input: RuntimeAttachmentRequest & { lease: CanvasExecutionRuntimeLease }
   ) => void | Promise<void>;
   runtimeContentTargets?: RemoteRuntimeContentTargetPort;
+  ownerMaterializedScopeAvailable?: (scope: {
+    workspaceId: string;
+    projectId: string;
+    canvasId: string;
+  }) => boolean;
 }) {
   return {
     leaseDurationMs: input.config.limits.leaseDurationMs,
@@ -64,7 +73,9 @@ export function createRemoteCoordinationOptions(input: {
       workspaceId: string;
       projectId: string;
       canvasId: string;
-    }) => input.ownerRuntimeAvailability.hasRuntimeScope(scope),
+    }) =>
+      input.ownerRuntimeAvailability.hasRuntimeScope(scope) ||
+      input.ownerMaterializedScopeAvailable?.(scope) === true,
     interactionAuthorization: {
       canRespond: (interaction: {
         workspaceId: string;
@@ -156,6 +167,9 @@ export function createRemoteExecutionComposition(input: {
   projectAccess: ProjectAccessRepository;
   authorization: OperatorTokenRegistry;
   enrollments: HostEnrollmentService;
+  artifactContent: RemoteArtifactContentPort;
+  ownerCanvasMaterializationScopes: OwnerCanvasMaterializationRepository;
+  ownerCanvasMaterialization: OwnerCanvasMaterializationService;
 }) {
   const membershipPort = createIdentityMembershipPort({
     workspaceIdentity: input.workspaceIdentity
@@ -248,6 +262,7 @@ export function createRemoteExecutionComposition(input: {
         coordinator: input.coordination.coordinator,
         events: input.coordination.acpEvents,
         interactions: input.coordination.interactions,
+        artifactContent: input.artifactContent,
         disconnectHost,
         workspaceIdentity: input.workspaceIdentity,
         authorizeProjectScope: (scope) => {
@@ -260,9 +275,14 @@ export function createRemoteExecutionComposition(input: {
             throw new Error("operator_project_forbidden");
           }
         },
-        resolveOwnerRuntimeScope: ({ projectId, canvasId }) => {
-          return input.ownerRuntimeScopes.resolveUniqueOwnerScope({ projectId, canvasId });
+        resolveOwnerRuntimeScope: ({ ownerHumanPrincipalId, projectId, canvasId }) => {
+          return input.ownerCanvasMaterializationScopes.findScope({
+            ownerHumanPrincipalId: humanPrincipalIdSchema.parse(ownerHumanPrincipalId),
+            projectId,
+            canvasId
+          });
         },
+        ownerCanvasMaterialization: input.ownerCanvasMaterialization,
         hostOfflineAfterMs: input.config.limits.hostOfflineAfterMs,
         clock: input.clock
       });

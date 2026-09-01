@@ -212,9 +212,10 @@ describe("collaboration migration reconciliation", () => {
       { name: "workspace-canvas-publish", versions: [54, 55] },
       { name: "remote-agent-registry", versions: [57, 58, 59, 60, 61] },
       { name: "remote-operation-diagnostics", versions: [63] },
-      { name: "remote-runner-events", versions: [65] }
+      { name: "remote-runner-events", versions: [65] },
+      { name: "owner-canvas-materialization", versions: [67] }
     ]);
-    expect(latestCentralSchemaVersion).toBe(66);
+    expect(latestCentralSchemaVersion).toBe(67);
   });
 
   it("removes project route selection atomically and replays v66 idempotently", async () => {
@@ -325,7 +326,7 @@ describe("collaboration migration reconciliation", () => {
 
     applyMigrations(database);
 
-    expect(centralSchemaVersion(database)).toBe(66);
+    expect(centralSchemaVersion(database)).toBe(67);
     expect(
       database
         .prepare(

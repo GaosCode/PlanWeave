@@ -349,6 +349,7 @@ export function createDistributedHttpRequestListener(
       if (
         await handleOperatorHttpRequest(request, response, {
           authorization: options.authorization,
+          humanIdentityCredentials: options.setupCodes.identityCredentialStore,
           service: options.operatorControl,
           readiness: () => options.readiness.readiness(),
           serverVersion: options.serverVersion,

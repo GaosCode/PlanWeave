@@ -3,6 +3,7 @@ import { WORKSPACE_CANVAS_EXECUTION_CAPABILITY } from "@planweave-ai/agent-host-
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRemoteBlockCoordination } from "../distributedCoordination.js";
 import { HostEnrollmentService } from "../hostEnrollment.js";
+import { HumanIdentityCredentialStore } from "../identity/humanIdentityCredentialStore.js";
 import { OperatorSessionStore } from "../identity/operatorSessionStore.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import { applyMigrations } from "../migrations.js";
@@ -12,6 +13,7 @@ import { RemoteControlService } from "../remoteControlService.js";
 import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
 import { loopbackHttpTransportAdmission } from "./support/transportAdmission.js";
 import {
+  ensureTestHumanPrincipal,
   ownHostRemoteAgents,
   persistedTestAgentAccess,
   TEST_REMOTE_AGENT_OWNER_ID
@@ -38,6 +40,12 @@ async function setup(input: { serverAdmin?: boolean; withOwnerResolver?: boolean
   applyMigrations(database);
   const workspaceIdentity = new WorkspaceIdentityRepository(database);
   const workspaceId = workspaceIdentity.ensureWorkspaceForLegacyProject("project-a");
+  ensureTestHumanPrincipal(database);
+  const humanIdentityCredentials = new HumanIdentityCredentialStore(database, () => now);
+  const humanIdentityToken = humanIdentityCredentials.issue(
+    TEST_REMOTE_AGENT_OWNER_ID
+  ).identityToken;
+  const artifactContent = { readReport: async () => new Uint8Array() };
   const coordination = createRemoteBlockCoordination(
     database,
     {
@@ -50,7 +58,7 @@ async function setup(input: { serverAdmin?: boolean; withOwnerResolver?: boolean
         }
       },
       inputArtifacts: { materialize: async () => undefined },
-      artifactContent: { readReport: async () => new Uint8Array() }
+      artifactContent
     },
     { serverInstanceOwnerToken: "remote-control-service-test" }
   );
@@ -95,11 +103,13 @@ async function setup(input: { serverAdmin?: boolean; withOwnerResolver?: boolean
     hosts: coordination.hosts,
     agentEndpoints: coordination.agentEndpoints,
     remoteAgentAccess: coordination.remoteAgentAccess,
+    remoteAgentRepository: coordination.remoteAgents,
     operations: coordination.operations,
     dispatches: coordination.dispatches,
     coordinator: coordination.coordinator,
     events: coordination.acpEvents,
     interactions: coordination.interactions,
+    artifactContent,
     disconnectHost: () => {},
     workspaceIdentity,
     authorizeProjectScope: () => {},
@@ -110,6 +120,7 @@ async function setup(input: { serverAdmin?: boolean; withOwnerResolver?: boolean
   const httpServer = createServer((request, response) => {
     void handleOperatorHttpRequest(request, response, {
       authorization,
+      humanIdentityCredentials,
       service,
       readiness: () => ({ status: "ready", schemaVersion: 1 }),
       serverVersion: "test",
@@ -126,14 +137,19 @@ async function setup(input: { serverAdmin?: boolean; withOwnerResolver?: boolean
   if (!principal) throw new Error("Expected admin principal");
   const workspacePrincipal = authorization.authenticate(`Bearer ${workspaceToken}`);
   if (!workspacePrincipal) throw new Error("Expected Workspace principal");
+  const memberPrincipal = authorization.authenticate(`Bearer ${memberToken}`);
+  if (!memberPrincipal) throw new Error("Expected member principal");
   return {
     origin: `http://127.0.0.1:${address.port}`,
     service,
     coordination,
     database,
     workspaceId,
+    artifactContent,
     principal,
-    workspacePrincipal
+    workspacePrincipal,
+    memberPrincipal,
+    humanIdentityToken
   };
 }
 
@@ -185,6 +201,28 @@ function registerWorkspaceHost(fixture: Awaited<ReturnType<typeof setup>>) {
 }
 
 describe("RemoteControlService owner fleet control plane", () => {
+  it("fails closed when the owner operation is not completed", async () => {
+    const fixture = await setup();
+    const operation = fixture.coordination.operations.create({
+      workspaceId: fixture.workspaceId,
+      projectId: "project-a",
+      canvasId: "canvas-a",
+      blockRef: "T-001#B-003",
+      ownershipGeneration: "generation-running-result",
+      idempotencyKey: "owner-running-result",
+      sourceFingerprint: "fingerprint-running-result",
+      requiredCapabilities: ["acp.codex"]
+    });
+
+    const response = await fetch(
+      `${fixture.origin}/api/v1/remote-operations/${operation.id}/terminal-result`,
+      { headers: { Authorization: `Bearer ${adminToken}` } }
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ error: "operator_operation_conflict" });
+  });
+
   it("serves a persisted terminal operation without querying its exact Host Runtime", async () => {
     const fixture = await setup();
     const operation = fixture.coordination.operations.markClaimed(
@@ -254,7 +292,7 @@ describe("RemoteControlService owner fleet control plane", () => {
       .mockRejectedValue(new Error("exact_host_runtime_must_not_be_queried"));
 
     const result = await fixture.service.dispatch(
-      fixture.principal,
+      { ...fixture.principal, humanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID },
       {
         schemaVersion: "remote-run/v3",
         projectId: "project-a",
@@ -415,6 +453,118 @@ describe("RemoteControlService owner fleet control plane", () => {
     return run();
   });
 
+  it("lists an owned Remote Agent for an ordinary Canvas without Workspace authority", async () => {
+    const fixture = await setup();
+    const registration = fixture.coordination.hosts.register("Fleet Host");
+    ownHostRemoteAgents({
+      database: fixture.database,
+      hostId: registration.host.id,
+      ownerHumanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID,
+      accessMode: "unrestricted"
+    });
+    fixture.coordination.hosts.reportOnline(registration.host.id, ["acp.codex"], 1, {
+      workspaceMappings: [],
+      acpProfiles: [
+        {
+          profileId: "codex-acp",
+          agentId: "codex",
+          displayName: "Codex",
+          status: "ready",
+          capabilities: ["acp.codex"]
+        }
+      ]
+    });
+
+    const response = await fetch(
+      `${fixture.origin}/api/v1/agent-endpoints?projectId=ordinary-project&canvasId=ordinary-canvas&humanPrincipalId=${TEST_REMOTE_AGENT_OWNER_ID}`,
+      {
+        headers: {
+          Authorization: `Bearer ${memberToken}`,
+          "x-planweave-human-identity": `Bearer ${fixture.humanIdentityToken}`
+        }
+      }
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      schemaVersion: "agent-endpoint-list/v1",
+      items: [
+        {
+          hostDisplayName: "Fleet Host",
+          profileId: "codex-acp",
+          agentId: "codex",
+          status: "available"
+        }
+      ]
+    });
+  });
+
+  it("rejects owner Canvas access when the proven Human does not own the Agent", async () => {
+    const fixture = await setup();
+
+    expect(() =>
+      fixture.service.listAgentEndpoints(fixture.principal, {
+        projectId: "ordinary-project",
+        canvasId: "ordinary-canvas",
+        humanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
+      })
+    ).toThrow("operator_human_identity_forbidden");
+    expect(() =>
+      fixture.service.listAgentEndpoints(
+        { ...fixture.memberPrincipal, humanPrincipalId: "different-human" },
+        {
+          projectId: "ordinary-project",
+          canvasId: "ordinary-canvas",
+          humanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
+        }
+      )
+    ).toThrow("operator_human_identity_forbidden");
+  });
+
+  it("requires exact Human proof when an admin enrolls an owner Agent Host", async () => {
+    const fixture = await setup();
+    const request = {
+      expiresAt: "2026-08-03T08:15:00.000Z",
+      credentialPolicy: { lifetimeDays: 180, renewal: "automatic" as const },
+      ownerHumanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID,
+      accessMode: "unrestricted" as const
+    };
+
+    expect(() => fixture.service.createEnrollmentGrant(fixture.principal, request)).toThrow(
+      "operator_human_identity_forbidden"
+    );
+    expect(
+      fixture.service.createEnrollmentGrant(
+        { ...fixture.principal, humanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID },
+        request
+      )
+    ).toMatchObject({ enrollmentCode: expect.any(String) });
+  });
+
+  it("defaults an explicitly owned Agent Host enrollment to unrestricted access", async () => {
+    const fixture = await setup();
+    fixture.service.createEnrollmentGrant(
+      { ...fixture.principal, humanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID },
+      {
+        expiresAt: "2026-08-03T08:15:00.000Z",
+        credentialPolicy: { lifetimeDays: 180, renewal: "automatic" },
+        ownerHumanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
+      }
+    );
+
+    expect(
+      fixture.database
+        .prepare(
+          `SELECT owner_human_principal_id, access_mode
+           FROM agent_host_enrollment_grants ORDER BY created_at DESC LIMIT 1`
+        )
+        .get()
+    ).toEqual({
+      owner_human_principal_id: TEST_REMOTE_AGENT_OWNER_ID,
+      access_mode: "unrestricted"
+    });
+  });
+
   it("B4/B5: rejects fleet endpoint listing without credential or with member-only operator", async () => {
     const fixture = await setup();
     registerFleetHost(fixture.coordination);
@@ -434,9 +584,20 @@ describe("RemoteControlService owner fleet control plane", () => {
     const fixture = await setup({ withOwnerResolver: true });
     const host = registerWorkspaceHost(fixture);
 
-    const response = await fetch(
+    const unauthenticatedHuman = await fetch(
       `${fixture.origin}/api/v1/agent-endpoints?projectId=project-a&canvasId=default&humanPrincipalId=${TEST_REMOTE_AGENT_OWNER_ID}&workspaceId=${fixture.workspaceId}`,
       { headers: { Authorization: `Bearer ${workspaceToken}` } }
+    );
+    expect(unauthenticatedHuman.status).toBe(403);
+
+    const response = await fetch(
+      `${fixture.origin}/api/v1/agent-endpoints?projectId=project-a&canvasId=default&humanPrincipalId=${TEST_REMOTE_AGENT_OWNER_ID}&workspaceId=${fixture.workspaceId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${workspaceToken}`,
+          "x-planweave-human-identity": `Bearer ${fixture.humanIdentityToken}`
+        }
+      }
     );
 
     expect(response.status).toBe(200);
@@ -462,21 +623,27 @@ describe("RemoteControlService owner fleet control plane", () => {
 
     const endpoint = fixture.coordination.agentEndpoints.listVisible(fixture.workspaceId).items[0];
     await expect(
-      fixture.service.dispatch(fixture.workspacePrincipal, {
-        schemaVersion: "remote-run/v3",
-        workspaceId: fixture.workspaceId,
-        projectId: "project-a",
-        canvasId: "default",
-        blockRef: "T-001#B-001",
-        idempotencyKey: "workspace-session-dispatch",
-        agentEndpointId: endpoint.endpointId,
-        humanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID,
-        expectedResponsibilityRevision: 1,
-        expectedReviewerRevision: 1,
-        executionTargetRevision: 1,
-        contentRevision: "1",
-        graphFingerprint: `pkg-${"a".repeat(64)}`
-      })
+      fixture.service.dispatch(
+        {
+          ...fixture.workspacePrincipal,
+          humanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
+        },
+        {
+          schemaVersion: "remote-run/v3",
+          workspaceId: fixture.workspaceId,
+          projectId: "project-a",
+          canvasId: "default",
+          blockRef: "T-001#B-001",
+          idempotencyKey: "workspace-session-dispatch",
+          agentEndpointId: endpoint.endpointId,
+          humanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID,
+          expectedResponsibilityRevision: 1,
+          expectedReviewerRevision: 1,
+          executionTargetRevision: 1,
+          contentRevision: "1",
+          graphFingerprint: `pkg-${"a".repeat(64)}`
+        }
+      )
     ).rejects.toThrow("Exact Host is not authorized to serve this project.");
 
     const operation = fixture.coordination.operations.create({
@@ -495,12 +662,19 @@ describe("RemoteControlService owner fleet control plane", () => {
         callerHumanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
       })
     });
-    expect(fixture.service.replayEvents(fixture.workspacePrincipal, operation.id, 0)).toMatchObject(
-      {
-        executionAttemptId: operation.executionAttemptId,
-        events: []
-      }
-    );
+    expect(
+      fixture.service.replayEvents(
+        {
+          ...fixture.workspacePrincipal,
+          humanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
+        },
+        operation.id,
+        0
+      )
+    ).toMatchObject({
+      executionAttemptId: operation.executionAttemptId,
+      events: []
+    });
 
     const legacyOperation = fixture.coordination.operations.create({
       workspaceId: fixture.workspaceId,

@@ -1,10 +1,13 @@
 import { createServer, type Server as HttpServer } from "node:http";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
+import { ownerCanvasMaterializationUploadMediaType } from "@planweave-ai/collaboration-protocol/owner-canvas/materialization";
+import { captureAuthorizedCanvasContent } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it } from "vitest";
 import { createTestWorkspace } from "../../../runtime/src/__tests__/promptTestHelpers.js";
 import { hashOperatorToken } from "../operatorAuth.js";
 import { parseServerConfig } from "../config.js";
+import { HumanIdentityCredentialStore } from "../identity/humanIdentityCredentialStore.js";
 import { openServerDatabase } from "../sqlite.js";
 import { ensureTestHumanPrincipal } from "./support/remoteAgentOwnerFixture.js";
 import {
@@ -16,13 +19,87 @@ import {
   addSecondaryCanvas,
   configureAutomaticExecutionTarget,
   jsonHeaders,
-  readDispatchAuthority,
   remoteManifest
 } from "./support/serverCompositionFixture.js";
 
 const httpServers: HttpServer[] = [];
 const compositions: DistributedServerComposition[] = [];
 const directories: string[] = [];
+
+async function recoverHumanIdentity(origin: string, deviceToken: string): Promise<string> {
+  const response = await fetch(`${origin}/api/v1/human-identity/recover`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      schemaVersion: "human-identity/v1",
+      existingDeviceToken: deviceToken
+    })
+  });
+  expect(response.status).toBe(200);
+  return ((await response.json()) as { identityToken: string }).identityToken;
+}
+
+function operatorOwnerHeaders(identityToken: string): Record<string, string> {
+  return {
+    ...jsonHeaders(adminToken),
+    "x-planweave-human-identity": `Bearer ${identityToken}`
+  };
+}
+
+async function materializeOwnerCanvas(input: {
+  origin: string;
+  identityToken: string;
+  projectRoot: string;
+  projectId: string;
+  canvasId: string;
+  humanPrincipalId: string;
+}) {
+  const captured = await captureAuthorizedCanvasContent({
+    projectRoot: input.projectRoot,
+    canvasId: input.canvasId,
+    authorityProjectId: input.projectId
+  });
+  const metadata = {
+    schemaVersion: "owner-canvas-materialization/v1",
+    materializationId: `runtime-canvas-${input.canvasId}`,
+    scope: {
+      ownerHumanPrincipalId: input.humanPrincipalId,
+      projectId: input.projectId,
+      canvasId: input.canvasId
+    },
+    expectedHead: { kind: "absent" }
+  } as const;
+  const frames = [
+    { type: "header", request: metadata },
+    ...captured.content.members.map((member, index) => ({ type: "member", index, member })),
+    {
+      type: "complete",
+      canonicalDigest: captured.content.canonicalDigest,
+      totalBytes: captured.content.totalBytes,
+      memberCount: captured.content.members.length
+    }
+  ];
+  const response = await fetch(`${input.origin}/api/v1/owner-canvas-materializations`, {
+    method: "POST",
+    headers: {
+      ...operatorOwnerHeaders(input.identityToken),
+      "content-type": ownerCanvasMaterializationUploadMediaType
+    },
+    body: `${frames.map((frame) => JSON.stringify(frame)).join("\n")}\n`
+  });
+  const body = (await response.json()) as {
+    contentRevision?: string;
+    graphFingerprint?: string;
+    error?: string;
+  };
+  expect(response.status, JSON.stringify(body)).toBe(201);
+  expect(body.contentRevision).toBeTypeOf("string");
+  expect(body.graphFingerprint).toBeTypeOf("string");
+  return {
+    contentRevision: body.contentRevision!,
+    graphFingerprint: body.graphFingerprint!
+  };
+}
 
 afterEach(async () => {
   for (const composition of compositions.splice(0)) await composition.close();
@@ -88,6 +165,7 @@ describe("distributed server composition", () => {
     });
     expect(bootstrap.status).toBe(201);
     const { deviceToken } = (await bootstrap.json()) as { deviceToken: string };
+    const identityToken = await recoverHumanIdentity(origin, deviceToken);
     const canvases = await fetch(`${origin}/api/v1/registry/projects/${projectId}/canvases`, {
       headers: { Authorization: `Bearer ${deviceToken}` }
     });
@@ -126,7 +204,7 @@ describe("distributed server composition", () => {
     expect(legacyRuntimeStatus.status).toBe(404);
     const secondaryDispatch = await fetch(`${origin}/api/v1/remote-operations`, {
       method: "POST",
-      headers: jsonHeaders(adminToken),
+      headers: operatorOwnerHeaders(identityToken),
       body: JSON.stringify({
         schemaVersion: "remote-run/v2",
         projectId,
@@ -189,6 +267,7 @@ describe("distributed server composition", () => {
     });
     expect(bootstrap.status).toBe(201);
     const { deviceToken } = (await bootstrap.json()) as { deviceToken: string };
+    const identityToken = await recoverHumanIdentity(origin, deviceToken);
     const canvases = await fetch(`${origin}/api/v1/registry/projects/${projectId}/canvases`, {
       headers: { Authorization: `Bearer ${deviceToken}` }
     });
@@ -202,7 +281,7 @@ describe("distributed server composition", () => {
     });
     const secondaryDispatch = await fetch(`${origin}/api/v1/remote-operations`, {
       method: "POST",
-      headers: jsonHeaders(adminToken),
+      headers: operatorOwnerHeaders(identityToken),
       body: JSON.stringify({
         projectId,
         canvasId: "secondary",
@@ -287,6 +366,7 @@ describe("distributed server composition", () => {
     });
     expect(bootstrap.status).toBe(201);
     const { deviceToken } = (await bootstrap.json()) as { deviceToken: string };
+    const identityToken = await recoverHumanIdentity(origin, deviceToken);
     const canvases = await fetch(`${origin}/api/v1/registry/projects/${projectId}/canvases`, {
       headers: { Authorization: `Bearer ${deviceToken}` }
     });
@@ -295,10 +375,18 @@ describe("distributed server composition", () => {
         expect.objectContaining({ registry: expect.objectContaining({ canvasId: "default" }) })
       ]
     });
+    const ownerAuthority = await materializeOwnerCanvas({
+      origin,
+      identityToken,
+      projectRoot: workspace.root,
+      projectId,
+      canvasId: "secondary",
+      humanPrincipalId: "trusted-owner"
+    });
 
     const ownerDispatch = await fetch(`${origin}/api/v1/remote-operations`, {
       method: "POST",
-      headers: jsonHeaders(adminToken),
+      headers: operatorOwnerHeaders(identityToken),
       body: JSON.stringify({
         schemaVersion: "remote-run/v3",
         projectId,
@@ -306,13 +394,10 @@ describe("distributed server composition", () => {
         blockRef: "T-001#B-001",
         agentEndpointId: "endpoint-not-enrolled",
         idempotencyKey: "owner-secondary-dispatch",
-        ...(await readDispatchAuthority({
-          databasePath: config.databasePath,
-          workspaceId: "workspace-server",
-          projectId,
-          canvasId: "secondary",
-          blockRef: "T-001#B-001"
-        })),
+        expectedResponsibilityRevision: 0,
+        expectedReviewerRevision: 0,
+        executionTargetRevision: 0,
+        ...ownerAuthority,
         humanPrincipalId: "trusted-owner"
       })
     });
@@ -364,11 +449,23 @@ describe("distributed server composition", () => {
 
     const database = await openServerDatabase(config.databasePath, 5_000);
     ensureTestHumanPrincipal(database, "owner-runtime", "Owner Runtime");
+    const identityToken = new HumanIdentityCredentialStore(database, () => new Date()).issue(
+      "owner-runtime"
+    ).identityToken;
     database.close();
+    const ownerOrigin = `http://127.0.0.1:${address.port}`;
+    const ownerAuthority = await materializeOwnerCanvas({
+      origin: ownerOrigin,
+      identityToken,
+      projectRoot: workspace.root,
+      projectId,
+      canvasId: "default",
+      humanPrincipalId: "owner-runtime"
+    });
 
-    const dispatch = await fetch(`http://127.0.0.1:${address.port}/api/v1/remote-operations`, {
+    const dispatch = await fetch(`${ownerOrigin}/api/v1/remote-operations`, {
       method: "POST",
-      headers: jsonHeaders(adminToken),
+      headers: operatorOwnerHeaders(identityToken),
       body: JSON.stringify({
         schemaVersion: "remote-run/v3",
         projectId,
@@ -376,13 +473,10 @@ describe("distributed server composition", () => {
         blockRef: "T-001#B-001",
         agentEndpointId: "endpoint-not-enrolled",
         idempotencyKey: "owner-only-dispatch",
-        ...(await readDispatchAuthority({
-          databasePath: config.databasePath,
-          workspaceId: "workspace-owner-runtime",
-          projectId,
-          canvasId: "default",
-          blockRef: "T-001#B-001"
-        })),
+        expectedResponsibilityRevision: 0,
+        expectedReviewerRevision: 0,
+        executionTargetRevision: 0,
+        ...ownerAuthority,
         humanPrincipalId: "owner-runtime"
       })
     });

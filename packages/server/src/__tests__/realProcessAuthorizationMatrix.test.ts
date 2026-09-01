@@ -193,7 +193,7 @@ describe("real-process adversarial authorization matrix", () => {
             body: { operationId, dispatchId }
           });
 
-          const collaborationOperatorDenied = await c.rawRequest({
+          const collaborationOperatorAdmitted = await c.rawRequest({
             method: "POST",
             path: "/api/v1/remote-operations",
             authorization: projectOperatorToken,
@@ -208,9 +208,9 @@ describe("real-process adversarial authorization matrix", () => {
               humanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID
             }
           });
-          expect(collaborationOperatorDenied).toMatchObject({
-            status: 403,
-            body: { error: "operator_admin_required" }
+          expect(collaborationOperatorAdmitted).toMatchObject({
+            status: 409,
+            body: { error: "operator_operation_conflict" }
           });
 
           const durableBaseline = async () => ({

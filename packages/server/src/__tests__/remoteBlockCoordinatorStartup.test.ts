@@ -220,6 +220,10 @@ class StartupHarness {
           runtimeContentTargets: {
             read: (scope) => readStableCanvasRuntimeContentTarget(contentVersions, scope)
           },
+          ownerEndpointScopeAuthorized: (scope) =>
+            scope.workspaceId === this.locator.workspaceId &&
+            scope.projectId === this.locator.projectId &&
+            scope.canvasId === this.locator.canvasId,
           inputArtifacts: { materialize: async () => {} },
           artifactContent: { readReport: async (ref) => this.requireArtifacts().read(ref) },
           checkpoints
@@ -254,7 +258,10 @@ class StartupHarness {
     return this.artifacts;
   }
 
-  registerHost(capacity = 1): string {
+  registerHost(
+    capacity = 1,
+    options: { bindWorkspace?: boolean; managedCanvasRuntime?: boolean } = {}
+  ): string {
     const host = this.requireCoordination().hosts.register("Startup Reconciliation Host").host;
     const workspaceId = new WorkspaceIdentityRepository(
       this.requireServer().database
@@ -264,16 +271,18 @@ class StartupHarness {
       hostId: host.id,
       grantWorkspaceId: workspaceId
     });
-    this.requireCoordination().hosts.bindToWorkspace(host.id, workspaceId);
-    this.reportHostOnline(host.id, capacity);
+    if (options.bindWorkspace !== false) {
+      this.requireCoordination().hosts.bindToWorkspace(host.id, workspaceId);
+    }
+    this.reportHostOnline(host.id, capacity, options.managedCanvasRuntime);
     return host.id;
   }
 
-  reportHostOnline(hostId: string, capacity = 1): void {
+  reportHostOnline(hostId: string, capacity = 1, managedCanvasRuntime = true): void {
     const workspaceId = this.locator.workspaceId;
     this.requireCoordination().hosts.reportOnline(
       hostId,
-      ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
+      ["acp.codex", ...(managedCanvasRuntime ? [WORKSPACE_CANVAS_EXECUTION_CAPABILITY] : [])],
       capacity,
       {
         workspaceMappings: [{ workspaceId, status: "ready" }],
@@ -290,7 +299,10 @@ class StartupHarness {
     );
   }
 
-  request(idempotencyKey: string) {
+  request(
+    idempotencyKey: string,
+    targetKind: "owner_canvas" | "workspace_canvas" = "workspace_canvas"
+  ) {
     const contentEvidence = readStableCanvasRuntimeEvidence(
       new ContentVersionRepository(this.requireServer().database),
       this.locator
@@ -305,7 +317,8 @@ class StartupHarness {
       },
       blockRef: "T-001#B-001",
       idempotencyKey,
-      agentEndpointId: this.agentEndpointId
+      agentEndpointId: this.agentEndpointId,
+      targetKind
     });
     this.agentEndpointId = request.agentEndpointId;
     return request;

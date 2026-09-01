@@ -62,9 +62,14 @@ import {
   readStableCanvasRuntimeEvidence
 } from "./canvas/contentFingerprint.js";
 import { createInvalidatingCanvasRuntimeStatusRepository } from "./canvas/runtimeStatusInvalidation.js";
+import { ArtifactStoreRemoteContent } from "./runtimeArtifactAdapter.js";
 import { projectCanvasRuntimeFromAcquiredLease } from "./canvas/runtimeInitializationCoordinator.js";
 import { inWriteTransaction } from "./sqlite.js";
 import { canvasScopeRefSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
+import {
+  OwnerCanvasMaterializationRepository,
+  OwnerCanvasMaterializationService
+} from "./canvas/index.js";
 
 export type DistributedServerCompositionOptions = {
   httpServer: HttpServer;
@@ -132,6 +137,7 @@ export async function createDistributedServerComposition(
     | undefined;
   let remoteCoordinationMaintenance: RemoteCoordinationMaintenance | undefined;
   let runtimeRpc: CanvasRuntimeRpcBroker | undefined;
+  let ownerCanvasMaterializationScopes: OwnerCanvasMaterializationRepository | undefined;
   const transportHandles: TransportCompositionHandles = {};
   let authorization: ReturnType<typeof createIdentityServices>["authorization"];
   let humanIdentityForInteractions: HumanIdentityRepository | undefined;
@@ -148,6 +154,7 @@ export async function createDistributedServerComposition(
       (database) => {
         readiness.transition("reconciling");
         activity = createActivityJournalComposition({ database, config, clock });
+        ownerCanvasMaterializationScopes = new OwnerCanvasMaterializationRepository(database);
         const contentVersions = new ContentVersionRepository(database, clock);
         const runtimeStatuses = createInvalidatingCanvasRuntimeStatusRepository({
           database,
@@ -165,6 +172,8 @@ export async function createDistributedServerComposition(
           clock,
           ownerRuntimeLeases: authoritativeExecutionRuntime,
           ownerRuntimeAvailability: ownerExecutionRuntime,
+          ownerMaterializedScopeAvailable: (scope) =>
+            ownerCanvasMaterializationScopes?.hasRuntimeScope(scope) === true,
           runtimeContentTargets: {
             read: (scope) => readStableCanvasRuntimeContentTarget(contentVersions, scope)
           },
@@ -190,7 +199,11 @@ export async function createDistributedServerComposition(
       }
     );
     if (!activity) throw new Error("activity_projection_not_initialized");
+    if (!ownerCanvasMaterializationScopes) {
+      throw new Error("owner_canvas_materialization_repository_not_initialized");
+    }
     const initializedActivity = activity;
+    const initializedOwnerCanvasScopes = ownerCanvasMaterializationScopes;
     const { coordination, server } = lifecycle;
     const authorizationChanges = new AuthorizationChangeSignal();
     const schemaVersion = server.readiness().schemaVersion;
@@ -225,7 +238,8 @@ export async function createDistributedServerComposition(
       coordination.hosts.runtimeBindings,
       coordination.hosts,
       runtimeRpc,
-      projectAccess
+      projectAccess,
+      (scope) => initializedOwnerCanvasScopes.hasRuntimeScope(scope)
     );
     const runtimeArtifactGrants = new RuntimeArtifactGrantRepository(server.database, {
       maxArtifactBytes: initializedActivity.artifactStore.maxArtifactBytes,
@@ -313,7 +327,27 @@ export async function createDistributedServerComposition(
       workspaceIdentity,
       projectAccess,
       authorization,
-      enrollments
+      enrollments,
+      artifactContent: new ArtifactStoreRemoteContent(initializedActivity.artifactStore),
+      ownerCanvasMaterializationScopes: initializedOwnerCanvasScopes,
+      ownerCanvasMaterialization: new OwnerCanvasMaterializationService({
+        contentVersions,
+        scopes: initializedOwnerCanvasScopes,
+        activityFence: {
+          assertScopeMaterializable: (scope) => {
+            const active = coordination.operations
+              .listNonTerminal()
+              .some(
+                (operation) =>
+                  operation.workspaceId === scope.workspaceId &&
+                  operation.projectId === scope.projectId &&
+                  operation.canvasId === scope.canvasId
+              );
+            if (active) throw new Error("owner_canvas_materialization_active_operation");
+          }
+        },
+        clock
+      })
     });
 
     const transport = await createTransportComposition({

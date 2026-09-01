@@ -29,7 +29,10 @@ import {
   type CanvasExecutionRuntimeLease,
   type CanvasExecutionRuntimeRoutePort
 } from "./canvas/executionRuntimePort.js";
-import type { RuntimeAttachmentRequest } from "./canvas/runtimeAttachment.js";
+import type {
+  RuntimeAttachmentRecordRequest,
+  RuntimeAttachmentRequest
+} from "./canvas/runtimeAttachment.js";
 import {
   assertRuntimeAttachmentContentTarget,
   materializeAttachedWorkspaceRuntime
@@ -74,6 +77,10 @@ import {
   type RemoteEndpointDispatchRequest
 } from "./remoteBlockDispatchAcceptance.js";
 export type { RemoteEndpointDispatchRequest } from "./remoteBlockDispatchAcceptance.js";
+import {
+  usesLegacyOwnerPackageRuntime,
+  usesManagedCanvasRuntime
+} from "./remoteBlockRuntimePolicy.js";
 
 export type RemoteBlockCoordinatorOptions = {
   runtimeLeases: CanvasExecutionRuntimeRoutePort;
@@ -112,7 +119,7 @@ export type RemoteBlockCoordinatorOptions = {
     hostId: string;
     candidate: RemoteBlockDispatchCandidate;
   }) => OwnerPackageLocator | undefined;
-  ensureRuntimeAttachment?: (input: RuntimeAttachmentRequest) => void;
+  ensureRuntimeAttachment?: (input: RuntimeAttachmentRecordRequest) => void;
   findRuntimeAttachment?: (
     operationId: string,
     executionAttemptId: string
@@ -228,7 +235,7 @@ export class RemoteBlockCoordinator {
         await lease.release();
       }
     }
-    const workspaceExecution = operation.endpointSelection?.authority.kind === "workspace_canvas";
+    const managedRuntimeExecution = usesManagedCanvasRuntime(operation);
     const reservation = operation.endpointSelection
       ? await this.preparationCoordinator().reserve(operation, candidate)
       : undefined;
@@ -236,7 +243,7 @@ export class RemoteBlockCoordinator {
     let lease: CanvasExecutionRuntimeLease;
     try {
       attachment =
-        workspaceExecution && reservation
+        managedRuntimeExecution && reservation
           ? await this.preparationCoordinator().attach(operation, candidate, reservation)
           : undefined;
       lease = await acquireRemoteRuntimeLease(
@@ -378,7 +385,8 @@ export class RemoteBlockCoordinator {
       }
     }
 
-    if (operation.endpointSelection?.authority.kind === "workspace_canvas") {
+    const managedRuntimeExecution = usesManagedCanvasRuntime(operation);
+    if (managedRuntimeExecution) {
       if (!runtimeAttachment) throw new Error("runtime_attachment_missing");
       const runtimeContentTargets = this.options.runtimeContentTargets;
       if (!runtimeContentTargets) throw new Error("runtime_content_target_port_missing");
@@ -395,21 +403,17 @@ export class RemoteBlockCoordinator {
       });
     }
 
-    const ownerPackageLocator =
-      operation.endpointSelection?.authority.kind !== "owner_canvas"
-        ? undefined
-        : this.options.ownerPackageLocatorForHost?.({
-            hostId: operation.endpointSelection.hostId,
-            candidate
-          });
-    const runtimeMaterialization =
-      operation.endpointSelection?.authority.kind === "workspace_canvas"
-        ? await runtimeLease.readInitializationEvidence?.()
-        : undefined;
-    if (
-      operation.endpointSelection?.authority.kind === "workspace_canvas" &&
-      runtimeMaterialization === undefined
-    ) {
+    let ownerPackageLocator: OwnerPackageLocator | undefined;
+    if (usesLegacyOwnerPackageRuntime(operation)) {
+      const hostId = authorizedOperationHostId(operation);
+      if (!hostId) throw new Error("remote_operation_authorized_host_missing");
+      ownerPackageLocator = this.options.ownerPackageLocatorForHost?.({ hostId, candidate });
+      if (!ownerPackageLocator) throw new Error("owner_package_locator_unavailable");
+    }
+    const runtimeMaterialization = managedRuntimeExecution
+      ? await runtimeLease.readInitializationEvidence?.()
+      : undefined;
+    if (managedRuntimeExecution && runtimeMaterialization === undefined) {
       throw new CanvasRuntimeUnavailableError();
     }
     const envelope = buildRemoteBlockExecutionEnvelope(
@@ -639,31 +643,9 @@ export class RemoteBlockCoordinator {
     if (persisted.dispatch.status === "leased") {
       if (!operation.attempt.leaseId) throw new Error("remote_attempt_reservation_missing");
       const reservation = this.options.reservations.getRequired(operation.attempt.leaseId);
-      const ownerPackageLocator =
-        operation.endpointSelection?.authority.kind !== "owner_canvas"
-          ? undefined
-          : this.options.ownerPackageLocatorForHost?.({
-              hostId: reservation.hostId,
-              candidate
-            });
-      const runtimeMaterialization =
-        operation.endpointSelection?.authority.kind === "workspace_canvas"
-          ? await runtimeLease.readInitializationEvidence?.()
-          : undefined;
-      if (
-        operation.endpointSelection?.authority.kind === "workspace_canvas" &&
-        runtimeMaterialization === undefined
-      ) {
-        throw new CanvasRuntimeUnavailableError();
-      }
-      const envelope = buildRemoteBlockExecutionEnvelope(
-        operation,
-        candidate,
-        ownerPackageLocator,
-        runtimeMaterialization
-      );
+      const envelope = this.options.dispatches.readEnvelope(operation);
       if (hashExecutionEnvelope(envelope) !== envelopeDigest) {
-        this.recordInconsistency(operation, "The persisted dispatch envelope cannot be rebuilt.");
+        this.recordInconsistency(operation, "The persisted dispatch envelope digest changed.");
       }
       await runtimeLease.runtime.activate(remoteBlockIdentity(operation));
       await this.checkpoint("after_runtime_binding");

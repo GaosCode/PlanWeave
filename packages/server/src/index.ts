@@ -145,6 +145,13 @@ export {
   type OperatorPrincipal
 } from "./operatorAuth.js";
 export {
+  OPERATOR_OWNER_TERMINAL_RESULT_MEDIA_TYPE,
+  OPERATOR_OWNER_TERMINAL_RESULT_METADATA_HEADER,
+  operatorOwnerTerminalResultMetadataSchema,
+  type OperatorOwnerTerminalResultMetadata,
+  type OperatorOwnerTerminalResultPayload
+} from "./operatorDtos.js";
+export {
   hashOperatorSessionToken,
   OperatorSessionStore,
   type OperatorSessionInput

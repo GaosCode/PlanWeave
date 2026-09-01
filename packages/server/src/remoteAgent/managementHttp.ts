@@ -1,28 +1,32 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { OperatorPrincipal } from "../operatorAuth.js";
+import type { OperatorRequestPrincipal } from "../operatorAuth.js";
 import { operatorRemoteAgentListQuerySchema } from "./managementDtos.js";
 
 export type RemoteAgentManagementPort = {
-  listRemoteAgents(principal: OperatorPrincipal, query: unknown): unknown;
+  listRemoteAgents(principal: OperatorRequestPrincipal, query: unknown): unknown;
   setRemoteAgentAccessMode(
-    principal: OperatorPrincipal,
+    principal: OperatorRequestPrincipal,
     endpointId: string,
     request: unknown
   ): unknown;
   grantRemoteAgentWorkspace(
-    principal: OperatorPrincipal,
+    principal: OperatorRequestPrincipal,
     endpointId: string,
     request: unknown
   ): unknown;
   revokeRemoteAgentGrant(
-    principal: OperatorPrincipal,
+    principal: OperatorRequestPrincipal,
     endpointId: string,
     workspaceId: string,
     request: unknown
   ): unknown;
-  revokeRemoteAgent(principal: OperatorPrincipal, endpointId: string, request: unknown): unknown;
+  revokeRemoteAgent(
+    principal: OperatorRequestPrincipal,
+    endpointId: string,
+    request: unknown
+  ): unknown;
   repairRemoteAgentOwnership(
-    principal: OperatorPrincipal,
+    principal: OperatorRequestPrincipal,
     endpointId: string,
     request: unknown
   ): unknown;
@@ -74,7 +78,7 @@ export function matchRemoteAgentManagementRoute(
 
 export async function handleRemoteAgentManagementHttp(input: {
   route: RemoteAgentManagementRoute;
-  principal: OperatorPrincipal;
+  principal: OperatorRequestPrincipal;
   service: RemoteAgentManagementPort;
   url: URL;
   request: IncomingMessage;

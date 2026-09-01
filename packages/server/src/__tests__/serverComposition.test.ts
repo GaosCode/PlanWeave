@@ -175,6 +175,16 @@ describe("distributed server composition", () => {
     );
     expect(bootstrap.status).toBe(201);
     const { deviceToken } = (await bootstrap.json()) as { deviceToken: string };
+    const identityResponse = await fetch(`${origin}/api/v1/human-identity/recover`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        schemaVersion: "human-identity/v1",
+        existingDeviceToken: deviceToken
+      })
+    });
+    expect(identityResponse.status).toBe(200);
+    const { identityToken } = (await identityResponse.json()) as { identityToken: string };
     const members = await fetch(
       `${origin}/api/v1/projects/${restoredProjectId}/human/members?limit=1`,
       { headers: { Authorization: `Bearer ${deviceToken}` } }
@@ -202,7 +212,12 @@ describe("distributed server composition", () => {
 
     const operatorAgentEndpoints = await fetch(
       `${origin}/api/v1/agent-endpoints?workspaceId=workspace-self-host&projectId=${restoredProjectId}&canvasId=default&humanPrincipalId=restored-owner`,
-      { headers: { Authorization: `Bearer ${adminToken}` } }
+      {
+        headers: {
+          Authorization: `Bearer ${adminToken}`,
+          "x-planweave-human-identity": `Bearer ${identityToken}`
+        }
+      }
     );
     expect(operatorAgentEndpoints.status).toBe(200);
     await expect(operatorAgentEndpoints.json()).resolves.toEqual({
@@ -316,7 +331,12 @@ describe("distributed server composition", () => {
     });
     const revokedOperatorAgentEndpoints = await fetch(
       `${origin}/api/v1/agent-endpoints?workspaceId=workspace-self-host&projectId=${restoredProjectId}&canvasId=default&humanPrincipalId=restored-owner`,
-      { headers: { Authorization: `Bearer ${adminToken}` } }
+      {
+        headers: {
+          Authorization: `Bearer ${adminToken}`,
+          "x-planweave-human-identity": `Bearer ${identityToken}`
+        }
+      }
     );
     expect(revokedOperatorAgentEndpoints.status).toBe(403);
     await expect(revokedOperatorAgentEndpoints.json()).resolves.toEqual({

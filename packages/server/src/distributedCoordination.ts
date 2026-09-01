@@ -181,13 +181,11 @@ export function createRemoteBlockCoordination(
       canvasId: input.canvasId,
       blockRef: input.blockRef
     };
-    if (!workspaceIdentity.workspaceExists(scope.workspaceId)) {
-      throw new DispatchAssignmentError("work_host_not_authorized");
-    }
     const authorized =
       input.controlPlane === "owner"
         ? options.ownerEndpointScopeAuthorized?.(scope) === true
         : (() => {
+            if (!workspaceIdentity.workspaceExists(scope.workspaceId)) return false;
             const project = projectAccess.registry.projectInternal(
               scope.workspaceId,
               scope.projectId
@@ -281,6 +279,9 @@ export function createRemoteBlockCoordination(
         scope.canvasId
       );
       const currentRevisions = authorityRepository.currentRevisions(scope);
+      const ownerScopeAuthorized =
+        operation.agentAccess?.authorized.runtimeAuthority.kind === "owner_canvas" &&
+        options.ownerEndpointScopeAuthorized?.(scope) === true;
       const now = (options.clock ?? (() => new Date()))();
       const online =
         !!host && isAgentHostOnline(host, { now, hostOfflineAfterMs: options.hostOfflineAfterMs });
@@ -317,15 +318,15 @@ export function createRemoteBlockCoordination(
         hostWorkspaceId: host ? (workspaceIdentity.workspaceForHost(host.id) ?? "") : "",
         workspaceAcl: {
           revision: 0,
-          allowed: workspaceIdentity.workspaceExists(scope.workspaceId)
+          allowed: ownerScopeAuthorized || workspaceIdentity.workspaceExists(scope.workspaceId)
         },
         projectAcl: {
           revision: project?.aclRevision ?? 0,
-          allowed: !!project && project.revokedAt === null
+          allowed: ownerScopeAuthorized || (!!project && project.revokedAt === null)
         },
         canvasAcl: {
           revision: canvas?.aclRevision ?? 0,
-          allowed: !!canvas && canvas.revokedAt === null
+          allowed: ownerScopeAuthorized || (!!canvas && canvas.revokedAt === null)
         },
         requiredCapabilities: operation.requiredCapabilities,
         advertisedCapabilities: host?.capabilities ?? [],

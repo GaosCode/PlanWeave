@@ -10,6 +10,7 @@ import { RemoteInteractionService } from "./remoteInteractions.js";
 import { RemoteExecutionActionRepository } from "./remoteExecutionActions.js";
 import {
   agentHostProtocolVersion,
+  executionEnvelopeProtocolVersion,
   hostEventSchema,
   hostHelloSchema,
   serverEventSchema,
@@ -19,6 +20,8 @@ import type { WebSocketUpgradeRouter } from "./webSocketUpgradeRouter.js";
 import type { TransportAdmissionPolicy } from "./insecureTransport.js";
 import { logHostProtocolRejection, publicHostProtocolRejection } from "./hostProtocolRejection.js";
 import type { CanvasRuntimeRpcBroker } from "./canvas/runtimeRpcBroker.js";
+
+const requiredExecutionEnvelopeVersions = [1, executionEnvelopeProtocolVersion] as const;
 
 export type AgentHostWebSocketOptions = {
   server: HttpServer;
@@ -105,6 +108,7 @@ function logDeferredHostAvailabilityFailure(input: { hostId: string; error: unkn
 export function attachAgentHostWebSocketServer(
   options: AgentHostWebSocketOptions
 ): AgentHostWebSocketServer {
+  options.hosts.requireProtocolReauthentication();
   const webSocketServer = new WebSocketServer({
     noServer: true,
     maxPayload: options.maxPayloadBytes ?? 256 * 1024
@@ -334,6 +338,15 @@ export function attachAgentHostWebSocketServer(
           }
           if (!initialized) {
             const hello = hostHelloSchema.parse(input);
+            if (
+              !hello.supportedExecutionEnvelopeVersions ||
+              requiredExecutionEnvelopeVersions.some(
+                (version) => !hello.supportedExecutionEnvelopeVersions?.includes(version)
+              )
+            ) {
+              options.hosts.reportProtocolIncompatible(hostId);
+              throw new Error("execution_envelope_version_incompatible");
+            }
             const storedHost = options.hosts.getRequired(hostId);
             if (hello.lastAcknowledgedSequence > storedHost.lastAcknowledgedSequence) {
               throw new Error("mailbox_cursor_not_acknowledged");

@@ -13,10 +13,12 @@ import {
   operatorInteractionResponseSchema,
   operatorInteractionViewSchema,
   operatorLegacyOperationViewSchema,
+  operatorOwnerTerminalResultMetadataSchema,
   operatorPublicOperationViewSchema,
   operatorPageQuerySchema,
   type OperatorOperationRuntimeWire,
-  type OperatorOperationView
+  type OperatorOperationView,
+  type OperatorOwnerTerminalResultPayload
 } from "./operatorDtos.js";
 import {
   humanPrincipalIdSchema,
@@ -54,14 +56,25 @@ import {
   operatorHostAvailability,
   type AgentHost
 } from "./hosts.js";
-import { OperatorTokenRegistry, type OperatorPrincipal } from "./operatorAuth.js";
+import {
+  OperatorTokenRegistry,
+  type OperatorPrincipal,
+  type OperatorRequestPrincipal
+} from "./operatorAuth.js";
 import { RemoteAcpEventRepository } from "./remoteAcpEvents.js";
 import { RemoteBlockCoordinator } from "./remoteBlockCoordinator.js";
+import type { RemoteArtifactContentPort } from "./remoteBlockCoordinatorPorts.js";
 import { RemoteInteractionService } from "./remoteInteractions.js";
 import { RemoteOperationRepository, type RemoteOperation } from "./remoteOperations.js";
 import { DispatchService } from "./dispatches.js";
 import { toHumanEndpointSnapshot } from "./endpointSelection.js";
 import { WorkspaceIdentityRepository } from "./identity/workspaceRepository.js";
+import {
+  ownerCanvasMaterializationRequestSchema,
+  ownerCanvasMaterializationScopeSchema,
+  type OwnerCanvasMaterializationRequest
+} from "@planweave-ai/collaboration-protocol/owner-canvas/materialization";
+import type { OwnerCanvasMaterializationService } from "./canvas/ownerCanvasMaterializationService.js";
 import {
   isTerminalRemoteOperation,
   projectRemoteOperationRuntime,
@@ -79,6 +92,7 @@ export type RemoteControlServiceOptions = {
   coordinator: RemoteBlockCoordinator;
   events: RemoteAcpEventRepository;
   interactions: RemoteInteractionService;
+  artifactContent: RemoteArtifactContentPort;
   disconnectHost(hostId: string): void;
   hostOfflineAfterMs?: number;
   clock?: () => Date;
@@ -86,9 +100,11 @@ export type RemoteControlServiceOptions = {
   authorizeProjectScope(scope: { workspaceId: string; projectId: string }): void;
   authorizeCanvas?: (scope: { workspaceId: string; projectId: string; canvasId: string }) => void;
   resolveOwnerRuntimeScope?: (scope: {
+    ownerHumanPrincipalId: string;
     projectId: string;
     canvasId: string;
   }) => { workspaceId: string; projectId: string; canvasId: string } | undefined;
+  ownerCanvasMaterialization?: OwnerCanvasMaterializationService;
   remoteAgentRepository?: RemoteAgentRepository;
 };
 
@@ -111,16 +127,18 @@ export class RemoteControlService {
   private readonly clock: () => Date;
   private readonly hostOfflineAfterMs: number;
   private readonly remoteAgents: RemoteAgentManagementService | null;
+  private readonly humanIdentity: HumanPrincipalIdentity | null;
 
   constructor(private readonly options: RemoteControlServiceOptions) {
     this.clock = options.clock ?? (() => new Date());
     this.hostOfflineAfterMs = options.hostOfflineAfterMs ?? DEFAULT_HOST_OFFLINE_AFTER_MS;
-    this.remoteAgents = options.remoteAgentRepository
-      ? new RemoteAgentManagementService(
-          options.remoteAgentRepository,
-          new HumanPrincipalIdentity(options.remoteAgentRepository.database)
-        )
+    this.humanIdentity = options.remoteAgentRepository
+      ? new HumanPrincipalIdentity(options.remoteAgentRepository.database)
       : null;
+    this.remoteAgents =
+      options.remoteAgentRepository && this.humanIdentity
+        ? new RemoteAgentManagementService(options.remoteAgentRepository, this.humanIdentity)
+        : null;
   }
 
   remoteRunnerEventCapability() {
@@ -132,9 +150,15 @@ export class RemoteControlService {
     };
   }
 
-  createEnrollmentGrant(principal: OperatorPrincipal, rawRequest: unknown) {
+  createEnrollmentGrant(principal: OperatorRequestPrincipal, rawRequest: unknown) {
     this.options.authorization.requireServerAdmin(principal);
     const request = operatorEnrollmentGrantRequestSchema.parse(rawRequest);
+    const ownerHumanPrincipalId = request.ownerHumanPrincipalId ?? principal.humanPrincipalId;
+    if (!ownerHumanPrincipalId) {
+      throw new RemoteAgentAuthorizationError("remote_agent_owner_required");
+    }
+    this.authorizeOwnerHuman(principal, ownerHumanPrincipalId);
+    const accessMode = request.accessMode ?? "unrestricted";
     const workspaceId =
       request.workspaceId === undefined
         ? undefined
@@ -144,10 +168,8 @@ export class RemoteControlService {
         ...(workspaceId === undefined ? {} : { workspaceId }),
         expiresAt: new Date(request.expiresAt),
         credentialPolicy: request.credentialPolicy,
-        ...(request.ownerHumanPrincipalId === undefined
-          ? {}
-          : { ownerHumanPrincipalId: request.ownerHumanPrincipalId }),
-        ...(request.accessMode === undefined ? {} : { accessMode: request.accessMode }),
+        ownerHumanPrincipalId,
+        accessMode,
         ...(request.createWorkspaceGrant === undefined
           ? {}
           : { createWorkspaceGrant: request.createWorkspaceGrant })
@@ -183,7 +205,10 @@ export class RemoteControlService {
     });
   }
 
-  listAgentEndpoints(principal: OperatorPrincipal, rawQuery: unknown): RemoteAgentEndpointList {
+  listAgentEndpoints(
+    principal: OperatorRequestPrincipal,
+    rawQuery: unknown
+  ): RemoteAgentEndpointList {
     const query = operatorAgentEndpointQuerySchema.parse(rawQuery);
     const hasLocator =
       query.humanPrincipalId !== undefined ||
@@ -201,6 +226,7 @@ export class RemoteControlService {
     ) {
       throw new Error("operator_query_invalid");
     }
+    this.authorizeOwnerHuman(principal, query.humanPrincipalId);
     if (query.workspaceId !== undefined) {
       const workspaceId = this.authorizeWorkspaceRuntimeScope(principal, {
         workspaceId: query.workspaceId,
@@ -219,23 +245,31 @@ export class RemoteControlService {
         }
       });
     }
-    this.options.authorization.requireServerAdmin(principal);
-    this.options.authorization.authorizeProject(principal, query.projectId);
-    const ownerScope = this.options.resolveOwnerRuntimeScope?.({
-      projectId: query.projectId,
-      canvasId: query.canvasId
-    });
-    if (!ownerScope) throw new Error("operator_project_forbidden");
     return listAuthorizedRemoteAgentEndpoints({
       policy: this.options.remoteAgentAccess,
       catalog: this.options.agentEndpoints,
       principal: { humanPrincipalId: query.humanPrincipalId },
       target: {
         kind: "owner_canvas",
-        projectId: ownerScope.projectId,
-        canvasId: ownerScope.canvasId
+        projectId: query.projectId,
+        canvasId: query.canvasId
       }
     });
+  }
+
+  inspectOwnerCanvasMaterializationHead(principal: OperatorRequestPrincipal, rawScope: unknown) {
+    const scope = ownerCanvasMaterializationScopeSchema.parse(rawScope);
+    this.authorizeOwnerHuman(principal, scope.ownerHumanPrincipalId);
+    return this.requireOwnerCanvasMaterialization().inspectHead(scope);
+  }
+
+  materializeOwnerCanvas(
+    principal: OperatorRequestPrincipal,
+    request: OwnerCanvasMaterializationRequest
+  ) {
+    const parsed = ownerCanvasMaterializationRequestSchema.parse(request);
+    this.authorizeOwnerHuman(principal, parsed.scope.ownerHumanPrincipalId);
+    return this.requireOwnerCanvasMaterialization().materialize(parsed);
   }
 
   getHost(principal: OperatorPrincipal, hostId: string) {
@@ -264,7 +298,7 @@ export class RemoteControlService {
   }
 
   async dispatch(
-    principal: OperatorPrincipal,
+    principal: OperatorRequestPrincipal,
     rawRequest: unknown,
     runtimeWire: OperatorOperationRuntimeWire = "legacy-rich"
   ) {
@@ -276,15 +310,16 @@ export class RemoteControlService {
       throw new Error("remote_run_v3_required");
     }
     const request = operatorDispatchRequestSchema.parse(rawRequest);
+    if (request.humanPrincipalId === undefined) {
+      throw new RemoteAgentAuthorizationError("remote_agent_not_found");
+    }
+    this.authorizeOwnerHuman(principal, request.humanPrincipalId);
     if (request.workspaceId !== undefined) {
       const workspaceId = this.authorizeWorkspaceRuntimeScope(principal, {
         workspaceId: request.workspaceId,
         projectId: request.projectId,
         canvasId: request.canvasId
       });
-      if (request.humanPrincipalId === undefined) {
-        throw new RemoteAgentAuthorizationError("remote_agent_not_found");
-      }
       const outcome = await this.options.coordinator.dispatch({
         workspaceId,
         projectId: request.projectId,
@@ -302,22 +337,15 @@ export class RemoteControlService {
       });
       return this.observeOperation(principal, outcome.operation.id, runtimeWire);
     }
-    this.options.authorization.authorizeProject(principal, request.projectId);
-    if (request.humanPrincipalId === undefined) {
-      throw new RemoteAgentAuthorizationError("remote_agent_not_found");
-    }
     const ownerScope = this.options.resolveOwnerRuntimeScope?.({
+      ownerHumanPrincipalId: request.humanPrincipalId,
       projectId: request.projectId,
       canvasId: request.canvasId
     });
     if (this.options.resolveOwnerRuntimeScope && !ownerScope) {
       throw new Error("operator_project_forbidden");
     }
-    if (ownerScope) this.options.authorization.requireServerAdmin(principal);
-    const workspaceId = this.resolveWorkspace(
-      principal,
-      ownerScope?.workspaceId ?? principal.workspaceId
-    );
+    const workspaceId = ownerScope?.workspaceId ?? this.resolveWorkspace(principal);
     if (!ownerScope) {
       this.options.authorizeCanvas?.({
         workspaceId,
@@ -344,7 +372,7 @@ export class RemoteControlService {
   }
 
   async observeOperation(
-    principal: OperatorPrincipal,
+    principal: OperatorRequestPrincipal,
     operationId: string,
     runtimeWire: OperatorOperationRuntimeWire = "legacy-rich"
   ): Promise<OperatorOperationView> {
@@ -367,7 +395,6 @@ export class RemoteControlService {
       dispatchId: operation.dispatchId,
       executionAttemptId: operation.executionAttemptId,
       envelopeDigest: operation.envelopeDigest,
-      reportArtifactRef: dispatch?.result?.reportArtifactRef,
       createdAt: operation.createdAt,
       updatedAt: operation.updatedAt,
       terminalAt: operation.terminalAt,
@@ -400,7 +427,56 @@ export class RemoteControlService {
       : operatorLegacyOperationViewSchema.parse(view);
   }
 
-  async executeAction(principal: OperatorPrincipal, operationId: string, rawAction: unknown) {
+  async readOwnerOperationTerminalResult(
+    principal: OperatorRequestPrincipal,
+    operationId: string
+  ): Promise<OperatorOwnerTerminalResultPayload> {
+    const operation = this.operationFor(principal, operationId);
+    if (
+      operation.endpointSelection?.authority.schemaVersion !== "endpoint-authority/v2" ||
+      operation.endpointSelection.authority.kind !== "owner_canvas" ||
+      operation.state !== "completed"
+    ) {
+      throw new Error("operator_terminal_result_invalid_state");
+    }
+    const dispatch = this.options.dispatches.get(operation.dispatchId);
+    if (
+      !dispatch ||
+      dispatch.id !== operation.dispatchId ||
+      dispatch.status !== "completed" ||
+      !dispatch.result ||
+      dispatch.workspaceId !== operation.workspaceId ||
+      dispatch.projectId !== operation.projectId ||
+      dispatch.blockRef !== operation.blockRef ||
+      dispatch.executionAttemptId !== operation.executionAttemptId
+    ) {
+      throw new Error("operator_terminal_result_mismatch");
+    }
+    const reportBytes = await this.options.artifactContent.readReport(
+      dispatch.result.reportArtifactRef
+    );
+    return {
+      metadata: operatorOwnerTerminalResultMetadataSchema.parse({
+        operationId: operation.id,
+        projectId: operation.projectId,
+        canvasId: operation.canvasId,
+        blockRef: operation.blockRef,
+        controlPlane: "owner",
+        sourceRevision: operation.ownershipGeneration,
+        graphFingerprint: operation.sourceFingerprint,
+        dispatchId: operation.dispatchId,
+        executionAttemptId: operation.executionAttemptId,
+        reportArtifactRef: dispatch.result.reportArtifactRef
+      }),
+      reportBytes
+    };
+  }
+
+  async executeAction(
+    principal: OperatorRequestPrincipal,
+    operationId: string,
+    rawAction: unknown
+  ) {
     const operation = this.operationFor(principal, operationId);
     const action = operatorActionRequestSchema.parse(rawAction);
     if (action.operationId !== operation.id) throw new Error("operator_action_operation_mismatch");
@@ -417,7 +493,7 @@ export class RemoteControlService {
     });
   }
 
-  replayEvents(principal: OperatorPrincipal, operationId: string, rawAfterCursor: unknown) {
+  replayEvents(principal: OperatorRequestPrincipal, operationId: string, rawAfterCursor: unknown) {
     const operation = this.operationFor(principal, operationId);
     const query = operatorEventQuerySchema.parse({ afterCursor: rawAfterCursor });
     return operatorEventReplaySchema.parse(
@@ -425,7 +501,11 @@ export class RemoteControlService {
     );
   }
 
-  listPendingInteractions(principal: OperatorPrincipal, operationId: string, rawQuery: unknown) {
+  listPendingInteractions(
+    principal: OperatorRequestPrincipal,
+    operationId: string,
+    rawQuery: unknown
+  ) {
     const operation = this.operationFor(principal, operationId);
     const query = operatorPageQuerySchema.parse(rawQuery);
     const interactions = this.options.interactions.listPending(
@@ -439,17 +519,21 @@ export class RemoteControlService {
     });
   }
 
-  listRemoteAgents(principal: OperatorPrincipal, rawQuery: unknown) {
-    this.options.authorization.requireServerAdmin(principal);
+  listRemoteAgents(principal: OperatorRequestPrincipal, rawQuery: unknown) {
     const query = operatorRemoteAgentListQuerySchema.parse(rawQuery);
+    this.authorizeOwnerHuman(principal, query.humanPrincipalId);
     return toRemoteAgentManagementList(
       this.requireRemoteAgents().listManaged(query.humanPrincipalId)
     );
   }
 
-  setRemoteAgentAccessMode(principal: OperatorPrincipal, endpointId: string, rawRequest: unknown) {
-    this.options.authorization.requireServerAdmin(principal);
+  setRemoteAgentAccessMode(
+    principal: OperatorRequestPrincipal,
+    endpointId: string,
+    rawRequest: unknown
+  ) {
     const request = operatorRemoteAgentAccessModeRequestSchema.parse(rawRequest);
+    this.authorizeOwnerHuman(principal, request.humanPrincipalId);
     return this.toManagedAgentView(
       this.requireRemoteAgents().setAccessMode({
         endpointId,
@@ -462,9 +546,13 @@ export class RemoteControlService {
     );
   }
 
-  grantRemoteAgentWorkspace(principal: OperatorPrincipal, endpointId: string, rawRequest: unknown) {
-    this.options.authorization.requireServerAdmin(principal);
+  grantRemoteAgentWorkspace(
+    principal: OperatorRequestPrincipal,
+    endpointId: string,
+    rawRequest: unknown
+  ) {
     const request = operatorRemoteAgentGrantRequestSchema.parse(rawRequest);
+    this.authorizeOwnerHuman(principal, request.humanPrincipalId);
     this.requireRemoteAgents().grantWorkspace({
       endpointId,
       actorHumanPrincipalId: request.humanPrincipalId,
@@ -477,13 +565,13 @@ export class RemoteControlService {
   }
 
   revokeRemoteAgentGrant(
-    principal: OperatorPrincipal,
+    principal: OperatorRequestPrincipal,
     endpointId: string,
     workspaceId: string,
     rawRequest: unknown
   ) {
-    this.options.authorization.requireServerAdmin(principal);
     const request = operatorRemoteAgentActorRequestSchema.parse(rawRequest);
+    this.authorizeOwnerHuman(principal, request.humanPrincipalId);
     this.requireRemoteAgents().revokeGrant({
       endpointId,
       actorHumanPrincipalId: request.humanPrincipalId,
@@ -492,9 +580,9 @@ export class RemoteControlService {
     return this.managedAgent(endpointId, request.humanPrincipalId);
   }
 
-  revokeRemoteAgent(principal: OperatorPrincipal, endpointId: string, rawRequest: unknown) {
-    this.options.authorization.requireServerAdmin(principal);
+  revokeRemoteAgent(principal: OperatorRequestPrincipal, endpointId: string, rawRequest: unknown) {
     const request = operatorRemoteAgentActorRequestSchema.parse(rawRequest);
+    this.authorizeOwnerHuman(principal, request.humanPrincipalId);
     return this.toManagedAgentView(
       this.requireRemoteAgents().revokeAgent({
         endpointId,
@@ -518,7 +606,11 @@ export class RemoteControlService {
     );
   }
 
-  settleInteraction(principal: OperatorPrincipal, operationId: string, rawSettlement: unknown) {
+  settleInteraction(
+    principal: OperatorRequestPrincipal,
+    operationId: string,
+    rawSettlement: unknown
+  ) {
     const operation = this.operationFor(principal, operationId);
     const settlement = operatorInteractionResponseSchema.parse(rawSettlement);
     if (
@@ -541,6 +633,12 @@ export class RemoteControlService {
     return this.remoteAgents;
   }
 
+  private requireOwnerCanvasMaterialization(): OwnerCanvasMaterializationService {
+    const service = this.options.ownerCanvasMaterialization;
+    if (!service) throw new Error("owner_canvas_materialization_unavailable");
+    return service;
+  }
+
   private toManagedAgentView(agent: Parameters<typeof toRemoteAgentManagementAgentView>[0]) {
     return toRemoteAgentManagementAgentView(
       agent,
@@ -554,12 +652,15 @@ export class RemoteControlService {
     );
   }
 
-  private operationFor(principal: OperatorPrincipal, operationId: string): RemoteOperation {
-    const operation = principal.serverAdmin
-      ? this.options.operations.getRequired(operationId)
-      : this.options.operations.getRequiredInWorkspace(principal.workspaceId, operationId);
-    this.authorizeWorkspace(principal, operation.workspaceId);
+  private operationFor(principal: OperatorRequestPrincipal, operationId: string): RemoteOperation {
+    const operation = this.options.operations.getRequired(operationId);
+    if (!operation.agentAccess) {
+      this.options.authorization.requireServerAdmin(principal);
+      this.options.authorization.authorizeProject(principal, operation.projectId);
+      return operation;
+    }
     if (operation.agentAccess?.authorized.runtimeAuthority.kind === "workspace_canvas") {
+      this.authorizeWorkspace(principal, operation.workspaceId);
       this.options.authorizeProjectScope({
         workspaceId: operation.workspaceId,
         projectId: operation.projectId
@@ -571,18 +672,35 @@ export class RemoteControlService {
       });
       return operation;
     }
-    this.options.authorization.requireServerAdmin(principal);
-    this.options.authorization.authorizeProject(principal, operation.projectId);
+    const ownerHumanPrincipalId = operation.agentAccess?.callerHumanPrincipalId;
+    if (!ownerHumanPrincipalId) throw new Error("operator_human_identity_forbidden");
+    this.authorizeOwnerHuman(principal, ownerHumanPrincipalId);
     if (this.options.resolveOwnerRuntimeScope) {
       const ownerScope = this.options.resolveOwnerRuntimeScope({
+        ownerHumanPrincipalId,
         projectId: operation.projectId,
         canvasId: operation.canvasId
       });
       if (!ownerScope || ownerScope.workspaceId !== operation.workspaceId) {
-        throw new Error("operator_project_forbidden");
+        throw new Error("operator_human_identity_forbidden");
       }
     }
     return operation;
+  }
+
+  private authorizeOwnerHuman(
+    principal: OperatorRequestPrincipal,
+    requestedHumanPrincipalId: string
+  ): void {
+    if (
+      !principal.humanPrincipalId ||
+      !this.humanIdentity?.areEquivalent(
+        principal.humanPrincipalId,
+        humanPrincipalIdSchema.parse(requestedHumanPrincipalId)
+      )
+    ) {
+      throw new Error("operator_human_identity_forbidden");
+    }
   }
 
   private toOperatorHostView(host: AgentHost, workspaceId?: string) {

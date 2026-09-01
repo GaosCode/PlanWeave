@@ -53,14 +53,20 @@ async function setup() {
       }
     }
   );
-  const attach = (input: Parameters<typeof ensureRuntimeAttachmentForOperation>[1]) =>
+  const attach = (
+    input: Omit<Parameters<typeof ensureRuntimeAttachmentForOperation>[1], "runtimeAuthority"> & {
+      runtimeAuthority?: Parameters<
+        typeof ensureRuntimeAttachmentForOperation
+      >[1]["runtimeAuthority"];
+    }
+  ) =>
     ensureRuntimeAttachmentForOperation(
       {
         attachments,
         database,
         clock: () => new Date("2026-08-26T00:00:00.000Z")
       },
-      input
+      { runtimeAuthority: "workspace_canvas", ...input }
     );
   const registerCanvas = (canvasId: string) =>
     projectAccess.registerCanvasInternal({
@@ -467,6 +473,52 @@ describe("ensureRuntimeAttachmentForOperation", () => {
     ).toThrow("canvas_runtime_attachment_active_lease");
     expect(fixture.attachments.listForOperation("operation-canvas-first")).toHaveLength(1);
     expect(fixture.attachments.listForOperation("operation-canvas-conflict")).toEqual([]);
+  });
+
+  it("allows Server-authoritative owner Canvas operations on different Hosts", async () => {
+    const fixture = await setup();
+    const firstHost = fixture.hosts.register("First Owner Host").host;
+    const secondHost = fixture.hosts.register("Second Owner Host").host;
+    fixture.seedAcceptedOperation({
+      operationId: "operation-owner-first",
+      executionAttemptId: "attempt-owner-first",
+      reservationLeaseId: "lease-owner-first",
+      hostId: firstHost.id
+    });
+    fixture.seedAcceptedOperation({
+      operationId: "operation-owner-second",
+      executionAttemptId: "attempt-owner-second",
+      reservationLeaseId: "lease-owner-second",
+      hostId: secondHost.id
+    });
+
+    fixture.attach({
+      ...scope,
+      runtimeAuthority: "owner_canvas",
+      hostId: firstHost.id,
+      operationId: "operation-owner-first",
+      executionAttemptId: "attempt-owner-first",
+      reservationLeaseId: "lease-owner-first",
+      contentRevision: 7,
+      graphFingerprint
+    });
+    fixture.attach({
+      ...scope,
+      runtimeAuthority: "owner_canvas",
+      hostId: secondHost.id,
+      operationId: "operation-owner-second",
+      executionAttemptId: "attempt-owner-second",
+      reservationLeaseId: "lease-owner-second",
+      contentRevision: 7,
+      graphFingerprint
+    });
+
+    expect(fixture.attachments.listProject(scope)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ hostId: firstHost.id }),
+        expect.objectContaining({ hostId: secondHost.id })
+      ])
+    );
   });
 
   it("does not fence a Canvas with an expired reservation", async () => {

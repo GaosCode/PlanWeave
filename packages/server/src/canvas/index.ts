@@ -10,6 +10,14 @@ export {
 } from "./limits.js";
 export { authorizeCanvasCommand, authorizeCanvasContent } from "./policy.js";
 export { ContentVersionRepository } from "./contentVersionRepository.js";
+export {
+  OwnerCanvasMaterializationRepository,
+  ownerCanvasMaterializationWorkspaceIdForScope
+} from "./ownerCanvasMaterializationRepository.js";
+export {
+  OwnerCanvasMaterializationService,
+  type OwnerCanvasMaterializationActivityFence
+} from "./ownerCanvasMaterializationService.js";
 export type { ContentAuthorityStore } from "./contentAuthorityStore.js";
 export type {
   AuthoritativeCanvasAcceptedCommit,

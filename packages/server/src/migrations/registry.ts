@@ -41,6 +41,7 @@ import { humanPrincipalWorkspaceBackfillMigration } from "./humanPrincipalWorksp
 import { humanIdentityCredentialsMigration } from "./humanIdentityCredentials.js";
 import { remoteOperationDiagnosticsMigration } from "./remoteOperationDiagnostics.js";
 import { remoteRunnerEventsMigration } from "./remoteRunnerEvents.js";
+import { ownerCanvasMaterializationMigration } from "./ownerCanvasMaterialization.js";
 import type { Migration, MigrationModule } from "./types.js";
 
 const identityModule: MigrationModule = { name: "identity", migrations: identityMigrations };
@@ -108,7 +109,8 @@ export const migrationModules: readonly MigrationModule[] = [
     ]
   },
   { name: "remote-operation-diagnostics", migrations: [remoteOperationDiagnosticsMigration] },
-  { name: "remote-runner-events", migrations: [remoteRunnerEventsMigration] }
+  { name: "remote-runner-events", migrations: [remoteRunnerEventsMigration] },
+  { name: "owner-canvas-materialization", migrations: [ownerCanvasMaterializationMigration] }
 ];
 
 const flattened = migrationModules.flatMap((module) => module.migrations);

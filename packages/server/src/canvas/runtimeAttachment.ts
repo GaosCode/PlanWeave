@@ -1,4 +1,7 @@
-import { opaqueIdentifierSchema } from "@planweave-ai/agent-host-protocol";
+import {
+  opaqueIdentifierSchema,
+  type ExecutionRuntimeAuthority
+} from "@planweave-ai/agent-host-protocol";
 import {
   canvasScopeRefSchema,
   workspaceIdSchema
@@ -22,6 +25,10 @@ export type RuntimeAttachmentRequest = RuntimeCanvasScope & {
   reservationLeaseId: string;
   contentRevision: number;
   graphFingerprint: string;
+};
+
+export type RuntimeAttachmentRecordRequest = RuntimeAttachmentRequest & {
+  runtimeAuthority: ExecutionRuntimeAuthority;
 };
 
 export type RuntimeAttachmentOrchestratorOptions = {
@@ -73,7 +80,7 @@ function conflictingLeaseHostId(
  */
 export function ensureRuntimeAttachmentForOperation(
   options: RuntimeAttachmentOrchestratorOptions,
-  request: RuntimeAttachmentRequest
+  request: RuntimeAttachmentRecordRequest
 ): void {
   const scope = canvasScopeRefSchema.parse({
     workspaceId: request.workspaceId,
@@ -83,13 +90,10 @@ export function ensureRuntimeAttachmentForOperation(
   const hostId = opaqueIdentifierSchema.parse(request.hostId);
   workspaceIdSchema.parse(scope.workspaceId);
   const nowIso = (options.clock ?? (() => new Date()))().toISOString();
-  const conflictHostId = conflictingLeaseHostId(
-    options.database,
-    scope,
-    hostId,
-    request.operationId,
-    nowIso
-  );
+  const conflictHostId =
+    request.runtimeAuthority === "workspace_canvas"
+      ? conflictingLeaseHostId(options.database, scope, hostId, request.operationId, nowIso)
+      : undefined;
   if (conflictHostId) {
     throw new CanvasRuntimeAttachmentConflictError("active_lease");
   }

@@ -1,16 +1,25 @@
 import { createServer, type Server as HttpServer } from "node:http";
 import { RemoteBlockRuntimeError } from "@planweave-ai/runtime";
 import { OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE } from "@planweave-ai/collaboration-protocol/remote-run";
+import { CONTENT_VERSION_MAX_MEMBERS } from "@planweave-ai/collaboration-protocol/core/limits";
+import { ownerCanvasMaterializationUploadMediaType } from "@planweave-ai/collaboration-protocol/owner-canvas/materialization";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentEndpointCatalogError } from "../agentEndpointCatalog.js";
 import { CanvasRuntimeUnavailableError } from "../canvas/executionRuntimePort.js";
+import { OwnerCanvasMaterializationUploadBudget } from "../canvas/ownerCanvasMaterializationHttp.js";
 import { CanvasRuntimeRpcError } from "../canvas/runtimeRpcBroker.js";
 import { applyMigrations } from "../migrations.js";
 import { OperatorSessionStore } from "../identity/operatorSessionStore.js";
+import { HumanIdentityCredentialStore } from "../identity/humanIdentityCredentialStore.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import { hashOperatorToken, OperatorTokenRegistry } from "../operatorAuth.js";
 import { RemoteExecutionActionRejectedError } from "../remoteExecutionActions.js";
-import { operatorDispatchRequestSchema } from "../operatorDtos.js";
+import {
+  OPERATOR_OWNER_TERMINAL_RESULT_MEDIA_TYPE,
+  OPERATOR_OWNER_TERMINAL_RESULT_METADATA_HEADER,
+  operatorDispatchRequestSchema,
+  operatorOwnerTerminalResultMetadataSchema
+} from "../operatorDtos.js";
 import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
 import { resolveServerBuildRevision } from "../packageInfo.js";
 import {
@@ -79,6 +88,9 @@ function control(): OperatorControlPort {
       return { operationId: "operation-1" };
     }),
     observeOperation: vi.fn(),
+    readOwnerOperationTerminalResult: vi.fn(),
+    inspectOwnerCanvasMaterializationHead: vi.fn(),
+    materializeOwnerCanvas: vi.fn(),
     executeAction: vi.fn(async () => {
       throw new Error("remote_action_attempt_version_conflict");
     }),
@@ -106,6 +118,15 @@ async function setup(
   const database = await openServerDatabase(":memory:", 5_000);
   databases.push(database);
   applyMigrations(database);
+  database
+    .prepare(
+      "INSERT INTO human_principals(human_principal_id,display_name,created_at) VALUES(?,?,?)"
+    )
+    .run("owner-human-1", "Owner", "2030-01-01T00:00:00.000Z");
+  const humanIdentity = new HumanIdentityCredentialStore(
+    database,
+    () => new Date("2030-01-01T00:00:00.000Z")
+  ).issue("owner-human-1");
   const workspaceId = new WorkspaceIdentityRepository(database).ensureWorkspaceForLegacyProject(
     "project-a"
   );
@@ -127,6 +148,10 @@ async function setup(
   const server = createServer((request, response) => {
     void handleOperatorHttpRequest(request, response, {
       authorization,
+      humanIdentityCredentials: new HumanIdentityCredentialStore(
+        database,
+        () => new Date("2030-01-01T00:00:00.000Z")
+      ),
       service,
       readiness: () => ({ status: readiness, schemaVersion: 1 }),
       serverVersion: "test",
@@ -141,7 +166,11 @@ async function setup(
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Expected HTTP address");
-  return { origin: `http://127.0.0.1:${address.port}`, service };
+  return {
+    origin: `http://127.0.0.1:${address.port}`,
+    service,
+    humanIdentityToken: humanIdentity.identityToken
+  };
 }
 
 const authorization = { Authorization: `Bearer ${token}` };
@@ -265,12 +294,19 @@ describe("operator HTTP boundary", () => {
     const workspaceLocator = await fetch(
       locatorUrl.replace(fixture.origin, workspaceMember.origin),
       {
-        headers: authorization
+        headers: {
+          ...authorization,
+          "x-planweave-human-identity": `Bearer ${workspaceMember.humanIdentityToken}`
+        }
       }
     );
     expect(workspaceLocator.status).toBe(200);
     expect(workspaceMember.service.listAgentEndpoints).toHaveBeenCalledWith(
-      expect.objectContaining({ serverAdmin: false, workspaceId: expect.any(String) }),
+      expect.objectContaining({
+        serverAdmin: false,
+        workspaceId: expect.any(String),
+        humanPrincipalId: "owner-human-1"
+      }),
       {
         projectId: "project-a",
         humanPrincipalId: "owner-human-1",
@@ -553,6 +589,113 @@ describe("operator HTTP boundary", () => {
     });
   });
 
+  it("streams an Owner terminal report larger than the Operator JSON limit", async () => {
+    const fixture = await setup(true);
+    const reportBytes = Buffer.alloc(70 * 1024, 0x61);
+    const metadata = operatorOwnerTerminalResultMetadataSchema.parse({
+      operationId: "operation-owner-1",
+      projectId: "project-owner-1",
+      canvasId: "canvas-owner-1",
+      blockRef: "T-001#B-001",
+      controlPlane: "owner",
+      sourceRevision: "source-revision-1",
+      graphFingerprint: `pkg-${"a".repeat(64)}`,
+      dispatchId: "dispatch-owner-1",
+      executionAttemptId: "attempt-owner-1",
+      reportArtifactRef: `artifact:sha256:${"b".repeat(64)}`
+    });
+    vi.mocked(fixture.service.readOwnerOperationTerminalResult).mockResolvedValueOnce({
+      metadata,
+      reportBytes
+    });
+
+    const response = await fetch(
+      `${fixture.origin}/api/v1/remote-operations/${metadata.operationId}/terminal-result`,
+      {
+        headers: {
+          ...authorization,
+          "x-planweave-human-identity": `Bearer ${fixture.humanIdentityToken}`
+        }
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe(OPERATOR_OWNER_TERMINAL_RESULT_MEDIA_TYPE);
+    expect(
+      operatorOwnerTerminalResultMetadataSchema.parse(
+        JSON.parse(
+          Buffer.from(
+            response.headers.get(OPERATOR_OWNER_TERMINAL_RESULT_METADATA_HEADER) ?? "",
+            "base64url"
+          ).toString("utf8")
+        )
+      )
+    ).toEqual(metadata);
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(reportBytes);
+  });
+
+  it("rejects Owner materialization member budgets before retaining an excess member", () => {
+    const countBudget = new OwnerCanvasMaterializationUploadBudget(2, 10);
+    countBudget.acceptMember(1);
+    countBudget.acceptMember(1);
+    expect(() => countBudget.acceptMember(1)).toThrowError(
+      "owner_canvas_materialization_member_count_too_large"
+    );
+
+    const sizeBudget = new OwnerCanvasMaterializationUploadBudget(3, 10);
+    sizeBudget.acceptMember(6);
+    expect(() => sizeBudget.acceptMember(5)).toThrowError(
+      "owner_canvas_materialization_total_bytes_too_large"
+    );
+  });
+
+  it("returns 413 immediately when an Owner materialization exceeds the member limit", async () => {
+    const fixture = await setup(true);
+    const frames = [
+      JSON.stringify({
+        type: "header",
+        request: {
+          schemaVersion: "owner-canvas-materialization/v1",
+          materializationId: "materialization-too-many-members",
+          scope: {
+            ownerHumanPrincipalId: "owner-human-1",
+            projectId: "project-a",
+            canvasId: "default"
+          },
+          expectedHead: { kind: "absent" }
+        }
+      }),
+      ...Array.from({ length: CONTENT_VERSION_MAX_MEMBERS + 1 }, (_, index) =>
+        JSON.stringify({
+          type: "member",
+          index,
+          member: {
+            kind: "block_prompt",
+            path: `nodes/T-001/blocks/B-${index}.prompt.md`,
+            content: "",
+            digestSha256: "0".repeat(64),
+            sizeBytes: 0
+          }
+        })
+      )
+    ];
+    const response = await fetch(`${fixture.origin}/api/v1/owner-canvas-materializations`, {
+      method: "POST",
+      headers: {
+        ...authorization,
+        "content-type": ownerCanvasMaterializationUploadMediaType,
+        "x-planweave-human-identity": `Bearer ${fixture.humanIdentityToken}`
+      },
+      body: `${frames.join("\n")}\n`
+    });
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toEqual(
+      expectedError("owner_canvas_materialization_member_count_too_large")
+    );
+    expect(fixture.service.materializeOwnerCanvas).not.toHaveBeenCalled();
+  });
+
   it("returns the build revision without leaking an unclassified operator failure", async () => {
     const fixture = await setup(true);
     vi.mocked(fixture.service.listHosts).mockImplementation(() => {
@@ -686,11 +829,36 @@ describe("operator HTTP boundary", () => {
     expect(missingPrincipal.status).toBe(400);
 
     const nonAdmin = await setup(true, "ready", false);
-    const forbidden = await fetch(
+    const owned = await fetch(
       `${nonAdmin.origin}/api/v1/remote-agents?humanPrincipalId=owner-human-1`,
-      { headers: authorization }
+      {
+        headers: {
+          ...authorization,
+          "x-planweave-human-identity": `Bearer ${nonAdmin.humanIdentityToken}`
+        }
+      }
     );
-    expect(forbidden.status).toBe(403);
-    expect(nonAdmin.service.listRemoteAgents).not.toHaveBeenCalled();
+    expect(owned.status).toBe(200);
+    expect(nonAdmin.service.listRemoteAgents).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverAdmin: false,
+        humanPrincipalId: "owner-human-1"
+      }),
+      { humanPrincipalId: "owner-human-1" }
+    );
+
+    const invalidIdentity = await fetch(
+      `${nonAdmin.origin}/api/v1/remote-agents?humanPrincipalId=owner-human-1`,
+      {
+        headers: {
+          ...authorization,
+          "x-planweave-human-identity": "Bearer invalid"
+        }
+      }
+    );
+    expect(invalidIdentity.status).toBe(401);
+    await expect(invalidIdentity.json()).resolves.toEqual(
+      expectedError("operator_human_identity_unauthorized")
+    );
   });
 });
