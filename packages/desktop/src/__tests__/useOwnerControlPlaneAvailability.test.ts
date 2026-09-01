@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { OperatorControlStatus, OperatorProfileView } from "../shared/operatorControl";
-import {
-  deriveFleetCatalogBlockedCode,
-  deriveLocalOwnerFleetCatalogAccess
-} from "../renderer/hooks/useOwnerControlPlaneAvailability";
+import { deriveFleetCatalogBlockedCode } from "../renderer/hooks/useOwnerControlPlaneAvailability";
 
 function profile(overrides: Partial<OperatorProfileView> = {}): OperatorProfileView {
   return {
@@ -83,45 +80,5 @@ describe("deriveFleetCatalogBlockedCode", () => {
     expect(deriveFleetCatalogBlockedCode(status(), { bridgeAvailable: false })).toBe(
       "operator_bridge_unavailable"
     );
-  });
-});
-
-describe("deriveLocalOwnerFleetCatalogAccess", () => {
-  const derive = (value: OperatorControlStatus | null) =>
-    deriveLocalOwnerFleetCatalogAccess(value, { bridgeAvailable: true });
-
-  it("selects the Desktop-hosted profile instead of the active remote profile", () => {
-    expect(
-      derive(
-        status({
-          activeProfileId: "profile-remote",
-          profiles: [
-            profile({ profileId: "profile-remote", hostedByThisDesktop: false }),
-            profile({ profileId: "profile-local", hostedByThisDesktop: true })
-          ]
-        })
-      )
-    ).toEqual({ enabled: true, operatorProfileId: "profile-local", blockedCode: null });
-  });
-
-  it("fails closed when the Desktop-hosted profile has no credential", () => {
-    expect(
-      derive(
-        status({
-          profiles: [
-            profile({
-              profileId: "profile-local",
-              hostedByThisDesktop: true,
-              hasOperatorCredential: false,
-              operatorCredentialPersistence: "missing"
-            })
-          ]
-        })
-      )
-    ).toEqual({
-      enabled: false,
-      operatorProfileId: "profile-local",
-      blockedCode: "operator_credential_missing"
-    });
   });
 });

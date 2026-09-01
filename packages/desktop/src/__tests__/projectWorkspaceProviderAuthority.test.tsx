@@ -90,12 +90,9 @@ vi.mock("../renderer/hooks/useWorkspaceRuntime", () => ({
 
 vi.mock("../renderer/hooks/useOwnerControlPlaneAvailability", () => ({
   useOwnerControlPlaneAvailability: () => ({
-    fleetCatalogEnabled: false,
-    operatorProfileId: null,
-    fleetCatalogBlockedCode: "operator_bridge_unavailable",
-    localFleetCatalogEnabled: true,
-    localOperatorProfileId: "profile-local-owner",
-    localFleetCatalogBlockedCode: null,
+    fleetCatalogEnabled: true,
+    operatorProfileId: "profile-remote-owner",
+    fleetCatalogBlockedCode: null,
     status: null,
     refresh: vi.fn().mockResolvedValue(undefined)
   })
@@ -646,7 +643,7 @@ describe("ProjectWorkspaceProvider startup authority", () => {
       expect(endpointCatalogProbe.input).toMatchObject({
         locator: { projectId: "authority-project-1", canvasId: "canvas-main" },
         enabled: true,
-        operatorProfileId: "profile-local-owner",
+        operatorProfileId: "profile-remote-owner",
         fleetCatalogBlockedCode: null
       })
     );

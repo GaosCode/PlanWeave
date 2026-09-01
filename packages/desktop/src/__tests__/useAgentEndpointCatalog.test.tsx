@@ -69,6 +69,42 @@ const workspaceLocator = {
 };
 
 describe("useAgentEndpointCatalog owner fleet", () => {
+  it("uses the active remote Operator profile for an ordinary canvas instead of a local Server", async () => {
+    const listOperatorAgentEndpoints = vi.fn(async () => ({
+      schemaVersion: "agent-endpoint-list/v1" as const,
+      items: [online]
+    }));
+    const listCollaborationAgentEndpoints = vi.fn(async () => ({
+      schemaVersion: "agent-endpoint-list/v1" as const,
+      items: [online]
+    }));
+    const { result } = renderHook(() =>
+      useAgentEndpointCatalog({
+        fleetApi: { listOperatorAgentEndpoints },
+        collaborationApi: { listCollaborationAgentEndpoints },
+        enabled: true,
+        sessionConnected: true,
+        logicalExecutors: [localCodex],
+        operatorProfileId: "operator-profile-remote",
+        humanPrincipalId: "human-owner-1",
+        locator: catalogLocator
+      })
+    );
+
+    await act(async () => undefined);
+    expect(listOperatorAgentEndpoints).toHaveBeenCalledWith({
+      profileId: "operator-profile-remote",
+      projectId: "project-local",
+      canvasId: "canvas-main",
+      humanPrincipalId: "human-owner-1"
+    });
+    expect(listCollaborationAgentEndpoints).not.toHaveBeenCalled();
+    expect(
+      result.current.endpoints.find((endpoint) => endpoint.id === "remote:endpoint-windows")
+    ).toMatchObject({ available: true, source: "remote" });
+    expect(result.current.errorCode).toBeNull();
+  });
+
   it("C1: loads remote endpoints when operator control plane is enabled without collaboration session", async () => {
     const listOperatorAgentEndpoints = vi.fn(async () => ({
       schemaVersion: "agent-endpoint-list/v1" as const,
@@ -108,7 +144,7 @@ describe("useAgentEndpointCatalog owner fleet", () => {
         fleetApi,
         collaborationApi: { listCollaborationAgentEndpoints },
         enabled: false,
-        sessionConnected: true,
+        sessionConnected: false,
         fleetCatalogBlockedCode: "operator_credential_missing",
         logicalExecutors: [localCodex],
         operatorProfileId: "operator-profile-1",

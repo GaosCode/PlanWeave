@@ -111,10 +111,10 @@ export function TaskInspectorWindow() {
   const agentEndpointCatalog = useWorkspaceAgentEndpointCatalog({
     agentDetections,
     agentTransport: settings.execution.agentTransport,
-    enabled: ownerControlPlane.localFleetCatalogEnabled,
-    fleetCatalogBlockedCode: ownerControlPlane.localFleetCatalogBlockedCode,
+    enabled: ownerControlPlane.fleetCatalogEnabled,
+    fleetCatalogBlockedCode: ownerControlPlane.fleetCatalogBlockedCode,
     graph,
-    operatorProfileId: ownerControlPlane.localOperatorProfileId,
+    operatorProfileId: ownerControlPlane.operatorProfileId,
     humanPrincipalId,
     locator: catalogLocator,
     collaborationApi: collaborationBridge,

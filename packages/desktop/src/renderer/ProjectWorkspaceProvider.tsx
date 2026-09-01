@@ -236,20 +236,13 @@ export function ProjectWorkspaceProvider({
       workspaceId: canvasLocator.workspaceId
     };
   }, [canvasLocator, graph?.projectId]);
-  const localCanvasAuthority = canvasLocator?.kind !== "workspace";
   const agentEndpointCatalog = useWorkspaceAgentEndpointCatalog({
     agentDetections,
     agentTransport: settings.execution.agentTransport,
-    enabled: localCanvasAuthority
-      ? ownerControlPlane.localFleetCatalogEnabled
-      : ownerControlPlane.fleetCatalogEnabled,
-    fleetCatalogBlockedCode: localCanvasAuthority
-      ? ownerControlPlane.localFleetCatalogBlockedCode
-      : ownerControlPlane.fleetCatalogBlockedCode,
+    enabled: ownerControlPlane.fleetCatalogEnabled,
+    fleetCatalogBlockedCode: ownerControlPlane.fleetCatalogBlockedCode,
     graph,
-    operatorProfileId: localCanvasAuthority
-      ? ownerControlPlane.localOperatorProfileId
-      : ownerControlPlane.operatorProfileId,
+    operatorProfileId: ownerControlPlane.operatorProfileId,
     humanPrincipalId,
     locator: catalogLocator,
     collaborationApi: collaborationBridge,
