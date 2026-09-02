@@ -1211,6 +1211,53 @@ describe("remote execution CLI", () => {
   );
 
   it(
+    "materializes and dispatches owner_canvas --canvas using the selected canvas id, not a nested child",
+    async () => {
+      const fixture = await remoteWorkspace({
+        dispatchMode: "action_required",
+        localCanvasId: "owner-cli"
+      });
+      const env = {
+        ...process.env,
+        PLANWEAVE_HOME: fixture.env.PLANWEAVE_HOME,
+        PLANWEAVE_OPERATOR_TOKEN: ownerExecutionOperatorToken,
+        PLANWEAVE_HUMAN_IDENTITY_TOKEN: exampleHumanIdentityToken,
+        PLANWEAVE_HUMAN_PRINCIPAL_ID: ownerExecutionHumanPrincipalId
+      };
+      delete env.PLANWEAVE_COLLABORATION_DEVICE_TOKEN;
+      try {
+        await writeOperatorExecutionProfiles({
+          home: fixture.env.PLANWEAVE_HOME!,
+          serverOrigin: fixture.serverOrigin
+        });
+        const started = await runCliExpectFailure(
+          [
+            ...skillOwnerRemoteRunArgv("T-001#B-001", "endpoint-codex", "profile-1"),
+            "--canvas",
+            fixture.localCanvasId
+          ],
+          env
+        );
+        expect(started.code).toBe(7);
+        expect(started.stderr).not.toContain("does not exist");
+        expect(started.stderr).not.toContain(`canvases/${fixture.localCanvasId}/canvases/`);
+        expect(fixture.server.ownerMaterializationCanvasIds).toEqual([
+          fixture.localCanvasId,
+          fixture.localCanvasId
+        ]);
+        expect(fixture.server.catalogCanvasIds).toEqual([fixture.localCanvasId]);
+        expect(fixture.server.ownerDispatchedCanvasId).toBe(fixture.localCanvasId);
+        expect(fixture.server.ownerDispatchCount).toBe(1);
+        expect(fixture.server.dispatchCount).toBe(0);
+        expect(fixture.server.workspaceScopedRemoteCalls).toEqual([]);
+      } finally {
+        await fixture.server.stop();
+      }
+    },
+    cliWorkflowTimeoutMs
+  );
+
+  it(
     "preserves Server fail-closed for a workspace_restricted Agent on owner_canvas",
     async () => {
       const fixture = await remoteWorkspace({

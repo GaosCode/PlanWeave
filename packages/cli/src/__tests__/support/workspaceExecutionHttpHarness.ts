@@ -91,6 +91,7 @@ export class WorkspaceExecutionHttpHarness {
   readonly replayQueries: number[] = [];
   readonly authorityScopes: CollaborationWorkScope[] = [];
   readonly catalogCanvasIds: string[] = [];
+  readonly ownerMaterializationCanvasIds: string[] = [];
   readonly dispatchReceived: Promise<void>;
   private resolveDispatchReceived!: () => void;
   private server: Server | null = null;
@@ -186,6 +187,10 @@ export class WorkspaceExecutionHttpHarness {
 
   get ownerCatalogCount(): number {
     return this.calls.filter((call) => call === "GET /api/v1/agent-endpoints").length;
+  }
+
+  get ownerDispatchedCanvasId(): string | undefined {
+    return this.ownerOperation ? this.dispatchIntent?.canvasId : undefined;
   }
 
   get ownerDispatchCount(): number {
@@ -518,6 +523,8 @@ export class WorkspaceExecutionHttpHarness {
       return true;
     }
     if (ownerHead) {
+      const canvasId = url.searchParams.get("canvasId") ?? "default";
+      this.ownerMaterializationCanvasIds.push(canvasId);
       writeJson(
         response,
         200,
@@ -526,7 +533,7 @@ export class WorkspaceExecutionHttpHarness {
           scope: {
             ownerHumanPrincipalId: ownerPrincipal,
             projectId: url.searchParams.get("projectId") ?? "project-1",
-            canvasId: url.searchParams.get("canvasId") ?? "default"
+            canvasId
           },
           head: this.ownerMaterializedDigest
             ? {
@@ -552,6 +559,7 @@ export class WorkspaceExecutionHttpHarness {
         request: { materializationId: string; scope: Record<string, string> };
       };
       const complete = frames.at(-1) as { canonicalDigest: string };
+      this.ownerMaterializationCanvasIds.push(header.request.scope.canvasId);
       this.ownerMaterializedDigest = complete.canonicalDigest;
       writeJson(
         response,

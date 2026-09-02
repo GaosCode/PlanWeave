@@ -45,8 +45,8 @@ export type OwnerCanvasCoordinatorContext = {
   localRuntime: RemoteBlockRuntimePort;
 };
 
-function workspacePath(workspace: PackageWorkspaceRef): string {
-  return typeof workspace === "string" ? workspace : workspace.packageDir;
+function ownerAuthorityPackageWorkspace(projectRoot: PackageWorkspaceRef): string {
+  return typeof projectRoot === "string" ? projectRoot : projectRoot.rootPath;
 }
 
 function ownerTransport(connection: CliOwnerConnection, credentials: CliOwnerCredentials) {
@@ -93,13 +93,20 @@ async function ownerCanvasIds(
   projectRoot: PackageWorkspaceRef,
   options: CanvasCommandOptions
 ): Promise<{ canvasId: string; projectId: string; workspace: PackageWorkspaceRef }> {
-  const canvasId = resolveCliCanvasId(options) ?? "default";
+  const requestedCanvasId = resolveCliCanvasId(options);
+  // `--canvas` is already resolved to the selected canvas package by the CLI
+  // workspace locator. Resolving that package again as a project child looks
+  // for canvases/<id>/canvases/<id>.
   const workspace =
     typeof projectRoot === "string"
-      ? await resolveTaskCanvasWorkspace(projectRoot, canvasId)
+      ? await resolveTaskCanvasWorkspace(projectRoot, requestedCanvasId ?? "default")
       : projectRoot;
   const loaded = await loadPlanGraphPackage(workspace);
-  return { canvasId, projectId: loaded.workspace.id, workspace };
+  return {
+    canvasId: requestedCanvasId ?? "default",
+    projectId: loaded.workspace.id,
+    workspace: loaded.workspace
+  };
 }
 
 async function materializeOwnerExpected(input: {
@@ -177,7 +184,7 @@ export async function createOwnerCanvasRunContext(input: {
     input.options.connectionProfile
   );
   const { canvasId, projectId, workspace } = await ownerCanvasIds(input.projectRoot, input.options);
-  const packageWorkspace = workspacePath(input.projectRoot);
+  const packageWorkspace = ownerAuthorityPackageWorkspace(input.projectRoot);
   const ports = createCliOwnerCanvasExecutionHttpPorts({
     transport: ownerTransport(connection, credentials),
     credentials
