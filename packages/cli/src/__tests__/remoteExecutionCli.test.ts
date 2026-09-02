@@ -19,16 +19,22 @@ import {
   runCli,
   runCliExpectFailure
 } from "./support/cliTestHarness.js";
+import { exampleHumanIdentityToken } from "@planweave-ai/collaboration-protocol/fixtures/collaboration";
 import {
+  ownerExecutionHumanPrincipalId,
+  ownerExecutionOperatorToken,
   workspaceExecutionToken,
   WorkspaceExecutionHttpHarness,
   type WorkspaceExecutionHttpFailure,
+  writeOperatorExecutionProfiles,
   writeWorkspaceExecutionProfiles
 } from "./support/workspaceExecutionHttpHarness.js";
 import {
   skillEndpointListArgv,
   skillInteractionListArgv,
   skillInteractionRespondArgv,
+  skillOwnerEndpointListArgv,
+  skillOwnerRemoteRunArgv,
   skillRemoteRunArgv,
   skillRunSessionResumeArgv
 } from "./support/workspaceExecutionSkillCommands.js";
@@ -50,6 +56,8 @@ async function remoteWorkspace(input: {
   httpFailure?: WorkspaceExecutionHttpFailure;
   recoveryMiss?: boolean;
   localCanvasId?: string;
+  ownerAccessMode?: "unrestricted" | "workspace_restricted";
+  terminalResultMismatch?: boolean;
 }) {
   const home = await mkdtemp(join(tmpdir(), "planweave-remote-cli-"));
   const env = {
@@ -117,6 +125,9 @@ async function remoteWorkspace(input: {
     replayTransition: input.replayTransition,
     httpFailure: input.httpFailure,
     recoveryMiss: input.recoveryMiss,
+    ownerAccessMode: input.ownerAccessMode,
+    ownerHumanPrincipalId: ownerExecutionHumanPrincipalId,
+    terminalResultMismatch: input.terminalResultMismatch,
     registryCanvases: [
       {
         canvasId: "default",
@@ -214,7 +225,8 @@ describe("remote execution CLI", () => {
         "--agent-endpoint",
         "--connection-profile",
         "--event-format",
-        "--follow"
+        "--follow",
+        "--authority"
       ])
     );
     expect(interactionRespondOptions).toEqual(
@@ -1120,6 +1132,315 @@ describe("remote execution CLI", () => {
           idempotencyKey: session.workspaceExecution?.dispatchIntent?.idempotencyKey
         });
         expect((await listRunSessions(fixture.init.workspace)).sessions).toHaveLength(1);
+      } finally {
+        await fixture.server.stop();
+      }
+    },
+    cliWorkflowTimeoutMs
+  );
+
+  it(
+    "lists and dispatches an owner canvas through unrestricted Remote Agent routes without Workspace grant",
+    async () => {
+      const fixture = await remoteWorkspace({ dispatchMode: "action_required" });
+      const env = {
+        ...process.env,
+        PLANWEAVE_HOME: fixture.env.PLANWEAVE_HOME,
+        PLANWEAVE_OPERATOR_TOKEN: ownerExecutionOperatorToken,
+        PLANWEAVE_HUMAN_IDENTITY_TOKEN: exampleHumanIdentityToken,
+        PLANWEAVE_HUMAN_PRINCIPAL_ID: ownerExecutionHumanPrincipalId
+      };
+      delete env.PLANWEAVE_COLLABORATION_DEVICE_TOKEN;
+      try {
+        await writeOperatorExecutionProfiles({
+          home: fixture.env.PLANWEAVE_HOME!,
+          serverOrigin: fixture.serverOrigin
+        });
+        const endpoints = await runCli(skillOwnerEndpointListArgv("default", "profile-1"), env);
+        expect(JSON.parse(endpoints.stdout).items).toHaveLength(1);
+        expect(fixture.server.ownerCatalogCount).toBe(1);
+        expect(fixture.server.workspaceScopedRemoteCalls).toEqual([]);
+
+        const started = await runCliExpectFailure(
+          skillOwnerRemoteRunArgv("T-001#B-001", "endpoint-codex", "profile-1"),
+          env
+        );
+        expect(started.code).toBe(7);
+        expect(started.stdout).not.toContain(ownerExecutionOperatorToken);
+        expect(started.stdout).not.toContain(exampleHumanIdentityToken);
+        expect(started.stderr).not.toContain(ownerExecutionOperatorToken);
+        expect(started.stderr).not.toContain(exampleHumanIdentityToken);
+        const sessionId = executionEvents(started.stdout)[0]!.runSessionId;
+        expect(fixture.server.ownerDispatchCount).toBe(1);
+        expect(fixture.server.dispatchCount).toBe(0);
+        expect(fixture.server.workspaceScopedRemoteCalls).toEqual([]);
+
+        const listed = await runCli(skillInteractionListArgv(sessionId, "profile-1"), env);
+        expect(JSON.parse(listed.stdout)).toEqual([
+          expect.objectContaining({ request: expect.objectContaining({ actionId: "action-1" }) })
+        ]);
+        const responded = await runCli(
+          skillInteractionRespondArgv({
+            sessionId,
+            dispatchId: "dispatch-1",
+            leaseId: "lease-1",
+            executionAttemptId: "attempt-1",
+            acpSessionId: "acp-session-1",
+            actionId: "action-1",
+            option: "allow_once",
+            profileId: "profile-1"
+          }),
+          env
+        );
+        expect(JSON.parse(responded.stdout)).toMatchObject({ type: "interaction_resolved" });
+        const resumed = await runCliExpectFailure(
+          skillRunSessionResumeArgv(sessionId, "profile-1"),
+          env
+        );
+        expect(resumed.code).toBe(7);
+        expect(executionEvents(resumed.stdout).map((event) => event.type)).toEqual(
+          expect.arrayContaining(["action_required"])
+        );
+        expect(fixture.server.ownerDispatchCount).toBe(1);
+        expect(fixture.server.workspaceScopedRemoteCalls).toEqual([]);
+      } finally {
+        await fixture.server.stop();
+      }
+    },
+    cliWorkflowTimeoutMs
+  );
+
+  it(
+    "preserves Server fail-closed for a workspace_restricted Agent on owner_canvas",
+    async () => {
+      const fixture = await remoteWorkspace({
+        dispatchMode: "action_required",
+        ownerAccessMode: "workspace_restricted"
+      });
+      const env = {
+        ...process.env,
+        PLANWEAVE_HOME: fixture.env.PLANWEAVE_HOME,
+        PLANWEAVE_OPERATOR_TOKEN: ownerExecutionOperatorToken,
+        PLANWEAVE_HUMAN_IDENTITY_TOKEN: exampleHumanIdentityToken,
+        PLANWEAVE_HUMAN_PRINCIPAL_ID: ownerExecutionHumanPrincipalId,
+        PLANWEAVE_COLLABORATION_DEVICE_TOKEN: workspaceExecutionToken
+      };
+      try {
+        await writeOperatorExecutionProfiles({
+          home: fixture.env.PLANWEAVE_HOME!,
+          serverOrigin: fixture.serverOrigin
+        });
+        const listed = await runCliExpectFailure(
+          skillOwnerEndpointListArgv("default", "profile-1"),
+          env
+        );
+        expect(listed).toMatchObject({ code: 5, stdout: "" });
+        expect(listed.stderr).toContain("remote_agent_workspace_scope_forbidden");
+        expect(listed.stderr).not.toContain(ownerExecutionOperatorToken);
+        expect(fixture.server.ownerCatalogCount).toBe(1);
+        expect(fixture.server.dispatchCount).toBe(0);
+        expect(fixture.server.ownerDispatchCount).toBe(0);
+        expect(fixture.server.workspaceScopedRemoteCalls).toEqual([]);
+
+        const started = await runCliExpectFailure(
+          skillOwnerRemoteRunArgv("T-001#B-001", "endpoint-codex", "profile-1"),
+          env
+        );
+        expect(started).toMatchObject({ code: 5, stdout: "" });
+        expect(started.stderr).toContain("remote_agent_workspace_scope_forbidden");
+        expect(started.stderr).not.toContain(exampleHumanIdentityToken);
+        expect(fixture.server.ownerDispatchCount).toBe(0);
+        expect(fixture.server.dispatchCount).toBe(0);
+        expect(fixture.server.workspaceScopedRemoteCalls).toEqual([]);
+      } finally {
+        await fixture.server.stop();
+      }
+    },
+    cliWorkflowTimeoutMs
+  );
+
+  it(
+    "fails owner credentials before Catalog or Dispatch and does not use Workspace tokens",
+    async () => {
+      const fixture = await remoteWorkspace({ dispatchMode: "action_required" });
+      try {
+        await writeOperatorExecutionProfiles({
+          home: fixture.env.PLANWEAVE_HOME!,
+          serverOrigin: fixture.serverOrigin
+        });
+        const missing = await runCliExpectFailure(
+          skillOwnerRemoteRunArgv("T-001#B-001", "endpoint-codex", "profile-1"),
+          {
+            ...process.env,
+            PLANWEAVE_HOME: fixture.env.PLANWEAVE_HOME,
+            PLANWEAVE_COLLABORATION_DEVICE_TOKEN: workspaceExecutionToken
+          }
+        );
+        expect(missing).toMatchObject({ code: 4, stdout: "" });
+        expect(missing.stderr).toContain("owner_identity_credential_required");
+        expect(missing.stderr).not.toContain(workspaceExecutionToken);
+        expect(fixture.server.ownerCatalogCount).toBe(0);
+        expect(fixture.server.ownerDispatchCount).toBe(0);
+        expect(fixture.server.catalogCount).toBe(0);
+        expect(fixture.server.dispatchCount).toBe(0);
+      } finally {
+        await fixture.server.stop();
+      }
+    },
+    cliWorkflowTimeoutMs
+  );
+
+  it(
+    "does not select a local collaboration Server or Workspace token for owner_canvas",
+    async () => {
+      const fixture = await remoteWorkspace({ dispatchMode: "action_required" });
+      try {
+        const failed = await runCliExpectFailure(
+          skillOwnerRemoteRunArgv("T-001#B-001", "endpoint-codex", "profile-1"),
+          {
+            ...process.env,
+            PLANWEAVE_HOME: fixture.env.PLANWEAVE_HOME,
+            PLANWEAVE_OPERATOR_TOKEN: ownerExecutionOperatorToken,
+            PLANWEAVE_HUMAN_IDENTITY_TOKEN: exampleHumanIdentityToken,
+            PLANWEAVE_HUMAN_PRINCIPAL_ID: ownerExecutionHumanPrincipalId,
+            PLANWEAVE_COLLABORATION_DEVICE_TOKEN: workspaceExecutionToken
+          }
+        );
+        expect(failed.code).toBe(3);
+        expect(failed.stderr).toContain("owner_connection_required");
+        expect(failed.stderr).not.toContain(ownerExecutionOperatorToken);
+        expect(failed.stderr).not.toContain(workspaceExecutionToken);
+        expect(fixture.server.ownerCatalogCount).toBe(0);
+        expect(fixture.server.catalogCount).toBe(0);
+        expect(fixture.server.dispatchCount).toBe(0);
+        expect(fixture.server.workspaceScopedRemoteCalls).toEqual([]);
+      } finally {
+        await fixture.server.stop();
+      }
+    },
+    cliWorkflowTimeoutMs
+  );
+
+  it(
+    "completes owner_canvas writeback from terminal-result without treating activate-only as success",
+    async () => {
+      const fixture = await remoteWorkspace({ dispatchMode: "completed" });
+      const env = {
+        ...process.env,
+        PLANWEAVE_HOME: fixture.env.PLANWEAVE_HOME,
+        PLANWEAVE_OPERATOR_TOKEN: ownerExecutionOperatorToken,
+        PLANWEAVE_HUMAN_IDENTITY_TOKEN: exampleHumanIdentityToken,
+        PLANWEAVE_HUMAN_PRINCIPAL_ID: ownerExecutionHumanPrincipalId
+      };
+      delete env.PLANWEAVE_COLLABORATION_DEVICE_TOKEN;
+      try {
+        await writeOperatorExecutionProfiles({
+          home: fixture.env.PLANWEAVE_HOME!,
+          serverOrigin: fixture.serverOrigin
+        });
+        const started = await runCli(
+          skillOwnerRemoteRunArgv("T-001#B-001", "endpoint-codex", "profile-1"),
+          env
+        );
+        expect(started.stderr).toBe("");
+        expect(started.stdout).not.toContain(ownerExecutionOperatorToken);
+        expect(started.stdout).not.toContain(exampleHumanIdentityToken);
+        expect(fixture.server.ownerTerminalResultCount).toBe(1);
+        expect(fixture.server.ownerTerminalResultAuth).toEqual([
+          {
+            hasOperatorAuthorization: true,
+            hasHumanIdentity: true,
+            usedWorkspaceToken: false
+          }
+        ]);
+        expect(fixture.server.workspaceScopedRemoteCalls).toEqual([]);
+        const view = await createRemoteBlockRuntimePort({
+          projectRoot: fixture.init.workspace
+        }).query({ ref: "T-001#B-001", operationId: "operation-1" });
+        expect(view.terminalReceipt).toMatchObject({
+          outcome: "completed",
+          operationId: "operation-1"
+        });
+      } finally {
+        await fixture.server.stop();
+      }
+    },
+    cliWorkflowTimeoutMs
+  );
+
+  it(
+    "fails closed when owner terminal-result identity does not match the bound operation",
+    async () => {
+      const fixture = await remoteWorkspace({
+        dispatchMode: "completed",
+        terminalResultMismatch: true
+      });
+      const env = {
+        ...process.env,
+        PLANWEAVE_HOME: fixture.env.PLANWEAVE_HOME,
+        PLANWEAVE_OPERATOR_TOKEN: ownerExecutionOperatorToken,
+        PLANWEAVE_HUMAN_IDENTITY_TOKEN: exampleHumanIdentityToken,
+        PLANWEAVE_HUMAN_PRINCIPAL_ID: ownerExecutionHumanPrincipalId
+      };
+      delete env.PLANWEAVE_COLLABORATION_DEVICE_TOKEN;
+      try {
+        await writeOperatorExecutionProfiles({
+          home: fixture.env.PLANWEAVE_HOME!,
+          serverOrigin: fixture.serverOrigin
+        });
+        const failed = await runCliExpectFailure(
+          skillOwnerRemoteRunArgv("T-001#B-001", "endpoint-codex", "profile-1"),
+          env
+        );
+        expect(failed.code).toBe(5);
+        expect(failed.stderr).toContain("owner_canvas_terminal_result_identity_mismatch");
+        expect(failed.stderr).not.toContain(ownerExecutionOperatorToken);
+        expect(failed.stderr).not.toContain(exampleHumanIdentityToken);
+        expect(fixture.server.ownerTerminalResultCount).toBe(1);
+        expect(fixture.server.ownerDispatchCount).toBe(1);
+        const view = await createRemoteBlockRuntimePort({
+          projectRoot: fixture.init.workspace
+        }).query({ ref: "T-001#B-001", operationId: "operation-1" });
+        expect(view.terminalReceipt).toBeUndefined();
+      } finally {
+        await fixture.server.stop();
+      }
+    },
+    cliWorkflowTimeoutMs
+  );
+
+  it.each(["failed", "cancelled"] as const)(
+    "fails owner_canvas %s locally without fetching terminal-result or completing",
+    async (dispatchMode) => {
+      const fixture = await remoteWorkspace({ dispatchMode });
+      const env = {
+        ...process.env,
+        PLANWEAVE_HOME: fixture.env.PLANWEAVE_HOME,
+        PLANWEAVE_OPERATOR_TOKEN: ownerExecutionOperatorToken,
+        PLANWEAVE_HUMAN_IDENTITY_TOKEN: exampleHumanIdentityToken,
+        PLANWEAVE_HUMAN_PRINCIPAL_ID: ownerExecutionHumanPrincipalId
+      };
+      delete env.PLANWEAVE_COLLABORATION_DEVICE_TOKEN;
+      try {
+        await writeOperatorExecutionProfiles({
+          home: fixture.env.PLANWEAVE_HOME!,
+          serverOrigin: fixture.serverOrigin
+        });
+        const started = await runCliExpectFailure(
+          skillOwnerRemoteRunArgv("T-001#B-001", "endpoint-codex", "profile-1"),
+          env
+        );
+        expect(started.code).toBe(8);
+        expect(started.stderr).not.toContain(ownerExecutionOperatorToken);
+        expect(started.stdout).not.toContain(exampleHumanIdentityToken);
+        expect(fixture.server.ownerTerminalResultCount).toBe(0);
+        const view = await createRemoteBlockRuntimePort({
+          projectRoot: fixture.init.workspace
+        }).query({ ref: "T-001#B-001", operationId: "operation-1" });
+        expect(view.terminalReceipt).toMatchObject({
+          outcome: "failed",
+          operationId: "operation-1"
+        });
       } finally {
         await fixture.server.stop();
       }

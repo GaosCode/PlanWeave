@@ -7,7 +7,9 @@ import {
 
 const posixSystemPathEntries = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"];
 export const DEFAULT_EXECUTION_CONTROL_SECRET_NAMES = [
-  "PLANWEAVE_COLLABORATION_DEVICE_TOKEN"
+  "PLANWEAVE_COLLABORATION_DEVICE_TOKEN",
+  "PLANWEAVE_OPERATOR_TOKEN",
+  "PLANWEAVE_HUMAN_IDENTITY_TOKEN"
 ] as const;
 let agentProcessEnvironmentOverlay: Readonly<NodeJS.ProcessEnv> | null = null;
 

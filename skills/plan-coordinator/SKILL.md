@@ -107,12 +107,26 @@ The coordinator may submit an artifact after a worker returns it, but must not a
 
 ## Remote Agent CLI Execution
 
-- Remote Workspace execution requires preconfigured CLI connection metadata and a process-memory credential. Select a profile with `--connection-profile <profile-id>` when more than one profile is configured, and provide `PLANWEAVE_COLLABORATION_DEVICE_TOKEN` in the coordinator process environment. The CLI does not perform login, read Electron secure storage, or provide zero-configuration authentication.
+Remote execution uses the official CLI only. Do not call Desktop IPC, renderer operator APIs, or Electron safeStorage. The CLI does not perform login or provide zero-configuration authentication. Default `--authority` is `workspace_canvas`; keep the Workspace command chain unchanged unless the canvas is an unpublished owner canvas.
+
+### Workspace Canvas (`workspace_canvas`)
+
+- Requires a preconfigured collaboration profile and `PLANWEAVE_COLLABORATION_DEVICE_TOKEN` in the coordinator process environment. Select a profile with `--connection-profile <profile-id>` when more than one profile is configured.
 - Preflight the authorized Remote Agent catalog with `<pw> agent-endpoints list --canvas <canvas-id> --connection-profile <profile-id> --json`. A missing credential, wrong Workspace authority, zero eligible endpoints, or multiple eligible endpoints is a blocking result; do not bypass it with operator routes or Desktop IPC.
 - Dispatch one block through the shared Workspace execution coordinator with `<pw> run --once --target remote --scope block --block <ref> --agent-endpoint <endpoint-id> --connection-profile <profile-id> --event-format execution-v1`. Omit `--agent-endpoint` only when the authorized catalog has exactly one eligible endpoint. Use `--target auto` only when local execution is acceptable; the CLI probes local availability before choosing one authority and never launches locally before remote fallback.
+
+### Owner / unpublished canvas (`owner_canvas`)
+
+- Requires an operator profile from `PLANWEAVE_HOME/desktop/operator-control/profiles.json` plus process-memory `PLANWEAVE_OPERATOR_TOKEN`, `PLANWEAVE_HUMAN_IDENTITY_TOKEN`, and `PLANWEAVE_HUMAN_PRINCIPAL_ID`. Select the operator profile with `--connection-profile <profile-id>` when more than one profile is configured. Do not read `credentials.json`, Workspace device tokens, or local collaboration Server profiles.
+- An unrestricted Human-owned Remote Agent does not require a Workspace grant. A `workspace_restricted` Agent must fail closed; do not retry the same run as `workspace_canvas` and do not use owner credentials to bypass Server policy.
+- Preflight with `<pw> agent-endpoints list --canvas <canvas-id> --connection-profile <profile-id> --authority owner_canvas --json`.
+- Dispatch with `<pw> run --once --target remote --scope block --block <ref> --agent-endpoint <endpoint-id> --connection-profile <profile-id> --authority owner_canvas --event-format execution-v1`. CLI may call public owner operator HTTP routes internally; the coordinator must not invoke Desktop IPC.
+
+### Observation, interaction, and resume
+
 - Treat each `execution-event/v1` NDJSON line as an independent schema-valid event. Preserve its session id, attempt, cursor, and retention fields when recording evidence. A transport failure is retryable and is not a terminal execution event.
 - On `action_required`, inspect `<pw> interaction list --session <session-id> --connection-profile <profile-id> --json`, then settle the complete interaction identity with `<pw> interaction respond --session <session-id> --dispatch <dispatch-id> --lease <lease-id> --attempt <execution-attempt-id> --acp-session <acp-session-id> --action <action-id> --option <value> --connection-profile <profile-id>`. Use `--cancel` only when the requested interaction supports cancellation; do not reproduce the Server settlement state machine.
-- After interruption or coordinator restart, resume the exact persisted operation with `<pw> run-session <session-id> --follow --event-format execution-v1 --connection-profile <profile-id>`. Recovery is bound to the stored canvas, block, and idempotency identity; never substitute the latest operation in that scope.
+- After interruption or coordinator restart, resume the exact persisted operation with `<pw> run-session <session-id> --follow --event-format execution-v1 --connection-profile <profile-id>`. The parent must re-inject the same authority's process-memory credentials; recovery is bound to the stored canvas, block, and idempotency identity; never substitute the latest operation in that scope.
 - Interpret stable exits as follows: `0` accepted/terminal success, `2` usage, `3` connection selection, `4` credential/authentication, `5` authority/conflict, `6` endpoint selection/unavailable, `7` action required, `8` terminal execution failure, `9` retryable transport/probe failure, and `130` Ctrl-C.
 
 ## Review And Feedback

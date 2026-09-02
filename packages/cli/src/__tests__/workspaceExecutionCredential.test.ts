@@ -2,16 +2,23 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { exampleHumanIdentityToken } from "@planweave-ai/collaboration-protocol/fixtures/collaboration";
 import {
   CliWorkspaceConnectionProvider,
   ProcessMemoryWorkspaceCredentialProvider
 } from "../workspaceExecution/connection.js";
+import {
+  CliOwnerConnectionProvider,
+  ProcessMemoryOwnerCredentialProvider
+} from "../workspaceExecution/ownerConnection.js";
 import { WorkspaceExecutionCliError } from "../workspaceExecution/errors.js";
 import { workspaceExecutionExitCode } from "../workspaceExecution/errors.js";
 import { createWorkspaceJsonTransport } from "../workspaceExecution/httpTransport.js";
 import { resolveCliExecutionTarget } from "../workspaceExecution/preflight.js";
 
 const token = `pw_hdev_${"a".repeat(43)}`;
+const operatorToken = "operator_token_abcdefghijklmnopqrstuvwxyz_1234";
+const humanPrincipalId = "human-owner-1";
 const originalFetch = globalThis.fetch;
 
 afterEach(() => {
@@ -212,6 +219,109 @@ describe("Workspace execution CLI connection and credential", () => {
     );
     abort.abort(new DOMException("caller cancelled", "AbortError"));
     await expect(request).rejects.toMatchObject({ name: "AbortError" });
+  });
+});
+
+describe("owner canvas CLI connection and credential", () => {
+  it("requires owner process-memory credentials and never includes their values in errors", () => {
+    expect(() => new ProcessMemoryOwnerCredentialProvider({}).get()).toThrowError(
+      "owner_identity_credential_required"
+    );
+    expect(() =>
+      new ProcessMemoryOwnerCredentialProvider({
+        PLANWEAVE_OPERATOR_TOKEN: "short",
+        PLANWEAVE_HUMAN_IDENTITY_TOKEN: exampleHumanIdentityToken,
+        PLANWEAVE_HUMAN_PRINCIPAL_ID: humanPrincipalId
+      }).get()
+    ).toThrowError("owner_identity_credential_invalid");
+    expect(
+      new ProcessMemoryOwnerCredentialProvider({
+        PLANWEAVE_OPERATOR_TOKEN: operatorToken,
+        PLANWEAVE_HUMAN_IDENTITY_TOKEN: exampleHumanIdentityToken,
+        PLANWEAVE_HUMAN_PRINCIPAL_ID: humanPrincipalId
+      }).get()
+    ).toEqual({
+      operatorToken,
+      humanIdentityToken: exampleHumanIdentityToken,
+      humanPrincipalId
+    });
+  });
+
+  it("selects one operator profile and does not read Workspace collaboration profiles", async () => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-cli-owner-profiles-"));
+    const directory = join(root, "desktop", "operator-control");
+    await mkdir(directory, { recursive: true });
+    const operatorProfiles = join(directory, "profiles.json");
+    await writeFile(
+      operatorProfiles,
+      JSON.stringify({
+        version: 1,
+        profiles: [
+          {
+            profileId: "owner-0",
+            displayName: "Owner 0",
+            serverBaseUrl: "http://127.0.0.1:43110/",
+            allowInsecureTransport: true
+          }
+        ],
+        activeProfileId: "owner-0"
+      })
+    );
+    const provider = new CliOwnerConnectionProvider({ operatorProfiles });
+    await expect(provider.resolve()).resolves.toMatchObject({ profileId: "owner-0" });
+    const empty = new CliOwnerConnectionProvider({
+      operatorProfiles: join(root, "missing.json")
+    });
+    await expect(empty.resolve()).rejects.toMatchObject({ code: "owner_connection_required" });
+  });
+
+  it("sends operator and Human identity headers without echoing token values", async () => {
+    let authorization: string | null = null;
+    let identity: string | null = null;
+    const transport = createWorkspaceJsonTransport({
+      serverOrigin: "https://server.example",
+      credential: operatorToken,
+      identityCredential: exampleHumanIdentityToken,
+      fetch: async (_url, options) => {
+        const headers = new Headers(options?.headers);
+        authorization = headers.get("authorization");
+        identity = headers.get("x-planweave-human-identity");
+        return Response.json({ ok: true });
+      }
+    });
+    const result = await transport.json("GET", "/test", {
+      safeParse: (value) => ({ success: true as const, data: value })
+    });
+    expect(result).toEqual({ ok: true });
+    expect(authorization).toBe(`Bearer ${operatorToken}`);
+    expect(identity).toBe(`Bearer ${exampleHumanIdentityToken}`);
+    expect(JSON.stringify(result)).not.toContain(operatorToken);
+    expect(JSON.stringify(result)).not.toContain(exampleHumanIdentityToken);
+  });
+
+  it("keeps owner identity headers on binary terminal-result reads without echoing tokens", async () => {
+    let authorization: string | null = null;
+    let identity: string | null = null;
+    const transport = createWorkspaceJsonTransport({
+      serverOrigin: "https://server.example",
+      credential: operatorToken,
+      identityCredential: exampleHumanIdentityToken,
+      fetch: async (_url, options) => {
+        const headers = new Headers(options?.headers);
+        authorization = headers.get("authorization");
+        identity = headers.get("x-planweave-human-identity");
+        return new Response("report", {
+          headers: { "content-type": "application/octet-stream" }
+        });
+      }
+    });
+    const result = await transport.bytes("GET", "/terminal-result", {
+      accept: "application/octet-stream"
+    });
+    expect(authorization).toBe(`Bearer ${operatorToken}`);
+    expect(identity).toBe(`Bearer ${exampleHumanIdentityToken}`);
+    expect(Buffer.from(result.body).toString("utf8")).toBe("report");
+    expect(JSON.stringify({ accept: "application/octet-stream" })).not.toContain(operatorToken);
   });
 });
 

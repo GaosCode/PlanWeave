@@ -51,10 +51,12 @@
   },
   "dependencies": {
     "@planweave-ai/agent-host": "workspace:*",
+    "@planweave-ai/agent-host-protocol": "workspace:*",
     "@planweave-ai/collaboration-protocol": "workspace:*",
     "@planweave-ai/mcp": "workspace:*",
     "@planweave-ai/runtime": "workspace:*",
-    "commander": "^14.0.2"
+    "commander": "^14.0.2",
+    "zod": "^4.1.12"
   },
   "devDependencies": {}
 }

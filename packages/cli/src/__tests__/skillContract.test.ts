@@ -139,6 +139,10 @@ describe("agent skill contract docs", () => {
     );
     for (const marker of [
       "PLANWEAVE_COLLABORATION_DEVICE_TOKEN",
+      "PLANWEAVE_OPERATOR_TOKEN",
+      "PLANWEAVE_HUMAN_IDENTITY_TOKEN",
+      "PLANWEAVE_HUMAN_PRINCIPAL_ID",
+      "--authority owner_canvas",
       "agent-endpoints list",
       "--target remote",
       "interaction list --session",

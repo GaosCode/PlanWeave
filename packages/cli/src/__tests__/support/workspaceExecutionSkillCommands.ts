@@ -92,3 +92,15 @@ export function skillRunSessionResumeArgv(sessionId: string, profileId: string):
     profileId
   ];
 }
+
+export function skillOwnerEndpointListArgv(canvasId: string, profileId: string): string[] {
+  return [...skillEndpointListArgv(canvasId, profileId), "--authority", "owner_canvas"];
+}
+
+export function skillOwnerRemoteRunArgv(
+  blockRef: string,
+  endpointId: string,
+  profileId: string
+): string[] {
+  return [...skillRemoteRunArgv(blockRef, endpointId, profileId), "--authority", "owner_canvas"];
+}

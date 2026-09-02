@@ -7,13 +7,31 @@ type RuntimeSchema<T> = {
   safeParse(value: unknown): { success: true; data: T } | { success: false };
 };
 
+export type WorkspaceJsonRequestOptions = {
+  body?: unknown;
+  rawBody?: string;
+  signal?: AbortSignal;
+  accept?: string;
+  contentType?: string;
+};
+
+export type WorkspaceBytesResponse = {
+  headers: Headers;
+  body: Uint8Array;
+};
+
 export type WorkspaceJsonTransport = {
   json<T>(
     method: "GET" | "POST",
     path: string,
     schema: RuntimeSchema<T>,
-    options?: { body?: unknown; signal?: AbortSignal }
+    options?: WorkspaceJsonRequestOptions
   ): Promise<T>;
+  bytes(
+    method: "GET" | "POST",
+    path: string,
+    options?: WorkspaceJsonRequestOptions & { maxBytes?: number }
+  ): Promise<WorkspaceBytesResponse>;
 };
 
 function serverErrorCode(value: unknown): string | undefined {
@@ -168,43 +186,68 @@ async function fetchWithDeadline(input: {
 export function createWorkspaceJsonTransport(input: {
   serverOrigin: string;
   credential: string;
+  identityCredential?: string;
   fetch?: typeof fetch;
   timeoutMs?: number;
 }): WorkspaceJsonTransport {
   const request = input.fetch ?? fetch;
+
+  async function send(
+    method: "GET" | "POST",
+    path: string,
+    options: WorkspaceJsonRequestOptions = {}
+  ): Promise<Response> {
+    if (options.body !== undefined && options.rawBody !== undefined) {
+      throw new WorkspaceExecutionCliError("workspace_execution_usage_invalid", 2);
+    }
+    const body =
+      options.rawBody ?? (options.body === undefined ? undefined : JSON.stringify(options.body));
+    const headers: Record<string, string> = {
+      authorization: `Bearer ${input.credential}`,
+      accept: options.accept ?? "application/json"
+    };
+    if (input.identityCredential) {
+      headers["x-planweave-human-identity"] = `Bearer ${input.identityCredential}`;
+    }
+    if (body !== undefined) {
+      const contentType =
+        options.contentType ?? (options.rawBody === undefined ? "application/json" : undefined);
+      if (!contentType) {
+        throw new WorkspaceExecutionCliError("workspace_execution_usage_invalid", 2);
+      }
+      headers["content-type"] = contentType;
+    }
+    try {
+      return await fetchWithDeadline({
+        request,
+        url: new URL(path, input.serverOrigin),
+        callerSignal: options.signal,
+        timeoutMs: input.timeoutMs ?? WORKSPACE_HTTP_TIMEOUT_MS,
+        init: {
+          method,
+          headers,
+          ...(body === undefined ? {} : { body })
+        }
+      });
+    } catch (error) {
+      if (error instanceof WorkspaceExecutionCliError) throw error;
+      if (options.signal?.aborted) {
+        throw options.signal.reason ?? new DOMException("Aborted", "AbortError");
+      }
+      if (error instanceof DOMException && error.name === "AbortError") throw error;
+      throw new WorkspaceExecutionCliError(
+        "workspace_http_unavailable",
+        9,
+        true,
+        { cause: error },
+        "unavailable"
+      );
+    }
+  }
+
   return {
     async json(method, path, schema, options = {}) {
-      let response: Response;
-      try {
-        response = await fetchWithDeadline({
-          request,
-          url: new URL(path, input.serverOrigin),
-          callerSignal: options.signal,
-          timeoutMs: input.timeoutMs ?? WORKSPACE_HTTP_TIMEOUT_MS,
-          init: {
-            method,
-            headers: {
-              authorization: `Bearer ${input.credential}`,
-              accept: "application/json",
-              ...(options.body === undefined ? {} : { "content-type": "application/json" })
-            },
-            ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) })
-          }
-        });
-      } catch (error) {
-        if (error instanceof WorkspaceExecutionCliError) throw error;
-        if (options.signal?.aborted) {
-          throw options.signal.reason ?? new DOMException("Aborted", "AbortError");
-        }
-        if (error instanceof DOMException && error.name === "AbortError") throw error;
-        throw new WorkspaceExecutionCliError(
-          "workspace_http_unavailable",
-          9,
-          true,
-          { cause: error },
-          "unavailable"
-        );
-      }
+      const response = await send(method, path, options);
       if (!response.ok) throw httpError(response.status, await responseErrorCode(response));
       let payload: unknown;
       try {
@@ -219,6 +262,22 @@ export function createWorkspaceJsonTransport(input: {
         throw new WorkspaceExecutionCliError("workspace_http_invalid_response", 9, true);
       }
       return parsed.data;
+    },
+    async bytes(method, path, options = {}) {
+      const response = await send(method, path, options);
+      if (!response.ok) throw httpError(response.status, await responseErrorCode(response));
+      let body: Uint8Array;
+      try {
+        body = new Uint8Array(await response.arrayBuffer());
+      } catch (error) {
+        throw new WorkspaceExecutionCliError("workspace_http_invalid_response", 9, true, {
+          cause: error
+        });
+      }
+      if (options.maxBytes !== undefined && body.byteLength > options.maxBytes) {
+        throw new WorkspaceExecutionCliError("workspace_http_invalid_response", 9, true);
+      }
+      return { headers: response.headers, body };
     }
   };
 }

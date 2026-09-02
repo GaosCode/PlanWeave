@@ -1,9 +1,23 @@
-import { createServer, type Server, type ServerResponse } from "node:http";
+import { createHash } from "node:crypto";
+import {
+  createServer,
+  type IncomingHttpHeaders,
+  type Server,
+  type ServerResponse
+} from "node:http";
+import {
+  OPERATOR_OWNER_TERMINAL_RESULT_MEDIA_TYPE,
+  OPERATOR_OWNER_TERMINAL_RESULT_METADATA_HEADER
+} from "@planweave-ai/agent-host-protocol";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { remoteAgentEndpointListSchema } from "@planweave-ai/collaboration-protocol/agent-endpoint";
 import { canvasRuntimeAvailabilityV2Schema } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import { canvasAccessPageSchema } from "@planweave-ai/collaboration-protocol/access/project";
+import {
+  ownerCanvasMaterializationHeadViewSchema,
+  ownerCanvasMaterializationResultSchema
+} from "@planweave-ai/collaboration-protocol/owner-canvas/materialization";
 import {
   remoteDispatchIntentV3Schema,
   remoteEndpointOperationObservationSchema,
@@ -22,6 +36,8 @@ import {
 } from "@planweave-ai/collaboration-protocol/work/responsibility";
 
 export const workspaceExecutionToken = `pw_hdev_${"a".repeat(43)}`;
+export const ownerExecutionOperatorToken = "operator_token_abcdefghijklmnopqrstuvwxyz_1234";
+export const ownerExecutionHumanPrincipalId = "human-owner-1";
 
 const endpoint = {
   schemaVersion: "agent-endpoint/v1" as const,
@@ -59,10 +75,14 @@ function writeJson(response: ServerResponse, status: number, body: unknown): voi
   response.end(JSON.stringify(body));
 }
 
-async function readJson(request: AsyncIterable<Uint8Array>): Promise<unknown> {
+async function readText(request: AsyncIterable<Uint8Array>): Promise<string> {
   const chunks: Uint8Array[] = [];
   for await (const chunk of request) chunks.push(chunk);
-  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+async function readJson(request: AsyncIterable<Uint8Array>): Promise<unknown> {
+  return JSON.parse(await readText(request));
 }
 
 export class WorkspaceExecutionHttpHarness {
@@ -75,6 +95,8 @@ export class WorkspaceExecutionHttpHarness {
   private resolveDispatchReceived!: () => void;
   private server: Server | null = null;
   private dispatchIntent: RemoteDispatchIntentV3 | null = null;
+  private ownerOperation = false;
+  private ownerMaterializedDigest: string | null = null;
   private readonly settledInteractions = new Set<number>();
   private settlementFailure: SettlementFailure | null = null;
 
@@ -92,6 +114,9 @@ export class WorkspaceExecutionHttpHarness {
       recoveryMiss?: boolean;
       registryCanvases: readonly WorkspaceExecutionRegistryCanvas[];
       registryPageSize?: number;
+      ownerHumanPrincipalId?: string;
+      ownerAccessMode?: "unrestricted" | "workspace_restricted";
+      terminalResultMismatch?: boolean;
     }
   ) {
     this.dispatchReceived = new Promise((resolve) => {
@@ -159,6 +184,28 @@ export class WorkspaceExecutionHttpHarness {
     return this.calls.filter((call) => call.endsWith("/agent-endpoints")).length;
   }
 
+  get ownerCatalogCount(): number {
+    return this.calls.filter((call) => call === "GET /api/v1/agent-endpoints").length;
+  }
+
+  get ownerDispatchCount(): number {
+    return this.calls.filter((call) => call === "POST /api/v1/remote-operations").length;
+  }
+
+  get workspaceScopedRemoteCalls(): string[] {
+    return this.calls.filter((call) => call.includes("/api/v1/projects/"));
+  }
+
+  get ownerTerminalResultCount(): number {
+    return this.calls.filter((call) => call.endsWith("/terminal-result")).length;
+  }
+
+  readonly ownerTerminalResultAuth: Array<{
+    hasOperatorAuthorization: boolean;
+    hasHumanIdentity: boolean;
+    usedWorkspaceToken: boolean;
+  }> = [];
+
   private async route(
     request: AsyncIterable<Uint8Array> & { method?: string; url?: string },
     response: ServerResponse
@@ -166,6 +213,7 @@ export class WorkspaceExecutionHttpHarness {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
     const method = request.method ?? "GET";
     this.calls.push(`${method} ${url.pathname}`);
+    if (await this.routeOwner(request, url, method, response)) return;
 
     if (url.pathname.endsWith("/assignments/authority") && method === "GET") {
       if (this.input.httpFailure?.stage === "authority") {
@@ -400,6 +448,193 @@ export class WorkspaceExecutionHttpHarness {
     writeJson(response, 404, { error: "not_found" });
   }
 
+  private async routeOwner(
+    request: AsyncIterable<Uint8Array> & {
+      method?: string;
+      url?: string;
+      headers?: IncomingHttpHeaders;
+    },
+    url: URL,
+    method: string,
+    response: ServerResponse
+  ): Promise<boolean> {
+    const ownerPrincipal = this.input.ownerHumanPrincipalId ?? ownerExecutionHumanPrincipalId;
+    const ownerCatalog = url.pathname === "/api/v1/agent-endpoints" && method === "GET";
+    const ownerDispatch = url.pathname === "/api/v1/remote-operations" && method === "POST";
+    const ownerHead =
+      url.pathname === "/api/v1/owner-canvas-materializations/head" && method === "GET";
+    const ownerMaterialize =
+      url.pathname === "/api/v1/owner-canvas-materializations" && method === "POST";
+    const ownerTerminalResult =
+      /^\/api\/v1\/remote-operations\/[^/]+\/terminal-result$/.test(url.pathname) &&
+      method === "GET";
+    if (
+      !ownerCatalog &&
+      !ownerDispatch &&
+      !ownerHead &&
+      !ownerMaterialize &&
+      !ownerTerminalResult
+    ) {
+      return false;
+    }
+    if (url.searchParams.has("workspaceId")) {
+      writeJson(response, 400, { error: "fake_owner_workspace_scope_invalid" });
+      return true;
+    }
+    if (this.input.ownerAccessMode === "workspace_restricted") {
+      writeJson(response, 403, { error: "remote_agent_workspace_scope_forbidden" });
+      return true;
+    }
+    if (ownerCatalog) {
+      if (this.input.httpFailure?.stage === "catalog") {
+        writeJson(response, this.input.httpFailure.status, { error: this.input.httpFailure.code });
+        return true;
+      }
+      const canvasId = url.searchParams.get("canvasId");
+      const projectId = url.searchParams.get("projectId");
+      const humanPrincipalId = url.searchParams.get("humanPrincipalId");
+      if (
+        url.searchParams.size !== 3 ||
+        !canvasId ||
+        !projectId ||
+        humanPrincipalId !== ownerPrincipal
+      ) {
+        writeJson(response, 400, { error: "fake_owner_catalog_scope_invalid" });
+        return true;
+      }
+      this.catalogCanvasIds.push(canvasId);
+      const count = this.input.endpointCount ?? 1;
+      writeJson(
+        response,
+        200,
+        remoteAgentEndpointListSchema.parse({
+          schemaVersion: "agent-endpoint-list/v1",
+          items: Array.from({ length: count }, (_, index) => ({
+            ...endpoint,
+            endpointId: index === 0 ? endpoint.endpointId : `endpoint-codex-${index + 1}`
+          }))
+        })
+      );
+      return true;
+    }
+    if (ownerHead) {
+      writeJson(
+        response,
+        200,
+        ownerCanvasMaterializationHeadViewSchema.parse({
+          schemaVersion: "owner-canvas-materialization/v1",
+          scope: {
+            ownerHumanPrincipalId: ownerPrincipal,
+            projectId: url.searchParams.get("projectId") ?? "project-1",
+            canvasId: url.searchParams.get("canvasId") ?? "default"
+          },
+          head: this.ownerMaterializedDigest
+            ? {
+                kind: "present",
+                revision: 1,
+                content: {
+                  versionId: `version-${this.ownerMaterializedDigest}`,
+                  canonicalDigest: this.ownerMaterializedDigest,
+                  verification: "complete"
+                }
+              }
+            : { kind: "absent" }
+        })
+      );
+      return true;
+    }
+    if (ownerMaterialize) {
+      const frames = (await readText(request))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      const header = frames[0] as {
+        request: { materializationId: string; scope: Record<string, string> };
+      };
+      const complete = frames.at(-1) as { canonicalDigest: string };
+      this.ownerMaterializedDigest = complete.canonicalDigest;
+      writeJson(
+        response,
+        201,
+        ownerCanvasMaterializationResultSchema.parse({
+          schemaVersion: "owner-canvas-materialization/v1",
+          materializationId: header.request.materializationId,
+          scope: header.request.scope,
+          head: {
+            revision: 1,
+            content: {
+              versionId: `version-${complete.canonicalDigest}`,
+              canonicalDigest: complete.canonicalDigest,
+              verification: "complete"
+            }
+          },
+          contentRevision: this.input.sourceRevision,
+          graphFingerprint: this.input.graphFingerprint
+        })
+      );
+      return true;
+    }
+    if (ownerTerminalResult) {
+      const headers = request.headers ?? {};
+      const authorization = headers.authorization ?? headers.Authorization;
+      const identity =
+        headers["x-planweave-human-identity"] ?? headers["X-Planweave-Human-Identity"];
+      this.ownerTerminalResultAuth.push({
+        hasOperatorAuthorization: authorization === `Bearer ${ownerExecutionOperatorToken}`,
+        hasHumanIdentity: typeof identity === "string" && identity.startsWith("Bearer "),
+        usedWorkspaceToken: authorization === `Bearer ${workspaceExecutionToken}`
+      });
+      if (!this.dispatchIntent) {
+        writeJson(response, 404, { error: "not_found" });
+        return true;
+      }
+      const attemptId = this.replayTransitionCompleted() ? "attempt-2" : "attempt-1";
+      const dispatchId = this.replayTransitionCompleted() ? "dispatch-2" : "dispatch-1";
+      const report = Buffer.from("# owner-canvas report\n");
+      const metadata = {
+        operationId: this.input.terminalResultMismatch ? "operation-mismatch" : "operation-1",
+        projectId: this.dispatchIntent.projectId,
+        canvasId: this.dispatchIntent.canvasId,
+        blockRef: this.dispatchIntent.blockRef,
+        controlPlane: "owner",
+        sourceRevision: this.input.sourceRevision,
+        graphFingerprint: this.input.graphFingerprint,
+        dispatchId,
+        executionAttemptId: attemptId,
+        reportArtifactRef: `artifact:sha256:${createHash("sha256").update(report).digest("hex")}`
+      };
+      response.writeHead(200, {
+        "content-type": OPERATOR_OWNER_TERMINAL_RESULT_MEDIA_TYPE,
+        "content-length": report.byteLength,
+        [OPERATOR_OWNER_TERMINAL_RESULT_METADATA_HEADER]: Buffer.from(
+          JSON.stringify(metadata),
+          "utf8"
+        ).toString("base64url")
+      });
+      response.end(report);
+      return true;
+    }
+    const payload = (await readJson(request)) as Record<string, unknown>;
+    if (payload.workspaceId !== undefined) {
+      writeJson(response, 400, { error: "fake_owner_workspace_scope_invalid" });
+      return true;
+    }
+    if (payload.humanPrincipalId !== ownerPrincipal) {
+      writeJson(response, 403, { error: "remote_agent_workspace_scope_forbidden" });
+      return true;
+    }
+    const { humanPrincipalId: _humanPrincipalId, ...intent } = payload;
+    this.ownerOperation = true;
+    this.dispatchIntent = remoteDispatchIntentV3Schema.parse(intent);
+    this.resolveDispatchReceived();
+    if (this.input.httpFailure?.stage === "dispatch") {
+      writeJson(response, this.input.httpFailure.status, { error: this.input.httpFailure.code });
+      return true;
+    }
+    writeJson(response, 202, this.observation(this.operationState(), 1));
+    return true;
+  }
+
   private registryCanvases(): readonly WorkspaceExecutionRegistryCanvas[] {
     return this.input.registryCanvases;
   }
@@ -513,7 +748,9 @@ export class WorkspaceExecutionHttpHarness {
           canvasId: this.dispatchIntent.canvasId
         },
         endpointId: endpoint.endpointId,
-        authorityRevisions: { responsibility: 1, reviewer: 2, executionTarget: 3 },
+        authorityRevisions: this.ownerOperation
+          ? { responsibility: 0, reviewer: 0, executionTarget: 0 }
+          : { responsibility: 1, reviewer: 2, executionTarget: 3 },
         content: {
           revision: this.input.sourceRevision,
           fingerprint: this.input.graphFingerprint
@@ -606,6 +843,31 @@ export class WorkspaceExecutionHttpHarness {
         : {})
     });
   }
+}
+
+export async function writeOperatorExecutionProfiles(input: {
+  home: string;
+  serverOrigin: string;
+  count?: number;
+}): Promise<void> {
+  const directory = join(input.home, "desktop", "operator-control");
+  await mkdir(directory, { recursive: true });
+  const count = input.count ?? 1;
+  const profiles = Array.from({ length: count }, (_, index) => ({
+    profileId: count === 1 ? "profile-1" : `profile-${index}`,
+    displayName: `Owner ${index}`,
+    serverBaseUrl: input.serverOrigin.endsWith("/") ? input.serverOrigin : `${input.serverOrigin}/`,
+    allowInsecureTransport: true,
+    updatedAt: "2030-01-01T00:00:00.000Z"
+  }));
+  await writeFile(
+    join(directory, "profiles.json"),
+    JSON.stringify({
+      version: 1,
+      profiles,
+      activeProfileId: profiles[0]?.profileId ?? null
+    })
+  );
 }
 
 export async function writeWorkspaceExecutionProfiles(input: {

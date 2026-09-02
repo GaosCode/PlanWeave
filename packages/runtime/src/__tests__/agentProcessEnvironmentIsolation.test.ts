@@ -10,7 +10,11 @@ import { tmuxRunnerSource } from "../autoRun/tmuxRunnerScript.js";
 import { AgentProcessEnvironmentPolicy } from "../process/agentProcessEnv.js";
 
 const controlCredentialName = "PLANWEAVE_COLLABORATION_DEVICE_TOKEN";
+const operatorCredentialName = "PLANWEAVE_OPERATOR_TOKEN";
+const humanIdentityCredentialName = "PLANWEAVE_HUMAN_IDENTITY_TOKEN";
 const fakeCredential = "characterization-device-token-not-a-real-secret";
+const fakeOperatorCredential = "characterization-operator-token-not-a-real-secret";
+const fakeHumanIdentityCredential = "characterization-human-identity-token-not-a-real-secret";
 const directories: string[] = [];
 
 afterEach(async () => {
@@ -80,6 +84,19 @@ describe("agent process environment isolation", () => {
         Path: "/usr/bin",
         planweave_collaboration_device_token: fakeCredential,
         PLANWEAVE_EXECUTION_CONTROL_SECRET: "another-control-secret",
+        AGENT_PROVIDER_KEY: "agent-specific-key"
+      })
+    ).toEqual({ Path: "/usr/bin", AGENT_PROVIDER_KEY: "agent-specific-key" });
+  });
+
+  it("strips owner operator and Human identity tokens from the default child-process policy", () => {
+    const policy = new AgentProcessEnvironmentPolicy();
+    expect(
+      policy.apply({
+        Path: "/usr/bin",
+        [controlCredentialName]: fakeCredential,
+        [operatorCredentialName]: fakeOperatorCredential,
+        [humanIdentityCredentialName]: fakeHumanIdentityCredential,
         AGENT_PROVIDER_KEY: "agent-specific-key"
       })
     ).toEqual({ Path: "/usr/bin", AGENT_PROVIDER_KEY: "agent-specific-key" });

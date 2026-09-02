@@ -25,8 +25,10 @@ import { resolveCliRemoteCanvasId } from "./canvasBinding.js";
 import { WorkspaceExecutionCliError } from "./errors.js";
 import { createCliWorkspaceExecutionHttpPorts } from "./httpPorts.js";
 import { createWorkspaceJsonTransport } from "./httpTransport.js";
+import { createOwnerCanvasRunContext, writeBackOwnerCanvasCliExecution } from "./ownerCanvas.js";
 import {
   resolveCliExecutionTarget,
+  type CliExecutionAuthorityKind,
   type CliExecutionTargetPolicy,
   type LocalExecutionAvailabilityPort
 } from "./preflight.js";
@@ -39,6 +41,7 @@ export type WorkspaceRunOptions = CanvasCommandOptions & {
   scope: WorkspaceExecutionScope;
   eventFormat: "legacy" | "execution-v1";
   follow?: boolean;
+  authority?: CliExecutionAuthorityKind;
   signal?: AbortSignal;
 };
 
@@ -106,6 +109,64 @@ export async function executeWorkspaceRun(
   };
   let request: WorkspaceExecutionRequest;
   let coordinator: WorkspaceExecutionCoordinator;
+  const authorityKind = options.authority ?? "workspace_canvas";
+  if (authorityKind === "owner_canvas") {
+    if (target.policy === "local") {
+      throw new WorkspaceExecutionCliError("workspace_execution_usage_invalid", 2);
+    }
+    if (options.scope.kind !== "block" || !identity.agentId) {
+      throw new WorkspaceExecutionCliError("workspace_execution_usage_invalid", 2);
+    }
+    const owner = await createOwnerCanvasRunContext({
+      projectRoot,
+      options,
+      scope: options.scope,
+      target,
+      identity: { name: identity.name, agentId: identity.agentId },
+      ...(options.executor ? { executorOverride: options.executor } : {}),
+      eventFormat: options.eventFormat,
+      signal: options.signal
+    });
+    coordinator = owner.coordinator;
+    request = owner.request;
+    let result = await coordinator.execute(request, options.signal);
+    await writeBackOwnerCanvasCliExecution({
+      request,
+      sessionPhase: result.session.phase,
+      sessionError: result.session.error,
+      handle: result.handle,
+      runtime: owner.localRuntime,
+      readTerminalResult: (operationId) => owner.ports.readTerminalResult(operationId)
+    });
+    const emitted = new Set<string>();
+    printWorkspaceExecutionResult(result, options.eventFormat, emitted);
+    while (options.follow && !["completed", "failed", "stopped"].includes(result.session.phase)) {
+      if (result.events.some((event) => event.type === "action_required")) break;
+      await new Promise<void>((resolve, reject) => {
+        const onTimeout = () => {
+          options.signal?.removeEventListener("abort", onAbort);
+          resolve();
+        };
+        const timer = setTimeout(onTimeout, 500);
+        const onAbort = () => {
+          clearTimeout(timer);
+          reject(options.signal?.reason ?? new DOMException("Aborted", "AbortError"));
+        };
+        options.signal?.addEventListener("abort", onAbort, { once: true });
+      });
+      result = await coordinator.follow(request, result.session.sessionId, options.signal);
+      await writeBackOwnerCanvasCliExecution({
+        request,
+        sessionPhase: result.session.phase,
+        sessionError: result.session.error,
+        handle: result.handle,
+        runtime: owner.localRuntime,
+        readTerminalResult: (operationId) => owner.ports.readTerminalResult(operationId)
+      });
+      printWorkspaceExecutionResult(result, options.eventFormat, emitted);
+    }
+    return result;
+  }
   if (target.policy === "local") {
     const authority = createWorkspaceAuthorityBindingResolver({
       local: createLocalPackageAuthoritySource(),

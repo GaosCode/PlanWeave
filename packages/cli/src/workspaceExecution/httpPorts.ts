@@ -14,18 +14,20 @@ import {
 } from "@planweave-ai/collaboration-protocol/remote-run";
 import { workAuthorityProjectionSchema } from "@planweave-ai/collaboration-protocol/work/authority";
 import { collaborationWorkScopeSchema } from "@planweave-ai/collaboration-protocol/work/responsibility";
-import type {
-  RemoteAgentCatalogPort,
-  RemoteOperationCommandPort,
-  RemoteOperationQueryPort,
-  RemoteWorkspaceAuthorityBinding,
-  RemoteWorkspaceAuthoritySourcePort,
-  ValidatedWorkspaceAuthorityBinding,
-  WorkAuthorityPort,
-  WorkspaceCanvasRemoteAuthorityBinding,
-  WorkspaceExecutionInteractionPort
+import {
+  isOwnerCanvasRemoteAuthorityBinding,
+  type RemoteAgentCatalogPort,
+  type RemoteOperationCommandPort,
+  type RemoteOperationQueryPort,
+  type RemoteWorkspaceAuthorityBinding,
+  type RemoteWorkspaceAuthoritySourcePort,
+  type ValidatedWorkspaceAuthorityBinding,
+  type WorkAuthorityPort,
+  type WorkspaceCanvasRemoteAuthorityBinding,
+  type WorkspaceExecutionInteractionPort
 } from "@planweave-ai/runtime";
 import type { CliWorkspaceConnection } from "./connection.js";
+import { WorkspaceExecutionCliError } from "./errors.js";
 import type { WorkspaceJsonTransport } from "./httpTransport.js";
 
 function projectPath(projectId: string, suffix: string): string {
@@ -44,8 +46,8 @@ type CliWorkspaceBinding = ValidatedWorkspaceAuthorityBinding &
 function requireCliWorkspaceBinding(
   binding: CliRemoteBinding
 ): asserts binding is CliWorkspaceBinding {
-  if ("authorityKind" in binding) {
-    throw new Error("workspace_execution_owner_canvas_unsupported");
+  if (isOwnerCanvasRemoteAuthorityBinding(binding)) {
+    throw new WorkspaceExecutionCliError("workspace_execution_usage_invalid", 2);
   }
 }
 

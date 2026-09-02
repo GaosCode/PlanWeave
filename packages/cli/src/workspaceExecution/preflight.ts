@@ -2,6 +2,15 @@ import type { WorkspaceExecutionRequest } from "@planweave-ai/runtime";
 import { WorkspaceExecutionCliError } from "./errors.js";
 
 export type CliExecutionTargetPolicy = "local" | "remote" | "auto";
+export type CliExecutionAuthorityKind = "owner_canvas" | "workspace_canvas";
+
+export function parseCliExecutionAuthority(value?: string): CliExecutionAuthorityKind {
+  const authority = value ?? "workspace_canvas";
+  if (authority !== "owner_canvas" && authority !== "workspace_canvas") {
+    throw new WorkspaceExecutionCliError("workspace_execution_usage_invalid", 2);
+  }
+  return authority;
+}
 
 export interface LocalExecutionAvailabilityPort {
   probe(signal?: AbortSignal): Promise<{ status: "available" | "unavailable" }>;

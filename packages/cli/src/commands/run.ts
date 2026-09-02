@@ -18,6 +18,7 @@ import {
   WorkspaceExecutionCliError,
   workspaceExecutionResultExitCode
 } from "../workspaceExecution/errors.js";
+import { parseCliExecutionAuthority } from "../workspaceExecution/preflight.js";
 
 export function registerRunCommand(program: Command): void {
   addCanvasOption(
@@ -40,6 +41,10 @@ export function registerRunCommand(program: Command): void {
       .option("--target <policy>", "execution target: local, remote, or auto")
       .option("--agent-endpoint <endpointId>", "select one Remote Agent endpoint")
       .option("--connection-profile <profileId>", "select a preconfigured Workspace connection")
+      .option(
+        "--authority <kind>",
+        "remote authority: owner_canvas or workspace_canvas (default workspace_canvas)"
+      )
       .option("--event-format <format>", "workspace event format: legacy or execution-v1")
       .option(
         "--follow",
@@ -64,6 +69,7 @@ export function registerRunCommand(program: Command): void {
         target?: string;
         agentEndpoint?: string;
         connectionProfile?: string;
+        authority?: string;
         eventFormat?: string;
         follow?: boolean;
       } & CanvasCommandOptions
@@ -75,6 +81,7 @@ export function registerRunCommand(program: Command): void {
         options.target !== undefined ||
         options.agentEndpoint !== undefined ||
         options.connectionProfile !== undefined ||
+        options.authority !== undefined ||
         options.eventFormat !== undefined ||
         options.follow === true;
       if (workspaceExecution) {
@@ -99,6 +106,7 @@ export function registerRunCommand(program: Command): void {
           const result = await executeWorkspaceRun({
             ...options,
             target,
+            authority: parseCliExecutionAuthority(options.authority),
             eventFormat,
             scope: parseRunScope(options) ?? { kind: "project" },
             signal: abort.signal

@@ -20,6 +20,11 @@ import {
 import { WorkspaceExecutionCliError } from "./errors.js";
 import { createCliWorkspaceExecutionHttpPorts } from "./httpPorts.js";
 import { createWorkspaceJsonTransport } from "./httpTransport.js";
+import {
+  createOwnerCanvasResumeContext,
+  isOwnerCanvasBinding,
+  writeBackOwnerCanvasCliExecution
+} from "./ownerCanvas.js";
 
 export async function createRemoteSessionContext(input: {
   projectRoot: PackageWorkspaceRef;
@@ -32,7 +37,7 @@ export async function createRemoteSessionContext(input: {
     detail.session.workspaceExecution?.handle
   );
   const dispatchIntent = detail.session.workspaceExecution?.dispatchIntent;
-  if (!storedBinding || storedBinding.kind !== "remote" || "authorityKind" in storedBinding) {
+  if (!storedBinding || storedBinding.kind !== "remote") {
     throw new WorkspaceExecutionCliError("workspace_execution_usage_invalid", 2);
   }
   let agentEndpointId: string;
@@ -43,6 +48,43 @@ export async function createRemoteSessionContext(input: {
       throw new WorkspaceExecutionCliError("workspace_execution_usage_invalid", 2);
     }
     agentEndpointId = dispatchIntent.agentEndpointId;
+  }
+  const status = await getExecutionStatus({ projectRoot: input.projectRoot });
+  const effectiveExecutorName = status.blocks.find(
+    (block) => block.ref === storedBinding.blockRef
+  )?.effectiveExecutor;
+  if (!effectiveExecutorName) {
+    throw new WorkspaceExecutionCliError("workspace_execution_usage_invalid", 2);
+  }
+  const evidence = await resolveExecutorRunnerEvidence({
+    projectRoot: input.projectRoot,
+    executorName: effectiveExecutorName
+  });
+  if (!evidence.agentId) {
+    throw new WorkspaceExecutionCliError("workspace_execution_usage_invalid", 2);
+  }
+  if (isOwnerCanvasBinding(storedBinding)) {
+    const owner = await createOwnerCanvasResumeContext({
+      projectRoot: input.projectRoot,
+      binding: storedBinding,
+      agentEndpointId,
+      effectiveExecutor: { name: effectiveExecutorName, agentId: evidence.agentId },
+      connectionProfile: input.connectionProfile
+    });
+    return {
+      coordinator: owner.coordinator,
+      request: owner.request,
+      binding: owner.binding,
+      ports: owner.ports,
+      handle: parsedHandle.success ? parsedHandle.data : null,
+      detail,
+      localRuntime: owner.localRuntime,
+      readTerminalResult: (operationId: string, signal?: AbortSignal) =>
+        owner.ports.readTerminalResult(operationId, signal)
+    };
+  }
+  if (!("workspaceId" in storedBinding)) {
+    throw new WorkspaceExecutionCliError("workspace_execution_usage_invalid", 2);
   }
   const connection = await new CliWorkspaceConnectionProvider().resolve(
     input.connectionProfile ?? storedBinding.connectionProfileId
@@ -67,19 +109,6 @@ export async function createRemoteSessionContext(input: {
     local: createLocalPackageAuthoritySource(),
     remote: ports.authoritySource
   });
-  const scope = { kind: "block" as const, blockRef: storedBinding.blockRef };
-  const status = await getExecutionStatus({ projectRoot: input.projectRoot });
-  const effectiveExecutor = status.blocks.find(
-    (block) => block.ref === scope.blockRef
-  )?.effectiveExecutor;
-  if (!effectiveExecutor)
-    throw new WorkspaceExecutionCliError("workspace_execution_usage_invalid", 2);
-  const evidence = await resolveExecutorRunnerEvidence({
-    projectRoot: input.projectRoot,
-    executorName: effectiveExecutor
-  });
-  if (!evidence.agentId)
-    throw new WorkspaceExecutionCliError("workspace_execution_usage_invalid", 2);
   const request: WorkspaceExecutionRequest = {
     authority: {
       kind: "workspace_canvas",
@@ -90,13 +119,13 @@ export async function createRemoteSessionContext(input: {
       projectId: storedBinding.projectId,
       canvasId: storedBinding.canvasId
     },
-    scope,
+    scope: { kind: "block", blockRef: storedBinding.blockRef },
     trigger: "cli",
     target: {
       policy: "remote",
       agentEndpointId
     },
-    effectiveExecutor: { name: effectiveExecutor, agentId: evidence.agentId },
+    effectiveExecutor: { name: effectiveExecutorName, agentId: evidence.agentId },
     eventFormat: "execution-v1"
   };
   const binding = await authority.resolve(request.authority, request.scope);
@@ -119,7 +148,9 @@ export async function createRemoteSessionContext(input: {
     binding,
     ports,
     handle: parsedHandle.success ? parsedHandle.data : null,
-    detail
+    detail,
+    localRuntime: undefined,
+    readTerminalResult: undefined
   };
 }
 
@@ -156,6 +187,16 @@ export async function followRemoteSession(input: {
   const context = await createRemoteSessionContext(input);
   for (;;) {
     const result = await context.coordinator.follow(context.request, input.sessionId, input.signal);
+    if (context.localRuntime && context.readTerminalResult) {
+      await writeBackOwnerCanvasCliExecution({
+        request: context.request,
+        sessionPhase: result.session.phase,
+        sessionError: result.session.error,
+        handle: result.handle,
+        runtime: context.localRuntime,
+        readTerminalResult: context.readTerminalResult
+      });
+    }
     input.onResult(result);
     if (remoteSessionSettled(result)) return result;
     await waitForRemoteReplay(input.signal);

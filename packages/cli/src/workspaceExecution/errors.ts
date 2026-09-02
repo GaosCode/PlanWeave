@@ -10,6 +10,11 @@ export type WorkspaceExecutionCliErrorCode =
   | "workspace_connection_invalid"
   | "workspace_credential_required"
   | "workspace_credential_invalid"
+  | "owner_connection_required"
+  | "owner_connection_selection_required"
+  | "owner_connection_invalid"
+  | "owner_identity_credential_required"
+  | "owner_identity_credential_invalid"
   | "workspace_http_unauthorized"
   | "workspace_http_forbidden"
   | "workspace_http_not_found"
@@ -49,6 +54,19 @@ export function workspaceExecutionExitCode(error: unknown): number {
     return 7;
   }
   if (error.failureKind === "usage") return 2;
+  if (
+    error.code === "owner_connection_required" ||
+    error.code === "owner_connection_selection_required" ||
+    error.code === "owner_connection_invalid"
+  ) {
+    return 3;
+  }
+  if (
+    error.code === "owner_identity_credential_required" ||
+    error.code === "owner_identity_credential_invalid"
+  ) {
+    return 4;
+  }
   if (error.failureKind === "authentication") return 4;
   if (
     error.failureKind === "authorization" ||
