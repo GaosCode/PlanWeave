@@ -29,6 +29,6 @@ describe("formatAgentEndpointFleetCatalogError", () => {
     const t = createTranslator("en");
     const message = formatAgentEndpointFleetCatalogError("human_principal_unavailable", t);
     expect(message).toContain("signed-in person");
-    expect(message).toContain("human_principal_unavailable");
+    expect(message).not.toContain("human_principal_unavailable");
   });
 });

@@ -20,7 +20,7 @@ describe("desktop renderer i18n", () => {
   });
 
   it("includes claim-bus and agent-endpoint run error keys in both languages", () => {
-    const keys = [
+    const keysWithCode = [
       "claimBusBlockedError",
       "claimBusIdleError",
       "claimBusCancelledError",
@@ -32,15 +32,18 @@ describe("desktop renderer i18n", () => {
       "collaborationRuntimeStatusUnavailableError",
       "collaborationRuntimePreparingEnvironmentError",
       "collaborationRuntimeTaskStatusUnavailableError",
-      "collaborationRuntimeBlockStatusUnavailableError",
-      "agentEndpointHumanPrincipalUnavailable"
+      "collaborationRuntimeBlockStatusUnavailableError"
     ] as const;
-    for (const key of keys) {
+    for (const key of keysWithCode) {
       expect(resources.en[key].length).toBeGreaterThan(0);
       expect(resources["zh-CN"][key].length).toBeGreaterThan(0);
       expect(resources.en[key]).toContain("{code}");
       expect(resources["zh-CN"][key]).toContain("{code}");
     }
+    expect(resources.en.agentEndpointHumanPrincipalUnavailable).toContain("signed-in person");
+    expect(resources.en.agentEndpointHumanPrincipalUnavailable).not.toContain("{code}");
+    expect(resources["zh-CN"].agentEndpointHumanPrincipalUnavailable).toContain("人员身份");
+    expect(resources["zh-CN"].agentEndpointHumanPrincipalUnavailable).not.toContain("{code}");
   });
 
   it("uses one preparing-environment phrase across remote run surfaces", () => {

@@ -40,5 +40,5 @@ export const agentEndpointRunEnCatalog = {
   agentEndpointFleetLoadFailed:
     "Could not load remote Agent Host endpoints. Check Settings → Connections & Devices and retry. [{code}]",
   agentEndpointHumanPrincipalUnavailable:
-    "Remote Agents need a signed-in person identity. Connect a Workspace profile, then retry. [{code}]"
+    "Remote Agents need a signed-in person identity. Connect the Workspace, then retry."
 } as const;

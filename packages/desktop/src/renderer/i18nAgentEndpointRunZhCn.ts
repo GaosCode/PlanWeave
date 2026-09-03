@@ -40,5 +40,5 @@ export const agentEndpointRunZhCnCatalog = {
   agentEndpointFleetLoadFailed:
     "无法加载远程 Agent Host endpoint。请检查设置 → 连接与设备后重试。[{code}]",
   agentEndpointHumanPrincipalUnavailable:
-    "远程 Agent 需要已登录的人员身份。请先连接 Workspace 配置文件，再重试。[{code}]"
+    "远程 Agent 需要已登录的人员身份。请先连接 Workspace，再重试。"
 } satisfies Record<keyof typeof agentEndpointRunEnCatalog, string>;
