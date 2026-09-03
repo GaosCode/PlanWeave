@@ -3,6 +3,7 @@ import {
   collaborationServerOriginSchema,
   refineCollaborationTransportPolicy
 } from "./connection.js";
+import { normalizeHandoffClipboard } from "./setupHandoff.js";
 import { humanProjectIdSchema, projectInvitationTokenSchema } from "./primitives.js";
 import { deploymentEndpointSchema } from "./deployment.js";
 import { humanCreateInvitationResponseSchema } from "./identity.js";
@@ -72,11 +73,12 @@ export function serializeCollaborationInvitationHandoffV1(
 export function parseCollaborationInvitationHandoffV1(
   value: string
 ): CollaborationInvitationHandoffV1 | null {
-  if (!value.startsWith(collaborationInvitationHandoffV1Prefix)) return null;
+  const trimmed = normalizeHandoffClipboard(value);
+  if (!trimmed.startsWith(collaborationInvitationHandoffV1Prefix)) return null;
 
   try {
     const candidate: unknown = JSON.parse(
-      value.slice(collaborationInvitationHandoffV1Prefix.length)
+      trimmed.slice(collaborationInvitationHandoffV1Prefix.length)
     );
     return parseCollaborationInvitationHandoffPayload(candidate);
   } catch {
@@ -99,10 +101,11 @@ export function serializeCollaborationInvitationHandoffV2(
 export function parseCollaborationInvitationHandoffV2(
   value: string
 ): CollaborationInvitationHandoffV2 | null {
-  if (!value.startsWith(collaborationInvitationHandoffV2Prefix)) return null;
+  const trimmed = normalizeHandoffClipboard(value);
+  if (!trimmed.startsWith(collaborationInvitationHandoffV2Prefix)) return null;
   try {
     const candidate: unknown = JSON.parse(
-      value.slice(collaborationInvitationHandoffV2Prefix.length)
+      trimmed.slice(collaborationInvitationHandoffV2Prefix.length)
     );
     const parsed = collaborationInvitationHandoffV2Schema.safeParse(candidate);
     return parsed.success ? parsed.data : null;

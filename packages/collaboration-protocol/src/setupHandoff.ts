@@ -7,6 +7,15 @@ import { setupCodeTokenSchema } from "./primitives.js";
 
 export const collaborationSetupHandoffV1Prefix = "planweave-server-setup/v1:" as const;
 
+/** Clipboard paste from another OS may include BOM, CR, or zero-width characters. */
+export function normalizeHandoffClipboard(value: string): string {
+  return value
+    .replace(/[\u200B-\u200D\u2060\uFEFF]/g, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
+}
+
 /** Portable, one-time Server setup details copied directly between trusted devices. */
 export const collaborationSetupHandoffV1Schema = z
   .object({
@@ -30,7 +39,7 @@ export function serializeCollaborationSetupHandoffV1(input: CollaborationSetupHa
 export function parseCollaborationSetupHandoffV1(
   value: string
 ): CollaborationSetupHandoffV1 | null {
-  const trimmed = value.trim();
+  const trimmed = normalizeHandoffClipboard(value);
   if (!trimmed.startsWith(collaborationSetupHandoffV1Prefix)) return null;
 
   try {

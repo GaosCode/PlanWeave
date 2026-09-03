@@ -134,4 +134,27 @@ describe("collaboration invitation handoff contract", () => {
       }).success
     ).toBe(false);
   });
+
+  it("parses a clipboard paste that includes a BOM and Windows newlines", () => {
+    const serialized = serializeCollaborationInvitationHandoffV2({
+      endpoint: {
+        topology: "public_https",
+        serverOrigin: "https://server.example.test/",
+        allowedClientOrigins: ["https://server.example.test/"],
+        tlsTrust: "system_ca"
+      },
+      projectId: "project-1",
+      invitationToken
+    });
+    expect(parseCollaborationInvitationHandoff(`\uFEFF${serialized}\r\n`)).toEqual({
+      endpoint: {
+        topology: "public_https",
+        serverOrigin: "https://server.example.test/",
+        allowedClientOrigins: ["https://server.example.test/"],
+        tlsTrust: "system_ca"
+      },
+      projectId: "project-1",
+      invitationToken
+    });
+  });
 });

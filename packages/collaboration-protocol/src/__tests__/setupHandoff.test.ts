@@ -38,4 +38,17 @@ describe("collaboration setup handoff contract", () => {
       )
     ).toBeNull();
   });
+
+  it("parses a clipboard paste that includes a BOM and Windows newlines", () => {
+    const handoff = serializeCollaborationSetupHandoffV1({
+      serverBaseUrl: "https://collaboration.example.test/",
+      setupCode,
+      allowInsecureTransport: false
+    });
+    expect(parseCollaborationSetupHandoffV1(`\uFEFF${handoff}\r\n`)).toEqual({
+      serverBaseUrl: "https://collaboration.example.test/",
+      setupCode,
+      allowInsecureTransport: false
+    });
+  });
 });
