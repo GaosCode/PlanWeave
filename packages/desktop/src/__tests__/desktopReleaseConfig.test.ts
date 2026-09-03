@@ -6,6 +6,12 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
+import {
+  PACKAGED_APP_FILES,
+  PACKAGED_RESOURCE_FILTER,
+  describeForbiddenPackagedEntry,
+  findForbiddenPackagedEntry
+} from "../../scripts/packagedAppExclusions.mjs";
 
 const execFileAsync = promisify(execFile);
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
@@ -13,6 +19,26 @@ const desktopRoot = resolve(repoRoot, "packages/desktop");
 const preflightPath = resolve(desktopRoot, "scripts/preflight-release-secrets.mjs");
 const junitWorkflowVerificationTimeoutMs = 60_000;
 const windowsReleaseProbeTimeoutMs = 30_000;
+const packagedExtraResources = [
+  {
+    from: "build/generated/planweave-build-metadata.json",
+    to: "planweave-build-metadata.json"
+  },
+  {
+    from: "../runtime/src/process/windowsJobProcess.ps1",
+    to: "planweave-windows-job-process.ps1"
+  },
+  {
+    from: "../../examples/basic-plan-package/package",
+    to: "planweave-example-package",
+    filter: PACKAGED_RESOURCE_FILTER
+  },
+  {
+    from: "build/generated/planweave-self-host-server",
+    to: "planweave-self-host-server",
+    filter: PACKAGED_RESOURCE_FILTER
+  }
+];
 
 async function loadConfig(name: string): Promise<Record<string, unknown>> {
   const desktopRequire = createRequire(resolve(desktopRoot, "package.json"));
@@ -109,12 +135,60 @@ describe("desktop release configuration", () => {
     );
   });
 
+  it("excludes source maps and leftover workspace release artifacts from packaged contents", () => {
+    expect(
+      findForbiddenPackagedEntry(["/dist/main/main.js", "/node_modules/ms/index.js"])
+    ).toBeNull();
+    expect(findForbiddenPackagedEntry(["/dist/main/main.js.map"])).toEqual({
+      kind: "source-map",
+      entry: "/dist/main/main.js.map"
+    });
+    expect(
+      findForbiddenPackagedEntry([
+        "/node_modules/@planweave-ai/agent-host/release/planweave-agent-host-0.4.0-deadbeef.tar.gz"
+      ])
+    ).toEqual({
+      kind: "workspace-release",
+      entry:
+        "/node_modules/@planweave-ai/agent-host/release/planweave-agent-host-0.4.0-deadbeef.tar.gz"
+    });
+    expect(
+      findForbiddenPackagedEntry([
+        "/planweave-self-host-server/image/app/node_modules/zod/index.js.map"
+      ])
+    ).toEqual({
+      kind: "source-map",
+      entry: "/planweave-self-host-server/image/app/node_modules/zod/index.js.map"
+    });
+    expect(
+      describeForbiddenPackagedEntry(
+        { kind: "source-map", entry: "/dist/main/main.js.map" },
+        "Packaged app.asar"
+      )
+    ).toBe("Packaged app.asar contains a source map: /dist/main/main.js.map");
+    expect(
+      describeForbiddenPackagedEntry(
+        {
+          kind: "workspace-release",
+          entry: "/node_modules/@planweave-ai/server/release/bundle.tar.gz"
+        },
+        "Packaged extra resources"
+      )
+    ).toBe(
+      "Packaged extra resources contains workspace release artifacts: /node_modules/@planweave-ai/server/release/bundle.tar.gz"
+    );
+  });
+
   it("keeps local pack and dist commands explicitly unsigned", async () => {
     const packageJson = JSON.parse(
       await readFile(resolve(desktopRoot, "package.json"), "utf8")
     ) as {
       scripts: Record<string, string>;
-      build: { mac: Record<string, unknown>; extraResources: Array<Record<string, unknown>> };
+      build: {
+        files: string[];
+        mac: Record<string, unknown>;
+        extraResources: Array<Record<string, unknown>>;
+      };
     };
     const localConfig = await loadConfig("electron-builder.local.cjs");
 
@@ -129,29 +203,13 @@ describe("desktop release configuration", () => {
       appId: "dev.planweave.desktop",
       productName: "PlanWeave",
       directories: { output: "release" },
-      files: ["dist/main/**/*", "dist/preload/**/*", "dist/renderer/**/*", "package.json"],
+      files: PACKAGED_APP_FILES,
       artifactName: expect.stringContaining("development-unsigned"),
       mac: { identity: null, forceCodeSigning: false, hardenedRuntime: false },
       win: { forceCodeSigning: false, signExecutable: false }
     });
-    expect(packageJson.build.extraResources).toEqual([
-      {
-        from: "build/generated/planweave-build-metadata.json",
-        to: "planweave-build-metadata.json"
-      },
-      {
-        from: "../runtime/src/process/windowsJobProcess.ps1",
-        to: "planweave-windows-job-process.ps1"
-      },
-      {
-        from: "../../examples/basic-plan-package/package",
-        to: "planweave-example-package"
-      },
-      {
-        from: "build/generated/planweave-self-host-server",
-        to: "planweave-self-host-server"
-      }
-    ]);
+    expect(packageJson.build.files).toEqual(PACKAGED_APP_FILES);
+    expect(packageJson.build.extraResources).toEqual(packagedExtraResources);
   });
 
   it("uses only the OV PFX Authenticode provider for Windows release signing", async () => {
@@ -170,25 +228,8 @@ describe("desktop release configuration", () => {
       appId: "dev.planweave.desktop",
       productName: "PlanWeave",
       directories: { output: "release" },
-      files: ["dist/main/**/*", "dist/preload/**/*", "dist/renderer/**/*", "package.json"],
-      extraResources: [
-        {
-          from: "build/generated/planweave-build-metadata.json",
-          to: "planweave-build-metadata.json"
-        },
-        {
-          from: "../runtime/src/process/windowsJobProcess.ps1",
-          to: "planweave-windows-job-process.ps1"
-        },
-        {
-          from: "../../examples/basic-plan-package/package",
-          to: "planweave-example-package"
-        },
-        {
-          from: "build/generated/planweave-self-host-server",
-          to: "planweave-self-host-server"
-        }
-      ],
+      files: PACKAGED_APP_FILES,
+      extraResources: packagedExtraResources,
       nsis: {
         allowToChangeInstallationDirectory: true,
         oneClick: false,
@@ -389,6 +430,10 @@ describe("desktop release configuration", () => {
     expect(packagedVerifier).toContain("payload.metadataVerified === true");
     expect(packagedVerifier).toContain("allowedAsarDistRoots");
     expect(packagedVerifier).toContain("Packaged app.asar contains an unexpected build output");
+    expect(packagedVerifier).toContain('from "./packagedAppExclusions.mjs"');
+    expect(packagedVerifier).toContain("findForbiddenPackagedEntry");
+    expect(packagedVerifier).toContain("verifyPackagedExtraResources");
+    expect(packagedVerifier).toContain("packagedContentExclusions: true");
     expect(packagedVerifier).toContain('windowsJobLaunchStrategy: "launcher-job-inheritance"');
     expect(packagedVerifier).not.toContain(
       'output.includes("PLANWEAVE_DESKTOP_STARTUP_SMOKE_READY")'

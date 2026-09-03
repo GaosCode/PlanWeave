@@ -105,7 +105,10 @@
       "dist/main/**/*",
       "dist/preload/**/*",
       "dist/renderer/**/*",
-      "package.json"
+      "package.json",
+      "!**/*.map",
+      "!**/node_modules/@planweave-ai/*/release",
+      "!**/node_modules/@planweave-ai/*/release/**"
     ],
     "extraResources": [
       {
@@ -118,11 +121,23 @@
       },
       {
         "from": "../../examples/basic-plan-package/package",
-        "to": "planweave-example-package"
+        "to": "planweave-example-package",
+        "filter": [
+          "**/*",
+          "!**/*.map",
+          "!**/node_modules/@planweave-ai/*/release",
+          "!**/node_modules/@planweave-ai/*/release/**"
+        ]
       },
       {
         "from": "build/generated/planweave-self-host-server",
-        "to": "planweave-self-host-server"
+        "to": "planweave-self-host-server",
+        "filter": [
+          "**/*",
+          "!**/*.map",
+          "!**/node_modules/@planweave-ai/*/release",
+          "!**/node_modules/@planweave-ai/*/release/**"
+        ]
       }
     ],
     "asarUnpack": [

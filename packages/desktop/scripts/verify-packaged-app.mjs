@@ -6,6 +6,10 @@ import { fileURLToPath } from "node:url";
 import { listPackage } from "@electron/asar";
 import { spawnManagedProcess } from "@planweave-ai/runtime";
 import { redactCiText } from "../../../scripts/redact-ci-test-artifacts.mjs";
+import {
+  describeForbiddenPackagedEntry,
+  findForbiddenPackagedEntry
+} from "./packagedAppExclusions.mjs";
 
 const packageRoot = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 const repoRoot = resolve(packageRoot, "../..");
@@ -340,6 +344,40 @@ async function verifyAsarContents(appAsarPath) {
       `Packaged app.asar contains an unexpected build output: ${unexpectedDistEntry}`
     );
   }
+  const forbidden = findForbiddenPackagedEntry(entries);
+  if (forbidden) {
+    throw new Error(describeForbiddenPackagedEntry(forbidden, "Packaged app.asar"));
+  }
+}
+
+async function listPackagedResourceFiles(resourcesDir) {
+  const entries = [];
+  async function walk(directory, relativePrefix) {
+    const dirents = await readdir(directory, { withFileTypes: true });
+    for (const dirent of dirents) {
+      const relativePath = relativePrefix === "" ? dirent.name : `${relativePrefix}/${dirent.name}`;
+      const absolutePath = join(directory, dirent.name);
+      if (dirent.isDirectory()) {
+        await walk(absolutePath, relativePath);
+        continue;
+      }
+      if (!dirent.isFile() || relativePath === "app.asar") {
+        continue;
+      }
+      entries.push(`/${relativePath.replaceAll("\\", "/")}`);
+    }
+  }
+  await walk(resourcesDir, "");
+  return entries;
+}
+
+async function verifyPackagedExtraResources(appAsarPath) {
+  const forbidden = findForbiddenPackagedEntry(
+    await listPackagedResourceFiles(dirname(appAsarPath))
+  );
+  if (forbidden) {
+    throw new Error(describeForbiddenPackagedEntry(forbidden, "Packaged extra resources"));
+  }
 }
 
 async function smokeLaunch(executablePath, platform) {
@@ -528,6 +566,8 @@ try {
   const packagedApp = await resolvePackagedApp();
   stage = "verify-asar";
   await verifyAsarContents(packagedApp.appAsarPath);
+  stage = "verify-extra-resources";
+  await verifyPackagedExtraResources(packagedApp.appAsarPath);
   stage = "verify-startup";
   const startupTiming = await smokeLaunch(packagedApp.executablePath, packagedApp.platform);
   stage = "complete";
@@ -538,6 +578,7 @@ try {
     startupTiming,
     checks: {
       asarRuntimeEntries: true,
+      packagedContentExclusions: true,
       strictStartupMarker: true,
       rendererAndRuntimeBridge: true,
       managedProcessTreeTerminated: true
