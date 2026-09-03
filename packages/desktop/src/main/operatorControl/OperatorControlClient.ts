@@ -494,6 +494,9 @@ export class OperatorControlClient {
         body: {
           humanPrincipalId: input.humanPrincipalId,
           accessMode: input.accessMode,
+          ...(input.allowOwnerCanvas === undefined
+            ? {}
+            : { allowOwnerCanvas: input.allowOwnerCanvas }),
           ...(input.expectedPolicyRevision === undefined
             ? {}
             : { expectedPolicyRevision: input.expectedPolicyRevision })

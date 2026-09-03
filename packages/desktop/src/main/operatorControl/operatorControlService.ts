@@ -901,6 +901,9 @@ export class OperatorControlService {
           humanPrincipalId: value.humanPrincipalId,
           endpointId: value.endpointId,
           accessMode: value.accessMode,
+          ...(value.allowOwnerCanvas === undefined
+            ? {}
+            : { allowOwnerCanvas: value.allowOwnerCanvas }),
           ...(value.expectedPolicyRevision === undefined
             ? {}
             : { expectedPolicyRevision: value.expectedPolicyRevision })

@@ -221,6 +221,7 @@ export const operatorRemoteAgentViewSchema = z
     hostId: operatorProfileIdSchema,
     displayName: z.string().trim().min(1).max(128),
     accessMode: z.enum(["unrestricted", "workspace_restricted"]),
+    allowOwnerCanvas: z.boolean().optional(),
     ownershipRepairRequired: z.boolean(),
     ownerHumanPrincipalId: operatorHumanPrincipalIdSchema.nullable(),
     policyRevision: z.number().int().min(1),
@@ -251,6 +252,7 @@ export const operatorSetRemoteAgentAccessModeInputSchema = z
     humanPrincipalId: operatorHumanPrincipalIdSchema,
     endpointId: operatorProfileIdSchema,
     accessMode: z.enum(["unrestricted", "workspace_restricted"]),
+    allowOwnerCanvas: z.boolean().optional(),
     expectedPolicyRevision: z.number().int().min(1).optional()
   })
   .strict();
