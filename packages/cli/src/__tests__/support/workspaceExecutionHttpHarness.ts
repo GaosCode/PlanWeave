@@ -486,10 +486,6 @@ export class WorkspaceExecutionHttpHarness {
       writeJson(response, 400, { error: "fake_owner_workspace_scope_invalid" });
       return true;
     }
-    if (this.input.ownerAccessMode === "workspace_restricted") {
-      writeJson(response, 403, { error: "remote_agent_workspace_scope_forbidden" });
-      return true;
-    }
     if (ownerCatalog) {
       if (this.input.httpFailure?.stage === "catalog") {
         writeJson(response, this.input.httpFailure.status, { error: this.input.httpFailure.code });

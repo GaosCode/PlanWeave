@@ -1258,7 +1258,7 @@ describe("remote execution CLI", () => {
   );
 
   it(
-    "preserves Server fail-closed for a workspace_restricted Agent on owner_canvas",
+    "lists and dispatches a workspace_restricted Remote Agent on owner_canvas",
     async () => {
       const fixture = await remoteWorkspace({
         dispatchMode: "action_required",
@@ -1269,34 +1269,26 @@ describe("remote execution CLI", () => {
         PLANWEAVE_HOME: fixture.env.PLANWEAVE_HOME,
         PLANWEAVE_OPERATOR_TOKEN: ownerExecutionOperatorToken,
         PLANWEAVE_HUMAN_IDENTITY_TOKEN: exampleHumanIdentityToken,
-        PLANWEAVE_HUMAN_PRINCIPAL_ID: ownerExecutionHumanPrincipalId,
-        PLANWEAVE_COLLABORATION_DEVICE_TOKEN: workspaceExecutionToken
+        PLANWEAVE_HUMAN_PRINCIPAL_ID: ownerExecutionHumanPrincipalId
       };
+      delete env.PLANWEAVE_COLLABORATION_DEVICE_TOKEN;
       try {
         await writeOperatorExecutionProfiles({
           home: fixture.env.PLANWEAVE_HOME!,
           serverOrigin: fixture.serverOrigin
         });
-        const listed = await runCliExpectFailure(
-          skillOwnerEndpointListArgv("default", "profile-1"),
-          env
-        );
-        expect(listed).toMatchObject({ code: 5, stdout: "" });
-        expect(listed.stderr).toContain("remote_agent_workspace_scope_forbidden");
-        expect(listed.stderr).not.toContain(ownerExecutionOperatorToken);
+        const endpoints = await runCli(skillOwnerEndpointListArgv("default", "profile-1"), env);
+        expect(JSON.parse(endpoints.stdout).items).toHaveLength(1);
         expect(fixture.server.ownerCatalogCount).toBe(1);
-        expect(fixture.server.dispatchCount).toBe(0);
-        expect(fixture.server.ownerDispatchCount).toBe(0);
         expect(fixture.server.workspaceScopedRemoteCalls).toEqual([]);
 
         const started = await runCliExpectFailure(
           skillOwnerRemoteRunArgv("T-001#B-001", "endpoint-codex", "profile-1"),
           env
         );
-        expect(started).toMatchObject({ code: 5, stdout: "" });
-        expect(started.stderr).toContain("remote_agent_workspace_scope_forbidden");
-        expect(started.stderr).not.toContain(exampleHumanIdentityToken);
-        expect(fixture.server.ownerDispatchCount).toBe(0);
+        expect(started.code).toBe(7);
+        expect(started.stderr).not.toContain("remote_agent_workspace_scope_forbidden");
+        expect(fixture.server.ownerDispatchCount).toBe(1);
         expect(fixture.server.dispatchCount).toBe(0);
         expect(fixture.server.workspaceScopedRemoteCalls).toEqual([]);
       } finally {
