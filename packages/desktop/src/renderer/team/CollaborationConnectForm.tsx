@@ -2,7 +2,6 @@ import { useId, useRef, useState, type ReactNode } from "react";
 import { ChevronDownIcon, ChevronRightIcon, ServerIcon } from "lucide-react";
 import { parseCollaborationSetupHandoffV1 } from "@planweave-ai/collaboration-protocol/handoff/setup";
 import {
-  type ActiveWorkspaceConnectionView,
   type DeploymentEndpoint,
   type WorkspacePickerItem
 } from "@planweave-ai/collaboration-protocol/connection";
@@ -21,10 +20,13 @@ import {
   collaborationConnectionErrorMessage,
   collaborationErrorMessage
 } from "../collaboration/formatCollaborationError";
+import { endpointForLegacyCollaborationInvitationHandoff } from "./collaborationInvitationHandoff";
+import { parseCollaborationJoinPaste } from "./collaborationJoinPaste";
 import {
-  endpointForLegacyCollaborationInvitationHandoff,
-  parseCollaborationInvitationHandoff
-} from "./collaborationInvitationHandoff";
+  visibleWorkspaceConnectionError,
+  workspaceDisplayName,
+  workspaceIdentityStatusLabel
+} from "./workspaceConnectionPresentation";
 import { CollaborationInvitationJoinFields } from "./CollaborationInvitationJoinFields";
 import { CollaborationSetupHandoffFields } from "./CollaborationSetupHandoffFields";
 import { buildCollaborationDiagnosticReport } from "./collaborationDiagnostics";
@@ -74,39 +76,6 @@ function newProfileId(): string {
     return `profile-${crypto.randomUUID()}`;
   }
   return `profile-${Date.now()}`;
-}
-
-function workspaceIdentityStatusLabel(
-  connection: ActiveWorkspaceConnectionView | null | undefined,
-  t: ReturnType<typeof createTranslator>
-): string {
-  if (!connection) return t("peopleWorkspaceIdentityMissingHint");
-  switch (connection.status) {
-    case "local_only":
-      return t("peopleWorkspaceIdentityMissingHint");
-    case "connecting":
-      return t("peopleWorkspaceIdentityVerifying");
-    case "connected":
-      return t("peopleWorkspaceIdentityVerified");
-    case "reconnecting":
-      return t("peopleWorkspaceIdentityReverifying");
-    case "error":
-      return t("peopleWorkspaceIdentityError");
-    case "disconnected":
-      return t("peopleWorkspaceIdentityPending");
-    default:
-      return connection.status;
-  }
-}
-
-function workspaceDisplayName(
-  displayName: string | null | undefined,
-  t: ReturnType<typeof createTranslator>
-): string {
-  if (!displayName || displayName === "Configured workspace") {
-    return t("peopleWorkspaceDefaultName");
-  }
-  return displayName;
 }
 
 /**
@@ -180,6 +149,12 @@ export function CollaborationConnectForm({
     workspaceIdentityProfile !== null &&
     isLocalCollaborationProfileId(workspaceIdentityProfile.profileId);
   const workspaceConnected = workspaceConnection?.status === "connected";
+  const workspaceConnectionErrorCopy = visibleWorkspaceConnectionError(
+    workspaceConnection,
+    workspaceCredentialMissing,
+    t
+  );
+  const showWorkspaceConnectionError = workspaceConnectionErrorCopy !== null;
   const showConnectionEditor =
     fixedMode !== undefined || !workspaceConnected || connectionEditorOpen;
   const workspaceServerBaseUrl = workspaceConnection?.profile?.serverBaseUrl ?? null;
@@ -322,17 +297,40 @@ export function CollaborationConnectForm({
       let effectiveAllowInsecureTransport = allowInsecureTransport;
       let effectiveEndpoint: DeploymentEndpoint | undefined = activeProfile?.endpoint ?? undefined;
       if (mode === "join" && invitationDetails.trim()) {
-        const handoff = parseCollaborationInvitationHandoff(invitationDetails);
-        if (!handoff) {
+        const pasted = parseCollaborationJoinPaste(invitationDetails);
+        if (pasted.kind === "setup") {
+          const candidate = {
+            serverBaseUrl: pasted.handoff.serverBaseUrl,
+            allowInsecureTransport: pasted.handoff.allowInsecureTransport,
+            setupCode: pasted.handoff.setupCode,
+            displayName: displayName.trim() || t("peopleDefaultProfileName")
+          };
+          const parsed = collaborationRedeemSetupCodeInputSchema.safeParse(candidate);
+          if (!parsed.success) {
+            setError(t("peopleSetupDetailsInvalid"));
+            return;
+          }
+          setInvitationDetails("");
+          await api.redeemCollaborationSetupCode(parsed.data);
+          await onConnected?.();
+          return;
+        }
+        if (pasted.kind === "invalid_setup") {
+          setError(t("peopleSetupDetailsInvalid"));
+          return;
+        }
+        if (pasted.kind === "invalid_invitation") {
           setError(t("peopleInvitationDetailsInvalid"));
           return;
         }
-        effectiveServerBaseUrl = handoff.serverBaseUrl;
-        effectiveProjectId = handoff.projectId;
-        effectiveInvitationToken = handoff.invitationToken;
-        effectiveAllowInsecureTransport = handoff.allowInsecureTransport;
+        effectiveServerBaseUrl = pasted.handoff.serverBaseUrl;
+        effectiveProjectId = pasted.handoff.projectId;
+        effectiveInvitationToken = pasted.handoff.invitationToken;
+        effectiveAllowInsecureTransport = pasted.handoff.allowInsecureTransport;
         effectiveEndpoint =
-          handoff.endpoint ?? endpointForLegacyCollaborationInvitationHandoff(handoff) ?? undefined;
+          pasted.handoff.endpoint ??
+          endpointForLegacyCollaborationInvitationHandoff(pasted.handoff) ??
+          undefined;
       } else if (mode === "join" && !manualJoinOpen) {
         setError(t("peopleInvitationDetailsInvalid"));
         return;
@@ -555,12 +553,12 @@ export function CollaborationConnectForm({
                       {workspaceServerBaseUrl}
                     </div>
                   ) : null}
-                  {workspaceConnection?.status === "error" && workspaceConnection.error ? (
+                  {showWorkspaceConnectionError ? (
                     <div
                       className="mt-1 text-xs text-destructive"
                       data-testid="people-workspace-connection-error"
                     >
-                      {workspaceConnection.error.message ?? workspaceConnection.error.code}
+                      {workspaceConnectionErrorCopy}
                     </div>
                   ) : null}
                   {status?.identityRepair?.required ? (

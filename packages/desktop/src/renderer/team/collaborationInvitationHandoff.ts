@@ -61,7 +61,11 @@ function legacyProjectId(value: string): string | undefined {
 export function parseCollaborationInvitationHandoff(
   value: string
 ): CollaborationInvitationHandoff | null {
-  const trimmed = value.trim();
+  const trimmed = value
+    .replace(/[\u200B-\u200D\u2060\uFEFF]/g, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
   if (!trimmed) return null;
 
   if (

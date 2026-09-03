@@ -10,6 +10,7 @@ export function joinApi() {
       deviceCredentialPersistence: "persisted",
       nonPersistenceWarning: null
     }),
+    redeemCollaborationSetupCode: vi.fn().mockResolvedValue(undefined),
     connectCollaborationSession: vi.fn().mockResolvedValue(undefined)
   } as unknown as PlanWeaveCollaborationApi;
 }

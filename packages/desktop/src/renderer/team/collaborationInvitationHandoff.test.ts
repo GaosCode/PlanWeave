@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { serializeCollaborationSetupHandoffV1 } from "@planweave-ai/collaboration-protocol/handoff/setup";
 import {
   collaborationInvitationHandoffV1Prefix,
   collaborationInvitationHandoffV2Prefix,
@@ -6,6 +7,7 @@ import {
   parseCollaborationInvitationHandoff,
   serializeCollaborationInvitationHandoff
 } from "./collaborationInvitationHandoff";
+import { parseCollaborationJoinPaste } from "./collaborationJoinPaste";
 
 const invitationToken = `pw_inv_${"A".repeat(43)}`;
 
@@ -148,5 +150,31 @@ describe("collaboration invitation handoff", () => {
         `${collaborationInvitationHandoffV1Prefix}{"serverBaseUrl":"http://example.com","projectId":"project-1","invitationToken":"${invitationToken}","allowInsecureTransport":true}`
       )
     ).toBeNull();
+  });
+});
+
+describe("collaboration join paste", () => {
+  it("redeems a Mac member-device setup envelope pasted into Join Workspace", () => {
+    const setupCode = `pw_setup_${"A".repeat(43)}`;
+    const handoff = serializeCollaborationSetupHandoffV1({
+      serverBaseUrl: "https://vm-0-3-ubuntu.tailb06a1e.ts.net/",
+      setupCode,
+      allowInsecureTransport: false
+    });
+
+    expect(parseCollaborationJoinPaste(`\uFEFF${handoff}\r\n`)).toEqual({
+      kind: "setup",
+      handoff: {
+        serverBaseUrl: "https://vm-0-3-ubuntu.tailb06a1e.ts.net/",
+        setupCode,
+        allowInsecureTransport: false
+      }
+    });
+  });
+
+  it("does not treat a malformed setup envelope as a project invitation", () => {
+    expect(
+      parseCollaborationJoinPaste(`\uFEFFplanweave-server-setup/v1:{"serverBaseUrl":"not-a-url"}`)
+    ).toEqual({ kind: "invalid_setup" });
   });
 });

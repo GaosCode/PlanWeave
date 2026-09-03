@@ -1,6 +1,7 @@
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
+import { serializeCollaborationSetupHandoffV1 } from "@planweave-ai/collaboration-protocol/handoff/setup";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -263,5 +264,71 @@ describe("CollaborationConnectForm invitation onboarding", () => {
       "This invitation is incomplete or invalid"
     );
     expect(api.upsertCollaborationProfile).not.toHaveBeenCalled();
+  });
+
+  it("redeems a device setup handoff pasted into the join field", async () => {
+    const user = userEvent.setup();
+    const api = joinApi();
+    const setupCode = `pw_setup_${"A".repeat(43)}`;
+    const handoff = serializeCollaborationSetupHandoffV1({
+      serverBaseUrl: "https://vm-0-3-ubuntu.tailb06a1e.ts.net/",
+      setupCode,
+      allowInsecureTransport: false
+    });
+
+    render(
+      <CollaborationConnectForm
+        api={api}
+        status={null}
+        t={createTranslator("en")}
+        fixedMode="join"
+        showHeader={false}
+        showConnectionSummary={false}
+      />
+    );
+
+    fireEvent.change(screen.getByTestId("people-connect-invitation-details"), {
+      target: { value: `\uFEFF${handoff}\r\n` }
+    });
+    await user.type(screen.getByTestId("people-connect-display-name"), "win-colab");
+    await user.click(screen.getByTestId("people-connect-submit"));
+
+    await waitFor(() =>
+      expect(api.redeemCollaborationSetupCode).toHaveBeenCalledWith({
+        serverBaseUrl: "https://vm-0-3-ubuntu.tailb06a1e.ts.net/",
+        setupCode,
+        allowInsecureTransport: false,
+        displayName: "win-colab"
+      })
+    );
+    expect(api.consumeCollaborationInvitation).not.toHaveBeenCalled();
+    expect(api.upsertCollaborationProfile).not.toHaveBeenCalled();
+  });
+
+  it("treats a malformed setup envelope in the join field as setup details, not a join invite", async () => {
+    const user = userEvent.setup();
+    const api = joinApi();
+
+    render(
+      <CollaborationConnectForm
+        api={api}
+        status={null}
+        t={createTranslator("en")}
+        fixedMode="join"
+        showHeader={false}
+        showConnectionSummary={false}
+      />
+    );
+
+    fireEvent.change(screen.getByTestId("people-connect-invitation-details"), {
+      target: { value: `\uFEFF${"planweave-server-setup/v1:"}{"serverBaseUrl":"not-a-url"}` }
+    });
+    await user.click(screen.getByTestId("people-connect-submit"));
+
+    expect(await screen.findByTestId("people-connect-error")).toHaveTextContent(
+      "These Server connection details are incomplete"
+    );
+    expect(api.redeemCollaborationSetupCode).not.toHaveBeenCalled();
+    expect(api.consumeCollaborationInvitation).not.toHaveBeenCalled();
   });
 });
