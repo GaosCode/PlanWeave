@@ -98,6 +98,7 @@ export type OperatorControlServiceOptions = {
   resolveHumanIdentityCredential?: (input: {
     serverBaseUrl: string;
     humanPrincipalId?: string;
+    recover?: boolean;
   }) => Promise<OperatorHumanIdentityCredential | null>;
 };
 
@@ -215,7 +216,8 @@ export class OperatorControlService {
       const persistence = await this.vault.persistenceFor(profile.profileId);
       const metadata = await this.vault.getMetadata(profile.profileId);
       const humanIdentity = await this.resolveHumanIdentityCredential?.({
-        serverBaseUrl: profile.serverBaseUrl
+        serverBaseUrl: profile.serverBaseUrl,
+        recover: profile.profileId === activeProfileId
       });
       views.push(
         toPublicProfile(profile, isLocalOwnedOperatorProfile(profile, localBackendSnapshot), {

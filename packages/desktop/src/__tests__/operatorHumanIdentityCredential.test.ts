@@ -7,7 +7,10 @@ import {
 } from "@planweave-ai/collaboration-protocol/fixtures/collaboration";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CollaborationCredentialVault } from "../main/collaboration/collaborationCredentialVault.js";
-import { resolveOperatorHumanIdentityCredential } from "../main/collaboration/operatorHumanIdentityCredential.js";
+import {
+  recoverActiveOperatorHumanIdentity,
+  resolveOperatorHumanIdentityCredential
+} from "../main/collaboration/operatorHumanIdentityCredential.js";
 import { CollaborationProfileStore } from "../main/collaboration/collaborationProfileStore.js";
 
 const tempRoots: string[] = [];
@@ -99,5 +102,144 @@ describe("resolveOperatorHumanIdentityCredential", () => {
         serverBaseUrl: "https://operator.example.test/"
       })
     ).resolves.toBeNull();
+  });
+
+  it("uses the signed-in collaboration profile when several Humans share a Server origin", async () => {
+    const root = await temporaryDirectory();
+    const profiles = new CollaborationProfileStore({ profilesPath: join(root, "profiles.json") });
+    const vault = new CollaborationCredentialVault({
+      paths: { credentialsPath: join(root, "credentials.json") },
+      safeStorage
+    });
+    await profiles.upsert(profile("workspace-a", "project-a"));
+    await profiles.upsert(profile("workspace-b", "project-b"));
+    await profiles.setActiveProfileId("workspace-a");
+    await vault.setDeviceToken("workspace-a", exampleHumanDeviceToken, {
+      humanPrincipalId: "human-owner-1",
+      identityToken: exampleHumanIdentityToken
+    });
+    await vault.setDeviceToken("workspace-b", `pw_hdev_${"B".repeat(43)}`, {
+      humanPrincipalId: "human-owner-2",
+      identityToken: `pw_hid_${"B".repeat(43)}`
+    });
+
+    await expect(
+      resolveOperatorHumanIdentityCredential({
+        profiles,
+        vault,
+        serverBaseUrl: "https://operator.example.test/"
+      })
+    ).resolves.toEqual({
+      humanPrincipalId: "human-owner-1",
+      identityToken: exampleHumanIdentityToken
+    });
+  });
+});
+
+describe("recoverActiveOperatorHumanIdentity", () => {
+  it("recovers and persists the signed-in profile identity when the vault has only a device token", async () => {
+    const root = await temporaryDirectory();
+    const profiles = new CollaborationProfileStore({ profilesPath: join(root, "profiles.json") });
+    const vault = new CollaborationCredentialVault({
+      paths: { credentialsPath: join(root, "credentials.json") },
+      safeStorage
+    });
+    await profiles.upsert(profile("workspace-a", "project-a"));
+    await profiles.setActiveProfileId("workspace-a");
+    await vault.setDeviceToken("workspace-a", exampleHumanDeviceToken, {
+      humanPrincipalId: "human-owner-1"
+    });
+    const recover = vi.fn(async () => ({
+      humanPrincipalId: "human-owner-1",
+      identityToken: exampleHumanIdentityToken,
+      identityCredentialId: "identity-recovered-1",
+      identityExpiresAt: "2031-01-01T00:00:00.000Z"
+    }));
+
+    await expect(
+      recoverActiveOperatorHumanIdentity({
+        profiles,
+        vault,
+        serverBaseUrl: "https://operator.example.test/",
+        recover
+      })
+    ).resolves.toEqual({
+      humanPrincipalId: "human-owner-1",
+      identityToken: exampleHumanIdentityToken
+    });
+    expect(recover).toHaveBeenCalledWith(exampleHumanDeviceToken);
+    await expect(vault.getIdentityToken("workspace-a")).resolves.toBe(exampleHumanIdentityToken);
+    await expect(
+      resolveOperatorHumanIdentityCredential({
+        profiles,
+        vault,
+        serverBaseUrl: "https://operator.example.test/"
+      })
+    ).resolves.toEqual({
+      humanPrincipalId: "human-owner-1",
+      identityToken: exampleHumanIdentityToken
+    });
+  });
+
+  it("prefers the signed-in same-origin profile when recovering among several device tokens", async () => {
+    const root = await temporaryDirectory();
+    const profiles = new CollaborationProfileStore({ profilesPath: join(root, "profiles.json") });
+    const vault = new CollaborationCredentialVault({
+      paths: { credentialsPath: join(root, "credentials.json") },
+      safeStorage
+    });
+    await profiles.upsert(profile("workspace-a", "project-a"));
+    await profiles.upsert(profile("workspace-b", "project-b"));
+    await profiles.setActiveProfileId("workspace-b");
+    await vault.setDeviceToken("workspace-a", exampleHumanDeviceToken, {
+      humanPrincipalId: "human-owner-1"
+    });
+    const activeDeviceToken = `pw_hdev_${"C".repeat(43)}`;
+    const activeIdentityToken = `pw_hid_${"C".repeat(43)}`;
+    await vault.setDeviceToken("workspace-b", activeDeviceToken, {
+      humanPrincipalId: "human-owner-2"
+    });
+    const recover = vi.fn(async () => ({
+      humanPrincipalId: "human-owner-2",
+      identityToken: activeIdentityToken,
+      identityCredentialId: "identity-recovered-2",
+      identityExpiresAt: "2031-01-01T00:00:00.000Z"
+    }));
+
+    await expect(
+      recoverActiveOperatorHumanIdentity({
+        profiles,
+        vault,
+        serverBaseUrl: "https://operator.example.test/",
+        recover
+      })
+    ).resolves.toEqual({
+      humanPrincipalId: "human-owner-2",
+      identityToken: activeIdentityToken
+    });
+    expect(recover).toHaveBeenCalledWith(activeDeviceToken);
+    await expect(vault.getIdentityToken("workspace-b")).resolves.toBe(activeIdentityToken);
+  });
+
+  it("returns null when no same-origin ready profile has a device token", async () => {
+    const root = await temporaryDirectory();
+    const profiles = new CollaborationProfileStore({ profilesPath: join(root, "profiles.json") });
+    const vault = new CollaborationCredentialVault({
+      paths: { credentialsPath: join(root, "credentials.json") },
+      safeStorage
+    });
+    await profiles.upsert(profile("workspace-a", "project-a"));
+    await profiles.setActiveProfileId("workspace-a");
+    const recover = vi.fn();
+
+    await expect(
+      recoverActiveOperatorHumanIdentity({
+        profiles,
+        vault,
+        serverBaseUrl: "https://operator.example.test/",
+        recover
+      })
+    ).resolves.toBeNull();
+    expect(recover).not.toHaveBeenCalled();
   });
 });

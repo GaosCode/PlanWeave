@@ -101,7 +101,9 @@ import { createWorkspaceCanvasSnapshotSessionComposition } from "./WorkspaceCanv
 import type { WorkspaceCanvasLocator } from "../../shared/canvasLocator.js";
 import { resolveWorkspaceRemoteAuthorityProfile } from "./workspaceRemoteAuthorityProfile.js";
 import { withWorkspaceBoundCollaborationClient } from "./withWorkspaceBoundCollaborationClient.js";
+import { CollaborationIdentityCredentialClient } from "./collaborationIdentityCredentialClient.js";
 import {
+  recoverActiveOperatorHumanIdentity,
   resolveOperatorHumanIdentityCredential,
   type OperatorHumanIdentityCredentialInput
 } from "./operatorHumanIdentityCredential.js";
@@ -542,11 +544,35 @@ export class CollaborationService {
   }
 
   async resolveOperatorHumanIdentityCredential(input: OperatorHumanIdentityCredentialInput) {
-    return resolveOperatorHumanIdentityCredential({
-      profiles: this.profiles,
-      vault: this.vault,
-      ...input
-    });
+    const lookup = () =>
+      resolveOperatorHumanIdentityCredential({
+        profiles: this.profiles,
+        vault: this.vault,
+        ...input
+      });
+    const first = await lookup();
+    if (first || input.recover === false) return first;
+    try {
+      return await recoverActiveOperatorHumanIdentity({
+        serverBaseUrl: input.serverBaseUrl,
+        profiles: this.profiles,
+        vault: this.vault,
+        recover: (deviceToken) =>
+          new CollaborationIdentityCredentialClient({
+            origin: {
+              serverBaseUrl: input.serverBaseUrl,
+              allowInsecureTransport: new URL(input.serverBaseUrl).protocol !== "https:"
+            },
+            ...(this.request ? { request: this.request } : {})
+          }).recover(deviceToken)
+      });
+    } catch (error) {
+      if (error instanceof CollaborationClientError) {
+        console.error(`Operator Human identity recover failed: ${error.code}`);
+        return null;
+      }
+      throw error;
+    }
   }
 
   /** Main-only compatibility migration from the former global loopback profile. */
