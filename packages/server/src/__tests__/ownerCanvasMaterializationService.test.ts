@@ -59,8 +59,8 @@ async function fixture() {
 describe("OwnerCanvasMaterializationService", () => {
   it("registers the owner materialization migration", async () => {
     const { database } = await fixture();
-    expect(latestCentralSchemaVersion).toBe(67);
-    expect(centralSchemaVersion(database)).toBe(67);
+    expect(latestCentralSchemaVersion).toBe(68);
+    expect(centralSchemaVersion(database)).toBe(68);
   });
 
   it("atomically persists content, advances the head, and reuses an identical receipt", async () => {

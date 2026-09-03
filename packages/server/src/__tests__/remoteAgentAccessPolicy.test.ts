@@ -333,17 +333,57 @@ describe("authorizeRemoteAgentUse", () => {
     });
   });
 
-  it("3c. owner + workspace_restricted Agent + owner canvas rejects scope forbidden", async () => {
+  it("3c. owner + workspace_restricted Agent + owner canvas allows when local access is on", async () => {
     const state = await fixture();
     state.repo.setAccessMode({
       endpointId: state.endpointId,
       accessMode: "workspace_restricted"
     });
+    const authorized = authorize(
+      state.policy,
+      "owner-human-1",
+      state.endpointId,
+      ownerCanvas(),
+      state.workspaceA
+    );
+    expect(authorizedRemoteAgentUseSchema.parse(authorized)).toMatchObject({
+      runtimeAuthority: { kind: "owner_canvas" },
+      agentAccessAuthority: {
+        kind: "agent_owner",
+        ownerHumanPrincipalId: "owner-human-1",
+        policyRevision: expect.any(Number)
+      }
+    });
+    expect(
+      listAuthorizedRemoteAgentEndpoints({
+        policy: state.policy,
+        catalog: state.catalog,
+        principal: { humanPrincipalId: "owner-human-1" },
+        target: ownerCanvas()
+      }).items.map((item) => item.endpointId)
+    ).toContain(state.endpointId);
+  });
+
+  it("3d. owner + local canvas denied rejects owner canvas and omits it from catalog", async () => {
+    const state = await fixture();
+    state.repo.setAccessMode({
+      endpointId: state.endpointId,
+      accessMode: "workspace_restricted",
+      allowOwnerCanvas: false
+    });
     expectAuthorizationCode(
       () =>
         authorize(state.policy, "owner-human-1", state.endpointId, ownerCanvas(), state.workspaceA),
-      "remote_agent_workspace_scope_forbidden"
+      "remote_agent_owner_canvas_forbidden"
     );
+    expect(
+      listAuthorizedRemoteAgentEndpoints({
+        policy: state.policy,
+        catalog: state.catalog,
+        principal: { humanPrincipalId: "owner-human-1" },
+        target: ownerCanvas()
+      }).items.map((item) => item.endpointId)
+    ).not.toContain(state.endpointId);
   });
 
   it("4. workspace member + valid grant on the current workspace allows with workspace_grant authority", async () => {

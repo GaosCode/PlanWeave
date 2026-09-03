@@ -48,6 +48,7 @@ const managedAgent = {
   hostId: "host-1",
   displayName: "Codex",
   accessMode: "workspace_restricted" as const,
+  allowOwnerCanvas: true,
   ownershipRepairRequired: false,
   ownerHumanPrincipalId: "owner-human-1",
   policyRevision: 1,

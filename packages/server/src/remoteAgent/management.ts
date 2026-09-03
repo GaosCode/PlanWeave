@@ -43,6 +43,7 @@ const actorEndpointInputSchema = z
 const setAccessModeInputSchema = actorEndpointInputSchema
   .extend({
     accessMode: remoteAgentAccessModeSchema,
+    allowOwnerCanvas: z.boolean().optional(),
     expectedPolicyRevision: remoteAgentPolicyRevisionSchema.optional()
   })
   .strict();
@@ -134,6 +135,9 @@ export class RemoteAgentManagementService {
     return this.repository.setAccessMode({
       endpointId: parsed.endpointId,
       accessMode: parsed.accessMode,
+      ...(parsed.allowOwnerCanvas === undefined
+        ? {}
+        : { allowOwnerCanvas: parsed.allowOwnerCanvas }),
       ...(parsed.expectedPolicyRevision === undefined
         ? {}
         : { expectedPolicyRevision: parsed.expectedPolicyRevision })

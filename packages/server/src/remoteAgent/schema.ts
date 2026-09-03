@@ -35,6 +35,7 @@ export const remoteAgentRecordSchema = z
     ownerHumanPrincipalId: humanPrincipalIdSchema.nullable(),
     displayName: z.string().trim().min(1).max(128),
     accessMode: remoteAgentAccessModeSchema,
+    allowOwnerCanvas: z.boolean(),
     policyRevision: remoteAgentPolicyRevisionSchema,
     ownershipRepairRequired: z.boolean(),
     createdAt: timestampSchema,

@@ -539,6 +539,9 @@ export class RemoteControlService {
         endpointId,
         actorHumanPrincipalId: request.humanPrincipalId,
         accessMode: request.accessMode,
+        ...(request.allowOwnerCanvas === undefined
+          ? {}
+          : { allowOwnerCanvas: request.allowOwnerCanvas }),
         ...(request.expectedPolicyRevision === undefined
           ? {}
           : { expectedPolicyRevision: request.expectedPolicyRevision })

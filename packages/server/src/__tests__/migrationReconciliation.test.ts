@@ -215,7 +215,7 @@ describe("collaboration migration reconciliation", () => {
       { name: "remote-runner-events", versions: [65] },
       { name: "owner-canvas-materialization", versions: [67] }
     ]);
-    expect(latestCentralSchemaVersion).toBe(67);
+    expect(latestCentralSchemaVersion).toBe(68);
   });
 
   it("removes project route selection atomically and replays v66 idempotently", async () => {
@@ -326,7 +326,7 @@ describe("collaboration migration reconciliation", () => {
 
     applyMigrations(database);
 
-    expect(centralSchemaVersion(database)).toBe(67);
+    expect(centralSchemaVersion(database)).toBe(68);
     expect(
       database
         .prepare(

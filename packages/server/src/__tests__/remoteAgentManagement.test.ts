@@ -362,9 +362,11 @@ describe("remote agent management service", () => {
     const updated = management.setAccessMode({
       endpointId: owned.endpointId,
       actorHumanPrincipalId: "human-split-b",
-      accessMode: "workspace_restricted"
+      accessMode: "workspace_restricted",
+      allowOwnerCanvas: false
     });
     expect(updated.accessMode).toBe("workspace_restricted");
+    expect(updated.allowOwnerCanvas).toBe(false);
     const grant = management.grantWorkspace({
       endpointId: owned.endpointId,
       workspaceId: workspaceA,

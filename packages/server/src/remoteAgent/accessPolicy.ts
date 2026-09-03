@@ -246,10 +246,13 @@ export class RemoteAgentAccessPolicy {
       ownerHumanPrincipalId: agent.ownerHumanPrincipalId,
       policyRevision: agent.policyRevision
     };
-    if (agent.accessMode === "unrestricted") return ownerAuthority;
     if (target.kind === "owner_canvas") {
-      throw new RemoteAgentAuthorizationError("remote_agent_workspace_scope_forbidden");
+      if (!agent.allowOwnerCanvas) {
+        throw new RemoteAgentAuthorizationError("remote_agent_owner_canvas_forbidden");
+      }
+      return ownerAuthority;
     }
+    if (agent.accessMode === "unrestricted") return ownerAuthority;
     const grant = this.activeGrant(agent.endpointId, target.workspaceId);
     if (!grant) {
       throw new RemoteAgentAuthorizationError("remote_agent_workspace_scope_forbidden");

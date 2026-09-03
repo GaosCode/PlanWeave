@@ -25,6 +25,7 @@ export const remoteAgentManagementAgentViewSchema = z
     hostId: opaqueIdentifierSchema,
     displayName: z.string().trim().min(1).max(128),
     accessMode: remoteAgentAccessModeSchema,
+    allowOwnerCanvas: z.boolean(),
     ownershipRepairRequired: z.boolean(),
     ownerHumanPrincipalId: humanPrincipalIdSchema.nullable(),
     policyRevision: remoteAgentPolicyRevisionSchema,
@@ -50,6 +51,7 @@ export const operatorRemoteAgentAccessModeRequestSchema = z
   .object({
     humanPrincipalId: humanPrincipalIdSchema,
     accessMode: remoteAgentAccessModeSchema,
+    allowOwnerCanvas: z.boolean().optional(),
     expectedPolicyRevision: remoteAgentPolicyRevisionSchema.optional()
   })
   .strict();
@@ -86,6 +88,7 @@ export function toRemoteAgentManagementAgentView(
     hostId: agent.hostId,
     displayName: agent.displayName,
     accessMode: agent.accessMode,
+    allowOwnerCanvas: agent.allowOwnerCanvas,
     ownershipRepairRequired: agent.ownershipRepairRequired,
     ownerHumanPrincipalId: agent.ownerHumanPrincipalId,
     policyRevision: agent.policyRevision,

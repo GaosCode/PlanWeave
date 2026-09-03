@@ -42,6 +42,7 @@ import { humanIdentityCredentialsMigration } from "./humanIdentityCredentials.js
 import { remoteOperationDiagnosticsMigration } from "./remoteOperationDiagnostics.js";
 import { remoteRunnerEventsMigration } from "./remoteRunnerEvents.js";
 import { ownerCanvasMaterializationMigration } from "./ownerCanvasMaterialization.js";
+import { remoteAgentOwnerCanvasAccessMigration } from "./remoteAgentOwnerCanvasAccess.js";
 import type { Migration, MigrationModule } from "./types.js";
 
 const identityModule: MigrationModule = { name: "identity", migrations: identityMigrations };
@@ -105,7 +106,8 @@ export const migrationModules: readonly MigrationModule[] = [
       remoteAgentEnrollmentDefaultsMigration,
       remoteAgentAccessSnapshotMigration,
       humanPrincipalWorkspaceBackfillMigration,
-      humanIdentityCredentialsMigration
+      humanIdentityCredentialsMigration,
+      remoteAgentOwnerCanvasAccessMigration
     ]
   },
   { name: "remote-operation-diagnostics", migrations: [remoteOperationDiagnosticsMigration] },

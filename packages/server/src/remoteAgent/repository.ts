@@ -36,7 +36,8 @@ const registerOrRestoreInputSchema = z
     displayName: z.string().trim().min(1).max(128),
     now: timestampSchema,
     ownerHumanPrincipalId: humanPrincipalIdSchema.optional(),
-    accessMode: remoteAgentAccessModeSchema.optional()
+    accessMode: remoteAgentAccessModeSchema.optional(),
+    allowOwnerCanvas: z.boolean().optional()
   })
   .strict();
 
@@ -51,6 +52,7 @@ const setAccessModeInputSchema = z
   .object({
     endpointId: opaqueIdentifierSchema,
     accessMode: remoteAgentAccessModeSchema,
+    allowOwnerCanvas: z.boolean().optional(),
     expectedPolicyRevision: remoteAgentPolicyRevisionSchema.optional()
   })
   .strict();
@@ -94,6 +96,7 @@ function mapAgentRow(row: Record<string, unknown>): RemoteAgentRecord {
     ownerHumanPrincipalId: row.owner_human_principal_id,
     displayName: row.display_name,
     accessMode: row.access_mode,
+    allowOwnerCanvas: sqliteToggle(row.allow_owner_canvas),
     policyRevision: Number(row.policy_revision),
     ownershipRepairRequired: sqliteToggle(row.ownership_repair_required),
     createdAt: row.created_at,
@@ -255,13 +258,14 @@ export class RemoteAgentRepository {
         accessMode = parsed.accessMode;
         ownershipRepairRequired = 0;
       }
+      const allowOwnerCanvas = parsed.allowOwnerCanvas !== false;
       this.database
         .prepare(
           `INSERT INTO remote_agents(
              endpoint_id, host_id, profile_id, agent_id, owner_human_principal_id,
-             display_name, access_mode, policy_revision, ownership_repair_required,
-             created_at, updated_at, revoked_at
-           ) VALUES (?,?,?,?,?,?,?,1,?,?,?,NULL)`
+             display_name, access_mode, allow_owner_canvas, policy_revision,
+             ownership_repair_required, created_at, updated_at, revoked_at
+           ) VALUES (?,?,?,?,?,?,?,?,1,?,?,?,NULL)`
         )
         .run(
           endpointId,
@@ -271,6 +275,7 @@ export class RemoteAgentRepository {
           ownerHumanPrincipalId,
           parsed.displayName,
           accessMode,
+          allowOwnerCanvas ? 1 : 0,
           ownershipRepairRequired,
           parsed.now,
           parsed.now
@@ -334,13 +339,14 @@ export class RemoteAgentRepository {
         throw new RemoteAgentAuthorizationError("remote_agent_policy_revision_conflict");
       }
       const now = this.clock().toISOString();
+      const allowOwnerCanvas = parsed.allowOwnerCanvas ?? agent.allowOwnerCanvas;
       this.database
         .prepare(
           `UPDATE remote_agents
-           SET access_mode=?, policy_revision=policy_revision+1, updated_at=?
+           SET access_mode=?, allow_owner_canvas=?, policy_revision=policy_revision+1, updated_at=?
            WHERE endpoint_id=?`
         )
-        .run(parsed.accessMode, now, agent.endpointId);
+        .run(parsed.accessMode, allowOwnerCanvas ? 1 : 0, now, agent.endpointId);
       return requireAgent(
         this.database
           .prepare("SELECT * FROM remote_agents WHERE endpoint_id=?")
