@@ -117,6 +117,7 @@ describe("agent endpoint protocol", () => {
       "remote_agent_owner_required",
       "remote_agent_workspace_grant_missing",
       "remote_agent_workspace_scope_forbidden",
+      "remote_agent_owner_canvas_forbidden",
       "remote_agent_ownership_repair_required",
       "remote_agent_access_snapshot_missing",
       "remote_agent_policy_revision_conflict",
