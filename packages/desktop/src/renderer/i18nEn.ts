@@ -1384,6 +1384,7 @@ export const enCatalog = {
   peopleDisconnected: "Not connected to a collaboration project.",
   peopleOffline: "Collaboration is offline or reconnecting. Showing the last known people list.",
   peopleError: "Could not load collaboration people.",
+  peopleWorkspaceCannotConnect: "This Workspace could not be connected.",
   peopleAuthExpired: "Collaboration credentials expired. Rejoin or reconnect with a valid device.",
   peopleForbidden: "You do not have permission for this collaboration project.",
   peopleEmptyMembers: "No members yet.",
@@ -1408,7 +1409,7 @@ export const enCatalog = {
   peopleInvitationDetails: "Complete invitation",
   peopleInvitationDetailsPlaceholder: "Paste the complete PlanWeave invitation",
   peopleInvitationDetailsHint:
-    "Paste once; PlanWeave will read the Server address, project, and invitation token.",
+    "Paste the complete join invitation or device setup invite copied by the owner. PlanWeave will recognize either.",
   peopleInvitationDetailsInvalid:
     "This invitation is incomplete or invalid. Ask the owner to copy the complete join details again.",
   peopleAdvancedConnectionDetails: "Enter connection details manually",

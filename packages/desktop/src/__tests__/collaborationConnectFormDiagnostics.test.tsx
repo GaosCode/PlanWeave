@@ -162,6 +162,37 @@ describe("CollaborationConnectForm connection diagnostics", () => {
     );
   });
 
+  it("does not expose internal device-credential errors on the Workspace page", () => {
+    const status = statusWithWorkspaceIdentity("error", {
+      code: "collaboration_credential_missing",
+      message: "Human device credential is not available for this Workspace.",
+      retryable: false
+    });
+    status.profiles = status.profiles.map((profile) => ({
+      ...profile,
+      hasDeviceCredential: false,
+      deviceCredentialPersistence: "missing",
+      deviceCredentialId: null,
+      humanPrincipalId: null
+    }));
+
+    render(
+      <CollaborationConnectForm
+        api={joinApi()}
+        status={status}
+        t={createTranslator("en")}
+        fixedMode="connect"
+      />
+    );
+
+    expect(screen.queryByText(/Human device credential/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId("people-workspace-identity-status")).toHaveTextContent(
+      "Workspace connection failed"
+    );
+    expect(screen.getByTestId("people-workspace-credential-missing")).toBeVisible();
+    expect(screen.queryByTestId("people-workspace-connection-error")).not.toBeInTheDocument();
+  });
+
   it("restores a missing local-owner credential through local activation", async () => {
     const user = userEvent.setup();
     const status = statusWithWorkspaceIdentity("disconnected");
@@ -219,6 +250,9 @@ describe("CollaborationConnectForm connection diagnostics", () => {
       "Workspace connection failed"
     );
     expect(screen.getByTestId("people-workspace-connection-error")).toHaveTextContent(
+      "your Workspace sign-in was not accepted"
+    );
+    expect(screen.getByTestId("people-workspace-connection-error")).not.toHaveTextContent(
       "The device credential was rejected."
     );
     expect(screen.queryByText("Workspace disconnected")).not.toBeInTheDocument();

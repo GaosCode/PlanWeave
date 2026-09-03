@@ -1291,6 +1291,7 @@ export const zhCnCatalog = {
   peopleDisconnected: "尚未连接协作项目。",
   peopleOffline: "协作离线或正在重连。显示最近一次已知的成员列表。",
   peopleError: "无法加载协作成员。",
+  peopleWorkspaceCannotConnect: "Workspace 无法连接。",
   peopleAuthExpired: "协作凭证已失效。请重新加入或使用有效设备重新连接。",
   peopleForbidden: "你没有此协作项目的权限。",
   peopleEmptyMembers: "暂无成员。",
@@ -1313,7 +1314,8 @@ export const zhCnCatalog = {
   peopleInvitationToken: "邀请令牌",
   peopleInvitationDetails: "完整邀请",
   peopleInvitationDetailsPlaceholder: "粘贴完整的 PlanWeave 邀请",
-  peopleInvitationDetailsHint: "只需粘贴一次，PlanWeave 会自动读取 Server 地址、项目和邀请令牌。",
+  peopleInvitationDetailsHint:
+    "粘贴所有者复制的完整加入信息，或设备设置邀请。PlanWeave 会自动识别。",
   peopleInvitationDetailsInvalid: "邀请信息不完整或无效。请让所有者重新复制完整加入信息。",
   peopleAdvancedConnectionDetails: "手动填写连接信息",
   peopleHideAdvancedConnectionDetails: "收起手动连接信息",

@@ -29,4 +29,14 @@ describe("collaboration connection error presentation", () => {
     expect(message).not.toContain("Error invoking remote method");
     expect(message).not.toContain("internal_detail");
   });
+
+  it("hides internal device-credential failures behind localized copy", () => {
+    const message = collaborationConnectionErrorMessage(
+      createTranslator("zh-CN"),
+      new Error("Human device credential is not available for this Workspace.")
+    );
+
+    expect(message).toBe("此配置没有已存储的设备凭证。");
+    expect(message).not.toContain("Human device");
+  });
 });

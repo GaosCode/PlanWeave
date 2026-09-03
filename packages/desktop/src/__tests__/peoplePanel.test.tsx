@@ -377,17 +377,23 @@ describe("PeoplePanel", () => {
     expect(screen.queryByTestId("people-empty")).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 
-    rerender(<PeoplePanel {...commonProps} mode="error" />);
+    rerender(
+      <PeoplePanel
+        {...commonProps}
+        mode="error"
+        presence={{ ...presence, sessionPhase: "error", memberCount: 0 }}
+      />
+    );
 
     expect(screen.getByTestId("people-error")).toBeVisible();
     expect(screen.getByTestId("people-error")).toHaveClass("text-muted-foreground");
     expect(screen.getByTestId("people-error")).not.toHaveAttribute("role", "alert");
     expect(screen.getByTestId("people-presence-summary")).toHaveTextContent(
-      "Could not load collaboration people"
+      "This Workspace could not be connected"
     );
     expect(screen.getByTestId("people-presence-summary")).not.toHaveTextContent("0 members");
     expect(screen.getByTestId("people-members-empty")).toHaveTextContent(
-      "Could not load collaboration people"
+      "This Workspace could not be connected"
     );
     expect(screen.getByTestId("people-members-empty")).not.toHaveTextContent("No members");
     expect(screen.queryByTestId("people-connect-form")).not.toBeInTheDocument();

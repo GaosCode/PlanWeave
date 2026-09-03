@@ -12,7 +12,7 @@ type CollaborationOperationDiagnosticsPopoverProps = {
 
 const COPY = {
   en: {
-    title: "Collaboration internal state",
+    title: "Collaboration status",
     restoring: "restoring",
     ready: "ready",
     failed: "recovery failed",
@@ -24,7 +24,7 @@ const COPY = {
     queued: "queued"
   },
   zh: {
-    title: "Collaboration 内部状态",
+    title: "协作状态",
     restoring: "恢复中",
     ready: "已就绪",
     failed: "恢复失败",

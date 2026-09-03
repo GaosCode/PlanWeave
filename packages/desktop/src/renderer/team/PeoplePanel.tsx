@@ -304,6 +304,11 @@ export function PeoplePanel({
     );
   }
 
+  const workspaceUnavailable =
+    mode === "error" && presence.sessionPhase !== "connected" && presence.sessionPhase !== "ready";
+  const unavailablePeopleCopy = workspaceUnavailable
+    ? t("peopleWorkspaceCannotConnect")
+    : t("peopleError");
   const memberStateText =
     mode === "ready" || mode === "empty"
       ? t("peopleMemberCount").replace("{count}", String(presence.memberCount))
@@ -311,7 +316,7 @@ export function PeoplePanel({
         ? t("peopleLoading")
         : mode === "offline"
           ? t("peopleOffline")
-          : t("peopleError");
+          : unavailablePeopleCopy;
   const emptyMemberStateText =
     mode === "empty"
       ? t("peopleEmptyMembers")
@@ -319,7 +324,7 @@ export function PeoplePanel({
         ? t("peopleLoading")
         : mode === "offline"
           ? t("peopleOffline")
-          : t("peopleError");
+          : unavailablePeopleCopy;
   const projectSessionStatusText =
     presence.sessionPhase === "connected"
       ? t("peopleProjectSessionConnected")
@@ -428,7 +433,7 @@ export function PeoplePanel({
       ) : null}
       {mode === "error" ? (
         <div className="text-xs text-muted-foreground" data-testid="people-error" role="status">
-          {t("peopleError")}
+          {unavailablePeopleCopy}
         </div>
       ) : null}
 

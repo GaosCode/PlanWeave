@@ -120,12 +120,6 @@ export function collaborationConnectionErrorMessage(
   ) {
     return t("peopleLocalOwnerRestoreUnavailable");
   }
-  if (
-    code === "collaboration_credential_missing" ||
-    message.includes("collaboration_credential_missing")
-  ) {
-    return t("peopleMissingCredential");
-  }
   if (code === "PRIVATE_NETWORK_UNREACHABLE") {
     return t("peoplePrivateNetworkUnreachable");
   }
@@ -134,6 +128,13 @@ export function collaborationConnectionErrorMessage(
   }
   if (code === "WORKSPACE_UNAUTHORIZED") {
     return t("peopleWorkspaceUnauthorized");
+  }
+  if (
+    code === "collaboration_credential_missing" ||
+    message.includes("collaboration_credential_missing") ||
+    /human device credential is not available/i.test(message)
+  ) {
+    return t("peopleMissingCredential");
   }
   if (isCollaborationConnectionUnavailable(error)) {
     return t("peopleServerUnreachable");
