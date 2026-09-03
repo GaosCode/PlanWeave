@@ -1,6 +1,6 @@
 import type { OperatorHostView } from "@planweave-ai/agent-host-protocol/operator-control";
 import { useMemo, useState } from "react";
-import { ChevronRightIcon, MonitorIcon, RefreshCwIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronRightIcon, MonitorIcon, RefreshCwIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { createTranslator } from "../i18n";
@@ -192,10 +192,18 @@ export function RemoteAgentManagementCard({
                     busy={panel.busy}
                     grantWorkspaceId={grantWorkspaceId[agent.endpointId] ?? ""}
                     people={panel.people}
+                    workspaces={panel.workspaces}
                     repairOwnerId={repairOwnerId[agent.endpointId] ?? ""}
                     t={t}
                     onAccessModeChange={(accessMode) =>
-                      void panel.setAccessMode(agent.endpointId, accessMode)
+                      void panel.setAccessMode(
+                        agent.endpointId,
+                        accessMode,
+                        agent.allowOwnerCanvas !== false
+                      )
+                    }
+                    onAllowOwnerCanvasChange={(allowOwnerCanvas) =>
+                      void panel.setAccessMode(agent.endpointId, agent.accessMode, allowOwnerCanvas)
                     }
                     onGrantWorkspaceIdChange={(value) =>
                       setGrantWorkspaceId((current) => ({
@@ -248,14 +256,26 @@ export function RemoteAgentManagementCard({
   );
 }
 
+function workspaceLabel(
+  workspaceId: string,
+  workspaces: RemoteAgentManagementController["workspaces"]
+): string {
+  return (
+    workspaces.find((workspace) => workspace.workspaceId === workspaceId)?.displayName ??
+    workspaceId
+  );
+}
+
 function RemoteAgentManagementRow(input: {
   agent: OperatorRemoteAgentView;
   busy: boolean;
   grantWorkspaceId: string;
   people: RemoteAgentManagementController["people"];
+  workspaces: RemoteAgentManagementController["workspaces"];
   repairOwnerId: string;
   t: ReturnType<typeof createTranslator>;
   onAccessModeChange: (accessMode: OperatorRemoteAgentView["accessMode"]) => void;
+  onAllowOwnerCanvasChange: (allowOwnerCanvas: boolean) => void;
   onGrantWorkspaceIdChange: (value: string) => void;
   onGrant: () => void;
   onRevokeGrant: (workspaceId: string) => void;
@@ -264,16 +284,17 @@ function RemoteAgentManagementRow(input: {
   onRepair: () => void;
 }) {
   const { agent, t } = input;
-  return (
-    <li
-      className="flex flex-col gap-3 px-4 py-3"
-      data-testid={`remote-agent-row-${agent.endpointId}`}
-    >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="font-medium text-text-strong">{agent.displayName}</p>
-          <p className="font-mono text-xs text-text-muted">{agent.endpointId}</p>
-        </div>
+  const grantedIds = new Set(agent.grants.map((grant) => grant.workspaceId));
+  const grantableWorkspaces = input.workspaces.filter(
+    (workspace) => !grantedIds.has(workspace.workspaceId)
+  );
+  const header = (
+    <>
+      <div className="min-w-0">
+        <p className="truncate font-medium text-text-strong">{agent.displayName}</p>
+        <p className="truncate font-mono text-xs text-text-muted">{agent.endpointId}</p>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
         {agent.ownershipRepairRequired ? (
           <span className="text-xs text-amber-600" data-testid="remote-agent-repair-flag">
             {t("remoteAgentManagementRepairRequired")}
@@ -283,51 +304,75 @@ function RemoteAgentManagementRow(input: {
           <span className="text-xs text-text-muted">{t("remoteAgentManagementRevoked")}</span>
         ) : null}
       </div>
+    </>
+  );
 
+  return (
+    <li data-testid={`remote-agent-row-${agent.endpointId}`}>
       {agent.ownershipRepairRequired ? (
-        <div className="flex flex-col gap-2" data-testid="remote-agent-repair">
-          {input.people.length > 0 ? (
-            <label className="flex flex-col gap-1 text-sm">
-              {t("remoteAgentManagementOwnerPicker")}
-              <select
-                className="rounded-md border border-border bg-background px-2 py-1"
-                value={input.repairOwnerId}
-                onChange={(event) => input.onRepairOwnerIdChange(event.target.value)}
-              >
-                <option value="">{t("remoteAgentManagementRepairOwner")}</option>
-                {input.people.map((person) => (
-                  <option key={person.humanPrincipalId} value={person.humanPrincipalId}>
-                    {person.displayName}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          <Input
-            value={input.repairOwnerId}
-            onChange={(event) => input.onRepairOwnerIdChange(event.target.value)}
-            placeholder={t("remoteAgentManagementRepairOwner")}
-            data-testid="remote-agent-repair-owner"
-          />
-          <Button
-            type="button"
-            size="sm"
-            disabled={input.busy || !input.repairOwnerId.trim()}
-            onClick={input.onRepair}
-          >
-            {t("remoteAgentManagementRepairSubmit")}
-          </Button>
+        <div className="flex flex-col gap-3 px-4 py-3">
+          <div className="flex items-start justify-between gap-2">{header}</div>
+          <div className="flex flex-col gap-2" data-testid="remote-agent-repair">
+            {input.people.length > 0 ? (
+              <label className="flex flex-col gap-1 text-sm">
+                {t("remoteAgentManagementOwnerPicker")}
+                <select
+                  className="rounded-md border border-border bg-background px-2 py-1"
+                  value={input.repairOwnerId}
+                  onChange={(event) => input.onRepairOwnerIdChange(event.target.value)}
+                >
+                  <option value="">{t("remoteAgentManagementRepairOwner")}</option>
+                  {input.people.map((person) => (
+                    <option key={person.humanPrincipalId} value={person.humanPrincipalId}>
+                      {person.displayName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            <Input
+              value={input.repairOwnerId}
+              onChange={(event) => input.onRepairOwnerIdChange(event.target.value)}
+              placeholder={t("remoteAgentManagementRepairOwner")}
+              data-testid="remote-agent-repair-owner"
+            />
+            <Button
+              type="button"
+              size="sm"
+              disabled={input.busy || !input.repairOwnerId.trim()}
+              onClick={input.onRepair}
+            >
+              {t("remoteAgentManagementRepairSubmit")}
+            </Button>
+          </div>
         </div>
       ) : (
-        <details className="group border-t border-border/60 pt-2">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-medium text-text-muted marker:content-none">
-            <span>{t("remoteAgentManagementPermissions")}</span>
-            <ChevronRightIcon
-              className="size-3.5 transition-transform group-open:rotate-90"
+        <details className="group">
+          <summary
+            className="flex cursor-pointer list-none items-start justify-between gap-3 px-4 py-3 marker:content-none"
+            data-testid={`remote-agent-row-toggle-${agent.endpointId}`}
+            aria-label={`${agent.displayName}, ${t("remoteAgentManagementPermissions")}`}
+          >
+            <div className="flex min-w-0 flex-1 items-start justify-between gap-2">{header}</div>
+            <ChevronDownIcon
+              className="mt-1 size-4 shrink-0 text-text-muted transition-transform group-open:rotate-180"
               aria-hidden="true"
             />
           </summary>
-          <div className="mt-3 flex flex-col gap-3">
+          <div className="flex flex-col gap-3 px-4 pb-3">
+            <label className="flex flex-col gap-1 text-sm">
+              {t("remoteAgentManagementLocalCanvas")}
+              <select
+                className="rounded-md border border-border bg-background px-2 py-1"
+                value={agent.allowOwnerCanvas === false ? "deny" : "allow"}
+                disabled={input.busy || Boolean(agent.revokedAt)}
+                data-testid="remote-agent-local-canvas"
+                onChange={(event) => input.onAllowOwnerCanvasChange(event.target.value === "allow")}
+              >
+                <option value="allow">{t("remoteAgentManagementLocalCanvasAllow")}</option>
+                <option value="deny">{t("remoteAgentManagementLocalCanvasDeny")}</option>
+              </select>
+            </label>
             <label className="flex flex-col gap-1 text-sm">
               {t("remoteAgentManagementAccessMode")}
               <select
@@ -359,7 +404,7 @@ function RemoteAgentManagementRow(input: {
                       key={grant.workspaceId}
                       className="flex items-center justify-between gap-2 text-sm"
                     >
-                      <span className="font-mono">{grant.workspaceId}</span>
+                      <span>{workspaceLabel(grant.workspaceId, input.workspaces)}</span>
                       <Button
                         type="button"
                         size="sm"
@@ -373,22 +418,37 @@ function RemoteAgentManagementRow(input: {
                   ))}
                 </ul>
               )}
-              <div className="mt-2 flex flex-wrap gap-2">
-                <Input
-                  value={input.grantWorkspaceId}
-                  onChange={(event) => input.onGrantWorkspaceIdChange(event.target.value)}
-                  placeholder={t("remoteAgentManagementWorkspaceId")}
-                  data-testid="remote-agent-grant-workspace"
-                />
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={input.busy || !input.grantWorkspaceId.trim()}
-                  onClick={input.onGrant}
-                >
-                  {t("remoteAgentManagementAddGrant")}
-                </Button>
-              </div>
+              {grantableWorkspaces.length === 0 ? (
+                <p className="mt-2 text-xs text-text-muted">
+                  {t("remoteAgentManagementNoCanvases")}
+                </p>
+              ) : (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <select
+                    className="min-w-48 flex-1 rounded-md border border-border bg-background px-2 py-1 text-sm"
+                    value={input.grantWorkspaceId}
+                    disabled={input.busy || Boolean(agent.revokedAt)}
+                    data-testid="remote-agent-grant-workspace"
+                    aria-label={t("remoteAgentManagementWorkspaceId")}
+                    onChange={(event) => input.onGrantWorkspaceIdChange(event.target.value)}
+                  >
+                    <option value="">{t("remoteAgentManagementWorkspaceId")}</option>
+                    {grantableWorkspaces.map((workspace) => (
+                      <option key={workspace.workspaceId} value={workspace.workspaceId}>
+                        {workspace.displayName}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={input.busy || !input.grantWorkspaceId.trim()}
+                    onClick={input.onGrant}
+                  >
+                    {t("remoteAgentManagementAddGrant")}
+                  </Button>
+                </div>
+              )}
             </div>
 
             <Button

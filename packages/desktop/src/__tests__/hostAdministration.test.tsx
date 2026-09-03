@@ -295,6 +295,7 @@ describe("Agent Host settings", () => {
         }
       ],
       people: [],
+      workspaces: [],
       humanPrincipalId: "owner-human-1",
       operatorProfileId: "profile-a",
       loading: false,
@@ -330,6 +331,72 @@ describe("Agent Host settings", () => {
     expect(screen.getByTestId("remote-agent-row-endpoint-pi")).toBeInTheDocument();
     expect(screen.queryByTestId("remote-agent-device-host-3")).not.toBeInTheDocument();
     expect(screen.queryByTestId("remote-agent-device-host-4")).not.toBeInTheDocument();
+  });
+
+  it("expands an Agent row to authorize a named canvas instead of typing an ID", async () => {
+    const user = userEvent.setup();
+    const grantWorkspace = vi.fn().mockResolvedValue(true);
+    const setAccessMode = vi.fn().mockResolvedValue(true);
+    const controller: RemoteAgentManagementController = {
+      agents: [
+        {
+          endpointId: "endpoint-pi",
+          hostId: "host-2",
+          displayName: "Pi",
+          accessMode: "workspace_restricted",
+          ownershipRepairRequired: false,
+          ownerHumanPrincipalId: "owner-human-1",
+          policyRevision: 1,
+          revokedAt: null,
+          grants: [{ workspaceId: "workspace-notes", grantRevision: 1 }]
+        }
+      ],
+      people: [],
+      workspaces: [
+        { workspaceId: "workspace-notes", displayName: "tiny-notes" },
+        { workspaceId: "workspace-demo", displayName: "PlanWeave Demo" }
+      ],
+      humanPrincipalId: "owner-human-1",
+      operatorProfileId: "profile-a",
+      loading: false,
+      busy: false,
+      error: null,
+      refresh: vi.fn().mockResolvedValue(undefined),
+      setAccessMode,
+      grantWorkspace,
+      revokeGrant: vi.fn().mockResolvedValue(true),
+      revokeAgent: vi.fn().mockResolvedValue(true),
+      repairOwnership: vi.fn().mockResolvedValue(true)
+    };
+
+    render(
+      <RemoteAgentManagementCard
+        controller={controller}
+        hosts={[{ ...host, id: "host-2", displayName: "VPS", online: true }]}
+        t={createTranslator("en")}
+      />
+    );
+
+    const toggle = screen.getByTestId("remote-agent-row-toggle-endpoint-pi");
+    expect(toggle.closest("details")).not.toHaveAttribute("open");
+    expect(screen.queryByPlaceholderText("Workspace ID")).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+
+    await user.click(toggle);
+    expect(toggle.closest("details")).toHaveAttribute("open");
+    expect(screen.getByTestId("remote-agent-local-canvas")).toBeInTheDocument();
+    expect(screen.getByTestId("remote-agent-access-mode")).toBeInTheDocument();
+    await user.selectOptions(screen.getByTestId("remote-agent-local-canvas"), "deny");
+    expect(setAccessMode).toHaveBeenCalledWith("endpoint-pi", "workspace_restricted", false);
+    expect(screen.getByText("tiny-notes")).toBeInTheDocument();
+    const grantSelect = screen.getByTestId("remote-agent-grant-workspace");
+    expect(grantSelect.tagName).toBe("SELECT");
+    expect(within(grantSelect).queryByText("tiny-notes")).not.toBeInTheDocument();
+    expect(within(grantSelect).getByRole("option", { name: "PlanWeave Demo" })).toBeInTheDocument();
+
+    await user.selectOptions(grantSelect, "workspace-demo");
+    await user.click(screen.getByRole("button", { name: "Authorize" }));
+    expect(grantWorkspace).toHaveBeenCalledWith("endpoint-pi", "workspace-demo");
   });
 
   it("still allows handoff enrollment while this computer hosts its own Server", () => {
