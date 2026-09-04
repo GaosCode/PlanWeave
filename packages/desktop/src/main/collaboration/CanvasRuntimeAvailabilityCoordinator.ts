@@ -1,7 +1,5 @@
-import {
-  canvasRuntimeAvailabilitySchema,
-  type CanvasRuntimeAvailability
-} from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
+import type { CanvasRuntimeAvailability } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
+import type { CanvasRuntimeStatusProjection } from "@planweave-ai/collaboration-protocol/canvas/status";
 import {
   canvasRuntimeInitializeAcceptedSchema,
   canvasRuntimeInitializeOutcomeSchema,
@@ -116,22 +114,7 @@ export class CanvasRuntimeAvailabilityCoordinator {
       });
     }
     if (outcome.type === "canvas.runtime.reset.rejected") return outcome;
-
-    const availability = canvasRuntimeAvailabilitySchema.parse(
-      await this.readRuntimeAvailability(binding)
-    );
-    if (
-      availability.state.kind !== "initialized" ||
-      availability.state.runtimeRevision < outcome.runtimeRevision ||
-      JSON.stringify(availability.state.status) !== JSON.stringify(outcome.status)
-    ) {
-      throw new CollaborationClientError({
-        kind: "unknown",
-        code: "runtime_reset_projection_postcondition_failed",
-        message: "runtime_reset_projection_postcondition_failed",
-        retryable: true
-      });
-    }
+    this.publishAcceptedRuntimeProjection(binding, outcome.status);
     return canvasRuntimeResetAcceptedSchema.parse(outcome);
   }
 
@@ -156,23 +139,25 @@ export class CanvasRuntimeAvailabilityCoordinator {
       });
     }
     if (outcome.type === "canvas.runtime.initialize.rejected") return outcome;
-
-    const availability = canvasRuntimeAvailabilitySchema.parse(
-      await this.readRuntimeAvailability(binding)
-    );
-    if (
-      availability.state.kind !== "initialized" ||
-      availability.state.runtimeRevision < outcome.runtimeRevision ||
-      JSON.stringify(availability.state.status) !== JSON.stringify(outcome.status)
-    ) {
-      throw new CollaborationClientError({
-        kind: "unknown",
-        code: "runtime_initialize_projection_postcondition_failed",
-        message: "runtime_initialize_projection_postcondition_failed",
-        retryable: true
-      });
-    }
+    this.publishAcceptedRuntimeProjection(binding, outcome.status);
     return canvasRuntimeInitializeAcceptedSchema.parse(outcome);
+  }
+
+  private publishAcceptedRuntimeProjection(
+    binding: RemoteCollaborationCanvasBindingInput,
+    status: CanvasRuntimeStatusProjection
+  ): void {
+    const authorityId = this.resolveAuthorityId();
+    if (!this.isOnline() || !authorityId) return;
+    const replicaScope = {
+      authorityId,
+      workspaceId: binding.workspaceId,
+      projectId: binding.projectId,
+      canvasId: binding.canvasId
+    };
+    if (this.canvasReplicas.has(replicaScope)) {
+      this.canvasReplicas.setRuntimeStatus(replicaScope, status);
+    }
   }
 
   private clearReplicaRuntimeStatus(scope: Parameters<CanvasRuntimeReplicaPort["has"]>[0]): void {

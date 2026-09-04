@@ -125,6 +125,26 @@ async function readCanvasRuntimeAvailability(resolved: ResolvedCanvasRuntime) {
   };
 }
 
+type CanvasRuntimeAvailabilityEvidence = Awaited<ReturnType<typeof readCanvasRuntimeAvailability>>;
+
+function assertCanvasRuntimeMaterializationEvidence(
+  receipt: CanvasRuntimeContentTarget | undefined,
+  available: CanvasRuntimeAvailabilityEvidence,
+  expected: ExpectedCanvasRuntimeMaterializationEvidence
+) {
+  if (
+    !receipt ||
+    receipt.graphFingerprint !== available.graphFingerprint ||
+    receipt.graphFingerprint !== expected.graphFingerprint ||
+    available.graphFingerprint !== expected.graphFingerprint ||
+    (expected.sourceRevision !== undefined &&
+      available.sourceRevision !== expected.sourceRevision) ||
+    (expected.contentTarget !== undefined && !contentTargetMatches(receipt, expected.contentTarget))
+  ) {
+    throw new CanvasRuntimeMaterializationEvidenceError();
+  }
+}
+
 async function requireCanvasRuntimeMaterializationEvidence(
   resolved: ResolvedCanvasRuntime,
   expected: ExpectedCanvasRuntimeMaterializationEvidence
@@ -136,17 +156,7 @@ async function requireCanvasRuntimeMaterializationEvidence(
       )
     );
     const available = await readCanvasRuntimeAvailability(resolved);
-    if (
-      receipt.graphFingerprint !== available.graphFingerprint ||
-      receipt.graphFingerprint !== expected.graphFingerprint ||
-      available.graphFingerprint !== expected.graphFingerprint ||
-      (expected.sourceRevision !== undefined &&
-        available.sourceRevision !== expected.sourceRevision) ||
-      (expected.contentTarget !== undefined &&
-        !contentTargetMatches(receipt, expected.contentTarget))
-    ) {
-      throw new CanvasRuntimeMaterializationEvidenceError();
-    }
+    assertCanvasRuntimeMaterializationEvidence(receipt, available, expected);
     return available;
   } catch (error) {
     if (error instanceof CanvasRuntimeMaterializationEvidenceError) throw error;
@@ -361,8 +371,7 @@ export class CanvasRuntimeService {
     if (operation.operation === "availability") {
       const target = canvasRuntimeContentTargetSchema.parse(operation.contentTarget);
       return this.withMaterializationLock(command.scope, resolved, async () => {
-        await this.ensureMaterialized(command, resolved, target, active);
-        return this.availability(resolved);
+        return this.ensureMaterialized(command, resolved, target, active);
       });
     }
     if (operation.operation === "resolve_work_items") {
@@ -375,8 +384,8 @@ export class CanvasRuntimeService {
     if (operation.operation === "acquire") {
       const target = canvasRuntimeContentTargetSchema.parse(operation.contentTarget);
       return this.withMaterializationLock(command.scope, resolved, async () => {
-        await this.ensureMaterialized(command, resolved, target, active);
-        return this.acquire(command, resolved);
+        const evidence = await this.ensureMaterialized(command, resolved, target, active);
+        return this.acquire(command, resolved, evidence);
       });
     }
     switch (operation.operation) {
@@ -404,8 +413,8 @@ export class CanvasRuntimeService {
   ) {
     await recoverPendingAuthoritativeCanvasMaterialization(resolved.canvas);
     const receiptFile = join(resolved.canvas.workspaceRoot, "authority-content-target.json");
-    const materializedTarget = await this.readMaterializedContentTarget(receiptFile);
-    let currentFingerprint: string | undefined;
+    let materializedTarget = await this.readMaterializedContentTarget(receiptFile);
+    let available: CanvasRuntimeAvailabilityEvidence | undefined;
     let manifestExists = true;
     try {
       await access(resolved.canvas.manifestFile);
@@ -416,11 +425,11 @@ export class CanvasRuntimeService {
       manifestExists = false;
     }
     if (manifestExists) {
-      currentFingerprint = (await this.availability(resolved)).graphFingerprint;
+      available = await this.availability(resolved);
     }
     if (
       !contentTargetMatches(materializedTarget, target) ||
-      currentFingerprint !== target.graphFingerprint
+      available?.graphFingerprint !== target.graphFingerprint
     ) {
       const hasLiveLease = this.options.receipts
         .activeLeases(command.scope)
@@ -438,11 +447,22 @@ export class CanvasRuntimeService {
         content: authoritative.content
       });
       await this.writeMaterializedContentTarget(receiptFile, target);
+      materializedTarget = target;
+      available = undefined;
     }
-    return await requireCanvasRuntimeMaterializationEvidence(resolved, {
-      graphFingerprint: target.graphFingerprint,
-      contentTarget: target
-    });
+    if (!available) {
+      available = await this.availability(resolved);
+    }
+    try {
+      assertCanvasRuntimeMaterializationEvidence(materializedTarget, available, {
+        graphFingerprint: target.graphFingerprint,
+        contentTarget: target
+      });
+    } catch (error) {
+      if (error instanceof CanvasRuntimeMaterializationEvidenceError) throw error;
+      throw new CanvasRuntimeMaterializationEvidenceError({ cause: error });
+    }
+    return available;
   }
 
   private async readMaterializedContentTarget(
@@ -515,9 +535,12 @@ export class CanvasRuntimeService {
     return readCanvasRuntimeAvailability(resolved);
   }
 
-  private async acquire(command: CanvasRuntimeRequestCommand, resolved: ResolvedCanvasRuntime) {
+  private async acquire(
+    command: CanvasRuntimeRequestCommand,
+    _resolved: ResolvedCanvasRuntime,
+    available: CanvasRuntimeAvailabilityEvidence
+  ) {
     if (command.operation.operation !== "acquire") throw new Error("invalid_operation_input");
-    const available = await this.availability(resolved);
     const expected = command.operation.expectedEvidence;
     if (
       expected &&
