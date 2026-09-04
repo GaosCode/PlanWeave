@@ -776,6 +776,7 @@
         "hostLiveness.test.ts",
         "hostProtocolRejection.test.ts",
         "httpFixedWindowAdmission.test.ts",
+        "humanObserverAccess.test.ts",
         "insecureTransport.test.ts",
         "protocolPrimitives.test.ts",
         "publicExports.test.ts",

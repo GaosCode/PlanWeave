@@ -896,6 +896,147 @@ describe("human observer WSS", () => {
     socket.close();
   });
 
+  it("binds canvas-only members and withholds other canvases' journal events", async () => {
+    const database = await openServerDatabase(":memory:", 5_000);
+    databases.push(database);
+    applyMigrations(database);
+    const workspaceId = "canvas-only-observer-workspace";
+    const projectId = "canvas-only-observer-project";
+    const workspaceIdentity = new WorkspaceIdentityRepository(database);
+    workspaceIdentity.ensureConfiguredWorkspace(workspaceId);
+    const member = seedWorkspaceObserverDevice({
+      database,
+      workspaceId,
+      suffix: "d"
+    });
+    const authorizationChanges = new AuthorizationChangeSignal();
+    const projectAccess = new ProjectAccessRepository(database, undefined, (change) =>
+      authorizationChanges.publish(change)
+    );
+    const ownerHumanPrincipalId = seedWorkspaceObserverPrincipal({
+      database,
+      workspaceId,
+      suffix: "canvas-owner"
+    });
+    projectAccess.registerProjectInternal({
+      workspaceId,
+      projectId,
+      projectRoot: `/tmp/${workspaceId}/${projectId}`,
+      ownerHumanPrincipalId
+    });
+    for (const canvasId of ["canvas-visible", "canvas-hidden"] as const) {
+      projectAccess.registerCanvasInternal({
+        workspaceId,
+        projectId,
+        canvasId,
+        packageDir: `/tmp/${workspaceId}/${projectId}/${canvasId}`,
+        ownerHumanPrincipalId
+      });
+    }
+    projectAccess.grant({
+      workspaceId,
+      projectId,
+      canvasId: "canvas-visible",
+      humanPrincipalId: member.principalId,
+      role: "viewer",
+      grantedBy: { kind: "human", id: ownerHumanPrincipalId }
+    });
+    const httpServer = createServer();
+    servers.push(httpServer);
+    const journal = new HumanObserverJournal(database, 20);
+    const observer = attachHumanObserverWebSocketServer({
+      upgradeRouter: new WebSocketUpgradeRouter(httpServer),
+      journal,
+      repository: new HumanIdentityRepository(database),
+      workspaceIdentity,
+      projectAccess,
+      collaborationScopeAuthority: {
+        hasScope: (scope) => scope.workspaceId === workspaceId && scope.projectId === projectId,
+        hasProject: (candidateProjectId) => candidateProjectId === projectId
+      },
+      authorizationChanges,
+      maxPayloadBytes: 16_384,
+      shutdownTimeoutMs: 1_000,
+      transportAdmission: loopbackHttpTransportAdmission,
+      deliveryLimits: standardDeliveryLimits,
+      authorizationSafetyCheckIntervalMs: 25
+    });
+    observerServers.push(observer);
+    await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
+    const address = httpServer.address();
+    if (!address || typeof address === "string") throw new Error("observer_test_address_missing");
+    const url = `ws://127.0.0.1:${address.port}/api/v1/projects/${projectId}/human/observe`;
+    const digest = "a".repeat(64);
+    const scope = { workspaceId, projectId };
+    const socket = await connect(url, member.token);
+    sendHello(socket, projectId, 0);
+    await expect(nextMessage(socket)).resolves.toMatchObject({
+      type: "human.observer.welcome",
+      projectId
+    });
+
+    const invitation = nextMessage(socket);
+    journal.appendInCallerTransaction(scope, { kind: "invitation" });
+    await expect(invitation).resolves.toMatchObject({
+      type: "human.observer.event",
+      kind: "invitation"
+    });
+
+    const visibleCanvas = nextMessage(socket);
+    journal.appendInCallerTransaction(scope, {
+      kind: "canvas",
+      canvasId: "canvas-visible",
+      canvasRevision: 1,
+      canvasContentDigest: digest
+    });
+    await expect(visibleCanvas).resolves.toMatchObject({
+      type: "human.observer.event",
+      kind: "canvas",
+      canvasId: "canvas-visible"
+    });
+
+    const visibleAssignment = nextMessage(socket);
+    journal.appendInCallerTransaction(scope, {
+      kind: "assignment",
+      workItem: { kind: "task", canvasId: "canvas-visible", taskId: "T-001" }
+    });
+    await expect(visibleAssignment).resolves.toMatchObject({
+      type: "human.observer.event",
+      kind: "assignment",
+      workItem: { kind: "task", canvasId: "canvas-visible", taskId: "T-001" }
+    });
+
+    journal.appendInCallerTransaction(scope, {
+      kind: "canvas",
+      canvasId: "canvas-hidden",
+      canvasRevision: 2,
+      canvasContentDigest: digest
+    });
+    journal.appendInCallerTransaction(scope, {
+      kind: "runtime",
+      canvasId: "canvas-hidden",
+      runtimeRevision: 1
+    });
+    journal.appendInCallerTransaction(scope, {
+      kind: "assignment",
+      workItem: { kind: "task", canvasId: "canvas-hidden", taskId: "T-002" }
+    });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    const liveVisible = nextMessage(socket);
+    journal.appendInCallerTransaction(scope, {
+      kind: "runtime",
+      canvasId: "canvas-visible",
+      runtimeRevision: 2
+    });
+    await expect(liveVisible).resolves.toMatchObject({
+      type: "human.observer.event",
+      kind: "runtime",
+      canvasId: "canvas-visible"
+    });
+    socket.close();
+  });
+
   it("rejects invalid upgrades, expires revoked devices, and drains active sessions", async () => {
     const fixture = await setup();
     const owner = await bootstrap(fixture.origin, fixture.projectId, "observer-revoked-owner");

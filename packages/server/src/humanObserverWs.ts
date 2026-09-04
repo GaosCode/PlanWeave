@@ -29,6 +29,13 @@ import {
   AUTHORIZATION_SAFETY_CHECK_INTERVAL_MS,
   type AuthorizationChangeSignal
 } from "./authorizationChangeSignal.js";
+import {
+  humanCanObserveProject,
+  humanObserverEventIsVisible,
+  loadHumanObserverEventVisibility,
+  type HumanObserverEventVisibility
+} from "./humanObserverAccess.js";
+import type { HumanObserverEvent } from "@planweave-ai/collaboration-protocol/activity/observer";
 
 export type HumanObserverWebSocketOptions = {
   upgradeRouter: WebSocketUpgradeRouter;
@@ -112,6 +119,15 @@ function serializeMessage(message: unknown): SerializedMessage {
     bytes: Buffer.byteLength(data),
     ...(parsed.type === "human.observer.event" ? { eventCursor: parsed.cursor } : {})
   };
+}
+
+function isObserverEvent(message: unknown): message is HumanObserverEvent {
+  return (
+    typeof message === "object" &&
+    message !== null &&
+    "type" in message &&
+    message.type === "human.observer.event"
+  );
 }
 
 function deliveryLimits(
@@ -226,17 +242,14 @@ export function attachHumanObserverWebSocketServer(
       { recordLastUsed }
     );
     if (!authenticated) return undefined;
-    try {
-      options.projectAccess.policy.assertCapability({
-        workspaceId: authenticated.workspaceId,
-        projectId,
-        actor: { kind: "human", id: authenticated.actor.humanPrincipalId },
-        capability: "read"
-      });
-      return authenticated;
-    } catch {
-      return undefined;
-    }
+    return humanCanObserveProject({
+      projectAccess: options.projectAccess,
+      workspaceId: authenticated.workspaceId,
+      projectId,
+      humanPrincipalId: authenticated.actor.humanPrincipalId
+    })
+      ? authenticated
+      : undefined;
   };
 
   const handleConnection = (
@@ -255,6 +268,15 @@ export function attachHumanObserverWebSocketServer(
     let pendingBytes = 0;
     let draining = false;
     const pending: SerializedMessage[] = [];
+    const humanPrincipalId = authenticated.actor.humanPrincipalId;
+    const loadVisibility = (): HumanObserverEventVisibility =>
+      loadHumanObserverEventVisibility({
+        projectAccess: options.projectAccess,
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        humanPrincipalId
+      });
+    let visibility = loadVisibility();
     const stillAuthorized = () =>
       authenticateScope(authorization, scope.projectId, false)?.workspaceId === scope.workspaceId;
     const stopApplicationSending = (nextPhase: "catchup" | "stopping"): boolean => {
@@ -277,7 +299,10 @@ export function attachHumanObserverWebSocketServer(
     };
     const validateAuthorization = (): boolean => {
       try {
-        if (stillAuthorized()) return true;
+        if (stillAuthorized()) {
+          visibility = loadVisibility();
+          if (visibility.kind !== "none") return true;
+        }
         expireAuthorization();
       } catch {
         closeApplicationSocket(1011, "observer authorization error");
@@ -339,6 +364,9 @@ export function attachHumanObserverWebSocketServer(
     };
     const enqueue = (message: unknown) => {
       if (phase !== "replaying" && phase !== "live") return;
+      if (isObserverEvent(message) && !humanObserverEventIsVisible(message, visibility)) {
+        return;
+      }
       const serialized = serializeMessage(message);
       if (
         serialized.eventCursor !== undefined &&
@@ -378,7 +406,6 @@ export function attachHumanObserverWebSocketServer(
       }, authorizationSafetyIntervalMs);
     };
     const actor = authenticated.actor;
-    const humanPrincipalId = actor.humanPrincipalId;
     const deviceSessionId =
       "deviceSessionId" in actor ? actor.deviceSessionId : actor.deviceCredentialId;
     unsubscribeAuthorization = options.authorizationChanges.subscribe(
@@ -418,7 +445,9 @@ export function attachHumanObserverWebSocketServer(
       }
       for (let index = 0; index < replay.events.length; index += 1) {
         if (phase !== "replaying") return;
-        if ((await sendSerialized(serializeMessage(replay.events[index]))) !== "sent") {
+        const event = replay.events[index];
+        if (!humanObserverEventIsVisible(event, visibility)) continue;
+        if ((await sendSerialized(serializeMessage(event))) !== "sent") {
           signalCatchup(options.journal.head(scope));
           return;
         }
