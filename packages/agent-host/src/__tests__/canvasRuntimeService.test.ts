@@ -393,6 +393,44 @@ describe("Canvas Runtime Host service", () => {
     expect(transfer.fetch).not.toHaveBeenCalled();
   });
 
+  it("reads canvas availability once per already-materialized request", async () => {
+    const { state } = await setup();
+    const workspace = await createTestWorkspace(basicManifest());
+    directories.push(workspace.home, workspace.root);
+    const status = await readAuthorizedCanvasRuntimeStatus({
+      projectRoot: workspace.init.workspace,
+      canvasId: scope.canvasId,
+      expectedPackageDir: workspace.init.workspace.packageDir,
+      scope
+    });
+    const target = contentTarget(status.packageFingerprint);
+    await writeContentTargetReceipt(workspace.init.workspace, target);
+    const runtime = await import("@planweave-ai/runtime");
+    const snapshotSpy = vi.spyOn(runtime, "capturePackageSnapshot");
+    const service = new CanvasRuntimeService({
+      resolver: resolverWith(async () => ({
+        scope,
+        project: workspace.init.workspace,
+        canvas: workspace.init.workspace
+      })),
+      receipts: state.canvasRuntime,
+      capabilities: [CANVAS_RUNTIME_CAPABILITY],
+      artifactTransfer,
+      contentTransfer
+    });
+    const command = request("request-availability-once", {
+      operation: "availability",
+      contentTarget: target
+    });
+    state.receive(delivery(1, command));
+    await service.handle(command);
+
+    expect(response(state, command.requestId)).toMatchObject({
+      response: { outcome: "success", operation: "availability" }
+    });
+    expect(snapshotSpy).toHaveBeenCalledOnce();
+  });
+
   it("recovers an interrupted layout replacement before trusting a matching receipt", async () => {
     const { state } = await setup();
     const workspace = await createTestWorkspace(basicManifest());

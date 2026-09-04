@@ -12,6 +12,7 @@ import {
   ownerCanvasRemoteAuthorityLocatorSchema,
   remoteWorkspaceAuthorityBindingSchema,
   remoteWorkspaceAuthorityLocatorSchema,
+  workspaceAuthorityBindingSchema,
   workspaceAuthorityRevisionsSchema,
   workspaceExecutionScopeSchema,
   type LocalWorkspaceAuthorityLocator,
@@ -127,6 +128,12 @@ function brand(binding: WorkspaceAuthorityBinding): ValidatedWorkspaceAuthorityB
   ) as ValidatedWorkspaceAuthorityBinding;
 }
 
+export function adoptStoredWorkspaceAuthorityBinding(
+  value: unknown
+): ValidatedWorkspaceAuthorityBinding {
+  return brand(workspaceAuthorityBindingSchema.parse(value));
+}
+
 export function assertValidatedWorkspaceAuthorityBinding(
   value: WorkspaceAuthorityBinding
 ): asserts value is ValidatedWorkspaceAuthorityBinding {
@@ -137,16 +144,19 @@ export function assertValidatedWorkspaceAuthorityBinding(
 
 export function assertRemoteWorkAuthorityMatchesBinding(
   binding: RemoteWorkspaceAuthorityBinding,
-  authority: WorkAuthorityProjection | null
+  authority: WorkAuthorityProjection | null,
+  mismatchCode:
+    | "workspace_execution_authority_mismatch"
+    | "workspace_execution_resume_mismatch" = "workspace_execution_authority_mismatch"
 ): void {
   if (isOwnerCanvasRemoteAuthorityBinding(binding)) {
     if (authority !== null) {
-      throw new WorkspaceExecutionError("workspace_execution_authority_mismatch");
+      throw new WorkspaceExecutionError(mismatchCode);
     }
     return;
   }
   if (authority === null) {
-    throw new WorkspaceExecutionError("workspace_execution_authority_mismatch");
+    throw new WorkspaceExecutionError(mismatchCode);
   }
   if (
     authority.scope.kind !== "block" ||
@@ -158,7 +168,7 @@ export function assertRemoteWorkAuthorityMatchesBinding(
     authority.revisions.executionTargetRevision !==
       binding.authorityRevisions.executionTargetRevision
   ) {
-    throw new WorkspaceExecutionError("workspace_execution_authority_mismatch");
+    throw new WorkspaceExecutionError(mismatchCode);
   }
 }
 

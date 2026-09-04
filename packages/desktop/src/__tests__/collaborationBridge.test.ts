@@ -1153,7 +1153,7 @@ describe("CollaborationService IPC trust boundary", () => {
     await service.shutdown();
   });
 
-  it("rejects an invalid credential during HTTP preflight before starting the observer", async () => {
+  it("keeps the device credential after HTTP preflight rejects authentication", async () => {
     const root = await tempDir("planweave-collab-session-preflight-");
     const startObserver = vi.fn();
     const service = new CollaborationService({

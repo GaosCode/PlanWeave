@@ -140,7 +140,8 @@ export async function createRemoteSessionContext(input: {
       query: ports.query,
       interaction: ports.interaction
     }),
-    sessionStorage: () => ({ kind: "package", packageWorkspace: input.projectRoot })
+    sessionStorage: () => ({ kind: "package", packageWorkspace: input.projectRoot }),
+    sessionStorageForRequest: () => ({ kind: "package", packageWorkspace: input.projectRoot })
   });
   return {
     coordinator,

@@ -1,10 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import {
-  remoteInteractionPageSchema,
-  type RemoteOperationObservation
-} from "@planweave-ai/collaboration-protocol/remote-run";
+import { type RemoteOperationObservation } from "@planweave-ai/collaboration-protocol/remote-run";
 import { workAuthorityProjectionSchema } from "@planweave-ai/collaboration-protocol/work/authority";
 import { createWorkspaceAuthorityBindingResolver } from "../workspaceExecution/authorityBinding.js";
 import { createLocalPackageAuthoritySource } from "../workspaceExecution/authorityBinding.js";
@@ -187,51 +184,25 @@ describe("WorkspaceExecutionCoordinator", () => {
       }),
       undefined
     );
-    expect(f.workAuthority).toHaveBeenCalledTimes(2);
+    expect(f.workAuthority).toHaveBeenCalledTimes(1);
     await expect(
       Promise.all(f.workAuthority.mock.results.map((call) => call.value))
-    ).resolves.toEqual([null, null]);
+    ).resolves.toEqual([null]);
   });
 
-  it("revalidates the binding after Catalog and rejects drift before remote transport", async () => {
+  it("does not re-inspect authority after Catalog before remote dispatch", async () => {
     const { root } = await createTestWorkspace();
     const executionRequest = request(root);
-    const initial = await authorityResolver(root).resolve(
-      executionRequest.authority,
-      executionRequest.scope
-    );
-    const changedRequest = {
-      ...executionRequest,
-      authority: {
-        ...executionRequest.authority,
-        contentAuthority: {
-          ...executionRequest.authority.contentAuthority,
-          expected: {
-            ...executionRequest.authority.contentAuthority.expected,
-            contentRevision: "snapshot:revision-2"
-          }
-        }
-      }
-    };
-    const changed = await authorityResolver(root, {
-      contentRevision: "snapshot:revision-2"
-    }).resolve(changedRequest.authority, changedRequest.scope);
-    const resolve = vi.fn().mockResolvedValueOnce(initial).mockResolvedValueOnce(changed);
+    const authority = authorityResolver(root);
+    const resolve = vi.fn((locator, scope, signal) => authority.resolve(locator, scope, signal));
     const f = fixture({ packageWorkspace: root, authority: { resolve } });
 
-    await expect(f.coordinator.execute(executionRequest)).rejects.toMatchObject({
-      code: "workspace_execution_authority_mismatch"
-    });
+    await f.coordinator.execute(executionRequest);
 
-    expect(resolve).toHaveBeenCalledTimes(2);
+    expect(resolve).toHaveBeenCalledTimes(1);
     expect(f.workAuthority).toHaveBeenCalledTimes(1);
     expect(f.catalog).toHaveBeenCalledTimes(1);
-    expect(f.dispatch).not.toHaveBeenCalled();
-    expect(f.recover).not.toHaveBeenCalled();
-    expect(f.observe).not.toHaveBeenCalled();
-    expect(f.replay).not.toHaveBeenCalled();
-    expect(f.interactions).not.toHaveBeenCalled();
-    expect(f.respond).not.toHaveBeenCalled();
+    expect(f.dispatch).toHaveBeenCalledTimes(1);
   });
 
   it.each([
@@ -523,7 +494,15 @@ describe("WorkspaceExecutionCoordinator", () => {
         )
       }
     });
-    const f = fixture({ packageWorkspace: root, authority });
+    const f = fixture({
+      packageWorkspace: root,
+      authority,
+      workAuthority: async () =>
+        workAuthorityProjectionSchema.parse({
+          ...workAuthority(),
+          revisions: currentRevisions
+        })
+    });
     const started = await f.coordinator.execute(request(root));
     currentRevisions = { ...revisions, reviewerRevision: revisions.reviewerRevision + 1 };
 
@@ -833,37 +812,24 @@ describe("WorkspaceExecutionCoordinator", () => {
     }
   });
 
-  it("rereads pending interactions from zero and retains the surviving durable identity", async () => {
+  it("reads pending interactions once per evidence collection", async () => {
     const { root } = await createTestWorkspace();
     let reads = 0;
-    const pendingA = pendingInteraction("attempt-1");
-    const pendingB = remoteInteractionPageSchema.parse({
-      ...pendingInteraction("attempt-1"),
-      items: [
-        {
-          ...pendingInteraction("attempt-1").items[0],
-          request: {
-            ...pendingInteraction("attempt-1").items[0]!.request,
-            actionId: "action-2"
-          }
-        }
-      ]
-    });
+    const pending = pendingInteraction("attempt-1");
     const f = fixture({
       packageWorkspace: root,
       interactions: async (cursor) => {
         expect(cursor).toBe(0);
         reads += 1;
-        if (reads <= 2) return emptyInteractions();
-        return reads === 3 ? pendingA : pendingB;
+        return reads === 1 ? emptyInteractions() : pending;
       }
     });
     const started = await f.coordinator.execute(request(root));
-    const unstable = await f.coordinator.follow(request(root), started.handle.runSessionId);
-    expect(unstable.session.workspaceExecution?.evidence.status).toBe("incomplete");
-    const stable = await f.coordinator.follow(request(root), started.handle.runSessionId);
-    expect(stable.session.workspaceExecution?.interactions).toHaveLength(1);
-    expect(stable.events).toEqual(
+    expect(reads).toBe(1);
+    const followed = await f.coordinator.follow(request(root), started.handle.runSessionId);
+    expect(reads).toBe(2);
+    expect(followed.session.workspaceExecution?.interactions).toHaveLength(1);
+    expect(followed.events).toEqual(
       expect.arrayContaining([expect.objectContaining({ type: "interaction_required" })])
     );
   });

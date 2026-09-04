@@ -233,12 +233,6 @@ async function readInteractionSnapshot(
   }
 }
 
-function interactionSnapshotFingerprint(page: RemoteInteractionPage): string {
-  return stableJson(
-    page.items.map((item) => ({ key: remoteInteractionIdentityKey(item), status: item.status }))
-  );
-}
-
 export function createRemoteWorkspaceExecutionAdapter(input: {
   workAuthority: WorkAuthorityPort;
   command: RemoteOperationCommandPort;
@@ -297,11 +291,21 @@ export function createRemoteWorkspaceExecutionAdapter(input: {
         endpointId: agentEndpointId
       });
     },
-    async launch({ binding, target, session, intent, signal }) {
+    async launch({
+      binding,
+      target,
+      session,
+      intent,
+      signal,
+      skipWorkAuthorityEnsure,
+      ensuredWorkAuthority
+    }) {
       assertRemoteBinding(binding);
       let authority: Awaited<ReturnType<WorkAuthorityPort["ensure"]>>;
       try {
-        authority = await input.workAuthority.ensure({ binding }, signal);
+        authority = skipWorkAuthorityEnsure
+          ? (ensuredWorkAuthority ?? null)
+          : await input.workAuthority.ensure({ binding }, signal);
       } catch (error) {
         throw workspaceExecutionPortError(error, "work_authority_unavailable");
       }
@@ -387,18 +391,13 @@ export function createRemoteWorkspaceExecutionAdapter(input: {
         }
       }
       let first: RemoteInteractionPage;
-      let second: RemoteInteractionPage;
       try {
         first = await readInteractionSnapshot(input.query, binding, handle.operationId, signal);
-        second = await readInteractionSnapshot(input.query, binding, handle.operationId, signal);
       } catch (error) {
         if (error instanceof WorkspaceExecutionError) throw error;
         throw workspaceExecutionPortError(error, "remote_interactions_unavailable");
       }
-      if (interactionSnapshotFingerprint(first) !== interactionSnapshotFingerprint(second)) {
-        throw new WorkspaceExecutionError("remote_interaction_snapshot_unstable");
-      }
-      for (const item of second.items) {
+      for (const item of first.items) {
         if (
           item.operationId !== handle.operationId ||
           item.request.dispatchId !== handle.dispatchId ||
@@ -415,7 +414,7 @@ export function createRemoteWorkspaceExecutionAdapter(input: {
           cursor: { ...handle.cursor, eventCursor: afterCursor }
         }),
         replays,
-        interactions: second
+        interactions: first
       };
     },
     async respond({ handle, binding, response, signal }) {

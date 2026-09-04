@@ -385,7 +385,7 @@ export class CanvasRuntimeService {
       const target = canvasRuntimeContentTargetSchema.parse(operation.contentTarget);
       return this.withMaterializationLock(command.scope, resolved, async () => {
         const evidence = await this.ensureMaterialized(command, resolved, target, active);
-        return this.acquire(command, resolved, evidence);
+        return this.acquire(command, evidence);
       });
     }
     switch (operation.operation) {
@@ -453,15 +453,10 @@ export class CanvasRuntimeService {
     if (!available) {
       available = await this.availability(resolved);
     }
-    try {
-      assertCanvasRuntimeMaterializationEvidence(materializedTarget, available, {
-        graphFingerprint: target.graphFingerprint,
-        contentTarget: target
-      });
-    } catch (error) {
-      if (error instanceof CanvasRuntimeMaterializationEvidenceError) throw error;
-      throw new CanvasRuntimeMaterializationEvidenceError({ cause: error });
-    }
+    assertCanvasRuntimeMaterializationEvidence(materializedTarget, available, {
+      graphFingerprint: target.graphFingerprint,
+      contentTarget: target
+    });
     return available;
   }
 
@@ -537,7 +532,6 @@ export class CanvasRuntimeService {
 
   private async acquire(
     command: CanvasRuntimeRequestCommand,
-    _resolved: ResolvedCanvasRuntime,
     available: CanvasRuntimeAvailabilityEvidence
   ) {
     if (command.operation.operation !== "acquire") throw new Error("invalid_operation_input");

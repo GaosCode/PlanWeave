@@ -76,6 +76,11 @@ export class ContentVersionFacade {
     private readonly publishReceipts: WorkspaceCanvasPublishReceiptStorePort = new WorkspaceCanvasPublishReceiptStore()
   ) {}
 
+  private readonly authorizedRemoteCanvasCache = new Map<
+    string,
+    CollaborationCanvasScopeResolution
+  >();
+
   async resolveCanvasBinding(input: unknown): Promise<ResolvedCollaborationCanvasBinding | null> {
     const requested = this.requireRemoteBinding(input);
     const client = this.resolveClient();
@@ -83,8 +88,8 @@ export class ContentVersionFacade {
     const canvas = await this.authorizeRemoteCanvas(client, requested);
     return {
       ...requested,
-      remoteProjectId: canvas.registry.projectId,
-      remoteCanvasId: canvas.registry.canvasId
+      remoteProjectId: canvas.projectId,
+      remoteCanvasId: canvas.canvasId
     };
   }
 
@@ -93,11 +98,7 @@ export class ContentVersionFacade {
     const client = this.resolveClient();
     if (!client || requested.projectId !== client.projectId) return null;
     const canvas = await this.authorizeRemoteCanvas(client, requested);
-    return collaborationCanvasScopeResolutionSchema.parse({
-      workspaceId: canvas.registry.workspaceId,
-      projectId: canvas.registry.projectId,
-      canvasId: canvas.registry.canvasId
-    });
+    return collaborationCanvasScopeResolutionSchema.parse(canvas);
   }
 
   /** Public authority fingerprint for remote projection scope keys. */
@@ -364,22 +365,49 @@ export class ContentVersionFacade {
     });
   }
 
+  private authorizedRemoteCanvasCacheKey(
+    client: CollaborationClient,
+    requested: RemoteCollaborationCanvasBindingInput
+  ): string {
+    return `${client.connectionProfile.profileId}\u0000${requested.workspaceId}\u0000${requested.projectId}\u0000${requested.canvasId}`;
+  }
+
   private async authorizeRemoteCanvas(
     client: CollaborationClient,
     requested: RemoteCollaborationCanvasBindingInput
-  ): Promise<CanvasAccessRecord> {
+  ): Promise<CollaborationCanvasScopeResolution> {
     if (requested.projectId !== client.projectId) {
       throw unavailable("content_remote_project_profile_mismatch", false);
     }
-    const matches = (await this.listAuthorizedCanvases(client)).filter(
-      (candidate) =>
-        candidate.registry.workspaceId === requested.workspaceId &&
-        candidate.registry.projectId === requested.projectId &&
-        candidate.registry.canvasId === requested.canvasId
-    );
-    if (matches.length > 1) throw unavailable("content_remote_canvas_scope_ambiguous", false);
-    const canvas = matches[0];
-    if (!canvas) throw unavailable("content_remote_canvas_not_authorized", false);
+    const cacheKey = this.authorizedRemoteCanvasCacheKey(client, requested);
+    const cached = this.authorizedRemoteCanvasCache.get(cacheKey);
+    if (cached) return cached;
+    let access: Awaited<ReturnType<CollaborationClient["getCurrentCanvasAccess"]>>;
+    try {
+      access = await client.getCurrentCanvasAccess(requested.canvasId);
+    } catch (error) {
+      if (
+        error instanceof CollaborationClientError &&
+        (error.httpStatus === 403 || error.httpStatus === 404)
+      ) {
+        throw unavailable("content_remote_canvas_not_authorized", false);
+      }
+      throw error;
+    }
+    if (
+      access.scope.workspaceId !== requested.workspaceId ||
+      access.scope.projectId !== requested.projectId ||
+      access.scope.canvasId !== requested.canvasId ||
+      !access.canvas.capabilities.read
+    ) {
+      throw unavailable("content_remote_canvas_not_authorized", false);
+    }
+    const canvas = collaborationCanvasScopeResolutionSchema.parse({
+      workspaceId: access.scope.workspaceId,
+      projectId: access.scope.projectId,
+      canvasId: access.scope.canvasId
+    });
+    this.authorizedRemoteCanvasCache.set(cacheKey, canvas);
     return canvas;
   }
 }

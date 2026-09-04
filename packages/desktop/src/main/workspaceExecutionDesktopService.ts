@@ -558,6 +558,14 @@ export class WorkspaceExecutionDesktopService {
             projectId: locator.projectId,
             canvasId: locator.canvasId
           }),
+        sessionStorageForRequest: () =>
+          namespaceFor({
+            profileId: locator.connectionProfileId,
+            serverOrigin,
+            workspaceId: locator.workspaceId,
+            projectId: locator.projectId,
+            canvasId: locator.canvasId
+          }),
         idempotencyKey: randomUUID
       });
       return operation({ coordinator, client, serverOrigin });

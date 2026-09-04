@@ -148,6 +148,8 @@ export interface RemoteWorkspaceExecutionAdapter {
     session: WorkspaceExecutionSessionRecord;
     intent: WorkspaceExecutionDispatchIntent;
     signal?: AbortSignal;
+    skipWorkAuthorityEnsure?: boolean;
+    ensuredWorkAuthority?: WorkAuthorityProjection | null;
   }): Promise<RemoteWorkspaceAdapterSnapshot>;
   recover(input: {
     binding: ValidatedWorkspaceAuthorityBinding;

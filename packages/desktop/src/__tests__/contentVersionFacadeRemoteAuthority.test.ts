@@ -73,6 +73,10 @@ const adoptedReceipt = {
 };
 
 function fakeClient() {
+  const getCurrentCanvasAccess = vi.fn(async () => ({
+    scope: { ...scope, scopeKind: "canvas" as const },
+    canvas: { capabilities: { read: true } }
+  }));
   const listCanvases = vi.fn(async () => ({
     items: [
       {
@@ -103,6 +107,7 @@ function fakeClient() {
       allowInsecureTransport: false
     },
     registry: () => ({ listCanvases }),
+    getCurrentCanvasAccess,
     readRuntimeAvailability,
     fetchContentHead,
     initializeRuntime,
@@ -112,6 +117,7 @@ function fakeClient() {
     client,
     calls: {
       listCanvases,
+      getCurrentCanvasAccess,
       readRuntimeAvailability,
       fetchContentHead,
       initializeRuntime,
@@ -347,7 +353,8 @@ describe("ContentVersionFacade remote authority", () => {
       remoteProjectId: binding.projectId,
       remoteCanvasId: binding.canvasId
     });
-    expect(fake.calls.listCanvases).toHaveBeenCalledTimes(2);
+    expect(fake.calls.getCurrentCanvasAccess).toHaveBeenCalledTimes(1);
+    expect(fake.calls.listCanvases).not.toHaveBeenCalled();
   });
 
   it("rejects Local Canvas without scanning local projects or calling Server", async () => {
@@ -373,7 +380,8 @@ describe("ContentVersionFacade remote authority", () => {
     await expect(facade.readResolvedRuntimeAvailability(resolvedScope)).resolves.toEqual(
       availability
     );
-    expect(fake.calls.listCanvases).toHaveBeenCalledOnce();
+    expect(fake.calls.getCurrentCanvasAccess).toHaveBeenCalledTimes(1);
+    expect(fake.calls.listCanvases).not.toHaveBeenCalled();
     await expect(
       facade.initializeRuntime(binding, {
         operationId: "initialize-1",
@@ -402,6 +410,7 @@ describe("ContentVersionFacade remote authority", () => {
       binding.canvasId,
       expect.objectContaining({ expectedContentRevision: 9 })
     );
-    expect(fake.calls.listCanvases).toHaveBeenCalledTimes(3);
+    expect(fake.calls.getCurrentCanvasAccess).toHaveBeenCalledTimes(1);
+    expect(fake.calls.listCanvases).not.toHaveBeenCalled();
   });
 });

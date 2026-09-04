@@ -1,6 +1,7 @@
 export {
   assertValidatedWorkspaceAuthorityBinding,
   assertRemoteWorkAuthorityMatchesBinding,
+  adoptStoredWorkspaceAuthorityBinding,
   isOwnerCanvasRemoteAuthorityBinding,
   createLocalPackageAuthoritySource,
   createWorkspaceAuthorityBindingResolver

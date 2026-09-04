@@ -371,9 +371,7 @@ export class CollaborationService {
         projectId
       })
     );
-    await this.sessionLifecycle.connectWithinQueue(live.profileId, {
-      preserveCredentialOnAuthFailure: true
-    });
+    await this.sessionLifecycle.connectWithinQueue(live.profileId);
   }
 
   private async activateWorkspaceAuthorityInternal(input: {

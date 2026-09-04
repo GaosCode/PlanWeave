@@ -257,7 +257,8 @@ export async function executeWorkspaceRun(
         query: ports.query,
         interaction: ports.interaction
       }),
-      sessionStorage: () => ({ kind: "package", packageWorkspace: projectRoot })
+      sessionStorage: () => ({ kind: "package", packageWorkspace: projectRoot }),
+      sessionStorageForRequest: () => ({ kind: "package", packageWorkspace: projectRoot })
     });
     request = {
       authority: {

@@ -44,11 +44,16 @@ import {
   collaborationRuntimeUnavailableCode
 } from "../collaboration/runtimeAvailabilityView";
 
-function waitForWorkspaceRuntimeProjectionChange(input: {
-  api: Pick<PlanWeaveCollaborationApi, "onCollaborationObserverSignal">;
-  binding: RemoteCollaborationCanvasBindingInput;
+import {
+  workspaceExecutionPollingKey,
+  workspaceExecutionSuccessPollDelay
+} from "../task-workspace/workspaceExecutionPollingCadence";
+
+function waitForWorkspaceCollaborationSignal(input: {
+  api?: Pick<PlanWeaveCollaborationApi, "onCollaborationObserverSignal"> | null;
   signal?: AbortSignal;
-  fallbackRefreshMs?: number;
+  fallbackRefreshMs: number;
+  matches: (signal: CollaborationObserverSignal) => boolean;
 }): Promise<void> {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -69,7 +74,35 @@ function waitForWorkspaceRuntimeProjectionChange(input: {
       cleanup();
       reject(new Error("workspace_remote_scope_cancelled"));
     };
-    const matchesRuntimeScope = (signal: CollaborationObserverSignal) => {
+    if (input.signal?.aborted) {
+      cancel();
+      return;
+    }
+    if (input.api) {
+      unsubscribe = input.api.onCollaborationObserverSignal((signal) => {
+        if (input.matches(signal)) finish();
+      });
+    }
+    if (settled) {
+      unsubscribe?.();
+      return;
+    }
+    timer = setTimeout(finish, input.fallbackRefreshMs);
+    input.signal?.addEventListener("abort", cancel, { once: true });
+  });
+}
+
+function waitForWorkspaceRuntimeProjectionChange(input: {
+  api: Pick<PlanWeaveCollaborationApi, "onCollaborationObserverSignal">;
+  binding: RemoteCollaborationCanvasBindingInput;
+  signal?: AbortSignal;
+  fallbackRefreshMs?: number;
+}): Promise<void> {
+  return waitForWorkspaceCollaborationSignal({
+    api: input.api,
+    signal: input.signal,
+    fallbackRefreshMs: input.fallbackRefreshMs ?? 1_000,
+    matches: (signal) => {
       if (signal.projectId !== input.binding.projectId) return false;
       if (signal.type === "human.observer.catchup_required") return true;
       return (
@@ -77,21 +110,7 @@ function waitForWorkspaceRuntimeProjectionChange(input: {
         signal.event.kind === "runtime" &&
         signal.event.canvasId === input.binding.canvasId
       );
-    };
-    unsubscribe = input.api.onCollaborationObserverSignal((signal) => {
-      if (matchesRuntimeScope(signal)) finish();
-    });
-    if (settled) {
-      unsubscribe();
-      return;
     }
-    timer = setTimeout(finish, input.fallbackRefreshMs ?? 1_000);
-
-    if (input.signal?.aborted) {
-      cancel();
-      return;
-    }
-    input.signal?.addEventListener("abort", cancel, { once: true });
   });
 }
 
@@ -99,18 +118,31 @@ function createDispatchId(): string {
   return crypto.randomUUID();
 }
 
-function waitForWorkspaceExecutionFollow(signal: AbortSignal): Promise<void> {
-  if (signal.aborted) return Promise.reject(new Error("workspace_remote_scope_cancelled"));
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      signal.removeEventListener("abort", cancel);
-      resolve();
-    }, 500);
-    const cancel = () => {
-      clearTimeout(timer);
-      reject(new Error("workspace_remote_scope_cancelled"));
-    };
-    signal.addEventListener("abort", cancel, { once: true });
+function waitForWorkspaceExecutionFollow(input: {
+  signal: AbortSignal;
+  api?: Pick<PlanWeaveCollaborationApi, "onCollaborationObserverSignal"> | null;
+  binding?: RemoteCollaborationCanvasBindingInput | null;
+  pollingKey: string;
+  noProgressCount: number;
+}): Promise<void> {
+  const binding = input.binding;
+  return waitForWorkspaceCollaborationSignal({
+    api: binding ? input.api : null,
+    signal: input.signal,
+    fallbackRefreshMs: workspaceExecutionSuccessPollDelay(input.noProgressCount, input.pollingKey),
+    matches: (signal) => {
+      if (!binding || signal.projectId !== binding.projectId) return false;
+      if (signal.type === "human.observer.catchup_required") return true;
+      if (signal.type !== "human.observer.event") return false;
+      if (signal.event.kind === "runtime" && signal.event.canvasId === binding.canvasId) {
+        return true;
+      }
+      if (signal.event.kind === "remote_run") {
+        const canvasId = signal.event.workItem?.canvasId ?? signal.event.canvasId;
+        return canvasId === undefined || canvasId === binding.canvasId;
+      }
+      return false;
+    }
   });
 }
 
@@ -465,6 +497,7 @@ export function useWorkspaceAgentEndpointRun(
           let view = settlement.view;
           const sessionId = view.session.sessionId;
           const events = [...view.events];
+          let noProgressCount = 0;
           try {
             for (;;) {
               if (signal.aborted) throw new Error("workspace_remote_scope_cancelled");
@@ -485,10 +518,17 @@ export function useWorkspaceAgentEndpointRun(
               if (view.events.some((event) => event.type === "action_required")) {
                 throw new Error(`remote_agent_block_action_required:${selection.block.ref}`);
               }
-              await waitForWorkspaceExecutionFollow(signal);
+              await waitForWorkspaceExecutionFollow({
+                signal,
+                api,
+                binding: input.canvasBinding?.kind === "remote" ? input.canvasBinding : null,
+                pollingKey: workspaceExecutionPollingKey(sessionId, selection.block.ref),
+                noProgressCount
+              });
               view = await executionApi.followWorkspaceExecution({ ...startInput, sessionId });
               assertCurrentRequest();
               events.push(...view.events);
+              noProgressCount += 1;
             }
           } finally {
             if (!signal.aborted) {

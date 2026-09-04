@@ -14,7 +14,9 @@ import {
   type WorkspaceExecutionRequest
 } from "./contracts.js";
 import {
+  adoptStoredWorkspaceAuthorityBinding,
   assertRemoteWorkAuthorityMatchesBinding,
+  isOwnerCanvasRemoteAuthorityBinding,
   type ValidatedWorkspaceAuthorityBinding,
   type WorkspaceAuthorityBindingPort
 } from "./authorityBinding.js";
@@ -80,6 +82,49 @@ function bindingMatchesSession(
   );
 }
 
+function packageStorageFromRequest(
+  request: WorkspaceExecutionRequest
+): WorkspaceExecutionSessionStorage | null {
+  const locator = request.authority;
+  if (locator.kind === "local_package" || locator.kind === "owner_canvas") {
+    return { kind: "package", packageWorkspace: locator.packageWorkspace };
+  }
+  if (locator.kind === "workspace_canvas" && locator.contentAuthority.kind === "package_snapshot") {
+    return { kind: "package", packageWorkspace: locator.contentAuthority.packageWorkspace };
+  }
+  return null;
+}
+
+function requestMatchesStoredBinding(
+  request: WorkspaceExecutionRequest,
+  binding: ValidatedWorkspaceAuthorityBinding
+): boolean {
+  const locator = request.authority;
+  if (locator.kind === "local_package") {
+    return binding.kind === "local" && binding.packageWorkspace === locator.packageWorkspace;
+  }
+  if (locator.kind === "owner_canvas") {
+    return (
+      binding.kind === "remote" &&
+      isOwnerCanvasRemoteAuthorityBinding(binding) &&
+      binding.connectionProfileId === locator.connectionProfileId &&
+      binding.serverOrigin === locator.serverOrigin &&
+      binding.humanPrincipalId === locator.humanPrincipalId &&
+      binding.projectId === locator.projectId &&
+      binding.canvasId === locator.canvasId
+    );
+  }
+  return (
+    binding.kind === "remote" &&
+    !isOwnerCanvasRemoteAuthorityBinding(binding) &&
+    binding.connectionProfileId === locator.connectionProfileId &&
+    binding.serverOrigin === locator.serverOrigin &&
+    binding.workspaceId === locator.workspaceId &&
+    binding.projectId === locator.projectId &&
+    binding.canvasId === locator.canvasId
+  );
+}
+
 function remoteIntent(input: {
   binding: Extract<ValidatedWorkspaceAuthorityBinding, { kind: "remote" }>;
   endpointId: string;
@@ -113,6 +158,9 @@ export class WorkspaceExecutionCoordinator {
       sessions?: WorkspaceExecutionSessionRepositoryPort;
       sessionStorage?: (
         binding: ValidatedWorkspaceAuthorityBinding
+      ) => WorkspaceExecutionSessionStorage;
+      sessionStorageForRequest?: (
+        request: WorkspaceExecutionRequest
       ) => WorkspaceExecutionSessionStorage;
       clock?: () => Date;
       idempotencyKey?: () => string;
@@ -203,10 +251,6 @@ export class WorkspaceExecutionCoordinator {
       } catch (error) {
         throw workspaceExecutionPortError(error, "remote_catalog_unavailable");
       }
-      const rebound = await this.input.authority.resolve(request.authority, request.scope, signal);
-      if (rebound.kind !== "remote" || rebound.bindingId !== binding.bindingId) {
-        throw new WorkspaceExecutionError("workspace_execution_authority_mismatch");
-      }
       const target = resolveWorkspaceExecutionTarget(request, catalog);
       if (target.target !== "remote") {
         throw new WorkspaceExecutionError("agent_endpoint_unavailable");
@@ -229,7 +273,9 @@ export class WorkspaceExecutionCoordinator {
         target,
         session,
         intent,
-        signal
+        signal,
+        skipWorkAuthorityEnsure: true,
+        ensuredWorkAuthority: currentAuthority
       });
       return this.acceptCheckpoint(storage, binding, session, snapshot, target, signal);
     });
@@ -241,15 +287,21 @@ export class WorkspaceExecutionCoordinator {
     signal?: AbortSignal
   ): Promise<WorkspaceExecutionCoordinatorResult> {
     const request = workspaceExecutionRequestSchema.parse(rawRequest);
-    const binding = await this.input.authority.resolve(request.authority, request.scope, signal);
-    const storage = this.sessionStorage(binding);
+    const storage = this.storageForExistingSession(request);
     const detail = await this.sessions.get(storage, sessionId);
+    const stored = detail.session.workspaceExecution?.binding;
+    if (!stored) {
+      throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
+    }
+    const binding = adoptStoredWorkspaceAuthorityBinding(stored);
     if (
-      !bindingMatchesSession(detail.session, binding.bindingId, request) ||
-      binding.kind !== "remote"
+      binding.kind !== "remote" ||
+      !requestMatchesStoredBinding(request, binding) ||
+      !bindingMatchesSession(detail.session, binding.bindingId, request)
     ) {
       throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
     }
+    await this.assertStoredRemoteWorkAuthority(binding, signal);
     return this.resumeOrRecover(storage, binding, detail.session, request, signal);
   }
 
@@ -328,14 +380,18 @@ export class WorkspaceExecutionCoordinator {
     signal?: AbortSignal;
   }): Promise<WorkspaceExecutionEvent> {
     const request = workspaceExecutionRequestSchema.parse(input.request);
-    const binding = await this.input.authority.resolve(
-      request.authority,
-      request.scope,
-      input.signal
-    );
-    const storage = this.sessionStorage(binding);
+    const storage = this.storageForExistingSession(request);
     const detail = await this.sessions.get(storage, input.sessionId);
-    if (!bindingMatchesSession(detail.session, binding.bindingId, request)) {
+    const stored = detail.session.workspaceExecution?.binding;
+    if (!stored) {
+      throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
+    }
+    const binding = adoptStoredWorkspaceAuthorityBinding(stored);
+    if (
+      binding.kind !== "remote" ||
+      !requestMatchesStoredBinding(request, binding) ||
+      !bindingMatchesSession(detail.session, binding.bindingId, request)
+    ) {
       throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
     }
     const handle = remoteWorkspaceExecutionHandleSchema.safeParse(
@@ -403,10 +459,6 @@ export class WorkspaceExecutionCoordinator {
     } catch (error) {
       throw workspaceExecutionPortError(error, "remote_catalog_unavailable");
     }
-    const rebound = await this.input.authority.resolve(request.authority, request.scope, signal);
-    if (rebound.kind !== "remote" || rebound.bindingId !== binding.bindingId) {
-      throw new WorkspaceExecutionError("workspace_execution_authority_mismatch");
-    }
     const target = resolveWorkspaceExecutionTarget(
       {
         ...request,
@@ -417,13 +469,22 @@ export class WorkspaceExecutionCoordinator {
     if (target.target !== "remote" || target.agentEndpointId !== intent.agentEndpointId) {
       throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
     }
+    let currentAuthority: Awaited<ReturnType<WorkAuthorityPort["ensure"]>>;
+    try {
+      currentAuthority = await this.input.workAuthority.ensure({ binding }, signal);
+    } catch (error) {
+      throw workspaceExecutionPortError(error, "work_authority_unavailable");
+    }
+    assertRemoteWorkAuthorityMatchesBinding(binding, currentAuthority);
     const relaunched = await this.input.remote.launch({
       request,
       binding,
       target,
       session,
       intent,
-      signal
+      signal,
+      skipWorkAuthorityEnsure: true,
+      ensuredWorkAuthority: currentAuthority
     });
     return this.acceptCheckpoint(storage, binding, session, relaunched, target, signal);
   }
@@ -572,9 +633,37 @@ export class WorkspaceExecutionCoordinator {
     }
   }
 
+  private async assertStoredRemoteWorkAuthority(
+    binding: Extract<ValidatedWorkspaceAuthorityBinding, { kind: "remote" }>,
+    signal?: AbortSignal
+  ): Promise<void> {
+    let currentAuthority: Awaited<ReturnType<WorkAuthorityPort["ensure"]>>;
+    try {
+      currentAuthority = await this.input.workAuthority.ensure({ binding }, signal);
+    } catch (error) {
+      throw workspaceExecutionPortError(error, "work_authority_unavailable");
+    }
+    assertRemoteWorkAuthorityMatchesBinding(
+      binding,
+      currentAuthority,
+      "workspace_execution_resume_mismatch"
+    );
+  }
+
   private sessionStorage(
     binding: ValidatedWorkspaceAuthorityBinding
   ): WorkspaceExecutionSessionStorage {
     return (this.input.sessionStorage ?? packageSessionStorageForBinding)(binding);
+  }
+
+  private storageForExistingSession(
+    request: WorkspaceExecutionRequest
+  ): WorkspaceExecutionSessionStorage {
+    if (this.input.sessionStorageForRequest) {
+      return this.input.sessionStorageForRequest(request);
+    }
+    const packaged = packageStorageFromRequest(request);
+    if (packaged) return packaged;
+    throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
   }
 }

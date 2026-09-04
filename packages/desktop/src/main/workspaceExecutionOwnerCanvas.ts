@@ -116,6 +116,7 @@ function createOwnerCanvasCoordinator(input: {
     }),
     sessions: input.sessions,
     sessionStorage: () => ownerSessionStorage(input.locator),
+    sessionStorageForRequest: () => ownerSessionStorage(input.locator),
     idempotencyKey: randomUUID
   });
 }
