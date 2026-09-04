@@ -1292,6 +1292,7 @@ export const zhCnCatalog = {
   peopleOffline: "协作离线或正在重连。显示最近一次已知的成员列表。",
   peopleError: "无法加载协作成员。",
   peopleWorkspaceCannotConnect: "Workspace 无法连接。",
+  peopleWorkspaceJoinedNoSharedProject: "已加入 Workspace，但所有者尚未与你共享任何项目或画布。",
   peopleAuthExpired: "协作凭证已失效。请重新加入或使用有效设备重新连接。",
   peopleForbidden: "你没有此协作项目的权限。",
   peopleEmptyMembers: "暂无成员。",
@@ -1398,6 +1399,7 @@ export const zhCnCatalog = {
   peopleProjectSessionConnecting: "正在连接项目协作…",
   peopleProjectSessionConnected: "项目协作已连接",
   peopleProjectSessionError: "项目协作连接错误",
+  peopleProjectSessionNoSharedProject: "尚未共享项目或画布",
   peopleProjectSessionDisconnected: "项目协作已断开",
   peopleWorkspaceIdentityMissing: "当前没有 Workspace",
   peopleWorkspaceIdentityMissingHint:
@@ -1407,6 +1409,7 @@ export const zhCnCatalog = {
   peopleWorkspaceIdentityReverifying: "正在重新检查连接…",
   peopleWorkspaceIdentityError: "Workspace 连接失败",
   peopleWorkspaceIdentityPending: "已配置，等待连接",
+  peopleWorkspaceIdentityAwaitingAuthorization: "已配置，等待授权",
   peopleWorkspaceIdentityRetry: "重新连接",
   peopleIdentityRepairTitle: "需要修复身份",
   peopleIdentityRepairHint:

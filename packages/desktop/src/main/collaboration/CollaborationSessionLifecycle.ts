@@ -43,6 +43,7 @@ type CollaborationSessionLifecycleDependencies = {
   ): Promise<{ client: CollaborationClient; profile: CollaborationConnectionProfile }>;
   publishStatus(): Promise<CollaborationStatus>;
   publishObserverSignal(signal: CollaborationObserverSignal): void;
+  onWorkspaceCredentialRejected?(profileId: string, error: { code: string; message: string }): void;
 };
 
 function observerFailureMessage(code: string): string {
@@ -78,7 +79,7 @@ export class CollaborationSessionLifecycle {
       this.dependencies.assertOpen();
       assertNoSmuggledCollaborationSecrets(input, "connectCollaborationSession");
       const { profileId } = collaborationProfileIdInputSchema.parse(input);
-      return this.connectWithinQueue(profileId);
+      return this.connectWithinQueue(profileId, { preserveCredentialOnAuthFailure: true });
     });
   }
 
@@ -138,13 +139,15 @@ export class CollaborationSessionLifecycle {
               });
             } else if (status.state === "auth_expired") {
               this.clearObserverConnectDeadline();
-              this.dependencies.setSession("error", `observer:${status.state}`, {
+              const rejected = {
                 code: COLLABORATION_CONNECTION_ERROR_CODES.workspaceUnauthorized,
                 message: "Collaboration device credential was rejected by the server."
+              };
+              this.dependencies.setSession("error", `observer:${status.state}`, rejected);
+              void this.dependencies.vault.clear(profileId).then(() => {
+                this.dependencies.onWorkspaceCredentialRejected?.(profileId, rejected);
+                return this.dependencies.publishStatus();
               });
-              void this.dependencies.vault
-                .clear(profileId)
-                .then(() => this.dependencies.publishStatus());
             } else if (status.state === "failed") {
               this.clearObserverConnectDeadline();
               const workspaceForbidden = status.code === "collaboration_observer_http_403";
@@ -194,12 +197,14 @@ export class CollaborationSessionLifecycle {
     } catch (error) {
       const mapped = collaborationConnectionErrorFromUnknown(error, profile.endpoint.topology);
       await this.dispose("connect_failed");
-      if (
-        !preflightComplete &&
-        mapped.kind === "auth" &&
-        options.preserveCredentialOnAuthFailure !== true
-      ) {
-        await this.dependencies.vault.clear(profileId);
+      if (!preflightComplete && mapped.kind === "auth") {
+        if (options.preserveCredentialOnAuthFailure !== true) {
+          await this.dependencies.vault.clear(profileId);
+        }
+        this.dependencies.onWorkspaceCredentialRejected?.(profileId, {
+          code: mapped.code,
+          message: mapped.message
+        });
       }
       this.dependencies.setSession(
         "error",

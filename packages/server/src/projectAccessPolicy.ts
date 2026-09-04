@@ -254,11 +254,29 @@ export class ProjectAccessPolicy {
               AND g.human_principal_id IN (${inSql})
               AND g.revoked_at IS NULL
           )
+          OR EXISTS (
+            SELECT 1 FROM canvas_registry c
+            WHERE c.workspace_id=p.workspace_id
+              AND c.project_registry_id=p.project_registry_id
+              AND c.revoked_at IS NULL
+              AND (
+                c.owner_human_principal_id IN (${inSql})
+                OR c.visibility='shared'
+                OR EXISTS (
+                  SELECT 1 FROM project_access_grants g
+                  WHERE g.workspace_id=c.workspace_id
+                    AND g.canvas_registry_id=c.canvas_registry_id
+                    AND g.scope_kind='canvas'
+                    AND g.human_principal_id IN (${inSql})
+                    AND g.revoked_at IS NULL
+                )
+              )
+          )
         )
       ORDER BY p.project_registry_id
       LIMIT ? OFFSET ?
     `)
-      .all(input.workspaceId, ...ids, ...ids, ...ids, limit, offset) as Array<
+      .all(input.workspaceId, ...ids, ...ids, ...ids, ...ids, ...ids, limit, offset) as Array<
       Record<string, unknown>
     >;
     return rows.map((row) => projectAccessRecord(rowToProject(row)));

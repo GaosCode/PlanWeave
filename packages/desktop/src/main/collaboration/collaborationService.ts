@@ -261,7 +261,12 @@ export class CollaborationService {
       clientForProfile: (profileId, requireCredential) =>
         this.clientForProfile(profileId, requireCredential),
       publishStatus: () => this.publishStatus(),
-      publishObserverSignal: (signal) => this.publishObserverSignal(signal)
+      publishObserverSignal: (signal) => this.publishObserverSignal(signal),
+      onWorkspaceCredentialRejected: (profileId, error) => {
+        if (this.workspaceConnection.getActiveProfileId() === profileId) {
+          this.workspaceConnection.markError(error.code, error.message, false);
+        }
+      }
     });
     this.profileLifecycle = new CollaborationProfileLifecycle({
       profiles: this.profiles,

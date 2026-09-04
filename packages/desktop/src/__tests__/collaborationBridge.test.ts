@@ -1208,7 +1208,7 @@ describe("CollaborationService IPC trust boundary", () => {
       (await service.getStatus()).profiles.find(
         (profile) => profile.profileId === "profile-preflight"
       )?.hasDeviceCredential
-    ).toBe(false);
+    ).toBe(true);
     await service.shutdown();
   });
 

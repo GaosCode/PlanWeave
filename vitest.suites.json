@@ -273,6 +273,7 @@
         "workspaceAgentEndpointRunCancellation.test.tsx",
         "workspaceCanvasPublishAuthority.test.ts",
         "workspaceCanvasSharingPanel.test.tsx",
+        "workspaceConnectionPresentation.test.ts",
         "workspaceRemoteScopeScheduler.test.ts",
         "workspaceTabsLazyRoutes.test.tsx"
       ],

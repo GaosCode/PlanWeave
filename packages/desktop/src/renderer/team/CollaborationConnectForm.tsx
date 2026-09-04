@@ -23,6 +23,8 @@ import {
 import { endpointForLegacyCollaborationInvitationHandoff } from "./collaborationInvitationHandoff";
 import { parseCollaborationJoinPaste } from "./collaborationJoinPaste";
 import {
+  isWorkspaceDeviceCredentialMissing,
+  resolveWorkspaceIdentityProfile,
   visibleWorkspaceConnectionError,
   workspaceDisplayName,
   workspaceIdentityStatusLabel
@@ -137,13 +139,11 @@ export function CollaborationConnectForm({
     profiles.find((profile) => profile.profileId === status?.activeProfileId) ??
     profiles[0] ??
     null;
-  const workspaceIdentityProfile =
-    profiles.find((profile) => profile.profileId === workspaceConnection?.profile?.profileId) ??
-    activeProfile;
-  const workspaceCredentialMissing =
-    workspaceConnection?.profile !== null &&
-    workspaceConnection?.profile !== undefined &&
-    workspaceIdentityProfile?.hasDeviceCredential === false;
+  const workspaceIdentityProfile = resolveWorkspaceIdentityProfile(profiles, workspaceConnection);
+  const workspaceCredentialMissing = isWorkspaceDeviceCredentialMissing(
+    workspaceConnection,
+    workspaceIdentityProfile
+  );
   const localOwnerCredentialMissing =
     workspaceCredentialMissing &&
     workspaceIdentityProfile !== null &&
@@ -156,7 +156,10 @@ export function CollaborationConnectForm({
   );
   const showWorkspaceConnectionError = workspaceConnectionErrorCopy !== null;
   const showConnectionEditor =
-    fixedMode !== undefined || !workspaceConnected || connectionEditorOpen;
+    fixedMode !== undefined ||
+    !workspaceConnected ||
+    workspaceCredentialMissing ||
+    connectionEditorOpen;
   const workspaceServerBaseUrl = workspaceConnection?.profile?.serverBaseUrl ?? null;
   const workspacePickerItems: WorkspacePickerItem[] = status?.workspacePicker?.items ?? [];
   const diagnosticReport =
@@ -546,7 +549,11 @@ export function CollaborationConnectForm({
                     className="mt-0.5 truncate text-sm text-text-muted"
                     data-testid="people-workspace-identity-status"
                   >
-                    {workspaceIdentityStatusLabel(workspaceConnection, t)}
+                    {workspaceIdentityStatusLabel(
+                      workspaceConnection,
+                      t,
+                      workspaceCredentialMissing
+                    )}
                   </div>
                   {workspaceServerBaseUrl ? (
                     <div className="mt-0.5 truncate text-xs text-muted-foreground">
@@ -606,7 +613,7 @@ export function CollaborationConnectForm({
                     {t("peopleWorkspaceRestoreLocalOwner")}
                   </Button>
                 ) : null}
-                {workspaceConnected && !fixedMode ? (
+                {workspaceConnected && !workspaceCredentialMissing && !fixedMode ? (
                   <Button
                     type="button"
                     size="sm"

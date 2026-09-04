@@ -401,6 +401,67 @@ describe("project access registry", () => {
     }
   });
 
+  it("lists a project when the member only has canvas-scope access", async () => {
+    const { access } = await registered();
+    expect(
+      access
+        .listAuthorizedProjects({ workspaceId: "w", actor: editor })
+        .map((project) => project.registry.projectId)
+    ).toEqual([]);
+
+    access.grant({
+      workspaceId: "w",
+      projectId: "p",
+      canvasId: "c",
+      humanPrincipalId: "editor",
+      role: "viewer",
+      grantedBy: owner
+    });
+    expect(
+      access
+        .listAuthorizedProjects({ workspaceId: "w", actor: editor })
+        .map((project) => project.registry.projectId)
+    ).toEqual(["p"]);
+    expect(
+      access
+        .listAuthorizedCanvases({ workspaceId: "w", projectId: "p", actor: editor })
+        .map((canvas) => canvas.registry.canvasId)
+    ).toEqual(["c"]);
+  });
+
+  it("lists a private project when one of its canvases is shared", async () => {
+    const { access } = await registered();
+    expect(access.listAuthorizedProjects({ workspaceId: "w", actor: viewer })).toEqual([]);
+
+    expect(
+      access.compareAndSetAccess({
+        actor: owner,
+        request: accessMutationRequestSchema.parse({
+          operation: "visibility",
+          scope: {
+            scopeKind: "canvas",
+            workspaceId: "w",
+            projectId: "p",
+            canvasId: "c"
+          },
+          expectedAclRevision: 0,
+          visibility: "shared"
+        })
+      })
+    ).toMatchObject({ status: "applied" });
+
+    expect(
+      access
+        .listAuthorizedProjects({ workspaceId: "w", actor: viewer })
+        .map((project) => project.registry.projectId)
+    ).toEqual(["p"]);
+    expect(
+      access
+        .listAuthorizedCanvases({ workspaceId: "w", projectId: "p", actor: viewer })
+        .map((canvas) => canvas.registry.canvasId)
+    ).toEqual(["c"]);
+  });
+
   it("keeps SQL pagination bounded to authorized rows", async () => {
     const { access } = await registered();
     access.grant({

@@ -402,6 +402,50 @@ describe("PeoplePanel", () => {
     expect(screen.getByTestId("people-connect-form")).toBeVisible();
   });
 
+  it("explains a joined Workspace that has no shared project or canvas", () => {
+    render(
+      <PeoplePanel
+        mode="error"
+        presence={{
+          ...presence,
+          sessionPhase: "error",
+          memberCount: 0,
+          sessionLastErrorCode: "live_registry_project_unavailable"
+        }}
+        members={[]}
+        invitations={[]}
+        devices={[]}
+        detailsLoading={false}
+        detailsError={null}
+        actionError={null}
+        actionBusy={false}
+        pendingInvitation={null}
+        t={t}
+        onCreateInvitation={vi.fn()}
+        onViewInvitation={vi.fn()}
+        onCopyInvitationToken={vi.fn()}
+        onDismissPendingInvitation={vi.fn()}
+        onRevokeInvitation={vi.fn()}
+        onRevokeInvitations={vi.fn()}
+        onUpdateOwnDisplayName={vi.fn()}
+        onPromoteMember={vi.fn()}
+        onDemoteMember={vi.fn()}
+        onRemoveMember={vi.fn()}
+        onRevokeDevice={vi.fn()}
+        onRefreshDetails={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId("people-presence-summary")).toHaveTextContent(
+      "You've joined this Workspace, but the owner has not shared any project or canvas with you yet."
+    );
+    expect(screen.getByTestId("people-workspace-summary")).toHaveTextContent(
+      "No shared project or canvas yet"
+    );
+    expect(screen.queryByText("This Workspace could not be connected")).not.toBeInTheDocument();
+    expect(screen.queryByText("Project collaboration connection error")).not.toBeInTheDocument();
+  });
+
   it("exposes copyable read diagnostics when member loading fails", async () => {
     const onCopyDiagnostics = vi.fn().mockResolvedValue(undefined);
     render(

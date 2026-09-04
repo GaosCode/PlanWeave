@@ -162,6 +162,72 @@ describe("CollaborationConnectForm connection diagnostics", () => {
     );
   });
 
+  it("does not borrow another profile's missing credential for the current Workspace", () => {
+    const status = statusWithWorkspaceIdentity("connected");
+    status.activeProfileId = "profile-stale-local";
+    status.profiles = [
+      {
+        ...status.profiles[0]!,
+        profileId: "profile-stale-local",
+        hasDeviceCredential: false,
+        deviceCredentialPersistence: "missing",
+        deviceCredentialId: null,
+        humanPrincipalId: null
+      }
+    ];
+    status.session = {
+      ...status.session,
+      phase: "error",
+      lastErrorCode: "live_registry_project_unavailable",
+      lastErrorMessage: "No collaboration project is available for the connected Workspace."
+    };
+
+    render(
+      <CollaborationConnectForm
+        api={joinApi()}
+        status={status}
+        t={createTranslator("en")}
+        fixedMode="connect"
+      />
+    );
+
+    expect(screen.queryByTestId("people-workspace-credential-missing")).not.toBeInTheDocument();
+    expect(screen.getByTestId("people-workspace-identity-status")).toHaveTextContent("Connected");
+    expect(screen.queryByTestId("people-workspace-change-connection")).not.toBeInTheDocument();
+  });
+
+  it("treats a connected Workspace with a missing device credential as waiting for authorization", () => {
+    const status = statusWithWorkspaceIdentity("connected");
+    status.profiles = status.profiles.map((profile) => ({
+      ...profile,
+      hasDeviceCredential: false,
+      deviceCredentialPersistence: "missing",
+      deviceCredentialId: null,
+      humanPrincipalId: null
+    }));
+    status.session = {
+      ...status.session,
+      phase: "error",
+      lastErrorCode: "WORKSPACE_UNAUTHORIZED"
+    };
+
+    render(
+      <CollaborationConnectForm
+        api={joinApi()}
+        status={status}
+        t={createTranslator("en")}
+        fixedMode="connect"
+      />
+    );
+
+    expect(screen.getByTestId("people-workspace-identity-status")).toHaveTextContent(
+      "Configured · waiting for authorization"
+    );
+    expect(screen.getByTestId("people-workspace-credential-missing")).toBeVisible();
+    expect(screen.queryByTestId("people-workspace-change-connection")).not.toBeInTheDocument();
+    expect(screen.queryByText("Connected")).not.toBeInTheDocument();
+  });
+
   it("does not expose internal device-credential errors on the Workspace page", () => {
     const status = statusWithWorkspaceIdentity("error", {
       code: "collaboration_credential_missing",

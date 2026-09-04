@@ -1385,6 +1385,8 @@ export const enCatalog = {
   peopleOffline: "Collaboration is offline or reconnecting. Showing the last known people list.",
   peopleError: "Could not load collaboration people.",
   peopleWorkspaceCannotConnect: "This Workspace could not be connected.",
+  peopleWorkspaceJoinedNoSharedProject:
+    "You've joined this Workspace, but the owner has not shared any project or canvas with you yet.",
   peopleAuthExpired: "Collaboration credentials expired. Rejoin or reconnect with a valid device.",
   peopleForbidden: "You do not have permission for this collaboration project.",
   peopleEmptyMembers: "No members yet.",
@@ -1497,6 +1499,7 @@ export const enCatalog = {
   peopleProjectSessionConnecting: "Project collaboration connecting…",
   peopleProjectSessionConnected: "Project collaboration connected",
   peopleProjectSessionError: "Project collaboration connection error",
+  peopleProjectSessionNoSharedProject: "No shared project or canvas yet",
   peopleProjectSessionDisconnected: "Project collaboration disconnected",
   peopleWorkspaceIdentityMissing: "No current Workspace",
   peopleWorkspaceIdentityMissingHint:
@@ -1506,6 +1509,7 @@ export const enCatalog = {
   peopleWorkspaceIdentityReverifying: "Checking connection again…",
   peopleWorkspaceIdentityError: "Workspace connection failed",
   peopleWorkspaceIdentityPending: "Configured · waiting to connect",
+  peopleWorkspaceIdentityAwaitingAuthorization: "Configured · waiting for authorization",
   peopleWorkspaceIdentityRetry: "Reconnect",
   peopleIdentityRepairTitle: "Identity repair required",
   peopleIdentityRepairHint:

@@ -97,6 +97,7 @@ export type PeoplePresenceSummary = {
   currentUserIsOwner: boolean;
   credentialPersistence: CollaborationCredentialPersistence | null;
   nonPersistenceWarning: string | null;
+  sessionLastErrorCode?: string | null;
 };
 
 export function memberInitials(displayName: string): string {
@@ -284,7 +285,8 @@ export function buildPeoplePresenceSummary(input: {
     syncPhase: input.syncPhase,
     currentUserIsOwner: currentMembership?.role === "owner",
     credentialPersistence: activeProfile?.deviceCredentialPersistence ?? null,
-    nonPersistenceWarning: input.status?.nonPersistenceWarning ?? null
+    nonPersistenceWarning: input.status?.nonPersistenceWarning ?? null,
+    sessionLastErrorCode: input.status?.session.lastErrorCode ?? null
   };
 }
 

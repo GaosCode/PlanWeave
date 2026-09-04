@@ -1,12 +1,40 @@
 import type { ActiveWorkspaceConnectionView } from "@planweave-ai/collaboration-protocol/connection";
+import type { CollaborationProfileView } from "../../shared/collaboration";
 import type { createTranslator } from "../i18n";
 import { collaborationConnectionErrorMessage } from "../collaboration/formatCollaborationError";
 
+export function resolveWorkspaceIdentityProfile(
+  profiles: readonly CollaborationProfileView[],
+  connection: ActiveWorkspaceConnectionView | null | undefined
+): CollaborationProfileView | null {
+  const profileId = connection?.profile?.profileId;
+  if (!profileId) return null;
+  return profiles.find((profile) => profile.profileId === profileId) ?? null;
+}
+
+export function isWorkspaceDeviceCredentialMissing(
+  connection: ActiveWorkspaceConnectionView | null | undefined,
+  workspaceIdentityProfile: CollaborationProfileView | null
+): boolean {
+  return (
+    connection?.profile !== null &&
+    connection?.profile !== undefined &&
+    workspaceIdentityProfile?.hasDeviceCredential === false
+  );
+}
+
 export function workspaceIdentityStatusLabel(
   connection: ActiveWorkspaceConnectionView | null | undefined,
-  t: ReturnType<typeof createTranslator>
+  t: ReturnType<typeof createTranslator>,
+  credentialMissing = false
 ): string {
   if (!connection) return t("peopleWorkspaceIdentityMissingHint");
+  if (
+    credentialMissing &&
+    (connection.status === "connected" || connection.status === "disconnected")
+  ) {
+    return t("peopleWorkspaceIdentityAwaitingAuthorization");
+  }
   switch (connection.status) {
     case "local_only":
       return t("peopleWorkspaceIdentityMissingHint");

@@ -306,8 +306,11 @@ export function PeoplePanel({
 
   const workspaceUnavailable =
     mode === "error" && presence.sessionPhase !== "connected" && presence.sessionPhase !== "ready";
+  const noSharedProject = presence.sessionLastErrorCode === "live_registry_project_unavailable";
   const unavailablePeopleCopy = workspaceUnavailable
-    ? t("peopleWorkspaceCannotConnect")
+    ? noSharedProject
+      ? t("peopleWorkspaceJoinedNoSharedProject")
+      : t("peopleWorkspaceCannotConnect")
     : t("peopleError");
   const memberStateText =
     mode === "ready" || mode === "empty"
@@ -331,7 +334,9 @@ export function PeoplePanel({
       : presence.sessionPhase === "connecting"
         ? t("peopleProjectSessionConnecting")
         : presence.sessionPhase === "error"
-          ? t("peopleProjectSessionError")
+          ? noSharedProject
+            ? t("peopleProjectSessionNoSharedProject")
+            : t("peopleProjectSessionError")
           : t("peopleProjectSessionDisconnected");
   return (
     <div className="flex min-w-0 flex-col gap-4" data-testid="people-panel" data-mode={mode}>
