@@ -359,7 +359,9 @@ export function TaskWorkspaceUsage({
                   ·
                 </span>
               ) : null}
-              <dt className="sr-only">{label}</dt>
+              <dt className={key === "agent" || key === "model" ? "sr-only" : "shrink-0"}>
+                {label}
+              </dt>
               <dd
                 className="max-w-20 truncate font-medium text-text sm:max-w-28"
                 title={`${label}: ${value}`}

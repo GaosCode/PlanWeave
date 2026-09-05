@@ -14,6 +14,32 @@ import {
 afterEach(cleanupRendererTestEnvironment);
 
 describe("TaskWorkspaceUsage", () => {
+  it("labels reasoning and mode separately even when their values match", () => {
+    const fixture = taskWorkspaceInspectorFixture();
+    const configuration = fixture.selectedRun.item.run.actualConfiguration;
+    if (!configuration.available) throw new Error("Expected an available configuration.");
+    configuration.protocol.modes = {
+      currentModeId: "high",
+      availableModes: [{ id: "high", name: "High", description: null }]
+    };
+    configuration.fields.mode = {
+      available: true,
+      value: "high",
+      source: { kind: "session_mode", optionId: null },
+      reason: null
+    };
+    render(
+      <TaskWorkspaceUsage
+        labels={labels}
+        selectedRun={fixture.selectedRun}
+        workspace={fixture.workspace}
+      />
+    );
+    expect(screen.getByText(labels.reasoning)).not.toHaveClass("sr-only");
+    expect(screen.getByText(labels.mode)).not.toHaveClass("sr-only");
+    expect(screen.getAllByText("high")).toHaveLength(2);
+  });
+
   it("shows remote context usage through the same ring and labels cumulative session tokens separately", () => {
     const fixture = taskWorkspaceInspectorFixture();
     render(
