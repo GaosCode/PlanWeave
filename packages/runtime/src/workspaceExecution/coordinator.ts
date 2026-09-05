@@ -97,7 +97,7 @@ function packageStorageFromRequest(
 }
 
 function requestMatchesStoredBinding(
-  request: WorkspaceExecutionRequest,
+  request: Pick<WorkspaceExecutionRequest, "authority">,
   binding: ValidatedWorkspaceAuthorityBinding
 ): boolean {
   const locator = request.authority;
@@ -345,16 +345,26 @@ export class WorkspaceExecutionCoordinator {
       }
       const existing = operationSessions[0];
       if (existing) {
+        const storedBinding = existing.workspaceExecution
+          ? adoptStoredWorkspaceAuthorityBinding(existing.workspaceExecution.binding)
+          : null;
+        const completedHistory =
+          terminalPhases.has(existing.phase) &&
+          ["completed", "failed", "cancelled"].includes(inspected.observation.state);
         if (
           !existing.workspaceExecution ||
-          existing.workspaceExecution.binding.bindingId !== binding.bindingId ||
+          !storedBinding ||
+          storedBinding.kind !== "remote" ||
+          !requestMatchesStoredBinding({ authority }, storedBinding) ||
+          storedBinding.blockRef !== scope.blockRef ||
+          (!completedHistory && storedBinding.bindingId !== binding.bindingId) ||
           !executionScopeEquals(existing.scope, scope)
         ) {
           throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
         }
         return this.resumeOrRecover(
           storage,
-          binding,
+          completedHistory ? storedBinding : binding,
           { ...existing, workspaceExecution: existing.workspaceExecution },
           undefined,
           input.signal,

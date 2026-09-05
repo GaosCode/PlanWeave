@@ -6,10 +6,73 @@ import {
   fixture,
   request,
   sessionPorts,
-  emptyReplay
+  emptyReplay,
+  authorityResolver,
+  observation,
+  revisions
 } from "./workspaceExecutionCoordinatorTestFixture.js";
 
 describe("WorkspaceExecutionCoordinator observeExisting", () => {
+  it("reads completed history after content and assignment revisions change without rebinding the saved run", async () => {
+    const { root } = await createTestWorkspace();
+    const initialRequest = request(root);
+    const first = fixture({ packageWorkspace: root });
+    const input = {
+      authority: initialRequest.authority,
+      scope: initialRequest.scope,
+      operationId: "operation-1"
+    };
+    const initial = await first.coordinator.observeExisting(input);
+    const current = {
+      contentRevision: "snapshot:revision-2",
+      graphFingerprint: `pkg-${"b".repeat(64)}`
+    };
+    const changed = fixture({
+      packageWorkspace: root,
+      authority: authorityResolver(root, {
+        ...current,
+        authorityRevisions: { ...revisions, executionTargetRevision: 4 }
+      })
+    });
+    const reopened = await changed.coordinator.observeExisting({
+      ...input,
+      authority: {
+        ...input.authority,
+        contentAuthority: { ...input.authority.contentAuthority, expected: current }
+      }
+    });
+    expect(reopened.session.sessionId).toBe(initial.session.sessionId);
+    expect(reopened.session.workspaceExecution?.binding).toEqual(
+      initial.session.workspaceExecution?.binding
+    );
+    expect(reopened.session.phase).toBe("completed");
+    expect(changed.dispatch).not.toHaveBeenCalled();
+  });
+
+  it("attaches completed history at older revisions but rejects stale active execution", async () => {
+    const { root } = await createTestWorkspace();
+    const executionRequest = request(root);
+    const authority = authorityResolver(root, {
+      authorityRevisions: { ...revisions, executionTargetRevision: 4 }
+    });
+    const input = {
+      authority: executionRequest.authority,
+      scope: executionRequest.scope,
+      operationId: "operation-1"
+    };
+    const active = fixture({
+      packageWorkspace: root,
+      authority,
+      observe: async () => observation()
+    });
+    await expect(active.coordinator.observeExisting(input)).rejects.toMatchObject({
+      code: "workspace_execution_resume_mismatch"
+    });
+    const completed = fixture({ packageWorkspace: root, authority });
+    expect((await completed.coordinator.observeExisting(input)).session.phase).toBe("completed");
+    expect(completed.dispatch).not.toHaveBeenCalled();
+  });
+
   it("replays from the new consumer cursor instead of the persisted execution cursor", async () => {
     const { root } = await createTestWorkspace();
     const executionRequest = request(root);

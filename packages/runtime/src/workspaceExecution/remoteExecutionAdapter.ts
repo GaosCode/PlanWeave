@@ -75,9 +75,12 @@ function assertObservationIdentity(input: {
   binding: ValidatedRemoteBinding;
   operationId?: string;
   endpointId: string;
+  readCompletedHistory?: boolean;
 }): void {
   const { observation, binding } = input;
   const diagnostics = observation.diagnostics;
+  const compareCurrentRevision =
+    !input.readCompletedHistory || !terminalForObservation(observation).terminal;
   if (
     (input.operationId !== undefined && observation.operationId !== input.operationId) ||
     observation.projectId !== binding.projectId ||
@@ -93,13 +96,14 @@ function assertObservationIdentity(input: {
     diagnostics.locator.canvasId !== binding.canvasId ||
     diagnostics.endpointId !== input.endpointId ||
     observation.agentEndpoint?.endpointId !== input.endpointId ||
-    diagnostics.authorityRevisions?.responsibility !==
-      binding.authorityRevisions.responsibilityRevision ||
-    diagnostics.authorityRevisions.reviewer !== binding.authorityRevisions.reviewerRevision ||
-    diagnostics.authorityRevisions.executionTarget !==
-      binding.authorityRevisions.executionTargetRevision ||
-    diagnostics.content.revision !== binding.contentRevision ||
-    diagnostics.content.fingerprint !== binding.graphFingerprint
+    (compareCurrentRevision &&
+      (diagnostics.authorityRevisions?.responsibility !==
+        binding.authorityRevisions.responsibilityRevision ||
+        diagnostics.authorityRevisions.reviewer !== binding.authorityRevisions.reviewerRevision ||
+        diagnostics.authorityRevisions.executionTarget !==
+          binding.authorityRevisions.executionTargetRevision ||
+        diagnostics.content.revision !== binding.contentRevision ||
+        diagnostics.content.fingerprint !== binding.graphFingerprint))
   ) {
     throw new WorkspaceExecutionError(
       input.operationId === undefined
@@ -245,12 +249,14 @@ export function createRemoteWorkspaceExecutionAdapter(input: {
     runSessionId: string;
     endpointId: string;
     prior?: RemoteWorkspaceExecutionHandle;
+    readCompletedHistory?: boolean;
   }): Promise<RemoteWorkspaceAdapterSnapshot> {
     assertObservationIdentity({
       observation: args.observation,
       binding: args.binding,
       operationId: args.prior?.operationId,
-      endpointId: args.endpointId
+      endpointId: args.endpointId,
+      readCompletedHistory: args.readCompletedHistory
     });
     const handle = handleFromObservation({
       prior: args.prior,
@@ -279,7 +285,13 @@ export function createRemoteWorkspaceExecutionAdapter(input: {
       }
       const endpointId = observation.agentEndpoint?.endpointId;
       if (!endpointId) throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
-      assertObservationIdentity({ observation, binding, operationId, endpointId });
+      assertObservationIdentity({
+        observation,
+        binding,
+        operationId,
+        endpointId,
+        readCompletedHistory: true
+      });
       return { observation, agentEndpointId: endpointId };
     },
     async attachExisting({ binding, session, observation, agentEndpointId }) {
@@ -288,7 +300,8 @@ export function createRemoteWorkspaceExecutionAdapter(input: {
         observation,
         binding,
         runSessionId: session.sessionId,
-        endpointId: agentEndpointId
+        endpointId: agentEndpointId,
+        readCompletedHistory: true
       });
     },
     async launch({
