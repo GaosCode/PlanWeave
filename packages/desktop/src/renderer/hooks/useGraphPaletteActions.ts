@@ -123,9 +123,6 @@ export function useGraphPaletteActions({
 
   const handleNodeDragStop = useCallback(
     async (_event: React.MouseEvent, node: Node) => {
-      if (!selectedProject) {
-        return;
-      }
       const layoutNodes = getPersistableLayoutNodes(node).map((item) => ({
         nodeId: item.id,
         x: item.id === node.id && !getLayoutNodes ? node.position.x : item.position.x,
@@ -138,17 +135,17 @@ export function useGraphPaletteActions({
           { kind: "update_layout", nodes: layoutNodes, updatedAt },
           setError
         );
-        if (ok) {
+        if (ok && graph) {
           setLayout({
             version: "desktop-layout/v1",
-            projectId: layout?.projectId ?? graph?.projectId ?? selectedProject.projectId,
+            projectId: graph.projectId,
             nodes: layoutNodes,
             updatedAt
           });
         }
         return;
       }
-      if (!bridge) return;
+      if (!bridge || !selectedProject) return;
       const canvas = desktopCanvasReference(selectedProject, selectedCanvasId);
       const baseLayout = layout ?? (await bridge.getDesktopLayout(canvas));
       const nextLayout: DesktopLayout = {
@@ -161,7 +158,7 @@ export function useGraphPaletteActions({
     [
       getLayoutNodes,
       getPersistableLayoutNodes,
-      graph?.projectId,
+      graph,
       layout,
       selectedCanvasId,
       selectedProject,

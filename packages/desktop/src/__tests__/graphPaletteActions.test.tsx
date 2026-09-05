@@ -105,6 +105,69 @@ afterEach(() => {
 });
 
 describe("useGraphPaletteActions layout snapshots", () => {
+  it("submits Workspace layout without a selected local project", async () => {
+    const bridge = createDesktopBridgeMock();
+    vi.stubGlobal("planweave", bridge);
+    vi.resetModules();
+    const { useGraphPaletteActions } = await import("../renderer/hooks/useGraphPaletteActions");
+    const submit = vi.fn().mockResolvedValue({ ok: true, error: null, staleConflict: null });
+    const setLayout = vi.fn();
+    const { result } = renderHook(() =>
+      useGraphPaletteActions({
+        flowInstance: null,
+        graph,
+        layout,
+        nodes: renderedNodes,
+        loadProject: vi.fn(),
+        refreshProjectDerivedState: vi.fn(),
+        selectedCanvasId: null,
+        selectedBlock: null,
+        selectedProject: null,
+        selectedTaskPanelId: null,
+        setError: vi.fn(),
+        setLayout,
+        selectTaskPanel: vi.fn(),
+        settings: graphPaletteSettings,
+        t: createTranslator("en"),
+        workspaceCanvas: {
+          enabled: true,
+          offline: false,
+          projection: null,
+          projectionStatus: null,
+          initialRuntimeAvailability: null,
+          submit,
+          reconnect: vi.fn(),
+          snapshot: {
+            session: null,
+            connectionPhase: "connected",
+            lastError: null,
+            lastStaleConflict: null,
+            busy: false
+          }
+        }
+      })
+    );
+    await act(async () => {
+      await result.current.handleNodeDragStop({} as React.MouseEvent, {
+        id: "T-ALPHA",
+        position: { x: 240, y: 180 },
+        data: {}
+      });
+    });
+    expect(submit).toHaveBeenCalledWith({
+      intent: {
+        kind: "update_layout",
+        updatedAt: expect.any(String),
+        nodes: [
+          { nodeId: "T-ALPHA", x: 240, y: 180 },
+          { nodeId: "T-BETA", x: 580, y: 80 }
+        ]
+      }
+    });
+    expect(setLayout).toHaveBeenCalledWith(expect.objectContaining({ projectId: graph.projectId }));
+    expect(bridge.saveDesktopLayout).not.toHaveBeenCalled();
+  });
+
   it("saves node drag layout from the committed layout nodes callback", async () => {
     const saveDesktopLayout = vi.fn().mockResolvedValue(layout);
     const bridge = createDesktopBridgeMock({
