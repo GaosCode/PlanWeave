@@ -33,6 +33,7 @@ import { RemoteOperationRepository } from "./remoteOperations.js";
 import { RemoteExecutionActionRepository } from "./remoteExecutionActions.js";
 import { RemoteAcpEventRepository } from "./remoteAcpEvents.js";
 import { AcpConversationService } from "./acpConversationService.js";
+import { authorizeAcpConversation } from "./acpConversationAuthorization.js";
 import {
   RemoteInteractionService,
   type RemoteInteractionAuthorizationPort
@@ -522,7 +523,8 @@ export function createRemoteBlockCoordination(
       mailbox,
       clock,
       hostOfflineAfterMs: options.hostOfflineAfterMs,
-      authorize: (operation, actorId) => coordinator.authorizeConversation(operation, actorId)
+      authorize: (operation, actorId) =>
+        authorizeAcpConversation(operation, actorId, remoteAgentAccess)
     }),
     artifactAuthorization,
     runtimeOperationAttachments,

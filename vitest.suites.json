@@ -801,6 +801,7 @@
         "workspaceExecutionPlaneInventory.test.ts"
       ],
       "integration": [
+        "acpConversationAuthorization.test.ts",
         "acpConversationService.test.ts",
         "accessHttp.test.ts",
         "aclRegistryMigration.test.ts",

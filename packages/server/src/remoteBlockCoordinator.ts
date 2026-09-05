@@ -967,10 +967,6 @@ export class RemoteBlockCoordinator {
     return this.authority().reauthorizeForRetry(operation);
   }
 
-  authorizeConversation(operation: RemoteOperation, callerHumanPrincipalId: string): void {
-    this.authority().reauthorizeForRetry(operation, callerHumanPrincipalId);
-  }
-
   authorizeEndpointOperation(
     operation: RemoteOperation,
     reservation?: HostCapacityReservation,
