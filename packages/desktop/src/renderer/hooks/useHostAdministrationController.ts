@@ -8,6 +8,7 @@ import {
   OperatorControlError,
   type OperatorHostBootstrapHandoffView,
   type OperatorMemberSetupCodeHandoffView,
+  type OperatorCopyMemberSetupCodeInput,
   type OperatorControlProfileInput,
   type OperatorControlStatus,
   type OperatorLocalAgentHostStatus,
@@ -68,7 +69,9 @@ export type HostAdministrationController = {
   importCredential: (profileId: string, operatorId?: string) => Promise<boolean>;
   clearCredential: (profileId: string) => Promise<boolean>;
   copyBootstrapHandoff: () => Promise<OperatorHostBootstrapHandoffView | null>;
-  copyMemberSetupCode: () => Promise<OperatorMemberSetupCodeHandoffView | null>;
+  copyMemberSetupCode: (
+    target: OperatorCopyMemberSetupCodeInput
+  ) => Promise<OperatorMemberSetupCodeHandoffView | null>;
   revokeHost: (hostId: string) => Promise<OperatorHostView | null>;
   renewHostCredential: (hostId: string) => Promise<OperatorHostView | null>;
   setCredentialLifetimeDays: (days: HostCredentialLifetimeDays) => void;
@@ -537,16 +540,14 @@ export function useHostAdministrationController(
     }
   }, [activeProfile, credentialLifetimeDays, enrollmentWorkspaceId, humanPrincipalId]);
 
-  const copyMemberSetupCode = useCallback(async () => {
-    if (!operatorControlBridge || !activeProfile || !activeProfile.hasOperatorCredential) {
+  const copyMemberSetupCode = useCallback(async (target: OperatorCopyMemberSetupCodeInput) => {
+    if (!operatorControlBridge) {
       setError("operator_credential_missing");
       return null;
     }
     setBusy(true);
     try {
-      const result = await operatorControlBridge.copyOperatorMemberSetupCode({
-        profileId: activeProfile.profileId
-      });
+      const result = await operatorControlBridge.copyOperatorMemberSetupCode(target);
       setMemberSetupCodeHandoff(result);
       setError(null);
       return result;
@@ -556,7 +557,7 @@ export function useHostAdministrationController(
     } finally {
       setBusy(false);
     }
-  }, [activeProfile]);
+  }, []);
 
   const revokeHost = useCallback(
     async (hostId: string) => {

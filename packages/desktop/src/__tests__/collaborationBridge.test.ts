@@ -1565,6 +1565,30 @@ describe("CollaborationService IPC trust boundary", () => {
 });
 
 describe("CollaborationService live Server binding", () => {
+  it("requires Workspace admission instead of creating a membership from a bare Server origin", async () => {
+    const root = await tempDir("planweave-workspace-admission-");
+    const safeStorage = mockSafeStorage();
+    const request = vi.fn<typeof fetch>();
+    const service = new CollaborationService({
+      profileStore: new CollaborationProfileStore({ profilesPath: join(root, "profiles.json") }),
+      workspaceProfileStore: new WorkspaceConnectionProfileStore({
+        profilesPath: join(root, "workspaces.json")
+      }),
+      vault: new CollaborationCredentialVault({
+        paths: { credentialsPath: join(root, "credentials.json") },
+        safeStorage
+      }),
+      safeStorage,
+      request
+    });
+    await expect(
+      service.connectExistingServerByOrigin({ serverBaseUrl: "https://new-server.example/" })
+    ).rejects.toMatchObject({ code: "existing_server_admission_required" });
+    expect(request).not.toHaveBeenCalled();
+    expect((await service.getStatus()).workspaceConnection.workspaceId).toBeNull();
+    await service.shutdown();
+  });
+
   it("connects the collaboration session to the same origin as the live Server", async () => {
     const root = await tempDir("planweave-collab-live-server-");
     const localWorkspaceId = "workspace-local-d5e342216f40e0632c512d0d61b94e71";

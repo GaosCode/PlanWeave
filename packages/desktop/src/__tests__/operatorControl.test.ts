@@ -982,7 +982,9 @@ describe("Desktop operator control trust boundary", () => {
   it("copies a member setup code in main and returns only redacted handoff metadata", async () => {
     const directory = await root("planweave-operator-member-setup-");
     const request = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      expect(String(input)).toBe("https://operator.example.test/api/v1/setup-codes");
+      expect(String(input)).toBe(
+        `https://operator.example.test/api/v1/workspaces/${exampleSetupCodeIssueResponse.grant.workspaceId}/setup-codes`
+      );
       expect(init?.method).toBe("POST");
       expect(JSON.parse(String(init?.body))).toEqual({
         schemaVersion: "workspace-setup/v1",
@@ -1003,7 +1005,14 @@ describe("Desktop operator control trust boundary", () => {
     await service.importCredential({ profileId: "profile-a", operatorToken: tokenA });
     const copyText = vi.fn();
 
-    const handoff = await service.copyMemberSetupCode({ profileId: "profile-a" }, copyText);
+    const handoff = await service.copyMemberSetupCode(
+      {
+        profileId: "profile-a",
+        workspaceId: exampleSetupCodeIssueResponse.grant.workspaceId,
+        serverBaseUrl: "https://operator.example.test/"
+      },
+      copyText
+    );
 
     expect(parseCollaborationSetupHandoffV1(copyText.mock.calls[0]?.[0] ?? "")).toEqual({
       serverBaseUrl: "https://operator.example.test/",
@@ -1018,9 +1027,48 @@ describe("Desktop operator control trust boundary", () => {
     });
     expect(JSON.stringify(handoff)).not.toContain(exampleSetupCodeIssueResponse.setupCode);
     await expect(
-      service.copyMemberSetupCode({ profileId: "profile-a" }, () => {
-        throw new Error("clipboard_unavailable");
-      })
+      service.copyMemberSetupCode(
+        {
+          profileId: "profile-a",
+          workspaceId: "workspace-wrong",
+          serverBaseUrl: "https://other.example.test/"
+        },
+        copyText
+      )
+    ).rejects.toMatchObject({ code: "operator_workspace_origin_mismatch" });
+    request.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ...exampleSetupCodeIssueResponse,
+          grant: { ...exampleSetupCodeIssueResponse.grant, workspaceId: "workspace-wrong" }
+        }),
+        { status: 201 }
+      )
+    );
+    copyText.mockClear();
+    await expect(
+      service.copyMemberSetupCode(
+        {
+          profileId: "profile-a",
+          workspaceId: exampleSetupCodeIssueResponse.grant.workspaceId,
+          serverBaseUrl: "https://operator.example.test/"
+        },
+        copyText
+      )
+    ).rejects.toMatchObject({ code: "operator_setup_workspace_mismatch" });
+    expect(copyText).not.toHaveBeenCalled();
+
+    await expect(
+      service.copyMemberSetupCode(
+        {
+          profileId: "profile-a",
+          workspaceId: exampleSetupCodeIssueResponse.grant.workspaceId,
+          serverBaseUrl: "https://operator.example.test/"
+        },
+        () => {
+          throw new Error("clipboard_unavailable");
+        }
+      )
     ).rejects.toThrow("clipboard_unavailable");
     await expect(
       service.copyMemberSetupCode(
@@ -1028,209 +1076,6 @@ describe("Desktop operator control trust boundary", () => {
         copyText
       )
     ).rejects.toThrow("Operator IPC rejected copyMemberSetupCode");
-  });
-
-  it("issues a device setup handoff for a Server origin this Desktop already administers", async () => {
-    const directory = await root("planweave-operator-origin-handoff-");
-    const request = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      expect(String(input)).toBe("https://operator.example.test/api/v1/setup-codes");
-      expect(init?.method).toBe("POST");
-      return new Response(JSON.stringify(exampleSetupCodeIssueResponse), { status: 201 });
-    });
-    const service = new OperatorControlService({
-      profileStore: new OperatorProfileStore({ profilesPath: join(directory, "profiles.json") }),
-      vault: new OperatorCredentialVault({
-        paths: { credentialsPath: join(directory, "credentials.json") },
-        safeStorage: safeStorage(false)
-      }),
-      request
-    });
-    await service.upsertProfile(profile("profile-a"));
-    await service.importCredential({ profileId: "profile-a", operatorToken: tokenA });
-
-    const handoff = await service.issueDeviceSetupHandoffForOrigin("https://operator.example.test");
-    expect(handoff).toEqual({
-      serverBaseUrl: "https://operator.example.test/",
-      allowInsecureTransport: false,
-      setupCode: exampleSetupCodeIssueResponse.setupCode,
-      displayName: "profile-a"
-    });
-    await expect(
-      service.issueDeviceSetupHandoffForOrigin("https://other.example.test/")
-    ).rejects.toMatchObject({ code: "operator_credential_missing" });
-  });
-
-  it("uses a deployment operator credential against a different HTTPS origin", async () => {
-    const directory = await root("planweave-operator-origin-retarget-");
-    const request = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      expect(String(input)).toBe("https://vm.example.test/api/v1/setup-codes");
-      expect(init?.method).toBe("POST");
-      expect((init?.headers as Record<string, string> | undefined)?.authorization).toBe(
-        `Bearer ${tokenA}`
-      );
-      return new Response(JSON.stringify(exampleSetupCodeIssueResponse), { status: 201 });
-    });
-    const profilesPath = join(directory, "profiles.json");
-    const profileStore = new OperatorProfileStore({ profilesPath });
-    const service = new OperatorControlService({
-      profileStore,
-      vault: new OperatorCredentialVault({
-        paths: { credentialsPath: join(directory, "credentials.json") },
-        safeStorage: safeStorage(false)
-      }),
-      request
-    });
-    await profileStore.upsert({
-      ...profile("deployment-abc", "https://this-computer.example.test/"),
-      endpoint: {
-        topology: "public_https",
-        serverOrigin: "https://this-computer.example.test/",
-        allowedClientOrigins: ["https://this-computer.example.test/"],
-        tlsTrust: "system_ca"
-      }
-    });
-    await service.importCredential({ profileId: "deployment-abc", operatorToken: tokenA });
-    await service.upsertProfile(
-      profile("planweave-local-loopback", "https://this-computer.example.test/")
-    );
-    await service.importCredential({
-      profileId: "planweave-local-loopback",
-      operatorToken: tokenB
-    });
-
-    const handoff = await service.issueDeviceSetupHandoffForOrigin("https://vm.example.test/");
-    expect(handoff).toEqual({
-      serverBaseUrl: "https://vm.example.test/",
-      allowInsecureTransport: false,
-      setupCode: exampleSetupCodeIssueResponse.setupCode,
-      displayName: "deployment-abc"
-    });
-    expect(request).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(request.mock.calls)).not.toContain(tokenB);
-
-    const stored = await new OperatorProfileStore({ profilesPath }).get("deployment-abc");
-    expect(stored?.serverBaseUrl).toBe("https://vm.example.test/");
-    expect(stored?.endpoint).toMatchObject({
-      topology: "public_https",
-      serverOrigin: "https://vm.example.test/"
-    });
-  });
-
-  it("selects the operator profile for the live Server origin", async () => {
-    const directory = await root("planweave-operator-live-origin-");
-    const service = new OperatorControlService({
-      profileStore: new OperatorProfileStore({ profilesPath: join(directory, "profiles.json") }),
-      vault: new OperatorCredentialVault({
-        paths: { credentialsPath: join(directory, "credentials.json") },
-        safeStorage: safeStorage(true)
-      })
-    });
-    await service.upsertProfile(profile("planweave-local-loopback", "https://mac.example.test/"));
-    await service.importCredential({
-      profileId: "planweave-local-loopback",
-      operatorToken: tokenB
-    });
-    await service.upsertProfile(profile("deployment-vps", "https://vm.example.test/"));
-    await service.importCredential({
-      profileId: "deployment-vps",
-      operatorToken: tokenA
-    });
-    await service.setActiveProfile({ profileId: "planweave-local-loopback" });
-
-    const status = await service.bindActiveProfileToLiveOrigin("https://vm.example.test/");
-    expect(status.activeProfileId).toBe("deployment-vps");
-  });
-
-  it("clears the operator profile when the live Server has no operator on this Desktop", async () => {
-    const directory = await root("planweave-operator-live-origin-clear-");
-    const service = new OperatorControlService({
-      profileStore: new OperatorProfileStore({ profilesPath: join(directory, "profiles.json") }),
-      vault: new OperatorCredentialVault({
-        paths: { credentialsPath: join(directory, "credentials.json") },
-        safeStorage: safeStorage(true)
-      })
-    });
-    await service.upsertProfile(profile("planweave-local-loopback", "https://mac.example.test/"));
-    await service.importCredential({
-      profileId: "planweave-local-loopback",
-      operatorToken: tokenB
-    });
-    await service.setActiveProfile({ profileId: "planweave-local-loopback" });
-
-    const status = await service.bindActiveProfileToLiveOrigin("https://vm.example.test/");
-    expect(status.activeProfileId).toBeNull();
-  });
-
-  it("does not send a local operator credential to a different origin", async () => {
-    const directory = await root("planweave-operator-origin-local-only-");
-    const request = vi.fn();
-    const service = new OperatorControlService({
-      profileStore: new OperatorProfileStore({ profilesPath: join(directory, "profiles.json") }),
-      vault: new OperatorCredentialVault({
-        paths: { credentialsPath: join(directory, "credentials.json") },
-        safeStorage: safeStorage(false)
-      }),
-      request
-    });
-    await service.upsertProfile(
-      profile("planweave-local-loopback", "https://this-computer.example.test/")
-    );
-    await service.importCredential({
-      profileId: "planweave-local-loopback",
-      operatorToken: tokenA
-    });
-    await expect(
-      service.issueDeviceSetupHandoffForOrigin("https://vm.example.test/")
-    ).rejects.toMatchObject({ code: "operator_credential_missing" });
-    expect(request).not.toHaveBeenCalled();
-  });
-
-  it("uses this computer's operator after the origin operator is rejected", async () => {
-    const directory = await root("planweave-operator-origin-restore-");
-    const request = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      const authorization =
-        init && typeof init.headers === "object" && !Array.isArray(init.headers)
-          ? String((init.headers as Record<string, string>).authorization ?? "")
-          : "";
-      if (authorization === `Bearer ${tokenA}`) {
-        return new Response(JSON.stringify({ error: "operator_unauthorized" }), {
-          status: 401,
-          headers: { "content-type": "application/json" }
-        });
-      }
-      expect(authorization).toBe(`Bearer ${tokenB}`);
-      return new Response(JSON.stringify(exampleSetupCodeIssueResponse), { status: 201 });
-    });
-    const service = new OperatorControlService({
-      profileStore: new OperatorProfileStore({ profilesPath: join(directory, "profiles.json") }),
-      vault: new OperatorCredentialVault({
-        paths: { credentialsPath: join(directory, "credentials.json") },
-        safeStorage: safeStorage(false)
-      }),
-      request
-    });
-    await service.upsertProfile(profile("deployment-stale", "https://vm.example.test/"));
-    await service.importCredential({ profileId: "deployment-stale", operatorToken: tokenA });
-    await service.upsertProfile(
-      profile("planweave-local-loopback", "https://this-computer.example.test/")
-    );
-    await service.importCredential({
-      profileId: "planweave-local-loopback",
-      operatorToken: tokenB
-    });
-
-    const handoff = await service.issueDeviceSetupHandoffForOrigin("https://vm.example.test/");
-    expect(handoff).toEqual({
-      serverBaseUrl: "https://vm.example.test/",
-      allowInsecureTransport: false,
-      setupCode: exampleSetupCodeIssueResponse.setupCode,
-      displayName: "planweave-local-loopback"
-    });
-    expect(request).toHaveBeenCalled();
-    const storedLocal = await new OperatorProfileStore({
-      profilesPath: join(directory, "profiles.json")
-    }).get("planweave-local-loopback");
-    expect(storedLocal?.serverBaseUrl).toBe("https://this-computer.example.test/");
   });
 
   it("stops reading declared and chunked responses at the byte limit", async () => {

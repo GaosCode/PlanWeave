@@ -145,7 +145,11 @@ export type OperatorCopyHostBootstrapHandoffInput = z.input<
 >;
 
 export const operatorCopyMemberSetupCodeInputSchema = z
-  .object({ profileId: operatorProfileIdSchema })
+  .object({
+    profileId: operatorProfileIdSchema,
+    workspaceId: operatorProfileIdSchema,
+    serverBaseUrl: operatorControlProfileFields.serverBaseUrl
+  })
   .strict();
 export type OperatorCopyMemberSetupCodeInput = z.infer<
   typeof operatorCopyMemberSetupCodeInputSchema

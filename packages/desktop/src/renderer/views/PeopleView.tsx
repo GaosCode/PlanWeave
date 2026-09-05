@@ -138,6 +138,26 @@ export function PeopleView({
     return status.profiles.find((profile) => profile.profileId === status.activeProfileId) ?? null;
   }, [status]);
 
+  const connectedWorkspace = status?.workspaceConnection;
+  const invitationWorkspace =
+    connectedWorkspace?.status === "connected" &&
+    connectedWorkspace.profile &&
+    connectedWorkspace.workspaceId
+      ? {
+          workspaceId: connectedWorkspace.workspaceId,
+          displayName:
+            connectedWorkspace.workspaceDisplayName ?? connectedWorkspace.profile.displayName,
+          serverBaseUrl: connectedWorkspace.profile.serverBaseUrl
+        }
+      : null;
+  const invitationOperator =
+    hostController.status?.profiles.find(
+      (profile) =>
+        profile.hasOperatorCredential &&
+        invitationWorkspace &&
+        new URL(profile.serverBaseUrl).origin === new URL(invitationWorkspace.serverBaseUrl).origin
+    ) ?? null;
+
   const sessionConnected = isCollaborationSessionConnected(status);
   const workspaceAccessScope = useWorkspaceAccessScope({
     api,
@@ -428,11 +448,19 @@ export function PeopleView({
             ) : null}
             {connectedSection === "members" ? (
               <>
-                {hostController.activeProfile?.hasOperatorCredential ? (
+                {invitationWorkspace && invitationOperator ? (
                   <HostMemberSetupCard
-                    activeProfile={hostController.activeProfile}
+                    activeProfile={invitationOperator}
+                    workspace={invitationWorkspace}
                     busy={hostController.busy}
-                    copyMemberSetupCode={hostController.copyMemberSetupCode}
+                    error={hostController.error}
+                    copyMemberSetupCode={() =>
+                      hostController.copyMemberSetupCode({
+                        profileId: invitationOperator.profileId,
+                        workspaceId: invitationWorkspace.workspaceId,
+                        serverBaseUrl: invitationWorkspace.serverBaseUrl
+                      })
+                    }
                     dismissMemberSetupCodeHandoff={hostController.dismissMemberSetupCodeHandoff}
                     memberSetupCodeHandoff={hostController.memberSetupCodeHandoff}
                     t={t}

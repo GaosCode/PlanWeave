@@ -8,7 +8,9 @@ import type { createTranslator } from "../i18n";
 
 type HostMemberSetupCardProps = {
   activeProfile: OperatorProfileView | null;
+  workspace: { workspaceId: string; displayName: string; serverBaseUrl: string };
   busy: boolean;
+  error: string | null;
   copyMemberSetupCode: () => Promise<OperatorMemberSetupCodeHandoffView | null>;
   dismissMemberSetupCodeHandoff: () => void;
   memberSetupCodeHandoff: OperatorMemberSetupCodeHandoffView | null;
@@ -23,7 +25,9 @@ function formatDate(value: string, locale: string): string {
 /** Copy member-device connection details for another computer to paste in Settings. */
 export function HostMemberSetupCard({
   activeProfile,
+  workspace,
   busy,
+  error,
   copyMemberSetupCode,
   dismissMemberSetupCodeHandoff,
   memberSetupCodeHandoff,
@@ -40,6 +44,18 @@ export function HostMemberSetupCard({
           {t("hostAdminMemberSetupDescription")}
         </p>
       </div>
+      <div className="grid gap-1 text-sm" data-testid="host-admin-member-setup-target">
+        <span>
+          {t("hostAdminMemberSetupWorkspace")}: {workspace.displayName}
+        </span>
+        <span className="break-all text-xs text-text-muted">{workspace.workspaceId}</span>
+        <span className="break-all text-xs text-text-muted">{workspace.serverBaseUrl}</span>
+      </div>
+      {error ? (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
       <div className="mt-3 grid max-w-3xl gap-3">
         {canCreate ? (
           <>
@@ -67,7 +83,7 @@ export function HostMemberSetupCard({
             </p>
           </div>
         )}
-        {memberSetupCodeHandoff && canCreate ? (
+        {memberSetupCodeHandoff?.workspaceId === workspace.workspaceId && canCreate ? (
           <div
             className="grid gap-2 border-l-2 border-emerald-500 pl-3"
             data-testid="host-admin-member-setup-copied"

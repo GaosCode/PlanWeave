@@ -759,8 +759,9 @@ export const enCatalog = {
     "The operator credential is available for this session only; it is not persisted by the operating system vault.",
   hostAdminMemberSetupTitle: "Invite another computer",
   hostAdminMemberSetupDescription:
-    "Copy member connection details so another computer can join this Server.",
-  hostAdminMemberSetupRoleNote: "The first device that uses it becomes the Workspace owner.",
+    "Copy member connection details so another computer can join the Workspace shown below.",
+  hostAdminMemberSetupRoleNote:
+    "This invitation joins the Workspace shown below. Its owner manages shared canvases and their permissions separately.",
   hostAdminMemberSetupCopy: "Copy member connection details",
   hostAdminMemberSetupCopied: "Copied to the clipboard.",
   hostAdminMemberSetupWorkspace: "Workspace",

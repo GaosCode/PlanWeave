@@ -471,6 +471,15 @@ describe("PeopleView", () => {
   it("puts member computer invite on the Members tab, not Workspace management", async () => {
     useHostAdministrationController.mockReturnValue({
       ...idleHostController,
+      status: {
+        profiles: [
+          {
+            profileId: "profile-a",
+            serverBaseUrl: "http://127.0.0.1:56584/",
+            hasOperatorCredential: true
+          }
+        ]
+      },
       activeProfile: {
         profileId: "profile-a",
         displayName: "Production admin",
@@ -1364,6 +1373,28 @@ describe("PeopleView", () => {
       ...identity
     } as unknown as PlanWeaveCollaborationApi;
 
+    useHostAdministrationController.mockReturnValue({
+      ...idleHostController,
+      activeProfile: {
+        profileId: "sidebar-operator",
+        hasOperatorCredential: true,
+        serverBaseUrl: "https://another-server.example/"
+      },
+      status: {
+        profiles: [
+          {
+            profileId: "workspace-operator",
+            hasOperatorCredential: true,
+            serverBaseUrl: "http://127.0.0.1:56584/"
+          },
+          {
+            profileId: "sidebar-operator",
+            hasOperatorCredential: true,
+            serverBaseUrl: "https://another-server.example/"
+          }
+        ]
+      }
+    });
     render(
       <PeopleView
         api={api}
@@ -1380,6 +1411,13 @@ describe("PeopleView", () => {
     expect(identity.getWorkspaceConnectionSelf).toHaveBeenCalled();
     expect(identity.listWorkspaceConnectionMembers).toHaveBeenCalled();
     expect(identity.listCollaborationMembers).not.toHaveBeenCalled();
+    expect(screen.getByTestId("host-admin-member-setup-target")).toHaveTextContent("workspace-1");
+    await userEvent.click(screen.getByTestId("host-admin-copy-member-setup"));
+    expect(idleHostController.copyMemberSetupCode).toHaveBeenLastCalledWith({
+      profileId: "workspace-operator",
+      workspaceId: "workspace-1",
+      serverBaseUrl: "http://127.0.0.1:56584/"
+    });
 
     identity.getWorkspaceConnectionSelf.mockResolvedValue({
       schemaVersion: "workspace-setup/v1",

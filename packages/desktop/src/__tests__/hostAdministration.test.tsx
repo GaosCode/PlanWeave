@@ -443,6 +443,12 @@ describe("Agent Host settings", () => {
     const dismissMemberSetupCodeHandoff = vi.fn();
     const { rerender } = render(
       <HostMemberSetupCard
+        error={null}
+        workspace={{
+          workspaceId: "workspace-a",
+          displayName: "Team Workspace",
+          serverBaseUrl: "https://server.example/"
+        }}
         activeProfile={status().profiles[0]}
         busy={false}
         copyMemberSetupCode={copyMemberSetupCode}
@@ -454,8 +460,21 @@ describe("Agent Host settings", () => {
 
     await user.click(screen.getByTestId("host-admin-copy-member-setup"));
     expect(copyMemberSetupCode).toHaveBeenCalled();
+    expect(screen.getByTestId("host-admin-member-setup-target")).toHaveTextContent(
+      "Team Workspace"
+    );
+    expect(screen.getByTestId("host-admin-member-setup-target")).toHaveTextContent("workspace-a");
+    expect(screen.getByTestId("host-admin-member-setup-target")).toHaveTextContent(
+      "https://server.example/"
+    );
     rerender(
       <HostMemberSetupCard
+        error={null}
+        workspace={{
+          workspaceId: "workspace-a",
+          displayName: "Team Workspace",
+          serverBaseUrl: "https://server.example/"
+        }}
         activeProfile={status().profiles[0]}
         busy={false}
         copyMemberSetupCode={copyMemberSetupCode}

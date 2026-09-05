@@ -224,13 +224,18 @@ export class OperatorControlClient {
     });
   }
 
-  async issueMemberDeviceSetupCode(): Promise<SetupCodeIssueResponse> {
-    return this.json("POST", "/api/v1/setup-codes", setupCodeIssueResponseSchema, {
-      body: {
-        schemaVersion: "workspace-setup/v1",
-        purpose: "device_session"
+  async issueMemberDeviceSetupCode(workspaceId: string): Promise<SetupCodeIssueResponse> {
+    return this.json(
+      "POST",
+      `/api/v1/workspaces/${encodeURIComponent(opaqueIdentifierSchema.parse(workspaceId))}/setup-codes`,
+      setupCodeIssueResponseSchema,
+      {
+        body: {
+          schemaVersion: "workspace-setup/v1",
+          purpose: "device_session"
+        }
       }
-    });
+    );
   }
 
   async revokeHost(hostId: string): Promise<OperatorHostView> {

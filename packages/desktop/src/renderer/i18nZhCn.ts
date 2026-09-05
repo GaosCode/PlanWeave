@@ -721,8 +721,9 @@ export const zhCnCatalog = {
   hostAdminSessionOnlyWarning:
     "操作员凭证仅在本次会话可用，操作系统安全存储不可用，凭证不会持久化。",
   hostAdminMemberSetupTitle: "邀请其他电脑",
-  hostAdminMemberSetupDescription: "复制成员连接信息，在另一台电脑的设置里粘贴即可加入。",
-  hostAdminMemberSetupRoleNote: "第一个使用的设备会成为 Workspace 所有者。",
+  hostAdminMemberSetupDescription:
+    "复制下方 Workspace 的成员连接信息，在另一台电脑的设置里粘贴即可加入。",
+  hostAdminMemberSetupRoleNote: "此邀请仅加入下方 Workspace。共享画布及其权限由所有者另行管理。",
   hostAdminMemberSetupCopy: "复制成员连接信息",
   hostAdminMemberSetupCopied: "已复制到剪贴板。",
   hostAdminMemberSetupWorkspace: "Workspace",

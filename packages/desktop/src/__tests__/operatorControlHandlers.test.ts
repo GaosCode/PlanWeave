@@ -229,7 +229,14 @@ describe("operator control main-owned member setup code", () => {
     const handler = electronMock.handlers.get(operatorControlInvokeChannels.copyMemberSetupCode);
     if (!handler) throw new Error("operator_member_setup_handler_missing");
 
-    const handoff = await handler({}, { profileId: "profile-a" });
+    const handoff = await handler(
+      {},
+      {
+        profileId: "profile-a",
+        workspaceId: exampleSetupCodeIssueResponse.grant.workspaceId,
+        serverBaseUrl: "https://operator.example.test/"
+      }
+    );
 
     expect(
       parseCollaborationSetupHandoffV1(electronMock.writeText.mock.calls[0]?.[0] ?? "")

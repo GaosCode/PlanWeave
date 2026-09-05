@@ -20,7 +20,6 @@ import {
 } from "../../shared/collaboration.js";
 import { collaborationErrorFromUnknown, CollaborationClientError } from "./collaborationErrors.js";
 import { CollaborationWorkspaceConnection } from "./collaborationWorkspaceConnection.js";
-import { OperatorControlError } from "../../shared/operatorControl.js";
 
 type SessionError = { code: string; message: string } | null;
 
@@ -167,32 +166,13 @@ export class CollaborationWorkspaceConnectionFacade {
         this.setSession("ready", "existing_server_reconnected", null);
         return this.publishStatus();
       }
-      const { getOperatorControlService } = await import(
-        "../operatorControl/operatorControlHandlers.js"
-      );
-      const handoff =
-        await getOperatorControlService().issueDeviceSetupHandoffForOrigin(serverBaseUrl);
-      await this.connection.redeemDeviceSetupCode({
-        serverBaseUrl: handoff.serverBaseUrl,
-        allowInsecureTransport: handoff.allowInsecureTransport,
-        setupCode: handoff.setupCode,
-        displayName: parsed.displayName ?? new URL(serverBaseUrl).hostname
+      throw new CollaborationClientError({
+        kind: "auth",
+        code: "existing_server_admission_required",
+        message: "existing_server_admission_required",
+        retryable: false
       });
-      this.setSession("ready", "existing_server_connected", null);
     } catch (error) {
-      if (error instanceof OperatorControlError && error.code === "operator_credential_missing") {
-        const mapped = new CollaborationClientError({
-          kind: "auth",
-          code: "existing_server_admission_required",
-          message: "existing_server_admission_required",
-          retryable: false
-        });
-        this.setSession("error", "existing_server_admission_required", {
-          code: mapped.code,
-          message: mapped.message
-        });
-        throw mapped;
-      }
       const mapped = collaborationErrorFromUnknown(error);
       this.setSession("error", "existing_server_connect_failed", {
         code: mapped.code,
@@ -200,7 +180,6 @@ export class CollaborationWorkspaceConnectionFacade {
       });
       throw mapped;
     }
-    return this.publishStatus();
   }
 
   getActiveWorkspaceConnection(): Promise<ActiveWorkspaceConnectionView> {

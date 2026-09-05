@@ -276,10 +276,18 @@ describe("preload bridge invocation", () => {
       input
     );
 
-    await operator.copyOperatorMemberSetupCode({ profileId: "profile-a" });
+    await operator.copyOperatorMemberSetupCode({
+      profileId: "profile-a",
+      workspaceId: "workspace-a",
+      serverBaseUrl: "https://server.example/"
+    });
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
       operatorControlInvokeChannels.copyMemberSetupCode,
-      { profileId: "profile-a" }
+      {
+        profileId: "profile-a",
+        workspaceId: "workspace-a",
+        serverBaseUrl: "https://server.example/"
+      }
     );
 
     await operator.renewOperatorHostCredential({ profileId: "profile-a", hostId: "host-1" });
