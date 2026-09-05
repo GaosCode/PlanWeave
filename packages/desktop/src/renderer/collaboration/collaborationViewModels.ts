@@ -8,7 +8,7 @@ import {
   type CollaborationReadModelSnapshot,
   type CollaborationRemoteRunProjection,
   type CollaborationSyncPhase,
-  type HumanMembershipView
+  type CollaborationMemberSummary
 } from "../../shared/collaborationReadModels.js";
 
 /**
@@ -48,7 +48,7 @@ export type CollaborationProjectViewModel = {
   canvasId: string | null;
   syncPhase: CollaborationSyncPhase;
   observerCursor: number;
-  members: HumanMembershipView[];
+  members: CollaborationMemberSummary[];
   hosts: CollaborationHostProjection[];
   workItems: CollaborationWorkItemViewModel[];
   activity: CollaborationReadModelSnapshot["activity"];

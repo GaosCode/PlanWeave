@@ -12,7 +12,7 @@ import type {
   CollaborationBoundaryErrorView,
   CollaborationMutationRecord,
   CollaborationSyncPhase,
-  HumanMembershipView
+  CollaborationMemberSummary
 } from "../../shared/collaborationReadModels.js";
 import type { CollaborationSessionPhase, CollaborationStatus } from "../../shared/collaboration.js";
 import { memberInitials } from "./peopleViewModels.js";
@@ -211,7 +211,7 @@ export function resolveAssigneePickerMode(input: {
 
 export function canAssignWork(input: {
   status: CollaborationStatus | null;
-  members: readonly HumanMembershipView[];
+  members: readonly CollaborationMemberSummary[];
 }): boolean {
   const principalId =
     input.status?.profiles.find((profile) => profile.profileId === input.status?.activeProfileId)
@@ -374,7 +374,7 @@ function evaluateHumanOption(input: {
 export function buildAssigneeSections(input: {
   workItem: WorkItemRef;
   assignment: AssignmentDisplayProjection | null | undefined;
-  members: readonly HumanMembershipView[];
+  members: readonly CollaborationMemberSummary[];
   eligible: EligibleAssigneesResponse | null | undefined;
   labels?: AssigneeDisplayLabels;
   authorityRole?: "responsibility" | "reviewer";
@@ -478,7 +478,7 @@ export function filterAssigneeSections(
 export function buildAssigneePickerViewModel(input: {
   workItem: WorkItemRef;
   assignment: AssignmentDisplayProjection | null | undefined;
-  members: readonly HumanMembershipView[];
+  members: readonly CollaborationMemberSummary[];
   eligible: EligibleAssigneesResponse | null | undefined;
   status: CollaborationStatus | null;
   syncPhase: CollaborationSyncPhase;

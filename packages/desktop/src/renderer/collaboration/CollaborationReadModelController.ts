@@ -25,7 +25,7 @@ import {
   type CollaborationResponsibilityUpdateInput,
   type CollaborationReviewerUpdateInput,
   type CollaborationSyncPhase,
-  type HumanMembershipView
+  type CollaborationMemberSummary
 } from "../../shared/collaborationReadModels.js";
 import { isCollaborationSessionConnected } from "./sessionState";
 import { readBoundedNumberCursorPages } from "./boundedPagination.js";
@@ -55,7 +55,6 @@ import { applyObserverRemoteRun, ingestActivityRemoteRun } from "./remoteRunProj
 export type CollaborationReadBridgePort = Pick<
   PlanWeaveCollaborationApi,
   | "getCollaborationStatus"
-  | "listCollaborationMembers"
   | "listCollaborationAssignments"
   | "listCollaborationEligibleAssignees"
   | "listCollaborationEligibleHostsBatch"
@@ -70,7 +69,11 @@ export type CollaborationReadBridgePort = Pick<
   | "tombstoneCollaborationComment"
   | "onCollaborationStatusChanged"
   | "onCollaborationObserverSignal"
->;
+> & {
+  listCollaborationMembers: (
+    input: Parameters<PlanWeaveCollaborationApi["listCollaborationMembers"]>[0]
+  ) => Promise<{ items: CollaborationMemberSummary[]; nextCursor: number | null }>;
+};
 
 export type CollaborationReadModelControllerOptions = {
   api: CollaborationReadBridgePort;
@@ -85,7 +88,7 @@ type InternalState = {
   canvasId: string | null;
   syncPhase: CollaborationSyncPhase;
   observerCursor: number;
-  members: HumanMembershipView[];
+  members: CollaborationMemberSummary[];
   hosts: Map<string, CollaborationHostProjection>;
   assignments: Map<string, AssignmentDisplayProjection>;
   workAuthorities: Map<string, WorkAuthorityProjection>;
@@ -747,7 +750,7 @@ export class CollaborationReadModelController {
         this.emit();
         return { application: "superseded", resource: "members", token: reloadToken };
       }
-      const uniqueMembers = new Map<string, HumanMembershipView>();
+      const uniqueMembers = new Map<string, CollaborationMemberSummary>();
       for (const member of members) uniqueMembers.set(member.membershipId, member);
       this.state.members = [...uniqueMembers.values()];
       loading.release();

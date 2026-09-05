@@ -1,3 +1,4 @@
+import type { WorkspaceConnectionMemberView } from "@planweave-ai/collaboration-protocol/connection";
 import { z } from "zod";
 import {
   activityListWireQuerySchema,
@@ -374,13 +375,19 @@ export function parseWorkItemKey(key: string): WorkItemRef | null {
   return parsed.data;
 }
 
+/** Identity fields shared by Workspace and project membership read models. */
+export type CollaborationMemberSummary = Pick<
+  HumanMembershipView | WorkspaceConnectionMemberView,
+  "membershipId" | "humanPrincipalId" | "displayName" | "role"
+>;
+
 export type CollaborationReadModelSnapshot = {
   profileId: string | null;
   projectId: string | null;
   canvasId: string | null;
   syncPhase: CollaborationSyncPhase;
   observerCursor: number;
-  members: HumanMembershipView[];
+  members: CollaborationMemberSummary[];
   hosts: CollaborationHostProjection[];
   assignmentsByWorkItem: Record<string, AssignmentDisplayProjection>;
   /** Independent OSS-003 authority projections keyed by workItemKey. */

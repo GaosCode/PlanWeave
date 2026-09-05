@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { OperatorControlStatus } from "../../shared/operatorControl";
 import type { CanvasLocator } from "../../shared/canvasLocator";
 import type { CollaborationStatus } from "../../shared/collaboration";
-import type { HumanMembershipView } from "../../shared/collaborationReadModels";
+import type { CollaborationMemberSummary } from "../../shared/collaborationReadModels";
 import { operatorControlBridge } from "../bridge";
 import { resolveDesktopHumanPrincipalId } from "../collaboration/desktopHumanPrincipal";
 import { resolveCurrentMembership } from "../collaboration/peopleViewModels";
@@ -86,7 +86,7 @@ export function deriveCanvasFleetCatalogAuthority(input: {
 export function deriveCanvasAgentAuthority(input: {
   canvasLocator: CanvasLocator | null;
   collaborationStatus: CollaborationStatus | null;
-  collaborationMembers: readonly HumanMembershipView[];
+  collaborationMembers: readonly CollaborationMemberSummary[];
   ownerControlPlane: OwnerControlPlaneAvailability;
 }): CanvasAgentAuthority {
   const locator = input.canvasLocator;

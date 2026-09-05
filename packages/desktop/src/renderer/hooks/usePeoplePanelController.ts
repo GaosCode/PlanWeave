@@ -41,6 +41,7 @@ import type {
 } from "../../shared/collaboration.js";
 import { collaborationInvitationIdsInputSchema } from "../../shared/collaboration.js";
 import type {
+  CollaborationMemberSummary,
   CollaborationHostProjection,
   CollaborationSyncPhase
 } from "../../shared/collaborationReadModels.js";
@@ -54,7 +55,7 @@ const EMPTY_MEMBERS: HumanMembershipView[] = [];
 export type UsePeoplePanelControllerArgs = {
   api?: PlanWeaveCollaborationApi | null;
   status: CollaborationStatus | null;
-  members: readonly HumanMembershipView[];
+  members: readonly CollaborationMemberSummary[];
   hosts: readonly CollaborationHostProjection[];
   syncPhase: CollaborationSyncPhase;
   /** When true, load owner invitations and the devices visible to the current member. */
@@ -153,8 +154,9 @@ export function usePeoplePanelController(
     [projectMembers]
   );
   const currentUserIsProjectOwner =
+    !usingWorkspaceMembers &&
     projectMembers.find((member) => member.humanPrincipalId === currentHumanPrincipalId)?.role ===
-    "owner";
+      "owner";
 
   const presence = useMemo(
     () =>
@@ -245,17 +247,20 @@ export function usePeoplePanelController(
     const request = (async () => {
       try {
         if (workspaceConnected) {
-          const self = await api.getWorkspaceConnectionSelf();
-          if (detailsGenerationRef.current !== generation) {
-            return;
-          }
-          const members = await readBoundedNumberCursorPages({
-            resource: "members",
-            readPage: (cursor) => api.listWorkspaceConnectionMembers({ cursor, limit: 100 })
-          });
+          const [self, members] = await Promise.all([
+            api.getWorkspaceConnectionSelf(),
+            readBoundedNumberCursorPages({
+              resource: "members",
+              readPage: (cursor) => api.listWorkspaceConnectionMembers({ cursor, limit: 100 })
+            })
+          ]);
           if (detailsGenerationRef.current !== generation) return;
           if (workspaceScope !== null)
             setWorkspaceIdentity({ scope: workspaceScope, self, members });
+          setInvitations([]);
+          setDevices([]);
+          setListedMembers(null);
+          return;
         } else {
           setWorkspaceIdentity(null);
         }

@@ -7,7 +7,7 @@ import type {
   CollaborationReadModelSnapshot,
   CollaborationRemoteRunProjection,
   CollaborationSyncPhase,
-  HumanMembershipView
+  CollaborationMemberSummary
 } from "../../shared/collaborationReadModels.js";
 import type { CollaborationMutationLedger } from "./collaborationRetention.js";
 
@@ -17,7 +17,7 @@ type SnapshotSource = {
   canvasId: string | null;
   syncPhase: CollaborationSyncPhase;
   observerCursor: number;
-  members: HumanMembershipView[];
+  members: CollaborationMemberSummary[];
   hosts: Map<string, CollaborationHostProjection>;
   assignments: Map<string, AssignmentDisplayProjection>;
   workAuthorities: Map<string, WorkAuthorityProjection>;

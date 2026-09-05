@@ -1,3 +1,5 @@
+import { collaborationPageQueryInputSchema } from "../../shared/collaborationReadModels";
+import { isWorkspaceConnectionConnected } from "./sessionState";
 import type { PlanWeaveCollaborationApi } from "../../shared/collaboration.js";
 import type { CollaborationReadBridgePort } from "./CollaborationReadModelController.js";
 
@@ -16,7 +18,12 @@ export function toCollaborationReadBridge(
   if (existing) return existing;
   const port: CollaborationReadBridgePort = {
     getCollaborationStatus: () => api.getCollaborationStatus(),
-    listCollaborationMembers: (input) => api.listCollaborationMembers(input),
+    listCollaborationMembers: async (input) => {
+      const status = await api.getCollaborationStatus();
+      return isWorkspaceConnectionConnected(status)
+        ? api.listWorkspaceConnectionMembers(collaborationPageQueryInputSchema.parse(input ?? {}))
+        : api.listCollaborationMembers(input);
+    },
     listCollaborationAssignments: (input) => api.listCollaborationAssignments(input),
     listCollaborationEligibleAssignees: (input) => api.listCollaborationEligibleAssignees(input),
     listCollaborationEligibleHostsBatch: (input) => api.listCollaborationEligibleHostsBatch(input),

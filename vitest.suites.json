@@ -97,6 +97,7 @@
         "canvasMapVisuals.test.ts",
         "workspaceCanvasPresenceController.test.ts",
         "canvasPresenceOverlay.test.tsx",
+        "workspacePeopleAuthority.test.tsx",
         "canvasReplicaCommandWorker.test.ts",
         "canvasReplicaCommandWorkerRecovery.test.ts",
         "canvasReplicaLiveBroadcast.test.ts",
