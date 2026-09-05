@@ -1,3 +1,4 @@
+import { AcpConversationError } from "./acpConversationService.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import {
   OUTPUT_MAX_ARTIFACT_BYTES,
@@ -111,6 +112,12 @@ export type OperatorControlPort = {
     operationId: string,
     request: unknown
   ): Promise<unknown>;
+  conversation(
+    principal: OperatorRequestPrincipal,
+    operationId: string,
+    afterCursor?: number
+  ): unknown;
+  converse(principal: OperatorRequestPrincipal, operationId: string, action: unknown): unknown;
   replayEvents(
     principal: OperatorRequestPrincipal,
     operationId: string,
@@ -143,6 +150,8 @@ type OperatorRoute =
         | "get_operation"
         | "terminal_result"
         | "action"
+        | "conversation"
+        | "converse"
         | "events"
         | "interactions"
         | "settle_interaction";
@@ -213,12 +222,16 @@ function route(request: IncomingMessage, pathname: string): OperatorRoute | unde
     }
   }
   const operation =
-    /^\/api\/v1\/remote-operations\/([^/]+)(?:\/(actions|events|interactions|terminal-result)(\/respond)?)?$/.exec(
+    /^\/api\/v1\/remote-operations\/([^/]+)(?:\/(actions|events|interactions|terminal-result|conversation)(\/respond)?)?$/.exec(
       pathname
     );
   if (!operation) return undefined;
   const operationId = decodeIdentifier(operation[1]);
   if (!operationId) return undefined;
+  if (operation[2] === "conversation" && !operation[3]) {
+    if (request.method === "GET") return { kind: "conversation", operationId };
+    if (request.method === "POST") return { kind: "converse", operationId };
+  }
   if (request.method === "GET" && !operation[2]) return { kind: "get_operation", operationId };
   if (request.method === "GET" && operation[2] === "terminal-result" && !operation[3]) {
     return { kind: "terminal_result", operationId };
@@ -330,6 +343,8 @@ function varyOnAccept(response: ServerResponse): void {
 }
 
 function safeError(error: unknown): { status: number; code: string } {
+  if (error instanceof AcpConversationError)
+    return { status: error.code.includes("forbidden") ? 403 : 409, code: error.code };
   if (error instanceof z.ZodError) return { status: 400, code: "operator_request_invalid" };
   if (error instanceof CanvasRuntimeUnavailableError) {
     return { status: 503, code: "canvas_runtime_unavailable" };
@@ -700,6 +715,28 @@ export async function handleOperatorHttpRequest(
           )
         );
         break;
+      case "conversation": {
+        const parameters = query(url, ["afterCursor"]);
+        respond(
+          response,
+          200,
+          options.service.conversation(
+            principal,
+            matched.operationId,
+            Number(parameters.afterCursor ?? 0)
+          )
+        );
+        break;
+      }
+      case "converse": {
+        query(url, []);
+        respond(
+          response,
+          202,
+          options.service.converse(principal, matched.operationId, await readJson(request))
+        );
+        break;
+      }
       case "events": {
         const parameters = query(url, ["afterCursor"]);
         respond(

@@ -95,6 +95,8 @@ function control(): OperatorControlPort {
     executeAction: vi.fn(async () => {
       throw new Error("remote_action_attempt_version_conflict");
     }),
+    conversation: vi.fn(() => ({ turns: [], cursor: 0 })),
+    converse: vi.fn(() => ({ turns: [], cursor: 0 })),
     replayEvents: vi.fn(),
     listPendingInteractions: vi.fn(() => ({ items: [], nextCursor: null })),
     settleInteraction: vi.fn(),
@@ -181,6 +183,20 @@ const expectedError = (error: string) => ({
 });
 
 describe("operator HTTP boundary", () => {
+  it("authenticates conversation replay and passes the cursor without invoking a prompt", async () => {
+    const fixture = await setup(true);
+    const path = `${fixture.origin}/api/v1/remote-operations/operation-1/conversation?afterCursor=7`;
+    expect((await fetch(path)).status).toBe(401);
+    expect(fixture.service.conversation).not.toHaveBeenCalled();
+    const response = await fetch(path, { headers: authorization });
+    expect(response.status).toBe(200);
+    expect(fixture.service.conversation).toHaveBeenCalledWith(
+      expect.objectContaining({ operatorId: "operator-1" }),
+      "operation-1",
+      7
+    );
+    expect(fixture.service.converse).not.toHaveBeenCalled();
+  });
   it("keeps legacy operation views by default and negotiates public Runtime views via Accept", async () => {
     const fixture = await setup(true);
     vi.mocked(fixture.service.observeOperation).mockResolvedValue({ operationId: "operation-1" });

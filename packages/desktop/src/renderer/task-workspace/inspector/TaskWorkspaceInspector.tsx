@@ -1,3 +1,4 @@
+import type { RemoteAcpTelemetry } from "@planweave-ai/runtime";
 import type {
   ArtifactReference,
   NormalizedRunnerEvent,
@@ -223,11 +224,15 @@ export function TaskWorkspaceInspector({
   inspectorCollapsed,
   labels,
   runnerModel,
+  remoteTelemetry,
   selectedRecord,
   selectedRun,
   setInspectorCollapsed,
   workspace
-}: TaskWorkspaceInspectorSlotProps & { labels: TaskWorkspaceInspectorLabels }) {
+}: TaskWorkspaceInspectorSlotProps & {
+  labels: TaskWorkspaceInspectorLabels;
+  remoteTelemetry?: RemoteAcpTelemetry | null;
+}) {
   if (inspectorCollapsed) {
     return null;
   }
@@ -236,7 +241,9 @@ export function TaskWorkspaceInspector({
   const authoritativeRecord = selectedRecord?.recordId === selectedRecordId ? selectedRecord : null;
   const diagnostics = runnerModel?.diagnostics ?? [];
   const visibleDiagnostics = diagnostics.slice(-historyLimit);
-  const configuration = selectedRun?.item.run.actualConfiguration ?? null;
+  const configuration = remoteTelemetry
+    ? remoteTelemetry.actualConfiguration
+    : (selectedRun?.item.run.actualConfiguration ?? null);
   const latestArtifact = workspace?.latestArtifact ?? null;
   const latestArtifactDisplay = latestArtifact
     ? artifactPath(latestArtifact.reference, latestArtifact.reportPath)
@@ -431,6 +438,7 @@ export function TaskWorkspaceInspector({
             </h3>
             <TaskWorkspaceUsageDetails
               labels={labels.usageLabels}
+              remoteTelemetry={remoteTelemetry}
               selectedRun={selectedRun}
               workspace={workspace}
             />

@@ -1,3 +1,7 @@
+import {
+  desktopRemoteAcpConversationInputSchema,
+  desktopRemoteAcpConversationResultSchema
+} from "../shared/remoteAcpConversation.js";
 import type { PlanWeaveWorkspaceExecutionApi } from "../shared/workspaceExecution.js";
 import {
   desktopWorkspaceExecutionCancelInputSchema,
@@ -20,6 +24,16 @@ async function invokeWorkspaceExecution(invoke: Invoke, channel: string, input: 
 
 export function createWorkspaceExecutionPreloadApi(invoke: Invoke): PlanWeaveWorkspaceExecutionApi {
   return {
+    remoteAcpConversation: async (input) => {
+      const result = desktopRemoteAcpConversationResultSchema.parse(
+        await invoke(
+          workspaceExecutionInvokeChannels.conversation,
+          desktopRemoteAcpConversationInputSchema.parse(input)
+        )
+      );
+      if (!result.ok) throw new Error(result.error);
+      return result.value;
+    },
     startWorkspaceExecution: (input) =>
       invokeWorkspaceExecution(
         invoke,

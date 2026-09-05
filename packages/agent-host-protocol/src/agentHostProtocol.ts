@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  acpConversationCommandSchema,
+  acpConversationEventSchema
+} from "./acpConversationProtocol.js";
 import { remoteRunnerEventBatchV2Schema } from "./runnerEvents.js";
 import { capabilitiesSchema } from "./capabilities.js";
 import {
@@ -105,6 +109,7 @@ export const resumeExecutionCommandSchema = versionedSchema.extend({
 });
 
 export const serverToHostCommandSchema = z.discriminatedUnion("type", [
+  ...acpConversationCommandSchema.options,
   executeBlockCommandSchema,
   cancelExecutionCommandSchema,
   resumeExecutionCommandSchema,
@@ -113,6 +118,7 @@ export const serverToHostCommandSchema = z.discriminatedUnion("type", [
 ]);
 
 export const mailboxCommandSchema = z.discriminatedUnion("type", [
+  ...acpConversationCommandSchema.options,
   executeBlockCommandSchema,
   cancelExecutionCommandSchema,
   resumeExecutionCommandSchema,
@@ -153,6 +159,7 @@ export const leaseRenewalRequestSchema = durableHostEventSchema.extend({
 });
 
 export const hostToServerEventSchema = z.discriminatedUnion("type", [
+  acpConversationEventSchema,
   mailboxAcknowledgementSchema,
   hostHeartbeatSchema,
   dispatchAcceptedSchema,

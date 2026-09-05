@@ -45,3 +45,9 @@ export {
   isBuiltinAcpProfileForAgent,
   isBuiltinExecutorName
 } from "./executorNames.js";
+
+export {
+  projectRemoteAcpTelemetry,
+  remoteAcpTelemetrySchema,
+  type RemoteAcpTelemetry
+} from "./autoRun/remoteAcpTelemetry.js";

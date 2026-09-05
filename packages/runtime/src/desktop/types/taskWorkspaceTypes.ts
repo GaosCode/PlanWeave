@@ -1,3 +1,4 @@
+import { acpContextUsageSnapshotSchema } from "../../autoRun/acpUsageProjection.js";
 import { z } from "zod";
 import {
   acpAgentIdSchema,
@@ -204,22 +205,7 @@ export const taskWorkspaceRunCapabilitiesSchema = z
   })
   .strict();
 
-export const taskWorkspaceContextUsageSnapshotSchema = z
-  .object({
-    aggregation: z.literal("snapshot"),
-    sequence: z.number().int().positive(),
-    observedAt: z.string().datetime(),
-    usedTokens: z.number().int().nonnegative(),
-    contextWindowTokens: z.number().int().positive(),
-    cost: z
-      .object({
-        amount: z.number().nonnegative(),
-        currency: z.string().length(3)
-      })
-      .strict()
-      .nullable()
-  })
-  .strict();
+export const taskWorkspaceContextUsageSnapshotSchema = acpContextUsageSnapshotSchema;
 
 export const taskWorkspaceUnavailableTokenAccountingSchema = z
   .object({

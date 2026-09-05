@@ -2,6 +2,7 @@ import { z } from "zod";
 import { desktopWorkspaceExecutionResponseSchema } from "./workspaceExecution.js";
 
 export const workspaceExecutionInvokeChannels = {
+  conversation: "planweave:workspaceExecution:conversation",
   start: "planweave:workspaceExecution:start",
   follow: "planweave:workspaceExecution:follow",
   respond: "planweave:workspaceExecution:respond",

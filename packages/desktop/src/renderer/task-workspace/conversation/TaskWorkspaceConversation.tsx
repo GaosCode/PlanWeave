@@ -124,10 +124,8 @@ function RemoteAcpRunConversation({
   conversation: NonNullable<TaskWorkspaceConversationSlotProps["remoteConversation"]>;
   t: ReturnType<typeof createTranslator>;
 }) {
-  const terminal =
-    conversation.state === "failed" ||
-    conversation.state === "cancelled" ||
-    conversation.state === "completed";
+  const state = conversation.continuation?.active?.status ?? conversation.state;
+  const terminal = state === "failed" || state === "cancelled" || state === "completed";
   return (
     <section
       className="flex h-full min-h-0 flex-col overflow-hidden"
@@ -137,14 +135,14 @@ function RemoteAcpRunConversation({
       <div className="shrink-0 space-y-3 px-5 pt-5">
         <div
           className={
-            conversation.error || conversation.state === "failed"
+            conversation.error || state === "failed"
               ? "rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive"
               : "rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground"
           }
         >
           {terminal
-            ? `${t("taskWorkspaceRemoteAcpTerminal")} · ${conversation.state}`
-            : `${t("taskWorkspaceRemoteAcpLive")} · ${conversation.state}`}
+            ? `${t("taskWorkspaceRemoteAcpTerminal")} · ${state}`
+            : `${t("taskWorkspaceRemoteAcpLive")} · ${state}`}
           <div className="mt-1 font-mono text-[11px] opacity-80">
             operationId: {conversation.operationId}
           </div>
@@ -171,6 +169,16 @@ function RemoteAcpRunConversation({
           data-testid="task-workspace-conversation-content"
         >
           <AcpConversationItems presentation="workspace" timeline={conversation.timeline} t={t} />
+          {conversation.continuation?.turns.map((turn) => (
+            <section key={turn.turnId} data-turn-id={turn.turnId}>
+              <AcpConversationItems presentation="workspace" timeline={turn.timeline} t={t} />
+              {turn.error ? (
+                <p role="alert" className="text-sm text-destructive">
+                  {turn.error}
+                </p>
+              ) : null}
+            </section>
+          ))}
         </div>
       </section>
     </section>

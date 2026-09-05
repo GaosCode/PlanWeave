@@ -1,3 +1,4 @@
+import type { AcpConversationPromptCommand } from "@planweave-ai/agent-host-protocol";
 import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import { isAbsolute } from "node:path";
@@ -5,7 +6,11 @@ import {
   AcpEngineCapabilityError,
   DEFAULT_ACP_EXECUTION_LIMITS,
   executeAcp,
+  normalizedRedactedContent,
   planWeaveAcpExecutionAuthentication,
+  sessionConfigurationFromNewSession,
+  sessionConfigurationFromProtocol,
+  type AcpEngineEvent,
   type AcpEngineInteractionBroker,
   type AcpEngineLifecycleEvent,
   type AcpExecutionLimits,
@@ -141,13 +146,16 @@ async function configureSession(
   event: Extract<AcpEngineLifecycleEvent, { kind: "session_ready" }>,
   profile: ResolvedAgentHostAcpProfile,
   requested: ReturnType<typeof parseAgentHostExecuteCommand>["envelope"]["session"]
-): Promise<void> {
+) {
+  let modes = event.session.modes;
+  let configOptions = event.session.configOptions;
   if (requested.modeId) {
     const modeId = profile.session?.modes?.[requested.modeId];
     if (!modeId || !event.session.modes?.availableModes.some((mode) => mode.id === modeId)) {
       throw sessionCapabilityError();
     }
     await event.configurator.setMode(modeId);
+    modes = { ...event.session.modes, currentModeId: modeId };
   }
   for (const requestedOption of requested.configOptions ?? []) {
     const mapping = profile.session?.configOptions?.[requestedOption.optionId];
@@ -163,8 +171,11 @@ async function configureSession(
     ) {
       throw sessionCapabilityError();
     }
-    await event.configurator.setConfigOption({ configId: mapping.configId, value });
+    configOptions = [
+      ...(await event.configurator.setConfigOption({ configId: mapping.configId, value }))
+    ];
   }
+  return sessionConfigurationFromProtocol({ modes, configOptions });
 }
 
 function interactionBroker(options: {
@@ -208,6 +219,147 @@ export class RemoteAcpExecutor implements AgentHostExecutor {
     this.hostCapabilities = new Set(options.hostCapabilities);
   }
 
+  private async resolveContext(
+    envelope: ReturnType<typeof parseAgentHostExecuteCommand>["envelope"],
+    sessionStartKind: "new" | "load"
+  ) {
+    validateLocalCapabilities(envelope.requiredCapabilities, this.hostCapabilities);
+    let workspace: Awaited<ReturnType<AgentHostWorkspaceResolver["resolve"]>>;
+    let profile: Awaited<ReturnType<AgentHostAcpProfileResolver["resolve"]>>;
+    try {
+      let workspaceResolution: ReturnType<AgentHostWorkspaceResolver["resolve"]>;
+      const managedCanvasExecution = hasCanvasRuntimeExecutionCapability(
+        envelope.requiredCapabilities
+      );
+      if (
+        !managedCanvasExecution &&
+        hasLegacyWorkspaceCanvasExecutionCapability(envelope.requiredCapabilities)
+      ) {
+        throw failure(
+          "runtime_materialization_evidence_missing",
+          "Legacy Workspace execution cannot resume without exact Runtime materialization evidence."
+        );
+      }
+      if (!managedCanvasExecution) {
+        workspaceResolution = this.options.workspaceResolver.resolve(
+          envelope.workspaceId,
+          envelope.ownerPackageLocator
+        );
+      } else {
+        const runtimeMaterialization = envelope.runtimeMaterialization;
+        if (runtimeMaterialization === undefined) {
+          throw failure(
+            "runtime_materialization_evidence_missing",
+            "Workspace execution requires exact Runtime materialization evidence."
+          );
+        }
+        workspaceResolution = this.options.runtimeWorkspaceResolver.resolve(
+          {
+            workspaceId: envelope.workspaceId,
+            projectId: envelope.projectId,
+            canvasId: envelope.canvasId
+          },
+          runtimeMaterialization
+        );
+      }
+      [workspace, profile] = await Promise.all([
+        workspaceResolution,
+        this.options.profileResolver.resolve(envelope.agentProfileId, envelope.agentId)
+      ]);
+    } catch (error) {
+      if (error instanceof AgentHostExecutionError) throw error;
+      if (sessionStartKind === "load") throw new AgentHostSessionLoadError();
+      if (
+        hasCanvasRuntimeExecutionCapability(envelope.requiredCapabilities) &&
+        error instanceof Error &&
+        error.message === "runtime_materialization_evidence_mismatch"
+      ) {
+        throw failure(
+          "runtime_materialization_evidence_mismatch",
+          "The managed Runtime working set does not match the authorized execution source."
+        );
+      }
+      throw failure(
+        "host_resolution_failed",
+        "The Agent Host could not resolve the requested workspace or ACP profile."
+      );
+    }
+    if (!isAbsolute(workspace.cwd)) {
+      if (sessionStartKind === "load") throw new AgentHostSessionLoadError();
+      throw failure("workspace_invalid", "The resolved Agent Host workspace is invalid.");
+    }
+    if (profile.agentId !== envelope.agentId) {
+      if (sessionStartKind === "load") throw new AgentHostSessionLoadError();
+      throw failure("agent_profile_mismatch", "The resolved ACP profile does not match the agent.");
+    }
+    return { workspace, profile };
+  }
+
+  async converse(
+    command: AcpConversationPromptCommand,
+    interactionBroker: AcpEngineInteractionBroker,
+    eventSink: (event: AcpEngineEvent) => Promise<void>,
+    signal: AbortSignal
+  ) {
+    const { workspace, profile } = await this.resolveContext(command.sourceEnvelope, "load");
+    let prompting = false;
+    let configuration: ReturnType<typeof sessionConfigurationFromNewSession> | null = null;
+    const result = await executeAcp({
+      launch: { ...profile.launch, trusted: true },
+      workspace,
+      env: profile.env,
+      capabilityPolicy: profile.capabilityPolicy,
+      clientInfo: { name: "PlanWeave Agent Host", version: agentHostPackageVersion },
+      shutdown: profile.shutdown,
+      prompt: command.text,
+      sessionStart: { kind: "load", sessionId: command.sessionId },
+      authentication: planWeaveAcpExecutionAuthentication(profile.authentication),
+      interactionBroker,
+      interactionDeadline: () => new Date(command.expiresAt),
+      lifecycleObserver: async (event) => {
+        if (event.kind === "session_ready")
+          configuration = sessionConfigurationFromNewSession(event.session);
+        if (event.kind === "prompt_starting") {
+          prompting = true;
+          if (configuration)
+            await eventSink({
+              kind: "session_update",
+              sessionId: command.sessionId,
+              sequence: 1,
+              timestamp: new Date().toISOString(),
+              body: { kind: "session_configuration_snapshot", phase: "initial", configuration }
+            });
+          await eventSink({
+            kind: "session_update",
+            sessionId: command.sessionId,
+            sequence: 1,
+            timestamp: new Date().toISOString(),
+            body: {
+              kind: "message",
+              role: "user",
+              messageId: command.turnId,
+              chunk: false,
+              ...normalizedRedactedContent(command.text)
+            }
+          });
+        }
+      },
+      eventSink: async (event) => {
+        // session/load replays history; only this turn's notifications belong in its event stream.
+        if (event.kind === "session_update" && !prompting) return;
+        await eventSink(event);
+      },
+      signal,
+      connectionMode: profile.connection?.mode ?? "dedicated",
+      poolIdentity: hostPoolIdentity(profile, workspace.cwd),
+      limits: {
+        ...this.options.limits,
+        operationTimeoutMs: Math.max(1, Date.parse(command.expiresAt) - Date.now())
+      }
+    });
+    return result.terminal;
+  }
+
   async execute(commandInput: unknown, context: AgentHostExecutionContext) {
     let command: ReturnType<typeof parseAgentHostExecuteCommand>;
     try {
@@ -232,78 +384,10 @@ export class RemoteAcpExecutor implements AgentHostExecutor {
     if (command.envelope.output.maxArtifactCount < 1) {
       throw failure("report_contract_invalid", "Report artifact allowance must be at least one.");
     }
-    validateLocalCapabilities(command.envelope.requiredCapabilities, this.hostCapabilities);
-    let workspace: Awaited<ReturnType<AgentHostWorkspaceResolver["resolve"]>>;
-    let profile: Awaited<ReturnType<AgentHostAcpProfileResolver["resolve"]>>;
-    try {
-      let workspaceResolution: ReturnType<AgentHostWorkspaceResolver["resolve"]>;
-      const managedCanvasExecution = hasCanvasRuntimeExecutionCapability(
-        command.envelope.requiredCapabilities
-      );
-      if (
-        !managedCanvasExecution &&
-        hasLegacyWorkspaceCanvasExecutionCapability(command.envelope.requiredCapabilities)
-      ) {
-        throw failure(
-          "runtime_materialization_evidence_missing",
-          "Legacy Workspace execution cannot resume without exact Runtime materialization evidence."
-        );
-      }
-      if (!managedCanvasExecution) {
-        workspaceResolution = this.options.workspaceResolver.resolve(
-          command.envelope.workspaceId,
-          command.envelope.ownerPackageLocator
-        );
-      } else {
-        const runtimeMaterialization = command.envelope.runtimeMaterialization;
-        if (runtimeMaterialization === undefined) {
-          throw failure(
-            "runtime_materialization_evidence_missing",
-            "Workspace execution requires exact Runtime materialization evidence."
-          );
-        }
-        workspaceResolution = this.options.runtimeWorkspaceResolver.resolve(
-          {
-            workspaceId: command.envelope.workspaceId,
-            projectId: command.envelope.projectId,
-            canvasId: command.envelope.canvasId
-          },
-          runtimeMaterialization
-        );
-      }
-      [workspace, profile] = await Promise.all([
-        workspaceResolution,
-        this.options.profileResolver.resolve(
-          command.envelope.agentProfileId,
-          command.envelope.agentId
-        )
-      ]);
-    } catch (error) {
-      if (error instanceof AgentHostExecutionError) throw error;
-      if (context.sessionStart.kind === "load") throw new AgentHostSessionLoadError();
-      if (
-        hasCanvasRuntimeExecutionCapability(command.envelope.requiredCapabilities) &&
-        error instanceof Error &&
-        error.message === "runtime_materialization_evidence_mismatch"
-      ) {
-        throw failure(
-          "runtime_materialization_evidence_mismatch",
-          "The managed Runtime working set does not match the authorized execution source."
-        );
-      }
-      throw failure(
-        "host_resolution_failed",
-        "The Agent Host could not resolve the requested workspace or ACP profile."
-      );
-    }
-    if (!isAbsolute(workspace.cwd)) {
-      if (context.sessionStart.kind === "load") throw new AgentHostSessionLoadError();
-      throw failure("workspace_invalid", "The resolved Agent Host workspace is invalid.");
-    }
-    if (profile.agentId !== command.envelope.agentId) {
-      if (context.sessionStart.kind === "load") throw new AgentHostSessionLoadError();
-      throw failure("agent_profile_mismatch", "The resolved ACP profile does not match the agent.");
-    }
+    const { workspace, profile } = await this.resolveContext(
+      command.envelope,
+      context.sessionStart.kind
+    );
     const preparedInputs =
       context.sessionStart.kind === "load"
         ? {
@@ -318,6 +402,20 @@ export class RemoteAcpExecutor implements AgentHostExecutor {
           });
 
     let sessionConfigurationFailed = false;
+    let sourceSequence = 0;
+    const configurationEvents: Omit<
+      Extract<AcpEngineEvent, { kind: "session_update" }>,
+      "sequence"
+    >[] = [];
+    const persistEngineEvent = async (
+      event: AcpEngineEvent | Omit<Extract<AcpEngineEvent, { kind: "session_update" }>, "sequence">
+    ) => {
+      await this.options.outbox.append({
+        kind: "engine_event",
+        identity,
+        event: agentHostRemoteEngineEventSchema.parse({ ...event, sequence: ++sourceSequence })
+      });
+    };
     const interactionTimeoutMs =
       this.options.limits?.interactionTimeoutMs ??
       DEFAULT_ACP_EXECUTION_LIMITS.interactionTimeoutMs;
@@ -355,7 +453,19 @@ export class RemoteAcpExecutor implements AgentHostExecutor {
           lifecycleObserver: async (event) => {
             if (event.kind !== "session_ready") return;
             try {
-              await configureSession(event, profile, command.envelope.session);
+              const initial = sessionConfigurationFromNewSession(event.session);
+              const configured = await configureSession(event, profile, command.envelope.session);
+              for (const [phase, configuration] of [
+                ["initial", initial],
+                ["defaults_applied", configured]
+              ] as const) {
+                configurationEvents.push({
+                  kind: "session_update",
+                  sessionId: event.session.sessionId,
+                  timestamp: new Date().toISOString(),
+                  body: { kind: "session_configuration_snapshot", phase, configuration }
+                });
+              }
             } catch {
               sessionConfigurationFailed = true;
               throw sessionCapabilityError();
@@ -368,11 +478,12 @@ export class RemoteAcpExecutor implements AgentHostExecutor {
             ) {
               return;
             }
-            await this.options.outbox.append({
-              kind: "engine_event",
-              identity,
-              event: agentHostRemoteEngineEventSchema.parse(event)
-            });
+            await persistEngineEvent(event);
+            if (event.kind === "session_started") {
+              for (const configurationEvent of configurationEvents.splice(0)) {
+                await persistEngineEvent({ ...configurationEvent, timestamp: event.timestamp });
+              }
+            }
             if (
               context.sessionStart.kind === "load" &&
               event.kind === "session_started" &&

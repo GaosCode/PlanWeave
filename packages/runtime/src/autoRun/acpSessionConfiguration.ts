@@ -285,7 +285,7 @@ function availableConfiguration(options: {
 }
 
 export function projectAcpActualSessionConfiguration(
-  events: readonly NormalizedRunnerEvent[]
+  events: readonly Pick<NormalizedRunnerEvent, "sequence" | "timestamp" | "body" | "correlation">[]
 ): AcpActualSessionConfiguration {
   let configuration: AcpSessionConfiguration | null = null;
   let sessionId: string | null = null;

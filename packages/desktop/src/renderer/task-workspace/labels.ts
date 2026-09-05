@@ -44,6 +44,9 @@ function promptLabels(t: Translator): TaskWorkspacePromptLabels {
 
 function usageLabels(t: Translator): TaskWorkspaceUsageLabels {
   return {
+    cumulativeTokens: t("taskWorkspaceCumulativeTokens"),
+    inputTokens: t("taskWorkspaceInputTokens"),
+    outputTokens: t("taskWorkspaceOutputTokens"),
     agent: t("agent"),
     agentTime: t("taskWorkspaceAgentTime"),
     contextSnapshot: t("taskWorkspaceContextSnapshot"),

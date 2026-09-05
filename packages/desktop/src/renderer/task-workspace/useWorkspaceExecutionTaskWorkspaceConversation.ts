@@ -206,7 +206,8 @@ export function useWorkspaceExecutionTaskWorkspaceConversation(input: {
           replayDiagnostics: [],
           state,
           terminalOutcome: timeline.terminalOutcome,
-          timeline: timeline.runnerTimeline
+          timeline: timeline.runnerTimeline,
+          telemetry: timeline.telemetry
         };
         storeCache(cachesRef.current, cache);
         setSnapshot({
@@ -242,7 +243,8 @@ export function useWorkspaceExecutionTaskWorkspaceConversation(input: {
             replayDiagnostics: [],
             state: "loading",
             terminalOutcome: null,
-            timeline: []
+            timeline: [],
+            telemetry: null
           }
         });
         if (isPermanentFollowError(error) || transientFailures >= maximumTransientRetries) {

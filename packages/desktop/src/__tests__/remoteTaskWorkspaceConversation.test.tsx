@@ -251,7 +251,7 @@ describe("remote Task Workspace conversation", () => {
       })
     );
 
-    await waitFor(() => expect(result.current?.timeline).toHaveLength(2));
+    await waitFor(() => expect(result.current?.timeline).toHaveLength(1));
     expect(result.current).toMatchObject({
       eventProtocolVersion: 2,
       executionAttemptId: "attempt-v2",
@@ -261,12 +261,10 @@ describe("remote Task Workspace conversation", () => {
       expect.objectContaining({
         content: "v2 hello",
         timestamp: "2030-01-01T00:00:01.000Z"
-      }),
-      expect.objectContaining({
-        content: "Remote cumulative token usage: 13.",
-        timestamp: "2030-01-01T00:00:02.000Z"
       })
     ]);
+    expect(result.current?.telemetry?.cumulativeUsage?.totalTokens).toBe(13);
+    expect(result.current?.telemetry?.currentContext).toBeNull();
   });
 
   it("retains both v1 retention and degraded replay diagnostics", async () => {

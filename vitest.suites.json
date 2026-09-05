@@ -61,6 +61,7 @@
     {
       "root": "packages/desktop/src/__tests__",
       "unit": [
+        "remoteAcpContinuation.test.tsx",
         "acpConversationTimeline.test.tsx",
         "agentCapabilityProbeSessionCache.test.tsx",
         "agentEndpointPreferences.test.ts",
@@ -419,6 +420,7 @@
     {
       "root": "packages/runtime/src/__tests__",
       "unit": [
+        "remoteAcpTelemetry.test.ts",
         "acpAuthentication.test.ts",
         "acpConversationProjection.test.ts",
         "acpConversationTurn.test.ts",
@@ -657,6 +659,7 @@
     {
       "root": "packages/agent-host-protocol/src/__tests__",
       "unit": [
+        "acpConversationProtocol.test.ts",
         "agentHostEnrollment.test.ts",
         "agentHostProtocol.test.ts",
         "agentHostSetupHandoff.test.ts",
@@ -716,6 +719,7 @@
         "reconnectBackoff.test.ts"
       ],
       "integration": [
+        "remoteAcpConversation.test.ts",
         "agentExposure.test.ts",
         "agentHostCli.test.ts",
         "agentHostClient.test.ts",
@@ -797,6 +801,7 @@
         "workspaceExecutionPlaneInventory.test.ts"
       ],
       "integration": [
+        "acpConversationService.test.ts",
         "accessHttp.test.ts",
         "aclRegistryMigration.test.ts",
         "activityRetention.test.ts",

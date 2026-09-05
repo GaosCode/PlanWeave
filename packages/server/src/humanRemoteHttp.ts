@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { AcpConversationError } from "./acpConversationService.js";
 import { opaqueIdentifierSchema } from "@planweave-ai/agent-host-protocol";
 import { z } from "zod";
 import {
@@ -36,7 +37,14 @@ export type HumanRemoteHttpOptions = {
 type HumanRemoteRoute =
   | { kind: "dispatch" | "lookup"; projectId: string }
   | {
-      kind: "get" | "action" | "events" | "interactions" | "settle_interaction";
+      kind:
+        | "get"
+        | "action"
+        | "events"
+        | "interactions"
+        | "settle_interaction"
+        | "conversation"
+        | "converse";
       projectId: string;
       operationId: string;
     };
@@ -51,7 +59,7 @@ function decodeIdentifier(value: string): string | undefined {
 
 function route(request: IncomingMessage, pathname: string): HumanRemoteRoute | undefined {
   const match =
-    /^\/api\/v1\/projects\/([^/]+)\/remote-operations(?:\/([^/]+)(?:\/(actions|events|interactions)(\/respond)?)?)?$/.exec(
+    /^\/api\/v1\/projects\/([^/]+)\/remote-operations(?:\/([^/]+)(?:\/(actions|events|interactions|conversation)(\/respond)?)?)?$/.exec(
       pathname
     );
   if (!match) return undefined;
@@ -61,6 +69,10 @@ function route(request: IncomingMessage, pathname: string): HumanRemoteRoute | u
   if (request.method === "GET" && !match[2]) return { kind: "lookup", projectId };
   const operationId = match[2] ? decodeIdentifier(match[2]) : undefined;
   if (!operationId) return undefined;
+  if (match[3] === "conversation" && !match[4]) {
+    if (request.method === "GET") return { kind: "conversation", projectId, operationId };
+    if (request.method === "POST") return { kind: "converse", projectId, operationId };
+  }
   if (request.method === "GET" && !match[3]) return { kind: "get", projectId, operationId };
   if (request.method === "POST" && match[3] === "actions" && !match[4]) {
     return { kind: "action", projectId, operationId };
@@ -128,6 +140,8 @@ function query(url: URL, allowed: readonly string[]): Record<string, string | un
 }
 
 function safeError(error: unknown): { status: number; code: string } {
+  if (error instanceof AcpConversationError)
+    return { status: error.code.includes("forbidden") ? 403 : 409, code: error.code };
   if (error instanceof z.ZodError) return { status: 400, code: "human_remote_request_invalid" };
   if (error instanceof RemoteExecutionActionRejectedError) return { status: 409, code: error.code };
   if (error instanceof DispatchAssignmentError) return { status: 409, code: error.code };
@@ -261,6 +275,27 @@ export async function handleHumanRemoteHttpRequest(
     }
 
     switch (matched.kind) {
+      case "conversation": {
+        const parameters = query(url, ["afterCursor"]);
+        respond(
+          response,
+          200,
+          options.service.conversation(
+            scope,
+            matched.operationId,
+            Number(parameters.afterCursor ?? 0)
+          )
+        );
+        break;
+      }
+      case "converse":
+        query(url, []);
+        respond(
+          response,
+          202,
+          options.service.converse(scope, matched.operationId, await readJson(request))
+        );
+        break;
       case "dispatch":
         query(url, []);
         respond(response, 202, await options.service.dispatch(scope, await readJson(request)));

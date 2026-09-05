@@ -1,9 +1,8 @@
+import { AcpComposerSurface } from "./AcpComposerSurface";
+import { RemoteAcpComposer } from "./RemoteAcpComposer";
 import type { DesktopBridgeApi } from "@planweave-ai/runtime";
-import { SendIcon, StopCircleIcon } from "lucide-react";
 import { useState } from "react";
 import type { ReactNode } from "react";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { bridge } from "../../bridge";
 import type { createTranslator } from "../../i18n";
 import { useAgentPrompt } from "../../hooks/useAgentPrompt";
@@ -48,14 +47,24 @@ export function TaskWorkspaceComposer({
   cancelController?: TaskWorkspaceCancelRunController;
   t: ReturnType<typeof createTranslator>;
 }) {
-  // Remote ACP turns are not promptable through the local owned-session composer.
+  if (remoteConversation?.continuation)
+    return (
+      <RemoteAcpComposer
+        key={remoteConversation.operationId}
+        continuation={remoteConversation.continuation}
+        accessory={accessory}
+        t={t}
+      />
+    );
   if (remoteConversation) {
     return (
       <ComposerUnavailable
         accessory={accessory}
         reason={
           remoteConversation.error ??
-          (remoteConversation.state === "failed" || remoteConversation.state === "cancelled"
+          (remoteConversation.state === "completed" ||
+          remoteConversation.state === "failed" ||
+          remoteConversation.state === "cancelled"
             ? t("taskWorkspaceRemoteAcpComposerClosed")
             : t("taskWorkspaceRemoteAcpComposerLive"))
         }
@@ -191,72 +200,29 @@ function AcpComposer({
   };
 
   return (
-    <section
-      className="pointer-events-auto w-full px-5 pt-2 pb-4"
-      data-testid="task-workspace-composer"
-    >
-      <div
-        className="relative z-10 mx-auto w-full max-w-3xl rounded-2xl border bg-background p-2 shadow-lg shadow-black/5"
-        data-testid="task-workspace-composer-surface"
-      >
-        <Textarea
-          aria-label={t("acpPromptLabel")}
-          className="min-h-20 max-h-40 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0"
-          disabled={disabled}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-              event.preventDefault();
-              submit();
-            }
-          }}
-          placeholder={promptAvailable ? t("acpPromptPlaceholder") : unavailableReason}
-          value={draft}
-        />
-        <div className="flex items-center justify-between gap-3 px-1 pt-1 text-[11px] text-muted-foreground">
-          <span>{promptAvailable ? t("acpPromptHint") : unavailableReason}</span>
-          <div className="flex min-w-0 items-center gap-2">
-            {accessory}
-            <TaskWorkspaceCancelRunAction
-              buttonLabel={t("acpCancelRun")}
-              controller={cancelController}
-              errorLabel={t("acpActionError")}
-            />
-            {prompt.turnCancellable ? (
-              <Button
-                aria-label={t("acpCancelPromptTurn")}
-                disabled={prompt.cancelling}
-                onClick={() => void prompt.cancel()}
-                size="icon-sm"
-                type="button"
-                variant="outline"
-              >
-                <StopCircleIcon />
-              </Button>
-            ) : null}
-            <Button
-              aria-label={t("acpSendPrompt")}
-              disabled={disabled || !draft.trim()}
-              onClick={submit}
-              size="icon-sm"
-              type="button"
-            >
-              <SendIcon />
-            </Button>
-          </div>
-        </div>
-        {prompt.inFlight ? (
-          <p className="px-1 pt-1 text-[11px] text-muted-foreground">
-            {prompt.cancelling ? t("acpPromptCancelling") : t("acpPromptSending")}
-          </p>
-        ) : null}
-        {prompt.error ? (
-          <p className="px-1 pt-1 text-xs text-destructive" role="alert">
-            {t("acpPromptFailed")}: {prompt.error}
-          </p>
-        ) : null}
-      </div>
-    </section>
+    <AcpComposerSurface
+      accessory={
+        <>
+          {accessory}
+          <TaskWorkspaceCancelRunAction
+            buttonLabel={t("acpCancelRun")}
+            controller={cancelController}
+            errorLabel={t("acpActionError")}
+          />
+        </>
+      }
+      draft={draft}
+      onDraftChange={setDraft}
+      disabled={disabled}
+      available={promptAvailable}
+      unavailableReason={unavailableReason}
+      onSubmit={submit}
+      onCancel={prompt.turnCancellable ? () => void prompt.cancel() : undefined}
+      cancelling={prompt.cancelling}
+      inFlight={prompt.inFlight}
+      error={prompt.error}
+      t={t}
+    />
   );
 }
 

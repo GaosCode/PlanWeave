@@ -1,9 +1,5 @@
+import { remoteAcpEngineFragment } from "../execution/remoteAcpEngineFragment.js";
 import { randomUUID } from "node:crypto";
-import type {
-  EngineEvidenceLeaf,
-  RemoteRunnerEventFragment
-} from "@planweave-ai/agent-host-protocol";
-import { engineEvidenceLeafSchema } from "@planweave-ai/agent-host-protocol";
 import type { AgentHostRemoteExecutionRecord } from "../execution/remoteAcpPorts.js";
 import { parseAgentHostEvent } from "../protocol.js";
 import { AgentHostEventOutbox } from "./agentHostEventOutbox.js";
@@ -35,62 +31,6 @@ export class AgentHostRemoteRecordRelay {
       this.executions.evidence(execution.sequence)?.eventProtocolVersion ??
       this.eventProtocolVersion
     );
-  }
-
-  private v2Fragment(
-    record: Extract<AgentHostRemoteExecutionRecord, { kind: "engine_event" }>
-  ): RemoteRunnerEventFragment {
-    const event = record.event;
-    switch (event.kind) {
-      case "session_update":
-        return { kind: "runner_body", body: event.body };
-      case "terminal":
-        return { kind: "engine_terminal", terminal: event.terminal };
-      case "usage":
-        return {
-          kind: "engine_evidence",
-          evidence: {
-            kind: "usage_snapshot",
-            usage: { semantics: "cumulative_session_total", ...event.usage }
-          }
-        };
-      case "capability_snapshot":
-        return {
-          kind: "engine_evidence",
-          evidence: {
-            kind: "capability_snapshot",
-            required: event.snapshot.required,
-            negotiated: event.snapshot.negotiated,
-            missing: event.snapshot.missing
-          }
-        };
-      case "capabilities":
-        return {
-          kind: "engine_evidence",
-          evidence: { kind: "capabilities", capabilities: event.capabilities }
-        };
-      case "session_started":
-        return {
-          kind: "engine_evidence",
-          evidence: { kind: "session_started", sessionId: event.sessionId, loaded: event.loaded }
-        };
-      case "interaction":
-        return {
-          kind: "engine_evidence",
-          evidence: engineEvidenceLeafSchema.parse({
-            kind: "interaction",
-            requestId: event.requestId,
-            interaction: event.interaction,
-            state: event.state,
-            ...(event.outcome === undefined ? {} : { outcome: event.outcome })
-          })
-        };
-      case "lifecycle":
-        return {
-          kind: "engine_evidence",
-          evidence: { kind: "lifecycle", state: event.state } as EngineEvidenceLeaf
-        };
-    }
   }
 
   private relayV2(execution: ReturnType<AgentHostExecutionRepository["findByIdentity"]>): void {
@@ -133,7 +73,7 @@ export class AgentHostRemoteRecordRelay {
               cursor,
               sourceSequence: record.event.sequence,
               timestamp: record.event.timestamp,
-              fragment: this.v2Fragment(record)
+              fragment: remoteAcpEngineFragment(record.event)
             }
           ]
         })

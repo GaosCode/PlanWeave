@@ -256,6 +256,7 @@ export function createRemoteExecutionComposition(input: {
     dispatches: input.coordination.dispatches,
     coordinator: input.coordination.coordinator,
     events: input.coordination.acpEvents,
+    conversations: input.coordination.conversations,
     interactions: input.coordination.interactions,
     authorizeCanvas: (context, scope) => {
       assertHumanScopeAuthorized({
@@ -283,6 +284,7 @@ export function createRemoteExecutionComposition(input: {
         dispatches: input.coordination.dispatches,
         coordinator: input.coordination.coordinator,
         events: input.coordination.acpEvents,
+        conversations: input.coordination.conversations,
         interactions: input.coordination.interactions,
         artifactContent: input.artifactContent,
         disconnectHost,

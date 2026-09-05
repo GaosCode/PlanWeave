@@ -79,6 +79,7 @@ export async function createTransportComposition(
     mailbox: input.coordination.mailbox,
     dispatches: input.coordination.dispatches,
     acpEvents: input.coordination.acpEvents,
+    conversations: input.coordination.conversations,
     interactions: input.coordination.interactions,
     actions: input.coordination.actions,
     runtimeRpc: input.runtimeRpc,

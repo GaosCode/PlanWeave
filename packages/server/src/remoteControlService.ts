@@ -62,6 +62,7 @@ import {
   type OperatorRequestPrincipal
 } from "./operatorAuth.js";
 import { RemoteAcpEventRepository } from "./remoteAcpEvents.js";
+import type { AcpConversationService } from "./acpConversationService.js";
 import { RemoteBlockCoordinator } from "./remoteBlockCoordinator.js";
 import type { RemoteArtifactContentPort } from "./remoteBlockCoordinatorPorts.js";
 import { RemoteInteractionService } from "./remoteInteractions.js";
@@ -91,6 +92,7 @@ export type RemoteControlServiceOptions = {
   dispatches: DispatchService;
   coordinator: RemoteBlockCoordinator;
   events: RemoteAcpEventRepository;
+  conversations?: AcpConversationService;
   interactions: RemoteInteractionService;
   artifactContent: RemoteArtifactContentPort;
   disconnectHost(hostId: string): void;
@@ -491,6 +493,20 @@ export class RemoteControlService {
       rejectedAt: record.rejectedAt,
       rejectionCode: record.rejectionCode
     });
+  }
+
+  conversation(principal: OperatorRequestPrincipal, operationId: string, afterCursor: number) {
+    const operation = this.operationFor(principal, operationId);
+    if (!principal.humanPrincipalId) throw new Error("operator_human_identity_forbidden");
+    if (!this.options.conversations) throw new Error("acp_conversation_unavailable");
+    return this.options.conversations.page(operation, principal.humanPrincipalId, afterCursor);
+  }
+
+  converse(principal: OperatorRequestPrincipal, operationId: string, action: unknown) {
+    const operation = this.operationFor(principal, operationId);
+    if (!principal.humanPrincipalId) throw new Error("operator_human_identity_forbidden");
+    if (!this.options.conversations) throw new Error("acp_conversation_unavailable");
+    return this.options.conversations.act(operation, principal.humanPrincipalId, action);
   }
 
   replayEvents(principal: OperatorRequestPrincipal, operationId: string, rawAfterCursor: unknown) {

@@ -1,8 +1,9 @@
+import { acpConversationHostSchema } from "./acpConversationSchema.js";
 import { createHash } from "node:crypto";
 import { parseAgentHostMailboxCommand } from "../protocol.js";
 import { inWriteTransaction, type SqliteDatabase } from "./sqliteDatabase.js";
 
-const CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION = 9;
+const CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION = 10;
 const PRE_REMOTE_RUNNER_EVENT_PROTOCOL_SCHEMA_VERSION = 8;
 const PRE_RESET_RESULT_SCHEMA_VERSION = 7;
 const PRE_RESET_OPERATION_SCHEMA_VERSION = 6;
@@ -427,7 +428,7 @@ const compactionRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
   }
 };
 
-const currentRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
+const versionNineRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
   ...preCompactionRequiredTables,
   ...compactionRequiredTables,
   agent_host_executions: {
@@ -493,12 +494,32 @@ const currentRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
 };
 
 const versionEightRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
-  ...currentRequiredTables,
+  ...versionNineRequiredTables,
   agent_host_executions: {
-    ...currentRequiredTables.agent_host_executions!,
-    columns: currentRequiredTables.agent_host_executions!.columns.filter(
+    ...versionNineRequiredTables.agent_host_executions!,
+    columns: versionNineRequiredTables.agent_host_executions!.columns.filter(
       (column) => column !== "event_protocol_version"
     )
+  }
+};
+
+const currentRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
+  ...versionNineRequiredTables,
+  agent_host_conversation_turns: {
+    columns: [
+      "turn_id",
+      "command_json",
+      "command_digest",
+      "status",
+      "last_sequence",
+      "event_bytes",
+      "cancelled"
+    ],
+    uniqueKeys: [["turn_id"]]
+  },
+  agent_host_conversation_responses: {
+    columns: ["turn_id", "request_id", "command_json"],
+    uniqueKeys: [["turn_id", "request_id"]]
   }
 };
 
@@ -843,6 +864,8 @@ export function initializeAgentHostStateSchema(database: SqliteDatabase): void {
     const priorVersion = storedSchemaVersion(database);
     if (priorVersion === CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION) {
       assertCurrentSchemaComplete(database);
+    } else if (priorVersion === 9) {
+      assertRequiredTablesAndVersion(database, versionNineRequiredTables, 9);
     } else if (priorVersion === PRE_REMOTE_RUNNER_EVENT_PROTOCOL_SCHEMA_VERSION) {
       assertRequiredTablesAndVersion(
         database,
@@ -878,6 +901,7 @@ export function initializeAgentHostStateSchema(database: SqliteDatabase): void {
       }
     }
     database.exec(baseSchema);
+    database.exec(acpConversationHostSchema);
     assertNoLegacyRemoteRunnerEventsInOutbox(database);
     addLegacyInboxColumns(database);
     addInteractionSettlementColumns(database);

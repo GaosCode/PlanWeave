@@ -1107,3 +1107,14 @@ export {
 export type { AcpPreflightPhase } from "./autoRun/acpPreflightProbe.js";
 export { acpProbeResultSchema } from "./autoRun/acpRunner.js";
 export type { AcpPreflightProbe, AcpPreflightProbeResult } from "./autoRun/acpRunner.js";
+
+export {
+  projectRemoteAcpTelemetry,
+  remoteAcpTelemetrySchema,
+  type RemoteAcpTelemetry
+} from "./autoRun/remoteAcpTelemetry.js";
+
+export {
+  sessionConfigurationFromNewSession,
+  sessionConfigurationFromProtocol
+} from "./autoRun/acpSessionConfiguration.js";

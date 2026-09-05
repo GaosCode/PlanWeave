@@ -1,3 +1,4 @@
+import { projectAcpContextUsage } from "../autoRun/acpUsageProjection.js";
 import { z } from "zod";
 import { runnerRecordReadModelSchema } from "../autoRun/runnerRecordReadModelContract.js";
 import {
@@ -95,24 +96,7 @@ export function projectTaskWorkspaceRunDuration(options: {
 export function projectTaskWorkspaceCurrentContextUsage(
   events: NonNullable<DesktopRunRecord["runnerReadModel"]>["events"] | undefined
 ): TaskWorkspaceRun["usage"]["currentContext"] {
-  return (
-    events?.reduce<TaskWorkspaceRun["usage"]["currentContext"]>((latest, event) => {
-      if (event.body.kind !== "usage_update") {
-        return latest;
-      }
-      if (latest !== null && latest.sequence >= event.sequence) {
-        return latest;
-      }
-      return {
-        aggregation: "snapshot",
-        sequence: event.sequence,
-        observedAt: event.timestamp,
-        usedTokens: event.body.usedTokens,
-        contextWindowTokens: event.body.contextWindowTokens,
-        cost: event.body.cost
-      };
-    }, null) ?? null
-  );
+  return projectAcpContextUsage(events ?? []);
 }
 
 function projectCapabilities(

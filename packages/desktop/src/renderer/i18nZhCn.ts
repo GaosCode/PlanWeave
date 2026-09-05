@@ -1075,9 +1075,9 @@ export const zhCnCatalog = {
   taskWorkspaceRemoteAcpTerminal: "远程 ACP Agent 运行",
   taskWorkspaceRemoteAcpEmpty: "本次远程尝试尚未记录到 ACP 事件。",
   taskWorkspaceRemoteAcpComposerLive:
-    "当前由远程 ACP Agent 占用。请查看上方实时对话；远程结束前无法使用本地追问输入。",
+    "远程 ACP Agent 正在执行。可在上方查看实时对话；当前任务窗口暂不支持向远程 Agent 发送追加消息。",
   taskWorkspaceRemoteAcpComposerClosed:
-    "远程 ACP 尝试已结束。请查看画布异常说明，或在 reset Block 后重新发起远程执行。",
+    "远程 ACP 执行已结束。当前任务窗口暂不支持远程续聊，可在上方查看运行记录。",
   taskWorkspaceNoInspector: "选择一个运行或 Block 以查看详情。",
   taskWorkspaceNoTask: "没有可用的 Task Workspace 导航目标。",
   taskWorkspaceLocale: "zh-CN",
@@ -1139,6 +1139,9 @@ export const zhCnCatalog = {
   taskWorkspaceTaskTotal: "Task 总计",
   taskWorkspaceTaskTokens: "Task Token",
   taskWorkspaceTaskWallClock: "Task 墙钟时间",
+  taskWorkspaceCumulativeTokens: "会话累计 Token",
+  taskWorkspaceInputTokens: "输入 Token",
+  taskWorkspaceOutputTokens: "输出 Token",
   taskWorkspaceTokens: "Token",
   taskWorkspaceTokensUsed: "{used} / {contextWindow} Token",
   taskWorkspaceUsagePercent: "已使用 {percent}%",

@@ -20,6 +20,7 @@ import type {
 } from "./identity/index.js";
 import { authorizeHumanAction } from "./identity/policy.js";
 import { RemoteAcpEventRepository } from "./remoteAcpEvents.js";
+import type { AcpConversationService } from "./acpConversationService.js";
 import { RemoteBlockCoordinator } from "./remoteBlockCoordinator.js";
 import { RemoteInteractionService } from "./remoteInteractions.js";
 import { RemoteOperationRepository, type RemoteOperation } from "./remoteOperations.js";
@@ -47,6 +48,7 @@ export type HumanRemoteControlServiceOptions = {
   dispatches: DispatchService;
   coordinator: RemoteBlockCoordinator;
   events: RemoteAcpEventRepository;
+  conversations?: AcpConversationService;
   interactions: RemoteInteractionService;
   authorizeCanvas?: (
     context: CollaborationAuthContext,
@@ -90,6 +92,20 @@ function throwMappedDispatchRuntimeFailure(error: unknown): never {
 
 export class HumanRemoteControlService {
   constructor(private readonly options: HumanRemoteControlServiceOptions) {}
+
+  conversation(scope: AuthenticatedCollaborationScope, operationId: string, afterCursor: number) {
+    const operation = this.operationFor(scope, operationId);
+    if (!this.options.conversations)
+      throw new HumanRemoteControlError("acp_conversation_unavailable");
+    return this.options.conversations.page(operation, scope.actor.humanPrincipalId, afterCursor);
+  }
+
+  converse(scope: AuthenticatedCollaborationScope, operationId: string, action: unknown) {
+    const operation = this.operationFor(scope, operationId);
+    if (!this.options.conversations)
+      throw new HumanRemoteControlError("acp_conversation_unavailable");
+    return this.options.conversations.act(operation, scope.actor.humanPrincipalId, action);
+  }
 
   async dispatch(scope: AuthenticatedCollaborationScope, rawRequest: unknown) {
     const { actor: context, projectId } = scope;

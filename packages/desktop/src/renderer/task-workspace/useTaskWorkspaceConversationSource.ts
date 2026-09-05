@@ -1,3 +1,4 @@
+import { useRemoteAcpContinuation } from "./useRemoteAcpContinuation";
 import type { RemoteBlockExecutionReadModel } from "@planweave-ai/runtime";
 import type { RemoteOperationState } from "@planweave-ai/collaboration-protocol/remote-run";
 import { useMemo } from "react";
@@ -93,5 +94,12 @@ export function useTaskWorkspaceConversationSource(input: {
     scopeKey: input.scopeKey,
     onTerminal: input.onTerminal
   });
-  return coordinatorScope ? workspaceConversation : legacyConversation;
+  const continuation = useRemoteAcpContinuation(
+    input.workspaceExecutionApi,
+    coordinatorScope && operationId ? { ...coordinatorScope, operationId } : null
+  );
+  const conversation = coordinatorScope ? workspaceConversation : legacyConversation;
+  return conversation && coordinatorScope
+    ? { ...conversation, continuation, telemetry: continuation.telemetry ?? conversation.telemetry }
+    : conversation;
 }

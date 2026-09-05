@@ -1,4 +1,8 @@
 import {
+  acpConversationPageSchema,
+  type AcpConversationAction
+} from "@planweave-ai/agent-host-protocol";
+import {
   OUTPUT_MAX_ARTIFACT_BYTES,
   OPERATOR_OWNER_TERMINAL_RESULT_MEDIA_TYPE,
   OPERATOR_OWNER_TERMINAL_RESULT_METADATA_HEADER,
@@ -417,6 +421,21 @@ export class OperatorControlClient {
           ...(humanPrincipalId ? { humanPrincipalId } : {})
         }
       )
+    );
+  }
+
+  async acpConversation(
+    operationId: string,
+    afterCursor: number,
+    humanPrincipalId: string,
+    action?: AcpConversationAction
+  ) {
+    const id = opaqueIdentifierSchema.parse(operationId);
+    return this.json(
+      action ? "POST" : "GET",
+      `/api/v1/remote-operations/${encodeURIComponent(id)}/conversation${action ? "" : `?afterCursor=${afterCursor}`}`,
+      acpConversationPageSchema,
+      { humanPrincipalId, ...(action ? { body: action } : {}) }
     );
   }
 

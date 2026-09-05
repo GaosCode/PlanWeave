@@ -6,6 +6,7 @@ import { AgentHostRepository } from "./hosts.js";
 import { authenticateAgentHostRequest } from "./hostTransportAuth.js";
 import { DurableMailbox, type MailboxMessage } from "./mailbox.js";
 import { RemoteAcpEventRepository } from "./remoteAcpEvents.js";
+import type { AcpConversationService } from "./acpConversationService.js";
 import { RemoteInteractionService } from "./remoteInteractions.js";
 import { RemoteExecutionActionRepository } from "./remoteExecutionActions.js";
 import {
@@ -29,6 +30,7 @@ export type AgentHostWebSocketOptions = {
   mailbox: DurableMailbox;
   dispatches: DispatchService;
   acpEvents: RemoteAcpEventRepository;
+  conversations?: AcpConversationService;
   interactions: RemoteInteractionService;
   actions: RemoteExecutionActionRepository;
   heartbeatIntervalMs: number;
@@ -290,6 +292,10 @@ export function attachAgentHostWebSocketServer(
           break;
         case "lease.renew":
           throw new Error(`host_event_unsupported:${event.type}`);
+        case "acp_conversation.event":
+          if (!options.conversations) throw new Error("acp_conversation_unavailable");
+          options.conversations.ingest(hostId, event);
+          break;
         case "acp.events": {
           const { protocolVersion: _protocolVersion, messageId: _messageId, ...batch } = event;
           const ingested = options.acpEvents.ingest(hostId, event.messageId, batch);

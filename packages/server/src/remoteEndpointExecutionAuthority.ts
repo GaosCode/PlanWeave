@@ -88,7 +88,10 @@ export class RemoteEndpointExecutionAuthority {
     }
   }
 
-  reauthorizeForRetry(operation: RemoteOperation): PersistedRemoteAgentAccessSnapshot {
+  reauthorizeForRetry(
+    operation: RemoteOperation,
+    callerHumanPrincipalId?: string
+  ): PersistedRemoteAgentAccessSnapshot {
     const snapshot = operation.agentAccess;
     if (!snapshot) {
       throw new RemoteAgentAuthorizationError("remote_agent_access_snapshot_missing");
@@ -100,7 +103,7 @@ export class RemoteEndpointExecutionAuthority {
       operation.endpointSelection?.endpointId ?? snapshot.authorized.remoteAgent.endpointId;
     const target = retryTarget(operation, snapshot.authorized);
     const authorized = this.ports.authorizeRemoteAgentUse({
-      principal: { humanPrincipalId: snapshot.callerHumanPrincipalId },
+      principal: { humanPrincipalId: callerHumanPrincipalId ?? snapshot.callerHumanPrincipalId },
       endpointId,
       target,
       requiredCapabilities: operation.requiredCapabilities,
@@ -116,7 +119,7 @@ export class RemoteEndpointExecutionAuthority {
         })()
     });
     return persistedRemoteAgentAccessSnapshotSchema.parse({
-      callerHumanPrincipalId: snapshot.callerHumanPrincipalId,
+      callerHumanPrincipalId: callerHumanPrincipalId ?? snapshot.callerHumanPrincipalId,
       authorized
     });
   }

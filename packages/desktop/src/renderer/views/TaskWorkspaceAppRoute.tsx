@@ -64,6 +64,7 @@ export function TaskWorkspaceAppRoute() {
                   accessory={
                     <TaskWorkspaceUsage
                       labels={taskWorkspaceUsageLabels(shell.t)}
+                      remoteTelemetry={props.remoteConversation?.telemetry}
                       selectedRun={props.selectedRun}
                       workspace={props.workspace}
                     />
@@ -93,7 +94,11 @@ export function TaskWorkspaceAppRoute() {
                 />
               ),
               inspector: (props: TaskWorkspaceInspectorSlotProps) => (
-                <TaskWorkspaceInspector {...props} labels={taskWorkspaceInspectorLabels(shell.t)} />
+                <TaskWorkspaceInspector
+                  {...props}
+                  remoteTelemetry={taskWorkspace.remoteConversation?.telemetry}
+                  labels={taskWorkspaceInspectorLabels(shell.t)}
+                />
               ),
               timeline: (props: TaskWorkspaceTimelineSlotProps) => (
                 <TaskWorkspaceTimeline {...props} labels={taskWorkspaceTimelineLabels(shell.t)} />

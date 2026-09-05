@@ -1,4 +1,9 @@
 import {
+  acpConversationPageSchema,
+  type AcpConversationPage,
+  type AcpConversationAction
+} from "@planweave-ai/agent-host-protocol";
+import {
   remoteActionViewSchema,
   remoteDispatchIntentV3Schema,
   remoteEventQuerySchema,
@@ -39,6 +44,11 @@ export interface CollaborationRemoteOperationsTransportPort {
 }
 
 export interface CollaborationRemoteOperationsPort {
+  acpConversation(
+    operationId: string,
+    afterCursor: number,
+    action?: AcpConversationAction
+  ): Promise<AcpConversationPage>;
   listAgentEndpoints(
     query?: CollaborationListAgentEndpointsInput,
     signal?: AbortSignal
@@ -82,6 +92,15 @@ export class CollaborationRemoteOperationsClient implements CollaborationRemoteO
     private readonly projectId: string,
     private readonly transport: CollaborationRemoteOperationsTransportPort
   ) {}
+
+  acpConversation(operationId: string, afterCursor: number, action?: AcpConversationAction) {
+    return this.transport.json(
+      action ? "POST" : "GET",
+      `/api/v1/projects/${encodeURIComponent(this.projectId)}/remote-operations/${encodeURIComponent(operationId)}/conversation${action ? "" : `?afterCursor=${afterCursor}`}`,
+      acpConversationPageSchema,
+      action ? { body: action } : {}
+    );
+  }
 
   listAgentEndpoints(
     query?: CollaborationListAgentEndpointsInput,

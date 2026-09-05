@@ -1,3 +1,5 @@
+import type { AcpConversationPage } from "@planweave-ai/agent-host-protocol/browser";
+import type { DesktopRemoteAcpConversationInput } from "./remoteAcpConversation.js";
 import {
   effectiveWorkspaceExecutorSchema,
   workspaceExecutionCoordinatorViewSchema
@@ -106,6 +108,7 @@ export type DesktopWorkspaceExecutionResponse = z.infer<
 >;
 
 export interface PlanWeaveWorkspaceExecutionApi {
+  remoteAcpConversation(input: DesktopRemoteAcpConversationInput): Promise<AcpConversationPage>;
   startWorkspaceExecution(
     input: DesktopWorkspaceExecutionStartInput
   ): Promise<DesktopWorkspaceExecutionResponse>;

@@ -1,3 +1,7 @@
+import {
+  projectRemoteAcpTelemetry,
+  remoteAcpTelemetrySchema
+} from "../autoRun/remoteAcpTelemetry.js";
 import { z } from "zod";
 import { acpTimelineItemSchema } from "../autoRun/acpConversationProjection.js";
 import {
@@ -69,6 +73,7 @@ export const workspaceExecutionTimelineSchema = z
     executionAttemptIds: z.array(identifierSchema).max(10_000),
     pendingInteractions: z.array(identifierSchema).max(10_000),
     runnerTimeline: z.array(acpTimelineItemSchema).max(50_000),
+    telemetry: remoteAcpTelemetrySchema,
     terminalOutcome: z.enum(["completed", "failed", "cancelled"]).nullable(),
     cursor: z.number().int().nonnegative()
   })
@@ -150,6 +155,7 @@ export function projectWorkspaceExecutionTimeline(
     executionAttemptIds: [...attempts],
     pendingInteractions: [...pending],
     runnerTimeline: projectRemoteAcpProjectedTimeline(projectedRunnerEvents),
+    telemetry: projectRemoteAcpTelemetry(projectedRunnerEvents),
     terminalOutcome,
     cursor
   });

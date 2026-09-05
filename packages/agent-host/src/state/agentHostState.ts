@@ -1,3 +1,4 @@
+import { AcpConversationRepository } from "./acpConversationRepository.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type {
@@ -78,6 +79,7 @@ export class AgentHostState implements AgentHostStateRepository {
   private readonly remoteRelay: AgentHostRemoteRecordRelay;
   private readonly interactions: AgentHostInteractionSettlements;
   private readonly terminalCompaction: AgentHostTerminalCompactionRepository;
+  readonly conversations: AcpConversationRepository;
   readonly canvasRuntime: CanvasRuntimeRpcRepository;
 
   constructor(
@@ -97,6 +99,7 @@ export class AgentHostState implements AgentHostStateRepository {
       maxArtifactsPerExecution: this.limits.maxArtifactsPerExecution
     });
     this.events = new AgentHostEventOutbox(database, this.limits.maxPendingEvents);
+    this.conversations = new AcpConversationRepository(database, this.events);
     this.canvasRuntime = new CanvasRuntimeRpcRepository(database, this.events);
     this.remoteRecords = new AgentHostRemoteExecutionRecordStore(database, {
       requireAuthoritativeExecution: true,
@@ -195,6 +198,16 @@ export class AgentHostState implements AgentHostStateRepository {
               .prepare("UPDATE agent_host_inbox SET processed_at=? WHERE sequence=?")
               .run(receivedAt, event.sequence);
           }
+        }
+        if (
+          event.command.type === "acp_conversation.prompt" ||
+          event.command.type === "acp_conversation.cancel" ||
+          event.command.type === "acp_conversation.respond"
+        ) {
+          this.conversations.accept(event.command);
+          this.database
+            .prepare("UPDATE agent_host_inbox SET processed_at=? WHERE sequence=?")
+            .run(receivedAt, event.sequence);
         }
         if (event.command.type === "resume_execution") {
           const execution = this.executions.findByAttempt(

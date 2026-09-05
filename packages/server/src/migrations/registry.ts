@@ -1,4 +1,5 @@
 import { collaborationMigrations } from "./collaboration.js";
+import { acpConversationsMigration } from "./acpConversations.js";
 import { coreMigrations } from "./core.js";
 import { identityMigrations } from "./identity.js";
 import { migration26 } from "./legacyTail.js";
@@ -53,6 +54,7 @@ const observerMigrations: MigrationModule = {
 };
 
 export const migrationModules: readonly MigrationModule[] = [
+  { name: "acp-conversations", migrations: [acpConversationsMigration] },
   coreMigrations,
   collaborationMigrations,
   observerMigrations,

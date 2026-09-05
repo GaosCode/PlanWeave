@@ -1,4 +1,4 @@
-import type { TaskWorkspace } from "@planweave-ai/runtime";
+import type { RemoteAcpTelemetry, TaskWorkspace } from "@planweave-ai/runtime";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useId } from "react";
 import type { TaskWorkspaceSelectedRun } from "../contracts";
@@ -12,6 +12,9 @@ export type TaskWorkspaceUsageLabels = {
   contextUnavailable: string;
   contextUsage: string;
   cost: string;
+  cumulativeTokens: string;
+  inputTokens: string;
+  outputTokens: string;
   currentContext: string;
   currentRun: string;
   formatCost: (amount: number, currency: string) => string;
@@ -80,15 +83,19 @@ function ConfigurationValue({
 export function TaskWorkspaceUsageDetails({
   labels,
   selectedRun,
+  remoteTelemetry,
   workspace
 }: {
   labels: TaskWorkspaceUsageLabels;
+  remoteTelemetry?: RemoteAcpTelemetry | null;
   selectedRun: TaskWorkspaceSelectedRun | null;
   workspace: TaskWorkspace | null;
 }) {
   const id = useId();
   const run = selectedRun?.item.run ?? null;
-  const snapshot = run?.usage.currentContext ?? null;
+  const snapshot = remoteTelemetry
+    ? remoteTelemetry.currentContext
+    : (run?.usage.currentContext ?? null);
   const wallClock = workspace?.duration.wallClock ?? null;
   const agentTime = workspace?.duration.agentTime ?? null;
   const runWallClock =
@@ -160,6 +167,28 @@ export function TaskWorkspaceUsageDetails({
           ) : null}
         </dl>
       </section>
+
+      {remoteTelemetry?.cumulativeUsage ? (
+        <section aria-labelledby={`${id}-session-tokens`}>
+          <h3 id={`${id}-session-tokens`} className="font-semibold text-text">
+            {labels.cumulativeTokens}
+          </h3>
+          <dl className="mt-1 border-l-2 border-border pl-2">
+            <Metric
+              label={labels.tokens}
+              value={labels.formatNumber(remoteTelemetry.cumulativeUsage.totalTokens)}
+            />
+            <Metric
+              label={labels.inputTokens}
+              value={labels.formatNumber(remoteTelemetry.cumulativeUsage.inputTokens)}
+            />
+            <Metric
+              label={labels.outputTokens}
+              value={labels.formatNumber(remoteTelemetry.cumulativeUsage.outputTokens)}
+            />
+          </dl>
+        </section>
+      ) : null}
 
       <section aria-labelledby={`${id}-current-run`}>
         <h3 id={`${id}-current-run`} className="font-semibold text-text">
@@ -273,20 +302,26 @@ export function TaskWorkspaceUsageDetails({
 export function TaskWorkspaceUsage({
   labels,
   selectedRun,
+  remoteTelemetry,
   workspace: _workspace
 }: {
   labels: TaskWorkspaceUsageLabels;
+  remoteTelemetry?: RemoteAcpTelemetry | null;
   selectedRun: TaskWorkspaceSelectedRun | null;
   workspace: TaskWorkspace | null;
 }) {
-  const snapshot = selectedRun?.item.run.usage.currentContext ?? null;
+  const snapshot = remoteTelemetry
+    ? remoteTelemetry.currentContext
+    : (selectedRun?.item.run.usage.currentContext ?? null);
   const percent = snapshot
     ? contextUsagePercent(snapshot.usedTokens, snapshot.contextWindowTokens)
     : null;
   const ringPercent = snapshot
     ? clampedContextUsagePercent(snapshot.usedTokens, snapshot.contextWindowTokens)
     : 0;
-  const configuration = selectedRun?.item.run.actualConfiguration;
+  const configuration = remoteTelemetry
+    ? remoteTelemetry.actualConfiguration
+    : selectedRun?.item.run.actualConfiguration;
   const configurationField = (field: "mode" | "model" | "permission" | "reasoning") => {
     if (!configuration) return { reason: null, value: null };
     if (!configuration.available) return { reason: configuration.reason, value: null };
@@ -368,6 +403,12 @@ export function TaskWorkspaceUsage({
             </div>
           ))}
         </dl>
+        {remoteTelemetry?.cumulativeUsage ? (
+          <span className="text-[11px] text-text-muted" title={labels.cumulativeTokens}>
+            {labels.cumulativeTokens}:{" "}
+            {labels.formatNumber(remoteTelemetry.cumulativeUsage.totalTokens)}
+          </span>
+        ) : null}
         <Tooltip>
           <TooltipTrigger asChild>
             <button

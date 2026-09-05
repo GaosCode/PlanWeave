@@ -361,6 +361,9 @@ export function taskWorkspaceInspectorFixture(
 }
 
 export const taskWorkspaceUsageLabelsFixture: TaskWorkspaceUsageLabels = {
+  cumulativeTokens: "Session tokens (cumulative)",
+  inputTokens: "Input tokens",
+  outputTokens: "Output tokens",
   agent: "Agent",
   agentTime: "Agent time",
   contextSnapshot: "Latest snapshot only",

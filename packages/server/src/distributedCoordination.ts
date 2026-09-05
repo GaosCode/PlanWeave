@@ -32,6 +32,7 @@ import { HostReservationRepository } from "./hostReservations.js";
 import { RemoteOperationRepository } from "./remoteOperations.js";
 import { RemoteExecutionActionRepository } from "./remoteExecutionActions.js";
 import { RemoteAcpEventRepository } from "./remoteAcpEvents.js";
+import { AcpConversationService } from "./acpConversationService.js";
 import {
   RemoteInteractionService,
   type RemoteInteractionAuthorizationPort
@@ -516,6 +517,13 @@ export function createRemoteBlockCoordination(
   return {
     hosts,
     mailbox,
+    conversations: new AcpConversationService(database, {
+      hosts,
+      mailbox,
+      clock,
+      hostOfflineAfterMs: options.hostOfflineAfterMs,
+      authorize: (operation, actorId) => coordinator.authorizeConversation(operation, actorId)
+    }),
     artifactAuthorization,
     runtimeOperationAttachments,
     operations,

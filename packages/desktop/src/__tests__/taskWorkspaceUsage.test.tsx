@@ -14,6 +14,48 @@ import {
 afterEach(cleanupRendererTestEnvironment);
 
 describe("TaskWorkspaceUsage", () => {
+  it("shows remote context usage through the same ring and labels cumulative session tokens separately", () => {
+    const fixture = taskWorkspaceInspectorFixture();
+    render(
+      <TaskWorkspaceUsage
+        labels={labels}
+        selectedRun={fixture.selectedRun}
+        workspace={fixture.workspace}
+        remoteTelemetry={{
+          executionAttemptId: "remote-attempt",
+          sessionId: "remote-session",
+          loadSession: true,
+          actualConfiguration: {
+            available: false,
+            reason: "Remote configuration was not reported."
+          },
+          currentContext: {
+            aggregation: "snapshot",
+            sequence: 1,
+            observedAt: "2026-09-05T00:00:00.000Z",
+            usedTokens: 200,
+            contextWindowTokens: 1000,
+            cost: null
+          },
+          cumulativeUsage: {
+            semantics: "cumulative_session_total",
+            totalTokens: 4000,
+            inputTokens: 3000,
+            outputTokens: 1000,
+            thoughtTokens: null,
+            cachedReadTokens: null,
+            cachedWriteTokens: null
+          }
+        }}
+      />
+    );
+    expect(
+      screen.getByRole("button", { name: /Context usage: 200 \/ 1,000 tokens/ })
+    ).toHaveAccessibleName(/20%/);
+    expect(screen.getByText("Session tokens (cumulative): 4,000")).toBeInTheDocument();
+    expect(screen.queryByText("gpt-5")).not.toBeInTheDocument();
+  });
+
   it("shows the actual model and reasoning when the agent name is hovered", async () => {
     const fixture = taskWorkspaceInspectorFixture();
     const user = userEvent.setup();

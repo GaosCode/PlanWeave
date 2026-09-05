@@ -1,3 +1,4 @@
+export * from "./acpConversationProtocol.js";
 export { artifactRefSchema, type ArtifactRef } from "./artifacts.js";
 export {
   DEFAULT_HOST_CREDENTIAL_LIFETIME_DAYS,

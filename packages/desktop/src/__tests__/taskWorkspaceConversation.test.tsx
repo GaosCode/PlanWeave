@@ -28,6 +28,30 @@ afterEach(cleanupRendererTestEnvironment);
 const t = createTranslator("en");
 
 describe("Task Workspace conversation", () => {
+  it("does not label a completed remote attempt as still occupying the composer", () => {
+    render(
+      <TaskWorkspaceComposer
+        {...conversationProps(selection(), null)}
+        remoteConversation={{
+          blockRef: "T-001#B-001",
+          cursor: 0,
+          error: null,
+          eventProtocolVersion: 2,
+          executionAttemptId: "attempt-completed",
+          operationId: "operation-completed",
+          replayDiagnostics: [],
+          state: "completed",
+          terminalOutcome: "completed",
+          timeline: []
+        }}
+        api={null}
+        t={t}
+      />
+    );
+    expect(screen.getByText(t("taskWorkspaceRemoteAcpComposerClosed"))).toBeInTheDocument();
+    expect(screen.queryByText(t("taskWorkspaceRemoteAcpComposerLive"))).not.toBeInTheDocument();
+  });
+
   it("replays an active remote ACP conversation", async () => {
     const onTerminal = vi.fn();
     const api = {
@@ -144,6 +168,7 @@ describe("Task Workspace conversation", () => {
       <TaskWorkspaceConversation
         {...conversationProps(selection(), null, {
           remoteConversation: {
+            telemetry: null,
             blockRef: "T-001#B-001",
             error: null,
             operationId: "operation-remote-1",

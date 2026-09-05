@@ -1,10 +1,13 @@
+import type { RemoteAcpContinuation } from "./useRemoteAcpContinuation";
 import type {
   AcpTimelineItem,
+  RemoteAcpTelemetry,
   ProjectedRemoteAcpEvent,
   RemoteAcpReplayDiagnostic
 } from "@planweave-ai/runtime";
 import {
   projectRemoteAcpProjectedTimeline,
+  projectRemoteAcpTelemetry,
   projectRemoteAcpReplay
 } from "@planweave-ai/runtime/browser";
 import type {
@@ -27,6 +30,7 @@ export type RemoteTaskWorkspaceConversationApi = {
 };
 
 export type RemoteTaskWorkspaceConversation = {
+  continuation?: RemoteAcpContinuation;
   blockRef: string;
   cursor: number;
   error: string | null;
@@ -37,6 +41,7 @@ export type RemoteTaskWorkspaceConversation = {
   state: RemoteOperationObservation["state"] | "loading";
   terminalOutcome: "completed" | "failed" | "cancelled" | null;
   timeline: readonly AcpTimelineItem[];
+  telemetry: RemoteAcpTelemetry | null;
 };
 
 const terminalStates = new Set<RemoteOperationObservation["state"]>([
@@ -267,7 +272,8 @@ export function useRemoteTaskWorkspaceConversation(input: {
             : visible?.state === "cancelled"
               ? "cancelled"
               : null,
-      timeline: projectRemoteAcpProjectedTimeline(visible?.events ?? [])
+      timeline: projectRemoteAcpProjectedTimeline(visible?.events ?? []),
+      telemetry: visible ? projectRemoteAcpTelemetry(visible.events) : null
     };
   }, [input.blockRef, input.initialState, input.operationId, key, snapshot]);
 }

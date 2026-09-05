@@ -1,6 +1,8 @@
+import type { RemoteAcpConversationService } from "../execution/remoteAcpConversationService.js";
 import { WebSocket } from "ws";
 import {
   CANVAS_RUNTIME_CAPABILITY,
+  ACP_CONVERSATION_CAPABILITY,
   remoteRunnerEventServerCapabilitySchema,
   type HostReadinessObservation
 } from "@planweave-ai/agent-host-protocol";
@@ -52,6 +54,7 @@ export type AgentHostClientOptions = {
   state: AgentHostStateRepository;
   executor: AgentHostExecutor;
   interactionRelay?: Pick<DurableAcpInteractionRelay, "accept">;
+  conversations?: Pick<RemoteAcpConversationService, "handle" | "recover" | "stop">;
   canvasRuntime?: Pick<
     CanvasRuntimeService,
     | "disconnect"
@@ -170,6 +173,8 @@ export class AgentHostClient implements HostTransport {
     ) {
       throw new Error("canvas_runtime_capability_service_mismatch");
     }
+    if (this.capabilities.includes(ACP_CONVERSATION_CAPABILITY) && !options.conversations)
+      throw new Error("acp_conversation_capability_service_mismatch");
     this.token = options.token;
     this.artifacts = this.createArtifactClient(this.token);
   }
@@ -189,6 +194,7 @@ export class AgentHostClient implements HostTransport {
     this.stopped = false;
     this.options.state.recoverInterruptedExecutions();
     this.options.canvasRuntime?.recover();
+    this.options.conversations?.recover();
     const controller = new AbortController();
     this.startupAbort = controller;
     const startup = this.discoverRemoteRunnerEventProtocol(controller.signal)
@@ -264,6 +270,7 @@ export class AgentHostClient implements HostTransport {
       );
     }
     if (startup) await this.waitBounded(startup);
+    await this.waitBounded(this.options.conversations?.stop() ?? Promise.resolve());
     await this.waitBounded(this.processing);
     await this.waitBounded(Promise.allSettled([...this.runs]).then(() => undefined));
     await this.waitBounded(Promise.allSettled([...this.canvasRuns]).then(() => undefined));
@@ -389,6 +396,14 @@ export class AgentHostClient implements HostTransport {
         return;
       case "mailbox.message":
         this.options.state.receive(event);
+        if (
+          event.command.type === "acp_conversation.prompt" ||
+          event.command.type === "acp_conversation.cancel" ||
+          event.command.type === "acp_conversation.respond"
+        ) {
+          if (!this.options.conversations) throw new Error("acp_conversation_service_unavailable");
+          this.options.conversations.handle(event.command);
+        }
         if (
           event.command.type === "canvas_runtime.request" ||
           event.command.type === "canvas_runtime.cancel"

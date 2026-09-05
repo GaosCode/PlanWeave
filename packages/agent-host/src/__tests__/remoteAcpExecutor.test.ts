@@ -353,6 +353,34 @@ describe("RemoteAcpExecutor", () => {
       ])
     );
 
+    const engineEvents = outbox
+      .records(identity(input))
+      .flatMap((record) => (record.kind === "engine_event" ? [record.event] : []));
+    const snapshots = engineEvents.filter(
+      (event) =>
+        event.kind === "session_update" && event.body.kind === "session_configuration_snapshot"
+    );
+    expect(snapshots).toEqual([
+      expect.objectContaining({
+        kind: "session_update",
+        body: expect.objectContaining({ kind: "session_configuration_snapshot", phase: "initial" })
+      }),
+      expect.objectContaining({
+        kind: "session_update",
+        body: expect.objectContaining({
+          kind: "session_configuration_snapshot",
+          phase: "defaults_applied",
+          configuration: expect.objectContaining({
+            modes: expect.objectContaining({ currentModeId: "agent-full-access" })
+          })
+        })
+      })
+    ]);
+    expect(new Set(engineEvents.map((event) => event.sequence)).size).toBe(engineEvents.length);
+    expect(engineEvents.findIndex((event) => event.kind === "session_started")).toBeLessThan(
+      engineEvents.indexOf(snapshots[0]!)
+    );
+
     outbox.close();
     outboxes.pop();
     const reopened = await openAgentHostRemoteExecutionOutbox(path);

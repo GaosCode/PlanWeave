@@ -1,3 +1,4 @@
+import { RemoteAcpConversationService } from "../execution/remoteAcpConversationService.js";
 import { mkdir, readFile, realpath, stat } from "node:fs/promises";
 import { hostname } from "node:os";
 import { join } from "node:path";
@@ -707,6 +708,7 @@ export class AgentHostOperator {
         state,
         executor,
         interactionRelay,
+        conversations: new RemoteAcpConversationService(state.conversations, executor),
         canvasRuntime,
         allowInsecureTransport: config.coordinator.allowInsecureDevelopment,
         ca: trust.ca,

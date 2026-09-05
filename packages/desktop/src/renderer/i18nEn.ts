@@ -1155,9 +1155,9 @@ export const enCatalog = {
   taskWorkspaceRemoteAcpTerminal: "Remote ACP Agent run",
   taskWorkspaceRemoteAcpEmpty: "No ACP events were recorded for this remote attempt yet.",
   taskWorkspaceRemoteAcpComposerLive:
-    "This run is owned by a remote ACP Agent. Follow the live conversation above; local follow-up prompts are unavailable until the remote attempt finishes.",
+    "The remote ACP Agent is running. Follow the live conversation above; this task window does not yet support sending additional messages to remote Agents.",
   taskWorkspaceRemoteAcpComposerClosed:
-    "This remote ACP attempt is no longer active. Use the canvas exception details or start a new remote attempt after resetting the Block.",
+    "This remote ACP run has ended. This task window does not yet support remote follow-up messages; the run history is available above.",
   taskWorkspaceNoInspector: "Select a run or Block to inspect its details.",
   taskWorkspaceNoTask: "No Task Workspace navigation target is available.",
   taskWorkspaceLocale: "en-US",
@@ -1226,6 +1226,9 @@ export const enCatalog = {
   taskWorkspaceTaskTotal: "Task total",
   taskWorkspaceTaskTokens: "Task tokens",
   taskWorkspaceTaskWallClock: "Task wall-clock",
+  taskWorkspaceCumulativeTokens: "Session tokens (cumulative)",
+  taskWorkspaceInputTokens: "Input tokens",
+  taskWorkspaceOutputTokens: "Output tokens",
   taskWorkspaceTokens: "Tokens",
   taskWorkspaceTokensUsed: "{used} / {contextWindow} tokens",
   taskWorkspaceUsagePercent: "{percent}% used",

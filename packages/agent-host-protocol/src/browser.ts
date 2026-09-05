@@ -1,3 +1,4 @@
+export * from "./acpConversationProtocol.js";
 export {
   DEFAULT_HOST_CREDENTIAL_LIFETIME_DAYS,
   HOST_CREDENTIAL_LIFETIME_DAY_OPTIONS,
