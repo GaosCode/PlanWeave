@@ -5,6 +5,7 @@ import type { DesktopGraphViewModel } from "@planweave-ai/runtime";
 import { describe, expect, it, vi } from "vitest";
 import { agentEndpointPreferenceKey } from "../renderer/collaboration/agentEndpointPreferences";
 import { statusProjection } from "./helpers/collaborationRuntimeAvailabilityFixture";
+import * as workspaceExecutionPollingCadence from "../renderer/task-workspace/workspaceExecutionPollingCadence";
 import {
   blockClaim,
   feedbackClaim,
@@ -956,5 +957,117 @@ describe("workspace Agent Endpoint routing", () => {
     expect(setError).toHaveBeenCalledWith(
       "ACP authentication is required. (acp_authentication_required)"
     );
+  });
+
+  it("resets Auto Run follow backoff after a follow returns events", async () => {
+    const delay = vi
+      .spyOn(workspaceExecutionPollingCadence, "workspaceExecutionSuccessPollDelay")
+      .mockReturnValue(0);
+    const runningView = {
+      version: "planweave.workspace-execution-view/v1" as const,
+      handle: {
+        version: "planweave.workspace-execution-handle/v1" as const,
+        target: "remote" as const,
+        phase: "attempt" as const,
+        runSessionId: "SESSION-0001",
+        authorityBindingId: `wxb:sha256:${"a".repeat(64)}`,
+        scope: { kind: "block" as const, blockRef: "T-001#B-001" },
+        capabilities: { interactionResponse: true },
+        operationId: "operation-1",
+        operationRevision: 1,
+        dispatchId: "dispatch-1",
+        executionAttemptId: "attempt-1",
+        attemptStateVersion: 1,
+        leaseId: "lease-1",
+        agentEndpointId: "endpoint-windows",
+        cursor: { target: "remote" as const, executionAttemptId: "attempt-1", eventCursor: 1 }
+      },
+      session: {
+        sessionId: "SESSION-0001",
+        stateVersion: 1,
+        phase: "running" as const,
+        scope: { kind: "block" as const, blockRef: "T-001#B-001" },
+        startedAt: "2026-08-05T00:00:00.000Z",
+        updatedAt: "2026-08-05T00:00:01.000Z",
+        finishedAt: null,
+        error: null,
+        interactionStatus: [],
+        evidence: { status: "complete" as const, diagnostics: [] }
+      },
+      events: [] as Array<{
+        version: "planweave.execution-event/v1";
+        eventId: string;
+        observedAt: string;
+        runSessionId: string;
+        scope: { kind: "block"; blockRef: string };
+        source: {
+          target: "remote";
+          operationId: string;
+          executionAttemptId: string;
+          cursor: number;
+        };
+        type: "operation_observed" | "run_terminal";
+        data: Record<string, unknown>;
+      }>
+    };
+    const progressView = {
+      ...runningView,
+      events: [
+        {
+          version: "planweave.execution-event/v1" as const,
+          eventId: "operation-1:operation:2",
+          observedAt: "2026-08-05T00:00:02.000Z",
+          runSessionId: "SESSION-0001",
+          scope: { kind: "block" as const, blockRef: "T-001#B-001" },
+          source: {
+            target: "remote" as const,
+            operationId: "operation-1",
+            executionAttemptId: "attempt-1",
+            cursor: 2
+          },
+          type: "operation_observed" as const,
+          data: { state: "running", attemptStatus: "running", operationRevision: 2 }
+        }
+      ]
+    };
+    const completedView = {
+      ...runningView,
+      session: {
+        ...runningView.session,
+        phase: "completed" as const,
+        finishedAt: "2026-08-05T00:00:03.000Z"
+      },
+      events: [
+        {
+          version: "planweave.execution-event/v1" as const,
+          eventId: "terminal-completed",
+          observedAt: "2026-08-05T00:00:03.000Z",
+          runSessionId: "SESSION-0001",
+          scope: { kind: "block" as const, blockRef: "T-001#B-001" },
+          source: {
+            target: "remote" as const,
+            operationId: "operation-1",
+            executionAttemptId: "attempt-1",
+            cursor: 3
+          },
+          type: "run_terminal" as const,
+          data: { outcome: "completed" }
+        }
+      ]
+    };
+    const followWorkspaceExecution = vi
+      .fn()
+      .mockResolvedValueOnce(runningView)
+      .mockResolvedValueOnce(progressView)
+      .mockResolvedValueOnce(completedView);
+    const { result, setError, lifecycle } = renderRun({ followWorkspaceExecution });
+
+    await act(() => result.current({ kind: "block", blockRef: "T-001#B-001" }));
+
+    expect(followWorkspaceExecution).toHaveBeenCalledTimes(3);
+    expect(delay.mock.calls.map((call) => call[0])).toEqual([0, 1, 0]);
+    expect(lifecycle.onCompleted).toHaveBeenCalledOnce();
+    expect(setError).not.toHaveBeenCalled();
+    delay.mockRestore();
   });
 });

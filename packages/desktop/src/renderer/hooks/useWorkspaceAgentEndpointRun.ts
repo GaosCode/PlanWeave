@@ -528,7 +528,7 @@ export function useWorkspaceAgentEndpointRun(
               view = await executionApi.followWorkspaceExecution({ ...startInput, sessionId });
               assertCurrentRequest();
               events.push(...view.events);
-              noProgressCount += 1;
+              noProgressCount = view.events.length > 0 ? 0 : noProgressCount + 1;
             }
           } finally {
             if (!signal.aborted) {

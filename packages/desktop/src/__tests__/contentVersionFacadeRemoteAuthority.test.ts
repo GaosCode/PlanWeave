@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { ContentVersionFacade } from "../main/collaboration/ContentVersionFacade.js";
+import {
+  AUTHORIZED_REMOTE_CANVAS_CACHE_LIMIT,
+  ContentVersionFacade,
+  observerKindInvalidatesRemoteCanvasAuthorization
+} from "../main/collaboration/ContentVersionFacade.js";
 import type { CollaborationClient } from "../main/collaboration/CollaborationClient.js";
 
 const runtime = vi.hoisted(() => ({
@@ -73,8 +77,8 @@ const adoptedReceipt = {
 };
 
 function fakeClient() {
-  const getCurrentCanvasAccess = vi.fn(async () => ({
-    scope: { ...scope, scopeKind: "canvas" as const },
+  const getCurrentCanvasAccess = vi.fn(async (canvasId: string) => ({
+    scope: { ...scope, canvasId, scopeKind: "canvas" as const },
     canvas: { capabilities: { read: true } }
   }));
   const listCanvases = vi.fn(async () => ({
@@ -355,6 +359,65 @@ describe("ContentVersionFacade remote authority", () => {
     });
     expect(fake.calls.getCurrentCanvasAccess).toHaveBeenCalledTimes(1);
     expect(fake.calls.listCanvases).not.toHaveBeenCalled();
+  });
+
+  it("forgets cached canvas authorization after the collaboration client is replaced", async () => {
+    const fake = fakeClient();
+    const facade = new ContentVersionFacade(() => fake.client);
+
+    await expect(facade.resolveCanvasScope(binding)).resolves.toEqual(scope);
+    facade.clearAuthorizedRemoteCanvasCache();
+    await expect(facade.resolveCanvasScope(binding)).resolves.toEqual(scope);
+    expect(fake.calls.getCurrentCanvasAccess).toHaveBeenCalledTimes(2);
+  });
+
+  it("reuses cached canvas authorization until ACL observer kinds invalidate it", async () => {
+    const fake = fakeClient();
+    const facade = new ContentVersionFacade(() => fake.client);
+
+    await expect(facade.resolveCanvasScope(binding)).resolves.toEqual(scope);
+    await expect(facade.resolveCanvasScope(binding)).resolves.toEqual(scope);
+    expect(fake.calls.getCurrentCanvasAccess).toHaveBeenCalledTimes(1);
+    expect(observerKindInvalidatesRemoteCanvasAuthorization("membership")).toBe(true);
+    expect(observerKindInvalidatesRemoteCanvasAuthorization("canvas")).toBe(true);
+    expect(observerKindInvalidatesRemoteCanvasAuthorization("project")).toBe(true);
+    expect(observerKindInvalidatesRemoteCanvasAuthorization("runtime")).toBe(false);
+    facade.clearAuthorizedRemoteCanvasCache();
+    await expect(facade.resolveCanvasScope(binding)).resolves.toEqual(scope);
+    expect(fake.calls.getCurrentCanvasAccess).toHaveBeenCalledTimes(2);
+  });
+
+  it("evicts the oldest cached canvas authorization once the cap is reached", async () => {
+    const fake = fakeClient();
+    const facade = new ContentVersionFacade(() => fake.client);
+
+    for (let index = 0; index < AUTHORIZED_REMOTE_CANVAS_CACHE_LIMIT + 1; index += 1) {
+      await expect(
+        facade.resolveCanvasScope({ ...binding, canvasId: `canvas-${index}` })
+      ).resolves.toEqual({ ...scope, canvasId: `canvas-${index}` });
+    }
+    expect(fake.calls.getCurrentCanvasAccess).toHaveBeenCalledTimes(
+      AUTHORIZED_REMOTE_CANVAS_CACHE_LIMIT + 1
+    );
+    await expect(facade.resolveCanvasScope({ ...binding, canvasId: "canvas-0" })).resolves.toEqual({
+      ...scope,
+      canvasId: "canvas-0"
+    });
+    expect(fake.calls.getCurrentCanvasAccess).toHaveBeenCalledTimes(
+      AUTHORIZED_REMOTE_CANVAS_CACHE_LIMIT + 2
+    );
+    await expect(
+      facade.resolveCanvasScope({
+        ...binding,
+        canvasId: `canvas-${AUTHORIZED_REMOTE_CANVAS_CACHE_LIMIT}`
+      })
+    ).resolves.toEqual({
+      ...scope,
+      canvasId: `canvas-${AUTHORIZED_REMOTE_CANVAS_CACHE_LIMIT}`
+    });
+    expect(fake.calls.getCurrentCanvasAccess).toHaveBeenCalledTimes(
+      AUTHORIZED_REMOTE_CANVAS_CACHE_LIMIT + 2
+    );
   });
 
   it("rejects Local Canvas without scanning local projects or calling Server", async () => {

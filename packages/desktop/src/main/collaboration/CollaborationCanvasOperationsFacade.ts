@@ -1,4 +1,11 @@
-import { assertNoSmuggledCollaborationSecrets } from "../../shared/collaboration.js";
+import {
+  assertNoSmuggledCollaborationSecrets,
+  collaborationCanvasBindingInputSchema
+} from "../../shared/collaboration.js";
+import {
+  workspaceCanvasLocatorSchema,
+  type WorkspaceCanvasLocator
+} from "../../shared/canvasLocator.js";
 import type { WorkspaceCanvasProjection } from "../../shared/workspaceCanvasProjection.js";
 import { workspaceCanvasPublishResultSchema } from "../../shared/workspaceCanvasSharing.js";
 import type { CollaborationCanvasCommandFacade } from "./collaborationCanvasCommands.js";
@@ -7,7 +14,6 @@ import type { ContentVersionFacade } from "./ContentVersionFacade.js";
 import { WorkspaceCanvasSession } from "./WorkspaceCanvasSession.js";
 import type { WorkspaceAuthoritativeSnapshotCache } from "./WorkspaceAuthoritativeSnapshotCache.js";
 import type { WorkspaceRemoteAuthorityKey } from "./WorkspaceRemoteAuthorityIdentity.js";
-import type { WorkspaceCanvasLocator } from "../../shared/canvasLocator.js";
 
 export type CollaborationCanvasOperationsFacadeOptions = {
   enqueue: <T>(operation: () => Promise<T>) => Promise<T>;
@@ -24,6 +30,7 @@ export type CollaborationCanvasOperationsFacadeOptions = {
 /** Queue-aware main-process facade for one canvas command/content/runtime surface. */
 export class CollaborationCanvasOperationsFacade {
   private readonly workspaceSession: WorkspaceCanvasSession;
+  private readonly canvasRuntimeQueues = new Map<string, Promise<unknown>>();
 
   constructor(private readonly options: CollaborationCanvasOperationsFacadeOptions) {
     this.workspaceSession = new WorkspaceCanvasSession({
@@ -90,18 +97,20 @@ export class CollaborationCanvasOperationsFacade {
   }
 
   readRuntimeAvailability(input: unknown) {
-    return this.run(() => this.options.runtimeAvailability.readRuntimeAvailability(input));
+    return this.runCanvasRuntime(input, () =>
+      this.options.runtimeAvailability.readRuntimeAvailability(input)
+    );
   }
 
   resetWorkspaceRuntime(input: unknown) {
-    return this.run(() => {
+    return this.runCanvasRuntime(input, () => {
       assertNoSmuggledCollaborationSecrets(input, "resetWorkspaceCanvasRuntime");
       return this.workspaceSession.resetRuntime(input);
     });
   }
 
   initializeWorkspaceRuntime(input: unknown) {
-    return this.run(() => {
+    return this.runCanvasRuntime(input, () => {
       assertNoSmuggledCollaborationSecrets(input, "initializeWorkspaceCanvasRuntime");
       return this.workspaceSession.initializeRuntime(input);
     });
@@ -143,4 +152,37 @@ export class CollaborationCanvasOperationsFacade {
       return operation();
     });
   }
+
+  private runCanvasRuntime<T>(input: unknown, operation: () => Promise<T>): Promise<T> {
+    const key = canvasRuntimeQueueKey(input);
+    const previous = this.canvasRuntimeQueues.get(key) ?? Promise.resolve();
+    const next = previous
+      .catch(() => undefined)
+      .then(async () => {
+        this.options.assertOpen();
+        return operation();
+      });
+    this.canvasRuntimeQueues.set(
+      key,
+      next.then(
+        () => undefined,
+        () => undefined
+      )
+    );
+    return next;
+  }
+}
+
+function canvasRuntimeQueueKey(input: unknown): string {
+  if (input && typeof input === "object" && "locator" in input) {
+    const locator = workspaceCanvasLocatorSchema.safeParse((input as { locator: unknown }).locator);
+    if (locator.success) {
+      return `${locator.data.workspaceId}\u0000${locator.data.projectId}\u0000${locator.data.canvasId}`;
+    }
+  }
+  const binding = collaborationCanvasBindingInputSchema.parse(input);
+  if (binding.kind === "remote") {
+    return `${binding.workspaceId}\u0000${binding.projectId}\u0000${binding.canvasId}`;
+  }
+  return `local\u0000${binding.localProjectId}\u0000${binding.canvasId}`;
 }

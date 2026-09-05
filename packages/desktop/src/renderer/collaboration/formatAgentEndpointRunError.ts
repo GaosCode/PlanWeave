@@ -39,6 +39,13 @@ export function formatAgentEndpointRunError(message: string, t: Translator): str
     });
   }
 
+  if (
+    message === "content_out_of_sync" ||
+    message === "collaboration_runtime_content_out_of_sync"
+  ) {
+    return `${t("collaborationRuntimeContentOutOfSync")} [${message}]`;
+  }
+
   {
     const matched = matchPrefix(message, "claim_bus_blocked:");
     if (matched) {

@@ -30,7 +30,6 @@ import {
   type AuthorizationChangeSignal
 } from "./authorizationChangeSignal.js";
 import {
-  humanCanObserveProject,
   humanObserverEventIsVisible,
   loadHumanObserverEventVisibility,
   type HumanObserverEventVisibility
@@ -110,6 +109,23 @@ type SerializedMessage = {
   bytes: number;
   eventCursor?: number;
 };
+
+type PendingFrame = {
+  bytes: number;
+  message: unknown;
+};
+
+type AdmittedObserver = {
+  authenticated: AuthenticatedCollaborationScope;
+  visibility: HumanObserverEventVisibility;
+};
+
+function observerEventForDelivery(
+  event: HumanObserverEvent,
+  previousCursor: number
+): HumanObserverEvent {
+  return { ...event, previousCursor };
+}
 
 function serializeMessage(message: unknown): SerializedMessage {
   const parsed = humanObserverServerMessageSchema.parse(message);
@@ -231,7 +247,7 @@ export function attachHumanObserverWebSocketServer(
     authorization: string | string[] | undefined,
     projectId: string,
     recordLastUsed: boolean
-  ) => {
+  ): AdmittedObserver | undefined => {
     const authenticated = authenticateCollaborationForScope(
       options.repository,
       options.workspaceIdentity,
@@ -242,21 +258,21 @@ export function attachHumanObserverWebSocketServer(
       { recordLastUsed }
     );
     if (!authenticated) return undefined;
-    return humanCanObserveProject({
+    const visibility = loadHumanObserverEventVisibility({
       projectAccess: options.projectAccess,
       workspaceId: authenticated.workspaceId,
       projectId,
       humanPrincipalId: authenticated.actor.humanPrincipalId
-    })
-      ? authenticated
-      : undefined;
+    });
+    return visibility.kind === "none" ? undefined : { authenticated, visibility };
   };
 
   const handleConnection = (
     socket: WebSocket,
     scope: HumanObserverScope,
     authorization: string | string[] | undefined,
-    authenticated: AuthenticatedCollaborationScope
+    authenticated: AuthenticatedCollaborationScope,
+    initialVisibility: HumanObserverEventVisibility
   ) => {
     let authorizationExpired = false;
     let unsubscribeJournal = () => {};
@@ -265,20 +281,18 @@ export function attachHumanObserverWebSocketServer(
     let phase: "awaiting_hello" | "replaying" | "live" | "catchup" | "stopping" | "closed" =
       "awaiting_hello";
     let replayHeadCursor = 0;
+    let deliveredCursor = 0;
     let pendingBytes = 0;
     let draining = false;
-    const pending: SerializedMessage[] = [];
+    const pending: PendingFrame[] = [];
     const humanPrincipalId = authenticated.actor.humanPrincipalId;
-    const loadVisibility = (): HumanObserverEventVisibility =>
-      loadHumanObserverEventVisibility({
-        projectAccess: options.projectAccess,
-        workspaceId: scope.workspaceId,
-        projectId: scope.projectId,
-        humanPrincipalId
-      });
-    let visibility = loadVisibility();
-    const stillAuthorized = () =>
-      authenticateScope(authorization, scope.projectId, false)?.workspaceId === scope.workspaceId;
+    let visibility = initialVisibility;
+    const stillAuthorized = (): boolean => {
+      const admitted = authenticateScope(authorization, scope.projectId, false);
+      if (admitted?.authenticated.workspaceId !== scope.workspaceId) return false;
+      visibility = admitted.visibility;
+      return visibility.kind !== "none";
+    };
     const stopApplicationSending = (nextPhase: "catchup" | "stopping"): boolean => {
       if (phase === "closed" || phase === "stopping") return false;
       if (phase === "catchup" && nextPhase === "catchup") return false;
@@ -299,10 +313,7 @@ export function attachHumanObserverWebSocketServer(
     };
     const validateAuthorization = (): boolean => {
       try {
-        if (stillAuthorized()) {
-          visibility = loadVisibility();
-          if (visibility.kind !== "none") return true;
-        }
+        if (stillAuthorized()) return true;
         expireAuthorization();
       } catch {
         closeApplicationSocket(1011, "observer authorization error");
@@ -347,10 +358,14 @@ export function attachHumanObserverWebSocketServer(
           const next = pending.shift();
           if (!next) break;
           pendingBytes -= next.bytes;
-          if ((await sendSerialized(next)) !== "sent") {
+          const outgoing = isObserverEvent(next.message)
+            ? serializeMessage(observerEventForDelivery(next.message, deliveredCursor))
+            : serializeMessage(next.message);
+          if ((await sendSerialized(outgoing)) !== "sent") {
             signalCatchup(options.journal.head(scope));
             break;
           }
+          if (outgoing.eventCursor !== undefined) deliveredCursor = outgoing.eventCursor;
           sentInBatch += 1;
           if (sentInBatch === limits.replayBatchEvents) {
             sentInBatch = 0;
@@ -379,7 +394,7 @@ export function attachHumanObserverWebSocketServer(
         signalCatchup(options.journal.head(scope));
         return;
       }
-      pending.push(serialized);
+      pending.push({ bytes: serialized.bytes, message });
       pendingBytes += serialized.bytes;
       if (phase === "live") void drainPending();
     };
@@ -423,6 +438,7 @@ export function attachHumanObserverWebSocketServer(
     const initialize = async (lastCursor: number) => {
       if (phase !== "awaiting_hello") return;
       phase = "replaying";
+      deliveredCursor = lastCursor;
       unsubscribeJournal = options.journal.subscribe(scope, (event) => {
         if (!validateAuthorization()) return;
         enqueue(event);
@@ -447,10 +463,12 @@ export function attachHumanObserverWebSocketServer(
         if (phase !== "replaying") return;
         const event = replay.events[index];
         if (!humanObserverEventIsVisible(event, visibility)) continue;
-        if ((await sendSerialized(serializeMessage(event))) !== "sent") {
+        const outgoing = serializeMessage(observerEventForDelivery(event, deliveredCursor));
+        if ((await sendSerialized(outgoing)) !== "sent") {
           signalCatchup(options.journal.head(scope));
           return;
         }
+        deliveredCursor = event.cursor;
         if ((index + 1) % limits.replayBatchEvents === 0) await yieldToEventLoop();
       }
       if (phase !== "replaying") return;
@@ -468,6 +486,7 @@ export function attachHumanObserverWebSocketServer(
         signalCatchup(options.journal.head(scope));
         return;
       }
+      deliveredCursor = replay.headCursor;
       phase = "live";
       void drainPending();
     };
@@ -528,8 +547,8 @@ export function attachHumanObserverWebSocketServer(
         reject(socket, 403, "Forbidden");
         return;
       }
-      const authenticated = authenticateScope(request.headers.authorization, projectId, true);
-      if (!authenticated) {
+      const admitted = authenticateScope(request.headers.authorization, projectId, true);
+      if (!admitted) {
         const credentialActor = authenticateCollaborationForProject(
           options.repository,
           options.workspaceIdentity,
@@ -549,9 +568,10 @@ export function attachHumanObserverWebSocketServer(
       webSocketServer.handleUpgrade(request, socket, head, (webSocket) =>
         handleConnection(
           webSocket,
-          { workspaceId: authenticated.workspaceId, projectId },
+          { workspaceId: admitted.authenticated.workspaceId, projectId },
           request.headers.authorization,
-          authenticated
+          admitted.authenticated,
+          admitted.visibility
         )
       );
     }

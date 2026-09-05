@@ -89,4 +89,24 @@ describe("humanObserverEventIsVisible", () => {
     expect(humanObserverEventIsVisible(visibleAssignment, visibility)).toBe(true);
     expect(humanObserverEventIsVisible(comment, visibility)).toBe(false);
   });
+
+  it("keeps remote-run progress for the readable canvas", () => {
+    const progress = humanObserverEventSchema.parse({
+      type: "human.observer.event",
+      protocolVersion: 1,
+      cursor: 2,
+      previousCursor: 1,
+      occurredAt: "2026-09-04T00:00:00.000Z",
+      kind: "remote_run",
+      remoteRunStatus: "progress",
+      dispatchId: "dispatch-1",
+      workItem: { kind: "block", canvasId: "visible", blockRef: "T-001#B-001" }
+    });
+    const hidden = humanObserverEventSchema.parse({
+      ...progress,
+      workItem: { kind: "block", canvasId: "hidden", blockRef: "T-001#B-001" }
+    });
+    expect(humanObserverEventIsVisible(progress, visibility)).toBe(true);
+    expect(humanObserverEventIsVisible(hidden, visibility)).toBe(false);
+  });
 });

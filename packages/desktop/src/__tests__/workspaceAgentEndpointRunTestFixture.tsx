@@ -226,6 +226,7 @@ export function renderRun(input?: {
   localCanvas?: boolean;
   waitForTerminal?: ReturnType<typeof vi.fn>;
   startWorkspaceExecution?: ReturnType<typeof vi.fn>;
+  followWorkspaceExecution?: ReturnType<typeof vi.fn>;
   startGate?: Promise<void>;
 }) {
   const dispatch = vi.fn(async () => operation("running"));
@@ -364,17 +365,19 @@ export function renderRun(input?: {
       await dispatch(startInput);
       return workspaceView("running");
     });
-  const followWorkspaceExecution = vi.fn(async () => {
-    const terminal = await waitForTerminal({ initial: operation("running") });
-    return workspaceView(
-      terminal.state === "completed"
-        ? "completed"
-        : terminal.state === "cancelled"
-          ? "stopped"
-          : "failed",
-      terminal
-    );
-  });
+  const followWorkspaceExecution =
+    input?.followWorkspaceExecution ??
+    vi.fn(async () => {
+      const terminal = await waitForTerminal({ initial: operation("running") });
+      return workspaceView(
+        terminal.state === "completed"
+          ? "completed"
+          : terminal.state === "cancelled"
+            ? "stopped"
+            : "failed",
+        terminal
+      );
+    });
   const cancelWorkspaceExecution = vi.fn(async () => {
     return workspaceView("stopped", operation("cancelled"));
   });

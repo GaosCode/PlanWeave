@@ -38,6 +38,7 @@ import type { RemoteArtifactContentPort } from "../remoteBlockCoordinatorPorts.j
 import type { OwnerCanvasMaterializationRepository } from "../canvas/ownerCanvasMaterializationRepository.js";
 import type { OwnerCanvasMaterializationService } from "../canvas/ownerCanvasMaterializationService.js";
 import { humanPrincipalIdSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
+import { observerEventForDispatchProgress } from "../humanObserverActivity.js";
 
 export function createRemoteCoordinationOptions(input: {
   config: ServerConfig;
@@ -150,6 +151,27 @@ export function createRemoteCoordinationOptions(input: {
           hostId: transition.dispatch.hostId,
           occurredAt: transition.occurredAt
         });
+    },
+    onDispatchProgressInTransaction: (
+      transition: Parameters<
+        NonNullable<
+          import("../distributedCoordination.js").RemoteBlockCoordinationOptions["onDispatchProgressInTransaction"]
+        >
+      >[0]
+    ) => {
+      if (!transition.canvasId) return;
+      input.activity.humanObserverJournal.appendInCallerTransaction(
+        {
+          workspaceId: transition.dispatch.workspaceId,
+          projectId: transition.dispatch.projectId
+        },
+        observerEventForDispatchProgress({
+          dispatchId: transition.dispatch.id,
+          canvasId: transition.canvasId,
+          blockRef: transition.dispatch.blockRef
+        }),
+        transition.occurredAt
+      );
     }
   };
 }

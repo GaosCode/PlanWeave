@@ -13,6 +13,9 @@ import { ActivityRepository } from "../comments/activityRepository.js";
 import { ActivityProjectionService } from "../comments/service.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import { HostReservationRepository } from "../hostReservations.js";
+import { HumanObserverJournal } from "../humanObserverJournal.js";
+import { observerEventForDispatchProgress } from "../humanObserverActivity.js";
+import { RemoteOperationRepository } from "../remoteOperations.js";
 
 const directories: string[] = [];
 const servers: PlanweaveServer[] = [];
@@ -727,5 +730,70 @@ describe("DispatchService (test-only thin stack)", () => {
     });
     expect(complete).toHaveBeenCalledOnce();
     expect(fail).not.toHaveBeenCalled();
+  });
+
+  it("projects dispatch progress onto the human observer journal", async () => {
+    const server = await createServer();
+    const journal = new HumanObserverJournal(server.database, 100);
+    const operations = new RemoteOperationRepository(server.database);
+    const projected: Array<Record<string, unknown>> = [];
+    const coordination = createTestDispatchCoordination(server.database, {
+      leaseDurationMs: 60_000,
+      hostOfflineAfterMs: 60_000,
+      writeback: { complete: async () => {}, fail: async () => {} },
+      onProgressInTransaction: (input) => {
+        const operation = operations.getByDispatchId(input.dispatch.id);
+        if (!operation) throw new Error("remote_operation_missing_for_progress");
+        projected.push(
+          journal.appendInCallerTransaction(
+            {
+              workspaceId: input.dispatch.workspaceId,
+              projectId: input.dispatch.projectId
+            },
+            observerEventForDispatchProgress({
+              dispatchId: input.dispatch.id,
+              canvasId: operation.canvasId,
+              blockRef: input.dispatch.blockRef
+            }),
+            input.occurredAt
+          )
+        );
+      }
+    });
+    const registration = coordination.hosts.register("Progress Host");
+    coordination.hosts.reportOnline(registration.host.id, ["linux"], 1);
+    const dispatch = createRemoteDispatchFixture(
+      server.database,
+      coordination,
+      executionEnvelopeFor("T-001#B-PROGRESS", ["linux"])
+    );
+    coordination.dispatches.accept(
+      registration.host.id,
+      "progress-accept",
+      dispatch.id,
+      dispatch.leaseId,
+      dispatch.executionAttemptId
+    );
+
+    coordination.dispatches.recordProgress(registration.host.id, "progress-1", {
+      dispatchId: dispatch.id,
+      leaseId: dispatch.leaseId,
+      executionAttemptId: dispatch.executionAttemptId,
+      percent: 40,
+      message: "running"
+    });
+
+    expect(projected).toEqual([
+      expect.objectContaining({
+        kind: "remote_run",
+        remoteRunStatus: "progress",
+        dispatchId: dispatch.id,
+        workItem: {
+          kind: "block",
+          canvasId: "default",
+          blockRef: "T-001#B-PROGRESS"
+        }
+      })
+    ]);
   });
 });

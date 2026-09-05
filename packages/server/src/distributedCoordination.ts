@@ -95,6 +95,11 @@ export type RemoteBlockCoordinationOptions = {
     dispatch: DispatchRecord;
     occurredAt: string;
   }) => void;
+  onDispatchProgressInTransaction?: (input: {
+    dispatch: DispatchRecord;
+    canvasId?: string;
+    occurredAt: string;
+  }) => void;
 };
 
 export function createRemoteBlockCoordination(
@@ -491,7 +496,15 @@ export function createRemoteBlockCoordination(
         await coordinator.fail(operation.id);
       }
     },
-    onActivityTransitionInTransaction: options.onDispatchActivityTransitionInTransaction
+    onActivityTransitionInTransaction: options.onDispatchActivityTransitionInTransaction,
+    onProgressInTransaction: (input) => {
+      const operation = operations.getByDispatchId(input.dispatch.id);
+      options.onDispatchProgressInTransaction?.({
+        dispatch: input.dispatch,
+        occurredAt: input.occurredAt,
+        ...(operation ? { canvasId: operation.canvasId } : {})
+      });
+    }
   });
   const reconcile = async (context?: StartupContext) => {
     await dispatches.recoverExpiredLeases();

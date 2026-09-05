@@ -97,6 +97,12 @@ export type DispatchServiceOptions = {
     dispatch: DispatchRecord;
     occurredAt: string;
   }) => void;
+  onProgressInTransaction?: (input: {
+    dispatch: DispatchRecord;
+    occurredAt: string;
+    percent?: number;
+    message?: string;
+  }) => void;
 };
 
 type DispatchRow = Record<string, unknown> & {
@@ -431,9 +437,16 @@ export class DispatchService {
         dropReason = "dispatch_not_running";
         return;
       }
+      const occurredAt = new Date().toISOString();
       this.appendEvent(dispatch.id, "dispatch.progress", {
         percent: input.percent,
         message: input.message
+      });
+      this.options.onProgressInTransaction?.({
+        dispatch: this.getRequired(dispatch.id),
+        occurredAt,
+        ...(input.percent === undefined ? {} : { percent: input.percent }),
+        ...(input.message === undefined ? {} : { message: input.message })
       });
     });
     if (dropReason) {

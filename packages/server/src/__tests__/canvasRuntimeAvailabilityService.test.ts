@@ -105,6 +105,34 @@ describe("CanvasRuntimeAvailabilityService", () => {
     expect(readAvailability).toHaveBeenCalledWith(scope, capturedAt);
   });
 
+  it("reuses host execution evidence until content or runtime revision changes", async () => {
+    const { service, fingerprint, readAvailability, runtimeStatuses } = await setup();
+
+    await service.read(actor("viewer"), { projectId: "p", canvasId: "default" });
+    await service.read(actor("viewer"), { projectId: "p", canvasId: "default" });
+    expect(readAvailability).toHaveBeenCalledTimes(1);
+
+    runtimeStatuses.replaceFromExecution(status(fingerprint));
+    await service.read(actor("viewer"), { projectId: "p", canvasId: "default" });
+    expect(readAvailability).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not cache transient host-offline execution evidence", async () => {
+    const { service, readAvailability } = await setup({
+      async readAvailability() {
+        return {
+          schemaVersion: "canvas-runtime-availability/v1",
+          kind: "unavailable",
+          reason: "host_offline"
+        };
+      }
+    });
+
+    await service.read(actor("viewer"), { projectId: "p", canvasId: "default" });
+    await service.read(actor("viewer"), { projectId: "p", canvasId: "default" });
+    expect(readAvailability).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps Server-authoritative state visible while no execution device is attached", async () => {
     const { service, authority, fingerprint, runtimeStatuses } = await setup({
       async readAvailability() {

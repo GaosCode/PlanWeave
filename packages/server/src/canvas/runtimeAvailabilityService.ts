@@ -42,9 +42,34 @@ function sameScope(
   );
 }
 
+const EXECUTION_AVAILABILITY_CACHE_LIMIT = 32;
+
+function executionAvailabilityCacheKey(input: {
+  workspaceId: string;
+  projectId: string;
+  canvasId: string;
+  graphFingerprint: string;
+  sourceRevision: string;
+  runtimeRevision: number;
+}): string {
+  return [
+    input.workspaceId,
+    input.projectId,
+    input.canvasId,
+    input.graphFingerprint,
+    input.sourceRevision,
+    String(input.runtimeRevision)
+  ].join("\u0000");
+}
+
+function cacheableExecution(execution: CanvasRuntimeExecutionAvailability): boolean {
+  return execution.kind === "available" || execution.reason === "content_out_of_sync";
+}
+
 /** Authorizes one logical Canvas read and combines Server state with device execution evidence. */
 export class CanvasRuntimeAvailabilityService {
   private readonly clock: () => Date;
+  private readonly executionCache = new Map<string, CanvasRuntimeExecutionAvailability>();
 
   constructor(private readonly options: CanvasRuntimeAvailabilityServiceOptions) {
     this.clock = options.clock ?? (() => new Date());
@@ -69,12 +94,22 @@ export class CanvasRuntimeAvailabilityService {
         : { kind: "uninitialized" as const };
 
     const capturedAt = this.clock().toISOString();
+    const cacheKey = executionAvailabilityCacheKey({
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      canvasId: scope.canvasId,
+      graphFingerprint: contentEvidence.target.graphFingerprint,
+      sourceRevision: contentEvidence.sourceRevision,
+      runtimeRevision: stored?.runtimeRevision ?? 0
+    });
+    const cachedExecution = this.executionCache.get(cacheKey);
     const observed = canvasRuntimeExecutionAvailabilitySchema.parse(
-      await this.options.runtimeAvailability.readAvailabilityForAuthority(
-        scope,
-        capturedAt,
-        contentEvidence
-      )
+      cachedExecution ??
+        (await this.options.runtimeAvailability.readAvailabilityForAuthority(
+          scope,
+          capturedAt,
+          contentEvidence
+        ))
     );
     const execution =
       contentFingerprint &&
@@ -87,6 +122,9 @@ export class CanvasRuntimeAvailabilityService {
         : observed.kind === "available"
           ? executionContentOutOfSync()
           : observed;
+    if (!cachedExecution && cacheableExecution(execution)) {
+      this.rememberExecution(cacheKey, execution);
+    }
 
     return canvasRuntimeAvailabilityV2Schema.parse({
       schemaVersion: "canvas-runtime-view/v2",
@@ -98,6 +136,16 @@ export class CanvasRuntimeAvailabilityService {
       state,
       execution
     });
+  }
+
+  private rememberExecution(cacheKey: string, execution: CanvasRuntimeExecutionAvailability): void {
+    this.executionCache.delete(cacheKey);
+    this.executionCache.set(cacheKey, execution);
+    while (this.executionCache.size > EXECUTION_AVAILABILITY_CACHE_LIMIT) {
+      const oldest = this.executionCache.keys().next().value;
+      if (oldest === undefined) break;
+      this.executionCache.delete(oldest);
+    }
   }
 
   private authorize(

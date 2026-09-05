@@ -1,6 +1,23 @@
 import type { ActivityRecord } from "./comments/schemas.js";
 import type { HumanObserverJournalEventInput } from "./humanObserverJournal.js";
 
+export function observerEventForDispatchProgress(input: {
+  dispatchId: string;
+  canvasId: string;
+  blockRef: string;
+}): HumanObserverJournalEventInput {
+  return {
+    kind: "remote_run",
+    remoteRunStatus: "progress",
+    dispatchId: input.dispatchId,
+    workItem: {
+      kind: "block",
+      canvasId: input.canvasId,
+      blockRef: input.blockRef
+    }
+  };
+}
+
 export function observerEventsForActivity(
   record: ActivityRecord
 ): HumanObserverJournalEventInput[] {

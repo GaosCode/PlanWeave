@@ -1,4 +1,5 @@
 import { type CanvasAccessRecord } from "@planweave-ai/collaboration-protocol/access/project";
+import type { HumanObserverEvent } from "@planweave-ai/collaboration-protocol/activity/observer";
 import type { CanvasRuntimeAvailability } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import {
   canvasRuntimeInitializeRequestSchema,
@@ -66,6 +67,14 @@ function localSourceKey(localProjectId: string, localCanvasId: string): string {
   return `${localProjectId}\u0000${localCanvasId}`;
 }
 
+export const AUTHORIZED_REMOTE_CANVAS_CACHE_LIMIT = 64;
+
+export function observerKindInvalidatesRemoteCanvasAuthorization(
+  kind: HumanObserverEvent["kind"]
+): boolean {
+  return kind === "membership" || kind === "canvas" || kind === "project";
+}
+
 /**
  * Main-only Workspace authority operations. Local Canvas is accepted only by the explicit
  * publish/download use cases; remote reads and Runtime operations require a remote binding.
@@ -80,6 +89,10 @@ export class ContentVersionFacade {
     string,
     CollaborationCanvasScopeResolution
   >();
+
+  clearAuthorizedRemoteCanvasCache(): void {
+    this.authorizedRemoteCanvasCache.clear();
+  }
 
   async resolveCanvasBinding(input: unknown): Promise<ResolvedCollaborationCanvasBinding | null> {
     const requested = this.requireRemoteBinding(input);
@@ -381,7 +394,10 @@ export class ContentVersionFacade {
     }
     const cacheKey = this.authorizedRemoteCanvasCacheKey(client, requested);
     const cached = this.authorizedRemoteCanvasCache.get(cacheKey);
-    if (cached) return cached;
+    if (cached) {
+      this.rememberAuthorizedRemoteCanvas(cacheKey, cached);
+      return cached;
+    }
     let access: Awaited<ReturnType<CollaborationClient["getCurrentCanvasAccess"]>>;
     try {
       access = await client.getCurrentCanvasAccess(requested.canvasId);
@@ -407,7 +423,20 @@ export class ContentVersionFacade {
       projectId: access.scope.projectId,
       canvasId: access.scope.canvasId
     });
-    this.authorizedRemoteCanvasCache.set(cacheKey, canvas);
+    this.rememberAuthorizedRemoteCanvas(cacheKey, canvas);
     return canvas;
+  }
+
+  private rememberAuthorizedRemoteCanvas(
+    cacheKey: string,
+    canvas: CollaborationCanvasScopeResolution
+  ): void {
+    this.authorizedRemoteCanvasCache.delete(cacheKey);
+    this.authorizedRemoteCanvasCache.set(cacheKey, canvas);
+    while (this.authorizedRemoteCanvasCache.size > AUTHORIZED_REMOTE_CANVAS_CACHE_LIMIT) {
+      const oldest = this.authorizedRemoteCanvasCache.keys().next().value;
+      if (oldest === undefined) break;
+      this.authorizedRemoteCanvasCache.delete(oldest);
+    }
   }
 }

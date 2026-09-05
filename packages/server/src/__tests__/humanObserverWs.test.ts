@@ -970,41 +970,52 @@ describe("human observer WSS", () => {
     const scope = { workspaceId, projectId };
     const socket = await connect(url, member.token);
     sendHello(socket, projectId, 0);
-    await expect(nextMessage(socket)).resolves.toMatchObject({
+    const welcome = await nextMessage(socket);
+    expect(welcome).toMatchObject({
       type: "human.observer.welcome",
       projectId
     });
+    let deliveredCursor = welcome.cursor;
+    const expectChained = async (expected: Record<string, unknown>) => {
+      const message = await nextMessage(socket);
+      expect(message).toMatchObject(expected);
+      expect(message.previousCursor).toBe(deliveredCursor);
+      expect(typeof message.cursor).toBe("number");
+      expect(Number(message.cursor)).toBeGreaterThan(Number(message.previousCursor));
+      deliveredCursor = message.cursor;
+      return message;
+    };
 
-    const invitation = nextMessage(socket);
-    journal.appendInCallerTransaction(scope, { kind: "invitation" });
-    await expect(invitation).resolves.toMatchObject({
+    const invitation = expectChained({
       type: "human.observer.event",
       kind: "invitation"
     });
+    journal.appendInCallerTransaction(scope, { kind: "invitation" });
+    await invitation;
 
-    const visibleCanvas = nextMessage(socket);
+    const visibleCanvas = expectChained({
+      type: "human.observer.event",
+      kind: "canvas",
+      canvasId: "canvas-visible"
+    });
     journal.appendInCallerTransaction(scope, {
       kind: "canvas",
       canvasId: "canvas-visible",
       canvasRevision: 1,
       canvasContentDigest: digest
     });
-    await expect(visibleCanvas).resolves.toMatchObject({
-      type: "human.observer.event",
-      kind: "canvas",
-      canvasId: "canvas-visible"
-    });
+    await visibleCanvas;
 
-    const visibleAssignment = nextMessage(socket);
+    const visibleAssignment = expectChained({
+      type: "human.observer.event",
+      kind: "assignment",
+      workItem: { kind: "task", canvasId: "canvas-visible", taskId: "T-001" }
+    });
     journal.appendInCallerTransaction(scope, {
       kind: "assignment",
       workItem: { kind: "task", canvasId: "canvas-visible", taskId: "T-001" }
     });
-    await expect(visibleAssignment).resolves.toMatchObject({
-      type: "human.observer.event",
-      kind: "assignment",
-      workItem: { kind: "task", canvasId: "canvas-visible", taskId: "T-001" }
-    });
+    await visibleAssignment;
 
     journal.appendInCallerTransaction(scope, {
       kind: "canvas",
@@ -1023,17 +1034,17 @@ describe("human observer WSS", () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 150));
 
-    const liveVisible = nextMessage(socket);
+    const liveVisible = expectChained({
+      type: "human.observer.event",
+      kind: "runtime",
+      canvasId: "canvas-visible"
+    });
     journal.appendInCallerTransaction(scope, {
       kind: "runtime",
       canvasId: "canvas-visible",
       runtimeRevision: 2
     });
-    await expect(liveVisible).resolves.toMatchObject({
-      type: "human.observer.event",
-      kind: "runtime",
-      canvasId: "canvas-visible"
-    });
+    await liveVisible;
     socket.close();
   });
 

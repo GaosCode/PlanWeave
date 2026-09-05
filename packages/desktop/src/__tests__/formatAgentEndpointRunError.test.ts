@@ -100,4 +100,16 @@ describe("formatAgentEndpointRunError", () => {
   it("passes through unknown messages", () => {
     expect(formatAgentEndpointRunError("totally_unknown_error", en)).toBe("totally_unknown_error");
   });
+
+  it("humanizes content_out_of_sync from execute without a second Catalog resolve", () => {
+    expect(formatAgentEndpointRunError("content_out_of_sync", en)).toContain(
+      "Workspace execution content is not current"
+    );
+    expect(formatAgentEndpointRunError("content_out_of_sync", en)).toContain(
+      "[content_out_of_sync]"
+    );
+    expect(formatAgentEndpointRunError("content_out_of_sync", zh)).toContain(
+      "Workspace 执行内容不是最新版本"
+    );
+  });
 });

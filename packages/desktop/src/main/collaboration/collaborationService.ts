@@ -59,7 +59,10 @@ import type { WorkspaceCanvasProjection } from "../../shared/workspaceCanvasProj
 import { CollaborationClient } from "./CollaborationClient.js";
 import { CollaborationRegistryService } from "./CollaborationRegistryService.js";
 import { CollaborationCanvasCommandFacade } from "./collaborationCanvasCommands.js";
-import { ContentVersionFacade } from "./ContentVersionFacade.js";
+import {
+  ContentVersionFacade,
+  observerKindInvalidatesRemoteCanvasAuthorization
+} from "./ContentVersionFacade.js";
 import { CollaborationRemoteOperationsFacade } from "./collaborationRemoteOperations.js";
 import { CollaborationPresenceSession } from "./collaborationPresenceSession.js";
 import { CollaborationReadMutationsFacade } from "./collaborationReadMutations.js";
@@ -253,6 +256,9 @@ export class CollaborationService {
       getClient: () => this.client,
       getClientProfileId: () => this.clientProfileId,
       setClient: (client, profileId) => {
+        if (this.client !== client) {
+          this.contentVersions.clearAuthorizedRemoteCanvasCache();
+        }
         this.client = client;
         this.clientProfileId = profileId;
       },
@@ -757,7 +763,9 @@ export class CollaborationService {
   async mutateCurrentCanvasAccess(input: unknown): Promise<AccessMutationResult> {
     return this.enqueue(async () => {
       this.assertOpen();
-      return this.currentCanvasAccess.mutate(input);
+      const result = await this.currentCanvasAccess.mutate(input);
+      this.contentVersions.clearAuthorizedRemoteCanvasCache();
+      return result;
     });
   }
 
@@ -1061,6 +1069,13 @@ export class CollaborationService {
   }
 
   private publishObserverSignal(signal: CollaborationObserverSignal): void {
+    if (
+      signal.type === "human.observer.catchup_required" ||
+      (signal.type === "human.observer.event" &&
+        observerKindInvalidatesRemoteCanvasAuthorization(signal.event.kind))
+    ) {
+      this.contentVersions.clearAuthorizedRemoteCanvasCache();
+    }
     this.onObserverSignal?.(signal);
   }
 
