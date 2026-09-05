@@ -9,6 +9,7 @@ import { useRemoteAcpContinuation } from "../renderer/task-workspace/useRemoteAc
 import { RemoteAcpComposer } from "../renderer/task-workspace/conversation/RemoteAcpComposer";
 import { createTranslator } from "../renderer/i18n";
 import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
+import type { RemoteRunnerEventFragment } from "@planweave-ai/agent-host-protocol/browser";
 afterEach(cleanupRendererTestEnvironment);
 const scope = {
   locator: {
@@ -62,6 +63,61 @@ function setup() {
   };
 }
 describe("remote ACP composer continuation", () => {
+  it("projects telemetry within the latest follow-up record without merging initial snapshots across turns", async () => {
+    const f = setup();
+    const timestamp = "2026-09-05T12:00:00.000Z";
+    const turns = ["first", "second"].map((turnId) => ({
+      turnId,
+      executionAttemptId: "attempt-one",
+      sessionId: "original-session",
+      status: "completed" as const,
+      createdAt: timestamp,
+      error: null
+    }));
+    const fragments = (usedTokens: number): RemoteRunnerEventFragment[] => [
+      {
+        kind: "engine_evidence",
+        evidence: { kind: "session_started", sessionId: "original-session", loaded: true }
+      },
+      {
+        kind: "runner_body",
+        body: {
+          kind: "session_configuration_snapshot",
+          phase: "initial",
+          configuration: { modes: null, configOptions: [] }
+        }
+      },
+      {
+        kind: "runner_body",
+        body: { kind: "usage_update", usedTokens, contextWindowTokens: 1000, cost: null }
+      }
+    ];
+    const page: DesktopRemoteAcpConversationPage = {
+      ...f.page,
+      turns,
+      events: turns.flatMap((turn, index) =>
+        fragments(index === 0 ? 200 : 50).map((fragment, sequence) => ({
+          protocolVersion: 1 as const,
+          type: "acp_conversation.event" as const,
+          operationId: scope.operationId,
+          executionAttemptId: turn.executionAttemptId,
+          sessionId: turn.sessionId,
+          messageId: `${turn.turnId}-${sequence}`,
+          turnId: turn.turnId,
+          sequence: sequence + 1,
+          timestamp,
+          payload: { kind: "runner" as const, fragment }
+        }))
+      ),
+      cursor: 6
+    };
+    f.api.remoteAcpConversation.mockImplementation(async () => page);
+    const { result } = renderHook(() => useRemoteAcpContinuation(f.api, scope));
+    await waitFor(() => expect(result.current.turns).toHaveLength(2));
+    expect(result.current.telemetry?.actualConfiguration.available).toBe(true);
+    expect(result.current.telemetry?.currentContext?.usedTokens).toBe(50);
+  });
+
   it("shows the pending message before acknowledgement and consumes the acknowledgement without a second request", async () => {
     const f = setup();
     const original = f.api.remoteAcpConversation.getMockImplementation()!;

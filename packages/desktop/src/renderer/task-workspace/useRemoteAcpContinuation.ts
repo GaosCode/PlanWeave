@@ -174,12 +174,10 @@ export function useRemoteAcpContinuation(
       });
       return { ...turn, timeline: projected.timeline, projected: projected.events };
     });
-    const all = turns
-      .flatMap((turn) => turn.projected)
-      .map((event, index) => ({ ...event, cursor: index + 1 }));
+    const latestRecord = turns.filter((turn) => turn.projected.length > 0).at(-1);
     return {
       turns,
-      telemetry: all.length ? projectRemoteAcpTelemetry(all) : null,
+      telemetry: latestRecord ? projectRemoteAcpTelemetry(latestRecord.projected) : null,
       interactions: [...pending.values()].filter((item) =>
         state.page.turns.some(
           (turn) =>
