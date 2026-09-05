@@ -51,6 +51,7 @@ import {
   agentFamilyFromExecutorName,
   diskSelectedRecordId,
   isRemoteLiveRecordId,
+  remoteLiveRecordId,
   withRemoteLiveTimelineRuns,
   type RemoteLiveAgentHint
 } from "./remoteLiveRun";
@@ -529,6 +530,16 @@ export function useTaskWorkspaceController(options: {
     collaborationApi,
     execution: selectedRemoteExecution,
     onTerminal: refresh,
+    onTaskRestored: (operationId) => {
+      const currentNavigation = navigationRef.current;
+      if (!currentNavigation || !selectedBlockRef) return;
+      history.replaceTaskWorkspaceTarget(
+        navigationTargetWithSelection(currentNavigation, {
+          blockRef: selectedBlockRef,
+          recordId: remoteLiveRecordId(selectedBlockRef, operationId)
+        })
+      );
+    },
     operatorApi,
     operatorProfileId,
     ownerLocator:

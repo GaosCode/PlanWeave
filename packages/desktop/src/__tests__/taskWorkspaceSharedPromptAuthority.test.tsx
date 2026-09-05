@@ -23,7 +23,8 @@ const workspaceExecutionBridgeMock = vi.hoisted(() => ({
   startWorkspaceExecution: vi.fn(),
   followWorkspaceExecution: vi.fn(),
   respondWorkspaceExecution: vi.fn(),
-  cancelWorkspaceExecution: vi.fn()
+  cancelWorkspaceExecution: vi.fn(),
+  remoteAcpConversation: vi.fn()
 }));
 
 vi.mock("../renderer/bridge", async (importOriginal) => {
@@ -38,6 +39,7 @@ afterEach(cleanupRendererTestEnvironment);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  workspaceExecutionBridgeMock.remoteAcpConversation.mockReset();
 });
 
 function workspaceExecutionView(): DesktopWorkspaceExecutionResponse {
@@ -273,6 +275,110 @@ describe("Task Workspace shared prompt authority", () => {
       operationId: "operation-1"
     });
     expect(collaborationApi.lookupCollaborationRemoteOperation).not.toHaveBeenCalled();
+  });
+
+  it("selects the restored execution in the timeline and loads its completed record", async () => {
+    const { api } = controllerApi({ readModel: () => null });
+    const workspaceCanvas = workspaceCanvasWithProjection();
+    const workspaceNavigation: TaskWorkspaceNavigationIdentity = taskWorkspaceNavigationIdentity(
+      workspaceBlockWorkspaceTarget({
+        authority: "workspace",
+        connectionProfileId: "profile-workspace",
+        workspaceId: "workspace-1",
+        projectId: "project-1",
+        canvasId: "canvas-main",
+        taskId: "T-001",
+        blockRef: "T-001#B-001"
+      }),
+      taskWorkspaceSource
+    );
+    const operation = {
+      operationId: "operation-1",
+      projectId: "project-1",
+      canvasId: "canvas-main",
+      blockRef: "T-001#B-001",
+      state: "cancelled" as const,
+      dispatchId: "dispatch-1",
+      executionAttemptId: "attempt-1",
+      createdAt: "2026-08-24T00:01:00.000Z",
+      updatedAt: "2026-08-24T00:02:00.000Z",
+      attempt: {
+        executionAttemptId: "attempt-1",
+        dispatchId: "dispatch-1",
+        status: "cancelled" as const,
+        stateVersion: 3
+      },
+      agentEndpoint: null,
+      runtime: null
+    };
+    const collaborationApi = {
+      lookupCollaborationRemoteOperation: vi.fn().mockResolvedValue(operation),
+      lookupWorkspaceRemoteOperation: vi.fn().mockResolvedValue(operation),
+      observeCollaborationRemoteOperation: vi.fn().mockResolvedValue(operation),
+      observeWorkspaceRemoteOperation: vi.fn().mockResolvedValue(operation),
+      onCollaborationObserverSignal: vi.fn(() => () => undefined),
+      replayCollaborationRemoteOperationEvents: vi.fn().mockResolvedValue({
+        operationId: "operation-1",
+        cursor: 0,
+        events: [],
+        hasMore: false,
+        floorCursor: 0
+      }),
+      replayWorkspaceRemoteOperationEvents: vi.fn().mockResolvedValue({
+        operationId: "operation-1",
+        cursor: 0,
+        events: [],
+        hasMore: false,
+        floorCursor: 0
+      })
+    };
+    collaborationApi.lookupWorkspaceRemoteOperation.mockImplementation(async (input) =>
+      input.operationId === "operation-restored"
+        ? {
+            ...operation,
+            operationId: "operation-restored",
+            state: "completed",
+            executionAttemptId: "attempt-restored"
+          }
+        : operation
+    );
+    workspaceExecutionBridgeMock.remoteAcpConversation.mockImplementation(async (input) => ({
+      available: true,
+      canRestoreTask: input.operationId === "operation-1" && !input.action,
+      restoredOperationId: input.action?.kind === "restore_task" ? "operation-restored" : null,
+      reason: null,
+      executionAttemptId: input.operationId === "operation-1" ? "attempt-1" : "attempt-restored",
+      sessionId: "same-session",
+      turns: [],
+      events: [],
+      cursor: 0,
+      hasMore: false,
+      execution: { state: "cancelled", cancel: null, interactions: [] }
+    }));
+    workspaceExecutionBridgeMock.followWorkspaceExecution.mockResolvedValue(
+      workspaceExecutionView()
+    );
+
+    const { result } = renderHook(() =>
+      useControllerHarness(api, workspaceNavigation, workspaceCanvas, undefined, collaborationApi)
+    );
+
+    await waitFor(() =>
+      expect(result.current.remoteConversation?.continuation?.canRestoreTask).toBe(true)
+    );
+    expect(result.current.workspace?.blocks[0]?.remoteExecution?.status).toBe("stopped");
+    await act(async () => {
+      await result.current.remoteConversation?.continuation?.restoreTask();
+    });
+    await waitFor(() =>
+      expect(result.current.selectedRun?.item.run.record.runId).toBe(
+        "remote-live-operation-restored"
+      )
+    );
+    expect(result.current.selectedRun?.item.run.metadata.terminalState).toBe("succeeded");
+    expect(collaborationApi.lookupWorkspaceRemoteOperation).toHaveBeenCalledWith(
+      expect.objectContaining({ operationId: "operation-restored" })
+    );
   });
 
   it("uses shared prompts after reopening instead of stale local package prompts", async () => {

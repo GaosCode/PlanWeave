@@ -33,11 +33,13 @@ function executionReadModel(
     status:
       operation.state === "completed"
         ? "completed"
-        : operation.state === "failed" || operation.state === "cancelled"
-          ? "failed"
-          : interrupted
-            ? "interrupted"
-            : "owned",
+        : operation.state === "cancelled"
+          ? "stopped"
+          : operation.state === "failed"
+            ? "failed"
+            : interrupted
+              ? "interrupted"
+              : "owned",
     actionRequired: operation.state === "action_required",
     source: {
       revision: String(projection.revision),

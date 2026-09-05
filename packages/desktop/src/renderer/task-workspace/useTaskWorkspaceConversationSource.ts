@@ -36,6 +36,7 @@ export function useTaskWorkspaceConversationSource(input: {
   > | null;
   execution: RemoteBlockExecutionReadModel | null | undefined;
   onTerminal(): void;
+  onTaskRestored(operationId: string): void;
   operatorApi: Pick<
     PlanWeaveOperatorControlApi,
     "observeOwnerFleetRemoteOperation" | "replayOwnerFleetRemoteOperationEvents"
@@ -113,6 +114,8 @@ export function useTaskWorkspaceConversationSource(input: {
   );
   const onTerminalRef = useRef(input.onTerminal);
   onTerminalRef.current = input.onTerminal;
+  const onTaskRestoredRef = useRef(input.onTaskRestored);
+  onTaskRestoredRef.current = input.onTaskRestored;
   useEffect(() => {
     if (continuation.restoredOperationId && sourceOperationId) {
       setRestored({
@@ -120,6 +123,7 @@ export function useTaskWorkspaceConversationSource(input: {
         sourceId: sourceOperationId,
         operationId: continuation.restoredOperationId
       });
+      onTaskRestoredRef.current(continuation.restoredOperationId);
       onTerminalRef.current();
     }
   }, [continuation.restoredOperationId, sourceOperationId, input.scopeKey]);
