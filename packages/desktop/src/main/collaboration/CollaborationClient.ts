@@ -451,7 +451,10 @@ export class CollaborationClient {
   }
 
   async verifyAccess(signal?: AbortSignal): Promise<void> {
-    await this.listMembers({ cursor: 0, limit: 1 }, signal);
+    await this.registryClient.listCanvases(
+      { projectId: this.profile.projectId, cursor: 0, limit: 1 },
+      signal
+    );
   }
 
   async updateOwnDisplayName(

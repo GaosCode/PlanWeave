@@ -360,7 +360,8 @@
         "sharedIdentityCredentialClear.test.ts",
         "smokeProcessGate.test.ts",
         "tailscaleProxyTwoDesktopE2E.test.ts",
-        "workspaceExecutionProcessBoundary.test.ts"
+        "workspaceExecutionProcessBoundary.test.ts",
+        "workspaceSessionPreflight.test.ts"
       ],
       "platform": ["agentToolsWindows.test.ts", "runtimeStateWatch.test.ts"],
       "performance": []
