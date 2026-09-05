@@ -29,6 +29,10 @@ type WorkspaceExecutionConversationCache = {
   events: Map<string, WorkspaceExecutionEvent>;
   key: string;
   value: RemoteTaskWorkspaceConversation | null;
+  evidenceCursor?: Extract<
+    DesktopWorkspaceExecutionResponse["handle"],
+    { target: "remote" }
+  >["cursor"];
 };
 
 const cacheLimit = 8;
@@ -175,11 +179,12 @@ export function useWorkspaceExecutionTaskWorkspaceConversation(input: {
       try {
         const view = await api.followWorkspaceExecution(
           locator.kind === "workspace"
-            ? { locator, blockRef, operationId }
-            : { locator, blockRef, operationId }
+            ? { locator, blockRef, operationId, evidenceCursor: cache.evidenceCursor }
+            : { locator, blockRef, operationId, evidenceCursor: cache.evidenceCursor }
         );
         if (disposed || epoch !== requestEpoch) return;
         transientFailures = 0;
+        if (view.handle.target === "remote") cache.evidenceCursor = view.handle.cursor;
         for (const event of view.events) cache.events.set(event.eventId, event);
         const timeline = projectWorkspaceExecutionTimeline([...cache.events.values()]);
         const nextProgressFingerprint = progressFingerprint(view, timeline);

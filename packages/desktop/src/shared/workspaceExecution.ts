@@ -4,6 +4,7 @@ import type {
 } from "./remoteAcpConversation.js";
 import {
   effectiveWorkspaceExecutorSchema,
+  workspaceExecutionCursorSchema,
   workspaceExecutionCoordinatorViewSchema
 } from "@planweave-ai/runtime/browser";
 import { z } from "zod";
@@ -55,14 +56,16 @@ const desktopWorkspaceExecutionExistingFollowInputSchema = z.union([
     .object({
       locator: workspaceCanvasLocatorSchema,
       blockRef: z.string().trim().min(3).max(512),
-      operationId: identifierSchema
+      operationId: identifierSchema,
+      evidenceCursor: workspaceExecutionCursorSchema.options[1].optional()
     })
     .strict(),
   z
     .object({
       locator: desktopOwnerCanvasExecutionLocatorSchema,
       blockRef: z.string().trim().min(3).max(512),
-      operationId: identifierSchema
+      operationId: identifierSchema,
+      evidenceCursor: workspaceExecutionCursorSchema.options[1].optional()
     })
     .strict()
 ]);

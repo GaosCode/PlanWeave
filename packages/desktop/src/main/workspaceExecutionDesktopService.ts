@@ -310,7 +310,8 @@ export class WorkspaceExecutionDesktopService {
                   canvasId: locator.canvasId
                 },
                 scope: { kind: "block", blockRef: input.blockRef },
-                operationId: input.operationId
+                operationId: input.operationId,
+                evidenceCursor: input.evidenceCursor
               })
               .then(projectWorkspaceExecutionCoordinatorView)
         });
@@ -329,7 +330,8 @@ export class WorkspaceExecutionDesktopService {
               canvasId: locator.canvasId
             },
             scope: { kind: "block", blockRef: input.blockRef },
-            operationId: input.operationId
+            operationId: input.operationId,
+            evidenceCursor: input.evidenceCursor
           })
         )
       );

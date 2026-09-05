@@ -2,9 +2,71 @@ import { describe, expect, it, vi } from "vitest";
 import { createPackageWorkspaceExecutionSessionRepository } from "../workspaceExecution/sessionRepository.js";
 import { listRunSessions } from "../runSessions/repository.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
-import { fixture, request, sessionPorts } from "./workspaceExecutionCoordinatorTestFixture.js";
+import {
+  fixture,
+  request,
+  sessionPorts,
+  emptyReplay
+} from "./workspaceExecutionCoordinatorTestFixture.js";
 
 describe("WorkspaceExecutionCoordinator observeExisting", () => {
+  it("replays from the new consumer cursor instead of the persisted execution cursor", async () => {
+    const { root } = await createTestWorkspace();
+    const executionRequest = request(root);
+    const replay = async (afterCursor: number) => ({
+      ...emptyReplay(afterCursor),
+      cursor: 1,
+      highWatermark: 1,
+      events:
+        afterCursor === 0
+          ? [
+              {
+                eventVersion: 2 as const,
+                cursor: 1,
+                sourceSequence: 1,
+                timestamp: "2030-01-01T00:00:01.000Z",
+                fragment: {
+                  kind: "engine_terminal" as const,
+                  terminal: { state: "succeeded" as const, stopReason: "end_turn" }
+                }
+              }
+            ]
+          : []
+    });
+    const first = fixture({ packageWorkspace: root, replay });
+    const input = {
+      authority: executionRequest.authority,
+      scope: executionRequest.scope,
+      operationId: "operation-1"
+    };
+    const initial = await first.coordinator.observeExisting(input);
+    expect(initial.handle).toMatchObject({ cursor: { eventCursor: 1 } });
+    const second = fixture({ packageWorkspace: root, replay });
+    const reopened = await second.coordinator.observeExisting(input);
+    expect(reopened.events.some((event) => event.type === "runner_event")).toBe(true);
+    expect(second.replay).toHaveBeenLastCalledWith(
+      expect.objectContaining({ afterCursor: 0 }),
+      undefined
+    );
+    await second.coordinator.observeExisting({
+      ...input,
+      evidenceCursor: { target: "remote", executionAttemptId: "attempt-1", eventCursor: 1 }
+    });
+    expect(second.replay).toHaveBeenLastCalledWith(
+      expect.objectContaining({ afterCursor: 1 }),
+      undefined
+    );
+    await second.coordinator.observeExisting({
+      ...input,
+      evidenceCursor: { target: "remote", executionAttemptId: "previous-attempt", eventCursor: 100 }
+    });
+    expect(second.replay).toHaveBeenLastCalledWith(
+      expect.objectContaining({ afterCursor: 0 }),
+      undefined
+    );
+    expect(second.dispatch).not.toHaveBeenCalled();
+    expect((await listRunSessions(root)).sessions).toHaveLength(1);
+  });
   it("attaches without Catalog, work authority, or Dispatch", async () => {
     const { root } = await createTestWorkspace();
     const executionRequest = request(root);

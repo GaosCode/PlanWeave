@@ -550,8 +550,10 @@ describe("Workspace execution process boundary", () => {
       });
       const follow = vi
         .fn()
-        .mockResolvedValueOnce(coordinatorView("operation-1", "T-001#B-001", [event]))
-        .mockResolvedValue(coordinatorView("operation-1", "T-001#B-001"));
+        .mockResolvedValueOnce(
+          coordinatorView("operation-1", "T-001#B-001", [event], { eventCursor: 1 })
+        )
+        .mockResolvedValue(coordinatorView("operation-1", "T-001#B-001", [], { eventCursor: 1 }));
       const api = workspaceConversationApi(follow);
       const { result, unmount } = renderHook(() =>
         useWorkspaceExecutionTaskWorkspaceConversation({
@@ -572,6 +574,15 @@ describe("Workspace execution process boundary", () => {
       });
       await act(async () => vi.advanceTimersByTimeAsync(successPollDelay(0) + successPollDelay(1)));
       expect(follow).toHaveBeenCalledTimes(3);
+      expect(follow).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ evidenceCursor: undefined })
+      );
+      expect(follow).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          evidenceCursor: { target: "remote", executionAttemptId: "attempt-1", eventCursor: 1 }
+        })
+      );
       expect(result.current).toMatchObject({
         cursor: 1,
         executionAttemptId: "attempt-1",

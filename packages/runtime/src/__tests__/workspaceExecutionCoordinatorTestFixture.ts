@@ -4,6 +4,7 @@ import {
   remoteInteractionPageSchema,
   remoteInteractionViewSchema,
   remoteOperationObservationSchema,
+  type RemoteEventReplay,
   type RemoteOperationObservation
 } from "@planweave-ai/collaboration-protocol/remote-run";
 import { workAuthorityProjectionSchema } from "@planweave-ai/collaboration-protocol/work/authority";
@@ -265,7 +266,7 @@ export function fixture(input: {
   };
 }
 
-export function emptyReplay(afterCursor = 0) {
+export function emptyReplay(afterCursor = 0): RemoteEventReplay {
   return {
     eventProtocolVersion: 2 as const,
     executionAttemptId: "attempt-1",
