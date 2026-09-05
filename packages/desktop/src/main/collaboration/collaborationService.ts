@@ -323,10 +323,12 @@ export class CollaborationService {
       workspaceId: view.workspaceId,
       allowInsecureTransport: view.profile.allowInsecureTransport
     };
-    if (this.bindLiveOperatorToOrigin) {
-      await this.bindLiveOperatorToOrigin(live.serverBaseUrl);
-    }
+    await this.sessionLifecycle.dispose("workspace_project_rebind");
+    await this.profiles.setActiveProfileId(null);
     try {
+      if (this.bindLiveOperatorToOrigin) {
+        await this.bindLiveOperatorToOrigin(live.serverBaseUrl);
+      }
       await this.activateLiveCollaborationSessionWithinQueue(live);
     } catch (error) {
       const mapped = collaborationErrorFromUnknown(error);
@@ -352,8 +354,6 @@ export class CollaborationService {
         return false;
       }
     });
-    await this.sessionLifecycle.dispose("workspace_project_rebind");
-    await this.profiles.setActiveProfileId(null);
     const registryProjects = await listLiveRegistryProjects({
       serverBaseUrl: live.serverBaseUrl,
       getDeviceToken: () => this.vault.getDeviceToken(live.profileId),

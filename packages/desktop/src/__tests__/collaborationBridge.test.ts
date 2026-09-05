@@ -1596,6 +1596,7 @@ describe("CollaborationService live Server binding", () => {
     const staleToken = `pw_hdev_${"B".repeat(43)}`;
     const connectedOrigins: string[] = [];
     const liveOperatorOrigins: string[] = [];
+    let rejectOperator = false;
     let registryProjects = [
       {
         schemaVersion: "project-access/v1" as const,
@@ -1697,6 +1698,7 @@ describe("CollaborationService live Server binding", () => {
       request: fetch,
       bindLiveOperatorToOrigin: async (serverBaseUrl) => {
         liveOperatorOrigins.push(serverBaseUrl);
+        if (rejectOperator) throw new Error("operator_bind_failed");
       },
       createClient: (options) =>
         ({
@@ -1720,6 +1722,12 @@ describe("CollaborationService live Server binding", () => {
     await service.setActiveProfile({ profileId: "planweave-local-d5e342216f40e0632c512d0d" });
 
     const status = await service.connectExistingServerByOrigin({ serverBaseUrl: server.origin });
+    rejectOperator = true;
+    const operatorFailureStatus = await service.retryWorkspaceConnection();
+    expect(operatorFailureStatus.workspaceConnection.status).toBe("connected");
+    expect(operatorFailureStatus.activeProfileId).toBeNull();
+    expect(operatorFailureStatus.session.phase).toBe("error");
+    rejectOperator = false;
     registryProjects = [
       {
         schemaVersion: "project-access/v1",
@@ -1742,7 +1750,7 @@ describe("CollaborationService live Server binding", () => {
     expect(status.activeProfileId).toBe("profile-remote-origin");
     expect(status.session.phase).toBe("connected");
     expect(connectedOrigins).toEqual([server.origin]);
-    expect(liveOperatorOrigins).toEqual([server.origin, server.origin]);
+    expect(liveOperatorOrigins).toEqual([server.origin, server.origin, server.origin]);
     const liveProfile = status.profiles.find(
       (profile) => profile.profileId === "profile-remote-origin"
     );
