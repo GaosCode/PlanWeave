@@ -1072,6 +1072,10 @@ export const zhCnCatalog = {
   taskWorkspaceLoadMoreRuns: "加载更早的运行",
   taskWorkspaceLoadingMoreRuns: "正在加载更早的运行…",
   taskWorkspaceNoConversation: "选择一个运行以查看对话。",
+  remoteAcpFollowUp: "续聊",
+  remoteAcpTurnQueued: "等待 Agent",
+  remoteAcpCancelledSource:
+    "原运行已取消。续聊不会重新提交任务结果；如需更新任务执行状态，请重新运行任务。",
   remoteAcpMessageSending: "发送中…",
   remoteAcpMessageAccepted: "已接收 · 等待 Agent",
   remoteAcpMessageUnconfirmed: "尚未确认是否送达，请重试这条消息。",

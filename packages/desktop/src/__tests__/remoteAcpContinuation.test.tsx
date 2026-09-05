@@ -1,3 +1,4 @@
+import { RemoteAcpRunConversation } from "../renderer/task-workspace/conversation/RemoteAcpRunConversation";
 import { remoteInteractionViewSchema } from "@planweave-ai/collaboration-protocol/remote-run";
 /* @vitest-environment jsdom */
 import { act, render, renderHook, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -98,6 +99,51 @@ describe("remote ACP composer continuation", () => {
     expect(f.api.remoteAcpConversation.mock.calls).toHaveLength(reads + 1);
     rerender({ input: { ...scope, operationId: "operation-two" } });
     expect(result.current.pendingMessage).toBeNull();
+  });
+
+  it("shows a completed follow-up separately from its cancelled source execution", async () => {
+    const f = setup();
+    const page: DesktopRemoteAcpConversationPage = {
+      ...f.page,
+      execution: { state: "cancelled", cancel: null, interactions: [] },
+      turns: [
+        {
+          turnId: "turn-done",
+          executionAttemptId: "attempt-one",
+          sessionId: "original-session",
+          status: "completed",
+          createdAt: new Date().toISOString(),
+          error: null
+        }
+      ]
+    };
+    f.api.remoteAcpConversation.mockImplementation(async () => page);
+    function View() {
+      const continuation = useRemoteAcpContinuation(f.api, scope);
+      return (
+        <RemoteAcpRunConversation
+          conversation={{
+            ...scope,
+            continuation,
+            cursor: 0,
+            error: null,
+            eventProtocolVersion: 2,
+            executionAttemptId: "attempt-one",
+            replayDiagnostics: [],
+            state: "cancelled",
+            terminalOutcome: "cancelled",
+            timeline: [],
+            telemetry: null
+          }}
+          t={createTranslator("en")}
+        />
+      );
+    }
+    render(<View />);
+    expect(await screen.findByText("Follow-up · Completed")).toBeDefined();
+    expect(screen.getByText(/Original run · Cancelled/)).toBeDefined();
+    expect(screen.getByText(/does not resubmit the task result/)).toBeDefined();
+    expect(page.execution.state).toBe("cancelled");
   });
 
   it("responds to first-run permissions and cancels that execution without creating a follow-up turn", async () => {

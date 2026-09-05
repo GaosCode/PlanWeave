@@ -1152,6 +1152,10 @@ export const enCatalog = {
   taskWorkspaceLoadMoreRuns: "Load older runs",
   taskWorkspaceLoadingMoreRuns: "Loading older runs…",
   taskWorkspaceNoConversation: "Select a run to view its conversation.",
+  remoteAcpFollowUp: "Follow-up",
+  remoteAcpTurnQueued: "Waiting for the agent",
+  remoteAcpCancelledSource:
+    "Original run · Cancelled. Follow-up does not resubmit the task result; run the task again to update its execution status.",
   remoteAcpMessageSending: "Sending…",
   remoteAcpMessageAccepted: "Received · waiting for the agent",
   remoteAcpMessageUnconfirmed: "Delivery unconfirmed. Retry the same message.",

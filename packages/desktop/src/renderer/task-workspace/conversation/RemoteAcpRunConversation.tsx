@@ -26,7 +26,16 @@ export function RemoteAcpRunConversation({
     if (followRef.current && viewportRef.current)
       viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
   }, [conversation.timeline, conversation.continuation?.turns, pendingId]);
-  const state = conversation.continuation?.active?.status ?? conversation.state;
+  const latestTurn = conversation.continuation?.active ?? conversation.continuation?.turns.at(-1);
+  const state = latestTurn?.status ?? conversation.state;
+  const turnStatusKeys = {
+    queued: "remoteAcpTurnQueued",
+    running: "taskWorkspaceRunning",
+    completed: "taskWorkspaceCompleted",
+    cancelled: "taskWorkspaceCancelled",
+    failed: "taskWorkspaceFailed"
+  } as const;
+  const turnStatus = latestTurn ? t(turnStatusKeys[latestTurn.status]) : null;
   const terminal = state === "failed" || state === "cancelled" || state === "completed";
   return (
     <section
@@ -42,9 +51,16 @@ export function RemoteAcpRunConversation({
               : "rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground"
           }
         >
-          {terminal
-            ? `${t("taskWorkspaceRemoteAcpTerminal")} · ${state}`
-            : `${t("taskWorkspaceRemoteAcpLive")} · ${state}`}
+          <div>
+            {latestTurn
+              ? `${t("remoteAcpFollowUp")} · ${turnStatus}`
+              : terminal
+                ? `${t("taskWorkspaceRemoteAcpTerminal")} · ${state}`
+                : `${t("taskWorkspaceRemoteAcpLive")} · ${state}`}
+          </div>
+          {latestTurn && conversation.state === "cancelled" ? (
+            <p className="mt-1">{t("remoteAcpCancelledSource")}</p>
+          ) : null}
           <div className="mt-1 font-mono text-[11px] opacity-80">
             operationId: {conversation.operationId}
           </div>
