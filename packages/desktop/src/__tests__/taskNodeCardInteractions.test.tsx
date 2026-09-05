@@ -152,6 +152,26 @@ function renderTaskNode(data: TaskNodeData) {
 }
 
 describe("TaskNodeCard prompt history shortcuts", () => {
+  it("explains stopped execution without showing raw diagnostics as the reason", async () => {
+    const reason = "[execution_cancelled] Remote execution was cancelled.";
+    renderTaskNode(
+      nodeData({
+        task: {
+          ...task("# Prompt"),
+          exceptions: [{ ref: "T-001#B-001", source: "blocked", reason }]
+        },
+        labels: taskNodeLabels(createTranslator("zh-CN"))
+      })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: createTranslator("zh-CN")("taskException") })
+    );
+    expect(await screen.findByText(/运行已停止，任务尚未提交完成/)).toBeInTheDocument();
+    const details = screen.getByText(reason).closest("details");
+    expect(details).not.toBeNull();
+    expect(details).not.toHaveAttribute("open");
+  });
+
   it("routes undo to PlanGraph history when the prompt draft is clean", () => {
     const onPromptHistoryUndo = vi.fn().mockResolvedValue(undefined);
     renderTaskNode(nodeData({ onPromptHistoryUndo }));

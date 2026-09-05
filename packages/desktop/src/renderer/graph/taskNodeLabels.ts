@@ -1,3 +1,4 @@
+import { formatTaskException } from "./formatTaskException";
 import type { createTranslator } from "../i18n";
 import type { TaskNodeLabels } from "../types";
 import { fileManagerLabel } from "../fileManagerLabels";
@@ -9,6 +10,8 @@ export function taskNodeLabels(t: ReturnType<typeof createTranslator>): TaskNode
     customExecutor: t("customExecutor"),
     exception: t("exception"),
     exceptionOverlay: t("exceptionOverlay"),
+    exceptionReason: (reason) => formatTaskException(reason, t),
+    diagnostics: t("diagnostics"),
     more: t("more"),
     noBlockRecords: t("noBlockRecords"),
     openRecord: t("openRecord"),

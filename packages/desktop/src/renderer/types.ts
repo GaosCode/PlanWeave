@@ -30,6 +30,8 @@ export type TaskNodeLabels = {
   customExecutor: string;
   exception: string;
   exceptionOverlay: string;
+  exceptionReason: (reason: string) => { message: string; diagnostics: string | null };
+  diagnostics: string;
   more: string;
   noBlockRecords: string;
   openRecord: string;

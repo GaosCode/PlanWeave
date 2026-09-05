@@ -192,9 +192,12 @@ export function useRemoteTaskWorkspaceConversation(input: {
           cache = replayed;
           storeOperationCache(cachesRef.current, cache);
         }
-        const failureError = observation.failure
-          ? `${observation.failure.message} (${observation.failure.code})`
-          : null;
+        const normalCancellation =
+          observation.state === "cancelled" && observation.failure?.code === "execution_cancelled";
+        const failureError =
+          observation.failure && !normalCancellation
+            ? `${observation.failure.message} (${observation.failure.code})`
+            : null;
         setSnapshot({
           key,
           error: failureError,

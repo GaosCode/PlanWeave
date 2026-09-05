@@ -234,17 +234,26 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
                       <PopoverDescription>{task.taskId}</PopoverDescription>
                     </PopoverHeader>
                     <div className="flex flex-col gap-2">
-                      {task.exceptions.map((exception) => (
-                        <div
-                          className="rounded-md border border-state-failed/35 bg-state-failed-surface p-2"
-                          key={`${exception.ref}-${exception.source}`}
-                        >
-                          <div className="text-sm font-medium text-text-strong">
-                            {exception.ref}
+                      {task.exceptions.map((exception) => {
+                        const reason = labels.exceptionReason(exception.reason);
+                        return (
+                          <div
+                            className="rounded-md border border-state-failed/35 bg-state-failed-surface p-2"
+                            key={`${exception.ref}-${exception.source}`}
+                          >
+                            <div className="text-sm font-medium text-text-strong">
+                              {exception.ref}
+                            </div>
+                            <div className="text-xs text-text-muted">{reason.message}</div>
+                            {reason.diagnostics ? (
+                              <details className="mt-2 text-xs text-text-muted">
+                                <summary className="cursor-pointer">{labels.diagnostics}</summary>
+                                <p className="mt-1 break-words font-mono">{reason.diagnostics}</p>
+                              </details>
+                            ) : null}
                           </div>
-                          <div className="text-xs text-text-muted">{exception.reason}</div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </PopoverContent>
                 </Popover>

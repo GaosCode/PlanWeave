@@ -1072,6 +1072,12 @@ export const zhCnCatalog = {
   taskWorkspaceLoadMoreRuns: "加载更早的运行",
   taskWorkspaceLoadingMoreRuns: "正在加载更早的运行…",
   taskWorkspaceNoConversation: "选择一个运行以查看对话。",
+  remoteTaskStoppedReason:
+    "运行已停止，任务尚未提交完成。可在原会话继续提问；如需更新任务执行状态，请重新运行任务。",
+  remoteTaskAuthenticationReason:
+    "Agent 身份验证未通过。请在执行设备上检查登录状态，然后重新运行任务。",
+  remoteTaskTimeoutReason: "运行超时或执行连接已中断。请检查执行设备状态后重试。",
+  remoteTaskFailedReason: "远程运行未能完成。请查看运行详情和诊断信息，确认原因后重试。",
   remoteAcpFollowUp: "续聊",
   remoteAcpTurnQueued: "等待 Agent",
   remoteAcpCancelledSource:

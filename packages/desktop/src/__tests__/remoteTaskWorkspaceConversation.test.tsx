@@ -55,6 +55,28 @@ function operationObservation(
 }
 
 describe("remote Task Workspace conversation", () => {
+  it("keeps normal cancellation as a terminal state rather than an error banner", async () => {
+    const observation = {
+      ...operationObservation("operation-cancelled", "cancelled"),
+      failure: {
+        code: "execution_cancelled",
+        message: "Remote execution was cancelled.",
+        retryable: false
+      }
+    };
+    const api = { observe: vi.fn(async () => observation), replay: vi.fn(), replayTerminal: false };
+    const { result } = renderHook(() =>
+      useRemoteTaskWorkspaceConversation({
+        api,
+        blockRef: "T-001#B-001",
+        operationId: observation.operationId,
+        onTerminal: vi.fn()
+      })
+    );
+    await waitFor(() => expect(result.current?.state).toBe("cancelled"));
+    expect(result.current?.error).toBeNull();
+  });
+
   it("projects the authoritative initial state before effects run", () => {
     const api = {
       observe: vi.fn(),

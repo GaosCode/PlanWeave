@@ -179,6 +179,8 @@ const labels: TaskNodeLabels = {
   inspectTask: "Inspect task",
   exception: "Exception",
   exceptionOverlay: "Exception overlay",
+  exceptionReason: (reason) => ({ message: reason, diagnostics: null }),
+  diagnostics: "Diagnostics",
   feedbackMarker: "Feedback",
   latestReviewAttempt: "Latest review attempt",
   latestRun: "Latest run",

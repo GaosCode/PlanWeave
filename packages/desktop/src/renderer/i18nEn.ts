@@ -1152,6 +1152,14 @@ export const enCatalog = {
   taskWorkspaceLoadMoreRuns: "Load older runs",
   taskWorkspaceLoadingMoreRuns: "Loading older runs…",
   taskWorkspaceNoConversation: "Select a run to view its conversation.",
+  remoteTaskStoppedReason:
+    "The run was stopped before a task result was submitted. Continue the conversation to ask the agent, or run the task again to update its execution status.",
+  remoteTaskAuthenticationReason:
+    "The agent could not authenticate. Check its sign-in on the execution device, then run the task again.",
+  remoteTaskTimeoutReason:
+    "The run timed out or lost its execution connection. Check the execution device before retrying.",
+  remoteTaskFailedReason:
+    "The remote run did not finish successfully. Check the run details and diagnostics before retrying.",
   remoteAcpFollowUp: "Follow-up",
   remoteAcpTurnQueued: "Waiting for the agent",
   remoteAcpCancelledSource:
