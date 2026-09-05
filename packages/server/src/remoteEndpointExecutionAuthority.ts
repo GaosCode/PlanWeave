@@ -1,6 +1,6 @@
 import type { RemoteBlockDispatchCandidate } from "@planweave-ai/runtime";
 import type { AgentEndpointCatalog } from "./agentEndpointCatalog.js";
-import { runtimeControlPlane } from "./endpointSelection.js";
+import { runtimeControlPlane, mapEndpointAuthorityToRuntimeSnapshot } from "./endpointSelection.js";
 import type { HostCapacityReservation, HostReservationRepository } from "./hostReservations.js";
 import type { AuthorizeRemoteAgentUseInput } from "./remoteAgent/accessPolicy.js";
 import { retryTarget } from "./remoteAgent/dispatchTarget.js";
@@ -133,15 +133,19 @@ export class RemoteEndpointExecutionAuthority {
     if (!selection || !this.ports.endpointAuthorize || !this.ports.agentEndpoints) {
       throw new Error("agent_endpoint_dispatch_not_configured");
     }
+    const authority = mapEndpointAuthorityToRuntimeSnapshot(
+      selection.authority,
+      operation.workspaceId
+    );
     this.ports.endpointAuthorize({
       workspaceId: operation.workspaceId,
       projectId: operation.projectId,
       canvasId: operation.canvasId,
       blockRef: operation.blockRef,
-      expectedResponsibilityRevision: selection.authority.responsibilityRevision,
-      expectedReviewerRevision: selection.authority.reviewerRevision,
-      executionTargetRevision: selection.authority.executionTargetRevision,
-      controlPlane: runtimeControlPlane(selection.authority)
+      expectedResponsibilityRevision: authority.responsibilityRevision,
+      expectedReviewerRevision: authority.reviewerRevision,
+      executionTargetRevision: authority.executionTargetRevision,
+      controlPlane: runtimeControlPlane(authority)
     });
     if (reservation) {
       assertReservedDispatchEndpoint({

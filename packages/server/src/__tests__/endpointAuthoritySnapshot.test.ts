@@ -103,6 +103,20 @@ describe("endpoint-authority snapshot", () => {
     ).toThrow();
   });
 
+  it("reads historical v2 metadata without inventing authority for a new execution", () => {
+    const { executionTargetRevision: _revision, ...authority } = v2Workspace.authority;
+    const historical = { ...v2Workspace, authority };
+    const read = readEndpointSelectionSnapshot(historical, "workspace-a");
+    expect(read).toEqual(historical);
+    expect(read.authority).not.toHaveProperty("executionTargetRevision");
+    expect(toHumanEndpointSnapshot(read).displayName).toBe("Codex");
+    expect(() => mapEndpointAuthorityToRuntimeSnapshot(read.authority, "workspace-a")).toThrow();
+    expect(() => persistEndpointSelectionSnapshot(read, "workspace-a")).toThrow();
+    expect(() => readEndpointSelectionSnapshot(historical, "workspace-b")).toThrow(
+      "endpoint_authority_workspace_mismatch"
+    );
+  });
+
   it("builds runtime snapshots from dispatch targets and maps them back to claim controlPlane", () => {
     expect(
       runtimeAuthoritySnapshotForTarget(

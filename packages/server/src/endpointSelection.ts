@@ -88,6 +88,14 @@ export const legacyEndpointSelectionSnapshotSchema = endpointSelectionFields
   })
   .strict();
 
+export const readableEndpointSelectionSnapshotSchema = endpointSelectionFields
+  .extend({ authority: legacyRuntimeAuthoritySnapshotSchema })
+  .strict();
+
+export type ReadableEndpointSelectionSnapshot = z.infer<
+  typeof readableEndpointSelectionSnapshotSchema
+>;
+
 export const writeEndpointSelectionSnapshotSchema = endpointSelectionFields
   .extend({
     authority: runtimeAuthoritySnapshotSchema
@@ -116,12 +124,19 @@ export function mapEndpointAuthorityToRuntimeSnapshot(
 export function readEndpointSelectionSnapshot(
   value: unknown,
   workspaceId: string
-): EndpointSelectionSnapshot {
+): ReadableEndpointSelectionSnapshot {
   const parsed = legacyEndpointSelectionSnapshotSchema.parse(value);
-  return writeEndpointSelectionSnapshotSchema.parse({
-    ...parsed,
-    authority: mapEndpointAuthorityToRuntimeSnapshot(parsed.authority, workspaceId)
-  });
+  workspaceIdSchema.parse(workspaceId);
+  if (parsed.authority.schemaVersion !== "endpoint-authority/v2") {
+    throw new Error("endpoint_authority_execution_target_revision_missing");
+  }
+  if (
+    parsed.authority.kind === "workspace_canvas" &&
+    parsed.authority.workspaceId !== workspaceId
+  ) {
+    throw new Error("endpoint_authority_workspace_mismatch");
+  }
+  return readableEndpointSelectionSnapshotSchema.parse(parsed);
 }
 
 export function persistEndpointSelectionSnapshot(
@@ -155,17 +170,19 @@ export function runtimeAuthoritySnapshotForTarget(
 }
 
 export function runtimeControlPlane(
-  authority: RuntimeAuthoritySnapshot | undefined
+  authority: Pick<RuntimeAuthoritySnapshot, "kind"> | undefined
 ): "collaboration" | "owner" {
   return authority?.kind === "owner_canvas" ? "owner" : "collaboration";
 }
 
-export function isOwnerCanvasRuntime(authority: RuntimeAuthoritySnapshot | undefined): boolean {
+export function isOwnerCanvasRuntime(
+  authority: Pick<RuntimeAuthoritySnapshot, "kind"> | undefined
+): boolean {
   return authority?.kind === "owner_canvas";
 }
 
 /** Restart-safe internal route snapshot. hostId never crosses the human projection boundary. */
-export function toHumanEndpointSnapshot(selection: EndpointSelectionSnapshot) {
+export function toHumanEndpointSnapshot(selection: ReadableEndpointSelectionSnapshot) {
   return availableRemoteAgentEndpointSchema
     .extend({ resolvedAt: z.iso.datetime() })
     .strict()

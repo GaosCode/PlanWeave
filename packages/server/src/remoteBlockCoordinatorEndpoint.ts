@@ -7,6 +7,7 @@ import {
 import {
   writeEndpointSelectionSnapshotSchema,
   type EndpointSelectionSnapshot,
+  type ReadableEndpointSelectionSnapshot,
   type RuntimeAuthoritySnapshot
 } from "./endpointSelection.js";
 import {
@@ -39,7 +40,7 @@ export function snapshotDispatchEndpoint(
  */
 export function dispatchAvailabilityPolicy(
   operation: RemoteOperation,
-  selection: EndpointSelectionSnapshot
+  selection: ReadableEndpointSelectionSnapshot
 ): EndpointAvailabilityPolicy {
   return operation.agentAccess
     ? deriveEndpointAvailabilityPolicyFromAuthorized(operation.agentAccess.authorized)
@@ -49,7 +50,7 @@ export function dispatchAvailabilityPolicy(
 }
 
 export function assertDispatchEndpointIdentity(
-  selection: EndpointSelectionSnapshot,
+  selection: ReadableEndpointSelectionSnapshot,
   resolved: ResolvedAgentEndpoint,
   candidate: RemoteBlockDispatchCandidate
 ): void {

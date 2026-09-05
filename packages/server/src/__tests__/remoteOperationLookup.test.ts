@@ -40,6 +40,53 @@ const operationInput = {
 } as const;
 
 describe("remote operation exact lookup", () => {
+  it("preserves readable historical v2 operations whose target revision was never stored", async () => {
+    const server = await setup();
+    const repository = new RemoteOperationRepository(server.database);
+    const operation = repository.create({
+      ...operationInput,
+      endpointSelection: {
+        schemaVersion: "endpoint-selection/v1",
+        endpointId: "endpoint-codex",
+        profileId: "codex-acp",
+        agentId: "codex",
+        displayName: "Codex",
+        hostId: "host-a",
+        hostDisplayName: "Agent Host",
+        capabilities: ["linux", "acp.codex"],
+        resolvedAt: "2030-01-01T00:00:00.000Z",
+        authority: {
+          schemaVersion: "endpoint-authority/v2",
+          kind: "workspace_canvas",
+          workspaceId: operationInput.workspaceId,
+          responsibilityRevision: 0,
+          reviewerRevision: 0,
+          executionTargetRevision: 1
+        }
+      }
+    });
+    server.database
+      .prepare(`UPDATE remote_operations SET endpoint_selection_json=
+        json_remove(endpoint_selection_json,'$.authority.executionTargetRevision') WHERE id=?`)
+      .run(operation.id);
+    const read = repository.findLatestByScope({
+      workspaceId: operation.workspaceId,
+      projectId: operation.projectId,
+      canvasId: operation.canvasId,
+      blockRef: operation.blockRef
+    });
+    expect(read?.id).toBe(operation.id);
+    expect(read?.endpointSelection?.authority).not.toHaveProperty("executionTargetRevision");
+    expect(
+      repository.findLatestByScope({
+        workspaceId: "workspace-other",
+        projectId: operation.projectId,
+        canvasId: operation.canvasId,
+        blockRef: operation.blockRef
+      })
+    ).toBeUndefined();
+  });
+
   it("matches the idempotency key only in the complete block scope", async () => {
     const server = await setup();
     const repository = new RemoteOperationRepository(server.database);

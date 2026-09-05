@@ -20,7 +20,7 @@ import {
   endpointSelectionSnapshotSchema,
   persistEndpointSelectionSnapshot,
   readEndpointSelectionSnapshot,
-  type EndpointSelectionSnapshot
+  type ReadableEndpointSelectionSnapshot
 } from "./endpointSelection.js";
 import {
   persistedRemoteAgentAccessSnapshotSchema,
@@ -207,7 +207,7 @@ export type RemoteOperation = {
   /** Durable Host selection authorized at dispatch begin (restart-safe). */
   hostSelection?: DispatchHostSelectionSnapshot;
   /** Durable exact Endpoint route for v3; internal hostId is never human-projected. */
-  endpointSelection?: EndpointSelectionSnapshot;
+  endpointSelection?: ReadableEndpointSelectionSnapshot;
   /** Durable Remote Agent access snapshot; reentry keeps it, retry_new_attempt re-runs authorize. */
   agentAccess?: PersistedRemoteAgentAccessSnapshot;
   createdAt: string;
@@ -261,7 +261,7 @@ function parseHostSelection(raw: string | null): DispatchHostSelectionSnapshot |
 function parseEndpointSelection(
   raw: string | null,
   workspaceId: string
-): EndpointSelectionSnapshot | undefined {
+): ReadableEndpointSelectionSnapshot | undefined {
   if (raw === null || raw === undefined) return undefined;
   return readEndpointSelectionSnapshot(JSON.parse(raw), workspaceId);
 }
