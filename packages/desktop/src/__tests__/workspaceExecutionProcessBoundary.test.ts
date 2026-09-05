@@ -182,6 +182,24 @@ function successPollDelay(
 }
 
 describe("Workspace execution process boundary", () => {
+  it("logs unexpected IPC failures with redacted diagnostics while keeping the response safe", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const result = await workspaceExecutionHandlerResult(async () => {
+        throw new Error("persist failed: Bearer private-token at /private/workspace/state.json");
+      });
+      expect(result).toEqual({ ok: false, error: { code: "workspace_execution_request_failed" } });
+      expect(log).toHaveBeenCalledWith(
+        "[workspace-execution] Unexpected IPC failure:",
+        expect.stringContaining("persist failed: Bearer [REDACTED] at <redacted-path>")
+      );
+      expect(JSON.stringify(log.mock.calls)).not.toContain("private-token");
+      expect(JSON.stringify(log.mock.calls)).not.toContain("/private/workspace/state.json");
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it.each([
     "completed",
     "failed",
