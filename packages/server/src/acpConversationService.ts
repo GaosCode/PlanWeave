@@ -64,7 +64,8 @@ export class AcpConversationService {
     operation: RemoteOperation,
     source: ReturnType<AcpConversationService["source"]>
   ) {
-    if (operation.state !== "completed") return "acp_conversation_execution_not_completed";
+    if (operation.state !== "completed" && operation.state !== "cancelled")
+      return "acp_conversation_execution_not_completed";
     if (!source.sessionId || !source.command) return "acp_conversation_session_unavailable";
     const host = operation.attempt.hostId
       ? this.options.hosts.get(operation.attempt.hostId)

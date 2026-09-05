@@ -3,9 +3,20 @@
 import { act } from "@testing-library/react";
 import type { RemoteOperationObservation } from "@planweave-ai/collaboration-protocol/remote-run";
 import { describe, expect, it, vi } from "vitest";
-import { renderRun } from "./workspaceAgentEndpointRunTestFixture";
+import { operation, renderRun } from "./workspaceAgentEndpointRunTestFixture";
 
 describe("workspace Agent Endpoint cancellation", () => {
+  it("settles a cancellation reported by the execution composer without a failure banner", async () => {
+    const { result, lifecycle, setError } = renderRun({
+      remoteTerminal: operation("cancelled")
+    });
+    await act(() => result.current({ kind: "block", blockRef: "T-001#B-001" }));
+    expect(lifecycle.onCancelled).toHaveBeenCalledOnce();
+    expect(lifecycle.onCompleted).not.toHaveBeenCalled();
+    expect(lifecycle.onFailed).not.toHaveBeenCalled();
+    expect(setError).not.toHaveBeenCalled();
+  });
+
   it("waits for a pending Workspace start before stop cancels the exact returned session once", async () => {
     let releaseStart = () => undefined;
     const startGate = new Promise<void>((resolve) => {

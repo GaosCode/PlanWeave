@@ -88,6 +88,36 @@ async function setup() {
   return { ...f, db, hosts, mailbox, operation, service, prompt, event, authorize };
 }
 describe("durable remote ACP continuation", () => {
+  it("continues a cancelled execution in its original session while retaining its cancelled outcome", async () => {
+    const f = await setup();
+    f.db.prepare("UPDATE remote_operations SET state='cancelled' WHERE id=?").run(f.operation.id);
+    const operation = new RemoteOperationRepository(f.db, f.clock).getRequired(f.operation.id);
+    expect(f.service.page(operation, "actor").available).toBe(true);
+    expect(f.service.act(operation, "actor", f.prompt).turns[0]).toMatchObject({
+      sessionId: "original-session",
+      status: "queued"
+    });
+    expect(new RemoteOperationRepository(f.db, f.clock).getRequired(f.operation.id).state).toBe(
+      "cancelled"
+    );
+    f.db
+      .prepare("DELETE FROM remote_acp_event_streams WHERE execution_attempt_id=?")
+      .run(operation.executionAttemptId);
+    expect(f.service.page(operation, "actor")).toMatchObject({
+      available: false,
+      reason: "acp_conversation_session_unavailable"
+    });
+  });
+
+  it.each(["running", "failed"] as const)("does not unlock a %s execution", async (state) => {
+    const f = await setup();
+    const operation = { ...f.operation, state };
+    expect(f.service.page(operation, "actor").available).toBe(false);
+    expect(() => f.service.act(operation, "actor", f.prompt)).toThrow(
+      "acp_conversation_execution_not_completed"
+    );
+  });
+
   it("sends two turns in the original session without reopening the completed operation, and deduplicates retries", async () => {
     const f = await setup();
     expect(f.service.page(f.operation, "actor").available).toBe(true);

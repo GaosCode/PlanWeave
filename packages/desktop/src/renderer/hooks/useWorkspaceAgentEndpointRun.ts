@@ -503,6 +503,10 @@ export function useWorkspaceAgentEndpointRun(
               if (signal.aborted) throw new Error("workspace_remote_scope_cancelled");
               const timeline = projectWorkspaceExecutionTimeline(events);
               if (timeline.terminalOutcome === "completed") return;
+              if (timeline.terminalOutcome === "cancelled") {
+                controller.abort();
+                throw new Error("workspace_remote_scope_cancelled");
+              }
               if (timeline.terminalOutcome) {
                 throw new Error(
                   view.session.error ??
