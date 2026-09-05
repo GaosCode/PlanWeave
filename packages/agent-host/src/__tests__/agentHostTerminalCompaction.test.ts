@@ -470,7 +470,7 @@ describe("Agent Host terminal state compaction", () => {
     expect(reopened.receive(delivery(1)).stored).toBe(false);
     const inspected = await openAgentHostDatabase(path, 5_000);
     expect(inspected.prepare("SELECT version FROM agent_host_state_schema").get()).toMatchObject({
-      version: 9
+      version: 10
     });
     inspected.close();
   });
@@ -494,7 +494,7 @@ describe("Agent Host terminal state compaction", () => {
     expect(migrated.receive(delivery(1)).stored).toBe(false);
     const inspected = await openAgentHostDatabase(path, 5_000);
     expect(inspected.prepare("SELECT version FROM agent_host_state_schema").get()).toMatchObject({
-      version: 9
+      version: 10
     });
     expect(
       inspected
@@ -524,7 +524,7 @@ describe("Agent Host terminal state compaction", () => {
     states.push(migrated);
     const inspected = await openAgentHostDatabase(path, 5_000);
     expect(inspected.prepare("SELECT version FROM agent_host_state_schema").get()).toMatchObject({
-      version: 9
+      version: 10
     });
     expect(
       inspected
@@ -550,7 +550,7 @@ describe("Agent Host terminal state compaction", () => {
     states.push(migrated);
     const inspected = await openAgentHostDatabase(path, 5_000);
     expect(inspected.prepare("SELECT version FROM agent_host_state_schema").get()).toMatchObject({
-      version: 9
+      version: 10
     });
     expect(
       inspected
@@ -581,7 +581,7 @@ describe("Agent Host terminal state compaction", () => {
     expect(migrated.executionEvidence(2)?.eventProtocolVersion).toBeUndefined();
     const inspected = await openAgentHostDatabase(path, 5_000);
     expect(inspected.prepare("SELECT version FROM agent_host_state_schema").get()).toMatchObject({
-      version: 9
+      version: 10
     });
     expect(
       inspected

@@ -32,6 +32,9 @@ async function openDatabaseAtV26(): Promise<SqliteDatabase> {
   applyMigrations(database);
   database.exec("PRAGMA foreign_keys=OFF");
   for (const table of [
+    "acp_conversation_events",
+    "acp_conversation_actions",
+    "acp_conversation_turns",
     "remote_agent_workspace_grants",
     "remote_agents",
     "agent_host_remote_agent_defaults",
@@ -89,6 +92,9 @@ async function openDatabaseAtV53(): Promise<SqliteDatabase> {
   const database = await openDatabase();
   applyMigrations(database);
   database.exec(`
+    DROP TABLE acp_conversation_events;
+    DROP TABLE acp_conversation_actions;
+    DROP TABLE acp_conversation_turns;
     DROP TABLE IF EXISTS remote_agent_workspace_grants;
     DROP TABLE IF EXISTS remote_agents;
     DROP TABLE IF EXISTS agent_host_remote_agent_defaults;
@@ -186,6 +192,7 @@ describe("collaboration migration reconciliation", () => {
           versions: module.migrations.map((migration) => migration.version)
         }))
     ).toEqual([
+      { name: "acp-conversations", versions: [69] },
       { name: "identity", versions: [27, 34] },
       { name: "acl-registry", versions: [28] },
       { name: "assignment-authority", versions: [29] },
@@ -210,12 +217,12 @@ describe("collaboration migration reconciliation", () => {
       { name: "canvas-runtime-status", versions: [53] },
       { name: "canvas-runtime-revision", versions: [56] },
       { name: "workspace-canvas-publish", versions: [54, 55] },
-      { name: "remote-agent-registry", versions: [57, 58, 59, 60, 61] },
+      { name: "remote-agent-registry", versions: [57, 58, 59, 60, 61, 68] },
       { name: "remote-operation-diagnostics", versions: [63] },
       { name: "remote-runner-events", versions: [65] },
       { name: "owner-canvas-materialization", versions: [67] }
     ]);
-    expect(latestCentralSchemaVersion).toBe(68);
+    expect(latestCentralSchemaVersion).toBe(69);
   });
 
   it("removes project route selection atomically and replays v66 idempotently", async () => {
@@ -326,7 +333,7 @@ describe("collaboration migration reconciliation", () => {
 
     applyMigrations(database);
 
-    expect(centralSchemaVersion(database)).toBe(68);
+    expect(centralSchemaVersion(database)).toBe(69);
     expect(
       database
         .prepare(

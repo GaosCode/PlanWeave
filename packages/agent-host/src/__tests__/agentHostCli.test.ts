@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  ACP_CONVERSATION_CAPABILITY,
   CANVAS_RUNTIME_CAPABILITY,
   WORKSPACE_CANVAS_EXECUTION_CAPABILITY
 } from "@planweave-ai/agent-host-protocol";
@@ -82,7 +83,12 @@ describe("Agent Host operator CLI", () => {
     const diagnostics = await new AgentHostOperator().preflight(configPath);
     expect(diagnostics).toMatchObject({
       credential: "missing",
-      capabilities: ["acp.test", CANVAS_RUNTIME_CAPABILITY, WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
+      capabilities: [
+        "acp.test",
+        CANVAS_RUNTIME_CAPABILITY,
+        ACP_CONVERSATION_CAPABILITY,
+        WORKSPACE_CANVAS_EXECUTION_CAPABILITY
+      ],
       capacity: 1,
       connection: "offline",
       recoverableExecutions: 0
