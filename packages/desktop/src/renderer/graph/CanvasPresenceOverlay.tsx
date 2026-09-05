@@ -114,8 +114,7 @@ export function CanvasPresenceOverlay({ sessions, nodes, edges, t }: CanvasPrese
                   role="img"
                   style={{
                     color: color.foreground,
-                    left: session.pointer.x,
-                    top: session.pointer.y
+                    transform: `translate3d(${session.pointer.x}px, ${session.pointer.y}px, 0)`
                   }}
                 >
                   <svg

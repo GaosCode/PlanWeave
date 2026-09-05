@@ -273,11 +273,10 @@
 .presence-cursor {
   display: inline-flex;
   align-items: flex-start;
-  transform: translate3d(0, 0, 0);
+  left: 0;
+  top: 0;
   transform-origin: top left;
-  transition:
-    left 80ms linear,
-    top 80ms linear;
+  transition: transform 80ms linear;
   white-space: nowrap;
 }
 

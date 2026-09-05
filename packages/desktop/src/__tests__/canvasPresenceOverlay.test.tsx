@@ -39,7 +39,7 @@ describe("CanvasPresenceOverlay", () => {
       .querySelector('[data-presence-cursor="true"]');
     const stableColor = cursor?.getAttribute("data-presence-color");
     expect(stableColor).toMatch(/^#[0-9a-f]{6}$/);
-    expect(cursor).toHaveStyle({ left: "320px", top: "200px" });
+    expect(cursor).toHaveStyle({ transform: "translate3d(320px, 200px, 0)" });
     expect(screen.getByLabelText("Bob cursor; selected 2 items")).toBeInTheDocument();
     expect(screen.getByTestId("canvas-presence-overlay")).toHaveAttribute(
       "aria-label",
