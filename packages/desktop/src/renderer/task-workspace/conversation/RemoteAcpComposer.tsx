@@ -33,7 +33,14 @@ export function RemoteAcpComposer({
       available={continuation.available}
       unavailableReason={continuation.reason ?? t("acpPromptUnavailable")}
       onSubmit={submit}
-      onCancel={continuation.active ? () => void continuation.cancel() : undefined}
+      onCancel={
+        continuation.execution?.cancel
+          ? () => void continuation.cancelExecution()
+          : continuation.active
+            ? () => void continuation.cancel()
+            : undefined
+      }
+      cancelLabel={continuation.execution?.cancel ? t("acpCancelRun") : t("acpCancelPromptTurn")}
       cancelling={continuation.sending}
       inFlight={continuation.active !== null}
       error={continuation.error}

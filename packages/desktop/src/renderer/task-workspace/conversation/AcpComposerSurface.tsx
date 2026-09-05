@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { SendIcon, StopCircleIcon } from "lucide-react";
+import { SendIcon, SquareIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { createTranslator } from "../../i18n";
@@ -14,6 +14,7 @@ export function AcpComposerSurface({
   unavailableReason,
   onSubmit,
   onCancel,
+  cancelLabel,
   cancelling,
   inFlight,
   error,
@@ -28,6 +29,7 @@ export function AcpComposerSurface({
   unavailableReason: string;
   onSubmit: () => void;
   onCancel?: () => void;
+  cancelLabel?: string;
   cancelling: boolean;
   inFlight: boolean;
   error: string | null;
@@ -61,26 +63,14 @@ export function AcpComposerSurface({
           <span>{available ? t("acpPromptHint") : unavailableReason}</span>
           <div className="flex min-w-0 items-center gap-2">
             {accessory}
-            {onCancel ? (
-              <Button
-                aria-label={t("acpCancelPromptTurn")}
-                disabled={cancelling}
-                onClick={onCancel}
-                size="icon-sm"
-                type="button"
-                variant="outline"
-              >
-                <StopCircleIcon />
-              </Button>
-            ) : null}
             <Button
-              aria-label={t("acpSendPrompt")}
-              disabled={disabled || !draft.trim()}
-              onClick={onSubmit}
+              aria-label={onCancel ? (cancelLabel ?? t("acpCancelPromptTurn")) : t("acpSendPrompt")}
+              disabled={onCancel ? cancelling : disabled || !draft.trim()}
+              onClick={onCancel ?? onSubmit}
               size="icon-sm"
               type="button"
             >
-              <SendIcon />
+              {onCancel ? <SquareIcon fill="currentColor" /> : <SendIcon />}
             </Button>
           </div>
         </div>

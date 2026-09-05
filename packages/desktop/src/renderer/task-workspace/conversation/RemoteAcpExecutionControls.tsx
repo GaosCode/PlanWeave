@@ -26,16 +26,6 @@ export function RemoteAcpExecutionControls({
           respond={(response) => void continuation.respondExecution(response)}
         />
       ))}
-      {continuation.execution?.cancel ? (
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={continuation.sending}
-          onClick={() => void continuation.cancelExecution()}
-        >
-          {t("acpCancelRun")}
-        </Button>
-      ) : null}
     </>
   );
 }

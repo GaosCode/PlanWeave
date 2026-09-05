@@ -126,6 +126,8 @@ describe("remote ACP composer continuation", () => {
         false
       )
     );
+    expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
+    expect(screen.queryByText("Cancel run")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Cancel run" }));
     await waitFor(() =>
       expect(f.api.remoteAcpConversation).toHaveBeenCalledWith(
@@ -150,12 +152,14 @@ describe("remote ACP composer continuation", () => {
     fireEvent.change(input, { target: { value: "Continue this session" } });
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
     await screen.findByRole("button", { name: "Stop follow-up" });
+    expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
     expect(
       f.api.remoteAcpConversation.mock.calls.find(([input]) => input.action?.kind === "prompt")?.[0]
         .action
     ).toMatchObject({ sessionId: "original-session", text: "Continue this session" });
     fireEvent.click(screen.getByRole("button", { name: "Stop follow-up" }));
     await waitFor(() => expect(input.hasAttribute("disabled")).toBe(false));
+    expect(screen.getByRole("button", { name: "Send message" })).toBeDefined();
     fireEvent.change(input, { target: { value: "Another question" } });
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(f.page.turns).toHaveLength(2));
