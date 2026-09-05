@@ -61,6 +61,45 @@ function setup() {
   };
 }
 describe("remote ACP composer continuation", () => {
+  it("shows the pending message before acknowledgement and consumes the acknowledgement without a second request", async () => {
+    const f = setup();
+    const original = f.api.remoteAcpConversation.getMockImplementation()!;
+    let acknowledge!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      acknowledge = resolve;
+    });
+    f.api.remoteAcpConversation.mockImplementation(async (input) => {
+      if (input.action?.kind === "prompt") await gate;
+      return original(input);
+    });
+    const { result, rerender } = renderHook(({ input }) => useRemoteAcpContinuation(f.api, input), {
+      initialProps: { input: scope }
+    });
+    await waitFor(() => expect(result.current.available).toBe(true));
+    const reads = f.api.remoteAcpConversation.mock.calls.length;
+    let sent!: Promise<boolean>;
+    act(() => {
+      sent = result.current.send("Continue now");
+    });
+    expect(result.current.pendingMessage).toMatchObject({
+      text: "Continue now",
+      status: "sending"
+    });
+    expect(result.current.active).toBeNull();
+    await act(async () => {
+      acknowledge();
+      expect(await sent).toBe(true);
+    });
+    expect(result.current.active?.status).toBe("running");
+    expect(result.current.pendingMessage).toMatchObject({
+      text: "Continue now",
+      status: "accepted"
+    });
+    expect(f.api.remoteAcpConversation.mock.calls).toHaveLength(reads + 1);
+    rerender({ input: { ...scope, operationId: "operation-two" } });
+    expect(result.current.pendingMessage).toBeNull();
+  });
+
   it("responds to first-run permissions and cancels that execution without creating a follow-up turn", async () => {
     const f = setup();
     const request = remoteInteractionViewSchema.parse({
@@ -179,6 +218,10 @@ describe("remote ACP composer continuation", () => {
     await waitFor(() => expect(result.current.available).toBe(true));
     await act(async () => {
       expect(await result.current.send("Retry me")).toBe(false);
+    });
+    expect(result.current.pendingMessage).toMatchObject({
+      text: "Retry me",
+      status: "unconfirmed"
     });
     fail = false;
     await act(async () => {
