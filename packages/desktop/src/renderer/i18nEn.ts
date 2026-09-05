@@ -1393,7 +1393,7 @@ export const enCatalog = {
   peopleError: "Could not load collaboration people.",
   peopleWorkspaceCannotConnect: "This Workspace could not be connected.",
   peopleWorkspaceJoinedNoSharedProject:
-    "You've joined this Workspace, but the owner has not shared any project or canvas with you yet.",
+    "This Workspace has no projects or canvases you can access. If another computer already has shared content, check the Workspace ID or join using member connection details from that computer.",
   peopleAuthExpired: "Collaboration credentials expired. Rejoin or reconnect with a valid device.",
   peopleForbidden: "You do not have permission for this collaboration project.",
   peopleEmptyMembers: "No members yet.",

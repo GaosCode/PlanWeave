@@ -14,6 +14,7 @@ import { CollaborationConnectForm } from "../team/CollaborationConnectForm";
 import { buildCollaborationDiagnosticReport } from "../team/collaborationDiagnostics";
 import { CollaborationWorkspaceOnboarding } from "../team/CollaborationWorkspaceOnboarding";
 import { PeoplePanel } from "../team/PeoplePanel";
+import { workspaceDisplayName } from "../team/workspaceConnectionPresentation";
 import { WorkspaceManagementPanel } from "../team/WorkspaceManagementPanel";
 import {
   CurrentCanvasAccessPanel,
@@ -448,6 +449,38 @@ export function PeopleView({
             ) : null}
             {connectedSection === "members" ? (
               <>
+                {connectedWorkspace?.profile && connectedWorkspace.workspaceId ? (
+                  <section
+                    data-testid="people-current-workspace"
+                    className="flex flex-wrap items-start justify-between gap-3 border-b border-border/70 pb-5"
+                  >
+                    <div className="grid min-w-0 gap-1">
+                      <h2 className="text-sm font-semibold">
+                        {t("peopleWorkspaceIdentityTitle")}:{" "}
+                        {workspaceDisplayName(connectedWorkspace.workspaceDisplayName, t)}
+                      </h2>
+                      <p className="break-all text-xs text-text-muted">
+                        {connectedWorkspace.workspaceId}
+                      </p>
+                      <p className="break-all text-xs text-text-muted">
+                        {connectedWorkspace.profile.serverBaseUrl}
+                      </p>
+                      {status?.session.detail === "workspace_no_shared_projects" ? (
+                        <p className="max-w-2xl text-sm text-text-muted">
+                          {t("peopleWorkspaceJoinedNoSharedProject")}
+                        </p>
+                      ) : null}
+                    </div>
+                    <button
+                      type="button"
+                      className="rounded-md border border-border px-3 py-2 text-sm"
+                      data-testid="people-current-workspace-switch"
+                      onClick={() => setConnectedSection("workspace")}
+                    >
+                      {t("peopleWorkspaceSwitch")}
+                    </button>
+                  </section>
+                ) : null}
                 {invitationWorkspace && invitationOperator ? (
                   <HostMemberSetupCard
                     activeProfile={invitationOperator}

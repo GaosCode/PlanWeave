@@ -424,6 +424,10 @@ describe("PeopleView", () => {
 
     expect(await screen.findByTestId("people-workspace-section")).toBeVisible();
     expect(screen.getByTestId("people-section-members")).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("people-current-workspace")).toHaveTextContent("workspace-1");
+    expect(screen.getByTestId("people-current-workspace")).toHaveTextContent(
+      "http://127.0.0.1:56584/"
+    );
     expect(screen.queryByTestId("host-admin-member-setup")).not.toBeInTheDocument();
     expect(screen.queryByTestId("people-workspace-management")).not.toBeInTheDocument();
     expect(screen.queryByTestId("content-authority-panel")).not.toBeInTheDocument();
@@ -431,7 +435,7 @@ describe("PeopleView", () => {
     expect(screen.queryByTestId("deployment-connection")).not.toBeInTheDocument();
     expect(screen.queryByTestId("workspace-canvas-sharing")).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByTestId("people-section-workspace"));
+    await userEvent.click(screen.getByTestId("people-current-workspace-switch"));
     expect(await screen.findByTestId("people-workspace-management")).toBeVisible();
     expect(screen.queryByRole("heading", { name: "Workspace management" })).not.toBeInTheDocument();
     expect(screen.getByTestId("people-workspace-hosting-section")).not.toHaveClass("border-t");
@@ -1404,6 +1408,7 @@ describe("PeopleView", () => {
       />
     );
 
+    expect(await screen.findByTestId("people-current-workspace")).toHaveTextContent("workspace-1");
     expect(await screen.findByTestId("people-profile-card")).toHaveTextContent("Ada Member");
     expect(screen.getByTestId("people-profile-device")).toHaveTextContent("This device");
     expect(screen.getByTestId("people-presence-summary")).toHaveTextContent("1 member");

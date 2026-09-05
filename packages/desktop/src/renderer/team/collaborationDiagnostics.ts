@@ -61,6 +61,16 @@ export function buildCollaborationDiagnosticReport(
     "planweave.collaboration.diagnostics/v1",
     `captured_at=${diagnosticValue(status.updatedAt)}`,
     `platform=${diagnosticValue(platform)}`,
+    `workspace.status=${diagnosticValue(workspace.status)}`,
+    `workspace.id=${diagnosticValue(workspace.workspaceId)}`,
+    `workspace.name=${diagnosticValue(workspace.workspaceDisplayName)}`,
+    `workspace.server_url=${diagnosticValue(workspaceProfile?.serverBaseUrl)}`,
+    `workspace.allow_insecure_transport=${diagnosticValue(
+      workspaceProfile?.allowInsecureTransport
+    )}`,
+    `workspace.error_code=${diagnosticValue(workspace.error?.code)}`,
+    `workspace.error_message=${diagnosticValue(workspace.error?.message)}`,
+    `workspace.error_retryable=${diagnosticValue(workspace.error?.retryable)}`,
     `session.phase=${diagnosticValue(status.session.phase)}`,
     `session.detail=${diagnosticValue(status.session.detail)}`,
     `session.error_code=${diagnosticValue(status.session.lastErrorCode)}`,
@@ -79,15 +89,6 @@ export function buildCollaborationDiagnosticReport(
     `profile.allow_insecure_transport=${diagnosticValue(activeProfile?.allowInsecureTransport)}`,
     `profile.has_device_credential=${diagnosticValue(activeProfile?.hasDeviceCredential)}`,
     `profile.credential_persistence=${diagnosticValue(activeProfile?.deviceCredentialPersistence)}`,
-    `workspace.status=${diagnosticValue(workspace.status)}`,
-    `workspace.id=${diagnosticValue(workspace.workspaceId)}`,
-    `workspace.server_url=${diagnosticValue(workspaceProfile?.serverBaseUrl)}`,
-    `workspace.allow_insecure_transport=${diagnosticValue(
-      workspaceProfile?.allowInsecureTransport
-    )}`,
-    `workspace.error_code=${diagnosticValue(workspace.error?.code)}`,
-    `workspace.error_message=${diagnosticValue(workspace.error?.message)}`,
-    `workspace.error_retryable=${diagnosticValue(workspace.error?.retryable)}`,
     `read_model.profile_id=${diagnosticValue(readModel?.profileId)}`,
     `read_model.project_id=${diagnosticValue(readModel?.projectId)}`,
     `read_model.canvas_id=${diagnosticValue(readModel?.canvasId)}`,

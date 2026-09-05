@@ -1299,7 +1299,8 @@ export const zhCnCatalog = {
   peopleOffline: "协作离线或正在重连。显示最近一次已知的成员列表。",
   peopleError: "无法加载协作成员。",
   peopleWorkspaceCannotConnect: "Workspace 无法连接。",
-  peopleWorkspaceJoinedNoSharedProject: "已加入 Workspace，但所有者尚未与你共享任何项目或画布。",
+  peopleWorkspaceJoinedNoSharedProject:
+    "当前 Workspace 尚无你可访问的项目或画布。如果其他电脑已有共享内容，请核对 Workspace ID，或使用那台电脑生成的成员连接信息重新加入。",
   peopleAuthExpired: "协作凭证已失效。请重新加入或使用有效设备重新连接。",
   peopleForbidden: "你没有此协作项目的权限。",
   peopleEmptyMembers: "暂无成员。",
