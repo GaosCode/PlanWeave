@@ -1,7 +1,8 @@
+import { remoteInteractionViewSchema } from "@planweave-ai/collaboration-protocol/remote-run";
 /* @vitest-environment jsdom */
 import { act, render, renderHook, screen, fireEvent, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AcpConversationPage } from "@planweave-ai/agent-host-protocol/browser";
+import type { DesktopRemoteAcpConversationPage } from "../shared/remoteAcpConversation";
 import type { DesktopRemoteAcpConversationInput } from "../shared/remoteAcpConversation";
 import { useRemoteAcpContinuation } from "../renderer/task-workspace/useRemoteAcpContinuation";
 import { RemoteAcpComposer } from "../renderer/task-workspace/conversation/RemoteAcpComposer";
@@ -20,7 +21,8 @@ const scope = {
   blockRef: "T-1#B-1"
 };
 function setup() {
-  let page: AcpConversationPage = {
+  let page: DesktopRemoteAcpConversationPage = {
+    execution: { state: "completed", cancel: null, interactions: [] },
     available: true,
     reason: null,
     executionAttemptId: "attempt-one",
@@ -59,6 +61,83 @@ function setup() {
   };
 }
 describe("remote ACP composer continuation", () => {
+  it("responds to first-run permissions and cancels that execution without creating a follow-up turn", async () => {
+    const f = setup();
+    const request = remoteInteractionViewSchema.parse({
+      operationId: scope.operationId,
+      hostId: "host-one",
+      status: "pending",
+      createdAt: new Date().toISOString(),
+      request: {
+        type: "interaction.permission_requested",
+        actionId: "permission-one",
+        dispatchId: "dispatch-one",
+        leaseId: "lease-one",
+        executionAttemptId: "attempt-one",
+        acpSessionId: "original-session",
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        title: "Read workspace file",
+        description: "Read README.md"
+      }
+    });
+    const cancel = {
+      kind: "cancel" as const,
+      actionId: "cancel-one",
+      operationId: scope.operationId,
+      dispatchId: request.request.dispatchId,
+      leaseId: request.request.leaseId,
+      executionAttemptId: request.request.executionAttemptId,
+      expectedAttemptVersion: 3,
+      reason: "User cancellation"
+    };
+    const page: DesktopRemoteAcpConversationPage = {
+      ...f.page,
+      available: false,
+      reason: "acp_conversation_execution_not_completed",
+      execution: { state: "running", cancel, interactions: [request] }
+    };
+    f.api.remoteAcpConversation.mockImplementation(async () => page);
+    function View() {
+      const continuation = useRemoteAcpContinuation(f.api, scope);
+      return <RemoteAcpComposer continuation={continuation} t={createTranslator("en")} />;
+    }
+    render(<View />);
+    fireEvent.click(await screen.findByRole("button", { name: "Allow once" }));
+    await waitFor(() =>
+      expect(f.api.remoteAcpConversation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: {
+            kind: "execution_respond",
+            response: {
+              type: "interaction.permission_response",
+              decision: "allow_once",
+              actionId: "permission-one",
+              dispatchId: "dispatch-one",
+              leaseId: "lease-one",
+              executionAttemptId: "attempt-one",
+              acpSessionId: "original-session"
+            }
+          }
+        })
+      )
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Cancel run" }).hasAttribute("disabled")).toBe(
+        false
+      )
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Cancel run" }));
+    await waitFor(() =>
+      expect(f.api.remoteAcpConversation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: { kind: "execution_cancel", command: cancel }
+        })
+      )
+    );
+    expect(
+      f.api.remoteAcpConversation.mock.calls.some(([input]) => input.action?.kind === "prompt")
+    ).toBe(false);
+  });
   it("uses the existing composer surface to send, cancel, and then send another turn", async () => {
     const f = setup();
     function View() {
@@ -104,7 +183,9 @@ describe("remote ACP composer continuation", () => {
     const sends = f.api.remoteAcpConversation.mock.calls.filter(
       ([input]) => input.action?.kind === "prompt"
     );
-    expect(sends[0]?.[0].action?.turnId).toBe(sends[1]?.[0].action?.turnId);
+    expect((sends[0]?.[0].action as { turnId: string })?.turnId).toBe(
+      (sends[1]?.[0].action as { turnId: string })?.turnId
+    );
     rerender({ input: { ...scope, operationId: "operation-two" } });
     await waitFor(() =>
       expect(f.api.remoteAcpConversation).toHaveBeenCalledWith(

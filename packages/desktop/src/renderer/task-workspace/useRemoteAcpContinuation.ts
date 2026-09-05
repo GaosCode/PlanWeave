@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   AcpConversationAction,
-  AcpConversationEvent,
-  AcpConversationPage
+  AcpConversationEvent
 } from "@planweave-ai/agent-host-protocol/browser";
 import { projectRemoteAcpReplay, projectRemoteAcpTelemetry } from "@planweave-ai/runtime/browser";
-import type { DesktopRemoteAcpConversationInput } from "../../shared/remoteAcpConversation";
+import type {
+  DesktopRemoteAcpConversationInput,
+  DesktopRemoteAcpConversationPage
+} from "../../shared/remoteAcpConversation";
 import type { PlanWeaveWorkspaceExecutionApi } from "../../shared/workspaceExecution";
 
 export function useRemoteAcpContinuation(
@@ -17,14 +19,14 @@ export function useRemoteAcpContinuation(
   inputRef.current = input;
   const epoch = useRef(0);
   const sendingRef = useRef(false);
-  const pageRef = useRef<AcpConversationPage | null>(null);
+  const pageRef = useRef<DesktopRemoteAcpConversationPage | null>(null);
   const events = useRef(new Map<string, AcpConversationEvent>());
   const cursor = useRef(0);
   const refreshRef = useRef<() => Promise<void>>(async () => {});
   const pendingPrompt = useRef<Extract<AcpConversationAction, { kind: "prompt" }> | null>(null);
   const [state, setState] = useState<{
     key: string;
-    page: AcpConversationPage;
+    page: DesktopRemoteAcpConversationPage;
     events: AcpConversationEvent[];
   } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -50,7 +52,7 @@ export function useRemoteAcpContinuation(
       running = (async () => {
         clearTimeout(timer);
         try {
-          let page: AcpConversationPage;
+          let page: DesktopRemoteAcpConversationPage;
           do {
             page = await api.remoteAcpConversation({ ...scope, afterCursor: cursor.current });
             if (epoch.current !== generation) return;
@@ -83,7 +85,9 @@ export function useRemoteAcpContinuation(
   const page = state?.key === key ? state.page : null;
   const active =
     page?.turns.find((turn) => turn.status === "queued" || turn.status === "running") ?? null;
-  const act = async (action: AcpConversationAction): Promise<boolean> => {
+  const act = async (
+    action: NonNullable<DesktopRemoteAcpConversationInput["action"]>
+  ): Promise<boolean> => {
     if (!api || !inputRef.current || sendingRef.current) return false;
     const generation = epoch.current;
     sendingRef.current = true;
@@ -174,6 +178,14 @@ export function useRemoteAcpContinuation(
     sending,
     active,
     ...projection,
+    execution: page?.execution ?? null,
+    cancelExecution: () =>
+      page?.execution.cancel
+        ? act({ kind: "execution_cancel", command: page.execution.cancel })
+        : Promise.resolve(false),
+    respondExecution: (
+      response: import("@planweave-ai/collaboration-protocol/remote-run").RemoteInteractionResponse
+    ) => act({ kind: "execution_respond", response }),
     send: async (text: string) => {
       if (!page?.available || !page.sessionId || active) return false;
       if (pendingPrompt.current && pendingPrompt.current.text !== text) {

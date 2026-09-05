@@ -1,3 +1,4 @@
+import { RemoteAcpExecutionControls } from "./RemoteAcpExecutionControls";
 import { useState, type ReactNode } from "react";
 import { AcpComposerSurface } from "./AcpComposerSurface";
 import { StructuredElicitation } from "./StructuredElicitation";
@@ -38,6 +39,7 @@ export function RemoteAcpComposer({
       error={continuation.error}
       t={t}
     >
+      <RemoteAcpExecutionControls continuation={continuation} t={t} />
       {continuation.interactions.map(({ turnId, request }) => (
         <section key={`${turnId}:${request.requestId}`} className="space-y-2 rounded-md border p-3">
           <p className="text-sm">
