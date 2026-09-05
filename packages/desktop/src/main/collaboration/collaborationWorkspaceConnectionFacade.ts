@@ -1,5 +1,7 @@
 import type {
   ActiveWorkspaceConnectionView,
+  WorkspaceConnectionMembersPage,
+  WorkspaceConnectionSelfView,
   WorkspacePickerPage
 } from "@planweave-ai/collaboration-protocol/connection";
 import {
@@ -9,6 +11,7 @@ import {
   collaborationProfileIdInputSchema,
   collaborationRecoverIdentitiesInputSchema,
   collaborationRedeemSetupCodeInputSchema,
+  collaborationUpdateOwnDisplayNameInputSchema,
   collaborationWorkspacePickerQuerySchema,
   parseCollaborationServerOriginInput,
   type CollaborationSessionPhase,
@@ -212,6 +215,22 @@ export class CollaborationWorkspaceConnectionFacade {
     assertNoSmuggledCollaborationSecrets(input, "listWorkspacePicker");
     const query = collaborationWorkspacePickerQuerySchema.parse(input ?? {});
     return this.connection.buildPickerPage(query.cursor, query.limit);
+  }
+
+  getWorkspaceConnectionSelf(): Promise<WorkspaceConnectionSelfView> {
+    return this.connection.getSelf();
+  }
+
+  updateWorkspaceConnectionSelf(input: unknown): Promise<WorkspaceConnectionSelfView> {
+    assertNoSmuggledCollaborationSecrets(input, "updateWorkspaceConnectionSelf");
+    const body = collaborationUpdateOwnDisplayNameInputSchema.parse(input);
+    return this.connection.updateSelf(body.displayName);
+  }
+
+  listWorkspaceConnectionMembers(input: unknown = {}): Promise<WorkspaceConnectionMembersPage> {
+    assertNoSmuggledCollaborationSecrets(input, "listWorkspaceConnectionMembers");
+    const query = collaborationWorkspacePickerQuerySchema.parse(input ?? {});
+    return this.connection.listMembers(query.cursor, query.limit);
   }
 
   async selectWorkspaceConnection(input: unknown): Promise<CollaborationStatus> {

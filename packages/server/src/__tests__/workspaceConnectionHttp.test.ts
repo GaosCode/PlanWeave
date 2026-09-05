@@ -132,4 +132,71 @@ describe("workspace connection HTTP", () => {
     });
     expect(revoked.status).toBe(401);
   });
+
+  it("reads and updates the authenticated human on this device without a project session", async () => {
+    const { origin, workspaceId, token } = await setup();
+    const selfResponse = await fetch(`${origin}/api/v1/workspace-connection/self`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    expect(selfResponse.status).toBe(200);
+    const self = (await selfResponse.json()) as {
+      displayName: string;
+      role: string;
+      deviceSessionId: string;
+      workspaceId: string;
+    };
+    expect(self).toMatchObject({
+      workspaceId,
+      displayName: "Workspace Device",
+      role: "owner",
+      deviceSessionId: "device-session-connection"
+    });
+
+    const updatedResponse = await fetch(`${origin}/api/v1/workspace-connection/self`, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        schemaVersion: "workspace-setup/v1",
+        displayName: "Windows Laptop"
+      })
+    });
+    expect(updatedResponse.status).toBe(200);
+    expect(await updatedResponse.json()).toMatchObject({
+      displayName: "Windows Laptop",
+      deviceSessionId: "device-session-connection"
+    });
+  });
+
+  it("lists Workspace members and this device even when no project is shared", async () => {
+    const { origin, token } = await setup();
+    const response = await fetch(
+      `${origin}/api/v1/workspace-connection/members?cursor=0&limit=50`,
+      {
+        headers: { Authorization: `Bearer ${token}` }
+      }
+    );
+    expect(response.status).toBe(200);
+    const page = (await response.json()) as {
+      items: Array<{
+        displayName: string;
+        devices: Array<{ deviceSessionId: string; isCurrentDevice: boolean }>;
+      }>;
+    };
+    expect(page.items).toEqual([
+      expect.objectContaining({
+        displayName: "Workspace Device",
+        role: "owner",
+        devices: [
+          expect.objectContaining({
+            deviceSessionId: "device-session-connection",
+            isCurrentDevice: true
+          })
+        ]
+      })
+    ]);
+    expect(JSON.stringify(page)).not.toMatch(/credential|token|secret|projectRoot/i);
+  });
 });

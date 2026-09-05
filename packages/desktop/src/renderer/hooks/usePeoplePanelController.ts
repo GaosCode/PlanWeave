@@ -4,6 +4,10 @@ import type {
   HumanInvitationView,
   HumanMembershipView
 } from "@planweave-ai/collaboration-protocol/identity/workspace";
+import type {
+  WorkspaceConnectionMemberView,
+  WorkspaceConnectionSelfView
+} from "@planweave-ai/collaboration-protocol/connection";
 import { collaborationBridge } from "../bridge";
 import {
   collaborationErrorMessage,
@@ -11,16 +15,21 @@ import {
 } from "../collaboration/formatCollaborationError";
 import {
   buildPeopleDeviceRows,
+  buildPeopleDeviceRowsFromWorkspace,
   buildPeopleHostRows,
   buildPeopleInvitationRows,
   buildPeopleMemberRows,
   buildPeoplePresenceSummary,
+  peopleIdentityFromSelf,
+  peopleMembershipsFromWorkspace,
   resolveCurrentMembership,
   resolvePeoplePanelMode,
   type PeopleDeviceRow,
   type PeopleHostRow,
+  type PeopleIdentity,
   type PeopleInvitationRow,
   type PeopleMemberRow,
+  type PeopleMembershipSource,
   type PeoplePanelMode,
   type PeoplePresenceSummary
 } from "../collaboration/peopleViewModels";
@@ -34,7 +43,10 @@ import type {
   CollaborationHostProjection,
   CollaborationSyncPhase
 } from "../../shared/collaborationReadModels.js";
-import { isCollaborationSessionConnected } from "../collaboration/sessionState";
+import {
+  isCollaborationSessionConnected,
+  isWorkspaceConnectionConnected
+} from "../collaboration/sessionState";
 
 const EMPTY_MEMBERS: HumanMembershipView[] = [];
 
@@ -53,6 +65,7 @@ export type UsePeoplePanelControllerArgs = {
 export type UsePeoplePanelControllerResult = {
   mode: PeoplePanelMode;
   presence: PeoplePresenceSummary;
+  identity: PeopleIdentity | null;
   members: PeopleMemberRow[];
   hosts: PeopleHostRow[];
   invitations: PeopleInvitationRow[];
@@ -83,6 +96,10 @@ export function usePeoplePanelController(
   const [invitations, setInvitations] = useState<HumanInvitationView[]>([]);
   const [devices, setDevices] = useState<HumanDeviceView[]>([]);
   const [listedMembers, setListedMembers] = useState<HumanMembershipView[] | null>(null);
+  const [workspaceSelf, setWorkspaceSelf] = useState<WorkspaceConnectionSelfView | null>(null);
+  const [workspaceMembers, setWorkspaceMembers] = useState<WorkspaceConnectionMemberView[] | null>(
+    null
+  );
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -93,33 +110,51 @@ export function usePeoplePanelController(
   const detailsRequestRef = useRef<Promise<void> | null>(null);
   const detailsRequestKeyRef = useRef<string | null>(null);
   const sessionConnected = isCollaborationSessionConnected(args.status);
+  const workspaceConnected = isWorkspaceConnectionConnected(args.status);
+  const identityReady = workspaceConnected || sessionConnected;
   const activeProfileId = args.status?.activeProfileId ?? null;
   const formatError = args.formatError ?? collaborationErrorMessage;
 
-  // The project shell may leave the shared observer unbound (local project
-  // mismatch). People administration still reads members from the session.
-  const members = args.members.length > 0 ? args.members : (listedMembers ?? EMPTY_MEMBERS);
+  const projectMembers = args.members.length > 0 ? args.members : (listedMembers ?? EMPTY_MEMBERS);
+  const usingWorkspaceMembers = workspaceMembers !== null && workspaceMembers.length > 0;
+  const membershipSources: readonly PeopleMembershipSource[] = usingWorkspaceMembers
+    ? peopleMembershipsFromWorkspace(workspaceMembers)
+    : projectMembers;
 
   const currentMembership = useMemo(
     () =>
       resolveCurrentMembership({
-        members,
+        members: membershipSources,
         status: args.status
       }),
-    [members, args.status]
+    [membershipSources, args.status]
   );
-  const currentHumanPrincipalId = currentMembership?.humanPrincipalId ?? null;
-  const currentUserIsOwner = currentMembership?.role === "owner";
+  const currentHumanPrincipalId =
+    workspaceSelf?.humanPrincipalId ?? currentMembership?.humanPrincipalId ?? null;
+  const projectMemberIds = useMemo(
+    () => new Set(projectMembers.map((member) => member.humanPrincipalId)),
+    [projectMembers]
+  );
+  const currentUserIsProjectOwner =
+    projectMembers.find((member) => member.humanPrincipalId === currentHumanPrincipalId)?.role ===
+    "owner";
 
   const presence = useMemo(
     () =>
       buildPeoplePresenceSummary({
-        members,
+        members: membershipSources,
         hosts: args.hosts,
         status: args.status,
         syncPhase: args.syncPhase
       }),
-    [args.hosts, args.status, args.syncPhase, members]
+    [args.hosts, args.status, args.syncPhase, membershipSources]
+  );
+  const presenceWithProjectOwner = useMemo(
+    () => ({
+      ...presence,
+      currentUserIsOwner: currentUserIsProjectOwner
+    }),
+    [currentUserIsProjectOwner, presence]
   );
 
   const mode = useMemo(
@@ -127,41 +162,62 @@ export function usePeoplePanelController(
       resolvePeoplePanelMode({
         status: args.status,
         syncPhase: args.syncPhase,
-        memberCount: members.length,
+        memberCount: membershipSources.length,
         detailsLoading,
         detailsFailed: detailsError !== null
       }),
-    [args.status, args.syncPhase, detailsError, detailsLoading, members.length]
+    [args.status, args.syncPhase, detailsError, detailsLoading, membershipSources.length]
   );
 
   const memberRows = useMemo(
     () =>
       buildPeopleMemberRows({
-        members,
+        members: membershipSources,
         currentHumanPrincipalId,
-        currentUserIsOwner
+        currentUserIsOwner: currentUserIsProjectOwner,
+        projectMemberIds: usingWorkspaceMembers ? projectMemberIds : undefined
       }),
-    [currentHumanPrincipalId, currentUserIsOwner, members]
+    [
+      currentHumanPrincipalId,
+      currentUserIsProjectOwner,
+      membershipSources,
+      projectMemberIds,
+      usingWorkspaceMembers
+    ]
   );
 
   const hostRows = useMemo(() => buildPeopleHostRows(args.hosts), [args.hosts]);
   const invitationRows = useMemo(() => buildPeopleInvitationRows(invitations), [invitations]);
-  const deviceRows = useMemo(() => buildPeopleDeviceRows(devices), [devices]);
+  const deviceRows = useMemo(() => {
+    if (usingWorkspaceMembers) {
+      return buildPeopleDeviceRowsFromWorkspace(
+        workspaceMembers.flatMap((member) => member.devices)
+      );
+    }
+    return buildPeopleDeviceRows(devices);
+  }, [devices, usingWorkspaceMembers, workspaceMembers]);
+  const identity = workspaceSelf ? peopleIdentityFromSelf(workspaceSelf) : null;
+
+  const clearIdentityState = useCallback(() => {
+    setInvitations([]);
+    setDevices([]);
+    setListedMembers(null);
+    setWorkspaceSelf(null);
+    setWorkspaceMembers(null);
+    setDetailsLoading(false);
+    setDetailsError(null);
+  }, []);
 
   const refreshDetails = useCallback((): Promise<void> => {
-    if (!api || !sessionConnected || !activeProfileId) {
+    if (!api || !identityReady || !activeProfileId) {
       detailsGenerationRef.current += 1;
       detailsRequestRef.current = null;
       detailsRequestKeyRef.current = null;
-      setInvitations([]);
-      setDevices([]);
-      setListedMembers(null);
-      setDetailsLoading(false);
-      setDetailsError(null);
+      clearIdentityState();
       return Promise.resolve();
     }
-    const deviceScope = currentUserIsOwner ? "project" : "own";
-    const requestKey = `${activeProfileId}:${deviceScope}`;
+    const deviceScope = currentUserIsProjectOwner ? "project" : "own";
+    const requestKey = `${activeProfileId}:${deviceScope}:${workspaceConnected}:${sessionConnected}`;
     if (detailsRequestRef.current && detailsRequestKeyRef.current === requestKey) {
       return detailsRequestRef.current;
     }
@@ -172,12 +228,34 @@ export function usePeoplePanelController(
     setDetailsError(null);
     const request = (async () => {
       try {
+        if (workspaceConnected) {
+          const self = await api.getWorkspaceConnectionSelf();
+          if (detailsGenerationRef.current !== generation) {
+            return;
+          }
+          setWorkspaceSelf(self);
+          const workspaceMemberPage = await api.listWorkspaceConnectionMembers({
+            cursor: 0,
+            limit: 100
+          });
+          if (detailsGenerationRef.current !== generation) {
+            return;
+          }
+          setWorkspaceMembers(workspaceMemberPage.items);
+        } else {
+          setWorkspaceSelf(null);
+          setWorkspaceMembers(null);
+        }
         const [invitationPage, devicePage, memberPage] = await Promise.all([
-          currentUserIsOwner
+          sessionConnected && currentUserIsProjectOwner
             ? api.listCollaborationInvitations({ cursor: 0, limit: 100, openOnly: true })
             : Promise.resolve({ items: [], nextCursor: null }),
-          api.listCollaborationDevices({ cursor: 0, limit: 50, scope: deviceScope }),
-          api.listCollaborationMembers({ cursor: 0, limit: 100 })
+          sessionConnected
+            ? api.listCollaborationDevices({ cursor: 0, limit: 50, scope: deviceScope })
+            : Promise.resolve({ items: [], nextCursor: null }),
+          sessionConnected
+            ? api.listCollaborationMembers({ cursor: 0, limit: 100 })
+            : Promise.resolve({ items: [], nextCursor: null })
         ]);
         if (detailsGenerationRef.current !== generation) {
           return;
@@ -188,7 +266,7 @@ export function usePeoplePanelController(
           )
         );
         setDevices(devicePage.items);
-        setListedMembers(memberPage.items);
+        setListedMembers(sessionConnected ? memberPage.items : null);
       } catch (error) {
         if (detailsGenerationRef.current !== generation) {
           return;
@@ -209,7 +287,16 @@ export function usePeoplePanelController(
       }
     });
     return request;
-  }, [activeProfileId, api, currentUserIsOwner, formatError, sessionConnected]);
+  }, [
+    activeProfileId,
+    api,
+    clearIdentityState,
+    currentUserIsProjectOwner,
+    formatError,
+    identityReady,
+    sessionConnected,
+    workspaceConnected
+  ]);
 
   useEffect(() => {
     if (!args.detailsOpen) return;
@@ -217,8 +304,13 @@ export function usePeoplePanelController(
   }, [args.detailsOpen, refreshDetails]);
 
   const runAction = useCallback(
-    async (operation: () => Promise<void>, options?: { refreshDetails?: boolean }) => {
-      if (!api || !sessionConnected || actionBusy) return false;
+    async (
+      operation: () => Promise<void>,
+      options?: { refreshDetails?: boolean; requireProjectSession?: boolean }
+    ) => {
+      const requiresProject = options?.requireProjectSession !== false;
+      if (!api || actionBusy) return false;
+      if (requiresProject ? !sessionConnected : !identityReady) return false;
       setActionBusy(true);
       setActionError(null);
       try {
@@ -235,12 +327,13 @@ export function usePeoplePanelController(
         setActionBusy(false);
       }
     },
-    [actionBusy, api, formatError, refreshDetails, sessionConnected]
+    [actionBusy, api, formatError, identityReady, refreshDetails, sessionConnected]
   );
 
   return {
     mode,
-    presence,
+    presence: presenceWithProjectOwner,
+    identity,
     members: memberRows,
     hosts: hostRows,
     invitations: invitationRows,
@@ -327,9 +420,23 @@ export function usePeoplePanelController(
     updateOwnDisplayName: async (displayName) =>
       runAction(
         async () => {
+          if (workspaceConnected) {
+            const updated = await api!.updateWorkspaceConnectionSelf({ displayName });
+            setWorkspaceSelf(updated);
+            setWorkspaceMembers((current) =>
+              current
+                ? current.map((member) =>
+                    member.humanPrincipalId === updated.humanPrincipalId
+                      ? { ...member, displayName: updated.displayName }
+                      : member
+                  )
+                : current
+            );
+            return;
+          }
           await api!.updateOwnCollaborationDisplayName({ displayName });
         },
-        { refreshDetails: false }
+        { refreshDetails: false, requireProjectSession: false }
       ),
     promoteMember: async (humanPrincipalId) =>
       runAction(

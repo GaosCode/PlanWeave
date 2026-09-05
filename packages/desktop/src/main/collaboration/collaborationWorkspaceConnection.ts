@@ -6,7 +6,9 @@ import {
   type ActiveWorkspaceConnectionStatus,
   type ActiveWorkspaceConnectionView,
   type CollaborationConnectionProfile,
+  type WorkspaceConnectionMembersPage,
   type WorkspaceConnectionProfile,
+  type WorkspaceConnectionSelfView,
   type WorkspacePickerPage
 } from "@planweave-ai/collaboration-protocol/connection";
 import { assertSetupViewRedacted } from "@planweave-ai/collaboration-protocol/setup";
@@ -342,18 +344,23 @@ export class CollaborationWorkspaceConnection {
     cursor: number,
     limit: number
   ): Promise<WorkspacePickerPage> {
-    const client = new CollaborationWorkspaceClient({
-      profile: toPublicProfile(stored),
-      credential: { getDeviceToken: () => this.vault.getDeviceToken(stored.profileId) },
-      request: this.request
-    });
-    try {
-      const page = await client.listWorkspaces({ cursor, limit });
-      this.lastAuthoritativePicker = page;
-      return page;
-    } finally {
-      client.dispose();
-    }
+    const page = await this.withWorkspaceClient(stored, (client) =>
+      client.listWorkspaces({ cursor, limit })
+    );
+    this.lastAuthoritativePicker = page;
+    return page;
+  }
+
+  getSelf(): Promise<WorkspaceConnectionSelfView> {
+    return this.withActiveWorkspaceClient((client) => client.getSelf());
+  }
+
+  updateSelf(displayName: string): Promise<WorkspaceConnectionSelfView> {
+    return this.withActiveWorkspaceClient((client) => client.updateSelf(displayName));
+  }
+
+  listMembers(cursor: number, limit: number): Promise<WorkspaceConnectionMembersPage> {
+    return this.withActiveWorkspaceClient((client) => client.listMembers({ cursor, limit }));
   }
 
   private async findAuthoritativeWorkspace(
@@ -1090,7 +1097,47 @@ export class CollaborationWorkspaceConnection {
   }
 
   async getActiveStoredProfile(): Promise<StoredWorkspaceConnectionProfile | null> {
-    if (!this.activeProfileId) return null;
-    return this.getStoredProfile(this.activeProfileId);
+    const activeId = this.activeProfileId ?? (await this.store.getActiveProfileId());
+    if (!activeId) return null;
+    return this.getStoredProfile(activeId);
+  }
+
+  private async requireActiveStoredProfile(): Promise<StoredWorkspaceConnectionProfile> {
+    const stored = await this.getActiveStoredProfile();
+    if (!stored) {
+      throw new CollaborationClientError({
+        kind: "protocol",
+        code: "workspace_connection_profile_missing",
+        message: "The active Workspace connection profile is unavailable.",
+        retryable: false
+      });
+    }
+    return stored;
+  }
+
+  private async withWorkspaceClient<T>(
+    stored: StoredWorkspaceConnectionProfile,
+    run: (client: CollaborationWorkspaceClient) => Promise<T>
+  ): Promise<T> {
+    const client = new CollaborationWorkspaceClient({
+      profile: toPublicProfile(stored),
+      credential: { getDeviceToken: () => this.vault.getDeviceToken(stored.profileId) },
+      request: this.request
+    });
+    try {
+      const result = await run(client);
+      assertSetupViewRedacted(result);
+      return result;
+    } finally {
+      client.dispose();
+    }
+  }
+
+  private withActiveWorkspaceClient<T>(
+    run: (client: CollaborationWorkspaceClient) => Promise<T>
+  ): Promise<T> {
+    return this.requireActiveStoredProfile().then((stored) =>
+      this.withWorkspaceClient(stored, run)
+    );
   }
 }

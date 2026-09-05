@@ -1179,6 +1179,9 @@ describe("preload bridge invocation", () => {
     await api.listRememberedServerConnections();
     await api.forgetRememberedServerConnection({ profileId: "profile-workspace-001" });
     await api.listWorkspacePicker({ cursor: 0, limit: 20 });
+    await api.getWorkspaceConnectionSelf();
+    await api.updateWorkspaceConnectionSelf({ displayName: "Ada Member" });
+    await api.listWorkspaceConnectionMembers({ cursor: 0, limit: 50 });
     await api.selectWorkspaceConnection({ workspaceId: "workspace-1" });
     await api.connectWorkspaceConnection();
     await api.disconnectWorkspaceConnection();

@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import type { createTranslator } from "../i18n";
 import type {
   PeopleDeviceRow,
+  PeopleIdentity,
   PeopleInvitationRow,
   PeopleMemberRow,
   PeoplePanelMode,
@@ -12,11 +13,14 @@ import type { CollaborationInvitationHandoffView } from "../../shared/collaborat
 import { CollaborationDiagnosticsDetails } from "./CollaborationDiagnosticsDetails";
 import { MemberLoginDevices } from "./MemberLoginDevices";
 import { OwnDisplayNameControl } from "./OwnDisplayNameControl";
+import { PeopleIdentityCard } from "./PeopleIdentityCard";
 
 export type PeoplePanelProps = {
   mode: PeoplePanelMode;
   presence: PeoplePresenceSummary;
   members: PeopleMemberRow[];
+  /** Workspace identity for this device; shown even when no project is shared. */
+  identity?: PeopleIdentity | null;
   invitations: PeopleInvitationRow[];
   devices: PeopleDeviceRow[];
   detailsLoading: boolean;
@@ -81,6 +85,7 @@ export function PeoplePanel({
   mode,
   presence,
   members,
+  identity = null,
   invitations,
   devices,
   detailsLoading,
@@ -312,8 +317,9 @@ export function PeoplePanel({
       ? t("peopleWorkspaceJoinedNoSharedProject")
       : t("peopleWorkspaceCannotConnect")
     : t("peopleError");
-  const memberStateText =
-    mode === "ready" || mode === "empty"
+  const memberStateText = noSharedProject
+    ? t("peopleWorkspaceJoinedNoSharedProject")
+    : mode === "ready" || mode === "empty"
       ? t("peopleMemberCount").replace("{count}", String(presence.memberCount))
       : mode === "loading"
         ? t("peopleLoading")
@@ -463,6 +469,15 @@ export function PeoplePanel({
 
       {diagnostics}
 
+      {identity ? (
+        <PeopleIdentityCard
+          identity={identity}
+          actionBusy={actionBusy}
+          t={t}
+          onUpdateDisplayName={onUpdateOwnDisplayName}
+        />
+      ) : null}
+
       {connectSlot && showConnectionSettings ? (
         <div className="border-y border-border/70 py-4" data-testid="people-connection-settings">
           {connectSlot}
@@ -506,13 +521,18 @@ export function PeoplePanel({
                       <div className="flex min-w-0 items-center gap-3 px-1 py-3.5">
                         <MemberAvatar initials={member.initials} label={member.displayName} />
                         <div className="min-w-0 flex-1">
-                          {member.isCurrentUser ? (
+                          {member.isCurrentUser && !identity ? (
                             <OwnDisplayNameControl
-                              member={member}
+                              displayName={member.displayName}
                               actionBusy={actionBusy}
                               t={t}
                               onUpdate={onUpdateOwnDisplayName}
                             />
+                          ) : member.isCurrentUser ? (
+                            <div className="truncate text-sm font-semibold text-text-strong">
+                              {member.displayName}
+                              <span className="ml-1 text-muted-foreground">({t("peopleYou")})</span>
+                            </div>
                           ) : (
                             <div className="truncate text-sm font-semibold text-text-strong">
                               {member.displayName}

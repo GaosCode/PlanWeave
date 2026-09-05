@@ -37,6 +37,8 @@ import {
   type ActiveWorkspaceConnectionView,
   type CollaborationConnectionProfile,
   type DeploymentEndpoint,
+  type WorkspaceConnectionMembersPage,
+  type WorkspaceConnectionSelfView,
   type WorkspacePickerPage
 } from "@planweave-ai/collaboration-protocol/connection";
 import {
@@ -818,6 +820,13 @@ export type PlanWeaveCollaborationApi = WorkspaceCanvasSharingApi & {
     input: CollaborationProfileIdInput
   ) => Promise<CollaborationStatus>;
   listWorkspacePicker: (input?: CollaborationWorkspacePickerQuery) => Promise<WorkspacePickerPage>;
+  getWorkspaceConnectionSelf: () => Promise<WorkspaceConnectionSelfView>;
+  updateWorkspaceConnectionSelf: (
+    input: CollaborationUpdateOwnDisplayNameInput
+  ) => Promise<WorkspaceConnectionSelfView>;
+  listWorkspaceConnectionMembers: (
+    input?: CollaborationWorkspacePickerQuery
+  ) => Promise<WorkspaceConnectionMembersPage>;
   selectWorkspaceConnection: (
     input: CollaborationProfileIdInput | { workspaceId: string }
   ) => Promise<CollaborationStatus>;

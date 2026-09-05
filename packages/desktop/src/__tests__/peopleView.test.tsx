@@ -30,10 +30,49 @@ const scopeLayout = { collapsed: true, expandedProjectIds: [] };
 const onScopeLayoutChange = () => undefined;
 
 function peopleIdentityReads() {
+  const workspaceSelf = {
+    schemaVersion: "workspace-setup/v1" as const,
+    workspaceId: "workspace-1",
+    membershipId: "membership-1",
+    humanPrincipalId: "human-1",
+    displayName: "Ada Member",
+    role: "member" as const,
+    deviceSessionId: "device-session-1"
+  };
   return {
     listCollaborationMembers: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
     listCollaborationDevices: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
-    listCollaborationInvitations: vi.fn().mockResolvedValue({ items: [], nextCursor: null })
+    listCollaborationInvitations: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+    getWorkspaceConnectionSelf: vi.fn().mockResolvedValue(workspaceSelf),
+    updateWorkspaceConnectionSelf: vi
+      .fn()
+      .mockImplementation(async (input: { displayName: string }) => ({
+        ...workspaceSelf,
+        displayName: input.displayName
+      })),
+    listWorkspaceConnectionMembers: vi.fn().mockResolvedValue({
+      schemaVersion: "workspace-setup/v1",
+      items: [
+        {
+          schemaVersion: "workspace-setup/v1",
+          membershipId: "membership-1",
+          humanPrincipalId: "human-1",
+          displayName: "Ada Member",
+          role: "member",
+          devices: [
+            {
+              schemaVersion: "workspace-setup/v1",
+              deviceSessionId: "device-session-1",
+              humanPrincipalId: "human-1",
+              issuedAt: "2030-01-01T00:00:00.000Z",
+              lastUsedAt: "2030-01-02T00:00:00.000Z",
+              isCurrentDevice: true
+            }
+          ]
+        }
+      ],
+      nextCursor: null
+    })
   };
 }
 
@@ -1262,5 +1301,86 @@ describe("PeopleView", () => {
 
     expect(await screen.findByTestId("collaboration-workspace-onboarding")).toBeVisible();
     expect(screen.queryByTestId("people-panel")).not.toBeInTheDocument();
+  });
+
+  it("shows this device's profile after joining a Workspace with no shared project", async () => {
+    const identity = peopleIdentityReads();
+    const status = {
+      profiles: [
+        {
+          profileId: "profile-1",
+          displayName: "Team workspace",
+          serverBaseUrl: "https://collaboration.example.test",
+          projectId: "project-1",
+          allowInsecureTransport: false,
+          hasDeviceCredential: true,
+          deviceCredentialPersistence: "persisted",
+          deviceCredentialId: "device-1",
+          humanPrincipalId: "human-1",
+          updatedAt: "2030-01-01T00:00:00.000Z"
+        }
+      ],
+      activeProfileId: "profile-1",
+      credentialStorage: "available",
+      nonPersistenceWarning: null,
+      session: {
+        phase: "error",
+        activeProfileId: "profile-1",
+        detail: null,
+        lastErrorCode: "live_registry_project_unavailable",
+        lastErrorMessage: "Project is not shared with this device."
+      },
+      workspaceConnection: {
+        schemaVersion: "workspace-setup/v1",
+        status: "connected",
+        profile: {
+          schemaVersion: "workspace-identity/v1",
+          profileId: "profile-1",
+          displayName: "Team",
+          serverBaseUrl: "http://127.0.0.1:56584/",
+          workspaceId: "workspace-1",
+          allowInsecureTransport: true
+        },
+        workspaceId: "workspace-1",
+        workspaceDisplayName: "Team",
+        connectedAt: "2030-01-01T00:00:00.000Z",
+        error: null
+      },
+      workspacePicker: { schemaVersion: "workspace-setup/v1", items: [], nextCursor: null },
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    } as const;
+    const api = {
+      getCollaborationStatus: vi.fn().mockResolvedValue(status),
+      onCollaborationStatusChanged: vi.fn(() => () => undefined),
+      getLocalCollaborationServerStatus: vi.fn().mockResolvedValue({
+        profile: null,
+        state: "stopped",
+        startedAt: null,
+        reason: null,
+        lanSharingEnabled: false,
+        lanServerBaseUrl: null
+      }),
+      onCollaborationObserverSignal: vi.fn(() => () => undefined),
+      ...identity
+    } as unknown as PlanWeaveCollaborationApi;
+
+    render(
+      <PeopleView
+        api={api}
+        t={createTranslator("en")}
+        collaborationScopeLayout={scopeLayout}
+        onCollaborationScopeLayoutChange={onScopeLayoutChange}
+      />
+    );
+
+    expect(await screen.findByTestId("people-profile-card")).toHaveTextContent("Ada Member");
+    expect(screen.getByTestId("people-profile-device")).toHaveTextContent("This device");
+    expect(screen.getByTestId("people-presence-summary")).toHaveTextContent(
+      "You've joined this Workspace, but the owner has not shared any project or canvas with you yet."
+    );
+    expect(screen.getByTestId("people-member-row")).toHaveTextContent("Ada Member");
+    expect(identity.getWorkspaceConnectionSelf).toHaveBeenCalled();
+    expect(identity.listWorkspaceConnectionMembers).toHaveBeenCalled();
+    expect(identity.listCollaborationMembers).not.toHaveBeenCalled();
   });
 });

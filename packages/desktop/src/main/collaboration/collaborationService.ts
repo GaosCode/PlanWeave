@@ -2,6 +2,8 @@ import {
   collaborationConnectionProfileSchema,
   type CollaborationConnectionProfile,
   type ActiveWorkspaceConnectionView,
+  type WorkspaceConnectionMembersPage,
+  type WorkspaceConnectionSelfView,
   type WorkspacePickerPage
 } from "@planweave-ai/collaboration-protocol/connection";
 import {
@@ -703,6 +705,32 @@ export class CollaborationService {
       this.assertOpen();
       await this.ensureWorkspaceHydrated();
       return this.workspaceConnectionFacade.listWorkspacePicker(input);
+    });
+  }
+
+  async getWorkspaceConnectionSelf(): Promise<WorkspaceConnectionSelfView> {
+    return this.enqueue(async () => {
+      this.assertOpen();
+      await this.ensureWorkspaceHydrated();
+      return this.workspaceConnectionFacade.getWorkspaceConnectionSelf();
+    });
+  }
+
+  async updateWorkspaceConnectionSelf(input: unknown): Promise<WorkspaceConnectionSelfView> {
+    return this.enqueue(async () => {
+      this.assertOpen();
+      await this.ensureWorkspaceHydrated();
+      return this.workspaceConnectionFacade.updateWorkspaceConnectionSelf(input);
+    });
+  }
+
+  async listWorkspaceConnectionMembers(
+    input: unknown = {}
+  ): Promise<WorkspaceConnectionMembersPage> {
+    return this.enqueue(async () => {
+      this.assertOpen();
+      await this.ensureWorkspaceHydrated();
+      return this.workspaceConnectionFacade.listWorkspaceConnectionMembers(input);
     });
   }
 

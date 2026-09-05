@@ -444,6 +444,63 @@ describe("PeoplePanel", () => {
     );
     expect(screen.queryByText("This Workspace could not be connected")).not.toBeInTheDocument();
     expect(screen.queryByText("Project collaboration connection error")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("people-profile-card")).not.toBeInTheDocument();
+  });
+
+  it("shows this device's profile so a joined member can see and edit their name", async () => {
+    const onUpdateOwnDisplayName = vi.fn().mockResolvedValue(true);
+    render(
+      <PeoplePanel
+        mode="empty"
+        presence={{
+          ...presence,
+          sessionPhase: "error",
+          memberCount: 0,
+          currentUserIsOwner: false,
+          sessionLastErrorCode: "live_registry_project_unavailable"
+        }}
+        identity={{
+          displayName: "Windows Laptop",
+          role: "member",
+          deviceSessionId: "device-session-windows",
+          humanPrincipalId: "human-windows"
+        }}
+        members={[]}
+        invitations={[]}
+        devices={[]}
+        detailsLoading={false}
+        detailsError={null}
+        actionError={null}
+        actionBusy={false}
+        pendingInvitation={null}
+        t={t}
+        onCreateInvitation={vi.fn()}
+        onViewInvitation={vi.fn()}
+        onCopyInvitationToken={vi.fn()}
+        onDismissPendingInvitation={vi.fn()}
+        onRevokeInvitation={vi.fn()}
+        onRevokeInvitations={vi.fn()}
+        onUpdateOwnDisplayName={onUpdateOwnDisplayName}
+        onPromoteMember={vi.fn()}
+        onDemoteMember={vi.fn()}
+        onRemoveMember={vi.fn()}
+        onRevokeDevice={vi.fn()}
+        onRefreshDetails={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId("people-profile-card")).toHaveAccessibleName("Your profile");
+    expect(screen.getByTestId("people-profile-card")).toHaveTextContent("Windows Laptop");
+    expect(screen.getByTestId("people-profile-device")).toHaveTextContent("This device");
+    expect(screen.getByTestId("people-profile-device")).toHaveTextContent("device-s…dows");
+    expect(screen.getAllByTestId("people-edit-own-name")).toHaveLength(1);
+
+    await userEvent.click(screen.getByTestId("people-edit-own-name"));
+    const input = screen.getByTestId("people-own-name-input");
+    await userEvent.clear(input);
+    await userEvent.type(input, "Ada Windows");
+    await userEvent.click(screen.getByTestId("people-save-own-name"));
+    expect(onUpdateOwnDisplayName).toHaveBeenCalledWith("Ada Windows");
   });
 
   it("exposes copyable read diagnostics when member loading fails", async () => {

@@ -31,8 +31,10 @@ export {
   type MemberRoleAction,
   type PeopleDeviceRow,
   type PeopleHostRow,
+  type PeopleIdentity,
   type PeopleInvitationRow,
   type PeopleMemberRow,
+  type PeopleMembershipSource,
   type PeoplePanelMode,
   type PeoplePresenceSummary
 } from "./peopleViewModels.js";

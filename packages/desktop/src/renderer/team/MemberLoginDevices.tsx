@@ -47,9 +47,11 @@ export function MemberLoginDevices({
         <ul className="space-y-2.5">
           {devices.map((device, index) => {
             const displayName =
-              device.label !== device.deviceCredentialId
-                ? device.label
-                : t("peopleUnnamedDevice").replace("{number}", String(index + 1));
+              device.isCurrentDevice === true
+                ? t("peopleThisDevice")
+                : device.label !== device.deviceCredentialId
+                  ? device.label
+                  : t("peopleUnnamedDevice").replace("{number}", String(index + 1));
             return (
               <li
                 key={device.deviceCredentialId}
@@ -74,20 +76,22 @@ export function MemberLoginDevices({
                     </span>
                   </div>
                 </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  className="h-8 shrink-0 px-2 text-[11px] text-destructive"
-                  data-testid="people-device-sign-out"
-                  disabled={actionBusy}
-                  onClick={() => {
-                    if (!window.confirm(t("peopleSignOutDeviceConfirm"))) return;
-                    void onSignOut(device.deviceCredentialId);
-                  }}
-                >
-                  {t("peopleSignOutDevice")}
-                </Button>
+                {device.canRevoke === false ? null : (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 shrink-0 px-2 text-[11px] text-destructive"
+                    data-testid="people-device-sign-out"
+                    disabled={actionBusy}
+                    onClick={() => {
+                      if (!window.confirm(t("peopleSignOutDeviceConfirm"))) return;
+                      void onSignOut(device.deviceCredentialId);
+                    }}
+                  >
+                    {t("peopleSignOutDevice")}
+                  </Button>
+                )}
               </li>
             );
           })}

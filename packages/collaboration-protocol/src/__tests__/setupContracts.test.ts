@@ -35,7 +35,9 @@ import {
   exampleSetupCodeRedeemHostResponse,
   exampleSetupCodeRedeemOperatorResponse,
   exampleSetupCodeRevocation,
+  exampleWorkspaceConnectionMembersPage,
   exampleWorkspaceConnectionProfile,
+  exampleWorkspaceConnectionSelf,
   exampleWorkspacePickerPage
 } from "../fixtures/collaboration.js";
 import { setupCodeTokenSchema } from "../primitives.js";
@@ -345,6 +347,8 @@ describe("OSS-005 setup-code and single-connection contracts", () => {
     assertSetupViewRedacted(exampleSetupCodeGrantView);
     assertSetupViewRedacted(exampleWorkspacePickerPage);
     assertSetupViewRedacted(exampleActiveWorkspaceConnectionConnected);
+    assertSetupViewRedacted(exampleWorkspaceConnectionSelf);
+    assertSetupViewRedacted(exampleWorkspaceConnectionMembersPage);
 
     for (const value of [
       { setupCode: exampleSetupCode },

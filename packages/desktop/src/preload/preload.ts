@@ -299,6 +299,12 @@ const collaborationApi: PlanWeaveCollaborationApi = {
     ipcRenderer.invoke(collaborationInvokeChannels.forgetRememberedServerConnection, input),
   listWorkspacePicker: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.listWorkspacePicker, input),
+  getWorkspaceConnectionSelf: async () =>
+    ipcRenderer.invoke(collaborationInvokeChannels.getWorkspaceConnectionSelf),
+  updateWorkspaceConnectionSelf: async (input) =>
+    ipcRenderer.invoke(collaborationInvokeChannels.updateWorkspaceConnectionSelf, input),
+  listWorkspaceConnectionMembers: async (input) =>
+    ipcRenderer.invoke(collaborationInvokeChannels.listWorkspaceConnectionMembers, input),
   selectWorkspaceConnection: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.selectWorkspaceConnection, input),
   connectWorkspaceConnection: async () =>

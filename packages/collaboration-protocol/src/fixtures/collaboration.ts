@@ -32,6 +32,8 @@ import {
   activeWorkspaceConnectionViewSchema,
   parseCollaborationConnectionProfile,
   parseWorkspaceConnectionProfile,
+  workspaceConnectionMembersPageSchema,
+  workspaceConnectionSelfViewSchema,
   workspacePickerPageSchema
 } from "../connection.js";
 import {
@@ -759,6 +761,40 @@ export const exampleSetupCodeRevocation = setupCodeRevocationSchema.parse({
   purpose: "device_session",
   revokedAt: "2030-01-01T00:30:00.000Z",
   reason: "operator rotated onboarding code"
+});
+
+export const exampleWorkspaceConnectionSelf = workspaceConnectionSelfViewSchema.parse({
+  schemaVersion: "workspace-setup/v1",
+  workspaceId: "workspace-demo-001",
+  membershipId: "membership-demo-001",
+  humanPrincipalId: "human-demo-001",
+  displayName: "Ada Member",
+  role: "member",
+  deviceSessionId: "device-session-demo-001"
+});
+
+export const exampleWorkspaceConnectionMembersPage = workspaceConnectionMembersPageSchema.parse({
+  schemaVersion: "workspace-setup/v1",
+  items: [
+    {
+      schemaVersion: "workspace-setup/v1",
+      membershipId: "membership-demo-001",
+      humanPrincipalId: "human-demo-001",
+      displayName: "Ada Member",
+      role: "member",
+      devices: [
+        {
+          schemaVersion: "workspace-setup/v1",
+          deviceSessionId: "device-session-demo-001",
+          humanPrincipalId: "human-demo-001",
+          issuedAt: "2030-01-01T00:00:00.000Z",
+          lastUsedAt: "2030-01-02T00:00:00.000Z",
+          isCurrentDevice: true
+        }
+      ]
+    }
+  ],
+  nextCursor: null
 });
 
 export const exampleWorkspacePickerPage = workspacePickerPageSchema.parse({

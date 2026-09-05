@@ -14,6 +14,10 @@ import {
 import { collaborationInvitationHandoffResponseSchema } from "@planweave-ai/collaboration-protocol/handoff/invitation";
 import { canvasRuntimeAvailabilitySchema } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import {
+  workspaceConnectionMembersPageSchema,
+  workspaceConnectionSelfViewSchema
+} from "@planweave-ai/collaboration-protocol/connection";
+import {
   canvasRuntimeInitializeOutcomeSchema,
   canvasRuntimeResetOutcomeSchema
 } from "@planweave-ai/collaboration-protocol/canvas/runtime-control";
@@ -435,6 +439,28 @@ export function registerCollaborationHandlers(
   );
   ipcMain.handle(collaborationInvokeChannels.listWorkspacePicker, (_event, input: unknown) =>
     active.listWorkspacePicker(input)
+  );
+  ipcMain.handle(collaborationInvokeChannels.getWorkspaceConnectionSelf, () =>
+    runCollaborationCommand(
+      () => active.getWorkspaceConnectionSelf(),
+      workspaceConnectionSelfViewSchema
+    )
+  );
+  ipcMain.handle(
+    collaborationInvokeChannels.updateWorkspaceConnectionSelf,
+    (_event, input: unknown) =>
+      runCollaborationCommand(
+        () => active.updateWorkspaceConnectionSelf(input),
+        workspaceConnectionSelfViewSchema
+      )
+  );
+  ipcMain.handle(
+    collaborationInvokeChannels.listWorkspaceConnectionMembers,
+    (_event, input: unknown) =>
+      runCollaborationCommand(
+        () => active.listWorkspaceConnectionMembers(input),
+        workspaceConnectionMembersPageSchema
+      )
   );
   ipcMain.handle(collaborationInvokeChannels.selectWorkspaceConnection, (_event, input: unknown) =>
     runCoordinationOperation("workspace.selectConnection", () =>

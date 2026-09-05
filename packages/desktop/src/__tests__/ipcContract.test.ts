@@ -243,6 +243,15 @@ describe("desktop IPC contract", () => {
     expect(collaborationInvokeChannels.listWorkspacePicker).toBe(
       "planweave-collaboration:listWorkspacePicker"
     );
+    expect(collaborationInvokeChannels.getWorkspaceConnectionSelf).toBe(
+      "planweave-collaboration:getWorkspaceConnectionSelf"
+    );
+    expect(collaborationInvokeChannels.updateWorkspaceConnectionSelf).toBe(
+      "planweave-collaboration:updateWorkspaceConnectionSelf"
+    );
+    expect(collaborationInvokeChannels.listWorkspaceConnectionMembers).toBe(
+      "planweave-collaboration:listWorkspaceConnectionMembers"
+    );
     expect(collaborationInvokeChannels.selectWorkspaceConnection).toBe(
       "planweave-collaboration:selectWorkspaceConnection"
     );

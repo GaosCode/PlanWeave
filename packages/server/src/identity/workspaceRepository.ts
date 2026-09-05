@@ -18,9 +18,16 @@ import {
 } from "@planweave-ai/collaboration-protocol/core/primitives";
 import { identityMigrationStateSchema } from "@planweave-ai/collaboration-protocol/identity/migration";
 import {
+  workspaceConnectionDeviceViewSchema,
+  workspaceConnectionMemberViewSchema,
+  workspaceConnectionMembersPageSchema,
+  workspaceConnectionSelfViewSchema,
   workspacePickerItemSchema,
+  type WorkspaceConnectionMembersPage,
+  type WorkspaceConnectionSelfView,
   type WorkspacePickerItem
 } from "@planweave-ai/collaboration-protocol/connection";
+import { HUMAN_MAX_MEMBERS_LISTED_PER_PAGE } from "@planweave-ai/collaboration-protocol/core/limits";
 import { hashHumanToken } from "./crypto.js";
 import { HumanPrincipalIdentity, sqlPlaceholders } from "./humanPrincipalIdentity.js";
 import type { SqliteDatabase } from "../sqlite.js";
@@ -416,6 +423,120 @@ export class WorkspaceIdentityRepository {
           displayName: authenticated.displayName
         }
       : undefined;
+  }
+
+  readWorkspaceConnectionSelf(deviceToken: string): WorkspaceConnectionSelfView | undefined {
+    const session = this.authenticateWorkspaceDeviceSession(deviceToken);
+    if (!session) return undefined;
+    const membership = this.findActiveMembership(session.workspaceId, session.humanPrincipalId);
+    if (!membership) return undefined;
+    return workspaceConnectionSelfViewSchema.parse({
+      schemaVersion: "workspace-setup/v1",
+      workspaceId: session.workspaceId,
+      membershipId: membership.membershipId,
+      humanPrincipalId: membership.humanPrincipalId,
+      displayName: membership.displayName,
+      role: membership.role,
+      deviceSessionId: session.deviceSessionId
+    });
+  }
+
+  updateWorkspaceConnectionDisplayName(
+    deviceToken: string,
+    displayName: string
+  ): WorkspaceConnectionSelfView | undefined {
+    const session = this.authenticateWorkspaceDeviceSession(deviceToken);
+    if (!session) return undefined;
+    const name = humanDisplayNameSchema.parse(displayName);
+    const updated = this.database
+      .prepare(
+        `UPDATE workspace_principals
+         SET display_name=?
+         WHERE workspace_id=? AND human_principal_id=? AND revoked_at IS NULL`
+      )
+      .run(name, session.workspaceId, session.humanPrincipalId);
+    if (updated.changes !== 1) return undefined;
+    this.database
+      .prepare("UPDATE human_principals SET display_name=? WHERE human_principal_id=?")
+      .run(name, session.humanPrincipalId);
+    return this.readWorkspaceConnectionSelf(deviceToken);
+  }
+
+  listWorkspaceConnectionMembers(
+    deviceToken: string,
+    cursor: number,
+    limit: number
+  ): WorkspaceConnectionMembersPage | undefined {
+    const session = this.authenticateWorkspaceDeviceSession(deviceToken);
+    if (!session) return undefined;
+    const membership = this.findActiveMembership(session.workspaceId, session.humanPrincipalId);
+    if (!membership) return undefined;
+    const pageLimit = Math.min(limit, HUMAN_MAX_MEMBERS_LISTED_PER_PAGE);
+    const members = this.database
+      .prepare(
+        `SELECT m.membership_id,m.human_principal_id,p.display_name,m.role
+         FROM workspace_memberships m
+         JOIN workspace_principals p
+           ON p.workspace_id=m.workspace_id AND p.human_principal_id=m.human_principal_id
+         WHERE m.workspace_id=? AND m.revoked_at IS NULL AND p.revoked_at IS NULL
+         ORDER BY m.membership_id
+         LIMIT ? OFFSET ?`
+      )
+      .all(session.workspaceId, pageLimit, cursor) as Array<{
+      membership_id: string;
+      human_principal_id: string;
+      display_name: string;
+      role: "owner" | "member";
+    }>;
+    const deviceRows = this.database
+      .prepare(
+        `SELECT device_session_id,human_principal_id,issued_at,last_used_at
+         FROM workspace_device_sessions
+         WHERE workspace_id=? AND revoked_at IS NULL
+           AND (expires_at IS NULL OR expires_at>?)
+           ${membership.role === "owner" ? "" : "AND human_principal_id=?"}
+         ORDER BY issued_at,device_session_id`
+      )
+      .all(
+        ...(membership.role === "owner"
+          ? [session.workspaceId, nowIso()]
+          : [session.workspaceId, nowIso(), session.humanPrincipalId])
+      ) as Array<{
+      device_session_id: string;
+      human_principal_id: string;
+      issued_at: string;
+      last_used_at: string | null;
+    }>;
+    const devicesByPrincipal = new Map<string, typeof deviceRows>();
+    for (const device of deviceRows) {
+      const list = devicesByPrincipal.get(device.human_principal_id) ?? [];
+      list.push(device);
+      devicesByPrincipal.set(device.human_principal_id, list);
+    }
+    const items = members.map((member) =>
+      workspaceConnectionMemberViewSchema.parse({
+        schemaVersion: "workspace-setup/v1",
+        membershipId: member.membership_id,
+        humanPrincipalId: member.human_principal_id,
+        displayName: member.display_name,
+        role: member.role,
+        devices: (devicesByPrincipal.get(member.human_principal_id) ?? []).map((device) =>
+          workspaceConnectionDeviceViewSchema.parse({
+            schemaVersion: "workspace-setup/v1",
+            deviceSessionId: device.device_session_id,
+            humanPrincipalId: device.human_principal_id,
+            issuedAt: device.issued_at,
+            lastUsedAt: device.last_used_at,
+            isCurrentDevice: device.device_session_id === session.deviceSessionId
+          })
+        )
+      })
+    );
+    return workspaceConnectionMembersPageSchema.parse({
+      schemaVersion: "workspace-setup/v1",
+      items,
+      nextCursor: items.length === pageLimit ? cursor + items.length : null
+    });
   }
 
   /**

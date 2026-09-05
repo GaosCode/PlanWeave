@@ -4,6 +4,11 @@ import type {
   HumanMembershipView
 } from "@planweave-ai/collaboration-protocol/identity/workspace";
 import type {
+  WorkspaceConnectionDeviceView,
+  WorkspaceConnectionMemberView,
+  WorkspaceConnectionSelfView
+} from "@planweave-ai/collaboration-protocol/connection";
+import type {
   CollaborationBoundaryErrorView,
   CollaborationHostProjection,
   CollaborationSyncPhase
@@ -28,7 +33,22 @@ export type MemberActionAvailability = {
     | "last_owner"
     | "self_only_owner"
     | "already_owner"
-    | "already_member";
+    | "already_member"
+    | "not_project_member";
+};
+
+export type PeopleMembershipSource = {
+  membershipId: string;
+  humanPrincipalId: string;
+  displayName: string;
+  role: "owner" | "member";
+};
+
+export type PeopleIdentity = {
+  displayName: string;
+  role: "owner" | "member";
+  deviceSessionId: string;
+  humanPrincipalId: string;
 };
 
 export type PeopleMemberRow = {
@@ -74,6 +94,8 @@ export type PeopleDeviceRow = {
   revokedAt?: string;
   lastSeenAt?: string;
   isRevoked: boolean;
+  isCurrentDevice?: boolean;
+  canRevoke?: boolean;
 };
 
 export type PeoplePanelMode =
@@ -109,7 +131,7 @@ export function memberInitials(displayName: string): string {
   return `${parts[0]!.slice(0, 1)}${parts[1]!.slice(0, 1)}`.toUpperCase();
 }
 
-export function countOwners(members: readonly HumanMembershipView[]): number {
+export function countOwners(members: readonly PeopleMembershipSource[]): number {
   return members.filter((member) => member.role === "owner").length;
 }
 
@@ -132,12 +154,16 @@ export function isInvitationOpen(
 
 export function evaluateMemberAction(input: {
   action: MemberRoleAction;
-  member: HumanMembershipView;
-  members: readonly HumanMembershipView[];
+  member: PeopleMembershipSource;
+  members: readonly PeopleMembershipSource[];
   currentUserIsOwner: boolean;
   currentHumanPrincipalId: string | null;
+  projectMemberIds?: ReadonlySet<string>;
 }): MemberActionAvailability {
   const { action, member, members, currentUserIsOwner, currentHumanPrincipalId } = input;
+  if (input.projectMemberIds && !input.projectMemberIds.has(member.humanPrincipalId)) {
+    return { action, allowed: false, reason: "not_project_member" };
+  }
   if (!currentUserIsOwner) {
     return { action, allowed: false, reason: "not_owner" };
   }
@@ -174,9 +200,10 @@ export function evaluateMemberAction(input: {
 }
 
 export function buildPeopleMemberRows(input: {
-  members: readonly HumanMembershipView[];
+  members: readonly PeopleMembershipSource[];
   currentHumanPrincipalId: string | null;
   currentUserIsOwner: boolean;
+  projectMemberIds?: ReadonlySet<string>;
 }): PeopleMemberRow[] {
   return input.members.map((member) => {
     const actions: MemberActionAvailability[] = (["promote", "demote", "remove"] as const).map(
@@ -186,7 +213,8 @@ export function buildPeopleMemberRows(input: {
           member,
           members: input.members,
           currentUserIsOwner: input.currentUserIsOwner,
-          currentHumanPrincipalId: input.currentHumanPrincipalId
+          currentHumanPrincipalId: input.currentHumanPrincipalId,
+          projectMemberIds: input.projectMemberIds
         })
     );
     return {
@@ -242,14 +270,51 @@ export function buildPeopleDeviceRows(devices: readonly HumanDeviceView[]): Peop
     expiresAt: device.expiresAt,
     revokedAt: device.revokedAt,
     lastSeenAt: device.lastUsedAt,
-    isRevoked: Boolean(device.revokedAt)
+    isRevoked: Boolean(device.revokedAt),
+    isCurrentDevice: false,
+    canRevoke: true
+  }));
+}
+
+export function peopleIdentityFromSelf(self: WorkspaceConnectionSelfView): PeopleIdentity {
+  return {
+    displayName: self.displayName,
+    role: self.role,
+    deviceSessionId: self.deviceSessionId,
+    humanPrincipalId: self.humanPrincipalId
+  };
+}
+
+export function peopleMembershipsFromWorkspace(
+  members: readonly WorkspaceConnectionMemberView[]
+): PeopleMembershipSource[] {
+  return members.map((member) => ({
+    membershipId: member.membershipId,
+    humanPrincipalId: member.humanPrincipalId,
+    displayName: member.displayName,
+    role: member.role
+  }));
+}
+
+export function buildPeopleDeviceRowsFromWorkspace(
+  devices: readonly WorkspaceConnectionDeviceView[]
+): PeopleDeviceRow[] {
+  return devices.map((device) => ({
+    deviceCredentialId: device.deviceSessionId,
+    humanPrincipalId: device.humanPrincipalId,
+    label: device.deviceSessionId,
+    createdAt: device.issuedAt,
+    lastSeenAt: device.lastUsedAt ?? undefined,
+    isRevoked: false,
+    isCurrentDevice: device.isCurrentDevice,
+    canRevoke: false
   }));
 }
 
 export function resolveCurrentMembership(input: {
-  members: readonly HumanMembershipView[];
+  members: readonly PeopleMembershipSource[];
   status: CollaborationStatus | null;
-}): HumanMembershipView | null {
+}): PeopleMembershipSource | null {
   const principalId =
     input.status?.profiles.find((profile) => profile.profileId === input.status?.activeProfileId)
       ?.humanPrincipalId ?? null;
@@ -258,7 +323,7 @@ export function resolveCurrentMembership(input: {
 }
 
 export function buildPeoplePresenceSummary(input: {
-  members: readonly HumanMembershipView[];
+  members: readonly PeopleMembershipSource[];
   hosts: readonly CollaborationHostProjection[];
   status: CollaborationStatus | null;
   syncPhase: CollaborationSyncPhase;
@@ -298,20 +363,24 @@ export function resolvePeoplePanelMode(input: {
   detailsFailed?: boolean;
 }): PeoplePanelMode {
   const sessionPhase = input.status?.session.phase ?? "idle";
-  if (sessionPhase === "connecting") return "connecting";
-  if (sessionPhase === "error") {
+  const workspaceConnected = input.status?.workspaceConnection?.status === "connected";
+  const projectSessionUsable = sessionPhase === "connected" || sessionPhase === "ready";
+  if (sessionPhase === "connecting" && !workspaceConnected) return "connecting";
+  if (sessionPhase === "error" && !workspaceConnected) {
     if (input.syncPhase === "auth_expired") return "auth_expired";
     if (input.syncPhase === "forbidden") return "forbidden";
     return "error";
   }
-  if (sessionPhase !== "connected" && sessionPhase !== "ready") {
+  if (!projectSessionUsable && !workspaceConnected) {
     return "disconnected";
   }
-  if (input.syncPhase === "loading") return "loading";
-  if (input.syncPhase === "auth_expired") return "auth_expired";
-  if (input.syncPhase === "forbidden") return "forbidden";
-  if (input.syncPhase === "disconnected" || input.syncPhase === "reconnecting") return "offline";
-  if (input.syncPhase === "error" || input.syncPhase === "degraded") return "error";
+  if (projectSessionUsable) {
+    if (input.syncPhase === "loading") return "loading";
+    if (input.syncPhase === "auth_expired") return "auth_expired";
+    if (input.syncPhase === "forbidden") return "forbidden";
+    if (input.syncPhase === "disconnected" || input.syncPhase === "reconnecting") return "offline";
+    if (input.syncPhase === "error" || input.syncPhase === "degraded") return "error";
+  }
   if (input.memberCount === 0) {
     if (input.detailsLoading) return "loading";
     if (input.detailsFailed) return "error";

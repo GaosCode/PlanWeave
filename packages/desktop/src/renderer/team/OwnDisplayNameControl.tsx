@@ -1,28 +1,29 @@
 import { useState } from "react";
 import { humanDisplayNameSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import { Button } from "@/components/ui/button";
-import type { PeopleMemberRow } from "../collaboration/peopleViewModels";
 import type { createTranslator } from "../i18n";
 
 type OwnDisplayNameControlProps = {
-  member: PeopleMemberRow;
+  displayName: string;
   actionBusy: boolean;
   t: ReturnType<typeof createTranslator>;
   onUpdate: (displayName: string) => Promise<boolean>;
+  showYouLabel?: boolean;
 };
 
 export function OwnDisplayNameControl({
-  member,
+  displayName,
   actionBusy,
   t,
-  onUpdate
+  onUpdate,
+  showYouLabel = true
 }: OwnDisplayNameControlProps) {
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(member.displayName);
+  const [draft, setDraft] = useState(displayName);
   const parsedDraft = humanDisplayNameSchema.safeParse(draft);
 
   const cancel = () => {
-    setDraft(member.displayName);
+    setDraft(displayName);
     setEditing(false);
   };
 
@@ -30,8 +31,10 @@ export function OwnDisplayNameControl({
     return (
       <div className="flex min-w-0 items-center gap-2">
         <div className="truncate text-sm font-semibold text-text-strong">
-          {member.displayName}
-          <span className="ml-1 text-muted-foreground">({t("peopleYou")})</span>
+          {displayName}
+          {showYouLabel ? (
+            <span className="ml-1 text-muted-foreground">({t("peopleYou")})</span>
+          ) : null}
         </div>
         <Button
           type="button"
@@ -42,7 +45,7 @@ export function OwnDisplayNameControl({
           data-testid="people-edit-own-name"
           disabled={actionBusy}
           onClick={() => {
-            setDraft(member.displayName);
+            setDraft(displayName);
             setEditing(true);
           }}
         >
@@ -82,7 +85,7 @@ export function OwnDisplayNameControl({
         size="sm"
         className="h-8 px-2 text-xs"
         data-testid="people-save-own-name"
-        disabled={actionBusy || !parsedDraft.success || parsedDraft.data === member.displayName}
+        disabled={actionBusy || !parsedDraft.success || parsedDraft.data === displayName}
       >
         {t("peopleSaveOwnName")}
       </Button>

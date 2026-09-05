@@ -441,6 +441,7 @@ export function PeopleView({
                 <PeoplePanel
                   mode={panel.mode}
                   presence={panel.presence}
+                  identity={panel.identity}
                   members={panel.members}
                   invitations={panel.invitations}
                   devices={panel.devices}

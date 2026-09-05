@@ -17,10 +17,15 @@ export {
 import {
   COLLABORATION_JSON_BODY_MAX_BYTES,
   COLLABORATION_REQUEST_TIMEOUT_MS,
+  HUMAN_MAX_MEMBERS_LISTED_PER_PAGE,
   HUMAN_OBSERVER_MAX_PAYLOAD_BYTES,
   WORKSPACE_PICKER_MAX_ITEMS_PER_PAGE
 } from "./limits.js";
 import {
+  deviceSessionIdSchema,
+  humanDisplayNameSchema,
+  humanMembershipIdSchema,
+  humanPrincipalIdSchema,
   humanProjectIdSchema,
   opaqueIdentifierSchema,
   workspaceIdSchema,
@@ -183,6 +188,63 @@ export const workspacePickerPageSchema = z
   })
   .strict();
 export type WorkspacePickerPage = z.infer<typeof workspacePickerPageSchema>;
+
+/** Current human + this device, readable with a Workspace device session. */
+export const workspaceConnectionSelfViewSchema = z
+  .object({
+    schemaVersion: workspaceSetupSchemaVersionSchema,
+    workspaceId: workspaceIdSchema,
+    membershipId: humanMembershipIdSchema,
+    humanPrincipalId: humanPrincipalIdSchema,
+    displayName: humanDisplayNameSchema,
+    role: workspaceRoleSchema,
+    deviceSessionId: deviceSessionIdSchema
+  })
+  .strict();
+export type WorkspaceConnectionSelfView = z.infer<typeof workspaceConnectionSelfViewSchema>;
+
+export const workspaceConnectionSelfUpdateRequestSchema = z
+  .object({
+    schemaVersion: workspaceSetupSchemaVersionSchema,
+    displayName: humanDisplayNameSchema
+  })
+  .strict();
+export type WorkspaceConnectionSelfUpdateRequest = z.infer<
+  typeof workspaceConnectionSelfUpdateRequestSchema
+>;
+
+export const workspaceConnectionDeviceViewSchema = z
+  .object({
+    schemaVersion: workspaceSetupSchemaVersionSchema,
+    deviceSessionId: deviceSessionIdSchema,
+    humanPrincipalId: humanPrincipalIdSchema,
+    issuedAt: timestampSchema,
+    lastUsedAt: timestampSchema.nullable(),
+    isCurrentDevice: z.boolean()
+  })
+  .strict();
+export type WorkspaceConnectionDeviceView = z.infer<typeof workspaceConnectionDeviceViewSchema>;
+
+export const workspaceConnectionMemberViewSchema = z
+  .object({
+    schemaVersion: workspaceSetupSchemaVersionSchema,
+    membershipId: humanMembershipIdSchema,
+    humanPrincipalId: humanPrincipalIdSchema,
+    displayName: humanDisplayNameSchema,
+    role: workspaceRoleSchema,
+    devices: z.array(workspaceConnectionDeviceViewSchema).max(HUMAN_MAX_MEMBERS_LISTED_PER_PAGE)
+  })
+  .strict();
+export type WorkspaceConnectionMemberView = z.infer<typeof workspaceConnectionMemberViewSchema>;
+
+export const workspaceConnectionMembersPageSchema = z
+  .object({
+    schemaVersion: workspaceSetupSchemaVersionSchema,
+    items: z.array(workspaceConnectionMemberViewSchema).max(HUMAN_MAX_MEMBERS_LISTED_PER_PAGE),
+    nextCursor: z.number().int().nonnegative().nullable()
+  })
+  .strict();
+export type WorkspaceConnectionMembersPage = z.infer<typeof workspaceConnectionMembersPageSchema>;
 
 /**
  * Desktop "single Server/Workspace connection" status. Exactly one active remote

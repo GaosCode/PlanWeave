@@ -1,7 +1,11 @@
 import {
+  workspaceConnectionMembersPageSchema,
+  workspaceConnectionSelfViewSchema,
   workspacePickerPageSchema,
   type CollaborationClientLimits,
+  type WorkspaceConnectionMembersPage,
   type WorkspaceConnectionProfile,
+  type WorkspaceConnectionSelfView,
   type WorkspacePickerPage
 } from "@planweave-ai/collaboration-protocol/connection";
 import type {
@@ -41,6 +45,40 @@ export class CollaborationWorkspaceClient {
       "GET",
       `/api/v1/workspace-connection?${query}`,
       workspacePickerPageSchema
+    );
+  }
+
+  async getSelf(): Promise<WorkspaceConnectionSelfView> {
+    return this.transport.json(
+      "GET",
+      "/api/v1/workspace-connection/self",
+      workspaceConnectionSelfViewSchema
+    );
+  }
+
+  async updateSelf(displayName: string): Promise<WorkspaceConnectionSelfView> {
+    return this.transport.json(
+      "PATCH",
+      "/api/v1/workspace-connection/self",
+      workspaceConnectionSelfViewSchema,
+      {
+        body: {
+          schemaVersion: "workspace-setup/v1",
+          displayName
+        }
+      }
+    );
+  }
+
+  async listMembers(input: {
+    cursor: number;
+    limit: number;
+  }): Promise<WorkspaceConnectionMembersPage> {
+    const query = new URLSearchParams({ cursor: String(input.cursor), limit: String(input.limit) });
+    return this.transport.json(
+      "GET",
+      `/api/v1/workspace-connection/members?${query}`,
+      workspaceConnectionMembersPageSchema
     );
   }
 

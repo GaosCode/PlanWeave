@@ -125,6 +125,15 @@ describe("peopleViewModels", () => {
     });
     expect(rows[0]?.isCurrentUser).toBe(true);
     expect(rows[1]?.actions.find((action) => action.action === "promote")?.allowed).toBe(true);
+    const workspaceOnly = buildPeopleMemberRows({
+      members: [owner, peer],
+      currentHumanPrincipalId: "human-1",
+      currentUserIsOwner: true,
+      projectMemberIds: new Set(["human-1"])
+    });
+    expect(
+      workspaceOnly[1]?.actions.every((action) => action.reason === "not_project_member")
+    ).toBe(true);
   });
 
   it("classifies invitation open state and panel modes", () => {
@@ -208,6 +217,21 @@ describe("peopleViewModels", () => {
         memberCount: 0
       })
     ).toBe("empty");
+    expect(
+      resolvePeoplePanelMode({
+        status: {
+          ...connectedStatus,
+          session: {
+            ...connectedStatus.session,
+            phase: "error",
+            lastErrorCode: "live_registry_project_unavailable"
+          },
+          workspaceConnection: { status: "connected" }
+        },
+        syncPhase: "disconnected",
+        memberCount: 1
+      })
+    ).toBe("ready");
   });
 
   it("formats errors without leaking invitation or device tokens", () => {
