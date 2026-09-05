@@ -194,7 +194,7 @@ describe("Task Workspace conversation", () => {
       "operation-remote-1"
     );
     expect(screen.getByText("Creating the Windows file now.")).toBeInTheDocument();
-    expect(screen.getByText(/Live conversation from the remote ACP Agent/)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Running");
     expect(screen.queryByText("real stdout summary")).not.toBeInTheDocument();
   });
 

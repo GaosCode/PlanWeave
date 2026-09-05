@@ -126,7 +126,7 @@ describe("Task Workspace conversation actions", () => {
     const input = screen.getByLabelText("Message the agent");
     fireEvent.change(input, { target: { value: "continue" } });
     fireEvent.keyDown(input, { key: "Enter" });
-    const stop = await screen.findByRole("button", { name: "Stop follow-up" });
+    const stop = await screen.findByRole("button", { name: "Stop response" });
     const request = sendAgentPrompt.mock.calls[0]?.[0];
     if (!request) throw new Error("Expected versioned prompt request.");
     fireEvent.click(stop);
@@ -135,7 +135,7 @@ describe("Task Workspace conversation actions", () => {
     expect(screen.queryByRole("button", { name: "Cancel run" })).not.toBeInTheDocument();
     pending.resolve(promptState(request.identity, "cancelled"));
     await vi.waitFor(() =>
-      expect(screen.queryByRole("button", { name: "Stop follow-up" })).not.toBeInTheDocument()
+      expect(screen.queryByRole("button", { name: "Stop response" })).not.toBeInTheDocument()
     );
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
@@ -183,10 +183,10 @@ describe("Task Workspace conversation actions", () => {
     };
 
     const first = render(<TaskWorkspaceComposer {...props} />);
-    expect(await screen.findByRole("button", { name: "Stop follow-up" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Stop response" })).toBeInTheDocument();
     first.unmount();
     render(<TaskWorkspaceComposer {...props} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Stop follow-up" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Stop response" }));
 
     await vi.waitFor(() => expect(cancelAgentPromptTurn).toHaveBeenCalledWith(turnIdentity));
     expect(getCurrentAgentPromptTurn).toHaveBeenCalledTimes(2);
@@ -244,7 +244,7 @@ describe("Task Workspace conversation actions", () => {
       />
     );
     await vi.waitFor(() => expect(getCurrentAgentPromptTurn).toHaveBeenCalledTimes(1));
-    expect(screen.queryByRole("button", { name: "Stop follow-up" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stop response" })).not.toBeInTheDocument();
 
     const active = completedModel(true);
     view.rerender(
@@ -256,7 +256,7 @@ describe("Task Workspace conversation actions", () => {
         t={t}
       />
     );
-    expect(await screen.findByRole("button", { name: "Stop follow-up" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Stop response" })).toBeInTheDocument();
 
     const cleaning = { ...active };
     view.rerender(
@@ -269,7 +269,7 @@ describe("Task Workspace conversation actions", () => {
       />
     );
     await vi.waitFor(() =>
-      expect(screen.queryByRole("button", { name: "Stop follow-up" })).not.toBeInTheDocument()
+      expect(screen.queryByRole("button", { name: "Stop response" })).not.toBeInTheDocument()
     );
     expect(getCurrentAgentPromptTurn).toHaveBeenCalledTimes(3);
   });
@@ -339,7 +339,7 @@ describe("Task Workspace conversation actions", () => {
       }
     });
     await act(async () => undefined);
-    expect(screen.queryByRole("button", { name: "Stop follow-up" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stop response" })).not.toBeInTheDocument();
     const secondTurn = {
       ...secondIdentity,
       version: "planweave.agent-prompt-turn/v1" as const,
@@ -354,7 +354,7 @@ describe("Task Workspace conversation actions", () => {
         cancellable: true
       }
     });
-    fireEvent.click(await screen.findByRole("button", { name: "Stop follow-up" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Stop response" }));
 
     await vi.waitFor(() => expect(cancelAgentPromptTurn).toHaveBeenCalledWith(secondTurn));
   });

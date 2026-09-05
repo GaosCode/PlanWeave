@@ -1160,15 +1160,13 @@ export const enCatalog = {
     "The run timed out or lost its execution connection. Check the execution device before retrying.",
   remoteTaskFailedReason:
     "The remote run did not finish successfully. Check the run details and diagnostics before retrying.",
-  remoteAcpFollowUp: "Follow-up",
+  remoteAcpConversationLoading: "Loading conversation…",
+  remoteAcpConversationFinalizing: "Saving results…",
+  remoteAcpConversationStopped: "Stopped",
   remoteAcpTurnQueued: "Waiting for the agent",
-  remoteAcpCancelledSource:
-    "Original run · Cancelled. Follow-up does not resubmit the task result; run the task again to update its execution status.",
   remoteAcpMessageSending: "Sending…",
   remoteAcpMessageAccepted: "Received · waiting for the agent",
   remoteAcpMessageUnconfirmed: "Delivery unconfirmed. Retry the same message.",
-  taskWorkspaceRemoteAcpLive: "Live conversation from the remote ACP Agent",
-  taskWorkspaceRemoteAcpTerminal: "Remote ACP Agent run",
   taskWorkspaceRemoteAcpEmpty: "No ACP events were recorded for this remote attempt yet.",
   taskWorkspaceRemoteAcpComposerLive:
     "The remote ACP Agent is running. Follow the live conversation above; this task window does not yet support sending additional messages to remote Agents.",

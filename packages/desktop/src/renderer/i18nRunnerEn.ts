@@ -52,6 +52,6 @@ export const runnerEnCatalog = {
   acpSendPrompt: "Send message",
   acpPromptSending: "Agent is working…",
   acpPromptFailed: "Message could not be sent",
-  acpCancelPromptTurn: "Stop follow-up",
-  acpPromptCancelling: "Stopping follow-up…"
+  acpCancelPromptTurn: "Stop response",
+  acpPromptCancelling: "Stopping response…"
 } as const;

@@ -1078,15 +1078,13 @@ export const zhCnCatalog = {
     "Agent 身份验证未通过。请在执行设备上检查登录状态，然后重新运行任务。",
   remoteTaskTimeoutReason: "运行超时或执行连接已中断。请检查执行设备状态后重试。",
   remoteTaskFailedReason: "远程运行未能完成。请查看运行详情和诊断信息，确认原因后重试。",
-  remoteAcpFollowUp: "续聊",
+  remoteAcpConversationLoading: "正在加载对话…",
+  remoteAcpConversationFinalizing: "正在保存结果…",
+  remoteAcpConversationStopped: "已停止",
   remoteAcpTurnQueued: "等待 Agent",
-  remoteAcpCancelledSource:
-    "原运行已取消。续聊不会重新提交任务结果；如需更新任务执行状态，请重新运行任务。",
   remoteAcpMessageSending: "发送中…",
   remoteAcpMessageAccepted: "已接收 · 等待 Agent",
   remoteAcpMessageUnconfirmed: "尚未确认是否送达，请重试这条消息。",
-  taskWorkspaceRemoteAcpLive: "远程 ACP Agent 实时对话",
-  taskWorkspaceRemoteAcpTerminal: "远程 ACP Agent 运行",
   taskWorkspaceRemoteAcpEmpty: "本次远程尝试尚未记录到 ACP 事件。",
   taskWorkspaceRemoteAcpComposerLive:
     "远程 ACP Agent 正在执行。可在上方查看实时对话；当前任务窗口暂不支持向远程 Agent 发送追加消息。",

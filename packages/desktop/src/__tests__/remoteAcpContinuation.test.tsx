@@ -157,7 +157,7 @@ describe("remote ACP composer continuation", () => {
     expect(result.current.pendingMessage).toBeNull();
   });
 
-  it("shows a completed follow-up separately from its cancelled source execution", async () => {
+  it("shows the latest reply status without treating later messages as a separate conversation", async () => {
     const f = setup();
     const page: DesktopRemoteAcpConversationPage = {
       ...f.page,
@@ -196,9 +196,8 @@ describe("remote ACP composer continuation", () => {
       );
     }
     render(<View />);
-    expect(await screen.findByText("Follow-up · Completed")).toBeDefined();
-    expect(screen.getByText(/Original run · Cancelled/)).toBeDefined();
-    expect(screen.getByText(/does not resubmit the task result/)).toBeDefined();
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Completed"));
+    expect(screen.queryByText(/Follow-up|Original run|operationId:/)).toBeNull();
     expect(page.execution.state).toBe("cancelled");
   });
 
@@ -263,13 +262,13 @@ describe("remote ACP composer continuation", () => {
       )
     );
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Cancel run" }).hasAttribute("disabled")).toBe(
+      expect(screen.getByRole("button", { name: "Stop response" }).hasAttribute("disabled")).toBe(
         false
       )
     );
     expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
     expect(screen.queryByText("Cancel run")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Cancel run" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stop response" }));
     await waitFor(() =>
       expect(f.api.remoteAcpConversation).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -292,13 +291,13 @@ describe("remote ACP composer continuation", () => {
     await waitFor(() => expect(input.hasAttribute("disabled")).toBe(false));
     fireEvent.change(input, { target: { value: "Continue this session" } });
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
-    await screen.findByRole("button", { name: "Stop follow-up" });
+    await screen.findByRole("button", { name: "Stop response" });
     expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
     expect(
       f.api.remoteAcpConversation.mock.calls.find(([input]) => input.action?.kind === "prompt")?.[0]
         .action
     ).toMatchObject({ sessionId: "original-session", text: "Continue this session" });
-    fireEvent.click(screen.getByRole("button", { name: "Stop follow-up" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stop response" }));
     await waitFor(() => expect(input.hasAttribute("disabled")).toBe(false));
     expect(screen.getByRole("button", { name: "Send message" })).toBeDefined();
     fireEvent.change(input, { target: { value: "Another question" } });

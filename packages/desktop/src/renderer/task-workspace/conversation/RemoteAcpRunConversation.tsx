@@ -28,15 +28,21 @@ export function RemoteAcpRunConversation({
   }, [conversation.timeline, conversation.continuation?.turns, pendingId]);
   const latestTurn = conversation.continuation?.active ?? conversation.continuation?.turns.at(-1);
   const state = latestTurn?.status ?? conversation.state;
-  const turnStatusKeys = {
+  const statusKeys = {
+    loading: "remoteAcpConversationLoading",
+    preparing: "remoteRunPhasePreparing",
+    claimed: "remoteRunPhasePreparing",
+    reserved: "remoteRunPhasePreparing",
+    activated: "remoteRunPhasePreparing",
+    interrupted: "remoteRunPhaseInterrupted",
+    action_required: "remoteRunPhaseActionRequired",
+    awaiting_writeback: "remoteAcpConversationFinalizing",
     queued: "remoteAcpTurnQueued",
     running: "taskWorkspaceRunning",
     completed: "taskWorkspaceCompleted",
-    cancelled: "taskWorkspaceCancelled",
+    cancelled: "remoteAcpConversationStopped",
     failed: "taskWorkspaceFailed"
   } as const;
-  const turnStatus = latestTurn ? t(turnStatusKeys[latestTurn.status]) : null;
-  const terminal = state === "failed" || state === "cancelled" || state === "completed";
   return (
     <section
       className="flex h-full min-h-0 flex-col overflow-hidden"
@@ -44,27 +50,16 @@ export function RemoteAcpRunConversation({
       data-testid="task-workspace-remote-acp-conversation"
     >
       <div className="shrink-0 space-y-3 px-5 pt-5">
-        <div
+        <p
+          role="status"
           className={
             conversation.error || state === "failed"
-              ? "rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive"
-              : "rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground"
+              ? "text-xs text-destructive"
+              : "text-xs text-muted-foreground"
           }
         >
-          <div>
-            {latestTurn
-              ? `${t("remoteAcpFollowUp")} · ${turnStatus}`
-              : terminal
-                ? `${t("taskWorkspaceRemoteAcpTerminal")} · ${state}`
-                : `${t("taskWorkspaceRemoteAcpLive")} · ${state}`}
-          </div>
-          {latestTurn && conversation.state === "cancelled" ? (
-            <p className="mt-1">{t("remoteAcpCancelledSource")}</p>
-          ) : null}
-          <div className="mt-1 font-mono text-[11px] opacity-80">
-            operationId: {conversation.operationId}
-          </div>
-        </div>
+          {t(statusKeys[state])}
+        </p>
         {conversation.error ? (
           <p
             className="rounded-md border border-destructive/40 p-3 text-sm text-destructive"
