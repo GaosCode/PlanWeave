@@ -138,10 +138,6 @@ describe("agent skill contract docs", () => {
       "For ACP runs, follow ordered runner events and resolve permission or elicitation requests through the runtime-provided interaction identity and capability."
     );
     for (const marker of [
-      "PLANWEAVE_COLLABORATION_DEVICE_TOKEN",
-      "PLANWEAVE_OPERATOR_TOKEN",
-      "PLANWEAVE_HUMAN_IDENTITY_TOKEN",
-      "PLANWEAVE_HUMAN_PRINCIPAL_ID",
       "--authority owner_canvas",
       "agent-endpoints list",
       "--target remote",
@@ -149,7 +145,10 @@ describe("agent skill contract docs", () => {
       "interaction respond --session",
       "run-session <session-id> --follow",
       "never substitute the latest operation",
-      "The CLI does not perform login"
+      "agent-endpoints list --help",
+      "run --help",
+      "run-session --help",
+      "interaction respond --help"
     ]) {
       expect(coordinator).toContain(marker);
     }
