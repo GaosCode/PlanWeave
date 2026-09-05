@@ -61,7 +61,9 @@ export const acpTimelineItemSchema = z.discriminatedUnion("kind", [
 ]);
 export type AcpTimelineItem = z.infer<typeof acpTimelineItemSchema>;
 
-function projectionItem(event: NormalizedRunnerEvent): AcpConversationItem | null {
+type AcpProjectionEvent = Pick<NormalizedRunnerEvent, "sequence" | "timestamp" | "body">;
+
+function projectionItem(event: AcpProjectionEvent): AcpConversationItem | null {
   const body = event.body;
   if (body.kind === "message")
     return {
@@ -185,7 +187,7 @@ export class AcpProjectionAccumulator {
     this.timelineMessage = null;
   }
 
-  append(event: NormalizedRunnerEvent): void {
+  append(event: AcpProjectionEvent): void {
     const item = projectionItem(event);
     if (item !== null) {
       if (event.body.kind !== "message") {
@@ -377,14 +379,14 @@ export class AcpProjectionAccumulator {
 }
 
 export function projectAcpConversation(
-  events: readonly NormalizedRunnerEvent[]
+  events: readonly AcpProjectionEvent[]
 ): AcpConversationItem[] {
   const accumulator = new AcpProjectionAccumulator();
   for (const event of events) accumulator.append(event);
   return accumulator.snapshot().conversation;
 }
 
-export function projectAcpTimeline(events: readonly NormalizedRunnerEvent[]): AcpTimelineItem[] {
+export function projectAcpTimeline(events: readonly AcpProjectionEvent[]): AcpTimelineItem[] {
   const accumulator = new AcpProjectionAccumulator();
   for (const event of events) accumulator.append(event);
   return acpTimelineItemSchema.array().parse(accumulator.snapshot().timeline);

@@ -1,3 +1,4 @@
+import { presentRemoteAcpReport } from "./remoteAcpReportPresentation.js";
 import type {
   NormalizedAcpEvent,
   RemoteRunnerEventV2
@@ -208,34 +209,15 @@ function normalizedRemoteEvent(
   event: NormalizedAcpEvent | RemoteRunnerEventV2,
   executionAttemptId: string,
   seenToolCalls: Set<string>
-): { projected: ProjectedRemoteAcpEvent; normalized: NormalizedRunnerEvent } {
+): {
+  projected: ProjectedRemoteAcpEvent;
+  normalized: Pick<NormalizedRunnerEvent, "sequence" | "timestamp" | "body">;
+} {
   const body = remoteAcpEventBody(event, seenToolCalls);
   const eventProtocolVersion = "eventVersion" in event ? 2 : 1;
   const timestamp = "timestamp" in event ? event.timestamp : new Date(0).toISOString();
   const sourceSequence = "sourceSequence" in event ? event.sourceSequence : event.cursor;
-  const normalized = normalizedRunnerEventSchema.parse({
-    version: "planweave.runner-event/v1",
-    sequence: event.cursor,
-    timestamp,
-    identity: {
-      projectId: "remote",
-      canvasId: "remote",
-      taskId: "remote",
-      blockId: "remote",
-      claimRef: "remote#remote",
-      runId: executionAttemptId,
-      runOwner: "executor",
-      runSessionId: null,
-      desktopRunId: null,
-      executorRunId: executionAttemptId
-    },
-    runner: {
-      version: "planweave.runner/v1",
-      runnerKind: "acp",
-      agentId: "codex"
-    },
-    body
-  });
+  const normalized = { sequence: event.cursor, timestamp, body };
   return {
     normalized,
     projected: {
@@ -282,7 +264,7 @@ export function projectRemoteAcpProjectedTimeline(
   events: readonly ProjectedRemoteAcpEvent[]
 ): AcpTimelineItem[] {
   const seenToolCalls = new Set<string>();
-  return projectAcpTimeline(
+  const timeline = projectAcpTimeline(
     events.map((event) => {
       let body = event.body;
       if (body.kind === "tool_call") {
@@ -296,38 +278,12 @@ export function projectRemoteAcpProjectedTimeline(
           };
         } else seenToolCalls.add(body.callId);
       }
-      if (
-        body.kind !== "message" &&
-        body.kind !== "tool_call" &&
-        body.kind !== "tool_update" &&
-        body.kind !== "plan_update" &&
-        body.kind !== "artifact" &&
-        body.kind !== "output" &&
-        body.kind !== "terminal_output"
-      ) {
-        body = normalizedOutputBody("stdout", event.summary ?? event.kind);
-      }
-      return normalizedRunnerEventSchema.parse({
-        version: "planweave.runner-event/v1",
-        sequence: event.cursor,
-        timestamp: event.timestamp,
-        identity: {
-          projectId: "remote",
-          canvasId: "remote",
-          taskId: "remote",
-          blockId: "remote",
-          claimRef: "remote#remote",
-          runId: event.executionAttemptId,
-          runOwner: "executor",
-          runSessionId: null,
-          desktopRunId: null,
-          executorRunId: event.executionAttemptId
-        },
-        runner: { version: "planweave.runner/v1", runnerKind: "acp", agentId: "codex" },
-        body
-      });
+      return { sequence: event.cursor, timestamp: event.timestamp, body };
     })
   );
+  return events.some((event) => event.engineTerminal?.state === "succeeded")
+    ? presentRemoteAcpReport(timeline)
+    : timeline;
 }
 
 export function projectRemoteAcpTimeline(

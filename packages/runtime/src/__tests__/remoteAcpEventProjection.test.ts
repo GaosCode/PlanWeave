@@ -14,6 +14,47 @@ const base = {
 };
 
 describe("remote ACP event v2 projection", () => {
+  it("retains cleanup evidence without presenting it as process stdout", () => {
+    const projection = projectRemoteAcpReplay({
+      eventProtocolVersion: 2,
+      executionAttemptId: "attempt-cleanup",
+      events: [
+        {
+          ...base,
+          fragment: {
+            kind: "engine_evidence",
+            evidence: { kind: "lifecycle", state: "cleanup" }
+          }
+        },
+        {
+          ...base,
+          cursor: 2,
+          sourceSequence: 10,
+          fragment: {
+            kind: "runner_body",
+            body: {
+              kind: "output",
+              stream: "stdout",
+              content: "actual command output",
+              redaction: { classes: [], replaced: 0 }
+            }
+          }
+        }
+      ]
+    });
+    expect(projection.events[0]?.body).toMatchObject({
+      kind: "diagnostic",
+      code: "remote_engine_cleanup"
+    });
+    expect(projection.timeline).toEqual([
+      expect.objectContaining({
+        kind: "output",
+        stream: "stdout",
+        content: "actual command output"
+      })
+    ]);
+  });
+
   it("keeps v1 summaries while projecting v2 identity, evidence, and replay diagnostics", () => {
     const diagnostics = [
       { code: "remote_acp_event_retention_gap" as const, droppedThroughCursor: 1 },
@@ -116,8 +157,7 @@ describe("remote ACP event v2 projection", () => {
     });
     expect(projectRemoteAcpProjectedTimeline(v2.events)).toEqual(v2.timeline);
     expect(v2.timeline).toEqual([
-      expect.objectContaining({ content: "v2 message", timestamp: base.timestamp }),
-      expect.objectContaining({ content: "Remote cumulative token usage: 8." })
+      expect.objectContaining({ content: "v2 message", timestamp: base.timestamp })
     ]);
   });
 

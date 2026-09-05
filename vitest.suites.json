@@ -469,6 +469,7 @@
         "refreshPrompt.test.ts",
         "remoteExecutionReadModel.test.ts",
         "remoteAcpEventProjection.test.ts",
+        "remoteAcpReportPresentation.test.ts",
         "runnerContracts.test.ts",
         "runnerEventRedactionBrowser.test.ts",
         "runnerInteractionContract.test.ts",
