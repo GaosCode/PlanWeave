@@ -148,6 +148,8 @@ export type WorkspaceTabsGraphWorkspaceProps = {
   clearPinnedResource: () => void;
   presence?: CollaborationCanvasPresenceResult;
   workspaceCanvasOffline: boolean;
+  workspaceCanvasCanEdit?: boolean;
+  onRefreshWorkspaceCanvas?: () => Promise<boolean>;
   workspaceCanvasRevision: number | null;
   onDownloadWorkspaceFork?: () => Promise<void>;
 };

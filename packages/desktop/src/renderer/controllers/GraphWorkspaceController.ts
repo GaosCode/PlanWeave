@@ -75,6 +75,8 @@ export function useGraphWorkspaceController({
   clearPinnedResource,
   presence,
   workspaceCanvasOffline,
+  workspaceCanvasCanEdit,
+  onRefreshWorkspaceCanvas,
   workspaceCanvasRevision,
   onDownloadWorkspaceFork,
   runtimeAvailability
@@ -112,6 +114,8 @@ export function useGraphWorkspaceController({
   clearPinnedResource: () => void;
   presence?: CollaborationCanvasPresenceResult;
   workspaceCanvasOffline: boolean;
+  workspaceCanvasCanEdit?: boolean;
+  onRefreshWorkspaceCanvas?: () => Promise<boolean>;
   workspaceCanvasRevision: number | null;
   onDownloadWorkspaceFork?: () => Promise<void>;
   runtimeAvailability: CollaborationRuntimeAvailabilityView;
@@ -150,6 +154,8 @@ export function useGraphWorkspaceController({
     clearPinnedResource,
     presence,
     workspaceCanvasOffline,
+    workspaceCanvasCanEdit,
+    onRefreshWorkspaceCanvas,
     workspaceCanvasRevision,
     onDownloadWorkspaceFork,
     runtimeAvailability

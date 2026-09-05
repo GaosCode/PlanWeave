@@ -221,6 +221,31 @@ function createHarness(options?: {
 }
 
 describe("CanvasReplicaCommandWorker", () => {
+  it("refreshes granted and revoked edit capabilities when reconnecting the same canvas", async () => {
+    const harness = createHarness({ canEdit: false });
+    let canEdit = false;
+    harness.transport.canPersistCanvasCommand = async () => canEdit;
+    await harness.worker.bind(baseScope);
+    expect(harness.store.canEdit(baseScope)).toBe(false);
+    canEdit = true;
+    await harness.worker.reconnect(baseScope);
+    expect(harness.store.canEdit(baseScope)).toBe(true);
+    const submitted = harness.worker.submit(
+      baseScope,
+      layoutIntent(12, "2026-08-02T11:00:00.000Z")
+    );
+    await vi.waitFor(() => expect(harness.submitGates).toHaveLength(1));
+    harness.submitGates[0]!.resolve();
+    await expect(submitted).resolves.toMatchObject({ type: "canvas.command.accepted" });
+    canEdit = false;
+    await harness.worker.reconnect(baseScope);
+    expect(harness.store.canEdit(baseScope)).toBe(false);
+    await expect(
+      harness.worker.submit(baseScope, layoutIntent(13, "2026-08-02T11:01:00.000Z"))
+    ).rejects.toMatchObject({ code: "canvas_replica_command_forbidden" });
+    expect(harness.submitCalls).toHaveLength(1);
+  });
+
   it("uses snapshot command revision (not content-authority revision) on first submit", async () => {
     const harness = createHarness({ commandRevision: 5, contentAuthorityRevision: 99 });
     await harness.worker.bind(baseScope);

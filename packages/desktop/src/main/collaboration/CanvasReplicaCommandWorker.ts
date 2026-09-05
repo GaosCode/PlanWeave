@@ -313,6 +313,10 @@ export class CanvasReplicaCommandWorker {
       if (!result) throw disconnectedError();
       this.rejectDropped(scopeKey, result.droppedPending);
       this.confirmQueueFromReconnectEntries(scopeKey, result.response);
+      const canEdit = await this.transport.canPersistCanvasCommand(scope);
+      if (!this.isCurrent(scopeKey, generation)) throw disconnectedError();
+      if (canEdit) this.store.setCanEdit(scope, true);
+      else this.finishForbidden(scope, scopeKey);
       return result.response;
     });
   }

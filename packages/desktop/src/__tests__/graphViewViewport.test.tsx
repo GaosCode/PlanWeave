@@ -197,6 +197,35 @@ afterEach(() => {
 });
 
 describe("GraphView viewport fitting", () => {
+  it("keeps a read-only Workspace canvas navigable and enables editing after permission refresh", async () => {
+    const refresh = vi.fn().mockResolvedValue(true);
+    const props = defaultProps({
+      workspaceCanvasCanEdit: false,
+      onRefreshWorkspaceCanvas: refresh
+    });
+    const { rerender } = render(<GraphView {...props} />);
+    expect(reactFlowMock.props.at(-1)).toMatchObject({
+      nodesDraggable: false,
+      nodesConnectable: false,
+      edgesReconnectable: false,
+      deleteKeyCode: null
+    });
+    expect(reactFlowMock.props.at(-1)?.onNodeClick).toBeTypeOf("function");
+    expect(reactFlowMock.props.at(-1)?.onNodeDoubleClick).toBeTypeOf("function");
+    await act(async () =>
+      fireEvent.click(screen.getByRole("button", { name: "Refresh permissions" }))
+    );
+    expect(refresh).toHaveBeenCalledOnce();
+    rerender(<GraphView {...props} workspaceCanvasCanEdit />);
+    expect(screen.queryByTestId("workspace-canvas-readonly")).not.toBeInTheDocument();
+    expect(reactFlowMock.props.at(-1)).toMatchObject({
+      nodesDraggable: true,
+      nodesConnectable: true,
+      edgesReconnectable: true,
+      deleteKeyCode: "Backspace"
+    });
+  });
+
   it.each([
     [
       { kind: "session_disconnected", statusKnown: false } as const,

@@ -123,6 +123,8 @@ type GraphViewProps = {
   clearPinnedResource: () => void;
   presence?: CollaborationCanvasPresenceResult;
   workspaceCanvasOffline: boolean;
+  workspaceCanvasCanEdit?: boolean;
+  onRefreshWorkspaceCanvas?: () => Promise<boolean>;
   workspaceCanvasRevision: number | null;
   onDownloadWorkspaceFork?: () => Promise<void>;
   runtimeAvailability: CollaborationRuntimeAvailabilityView;
@@ -220,6 +222,8 @@ export function GraphView({
   clearPinnedResource,
   presence,
   workspaceCanvasOffline,
+  workspaceCanvasCanEdit,
+  onRefreshWorkspaceCanvas,
   workspaceCanvasRevision,
   onDownloadWorkspaceFork,
   runtimeAvailability
@@ -294,7 +298,7 @@ export function GraphView({
     [handleOpenBlockInspector, onTaskPanelSelect, selectedCanvasId, setActiveView]
   );
   useEffect(() => {
-    if (!graph) {
+    if (!graph || workspaceCanvasCanEdit === false) {
       return undefined;
     }
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -321,7 +325,7 @@ export function GraphView({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [graph, handleRedoGraph, handleUndoGraph]);
+  }, [graph, handleRedoGraph, handleUndoGraph, workspaceCanvasCanEdit]);
 
   useEffect(() => {
     if (!graphScopeId || !localFlowInstance || visibleNodes.length === 0) {
@@ -347,11 +351,24 @@ export function GraphView({
       data-graph-surface
       data-project-loading={projectLoading ? "true" : "false"}
       onDragOver={handleGraphDragOver}
-      onDrop={handleGraphDrop}
+      onDrop={workspaceCanvasCanEdit === false ? undefined : handleGraphDrop}
       onMouseMove={graph ? handleGraphPointerMove : undefined}
       onMouseLeave={graph ? handleGraphPointerLeave : undefined}
     >
       <CollaborationOperationDiagnosticsPopover enabled={developerMode} />
+      {workspaceCanvasCanEdit === false && !workspaceCanvasOffline ? (
+        <div
+          className="absolute left-1/2 top-12 z-20 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-border bg-surface/95 px-3 py-1 text-xs text-text-muted shadow-sm"
+          data-testid="workspace-canvas-readonly"
+        >
+          {t("workspaceCanvasReadOnly")}
+          {onRefreshWorkspaceCanvas ? (
+            <Button size="sm" variant="ghost" onClick={() => void onRefreshWorkspaceCanvas()}>
+              {t("workspaceCanvasRefreshAccess")}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       {runtimeBanner ? (
         <div
           className="absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-surface/95 px-3 py-1 text-xs text-text-muted shadow-sm"
@@ -411,7 +428,10 @@ export function GraphView({
           onReconnect={handleReconnect}
           onReconnectStart={handleReconnectStart}
           onReconnectEnd={handleReconnectEnd}
-          edgesReconnectable
+          nodesDraggable={workspaceCanvasCanEdit !== false}
+          nodesConnectable={workspaceCanvasCanEdit !== false}
+          edgesReconnectable={workspaceCanvasCanEdit !== false}
+          deleteKeyCode={workspaceCanvasCanEdit === false ? null : "Backspace"}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onNodeClick={(_event, node) => {
@@ -485,6 +505,7 @@ export function GraphView({
               title={t("undoGraphCommand")}
               variant="ghost"
               onClick={() => void handleUndoGraph()}
+              disabled={workspaceCanvasCanEdit === false}
             >
               <Undo2Icon />
             </Button>
@@ -494,6 +515,7 @@ export function GraphView({
               title={t("redoGraphCommand")}
               variant="ghost"
               onClick={() => void handleRedoGraph()}
+              disabled={workspaceCanvasCanEdit === false}
             >
               <Redo2Icon />
             </Button>

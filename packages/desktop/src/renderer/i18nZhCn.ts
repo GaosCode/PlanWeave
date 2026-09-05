@@ -1763,6 +1763,8 @@ export const zhCnCatalog = {
   canvasCommandNotConnected:
     "Workspace 画布当前离线，无法编辑。请先启动或检查 Server，然后前往“成员”页面点击“刷新”重新连接。",
   workspaceCanvasOfflineCache: "离线 · 远端缓存只读快照",
+  workspaceCanvasReadOnly: "只读 · 请联系所有者授予画布编辑权限。",
+  workspaceCanvasRefreshAccess: "刷新权限",
   workspaceCanvasOfflineCacheRevision: "离线 · 远端缓存只读快照 · 修订 {revision}",
   collaborationServerDisconnected: "Server 已断开 · Workspace 执行已禁用",
   collaborationRuntimeChecking: "正在检查 Workspace 执行能力…",

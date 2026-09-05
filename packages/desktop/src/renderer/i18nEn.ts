@@ -1876,6 +1876,8 @@ export const enCatalog = {
   canvasCommandNotConnected:
     "This Workspace Canvas is offline and cannot be edited. Start or check the Server, then go to Members and select Refresh to reconnect.",
   workspaceCanvasOfflineCache: "Offline · remote cached read-only snapshot",
+  workspaceCanvasReadOnly: "Read only · ask the owner for canvas edit permission.",
+  workspaceCanvasRefreshAccess: "Refresh permissions",
   workspaceCanvasOfflineCacheRevision:
     "Offline · remote cached read-only snapshot · revision {revision}",
   collaborationServerDisconnected: "Server disconnected · Workspace execution disabled",

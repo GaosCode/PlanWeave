@@ -1085,6 +1085,12 @@ export function ProjectWorkspaceProvider({
     clearPinnedResource,
     presence: collaborationPresence,
     workspaceCanvasOffline: workspaceCanvasCommands.offline,
+    workspaceCanvasCanEdit: workspaceCanvasCommands.enabled
+      ? workspaceCanvasCommands.projection?.canEdit === true
+      : undefined,
+    onRefreshWorkspaceCanvas: workspaceCanvasCommands.enabled
+      ? workspaceCanvasCommands.reconnect
+      : undefined,
     workspaceCanvasRevision: workspaceCanvasCommands.projection?.revision ?? null,
     onDownloadWorkspaceFork:
       canvasLocator?.kind === "workspace" ? downloadWorkspaceFork : undefined,
