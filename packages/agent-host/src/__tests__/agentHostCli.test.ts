@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ACP_CONVERSATION_CAPABILITY,
+  ACP_TASK_RESTORE_CAPABILITY,
   CANVAS_RUNTIME_CAPABILITY,
   WORKSPACE_CANVAS_EXECUTION_CAPABILITY
 } from "@planweave-ai/agent-host-protocol";
@@ -87,6 +88,7 @@ describe("Agent Host operator CLI", () => {
         "acp.test",
         CANVAS_RUNTIME_CAPABILITY,
         ACP_CONVERSATION_CAPABILITY,
+        ACP_TASK_RESTORE_CAPABILITY,
         WORKSPACE_CANVAS_EXECUTION_CAPABILITY
       ],
       capacity: 1,

@@ -2,6 +2,7 @@ import { rm } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ACP_CONVERSATION_CAPABILITY,
+  ACP_TASK_RESTORE_CAPABILITY,
   acpConversationEventSchema,
   exampleExecutionEnvelopeInput,
   executionEnvelopeSchema,
@@ -20,7 +21,9 @@ afterEach(async () => {
     await rm(f.directory, { recursive: true, force: true });
   }
 });
-async function setup() {
+async function setup(
+  restoreTask?: NonNullable<ConstructorParameters<typeof AcpConversationService>[1]["restoreTask"]>
+) {
   const f = await createRemoteAcpEventV2Fixture();
   fixtures.push(f);
   const db = f.server.database;
@@ -63,7 +66,8 @@ async function setup() {
     mailbox,
     hostOfflineAfterMs: 60_000,
     clock: f.clock,
-    authorize
+    authorize,
+    restoreTask
   });
   const prompt = {
     kind: "prompt" as const,
@@ -88,6 +92,116 @@ async function setup() {
   return { ...f, db, hosts, mailbox, operation, service, prompt, event, authorize };
 }
 describe("durable remote ACP continuation", () => {
+  it("reserves the same session for an explicit restore and deduplicates repeated clicks", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const restoreTask = vi.fn(async (operation) => {
+      await gate;
+      return { operation };
+    });
+    const f = await setup(restoreTask);
+    f.hosts.reportOnline(
+      f.host.id,
+      ["acp.codex", ACP_CONVERSATION_CAPABILITY, ACP_TASK_RESTORE_CAPABILITY],
+      2
+    );
+    const operation = { ...f.operation, state: "cancelled" as const };
+    const action = {
+      kind: "restore_task",
+      turnId: "restore-one",
+      executionAttemptId: operation.executionAttemptId,
+      sessionId: "original-session"
+    };
+    expect(f.service.page(operation, "actor").canRestoreTask).toBe(true);
+    const first = f.service.restore(operation, "actor", action);
+    const second = f.service.restore(operation, "actor", { ...action, turnId: "restore-two" });
+    expect(() => f.service.act(operation, "actor", f.prompt)).toThrow(
+      "acp_task_restoration_started"
+    );
+    release();
+    const [one, two] = await Promise.all([first, second]);
+    expect(one.restoredOperationId).toBe(operation.id);
+    expect(two).toEqual(one);
+    expect(one.canRestoreTask).toBe(false);
+    expect(restoreTask).toHaveBeenCalledOnce();
+    expect(restoreTask).toHaveBeenCalledWith(operation, "actor", {
+      operationId: operation.id,
+      executionAttemptId: operation.executionAttemptId,
+      sessionId: "original-session",
+      hostId: f.host.id
+    });
+    await f.service.restore(operation, "actor", action);
+    expect(restoreTask).toHaveBeenCalledOnce();
+  });
+
+  it("does not treat chat as task restoration and rejects restore while a turn is running", async () => {
+    const restoreTask = vi.fn(async (operation) => ({ operation }));
+    const f = await setup(restoreTask);
+    f.hosts.reportOnline(
+      f.host.id,
+      ["acp.codex", ACP_CONVERSATION_CAPABILITY, ACP_TASK_RESTORE_CAPABILITY],
+      2
+    );
+    const operation = { ...f.operation, state: "cancelled" as const };
+    f.service.act(operation, "actor", { ...f.prompt, text: "继续" });
+    expect(restoreTask).not.toHaveBeenCalled();
+    const action = {
+      kind: "restore_task",
+      turnId: "restore-one",
+      executionAttemptId: operation.executionAttemptId,
+      sessionId: "original-session"
+    };
+    await expect(f.service.restore(operation, "actor", action)).rejects.toThrow(
+      "acp_conversation_turn_in_flight"
+    );
+    expect(restoreTask).not.toHaveBeenCalled();
+    expect(f.service.page(operation, "actor").canRestoreTask).toBe(false);
+  });
+
+  it("requires a capable online host even when retrying a previously interrupted restore", async () => {
+    const restoreTask = vi.fn(async (operation) => ({ operation }));
+    const f = await setup(restoreTask);
+    const operation = { ...f.operation, state: "cancelled" as const };
+    const action = {
+      kind: "restore_task",
+      turnId: "restore-one",
+      executionAttemptId: operation.executionAttemptId,
+      sessionId: "original-session"
+    };
+    expect(f.service.page(operation, "actor").canRestoreTask).toBe(false);
+    await expect(f.service.restore(operation, "actor", action)).rejects.toThrow(
+      "acp_restore_host_upgrade_required"
+    );
+    f.hosts.reportOnline(
+      f.host.id,
+      ["acp.codex", ACP_CONVERSATION_CAPABILITY, ACP_TASK_RESTORE_CAPABILITY],
+      2
+    );
+    restoreTask.mockRejectedValueOnce(new Error("dispatch_unavailable"));
+    await expect(f.service.restore(operation, "actor", action)).rejects.toThrow(
+      "dispatch_unavailable"
+    );
+    expect(f.service.page(operation, "actor")).toMatchObject({
+      canRestoreTask: true,
+      available: true
+    });
+    f.db
+      .prepare(
+        "INSERT INTO acp_task_restorations(source_operation_id,host_id,session_id) VALUES (?,?,?)"
+      )
+      .run(operation.id, f.host.id, "original-session");
+    f.db
+      .prepare("UPDATE agent_hosts SET last_seen_at='2000-01-01T00:00:00.000Z' WHERE id=?")
+      .run(f.host.id);
+    expect(f.service.page(operation, "actor").canRestoreTask).toBe(false);
+    await expect(f.service.restore(operation, "actor", action)).rejects.toThrow(
+      "acp_conversation_host_offline"
+    );
+    expect(restoreTask).toHaveBeenCalledOnce();
+  });
+
   it("continues a cancelled execution in its original session while retaining its cancelled outcome", async () => {
     const f = await setup();
     f.db.prepare("UPDATE remote_operations SET state='cancelled' WHERE id=?").run(f.operation.id);

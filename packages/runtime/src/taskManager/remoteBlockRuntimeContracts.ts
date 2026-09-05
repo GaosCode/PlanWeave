@@ -136,6 +136,7 @@ export const remoteBlockDispatchCandidateSchema = z
     agentId: envelopeShape.agentId,
     agentProfileId: envelopeShape.agentProfileId,
     session: envelopeShape.session,
+    restoration: envelopeShape.restoration,
     requiredCapabilities: envelopeShape.requiredCapabilities
   })
   .strict();
@@ -145,6 +146,7 @@ export const remoteBlockClaimInputSchema = z
     ref: blockRefSchema,
     operationId: opaqueIdentifierSchema,
     controlPlane: remoteExecutionControlPlaneSchema,
+    restoration: envelopeShape.restoration,
     sourceRevision: envelopeShape.sourceRevision,
     graphFingerprint: envelopeShape.graphFingerprint.unwrap()
   })

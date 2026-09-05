@@ -53,6 +53,11 @@ export const runnerZhCnCatalog = {
   acpSendPrompt: "发送消息",
   acpPromptSending: "Agent 正在处理…",
   acpPromptFailed: "消息发送失败",
+  acpTaskStopped: "任务已停止",
+  acpRestoreTaskHint: "按当前任务要求继续执行，并更新任务结果。",
+  acpRestorePending: "任务恢复尚未确认，可以重试。",
+  acpRestoreFailed: "未能恢复任务。请检查 Agent 连接和任务权限后重试。",
+  acpRestoreTask: "恢复任务",
   acpCancelPromptTurn: "停止回复",
   acpPromptCancelling: "正在停止回复…"
 } as const satisfies Record<keyof typeof runnerEnCatalog, string>;

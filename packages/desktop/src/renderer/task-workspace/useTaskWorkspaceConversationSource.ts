@@ -1,7 +1,7 @@
 import { useRemoteAcpContinuation } from "./useRemoteAcpContinuation";
 import type { RemoteBlockExecutionReadModel } from "@planweave-ai/runtime";
 import type { RemoteOperationState } from "@planweave-ai/collaboration-protocol/remote-run";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { PlanWeaveCollaborationApi } from "../../shared/collaboration";
 import type { PlanWeaveOperatorControlApi } from "../../shared/operatorControl";
 import type { PlanWeaveWorkspaceExecutionApi } from "../../shared/workspaceExecution";
@@ -16,7 +16,11 @@ function projectedRemoteConversationState(
 ): RemoteOperationState | undefined {
   if (!execution) return undefined;
   if (execution.phase === "terminal") {
-    return execution.status === "completed" ? "completed" : "failed";
+    return execution.status === "completed"
+      ? "completed"
+      : execution.status === "stopped"
+        ? "cancelled"
+        : "failed";
   }
   if (execution.status === "interrupted") return "interrupted";
   if (execution.status === "source_drift") return "action_required";
@@ -77,7 +81,16 @@ export function useTaskWorkspaceConversationSource(input: {
       coordinatorScope
     ]
   );
-  const operationId = input.execution?.identity.operationId ?? null;
+  const [restored, setRestored] = useState<{
+    scope: string;
+    sourceId: string;
+    operationId: string;
+  } | null>(null);
+  const sourceOperationId = input.execution?.identity.operationId ?? null;
+  const operationId =
+    restored?.scope === input.scopeKey && restored.sourceId === sourceOperationId
+      ? restored.operationId
+      : sourceOperationId;
   const legacyConversation = useRemoteTaskWorkspaceConversation({
     api: coordinatorScope ? null : legacyApi,
     blockRef: input.selectedBlockRef || null,
@@ -98,6 +111,18 @@ export function useTaskWorkspaceConversationSource(input: {
     input.workspaceExecutionApi,
     coordinatorScope && operationId ? { ...coordinatorScope, operationId } : null
   );
+  const onTerminalRef = useRef(input.onTerminal);
+  onTerminalRef.current = input.onTerminal;
+  useEffect(() => {
+    if (continuation.restoredOperationId && sourceOperationId) {
+      setRestored({
+        scope: input.scopeKey,
+        sourceId: sourceOperationId,
+        operationId: continuation.restoredOperationId
+      });
+      onTerminalRef.current();
+    }
+  }, [continuation.restoredOperationId, sourceOperationId, input.scopeKey]);
   const conversation = coordinatorScope ? workspaceConversation : legacyConversation;
   return conversation && coordinatorScope
     ? { ...conversation, continuation, telemetry: continuation.telemetry ?? conversation.telemetry }

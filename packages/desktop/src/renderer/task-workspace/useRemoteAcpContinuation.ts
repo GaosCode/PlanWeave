@@ -30,6 +30,7 @@ export function useRemoteAcpContinuation(
     page: DesktopRemoteAcpConversationPage;
     events: AcpConversationEvent[];
   } | null>(null);
+  const [restoreFailed, setRestoreFailed] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -55,6 +56,7 @@ export function useRemoteAcpContinuation(
     setLocalMessage(null);
     sendingRef.current = false;
     pageRef.current = null;
+    setRestoreFailed(false);
     setActionError(null);
     setState(null);
     setError(null);
@@ -106,6 +108,7 @@ export function useRemoteAcpContinuation(
     const generation = epoch.current;
     sendingRef.current = true;
     ++actionRevision.current;
+    setRestoreFailed(false);
     setActionError(null);
     setSending(true);
     try {
@@ -124,8 +127,10 @@ export function useRemoteAcpContinuation(
         )
           return true;
       }
-      if (epoch.current === generation)
+      if (epoch.current === generation) {
+        setRestoreFailed(action.kind === "restore_task");
         setActionError(cause instanceof Error ? cause.message : "acp_conversation_request_failed");
+      }
       return false;
     } finally {
       if (epoch.current === generation) {
@@ -188,8 +193,20 @@ export function useRemoteAcpContinuation(
   }, [state, key]);
   return {
     available: page?.available ?? false,
+    canRestoreTask: page?.canRestoreTask ?? false,
+    restoredOperationId: page?.restoredOperationId ?? null,
+    restoreTask: () =>
+      page?.canRestoreTask && page.sessionId && !active
+        ? act({
+            kind: "restore_task",
+            turnId: crypto.randomUUID(),
+            executionAttemptId: page.executionAttemptId,
+            sessionId: page.sessionId
+          })
+        : Promise.resolve(false),
     reason: page?.reason ?? null,
     error: actionError ?? error,
+    restoreFailed,
     sending,
     pendingMessage:
       localMessage?.key === key &&

@@ -25,6 +25,7 @@ import {
   markRemoteBlockOwnershipSourceDrift,
   matchesRemoteOperationReceipt,
   prepareRemoteBlockOwnership,
+  restoreStoppedRemoteBlock,
   resumeRemoteBlockOwnership,
   retryRemoteBlockOwnership,
   RemoteOwnershipConflictError,
@@ -175,7 +176,12 @@ export function createRemoteBlockRuntimePort(options: {
       const input = remoteBlockClaimInputSchema.parse(rawInput);
       return withLock(async (context) => {
         const blockType = remoteExecutableBlockType(context, input.ref);
-        const current = context.state.blocks[input.ref];
+        const existing = context.state.blocks[input.ref];
+        const current =
+          input.restoration && !existing.remoteOwnership
+            ? restoreStoppedRemoteBlock(existing, input.restoration)
+            : existing;
+        if (current !== existing) context.state.blocks[input.ref] = current;
         const reviewForm =
           blockType === "review" && !current.remoteOwnership
             ? reviewClaimForm(context.graph, context.state, input.ref)

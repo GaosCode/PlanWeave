@@ -49,6 +49,7 @@ describe("authorized canvas runtime status", () => {
       ref: "T-001#R-001",
       status: "completed",
       completionReason: "passed",
+      stopped: false,
       blockedReason: null,
       divergenceReason: null,
       dispatchable: false

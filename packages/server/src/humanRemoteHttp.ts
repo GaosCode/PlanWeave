@@ -293,7 +293,7 @@ export async function handleHumanRemoteHttpRequest(
         respond(
           response,
           202,
-          options.service.converse(scope, matched.operationId, await readJson(request))
+          await options.service.converse(scope, matched.operationId, await readJson(request))
         );
         break;
       case "dispatch":

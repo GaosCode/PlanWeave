@@ -264,6 +264,7 @@ export function overlayCanvasReplicaRuntimeStatus(input: {
       return {
         ...block,
         status: remoteBlock.status,
+        stopped: remoteBlock.stopped,
         exceptionReason: remoteBlock.blockedReason ?? remoteBlock.divergenceReason ?? null,
         dispatchable: contentMatchesRuntime && remoteBlock.dispatchable
       };
@@ -275,7 +276,9 @@ export function overlayCanvasReplicaRuntimeStatus(input: {
       blocks,
       blockPreview: task.blockPreview.map((block) => requirePreviewBlock(blockByRef, block.ref)),
       exceptions: blocks
-        .map((block) => exceptionForBlock(block.ref, block.status, block.exceptionReason))
+        .map((block) =>
+          block.stopped ? null : exceptionForBlock(block.ref, block.status, block.exceptionReason)
+        )
         .filter((exception): exception is DesktopTaskException => exception !== null)
     };
   });

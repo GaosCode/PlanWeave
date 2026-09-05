@@ -1,3 +1,4 @@
+import { restoredTaskDispatchRequest } from "./remoteTaskRestoration.js";
 import {
   agentHostProtocolVersion,
   hashExecutionEnvelope,
@@ -160,6 +161,21 @@ export class RemoteBlockCoordinator {
 
   getAuthorizedHostSelection(operationId: string): DispatchHostSelectionSnapshot | undefined {
     return this.options.operations.get(operationId)?.hostSelection;
+  }
+
+  async restoreTask(
+    operation: RemoteOperation,
+    actorId: string,
+    restoration: NonNullable<RemoteBlockDispatchCandidate["restoration"]>
+  ) {
+    return this.dispatch(
+      await restoredTaskDispatchRequest(
+        this.options.dispatchCandidates,
+        operation,
+        actorId,
+        restoration
+      )
+    );
   }
 
   async dispatch(request: RemoteEndpointDispatchRequest): Promise<RemoteDispatchOutcome> {
@@ -368,7 +384,8 @@ export class RemoteBlockCoordinator {
           operationId: operation.id,
           controlPlane: runtimeControlPlane(operation.endpointSelection?.authority),
           sourceRevision: operation.ownershipGeneration,
-          graphFingerprint: operation.sourceFingerprint
+          graphFingerprint: operation.sourceFingerprint,
+          ...(candidate.restoration ? { restoration: candidate.restoration } : {})
         });
         await this.checkpoint("after_runtime_claim");
       } catch (error) {

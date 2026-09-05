@@ -96,6 +96,8 @@ describe("Host remote ACP continuation", () => {
     };
     f.receive(f.command);
     service.handle(f.command);
+    expect(service.isSessionActive("original-session")).toBe(true);
+    expect(service.isSessionActive("unrelated-session")).toBe(false);
     service.handle(f.command);
     await waitDone(f.command.turnId);
     const second = { ...f.command, turnId: "turn-two", text: "One more message" };
@@ -103,6 +105,7 @@ describe("Host remote ACP continuation", () => {
     service.handle(second);
     await waitDone(second.turnId);
     await service.stop();
+    expect(service.isSessionActive("original-session")).toBe(false);
     const log = await readFile(join(f.directory, "lifecycle.log"), "utf8");
     expect(log.match(/session\/load/g)).toHaveLength(2);
     expect(log).not.toContain("session/new");

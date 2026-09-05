@@ -1109,7 +1109,7 @@ export const zhCnCatalog = {
   taskWorkspaceTrue: "是",
   taskWorkspaceFalse: "否",
   taskWorkspaceRunning: "运行中",
-  taskWorkspaceCancelled: "已取消",
+  taskWorkspaceCancelled: "已停止",
   taskWorkspaceCompleted: "已完成",
   taskWorkspaceFailed: "失败",
   taskWorkspaceWaiting: "等待中",

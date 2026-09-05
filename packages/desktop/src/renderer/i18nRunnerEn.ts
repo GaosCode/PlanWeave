@@ -52,6 +52,12 @@ export const runnerEnCatalog = {
   acpSendPrompt: "Send message",
   acpPromptSending: "Agent is working…",
   acpPromptFailed: "Message could not be sent",
+  acpTaskStopped: "Task stopped",
+  acpRestoreTaskHint: "Continue the current task requirements and update its result.",
+  acpRestorePending: "Task restoration is awaiting confirmation. You can retry.",
+  acpRestoreFailed:
+    "The task could not be restored. Check the Agent connection and task permissions, then try again.",
+  acpRestoreTask: "Resume task",
   acpCancelPromptTurn: "Stop response",
   acpPromptCancelling: "Stopping response…"
 } as const;

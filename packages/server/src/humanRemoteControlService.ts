@@ -1,3 +1,4 @@
+import { acpConversationActionSchema } from "@planweave-ai/agent-host-protocol";
 import {
   remoteActionViewSchema,
   remoteDispatchIntentV3Schema,
@@ -104,7 +105,10 @@ export class HumanRemoteControlService {
     const operation = this.operationFor(scope, operationId);
     if (!this.options.conversations)
       throw new HumanRemoteControlError("acp_conversation_unavailable");
-    return this.options.conversations.act(operation, scope.actor.humanPrincipalId, action);
+    const parsed = acpConversationActionSchema.parse(action);
+    return parsed.kind === "restore_task"
+      ? this.options.conversations.restore(operation, scope.actor.humanPrincipalId, parsed)
+      : this.options.conversations.act(operation, scope.actor.humanPrincipalId, parsed);
   }
 
   async dispatch(scope: AuthenticatedCollaborationScope, rawRequest: unknown) {

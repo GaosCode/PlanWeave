@@ -152,6 +152,39 @@ function renderTaskNode(data: TaskNodeData) {
 }
 
 describe("TaskNodeCard prompt history shortcuts", () => {
+  it("renders stopped shared tasks with a neutral badge instead of an exception", () => {
+    renderTaskNode(
+      nodeData({
+        task: {
+          ...task("# Prompt"),
+          blocks: [
+            {
+              ref: "T-001#B-001",
+              blockId: "B-001",
+              type: "implementation",
+              title: "Implementation",
+              status: "blocked",
+              stopped: true,
+              executor: null,
+              promptMissing: false,
+              exceptionReason: null,
+              dispatchable: false
+            }
+          ]
+        },
+        labels: taskNodeLabels(createTranslator("zh-CN"))
+      })
+    );
+    expect(screen.getByTestId("task-node-status-marker")).toHaveAttribute(
+      "data-status-tone",
+      "neutral"
+    );
+    expect(screen.getByText("任务已停止")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: createTranslator("zh-CN")("taskException") })
+    ).toBeNull();
+  });
+
   it("explains stopped execution without showing raw diagnostics as the reason", async () => {
     const reason = "[execution_cancelled] Remote execution was cancelled.";
     renderTaskNode(

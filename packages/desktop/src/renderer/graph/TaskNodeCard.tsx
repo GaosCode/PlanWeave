@@ -98,8 +98,13 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
   } = data;
   const [taskCommentsOpen, setTaskCommentsOpen] = useState(false);
   const hasException = task.exceptions.length > 0;
+  const stopped =
+    !hasException &&
+    !task.blocks.some((block) => block.status === "in_progress") &&
+    task.blocks.some((block) => block.stopped || block.remoteExecution?.status === "stopped");
+  const displayStatus = stopped ? "stopped" : task.status;
   const statusVisual = taskNodeStatusVisual(
-    runtimeStatusKnown ? task.status : "unknown",
+    runtimeStatusKnown ? displayStatus : "unknown",
     runtimeStatusKnown && hasException
   );
   const highlightColor =
@@ -109,7 +114,9 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
   const statusLabel = runtimeStatusKnown
     ? hasException
       ? labels.exception
-      : task.status
+      : stopped
+        ? labels.stopped
+        : task.status
     : labels.runtimeStatusUnavailable;
   const handlePromptKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const key = event.key.toLowerCase();
@@ -172,7 +179,7 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
               <TaskNodeStatusMarker
                 hasException={runtimeStatusKnown && hasException}
                 label={statusLabel}
-                status={runtimeStatusKnown ? task.status : "unknown"}
+                status={runtimeStatusKnown ? displayStatus : "unknown"}
               />
             </CardTitle>
             <CardDescription className="flex flex-wrap items-center gap-2">

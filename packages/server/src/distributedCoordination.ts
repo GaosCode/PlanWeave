@@ -519,6 +519,8 @@ export function createRemoteBlockCoordination(
     hosts,
     mailbox,
     conversations: new AcpConversationService(database, {
+      restoreTask: (operation, actorId, restoration) =>
+        coordinator.restoreTask(operation, actorId, restoration),
       hosts,
       mailbox,
       clock,

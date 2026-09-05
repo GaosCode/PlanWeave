@@ -1005,6 +1005,7 @@ describe("Agent Host outbound transport", () => {
     const canvasRuntime = {
       enabled: () => true,
       recover: vi.fn(),
+      isSessionActive: vi.fn(() => false),
       disconnect: vi.fn(),
       handle: vi.fn(async () => {}),
       synchronizeServerTime: vi.fn(),

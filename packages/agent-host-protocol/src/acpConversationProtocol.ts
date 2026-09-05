@@ -3,6 +3,7 @@ import { executionEnvelopeSchema } from "./executionEnvelope.js";
 import { remoteRunnerEventFragmentSchema } from "./runnerEvents.js";
 import { safeRunnerEventTextSchema } from "./runnerEventRedaction.js";
 
+export const ACP_TASK_RESTORE_CAPABILITY = "acp-task-restore.v1";
 export const ACP_CONVERSATION_CAPABILITY = "acp-conversation.v1";
 const identifier = z.string().min(1).max(256);
 const sessionId = z.string().min(1).max(1024);
@@ -21,6 +22,7 @@ export const acpConversationDecisionSchema = z.discriminatedUnion("kind", [
 ]);
 
 export const acpConversationActionSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("restore_task"), ...identity }).strict(),
   z
     .object({
       kind: z.literal("prompt"),
@@ -157,6 +159,8 @@ export const acpConversationTurnSchema = z
 export const acpConversationPageSchema = z
   .object({
     available: z.boolean(),
+    canRestoreTask: z.boolean().default(false),
+    restoredOperationId: identifier.nullable().default(null),
     reason: z.string().nullable(),
     executionAttemptId: identifier,
     sessionId: sessionId.nullable(),

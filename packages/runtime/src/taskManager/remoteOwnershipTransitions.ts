@@ -455,6 +455,29 @@ export function failRemoteBlockOwnership(options: {
   };
 }
 
+/** Verify the stopped generation before claiming a fresh execution. */
+export function restoreStoppedRemoteBlock(
+  blockState: BlockState,
+  prior: { operationId: string; executionAttemptId: string }
+): BlockState {
+  const receipt = blockState.remoteOperationReceipt;
+  if (
+    blockState.remoteOwnership ||
+    blockState.status !== "blocked" ||
+    receipt?.outcome !== "failed" ||
+    receipt.failure.code !== "execution_cancelled" ||
+    receipt.operationId !== prior.operationId ||
+    receipt.executionAttemptId !== prior.executionAttemptId
+  ) {
+    throw new RemoteOwnershipConflictError(
+      "remote_ownership_status_conflict",
+      "Only the current stopped execution can be restored."
+    );
+  }
+  const { blockedReason: _reason, ...rest } = clearRemoteBlockOperationState(blockState);
+  return { ...rest, status: "ready" };
+}
+
 /** Remove ownership whenever a mutation leaves remote execution lifecycle control. */
 export function withoutRemoteBlockOwnership(
   blockState: BlockState,

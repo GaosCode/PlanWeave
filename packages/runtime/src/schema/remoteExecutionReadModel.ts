@@ -35,7 +35,7 @@ export const remoteBlockExecutionReadModelSchema = z
     identity: remoteExecutionIdentitySchema,
     controlPlane: remoteExecutionControlPlaneSchema,
     phase: z.enum(["preparing", "active", "terminal"]),
-    status: z.enum(["owned", "interrupted", "source_drift", "completed", "failed"]),
+    status: z.enum(["owned", "interrupted", "source_drift", "completed", "failed", "stopped"]),
     actionRequired: z.boolean(),
     source: remoteExecutionSourceSchema,
     dispatchAttempt: remoteExecutionDispatchAttemptSchema.nullable()

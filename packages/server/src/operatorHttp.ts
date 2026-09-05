@@ -733,7 +733,7 @@ export async function handleOperatorHttpRequest(
         respond(
           response,
           202,
-          options.service.converse(principal, matched.operationId, await readJson(request))
+          await options.service.converse(principal, matched.operationId, await readJson(request))
         );
         break;
       }

@@ -31,6 +31,12 @@ export class RemoteAcpConversationService {
     else if (command.type === "acp_conversation.cancel") this.active.get(command.turnId)?.abort();
   }
 
+  isSessionActive(sessionId: string): boolean {
+    return [...this.active.keys()].some(
+      (turnId) => this.repository.command(turnId).sessionId === sessionId
+    );
+  }
+
   async stop(): Promise<void> {
     for (const controller of this.active.values()) controller.abort();
     await Promise.all(this.runs);

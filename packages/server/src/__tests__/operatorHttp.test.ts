@@ -96,7 +96,11 @@ function control(): OperatorControlPort {
       throw new Error("remote_action_attempt_version_conflict");
     }),
     conversation: vi.fn(() => ({ turns: [], cursor: 0 })),
-    converse: vi.fn(() => ({ turns: [], cursor: 0 })),
+    converse: vi.fn(async () => ({
+      turns: [],
+      cursor: 0,
+      restoredOperationId: "restored-operation"
+    })),
     replayEvents: vi.fn(),
     listPendingInteractions: vi.fn(() => ({ items: [], nextCursor: null })),
     settleInteraction: vi.fn(),
@@ -183,6 +187,24 @@ const expectedError = (error: string) => ({
 });
 
 describe("operator HTTP boundary", () => {
+  it("awaits an asynchronous task restoration before serializing the response", async () => {
+    const fixture = await setup(true);
+    const response = await fetch(
+      `${fixture.origin}/api/v1/remote-operations/operation-1/conversation`,
+      {
+        method: "POST",
+        headers: { ...authorization, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "restore_task",
+          turnId: "restore-one",
+          executionAttemptId: "attempt-one",
+          sessionId: "session-one"
+        })
+      }
+    );
+    expect(response.status).toBe(202);
+    expect(await response.json()).toMatchObject({ restoredOperationId: "restored-operation" });
+  });
   it("authenticates conversation replay and passes the cursor without invoking a prompt", async () => {
     const fixture = await setup(true);
     const path = `${fixture.origin}/api/v1/remote-operations/operation-1/conversation?afterCursor=7`;

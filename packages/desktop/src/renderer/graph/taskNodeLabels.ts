@@ -9,6 +9,7 @@ export function taskNodeLabels(t: ReturnType<typeof createTranslator>): TaskNode
     blockStack: t("blockStack"),
     customExecutor: t("customExecutor"),
     exception: t("exception"),
+    stopped: t("acpTaskStopped"),
     exceptionOverlay: t("exceptionOverlay"),
     exceptionReason: (reason) => formatTaskException(reason, t),
     diagnostics: t("diagnostics"),

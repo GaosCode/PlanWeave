@@ -54,7 +54,10 @@ export type AgentHostClientOptions = {
   state: AgentHostStateRepository;
   executor: AgentHostExecutor;
   interactionRelay?: Pick<DurableAcpInteractionRelay, "accept">;
-  conversations?: Pick<RemoteAcpConversationService, "handle" | "recover" | "stop">;
+  conversations?: Pick<
+    RemoteAcpConversationService,
+    "handle" | "recover" | "stop" | "isSessionActive"
+  >;
   canvasRuntime?: Pick<
     CanvasRuntimeService,
     | "disconnect"
@@ -542,7 +545,11 @@ export class AgentHostClient implements HostTransport {
       if (!pending) break;
       const execution = this.options.state.startExecution(pending.sequence);
       if (!execution) continue;
-      this.launch(execution, { kind: "new" });
+      const restoration = execution.command.envelope.restoration;
+      this.launch(
+        execution,
+        restoration ? { kind: "load", sessionId: restoration.sessionId } : { kind: "new" }
+      );
     }
   }
 
@@ -574,6 +581,18 @@ export class AgentHostClient implements HostTransport {
     sessionStart: AgentHostExecutionContext["sessionStart"]
   ): Promise<void> {
     try {
+      if (
+        execution.command.envelope.restoration &&
+        execution.command.envelope.restoration.hostId !== this.options.hostId
+      )
+        throw new Error("acp_restore_host_changed");
+      if (
+        execution.command.envelope.restoration &&
+        this.options.conversations?.isSessionActive(
+          execution.command.envelope.restoration.sessionId
+        )
+      )
+        throw new Error("acp_conversation_turn_in_flight");
       const result = parseAgentHostDispatchResult(
         await this.options.executor.execute(execution.command, {
           signal: controller.signal,
@@ -595,7 +614,11 @@ export class AgentHostClient implements HostTransport {
       this.options.state.completeExecution(execution.sequence, result);
     } catch (error) {
       if (this.stopped) return;
-      if (error instanceof AgentHostSessionLoadError && !controller.signal.aborted) {
+      if (
+        error instanceof AgentHostSessionLoadError &&
+        !controller.signal.aborted &&
+        !execution.command.envelope.restoration
+      ) {
         this.options.state.failResumption(execution.sequence);
         return;
       }

@@ -26,6 +26,8 @@ function setup() {
   let page: DesktopRemoteAcpConversationPage = {
     execution: { state: "completed", cancel: null, interactions: [] },
     available: true,
+    canRestoreTask: false,
+    restoredOperationId: null,
     reason: null,
     executionAttemptId: "attempt-one",
     sessionId: "original-session",
@@ -63,6 +65,41 @@ function setup() {
   };
 }
 describe("remote ACP composer continuation", () => {
+  it("restores only from the explicit composer action and retains the original session identity", async () => {
+    const f = setup();
+    f.page.canRestoreTask = true;
+    f.api.remoteAcpConversation.mockImplementation(async (input) =>
+      input.action?.kind === "restore_task"
+        ? {
+            ...f.page,
+            available: false,
+            canRestoreTask: false,
+            restoredOperationId: "new-operation"
+          }
+        : f.page
+    );
+    const t = createTranslator("zh-CN");
+    function Composer() {
+      const continuation = useRemoteAcpContinuation(f.api, scope);
+      return <RemoteAcpComposer continuation={continuation} t={t} />;
+    }
+    render(<Composer />);
+    const button = await screen.findByRole("button", { name: "恢复任务" });
+    expect(screen.getByText("任务已停止")).toBeTruthy();
+    fireEvent.click(button);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "恢复任务" })).toBeNull());
+    const actions = f.api.remoteAcpConversation.mock.calls.flatMap(([input]) =>
+      input.action ? [input.action] : []
+    );
+    expect(actions).toEqual([
+      expect.objectContaining({
+        kind: "restore_task",
+        executionAttemptId: "attempt-one",
+        sessionId: "original-session"
+      })
+    ]);
+  });
+
   it("projects telemetry within the latest follow-up record without merging initial snapshots across turns", async () => {
     const f = setup();
     const timestamp = "2026-09-05T12:00:00.000Z";

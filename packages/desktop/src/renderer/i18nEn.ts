@@ -1191,7 +1191,7 @@ export const enCatalog = {
   taskWorkspaceTrue: "True",
   taskWorkspaceFalse: "False",
   taskWorkspaceRunning: "Running",
-  taskWorkspaceCancelled: "Cancelled",
+  taskWorkspaceCancelled: "Stopped",
   taskWorkspaceCompleted: "Completed",
   taskWorkspaceFailed: "Failed",
   taskWorkspaceWaiting: "Waiting",

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { canvasRuntimeStatusProjectionSchema } from "@planweave-ai/collaboration-protocol/canvas/status";
 import type {
   CanvasCommandIntent,
   CanvasJournalEntry,
@@ -82,6 +83,48 @@ function layoutIntent(x: number, y: number, updatedAt: string): CanvasCommandInt
 }
 
 describe("CanvasReplicaStore", () => {
+  it("passes stopped Runtime state through the strict IPC contract into the shared graph", () => {
+    const store = new CanvasReplicaStore(() => undefined);
+    const f = install(store);
+    const content = store.projection(f.scope)!.content;
+    store.setRuntimeStatus(
+      f.scope,
+      canvasRuntimeStatusProjectionSchema.parse({
+        schemaVersion: "canvas-runtime-status/v2",
+        scope: {
+          workspaceId: f.scope.workspaceId,
+          projectId: f.scope.projectId,
+          canvasId: f.scope.canvasId
+        },
+        packageFingerprint: content.packageFingerprint,
+        capturedAt: "2026-09-05T00:00:00.000Z",
+        tasks: content.tasks.map((task) => ({
+          taskId: task.taskId,
+          status: "ready",
+          openFeedbackCount: 0
+        })),
+        blocks: content.tasks.flatMap((task) =>
+          task.blocks.map((block) => ({
+            ref: block.ref,
+            status: block.ref === "T-001#B-001" ? "blocked" : "planned",
+            stopped: block.ref === "T-001#B-001",
+            completionReason: null,
+            blockedReason: block.ref === "T-001#B-001" ? "Stopped." : null,
+            divergenceReason: null,
+            dispatchable: false
+          }))
+        )
+      })
+    );
+    const projected = store.projection(f.scope)!;
+    expect(projected.content.tasks[0]?.blocks[0]).toMatchObject({
+      stopped: true,
+      status: "blocked"
+    });
+    expect(projected.content.tasks[0]?.blockPreview[0]).toMatchObject({ stopped: true });
+    expect(projected.content.tasks[0]?.exceptions).toEqual([]);
+  });
+
   it("keeps the Runtime executor catalog while applying replica-owned canvas content", () => {
     const runtimeGraph: DesktopGraphViewModel = {
       projectId: "project-1",

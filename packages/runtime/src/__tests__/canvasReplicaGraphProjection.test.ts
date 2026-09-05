@@ -148,6 +148,40 @@ describe("canvas replica graph projection", () => {
     expect(overlaid.sharedResourceGroups[0]?.activeBlockRefs).toEqual(["T-001#B-001"]);
   });
 
+  it("carries a stopped task across the Workspace projection without an exception or automatic dispatch", () => {
+    const content = projectCanvasReplicaDocument(document());
+    const scope = { workspaceId: "w", projectId: "p", canvasId: "default" };
+    const status = canvasRuntimeStatusProjectionSchema.parse({
+      schemaVersion: "canvas-runtime-status/v2",
+      scope,
+      packageFingerprint: content.packageFingerprint,
+      capturedAt: "2026-09-05T00:00:00.000Z",
+      tasks: content.tasks.map((task) => ({
+        taskId: task.taskId,
+        status: "ready",
+        openFeedbackCount: 0
+      })),
+      blocks: content.tasks.flatMap((task) =>
+        task.blocks.map((block) => ({
+          ref: block.ref,
+          status: block.ref === "T-001#B-001" ? "blocked" : "planned",
+          stopped: block.ref === "T-001#B-001",
+          completionReason: null,
+          blockedReason: block.ref === "T-001#B-001" ? "[execution_cancelled] Stopped." : null,
+          divergenceReason: null,
+          dispatchable: false
+        }))
+      )
+    });
+    const projected = overlayCanvasReplicaRuntimeStatus({ content, status, scope });
+    expect(projected.tasks[0]?.exceptions).toEqual([]);
+    expect(projected.tasks[0]?.blocks[0]).toMatchObject({
+      stopped: true,
+      status: "blocked",
+      dispatchable: false
+    });
+  });
+
   it("fails closed when the status scope or package content identity does not match", () => {
     const projected = projectCanvasReplicaDocument(document());
     const status = canvasRuntimeStatusProjectionSchema.parse({

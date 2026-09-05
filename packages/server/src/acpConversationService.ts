@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   ACP_CONVERSATION_CAPABILITY,
+  ACP_TASK_RESTORE_CAPABILITY,
   acpConversationActionSchema,
   acpConversationEventSchema,
   acpConversationCommandSchema,
@@ -15,7 +16,8 @@ import {
 import { inWriteTransaction, type SqliteDatabase } from "./sqlite.js";
 import type { DurableMailbox } from "./mailbox.js";
 import { isAgentHostOnline, type AgentHostRepository } from "./hosts.js";
-import type { RemoteOperation } from "./remoteOperations.js";
+import { RemoteOperationRepository, type RemoteOperation } from "./remoteOperations.js";
+import { taskRestorationIdempotencyKey } from "./remoteTaskRestoration.js";
 
 export class AcpConversationError extends Error {
   constructor(readonly code: string) {
@@ -32,8 +34,119 @@ export class AcpConversationService {
       hostOfflineAfterMs: number;
       clock?: () => Date;
       authorize(operation: RemoteOperation, actorId: string): void;
+      restoreTask?(
+        operation: RemoteOperation,
+        actorId: string,
+        restoration: {
+          operationId: string;
+          executionAttemptId: string;
+          sessionId: string;
+          hostId: string;
+        }
+      ): Promise<{ operation: RemoteOperation }>;
     }
   ) {}
+
+  private readonly restorations = new Map<string, Promise<AcpConversationPage>>();
+
+  async restore(
+    operation: RemoteOperation,
+    actorId: string,
+    input: unknown
+  ): Promise<AcpConversationPage> {
+    this.options.authorize(operation, actorId);
+    const action = acpConversationActionSchema.parse(input);
+    const source = this.source(operation);
+    if (
+      action.kind !== "restore_task" ||
+      action.executionAttemptId !== operation.executionAttemptId ||
+      action.sessionId !== source.sessionId
+    )
+      throw new AcpConversationError("acp_conversation_attempt_mismatch");
+    const pending = this.restorations.get(operation.id);
+    if (pending) return pending;
+    const run = this.restoreStopped(operation, actorId, source);
+    this.restorations.set(operation.id, run);
+    try {
+      return await run;
+    } finally {
+      this.restorations.delete(operation.id);
+    }
+  }
+
+  private async restoreStopped(
+    operation: RemoteOperation,
+    actorId: string,
+    source: ReturnType<AcpConversationService["source"]>
+  ): Promise<AcpConversationPage> {
+    if (!this.options.restoreTask) throw new AcpConversationError("acp_restore_unavailable");
+    const existing = this.database
+      .prepare(
+        "SELECT restored_operation_id FROM acp_task_restorations WHERE source_operation_id=?"
+      )
+      .get(operation.id);
+    if (existing?.restored_operation_id) return this.page(operation, actorId);
+    const reason = this.availability(operation, source);
+    if (
+      operation.state !== "cancelled" ||
+      !source.sessionId ||
+      !operation.attempt.hostId ||
+      (reason !== null && reason !== "acp_task_restoration_started")
+    )
+      throw new AcpConversationError(reason ?? "acp_restore_task_not_stopped");
+    if (
+      !this.options.hosts
+        .get(operation.attempt.hostId)
+        ?.capabilities.includes(ACP_TASK_RESTORE_CAPABILITY)
+    )
+      throw new AcpConversationError("acp_restore_host_upgrade_required");
+    inWriteTransaction(this.database, () => {
+      this.expire();
+      if (
+        this.database
+          .prepare(
+            "SELECT turn_id FROM acp_conversation_turns WHERE host_id=? AND session_id=? AND status IN ('queued','running')"
+          )
+          .get(operation.attempt.hostId!, source.sessionId!)
+      )
+        throw new AcpConversationError("acp_conversation_turn_in_flight");
+      this.database
+        .prepare(
+          "INSERT OR IGNORE INTO acp_task_restorations(source_operation_id,host_id,session_id) VALUES (?,?,?)"
+        )
+        .run(operation.id, operation.attempt.hostId!, source.sessionId!);
+    });
+    try {
+      const outcome = await this.options.restoreTask(operation, actorId, {
+        operationId: operation.id,
+        executionAttemptId: operation.executionAttemptId,
+        sessionId: source.sessionId,
+        hostId: operation.attempt.hostId
+      });
+      this.database
+        .prepare(
+          "UPDATE acp_task_restorations SET restored_operation_id=? WHERE source_operation_id=?"
+        )
+        .run(outcome.operation.id, operation.id);
+    } catch (error) {
+      // Release the session only when dispatch was never durably accepted.
+      const accepted = new RemoteOperationRepository(this.database).findByCallerIdentity({
+        workspaceId: operation.workspaceId,
+        projectId: operation.projectId,
+        canvasId: operation.canvasId,
+        blockRef: operation.blockRef,
+        idempotencyKey: taskRestorationIdempotencyKey(operation.id)
+      });
+      if (!accepted)
+        this.database
+          .prepare(
+            "DELETE FROM acp_task_restorations WHERE source_operation_id=? AND restored_operation_id IS NULL"
+          )
+          .run(operation.id);
+      throw error;
+    }
+    return this.page(operation, actorId);
+  }
 
   private now() {
     return (this.options.clock?.() ?? new Date()).toISOString();
@@ -80,6 +193,13 @@ export class AcpConversationService {
       })
     )
       return "acp_conversation_host_offline";
+    if (
+      this.database
+        .prepare(`SELECT source_operation_id FROM acp_task_restorations
+      WHERE source_operation_id=? OR (host_id=? AND session_id=? AND restored_operation_id IS NULL)`)
+        .get(operation.id, operation.attempt.hostId ?? null, source.sessionId)
+    )
+      return "acp_task_restoration_started";
     return null;
   }
 
@@ -111,6 +231,28 @@ export class AcpConversationService {
     const page = rows.slice(0, 128);
     return acpConversationPageSchema.parse({
       available: reason === null,
+      canRestoreTask:
+        operation.state === "cancelled" &&
+        Boolean(this.options.restoreTask) &&
+        Boolean(
+          operation.attempt.hostId &&
+            this.options.hosts
+              .get(operation.attempt.hostId)
+              ?.capabilities.includes(ACP_TASK_RESTORE_CAPABILITY)
+        ) &&
+        (reason === null || reason === "acp_task_restoration_started") &&
+        !turns.some((row) => row.status === "queued" || row.status === "running") &&
+        !this.database
+          .prepare(
+            "SELECT restored_operation_id FROM acp_task_restorations WHERE source_operation_id=?"
+          )
+          .get(operation.id)?.restored_operation_id,
+      restoredOperationId:
+        this.database
+          .prepare(
+            "SELECT restored_operation_id FROM acp_task_restorations WHERE source_operation_id=?"
+          )
+          .get(operation.id)?.restored_operation_id ?? null,
       reason,
       executionAttemptId: operation.executionAttemptId,
       sessionId: source.sessionId,
@@ -131,6 +273,8 @@ export class AcpConversationService {
   act(operation: RemoteOperation, actorId: string, input: unknown): AcpConversationPage {
     const action = acpConversationActionSchema.parse(input);
     this.options.authorize(operation, actorId);
+    if (action.kind === "restore_task")
+      throw new AcpConversationError("acp_restore_requires_coordinator");
     if (action.executionAttemptId !== operation.executionAttemptId)
       throw new AcpConversationError("acp_conversation_attempt_mismatch");
     const source = this.source(operation);

@@ -174,7 +174,11 @@ function buildPlanGraphProjection(options: {
       .map((block) => blockPreview(options.runtime, task, block, options.status));
     const visibleBlocks = blocks.slice(0, 4);
     const exceptions = blocks
-      .map((block) => exceptionForBlock(block.ref, block.status, block.exceptionReason))
+      .map((block) =>
+        block.remoteExecution?.status === "stopped"
+          ? null
+          : exceptionForBlock(block.ref, block.status, block.exceptionReason)
+      )
       .filter((item): item is DesktopTaskException => item !== null);
     tasks.push({
       taskId: task.taskId,

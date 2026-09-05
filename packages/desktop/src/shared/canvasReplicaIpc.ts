@@ -21,6 +21,7 @@ const blockSchema = z
     type: z.enum(["implementation", "review"]),
     title: z.string(),
     status: blockStatusSchema,
+    stopped: z.boolean().optional(),
     executor: z.string().nullable(),
     requiredCapabilities: z.array(z.string()),
     promptMissing: z.boolean(),

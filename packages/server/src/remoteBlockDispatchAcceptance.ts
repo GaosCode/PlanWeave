@@ -1,5 +1,6 @@
 import {
   CANVAS_RUNTIME_EXECUTION_CAPABILITY,
+  ACP_TASK_RESTORE_CAPABILITY,
   userRequiredCapabilitiesSchema
 } from "@planweave-ai/agent-host-protocol";
 import { workspaceIdSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
@@ -43,6 +44,7 @@ export type RemoteEndpointDispatchRequest = RemoteRuntimeLocator & {
   graphFingerprint: string;
   targetKind: "owner_canvas" | "workspace_canvas";
   callerHumanPrincipalId: string;
+  restoration?: RemoteBlockDispatchCandidate["restoration"];
 };
 
 type AcceptancePorts = {
@@ -76,6 +78,7 @@ function candidateForRuntimeTarget(
     candidate.requiredCapabilities
   );
   const requiredCapabilities = new Set(userRequiredCapabilities);
+  if (candidate.restoration) requiredCapabilities.add(ACP_TASK_RESTORE_CAPABILITY);
   requiredCapabilities.add(CANVAS_RUNTIME_EXECUTION_CAPABILITY);
   return remoteBlockDispatchCandidateSchema.parse({
     ...candidate,
@@ -121,7 +124,10 @@ export async function acceptRemoteBlockDispatch(
       executionTargetRevision: request.executionTargetRevision
     });
   }
-  const candidate = candidateForRuntimeTarget(await ports.dispatchCandidates.read(request));
+  const candidate = candidateForRuntimeTarget({
+    ...(await ports.dispatchCandidates.read(request)),
+    ...(request.restoration ? { restoration: request.restoration } : {})
+  });
   if (
     candidate.workspaceId !== request.workspaceId ||
     candidate.projectId !== request.projectId ||
@@ -161,6 +167,8 @@ export async function acceptRemoteBlockDispatch(
       executionTargetRevision: request.executionTargetRevision
     })
   );
+  if (request.restoration && endpointSelection.hostId !== request.restoration.hostId)
+    throw new Error("acp_restore_host_changed");
   const agentAccess = persistedRemoteAgentAccessSnapshotSchema.parse({
     callerHumanPrincipalId,
     authorized

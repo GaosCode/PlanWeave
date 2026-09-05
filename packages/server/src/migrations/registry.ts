@@ -1,3 +1,4 @@
+import { acpTaskRestorationsMigration } from "./acpTaskRestorations.js";
 import { collaborationMigrations } from "./collaboration.js";
 import { acpConversationsMigration } from "./acpConversations.js";
 import { coreMigrations } from "./core.js";
@@ -114,7 +115,8 @@ export const migrationModules: readonly MigrationModule[] = [
   },
   { name: "remote-operation-diagnostics", migrations: [remoteOperationDiagnosticsMigration] },
   { name: "remote-runner-events", migrations: [remoteRunnerEventsMigration] },
-  { name: "owner-canvas-materialization", migrations: [ownerCanvasMaterializationMigration] }
+  { name: "owner-canvas-materialization", migrations: [ownerCanvasMaterializationMigration] },
+  { name: "acp-task-restorations", migrations: [acpTaskRestorationsMigration] }
 ];
 
 const flattened = migrationModules.flatMap((module) => module.migrations);

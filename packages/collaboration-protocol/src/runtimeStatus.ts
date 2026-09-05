@@ -40,6 +40,7 @@ const blockStatusSchema = z
     ref: runtimeIdentitySchema,
     status: z.enum(canvasRuntimeBlockStatuses),
     completionReason: z.enum(["passed", "max_cycles_reached"]).nullable(),
+    stopped: z.boolean().optional(),
     blockedReason: z.string().max(2_000).nullable(),
     divergenceReason: z.string().max(2_000).nullable(),
     dispatchable: z.boolean()

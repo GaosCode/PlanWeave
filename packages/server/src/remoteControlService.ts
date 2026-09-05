@@ -1,3 +1,4 @@
+import { acpConversationActionSchema } from "@planweave-ai/agent-host-protocol";
 import {
   operatorActionRequestSchema,
   operatorActionViewSchema,
@@ -506,7 +507,10 @@ export class RemoteControlService {
     const operation = this.operationFor(principal, operationId);
     if (!principal.humanPrincipalId) throw new Error("operator_human_identity_forbidden");
     if (!this.options.conversations) throw new Error("acp_conversation_unavailable");
-    return this.options.conversations.act(operation, principal.humanPrincipalId, action);
+    const parsed = acpConversationActionSchema.parse(action);
+    return parsed.kind === "restore_task"
+      ? this.options.conversations.restore(operation, principal.humanPrincipalId, parsed)
+      : this.options.conversations.act(operation, principal.humanPrincipalId, parsed);
   }
 
   replayEvents(principal: OperatorRequestPrincipal, operationId: string, rawAfterCursor: unknown) {

@@ -10,6 +10,7 @@ import {
 } from "@planweave-ai/collaboration-protocol/agent-endpoint";
 import {
   CANVAS_RUNTIME_EXECUTION_CAPABILITY,
+  ACP_TASK_RESTORE_CAPABILITY,
   opaqueIdentifierSchema
 } from "@planweave-ai/agent-host-protocol";
 import { createHash } from "node:crypto";
@@ -80,6 +81,7 @@ function supportsRequiredCapability(candidate: InternalCandidate, capability: st
   if (!candidate.host.capabilities.includes(capability)) return false;
   return (
     capability === CANVAS_RUNTIME_EXECUTION_CAPABILITY ||
+    capability === ACP_TASK_RESTORE_CAPABILITY ||
     candidate.profile.capabilities.includes(capability)
   );
 }

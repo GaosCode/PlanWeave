@@ -43,8 +43,11 @@ export function projectRemoteBlockExecution(
     identity: { operationId: receipt.operationId },
     controlPlane: receipt.controlPlane ?? "collaboration",
     phase: "terminal",
-    status: receipt.outcome,
-    actionRequired: receipt.outcome === "failed",
+    status:
+      receipt.outcome === "failed" && receipt.failure.code === "execution_cancelled"
+        ? "stopped"
+        : receipt.outcome,
+    actionRequired: receipt.outcome === "failed" && receipt.failure.code !== "execution_cancelled",
     source: {
       revision: receipt.sourceRevision,
       graphFingerprint: receipt.graphFingerprint

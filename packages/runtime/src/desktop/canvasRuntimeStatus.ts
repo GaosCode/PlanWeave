@@ -76,6 +76,7 @@ export async function buildAuthorizedCanvasRuntimeStatusProjection(input: {
       return {
         ref: block.ref,
         status: block.status,
+        stopped: block.remoteExecution?.status === "stopped",
         completionReason: state.completionReason ?? null,
         blockedReason: state.blockedReason ?? null,
         divergenceReason: state.divergenceReason ?? null,

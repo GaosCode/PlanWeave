@@ -425,6 +425,52 @@ describe("RemoteAcpExecutor", () => {
     );
   });
 
+  it("restores a task in its original session with fresh inputs and a formal output upload", async () => {
+    const { outbox } = await openOutbox();
+    const original = command({ prompt: "Finish the current task requirements.", session: {} });
+    const envelope = executionEnvelopeSchema.parse({
+      ...original.envelope,
+      restoration: {
+        operationId: "stopped-operation",
+        executionAttemptId: "stopped-attempt",
+        sessionId: "existing-session-42",
+        hostId: "host-one"
+      }
+    });
+    const input = executeBlockCommandSchema.parse({
+      ...original,
+      envelope,
+      envelopeDigest: hashExecutionEnvelope(envelope)
+    });
+    const executor = new RemoteAcpExecutor({
+      workspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
+      runtimeWorkspaceResolver: { resolve: () => ({ cwd: process.cwd() }) },
+      profileResolver: profileResolver("load-capable"),
+      outbox,
+      hostCapabilities: ["linux", "acp.test"]
+    });
+    const { context, download, upload } = artifactContext(input);
+    const result = await executor.execute(input, {
+      ...context,
+      sessionStart: { kind: "load", sessionId: "existing-session-42" }
+    });
+    expect(download).toHaveBeenCalledTimes(input.envelope.inputArtifacts.length);
+    expect(upload).toHaveBeenCalledOnce();
+    expect(result.summary).toContain("existing-session-42");
+    expect(outbox.records(identity(input))).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "engine_event",
+          event: expect.objectContaining({
+            kind: "session_started",
+            loaded: true,
+            sessionId: "existing-session-42"
+          })
+        })
+      ])
+    );
+  });
+
   it("reports session/load failure without falling back to session/new", async () => {
     const { outbox } = await openOutbox();
     const input = command({ session: {} });

@@ -489,6 +489,7 @@
         "wslExecutionHost.test.ts"
       ],
       "integration": [
+        "remoteTaskRestoration.test.ts",
         "acpActions.test.ts",
         "acpConnectionCleanup.test.ts",
         "acpDedicatedConnectionProvider.test.ts",
@@ -803,6 +804,7 @@
         "workspaceExecutionPlaneInventory.test.ts"
       ],
       "integration": [
+        "remoteTaskRestoration.test.ts",
         "acpConversationAuthorization.test.ts",
         "acpConversationService.test.ts",
         "accessHttp.test.ts",

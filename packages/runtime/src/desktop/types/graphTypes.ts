@@ -37,6 +37,7 @@ export type DesktopBlockPreview = {
   /** True when claim/dispatch can start this block now. */
   dispatchable: boolean;
   remoteExecution: RemoteBlockExecutionReadModel | null;
+  stopped?: boolean;
 };
 
 export type DesktopSharedResourceGroup = {

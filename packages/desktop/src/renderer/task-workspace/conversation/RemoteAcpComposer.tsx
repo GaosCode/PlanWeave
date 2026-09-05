@@ -31,7 +31,11 @@ export function RemoteAcpComposer({
       onDraftChange={setDraft}
       disabled={disabled}
       available={continuation.available}
-      unavailableReason={continuation.reason ?? t("acpPromptUnavailable")}
+      unavailableReason={
+        continuation.reason === "acp_task_restoration_started"
+          ? t("acpRestorePending")
+          : (continuation.reason ?? t("acpPromptUnavailable"))
+      }
       onSubmit={submit}
       onCancel={
         continuation.execution?.cancel
@@ -42,9 +46,23 @@ export function RemoteAcpComposer({
       }
       cancelLabel={t("acpCancelPromptTurn")}
       cancelling={continuation.sending}
-      error={continuation.error}
+      error={continuation.restoreFailed ? t("acpRestoreFailed") : continuation.error}
       t={t}
     >
+      {continuation.canRestoreTask && (
+        <div className="flex items-center justify-between gap-3 px-1 text-xs text-muted-foreground">
+          <span>{t("acpTaskStopped")}</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            title={t("acpRestoreTaskHint")}
+            disabled={continuation.sending || continuation.active !== null}
+            onClick={() => void continuation.restoreTask()}
+          >
+            {t("acpRestoreTask")}
+          </Button>
+        </div>
+      )}
       <RemoteAcpExecutionControls continuation={continuation} t={t} />
       {continuation.interactions.map(({ turnId, request }) => (
         <section key={`${turnId}:${request.requestId}`} className="space-y-2 rounded-md border p-3">

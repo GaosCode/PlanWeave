@@ -29,6 +29,7 @@ export type TaskNodeLabels = {
   blockStack: string;
   customExecutor: string;
   exception: string;
+  stopped: string;
   exceptionOverlay: string;
   exceptionReason: (reason: string) => { message: string; diagnostics: string | null };
   diagnostics: string;

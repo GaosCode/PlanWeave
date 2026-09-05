@@ -389,7 +389,7 @@ export class RemoteAcpExecutor implements AgentHostExecutor {
       context.sessionStart.kind
     );
     const preparedInputs =
-      context.sessionStart.kind === "load"
+      context.sessionStart.kind === "load" && !command.envelope.restoration
         ? {
             prompt: AGENT_HOST_RESUME_PROMPT,
             cleanup: async () => undefined

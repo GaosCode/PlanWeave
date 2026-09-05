@@ -1,6 +1,7 @@
 import {
   CANVAS_RUNTIME_CAPABILITY,
   ACP_CONVERSATION_CAPABILITY,
+  ACP_TASK_RESTORE_CAPABILITY,
   CANVAS_RUNTIME_EXECUTION_CAPABILITY,
   ownerPackageLocatorSchema,
   resolveOwnerRunWorkspace,
@@ -26,6 +27,7 @@ export function resolveAgentHostCapabilities(config: AgentHostConfig): string[] 
   const capabilities = new Set(config.host.capabilities);
   capabilities.add(CANVAS_RUNTIME_CAPABILITY);
   capabilities.add(ACP_CONVERSATION_CAPABILITY);
+  capabilities.add(ACP_TASK_RESTORE_CAPABILITY);
   capabilities.add(CANVAS_RUNTIME_EXECUTION_CAPABILITY);
   return [...capabilities];
 }

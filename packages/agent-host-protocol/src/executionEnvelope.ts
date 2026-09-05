@@ -187,6 +187,16 @@ const executionEnvelopeCommonSchema = z
     agentId: opaqueIdentifierSchema,
     agentProfileId: opaqueIdentifierSchema,
     session: requestedAcpSessionConfigSchema,
+    /** Server-authorized prior session; execution identity and lease are always fresh. */
+    restoration: z
+      .object({
+        operationId: opaqueIdentifierSchema,
+        executionAttemptId: opaqueIdentifierSchema,
+        sessionId: z.string().min(1).max(1024),
+        hostId: opaqueIdentifierSchema
+      })
+      .strict()
+      .optional(),
     requiredCapabilities: capabilitiesSchema,
     output: outputContractSchema,
     trace: traceCorrelationSchema

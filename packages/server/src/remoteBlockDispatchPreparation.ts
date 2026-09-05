@@ -54,7 +54,10 @@ export function buildRemoteBlockExecutionEnvelope(
             graphFingerprint: runtimeMaterialization.graphFingerprint
           }
         }),
-    renderedPrompt: candidate.renderedPrompt,
+    renderedPrompt: candidate.restoration
+      ? `${candidate.renderedPrompt}\n\n## Resume task execution\nThe previous execution was stopped by the user. The task instructions above are the current authority. Inspect existing files and results before continuing unfinished work; do not repeat completed side effects. Complete this task and submit the required result. Unrelated conversation is not evidence of task completion.`
+      : candidate.renderedPrompt,
+    ...(candidate.restoration ? { restoration: candidate.restoration } : {}),
     acceptance: candidate.acceptance,
     dependencySummaries: candidate.dependencySummaries,
     inputArtifacts: candidate.inputArtifacts,
