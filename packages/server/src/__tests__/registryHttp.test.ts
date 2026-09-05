@@ -304,7 +304,12 @@ describe("registry HTTP boundary", () => {
       headers: { Authorization: `Bearer ${viewer.deviceToken}` }
     });
     expect(viewerProjects.status).toBe(200);
-    expect((await viewerProjects.json()).items).toEqual([]);
+    expect((await viewerProjects.json()).items).toEqual([
+      expect.objectContaining({
+        visibility: "private",
+        registry: expect.objectContaining({ projectId: "project-a" })
+      })
+    ]);
 
     const viewerCanvases = await fetch(
       `${fixture.origin}/api/v1/registry/projects/project-a/canvases`,
