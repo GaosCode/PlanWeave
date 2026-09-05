@@ -1725,10 +1725,11 @@ describe("CollaborationService live Server binding", () => {
     expect(liveProfile?.projectId).toBe("project-live-001");
     expect(liveProfile?.serverBaseUrl).toBe(server.origin);
     expect(missingProjectStatus.workspaceConnection.status).toBe("connected");
+    expect(missingProjectStatus.activeProfileId).toBeNull();
     expect(missingProjectStatus.session).toMatchObject({
-      phase: "error",
-      detail: "live_session_bind_failed",
-      lastErrorCode: "live_registry_project_unavailable"
+      phase: "idle",
+      detail: "workspace_no_shared_projects",
+      lastErrorCode: null
     });
   });
 });

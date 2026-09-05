@@ -63,11 +63,19 @@ export async function listLiveRegistryProjects(input: {
     const registry = new CollaborationRegistryClient((method, path, schema, options) =>
       transport.json(method, path, schema, options)
     );
-    const page = await registry.listProjects({ cursor: 0, limit: 50 });
-    return page.items.map((item) => ({
-      projectId: item.registry.projectId,
-      workspaceId: item.registry.workspaceId
-    }));
+    const projects: LiveRegistryProject[] = [];
+    let cursor: number | null = 0;
+    do {
+      const page = await registry.listProjects({ cursor, limit: 50 });
+      projects.push(
+        ...page.items.map((item) => ({
+          projectId: item.registry.projectId,
+          workspaceId: item.registry.workspaceId
+        }))
+      );
+      cursor = page.nextCursor;
+    } while (cursor !== null);
+    return projects;
   } finally {
     transport.dispose();
   }

@@ -352,6 +352,8 @@ export class CollaborationService {
         return false;
       }
     });
+    await this.sessionLifecycle.dispose("workspace_project_rebind");
+    await this.profiles.setActiveProfileId(null);
     const registryProjects = await listLiveRegistryProjects({
       serverBaseUrl: live.serverBaseUrl,
       getDeviceToken: () => this.vault.getDeviceToken(live.profileId),
@@ -363,12 +365,8 @@ export class CollaborationService {
       preferredProjectId: existing?.projectId ?? null
     });
     if (!projectId) {
-      throw new CollaborationClientError({
-        kind: "not_found",
-        code: "live_registry_project_unavailable",
-        message: "No collaboration project is available for the connected Workspace.",
-        retryable: false
-      });
+      this.setSession("idle", "workspace_no_shared_projects", null);
+      return;
     }
     await this.profiles.upsert(
       buildLiveCollaborationProfile({
