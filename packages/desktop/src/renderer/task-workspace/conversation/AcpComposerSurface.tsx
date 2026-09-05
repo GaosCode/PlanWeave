@@ -16,7 +16,6 @@ export function AcpComposerSurface({
   onCancel,
   cancelLabel,
   cancelling,
-  inFlight,
   error,
   t
 }: {
@@ -31,7 +30,6 @@ export function AcpComposerSurface({
   onCancel?: () => void;
   cancelLabel?: string;
   cancelling: boolean;
-  inFlight: boolean;
   error: string | null;
   t: ReturnType<typeof createTranslator>;
 }) {
@@ -74,11 +72,6 @@ export function AcpComposerSurface({
             </Button>
           </div>
         </div>
-        {inFlight ? (
-          <p className="px-1 pt-1 text-[11px] text-muted-foreground">
-            {cancelling ? t("acpPromptCancelling") : t("acpPromptSending")}
-          </p>
-        ) : null}
         {error ? (
           <p className="px-1 pt-1 text-xs text-destructive" role="alert">
             {t("acpPromptFailed")}: {error}

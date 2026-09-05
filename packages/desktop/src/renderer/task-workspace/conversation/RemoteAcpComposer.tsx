@@ -42,7 +42,6 @@ export function RemoteAcpComposer({
       }
       cancelLabel={t("acpCancelPromptTurn")}
       cancelling={continuation.sending}
-      inFlight={continuation.active !== null}
       error={continuation.error}
       t={t}
     >

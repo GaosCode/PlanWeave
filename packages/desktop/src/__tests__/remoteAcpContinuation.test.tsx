@@ -292,6 +292,7 @@ describe("remote ACP composer continuation", () => {
     fireEvent.change(input, { target: { value: "Continue this session" } });
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
     await screen.findByRole("button", { name: "Stop response" });
+    expect(screen.queryByText(createTranslator("en")("acpPromptSending"))).toBeNull();
     expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
     expect(
       f.api.remoteAcpConversation.mock.calls.find(([input]) => input.action?.kind === "prompt")?.[0]

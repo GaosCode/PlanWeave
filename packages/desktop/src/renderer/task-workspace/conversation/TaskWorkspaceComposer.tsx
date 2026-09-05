@@ -219,7 +219,6 @@ function AcpComposer({
       onSubmit={submit}
       onCancel={prompt.turnCancellable ? () => void prompt.cancel() : undefined}
       cancelling={prompt.cancelling}
-      inFlight={prompt.inFlight}
       error={prompt.error}
       t={t}
     />
