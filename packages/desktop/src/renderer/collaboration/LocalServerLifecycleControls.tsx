@@ -7,6 +7,7 @@ import type {
   PlanWeaveCollaborationApi
 } from "../../shared/collaboration.js";
 import type { createTranslator } from "../i18n";
+import { projectSessionStatusLabel } from "./projectSessionPresentation";
 import { collaborationErrorMessage } from "./formatCollaborationError";
 import { classifyLiveServer, type LiveWorkspaceSnapshot } from "./liveServerStatus";
 
@@ -91,13 +92,6 @@ export function LocalServerLifecycleControls({
     (workspace?.status === "error" || workspace?.status === "disconnected");
   const sessionUnavailable =
     live.kind === "remote" && workspace?.status === "connected" && session?.phase === "error";
-  const sessionConnecting =
-    live.kind === "remote" &&
-    workspace?.status === "connected" &&
-    session !== null &&
-    session !== undefined &&
-    session.phase !== "connected" &&
-    !sessionUnavailable;
   const ready = live.kind === "local" || (live.kind === "remote" && !live.pending && !failedRemote);
   const pending = live.kind === "remote" && live.pending;
   const showStop = live.kind === "local";
@@ -207,14 +201,12 @@ export function LocalServerLifecycleControls({
           {live.url ? <div className="truncate">{live.url}</div> : null}
         </div>
       ) : null}
-      {sessionUnavailable || sessionConnecting ? (
+      {live.kind === "remote" && workspace?.status === "connected" && session ? (
         <div
           className={`pl-6 text-xs leading-5 ${sessionUnavailable ? "text-destructive" : "text-text-muted"}`}
           data-testid="settings-server-session-status"
         >
-          {sessionUnavailable
-            ? t("peopleProjectSessionError")
-            : t("peopleProjectSessionConnecting")}
+          {t(projectSessionStatusLabel(session.phase, session.detail))}
           {session?.lastErrorCode ? ` · ${session.lastErrorCode}` : ""}
         </div>
       ) : null}

@@ -13,6 +13,7 @@ import type { CollaborationInvitationHandoffView } from "../../shared/collaborat
 import { CollaborationDiagnosticsDetails } from "./CollaborationDiagnosticsDetails";
 import { MemberLoginDevices } from "./MemberLoginDevices";
 import { OwnDisplayNameControl } from "./OwnDisplayNameControl";
+import { projectSessionStatusLabel } from "../collaboration/projectSessionPresentation";
 import { PeopleIdentityCard } from "./PeopleIdentityCard";
 
 export type PeoplePanelProps = {
@@ -311,7 +312,6 @@ export function PeoplePanel({
 
   const workspaceUnavailable =
     mode === "error" && presence.sessionPhase !== "connected" && presence.sessionPhase !== "ready";
-  const noSharedProject = presence.sessionDetail === "workspace_no_shared_projects";
   const unavailablePeopleCopy = workspaceUnavailable
     ? t("peopleWorkspaceCannotConnect")
     : t("peopleError");
@@ -331,15 +331,9 @@ export function PeoplePanel({
         : mode === "offline"
           ? t("peopleOffline")
           : unavailablePeopleCopy;
-  const projectSessionStatusText = noSharedProject
-    ? t("peopleProjectSessionNoSharedProject")
-    : presence.sessionPhase === "connected"
-      ? t("peopleProjectSessionConnected")
-      : presence.sessionPhase === "connecting"
-        ? t("peopleProjectSessionConnecting")
-        : presence.sessionPhase === "error"
-          ? t("peopleProjectSessionError")
-          : t("peopleProjectSessionDisconnected");
+  const projectSessionStatusText = t(
+    projectSessionStatusLabel(presence.sessionPhase, presence.sessionDetail)
+  );
   return (
     <div className="flex min-w-0 flex-col gap-4" data-testid="people-panel" data-mode={mode}>
       <div

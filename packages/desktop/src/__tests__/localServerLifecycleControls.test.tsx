@@ -211,6 +211,33 @@ describe("LocalServerLifecycleControls", () => {
     await waitFor(() => expect(retryWorkspaceConnection).toHaveBeenCalledOnce());
   });
 
+  it.each([
+    ["idle", "workspace_no_shared_projects", "No shared project or canvas yet"],
+    ["idle", null, "Project collaboration disconnected"],
+    ["ready", null, "Project collaboration connected"]
+  ] as const)("does not call a %s session connecting (%s)", async (phase, detail, label) => {
+    render(
+      <LocalServerLifecycleControls
+        api={api()}
+        t={createTranslator("en")}
+        workspace={{
+          status: "connected",
+          serverBaseUrl: "https://vm.example.test/",
+          displayName: "Configured workspace"
+        }}
+        session={{
+          phase,
+          detail,
+          activeProfileId: null,
+          lastErrorCode: null,
+          lastErrorMessage: null
+        }}
+      />
+    );
+    expect(await screen.findByTestId("settings-server-session-status")).toHaveTextContent(label);
+    expect(screen.queryByText("Project collaboration connecting…")).not.toBeInTheDocument();
+  });
+
   it("hides start when idle start is disabled", async () => {
     render(
       <LocalServerLifecycleControls api={api()} t={createTranslator("en")} showIdleStart={false} />
