@@ -1320,15 +1320,15 @@ describe("PeopleView", () => {
           updatedAt: "2030-01-01T00:00:00.000Z"
         }
       ],
-      activeProfileId: "profile-1",
+      activeProfileId: null,
       credentialStorage: "available",
       nonPersistenceWarning: null,
       session: {
-        phase: "error",
-        activeProfileId: "profile-1",
-        detail: null,
-        lastErrorCode: "live_registry_project_unavailable",
-        lastErrorMessage: "Project is not shared with this device."
+        phase: "idle",
+        activeProfileId: null,
+        detail: "workspace_no_shared_projects",
+        lastErrorCode: null,
+        lastErrorMessage: null
       },
       workspaceConnection: {
         schemaVersion: "workspace-setup/v1",
@@ -1375,12 +1375,43 @@ describe("PeopleView", () => {
 
     expect(await screen.findByTestId("people-profile-card")).toHaveTextContent("Ada Member");
     expect(screen.getByTestId("people-profile-device")).toHaveTextContent("This device");
-    expect(screen.getByTestId("people-presence-summary")).toHaveTextContent(
-      "You've joined this Workspace, but the owner has not shared any project or canvas with you yet."
-    );
+    expect(screen.getByTestId("people-presence-summary")).toHaveTextContent("1 member");
     expect(screen.getByTestId("people-member-row")).toHaveTextContent("Ada Member");
     expect(identity.getWorkspaceConnectionSelf).toHaveBeenCalled();
     expect(identity.listWorkspaceConnectionMembers).toHaveBeenCalled();
     expect(identity.listCollaborationMembers).not.toHaveBeenCalled();
+
+    identity.getWorkspaceConnectionSelf.mockResolvedValue({
+      schemaVersion: "workspace-setup/v1",
+      workspaceId: "workspace-2",
+      membershipId: "membership-2",
+      humanPrincipalId: "human-2",
+      displayName: "Second Workspace Member",
+      role: "member",
+      deviceSessionId: "device-session-2"
+    });
+    identity.listWorkspaceConnectionMembers.mockResolvedValue({
+      schemaVersion: "workspace-setup/v1",
+      items: [],
+      nextCursor: null
+    });
+    const changed = vi.mocked(api.onCollaborationStatusChanged).mock.calls[0]?.[0];
+    if (!changed) throw new Error("status_listener_missing");
+    act(() =>
+      changed({
+        ...status,
+        workspaceConnection: {
+          ...status.workspaceConnection,
+          workspaceId: "workspace-2",
+          workspaceDisplayName: "Second Workspace",
+          profile: { ...status.workspaceConnection.profile, workspaceId: "workspace-2" }
+        }
+      })
+    );
+    expect(screen.queryByText("Ada Member")).not.toBeInTheDocument();
+    expect(await screen.findByTestId("people-profile-card")).toHaveTextContent(
+      "Second Workspace Member"
+    );
+    expect(screen.queryByTestId("people-member-row")).not.toBeInTheDocument();
   });
 });

@@ -120,6 +120,7 @@ export type PeoplePresenceSummary = {
   credentialPersistence: CollaborationCredentialPersistence | null;
   nonPersistenceWarning: string | null;
   sessionLastErrorCode?: string | null;
+  sessionDetail?: string | null;
 };
 
 export function memberInitials(displayName: string): string {
@@ -351,6 +352,7 @@ export function buildPeoplePresenceSummary(input: {
     currentUserIsOwner: currentMembership?.role === "owner",
     credentialPersistence: activeProfile?.deviceCredentialPersistence ?? null,
     nonPersistenceWarning: input.status?.nonPersistenceWarning ?? null,
+    sessionDetail: input.status?.session.detail ?? null,
     sessionLastErrorCode: input.status?.session.lastErrorCode ?? null
   };
 }

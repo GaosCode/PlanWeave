@@ -405,12 +405,12 @@ describe("PeoplePanel", () => {
   it("explains a joined Workspace that has no shared project or canvas", () => {
     render(
       <PeoplePanel
-        mode="error"
+        mode="empty"
         presence={{
           ...presence,
-          sessionPhase: "error",
+          sessionPhase: "idle",
           memberCount: 0,
-          sessionLastErrorCode: "live_registry_project_unavailable"
+          sessionDetail: "workspace_no_shared_projects"
         }}
         members={[]}
         invitations={[]}
@@ -436,9 +436,7 @@ describe("PeoplePanel", () => {
       />
     );
 
-    expect(screen.getByTestId("people-presence-summary")).toHaveTextContent(
-      "You've joined this Workspace, but the owner has not shared any project or canvas with you yet."
-    );
+    expect(screen.getByTestId("people-presence-summary")).toHaveTextContent("0 members");
     expect(screen.getByTestId("people-workspace-summary")).toHaveTextContent(
       "No shared project or canvas yet"
     );

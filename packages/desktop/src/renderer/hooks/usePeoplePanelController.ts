@@ -9,6 +9,7 @@ import type {
   WorkspaceConnectionSelfView
 } from "@planweave-ai/collaboration-protocol/connection";
 import { collaborationBridge } from "../bridge";
+import { readBoundedNumberCursorPages } from "../collaboration/boundedPagination";
 import {
   collaborationErrorMessage,
   logCollaborationRendererError
@@ -96,10 +97,11 @@ export function usePeoplePanelController(
   const [invitations, setInvitations] = useState<HumanInvitationView[]>([]);
   const [devices, setDevices] = useState<HumanDeviceView[]>([]);
   const [listedMembers, setListedMembers] = useState<HumanMembershipView[] | null>(null);
-  const [workspaceSelf, setWorkspaceSelf] = useState<WorkspaceConnectionSelfView | null>(null);
-  const [workspaceMembers, setWorkspaceMembers] = useState<WorkspaceConnectionMemberView[] | null>(
-    null
-  );
+  const [workspaceIdentity, setWorkspaceIdentity] = useState<{
+    scope: string;
+    self: WorkspaceConnectionSelfView;
+    members: WorkspaceConnectionMemberView[];
+  } | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -113,12 +115,27 @@ export function usePeoplePanelController(
   const workspaceConnected = isWorkspaceConnectionConnected(args.status);
   const identityReady = workspaceConnected || sessionConnected;
   const activeProfileId = args.status?.activeProfileId ?? null;
+  const workspaceScope = workspaceConnected
+    ? JSON.stringify([
+        args.status?.workspaceConnection.profile?.profileId,
+        args.status?.workspaceConnection.profile?.serverBaseUrl,
+        args.status?.workspaceConnection.workspaceId
+      ])
+    : null;
+  const workspaceSelf =
+    workspaceIdentity?.scope === workspaceScope ? (workspaceIdentity?.self ?? null) : null;
+  const workspaceMembers =
+    workspaceIdentity?.scope === workspaceScope ? (workspaceIdentity?.members ?? null) : null;
   const formatError = args.formatError ?? collaborationErrorMessage;
 
-  const projectMembers = args.members.length > 0 ? args.members : (listedMembers ?? EMPTY_MEMBERS);
-  const usingWorkspaceMembers = workspaceMembers !== null && workspaceMembers.length > 0;
+  const projectMembers = sessionConnected
+    ? args.members.length > 0
+      ? args.members
+      : (listedMembers ?? EMPTY_MEMBERS)
+    : EMPTY_MEMBERS;
+  const usingWorkspaceMembers = workspaceConnected;
   const membershipSources: readonly PeopleMembershipSource[] = usingWorkspaceMembers
-    ? peopleMembershipsFromWorkspace(workspaceMembers)
+    ? peopleMembershipsFromWorkspace(workspaceMembers ?? [])
     : projectMembers;
 
   const currentMembership = useMemo(
@@ -191,7 +208,7 @@ export function usePeoplePanelController(
   const deviceRows = useMemo(() => {
     if (usingWorkspaceMembers) {
       return buildPeopleDeviceRowsFromWorkspace(
-        workspaceMembers.flatMap((member) => member.devices)
+        (workspaceMembers ?? []).flatMap((member) => member.devices)
       );
     }
     return buildPeopleDeviceRows(devices);
@@ -202,14 +219,13 @@ export function usePeoplePanelController(
     setInvitations([]);
     setDevices([]);
     setListedMembers(null);
-    setWorkspaceSelf(null);
-    setWorkspaceMembers(null);
+    setWorkspaceIdentity(null);
     setDetailsLoading(false);
     setDetailsError(null);
   }, []);
 
   const refreshDetails = useCallback((): Promise<void> => {
-    if (!api || !identityReady || !activeProfileId) {
+    if (!api || !identityReady || (!workspaceConnected && !activeProfileId)) {
       detailsGenerationRef.current += 1;
       detailsRequestRef.current = null;
       detailsRequestKeyRef.current = null;
@@ -217,7 +233,7 @@ export function usePeoplePanelController(
       return Promise.resolve();
     }
     const deviceScope = currentUserIsProjectOwner ? "project" : "own";
-    const requestKey = `${activeProfileId}:${deviceScope}:${workspaceConnected}:${sessionConnected}`;
+    const requestKey = `${workspaceScope}:${activeProfileId}:${deviceScope}:${sessionConnected}`;
     if (detailsRequestRef.current && detailsRequestKeyRef.current === requestKey) {
       return detailsRequestRef.current;
     }
@@ -233,18 +249,15 @@ export function usePeoplePanelController(
           if (detailsGenerationRef.current !== generation) {
             return;
           }
-          setWorkspaceSelf(self);
-          const workspaceMemberPage = await api.listWorkspaceConnectionMembers({
-            cursor: 0,
-            limit: 100
+          const members = await readBoundedNumberCursorPages({
+            resource: "members",
+            readPage: (cursor) => api.listWorkspaceConnectionMembers({ cursor, limit: 100 })
           });
-          if (detailsGenerationRef.current !== generation) {
-            return;
-          }
-          setWorkspaceMembers(workspaceMemberPage.items);
+          if (detailsGenerationRef.current !== generation) return;
+          if (workspaceScope !== null)
+            setWorkspaceIdentity({ scope: workspaceScope, self, members });
         } else {
-          setWorkspaceSelf(null);
-          setWorkspaceMembers(null);
+          setWorkspaceIdentity(null);
         }
         const [invitationPage, devicePage, memberPage] = await Promise.all([
           sessionConnected && currentUserIsProjectOwner
@@ -295,12 +308,18 @@ export function usePeoplePanelController(
     formatError,
     identityReady,
     sessionConnected,
-    workspaceConnected
+    workspaceConnected,
+    workspaceScope
   ]);
 
   useEffect(() => {
     if (!args.detailsOpen) return;
     void refreshDetails();
+    return () => {
+      detailsGenerationRef.current += 1;
+      detailsRequestRef.current = null;
+      detailsRequestKeyRef.current = null;
+    };
   }, [args.detailsOpen, refreshDetails]);
 
   const runAction = useCallback(
@@ -422,14 +441,17 @@ export function usePeoplePanelController(
         async () => {
           if (workspaceConnected) {
             const updated = await api!.updateWorkspaceConnectionSelf({ displayName });
-            setWorkspaceSelf(updated);
-            setWorkspaceMembers((current) =>
-              current
-                ? current.map((member) =>
-                    member.humanPrincipalId === updated.humanPrincipalId
-                      ? { ...member, displayName: updated.displayName }
-                      : member
-                  )
+            setWorkspaceIdentity((current) =>
+              current?.scope === workspaceScope
+                ? {
+                    ...current,
+                    self: updated,
+                    members: current.members.map((member) =>
+                      member.humanPrincipalId === updated.humanPrincipalId
+                        ? { ...member, displayName: updated.displayName }
+                        : member
+                    )
+                  }
                 : current
             );
             return;

@@ -311,15 +311,12 @@ export function PeoplePanel({
 
   const workspaceUnavailable =
     mode === "error" && presence.sessionPhase !== "connected" && presence.sessionPhase !== "ready";
-  const noSharedProject = presence.sessionLastErrorCode === "live_registry_project_unavailable";
+  const noSharedProject = presence.sessionDetail === "workspace_no_shared_projects";
   const unavailablePeopleCopy = workspaceUnavailable
-    ? noSharedProject
-      ? t("peopleWorkspaceJoinedNoSharedProject")
-      : t("peopleWorkspaceCannotConnect")
+    ? t("peopleWorkspaceCannotConnect")
     : t("peopleError");
-  const memberStateText = noSharedProject
-    ? t("peopleWorkspaceJoinedNoSharedProject")
-    : mode === "ready" || mode === "empty"
+  const memberStateText =
+    mode === "ready" || mode === "empty"
       ? t("peopleMemberCount").replace("{count}", String(presence.memberCount))
       : mode === "loading"
         ? t("peopleLoading")
@@ -334,15 +331,14 @@ export function PeoplePanel({
         : mode === "offline"
           ? t("peopleOffline")
           : unavailablePeopleCopy;
-  const projectSessionStatusText =
-    presence.sessionPhase === "connected"
+  const projectSessionStatusText = noSharedProject
+    ? t("peopleProjectSessionNoSharedProject")
+    : presence.sessionPhase === "connected"
       ? t("peopleProjectSessionConnected")
       : presence.sessionPhase === "connecting"
         ? t("peopleProjectSessionConnecting")
         : presence.sessionPhase === "error"
-          ? noSharedProject
-            ? t("peopleProjectSessionNoSharedProject")
-            : t("peopleProjectSessionError")
+          ? t("peopleProjectSessionError")
           : t("peopleProjectSessionDisconnected");
   return (
     <div className="flex min-w-0 flex-col gap-4" data-testid="people-panel" data-mode={mode}>
