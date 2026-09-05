@@ -6,6 +6,10 @@ import type {
   DesktopRuntimeStateChangeEvent
 } from "@planweave-ai/runtime";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  exampleWorkspaceConnectionSelf,
+  exampleWorkspaceConnectionMembersPage
+} from "@planweave-ai/collaboration-protocol/fixtures/collaboration";
 import { createDesktopBridgeInvokeApi } from "../preload/bridgeInvocation";
 import {
   appUpdateChangedChannel,
@@ -854,6 +858,32 @@ describe("preload bridge invocation", () => {
     expect(electronMock.ipcRenderer.off).toHaveBeenCalledWith(mcpTunnelChangedChannel, listener);
   });
 
+  it("rejects Workspace identity and member IPC errors before they reach the People view", async () => {
+    electronMock.ipcRenderer.invoke.mockResolvedValue({
+      ok: false,
+      error: {
+        kind: "forbidden",
+        code: "human_cross_project_forbidden",
+        message: "Workspace access denied",
+        httpStatus: 403,
+        retryable: false
+      }
+    });
+    await import("../preload/preload");
+    const api = electronMock.exposed.get("planweaveCollaboration") as PlanWeaveCollaborationApi;
+    for (const request of [
+      () => api.getWorkspaceConnectionSelf(),
+      () => api.updateWorkspaceConnectionSelf({ displayName: "Ada Member" }),
+      () => api.listWorkspaceConnectionMembers({ cursor: 0, limit: 50 })
+    ]) {
+      await expect(request()).rejects.toMatchObject({
+        name: "CollaborationBoundaryError",
+        code: "human_cross_project_forbidden",
+        httpStatus: 403
+      });
+    }
+  });
+
   it("exposes the collaboration API through a separate preload surface", async () => {
     const status: CollaborationStatus = {
       profiles: [],
@@ -1128,6 +1158,15 @@ describe("preload bridge invocation", () => {
           coordinationQueue: { active: null, queued: [], recent: [], depth: 0 }
         };
       }
+      if (
+        channel === collaborationInvokeChannels.getWorkspaceConnectionSelf ||
+        channel === collaborationInvokeChannels.updateWorkspaceConnectionSelf
+      ) {
+        return { ok: true, value: exampleWorkspaceConnectionSelf };
+      }
+      if (channel === collaborationInvokeChannels.listWorkspaceConnectionMembers) {
+        return { ok: true, value: exampleWorkspaceConnectionMembersPage };
+      }
       return status;
     });
 
@@ -1179,9 +1218,13 @@ describe("preload bridge invocation", () => {
     await api.listRememberedServerConnections();
     await api.forgetRememberedServerConnection({ profileId: "profile-workspace-001" });
     await api.listWorkspacePicker({ cursor: 0, limit: 20 });
-    await api.getWorkspaceConnectionSelf();
-    await api.updateWorkspaceConnectionSelf({ displayName: "Ada Member" });
-    await api.listWorkspaceConnectionMembers({ cursor: 0, limit: 50 });
+    await expect(api.getWorkspaceConnectionSelf()).resolves.toEqual(exampleWorkspaceConnectionSelf);
+    await expect(api.updateWorkspaceConnectionSelf({ displayName: "Ada Member" })).resolves.toEqual(
+      exampleWorkspaceConnectionSelf
+    );
+    await expect(api.listWorkspaceConnectionMembers({ cursor: 0, limit: 50 })).resolves.toEqual(
+      exampleWorkspaceConnectionMembersPage
+    );
     await api.selectWorkspaceConnection({ workspaceId: "workspace-1" });
     await api.connectWorkspaceConnection();
     await api.disconnectWorkspaceConnection();

@@ -1,6 +1,10 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { IpcRendererEvent } from "electron";
 import { z } from "zod";
+import {
+  workspaceConnectionSelfViewSchema,
+  workspaceConnectionMembersPageSchema
+} from "@planweave-ai/collaboration-protocol/connection";
 import { canvasRuntimeAvailabilitySchema } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import {
   canvasRuntimeInitializeOutcomeSchema,
@@ -300,11 +304,20 @@ const collaborationApi: PlanWeaveCollaborationApi = {
   listWorkspacePicker: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.listWorkspacePicker, input),
   getWorkspaceConnectionSelf: async () =>
-    ipcRenderer.invoke(collaborationInvokeChannels.getWorkspaceConnectionSelf),
+    unwrapCollaborationCommandResult(
+      await ipcRenderer.invoke(collaborationInvokeChannels.getWorkspaceConnectionSelf),
+      workspaceConnectionSelfViewSchema
+    ),
   updateWorkspaceConnectionSelf: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.updateWorkspaceConnectionSelf, input),
+    unwrapCollaborationCommandResult(
+      await ipcRenderer.invoke(collaborationInvokeChannels.updateWorkspaceConnectionSelf, input),
+      workspaceConnectionSelfViewSchema
+    ),
   listWorkspaceConnectionMembers: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.listWorkspaceConnectionMembers, input),
+    unwrapCollaborationCommandResult(
+      await ipcRenderer.invoke(collaborationInvokeChannels.listWorkspaceConnectionMembers, input),
+      workspaceConnectionMembersPageSchema
+    ),
   selectWorkspaceConnection: async (input) =>
     ipcRenderer.invoke(collaborationInvokeChannels.selectWorkspaceConnection, input),
   connectWorkspaceConnection: async () =>
