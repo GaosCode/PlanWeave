@@ -198,6 +198,47 @@ describe("Task Workspace conversation", () => {
     expect(screen.queryByText("real stdout summary")).not.toBeInTheDocument();
   });
 
+  it("reserves composer space and follows remote replies only while the reader stays at the bottom", () => {
+    const remote = {
+      blockRef: "T-001#B-001",
+      cursor: 0,
+      error: null,
+      eventProtocolVersion: 2 as const,
+      executionAttemptId: "attempt-one",
+      operationId: "operation-one",
+      replayDiagnostics: [],
+      state: "running" as const,
+      terminalOutcome: null,
+      timeline: [],
+      telemetry: null
+    };
+    const view = (content: string) => (
+      <TaskWorkspaceConversation
+        {...conversationProps(selection(), null, {
+          remoteConversation: {
+            ...remote,
+            timeline: [{ kind: "message", role: "assistant", sequence: 1, timestamp, content }]
+          }
+        })}
+        api={null}
+        t={t}
+      />
+    );
+    const { rerender } = render(view("First reply"));
+    const viewport = screen.getByTestId("task-workspace-conversation-viewport");
+    expect(viewport.className).toContain("--task-workspace-composer-height");
+    Object.defineProperties(viewport, {
+      scrollHeight: { configurable: true, value: 2000 },
+      clientHeight: { configurable: true, value: 500 }
+    });
+    rerender(view("More reply content"));
+    expect(viewport.scrollTop).toBe(2000);
+    viewport.scrollTop = 100;
+    fireEvent.scroll(viewport);
+    rerender(view("Final reply content"));
+    expect(viewport.scrollTop).toBe(100);
+  });
+
   it("keeps the workspace subtree mounted when cancel controls become unavailable", () => {
     const model = readModel();
     const selectedRun = selection({ model });

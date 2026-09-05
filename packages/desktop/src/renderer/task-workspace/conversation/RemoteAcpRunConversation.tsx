@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from "react";
 import type { createTranslator } from "../../i18n";
 import { AcpConversationItems } from "../../inspector/AcpConversationTimeline";
 import type { TaskWorkspaceConversationSlotProps } from "../contracts";
@@ -9,6 +10,22 @@ export function RemoteAcpRunConversation({
   conversation: NonNullable<TaskWorkspaceConversationSlotProps["remoteConversation"]>;
   t: ReturnType<typeof createTranslator>;
 }) {
+  const viewportRef = useRef<HTMLElement>(null);
+  const followRef = useRef(true);
+  const previousPrompt = useRef<string | undefined>(undefined);
+  const pendingId = conversation.continuation?.pendingMessage?.turnId;
+  useLayoutEffect(() => {
+    void conversation.operationId;
+    followRef.current = true;
+  }, [conversation.operationId]);
+  useLayoutEffect(() => {
+    void conversation.timeline;
+    void conversation.continuation?.turns;
+    if (pendingId && pendingId !== previousPrompt.current) followRef.current = true;
+    previousPrompt.current = pendingId;
+    if (followRef.current && viewportRef.current)
+      viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
+  }, [conversation.timeline, conversation.continuation?.turns, pendingId]);
   const state = conversation.continuation?.active?.status ?? conversation.state;
   const terminal = state === "failed" || state === "cancelled" || state === "completed";
   return (
@@ -46,7 +63,13 @@ export function RemoteAcpRunConversation({
         ) : null}
       </div>
       <section
-        className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-5"
+        className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-[calc(var(--task-workspace-composer-height,0px)+1.25rem)] [scrollbar-gutter:stable_both-edges]"
+        ref={viewportRef}
+        onScroll={(event) => {
+          const viewport = event.currentTarget;
+          followRef.current =
+            viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 48;
+        }}
         data-testid="task-workspace-conversation-viewport"
       >
         <div
