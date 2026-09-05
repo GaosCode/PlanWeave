@@ -157,7 +157,7 @@ describe("collaboration join paste", () => {
   it("redeems a Mac member-device setup envelope pasted into Join Workspace", () => {
     const setupCode = `pw_setup_${"A".repeat(43)}`;
     const handoff = serializeCollaborationSetupHandoffV1({
-      serverBaseUrl: "https://vm-0-3-ubuntu.tailb06a1e.ts.net/",
+      serverBaseUrl: "https://planweave.example.ts.net/",
       setupCode,
       allowInsecureTransport: false
     });
@@ -165,7 +165,7 @@ describe("collaboration join paste", () => {
     expect(parseCollaborationJoinPaste(`\uFEFF${handoff}\r\n`)).toEqual({
       kind: "setup",
       handoff: {
-        serverBaseUrl: "https://vm-0-3-ubuntu.tailb06a1e.ts.net/",
+        serverBaseUrl: "https://planweave.example.ts.net/",
         setupCode,
         allowInsecureTransport: false
       }

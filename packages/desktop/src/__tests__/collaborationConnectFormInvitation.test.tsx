@@ -271,7 +271,7 @@ describe("CollaborationConnectForm invitation onboarding", () => {
     const api = joinApi();
     const setupCode = `pw_setup_${"A".repeat(43)}`;
     const handoff = serializeCollaborationSetupHandoffV1({
-      serverBaseUrl: "https://vm-0-3-ubuntu.tailb06a1e.ts.net/",
+      serverBaseUrl: "https://planweave.example.ts.net/",
       setupCode,
       allowInsecureTransport: false
     });
@@ -295,7 +295,7 @@ describe("CollaborationConnectForm invitation onboarding", () => {
 
     await waitFor(() =>
       expect(api.redeemCollaborationSetupCode).toHaveBeenCalledWith({
-        serverBaseUrl: "https://vm-0-3-ubuntu.tailb06a1e.ts.net/",
+        serverBaseUrl: "https://planweave.example.ts.net/",
         setupCode,
         allowInsecureTransport: false,
         displayName: "win-colab"
