@@ -89,6 +89,43 @@ afterEach(() => {
 });
 
 describe("PeoplePanel", () => {
+  it("opens Workspace canvas permissions independently of legacy project owner actions", async () => {
+    const props = {
+      mode: "ready" as const,
+      presence: { ...presence, currentUserIsOwner: false },
+      members: members.map((member) => ({ ...member, actions: [] })),
+      invitations: [],
+      devices: [],
+      detailsLoading: false,
+      detailsError: null,
+      actionError: null,
+      actionBusy: false,
+      pendingInvitation: null,
+      t,
+      onCreateInvitation: vi.fn(),
+      onViewInvitation: vi.fn(),
+      onCopyInvitationToken: vi.fn(),
+      onDismissPendingInvitation: vi.fn(),
+      onRevokeInvitation: vi.fn(),
+      onRevokeInvitations: vi.fn(),
+      onUpdateOwnDisplayName: vi.fn(),
+      onPromoteMember: vi.fn(),
+      onDemoteMember: vi.fn(),
+      onRemoveMember: vi.fn(),
+      onRevokeDevice: vi.fn(),
+      onRefreshDetails: vi.fn(),
+      renderMemberAccess: () => <div data-testid="workspace-member-permissions">Canvas editor</div>
+    };
+    const { rerender } = render(<PeoplePanel {...props} canManageMemberAccess />);
+    await userEvent.click(screen.getByTestId("people-member-access-toggle"));
+    expect(screen.getByTestId("workspace-member-permissions")).toBeVisible();
+    expect(screen.queryByTestId("people-member-promote")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("people-owner-section")).not.toBeInTheDocument();
+    rerender(<PeoplePanel {...props} canManageMemberAccess={false} />);
+    expect(screen.queryByTestId("people-member-access-toggle")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("workspace-member-permissions")).not.toBeInTheDocument();
+  });
+
   it("renders full-width member rows with inline access and supports owner invite/copy-once", async () => {
     const onCreateInvitation = vi.fn().mockResolvedValue({
       invitation: {
@@ -135,6 +172,7 @@ describe("PeoplePanel", () => {
         onRemoveMember={onRemove}
         onRevokeDevice={onRevokeDevice}
         onRefreshDetails={vi.fn()}
+        canManageMemberAccess
         renderMemberAccess={(member) => (
           <div data-testid="member-access-slot">{member.displayName} access</div>
         )}

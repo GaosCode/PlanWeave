@@ -561,6 +561,12 @@ export function PeopleView({
                     reportMembership(ok, membershipResult(ok));
                     return ok;
                   }}
+                  canManageMemberAccess={
+                    workspaceAccessScope.access.view?.project.capabilities.grant === true ||
+                    workspaceAccessScope.access.view?.project.capabilities.revoke === true ||
+                    workspaceAccessScope.access.view?.canvas.capabilities.grant === true ||
+                    workspaceAccessScope.access.view?.canvas.capabilities.revoke === true
+                  }
                   renderMemberAccess={(member) => {
                     if (workspaceAccessScope.access.loading && !workspaceAccessScope.access.view) {
                       return <p className="text-xs text-muted-foreground">{t("accessLoading")}</p>;

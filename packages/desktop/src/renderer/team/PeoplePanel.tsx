@@ -46,6 +46,7 @@ export type PeoplePanelProps = {
   onRefreshDetails: () => Promise<void>;
   /** Current-project access controls rendered below one expanded member row. */
   renderMemberAccess?: (member: PeopleMemberRow) => ReactNode;
+  canManageMemberAccess?: boolean;
   /** Optional connect form when disconnected. */
   connectSlot?: ReactNode;
   /** Allowlisted read/session context for cross-device troubleshooting. */
@@ -109,6 +110,7 @@ export function PeoplePanel({
   onRevokeDevice,
   onRefreshDetails,
   renderMemberAccess,
+  canManageMemberAccess = false,
   connectSlot,
   diagnosticReport = null,
   diagnosticsEnabled = false,
@@ -565,9 +567,11 @@ export function PeoplePanel({
                             ) : null}
                           </div>
                         </div>
-                        {presence.currentUserIsOwner ? (
+                        {presence.currentUserIsOwner || canManageMemberAccess ? (
                           <div className="flex shrink-0 flex-wrap justify-end gap-1">
-                            {renderMemberAccess && member.role !== "owner" ? (
+                            {canManageMemberAccess &&
+                            renderMemberAccess &&
+                            member.role !== "owner" ? (
                               <Button
                                 type="button"
                                 size="sm"
@@ -646,7 +650,8 @@ export function PeoplePanel({
                           </div>
                         ) : null}
                       </div>
-                      {expandedAccessPrincipalId === member.humanPrincipalId &&
+                      {canManageMemberAccess &&
+                      expandedAccessPrincipalId === member.humanPrincipalId &&
                       renderMemberAccess ? (
                         <div
                           id={`people-member-access-${member.humanPrincipalId}`}
