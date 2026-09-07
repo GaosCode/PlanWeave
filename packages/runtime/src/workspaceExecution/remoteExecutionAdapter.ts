@@ -57,7 +57,10 @@ function terminalForObservation(
   if (observation.state === "cancelled") return { terminal: true, outcome: "cancelled" };
   return {
     terminal: false,
-    reason: observation.state === "action_required" ? "action_required" : "running"
+    reason:
+      observation.state === "action_required" || observation.state === "interrupted"
+        ? "action_required"
+        : "running"
   };
 }
 

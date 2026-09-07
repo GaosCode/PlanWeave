@@ -29,6 +29,25 @@ import {
 } from "./workspaceExecutionCoordinatorTestFixture.js";
 
 describe("WorkspaceExecutionCoordinator", () => {
+  it("exposes interrupted execution as awaiting action instead of polling it as running", async () => {
+    const { root } = await createTestWorkspace();
+    const f = fixture({
+      packageWorkspace: root,
+      observe: async () =>
+        observation({ state: "interrupted", attemptStatus: "interrupted", revision: 2 })
+    });
+    const started = await f.coordinator.execute(request(root));
+    const followed = await f.coordinator.follow(request(root), started.handle.runSessionId);
+    expect(followed.session.phase).toBe("blocked");
+    expect(followed.events).toContainEqual(
+      expect.objectContaining({
+        type: "action_required",
+        data: { reason: "blocked" }
+      })
+    );
+    expect(f.dispatch).toHaveBeenCalledTimes(1);
+  });
+
   it("delegates explicit local execution to runWithSession without consulting Catalog", async () => {
     const { root } = await createTestWorkspace();
     const snapshot = await capturePackageSnapshot({ projectRoot: root });

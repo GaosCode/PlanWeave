@@ -117,7 +117,11 @@ export async function persistRemoteObservation(input: {
         current.sessionId,
         {
           workspaceExecution,
-          phase: terminal.terminal ? terminalPhase(terminal.outcome) : "running",
+          phase: terminal.terminal
+            ? terminalPhase(terminal.outcome)
+            : input.snapshot.observation.state === "interrupted"
+              ? "blocked"
+              : "running",
           finishedAt: terminal.terminal
             ? (input.clock ?? (() => new Date()))().toISOString()
             : current.finishedAt,

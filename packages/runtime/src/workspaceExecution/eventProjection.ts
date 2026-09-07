@@ -179,11 +179,11 @@ export function projectRemoteExecutionEvents(input: {
       }
     })
   );
-  if (observation.state === "action_required") {
+  if (!input.snapshot.terminal.terminal && input.snapshot.terminal.reason === "action_required") {
     events.push(
       projectActionRequiredEvent({
         handle,
-        reason: "remote_interaction",
+        reason: observation.state === "interrupted" ? "blocked" : "remote_interaction",
         clock
       })
     );
