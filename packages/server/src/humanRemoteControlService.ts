@@ -32,9 +32,8 @@ import { CanvasRuntimeRpcError } from "./canvas/runtimeRpcBroker.js";
 import { buildRemoteOperationDiagnostics } from "./remoteOperationDiagnostics.js";
 import { RemoteOperationLookupConflictError } from "./remoteOperationLookup.js";
 import {
-  isTerminalRemoteOperation,
   projectRemoteOperationRuntime,
-  projectTerminalRemoteOperationRuntime
+  projectPersistedRemoteOperationRuntime
 } from "./remoteOperationRuntimeProjection.js";
 
 export class HumanRemoteControlError extends Error {
@@ -189,9 +188,9 @@ export class HumanRemoteControlService {
     const operation = this.operationFor(scope, operationId);
     const dispatch = this.options.dispatches.get(operation.dispatchId);
     const runtime = projectRemoteOperationRuntime(
-      isTerminalRemoteOperation(operation)
-        ? projectTerminalRemoteOperationRuntime(operation)
-        : (dispatchedRuntime ?? (await this.options.coordinator.query(operation.id)))
+      projectPersistedRemoteOperationRuntime(operation, dispatch !== undefined) ??
+        dispatchedRuntime ??
+        (await this.options.coordinator.query(operation.id))
     );
     const observation = {
       operationId: operation.id,

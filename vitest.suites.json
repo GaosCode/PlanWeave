@@ -869,6 +869,7 @@
         "humanObserverWs.test.ts",
         "humanObserverWsCanvasFilter.test.ts",
         "humanRemoteHttp.test.ts",
+        "humanRemoteUnstartedOperation.test.ts",
         "lifecycle.test.ts",
         "loadRecoveryMatrix.test.ts",
         "loopbackController.test.ts",

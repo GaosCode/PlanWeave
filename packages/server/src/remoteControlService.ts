@@ -78,9 +78,8 @@ import {
 } from "@planweave-ai/collaboration-protocol/owner-canvas/materialization";
 import type { OwnerCanvasMaterializationService } from "./canvas/ownerCanvasMaterializationService.js";
 import {
-  isTerminalRemoteOperation,
   projectRemoteOperationRuntime,
-  projectTerminalRemoteOperationRuntime
+  projectPersistedRemoteOperationRuntime
 } from "./remoteOperationRuntimeProjection.js";
 
 export type RemoteControlServiceOptions = {
@@ -380,15 +379,16 @@ export class RemoteControlService {
     runtimeWire: OperatorOperationRuntimeWire = "legacy-rich"
   ): Promise<OperatorOperationView> {
     const operation = this.operationFor(principal, operationId);
-    const queriedRuntime =
-      runtimeWire === "public-runtime-v1" && isTerminalRemoteOperation(operation)
-        ? projectTerminalRemoteOperationRuntime(operation)
-        : await this.options.coordinator.query(operation.id);
+    const dispatch = this.options.dispatches.get(operation.dispatchId);
+    const persistedRuntime =
+      runtimeWire === "public-runtime-v1"
+        ? projectPersistedRemoteOperationRuntime(operation, dispatch !== undefined)
+        : undefined;
+    const queriedRuntime = persistedRuntime ?? (await this.options.coordinator.query(operation.id));
     const runtime =
       runtimeWire === "public-runtime-v1"
         ? projectRemoteOperationRuntime(queriedRuntime)
         : queriedRuntime;
-    const dispatch = this.options.dispatches.get(operation.dispatchId);
     const view = {
       operationId: operation.id,
       projectId: operation.projectId,

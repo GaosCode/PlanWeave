@@ -74,6 +74,22 @@ export function isTerminalRemoteOperation(operation: RemoteOperation): boolean {
   );
 }
 
+export function projectPersistedRemoteOperationRuntime(
+  operation: RemoteOperation,
+  hasDispatch: boolean
+): RemoteRuntimeBindingProjection | undefined {
+  if (isTerminalRemoteOperation(operation)) return projectTerminalRemoteOperationRuntime(operation);
+  if (
+    !hasDispatch &&
+    ["preparing", "reserved", "claimed", "interrupted", "action_required"].includes(operation.state)
+  ) {
+    // Preparation can end before Runtime ownership exists. Its durable operation
+    // remains observable so the caller can explicitly retry the fenced attempt.
+    return projectRemoteOperationRuntime({ ref: operation.blockRef, status: "not_started" });
+  }
+  return undefined;
+}
+
 export function projectTerminalRemoteOperationRuntime(
   operation: RemoteOperation
 ): RemoteRuntimeBindingProjection {

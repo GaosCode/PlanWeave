@@ -201,6 +201,34 @@ function registerWorkspaceHost(fixture: Awaited<ReturnType<typeof setup>>) {
 }
 
 describe("RemoteControlService owner fleet control plane", () => {
+  it("serves an unstarted operation without requiring Host Runtime ownership", async () => {
+    const fixture = await setup();
+    const operation = fixture.coordination.operations.create({
+      workspaceId: fixture.workspaceId,
+      projectId: "project-a",
+      canvasId: "canvas-a",
+      blockRef: "T-001#B-003",
+      ownershipGeneration: "generation-unstarted",
+      idempotencyKey: "owner-unstarted-observation",
+      sourceFingerprint: "fingerprint-unstarted",
+      requiredCapabilities: ["acp.codex"]
+    });
+    const query = vi.spyOn(fixture.coordination.coordinator, "query");
+    const response = await fetch(`${fixture.origin}/api/v1/remote-operations/${operation.id}`, {
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        Accept: "application/vnd.planweave.operator-operation.public-runtime-v1+json"
+      }
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      operationId: operation.id,
+      state: "preparing",
+      runtime: { ref: operation.blockRef, status: "not_started" }
+    });
+    expect(query).not.toHaveBeenCalled();
+  });
+
   it("fails closed when the owner operation is not completed", async () => {
     const fixture = await setup();
     const operation = fixture.coordination.operations.create({
