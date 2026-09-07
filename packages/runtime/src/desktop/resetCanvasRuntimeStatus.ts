@@ -37,6 +37,7 @@ export function buildResetCanvasRuntimeStatusProjection(input: {
       return {
         ref,
         status: block.status,
+        stopped: false,
         completionReason: block.completionReason ?? null,
         blockedReason: block.blockedReason ?? null,
         divergenceReason: block.divergenceReason ?? null,

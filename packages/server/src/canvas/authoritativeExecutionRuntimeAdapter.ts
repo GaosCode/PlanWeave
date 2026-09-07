@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import type {
   CanvasRuntimeStatusProjection,
   CanvasRuntimeStatusSnapshot
@@ -34,9 +35,16 @@ function sameResetProjection(
   left: CanvasRuntimeStatusProjection,
   right: CanvasRuntimeStatusProjection
 ): boolean {
-  const { capturedAt: _leftCapturedAt, ...leftStable } = left;
-  const { capturedAt: _rightCapturedAt, ...rightStable } = right;
-  return JSON.stringify(leftStable) === JSON.stringify(rightStable);
+  const stable = ({
+    capturedAt: _capturedAt,
+    blocks,
+    ...projection
+  }: CanvasRuntimeStatusProjection) => ({
+    ...projection,
+    // The optional stopped flag is only affirmative when true, including in persisted receipts.
+    blocks: blocks.map(({ stopped, ...block }) => ({ ...block, stopped: stopped === true }))
+  });
+  return isDeepStrictEqual(stable(left), stable(right));
 }
 
 /** Mirrors successful Runtime mutations into the Server-owned shared status snapshot. */

@@ -825,6 +825,7 @@
         "canvasCommandHttp.test.ts",
         "canvasCommandRecoveryBudget.test.ts",
         "authoritativeExecutionRuntimeAdapter.test.ts",
+        "runtimeResetProjectionParity.test.ts",
         "canvasRuntimeAvailabilityService.test.ts",
         "canvasRuntimeCommandCoordinator.test.ts",
         "canvasRuntimeInitializationCoordinator.test.ts",
