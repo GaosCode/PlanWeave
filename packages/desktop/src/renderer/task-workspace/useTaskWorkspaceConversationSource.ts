@@ -8,7 +8,10 @@ import type { PlanWeaveWorkspaceExecutionApi } from "../../shared/workspaceExecu
 import type { DesktopOwnerCanvasExecutionLocator } from "../../shared/workspaceExecution";
 import type { WorkspaceTaskWorkspaceNavigationIdentity } from "../taskWorkspaceNavigation";
 import { remoteTaskWorkspaceConversationSource } from "./remoteTaskWorkspaceConversationSource";
-import { useRemoteTaskWorkspaceConversation } from "./useRemoteTaskWorkspaceConversation";
+import {
+  type RemoteTaskWorkspaceConversation,
+  useRemoteTaskWorkspaceConversation
+} from "./useRemoteTaskWorkspaceConversation";
 import { useWorkspaceExecutionTaskWorkspaceConversation } from "./useWorkspaceExecutionTaskWorkspaceConversation";
 
 function projectedRemoteConversationState(
@@ -86,12 +89,17 @@ export function useTaskWorkspaceConversationSource(input: {
     scope: string;
     sourceId: string;
     operationId: string;
+    blockRef: string;
+    history: NonNullable<RemoteTaskWorkspaceConversation["previousTimelines"]>;
   } | null>(null);
   const sourceOperationId = input.execution?.identity.operationId ?? null;
-  const operationId =
-    restored?.scope === input.scopeKey && restored.sourceId === sourceOperationId
-      ? restored.operationId
-      : sourceOperationId;
+  const restoration =
+    restored?.scope === input.scopeKey &&
+    restored.blockRef === input.selectedBlockRef &&
+    (restored.sourceId === sourceOperationId || restored.operationId === sourceOperationId)
+      ? restored
+      : null;
+  const operationId = restoration?.operationId ?? sourceOperationId;
   const legacyConversation = useRemoteTaskWorkspaceConversation({
     api: coordinatorScope ? null : legacyApi,
     blockRef: input.selectedBlockRef || null,
@@ -116,19 +124,57 @@ export function useTaskWorkspaceConversationSource(input: {
   onTerminalRef.current = input.onTerminal;
   const onTaskRestoredRef = useRef(input.onTaskRestored);
   onTaskRestoredRef.current = input.onTaskRestored;
+  const conversation = coordinatorScope ? workspaceConversation : legacyConversation;
+  const restoredConversation = useMemo<RemoteTaskWorkspaceConversation | null>(() => {
+    if (!restoration) return conversation;
+    return {
+      blockRef: restoration.blockRef,
+      cursor: 0,
+      error: null,
+      eventProtocolVersion: null,
+      executionAttemptId: null,
+      operationId: restoration.operationId,
+      replayDiagnostics: [],
+      state: "preparing",
+      terminalOutcome: null,
+      telemetry: null,
+      timeline: [],
+      ...conversation,
+      previousTimelines: restoration.history
+    };
+  }, [conversation, restoration]);
+  const visibleConversationRef = useRef(restoredConversation);
+  visibleConversationRef.current = restoredConversation;
+  const continuationRef = useRef(continuation);
+  continuationRef.current = continuation;
   useEffect(() => {
     if (continuation.restoredOperationId && sourceOperationId) {
       setRestored({
         scope: input.scopeKey,
         sourceId: sourceOperationId,
-        operationId: continuation.restoredOperationId
+        operationId: continuation.restoredOperationId,
+        blockRef: input.selectedBlockRef,
+        history: [
+          ...(visibleConversationRef.current?.previousTimelines ?? []),
+          {
+            id: `operation:${sourceOperationId}`,
+            timeline: visibleConversationRef.current?.timeline ?? []
+          },
+          ...continuationRef.current.turns.map((turn) => ({
+            id: `turn:${turn.turnId}`,
+            timeline: turn.timeline
+          }))
+        ]
       });
       onTaskRestoredRef.current(continuation.restoredOperationId);
       onTerminalRef.current();
     }
-  }, [continuation.restoredOperationId, sourceOperationId, input.scopeKey]);
-  const conversation = coordinatorScope ? workspaceConversation : legacyConversation;
-  return conversation && coordinatorScope
-    ? { ...conversation, continuation, telemetry: continuation.telemetry ?? conversation.telemetry }
-    : conversation;
+  }, [continuation.restoredOperationId, sourceOperationId, input.scopeKey, input.selectedBlockRef]);
+  return restoredConversation && coordinatorScope
+    ? {
+        ...restoredConversation,
+        continuation,
+        telemetry: continuation.telemetry ?? restoredConversation.telemetry
+      }
+    : restoredConversation;
 }

@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceCanvasCommandsResult } from "../renderer/hooks/useWorkspaceCanvasCommands";
 import type { DesktopWorkspaceExecutionResponse } from "../shared/workspaceExecution";
@@ -18,6 +18,8 @@ import { controllerApi, useControllerHarness } from "./helpers/taskWorkspaceCont
 import { navigation } from "./helpers/taskWorkspaceControllerModelFixture";
 import { taskWorkspaceSource } from "./helpers/taskWorkspaceControllerModelFixture";
 import "../renderer/task-workspace/workspaceTaskWorkspaceProjection";
+import { RemoteAcpRunConversation } from "../renderer/task-workspace/conversation/RemoteAcpRunConversation";
+import { createTranslator } from "../renderer/i18n";
 
 const workspaceExecutionBridgeMock = vi.hoisted(() => ({
   startWorkspaceExecution: vi.fn(),
@@ -277,7 +279,10 @@ describe("Task Workspace shared prompt authority", () => {
     expect(collaborationApi.lookupCollaborationRemoteOperation).not.toHaveBeenCalled();
   });
 
-  it("selects the restored execution in the timeline and loads its completed record", async () => {
+  it.each([
+    false,
+    true
+  ])("keeps restored history visible when follow fails: %s", async (followFails) => {
     const { api } = controllerApi({ readModel: () => null });
     const workspaceCanvas = workspaceCanvasWithProjection();
     const workspaceNavigation: TaskWorkspaceNavigationIdentity = taskWorkspaceNavigationIdentity(
@@ -355,8 +360,35 @@ describe("Task Workspace shared prompt authority", () => {
       hasMore: false,
       execution: { state: "cancelled", cancel: null, interactions: [] }
     }));
-    workspaceExecutionBridgeMock.followWorkspaceExecution.mockResolvedValue(
-      workspaceExecutionView()
+    const oldView = workspaceExecutionView();
+    oldView.events = [
+      {
+        version: "planweave.execution-event/v1",
+        eventId: "old-message",
+        type: "runner_event",
+        observedAt: "2026-08-24T00:01:00.000Z",
+        runSessionId: "SESSION-0001",
+        scope: { kind: "block", blockRef: "T-001#B-001" },
+        source: {
+          target: "remote",
+          operationId: "operation-1",
+          executionAttemptId: "attempt-1",
+          cursor: 1
+        },
+        data: {
+          eventProtocolVersion: 1,
+          event: { cursor: 1, kind: "agent_message", text: "Previous task conversation" }
+        }
+      }
+    ];
+    let resolveRestored!: (value: DesktopWorkspaceExecutionResponse) => void;
+    let rejectRestored!: (error: Error) => void;
+    const restoredView = new Promise<DesktopWorkspaceExecutionResponse>((resolve, reject) => {
+      resolveRestored = resolve;
+      rejectRestored = reject;
+    });
+    workspaceExecutionBridgeMock.followWorkspaceExecution.mockImplementation((input) =>
+      input.operationId === "operation-restored" ? restoredView : Promise.resolve(oldView)
     );
 
     const { result } = renderHook(() =>
@@ -375,6 +407,50 @@ describe("Task Workspace shared prompt authority", () => {
         "remote-live-operation-restored"
       )
     );
+    expect(result.current.remoteConversation).not.toBeNull();
+    expect(JSON.stringify(result.current.remoteConversation)).toContain(
+      "Previous task conversation"
+    );
+    expect(result.current.remoteConversation?.operationId).toBe("operation-restored");
+    const pendingConversation = result.current.remoteConversation;
+    if (!pendingConversation) throw new Error("Missing restored conversation");
+    const view = render(
+      <RemoteAcpRunConversation conversation={pendingConversation} t={createTranslator("en")} />
+    );
+    const previousMessage = screen.getByText("Previous task conversation");
+    await act(async () => {
+      if (followFails) {
+        rejectRestored(new Error("human_auth_unauthenticated"));
+      } else {
+        const nextView = workspaceExecutionView();
+        nextView.events = oldView.events.map((event) => ({
+          ...event,
+          eventId: "new-message",
+          data: {
+            eventProtocolVersion: 1,
+            event: { cursor: 1, kind: "agent_message", text: "Restored task response" }
+          }
+        }));
+        resolveRestored(nextView);
+      }
+    });
+    expect(
+      result.current.remoteConversation?.previousTimelines
+        ?.flatMap((item) => item.timeline)
+        .filter((item) => item.kind === "message" && item.content === "Previous task conversation")
+    ).toHaveLength(1);
+    const nextConversation = result.current.remoteConversation;
+    if (!nextConversation) throw new Error("Lost restored conversation");
+    view.rerender(
+      <RemoteAcpRunConversation conversation={nextConversation} t={createTranslator("en")} />
+    );
+    expect(screen.getByText("Previous task conversation")).toBe(previousMessage);
+    if (followFails) {
+      expect(screen.getByRole("alert").textContent).toBe("human_auth_unauthenticated");
+      expect(result.current.remoteConversation?.error).toBe("human_auth_unauthenticated");
+    } else {
+      expect(JSON.stringify(result.current.remoteConversation)).toContain("Restored task response");
+    }
     expect(result.current.selectedRun?.item.run.metadata.terminalState).toBe("succeeded");
     expect(collaborationApi.lookupWorkspaceRemoteOperation).toHaveBeenCalledWith(
       expect.objectContaining({ operationId: "operation-restored" })

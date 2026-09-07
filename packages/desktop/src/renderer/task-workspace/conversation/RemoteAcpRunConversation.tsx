@@ -69,7 +69,9 @@ export function RemoteAcpRunConversation({
             {conversation.error}
           </p>
         ) : null}
-        {conversation.timeline.length === 0 && !conversation.error ? (
+        {conversation.timeline.length === 0 &&
+        !conversation.previousTimelines?.some((item) => item.timeline.length > 0) &&
+        !conversation.error ? (
           <p className="text-sm text-muted-foreground">{t("taskWorkspaceRemoteAcpEmpty")}</p>
         ) : null}
       </div>
@@ -87,6 +89,11 @@ export function RemoteAcpRunConversation({
           className="mx-auto w-full max-w-3xl space-y-4"
           data-testid="task-workspace-conversation-content"
         >
+          {conversation.previousTimelines?.map((item) => (
+            <section key={item.id}>
+              <AcpConversationItems presentation="workspace" timeline={item.timeline} t={t} />
+            </section>
+          ))}
           <AcpConversationItems presentation="workspace" timeline={conversation.timeline} t={t} />
           {conversation.continuation?.turns.map((turn) => (
             <section key={turn.turnId} data-turn-id={turn.turnId}>

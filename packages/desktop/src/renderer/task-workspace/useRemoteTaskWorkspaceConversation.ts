@@ -30,6 +30,7 @@ export type RemoteTaskWorkspaceConversationApi = {
 };
 
 export type RemoteTaskWorkspaceConversation = {
+  previousTimelines?: readonly { id: string; timeline: readonly AcpTimelineItem[] }[];
   continuation?: RemoteAcpContinuation;
   blockRef: string;
   cursor: number;
