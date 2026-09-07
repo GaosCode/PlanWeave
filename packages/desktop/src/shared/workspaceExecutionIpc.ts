@@ -13,6 +13,7 @@ export const workspaceExecutionIpcErrorCodeSchema = z.enum([
   "human_auth_unauthenticated",
   "human_cross_project_forbidden",
   "human_remote_resource_not_found",
+  "human_remote_operation_conflict",
   "collaboration_workspace_connection_mismatch",
   "workspace_execution_authority_mismatch",
   "workspace_execution_scope_mismatch",

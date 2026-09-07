@@ -6,6 +6,21 @@ describe("formatAgentEndpointRunError", () => {
   const en = createTranslator("en");
   const zh = createTranslator("zh-CN");
 
+  it("explains execution conflicts and request failures in the user's language", () => {
+    expect(formatAgentEndpointRunError("human_remote_operation_conflict", zh)).toContain(
+      "运行状态发生冲突"
+    );
+    expect(formatAgentEndpointRunError("human_remote_operation_conflict", en)).toContain(
+      "conflicts"
+    );
+    expect(formatAgentEndpointRunError("workspace_execution_request_failed", zh)).toContain(
+      "未能启动"
+    );
+    expect(formatAgentEndpointRunError("workspace_execution_request_failed", en)).toContain(
+      "could not be started"
+    );
+  });
+
   it("humanizes claim_bus_blocked with reason and original code", () => {
     const formatted = formatAgentEndpointRunError("claim_bus_blocked:dependency_incomplete", en);
     expect(formatted).toContain("dependency_incomplete");

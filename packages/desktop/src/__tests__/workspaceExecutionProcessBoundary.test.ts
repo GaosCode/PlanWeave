@@ -289,7 +289,8 @@ describe("Workspace execution process boundary", () => {
   it.each([
     [401, "auth", "human_auth_unauthenticated"],
     [403, "forbidden", "human_cross_project_forbidden"],
-    [404, "not_found", "human_remote_resource_not_found"]
+    [404, "not_found", "human_remote_resource_not_found"],
+    [409, "conflict", "human_remote_operation_conflict"]
   ] as const)("preserves the safe %s IPC code across main and preload without exposing raw details", async (httpStatus, kind, code) => {
     const rawSecret = "token=pw_secret /private/workspace response-body";
     const result = await workspaceExecutionHandlerResult(async () => {

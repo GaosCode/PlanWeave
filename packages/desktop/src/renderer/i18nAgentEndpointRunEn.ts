@@ -1,4 +1,8 @@
 export const agentEndpointRunEnCatalog = {
+  workspaceExecutionConflictError:
+    "The requested run conflicts with the current execution state. Refresh the canvas and check the existing run before retrying. [{code}]",
+  workspaceExecutionRequestFailedError:
+    "The run could not be started. Check the Workspace connection and run details, then retry. [{code}]",
   claimBusBlockedError:
     "Claim bus stopped before the next unit ({reason}). Resolve the block condition, then run again. [{code}]",
   claimBusIdleError:

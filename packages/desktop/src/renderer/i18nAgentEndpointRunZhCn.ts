@@ -1,6 +1,10 @@
 import type { agentEndpointRunEnCatalog } from "./i18nAgentEndpointRunEn";
 
 export const agentEndpointRunZhCnCatalog = {
+  workspaceExecutionConflictError:
+    "运行状态发生冲突。请刷新画布，查看已有运行的状态后重试。[{code}]",
+  workspaceExecutionRequestFailedError:
+    "未能启动运行。请检查 Workspace 连接和运行详情后重试。[{code}]",
   claimBusBlockedError:
     "认领总线在下一单元前停止（{reason}）。请先解除阻塞条件，再重新运行。[{code}]",
   claimBusIdleError:

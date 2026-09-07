@@ -20,6 +20,12 @@ function matchPrefix(message: string, prefix: string): { rest: string } | null {
  * Unknown messages pass through unchanged.
  */
 export function formatAgentEndpointRunError(message: string, t: Translator): string {
+  if (message === "human_remote_operation_conflict") {
+    return withPlaceholders(t("workspaceExecutionConflictError"), { code: message });
+  }
+  if (message === "workspace_execution_request_failed") {
+    return withPlaceholders(t("workspaceExecutionRequestFailedError"), { code: message });
+  }
   if (message === "claim_bus_cancelled") {
     return withPlaceholders(t("claimBusCancelledError"), { code: message });
   }
