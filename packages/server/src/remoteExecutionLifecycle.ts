@@ -119,7 +119,7 @@ export type RemoteExecutionActionDecision =
   | { transition: "retry"; sendsCommand: false }
   | { transition: "fail"; sendsCommand: false }
   | { transition: "block"; sendsCommand: false }
-  | { transition: "cancel"; sendsCommand: true };
+  | { transition: "cancel"; sendsCommand: boolean };
 
 function assertCommonIdentity(
   action: RemoteExecutionActionRequest,
@@ -151,7 +151,11 @@ export function decideRemoteExecutionAction(
   z.enum(["persisted", "preparation"]).parse(snapshot.dispatchState);
   remoteAttemptStatusSchema.parse(snapshot.attemptStatus);
   assertCommonIdentity(action, snapshot);
-  if (snapshot.dispatchState === "preparation" && action.kind !== "retry_new_attempt") {
+  if (
+    snapshot.dispatchState === "preparation" &&
+    action.kind !== "retry_new_attempt" &&
+    action.kind !== "cancel"
+  ) {
     throw new Error("remote_preparation_action_requires_retry");
   }
 
@@ -203,6 +207,13 @@ export function decideRemoteExecutionAction(
       return { transition: "block", sendsCommand: false };
     case "cancel":
       assertLease(action.leaseId, snapshot);
+      if (
+        snapshot.dispatchState === "preparation" &&
+        snapshot.leaseFenced &&
+        (snapshot.attemptStatus === "interrupted" || snapshot.attemptStatus === "action_required")
+      ) {
+        return { transition: "cancel", sendsCommand: false };
+      }
       if (
         snapshot.leaseFenced ||
         (snapshot.attemptStatus !== "activated" && snapshot.attemptStatus !== "running")

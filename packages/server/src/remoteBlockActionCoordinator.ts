@@ -165,6 +165,9 @@ export class RemoteBlockActionCoordinator {
     }
     const operation = this.options.operations.getRequired(action.operationId);
     const persisted = this.options.dispatches.inspect(operation).dispatch;
+    if (action.kind === "cancel" && !persisted && operation.state === "cancelled") {
+      return "settled";
+    }
     if (action.kind === "cancel" && persisted?.status === "cancelling") {
       const message = this.options.dispatches.enqueueCancel({ operation, action });
       this.publish(message);
@@ -231,6 +234,39 @@ export class RemoteBlockActionCoordinator {
       case "cancel": {
         if (action.kind !== "cancel") throw new Error("remote_action_decision_mismatch");
         this.options.operations.recordDiagnosticStage(operation.id, "cancelling");
+        if (!decision.sendsCommand) {
+          await this.withRuntime(operation, async (runtime) => {
+            let binding: Awaited<ReturnType<RemoteBlockRuntimePort["query"]>>;
+            try {
+              binding = await runtime.query({ ref: operation.blockRef, operationId: operation.id });
+            } catch (error) {
+              if (!isMissingActiveOwnership(error)) throw error;
+              return;
+            }
+            if (binding.ownership?.phase === "preparing") {
+              await runtime.activate(remoteBlockIdentity(operation));
+            }
+            await runtime.fail({
+              ...remoteBlockIdentity(operation),
+              failure: {
+                code: "execution_cancelled",
+                message: action.reason,
+                retryable: true
+              },
+              ...(operation.endpointSelection?.agentId
+                ? { agentId: operation.endpointSelection.agentId }
+                : {})
+            });
+          });
+          this.options.reservations.finalizeFencedAttempt({
+            operationId: operation.id,
+            executionAttemptId: operation.executionAttemptId,
+            leaseId: action.leaseId,
+            status: "cancelled"
+          });
+          this.options.operations.recordDiagnosticStage(operation.id, "terminal");
+          return "settled";
+        }
         const message = this.options.dispatches.enqueueCancel({ operation, action });
         this.publish(message);
         return "delivered";

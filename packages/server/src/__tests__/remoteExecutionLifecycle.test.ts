@@ -90,7 +90,7 @@ describe("remote execution lifecycle policy", () => {
     ).toThrowError();
   });
 
-  it("allows only a new-attempt retry while dispatch is still in preparation", () => {
+  it("allows retry or cancellation for interrupted preparation", () => {
     const preparation = snapshot({
       dispatchState: "preparation",
       interruption: { resumable: false }
@@ -107,6 +107,9 @@ describe("remote execution lifecycle policy", () => {
         preparation
       )
     ).toEqual({ transition: "retry", sendsCommand: false });
+    expect(
+      decideRemoteExecutionAction(action({ kind: "cancel", leaseId: "lease-1" }), preparation)
+    ).toEqual({ transition: "cancel", sendsCommand: false });
 
     for (const rejected of [
       action({ kind: "block", leaseId: "lease-1" }),
@@ -121,8 +124,7 @@ describe("remote execution lifecycle policy", () => {
         leaseId: "lease-2",
         leaseExpiresAt: "2030-01-01T00:05:00.000Z",
         recovery
-      }),
-      action({ kind: "cancel", leaseId: "lease-1" })
+      })
     ]) {
       expect(() => decideRemoteExecutionAction(rejected, preparation)).toThrowError(
         "remote_preparation_action_requires_retry"

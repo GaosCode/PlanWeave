@@ -1160,7 +1160,7 @@ describe("RemoteBlockCoordinator crash reconciliation", () => {
     expect(count(database, "mailbox_messages")).toBe(1);
   });
 
-  it("rejects non-retry actions for a fenced preparation attempt without partial mutation", async () => {
+  it("rejects non-retry and non-cancel actions for fenced preparation without partial mutation", async () => {
     const harness = await CoordinatorHarness.create();
     harness.registerHost();
     await harness.restart(new CrashOnce("after_runtime_attachment"));
@@ -1208,13 +1208,6 @@ describe("RemoteBlockCoordinator crash reconciliation", () => {
           recoveryId: "recovery-preparation-rejected"
         },
         reason: "resume must not apply during preparation"
-      },
-      {
-        ...identity,
-        actionId: "preparation-cancel-rejected",
-        kind: "cancel",
-        leaseId,
-        reason: "cancel must not apply during preparation"
       }
     ] as const;
 

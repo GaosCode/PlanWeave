@@ -22,7 +22,7 @@ const applicationDecisionSchema = z.discriminatedUnion("transition", [
   z.object({ transition: z.literal("retry"), sendsCommand: z.literal(false) }).strict(),
   z.object({ transition: z.literal("fail"), sendsCommand: z.literal(false) }).strict(),
   z.object({ transition: z.literal("block"), sendsCommand: z.literal(false) }).strict(),
-  z.object({ transition: z.literal("cancel"), sendsCommand: z.literal(true) }).strict()
+  z.object({ transition: z.literal("cancel"), sendsCommand: z.boolean() }).strict()
 ]);
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
