@@ -1,11 +1,12 @@
-import type { CaptureStage } from "../../shared/collaborationCapture.js";
+import type { CaptureStage, CaptureSample } from "../../shared/collaborationCapture.js";
 import { createHash } from "node:crypto";
-import { transportCapture } from "./collaborationCaptureRecorder.js";
+import { transportCapture, nextPresenceTrace } from "./collaborationCaptureRecorder.js";
 import {
   CANVAS_PRESENCE_MAX_FRAME_BYTES,
   CANVAS_PRESENCE_PROTOCOL_VERSION
 } from "@planweave-ai/collaboration-protocol/core/limits";
 import {
+  PRESENCE_DIAGNOSTICS_HEADER,
   canvasPresenceClientUpdateSchema,
   canvasPresenceHelloSchema,
   canvasPresenceServerMessageSchema,
@@ -65,6 +66,7 @@ export class CanvasPresenceClient {
   private readonly reconnectInitialDelayMs: number;
   private readonly reconnectMaxDelayMs: number;
   private readonly logger?: CanvasPresenceClientOptions["logger"];
+  private diagnosticsSupported = false;
   private socket?: CollaborationWebSocketLike;
   private handlers?: CollaborationPresenceHandlers;
   private status: CollaborationPresenceStatus = { state: "stopped" };
@@ -160,16 +162,18 @@ export class CanvasPresenceClient {
         message: "Canvas presence is not connected."
       });
     }
+    const trace = this.diagnosticsSupported ? nextPresenceTrace() : undefined;
     const update = canvasPresenceClientUpdateSchema.parse({
       type: "canvas.presence.update",
       protocolVersion: CANVAS_PRESENCE_PROTOCOL_VERSION,
       projectId: this.profile.projectId,
       canvasId,
       pointer: input.pointer,
-      selectionIds: input.selectionIds
+      selectionIds: input.selectionIds,
+      ...(trace ? { trace } : {})
     });
     socket.send(JSON.stringify(update));
-    this.recordCapture("socket_send", { pointer: input.pointer !== null });
+    this.recordCapture("socket_send", { pointer: input.pointer !== null, trace });
   }
 
   stop(): void {
@@ -179,6 +183,7 @@ export class CanvasPresenceClient {
     ) {
       transportCapture.bind(null);
     }
+    this.diagnosticsSupported = false;
     this.wanted = false;
     this.generation += 1;
     if (this.reconnectTimer) this.clock.clearTimeout(this.reconnectTimer);
@@ -227,6 +232,7 @@ export class CanvasPresenceClient {
           `/canvases/${encodeURIComponent(canvasId)}/human/presence`;
         const socket = new this.WebSocketImpl!(wsUrl.toString(), {
           headers: {
+            [PRESENCE_DIAGNOSTICS_HEADER]: "1",
             Authorization: `Bearer ${token}`,
             Origin: derivedWebSocketOrigin(this.profile.serverBaseUrl)
           }
@@ -243,6 +249,7 @@ export class CanvasPresenceClient {
         const isCurrent = () => this.isScopeCurrent(generation, canvasId) && this.socket === socket;
         const onOpen = () => {
           if (!isCurrent()) return;
+          this.diagnosticsSupported = false;
           this.recordCapture("socket_open");
           const hello = canvasPresenceHelloSchema.parse({
             type: "canvas.presence.hello",
@@ -272,9 +279,16 @@ export class CanvasPresenceClient {
               });
             }
             if (message.type === "canvas.presence.update") {
+              if (message.trace)
+                this.recordCapture("server_processing", {
+                  peer: message.session.identity.sessionId,
+                  durationMs: message.trace.serverForwardedMs - message.trace.serverReceivedMs,
+                  trace: message.trace
+                });
               this.recordCapture("socket_receive", {
                 peer: message.session.identity.sessionId,
-                pointer: message.session.pointer !== null
+                pointer: message.session.pointer !== null,
+                trace: message.trace
               });
             }
             this.handleMessage(message, canvasId, isCurrent);
@@ -331,6 +345,7 @@ export class CanvasPresenceClient {
     if (!isCurrent()) return;
     switch (message.type) {
       case "canvas.presence.snapshot":
+        this.diagnosticsSupported = message.diagnosticsVersion === 1;
         this.reconnectAttempt = 0;
         this.setStatus({ state: "connected", canvasId });
         this.handlers?.onSnapshot?.(message);
@@ -385,7 +400,12 @@ export class CanvasPresenceClient {
 
   private recordCapture(
     stage: CaptureStage,
-    options: { peer?: string; pointer?: boolean } = {}
+    options: {
+      peer?: string;
+      pointer?: boolean;
+      durationMs?: number;
+      trace?: CaptureSample["trace"];
+    } = {}
   ): void {
     if (
       transportCapture.running() &&

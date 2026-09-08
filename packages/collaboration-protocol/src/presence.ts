@@ -97,6 +97,25 @@ const canvasPresenceScopeShape = {
   canvasId: opaqueIdentifierSchema
 } as const;
 
+/** Opt-in diagnostics contain ephemeral correlation identifiers, never identity or authority. */
+export const PRESENCE_DIAGNOSTICS_HEADER = "x-planweave-presence-diagnostics";
+export const canvasPresenceTraceSchema = z
+  .object({
+    streamId: z.string().uuid(),
+    sequence: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
+  })
+  .strict();
+export const canvasPresenceServerTraceSchema = canvasPresenceTraceSchema
+  .extend({
+    serverClockId: z.string().uuid(),
+    serverReceivedMs: z.number().finite().nonnegative(),
+    serverForwardedMs: z.number().finite().nonnegative()
+  })
+  .strict()
+  .refine((value) => value.serverForwardedMs >= value.serverReceivedMs);
+export type CanvasPresenceTrace = z.infer<typeof canvasPresenceTraceSchema>;
+export type CanvasPresenceServerTrace = z.infer<typeof canvasPresenceServerTraceSchema>;
+
 /** Client introduction contains routing only; authenticated identity is never client supplied. */
 export const canvasPresenceHelloSchema = z
   .object({
@@ -110,6 +129,7 @@ export const canvasPresenceSnapshotSchema = z
   .object({
     type: z.literal("canvas.presence.snapshot"),
     ...canvasPresenceScopeShape,
+    diagnosticsVersion: z.literal(1).optional(),
     sessions: z.array(canvasPresenceSessionSchema).max(CANVAS_PRESENCE_MAX_SESSIONS_PER_CANVAS)
   })
   .strict()
@@ -131,7 +151,8 @@ export const canvasPresenceClientUpdateSchema = z
     type: z.literal("canvas.presence.update"),
     ...canvasPresenceScopeShape,
     pointer: canvasPresencePointerSchema.nullable(),
-    selectionIds: canvasPresenceSelectionIdsSchema
+    selectionIds: canvasPresenceSelectionIdsSchema,
+    trace: canvasPresenceTraceSchema.optional()
   })
   .strict();
 export type CanvasPresenceClientUpdate = z.infer<typeof canvasPresenceClientUpdateSchema>;
@@ -141,7 +162,8 @@ export const canvasPresenceUpdateSchema = z
   .object({
     type: z.literal("canvas.presence.update"),
     ...canvasPresenceScopeShape,
-    session: canvasPresenceSessionSchema
+    session: canvasPresenceSessionSchema,
+    trace: canvasPresenceServerTraceSchema.optional()
   })
   .strict();
 export type CanvasPresenceUpdate = z.infer<typeof canvasPresenceUpdateSchema>;

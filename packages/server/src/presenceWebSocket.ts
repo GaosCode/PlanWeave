@@ -1,7 +1,9 @@
+import { randomUUID } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { CANVAS_PRESENCE_MAX_FRAME_BYTES } from "@planweave-ai/collaboration-protocol/core/limits";
 import {
+  PRESENCE_DIAGNOSTICS_HEADER,
   canvasPresenceClientMessageSchema,
   canvasPresenceServerMessageSchema,
   type CanvasPresenceErrorCode,
@@ -31,6 +33,8 @@ import {
 } from "./authorizationChangeSignal.js";
 
 export type CanvasPresenceProjectAuthority = CollaborationScopeAuthority;
+
+const serverClockId = randomUUID();
 
 const PRESENCE_PATH_PATTERN =
   /^\/api\/v1\/projects\/([^/]+)\/canvases\/([^/]+)\/human\/presence(?:\?.*)?$/;
@@ -140,7 +144,8 @@ export function attachCanvasPresenceWebSocketServer(
     socket: WebSocket,
     route: ScopedPresenceRoute,
     authorization: string | string[] | undefined,
-    authenticated: AuthenticatedCollaborationScope
+    authenticated: AuthenticatedCollaborationScope,
+    diagnostics: boolean
   ) => {
     sessions.add(socket);
     let initialized = false;
@@ -260,6 +265,7 @@ export function attachCanvasPresenceWebSocketServer(
     scheduleAuthorizationSafetyCheck();
 
     socket.on("message", (data, isBinary) => {
+      const receivedMs = performance.now();
       try {
         if (isBinary) {
           sendError("frame_too_large");
@@ -315,7 +321,19 @@ export function attachCanvasPresenceWebSocketServer(
             humanPrincipalId: authenticated.actor.humanPrincipalId,
             displayName: authenticated.actor.displayName,
             send: (outbound) => {
-              if (validateAuthorization()) send(socket, outbound);
+              if (!validateAuthorization()) return;
+              if (outbound.type === "canvas.presence.update" && outbound.trace) {
+                const { trace, ...ordinary } = outbound;
+                send(
+                  socket,
+                  diagnostics
+                    ? {
+                        ...ordinary,
+                        trace: { ...trace, serverForwardedMs: performance.now() }
+                      }
+                    : ordinary
+                );
+              } else send(socket, outbound);
             },
             onRemoved
           });
@@ -327,6 +345,7 @@ export function attachCanvasPresenceWebSocketServer(
             protocolVersion: 1,
             projectId: route.projectId,
             canvasId: route.canvasId,
+            ...(diagnostics ? { diagnosticsVersion: 1 } : {}),
             sessions: connected.snapshot
           });
           return;
@@ -337,7 +356,24 @@ export function attachCanvasPresenceWebSocketServer(
           return;
         }
         try {
-          hub.update(sessionId, route, message.pointer, message.selectionIds);
+          if (message.trace && !diagnostics) {
+            sendError("invalid_message");
+            return;
+          }
+          hub.update(
+            sessionId,
+            route,
+            message.pointer,
+            message.selectionIds,
+            message.trace
+              ? {
+                  ...message.trace,
+                  serverClockId,
+                  serverReceivedMs: receivedMs,
+                  serverForwardedMs: receivedMs
+                }
+              : undefined
+          );
         } catch (error) {
           if (error instanceof CanvasPresenceHubError) {
             sendError(error.code === "server_error" ? "server_error" : error.code);
@@ -401,7 +437,8 @@ export function attachCanvasPresenceWebSocketServer(
           webSocket,
           { ...route, workspaceId: authenticated.workspaceId },
           request.headers.authorization,
-          authenticated
+          authenticated,
+          request.headers[PRESENCE_DIAGNOSTICS_HEADER] === "1"
         )
       );
     }

@@ -1,9 +1,15 @@
+import {
+  canvasPresenceTraceSchema,
+  canvasPresenceServerTraceSchema
+} from "@planweave-ai/collaboration-protocol/canvas/presence";
 import { z } from "zod";
 
 export const CAPTURE_DURATION_MS = 60_000;
 export const CAPTURE_SAMPLE_LIMIT = 20_000;
 export const captureIdSchema = z.string().regex(/^[a-zA-Z0-9-]{1,48}$/);
 export const captureStageSchema = z.enum([
+  "main_event_loop_delay",
+  "server_processing",
   "pointer_input",
   "renderer_send",
   "bridge_ack",
@@ -27,7 +33,8 @@ export const captureSampleSchema = z
     atMs: z.number().finite().nonnegative(),
     peer: z.number().int().nonnegative().optional(),
     pointer: z.boolean().optional(),
-    durationMs: z.number().finite().nonnegative().optional()
+    durationMs: z.number().finite().nonnegative().optional(),
+    trace: z.union([canvasPresenceServerTraceSchema, canvasPresenceTraceSchema]).optional()
   })
   .strict();
 export type CaptureSample = z.infer<typeof captureSampleSchema>;

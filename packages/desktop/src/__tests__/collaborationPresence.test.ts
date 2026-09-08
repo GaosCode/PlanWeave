@@ -58,7 +58,10 @@ describe("desktop canvas presence transport", () => {
     while (cleanups.length > 0) await cleanups.pop()!();
   });
 
-  it("uses the canonical scoped socket, sends bounded updates, and refreshes on reconnect", async () => {
+  it.each([
+    false,
+    true
+  ])("uses scoped transport and negotiates tracing: %s", async (diagnostics) => {
     const http = await fixture();
     cleanups.push(http.close);
     const wss = new WebSocketServer({ noServer: true });
@@ -85,6 +88,7 @@ describe("desktop canvas presence transport", () => {
                 protocolVersion: CANVAS_PRESENCE_PROTOCOL_VERSION,
                 projectId: "project-demo-001",
                 canvasId: "default",
+                ...(diagnostics ? { diagnosticsVersion: 1 } : {}),
                 sessions: []
               })
             );
@@ -132,6 +136,11 @@ describe("desktop canvas presence transport", () => {
       });
     });
 
+    if (diagnostics) {
+      expect(updates[0]).toHaveProperty("trace.sequence", 0);
+      const sample = transportCapture.snapshot()?.samples.find((s) => s.stage === "socket_send");
+      expect(sample?.trace).toEqual(updates[0].trace);
+    } else expect(updates[0]).not.toHaveProperty("trace");
     expect(hellos).toHaveLength(2);
     expect(hellos[0]).not.toHaveProperty("lastCursor");
     expect(updates).toEqual([

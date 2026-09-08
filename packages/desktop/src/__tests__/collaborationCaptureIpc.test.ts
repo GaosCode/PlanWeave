@@ -40,7 +40,7 @@ describe("collaboration capture IPC", () => {
     mocks.write.mockResolvedValue(undefined);
     expect(await mocks.handlers.get(channels.export)!({}, capture)).toBe(true);
     const report = JSON.parse(mocks.write.mock.calls[0][1]);
-    expect(report.schemaVersion).toBe("planweave.collaboration.capture/v1");
+    expect(report.schemaVersion).toBe("planweave.collaboration.capture/v2");
     expect(report.summary.transport[0].count).toBe(1);
     mocks.write.mockRejectedValueOnce(new Error("disk full"));
     await expect(mocks.handlers.get(channels.export)!({}, capture)).rejects.toThrow("disk full");

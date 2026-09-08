@@ -232,7 +232,8 @@ export class WorkspaceCanvasPresenceController {
         if (rendererCapture.scopeKey() === JSON.stringify([scope.profileId, scope.canvasId])) {
           rendererCapture.record("renderer_receive", {
             peer: message.session.identity.sessionId,
-            pointer: message.session.pointer !== null
+            pointer: message.session.pointer !== null,
+            trace: message.trace
           });
         }
         const wasConnected = this.connected;

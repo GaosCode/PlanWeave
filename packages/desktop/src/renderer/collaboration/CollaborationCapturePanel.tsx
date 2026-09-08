@@ -10,6 +10,9 @@ import { useCollaborationCapture } from "../hooks/useCollaborationCapture.js";
 const COPY = {
   zh: {
     title: "协作性能采集",
+    mainLoop: "主进程定时器延迟 P95",
+    server: "Server 处理耗时 P95",
+    serverHint: "Server 耗时需两端新版客户端与新版 Server；未采到不代表耗时为零。",
     hint: "两台设备打开同一画布，填写相同采集编号并分别开始。轮流连续移动光标，结束后各导出一份报告。",
     id: "采集编号",
     start: "开始采集",
@@ -32,6 +35,10 @@ const COPY = {
   },
   en: {
     title: "Collaboration capture",
+    mainLoop: "Main timer delay P95",
+    server: "Server processing P95",
+    serverHint:
+      "Server timing requires updated clients and Server. Missing samples do not mean zero latency.",
     hint: "Open the same canvas on both devices, enter the same capture ID and start on each. Take turns moving the cursor continuously, then export both reports.",
     id: "Capture ID",
     start: "Start capture",
@@ -58,6 +65,15 @@ const COPY = {
 
 function count(trace: CaptureTrace, stage: string): number {
   return trace.samples.filter((sample) => sample.stage === stage).length;
+}
+
+function durationP95(trace: CaptureTrace, stage: string): string | null {
+  const values = trace.samples
+    .flatMap((sample) =>
+      sample.stage === stage && sample.durationMs !== undefined ? [sample.durationMs] : []
+    )
+    .sort((a, b) => a - b);
+  return values.length ? `${values[Math.ceil(values.length * 0.95) - 1].toFixed(1)} ms` : null;
 }
 
 export function CollaborationCapturePanel({
@@ -147,6 +163,10 @@ export function CollaborationCapturePanel({
       )}
       {capture.result && (
         <dl className="grid grid-cols-2 gap-2 rounded-md bg-app-canvas p-3">
+          <dt>{copy.mainLoop}</dt>
+          <dd>{durationP95(capture.result.transport, "main_event_loop_delay") ?? copy.empty}</dd>
+          <dt>{copy.server}</dt>
+          <dd>{durationP95(capture.result.transport, "server_processing") ?? copy.empty}</dd>
           <dt>{copy.input}</dt>
           <dd>{count(capture.result.renderer, "pointer_input") || copy.empty}</dd>
           <dt>{copy.sent}</dt>
@@ -162,7 +182,7 @@ export function CollaborationCapturePanel({
         </dl>
       )}
       <p className="leading-relaxed">
-        {copy.note} {copy.caveat}
+        {copy.note} {copy.caveat} {copy.serverHint}
       </p>
     </section>
   );

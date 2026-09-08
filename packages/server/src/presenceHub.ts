@@ -8,6 +8,7 @@ import {
   canvasPresenceSessionIdSchema,
   canvasPresenceSessionSchema,
   type CanvasPresencePointer,
+  type CanvasPresenceServerTrace,
   type CanvasPresenceServerMessage,
   type CanvasPresenceSession,
   type CanvasPresenceSessionId
@@ -180,7 +181,8 @@ export class CanvasPresenceHub {
     sessionId: CanvasPresenceSessionId,
     scopeInput: CanvasPresenceScope,
     pointer: CanvasPresencePointer | null,
-    selectionIds: string[]
+    selectionIds: string[],
+    trace?: CanvasPresenceServerTrace
   ): CanvasPresenceSession {
     if (this.closed) throw new CanvasPresenceHubError("server_error");
     const entry = this.sessions.get(canvasPresenceSessionIdSchema.parse(sessionId));
@@ -204,7 +206,8 @@ export class CanvasPresenceHub {
       protocolVersion: 1,
       projectId: entry.scope.projectId,
       canvasId: entry.scope.canvasId,
-      session: entry.session
+      session: entry.session,
+      ...(trace ? { trace } : {})
     };
     this.fanout(entry.scope, message, entry.session.identity.sessionId);
     return entry.session;

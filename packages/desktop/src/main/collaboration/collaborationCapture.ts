@@ -1,6 +1,6 @@
 import { app, dialog, ipcMain } from "electron";
 import { writeFile } from "node:fs/promises";
-import { transportCapture } from "./collaborationCaptureRecorder.js";
+import { transportCapture, startCaptureLoopProbe } from "./collaborationCaptureRecorder.js";
 import { captureExportSchema, captureStartSchema } from "../../shared/collaborationCapture.js";
 import { collaborationCaptureChannels } from "../../shared/collaborationCaptureIpc.js";
 import { summarizeCapture } from "../../shared/collaborationCaptureSummary.js";
@@ -9,6 +9,7 @@ export function registerCollaborationCaptureHandlers(): void {
   ipcMain.handle(collaborationCaptureChannels.start, (_event, input: unknown) => {
     const { captureId, scopeKey } = captureStartSchema.parse(input);
     transportCapture.start(captureId, scopeKey);
+    startCaptureLoopProbe();
   });
   ipcMain.handle(collaborationCaptureChannels.stop, () => {
     transportCapture.stop();
@@ -28,7 +29,7 @@ export function registerCollaborationCaptureHandlers(): void {
       choice.filePath,
       JSON.stringify(
         {
-          schemaVersion: "planweave.collaboration.capture/v1",
+          schemaVersion: "planweave.collaboration.capture/v2",
           environment: {
             platform: process.platform,
             arch: process.arch,
@@ -37,8 +38,12 @@ export function registerCollaborationCaptureHandlers(): void {
             chrome: process.versions.chrome
           },
           interpretation: {
+            server:
+              "serverForwardedMs minus serverReceivedMs measures message callback entry to pre-send, including validation and fanout. It excludes delay before the callback and actual socket transmission. Missing trace means no negotiated sender diagnostics for that message.",
+            mainLoop:
+              "main_event_loop_delay is lateness of a 100ms main-process timer, not CPU utilization. Captures stop automatically; the probe does not run outside capture.",
             clock:
-              "Each trace uses its own monotonic clock. Do not subtract timestamps across traces or devices.",
+              "Each trace uses its own monotonic clock. Match streamId and sequence across devices, but do not subtract their timestamps. Server times may only be compared within the same serverClockId.",
             cadence:
               "Intervals include pauses in input. Group receive events by peer; gaps alone are not network latency or packet loss.",
             commit:

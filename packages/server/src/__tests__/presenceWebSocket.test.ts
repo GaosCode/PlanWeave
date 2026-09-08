@@ -121,8 +121,13 @@ async function inviteMember(origin: string, projectId: string, ownerDeviceToken:
   return JSON.parse(body) as { deviceToken: string };
 }
 
-async function connect(url: string, token: string): Promise<WebSocket> {
-  const socket = new WebSocket(url, { headers: { Authorization: `Bearer ${token}` } });
+async function connect(url: string, token: string, diagnostics = false): Promise<WebSocket> {
+  const socket = new WebSocket(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(diagnostics ? { "x-planweave-presence-diagnostics": "1" } : {})
+    }
+  });
   sockets.push(socket);
   await new Promise<void>((resolve, reject) => {
     socket.once("open", resolve);
@@ -182,6 +187,46 @@ function hello(socket: WebSocket, projectId: string): void {
 }
 
 describe("canvas presence WebSocket", () => {
+  it("negotiates trace timing without adding fields to legacy receivers", async () => {
+    const fixture = await setup();
+    const owner = await bootstrap(fixture.origin, fixture.projectId);
+    const url = `${fixture.wsOrigin}/api/v1/projects/${fixture.projectId}/canvases/default/human/presence`;
+    const sender = await connect(url, owner.deviceToken, true);
+    const receiver = await connect(url, owner.deviceToken, true);
+    const legacy = await connect(url, owner.deviceToken);
+    for (const socket of [sender, receiver, legacy]) {
+      const pending = nextMessage(socket);
+      hello(socket, fixture.projectId);
+      const snapshot = await pending;
+      if (socket === legacy) expect(snapshot).not.toHaveProperty("diagnosticsVersion");
+      else expect(snapshot.diagnosticsVersion).toBe(1);
+    }
+    const trace = { streamId: "12345678-1234-4234-8234-123456789012", sequence: 7 };
+    const received = nextMessage(receiver);
+    const receivedLegacy = nextMessage(legacy);
+    const update = {
+      type: "canvas.presence.update",
+      protocolVersion: 1,
+      projectId: fixture.projectId,
+      canvasId: "default",
+      pointer: { x: 1, y: 2 },
+      selectionIds: []
+    };
+    sender.send(JSON.stringify({ ...update, trace }));
+    const body = await received;
+    const timing = recordFrom(body.trace);
+    expect(timing).toMatchObject(trace);
+    expect(timing.serverClockId).toEqual(expect.any(String));
+    expect(typeof timing.serverReceivedMs).toBe("number");
+    expect(Number(timing.serverForwardedMs)).toBeGreaterThanOrEqual(
+      Number(timing.serverReceivedMs)
+    );
+    expect(await receivedLegacy).not.toHaveProperty("trace");
+    const ordinary = nextMessage(receiver);
+    sender.send(JSON.stringify(update));
+    expect(await ordinary).not.toHaveProperty("trace");
+  });
+
   it("keeps two members mutually visible through disconnects and same-device reconnects", async () => {
     const fixture = await setup();
     const owner = await bootstrap(fixture.origin, fixture.projectId);

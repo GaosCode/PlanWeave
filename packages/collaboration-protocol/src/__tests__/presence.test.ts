@@ -140,3 +140,26 @@ describe("canvas presence contracts", () => {
     ).toThrow();
   });
 });
+
+it("validates diagnostic correlation and rejects forged server timing from clients", () => {
+  const trace = { streamId: "12345678-1234-4234-8234-123456789012", sequence: 3 };
+  const base = {
+    type: "canvas.presence.update",
+    protocolVersion: 1,
+    projectId: "project-demo-001",
+    canvasId: "default",
+    pointer: null,
+    selectionIds: []
+  };
+  expect(canvasPresenceClientMessageSchema.safeParse({ ...base, trace }).success).toBe(true);
+  expect(
+    canvasPresenceClientMessageSchema.safeParse({ ...base, trace: { ...trace, sequence: -1 } })
+      .success
+  ).toBe(false);
+  expect(
+    canvasPresenceClientMessageSchema.safeParse({
+      ...base,
+      trace: { ...trace, serverReceivedMs: 0 }
+    }).success
+  ).toBe(false);
+});
