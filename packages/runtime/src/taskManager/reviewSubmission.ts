@@ -89,10 +89,16 @@ export function parseRemoteReviewResultBytes(options: {
   try {
     return reviewResultSchema.parse(JSON.parse(text));
   } catch {
-    const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-    if (fenced?.[1]) {
+    const openingFence = text.indexOf("```");
+    const contentStart = openingFence + 3;
+    const closingFence = openingFence < 0 ? -1 : text.indexOf("```", contentStart);
+    if (closingFence >= 0) {
+      const jsonStart =
+        text.slice(contentStart, contentStart + 4).toLowerCase() === "json"
+          ? contentStart + 4
+          : contentStart;
       try {
-        return reviewResultSchema.parse(JSON.parse(fenced[1].trim()));
+        return reviewResultSchema.parse(JSON.parse(text.slice(jsonStart, closingFence).trim()));
       } catch {
         // continue
       }

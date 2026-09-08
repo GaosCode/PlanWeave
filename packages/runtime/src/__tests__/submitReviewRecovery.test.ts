@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   claimNext,
   getExecutionStatus,
+  parseRemoteReviewResultBytes,
   submitBlockResult,
   submitFeedback,
   submitReviewResult
@@ -26,6 +27,44 @@ async function completeImplementation(root: string): Promise<void> {
   });
   await claimNext({ projectRoot: root });
 }
+
+describe("remote review result parsing", () => {
+  const result = {
+    reviewBlockRef: "T-001#R-001",
+    taskId: "T-001",
+    verdict: "passed",
+    content: "Reviewed the acceptance evidence."
+  };
+  const json = JSON.stringify(result);
+  const parse = (text: string) =>
+    parseRemoteReviewResultBytes({
+      ref: result.reviewBlockRef,
+      taskId: result.taskId,
+      bytes: Buffer.from(text)
+    });
+
+  it.each([
+    json,
+    `\`\`\`\n${json}\n\`\`\``,
+    `Prose\n\`\`\`JSON\r\n${json}\n\`\`\`\nEnd`
+  ])("accepts supported report format %#", (text) => expect(parse(text)).toEqual(result));
+
+  it("rejects an unclosed fence with a large whitespace payload", () => {
+    expect(() => parse(`\`\`\`json${" ".repeat(1_000_000)}x`)).toThrow(
+      "is not valid review-result JSON"
+    );
+  });
+
+  it("accepts a closed fence with a large whitespace payload", () => {
+    expect(parse(`\`\`\`json${" ".repeat(1_000_000)}${json}\`\`\``)).toEqual(result);
+  });
+
+  it("does not skip an invalid first fenced report", () => {
+    expect(() => parse(`\`\`\`invalid\`\`\`\n\`\`\`json\n${json}\`\`\``)).toThrow(
+      "is not valid review-result JSON"
+    );
+  });
+});
 
 describe("submitReviewResult recovery", () => {
   it("treats retrying the same needs_changes review result as idempotent", async () => {
