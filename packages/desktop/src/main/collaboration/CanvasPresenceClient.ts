@@ -1,3 +1,6 @@
+import type { CaptureStage } from "../../shared/collaborationCapture.js";
+import { createHash } from "node:crypto";
+import { transportCapture } from "./collaborationCaptureRecorder.js";
 import {
   CANVAS_PRESENCE_MAX_FRAME_BYTES,
   CANVAS_PRESENCE_PROTOCOL_VERSION
@@ -119,6 +122,18 @@ export class CanvasPresenceClient {
     this.stop();
     this.generation += 1;
     this.canvasId = parsedCanvasId;
+    transportCapture.bind(
+      JSON.stringify([this.profile.profileId, parsedCanvasId]),
+      createHash("sha256")
+        .update(
+          JSON.stringify([
+            new URL(this.profile.serverBaseUrl).origin,
+            this.profile.projectId,
+            parsedCanvasId
+          ])
+        )
+        .digest("hex")
+    );
     this.handlers = handlers;
     this.wanted = true;
     this.reconnectAttempt = 0;
@@ -154,9 +169,16 @@ export class CanvasPresenceClient {
       selectionIds: input.selectionIds
     });
     socket.send(JSON.stringify(update));
+    this.recordCapture("socket_send", { pointer: input.pointer !== null });
   }
 
   stop(): void {
+    if (
+      this.canvasId &&
+      transportCapture.scopeKey() === JSON.stringify([this.profile.profileId, this.canvasId])
+    ) {
+      transportCapture.bind(null);
+    }
     this.wanted = false;
     this.generation += 1;
     if (this.reconnectTimer) this.clock.clearTimeout(this.reconnectTimer);
@@ -221,6 +243,7 @@ export class CanvasPresenceClient {
         const isCurrent = () => this.isScopeCurrent(generation, canvasId) && this.socket === socket;
         const onOpen = () => {
           if (!isCurrent()) return;
+          this.recordCapture("socket_open");
           const hello = canvasPresenceHelloSchema.parse({
             type: "canvas.presence.hello",
             protocolVersion: CANVAS_PRESENCE_PROTOCOL_VERSION,
@@ -248,6 +271,12 @@ export class CanvasPresenceClient {
                 message: "Presence payload scope did not match the active canvas."
               });
             }
+            if (message.type === "canvas.presence.update") {
+              this.recordCapture("socket_receive", {
+                peer: message.session.identity.sessionId,
+                pointer: message.session.pointer !== null
+              });
+            }
             this.handleMessage(message, canvasId, isCurrent);
           } catch (error) {
             this.logger?.error?.(
@@ -264,6 +293,7 @@ export class CanvasPresenceClient {
         };
         const onClose = () => {
           if (!isCurrent()) return;
+          this.recordCapture("socket_close");
           this.socket = undefined;
           if (this.status.state === "auth_expired") return;
           if (!this.wanted || this.disposed) {
@@ -273,6 +303,7 @@ export class CanvasPresenceClient {
           this.scheduleReconnect(canvasId, generation);
         };
         const onError = () => {
+          if (isCurrent()) this.recordCapture("socket_error");
           if (isCurrent()) this.logger?.warn?.("collaboration presence socket error");
         };
         socket.addEventListener("open", onOpen);
@@ -350,6 +381,18 @@ export class CanvasPresenceClient {
     return (
       this.wanted && !this.disposed && generation === this.generation && this.canvasId === canvasId
     );
+  }
+
+  private recordCapture(
+    stage: CaptureStage,
+    options: { peer?: string; pointer?: boolean } = {}
+  ): void {
+    if (
+      transportCapture.running() &&
+      transportCapture.scopeKey() === JSON.stringify([this.profile.profileId, this.canvasId])
+    ) {
+      transportCapture.record(stage, options);
+    }
   }
 
   private setStatus(status: CollaborationPresenceStatus): void {

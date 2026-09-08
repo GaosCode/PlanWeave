@@ -1,4 +1,5 @@
 import type { DesktopBridgeApi } from "@planweave-ai/runtime";
+import type { CollaborationCaptureApi } from "../shared/collaborationCapture";
 import type { PlanWeaveAppUpdateApi } from "../shared/appUpdate";
 import type { PlanWeaveCollaborationApi } from "../shared/collaboration";
 import type { PlanWeaveDesktopSettingsApi } from "../shared/desktopSettings";
@@ -13,6 +14,7 @@ declare global {
     planweave: DesktopBridgeApi;
     planweaveAppUpdate?: PlanWeaveAppUpdateApi;
     planweaveCollaboration?: PlanWeaveCollaborationApi;
+    planweaveCollaborationCapture?: CollaborationCaptureApi;
     planweaveDesktopSettings?: PlanWeaveDesktopSettingsApi;
     planweaveCredentialStorageSettings?: PlanWeaveCredentialStorageSettingsApi;
     planweaveMcpTunnel?: PlanWeaveMcpTunnelApi;

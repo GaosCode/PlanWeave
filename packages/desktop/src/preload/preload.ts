@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import { exposeCollaborationCapture } from "./collaborationCapture.js";
 import type { IpcRendererEvent } from "electron";
 import { z } from "zod";
 import {
@@ -603,6 +604,7 @@ const collaborationApi: PlanWeaveCollaborationApi = {
 };
 
 contextBridge.exposeInMainWorld("planweaveCollaboration", collaborationApi);
+exposeCollaborationCapture();
 
 const operatorControlApi: PlanWeaveOperatorControlApi = {
   getOperatorControlStatus: async () => ipcRenderer.invoke(operatorControlInvokeChannels.getStatus),

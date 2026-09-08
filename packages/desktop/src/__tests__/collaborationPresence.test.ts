@@ -17,6 +17,8 @@ import {
 } from "../main/collaboration/index.js";
 import type { CollaborationPresenceSignal } from "../shared/collaboration.js";
 
+import { transportCapture } from "../main/collaboration/collaborationCaptureRecorder.js";
+
 type Fixture = { server: Server; close(): Promise<void>; origin: string };
 
 function loopbackEndpoint(serverOrigin: string) {
@@ -118,6 +120,7 @@ describe("desktop canvas presence transport", () => {
         onSnapshot: () => {
           snapshots.push(connections);
           if (snapshots.length === 1) {
+            transportCapture.start("socket-test", JSON.stringify(["profile-test", "default"]));
             client.publishPresence({ pointer: { x: 4.5, y: -2 }, selectionIds: ["T-1"] });
           }
           if (snapshots.length === 2) {
@@ -141,6 +144,14 @@ describe("desktop canvas presence transport", () => {
       })
     ]);
     expect(statuses).toContain("reconnecting");
+    transportCapture.stop();
+    const capture = transportCapture.snapshot();
+    expect(capture?.samples.map((sample) => sample.stage)).toEqual(
+      expect.arrayContaining(["socket_send", "socket_close", "socket_open"])
+    );
+    expect(capture?.scopeTag).toMatch(/^[a-f0-9]{64}$/);
+    expect(JSON.stringify(capture)).not.toContain(exampleHumanDeviceToken);
+    expect(JSON.stringify(capture)).not.toContain("T-1");
     client.stopPresence();
     expect(client.presenceCanvas()).toBeNull();
   });

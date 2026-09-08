@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { CollaborationCapturePanel } from "./CollaborationCapturePanel.js";
 import type { CollaborationOperationDiagnosticEntry } from "../../shared/collaborationOperationDiagnostics.js";
 import {
   useCollaborationOperationDiagnostics,
@@ -90,7 +91,7 @@ export function CollaborationOperationDiagnosticsPopover({
       <summary className="cursor-pointer select-none px-3 py-2 font-medium text-text-strong">
         {copy.title} · {summary}
       </summary>
-      <div className="grid gap-3 border-t border-border px-3 py-3 font-mono text-[11px] leading-5">
+      <div className="grid max-h-[65vh] overflow-y-auto gap-3 border-t border-border px-3 py-3 font-mono text-[11px] leading-5">
         <div>
           <span className="font-semibold text-text-strong">{copy.startup}</span>
           <div>phase={diagnostics?.startup.phase ?? "unknown"}</div>
@@ -115,6 +116,7 @@ export function CollaborationOperationDiagnosticsPopover({
               .join(", ") || "none"}
           </div>
         </div>
+        <CollaborationCapturePanel language={copy === COPY.zh ? "zh" : "en"} />
       </div>
     </details>
   );

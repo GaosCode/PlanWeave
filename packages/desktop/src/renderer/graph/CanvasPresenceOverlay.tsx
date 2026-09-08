@@ -1,4 +1,6 @@
 import { ViewportPortal, type Edge, type Node } from "@xyflow/react";
+import { useLayoutEffect } from "react";
+import { rendererCapture } from "../collaboration/collaborationCapture";
 import type { CanvasPresenceRemoteSession } from "../collaboration/WorkspaceCanvasPresenceController";
 import type { createTranslator } from "../i18n";
 
@@ -42,6 +44,11 @@ function format(template: string, values: Record<string, string | number>): stri
 
 /** Render-only remote cursors and selection outlines in ReactFlow's flow coordinate system. */
 export function CanvasPresenceOverlay({ sessions, nodes, edges, t }: CanvasPresenceOverlayProps) {
+  useLayoutEffect(() => {
+    if (rendererCapture.running()) {
+      for (const session of sessions) rendererCapture.commit(session.sessionId);
+    }
+  }, [sessions]);
   if (sessions.length === 0) return null;
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const edgeIds = new Set(edges.map((edge) => edge.id));

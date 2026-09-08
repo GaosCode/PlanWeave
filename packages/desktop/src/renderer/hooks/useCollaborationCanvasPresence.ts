@@ -3,6 +3,7 @@ import type { XYPosition, OnSelectionChangeParams } from "@xyflow/react";
 import { CANVAS_PRESENCE_MAX_SELECTION_IDS } from "@planweave-ai/collaboration-protocol/core/limits";
 import { canvasPresenceSelectionIdSchema } from "@planweave-ai/collaboration-protocol/canvas/presence";
 import { collaborationBridge } from "../bridge";
+import { rendererCapture } from "../collaboration/collaborationCapture";
 import {
   WorkspaceCanvasPresenceController,
   type CanvasPresenceBridge,
@@ -169,10 +170,11 @@ export function useCollaborationCanvasPresence(input: {
 
   const queuePointer = useCallback(
     (position: XYPosition | null) => {
+      if (scopeEnabled) rendererCapture.record("pointer_input", { pointer: position !== null });
       desiredPointerRef.current = position;
       if (frameRef.current === null) frameRef.current = requestAnimationFrame(flushPointer);
     },
-    [flushPointer]
+    [flushPointer, scopeEnabled]
   );
 
   const onSelectionChange = useCallback(

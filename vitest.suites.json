@@ -61,6 +61,9 @@
     {
       "root": "packages/desktop/src/__tests__",
       "unit": [
+        "collaborationCaptureRecorder.test.ts",
+        "collaborationCapturePanel.test.tsx",
+        "collaborationCaptureIpc.test.ts",
         "remoteAcpContinuation.test.tsx",
         "acpConversationTimeline.test.tsx",
         "agentCapabilityProbeSessionCache.test.tsx",

@@ -1,3 +1,4 @@
+import { rendererCapture } from "./collaborationCapture.js";
 import type {
   CanvasPresencePointer,
   CanvasPresenceServerMessage,
@@ -136,6 +137,7 @@ export class WorkspaceCanvasPresenceController {
     await this.stop();
     const generation = ++this.generation;
     this.scope = { ...scope };
+    rendererCapture.bind(JSON.stringify([scope.profileId, scope.canvasId]));
     this.connected = false;
     this.latestUpdate = null;
     this.pendingUpdate = null;
@@ -157,6 +159,12 @@ export class WorkspaceCanvasPresenceController {
   }
 
   async stop(): Promise<void> {
+    if (
+      this.scope &&
+      rendererCapture.scopeKey() === JSON.stringify([this.scope.profileId, this.scope.canvasId])
+    ) {
+      rendererCapture.bind(null);
+    }
     this.generation += 1;
     this.scope = null;
     this.connected = false;
@@ -184,7 +192,7 @@ export class WorkspaceCanvasPresenceController {
       return;
     }
     try {
-      await this.api.publishCollaborationPresence(update);
+      await this.sendPresence(update);
     } catch (error) {
       // Transport may already be down; keep the update for the next snapshot/reconnect flush.
       this.connected = false;
@@ -221,6 +229,12 @@ export class WorkspaceCanvasPresenceController {
         return;
       }
       case "canvas.presence.update": {
+        if (rendererCapture.scopeKey() === JSON.stringify([scope.profileId, scope.canvasId])) {
+          rendererCapture.record("renderer_receive", {
+            peer: message.session.identity.sessionId,
+            pointer: message.session.pointer !== null
+          });
+        }
         const wasConnected = this.connected;
         this.connected = true;
         this.upsertSession(message.session);
@@ -251,13 +265,35 @@ export class WorkspaceCanvasPresenceController {
     if (!this.connected || !pending) return;
     this.pendingUpdate = null;
     try {
-      await this.api.publishCollaborationPresence(pending);
+      await this.sendPresence(pending);
     } catch (error) {
       this.pendingUpdate = pending;
       this.publishSnapshot({
         sessions: this.readSessions(),
         error: error instanceof Error ? error.message : String(error)
       });
+    }
+  }
+
+  private async sendPresence(update: PresenceUpdate): Promise<void> {
+    const started = performance.now();
+    const ticket =
+      this.scope &&
+      rendererCapture.scopeKey() === JSON.stringify([this.scope.profileId, this.scope.canvasId])
+        ? rendererCapture.ticket()
+        : null;
+    if (ticket !== null)
+      rendererCapture.record("renderer_send", { pointer: update.pointer !== null });
+    try {
+      await this.api.publishCollaborationPresence(update);
+      if (ticket !== null && ticket === rendererCapture.ticket()) {
+        rendererCapture.record("bridge_ack", { durationMs: performance.now() - started });
+      }
+    } catch (error) {
+      if (ticket !== null && ticket === rendererCapture.ticket()) {
+        rendererCapture.record("bridge_error", { durationMs: performance.now() - started });
+      }
+      throw error;
     }
   }
 

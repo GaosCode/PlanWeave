@@ -1,4 +1,5 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, safeStorage } from "electron";
+import { registerCollaborationCaptureHandlers } from "./collaborationCapture.js";
 import { resolveSelfHostServerResourceDirectory } from "./selfHostServerResource.js";
 import WebSocket from "ws";
 import { z } from "zod";
@@ -195,6 +196,7 @@ export function createCollaborationService(
 export function registerCollaborationHandlers(
   options: CollaborationHandlerOptions = {}
 ): CollaborationService {
+  registerCollaborationCaptureHandlers();
   const { coordinatorCredentialsPath, ...serviceOptions } = options;
   const lifecycle = createCollaborationHandlerLifecycle();
   handlerLifecycle = lifecycle;
