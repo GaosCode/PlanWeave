@@ -31,7 +31,7 @@ import {
 import { collaborationBridge } from "../bridge";
 import {
   collaborationErrorCode,
-  collaborationErrorMessage
+  collaborationConnectionErrorMessage
 } from "../collaboration/formatCollaborationError";
 import type { RememberedServerConnectionView } from "../../shared/collaboration";
 import type { createTranslator } from "../i18n";
@@ -98,6 +98,8 @@ type Props = {
   onExposureChange?: (exposure: DesktopServerExposureView) => void;
   onExistingServerChange?: (existing: boolean) => void;
   /** Deploy/export fields for an existing Server. Settings hides them from the connect path. */
+  connectionOnly?: boolean;
+  localOnly?: boolean;
   existingServerTools?: ExistingServerTools;
   onConnected?: () => void | Promise<void>;
   showAdvertisedOrigin?: boolean;
@@ -193,6 +195,8 @@ export function DeploymentConnectionCard({
   onExposureChange,
   onExistingServerChange,
   existingServerTools = "visible",
+  connectionOnly = false,
+  localOnly = false,
   onConnected,
   showAdvertisedOrigin = true,
   connectAlternative,
@@ -200,7 +204,9 @@ export function DeploymentConnectionCard({
 }: Props) {
   const [origin, setOrigin] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [mode, setMode] = useState<DesktopServerExposureMode>("local_only");
+  const [mode, setMode] = useState<DesktopServerExposureMode>(
+    connectionOnly ? "custom_https" : "local_only"
+  );
   const [thisComputerMode, setThisComputerMode] = useState<ThisComputerExposureMode>("local_only");
   const [customTopology, setCustomTopology] =
     useState<Extract<DeploymentTopology, "loopback_https" | "private_https" | "public_https">>(
@@ -222,45 +228,78 @@ export function DeploymentConnectionCard({
 
   useEffect(() => {
     if (!collaborationBridge) return;
+    let current = true;
+    if (localOnly) {
+      void collaborationBridge
+        .getDesktopServerExposure()
+        .then((nextExposure) => {
+          if (!current) return;
+          setExposure(nextExposure);
+          onExposureChange?.(nextExposure);
+          const localMode = isThisComputerExposureMode(nextExposure.mode)
+            ? nextExposure.mode
+            : "local_only";
+          setThisComputerMode(localMode);
+          setMode(localMode);
+        })
+        .catch((cause: unknown) => {
+          if (current) setConnectError(collaborationConnectionErrorMessage(t, cause));
+        });
+      return () => {
+        current = false;
+      };
+    }
     void Promise.all([
       collaborationBridge.getActiveWorkspaceConnection(),
       collaborationBridge.getDesktopServerExposure(),
       collaborationBridge.listRememberedServerConnections()
-    ]).then(([connection, nextExposure, remembered]) => {
-      setExposure(nextExposure);
-      onExposureChange?.(nextExposure);
-      setRememberedServers(remembered);
-      if (isThisComputerExposureMode(nextExposure.mode)) {
-        setThisComputerMode(nextExposure.mode);
-      }
-      const remoteProfileId = connection.profile?.profileId;
-      const rememberedMatch =
-        remoteProfileId === undefined
-          ? undefined
-          : remembered.find((item) => item.profileId === remoteProfileId);
-      const workspaceIsRemote =
-        Boolean(rememberedMatch) &&
-        connection.status !== "local_only" &&
-        connection.profile !== null;
-      if (workspaceIsRemote && rememberedMatch) {
-        setMode("custom_https");
-        setSelectedRememberedId(rememberedMatch.profileId);
-        setOrigin(rememberedMatch.serverBaseUrl);
-        setDisplayName(rememberedMatch.workspaceDisplayName);
-        return;
-      }
-      setMode(nextExposure.mode);
-      setSelectedRememberedId(null);
-      if (!connection.profile || !connection.workspaceId) return;
-      const nextOrigin = originForExistingServer({
-        profileOrigin: connection.profile.serverBaseUrl,
-        advertisedOrigin: nextExposure.advertisedOrigin,
-        exposureMode: nextExposure.mode
+    ])
+      .then(([connection, nextExposure, remembered]) => {
+        if (!current) return;
+        setExposure(nextExposure);
+        onExposureChange?.(nextExposure);
+        setRememberedServers(remembered);
+        if (isThisComputerExposureMode(nextExposure.mode)) {
+          setThisComputerMode(nextExposure.mode);
+        }
+        if (connectionOnly) {
+          setMode("custom_https");
+          return;
+        }
+        const remoteProfileId = connection.profile?.profileId;
+        const rememberedMatch =
+          remoteProfileId === undefined
+            ? undefined
+            : remembered.find((item) => item.profileId === remoteProfileId);
+        const workspaceIsRemote =
+          Boolean(rememberedMatch) &&
+          connection.status !== "local_only" &&
+          connection.profile !== null;
+        if (workspaceIsRemote && rememberedMatch) {
+          setMode("custom_https");
+          setSelectedRememberedId(rememberedMatch.profileId);
+          setOrigin(rememberedMatch.serverBaseUrl);
+          setDisplayName(rememberedMatch.workspaceDisplayName);
+          return;
+        }
+        setMode(nextExposure.mode);
+        setSelectedRememberedId(null);
+        if (!connection.profile || !connection.workspaceId) return;
+        const nextOrigin = originForExistingServer({
+          profileOrigin: connection.profile.serverBaseUrl,
+          advertisedOrigin: nextExposure.advertisedOrigin,
+          exposureMode: nextExposure.mode
+        });
+        setOrigin(nextOrigin);
+        setDisplayName(nextOrigin ? connection.profile.displayName : "");
+      })
+      .catch((cause: unknown) => {
+        if (current) setConnectError(collaborationConnectionErrorMessage(t, cause));
       });
-      setOrigin(nextOrigin);
-      setDisplayName(nextOrigin ? connection.profile.displayName : "");
-    });
-  }, [onExposureChange]);
+    return () => {
+      current = false;
+    };
+  }, [connectionOnly, localOnly, onExposureChange, t]);
 
   const existingServer = mode === "custom_https";
   const showExistingServerDeploy = existingServer && existingServerTools !== "hidden";
@@ -424,7 +463,7 @@ export function DeploymentConnectionCard({
         setConnectError(
           code === "existing_server_origin_invalid"
             ? t("peopleServerUrlInvalid")
-            : collaborationErrorMessage(error)
+            : collaborationConnectionErrorMessage(t, error)
         );
       }
     } finally {
@@ -450,7 +489,7 @@ export function DeploymentConnectionCard({
         setConnectError(t("settingsServerAdmissionRequired"));
         onNeedConnectionDetails?.();
       } else {
-        setConnectError(collaborationErrorMessage(error));
+        setConnectError(collaborationConnectionErrorMessage(t, error));
       }
     } finally {
       setBusy(null);
@@ -473,7 +512,7 @@ export function DeploymentConnectionCard({
       }
       await onConnected?.();
     } catch (error) {
-      setConnectError(collaborationErrorMessage(error));
+      setConnectError(collaborationConnectionErrorMessage(t, error));
     } finally {
       setBusy(null);
     }
@@ -591,57 +630,61 @@ export function DeploymentConnectionCard({
   const content = (
     <div className="grid max-w-3xl gap-4">
       <FieldGroup className={settingsGroupClass}>
-        <SettingsFieldSelect
-          id="deployment-kind"
-          label={t("deploymentKind")}
-          value={
-            mode === "custom_https" ? (selectedRememberedId ?? "existing_server") : "this_computer"
-          }
-          testId="deployment-kind"
-          onValueChange={(nextKind) => {
-            if (nextKind === "existing_server") {
+        {!connectionOnly && !localOnly ? (
+          <SettingsFieldSelect
+            id="deployment-kind"
+            label={t("deploymentKind")}
+            value={
+              mode === "custom_https"
+                ? (selectedRememberedId ?? "existing_server")
+                : "this_computer"
+            }
+            testId="deployment-kind"
+            onValueChange={(nextKind) => {
+              if (nextKind === "existing_server") {
+                if (isThisComputerExposureMode(mode)) setThisComputerMode(mode);
+                setMode("custom_https");
+                setSelectedRememberedId(null);
+                if (
+                  exposure?.advertisedOrigin &&
+                  origin &&
+                  sameHttpsOrigin(origin, exposure.advertisedOrigin)
+                ) {
+                  setOrigin("");
+                  setDisplayName("");
+                }
+                return;
+              }
+              if (nextKind === "this_computer") {
+                setSelectedRememberedId(null);
+                if (mode === "custom_https") setMode(thisComputerMode);
+                return;
+              }
+              const remembered = rememberedServers.find((item) => item.profileId === nextKind);
+              if (!remembered) return;
               if (isThisComputerExposureMode(mode)) setThisComputerMode(mode);
               setMode("custom_https");
-              setSelectedRememberedId(null);
-              if (
-                exposure?.advertisedOrigin &&
-                origin &&
-                sameHttpsOrigin(origin, exposure.advertisedOrigin)
-              ) {
-                setOrigin("");
-                setDisplayName("");
+              setSelectedRememberedId(remembered.profileId);
+              setOrigin(remembered.serverBaseUrl);
+              setDisplayName(remembered.workspaceDisplayName);
+              void connectRemembered(remembered.profileId);
+            }}
+            items={[
+              { value: "this_computer", label: t("deploymentThisComputer") },
+              ...rememberedServers.map((item) => ({
+                value: item.profileId,
+                label: rememberedServerLabel(item)
+              })),
+              {
+                value: "existing_server",
+                label:
+                  rememberedServers.length > 0
+                    ? t("deploymentConnectAnotherServer")
+                    : t("deploymentExistingServer")
               }
-              return;
-            }
-            if (nextKind === "this_computer") {
-              setSelectedRememberedId(null);
-              if (mode === "custom_https") setMode(thisComputerMode);
-              return;
-            }
-            const remembered = rememberedServers.find((item) => item.profileId === nextKind);
-            if (!remembered) return;
-            if (isThisComputerExposureMode(mode)) setThisComputerMode(mode);
-            setMode("custom_https");
-            setSelectedRememberedId(remembered.profileId);
-            setOrigin(remembered.serverBaseUrl);
-            setDisplayName(remembered.workspaceDisplayName);
-            void connectRemembered(remembered.profileId);
-          }}
-          items={[
-            { value: "this_computer", label: t("deploymentThisComputer") },
-            ...rememberedServers.map((item) => ({
-              value: item.profileId,
-              label: rememberedServerLabel(item)
-            })),
-            {
-              value: "existing_server",
-              label:
-                rememberedServers.length > 0
-                  ? t("deploymentConnectAnotherServer")
-                  : t("deploymentExistingServer")
-            }
-          ]}
-        />
+            ]}
+          />
+        ) : null}
         {mode !== "custom_https" ? (
           <SettingsFieldSelect
             id="deployment-topology"

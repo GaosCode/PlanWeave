@@ -1,4 +1,5 @@
 import {
+  PlayCircleIcon,
   BellIcon,
   ChartNoAxesColumnIncreasingIcon,
   ListTodoIcon,
@@ -89,7 +90,16 @@ export function SidebarNav({
         onClick={() => onSelectView("people")}
       >
         <UsersIcon data-icon="inline-start" />
-        {t("people")}
+        {t("workspaceNavigation")}
+      </Button>
+      <Button
+        data-testid="sidebar-executors"
+        className={navButtonClass}
+        variant={activeView === "executors" ? "secondary" : "ghost"}
+        onClick={() => onSelectView("executors")}
+      >
+        <PlayCircleIcon data-icon="inline-start" />
+        {t("executorsNavigation")}
       </Button>
       <Button
         data-testid="sidebar-settings"

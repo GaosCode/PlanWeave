@@ -126,7 +126,7 @@ describe("PeoplePanel", () => {
     expect(screen.queryByTestId("workspace-member-permissions")).not.toBeInTheDocument();
   });
 
-  it("renders full-width member rows with inline access and supports owner invite/copy-once", async () => {
+  it("keeps member actions in menus and dialogs and supports owner invite/copy-once", async () => {
     const onCreateInvitation = vi.fn().mockResolvedValue({
       invitation: {
         invitationId: "inv-new",
@@ -194,29 +194,24 @@ describe("PeoplePanel", () => {
     expect(screen.getByTestId("people-workspace-summary")).toHaveTextContent(
       "Project collaboration connected"
     );
-    expect(screen.getAllByTestId("people-member-devices-toggle")).toHaveLength(2);
-    expect(screen.getByText("Login devices (1)")).toBeVisible();
-    expect(screen.getByText("Login devices (0)")).toBeVisible();
-    await userEvent.click(screen.getAllByTestId("people-member-devices-toggle")[0]!);
-    expect(screen.getByTestId("people-member-devices")).toBeVisible();
+    expect(screen.queryByTestId("people-member-devices-toggle")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "More actions: Owner" }));
+    expect(screen.getByTestId("people-last-owner-guard")).toHaveAttribute("aria-disabled", "true");
+    await userEvent.click(screen.getByTestId("people-member-devices-toggle"));
     expect(screen.getByTestId("people-device-row")).toHaveTextContent("Desktop");
-    await userEvent.click(screen.getAllByTestId("people-member-devices-toggle")[1]!);
-    expect(screen.getAllByTestId("people-member-devices")).toHaveLength(2);
-    expect(screen.getAllByTestId("people-member-devices-toggle")[0]).toHaveAttribute(
-      "aria-expanded",
-      "true"
-    );
-    expect(screen.getAllByTestId("people-member-devices-toggle")[1]).toHaveAttribute(
-      "aria-expanded",
-      "true"
-    );
+    await userEvent.click(screen.getByTestId("people-device-sign-out"));
+    expect(onRevokeDevice).toHaveBeenCalledWith("device-1");
+    await userEvent.click(screen.getByRole("button", { name: "Close", exact: true }));
+    await userEvent.click(screen.getByRole("button", { name: "More actions: Member" }));
+    expect(screen.getByText("Login devices (0)")).toBeVisible();
+    await userEvent.click(screen.getByTestId("people-member-promote"));
+    expect(onPromote).toHaveBeenCalledWith("human-2");
     expect(screen.getAllByTestId("people-member-access-toggle")).toHaveLength(1);
     await userEvent.click(screen.getByTestId("people-member-access-toggle"));
     expect(screen.getByTestId("member-access-slot")).toHaveTextContent("Member access");
-    expect(screen.getByTestId("people-last-owner-guard")).toHaveTextContent("Last owner protected");
+    await userEvent.click(screen.getByRole("button", { name: "Close", exact: true }));
     expect(screen.getByTestId("people-owner-toggle")).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getByTestId("people-owner-section")).not.toHaveClass("rounded-xl", "border");
-    expect(screen.getByTestId("people-owner-section")).not.toHaveClass("border-b");
+    expect(screen.queryByTestId("people-owner-section")).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByTestId("people-edit-own-name"));
     const ownNameInput = screen.getByTestId("people-own-name-input");
@@ -225,14 +220,12 @@ describe("PeoplePanel", () => {
     await userEvent.click(screen.getByTestId("people-save-own-name"));
     expect(onUpdateOwnDisplayName).toHaveBeenCalledWith("Ada Owner");
 
+    await userEvent.click(screen.getByTestId("people-open-invitation"));
     await userEvent.click(screen.getByTestId("people-create-invitation"));
     expect(onCreateInvitation).toHaveBeenCalled();
     expect(screen.getByTestId("people-owner-toggle")).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByTestId("people-invitations-list")).toBeVisible();
     expect(screen.getByTestId("people-invitations-list")).not.toHaveClass("rounded-lg", "border");
-
-    await userEvent.click(screen.getByTestId("people-member-promote"));
-    expect(onPromote).toHaveBeenCalledWith("human-2");
 
     await userEvent.click(screen.getByTestId("people-invitation-view"));
     expect(onViewInvitation).toHaveBeenCalledWith("inv-1");
@@ -297,8 +290,6 @@ describe("PeoplePanel", () => {
 
     await userEvent.click(screen.getByTestId("people-invitation-revoke"));
     expect(onRevokeInvitation).toHaveBeenCalledWith("inv-1");
-    await userEvent.click(screen.getByTestId("people-device-sign-out"));
-    expect(onRevokeDevice).toHaveBeenCalledWith("device-1");
   });
 
   it("shows the connect slot without surfacing disconnected API noise", () => {
@@ -591,7 +582,7 @@ describe("PeoplePanel", () => {
     );
   });
 
-  it("opens invitation management after a lone owner finishes initialization", () => {
+  it("keeps invitation management behind an explicit action after initialization", async () => {
     render(
       <PeoplePanel
         mode="ready"
@@ -619,6 +610,9 @@ describe("PeoplePanel", () => {
       />
     );
 
+    expect(screen.getByTestId("people-owner-toggle")).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("people-owner-toggle"));
     expect(screen.getByTestId("people-owner-toggle")).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByTestId("people-create-invitation")).toBeVisible();
   });
@@ -695,7 +689,7 @@ describe("PeoplePanel", () => {
     );
   });
 
-  it("uses readable invitation and device summaries instead of raw identifiers", () => {
+  it("uses readable invitation and device summaries instead of raw identifiers", async () => {
     const invitationId = "24e269e7-2c6a-43cc-995f-6e73db44fb1c";
     const deviceId = "369c6c7c-dace-4f0b-a8b9-16da98374eac";
     render(
@@ -743,12 +737,15 @@ describe("PeoplePanel", () => {
     );
 
     fireEvent.click(screen.getByTestId("people-owner-toggle"));
-    fireEvent.click(screen.getAllByTestId("people-member-devices-toggle")[0]!);
 
     expect(screen.getByTestId("people-invitation-row")).toHaveTextContent("Waiting for a member");
     expect(screen.getByTestId("people-invitation-row")).toHaveTextContent(
       "Invite ID 24e269e7…fb1c"
     );
+    expect(screen.queryByText(invitationId)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Close", exact: true }));
+    await userEvent.click(screen.getByRole("button", { name: "More actions: Owner" }));
+    await userEvent.click(screen.getByTestId("people-member-devices-toggle"));
     expect(screen.getByTestId("people-device-row")).toHaveTextContent("Unnamed device 1");
     expect(screen.getByTestId("people-device-row")).toHaveTextContent("Device ID 369c6c7c…4eac");
     expect(screen.queryByText(invitationId)).not.toBeInTheDocument();
@@ -885,6 +882,8 @@ describe("PeoplePanel", () => {
 
     expect(screen.queryByTestId("people-owner-section")).not.toBeInTheDocument();
     expect(screen.getAllByTestId("people-edit-own-name")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "More actions: Owner" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "More actions: Member" }));
     expect(screen.getAllByTestId("people-member-devices-toggle")).toHaveLength(1);
     await userEvent.click(screen.getByTestId("people-member-devices-toggle"));
     expect(screen.getByTestId("people-device-row")).toHaveTextContent("Desktop");
@@ -892,6 +891,7 @@ describe("PeoplePanel", () => {
     await userEvent.click(screen.getByTestId("people-device-sign-out"));
     expect(onRevokeDevice).toHaveBeenCalledWith("device-1");
 
+    await userEvent.click(screen.getByRole("button", { name: "Close", exact: true }));
     await userEvent.click(screen.getByTestId("people-edit-own-name"));
     const input = screen.getByTestId("people-own-name-input");
     await userEvent.clear(input);

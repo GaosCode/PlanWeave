@@ -10,6 +10,7 @@ export const remoteAgentManagementEnCatalog = {
   remoteAgentManagementDeviceOffline: "Offline",
   remoteAgentManagementPermissions: "Access and grants",
   remoteAgentManagementRefresh: "Refresh",
+  remoteAgentManagementLoading: "Loading Remote Agents…",
   remoteAgentManagementEmpty: "No Remote Agents are registered for this person yet.",
   remoteAgentManagementNoPrincipal:
     "Connect a Workspace profile so Desktop can identify you as the Agent owner.",

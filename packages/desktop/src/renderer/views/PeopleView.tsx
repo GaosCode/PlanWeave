@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  isLocalCollaborationProfileId,
   type LocalCollaborationServerStatus,
   type PlanWeaveCollaborationApi
 } from "../../shared/collaboration.js";
@@ -14,8 +13,12 @@ import { CollaborationConnectForm } from "../team/CollaborationConnectForm";
 import { buildCollaborationDiagnosticReport } from "../team/collaborationDiagnostics";
 import { CollaborationWorkspaceOnboarding } from "../team/CollaborationWorkspaceOnboarding";
 import { PeoplePanel } from "../team/PeoplePanel";
-import { workspaceDisplayName } from "../team/workspaceConnectionPresentation";
-import { WorkspaceManagementPanel } from "../team/WorkspaceManagementPanel";
+import { WorkspaceSwitcher } from "../team/WorkspaceSwitcher";
+import { Button } from "@/components/ui/button";
+import { PlusIcon } from "lucide-react";
+import { ManagementDialog } from "../components/ManagementDialog";
+import { WorkspaceCanvasDirectory } from "../team/WorkspaceCanvasDirectory";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   CurrentCanvasAccessPanel,
   CurrentCanvasMemberAccess
@@ -96,8 +99,14 @@ export function PeopleView({
   onManageServer
 }: PeopleViewProps) {
   const api = apiProp === undefined ? collaborationBridge : apiProp;
+  const [connectionOpen, setConnectionOpen] = useState(false);
+  const [joiningOpen, setJoiningOpen] = useState(false);
+  const [sharingOpen, setSharingOpen] = useState(false);
+  const [invitationOpen, setInvitationOpen] = useState(false);
+  const [accessOpen, setAccessOpen] = useState(false);
+  const [directoryEpoch, setDirectoryEpoch] = useState(0);
   const [localHostingOpen, setLocalHostingOpen] = useState(false);
-  const [connectedSection, setConnectedSection] = useState<"members" | "workspace">("members");
+  const [connectedSection, setConnectedSection] = useState<"members" | "workspace">("workspace");
   const [revealInvitationManagement, setRevealInvitationManagement] = useState(false);
   const [reconnectPending, setReconnectPending] = useState(false);
   const [reconnectError, setReconnectError] = useState<string | null>(null);
@@ -160,9 +169,11 @@ export function PeopleView({
     ) ?? null;
 
   const sessionConnected = isCollaborationSessionConnected(status);
+  const workspaceConnected = connectedWorkspace?.status === "connected";
+  const canShareCanvas = workspaceConnected;
   const workspaceAccessScope = useWorkspaceAccessScope({
     api,
-    connectionKey: activeProfile?.profileId ?? null,
+    connectionKey: connectedWorkspace?.profile?.profileId ?? null,
     status
   });
 
@@ -171,10 +182,6 @@ export function PeopleView({
   }, [sessionConnected]);
   const hasConfiguredWorkspace = status !== null && status.workspaceConnection.workspaceId !== null;
   const showOnboarding = !hasConfiguredWorkspace;
-  const workspaceHostProfileId =
-    status?.workspaceConnection.profile?.profileId ?? activeProfile?.profileId ?? null;
-  const canControlLocalServer =
-    workspaceHostProfileId !== null && isLocalCollaborationProfileId(workspaceHostProfileId);
 
   useEffect(() => {
     if (!api || typeof api.getDesktopServerExposure !== "function") return;
@@ -262,6 +269,7 @@ export function PeopleView({
     setLocalHostingOpen(false);
     setConnectedSection("members");
     setRevealInvitationManagement(true);
+    setInvitationOpen(true);
     void panel.refreshDetails();
   }, [panel.refreshDetails]);
 
@@ -324,6 +332,26 @@ export function PeopleView({
       onUpdateVisibility={workspaceAccessScope.access.updateVisibility}
     />
   );
+
+  const invitationSetup =
+    invitationWorkspace && invitationOperator ? (
+      <HostMemberSetupCard
+        activeProfile={invitationOperator}
+        workspace={invitationWorkspace}
+        busy={hostController.busy}
+        error={hostController.error}
+        copyMemberSetupCode={() =>
+          hostController.copyMemberSetupCode({
+            profileId: invitationOperator.profileId,
+            workspaceId: invitationWorkspace.workspaceId,
+            serverBaseUrl: invitationWorkspace.serverBaseUrl
+          })
+        }
+        dismissMemberSetupCodeHandoff={hostController.dismissMemberSetupCodeHandoff}
+        memberSetupCodeHandoff={hostController.memberSetupCodeHandoff}
+        t={t}
+      />
+    ) : null;
 
   return (
     <section
@@ -410,245 +438,228 @@ export function PeopleView({
         ) : (
           <div className="flex flex-col gap-6" data-testid="people-workspace-section">
             <div
-              className="flex items-center gap-7 border-b border-border/70"
-              role="tablist"
-              aria-label={t("peopleTitle")}
+              className="flex flex-wrap items-center gap-5 border-b border-border/70"
               data-testid="people-connected-sections"
             >
-              {(
-                [
-                  ["members", "peopleSectionWorkspace"],
-                  ["workspace", "peopleSectionHosting"]
-                ] as const
-              ).map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  role="tab"
-                  aria-selected={connectedSection === value}
-                  data-testid={`people-section-${value}`}
-                  className={`relative pb-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                    connectedSection === value
-                      ? "text-text-strong after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:bg-text-strong"
-                      : "text-muted-foreground hover:text-text-strong"
-                  }`}
-                  onClick={() => setConnectedSection(value)}
+              <WorkspaceSwitcher
+                api={api}
+                status={status}
+                open={connectionOpen}
+                onOpenChange={setConnectionOpen}
+                onJoin={() => setJoiningOpen(true)}
+                onManageServer={onManageServer}
+                onSelected={refreshCollaborationStatus}
+                t={t}
+              />
+              <span className="mb-2 h-5 border-l border-border" aria-hidden="true" />
+              <Tabs
+                value={connectedSection}
+                onValueChange={(value) => {
+                  if (value === "workspace" || value === "members") setConnectedSection(value);
+                }}
+              >
+                <TabsList variant="line" aria-label={t("workspaceNavigation")}>
+                  <TabsTrigger value="workspace" data-testid="people-section-workspace">
+                    {t("workspaceSharedCanvases")}
+                  </TabsTrigger>
+                  <TabsTrigger value="members" data-testid="people-section-members">
+                    {t("workspaceMembersAccess")}
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+              {connectedSection === "workspace" ? (
+                <Button
+                  className="mb-2 ml-auto"
+                  size="sm"
+                  disabled={!canShareCanvas}
+                  onClick={() => setSharingOpen(true)}
                 >
-                  {t(label)}
-                </button>
-              ))}
+                  <PlusIcon className="size-3.5" />
+                  {t("workspaceShareAction")}
+                </Button>
+              ) : panel.presence.currentUserIsOwner || invitationSetup ? (
+                <Button className="mb-2 ml-auto" size="sm" onClick={() => setInvitationOpen(true)}>
+                  {t("workspaceInviteAction")}
+                </Button>
+              ) : null}
             </div>
             {reconnectError ? (
-              <div
-                className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
-                data-testid="people-reconnect-error"
-                role="alert"
-              >
+              <p role="alert" className="text-sm text-destructive">
                 {reconnectError}
-              </div>
+              </p>
             ) : null}
             {connectedSection === "members" ? (
-              <>
-                {connectedWorkspace?.profile && connectedWorkspace.workspaceId ? (
-                  <section
-                    data-testid="people-current-workspace"
-                    className="flex flex-wrap items-start justify-between gap-3 border-b border-border/70 pb-5"
-                  >
-                    <div className="grid min-w-0 gap-1">
-                      <h2 className="text-sm font-semibold">
-                        {t("peopleWorkspaceIdentityTitle")}:{" "}
-                        {workspaceDisplayName(connectedWorkspace.workspaceDisplayName, t)}
-                      </h2>
-                      <p className="break-all text-xs text-text-muted">
-                        {connectedWorkspace.workspaceId}
-                      </p>
-                      <p className="break-all text-xs text-text-muted">
-                        {connectedWorkspace.profile.serverBaseUrl}
-                      </p>
-                      {status?.session.detail === "workspace_no_shared_projects" ? (
-                        <p className="max-w-2xl text-sm text-text-muted">
-                          {t("peopleWorkspaceJoinedNoSharedProject")}
-                        </p>
-                      ) : null}
-                    </div>
-                    <button
-                      type="button"
-                      className="rounded-md border border-border px-3 py-2 text-sm"
-                      data-testid="people-current-workspace-switch"
-                      onClick={() => setConnectedSection("workspace")}
-                    >
-                      {t("peopleWorkspaceSwitch")}
-                    </button>
-                  </section>
-                ) : null}
-                {invitationWorkspace && invitationOperator ? (
-                  <HostMemberSetupCard
-                    activeProfile={invitationOperator}
-                    workspace={invitationWorkspace}
-                    busy={hostController.busy}
-                    error={hostController.error}
-                    copyMemberSetupCode={() =>
-                      hostController.copyMemberSetupCode({
-                        profileId: invitationOperator.profileId,
-                        workspaceId: invitationWorkspace.workspaceId,
-                        serverBaseUrl: invitationWorkspace.serverBaseUrl
-                      })
-                    }
-                    dismissMemberSetupCodeHandoff={hostController.dismissMemberSetupCodeHandoff}
-                    memberSetupCodeHandoff={hostController.memberSetupCodeHandoff}
-                    t={t}
-                  />
-                ) : null}
-                <PeoplePanel
-                  mode={panel.mode}
-                  presence={panel.presence}
-                  identity={panel.identity}
-                  members={panel.members}
-                  invitations={panel.invitations}
-                  devices={panel.devices}
-                  detailsLoading={panel.detailsLoading || reconnectPending}
-                  detailsError={panel.detailsError}
-                  actionError={panel.actionError}
-                  actionBusy={panel.actionBusy}
-                  pendingInvitation={panel.pendingInvitation}
-                  revealInvitationManagement={revealInvitationManagement}
-                  showTitle={false}
-                  diagnosticReport={diagnosticReport}
-                  diagnosticsEnabled={diagnosticsEnabled}
-                  onCopyDiagnostics={copyText}
-                  t={t}
-                  onCreateInvitation={panel.createInvitation}
-                  onViewInvitation={panel.viewInvitation}
-                  onCopyInvitationToken={copyText}
-                  onDismissPendingInvitation={panel.clearPendingInvitation}
-                  onRevokeInvitation={async (invitationId) => {
-                    const ok = await panel.revokeInvitation(invitationId);
-                    reportMembership(ok, membershipResult(ok));
-                    return ok;
-                  }}
-                  onRevokeInvitations={async (invitationIds) => {
-                    const ok = await panel.revokeInvitations(invitationIds);
-                    reportMembership(ok, membershipResult(ok));
-                    return ok;
-                  }}
-                  onUpdateOwnDisplayName={async (displayName) => {
-                    const ok = await panel.updateOwnDisplayName(displayName);
-                    if (ok) {
-                      await Promise.all([refreshMembers(), refreshCollaborationStatus()]);
-                    }
-                    return ok;
-                  }}
-                  onPromoteMember={async (humanPrincipalId) => {
-                    const ok = await panel.promoteMember(humanPrincipalId);
-                    if (ok) await refreshMembers();
-                    reportMembership(ok, membershipResult(ok));
-                    return ok;
-                  }}
-                  onDemoteMember={async (humanPrincipalId) => {
-                    const ok = await panel.demoteMember(humanPrincipalId);
-                    if (ok) await refreshMembers();
-                    reportMembership(ok, membershipResult(ok));
-                    return ok;
-                  }}
-                  onRemoveMember={async (humanPrincipalId) => {
-                    const ok = await panel.removeMember(humanPrincipalId);
-                    if (ok) await refreshMembers();
-                    reportMembership(ok, membershipResult(ok));
-                    return ok;
-                  }}
-                  onRevokeDevice={async (deviceCredentialId) => {
-                    const ok = await panel.revokeDevice(deviceCredentialId);
-                    reportMembership(ok, membershipResult(ok));
-                    return ok;
-                  }}
-                  canManageMemberAccess={
-                    workspaceAccessScope.access.view?.project.capabilities.grant === true ||
-                    workspaceAccessScope.access.view?.project.capabilities.revoke === true ||
-                    workspaceAccessScope.access.view?.canvas.capabilities.grant === true ||
-                    workspaceAccessScope.access.view?.canvas.capabilities.revoke === true
-                  }
-                  renderMemberAccess={(member) => {
-                    if (workspaceAccessScope.access.loading && !workspaceAccessScope.access.view) {
-                      return <p className="text-xs text-muted-foreground">{t("accessLoading")}</p>;
-                    }
-                    const person = workspaceAccessScope.access.view?.people.find(
-                      (candidate) => candidate.humanPrincipalId === member.humanPrincipalId
-                    );
-                    if (!workspaceAccessScope.access.view || !person) {
-                      return (
-                        <p className="text-xs text-muted-foreground">
-                          {workspaceAccessScope.access.error ?? t("accessMemberUnavailable")}
-                        </p>
-                      );
-                    }
-                    return (
-                      <CurrentCanvasMemberAccess
-                        view={workspaceAccessScope.access.view}
-                        person={person}
-                        busy={workspaceAccessScope.access.busy}
-                        t={t}
-                        onGrant={workspaceAccessScope.access.grant}
-                        onRevoke={workspaceAccessScope.access.revoke}
-                      />
-                    );
-                  }}
-                  onRefreshDetails={handleRefreshDetails}
-                />
-                {authoritativeCanvasAccess}
-              </>
-            ) : (
-              <WorkspaceManagementPanel
+              <PeoplePanel
+                mode={panel.mode}
+                presence={panel.presence}
+                identity={panel.identity}
+                members={panel.members}
+                invitations={panel.invitations}
+                devices={panel.devices}
+                detailsLoading={panel.detailsLoading || reconnectPending}
+                detailsError={panel.detailsError}
+                actionError={panel.actionError}
+                actionBusy={panel.actionBusy}
+                pendingInvitation={panel.pendingInvitation}
+                revealInvitationManagement={revealInvitationManagement}
+                showTitle={false}
+                invitationOpen={invitationOpen}
+                onInvitationOpenChange={setInvitationOpen}
+                invitationSetup={invitationSetup}
+                accessScope={authoritativeCanvasAccess}
+                onManageCanvasAccess={() => setAccessOpen(true)}
+                diagnosticReport={diagnosticReport}
+                diagnosticsEnabled={diagnosticsEnabled}
+                onCopyDiagnostics={copyText}
                 t={t}
-                connection={
-                  <CollaborationConnectForm
-                    api={api}
-                    diagnosticsEnabled={diagnosticsEnabled}
-                    status={status}
-                    t={t}
-                    initialMode="join"
-                    workspaceConnectionOnly
-                    showHeader={false}
-                    copyText={copyText}
-                    onConnected={refreshCollaborationStatus}
-                  />
+                onCreateInvitation={panel.createInvitation}
+                onViewInvitation={panel.viewInvitation}
+                onCopyInvitationToken={copyText}
+                onDismissPendingInvitation={panel.clearPendingInvitation}
+                onRevokeInvitation={async (invitationId) => {
+                  const ok = await panel.revokeInvitation(invitationId);
+                  reportMembership(ok, membershipResult(ok));
+                  return ok;
+                }}
+                onRevokeInvitations={async (invitationIds) => {
+                  const ok = await panel.revokeInvitations(invitationIds);
+                  reportMembership(ok, membershipResult(ok));
+                  return ok;
+                }}
+                onUpdateOwnDisplayName={async (displayName) => {
+                  const ok = await panel.updateOwnDisplayName(displayName);
+                  if (ok) {
+                    await Promise.all([refreshMembers(), refreshCollaborationStatus()]);
+                  }
+                  return ok;
+                }}
+                onPromoteMember={async (humanPrincipalId) => {
+                  const ok = await panel.promoteMember(humanPrincipalId);
+                  if (ok) await refreshMembers();
+                  reportMembership(ok, membershipResult(ok));
+                  return ok;
+                }}
+                onDemoteMember={async (humanPrincipalId) => {
+                  const ok = await panel.demoteMember(humanPrincipalId);
+                  if (ok) await refreshMembers();
+                  reportMembership(ok, membershipResult(ok));
+                  return ok;
+                }}
+                onRemoveMember={async (humanPrincipalId) => {
+                  const ok = await panel.removeMember(humanPrincipalId);
+                  if (ok) await refreshMembers();
+                  reportMembership(ok, membershipResult(ok));
+                  return ok;
+                }}
+                onRevokeDevice={async (deviceCredentialId) => {
+                  const ok = await panel.revokeDevice(deviceCredentialId);
+                  reportMembership(ok, membershipResult(ok));
+                  return ok;
+                }}
+                canManageMemberAccess={
+                  workspaceAccessScope.access.view?.project.capabilities.grant === true ||
+                  workspaceAccessScope.access.view?.project.capabilities.revoke === true ||
+                  workspaceAccessScope.access.view?.canvas.capabilities.grant === true ||
+                  workspaceAccessScope.access.view?.canvas.capabilities.revoke === true
                 }
-                hostedCanvases={
-                  sessionConnected ? (
-                    <div className="flex flex-col gap-8">
-                      {canControlLocalServer ? (
-                        <LocalCollaborationServerPanel
-                          api={api}
-                          t={t}
-                          projectId={null}
-                          canvasId={null}
-                          scopeLayout={collaborationScopeLayout}
-                          onScopeLayoutChange={onCollaborationScopeLayoutChange}
-                          copyText={copyText}
-                          showInvitationControls={false}
-                          invitationHandoff={localInvitationHandoff}
-                          onInvitationHandoffChange={setLocalInvitationHandoff}
-                          onStatusChange={handleLocalServerStatusChange}
-                          serverExposure={desktopServerExposure}
-                          scopesRequireRunning
-                          onManageServer={onManageServer}
-                        />
-                      ) : null}
-                      <WorkspaceCanvasSharingPanel
-                        api={api}
-                        connected={sessionConnected}
-                        connectionKey={activeProfile?.profileId ?? null}
-                        workspaceProjectId={activeProfile?.projectId ?? null}
-                        onPublished={(result) => {
-                          void workspaceAccessScope.refreshOptions();
-                          onWorkspaceCanvasPublished?.(result.locator);
-                        }}
-                        t={t}
-                      />
-                    </div>
-                  ) : null
-                }
+                renderMemberAccess={(member) => {
+                  if (workspaceAccessScope.access.loading && !workspaceAccessScope.access.view) {
+                    return <p className="text-xs text-muted-foreground">{t("accessLoading")}</p>;
+                  }
+                  const person = workspaceAccessScope.access.view?.people.find(
+                    (candidate) => candidate.humanPrincipalId === member.humanPrincipalId
+                  );
+                  if (!workspaceAccessScope.access.view || !person) {
+                    return (
+                      <p className="text-xs text-muted-foreground">
+                        {workspaceAccessScope.access.error ?? t("accessMemberUnavailable")}
+                      </p>
+                    );
+                  }
+                  return (
+                    <CurrentCanvasMemberAccess
+                      view={workspaceAccessScope.access.view}
+                      person={person}
+                      busy={workspaceAccessScope.access.busy}
+                      t={t}
+                      onGrant={workspaceAccessScope.access.grant}
+                      onRevoke={workspaceAccessScope.access.revoke}
+                    />
+                  );
+                }}
+                onRefreshDetails={handleRefreshDetails}
+              />
+            ) : (
+              <WorkspaceCanvasDirectory
+                key={`${connectedWorkspace?.workspaceId ?? ""}:${directoryEpoch}`}
+                api={api}
+                connected={workspaceConnected}
+                workspaceId={connectedWorkspace?.workspaceId}
+                connectionKey={connectedWorkspace?.profile?.profileId ?? null}
+                onOpen={onWorkspaceCanvasPublished}
+                onReconnect={() => setConnectionOpen(true)}
+                t={t}
               />
             )}
+            <ManagementDialog
+              open={joiningOpen}
+              onOpenChange={setJoiningOpen}
+              title={t("workspaceJoinAnother")}
+              t={t}
+            >
+              <CollaborationConnectForm
+                api={api}
+                diagnosticsEnabled={diagnosticsEnabled}
+                status={status}
+                t={t}
+                fixedMode="join"
+                workspaceConnectionOnly
+                showWorkspacePicker={false}
+                showConnectionSummary={false}
+                showHeader={false}
+                copyText={copyText}
+                onConnected={async () => {
+                  await refreshCollaborationStatus();
+                  setJoiningOpen(false);
+                }}
+              />
+              {onManageServer ? (
+                <Button variant="ghost" className="mt-4" onClick={onManageServer}>
+                  {t("settingsServer")}
+                </Button>
+              ) : null}
+            </ManagementDialog>
+            <ManagementDialog
+              open={sharingOpen}
+              onOpenChange={setSharingOpen}
+              title={t("workspaceShareAction")}
+              t={t}
+            >
+              <WorkspaceCanvasSharingPanel
+                api={api}
+                connected={canShareCanvas}
+                connectionKey={connectedWorkspace?.profile?.profileId ?? null}
+                workspaceProjectId={null}
+                initialExpanded
+                requireProjectSelection
+                showHeader={false}
+                onPublished={(result) => {
+                  void workspaceAccessScope.refreshOptions();
+                  setDirectoryEpoch((value) => value + 1);
+                  setSharingOpen(false);
+                  onWorkspaceCanvasPublished?.(result.locator);
+                }}
+                t={t}
+              />
+            </ManagementDialog>
+            <ManagementDialog
+              open={accessOpen}
+              onOpenChange={setAccessOpen}
+              title={t("workspaceAccessSettings")}
+              t={t}
+            >
+              {authoritativeCanvasAccess}
+            </ManagementDialog>
           </div>
         )}
       </div>

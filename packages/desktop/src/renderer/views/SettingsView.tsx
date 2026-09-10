@@ -8,7 +8,6 @@ import type {
   ProjectPromptPolicy
 } from "@planweave-ai/runtime";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { SettingsAgentsSection } from "../settings/SettingsAgentsSection";
 import { SettingsComponentsSection } from "../settings/SettingsComponentsSection";
 import { SettingsGeneralSection } from "../settings/SettingsGeneralSection";
 import { SettingsNav } from "../settings/SettingsNav";
@@ -52,16 +51,12 @@ type SettingsViewProps = {
 };
 
 export function SettingsView({
-  agentDetectionRefreshing,
-  agents,
   graph,
   globalPromptMarkdown,
   language,
-  refreshAgentDetections,
   refreshRuntimeTools,
   runtimeTools,
   projects = [],
-  selectedCanvasId = null,
   selectedProject,
   loadProject,
   setActiveView,
@@ -73,7 +68,6 @@ export function SettingsView({
   updateProjectPrompt,
   updateProjectPromptPolicy,
   updateGlobalPrompt,
-  updateSettingsAndWait,
   updateSettings
 }: SettingsViewProps) {
   const [queuedConnectionsTab] = useState(() => peekSettingsConnectionsTab());
@@ -93,9 +87,6 @@ export function SettingsView({
     selectedProject && projectPromptPolicy && updateProjectPromptPolicy
   );
   const projectSelectorAvailable = projects.length > 0 && Boolean(loadProject);
-  const selectedCanvasRef = selectedProject
-    ? { projectRoot: selectedProject.rootPath, canvasId: selectedCanvasId }
-    : null;
 
   useEffect(() => {
     setProjectPromptDraft(projectPromptMarkdown ?? "");
@@ -204,26 +195,11 @@ export function SettingsView({
                 t={t}
               />
             ) : null}
-            {section === "agents" ? (
-              <SettingsAgentsSection
-                agentDetectionRefreshing={agentDetectionRefreshing}
-                agents={agents}
-                canvasRef={selectedCanvasRef}
-                graph={graph}
-                persistSettings={updateSettingsAndWait}
-                refreshAgentDetections={refreshAgentDetections}
-                setError={setError}
-                settings={settings}
-                t={t}
-                updateSettings={updateSettings}
-              />
-            ) : null}
             {section === "mcp" ? <SettingsMcpSection setError={setError} t={t} /> : null}
             {section === "connections" ? (
               <SettingsConnectionsSection
                 t={t}
-                diagnosticsEnabled={settings.developerMode}
-                initialTab={queuedConnectionsTab ?? "overview"}
+                initialTab={queuedConnectionsTab ?? "server"}
                 onTabChange={resetSettingsViewport}
               />
             ) : null}

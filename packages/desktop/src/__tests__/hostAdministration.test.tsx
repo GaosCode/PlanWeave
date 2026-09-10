@@ -7,7 +7,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTranslator } from "../renderer/i18n";
 import { HostAdministrationSection } from "../renderer/settings/HostAdministrationSection";
 import { HostMemberSetupCard } from "../renderer/settings/HostMemberSetupCard";
-import { SettingsConnectionsSection } from "../renderer/settings/SettingsConnectionsSection";
 import { LocalAgentHostCard } from "../renderer/settings/LocalAgentHostCard";
 import { RemoteAgentManagementCard } from "../renderer/settings/RemoteAgentManagementCard";
 import type { RemoteAgentManagementController } from "../renderer/hooks/useRemoteAgentManagementController";
@@ -333,7 +332,7 @@ describe("Agent Host settings", () => {
     expect(screen.queryByTestId("remote-agent-device-host-4")).not.toBeInTheDocument();
   });
 
-  it("expands an Agent row to authorize a named canvas instead of typing an ID", async () => {
+  it("uses named Workspace switches and preserves separate local-canvas authorization", async () => {
     const user = userEvent.setup();
     const grantWorkspace = vi.fn().mockResolvedValue(true);
     const setAccessMode = vi.fn().mockResolvedValue(true);
@@ -377,25 +376,13 @@ describe("Agent Host settings", () => {
       />
     );
 
-    const toggle = screen.getByTestId("remote-agent-row-toggle-endpoint-pi");
-    expect(toggle.closest("details")).not.toHaveAttribute("open");
-    expect(screen.queryByPlaceholderText("Workspace ID")).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
-
-    await user.click(toggle);
-    expect(toggle.closest("details")).toHaveAttribute("open");
-    expect(screen.getByTestId("remote-agent-local-canvas")).toBeInTheDocument();
-    expect(screen.getByTestId("remote-agent-access-mode")).toBeInTheDocument();
-    await user.selectOptions(screen.getByTestId("remote-agent-local-canvas"), "deny");
+    expect(screen.getAllByRole("heading", { name: "Pi", exact: true })).toHaveLength(1);
+    await user.click(screen.getByTestId("remote-agent-local-canvas"));
     expect(setAccessMode).toHaveBeenCalledWith("endpoint-pi", "workspace_restricted", false);
-    expect(screen.getByText("tiny-notes")).toBeInTheDocument();
-    const grantSelect = screen.getByTestId("remote-agent-grant-workspace");
-    expect(grantSelect.tagName).toBe("SELECT");
-    expect(within(grantSelect).queryByText("tiny-notes")).not.toBeInTheDocument();
-    expect(within(grantSelect).getByRole("option", { name: "PlanWeave Demo" })).toBeInTheDocument();
-
-    await user.selectOptions(grantSelect, "workspace-demo");
-    await user.click(screen.getByRole("button", { name: "Authorize" }));
+    expect(screen.getByRole("switch", { name: "tiny-notes" })).toBeChecked();
+    expect(screen.getByRole("switch", { name: "PlanWeave Demo" })).not.toBeChecked();
+    await user.click(screen.getByRole("switch", { name: "PlanWeave Demo" }));
     expect(grantWorkspace).toHaveBeenCalledWith("endpoint-pi", "workspace-demo");
   });
 
@@ -691,7 +678,7 @@ describe("Agent Host settings", () => {
     ]);
   });
 
-  it("marks the overview Host count as incomplete while more pages are available", async () => {
+  it("keeps the device list incomplete while more pages are available", async () => {
     bridgeMock.listOperatorHosts.mockImplementation(async ({ query }) => {
       const cursor = query.cursor;
       return {
@@ -707,16 +694,10 @@ describe("Agent Host settings", () => {
       };
     });
 
-    render(<SettingsConnectionsSection t={createTranslator("en")} />);
+    render(<HostAdministrationSection t={createTranslator("en")} />);
 
-    await waitFor(() =>
-      expect(screen.getByTestId("settings-connections-devices-state")).toHaveTextContent(
-        "At least 5 devices loaded · 1 online"
-      )
-    );
-    expect(screen.getByTestId("settings-connections-devices-state")).not.toHaveTextContent(
-      "1 of 5 online"
-    );
+    await waitFor(() => expect(screen.getByTestId("host-availability-partial")).toBeVisible());
+    expect(screen.getByTestId("host-availability-partial")).not.toHaveTextContent("1 of 5 online");
   });
 
   it("keeps the authoritative Host snapshot when a later refresh fails", async () => {
@@ -806,6 +787,11 @@ describe("Agent Host settings", () => {
     expect(await screen.findByTestId("host-availability-status-host-1")).toHaveTextContent(
       "Update required"
     );
+    await userEvent.click(
+      within(screen.getByTestId("host-availability-host-1")).getByRole("button", {
+        name: "Details"
+      })
+    );
     expect(screen.getByText("Update the agents shared by the target device.")).toBeInTheDocument();
     expect(screen.queryByText(/capability|ACP|preset|heartbeat/i)).not.toBeInTheDocument();
   });
@@ -852,11 +838,17 @@ describe("Agent Host settings", () => {
       }
     });
 
+    await user.click(screen.getByRole("button", { name: "More actions: Build Host" }));
     await user.click(screen.getByTestId("host-admin-renew-host-1"));
     expect(bridgeMock.renewOperatorHostCredential).toHaveBeenCalledWith({
       profileId: "profile-a",
       hostId: "host-1"
     });
+    await user.click(
+      within(screen.getByTestId("host-availability-host-1")).getByRole("button", {
+        name: "Details"
+      })
+    );
     expect(await screen.findByTestId("host-credential-renewal-pending-host-1")).toHaveTextContent(
       "Renewal requested"
     );
@@ -873,7 +865,9 @@ describe("Agent Host settings", () => {
 
     expect(await screen.findByText("A managed Server is required")).toBeVisible();
     expect(
-      screen.getByText("Start or connect a PlanWeave Server you manage from Members first.")
+      screen.getByText(
+        "Start or connect a PlanWeave Server you manage from Settings → Server first."
+      )
     ).toBeVisible();
     expect(screen.queryByTestId("host-admin-create-grant")).not.toBeInTheDocument();
     expect(screen.queryByText(/^1\./)).not.toBeInTheDocument();
@@ -1238,6 +1232,7 @@ describe("Agent Host settings", () => {
     render(<HostAdministrationSection t={createTranslator("en")} />);
     await screen.findByTestId("host-availability-host-1");
 
+    await user.click(screen.getByRole("button", { name: "More actions: Build Host" }));
     await user.click(screen.getByTestId("host-admin-revoke-host-1"));
     expect(bridgeMock.revokeOperatorHost).toHaveBeenCalledWith({
       profileId: "profile-a",

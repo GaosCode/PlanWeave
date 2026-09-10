@@ -6,7 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentSettingsPanel } from "../renderer/components/AgentSettingsPanel";
-import { SettingsConnectionsSection } from "../renderer/settings/SettingsConnectionsSection";
+import { ExecutorsView } from "../renderer/views/ExecutorsView";
 import { SettingsView } from "../renderer/views/SettingsView";
 import { createTranslator } from "../renderer/i18n";
 import {
@@ -58,7 +58,8 @@ const settings: DesktopUiSettings = {
   },
   execution: {
     tmuxMonitoring: true,
-    agentTransport: "cli"
+    agentTransport: "cli",
+    agentHost: { kind: "native" }
   },
   windowMaterial: {
     enabled: false
@@ -129,6 +130,12 @@ function hostAdministrationController() {
     activeProfile: null,
     loadState: "ready" as const,
     hostsLoading: false,
+    hostsHasMore: false,
+    hostInventoryState: "profile_missing" as const,
+    credentialLifetimeDays: 180 as const,
+    setCredentialLifetimeDays: vi.fn(),
+    renewHostCredential: vi.fn(),
+    loadMoreHosts: vi.fn(),
     busy: false,
     error: null,
     handoff: null,
@@ -178,11 +185,6 @@ function stubLayoutApis() {
     configurable: true,
     value: vi.fn()
   });
-}
-
-async function chooseSelectOption(testId: string, optionName: string) {
-  await userEvent.click(screen.getByTestId(testId));
-  await userEvent.click(await screen.findByRole("option", { name: optionName }));
 }
 
 function stubLocalStorage() {
@@ -272,7 +274,7 @@ describe("desktop renderer settings interactions", () => {
     );
   });
 
-  it("keeps one host administration controller while switching connection tabs", async () => {
+  it("keeps one host controller across executor tabs and the enrollment dialog", async () => {
     const controllerMounts = vi.fn();
     const controller = hostAdministrationController();
     useHostAdministrationController.mockImplementation(() => {
@@ -281,46 +283,80 @@ describe("desktop renderer settings interactions", () => {
       }, []);
       return controller;
     });
-
-    render(<SettingsConnectionsSection t={createTranslator("en")} />);
-
-    expect(await screen.findByTestId("settings-connections-overview")).toBeVisible();
+    render(
+      <ExecutorsView
+        agentDetectionRefreshing={false}
+        agents={[]}
+        graph={null}
+        language="en"
+        refreshAgentDetections={vi.fn().mockResolvedValue(undefined)}
+        refreshRuntimeTools={vi.fn().mockResolvedValue(undefined)}
+        runtimeTools={{ tmux: { available: true, command: "tmux" } }}
+        projects={[]}
+        setActiveView={vi.fn()}
+        settings={settings}
+        t={createTranslator("en")}
+        updateSettings={vi.fn()}
+        updateSettingsAndWait={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+    expect(screen.getByTestId("executor-inventory")).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Executors" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("tab", { name: "Execution devices" }));
+    expect(screen.getByTestId("host-availability")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Connect device", exact: true }));
+    expect(await screen.findByTestId("host-admin-bootstrap")).toBeVisible();
+    expect(screen.getByRole("dialog")).toHaveAccessibleName("Connect device");
     await waitFor(() => expect(controllerMounts).toHaveBeenCalledTimes(1));
-
-    await userEvent.click(screen.getByTestId("settings-connections-tab-devices"));
-
-    expect(await screen.findByTestId("host-administration")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Close", exact: true }));
+    expect(screen.getByRole("tab", { name: "Execution devices" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
     expect(controllerMounts).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps focus on My devices when the enrollment form appears", async () => {
-    useHostAdministrationController.mockReturnValue({
-      ...hostAdministrationController(),
-      localAgentHost: {
-        supported: true,
-        state: "not_registered",
-        agents: [
+  it("opens local execution settings without navigating away from the inventory", async () => {
+    render(
+      <ExecutorsView
+        agentDetectionRefreshing={false}
+        agents={[
           {
-            profileId: "codex-acp",
-            agentId: "codex",
-            displayName: "Codex",
-            detected: true,
-            exposed: false,
-            ready: false
+            kind: "codex",
+            runnerKind: "cli",
+            name: "Codex",
+            command: "codex",
+            versionArgs: [],
+            execArgs: [],
+            fullAccessArgs: [],
+            installed: true,
+            version: "1",
+            unavailableReason: null,
+            executionHost: { kind: "native" }
           }
-        ]
-      }
-    });
-    render(<SettingsConnectionsSection t={createTranslator("en")} />);
-    const devicesTab = screen.getByTestId("settings-connections-tab-devices");
-
-    await userEvent.click(devicesTab);
-
-    expect(await screen.findByTestId("host-admin-local-handoff")).toBeVisible();
-    expect(devicesTab).toHaveFocus();
+        ]}
+        graph={null}
+        language="en"
+        refreshAgentDetections={vi.fn().mockResolvedValue(undefined)}
+        refreshRuntimeTools={vi.fn().mockResolvedValue(undefined)}
+        runtimeTools={{ tmux: { available: true, command: "tmux" } }}
+        projects={[]}
+        setActiveView={vi.fn()}
+        settings={settings}
+        t={createTranslator("en")}
+        updateSettings={vi.fn()}
+        updateSettingsAndWait={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+    expect(screen.getByTestId("executor-local-row")).toHaveTextContent("Codex");
+    await userEvent.click(screen.getByRole("button", { name: "Configure" }));
+    expect(screen.getByRole("dialog")).toHaveAccessibleName("Local execution settings");
+    expect(await screen.findByTestId("settings-section-agents")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Close", exact: true }));
+    expect(screen.getByTestId("executor-inventory")).toBeVisible();
   });
 
-  it("groups Server and Agent Hosts under Connections & Devices", async () => {
+  it("keeps Server connections and maintenance in Settings without duplicate page headings", async () => {
     stubLayoutApis();
     const requestAnimationFrameSpy = vi.spyOn(window, "requestAnimationFrame");
     render(
@@ -340,106 +376,34 @@ describe("desktop renderer settings interactions", () => {
         updateSettingsAndWait={vi.fn().mockResolvedValue(undefined)}
       />
     );
-
-    expect(screen.queryByTestId("settings-nav-server")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("settings-nav-hosts")).not.toBeInTheDocument();
-
-    await userEvent.click(screen.getByTestId("settings-nav-connections"));
-    expect(await screen.findByTestId("settings-connections-overview")).toBeVisible();
-    expect(screen.getByRole("heading", { name: "Connections & Devices" })).toHaveClass("text-2xl");
-    expect(screen.getByRole("heading", { name: "Current status" })).toBeVisible();
-    expect(screen.getByTestId("settings-connections-server-state")).toBeVisible();
-    expect(screen.getByTestId("settings-connections-devices-state")).toBeVisible();
-    expect(screen.queryByTestId("settings-connections-workspace-state")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Manage my devices" })).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "Advanced connection settings" })
-    ).not.toBeInTheDocument();
-
+    expect(screen.queryByTestId("settings-nav-agents")).not.toBeInTheDocument();
+    const serverNav = screen.getByTestId("settings-nav-connections");
+    expect(serverNav).toHaveTextContent("Server");
+    await userEvent.click(serverNav);
+    expect(await screen.findByTestId("server-connection-list")).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Server", exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("settings-server-lifecycle-block")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("host-administration")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Add connection", exact: true }));
+    expect(screen.getByRole("dialog")).toHaveAccessibleName("Add connection");
+    expect(screen.getByTestId("deployment-origin")).toBeVisible();
+    expect(screen.queryByTestId("deployment-kind")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("settings-server-lifecycle-block")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Close", exact: true }));
     const settingsViewport = document.querySelector<HTMLElement>(
       '[data-slot="scroll-area-viewport"]'
     );
     expect(settingsViewport).not.toBeNull();
-    requestAnimationFrameSpy.mockClear();
     if (settingsViewport) settingsViewport.scrollTop = 240;
-    await userEvent.click(screen.getByTestId("settings-connections-tab-server"));
+    requestAnimationFrameSpy.mockClear();
+    await userEvent.click(screen.getByTestId("settings-connections-tab-maintenance"));
     expect(settingsViewport?.scrollTop).toBe(0);
     expect(requestAnimationFrameSpy).not.toHaveBeenCalled();
-    expect(await screen.findByTestId("settings-server-section")).toBeVisible();
-    expect(screen.getByTestId("settings-server-lifecycle-block")).toBeVisible();
-    expect(screen.getByText("Server status")).toBeVisible();
-    expect(screen.getByLabelText("Location")).toBeVisible();
-    expect(screen.getByLabelText("Access method")).toBeVisible();
-    expect(screen.getByTestId("local-server-lifecycle-status")).toHaveTextContent("Not connected");
-    await chooseSelectOption("deployment-kind", "Existing Server");
-    expect(screen.getByTestId("settings-server-lifecycle-block")).toBeVisible();
-    expect(screen.getByText("Server status")).toBeVisible();
-    expect(screen.getByTestId("local-server-lifecycle-status")).toHaveTextContent("Not connected");
-    expect(screen.queryByTestId("local-server-lifecycle-start")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("people-workspace-connection-status")).not.toBeInTheDocument();
-    expect(screen.getByTestId("deployment-origin")).toBeVisible();
-    expect(screen.getByTestId("deployment-origin-connect")).toHaveTextContent("Connect");
-    expect(screen.getByTestId("people-connect-handoff-fallback")).toBeVisible();
-    expect(screen.queryByTestId("settings-server-existing-connect")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("people-connect-setup-details")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("people-invite-trust-note")).not.toBeInTheDocument();
-    expect(screen.getByTestId("deployment-existing-connect-hint")).toBeVisible();
-    expect(screen.getByTestId("deployment-existing-tools")).toBeVisible();
-    expect(screen.getByTestId("deployment-export-package")).toHaveTextContent("Deploy tools");
-    expect(screen.getByTestId("deployment-check-connectivity")).toHaveTextContent(
-      "Check connectivity"
-    );
-    expect(screen.queryByTestId("deployment-display-name")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Redeem setup code" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Server" })).not.toBeInTheDocument();
-    await waitFor(() => expect(settingsViewport?.scrollTop).toBe(0));
-    expect(screen.getByTestId("settings-server-connection-block")).toBeVisible();
-    expect(
-      screen
-        .getByTestId("settings-server-connection-block")
-        .querySelector("[data-slot='field-group']")
-    ).not.toBeNull();
-    expect(screen.getByTestId("local-server-lifecycle")).not.toHaveClass(
-      "rounded-md",
-      "border",
-      "bg-surface-raised",
-      "shadow-sm"
-    );
-    expect(
-      screen
-        .getByTestId("settings-server-connection-block")
-        .querySelector("[data-slot='field-group']")
-    ).not.toHaveClass("rounded-md", "border", "bg-surface-raised", "shadow-sm");
-    expect(screen.getByTestId("deployment-connection")).not.toHaveClass(
-      "rounded-md",
-      "border",
-      "bg-surface-raised"
-    );
-    expect(screen.queryByTestId("settings-server-hosting-block")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("settings-server-content-block")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("settings-server-content-needs-session")).not.toBeInTheDocument();
-
-    if (settingsViewport) settingsViewport.scrollTop = 240;
-    await userEvent.click(screen.getByTestId("settings-connections-tab-devices"));
-    expect(settingsViewport?.scrollTop).toBe(0);
-    expect(await screen.findByTestId("host-administration")).toBeVisible();
-    await waitFor(() => expect(settingsViewport?.scrollTop).toBe(0));
-    expect(
-      screen.getByTestId("host-administration").closest('[data-slot="tabs-content"]')
-    ).toHaveClass("pt-0");
-    expect(screen.queryByTestId("deployment-connection")).not.toBeInTheDocument();
-    const remoteDevices = screen.getByTestId("host-availability");
-    const addRemoteDevice = screen.getByTestId("host-admin-bootstrap");
-    const localAgentHost = screen.getByTestId("host-admin-local-agent-host");
-    expect(remoteDevices).toHaveClass("border-b");
-    expect(remoteDevices).not.toHaveClass("border-y");
-    expect(addRemoteDevice).not.toHaveClass("border-t");
-    expect(remoteDevices.compareDocumentPosition(addRemoteDevice)).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING
-    );
-    expect(addRemoteDevice.compareDocumentPosition(localAgentHost)).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING
-    );
+    expect(await screen.findByTestId("settings-server-lifecycle-block")).toBeVisible();
+    expect(screen.queryByTestId("deployment-kind")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("settings-connections-tab-server"));
+    expect(screen.getByTestId("server-connection-list")).toBeVisible();
+    expect(screen.queryByTestId("settings-server-lifecycle-block")).not.toBeInTheDocument();
   });
 
   it("normalizes invalid legacy migration appearance and window material settings", () => {

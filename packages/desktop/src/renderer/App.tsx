@@ -49,7 +49,8 @@ export function AppWorkspaceChrome({
 }) {
   const { palette, projectSidebar, shell } = useProjectWorkspace();
   const activeView = shell.activeView;
-  const hasRightPalette = activeView !== "canvas-map" && activeView !== "people";
+  const hasRightPalette =
+    activeView !== "canvas-map" && activeView !== "people" && activeView !== "executors";
 
   if (activeView === "task-workspace") {
     return (

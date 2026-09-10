@@ -1,8 +1,10 @@
+import { managementEnCatalog } from "./i18nManagementEn";
 import { agentEndpointRunEnCatalog } from "./i18nAgentEndpointRunEn";
 import { remoteAgentManagementEnCatalog } from "./i18nRemoteAgentManagementEn";
 import { runnerEnCatalog } from "./i18nRunnerEn";
 
 export const enCatalog = {
+  ...managementEnCatalog,
   statistics: "Statistics",
   search: "Search",
   notifications: "Notifications",
@@ -586,7 +588,7 @@ export const enCatalog = {
     "Run the local PlanWeave MCP server and connect it to ChatGPT through OpenAI Secure MCP Tunnel.",
   settingsServerHint:
     "Host the collaboration Server on this computer, or paste connection details to join one that already exists.",
-  settingsServerOpenPeople: "Open Members to connect",
+  settingsServerOpenPeople: "Open Workspace to connect",
   settingsServerReconnectSession: "Reconnect session",
   settingsServerReconnectSessionBusy: "Reconnecting…",
   settingsServerConnect: "Connect",
@@ -714,7 +716,7 @@ export const enCatalog = {
   hostAvailabilityLoading: "Loading remote devices…",
   hostAvailabilityUnavailable: "Remote devices are temporarily unavailable",
   hostAvailabilityUnavailable_profile_missing:
-    "Start or connect a PlanWeave Server you manage from Members first.",
+    "Start or connect a PlanWeave Server you manage from Settings → Server first.",
   hostAvailabilityUnavailable_credential_missing:
     "Restart PlanWeave to restore this Server's management connection. Registered devices remain stored on the Server.",
   hostAvailabilityUnavailable_unavailable:
@@ -795,7 +797,7 @@ export const enCatalog = {
   hostAdminClearCredential: "Clear credential",
   hostAdminCredentialAvailable: "Credential available",
   hostAdminCredentialMissing:
-    "The current Server cannot create device enrollment details. Connect it from Members first.",
+    "The current Server cannot create device enrollment details. Connect it from Settings → Server first.",
   hostAdminHumanPrincipalUnavailable:
     "Remote Agents need a signed-in person identity before enrollment. Connect a Workspace profile, then retry.",
   hostAdminCredentialPersistence_persisted: "OS vault",
@@ -909,7 +911,7 @@ export const enCatalog = {
   hostAdminBootstrapCodexPreset:
     "Enrollment exposes no agents by default. On the Host, use agents list and agents expose for a supported installed agent.",
   hostAdminBootstrapSecureCoordinator:
-    "Start or connect a PlanWeave Server you manage from Members first.",
+    "Start or connect a PlanWeave Server you manage from Settings → Server first.",
   hostAdminBootstrapUnavailableTitle: "A managed Server is required",
   hostAdminBootstrapAbsolutePaths:
     "Config, data, and workspace paths must be absolute Host-local paths.",
@@ -932,9 +934,10 @@ export const enCatalog = {
   hostAdminBootstrapHeartbeatNote:
     "After registration, the device and its shared agents appear automatically below.",
   hostAdminOffline: "PlanWeave Server cannot be reached. Check your network and try again.",
-  hostAdminUnauthorized: "Server management access expired. Reconnect from Members.",
+  hostAdminUnauthorized: "Server management access expired. Reconnect from Settings → Server.",
   hostAdminForbidden: "Your account cannot manage remote devices.",
-  hostAdminProfileMissing: "The current Server connection is unavailable. Reconnect from Members.",
+  hostAdminProfileMissing:
+    "The current Server connection is unavailable. Reconnect from Settings → Server.",
   hostAdminErrorGeneric: "The Agent Host action failed. Try again shortly.",
   hostAdminDiagnosticCode: "Diagnostic code",
   agentInstallStatus: "Local agent installation status",
@@ -1439,8 +1442,7 @@ export const enCatalog = {
   peopleInvitationLoopbackWarning:
     "This invitation points to a device-only address and cannot be used from another Windows computer. Connect to a network-reachable Server and create a new invitation there.",
   peopleWindowsJoinTitle: "Connect from Windows",
-  peopleWindowsJoinPath:
-    "On Windows, open Members → Collaboration workspace → Join with invitation, then fill in:",
+  peopleWindowsJoinPath: "On Windows, open Workspace → Join with invitation, then fill in:",
   peopleWindowsDisplayNameHint: "A recognizable name for the Windows member",
   peopleWindowsTokenHint: "Paste the invitation secret shown below",
   peopleWindowsLanHttpRequired: "Turn this on for the local-network HTTP address above",
@@ -1752,7 +1754,7 @@ export const enCatalog = {
   commentsRetry: "Retry",
   commentsLoadMore: "Load more comments",
   commentsLoading: "Loading comments…",
-  commentsDisconnected: "Connect a collaboration Workspace from Members > Connection Settings.",
+  commentsDisconnected: "Connect a collaboration Workspace from Workspace → Switch Workspace.",
   commentsConnecting: "Connecting to collaboration…",
   commentsOffline: "Collaboration is offline. Retry when the connection returns.",
   commentsAuthExpired: "Collaboration credentials expired. Reconnect to continue.",
@@ -1887,7 +1889,7 @@ export const enCatalog = {
   canvasCommandRejected: "Canvas command rejected: {code}",
   canvasCommandReconnectFailed: "Canvas reconnect failed: {code}",
   canvasCommandNotConnected:
-    "This Workspace Canvas is offline and cannot be edited. Start or check the Server, then go to Members and select Refresh to reconnect.",
+    "This Workspace Canvas is offline and cannot be edited. Start or check the Server, then go to Workspace → Members & permissions and select Refresh to reconnect.",
   workspaceCanvasOfflineCache: "Offline · remote cached read-only snapshot",
   workspaceCanvasReadOnly: "Read only · ask the owner for canvas edit permission.",
   workspaceCanvasRefreshAccess: "Refresh permissions",

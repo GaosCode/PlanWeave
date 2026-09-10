@@ -9,6 +9,7 @@ export const appViewSchema = z.enum([
   "search",
   "notifications",
   "people",
+  "executors",
   "settings",
   "task-workspace"
 ]);

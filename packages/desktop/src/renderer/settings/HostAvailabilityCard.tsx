@@ -2,7 +2,15 @@ import type {
   OperatorHostAvailabilityReason,
   OperatorHostView
 } from "@planweave-ai/agent-host-protocol/operator-control";
-import { RefreshCwIcon, RotateCwIcon, Trash2Icon } from "lucide-react";
+import { useState } from "react";
+import { ManagementDialog } from "../components/ManagementDialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from "@/components/ui/dropdown-menu";
+import { EllipsisIcon, RefreshCwIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { createTranslator } from "../i18n";
 import type { HostInventoryState } from "../hooks/useHostAdministrationController";
@@ -71,16 +79,14 @@ export function HostAvailabilityCard({
   onRenew,
   t
 }: HostAvailabilityCardProps) {
+  const [selectedHostId, setSelectedHostId] = useState<string | null>(null);
   const activeHosts = hosts.filter((host) => !host.revokedAt);
   const locale = t("hostAdminLocale");
 
   return (
-    <section className="border-b border-border/70 py-8" data-testid="host-availability">
+    <section className="border-b border-border/70" data-testid="host-availability">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="max-w-3xl">
-          <h2 className="text-lg font-semibold tracking-[-0.01em] text-text-strong">
-            {t("hostAvailabilityTitle")}
-          </h2>
           <p className="mt-1 text-sm leading-6 text-text-muted">
             {t("hostAvailabilityDescription")}
           </p>
@@ -143,111 +149,135 @@ export function HostAvailabilityCard({
             </p>
           </div>
         ) : (
-          <ul className="divide-y divide-border/60" aria-label={t("hostAvailabilityTitle")}>
+          <ul
+            className="divide-y divide-border/60 overflow-x-auto"
+            aria-label={t("hostAvailabilityTitle")}
+          >
+            <li
+              className="grid grid-cols-[minmax(10rem,1fr)_minmax(7rem,.7fr)_minmax(8rem,1fr)_auto] gap-4 pb-3 text-xs text-text-muted"
+              aria-hidden="true"
+            >
+              <span>{t("executorsDevices")}</span>
+              <span>{t("executorsStatusColumn")}</span>
+              <span>{t("executorsNavigation")}</span>
+              <span className="w-20" />
+            </li>
             {activeHosts.map((host) => {
               const reason = availabilityReason(host);
               const agents = agentNames(host);
               const expiryState = hostCredentialExpiryState(host);
               return (
-                <li className="py-4" data-testid={`host-availability-${host.id}`} key={host.id}>
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`size-2 rounded-full ${
-                            reason === "ready" ? "bg-emerald-500" : "bg-text-muted/50"
-                          }`}
-                          aria-hidden="true"
-                        />
-                        <span className="truncate font-medium text-text-strong">
-                          {host.displayName}
-                        </span>
-                        <span
-                          className={
-                            reason === "ready"
-                              ? "text-xs font-medium text-emerald-600"
-                              : "text-xs text-text-muted"
-                          }
-                          data-testid={`host-availability-status-${host.id}`}
-                        >
-                          {t(`hostAvailability_${reason}`)}
-                        </span>
-                      </div>
-                      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
-                        {agents.length > 0 ? (
-                          agents.map((agent) => (
-                            <span className="text-xs text-text-strong" key={agent}>
-                              {agent}
-                            </span>
-                          ))
-                        ) : (
-                          <span className="text-xs text-text-muted">
-                            {t("hostAvailabilityNoAgents")}
-                          </span>
-                        )}
-                      </div>
-                      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-                        <span
-                          className={
-                            expiryState === "expired" || expiryState === "expiring"
-                              ? "text-amber-700"
-                              : "text-text-muted"
-                          }
-                          data-testid={`host-credential-expiry-${host.id}`}
-                        >
-                          {host.credentialExpiresAt
-                            ? t(`hostCredentialExpiry_${expiryState}`).replace(
-                                "{expiry}",
-                                formatDate(host.credentialExpiresAt, locale)
-                              )
-                            : t("hostCredentialExpiry_legacy")}
-                        </span>
-                        {host.credentialRenewalRequestedAt ? (
-                          <span
-                            className="font-medium text-amber-700"
-                            data-testid={`host-credential-renewal-pending-${host.id}`}
-                          >
-                            {t("hostCredentialRenewalPending")}
-                          </span>
-                        ) : null}
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap justify-end gap-1">
-                      {host.credentialPolicy && expiryState !== "expired" ? (
+                <li
+                  className="grid grid-cols-[minmax(10rem,1fr)_minmax(7rem,.7fr)_minmax(8rem,1fr)_auto] items-center gap-4 py-5 text-sm"
+                  data-testid={`host-availability-${host.id}`}
+                  key={host.id}
+                >
+                  <span className="truncate font-medium text-text-strong">{host.displayName}</span>
+                  <span
+                    className={`flex items-center gap-2 ${reason === "ready" ? "text-emerald-700 dark:text-emerald-400" : "text-text-muted"}`}
+                    data-testid={`host-availability-status-${host.id}`}
+                  >
+                    <span
+                      className={`size-1.5 shrink-0 rounded-full ${reason === "ready" ? "bg-emerald-500" : "bg-text-muted/40"}`}
+                    />
+                    {t(`hostAvailability_${reason}`)}
+                  </span>
+                  <span className="text-text-muted">
+                    {agents.length ? agents.join(" · ") : t("hostAvailabilityNoAgents")}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-sky-700 dark:text-sky-400"
+                      onClick={() => setSelectedHostId(host.id)}
+                    >
+                      {t("managementDetails")}
+                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
                         <Button
-                          type="button"
-                          size="sm"
                           variant="ghost"
-                          data-testid={`host-admin-renew-${host.id}`}
-                          aria-label={`${t("hostCredentialRenewNow")}: ${host.displayName}`}
-                          disabled={busy || host.credentialRenewalRequestedAt !== undefined}
-                          onClick={() => onRenew(host)}
+                          size="icon-sm"
+                          aria-label={`${t("managementActions")}: ${host.displayName}`}
                         >
-                          <RotateCwIcon data-icon="inline-start" />
-                          {host.credentialRenewalRequestedAt
-                            ? t("hostCredentialRenewalPending")
-                            : t("hostCredentialRenewNow")}
+                          <EllipsisIcon className="size-4" />
                         </Button>
-                      ) : null}
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="text-text-muted hover:text-destructive"
-                        data-testid={`host-admin-revoke-${host.id}`}
-                        disabled={busy}
-                        onClick={() => onRevoke(host)}
-                      >
-                        <Trash2Icon data-icon="inline-start" />
-                        {t("hostAdminRevoke")}
-                      </Button>
-                    </div>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        {host.credentialPolicy && expiryState !== "expired" ? (
+                          <DropdownMenuItem
+                            data-testid={`host-admin-renew-${host.id}`}
+                            disabled={busy || host.credentialRenewalRequestedAt !== undefined}
+                            onSelect={() => onRenew(host)}
+                          >
+                            {host.credentialRenewalRequestedAt
+                              ? t("hostCredentialRenewalPending")
+                              : t("hostCredentialRenewNow")}
+                          </DropdownMenuItem>
+                        ) : null}
+                        <DropdownMenuItem
+                          className="text-destructive"
+                          data-testid={`host-admin-revoke-${host.id}`}
+                          disabled={busy}
+                          onSelect={() => onRevoke(host)}
+                        >
+                          {t("hostAdminRevoke")}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
-                  {reason !== "ready" ? (
-                    <p className="mt-3 text-xs leading-5 text-text-muted">
-                      {t(`hostAvailabilityAction_${reason}`)}
-                    </p>
+                  {expiryState === "expired" ||
+                  expiryState === "expiring" ||
+                  host.credentialRenewalRequestedAt ? (
+                    <span
+                      className="col-span-4 text-xs text-amber-700 dark:text-amber-300"
+                      data-testid={`host-credential-expiry-${host.id}`}
+                    >
+                      {host.credentialRenewalRequestedAt
+                        ? t("hostCredentialRenewalPending")
+                        : t(`hostCredentialExpiry_${expiryState}`).replace(
+                            "{expiry}",
+                            host.credentialExpiresAt
+                              ? formatDate(host.credentialExpiresAt, locale)
+                              : ""
+                          )}
+                    </span>
                   ) : null}
+                  <ManagementDialog
+                    open={selectedHostId === host.id}
+                    onOpenChange={(open) => {
+                      if (!open) setSelectedHostId(null);
+                    }}
+                    title={host.displayName}
+                    t={t}
+                  >
+                    <div className="flex flex-col gap-4 text-sm">
+                      <p>{t(`hostAvailability_${reason}`)}</p>
+                      <p className="text-text-muted">
+                        {agents.join(" · ") || t("hostAvailabilityNoAgents")}
+                      </p>
+                      <p className="text-text-muted">
+                        {host.credentialExpiresAt
+                          ? t(`hostCredentialExpiry_${expiryState}`).replace(
+                              "{expiry}",
+                              formatDate(host.credentialExpiresAt, locale)
+                            )
+                          : t("hostCredentialExpiry_legacy")}
+                      </p>
+                      {host.credentialRenewalRequestedAt ? (
+                        <p
+                          data-testid={`host-credential-renewal-pending-${host.id}`}
+                          className="text-amber-700"
+                        >
+                          {t("hostCredentialRenewalPending")}
+                        </p>
+                      ) : null}
+                      {reason !== "ready" ? (
+                        <p className="text-text-muted">{t(`hostAvailabilityAction_${reason}`)}</p>
+                      ) : null}
+                    </div>
+                  </ManagementDialog>
                 </li>
               );
             })}

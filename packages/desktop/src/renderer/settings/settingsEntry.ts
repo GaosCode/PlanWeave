@@ -1,4 +1,4 @@
-export type SettingsConnectionsTab = "overview" | "devices" | "server";
+export type SettingsConnectionsTab = "server" | "maintenance";
 
 let pendingConnectionsTab: SettingsConnectionsTab | null = null;
 

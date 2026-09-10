@@ -27,6 +27,7 @@ import type { DesktopSettingsUpdate, DesktopUiSettings } from "../types";
 import { bridge } from "../bridge";
 
 type SettingsAgentsSectionProps = {
+  showHeader?: boolean;
   agentDetectionRefreshing: boolean;
   agents: DesktopAgentDetection[];
   canvasRef?: DesktopCanvasReference | null;
@@ -133,6 +134,7 @@ function ExecutorPreflightCheckList({
 }
 
 export function SettingsAgentsSection({
+  showHeader = true,
   agentDetectionRefreshing,
   agents,
   canvasRef,
@@ -215,12 +217,14 @@ export function SettingsAgentsSection({
 
   return (
     <section data-testid="settings-section-agents" className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-normal text-text-strong">
-          {t("settingsAgents")}
-        </h1>
-        <p className="mt-1 text-sm text-text-muted">{t("settingsAgentsHint")}</p>
-      </div>
+      {showHeader ? (
+        <div>
+          <h1 className="text-2xl font-semibold tracking-normal text-text-strong">
+            {t("settingsAgents")}
+          </h1>
+          <p className="mt-1 text-sm text-text-muted">{t("settingsAgentsHint")}</p>
+        </div>
+      ) : null}
       {wslEnvironment?.supported ? (
         <div className="rounded-lg border bg-card p-4" data-testid="agent-host-settings">
           <label className="text-sm font-medium text-text-strong" htmlFor="agent-host-select">

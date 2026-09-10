@@ -1,9 +1,11 @@
+import { managementZhCnCatalog } from "./i18nManagementZhCn";
 import type { TranslationKey } from "./i18nEn";
 import { agentEndpointRunZhCnCatalog } from "./i18nAgentEndpointRunZhCn";
 import { remoteAgentManagementZhCnCatalog } from "./i18nRemoteAgentManagementZhCn";
 import { runnerZhCnCatalog } from "./i18nRunnerZhCn";
 
 export const zhCnCatalog = {
+  ...managementZhCnCatalog,
   statistics: "统计",
   search: "搜索",
   notifications: "通知",
@@ -566,7 +568,7 @@ export const zhCnCatalog = {
   settingsMcpTunnelHint:
     "启动本机 PlanWeave MCP server，并通过 OpenAI Secure MCP Tunnel 连接到 ChatGPT。",
   settingsServerHint: "在本机托管协作 Server，或粘贴连接信息加入已有 Server。",
-  settingsServerOpenPeople: "前往成员连接",
+  settingsServerOpenPeople: "前往工作空间连接",
   settingsServerReconnectSession: "重连协作会话",
   settingsServerReconnectSessionBusy: "正在重连…",
   settingsServerConnect: "连接",
@@ -682,7 +684,7 @@ export const zhCnCatalog = {
   hostAvailabilityLoading: "正在读取远程设备…",
   hostAvailabilityUnavailable: "暂时无法读取远程设备",
   hostAvailabilityUnavailable_profile_missing:
-    "请先在“成员”中启动或连接你管理的 PlanWeave Server。",
+    "请先在“设置 → Server”中启动或连接你管理的 PlanWeave Server。",
   hostAvailabilityUnavailable_credential_missing:
     "请重启 PlanWeave 以恢复本机 Server 的管理连接。已注册设备仍保存在 Server 中。",
   hostAvailabilityUnavailable_unavailable: "无法从 Server 读取设备列表，请检查连接后重试。",
@@ -755,7 +757,7 @@ export const zhCnCatalog = {
   hostAdminImportCredential: "从剪贴板导入令牌",
   hostAdminClearCredential: "清除凭证",
   hostAdminCredentialAvailable: "凭证可用",
-  hostAdminCredentialMissing: "当前 Server 无法创建设备入驻信息，请先在“成员”中完成连接。",
+  hostAdminCredentialMissing: "当前 Server 无法创建设备入驻信息，请先在“设置 → Server”中完成连接。",
   hostAdminHumanPrincipalUnavailable:
     "登记 Remote Agent 前需要已登录的人员身份。请先在“成员”中连接 Workspace，然后重试。",
   hostAdminCredentialPersistence_persisted: "操作系统 vault",
@@ -858,7 +860,8 @@ export const zhCnCatalog = {
   hostAdminHostCapabilities: "能力（逗号分隔）",
   hostAdminBootstrapCodexPreset:
     "入驻默认不暴露任何 Agent。请在 Host 上使用 agents list 和 agents expose 暴露受支持且已安装的 Agent。",
-  hostAdminBootstrapSecureCoordinator: "请先在“成员”中启动或连接由你管理的 PlanWeave Server。",
+  hostAdminBootstrapSecureCoordinator:
+    "请先在“设置 → Server”中启动或连接由你管理的 PlanWeave Server。",
   hostAdminBootstrapUnavailableTitle: "需要可管理的 Server",
   hostAdminBootstrapAbsolutePaths: "配置、数据和 workspace 路径必须是 Host 本机绝对路径。",
   hostAdminBootstrapWorkspacePath: "workspace 映射必须是相对 Host workspace 根目录的安全非空路径。",
@@ -878,9 +881,9 @@ export const zhCnCatalog = {
   hostAdminBootstrapCommand: "Bootstrap 命令",
   hostAdminBootstrapHeartbeatNote: "注册成功后，设备和它开放的 Agent 会自动出现在下方列表中。",
   hostAdminOffline: "当前无法连接 PlanWeave Server，请检查网络后重试。",
-  hostAdminUnauthorized: "当前 Server 管理授权已失效，请在“成员”中重新连接。",
+  hostAdminUnauthorized: "当前 Server 管理授权已失效，请在“设置 → Server”中重新连接。",
   hostAdminForbidden: "当前账号没有管理远程设备的权限。",
-  hostAdminProfileMissing: "当前 Server 连接不可用，请在“成员”中重新连接。",
+  hostAdminProfileMissing: "当前 Server 连接不可用，请在“设置 → Server”中重新连接。",
   hostAdminErrorGeneric: "Agent Host 操作失败，请稍后重试。",
   hostAdminDiagnosticCode: "诊断代码",
   agentInstallStatus: "本地 Agent 安装状态",
@@ -1643,7 +1646,7 @@ export const zhCnCatalog = {
   commentsRetry: "重试",
   commentsLoadMore: "加载更多评论",
   commentsLoading: "正在加载评论…",
-  commentsDisconnected: "请先在“成员 > 连接设置”连接协作 Workspace。",
+  commentsDisconnected: "请先在“工作空间 → 切换 Workspace”连接协作 Workspace。",
   commentsConnecting: "正在连接协作…",
   commentsOffline: "协作已离线。连接恢复后请重试。",
   commentsAuthExpired: "协作凭证已过期。请重新连接后继续。",
@@ -1790,7 +1793,7 @@ export const zhCnCatalog = {
   localServerProvidedByOrigin: "这些画布由 {origin} 提供",
   localServerManage: "管理 Server",
   localServerScopeReadonlyHint:
-    "本机 Server 已停止。先到设置 → 连接与设备 → Server 启动，才能改本机托管范围。",
+    "本机 Server 已停止。先到设置 → Server → 部署与维护 启动，才能改本机托管范围。",
   localServerRunning: "正在此设备上运行",
   localServerStopped: "已停止",
   localServerProcess: "Server 状态",

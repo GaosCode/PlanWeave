@@ -13,6 +13,15 @@ const { useHostAdministrationController } = vi.hoisted(() => ({
 }));
 
 const collaborationBridge = vi.hoisted(() => ({
+  listRememberedServerConnections: vi.fn().mockResolvedValue([
+    {
+      profileId: "profile-remote",
+      displayName: "Configured workspace",
+      workspaceDisplayName: "Configured workspace",
+      serverBaseUrl: "https://planweave.tailnet.ts.net/",
+      hasDeviceCredential: true
+    }
+  ]),
   getCollaborationStatus: vi.fn(),
   onCollaborationStatusChanged: vi.fn(() => () => undefined),
   getDesktopServerExposure: vi.fn(),
@@ -100,10 +109,8 @@ describe("SettingsConnectionsSection overview Server row", () => {
 
     render(<SettingsConnectionsSection t={createTranslator("zh-CN")} />);
 
-    expect(await screen.findByTestId("settings-connections-server-state")).toHaveTextContent(
-      remoteOrigin
-    );
+    expect(await screen.findByTestId("server-connection-row")).toHaveTextContent(remoteOrigin);
     expect(screen.queryByText("尚未开放")).not.toBeInTheDocument();
-    expect(screen.queryByText("未连接")).not.toBeInTheDocument();
+    expect(screen.getByTestId("server-connection-row")).not.toHaveTextContent("未连接");
   });
 });

@@ -14,92 +14,19 @@ import { LocalAgentHostCard } from "./LocalAgentHostCard";
 import { HostAvailabilityCard } from "./HostAvailabilityCard";
 import { DeploymentConnectionCard } from "./DeploymentConnectionCard";
 import { RemoteAgentManagementCard } from "./RemoteAgentManagementCard";
+import { formatHostAdministrationError } from "./hostAdministrationErrors";
 
 type HostAdministrationSectionProps = {
   diagnosticsEnabled?: boolean;
   showDeploymentConnection?: boolean;
   showHeader?: boolean;
+  setupOnly?: boolean;
   t: ReturnType<typeof createTranslator>;
 };
 
 type HostAdministrationContentProps = HostAdministrationSectionProps & {
   controller: HostAdministrationController;
 };
-
-function errorLabel(code: string | null, t: ReturnType<typeof createTranslator>): string | null {
-  if (!code) return null;
-  if (code === "local_agent_host_unavailable") {
-    return t("hostAdminLocalHostUnsupported");
-  }
-  if (code === "local_agent_host_custom_ca_unsupported") {
-    return t("hostAdminLocalHostCustomCaUnsupported");
-  }
-  if (code === "local_agent_host_handoff_invalid") {
-    return t("hostAdminLocalHostHandoffInvalid");
-  }
-  if (code === "local_agent_host_handoff_expired") {
-    return t("hostAdminLocalHostHandoffExpired");
-  }
-  if (
-    code === "agent_host_enrollment_rejected" ||
-    code === "agent_host_enrollment_response_expired" ||
-    code === "agent_host_enrollment_response_mismatch"
-  ) {
-    return t("hostAdminLocalHostEnrollmentRejected");
-  }
-  if (code === "agent_host_enrollment_exchange_failed") {
-    return t("hostAdminLocalHostEnrollmentUnreachable");
-  }
-  if (
-    code === "agent_host_enrollment_transport_insecure" ||
-    code === "agent_host_enrollment_transport_unsupported"
-  ) {
-    return t("hostAdminLocalHostEnrollmentTransportUnsupported");
-  }
-  if (
-    code === "agent_host_enrollment_response_malformed" ||
-    code === "agent_host_enrollment_response_too_large"
-  ) {
-    return t("hostAdminLocalHostEnrollmentResponseInvalid");
-  }
-  if (
-    code === "agent_host_enrollment_already_pending" ||
-    code === "agent_host_handoff_config_conflict" ||
-    code === "agent_host_handoff_pending_conflict" ||
-    code === "agent_host_handoff_credential_conflict" ||
-    code === "agent_host_handoff_provenance_invalid"
-  ) {
-    return t("hostAdminLocalHostEnrollmentConflict");
-  }
-  if (code === "agent_host_windows_user_sid_unavailable") {
-    return t("hostAdminLocalHostWindowsIdentityUnavailable");
-  }
-  if (code === "agent_host_preset_binary_missing") {
-    return t("hostAdminLocalHostAgentMissing");
-  }
-  if (code === "agent_host_background_setup_required") {
-    return t("hostAdminLocalHostSetupRequired");
-  }
-  const key =
-    code === "operator_bridge_unavailable"
-      ? "hostAdminBridgeUnavailable"
-      : code === "operator_credential_missing"
-        ? "hostAdminCredentialMissing"
-        : code === "human_principal_unavailable"
-          ? "hostAdminHumanPrincipalUnavailable"
-          : code === "operator_profile_missing" || code === "operator_profile_not_found"
-            ? "hostAdminProfileMissing"
-            : code === "operator_offline" || code === "operator_timeout"
-              ? "hostAdminOffline"
-              : code === "operator_unauthorized" || code === "operator_credential_invalid"
-                ? "hostAdminUnauthorized"
-                : code === "operator_admin_required" ||
-                    code === "operator_server_admin_required" ||
-                    code === "operator_forbidden"
-                  ? "hostAdminForbidden"
-                  : "hostAdminErrorGeneric";
-  return t(key);
-}
 
 export function HostAdministrationSection({ ...props }: HostAdministrationSectionProps) {
   const controller = useHostAdministrationController();
@@ -111,6 +38,7 @@ export function HostAdministrationContent({
   diagnosticsEnabled = false,
   showDeploymentConnection = true,
   showHeader = true,
+  setupOnly = false,
   t
 }: HostAdministrationContentProps) {
   const [desktopServerExposure, setDesktopServerExposure] =
@@ -170,7 +98,7 @@ export function HostAdministrationContent({
     await controller.revokeHost(host.id);
   };
 
-  const currentError = errorLabel(error, t);
+  const currentError = formatHostAdministrationError(error, t);
 
   return (
     <div className="flex flex-col" data-testid="host-administration">
@@ -243,20 +171,24 @@ export function HostAdministrationContent({
         />
       ) : null}
 
-      <HostAvailabilityCard
-        busy={busy}
-        hosts={hosts}
-        hasMore={hostsHasMore}
-        inventoryState={hostInventoryState}
-        loading={hostsLoading}
-        onLoadMore={() => void loadMoreHosts()}
-        onRefresh={() => void refreshHosts()}
-        onRevoke={(host) => void handleRevoke(host)}
-        onRenew={(host) => void renewHostCredential(host.id)}
-        t={t}
-      />
+      {!setupOnly ? (
+        <>
+          <HostAvailabilityCard
+            busy={busy}
+            hosts={hosts}
+            hasMore={hostsHasMore}
+            inventoryState={hostInventoryState}
+            loading={hostsLoading}
+            onLoadMore={() => void loadMoreHosts()}
+            onRefresh={() => void refreshHosts()}
+            onRevoke={(host) => void handleRevoke(host)}
+            onRenew={(host) => void renewHostCredential(host.id)}
+            t={t}
+          />
 
-      <RemoteAgentManagementCard hosts={hosts} t={t} />
+          <RemoteAgentManagementCard hosts={hosts} t={t} />
+        </>
+      ) : null}
 
       <HostBootstrapCard
         activeProfile={activeProfile}

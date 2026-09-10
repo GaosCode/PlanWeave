@@ -2,7 +2,6 @@
 
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTranslator } from "../renderer/i18n";
 import { SettingsServerSection } from "../renderer/settings/SettingsServerSection";
@@ -108,15 +107,6 @@ function installSelectDomStubs() {
   });
 }
 
-async function chooseSelectOption(
-  user: ReturnType<typeof userEvent.setup>,
-  testId: string,
-  optionName: string
-) {
-  await user.click(screen.getByTestId(testId));
-  await user.click(await screen.findByRole("option", { name: optionName }));
-}
-
 beforeEach(() => {
   installSelectDomStubs();
 });
@@ -134,69 +124,25 @@ function mockThisComputerRunning() {
 }
 
 describe("SettingsServerSection", () => {
-  it("does not change live status when switching Location", async () => {
-    const user = userEvent.setup();
+  it("shows only local maintenance controls without a redundant Server selector", async () => {
     mockThisComputerRunning();
-    render(<SettingsServerSection t={createTranslator("en")} />);
-
+    render(<SettingsServerSection maintenance t={createTranslator("en")} />);
     expect(await screen.findByTestId("local-server-lifecycle-status")).toHaveTextContent(
       "Connected locally"
     );
     expect(screen.getByRole("button", { name: "Stop" })).toBeVisible();
     expect(screen.getByTestId("settings-server-status-detail")).toHaveTextContent(advertisedOrigin);
-    expect(screen.queryByTestId("deployment-advertised-origin")).not.toBeInTheDocument();
-
-    await chooseSelectOption(user, "deployment-kind", "Existing Server");
-
-    expect(screen.getByTestId("local-server-lifecycle-status")).toHaveTextContent(
-      "Connected locally"
-    );
-    expect(screen.getByRole("button", { name: "Stop" })).toBeVisible();
-    expect(screen.queryByTestId("local-server-lifecycle-start")).not.toBeInTheDocument();
-    expect(screen.getByTestId("settings-server-status-detail")).toHaveTextContent(advertisedOrigin);
-    expect(screen.getByTestId("people-connect-handoff-fallback")).toBeVisible();
-    expect(screen.getByTestId("people-connect-handoff-fallback")).toHaveAttribute(
-      "aria-expanded",
-      "false"
-    );
-    expect(screen.queryByTestId("settings-server-existing-connect")).not.toBeInTheDocument();
-    expect(
-      screen
-        .getByTestId("deployment-existing-tools")
-        .querySelector('[data-testid="people-connect-handoff-fallback"]')
-    ).toBeNull();
-    expect(
-      screen
-        .getByTestId("deployment-existing-tools")
-        .querySelector('[data-testid="deployment-export-package"]')
-    ).toBeNull();
-    expect(collaborationBridge.setDesktopServerExposureMode).not.toHaveBeenCalled();
-    expect(collaborationBridge.connectExistingServerByOrigin).not.toHaveBeenCalled();
-
-    await user.click(screen.getByTestId("people-connect-handoff-fallback"));
-    expect(screen.getByTestId("people-connect-handoff-fallback")).toHaveAttribute(
-      "aria-expanded",
-      "true"
-    );
-    expect(screen.getByTestId("settings-server-existing-connect")).toBeVisible();
-    expect(screen.getByTestId("people-connect-setup-details")).toBeVisible();
-
-    await chooseSelectOption(user, "deployment-kind", "This computer");
-    expect(screen.getByTestId("local-server-lifecycle-status")).toHaveTextContent(
-      "Connected locally"
-    );
+    expect(screen.queryByTestId("deployment-kind")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("people-connect-handoff-fallback")).not.toBeInTheDocument();
     expect(screen.getByTestId("deployment-topology")).toHaveAttribute(
       "data-value",
       "private_https"
     );
-    expect(screen.getByRole("button", { name: "Stop" })).toBeVisible();
-    expect(
-      screen.queryByRole("button", { name: "Enable this connection" })
-    ).not.toBeInTheDocument();
+    expect(collaborationBridge.setDesktopServerExposureMode).not.toHaveBeenCalled();
+    expect(collaborationBridge.connectExistingServerByOrigin).not.toHaveBeenCalled();
   });
 
-  it("keeps a remote connection while Location is switched back to this computer", async () => {
-    const user = userEvent.setup();
+  it("shows a stopped local process while the independent remote connection remains connected", async () => {
     const remoteConnection = {
       schemaVersion: "workspace-setup/v1" as const,
       status: "connected" as const,
@@ -241,27 +187,20 @@ describe("SettingsServerSection", () => {
       }
     ]);
 
-    render(<SettingsServerSection t={createTranslator("en")} />);
+    render(<SettingsServerSection maintenance t={createTranslator("en")} />);
 
-    expect(await screen.findByTestId("local-server-lifecycle-status")).toHaveTextContent(
-      "Remote Server connected"
-    );
-    expect(screen.getByTestId("settings-server-status-detail")).toHaveTextContent(remoteOrigin);
-    expect(screen.getByTestId("deployment-kind")).toHaveAttribute("data-value", "profile-remote");
-
-    await chooseSelectOption(user, "deployment-kind", "This computer");
-
-    expect(screen.getByTestId("local-server-lifecycle-status")).toHaveTextContent(
-      "Remote Server connected"
-    );
-    expect(screen.getByTestId("settings-server-status-detail")).toHaveTextContent(remoteOrigin);
+    expect(await screen.findByTestId("local-server-lifecycle-status")).toHaveTextContent("Stopped");
+    expect(screen.getByText("Server on this computer")).toBeVisible();
+    expect(screen.queryByTestId("deployment-kind")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
+    expect(screen.queryByText(remoteOrigin)).not.toBeInTheDocument();
+    expect(collaborationBridge.selectWorkspaceConnection).not.toHaveBeenCalled();
     expect(collaborationBridge.setDesktopServerExposureMode).not.toHaveBeenCalled();
   });
 
   it("does not put member invite controls on the Server page", async () => {
     mockThisComputerRunning();
-    render(<SettingsServerSection t={createTranslator("en")} />);
+    render(<SettingsServerSection maintenance t={createTranslator("en")} />);
 
     expect(await screen.findByTestId("settings-server-section")).toBeVisible();
     expect(screen.queryByTestId("host-admin-member-setup")).not.toBeInTheDocument();

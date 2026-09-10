@@ -61,6 +61,42 @@ async function expandCanvasAdder(): Promise<void> {
 }
 
 describe("WorkspaceCanvasSharingPanel", () => {
+  it("requires an independent project choice and opens the canvas picker directly", async () => {
+    const api = {
+      listWorkspaceCanvasSharingCandidates: vi.fn().mockResolvedValue([
+        { ...publishedCandidate, localProjectId: "a", projectName: "Project A" },
+        { ...publishedCandidate, localProjectId: "b", projectName: "Project B" }
+      ]),
+      listCollaborationAuthorizedCanvases: vi.fn(),
+      publishWorkspaceCanvas: vi.fn(),
+      getCurrentCanvasAccess: vi.fn(),
+      mutateCurrentCanvasAccess: vi.fn(),
+      openWorkspaceCanvasSession: vi.fn()
+    };
+    render(
+      <WorkspaceCanvasSharingPanel
+        api={api}
+        connected
+        connectionKey="remote"
+        workspaceProjectId={null}
+        requireProjectSelection
+        initialExpanded
+        showHeader={false}
+        t={createTranslator("en")}
+      />
+    );
+    const picker = await screen.findByTestId("workspace-canvas-project-select");
+    expect(picker).toHaveAttribute("data-value", "");
+    expect(screen.queryByTestId("workspace-canvas-add-select")).not.toBeInTheDocument();
+    await userEvent.click(picker);
+    await userEvent.click(await screen.findByRole("option", { name: "Project B" }));
+    expect(picker).toHaveAttribute("data-value", "b");
+    expect(screen.getByTestId("workspace-canvas-add-select")).toBeVisible();
+    expect(screen.queryByTestId("workspace-canvas-add-toggle")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("workspace-canvas-shared-list-header")).not.toBeInTheDocument();
+    expect(api.publishWorkspaceCanvas).not.toHaveBeenCalled();
+  });
+
   it("shows every shared canvas in the matching Workspace project without inventing local provenance", async () => {
     const api = {
       listWorkspaceCanvasSharingCandidates: vi.fn().mockResolvedValue([
@@ -502,7 +538,7 @@ describe("WorkspaceCanvasSharingPanel", () => {
     await userEvent.click(sharingToggle);
     expect(sharingToggle).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByTestId("workspace-canvas-project-select")).toHaveTextContent(
-      "Local project · project-local"
+      "Local project"
     );
     expect(screen.getByTestId("workspace-canvas-project-select")).not.toHaveClass("h-10");
     const localProject = within(
@@ -517,7 +553,7 @@ describe("WorkspaceCanvasSharingPanel", () => {
     await userEvent.click(screen.getByTestId("workspace-canvas-project-select"));
     await userEvent.click(await screen.findByRole("option", { name: /Other project/ }));
     expect(screen.getByTestId("workspace-canvas-project-select")).toHaveTextContent(
-      "Other project · project-other"
+      "Other project"
     );
     expect(screen.getByText("No shared canvases yet")).toBeVisible();
     expect(screen.getByTestId("workspace-canvas-shared-empty")).not.toHaveClass("border-dashed");

@@ -77,6 +77,7 @@ function shareStageMessage(
 
 export function WorkspaceCanvasSharingProjectPanel({
   project,
+  intent = "manage",
   sharedCanvases,
   shareableCanvases,
   selectedCanvasId,
@@ -90,6 +91,7 @@ export function WorkspaceCanvasSharingProjectPanel({
   onRetryOpen
 }: {
   project: WorkspaceCanvasProjectGroup;
+  intent?: "manage" | "share";
   sharedCanvases: WorkspaceSharedCanvasListItem[];
   shareableCanvases: WorkspaceCanvasSharingCandidate[];
   selectedCanvasId: string | null;
@@ -105,64 +107,72 @@ export function WorkspaceCanvasSharingProjectPanel({
   const [addExpanded, setAddExpanded] = useState(false);
   const selectedCanvas =
     shareableCanvases.find((candidate) => candidate.canvasId === selectedCanvasId) ?? null;
-  const addPanelExpanded = addExpanded || pendingAuthoritySwitch;
+  const addPanelExpanded = intent === "share" || addExpanded || pendingAuthoritySwitch;
 
   return (
     <div data-testid={`workspace-canvas-sharing-project-${project.localProjectId}`}>
-      <div
-        className="flex items-end justify-between gap-4"
-        data-testid="workspace-canvas-shared-list-header"
-      >
-        <div>
-          <h3 className="text-sm font-semibold text-text-strong">
-            {t("workspaceCanvasSharedListTitle")}
-          </h3>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {t("workspaceCanvasSharedListDescription").replace("{project}", project.projectName)}
-          </p>
-        </div>
-        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-          {t("workspaceCanvasSharedCount").replace("{count}", String(sharedCanvases.length))}
-        </span>
-      </div>
-
-      {sharedCanvases.length === 0 ? (
-        <div className="mt-3 py-2" data-testid="workspace-canvas-shared-empty">
-          <p className="text-sm font-medium text-text-strong">
-            {t("workspaceCanvasSharedEmptyTitle")}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {t("workspaceCanvasSharedEmptyDescription")}
-          </p>
-        </div>
-      ) : (
-        <div className="mt-1 divide-y divide-border/60">
-          {sharedCanvases.map((canvas) => (
-            <div
-              key={canvas.canvasId}
-              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-5 py-4"
-              data-testid={`workspace-canvas-sharing-${canvas.canvasId}`}
-            >
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-text-strong">{canvas.canvasName}</p>
-                <p className="mt-1 truncate text-xs text-muted-foreground">{canvas.canvasId}</p>
-              </div>
-              <span
-                className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-700"
-                data-testid={`workspace-canvas-state-${canvas.canvasId}`}
-              >
-                <span className="grid size-6 place-items-center rounded-full bg-emerald-500/10">
-                  <CheckIcon className="size-3.5" aria-hidden="true" />
-                </span>
-                {t("workspaceCanvasStateShared")}
-              </span>
+      {intent === "manage" ? (
+        <>
+          <div
+            className="flex items-end justify-between gap-4"
+            data-testid="workspace-canvas-shared-list-header"
+          >
+            <div>
+              <h3 className="text-sm font-semibold text-text-strong">
+                {t("workspaceCanvasSharedListTitle")}
+              </h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t("workspaceCanvasSharedListDescription").replace(
+                  "{project}",
+                  project.projectName
+                )}
+              </p>
             </div>
-          ))}
-        </div>
-      )}
+            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+              {t("workspaceCanvasSharedCount").replace("{count}", String(sharedCanvases.length))}
+            </span>
+          </div>
 
-      <section className="mt-4" aria-labelledby="workspace-canvas-add-title">
-        {shareableCanvases.length > 0 || shareError ? (
+          {sharedCanvases.length === 0 ? (
+            <div className="mt-3 py-2" data-testid="workspace-canvas-shared-empty">
+              <p className="text-sm font-medium text-text-strong">
+                {t("workspaceCanvasSharedEmptyTitle")}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t("workspaceCanvasSharedEmptyDescription")}
+              </p>
+            </div>
+          ) : (
+            <div className="mt-1 divide-y divide-border/60">
+              {sharedCanvases.map((canvas) => (
+                <div
+                  key={canvas.canvasId}
+                  className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-5 py-4"
+                  data-testid={`workspace-canvas-sharing-${canvas.canvasId}`}
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-text-strong">
+                      {canvas.canvasName}
+                    </p>
+                    <p className="mt-1 truncate text-xs text-muted-foreground">{canvas.canvasId}</p>
+                  </div>
+                  <span
+                    className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-700"
+                    data-testid={`workspace-canvas-state-${canvas.canvasId}`}
+                  >
+                    <span className="grid size-6 place-items-center rounded-full bg-emerald-500/10">
+                      <CheckIcon className="size-3.5" aria-hidden="true" />
+                    </span>
+                    {t("workspaceCanvasStateShared")}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      ) : null}
+      <section className={intent === "share" ? "" : "mt-4"}>
+        {intent === "share" ? null : shareableCanvases.length > 0 || shareError ? (
           <Button
             id="workspace-canvas-add-title"
             variant="outline"

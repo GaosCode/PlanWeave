@@ -63,6 +63,9 @@ const GraphView = lazy(() =>
 const NotificationsView = lazy(() =>
   import("./NotificationsView").then((module) => ({ default: module.NotificationsView }))
 );
+const ExecutorsView = lazy(() =>
+  import("./ExecutorsView").then((module) => ({ default: module.ExecutorsView }))
+);
 const PeopleView = lazy(() =>
   import("./PeopleView").then((module) => ({ default: module.PeopleView }))
 );
@@ -308,6 +311,11 @@ function NotificationsRoute() {
   );
 }
 
+function ExecutorsRoute() {
+  const { settingsRouteProps } = useProjectWorkspace();
+  return <ExecutorsView {...settingsRouteProps} />;
+}
+
 function PeopleRoute({
   localInvitationHandoff,
   onLocalInvitationHandoffChange
@@ -382,6 +390,8 @@ export function WorkspaceTabs() {
         return <SearchRoute />;
       case "notifications":
         return <NotificationsRoute />;
+      case "executors":
+        return <ExecutorsRoute />;
       case "people":
         return (
           <PeopleRoute

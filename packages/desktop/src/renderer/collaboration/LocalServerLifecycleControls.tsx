@@ -18,6 +18,7 @@ export function LocalServerLifecycleControls({
   onRetried,
   workspace,
   session,
+  localOnly = false,
   showIdleStart = true,
   refreshToken = 0
 }: {
@@ -27,6 +28,7 @@ export function LocalServerLifecycleControls({
   onRetried?: () => void | Promise<void>;
   workspace?: LiveWorkspaceSnapshot | null;
   session?: CollaborationSessionView | null;
+  localOnly?: boolean;
   showIdleStart?: boolean;
   refreshToken?: number;
 }) {
@@ -62,12 +64,12 @@ export function LocalServerLifecycleControls({
   const live = useMemo(
     () =>
       classifyLiveServer({
-        workspace: workspace ?? null,
+        workspace: localOnly ? null : (workspace ?? null),
         localRunning: running,
         localServerBaseUrl: status?.profile?.serverBaseUrl ?? null,
         advertisedOrigin
       }),
-    [advertisedOrigin, running, status?.profile?.serverBaseUrl, workspace]
+    [advertisedOrigin, running, status?.profile?.serverBaseUrl, workspace, localOnly]
   );
 
   const statusLabel =
@@ -85,7 +87,7 @@ export function LocalServerLifecycleControls({
             : workspace?.status === "error" || workspace?.status === "disconnected"
               ? t("settingsServerRemoteError")
               : t("settingsServerRemoteConnected")
-          : t("settingsServerNotConnected");
+          : t(localOnly ? "serverLocalStopped" : "settingsServerNotConnected");
 
   const failedRemote =
     live.kind === "remote" &&
@@ -132,7 +134,9 @@ export function LocalServerLifecycleControls({
       <div className="flex min-w-0 items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <ServerIcon className="size-4 shrink-0 text-text-muted" aria-hidden="true" />
-          <span className="text-sm font-medium text-text-strong">{t("localServerProcess")}</span>
+          <span className="text-sm font-medium text-text-strong">
+            {t(localOnly ? "serverLocalProcess" : "localServerProcess")}
+          </span>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <span

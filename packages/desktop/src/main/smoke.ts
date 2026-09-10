@@ -406,10 +406,17 @@ async function runRendererManualSmoke(window: BrowserWindow): Promise<Record<str
       covered.push("open-settings-with-component-settings");
       await clickByTestId("settings-nav-review");
       await waitForSelector('[data-testid="settings-section-review"]', "review settings section");
-      await clickByTestId("settings-nav-agents");
-      await waitForSelector('[data-testid="settings-section-agents"]', "agent settings section");
       covered.push("open-settings-sections");
       await clickByTestId("settings-back-to-app");
+      await clickByTestId("sidebar-executors");
+      await waitForSelector('[data-testid="executor-inventory"]', "executor inventory");
+      await clickByTestId("executor-configure-codex");
+      await waitForSelector('[data-testid="settings-section-agents"]', "local execution settings dialog");
+      await clickByTestId("management-dialog-close");
+      const backSelector = 'button[aria-label="后退"], button[aria-label="Back"]';
+      await waitForSelector(backSelector, "history back button");
+      await clickElement(document.querySelector(backSelector));
+      covered.push("open-executor-settings-dialog");
       await waitForText("Smoke task");
       await waitForSelector("[data-graph-surface]", "graph surface");
       covered.push("return-graph");
@@ -833,6 +840,7 @@ async function runLiveCollaborationSmoke(window: BrowserWindow): Promise<Record<
       });
       await collaborationApi.connectCollaborationSession({ profileId });
 
+      await click("people-section-members");
       const panel = await waitFor(
         () => {
           const element = document.querySelector('[data-testid="people-panel"]');
@@ -1096,12 +1104,12 @@ async function runCollaborationAccessibilitySmoke(
     window.planweaveDesktopSettings.saveDesktopSettings({ language: "en" })
   `);
   await reloadSmokeRenderer(mainWindow, { requireCollaborationShell: true });
-  const enAccessibleName = await waitForLocalizedPeopleLabel("Members");
+  const enAccessibleName = await waitForLocalizedPeopleLabel("Workspace");
   await mainWindow.webContents.executeJavaScript(`
     window.planweaveDesktopSettings.saveDesktopSettings({ language: "zh-CN" })
   `);
   await reloadSmokeRenderer(mainWindow, { requireCollaborationShell: true });
-  const zhAccessibleName = await waitForLocalizedPeopleLabel("成员");
+  const zhAccessibleName = await waitForLocalizedPeopleLabel("工作空间");
   const localization = {
     stableTestId: "sidebar-people",
     enAccessibleName,
@@ -1260,13 +1268,24 @@ async function runCollaborationAccessibilitySmoke(
     ["活动", "Activity"],
     { allowedRoles: ["group", "region"] }
   );
+  app.focus({ steal: true });
+  mainWindow.show();
+  mainWindow.focus();
+  mainWindow.webContents.focus();
+  await wait(50);
   await mainWindow.webContents.executeJavaScript(`
     (async () => {
       const navigation = document.querySelector('[data-testid="sidebar-people"]');
       if (!(navigation instanceof HTMLElement)) throw new Error("Missing People navigation for AX smoke.");
       navigation.click();
       for (let attempt = 0; attempt < 100; attempt += 1) {
-        if (document.querySelector('[data-testid="people-view"]')) return true;
+        const membersTab = document.querySelector('[data-testid="people-section-members"]');
+        if (membersTab instanceof HTMLElement) {
+          membersTab.focus();
+          membersTab.click();
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          if (document.querySelector('[data-testid="people-panel"]')) return true;
+        }
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
       throw new Error("Timed out opening People surface for AX smoke.");

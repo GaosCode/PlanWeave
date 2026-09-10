@@ -200,7 +200,9 @@
         "promptDraftsHook.test.tsx",
         "recordWorkspaceNavigation.test.tsx",
         "recordWorkspaceTarget.test.ts",
+        "rememberedServerGroups.test.ts",
         "remoteAcpContinuation.test.tsx",
+        "remoteAgentManagementErrors.test.tsx",
         "remoteEndpointDispatchGate.test.ts",
         "remoteLiveRun.test.ts",
         "remoteRunPanel.test.tsx",
@@ -277,6 +279,7 @@
         "workspaceAgentEndpointRun.test.tsx",
         "workspaceAgentEndpointRunCancellation.test.tsx",
         "workspaceCanvasCommands.test.tsx",
+        "workspaceCanvasDirectory.test.tsx",
         "workspaceCanvasPresenceController.test.ts",
         "workspaceCanvasPublishAuthority.test.ts",
         "workspaceCanvasSharingPanel.test.tsx",
@@ -284,6 +287,7 @@
         "workspaceManagementAccess.test.ts",
         "workspacePeopleAuthority.test.tsx",
         "workspaceRemoteScopeScheduler.test.ts",
+        "workspaceSwitcher.test.tsx",
         "workspaceTabsLazyRoutes.test.tsx"
       ],
       "integration": [

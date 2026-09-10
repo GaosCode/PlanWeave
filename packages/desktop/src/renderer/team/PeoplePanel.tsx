@@ -11,8 +11,9 @@ import type {
 } from "../collaboration/peopleViewModels";
 import type { CollaborationInvitationHandoffView } from "../../shared/collaboration.js";
 import { CollaborationDiagnosticsDetails } from "./CollaborationDiagnosticsDetails";
-import { MemberLoginDevices } from "./MemberLoginDevices";
-import { OwnDisplayNameControl } from "./OwnDisplayNameControl";
+import { PeopleMemberList } from "./PeopleMemberList";
+import { Input } from "@/components/ui/input";
+import { ManagementDialog } from "../components/ManagementDialog";
 import { projectSessionStatusLabel } from "../collaboration/projectSessionPresentation";
 import { PeopleIdentityCard } from "./PeopleIdentityCard";
 
@@ -55,6 +56,11 @@ export type PeoplePanelProps = {
   onCopyDiagnostics?: (report: string) => Promise<void>;
   /** Page shells may already expose the selected destination. */
   showTitle?: boolean;
+  invitationOpen?: boolean;
+  onInvitationOpenChange?: (open: boolean) => void;
+  invitationSetup?: ReactNode;
+  accessScope?: ReactNode;
+  onManageCanvasAccess?: () => void;
 };
 
 function formatTimestamp(value: string): string {
@@ -69,18 +75,6 @@ function formatTimestamp(value: string): string {
 function shortIdentifier(value: string): string {
   if (value.length <= 16) return value;
   return `${value.slice(0, 8)}…${value.slice(-4)}`;
-}
-
-function MemberAvatar({ initials, label }: { initials: string; label: string }) {
-  return (
-    <span
-      aria-hidden="true"
-      className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-state-selected-surface text-xs font-semibold text-text-strong ring-1 ring-border/70"
-      title={label}
-    >
-      {initials}
-    </span>
-  );
 }
 
 export function PeoplePanel({
@@ -115,14 +109,19 @@ export function PeoplePanel({
   diagnosticReport = null,
   diagnosticsEnabled = false,
   onCopyDiagnostics,
+  invitationOpen,
+  onInvitationOpenChange,
+  invitationSetup,
+  accessScope,
+  onManageCanvasAccess,
   showTitle = true
 }: PeoplePanelProps) {
   const [showOwnerDetails, setShowOwnerDetails] = useState(revealInvitationManagement);
   const [showConnectionSettings, setShowConnectionSettings] = useState(false);
-  const [expandedAccessPrincipalId, setExpandedAccessPrincipalId] = useState<string | null>(null);
-  const [expandedDevicePrincipalIds, setExpandedDevicePrincipalIds] = useState<Set<string>>(
-    () => new Set()
-  );
+  const [query, setQuery] = useState("");
+  const [ownInvitationOpen, setOwnInvitationOpen] = useState(pendingInvitation !== null);
+  const setInvitationOpen = onInvitationOpenChange ?? setOwnInvitationOpen;
+  const showInvitationDialog = invitationOpen ?? ownInvitationOpen;
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
   const [selectedInvitationIds, setSelectedInvitationIds] = useState<Set<string>>(new Set());
@@ -338,6 +337,25 @@ export function PeoplePanel({
   );
   return (
     <div className="flex min-w-0 flex-col gap-4" data-testid="people-panel" data-mode={mode}>
+      <div className="flex items-center gap-3">
+        <Input
+          className="max-w-72"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={t("workspaceSearchMembers")}
+          aria-label={t("workspaceSearchMembers")}
+        />
+        {onManageCanvasAccess ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto text-sky-700 dark:text-sky-400"
+            onClick={onManageCanvasAccess}
+          >
+            {t("workspaceAccessSettings")}
+          </Button>
+        ) : null}
+      </div>
       <div
         className="flex flex-col gap-4 border-b border-border/70 px-1 pb-5 sm:flex-row sm:items-center sm:justify-between"
         data-testid="people-toolbar"
@@ -369,15 +387,15 @@ export function PeoplePanel({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {presence.currentUserIsOwner ? (
+          {presence.currentUserIsOwner && invitationOpen === undefined ? (
             <Button
               type="button"
               size="sm"
-              data-testid="people-create-invitation"
+              data-testid="people-open-invitation"
               disabled={actionBusy || pendingInvitation !== null}
               onClick={() => {
+                setInvitationOpen(true);
                 setShowOwnerDetails(true);
-                void onCreateInvitation();
               }}
             >
               {t("peopleCreateInvitation")}
@@ -461,7 +479,7 @@ export function PeoplePanel({
 
       {diagnostics}
 
-      {identity ? (
+      {identity && !members.some((member) => member.isCurrentUser) ? (
         <PeopleIdentityCard
           identity={identity}
           actionBusy={actionBusy}
@@ -478,417 +496,283 @@ export function PeoplePanel({
 
       <div className="flex min-w-0 flex-col gap-5">
         <div className="min-w-0">
-          <section
-            aria-label={t("peopleMembers")}
-            data-testid="people-members-section"
-            className="min-w-0 border-b border-border/70"
+          <PeopleMemberList
+            members={members.filter((member) =>
+              member.displayName.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())
+            )}
+            identity={identity}
+            presence={presence}
+            devices={devices}
+            detailsLoading={detailsLoading}
+            actionBusy={actionBusy}
+            canManageMemberAccess={canManageMemberAccess}
+            renderMemberAccess={renderMemberAccess}
+            accessScope={accessScope}
+            onUpdateOwnDisplayName={onUpdateOwnDisplayName}
+            onPromoteMember={onPromoteMember}
+            onDemoteMember={onDemoteMember}
+            onRemoveMember={onRemoveMember}
+            onRevokeDevice={onRevokeDevice}
+            emptyText={query ? t("workspaceNoResults") : emptyMemberStateText}
+            t={t}
+          />
+        </div>
+
+        <p className="text-xs text-text-muted">{t("workspaceMembershipHint")}</p>
+        {presence.currentUserIsOwner || invitationSetup ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-fit px-0"
+            data-testid="people-owner-toggle"
+            aria-expanded={showInvitationDialog}
+            onClick={() => {
+              setShowOwnerDetails(true);
+              setInvitationOpen(true);
+            }}
           >
-            {members.length === 0 ? (
-              <div
-                className="px-1 py-5 text-xs text-muted-foreground"
-                data-testid="people-members-empty"
+            {t("workspacePendingInvitations")} · {openInvitations.length}
+          </Button>
+        ) : null}
+        <ManagementDialog
+          open={showInvitationDialog}
+          onOpenChange={setInvitationOpen}
+          title={t("workspaceInviteAction")}
+          t={t}
+        >
+          <div className="flex flex-col gap-5">
+            {invitationSetup}
+            {presence.currentUserIsOwner ? (
+              <Button
+                className="w-fit"
+                size="sm"
+                data-testid="people-create-invitation"
+                disabled={actionBusy || pendingInvitation !== null}
+                onClick={() => {
+                  setShowOwnerDetails(true);
+                  void onCreateInvitation();
+                }}
               >
-                {emptyMemberStateText}
-              </div>
-            ) : (
-              <ul className="divide-y divide-border/60">
-                {members.map((member) => {
-                  const promote = member.actions.find((action) => action.action === "promote");
-                  const demote = member.actions.find((action) => action.action === "demote");
-                  const remove = member.actions.find((action) => action.action === "remove");
-                  const memberDevices = devices.filter(
-                    (device) =>
-                      device.humanPrincipalId === member.humanPrincipalId && !device.isRevoked
-                  );
-                  const canManageDevices = presence.currentUserIsOwner || member.isCurrentUser;
-                  const memberDevicesPanelId = `people-member-devices-${member.humanPrincipalId}`;
-                  return (
-                    <li
-                      key={member.membershipId}
-                      className="min-w-0"
-                      data-testid="people-member-row"
-                      data-principal-id={member.humanPrincipalId}
-                      data-role={member.role}
-                    >
-                      <div className="flex min-w-0 items-center gap-3 px-1 py-3.5">
-                        <MemberAvatar initials={member.initials} label={member.displayName} />
-                        <div className="min-w-0 flex-1">
-                          {member.isCurrentUser && !identity ? (
-                            <OwnDisplayNameControl
-                              displayName={member.displayName}
-                              actionBusy={actionBusy}
-                              t={t}
-                              onUpdate={onUpdateOwnDisplayName}
-                            />
-                          ) : member.isCurrentUser ? (
-                            <div className="truncate text-sm font-semibold text-text-strong">
-                              {member.displayName}
-                              <span className="ml-1 text-muted-foreground">({t("peopleYou")})</span>
-                            </div>
-                          ) : (
-                            <div className="truncate text-sm font-semibold text-text-strong">
-                              {member.displayName}
-                            </div>
-                          )}
-                          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-                            <span>
-                              {member.role === "owner"
-                                ? t("peopleRoleOwner")
-                                : t("peopleRoleMember")}
-                            </span>
-                            {canManageDevices ? (
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="ghost"
-                                className="h-6 px-1.5 text-[11px] text-muted-foreground"
-                                data-testid="people-member-devices-toggle"
-                                aria-expanded={expandedDevicePrincipalIds.has(
-                                  member.humanPrincipalId
-                                )}
-                                aria-controls={memberDevicesPanelId}
-                                onClick={() =>
-                                  setExpandedDevicePrincipalIds((current) => {
+                {t("peopleCreateInvitation")}
+              </Button>
+            ) : null}
+            {presence.currentUserIsOwner ? (
+              <section
+                aria-labelledby="people-owner-heading"
+                data-testid="people-owner-section"
+                className="min-w-0"
+              >
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-auto w-full justify-between rounded-none px-1 py-4 text-sm font-semibold hover:bg-transparent"
+                  data-testid="people-invitations-toggle"
+                  aria-expanded={showOwnerDetails}
+                  onClick={() => setShowOwnerDetails((current) => !current)}
+                >
+                  <span id="people-owner-heading">{t("peopleOwnerActions")}</span>
+                  <span aria-hidden="true">{showOwnerDetails ? "−" : "+"}</span>
+                </Button>
+                {showOwnerDetails ? (
+                  <div className="min-w-0 border-t border-border/70 py-4">
+                    <div className="min-w-0" data-testid="people-invitations-list">
+                      <div
+                        className={
+                          openInvitationIds.length > 0
+                            ? "flex flex-wrap items-center justify-end gap-2 px-1 py-2.5"
+                            : "hidden"
+                        }
+                      >
+                        {openInvitationIds.length > 0 ? (
+                          <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                            <label className="flex cursor-pointer items-center gap-1.5 text-muted-foreground">
+                              <input
+                                type="checkbox"
+                                className="size-3.5 accent-foreground"
+                                data-testid="people-invitation-select-all"
+                                checked={allOpenInvitationsSelected}
+                                disabled={actionBusy}
+                                aria-checked={
+                                  someOpenInvitationsSelected ? "mixed" : allOpenInvitationsSelected
+                                }
+                                ref={(element) => {
+                                  if (element) {
+                                    element.indeterminate = someOpenInvitationsSelected;
+                                  }
+                                }}
+                                onChange={(event) => {
+                                  setSelectedInvitationIds(
+                                    event.currentTarget.checked
+                                      ? new Set(openInvitationIds)
+                                      : new Set()
+                                  );
+                                }}
+                              />
+                              {t("peopleSelectAllOpenInvitations")}
+                            </label>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 px-2 text-[11px] text-destructive"
+                              data-testid="people-invitation-revoke-selected"
+                              disabled={actionBusy || selectedInvitationIds.size === 0}
+                              onClick={() => {
+                                const invitationIds = [...selectedInvitationIds];
+                                if (
+                                  !confirmDestructive(
+                                    t("peopleRevokeSelectedInvitationsConfirm").replace(
+                                      "{count}",
+                                      String(invitationIds.length)
+                                    )
+                                  )
+                                ) {
+                                  return;
+                                }
+                                void onRevokeInvitations(invitationIds).then((ok) => {
+                                  if (!ok) return;
+                                  setSelectedInvitationIds((current) => {
                                     const next = new Set(current);
-                                    if (next.has(member.humanPrincipalId)) {
-                                      next.delete(member.humanPrincipalId);
-                                    } else {
-                                      next.add(member.humanPrincipalId);
+                                    for (const invitationId of invitationIds) {
+                                      next.delete(invitationId);
                                     }
                                     return next;
-                                  })
-                                }
-                              >
-                                {t("peopleLoginDevices").replace(
-                                  "{count}",
-                                  String(memberDevices.length)
-                                )}
-                              </Button>
-                            ) : null}
-                          </div>
-                        </div>
-                        {presence.currentUserIsOwner || canManageMemberAccess ? (
-                          <div className="flex shrink-0 flex-wrap justify-end gap-1">
-                            {canManageMemberAccess &&
-                            renderMemberAccess &&
-                            member.role !== "owner" ? (
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="ghost"
-                                className="h-8 px-2 text-xs"
-                                data-testid="people-member-access-toggle"
-                                aria-expanded={
-                                  expandedAccessPrincipalId === member.humanPrincipalId
-                                }
-                                aria-controls={`people-member-access-${member.humanPrincipalId}`}
-                                onClick={() =>
-                                  setExpandedAccessPrincipalId((current) =>
-                                    current === member.humanPrincipalId
-                                      ? null
-                                      : member.humanPrincipalId
-                                  )
-                                }
-                              >
-                                {expandedAccessPrincipalId === member.humanPrincipalId
-                                  ? t("peopleHidePermissions")
-                                  : t("peopleManagePermissions")}
-                              </Button>
-                            ) : null}
-                            {promote?.allowed ? (
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="ghost"
-                                className="h-8 px-2 text-xs"
-                                data-testid="people-member-promote"
-                                disabled={actionBusy}
-                                onClick={() => void onPromoteMember(member.humanPrincipalId)}
-                              >
-                                {t("peoplePromote")}
-                              </Button>
-                            ) : null}
-                            {demote?.allowed ? (
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="ghost"
-                                className="h-8 px-2 text-xs"
-                                data-testid="people-member-demote"
-                                disabled={actionBusy}
-                                onClick={() => {
-                                  if (!confirmDestructive(t("peopleDemoteConfirm"))) return;
-                                  void onDemoteMember(member.humanPrincipalId);
-                                }}
-                              >
-                                {t("peopleDemote")}
-                              </Button>
-                            ) : demote && !demote.allowed && demote.reason === "last_owner" ? (
-                              <span
-                                className="max-w-32 text-right text-[11px] leading-4 text-muted-foreground"
-                                data-testid="people-last-owner-guard"
-                              >
-                                {t("peopleLastOwnerProtected")}
-                              </span>
-                            ) : null}
-                            {remove?.allowed ? (
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="ghost"
-                                className="h-8 px-2 text-xs text-destructive"
-                                data-testid="people-member-remove"
-                                disabled={actionBusy}
-                                onClick={() => {
-                                  if (!confirmDestructive(t("peopleRemoveConfirm"))) return;
-                                  void onRemoveMember(member.humanPrincipalId);
-                                }}
-                              >
-                                {t("peopleRemove")}
-                              </Button>
-                            ) : null}
+                                  });
+                                });
+                              }}
+                            >
+                              {t("peopleRevokeSelected").replace(
+                                "{count}",
+                                String(selectedInvitationIds.size)
+                              )}
+                            </Button>
                           </div>
                         ) : null}
                       </div>
-                      {canManageMemberAccess &&
-                      expandedAccessPrincipalId === member.humanPrincipalId &&
-                      renderMemberAccess ? (
-                        <div
-                          id={`people-member-access-${member.humanPrincipalId}`}
-                          className="border-t border-border/60 px-1 py-4"
-                          data-testid="people-member-access"
-                        >
-                          {renderMemberAccess(member)}
+                      {detailsLoading ? (
+                        <div className="px-1 py-4 text-xs text-muted-foreground">
+                          {t("peopleLoading")}
                         </div>
-                      ) : null}
-                      {expandedDevicePrincipalIds.has(member.humanPrincipalId) &&
-                      canManageDevices ? (
-                        <MemberLoginDevices
-                          id={memberDevicesPanelId}
-                          devices={memberDevices}
-                          loading={detailsLoading}
-                          actionBusy={actionBusy}
-                          t={t}
-                          onSignOut={onRevokeDevice}
-                        />
-                      ) : null}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
-        </div>
-
-        {presence.currentUserIsOwner ? (
-          <section
-            aria-labelledby="people-owner-heading"
-            data-testid="people-owner-section"
-            className="min-w-0"
-          >
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-auto w-full justify-between rounded-none px-1 py-4 text-sm font-semibold hover:bg-transparent"
-              data-testid="people-owner-toggle"
-              aria-expanded={showOwnerDetails}
-              onClick={() => setShowOwnerDetails((current) => !current)}
-            >
-              <span id="people-owner-heading">{t("peopleOwnerActions")}</span>
-              <span aria-hidden="true">{showOwnerDetails ? "−" : "+"}</span>
-            </Button>
-            {showOwnerDetails ? (
-              <div className="min-w-0 border-t border-border/70 py-4">
-                <div className="min-w-0" data-testid="people-invitations-list">
-                  <div
-                    className={
-                      openInvitationIds.length > 0
-                        ? "flex flex-wrap items-center justify-end gap-2 px-1 py-2.5"
-                        : "hidden"
-                    }
-                  >
-                    {openInvitationIds.length > 0 ? (
-                      <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                        <label className="flex cursor-pointer items-center gap-1.5 text-muted-foreground">
-                          <input
-                            type="checkbox"
-                            className="size-3.5 accent-foreground"
-                            data-testid="people-invitation-select-all"
-                            checked={allOpenInvitationsSelected}
-                            disabled={actionBusy}
-                            aria-checked={
-                              someOpenInvitationsSelected ? "mixed" : allOpenInvitationsSelected
-                            }
-                            ref={(element) => {
-                              if (element) {
-                                element.indeterminate = someOpenInvitationsSelected;
-                              }
-                            }}
-                            onChange={(event) => {
-                              setSelectedInvitationIds(
-                                event.currentTarget.checked ? new Set(openInvitationIds) : new Set()
-                              );
-                            }}
-                          />
-                          {t("peopleSelectAllOpenInvitations")}
-                        </label>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          className="h-8 px-2 text-[11px] text-destructive"
-                          data-testid="people-invitation-revoke-selected"
-                          disabled={actionBusy || selectedInvitationIds.size === 0}
-                          onClick={() => {
-                            const invitationIds = [...selectedInvitationIds];
-                            if (
-                              !confirmDestructive(
-                                t("peopleRevokeSelectedInvitationsConfirm").replace(
-                                  "{count}",
-                                  String(invitationIds.length)
-                                )
-                              )
-                            ) {
-                              return;
-                            }
-                            void onRevokeInvitations(invitationIds).then((ok) => {
-                              if (!ok) return;
-                              setSelectedInvitationIds((current) => {
-                                const next = new Set(current);
-                                for (const invitationId of invitationIds) {
-                                  next.delete(invitationId);
-                                }
-                                return next;
-                              });
-                            });
-                          }}
-                        >
-                          {t("peopleRevokeSelected").replace(
-                            "{count}",
-                            String(selectedInvitationIds.size)
-                          )}
-                        </Button>
-                      </div>
-                    ) : null}
+                      ) : openInvitations.length === 0 ? (
+                        <div className="px-1 py-4 text-xs text-muted-foreground">
+                          {t("peopleEmptyInvitations")}
+                        </div>
+                      ) : (
+                        <ul className="divide-y divide-border/60">
+                          {openInvitations.map((invitation) => {
+                            const status = invitation.open
+                              ? t("peopleInvitationOpen")
+                              : invitation.consumedAt
+                                ? t("peopleInvitationConsumed")
+                                : invitation.revokedAt
+                                  ? t("peopleInvitationRevoked")
+                                  : t("peopleInvitationExpired");
+                            return (
+                              <li
+                                key={invitation.invitationId}
+                                className="flex min-w-0 flex-col px-1 py-3 text-xs"
+                                data-testid="people-invitation-row"
+                                data-open={invitation.open ? "true" : "false"}
+                              >
+                                <div className="flex min-w-0 items-start gap-3">
+                                  {invitation.open ? (
+                                    <input
+                                      type="checkbox"
+                                      className="size-3.5 shrink-0 accent-foreground"
+                                      data-testid="people-invitation-select"
+                                      aria-label={t("peopleSelectInvitation").replace(
+                                        "{id}",
+                                        shortIdentifier(invitation.invitationId)
+                                      )}
+                                      checked={selectedInvitationIds.has(invitation.invitationId)}
+                                      disabled={actionBusy}
+                                      onChange={(event) => {
+                                        const checked = event.currentTarget.checked;
+                                        const invitationId = invitation.invitationId;
+                                        setSelectedInvitationIds((current) => {
+                                          const next = new Set(current);
+                                          if (checked) {
+                                            next.add(invitationId);
+                                          } else {
+                                            next.delete(invitationId);
+                                          }
+                                          return next;
+                                        });
+                                      }}
+                                    />
+                                  ) : null}
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                                      <span className="font-medium text-text-strong">{status}</span>
+                                      <span className="text-[10px] text-muted-foreground">
+                                        {t("peopleInvitationCreated").replace(
+                                          "{time}",
+                                          formatTimestamp(invitation.createdAt)
+                                        )}
+                                      </span>
+                                    </div>
+                                    <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] leading-4 text-muted-foreground">
+                                      {t("peopleInvitationExpires").replace(
+                                        "{time}",
+                                        formatTimestamp(invitation.expiresAt)
+                                      )}
+                                      <span title={invitation.invitationId}>
+                                        {t("peopleInvitationIdLabel").replace(
+                                          "{id}",
+                                          shortIdentifier(invitation.invitationId)
+                                        )}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  {invitation.open ? (
+                                    <div className="flex shrink-0 items-center gap-1">
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-8 px-2 text-[11px]"
+                                        data-testid="people-invitation-view"
+                                        disabled={actionBusy}
+                                        onClick={() =>
+                                          void onViewInvitation(invitation.invitationId)
+                                        }
+                                      >
+                                        {t("peopleViewInvitation")}
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-8 px-2 text-[11px] text-destructive"
+                                        data-testid="people-invitation-revoke"
+                                        disabled={actionBusy}
+                                        onClick={() => {
+                                          if (
+                                            !confirmDestructive(t("peopleRevokeInvitationConfirm"))
+                                          )
+                                            return;
+                                          void onRevokeInvitation(invitation.invitationId);
+                                        }}
+                                      >
+                                        {t("peopleRevoke")}
+                                      </Button>
+                                    </div>
+                                  ) : null}
+                                </div>
+                                {renderInlineInvitationSecret(invitation.invitationId)}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </div>
                   </div>
-                  {detailsLoading ? (
-                    <div className="px-1 py-4 text-xs text-muted-foreground">
-                      {t("peopleLoading")}
-                    </div>
-                  ) : openInvitations.length === 0 ? (
-                    <div className="px-1 py-4 text-xs text-muted-foreground">
-                      {t("peopleEmptyInvitations")}
-                    </div>
-                  ) : (
-                    <ul className="divide-y divide-border/60">
-                      {openInvitations.map((invitation) => {
-                        const status = invitation.open
-                          ? t("peopleInvitationOpen")
-                          : invitation.consumedAt
-                            ? t("peopleInvitationConsumed")
-                            : invitation.revokedAt
-                              ? t("peopleInvitationRevoked")
-                              : t("peopleInvitationExpired");
-                        return (
-                          <li
-                            key={invitation.invitationId}
-                            className="flex min-w-0 flex-col px-1 py-3 text-xs"
-                            data-testid="people-invitation-row"
-                            data-open={invitation.open ? "true" : "false"}
-                          >
-                            <div className="flex min-w-0 items-start gap-3">
-                              {invitation.open ? (
-                                <input
-                                  type="checkbox"
-                                  className="size-3.5 shrink-0 accent-foreground"
-                                  data-testid="people-invitation-select"
-                                  aria-label={t("peopleSelectInvitation").replace(
-                                    "{id}",
-                                    shortIdentifier(invitation.invitationId)
-                                  )}
-                                  checked={selectedInvitationIds.has(invitation.invitationId)}
-                                  disabled={actionBusy}
-                                  onChange={(event) => {
-                                    const checked = event.currentTarget.checked;
-                                    const invitationId = invitation.invitationId;
-                                    setSelectedInvitationIds((current) => {
-                                      const next = new Set(current);
-                                      if (checked) {
-                                        next.add(invitationId);
-                                      } else {
-                                        next.delete(invitationId);
-                                      }
-                                      return next;
-                                    });
-                                  }}
-                                />
-                              ) : null}
-                              <div className="min-w-0 flex-1">
-                                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                                  <span className="font-medium text-text-strong">{status}</span>
-                                  <span className="text-[10px] text-muted-foreground">
-                                    {t("peopleInvitationCreated").replace(
-                                      "{time}",
-                                      formatTimestamp(invitation.createdAt)
-                                    )}
-                                  </span>
-                                </div>
-                                <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] leading-4 text-muted-foreground">
-                                  {t("peopleInvitationExpires").replace(
-                                    "{time}",
-                                    formatTimestamp(invitation.expiresAt)
-                                  )}
-                                  <span title={invitation.invitationId}>
-                                    {t("peopleInvitationIdLabel").replace(
-                                      "{id}",
-                                      shortIdentifier(invitation.invitationId)
-                                    )}
-                                  </span>
-                                </div>
-                              </div>
-                              {invitation.open ? (
-                                <div className="flex shrink-0 items-center gap-1">
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="ghost"
-                                    className="h-8 px-2 text-[11px]"
-                                    data-testid="people-invitation-view"
-                                    disabled={actionBusy}
-                                    onClick={() => void onViewInvitation(invitation.invitationId)}
-                                  >
-                                    {t("peopleViewInvitation")}
-                                  </Button>
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="ghost"
-                                    className="h-8 px-2 text-[11px] text-destructive"
-                                    data-testid="people-invitation-revoke"
-                                    disabled={actionBusy}
-                                    onClick={() => {
-                                      if (!confirmDestructive(t("peopleRevokeInvitationConfirm")))
-                                        return;
-                                      void onRevokeInvitation(invitation.invitationId);
-                                    }}
-                                  >
-                                    {t("peopleRevoke")}
-                                  </Button>
-                                </div>
-                              ) : null}
-                            </div>
-                            {renderInlineInvitationSecret(invitation.invitationId)}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </div>
-              </div>
+                ) : null}
+              </section>
             ) : null}
-          </section>
-        ) : null}
+          </div>
+        </ManagementDialog>
       </div>
 
       <div

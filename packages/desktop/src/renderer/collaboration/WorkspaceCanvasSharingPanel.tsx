@@ -19,6 +19,7 @@ import { WorkspaceSectionHeader } from "../team/WorkspaceSectionHeader";
 import {
   collaborationErrorCode,
   collaborationErrorMessage,
+  collaborationConnectionErrorMessage,
   logCollaborationRendererError
 } from "./formatCollaborationError";
 import {
@@ -29,8 +30,18 @@ import {
   type WorkspaceCanvasShareStage
 } from "./WorkspaceCanvasSharingProjectPanel";
 
+type WorkspaceCanvasSharingApi = Pick<
+  PlanWeaveCollaborationApi,
+  | "listWorkspaceCanvasSharingCandidates"
+  | "listCollaborationAuthorizedCanvases"
+  | "publishWorkspaceCanvas"
+  | "getCurrentCanvasAccess"
+  | "mutateCurrentCanvasAccess"
+  | "openWorkspaceCanvasSession"
+>;
+
 async function listAuthorizedCanvases(
-  api: PlanWeaveCollaborationApi,
+  api: WorkspaceCanvasSharingApi,
   projectId: string | null,
   isCurrent: () => boolean
 ): Promise<CanvasAccessRecord[]> {
@@ -74,19 +85,25 @@ export function WorkspaceCanvasSharingPanel({
   connected,
   connectionKey,
   workspaceProjectId,
+  initialExpanded = false,
+  requireProjectSelection = false,
+  showHeader = true,
   onPublished,
   t
 }: {
-  api: PlanWeaveCollaborationApi | null;
+  api: WorkspaceCanvasSharingApi | null;
   connected: boolean;
   connectionKey: string | null;
   workspaceProjectId: string | null;
+  initialExpanded?: boolean;
+  requireProjectSelection?: boolean;
+  showHeader?: boolean;
   onPublished?: (result: WorkspaceCanvasPublishResult) => void;
   t: ReturnType<typeof createTranslator>;
 }) {
   const [candidates, setCandidates] = useState<WorkspaceCanvasSharingCandidate[]>([]);
   const [authorizedCanvases, setAuthorizedCanvases] = useState<CanvasAccessRecord[]>([]);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(initialExpanded);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedCanvasId, setSelectedCanvasId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -185,10 +202,17 @@ export function WorkspaceCanvasSharingPanel({
       if (current && projectGroups.some((group) => group.localProjectId === current)) {
         return current;
       }
-      return projectGroups[0]?.localProjectId ?? null;
+      return requireProjectSelection ? null : (projectGroups[0]?.localProjectId ?? null);
     });
-  }, [projectGroups]);
+  }, [projectGroups, requireProjectSelection]);
 
+  const projectLabel = (group: WorkspaceCanvasProjectGroup): string =>
+    projectGroups.some(
+      (other) =>
+        other.localProjectId !== group.localProjectId && other.projectName === group.projectName
+    )
+      ? `${group.projectName} · ${group.localProjectId}`
+      : group.projectName;
   const selectedProject = useMemo(
     () => projectGroups.find((group) => group.localProjectId === selectedProjectId) ?? null,
     [projectGroups, selectedProjectId]
@@ -408,47 +432,46 @@ export function WorkspaceCanvasSharingPanel({
   };
 
   return (
-    <section
-      aria-labelledby="workspace-canvas-sharing-title"
-      data-testid="workspace-canvas-sharing"
-    >
-      <WorkspaceSectionHeader
-        title={t("workspaceCanvasSharingTitle")}
-        description={t("workspaceCanvasSharingDescription")}
-        titleId="workspace-canvas-sharing-title"
-        toggle={{
-          expanded,
-          onToggle: () => setExpanded((current) => !current),
-          label: t(expanded ? "workspaceCanvasSharingCollapse" : "workspaceCanvasSharingExpand"),
-          testId: "workspace-canvas-sharing-toggle",
-          indicator: (
-            <ChevronDownIcon
-              className={`size-4 shrink-0 text-muted-foreground transition-transform ${
-                expanded ? "rotate-180" : ""
-              }`}
-              aria-hidden="true"
-            />
-          )
-        }}
-        action={
-          expanded ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={loading}
-              onClick={() => {
-                setShareError(null);
-                void load();
-              }}
-            >
-              {t("peopleRefresh")}
-            </Button>
-          ) : null
-        }
-      />
+    <section aria-label={t("workspaceCanvasSharingTitle")} data-testid="workspace-canvas-sharing">
+      {showHeader ? (
+        <WorkspaceSectionHeader
+          title={t("workspaceCanvasSharingTitle")}
+          description={t("workspaceCanvasSharingDescription")}
+          titleId="workspace-canvas-sharing-title"
+          toggle={{
+            expanded,
+            onToggle: () => setExpanded((current) => !current),
+            label: t(expanded ? "workspaceCanvasSharingCollapse" : "workspaceCanvasSharingExpand"),
+            testId: "workspace-canvas-sharing-toggle",
+            indicator: (
+              <ChevronDownIcon
+                className={`size-4 shrink-0 text-muted-foreground transition-transform ${
+                  expanded ? "rotate-180" : ""
+                }`}
+                aria-hidden="true"
+              />
+            )
+          }}
+          action={
+            expanded ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={loading}
+                onClick={() => {
+                  setShareError(null);
+                  void load();
+                }}
+              >
+                {t("peopleRefresh")}
+              </Button>
+            ) : null
+          }
+        />
+      ) : null}
       {loadError ? (
         <p className="mt-4 text-xs text-destructive" role="alert">
-          {loadError}
+          {collaborationConnectionErrorMessage(t, loadError)}
         </p>
       ) : null}
       {expanded && loading && candidates.length === 0 ? (
@@ -483,17 +506,13 @@ export function WorkspaceCanvasSharingPanel({
                 data-value={selectedProjectId ?? ""}
               >
                 <SelectValue placeholder={t("workspaceCanvasProjectPlaceholder")}>
-                  {selectedProject
-                    ? `${selectedProject.projectName} · ${selectedProject.localProjectId}`
-                    : undefined}
+                  {selectedProject ? projectLabel(selectedProject) : undefined}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent position="popper" align="start">
                 {projectGroups.map((group) => (
                   <SelectItem key={group.localProjectId} value={group.localProjectId}>
-                    <span className="truncate font-medium">
-                      {group.projectName} · {group.localProjectId}
-                    </span>
+                    <span className="truncate font-medium">{projectLabel(group)}</span>
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -504,6 +523,7 @@ export function WorkspaceCanvasSharingPanel({
             <WorkspaceCanvasSharingProjectPanel
               key={selectedProject.localProjectId}
               project={selectedProject}
+              intent={requireProjectSelection ? "share" : "manage"}
               sharedCanvases={sharedCanvases}
               shareableCanvases={shareableCanvases}
               selectedCanvasId={selectedCanvasId}

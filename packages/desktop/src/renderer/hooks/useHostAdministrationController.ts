@@ -5,7 +5,6 @@ import {
 } from "@planweave-ai/agent-host-protocol/browser";
 import type { OperatorHostView } from "@planweave-ai/agent-host-protocol/operator-control";
 import {
-  OperatorControlError,
   type OperatorHostBootstrapHandoffView,
   type OperatorMemberSetupCodeHandoffView,
   type OperatorCopyMemberSetupCodeInput,
@@ -15,6 +14,7 @@ import {
   type OperatorProfileView
 } from "../../shared/operatorControl";
 import { operatorControlBridge } from "../bridge";
+import { hostAdministrationErrorCode } from "../settings/hostAdministrationErrors";
 import {
   HOST_INVENTORY_PAGE_SIZE,
   mergeHostInventory,
@@ -90,71 +90,6 @@ export type HostAdministrationController = {
   clearError: () => void;
 };
 
-const knownErrorCodes = new Set([
-  "operator_bridge_unavailable",
-  "operator_credential_missing",
-  "operator_profile_missing",
-  "operator_profile_not_found",
-  "operator_offline",
-  "operator_timeout",
-  "operator_unauthorized",
-  "operator_credential_invalid",
-  "operator_admin_required",
-  "operator_server_admin_required",
-  "operator_forbidden",
-  "operator_host_pagination_cursor_repeated",
-  "operator_host_pagination_cursor_regressed",
-  "operator_host_pagination_page_too_large",
-  "local_agent_host_unavailable",
-  "local_agent_host_custom_ca_unsupported",
-  "local_agent_host_handoff_invalid",
-  "local_agent_host_handoff_expired",
-  "agent_host_enrollment_rejected",
-  "agent_host_enrollment_exchange_failed",
-  "agent_host_enrollment_transport_insecure",
-  "agent_host_enrollment_transport_unsupported",
-  "agent_host_enrollment_response_malformed",
-  "agent_host_enrollment_response_too_large",
-  "agent_host_enrollment_response_mismatch",
-  "agent_host_enrollment_response_expired",
-  "agent_host_enrollment_already_pending",
-  "agent_host_handoff_config_conflict",
-  "agent_host_handoff_pending_conflict",
-  "agent_host_handoff_credential_conflict",
-  "agent_host_handoff_provenance_invalid",
-  "agent_host_windows_user_sid_unavailable",
-  "agent_host_preset_binary_missing",
-  "agent_host_background_setup_required",
-  "human_principal_unavailable"
-]);
-
-function knownErrorCode(value: string): string | null {
-  for (const code of knownErrorCodes) {
-    if (value === code || value.includes(`: ${code}`)) return code;
-  }
-  return null;
-}
-
-function safeAgentHostErrorCode(value: string): string | null {
-  return value.match(/(?:agent_host|local_agent_host)_[a-z0-9_]+/)?.[0] ?? null;
-}
-
-function errorMessage(error: unknown): string {
-  if (error instanceof OperatorControlError && knownErrorCodes.has(error.code)) return error.code;
-  if (error && typeof error === "object" && "code" in error) {
-    const code = (error as { code?: unknown }).code;
-    if (typeof code === "string" && knownErrorCodes.has(code)) return code;
-  }
-  if (error instanceof Error) {
-    return (
-      knownErrorCode(error.message) ??
-      safeAgentHostErrorCode(error.message) ??
-      "operator_request_failed"
-    );
-  }
-  return "operator_request_failed";
-}
-
 function nextExpiry(minutes: number): string {
   return new Date(Date.now() + minutes * 60_000).toISOString();
 }
@@ -211,7 +146,7 @@ export function useHostAdministrationController(
       setError(null);
       setLoadState("ready");
     } catch (cause) {
-      setError(errorMessage(cause));
+      setError(hostAdministrationErrorCode(cause));
       setLoadState("ready");
     }
   }, []);
@@ -368,7 +303,7 @@ export function useHostAdministrationController(
               ? "ready"
               : "unavailable"
           );
-          setError(errorMessage(cause));
+          setError(hostAdministrationErrorCode(cause));
         } finally {
           if (
             !options.silent &&
@@ -430,7 +365,7 @@ export function useHostAdministrationController(
           if (active) setLocalAgentHost(next);
         })
         .catch((cause) => {
-          if (active && !options?.silent) setError(errorMessage(cause));
+          if (active && !options?.silent) setError(hostAdministrationErrorCode(cause));
         })
         .finally(() => {
           if (active && !options?.silent) setLocalAgentHostLoading(false);
@@ -461,7 +396,7 @@ export function useHostAdministrationController(
         setError(null);
         return true;
       } catch (cause) {
-        setError(errorMessage(cause));
+        setError(hostAdministrationErrorCode(cause));
         return false;
       } finally {
         setBusy(false);
@@ -533,7 +468,7 @@ export function useHostAdministrationController(
       setError(null);
       return result;
     } catch (cause) {
-      setError(errorMessage(cause));
+      setError(hostAdministrationErrorCode(cause));
       return null;
     } finally {
       setBusy(false);
@@ -552,7 +487,7 @@ export function useHostAdministrationController(
       setError(null);
       return result;
     } catch (cause) {
-      setError(errorMessage(cause));
+      setError(hostAdministrationErrorCode(cause));
       return null;
     } finally {
       setBusy(false);
@@ -594,7 +529,7 @@ export function useHostAdministrationController(
         setError(null);
         return revoked;
       } catch (cause) {
-        setError(errorMessage(cause));
+        setError(hostAdministrationErrorCode(cause));
         return null;
       } finally {
         setBusy(false);
@@ -638,7 +573,7 @@ export function useHostAdministrationController(
         setError(null);
         return renewed;
       } catch (cause) {
-        setError(errorMessage(cause));
+        setError(hostAdministrationErrorCode(cause));
         return null;
       } finally {
         setBusy(false);
@@ -673,7 +608,7 @@ export function useHostAdministrationController(
         await refreshHosts();
         return next;
       } catch (cause) {
-        setError(errorMessage(cause));
+        setError(hostAdministrationErrorCode(cause));
         try {
           setLocalAgentHost(
             await operatorControlBridge.getOperatorLocalAgentHostStatus({
@@ -711,7 +646,7 @@ export function useHostAdministrationController(
         await refreshHosts();
         return next;
       } catch (cause) {
-        setError(errorMessage(cause));
+        setError(hostAdministrationErrorCode(cause));
         try {
           setLocalAgentHost(
             await operatorControlBridge.getOperatorLocalAgentHostStatus(
@@ -749,7 +684,7 @@ export function useHostAdministrationController(
         await refreshHosts();
         return next;
       } catch (cause) {
-        setError(errorMessage(cause));
+        setError(hostAdministrationErrorCode(cause));
         return null;
       } finally {
         setBusy(false);

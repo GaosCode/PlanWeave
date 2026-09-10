@@ -12,6 +12,7 @@ export const remoteAgentManagementZhCnCatalog = {
   remoteAgentManagementDeviceOffline: "离线",
   remoteAgentManagementPermissions: "访问与授权",
   remoteAgentManagementRefresh: "刷新",
+  remoteAgentManagementLoading: "正在读取远程 Agent…",
   remoteAgentManagementEmpty: "当前人员还没有登记的远程 Agent。",
   remoteAgentManagementNoPrincipal: "请先连接 Workspace 配置文件，以便 Desktop 识别 Agent 所有者。",
   remoteAgentManagementAccessMode: "Workspace 访问",

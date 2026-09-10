@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { collaborationBridge, operatorControlBridge } from "../bridge";
+import { hostAdministrationErrorCode } from "../settings/hostAdministrationErrors";
 import { useCollaborationStatus } from "./useCollaborationStatus";
 import { useOwnerControlPlaneAvailability } from "./useOwnerControlPlaneAvailability";
-import { OperatorControlError, type OperatorRemoteAgentView } from "../../shared/operatorControl";
+import type { OperatorRemoteAgentView } from "../../shared/operatorControl";
 
 export type RemoteAgentPeopleOption = {
   humanPrincipalId: string;
@@ -34,12 +35,6 @@ export type RemoteAgentManagementController = {
   revokeAgent: (endpointId: string) => Promise<boolean>;
   repairOwnership: (endpointId: string, ownerHumanPrincipalId: string) => Promise<boolean>;
 };
-
-function publicError(error: unknown): string {
-  if (error instanceof OperatorControlError) return error.code;
-  if (error instanceof Error && error.message.trim().length > 0) return error.message;
-  return "operator_request_failed";
-}
 
 type WorkspacePickerRow = {
   workspaceId: string;
@@ -88,7 +83,7 @@ export function useRemoteAgentManagementController(): RemoteAgentManagementContr
   const [agents, setAgents] = useState<OperatorRemoteAgentView[]>([]);
   const [people, setPeople] = useState<RemoteAgentPeopleOption[]>([]);
   const [workspaces, setWorkspaces] = useState<RemoteAgentWorkspaceOption[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -98,6 +93,7 @@ export function useRemoteAgentManagementController(): RemoteAgentManagementContr
       setPeople([]);
       setWorkspaces([]);
       setError(null);
+      setLoading(false);
       return;
     }
     setLoading(true);
@@ -154,7 +150,7 @@ export function useRemoteAgentManagementController(): RemoteAgentManagementContr
       );
       setError(null);
     } catch (caught) {
-      setError(publicError(caught));
+      setError(hostAdministrationErrorCode(caught));
     } finally {
       setLoading(false);
     }
@@ -180,7 +176,7 @@ export function useRemoteAgentManagementController(): RemoteAgentManagementContr
         await refresh();
         return true;
       } catch (caught) {
-        setError(publicError(caught));
+        setError(hostAdministrationErrorCode(caught));
         return false;
       } finally {
         setBusy(false);

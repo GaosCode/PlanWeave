@@ -2,7 +2,6 @@ import { useState } from "react";
 import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LocalServerLifecycleControls } from "../collaboration/LocalServerLifecycleControls";
-import type { LiveWorkspaceSnapshot } from "../collaboration/liveServerStatus";
 import { collaborationBridge } from "../bridge";
 import { useCollaborationStatus } from "../hooks/useCollaborationStatus";
 import type { createTranslator } from "../i18n";
@@ -10,25 +9,18 @@ import { CollaborationConnectForm } from "../team/CollaborationConnectForm";
 import { DeploymentConnectionCard } from "./DeploymentConnectionCard";
 import { ServerDataMigrationCard } from "./ServerDataMigrationCard";
 
-function workspaceSnapshot(
-  status: ReturnType<typeof useCollaborationStatus>["status"]
-): LiveWorkspaceSnapshot | null {
-  const connection = status?.workspaceConnection;
-  if (!connection) return null;
-  return {
-    status: connection.status,
-    serverBaseUrl: connection.profile?.serverBaseUrl ?? null,
-    displayName: connection.workspaceDisplayName ?? null
-  };
-}
-
 export type SettingsServerSectionProps = {
   t: ReturnType<typeof createTranslator>;
   showHeader?: boolean;
+  maintenance?: boolean;
 };
 
 /** Server hosting, remote endpoint, and device connection for an existing Server. */
-export function SettingsServerSection({ t, showHeader = true }: SettingsServerSectionProps) {
+export function SettingsServerSection({
+  t,
+  showHeader = true,
+  maintenance = false
+}: SettingsServerSectionProps) {
   const [existingServer, setExistingServer] = useState(false);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [statusEpoch, setStatusEpoch] = useState(0);
@@ -53,24 +45,27 @@ export function SettingsServerSection({ t, showHeader = true }: SettingsServerSe
       ) : null}
 
       <div className="flex max-w-3xl flex-col" data-testid="settings-server-panels">
-        <div data-testid="settings-server-lifecycle-block">
-          <LocalServerLifecycleControls
-            api={collaborationBridge}
-            t={t}
-            workspace={workspaceSnapshot(status)}
-            session={status?.session ?? null}
-            showIdleStart={!existingServer}
-            refreshToken={statusEpoch}
-            onRetried={handleConnectionApplied}
-          />
-        </div>
+        {maintenance ? (
+          <div data-testid="settings-server-lifecycle-block">
+            <LocalServerLifecycleControls
+              api={collaborationBridge}
+              t={t}
+              localOnly
+              showIdleStart
+              refreshToken={statusEpoch}
+              onRetried={handleConnectionApplied}
+            />
+          </div>
+        ) : null}
         <div data-testid="settings-server-connection-block">
           <DeploymentConnectionCard
             presentation="plain"
+            connectionOnly={!maintenance}
+            localOnly={maintenance}
             showHeading={false}
             t={t}
             onExistingServerChange={handleExistingServerChange}
-            existingServerTools="collapsed"
+            existingServerTools={maintenance ? "visible" : "hidden"}
             showAdvertisedOrigin={false}
             onConnected={handleConnectionApplied}
             onNeedConnectionDetails={() => setPasteOpen(true)}
@@ -121,7 +116,7 @@ export function SettingsServerSection({ t, showHeader = true }: SettingsServerSe
         </div>
       </div>
 
-      <ServerDataMigrationCard api={collaborationBridge} t={t} />
+      {maintenance ? <ServerDataMigrationCard api={collaborationBridge} t={t} /> : null}
     </section>
   );
 }

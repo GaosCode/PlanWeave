@@ -40,6 +40,9 @@ function peopleIdentityReads() {
     deviceSessionId: "device-session-1"
   };
   return {
+    listCollaborationAuthorizedProjects: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+    listCollaborationAuthorizedCanvases: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+    listWorkspaceCanvasSharingCandidates: vi.fn().mockResolvedValue([]),
     listCollaborationMembers: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
     listCollaborationDevices: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
     listCollaborationInvitations: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
@@ -423,52 +426,30 @@ describe("PeopleView", () => {
     );
 
     expect(await screen.findByTestId("people-workspace-section")).toBeVisible();
-    expect(screen.getByTestId("people-section-members")).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByTestId("people-current-workspace")).toHaveTextContent("workspace-1");
-    expect(screen.getByTestId("people-current-workspace")).toHaveTextContent(
-      "http://127.0.0.1:56584/"
-    );
-    expect(screen.queryByTestId("host-admin-member-setup")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("people-workspace-management")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("content-authority-panel")).not.toBeInTheDocument();
-    expect(screen.getByTestId("canvas-access-panel")).toBeVisible();
-    expect(screen.queryByTestId("deployment-connection")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("workspace-canvas-sharing")).not.toBeInTheDocument();
-
-    await userEvent.click(screen.getByTestId("people-current-workspace-switch"));
-    expect(await screen.findByTestId("people-workspace-management")).toBeVisible();
-    expect(screen.queryByRole("heading", { name: "Workspace management" })).not.toBeInTheDocument();
-    expect(screen.getByTestId("people-workspace-hosting-section")).not.toHaveClass("border-t");
-    expect(screen.getByTestId("people-workspace-connection-status")).toHaveAttribute(
-      "data-status",
-      "connected"
-    );
-    expect(screen.getByTestId("people-workspace-connection-status")).not.toHaveClass("border-y");
-    expect(screen.getByText("http://127.0.0.1:56584/")).toBeVisible();
-    expect(screen.getByTestId("people-workspace-change-connection")).toBeVisible();
-    expect(screen.queryByTestId("people-workspace-disconnect")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("people-connect-active-profile")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("people-connect-submit")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("people-invite-trust-note")).not.toBeInTheDocument();
-
-    await userEvent.click(screen.getByTestId("people-workspace-change-connection"));
-    expect(screen.getByTestId("people-connect-invitation-details")).toBeVisible();
-    expect(screen.getByTestId("people-connect-submit")).toBeVisible();
-    expect(screen.getByTestId("people-workspace-change-connection")).toHaveTextContent("Cancel");
-    expect(screen.queryByTestId("people-connect-mode-setup")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("people-connect-mode-connect")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("people-connect-mode-bootstrap")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("local-collaboration-server-panel")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("canvas-access-panel")).not.toBeInTheDocument();
-    expect(screen.getByTestId("workspace-canvas-sharing")).toBeVisible();
-    expect(screen.queryByTestId("content-authority-panel")).not.toBeInTheDocument();
+    expect(screen.getByTestId("people-section-workspace")).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByTestId("workspace-canvas-directory")).toBeVisible();
+    expect(screen.getByTestId("people-current-workspace-switch")).toHaveTextContent("Team");
+    expect(screen.queryByRole("heading", { name: "Workspace" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("people-panel")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("current-canvas-access-panel")).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "Create complete invitation" })
-    ).not.toBeInTheDocument();
-    expect(screen.queryByText("Invite collaborators")).not.toBeInTheDocument();
-    expect(getCollaborationStatus).toHaveBeenCalledOnce();
+    expect(screen.queryByTestId("host-admin-member-setup")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Share canvas", exact: true }));
+    expect(await screen.findByTestId("workspace-canvas-sharing")).toBeVisible();
+    expect(screen.getByRole("dialog")).toHaveAccessibleName("Share canvas");
+    await userEvent.click(screen.getByRole("button", { name: "Close", exact: true }));
+    await userEvent.click(screen.getByTestId("people-section-members"));
+    expect(await screen.findByTestId("people-panel")).toBeVisible();
+    expect(screen.queryByTestId("workspace-canvas-directory")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("canvas-access-panel")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Canvas permissions", exact: true }));
+    expect(await screen.findByTestId("canvas-access-panel")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Close", exact: true }));
+    await userEvent.click(screen.getByTestId("people-current-workspace-switch"));
+    expect(screen.getByTestId("workspace-switcher")).toBeVisible();
+    expect(screen.queryByTestId("people-connect-invitation-details")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Join another workspace…" }));
+    expect(screen.getByRole("dialog")).toHaveAccessibleName("Join another workspace…");
+    expect(screen.getByTestId("people-connect-invitation-details")).toBeVisible();
+    expect(screen.queryByTestId("local-collaboration-server-panel")).not.toBeInTheDocument();
     expect(screen.queryByTestId("collaboration-workspace-onboarding")).not.toBeInTheDocument();
   });
 
@@ -569,8 +550,12 @@ describe("PeopleView", () => {
       />
     );
 
+    await userEvent.click(await screen.findByTestId("people-section-members"));
+    expect(screen.queryByTestId("host-admin-member-setup")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Invite member", exact: true }));
     expect(await screen.findByTestId("host-admin-member-setup")).toBeVisible();
     expect(screen.getByRole("heading", { name: "Invite another computer" })).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Close", exact: true }));
     await userEvent.click(screen.getByTestId("people-section-workspace"));
     expect(screen.queryByTestId("host-admin-member-setup")).not.toBeInTheDocument();
   });
@@ -684,7 +669,9 @@ describe("PeopleView", () => {
 
     expect(await screen.findByTestId("people-workspace-section")).toBeVisible();
     await user.click(screen.getByTestId("people-section-workspace"));
-    expect(await screen.findByTestId("people-workspace-management")).toBeVisible();
+    expect(
+      screen.getByText("Workspace is disconnected. Reconnect to view shared canvases.")
+    ).toBeVisible();
     expect(screen.queryByText("Invite collaborators")).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Create complete invitation" })
@@ -798,7 +785,7 @@ describe("PeopleView", () => {
 
     expect(await screen.findByTestId("people-workspace-section")).toBeVisible();
     await user.click(screen.getByTestId("people-section-workspace"));
-    expect(await screen.findByTestId("people-workspace-management")).toBeVisible();
+    expect(await screen.findByTestId("workspace-canvas-directory")).toBeVisible();
     expect(screen.queryByRole("button", { name: "新建完整邀请" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "管理开放邀请" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("people-panel")).not.toBeInTheDocument();
@@ -1082,6 +1069,7 @@ describe("PeopleView", () => {
     );
 
     expect(await screen.findByTestId("people-workspace-section")).toBeVisible();
+    await userEvent.click(screen.getByTestId("people-section-members"));
     expect(screen.getByTestId("people-panel")).toBeVisible();
     expect(screen.queryByTestId("collaboration-workspace-onboarding")).not.toBeInTheDocument();
   });
@@ -1245,6 +1233,7 @@ describe("PeopleView", () => {
       />
     );
 
+    await user.click(await screen.findByTestId("people-section-members"));
     await user.click(await screen.findByTestId("people-refresh-details"));
 
     await waitFor(() =>
@@ -1408,7 +1397,10 @@ describe("PeopleView", () => {
       />
     );
 
-    expect(await screen.findByTestId("people-current-workspace")).toHaveTextContent("workspace-1");
+    expect(await screen.findByTestId("people-current-workspace-switch")).toHaveTextContent("Team");
+    await userEvent.click(screen.getByTestId("people-section-members"));
+    await userEvent.click(await screen.findByRole("button", { name: "More actions: Ada Member" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Your profile" }));
     expect(await screen.findByTestId("people-profile-card")).toHaveTextContent("Ada Member");
     expect(screen.getByTestId("people-profile-device")).toHaveTextContent("This device");
     expect(screen.getByTestId("people-presence-summary")).toHaveTextContent("1 member");
@@ -1416,6 +1408,8 @@ describe("PeopleView", () => {
     expect(identity.getWorkspaceConnectionSelf).toHaveBeenCalled();
     expect(identity.listWorkspaceConnectionMembers).toHaveBeenCalled();
     expect(identity.listCollaborationMembers).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Close", exact: true }));
+    await userEvent.click(screen.getByRole("button", { name: "Invite member", exact: true }));
     expect(screen.getByTestId("host-admin-member-setup-target")).toHaveTextContent("workspace-1");
     await userEvent.click(screen.getByTestId("host-admin-copy-member-setup"));
     expect(idleHostController.copyMemberSetupCode).toHaveBeenLastCalledWith({
@@ -1424,6 +1418,7 @@ describe("PeopleView", () => {
       serverBaseUrl: "http://127.0.0.1:56584/"
     });
 
+    await userEvent.click(screen.getByRole("button", { name: "Close", exact: true }));
     identity.getWorkspaceConnectionSelf.mockResolvedValue({
       schemaVersion: "workspace-setup/v1",
       workspaceId: "workspace-2",
