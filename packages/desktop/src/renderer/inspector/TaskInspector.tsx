@@ -21,7 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { AgentEndpointFleetCatalogHint } from "../collaboration/AgentEndpointFleetCatalogHint";
+import { formatAgentEndpointFleetCatalogError } from "../collaboration/formatAgentEndpointFleetCatalogError";
 import { AgentEndpointSelect } from "../collaboration/AgentEndpointSelect";
 import { isUnassignedAgentEndpointSelectionId } from "../collaboration/agentEndpointPreferences";
 import { formatAgentEndpointUnavailableReason } from "../collaboration/formatAgentEndpointUnavailableReason";
@@ -231,6 +231,7 @@ export function TaskInspector({
               </div>
               <AgentEndpointSelect
                 ariaLabel={t("agentEndpointLabel")}
+                catalogHint={formatAgentEndpointFleetCatalogError(agentEndpointCatalogErrorCode, t)}
                 disabled={!onAgentEndpointChange}
                 endpoints={agentEndpoints}
                 onValueChange={(value) => onAgentEndpointChange?.(value)}
@@ -243,7 +244,6 @@ export function TaskInspector({
                 unavailableLabel={t("unavailable")}
                 unavailableReasonLabel={(reason) => formatAgentEndpointUnavailableReason(reason, t)}
               />
-              <AgentEndpointFleetCatalogHint errorCode={agentEndpointCatalogErrorCode} t={t} />
               <div className="flex min-h-7 items-center gap-2 text-xs text-muted-foreground">
                 {!concreteExecutor ? (
                   <span>{t("executorPreflightSelectConcrete")}</span>

@@ -8,11 +8,13 @@ import {
   SelectValue
 } from "@/components/ui/select";
 import { agentEndpointDisplayLabel, type AvailableAgentEndpoint } from "./agentEndpointViewModel";
+import { AgentEndpointFleetCatalogHint } from "./AgentEndpointFleetCatalogHint";
 
 export const inheritAgentEndpointValue = "__inherit_agent_endpoint";
 
 export function AgentEndpointSelect({
   ariaLabel,
+  catalogHint,
   disabled = false,
   endpoints,
   inheritLabel,
@@ -24,6 +26,7 @@ export function AgentEndpointSelect({
   triggerClassName
 }: {
   ariaLabel: string;
+  catalogHint?: string | null;
   disabled?: boolean;
   endpoints: readonly AvailableAgentEndpoint[];
   inheritLabel?: string;
@@ -86,6 +89,7 @@ export function AgentEndpointSelect({
           {localEndpoints.length > 0 && remoteEndpoints.length > 0 ? <SelectSeparator /> : null}
           {remoteEndpoints.map(renderEndpointItem)}
         </SelectGroup>
+        <AgentEndpointFleetCatalogHint message={catalogHint} />
       </SelectContent>
     </Select>
   );

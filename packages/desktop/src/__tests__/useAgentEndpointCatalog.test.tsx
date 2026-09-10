@@ -291,6 +291,52 @@ describe("useAgentEndpointCatalog freshness", () => {
     expect(result.current.errorCode).toBe("http_502");
   });
 
+  it("keeps local executors usable and remotes disabled until reconnect succeeds", async () => {
+    let resolve!: (value: { items: RemoteAgentEndpoint[] }) => void;
+    const listOperatorAgentEndpoints = vi
+      .fn()
+      .mockResolvedValueOnce({ items: [online] })
+      .mockRejectedValueOnce(new Error("operator_offline"))
+      .mockImplementationOnce(
+        () =>
+          new Promise((done) => {
+            resolve = done;
+          })
+      );
+    const { result } = renderHook(() =>
+      useAgentEndpointCatalog({
+        fleetApi: { listOperatorAgentEndpoints },
+        enabled: true,
+        logicalExecutors: [localCodex],
+        operatorProfileId: "operator-profile-1",
+        humanPrincipalId: "human-owner-1",
+        locator: catalogLocator
+      })
+    );
+    await act(async () => undefined);
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.endpoints.find((endpoint) => endpoint.source === "local")).toMatchObject({
+      available: true
+    });
+    expect(result.current.endpoints.find((endpoint) => endpoint.source === "remote")).toMatchObject(
+      { available: false }
+    );
+    act(() => {
+      void result.current.refresh();
+    });
+    expect(result.current.refreshing).toBe(true);
+    expect(result.current.endpoints.find((endpoint) => endpoint.source === "remote")).toMatchObject(
+      { available: false }
+    );
+    await act(async () => resolve({ items: [online] }));
+    expect(result.current.errorCode).toBeNull();
+    expect(result.current.endpoints.find((endpoint) => endpoint.source === "remote")).toMatchObject(
+      { available: true }
+    );
+  });
+
   it("retries quickly after an initial empty-fleet load failure", async () => {
     const listOperatorAgentEndpoints = vi
       .fn()

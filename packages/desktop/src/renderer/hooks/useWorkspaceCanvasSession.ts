@@ -204,10 +204,13 @@ export function useWorkspaceCanvasSession(input: {
   }, [input.api, input.labels, input.locator]);
 
   const replica = activeWorkspaceProjection?.replica ?? null;
-  const projection =
-    snapshot.connectionPhase === "disconnected" && replica
-      ? { ...replica, canEdit: false, optimisticOperationIds: [] }
-      : replica;
+  const projection = useMemo(
+    () =>
+      snapshot.connectionPhase === "disconnected" && replica
+        ? { ...replica, canEdit: false, optimisticOperationIds: [] }
+        : replica,
+    [replica, snapshot.connectionPhase]
+  );
 
   return useMemo(
     () => ({

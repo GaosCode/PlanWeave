@@ -34,15 +34,15 @@ export const agentEndpointRunEnCatalog = {
   collaborationRuntimeBlockStatusUnavailableError:
     "Collaboration status for block {block} is missing. Refresh the canvas or reconnect, then re-run. [{code}]",
   agentEndpointFleetCredentialMissing:
-    "Remote Agent Hosts need a server-admin credential. Open Settings → Connections & Devices and import an operator token. [{code}]",
+    "Remote Agent Hosts need a server-admin credential. Open Settings → Server and import an operator token. [{code}]",
   agentEndpointFleetProfileNotActive:
-    "Select a server-admin profile in Settings → Connections & Devices to list remote Agent Hosts. [{code}]",
+    "Select a server-admin profile in Settings → Server to list remote Agent Hosts. [{code}]",
   agentEndpointFleetBridgeUnavailable:
     "Desktop cannot reach server-admin controls. Restart Desktop and try again. [{code}]",
   agentEndpointFleetLocalServerNotReady:
-    "The local collaboration server is still starting. Wait a moment and retry. [{code}]",
+    "Remote executors are unavailable while the local Server is still starting. Wait a moment and retry.",
   agentEndpointFleetLoadFailed:
-    "Could not load remote Agent Host endpoints. Check Settings → Connections & Devices and retry. [{code}]",
+    "Remote executors are currently unavailable. Check the Server connection in Settings → Server.",
   agentEndpointHumanPrincipalUnavailable:
     "Remote Agents need a signed-in person identity. Connect the Workspace, then retry."
 } as const;

@@ -29,6 +29,7 @@ import {
 } from "../collaboration/agentEndpointViewModel";
 import { inheritAgentEndpointValue } from "../collaboration/AgentEndpointSelect";
 import { AgentEndpointFleetCatalogHint } from "../collaboration/AgentEndpointFleetCatalogHint";
+import { formatAgentEndpointFleetCatalogError } from "../collaboration/formatAgentEndpointFleetCatalogError";
 
 export type RemoteRunPanelProps = {
   agentEndpointCatalogErrorCode?: string | null;
@@ -216,13 +217,11 @@ export function RemoteRunPanel({
                   : ""}
               </SelectItem>
             ))}
+            <AgentEndpointFleetCatalogHint
+              message={formatAgentEndpointFleetCatalogError(agentEndpointCatalogErrorCode, t)}
+            />
           </SelectContent>
         </Select>
-        <AgentEndpointFleetCatalogHint
-          className="text-[10px] text-destructive"
-          errorCode={agentEndpointCatalogErrorCode}
-          t={t}
-        />
         <p className="text-[10px] text-muted-foreground">{t("agentEndpointLocalHint")}</p>
       </div>
 

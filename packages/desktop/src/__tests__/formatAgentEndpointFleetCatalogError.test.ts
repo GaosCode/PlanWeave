@@ -14,7 +14,8 @@ describe("formatAgentEndpointFleetCatalogError", () => {
   it("surfaces http transport failures so an empty fleet picker is not silent", () => {
     const t = createTranslator("en");
     const message = formatAgentEndpointFleetCatalogError("http_502", t);
-    expect(message).toContain("http_502");
+    expect(message).toContain("Remote executors are currently unavailable");
+    expect(message).not.toContain("http_502");
     expect(message.length).toBeGreaterThan(0);
   });
 
@@ -22,7 +23,7 @@ describe("formatAgentEndpointFleetCatalogError", () => {
     const t = createTranslator("en");
     const message = formatAgentEndpointFleetCatalogError("operator_local_server_not_ready", t);
     expect(message).toContain("still starting");
-    expect(message).toContain("operator_local_server_not_ready");
+    expect(message).not.toContain("operator_local_server_not_ready");
   });
 
   it("surfaces a missing human principal as an explicit catalog error", () => {

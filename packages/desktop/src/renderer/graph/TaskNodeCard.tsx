@@ -186,6 +186,7 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
               <div className="flex min-w-0 flex-col gap-1">
                 <AgentEndpointSelect
                   ariaLabel={labels.agent}
+                  catalogHint={agentEndpointFleetCatalogError}
                   endpoints={agentEndpoints}
                   onValueChange={(value) => onAgentEndpointChange(task.taskId, value)}
                   selectedEndpointId={selectedAgentEndpointId}
@@ -200,15 +201,6 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
                   unavailableLabel={labels.unavailable}
                   unavailableReasonLabel={labels.agentEndpointUnavailableReason}
                 />
-                {agentEndpointFleetCatalogError ? (
-                  <p
-                    className="max-w-48 text-[10px] leading-snug text-destructive"
-                    data-testid="agent-endpoint-fleet-catalog-error"
-                    role="alert"
-                  >
-                    {agentEndpointFleetCatalogError}
-                  </p>
-                ) : null}
               </div>
               {assigneeChip ? (
                 <CompactAssigneeChipView chip={assigneeChip} label={labels.assignee} size="sm" />

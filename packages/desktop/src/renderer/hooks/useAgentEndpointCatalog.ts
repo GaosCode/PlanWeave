@@ -178,8 +178,6 @@ export function useAgentEndpointCatalog(input: {
       return;
     }
     setRefreshing(true);
-    setError(null);
-    setErrorCode(null);
     try {
       const result = useOperator
         ? await listFleetEndpoints!({
@@ -204,6 +202,8 @@ export function useAgentEndpointCatalog(input: {
         quickRetryAttemptedRef.current = false;
         setAutomaticRefreshSuppressed(false);
         setRemoteEndpoints(result.items);
+        setError(null);
+        setErrorCode(null);
       }
     } catch (caught: unknown) {
       if (canWrite()) {

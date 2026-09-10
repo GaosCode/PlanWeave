@@ -1,22 +1,10 @@
-import type { createTranslator } from "../i18n";
-import { formatAgentEndpointFleetCatalogError } from "./formatAgentEndpointFleetCatalogError";
-
-export function AgentEndpointFleetCatalogHint({
-  className,
-  errorCode,
-  t
-}: {
-  className?: string;
-  errorCode: string | null | undefined;
-  t: ReturnType<typeof createTranslator>;
-}) {
-  const message = formatAgentEndpointFleetCatalogError(errorCode, t);
+export function AgentEndpointFleetCatalogHint({ message }: { message: string | null | undefined }) {
   if (!message) return null;
   return (
     <p
-      className={className ?? "text-xs text-destructive"}
+      className="max-w-72 px-2 py-1.5 text-xs leading-relaxed text-muted-foreground"
       data-testid="agent-endpoint-fleet-catalog-error"
-      role="alert"
+      role="status"
     >
       {message}
     </p>

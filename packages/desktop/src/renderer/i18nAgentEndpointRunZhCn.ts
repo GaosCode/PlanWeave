@@ -35,14 +35,13 @@ export const agentEndpointRunZhCnCatalog = {
   collaborationRuntimeBlockStatusUnavailableError:
     "块 {block} 的协作状态缺失。请刷新画布或重新连接后再重跑。[{code}]",
   agentEndpointFleetCredentialMissing:
-    "列出远程 Agent Host 需要 server-admin 凭证。请打开设置 → 连接与设备并导入 operator token。[{code}]",
+    "列出远程 Agent Host 需要 server-admin 凭证。请打开设置 → Server并导入 operator token。[{code}]",
   agentEndpointFleetProfileNotActive:
-    "请在设置 → 连接与设备中选择 server-admin 配置文件以列出远程 Agent Host。[{code}]",
+    "请在设置 → Server中选择 server-admin 配置文件以列出远程 Agent Host。[{code}]",
   agentEndpointFleetBridgeUnavailable:
     "Desktop 无法访问 server-admin 控制面。请重启 Desktop 后重试。[{code}]",
-  agentEndpointFleetLocalServerNotReady: "本地协作 Server 仍在启动中，请稍候再试。[{code}]",
-  agentEndpointFleetLoadFailed:
-    "无法加载远程 Agent Host endpoint。请检查设置 → 连接与设备后重试。[{code}]",
+  agentEndpointFleetLocalServerNotReady: "本地 Server 仍在启动中，远程执行器暂不可用，请稍候再试。",
+  agentEndpointFleetLoadFailed: "远程执行器暂不可用。请在设置 → Server中检查 Server 连接。",
   agentEndpointHumanPrincipalUnavailable:
     "远程 Agent 需要已登录的人员身份。请先连接 Workspace，再重试。"
 } satisfies Record<keyof typeof agentEndpointRunEnCatalog, string>;

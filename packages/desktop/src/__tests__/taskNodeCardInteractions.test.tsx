@@ -231,6 +231,44 @@ describe("TaskNodeCard prompt history shortcuts", () => {
 });
 
 describe("TaskNodeCard executor options", () => {
+  it("keeps catalog failures inside the picker and allows local selection", async () => {
+    stubSelectLayoutApis();
+    const onAgentEndpointChange = vi.fn();
+    const data = nodeData();
+    const hint = "Remote executors are unavailable. Check Settings → Connections & Devices.";
+    renderTaskNode(
+      nodeData({
+        agentEndpointFleetCatalogError: hint,
+        selectedAgentEndpointId: "remote:offline",
+        agentEndpoints: [
+          ...data.agentEndpoints,
+          {
+            id: "remote:offline",
+            source: "remote",
+            executorName: "codex",
+            displayName: "Codex",
+            locationName: "Remote Host",
+            capabilities: [],
+            available: false,
+            unavailableReason: "agent_endpoint_request_failed",
+            remoteEndpointId: "offline"
+          }
+        ],
+        onAgentEndpointChange
+      })
+    );
+    expect(screen.queryByText(hint)).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("combobox"));
+    expect(screen.getByText(hint)).toHaveAttribute("role", "status");
+    const remote = screen.getByRole("option", { name: /Codex/ });
+    expect(remote).toHaveAttribute("aria-disabled", "true");
+    await userEvent.click(remote);
+    expect(onAgentEndpointChange).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("option", { name: "Manual" }));
+    expect(onAgentEndpointChange).toHaveBeenCalledWith("T-001", "local:manual");
+  });
+
   it("allows selecting a compatible remote Task Endpoint", async () => {
     stubSelectLayoutApis();
     const onAgentEndpointChange = vi.fn();
