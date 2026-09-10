@@ -228,10 +228,6 @@ export class CollaborationWorkspaceConnectionFacade {
       this.setSession("ready", "workspace_selected", null);
     } catch (error) {
       const mapped = collaborationErrorFromUnknown(error);
-      this.setSession("error", "workspace_select_failed", {
-        code: mapped.code,
-        message: mapped.message
-      });
       throw mapped;
     }
     return this.publishStatus();

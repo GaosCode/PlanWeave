@@ -37,7 +37,7 @@ export function collaborationEndpointForServerOrigin(
   allowInsecureTransport: boolean
 ): DeploymentEndpoint {
   const origin = new URL(serverBaseUrl);
-  const serverOrigin = `${origin.origin}/`;
+  const serverOrigin = serverBaseUrl;
   if (origin.protocol === "https:") {
     return deploymentEndpointSchema.parse({
       topology: "public_https",

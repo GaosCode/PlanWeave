@@ -281,6 +281,7 @@
         "workspaceCanvasPublishAuthority.test.ts",
         "workspaceCanvasSharingPanel.test.tsx",
         "workspaceConnectionPresentation.test.ts",
+        "workspaceManagementAccess.test.ts",
         "workspacePeopleAuthority.test.tsx",
         "workspaceRemoteScopeScheduler.test.ts",
         "workspaceTabsLazyRoutes.test.tsx"
@@ -366,6 +367,7 @@
         "workspaceCanvasDownload.test.ts",
         "workspaceCanvasPublishReceiptStore.test.ts",
         "workspaceCanvasSession.test.ts",
+        "workspaceConnectionSelection.test.ts",
         "workspaceExecutionCharacterization.test.ts",
         "workspaceExecutionProcessBoundary.test.ts",
         "workspaceSessionPreflight.test.ts"

@@ -1,11 +1,26 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildLiveCollaborationProfile,
   listLiveRegistryProjects,
   pickLiveProjectId
 } from "../main/collaboration/liveServerBinding.js";
 import { collaborationEndpointForServerOrigin } from "../main/collaboration/collaborationProfileEndpoint.js";
 
 describe("live Server binding", () => {
+  it.each([
+    "https://vm.example.test",
+    "https://vm.example.test/"
+  ])("keeps the profile and endpoint origin consistent for %s", (serverBaseUrl) => {
+    const profile = buildLiveCollaborationProfile({
+      profileId: "workspace-connection",
+      displayName: "Team",
+      serverBaseUrl,
+      allowInsecureTransport: false,
+      projectId: "chosen-project"
+    });
+    expect(profile.serverBaseUrl).toBe(serverBaseUrl);
+    expect(profile.endpoint.serverOrigin).toBe(serverBaseUrl);
+  });
   it("keeps the current project when it still exists in the live Workspace", () => {
     expect(
       pickLiveProjectId({

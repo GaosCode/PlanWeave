@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   ActiveCanvasPersonGrant,
   AccessMutationResult,
@@ -21,6 +21,7 @@ export type CurrentCanvasAccessApi = Pick<
 export type UseCurrentCanvasAccessArgs = {
   api: CurrentCanvasAccessApi | null;
   canvasId: string | null | undefined;
+  projectId?: string;
   status: {
     session: { phase: CollaborationSessionPhase };
     workspaceConnection: { status: ActiveWorkspaceConnectionStatus };
@@ -66,15 +67,17 @@ function canLoadCurrentCanvasAccess(
 export function useCurrentCanvasAccess(
   args: UseCurrentCanvasAccessArgs
 ): UseCurrentCanvasAccessResult {
-  const { api, canvasId, status } = args;
+  const { api, canvasId, projectId, status } = args;
   const workspaceConnectionStatus = status?.workspaceConnection.status ?? "local_only";
   const sessionPhase = status?.session.phase ?? "idle";
+  const generation = useRef(0);
   const [view, setView] = useState<CurrentCanvasAccessView | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(async () => {
+    const id = ++generation.current;
     const currentArgs = {
       api,
       canvasId,
@@ -92,17 +95,26 @@ export function useCurrentCanvasAccess(
     setLoading(true);
     setError(null);
     try {
-      setView(await currentArgs.api.getCurrentCanvasAccess({ canvasId: currentArgs.canvasId }));
+      const next = await currentArgs.api.getCurrentCanvasAccess({
+        canvasId: currentArgs.canvasId,
+        ...(projectId ? { projectId } : {})
+      });
+      if (id === generation.current) setView(next);
     } catch (nextError) {
-      setView(null);
-      setError(collaborationErrorMessage(nextError));
+      if (id === generation.current) {
+        setView(null);
+        setError(collaborationErrorMessage(nextError));
+      }
     } finally {
-      setLoading(false);
+      if (id === generation.current) setLoading(false);
     }
-  }, [api, canvasId, sessionPhase, workspaceConnectionStatus]);
+  }, [api, canvasId, projectId, sessionPhase, workspaceConnectionStatus]);
 
   useEffect(() => {
     void refresh();
+    return () => {
+      generation.current += 1;
+    };
   }, [refresh]);
 
   const mutate = useCallback(
@@ -120,6 +132,7 @@ export function useCurrentCanvasAccess(
       if (!canLoadCurrentCanvasAccess(currentArgs) || !view || busy) return null;
       const input: CollaborationAccessMutationInput = {
         canvasId: view.scope.canvasId,
+        ...(projectId ? { projectId } : {}),
         request
       };
       setBusy(true);
@@ -140,7 +153,7 @@ export function useCurrentCanvasAccess(
         setBusy(false);
       }
     },
-    [api, busy, canvasId, refresh, sessionPhase, view, workspaceConnectionStatus]
+    [api, busy, canvasId, projectId, refresh, sessionPhase, view, workspaceConnectionStatus]
   );
 
   const scopeFor = useCallback(

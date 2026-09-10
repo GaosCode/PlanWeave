@@ -12,6 +12,7 @@ import type {
   CollaborationClientClock,
   CollaborationCredentialPort
 } from "./collaborationClientTypes.js";
+import { CollaborationRegistryClient } from "./CollaborationRegistryClient.js";
 import { CollaborationHttpTransport } from "./collaborationHttpTransport.js";
 
 export type CollaborationWorkspaceClientOptions = {
@@ -37,6 +38,12 @@ export class CollaborationWorkspaceClient {
       request: options.request,
       clock: options.clock
     });
+  }
+
+  directory(): Pick<CollaborationRegistryClient, "listProjects" | "listCanvases"> {
+    return new CollaborationRegistryClient((method, path, schema, options) =>
+      this.transport.json(method, path, schema, options)
+    );
   }
 
   async listWorkspaces(input: { cursor: number; limit: number }): Promise<WorkspacePickerPage> {

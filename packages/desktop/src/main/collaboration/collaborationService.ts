@@ -191,7 +191,10 @@ export class CollaborationService {
     this.onObserverSignal = options.onObserverSignal;
     this.onPresenceSignal = options.onPresenceSignal;
     this.bindLiveOperatorToOrigin = options.bindLiveOperatorToOrigin;
-    this.registryService = new CollaborationRegistryService(() => this.client);
+    this.registryService = new CollaborationRegistryService(
+      () => this.client,
+      (run) => this.workspaceConnection.readDirectory(run)
+    );
     this.contentVersions = new ContentVersionFacade(() => this.client);
     const canvasComposition = createWorkspaceCanvasSnapshotSessionComposition({
       snapshotCache: options.workspaceSnapshotCache,
@@ -246,6 +249,8 @@ export class CollaborationService {
     this.currentCanvasAccess = new CurrentCanvasAccessFacade({
       ensureWorkspaceHydrated: () => this.ensureWorkspaceHydrated(),
       buildWorkspaceConnectionView: () => this.workspaceConnection.buildView(),
+      withProjectClient: (projectId, operation) =>
+        this.workspaceConnection.withProjectClient(projectId, operation),
       withActiveClient: (operation) => this.withActiveClient(operation)
     });
     this.sessionLifecycle = new CollaborationSessionLifecycle({

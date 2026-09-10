@@ -101,9 +101,9 @@ describe("useWorkspaceAccessScope", () => {
         api,
         connectionKey: "profile-1",
         status: {
-          profiles: [{ profileId: "profile-1", projectId: "remote-project" }],
-          session: { phase: "connected" },
-          workspaceConnection: { status: "connected" }
+          profiles: [{ profileId: "other-profile", projectId: "sidebar-project" }],
+          session: { phase: "disconnected" },
+          workspaceConnection: { status: "connected", workspaceId: "workspace-1" }
         }
       })
     );
@@ -120,6 +120,9 @@ describe("useWorkspaceAccessScope", () => {
       }
     ]);
     expect(result.current.selectedKey).toBe("remote-project\0remote-canvas");
-    expect(getCurrentCanvasAccess).toHaveBeenCalledWith({ canvasId: "remote-canvas" });
+    expect(getCurrentCanvasAccess).toHaveBeenCalledWith({
+      canvasId: "remote-canvas",
+      projectId: "remote-project"
+    });
   });
 });

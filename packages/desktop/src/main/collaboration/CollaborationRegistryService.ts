@@ -16,6 +16,8 @@ import {
 import { CollaborationClient } from "./CollaborationClient.js";
 import { CollaborationClientError, collaborationErrorFromUnknown } from "./collaborationErrors.js";
 
+import type { CollaborationRegistryClient } from "./CollaborationRegistryClient.js";
+
 type RegistryClientResolver = () => CollaborationClient | null;
 
 function commandInput(operation: string, input: unknown): Record<string, unknown> {
@@ -27,7 +29,14 @@ function commandInput(operation: string, input: unknown): Record<string, unknown
 
 /** Main-process registry orchestration; it never exposes the raw client or transport. */
 export class CollaborationRegistryService {
-  constructor(private readonly resolveClient: RegistryClientResolver) {}
+  constructor(
+    private readonly resolveClient: RegistryClientResolver,
+    private readonly readDirectory: <T>(
+      run: (
+        directory: Pick<CollaborationRegistryClient, "listProjects" | "listCanvases">
+      ) => Promise<T>
+    ) => Promise<T>
+  ) {}
 
   private activeClient(): CollaborationClient {
     const client = this.resolveClient();
@@ -57,8 +66,8 @@ export class CollaborationRegistryService {
     if (command.operation !== "list_authorized_projects")
       throw new Error("registry_operation_invalid");
     const { operation: _operation, ...request } = command;
-    return this.run(async (client) =>
-      projectAccessPageSchema.parse(await client.registry().listProjects(request))
+    return this.readDirectory(async (directory) =>
+      projectAccessPageSchema.parse(await directory.listProjects(request))
     );
   }
 
@@ -69,8 +78,8 @@ export class CollaborationRegistryService {
     if (command.operation !== "list_authorized_canvases")
       throw new Error("registry_operation_invalid");
     const { operation: _operation, ...request } = command;
-    return this.run(async (client) =>
-      canvasAccessPageSchema.parse(await client.registry().listCanvases(request))
+    return this.readDirectory(async (directory) =>
+      canvasAccessPageSchema.parse(await directory.listCanvases(request))
     );
   }
 

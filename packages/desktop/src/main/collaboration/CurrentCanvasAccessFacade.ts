@@ -12,6 +12,11 @@ import {
 import type { CollaborationClient } from "./CollaborationClient.js";
 import { CollaborationClientError } from "./collaborationErrors.js";
 
+type CanvasAccessClient = Pick<
+  CollaborationClient,
+  "connectionProfile" | "projectId" | "getCurrentCanvasAccess" | "mutateCurrentCanvasAccess"
+>;
+
 type WorkspaceConnectionView = {
   status: string;
   workspaceId: string | null;
@@ -21,7 +26,11 @@ type WorkspaceConnectionView = {
 export type CurrentCanvasAccessFacadeOptions = {
   ensureWorkspaceHydrated: () => Promise<void>;
   buildWorkspaceConnectionView: () => Promise<WorkspaceConnectionView>;
-  withActiveClient: <T>(operation: (client: CollaborationClient) => Promise<T>) => Promise<T>;
+  withProjectClient: <T>(
+    projectId: string,
+    operation: (client: CanvasAccessClient) => Promise<T>
+  ) => Promise<T>;
+  withActiveClient: <T>(operation: (client: CanvasAccessClient) => Promise<T>) => Promise<T>;
 };
 
 /** Enforces that access reads and mutations stay inside the active Workspace canvas scope. */
@@ -31,13 +40,13 @@ export class CurrentCanvasAccessFacade {
   async get(input: unknown): Promise<CurrentCanvasAccessView> {
     assertNoSmuggledCollaborationSecrets(input, "getCurrentCanvasAccess");
     const parsed = collaborationCurrentCanvasAccessInputSchema.parse(input);
-    return (await this.context(parsed.canvasId)).view;
+    return (await this.context(parsed.canvasId, parsed.projectId)).view;
   }
 
   async mutate(input: unknown): Promise<AccessMutationResult> {
     assertNoSmuggledCollaborationSecrets(input, "mutateCurrentCanvasAccess");
     const mutation = collaborationAccessMutationInputSchema.parse(input);
-    const { scope } = await this.context(mutation.canvasId);
+    const { scope } = await this.context(mutation.canvasId, mutation.projectId);
     const request = mutation.request;
     if (
       request.scope.workspaceId !== scope.workspaceId ||
@@ -56,18 +65,30 @@ export class CurrentCanvasAccessFacade {
             canvasId: null
           };
     const scopedRequest: AccessMutationRequest = { ...request, scope: canonicalScope };
-    return this.options.withActiveClient((client) =>
+    return this.withClient(mutation.projectId, (client) =>
       client.mutateCurrentCanvasAccess({ canvasId: scope.canvasId, request: scopedRequest })
     );
   }
 
-  private async context(canvasId: string): Promise<{
+  private withClient<T>(
+    projectId: string | undefined,
+    operation: (client: CanvasAccessClient) => Promise<T>
+  ): Promise<T> {
+    return projectId
+      ? this.options.withProjectClient(projectId, operation)
+      : this.options.withActiveClient(operation);
+  }
+
+  private async context(
+    canvasId: string,
+    projectId?: string
+  ): Promise<{
     scope: Extract<AccessScope, { scopeKind: "canvas" }>;
     view: CurrentCanvasAccessView;
   }> {
     await this.options.ensureWorkspaceHydrated();
     const connection = await this.options.buildWorkspaceConnectionView();
-    return this.options.withActiveClient(async (client) => {
+    return this.withClient(projectId, async (client) => {
       if (
         connection.status === "connected" &&
         connection.profile?.serverBaseUrl !== client.connectionProfile.serverBaseUrl

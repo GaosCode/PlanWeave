@@ -1,13 +1,27 @@
+import { withWorkspaceProjectClient } from "./workspaceProjectClient.js";
+import type { CollaborationClient } from "./CollaborationClient.js";
+import {
+  nowIso,
+  needsIdentityRenewal,
+  isUnusableIdentityCredential,
+  isRejectedWorkspaceCredential
+} from "./workspaceCredentialLifecycle.js";
+import { findAuthorizedWorkspace } from "./workspacePickerReader.js";
+import {
+  localOnlyView,
+  emptyWorkspacePickerPage,
+  toPublicProfile,
+  isRetargetableWorkspaceProfileId,
+  exportedIdentityAsStoredProfile
+} from "./workspaceConnectionViews.js";
 import {
   activeWorkspaceConnectionViewSchema,
   workspaceConnectionProfileSchema,
-  workspacePickerPageSchema,
   type ActiveWorkspaceConnectionError,
   type ActiveWorkspaceConnectionStatus,
   type ActiveWorkspaceConnectionView,
   type CollaborationConnectionProfile,
   type WorkspaceConnectionMembersPage,
-  type WorkspaceConnectionProfile,
   type WorkspaceConnectionSelfView,
   type WorkspacePickerPage
 } from "@planweave-ai/collaboration-protocol/connection";
@@ -47,9 +61,7 @@ import {
 } from "./workspaceConnectionProfileStore.js";
 import {
   EXPORTED_SERVER_DATA_PROFILE_ID,
-  ExportedServerDataIdentityStore,
-  isExportedServerDataProfileId,
-  type ExportedServerDataIdentity
+  ExportedServerDataIdentityStore
 } from "./exportedServerDataIdentity.js";
 
 export type CollaborationWorkspaceConnectionOptions = {
@@ -62,92 +74,6 @@ export type CollaborationWorkspaceConnectionOptions = {
   clock?: { now(): Date };
   onChange?: () => void;
 };
-
-const IDENTITY_RENEW_BEFORE_MS = 7 * 24 * 60 * 60 * 1_000;
-
-function nowIso(clock?: { now(): Date }): string {
-  return (clock?.now() ?? new Date()).toISOString();
-}
-
-function needsIdentityRenewal(expiresAt: string | null, now: Date): boolean {
-  if (expiresAt === null) return false;
-  const expires = Date.parse(expiresAt);
-  return Number.isFinite(expires) && expires - now.getTime() <= IDENTITY_RENEW_BEFORE_MS;
-}
-
-function isUnusableIdentityCredential(error: unknown): boolean {
-  return (
-    error instanceof CollaborationClientError &&
-    (error.code === "identity_credential_expired" ||
-      error.code === "identity_credential_revoked" ||
-      error.code === "identity_credential_invalid")
-  );
-}
-
-function localOnlyView(): ActiveWorkspaceConnectionView {
-  return activeWorkspaceConnectionViewSchema.parse({
-    schemaVersion: "workspace-setup/v1",
-    status: "local_only",
-    profile: null,
-    workspaceId: null,
-    workspaceDisplayName: null,
-    connectedAt: null,
-    error: null
-  });
-}
-
-function emptyWorkspacePickerPage(): WorkspacePickerPage {
-  return workspacePickerPageSchema.parse({
-    schemaVersion: "workspace-setup/v1",
-    items: [],
-    nextCursor: null
-  });
-}
-
-function toPublicProfile(stored: StoredWorkspaceConnectionProfile): WorkspaceConnectionProfile {
-  return {
-    schemaVersion: stored.schemaVersion,
-    profileId: stored.profileId,
-    displayName: stored.displayName,
-    serverBaseUrl: stored.serverBaseUrl,
-    workspaceId: stored.workspaceId,
-    allowInsecureTransport: stored.allowInsecureTransport
-  };
-}
-
-function isRetargetableWorkspaceProfileId(profileId: string): boolean {
-  return isLocalCollaborationProfileId(profileId) || isExportedServerDataProfileId(profileId);
-}
-
-function exportedIdentityAsStoredProfile(
-  identity: ExportedServerDataIdentity
-): StoredWorkspaceConnectionProfile {
-  return {
-    ...workspaceConnectionProfileSchema.parse({
-      schemaVersion: "workspace-identity/v1",
-      profileId: EXPORTED_SERVER_DATA_PROFILE_ID,
-      displayName: identity.workspaceDisplayName,
-      serverBaseUrl: "http://127.0.0.1/",
-      workspaceId: identity.workspaceId,
-      allowInsecureTransport: true
-    }),
-    workspaceDisplayName: identity.workspaceDisplayName,
-    membershipRole: identity.membershipRole,
-    membershipActive: true,
-    updatedAt: identity.updatedAt
-  };
-}
-
-function isRejectedWorkspaceCredential(error: unknown): boolean {
-  if (!(error instanceof CollaborationClientError)) return false;
-  if (error.httpStatus === 401 || error.httpStatus === 403) return true;
-  return (
-    error.code === COLLABORATION_CONNECTION_ERROR_CODES.workspaceUnauthorized ||
-    error.code === COLLABORATION_CONNECTION_ERROR_CODES.workspaceForbidden ||
-    error.kind === "auth" ||
-    error.kind === "forbidden"
-  );
-}
 
 /**
  * Single Server/Workspace connection session for Desktop.
@@ -351,6 +277,33 @@ export class CollaborationWorkspaceConnection {
     return page;
   }
 
+  readDirectory<T>(
+    run: (directory: ReturnType<CollaborationWorkspaceClient["directory"]>) => Promise<T>
+  ): Promise<T> {
+    return this.withActiveWorkspaceClient((client) => run(client.directory()));
+  }
+
+  async withProjectClient<T>(
+    projectId: string,
+    run: (client: CollaborationClient) => Promise<T>
+  ): Promise<T> {
+    if (this.status !== "connected")
+      throw new CollaborationClientError({
+        kind: "offline",
+        code: "SERVER_UNREACHABLE",
+        message: "The configured Server could not be reached.",
+        retryable: true
+      });
+    const profile = await this.requireActiveStoredProfile();
+    return withWorkspaceProjectClient({
+      profile,
+      projectId,
+      vault: this.vault,
+      request: this.request,
+      run
+    });
+  }
+
   getSelf(): Promise<WorkspaceConnectionSelfView> {
     return this.withActiveWorkspaceClient((client) => client.getSelf());
   }
@@ -363,36 +316,12 @@ export class CollaborationWorkspaceConnection {
     return this.withActiveWorkspaceClient((client) => client.listMembers({ cursor, limit }));
   }
 
-  private async findAuthoritativeWorkspace(
+  private findAuthoritativeWorkspace(
     stored: StoredWorkspaceConnectionProfile
   ): Promise<WorkspacePickerPage["items"][number] | null> {
-    let cursor = 0;
-    for (let pageCount = 0; pageCount < 100; pageCount += 1) {
-      const page = await this.listAuthoritativeWorkspaces(stored, cursor, 100);
-      const match = page.items.find(
-        (item) =>
-          item.workspaceId === stored.workspaceId &&
-          item.membershipActive &&
-          item.archivedAt === null
-      );
-      if (match) return match;
-      if (page.nextCursor === null) return null;
-      if (page.nextCursor <= cursor) {
-        throw new CollaborationClientError({
-          kind: "protocol",
-          code: "workspace_connection_pagination_invalid",
-          message: "Workspace picker pagination was invalid.",
-          retryable: false
-        });
-      }
-      cursor = page.nextCursor;
-    }
-    throw new CollaborationClientError({
-      kind: "protocol",
-      code: "workspace_connection_picker_limit_exceeded",
-      message: "Workspace picker exceeded the supported page limit.",
-      retryable: false
-    });
+    return findAuthorizedWorkspace(stored.workspaceId, (cursor) =>
+      this.listAuthoritativeWorkspaces(stored, cursor, 100)
+    );
   }
 
   /**
@@ -1010,23 +939,64 @@ export class CollaborationWorkspaceConnection {
     if (!stored) {
       throw new Error(`Unknown workspace connection profile: ${profileId}`);
     }
-    await this.store.setActiveProfileId(profileId);
-    this.activeProfileId = profileId;
-    this.workspaceDisplayName = stored.workspaceDisplayName;
-    this.status = "disconnected";
-    this.connectedAt = null;
-    this.error = null;
-    this.onChange?.();
-    return this.connectActiveProfile();
+    return this.selectVerifiedWorkspace(stored);
   }
 
   async selectWorkspaceByWorkspaceId(workspaceId: string): Promise<ActiveWorkspaceConnectionView> {
-    const profiles = await this.store.list();
-    const stored = profiles.find((profile) => profile.workspaceId === workspaceId);
+    // Workspace IDs are scoped to the selected Server, including after a Server migration.
+    const activeId = this.activeProfileId ?? (await this.store.getActiveProfileId());
+    const stored = activeId ? await this.store.get(activeId) : null;
     if (!stored) {
-      throw new Error(`Unknown workspace: ${workspaceId}`);
+      throw new CollaborationClientError({
+        kind: "offline",
+        code: "workspace_connection_profile_missing",
+        message: "Select a Server before switching Workspace.",
+        retryable: false
+      });
     }
-    return this.selectWorkspace(stored.profileId);
+    if (stored.workspaceId === workspaceId && this.status === "connected") return this.buildView();
+    return this.selectVerifiedWorkspace({
+      ...stored,
+      workspaceId: workspaceConnectionProfileSchema.shape.workspaceId.parse(workspaceId)
+    });
+  }
+
+  private async selectVerifiedWorkspace(
+    stored: StoredWorkspaceConnectionProfile
+  ): Promise<ActiveWorkspaceConnectionView> {
+    // Verify the destination before changing either the live selection or durable preference.
+    let authoritative: WorkspacePickerPage["items"][number] | null;
+    const previousPicker = this.lastAuthoritativePicker;
+    try {
+      authoritative = await this.findAuthoritativeWorkspace(stored);
+      if (!authoritative) {
+        throw new CollaborationClientError({
+          kind: "forbidden",
+          code: COLLABORATION_CONNECTION_ERROR_CODES.workspaceForbidden,
+          message: "The Server did not authorize this Workspace for the active device.",
+          retryable: false
+        });
+      }
+    } catch (error) {
+      this.lastAuthoritativePicker = previousPicker;
+      throw collaborationConnectionErrorFromUnknown(error);
+    }
+    await this.store.upsert({
+      profile: toPublicProfile(stored),
+      workspaceDisplayName: authoritative.displayName,
+      membershipRole: authoritative.role,
+      membershipActive: authoritative.membershipActive
+    });
+    await this.store.setActiveProfileId(stored.profileId);
+    if (!isLocalCollaborationProfileId(stored.profileId))
+      await this.store.setLastConnection({ kind: "remote", profileId: stored.profileId });
+    this.activeProfileId = stored.profileId;
+    this.workspaceDisplayName = authoritative.displayName;
+    this.status = "connected";
+    this.connectedAt = nowIso(this.clock);
+    this.error = null;
+    this.onChange?.();
+    return this.buildView();
   }
 
   async disconnectToLocalOnly(): Promise<ActiveWorkspaceConnectionView> {

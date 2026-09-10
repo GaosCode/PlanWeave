@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ActiveWorkspaceConnectionStatus } from "@planweave-ai/collaboration-protocol/connection";
 import type {
   CollaborationSessionPhase,
   PlanWeaveCollaborationApi
 } from "../../shared/collaboration.js";
 import { collaborationErrorMessage } from "../collaboration/formatCollaborationError";
-import { isCollaborationSessionConnected } from "../collaboration/sessionState";
-import { useCollaborationRegistryReadModels } from "./useCollaborationRegistryReadModels";
+import type { CanvasAccessRecord } from "@planweave-ai/collaboration-protocol/access/project";
+import { readWorkspaceCanvasDirectory } from "./useWorkspaceCanvasDirectory";
 import { type CurrentCanvasAccessApi, useCurrentCanvasAccess } from "./useCurrentCanvasAccess";
 
 export type WorkspaceAccessScopeApi = CurrentCanvasAccessApi &
@@ -26,7 +26,7 @@ export type WorkspaceAccessScopeOption = {
 type WorkspaceAccessScopeStatus = {
   profiles: Array<{ profileId: string; projectId: string }>;
   session: { phase: CollaborationSessionPhase };
-  workspaceConnection: { status: ActiveWorkspaceConnectionStatus };
+  workspaceConnection: { status: ActiveWorkspaceConnectionStatus; workspaceId?: string | null };
 };
 
 function scopeKey(projectId: string, canvasId: string): string {
@@ -43,26 +43,55 @@ export function useWorkspaceAccessScope({
   status: WorkspaceAccessScopeStatus | null;
 }) {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const connected = isCollaborationSessionConnected(status);
-  const projectId =
-    status && connectionKey
-      ? (status.profiles.find((profile) => profile.profileId === connectionKey)?.projectId ?? null)
-      : null;
-  const registry = useCollaborationRegistryReadModels({
-    api: connected ? api : null,
-    projectId,
-    refreshKey: connectionKey ?? undefined
-  });
+  const connected = status?.workspaceConnection.status === "connected";
+  const workspaceId = status?.workspaceConnection.workspaceId;
+  const [canvases, setCanvases] = useState<CanvasAccessRecord[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const generation = useRef(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the Workspace profile invalidates its authorized directory.
+  const refreshOptions = useCallback(async () => {
+    const id = ++generation.current;
+    setError(null);
+    if (!api || !connected) {
+      setCanvases([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    try {
+      const rows = await readWorkspaceCanvasDirectory(
+        api,
+        () => id === generation.current,
+        workspaceId
+      );
+      if (id === generation.current) setCanvases(rows);
+    } catch (cause) {
+      if (id === generation.current) {
+        setCanvases([]);
+        setError(collaborationErrorMessage(cause));
+      }
+    } finally {
+      if (id === generation.current) setLoading(false);
+    }
+  }, [api, connected, connectionKey, workspaceId]);
+  useEffect(() => {
+    setCanvases([]);
+    void refreshOptions();
+    return () => {
+      generation.current += 1;
+    };
+  }, [refreshOptions]);
   const options = useMemo<WorkspaceAccessScopeOption[]>(
     () =>
-      registry.canvases.map((canvas) => ({
+      canvases.map((canvas) => ({
         key: scopeKey(canvas.registry.projectId, canvas.registry.canvasId),
         projectId: canvas.registry.projectId,
         canvasId: canvas.registry.canvasId,
         projectLabel: canvas.registry.projectId,
         canvasLabel: canvas.registry.canvasId
       })),
-    [registry.canvases]
+    [canvases]
   );
 
   useEffect(() => {
@@ -81,6 +110,7 @@ export function useWorkspaceAccessScope({
   const access = useCurrentCanvasAccess({
     api,
     canvasId: selectedOption?.canvasId ?? null,
+    projectId: selectedOption?.projectId,
     status
   });
 
@@ -89,9 +119,9 @@ export function useWorkspaceAccessScope({
     selectedKey,
     selectedOption,
     select: setSelectedKey,
-    loading: registry.phase === "loading",
-    error: registry.error ? collaborationErrorMessage(registry.error) : null,
-    refreshOptions: registry.refresh,
+    loading,
+    error,
+    refreshOptions,
     access
   };
 }

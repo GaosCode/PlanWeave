@@ -1,3 +1,4 @@
+import { CollaborationClientError } from "../main/collaboration/collaborationErrors.js";
 import { describe, expect, it, vi } from "vitest";
 import { CollaborationClient } from "../main/collaboration/CollaborationClient.js";
 import {
@@ -143,15 +144,28 @@ describe("CollaborationRegistryService", () => {
       credential: { getDeviceToken: () => "pw_hdev_test" },
       request
     });
-    const service = new CollaborationRegistryService(() => client);
+    const service = new CollaborationRegistryService(
+      () => client,
+      (run) => run(client.registry())
+    );
 
     await expect(service.listAuthorizedProjects({ limit: 101 })).rejects.toThrow();
     await expect(service.listAuthorizedProjects({ limit: 1 })).resolves.toEqual(page);
     client.dispose();
 
-    const offline = new CollaborationRegistryService(() => null);
+    const offline = new CollaborationRegistryService(
+      () => null,
+      async () => {
+        throw new CollaborationClientError({
+          kind: "offline",
+          code: "workspace_connection_profile_missing",
+          message: "No Workspace connection",
+          retryable: false
+        });
+      }
+    );
     await expect(offline.listAuthorizedProjects()).rejects.toMatchObject({
-      code: "collaboration_session_inactive"
+      code: "workspace_connection_profile_missing"
     });
   });
 

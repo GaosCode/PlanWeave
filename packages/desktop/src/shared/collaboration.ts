@@ -724,7 +724,10 @@ export type CollaborationCanvasScopeResolution = z.infer<
 >;
 /** Renderer supplies a selected opaque canvas id; main derives and verifies the full active scope. */
 export const collaborationCurrentCanvasAccessInputSchema = z
-  .object({ canvasId: z.string().trim().min(1).max(128) })
+  .object({
+    canvasId: z.string().trim().min(1).max(128),
+    projectId: collaborationOpaqueIdSchema.optional()
+  })
   .strict();
 export type CollaborationCurrentCanvasAccessInput = z.infer<
   typeof collaborationCurrentCanvasAccessInputSchema
@@ -733,6 +736,7 @@ export type CollaborationCurrentCanvasAccessInput = z.infer<
 /** ACL mutations carry an opaque route canvas plus B-001's scope + CAS request. */
 export const collaborationAccessMutationInputSchema = z
   .object({
+    projectId: collaborationOpaqueIdSchema.optional(),
     canvasId: z.string().trim().min(1).max(128),
     request: accessMutationRequestSchema
   })
