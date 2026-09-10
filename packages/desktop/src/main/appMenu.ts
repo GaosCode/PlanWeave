@@ -1,4 +1,5 @@
-import { Menu, app, dialog, type MenuItemConstructorOptions } from "electron";
+import { ensureDesktopDiagnosticsLog } from "./desktopDiagnosticsLog.js";
+import { Menu, app, dialog, shell, type MenuItemConstructorOptions } from "electron";
 import type { AppUpdateState } from "../shared/appUpdate.js";
 import { createNativeTranslator } from "../shared/nativeI18n.js";
 
@@ -56,7 +57,21 @@ export function registerApplicationMenu({ checkForUpdates }: ApplicationMenuOpti
     { role: "editMenu" },
     { role: "viewMenu" },
     { role: "windowMenu" },
-    { role: "help" }
+    {
+      role: "help",
+      submenu: [
+        {
+          label: t.openDiagnosticsLog,
+          click: () => {
+            void ensureDesktopDiagnosticsLog()
+              .then((path) => shell.showItemInFolder(path))
+              .catch(() => {
+                console.error("Could not open Desktop diagnostics log.");
+              });
+          }
+        }
+      ]
+    }
   ];
 
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));

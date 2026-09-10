@@ -1,4 +1,5 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, safeStorage } from "electron";
+import { handleDesktopCommand } from "../desktopCommandHandler.js";
+import { app, BrowserWindow, clipboard, dialog, safeStorage } from "electron";
 import { registerCollaborationCaptureHandlers } from "./collaborationCapture.js";
 import { resolveSelfHostServerResourceDirectory } from "./selfHostServerResource.js";
 import WebSocket from "ws";
@@ -311,61 +312,71 @@ export function registerCollaborationHandlers(
     onExported: () => active.snapshotExportedServerDataIdentity()
   });
 
-  ipcMain.handle(collaborationInvokeChannels.getCollaborationStatus, () =>
+  handleDesktopCommand(collaborationInvokeChannels.getCollaborationStatus, () =>
     lifecycle.run(async () => {
       await persistedWorkspaceReady;
       return active.getStatus();
     })
   );
-  ipcMain.handle(collaborationInvokeChannels.getCollaborationOperationDiagnostics, () =>
+  handleDesktopCommand(collaborationInvokeChannels.getCollaborationOperationDiagnostics, () =>
     lifecycle.run(async () => readOperationDiagnostics())
   );
-  ipcMain.handle(collaborationInvokeChannels.upsertCollaborationProfile, (_event, input: unknown) =>
-    runCoordinationOperation("profile.upsert", () => {
-      assertRendererProfileNamespace(input);
-      return active.upsertProfile(input);
-    })
+  handleDesktopCommand(
+    collaborationInvokeChannels.upsertCollaborationProfile,
+    (_event, input: unknown) =>
+      runCoordinationOperation("profile.upsert", () => {
+        assertRendererProfileNamespace(input);
+        return active.upsertProfile(input);
+      })
   );
-  ipcMain.handle(collaborationInvokeChannels.removeCollaborationProfile, (_event, input: unknown) =>
-    runCoordinationOperation("profile.remove", () => active.removeProfile(input))
+  handleDesktopCommand(
+    collaborationInvokeChannels.removeCollaborationProfile,
+    (_event, input: unknown) =>
+      runCoordinationOperation("profile.remove", () => active.removeProfile(input))
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.setActiveCollaborationProfile,
     (_event, input: unknown) =>
       runCoordinationOperation("profile.setActive", () => active.setActiveProfile(input))
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.exportDeploymentComposeBundle,
     (_event, input: unknown) => deploymentActions.exportComposeBundle(input)
   );
-  ipcMain.handle(collaborationInvokeChannels.listServerDataExportSources, () =>
+  handleDesktopCommand(collaborationInvokeChannels.listServerDataExportSources, () =>
     lifecycle.run(async () => {
       await localReady;
       return serverDataMigration.listSources();
     })
   );
-  ipcMain.handle(collaborationInvokeChannels.exportServerDataArchive, (_event, input: unknown) =>
-    runCoordinationOperation("serverData.export", async () => {
-      await localReady;
-      return serverDataMigration.exportArchive(input);
-    })
+  handleDesktopCommand(
+    collaborationInvokeChannels.exportServerDataArchive,
+    (_event, input: unknown) =>
+      runCoordinationOperation("serverData.export", async () => {
+        await localReady;
+        return serverDataMigration.exportArchive(input);
+      })
   );
-  ipcMain.handle(collaborationInvokeChannels.restoreServerDataArchive, (_event, input: unknown) =>
-    runCoordinationOperation("serverData.restore", async () => {
-      await localReady;
-      return serverDataMigration.restoreArchive(input);
-    })
+  handleDesktopCommand(
+    collaborationInvokeChannels.restoreServerDataArchive,
+    (_event, input: unknown) =>
+      runCoordinationOperation("serverData.restore", async () => {
+        await localReady;
+        return serverDataMigration.restoreArchive(input);
+      })
   );
-  ipcMain.handle(collaborationInvokeChannels.clearActiveCollaborationProfile, () =>
+  handleDesktopCommand(collaborationInvokeChannels.clearActiveCollaborationProfile, () =>
     runCoordinationOperation("profile.clearActive", () => active.clearActiveProfile())
   );
-  ipcMain.handle(collaborationInvokeChannels.importDeviceCredential, (_event, input: unknown) =>
-    active.importDeviceCredential(input)
+  handleDesktopCommand(
+    collaborationInvokeChannels.importDeviceCredential,
+    (_event, input: unknown) => active.importDeviceCredential(input)
   );
-  ipcMain.handle(collaborationInvokeChannels.clearDeviceCredential, (_event, input: unknown) =>
-    active.clearDeviceCredential(input)
+  handleDesktopCommand(
+    collaborationInvokeChannels.clearDeviceCredential,
+    (_event, input: unknown) => active.clearDeviceCredential(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.bootstrapCollaborationOwner,
     (_event, input: unknown) =>
       runCoordinationOperation("owner.bootstrap", async () => {
@@ -381,74 +392,74 @@ export function registerCollaborationHandlers(
         return handoff;
       })
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.consumeCollaborationInvitation,
     (_event, input: unknown) =>
       runCoordinationOperation("invitation.consume", () => active.consumeInvitation(input))
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.connectCollaborationSession,
     (_event, input: unknown) =>
       runCoordinationOperation("session.connect", () => active.connectSession(input))
   );
-  ipcMain.handle(collaborationInvokeChannels.disconnectCollaborationSession, () =>
+  handleDesktopCommand(collaborationInvokeChannels.disconnectCollaborationSession, () =>
     runCoordinationOperation("session.disconnect", () => active.disconnectSession())
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.redeemCollaborationSetupCode,
     (_event, input: unknown) =>
       runCoordinationOperation("workspace.redeemSetupCode", () => active.redeemSetupCode(input))
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.recoverCollaborationIdentities,
     (_event, input: unknown) =>
       runCoordinationOperation("workspace.recoverIdentities", () =>
         active.recoverHistoricalIdentities(input)
       )
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.confirmCollaborationIdentityMerge,
     (_event, input: unknown) =>
       runCoordinationOperation("workspace.confirmIdentityMerge", () =>
         active.confirmIdentityMerge(input)
       )
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.connectExistingServerByOrigin,
     (_event, input: unknown) =>
       runCoordinationOperation("workspace.connectByOrigin", () =>
         active.connectExistingServerByOrigin(input)
       )
   );
-  ipcMain.handle(collaborationInvokeChannels.getActiveWorkspaceConnection, () =>
+  handleDesktopCommand(collaborationInvokeChannels.getActiveWorkspaceConnection, () =>
     lifecycle.run(async () => {
       await persistedWorkspaceReady;
       return active.getActiveWorkspaceConnection();
     })
   );
-  ipcMain.handle(collaborationInvokeChannels.listRememberedServerConnections, () =>
+  handleDesktopCommand(collaborationInvokeChannels.listRememberedServerConnections, () =>
     lifecycle.run(async () => {
       await persistedWorkspaceReady;
       return active.listRememberedServerConnections();
     })
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.forgetRememberedServerConnection,
     (_event, input: unknown) =>
       runCoordinationOperation("workspace.forgetConnection", () =>
         active.forgetRememberedServerConnection(input)
       )
   );
-  ipcMain.handle(collaborationInvokeChannels.listWorkspacePicker, (_event, input: unknown) =>
+  handleDesktopCommand(collaborationInvokeChannels.listWorkspacePicker, (_event, input: unknown) =>
     active.listWorkspacePicker(input)
   );
-  ipcMain.handle(collaborationInvokeChannels.getWorkspaceConnectionSelf, () =>
+  handleDesktopCommand(collaborationInvokeChannels.getWorkspaceConnectionSelf, () =>
     runCollaborationCommand(
       () => active.getWorkspaceConnectionSelf(),
       workspaceConnectionSelfViewSchema
     )
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.updateWorkspaceConnectionSelf,
     (_event, input: unknown) =>
       runCollaborationCommand(
@@ -456,7 +467,7 @@ export function registerCollaborationHandlers(
         workspaceConnectionSelfViewSchema
       )
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.listWorkspaceConnectionMembers,
     (_event, input: unknown) =>
       runCollaborationCommand(
@@ -464,39 +475,42 @@ export function registerCollaborationHandlers(
         workspaceConnectionMembersPageSchema
       )
   );
-  ipcMain.handle(collaborationInvokeChannels.selectWorkspaceConnection, (_event, input: unknown) =>
-    runCoordinationOperation("workspace.selectConnection", () =>
-      active.selectWorkspaceConnection(input)
-    )
+  handleDesktopCommand(
+    collaborationInvokeChannels.selectWorkspaceConnection,
+    (_event, input: unknown) =>
+      runCoordinationOperation("workspace.selectConnection", () =>
+        active.selectWorkspaceConnection(input)
+      )
   );
-  ipcMain.handle(collaborationInvokeChannels.connectWorkspaceConnection, () =>
+  handleDesktopCommand(collaborationInvokeChannels.connectWorkspaceConnection, () =>
     runCoordinationOperation("workspace.connect", () => active.connectWorkspaceConnection())
   );
-  ipcMain.handle(collaborationInvokeChannels.disconnectWorkspaceConnection, () =>
+  handleDesktopCommand(collaborationInvokeChannels.disconnectWorkspaceConnection, () =>
     runCoordinationOperation("workspace.disconnect", () => active.disconnectWorkspaceConnection())
   );
-  ipcMain.handle(collaborationInvokeChannels.retryWorkspaceConnection, () =>
+  handleDesktopCommand(collaborationInvokeChannels.retryWorkspaceConnection, () =>
     runCoordinationOperation("workspace.retryConnection", () => active.retryWorkspaceConnection())
   );
-  ipcMain.handle(collaborationInvokeChannels.getDeploymentGuidance, (_event, input: unknown) =>
-    deploymentActions.guidance(input)
+  handleDesktopCommand(
+    collaborationInvokeChannels.getDeploymentGuidance,
+    (_event, input: unknown) => deploymentActions.guidance(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.copyDeploymentComposeHandoff,
     (_event, input: unknown) => deploymentActions.copyComposeHandoff(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.validateDeploymentConnectivity,
     (_event, input: unknown) => deploymentActions.validateConnectivity(input)
   );
-  ipcMain.handle(collaborationInvokeChannels.getDesktopServerExposure, () =>
+  handleDesktopCommand(collaborationInvokeChannels.getDesktopServerExposure, () =>
     lifecycle.run(async () => {
       await localReady;
       await local.reconcileManagementProfile();
       return local.getExposureView();
     })
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.setDesktopServerExposureMode,
     (_event, input: unknown) =>
       runCoordinationOperation("localServer.setExposureMode", () =>
@@ -510,35 +524,37 @@ export function registerCollaborationHandlers(
         )
       )
   );
-  ipcMain.handle(collaborationInvokeChannels.startCollaborationPresence, (_event, input: unknown) =>
-    active.startPresence(input)
+  handleDesktopCommand(
+    collaborationInvokeChannels.startCollaborationPresence,
+    (_event, input: unknown) => active.startPresence(input)
   );
-  ipcMain.handle(collaborationInvokeChannels.stopCollaborationPresence, () =>
+  handleDesktopCommand(collaborationInvokeChannels.stopCollaborationPresence, () =>
     active.stopPresence()
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.publishCollaborationPresence,
     (_event, input: unknown) => active.publishPresence(input)
   );
-  ipcMain.handle(collaborationInvokeChannels.openWorkspaceCanvasSession, (_event, input: unknown) =>
-    active.openWorkspaceCanvasSession(input)
+  handleDesktopCommand(
+    collaborationInvokeChannels.openWorkspaceCanvasSession,
+    (_event, input: unknown) => active.openWorkspaceCanvasSession(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.submitWorkspaceCanvasCommand,
     (_event, input: unknown) => active.submitWorkspaceCanvasCommand(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.reconnectWorkspaceCanvasSession,
     (_event, input: unknown) => active.reconnectWorkspaceCanvasSession(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.closeWorkspaceCanvasSession,
     (_event, input: unknown) => active.closeWorkspaceCanvasSession(input)
   );
-  ipcMain.handle(collaborationInvokeChannels.getWorkspaceCanvasProjection, () =>
+  handleDesktopCommand(collaborationInvokeChannels.getWorkspaceCanvasProjection, () =>
     active.getWorkspaceCanvasProjection()
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.readCollaborationCanvasBindingRuntimeAvailability,
     async (_event, input: unknown) =>
       canvasRuntimeAvailabilitySchema
@@ -549,7 +565,7 @@ export function registerCollaborationHandlers(
           )
         )
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.initializeWorkspaceCanvasRuntime,
     async (_event, input: unknown) =>
       canvasRuntimeInitializeOutcomeSchema.parse(
@@ -558,7 +574,7 @@ export function registerCollaborationHandlers(
         )
       )
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.resetWorkspaceCanvasRuntime,
     async (_event, input: unknown) =>
       canvasRuntimeResetOutcomeSchema.parse(
@@ -567,19 +583,21 @@ export function registerCollaborationHandlers(
         )
       )
   );
-  ipcMain.handle(collaborationInvokeChannels.listWorkspaceCanvasSharingCandidates, () =>
+  handleDesktopCommand(collaborationInvokeChannels.listWorkspaceCanvasSharingCandidates, () =>
     runCollaborationCommand(
       () => active.listWorkspaceCanvasSharingCandidates(),
       z.array(workspaceCanvasSharingCandidateSchema)
     )
   );
-  ipcMain.handle(collaborationInvokeChannels.publishWorkspaceCanvas, (_event, input: unknown) =>
-    runCollaborationCommand(
-      () => active.publishWorkspaceCanvas(workspaceCanvasPublishInputSchema.parse(input)),
-      workspaceCanvasPublishResultSchema
-    )
+  handleDesktopCommand(
+    collaborationInvokeChannels.publishWorkspaceCanvas,
+    (_event, input: unknown) =>
+      runCollaborationCommand(
+        () => active.publishWorkspaceCanvas(workspaceCanvasPublishInputSchema.parse(input)),
+        workspaceCanvasPublishResultSchema
+      )
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.downloadWorkspaceCanvasFork,
     (_event, input: unknown) =>
       runCollaborationCommand(
@@ -587,13 +605,15 @@ export function registerCollaborationHandlers(
         workspaceCanvasDownloadResultSchema
       )
   );
-  ipcMain.handle(collaborationInvokeChannels.getCurrentCanvasAccess, (_event, input: unknown) =>
-    active.getCurrentCanvasAccess(input)
+  handleDesktopCommand(
+    collaborationInvokeChannels.getCurrentCanvasAccess,
+    (_event, input: unknown) => active.getCurrentCanvasAccess(input)
   );
-  ipcMain.handle(collaborationInvokeChannels.mutateCurrentCanvasAccess, (_event, input: unknown) =>
-    active.mutateCurrentCanvasAccess(input)
+  handleDesktopCommand(
+    collaborationInvokeChannels.mutateCurrentCanvasAccess,
+    (_event, input: unknown) => active.mutateCurrentCanvasAccess(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.setCollaborationCurrentSelection,
     (_event, input: unknown) =>
       runCoordinationOperation("selection.setCurrent", async () => {
@@ -606,21 +626,21 @@ export function registerCollaborationHandlers(
         await localActivation.selectAndReconcile(registrationInput.selection);
       })
   );
-  ipcMain.handle(collaborationInvokeChannels.clearCollaborationCurrentSelection, () =>
+  handleDesktopCommand(collaborationInvokeChannels.clearCollaborationCurrentSelection, () =>
     runCoordinationOperation("selection.clearCurrent", async () => {
       await local.clearCurrentSelection();
     })
   );
-  ipcMain.handle(collaborationInvokeChannels.getLocalCollaborationServerStatus, () =>
+  handleDesktopCommand(collaborationInvokeChannels.getLocalCollaborationServerStatus, () =>
     lifecycle.run(async () => {
       await localReady;
       return local.status();
     })
   );
-  ipcMain.handle(collaborationInvokeChannels.getLocalCollaborationScopeCatalog, () =>
+  handleDesktopCommand(collaborationInvokeChannels.getLocalCollaborationScopeCatalog, () =>
     local.getScopeCatalog()
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.setLocalCollaborationTrustedScopes,
     (_event, input: unknown) =>
       runCoordinationOperation("localServer.setTrustedScopes", async () => {
@@ -629,7 +649,7 @@ export function registerCollaborationHandlers(
         return catalog;
       })
   );
-  ipcMain.handle(collaborationInvokeChannels.startLocalCollaborationServer, () =>
+  handleDesktopCommand(collaborationInvokeChannels.startLocalCollaborationServer, () =>
     runCoordinationOperation("localServer.start", async () => {
       const status = await local.start();
       if (status.state !== "running") return status;
@@ -638,7 +658,7 @@ export function registerCollaborationHandlers(
       return status;
     })
   );
-  ipcMain.handle(collaborationInvokeChannels.stopLocalCollaborationServer, () =>
+  handleDesktopCommand(collaborationInvokeChannels.stopLocalCollaborationServer, () =>
     runCoordinationOperation("localServer.stop", async () => {
       const previousProfileId = local.localProfile()?.profileId;
       const status = await local.stop();
@@ -646,7 +666,7 @@ export function registerCollaborationHandlers(
       return status;
     })
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.setLocalCollaborationLanSharing,
     (_event, input: unknown) =>
       runCoordinationOperation("localServer.setLanSharing", async () => {
@@ -655,10 +675,10 @@ export function registerCollaborationHandlers(
         return status;
       })
   );
-  ipcMain.handle(collaborationInvokeChannels.listLocalCollaborationTrustedScopes, () =>
+  handleDesktopCommand(collaborationInvokeChannels.listLocalCollaborationTrustedScopes, () =>
     local.listActiveTrustedScopes()
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.registerLocalCollaborationCurrentProject,
     (_event, input: unknown) =>
       runCoordinationOperation("localServer.registerCurrentProject", async () => {
@@ -666,23 +686,27 @@ export function registerCollaborationHandlers(
         return localActivation.activate(registrationInput);
       })
   );
-  ipcMain.handle(collaborationInvokeChannels.listCollaborationMembers, (_event, input: unknown) =>
-    runCollaborationCommand(() => active.listMembers(input), humanMemberPageSchema)
+  handleDesktopCommand(
+    collaborationInvokeChannels.listCollaborationMembers,
+    (_event, input: unknown) =>
+      runCollaborationCommand(() => active.listMembers(input), humanMemberPageSchema)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.updateOwnCollaborationDisplayName,
     (_event, input: unknown) =>
       runCollaborationCommand(() => active.updateOwnDisplayName(input), humanPrincipalViewSchema)
   );
-  ipcMain.handle(collaborationInvokeChannels.listCollaborationDevices, (_event, input: unknown) =>
-    runCollaborationCommand(() => active.listDevices(input), humanDevicePageSchema)
+  handleDesktopCommand(
+    collaborationInvokeChannels.listCollaborationDevices,
+    (_event, input: unknown) =>
+      runCollaborationCommand(() => active.listDevices(input), humanDevicePageSchema)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.listCollaborationInvitations,
     (_event, input: unknown) =>
       runCollaborationCommand(() => active.listInvitations(input), humanInvitationPageSchema)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.createCollaborationInvitation,
     (_event, input: unknown) =>
       runCollaborationCommand(
@@ -690,7 +714,7 @@ export function registerCollaborationHandlers(
         humanCreateInvitationResponseSchema
       )
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.createCollaborationInvitationHandoff,
     (_event, input: unknown) =>
       runCollaborationCommand(
@@ -701,7 +725,7 @@ export function registerCollaborationHandlers(
         collaborationInvitationHandoffResponseSchema
       )
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.getCollaborationInvitationSecret,
     (_event, input: unknown) =>
       runCollaborationCommand(
@@ -709,7 +733,7 @@ export function registerCollaborationHandlers(
         humanCreateInvitationResponseSchema
       )
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.getCollaborationInvitationHandoff,
     (_event, input: unknown) =>
       runCollaborationCommand(
@@ -717,12 +741,12 @@ export function registerCollaborationHandlers(
         collaborationInvitationHandoffResponseSchema
       )
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.revokeCollaborationInvitation,
     (_event, input: unknown) =>
       runCollaborationCommand(() => active.revokeInvitation(input), humanInvitationViewSchema)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.revokeCollaborationInvitations,
     (_event, input: unknown) =>
       runCollaborationCommand(
@@ -730,126 +754,139 @@ export function registerCollaborationHandlers(
         humanRevokeInvitationsResponseSchema
       )
   );
-  ipcMain.handle(collaborationInvokeChannels.removeCollaborationMember, (_event, input: unknown) =>
-    runCollaborationCommand(() => active.removeMember(input), z.undefined())
+  handleDesktopCommand(
+    collaborationInvokeChannels.removeCollaborationMember,
+    (_event, input: unknown) =>
+      runCollaborationCommand(() => active.removeMember(input), z.undefined())
   );
-  ipcMain.handle(collaborationInvokeChannels.promoteCollaborationOwner, (_event, input: unknown) =>
-    runCollaborationCommand(() => active.promoteOwner(input), z.undefined())
+  handleDesktopCommand(
+    collaborationInvokeChannels.promoteCollaborationOwner,
+    (_event, input: unknown) =>
+      runCollaborationCommand(() => active.promoteOwner(input), z.undefined())
   );
-  ipcMain.handle(collaborationInvokeChannels.demoteCollaborationOwner, (_event, input: unknown) =>
-    runCollaborationCommand(() => active.demoteOwner(input), z.undefined())
+  handleDesktopCommand(
+    collaborationInvokeChannels.demoteCollaborationOwner,
+    (_event, input: unknown) =>
+      runCollaborationCommand(() => active.demoteOwner(input), z.undefined())
   );
-  ipcMain.handle(collaborationInvokeChannels.revokeCollaborationDevice, (_event, input: unknown) =>
-    runCollaborationCommand(() => active.revokeDevice(input), z.undefined())
+  handleDesktopCommand(
+    collaborationInvokeChannels.revokeCollaborationDevice,
+    (_event, input: unknown) =>
+      runCollaborationCommand(() => active.revokeDevice(input), z.undefined())
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.listCollaborationAssignments,
     (_event, input: unknown) => active.listAssignments(input)
   );
-  ipcMain.handle(collaborationInvokeChannels.getCollaborationAssignment, (_event, input: unknown) =>
-    active.getAssignment(input)
+  handleDesktopCommand(
+    collaborationInvokeChannels.getCollaborationAssignment,
+    (_event, input: unknown) => active.getAssignment(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.listCollaborationEligibleAssignees,
     (_event, input: unknown) => active.listEligibleAssignees(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.listCollaborationEligibleHostsBatch,
     (_event, input: unknown) => active.listEligibleHostsBatch(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.getCollaborationWorkAuthority,
     (_event, input: unknown) => active.getWorkAuthority(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.updateCollaborationResponsibility,
     (_event, input: unknown) => active.updateResponsibility(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.updateCollaborationReviewer,
     (_event, input: unknown) => active.updateReviewer(input)
   );
-  ipcMain.handle(collaborationInvokeChannels.listCollaborationComments, (_event, input: unknown) =>
-    active.listComments(input)
+  handleDesktopCommand(
+    collaborationInvokeChannels.listCollaborationComments,
+    (_event, input: unknown) => active.listComments(input)
   );
-  ipcMain.handle(collaborationInvokeChannels.listCollaborationActivity, (_event, input: unknown) =>
-    active.listActivity(input)
+  handleDesktopCommand(
+    collaborationInvokeChannels.listCollaborationActivity,
+    (_event, input: unknown) => active.listActivity(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.listCollaborationAuthorizedProjects,
     (_event, input: unknown) => active.registry().listAuthorizedProjects(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.listCollaborationAuthorizedCanvases,
     (_event, input: unknown) => active.registry().listAuthorizedCanvases(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.readCollaborationPackageSnapshot,
     (_event, input: unknown) => active.registry().readSnapshot(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.createCollaborationPackageSnapshot,
     (_event, input: unknown) => active.registry().createSnapshot(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.restoreCollaborationPackageSnapshot,
     (_event, input: unknown) => active.registry().restoreSnapshot(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.updateCollaborationAssignment,
     (_event, input: unknown) => active.updateAssignment(input)
   );
-  ipcMain.handle(collaborationInvokeChannels.createCollaborationComment, (_event, input: unknown) =>
-    active.createComment(input)
+  handleDesktopCommand(
+    collaborationInvokeChannels.createCollaborationComment,
+    (_event, input: unknown) => active.createComment(input)
   );
-  ipcMain.handle(collaborationInvokeChannels.editCollaborationComment, (_event, input: unknown) =>
-    active.editComment(input)
+  handleDesktopCommand(
+    collaborationInvokeChannels.editCollaborationComment,
+    (_event, input: unknown) => active.editComment(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.tombstoneCollaborationComment,
     (_event, input: unknown) => active.tombstoneComment(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.createCollaborationPendingAttachment,
     (_event, input: unknown) => active.createPendingAttachment(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.uploadCollaborationPendingAttachment,
     (_event, input: unknown) => active.uploadPendingAttachment(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.finalizeCollaborationPendingAttachment,
     (_event, input: unknown) => active.finalizePendingAttachment(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.readCollaborationCommentAttachment,
     (_event, input: unknown) => active.readCommentAttachment(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.listCollaborationAgentEndpoints,
     (_event, input: unknown) => active.listAgentEndpoints(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.observeCollaborationRemoteOperation,
     (_event, input: unknown) => active.observeRemoteOperation(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.lookupCollaborationRemoteOperation,
     (_event, input: unknown) => active.lookupRemoteOperation(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.lookupWorkspaceRemoteOperation,
     (_event, input: unknown) => active.lookupWorkspaceRemoteOperation(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.observeWorkspaceRemoteOperation,
     (_event, input: unknown) => active.observeWorkspaceRemoteOperation(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.replayCollaborationRemoteOperationEvents,
     (_event, input: unknown) => active.replayRemoteOperationEvents(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     collaborationInvokeChannels.replayWorkspaceRemoteOperationEvents,
     (_event, input: unknown) => active.replayWorkspaceRemoteOperationEvents(input)
   );

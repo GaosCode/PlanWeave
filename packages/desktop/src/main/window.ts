@@ -1,3 +1,4 @@
+import { recordDesktopError } from "./desktopDiagnosticsLog.js";
 import { BrowserWindow, shell } from "electron";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -105,6 +106,20 @@ export async function createWindow(options: {
   configureNavigationHandling(window, { isDev: options.isDev });
 
   await applyLiquidGlassToWindow(window);
+
+  window.webContents.on(
+    "console-message",
+    (details: ElectronEvent<WebContentsConsoleMessageEventParams>) => {
+      if (details.level === "error")
+        void recordDesktopError("renderer.console", new Error(details.message));
+    }
+  );
+  window.webContents.on("render-process-gone", (_event, details) => {
+    void recordDesktopError(
+      "renderer.process",
+      new Error(`${details.reason} (${details.exitCode})`)
+    );
+  });
 
   if (options.isSmoke) {
     window.webContents.on(

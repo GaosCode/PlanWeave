@@ -1,4 +1,5 @@
-import { app, BrowserWindow, clipboard, ipcMain, safeStorage } from "electron";
+import { handleDesktopCommand } from "../desktopCommandHandler.js";
+import { app, BrowserWindow, clipboard, safeStorage } from "electron";
 import { isAbsolute, resolve } from "node:path";
 import {
   assertNoSmuggledOperatorSecrets,
@@ -103,20 +104,20 @@ export function registerOperatorControlHandlers(
   const { readOperatorToken = () => clipboard.readText(), ...serviceOptions } = options;
   service = createDefaultService(serviceOptions);
   const active = service;
-  ipcMain.handle(operatorControlInvokeChannels.getStatus, () => active.getStatus());
-  ipcMain.handle(operatorControlInvokeChannels.upsertProfile, (_event, input: unknown) =>
+  handleDesktopCommand(operatorControlInvokeChannels.getStatus, () => active.getStatus());
+  handleDesktopCommand(operatorControlInvokeChannels.upsertProfile, (_event, input: unknown) =>
     active.upsertProfile(input)
   );
-  ipcMain.handle(operatorControlInvokeChannels.removeProfile, (_event, input: unknown) =>
+  handleDesktopCommand(operatorControlInvokeChannels.removeProfile, (_event, input: unknown) =>
     active.removeProfile(input)
   );
-  ipcMain.handle(operatorControlInvokeChannels.setActiveProfile, (_event, input: unknown) =>
+  handleDesktopCommand(operatorControlInvokeChannels.setActiveProfile, (_event, input: unknown) =>
     active.setActiveProfile(input)
   );
-  ipcMain.handle(operatorControlInvokeChannels.clearActiveProfile, () =>
+  handleDesktopCommand(operatorControlInvokeChannels.clearActiveProfile, () =>
     active.clearActiveProfile()
   );
-  ipcMain.handle(operatorControlInvokeChannels.importCredential, (_event, input: unknown) => {
+  handleDesktopCommand(operatorControlInvokeChannels.importCredential, (_event, input: unknown) => {
     assertNoSmuggledOperatorSecrets(input, "importOperatorCredential");
     const parsed = operatorImportCredentialInputSchema.parse(input);
     return active.importCredential({
@@ -124,64 +125,75 @@ export function registerOperatorControlHandlers(
       operatorToken: readOperatorToken().trim()
     });
   });
-  ipcMain.handle(operatorControlInvokeChannels.clearCredential, (_event, input: unknown) =>
+  handleDesktopCommand(operatorControlInvokeChannels.clearCredential, (_event, input: unknown) =>
     active.clearCredential(input)
   );
-  ipcMain.handle(operatorControlInvokeChannels.listHosts, (_event, input: unknown) =>
+  handleDesktopCommand(operatorControlInvokeChannels.listHosts, (_event, input: unknown) =>
     active.listHosts(input)
   );
-  ipcMain.handle(operatorControlInvokeChannels.listAgentEndpoints, (_event, input: unknown) =>
+  handleDesktopCommand(operatorControlInvokeChannels.listAgentEndpoints, (_event, input: unknown) =>
     active.listAgentEndpoints(input)
   );
-  ipcMain.handle(operatorControlInvokeChannels.copyHostBootstrapHandoff, (_event, input: unknown) =>
-    active.copyHostBootstrapHandoff(input, (content) => clipboard.writeText(content))
+  handleDesktopCommand(
+    operatorControlInvokeChannels.copyHostBootstrapHandoff,
+    (_event, input: unknown) =>
+      active.copyHostBootstrapHandoff(input, (content) => clipboard.writeText(content))
   );
-  ipcMain.handle(operatorControlInvokeChannels.copyMemberSetupCode, (_event, input: unknown) =>
-    active.copyMemberSetupCode(input, (content) => clipboard.writeText(content))
+  handleDesktopCommand(
+    operatorControlInvokeChannels.copyMemberSetupCode,
+    (_event, input: unknown) =>
+      active.copyMemberSetupCode(input, (content) => clipboard.writeText(content))
   );
-  ipcMain.handle(operatorControlInvokeChannels.revokeHost, (_event, input: unknown) =>
+  handleDesktopCommand(operatorControlInvokeChannels.revokeHost, (_event, input: unknown) =>
     active.revokeHost(input)
   );
-  ipcMain.handle(operatorControlInvokeChannels.renewHostCredential, (_event, input: unknown) =>
-    active.renewHostCredential(input)
+  handleDesktopCommand(
+    operatorControlInvokeChannels.renewHostCredential,
+    (_event, input: unknown) => active.renewHostCredential(input)
   );
-  ipcMain.handle(operatorControlInvokeChannels.getLocalAgentHostStatus, (_event, input: unknown) =>
-    active.getLocalAgentHostStatus(input)
+  handleDesktopCommand(
+    operatorControlInvokeChannels.getLocalAgentHostStatus,
+    (_event, input: unknown) => active.getLocalAgentHostStatus(input)
   );
-  ipcMain.handle(operatorControlInvokeChannels.repairLocalAgentHost, (_event, input: unknown) =>
-    active.repairLocalAgentHost(input)
+  handleDesktopCommand(
+    operatorControlInvokeChannels.repairLocalAgentHost,
+    (_event, input: unknown) => active.repairLocalAgentHost(input)
   );
-  ipcMain.handle(operatorControlInvokeChannels.registerLocalAgentHost, (_event, input: unknown) =>
-    active.registerLocalAgentHost(input)
+  handleDesktopCommand(
+    operatorControlInvokeChannels.registerLocalAgentHost,
+    (_event, input: unknown) => active.registerLocalAgentHost(input)
   );
-  ipcMain.handle(operatorControlInvokeChannels.enrollLocalAgentHost, (_event, input: unknown) =>
-    active.enrollLocalAgentHost(input)
+  handleDesktopCommand(
+    operatorControlInvokeChannels.enrollLocalAgentHost,
+    (_event, input: unknown) => active.enrollLocalAgentHost(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     operatorControlInvokeChannels.observeOwnerFleetRemoteOperation,
     (_event, input: unknown) => active.observeOwnerFleetRemoteOperation(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     operatorControlInvokeChannels.replayOwnerFleetRemoteOperationEvents,
     (_event, input: unknown) => active.replayOwnerFleetRemoteOperationEvents(input)
   );
-  ipcMain.handle(operatorControlInvokeChannels.listRemoteAgents, (_event, input: unknown) =>
+  handleDesktopCommand(operatorControlInvokeChannels.listRemoteAgents, (_event, input: unknown) =>
     active.listRemoteAgents(input)
   );
-  ipcMain.handle(operatorControlInvokeChannels.setRemoteAgentAccessMode, (_event, input: unknown) =>
-    active.setRemoteAgentAccessMode(input)
+  handleDesktopCommand(
+    operatorControlInvokeChannels.setRemoteAgentAccessMode,
+    (_event, input: unknown) => active.setRemoteAgentAccessMode(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     operatorControlInvokeChannels.grantRemoteAgentWorkspace,
     (_event, input: unknown) => active.grantRemoteAgentWorkspace(input)
   );
-  ipcMain.handle(operatorControlInvokeChannels.revokeRemoteAgentGrant, (_event, input: unknown) =>
-    active.revokeRemoteAgentGrant(input)
+  handleDesktopCommand(
+    operatorControlInvokeChannels.revokeRemoteAgentGrant,
+    (_event, input: unknown) => active.revokeRemoteAgentGrant(input)
   );
-  ipcMain.handle(operatorControlInvokeChannels.revokeRemoteAgent, (_event, input: unknown) =>
+  handleDesktopCommand(operatorControlInvokeChannels.revokeRemoteAgent, (_event, input: unknown) =>
     active.revokeRemoteAgent(input)
   );
-  ipcMain.handle(
+  handleDesktopCommand(
     operatorControlInvokeChannels.repairRemoteAgentOwnership,
     (_event, input: unknown) => active.repairRemoteAgentOwnership(input)
   );

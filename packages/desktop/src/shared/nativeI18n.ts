@@ -2,6 +2,7 @@ export type NativeLanguage = "en" | "zh-CN";
 
 type NativeCatalog = {
   aboutPlanWeave: string;
+  openDiagnosticsLog: string;
   ok: string;
   checkForUpdates: string;
   blockInspectorTitle: string;
@@ -13,6 +14,7 @@ type NativeCatalog = {
 const nativeResources: Record<NativeLanguage, NativeCatalog> = {
   en: {
     aboutPlanWeave: "About PlanWeave",
+    openDiagnosticsLog: "Open Diagnostics Log",
     ok: "OK",
     checkForUpdates: "Check for Updates",
     blockInspectorTitle: "Block Detail",
@@ -22,6 +24,7 @@ const nativeResources: Record<NativeLanguage, NativeCatalog> = {
   },
   "zh-CN": {
     aboutPlanWeave: "关于 PlanWeave",
+    openDiagnosticsLog: "打开诊断日志",
     ok: "好",
     checkForUpdates: "检查更新",
     blockInspectorTitle: "Block 详情",

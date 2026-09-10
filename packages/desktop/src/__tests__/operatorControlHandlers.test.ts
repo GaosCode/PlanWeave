@@ -1,3 +1,4 @@
+import { unwrapDesktopCommandFailure } from "../shared/desktopCommandFailure.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,12 +20,23 @@ const electronMock = vi.hoisted(() => {
   return {
     handlers,
     ipcMain: {
-      handle: vi.fn((channel: string, handler: IpcHandler) => handlers.set(channel, handler))
+      handle: vi.fn((channel: string, handler: IpcHandler) =>
+        handlers.set(channel, async (event, input) => {
+          const value = await handler(event, input);
+          unwrapDesktopCommandFailure(value);
+          return value;
+        })
+      )
     },
     readText: vi.fn(),
     writeText: vi.fn()
   };
 });
+
+vi.mock("../main/desktopDiagnosticsLog.js", () => ({
+  recordDesktopError: vi.fn().mockResolvedValue(undefined),
+  redactDiagnostic: (value: string) => value
+}));
 
 vi.mock("electron", () => ({
   app: { isPackaged: false },
@@ -121,7 +133,7 @@ describe("operator control main-process credential import", () => {
       profiles: [{ profileId: "profile-a", hasOperatorCredential: true }]
     });
 
-    expect(() => handler({}, { profileId: "profile-a", operatorToken: token })).toThrow(
+    await expect(handler({}, { profileId: "profile-a", operatorToken: token })).rejects.toThrow(
       "Operator IPC rejected importOperatorCredential"
     );
     expect(readOperatorToken).toHaveBeenCalledTimes(1);

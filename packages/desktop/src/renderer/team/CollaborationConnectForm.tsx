@@ -16,10 +16,7 @@ import {
   type CollaborationStatus,
   type PlanWeaveCollaborationApi
 } from "../../shared/collaboration.js";
-import {
-  collaborationConnectionErrorMessage,
-  collaborationErrorMessage
-} from "../collaboration/formatCollaborationError";
+import { collaborationConnectionErrorMessage } from "../collaboration/formatCollaborationError";
 import { endpointForLegacyCollaborationInvitationHandoff } from "./collaborationInvitationHandoff";
 import { parseCollaborationJoinPaste } from "./collaborationJoinPaste";
 import {
@@ -405,7 +402,7 @@ export function CollaborationConnectForm({
       await api.selectWorkspaceConnection({ workspaceId });
       await onConnected?.();
     } catch (selectError) {
-      setError(collaborationErrorMessage(selectError));
+      setError(collaborationConnectionErrorMessage(t, selectError));
     } finally {
       setBusy(false);
     }

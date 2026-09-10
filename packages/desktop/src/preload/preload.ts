@@ -1,3 +1,4 @@
+import { invokeDesktopCommand } from "./invokeDesktopCommand.js";
 import { contextBridge, ipcRenderer } from "electron";
 import { exposeCollaborationCapture } from "./collaborationCapture.js";
 import type { IpcRendererEvent } from "electron";
@@ -263,118 +264,118 @@ contextBridge.exposeInMainWorld("planweaveMcpTunnel", mcpTunnelApi);
 
 const collaborationApi: PlanWeaveCollaborationApi = {
   getCollaborationStatus: async () =>
-    ipcRenderer.invoke(collaborationInvokeChannels.getCollaborationStatus),
+    invokeDesktopCommand(collaborationInvokeChannels.getCollaborationStatus),
   getCollaborationOperationDiagnostics: async () =>
     collaborationOperationDiagnosticsSchema.parse(
-      await ipcRenderer.invoke(collaborationInvokeChannels.getCollaborationOperationDiagnostics)
+      await invokeDesktopCommand(collaborationInvokeChannels.getCollaborationOperationDiagnostics)
     ),
   upsertCollaborationProfile: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.upsertCollaborationProfile, input),
+    invokeDesktopCommand(collaborationInvokeChannels.upsertCollaborationProfile, input),
   removeCollaborationProfile: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.removeCollaborationProfile, input),
+    invokeDesktopCommand(collaborationInvokeChannels.removeCollaborationProfile, input),
   setActiveCollaborationProfile: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.setActiveCollaborationProfile, input),
+    invokeDesktopCommand(collaborationInvokeChannels.setActiveCollaborationProfile, input),
   clearActiveCollaborationProfile: async () =>
-    ipcRenderer.invoke(collaborationInvokeChannels.clearActiveCollaborationProfile),
+    invokeDesktopCommand(collaborationInvokeChannels.clearActiveCollaborationProfile),
   importDeviceCredential: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.importDeviceCredential, input),
+    invokeDesktopCommand(collaborationInvokeChannels.importDeviceCredential, input),
   clearDeviceCredential: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.clearDeviceCredential, input),
+    invokeDesktopCommand(collaborationInvokeChannels.clearDeviceCredential, input),
   bootstrapCollaborationOwner: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.bootstrapCollaborationOwner, input),
+    invokeDesktopCommand(collaborationInvokeChannels.bootstrapCollaborationOwner, input),
   consumeCollaborationInvitation: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.consumeCollaborationInvitation, input),
+    invokeDesktopCommand(collaborationInvokeChannels.consumeCollaborationInvitation, input),
   connectCollaborationSession: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.connectCollaborationSession, input),
+    invokeDesktopCommand(collaborationInvokeChannels.connectCollaborationSession, input),
   disconnectCollaborationSession: async () =>
-    ipcRenderer.invoke(collaborationInvokeChannels.disconnectCollaborationSession),
+    invokeDesktopCommand(collaborationInvokeChannels.disconnectCollaborationSession),
   redeemCollaborationSetupCode: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.redeemCollaborationSetupCode, input),
+    invokeDesktopCommand(collaborationInvokeChannels.redeemCollaborationSetupCode, input),
   recoverCollaborationIdentities: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.recoverCollaborationIdentities, input),
+    invokeDesktopCommand(collaborationInvokeChannels.recoverCollaborationIdentities, input),
   confirmCollaborationIdentityMerge: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.confirmCollaborationIdentityMerge, input),
+    invokeDesktopCommand(collaborationInvokeChannels.confirmCollaborationIdentityMerge, input),
   connectExistingServerByOrigin: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.connectExistingServerByOrigin, input),
+    invokeDesktopCommand(collaborationInvokeChannels.connectExistingServerByOrigin, input),
   getActiveWorkspaceConnection: async () =>
-    ipcRenderer.invoke(collaborationInvokeChannels.getActiveWorkspaceConnection),
+    invokeDesktopCommand(collaborationInvokeChannels.getActiveWorkspaceConnection),
   listRememberedServerConnections: async () =>
-    ipcRenderer.invoke(collaborationInvokeChannels.listRememberedServerConnections),
+    invokeDesktopCommand(collaborationInvokeChannels.listRememberedServerConnections),
   forgetRememberedServerConnection: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.forgetRememberedServerConnection, input),
+    invokeDesktopCommand(collaborationInvokeChannels.forgetRememberedServerConnection, input),
   listWorkspacePicker: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.listWorkspacePicker, input),
+    invokeDesktopCommand(collaborationInvokeChannels.listWorkspacePicker, input),
   getWorkspaceConnectionSelf: async () =>
     unwrapCollaborationCommandResult(
-      await ipcRenderer.invoke(collaborationInvokeChannels.getWorkspaceConnectionSelf),
+      await invokeDesktopCommand(collaborationInvokeChannels.getWorkspaceConnectionSelf),
       workspaceConnectionSelfViewSchema
     ),
   updateWorkspaceConnectionSelf: async (input) =>
     unwrapCollaborationCommandResult(
-      await ipcRenderer.invoke(collaborationInvokeChannels.updateWorkspaceConnectionSelf, input),
+      await invokeDesktopCommand(collaborationInvokeChannels.updateWorkspaceConnectionSelf, input),
       workspaceConnectionSelfViewSchema
     ),
   listWorkspaceConnectionMembers: async (input) =>
     unwrapCollaborationCommandResult(
-      await ipcRenderer.invoke(collaborationInvokeChannels.listWorkspaceConnectionMembers, input),
+      await invokeDesktopCommand(collaborationInvokeChannels.listWorkspaceConnectionMembers, input),
       workspaceConnectionMembersPageSchema
     ),
   selectWorkspaceConnection: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.selectWorkspaceConnection, input),
+    invokeDesktopCommand(collaborationInvokeChannels.selectWorkspaceConnection, input),
   connectWorkspaceConnection: async () =>
-    ipcRenderer.invoke(collaborationInvokeChannels.connectWorkspaceConnection),
+    invokeDesktopCommand(collaborationInvokeChannels.connectWorkspaceConnection),
   disconnectWorkspaceConnection: async () =>
-    ipcRenderer.invoke(collaborationInvokeChannels.disconnectWorkspaceConnection),
+    invokeDesktopCommand(collaborationInvokeChannels.disconnectWorkspaceConnection),
   retryWorkspaceConnection: async () =>
-    ipcRenderer.invoke(collaborationInvokeChannels.retryWorkspaceConnection),
+    invokeDesktopCommand(collaborationInvokeChannels.retryWorkspaceConnection),
   getDeploymentGuidance: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.getDeploymentGuidance, input),
+    invokeDesktopCommand(collaborationInvokeChannels.getDeploymentGuidance, input),
   copyDeploymentComposeHandoff: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.copyDeploymentComposeHandoff, input),
+    invokeDesktopCommand(collaborationInvokeChannels.copyDeploymentComposeHandoff, input),
   exportDeploymentComposeBundle: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.exportDeploymentComposeBundle, input),
+    invokeDesktopCommand(collaborationInvokeChannels.exportDeploymentComposeBundle, input),
   listServerDataExportSources: async () =>
-    ipcRenderer.invoke(collaborationInvokeChannels.listServerDataExportSources),
+    invokeDesktopCommand(collaborationInvokeChannels.listServerDataExportSources),
   exportServerDataArchive: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.exportServerDataArchive, input),
+    invokeDesktopCommand(collaborationInvokeChannels.exportServerDataArchive, input),
   restoreServerDataArchive: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.restoreServerDataArchive, input),
+    invokeDesktopCommand(collaborationInvokeChannels.restoreServerDataArchive, input),
   validateDeploymentConnectivity: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.validateDeploymentConnectivity, input),
+    invokeDesktopCommand(collaborationInvokeChannels.validateDeploymentConnectivity, input),
   getDesktopServerExposure: async () =>
-    ipcRenderer.invoke(collaborationInvokeChannels.getDesktopServerExposure),
+    invokeDesktopCommand(collaborationInvokeChannels.getDesktopServerExposure),
   setDesktopServerExposureMode: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.setDesktopServerExposureMode, input),
+    invokeDesktopCommand(collaborationInvokeChannels.setDesktopServerExposureMode, input),
   startCollaborationPresence: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.startCollaborationPresence, input),
+    invokeDesktopCommand(collaborationInvokeChannels.startCollaborationPresence, input),
   stopCollaborationPresence: async () =>
-    ipcRenderer.invoke(collaborationInvokeChannels.stopCollaborationPresence),
+    invokeDesktopCommand(collaborationInvokeChannels.stopCollaborationPresence),
   publishCollaborationPresence: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.publishCollaborationPresence, input),
+    invokeDesktopCommand(collaborationInvokeChannels.publishCollaborationPresence, input),
   openWorkspaceCanvasSession: async (input) =>
     workspaceCanvasProjectionSchema.parse(
-      await ipcRenderer.invoke(collaborationInvokeChannels.openWorkspaceCanvasSession, input)
+      await invokeDesktopCommand(collaborationInvokeChannels.openWorkspaceCanvasSession, input)
     ),
   submitWorkspaceCanvasCommand: async (input) =>
     workspaceCanvasProjectionSchema.parse(
-      await ipcRenderer.invoke(collaborationInvokeChannels.submitWorkspaceCanvasCommand, input)
+      await invokeDesktopCommand(collaborationInvokeChannels.submitWorkspaceCanvasCommand, input)
     ),
   reconnectWorkspaceCanvasSession: async (input) =>
     workspaceCanvasProjectionSchema.parse(
-      await ipcRenderer.invoke(collaborationInvokeChannels.reconnectWorkspaceCanvasSession, input)
+      await invokeDesktopCommand(collaborationInvokeChannels.reconnectWorkspaceCanvasSession, input)
     ),
   closeWorkspaceCanvasSession: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.closeWorkspaceCanvasSession, input),
+    invokeDesktopCommand(collaborationInvokeChannels.closeWorkspaceCanvasSession, input),
   getWorkspaceCanvasProjection: async () =>
     workspaceCanvasProjectionSchema
       .nullable()
-      .parse(await ipcRenderer.invoke(collaborationInvokeChannels.getWorkspaceCanvasProjection)),
+      .parse(await invokeDesktopCommand(collaborationInvokeChannels.getWorkspaceCanvasProjection)),
   readCollaborationCanvasBindingRuntimeAvailability: async (input) => {
     if (input.kind !== "remote") throw new Error("workspace_canvas_remote_binding_required");
     return canvasRuntimeAvailabilitySchema
       .nullable()
       .parse(
-        await ipcRenderer.invoke(
+        await invokeDesktopCommand(
           collaborationInvokeChannels.readCollaborationCanvasBindingRuntimeAvailability,
           input
         )
@@ -382,26 +383,26 @@ const collaborationApi: PlanWeaveCollaborationApi = {
   },
   initializeWorkspaceCanvasRuntime: async (input) =>
     canvasRuntimeInitializeOutcomeSchema.parse(
-      await ipcRenderer.invoke(
+      await invokeDesktopCommand(
         collaborationInvokeChannels.initializeWorkspaceCanvasRuntime,
         workspaceCanvasRuntimeInitializeInputSchema.parse(input)
       )
     ),
   resetWorkspaceCanvasRuntime: async (input) =>
     canvasRuntimeResetOutcomeSchema.parse(
-      await ipcRenderer.invoke(
+      await invokeDesktopCommand(
         collaborationInvokeChannels.resetWorkspaceCanvasRuntime,
         workspaceCanvasRuntimeResetInputSchema.parse(input)
       )
     ),
   listWorkspaceCanvasSharingCandidates: async () =>
     unwrapCollaborationCommandResult(
-      await ipcRenderer.invoke(collaborationInvokeChannels.listWorkspaceCanvasSharingCandidates),
+      await invokeDesktopCommand(collaborationInvokeChannels.listWorkspaceCanvasSharingCandidates),
       z.array(workspaceCanvasSharingCandidateSchema)
     ),
   publishWorkspaceCanvas: async (input) =>
     unwrapCollaborationCommandResult(
-      await ipcRenderer.invoke(
+      await invokeDesktopCommand(
         collaborationInvokeChannels.publishWorkspaceCanvas,
         workspaceCanvasPublishInputSchema.parse(input)
       ),
@@ -409,40 +410,43 @@ const collaborationApi: PlanWeaveCollaborationApi = {
     ),
   downloadWorkspaceCanvasFork: async (input) =>
     unwrapCollaborationCommandResult(
-      await ipcRenderer.invoke(
+      await invokeDesktopCommand(
         collaborationInvokeChannels.downloadWorkspaceCanvasFork,
         workspaceCanvasDownloadInputSchema.parse(input)
       ),
       workspaceCanvasDownloadResultSchema
     ),
   getCurrentCanvasAccess: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.getCurrentCanvasAccess, input),
+    invokeDesktopCommand(collaborationInvokeChannels.getCurrentCanvasAccess, input),
   mutateCurrentCanvasAccess: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.mutateCurrentCanvasAccess, input),
+    invokeDesktopCommand(collaborationInvokeChannels.mutateCurrentCanvasAccess, input),
   getLocalCollaborationServerStatus: async () =>
-    ipcRenderer.invoke(collaborationInvokeChannels.getLocalCollaborationServerStatus),
+    invokeDesktopCommand(collaborationInvokeChannels.getLocalCollaborationServerStatus),
   getLocalCollaborationScopeCatalog: async () =>
-    ipcRenderer.invoke(collaborationInvokeChannels.getLocalCollaborationScopeCatalog),
+    invokeDesktopCommand(collaborationInvokeChannels.getLocalCollaborationScopeCatalog),
   setLocalCollaborationTrustedScopes: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.setLocalCollaborationTrustedScopes, input),
+    invokeDesktopCommand(collaborationInvokeChannels.setLocalCollaborationTrustedScopes, input),
   startLocalCollaborationServer: async () =>
-    ipcRenderer.invoke(collaborationInvokeChannels.startLocalCollaborationServer),
+    invokeDesktopCommand(collaborationInvokeChannels.startLocalCollaborationServer),
   stopLocalCollaborationServer: async () =>
-    ipcRenderer.invoke(collaborationInvokeChannels.stopLocalCollaborationServer),
+    invokeDesktopCommand(collaborationInvokeChannels.stopLocalCollaborationServer),
   setLocalCollaborationLanSharing: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.setLocalCollaborationLanSharing, input),
+    invokeDesktopCommand(collaborationInvokeChannels.setLocalCollaborationLanSharing, input),
   listLocalCollaborationTrustedScopes: async () =>
-    ipcRenderer.invoke(collaborationInvokeChannels.listLocalCollaborationTrustedScopes),
+    invokeDesktopCommand(collaborationInvokeChannels.listLocalCollaborationTrustedScopes),
   registerLocalCollaborationCurrentProject: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.registerLocalCollaborationCurrentProject, input),
+    invokeDesktopCommand(
+      collaborationInvokeChannels.registerLocalCollaborationCurrentProject,
+      input
+    ),
   listCollaborationMembers: async (input) =>
     unwrapCollaborationCommandResult(
-      await ipcRenderer.invoke(collaborationInvokeChannels.listCollaborationMembers, input),
+      await invokeDesktopCommand(collaborationInvokeChannels.listCollaborationMembers, input),
       humanMemberPageSchema
     ),
   updateOwnCollaborationDisplayName: async (input) =>
     unwrapCollaborationCommandResult(
-      await ipcRenderer.invoke(
+      await invokeDesktopCommand(
         collaborationInvokeChannels.updateOwnCollaborationDisplayName,
         input
       ),
@@ -450,22 +454,22 @@ const collaborationApi: PlanWeaveCollaborationApi = {
     ),
   listCollaborationDevices: async (input) =>
     unwrapCollaborationCommandResult(
-      await ipcRenderer.invoke(collaborationInvokeChannels.listCollaborationDevices, input),
+      await invokeDesktopCommand(collaborationInvokeChannels.listCollaborationDevices, input),
       humanDevicePageSchema
     ),
   listCollaborationInvitations: async (input) =>
     unwrapCollaborationCommandResult(
-      await ipcRenderer.invoke(collaborationInvokeChannels.listCollaborationInvitations, input),
+      await invokeDesktopCommand(collaborationInvokeChannels.listCollaborationInvitations, input),
       humanInvitationPageSchema
     ),
   createCollaborationInvitation: async (input) =>
     unwrapCollaborationCommandResult(
-      await ipcRenderer.invoke(collaborationInvokeChannels.createCollaborationInvitation, input),
+      await invokeDesktopCommand(collaborationInvokeChannels.createCollaborationInvitation, input),
       humanCreateInvitationResponseSchema
     ),
   createCollaborationInvitationHandoff: async (input) =>
     unwrapCollaborationCommandResult(
-      await ipcRenderer.invoke(
+      await invokeDesktopCommand(
         collaborationInvokeChannels.createCollaborationInvitationHandoff,
         input
       ),
@@ -473,12 +477,15 @@ const collaborationApi: PlanWeaveCollaborationApi = {
     ),
   getCollaborationInvitationSecret: async (input) =>
     unwrapCollaborationCommandResult(
-      await ipcRenderer.invoke(collaborationInvokeChannels.getCollaborationInvitationSecret, input),
+      await invokeDesktopCommand(
+        collaborationInvokeChannels.getCollaborationInvitationSecret,
+        input
+      ),
       humanCreateInvitationResponseSchema
     ),
   getCollaborationInvitationHandoff: async (input) =>
     unwrapCollaborationCommandResult(
-      await ipcRenderer.invoke(
+      await invokeDesktopCommand(
         collaborationInvokeChannels.getCollaborationInvitationHandoff,
         input
       ),
@@ -486,92 +493,95 @@ const collaborationApi: PlanWeaveCollaborationApi = {
     ),
   revokeCollaborationInvitation: async (input) =>
     unwrapCollaborationCommandResult(
-      await ipcRenderer.invoke(collaborationInvokeChannels.revokeCollaborationInvitation, input),
+      await invokeDesktopCommand(collaborationInvokeChannels.revokeCollaborationInvitation, input),
       humanInvitationViewSchema
     ),
   revokeCollaborationInvitations: async (input) =>
     unwrapCollaborationCommandResult(
-      await ipcRenderer.invoke(collaborationInvokeChannels.revokeCollaborationInvitations, input),
+      await invokeDesktopCommand(collaborationInvokeChannels.revokeCollaborationInvitations, input),
       humanRevokeInvitationsResponseSchema
     ),
   removeCollaborationMember: async (input) =>
     unwrapCollaborationCommandResult(
-      await ipcRenderer.invoke(collaborationInvokeChannels.removeCollaborationMember, input),
+      await invokeDesktopCommand(collaborationInvokeChannels.removeCollaborationMember, input),
       z.undefined()
     ),
   promoteCollaborationOwner: async (input) =>
     unwrapCollaborationCommandResult(
-      await ipcRenderer.invoke(collaborationInvokeChannels.promoteCollaborationOwner, input),
+      await invokeDesktopCommand(collaborationInvokeChannels.promoteCollaborationOwner, input),
       z.undefined()
     ),
   demoteCollaborationOwner: async (input) =>
     unwrapCollaborationCommandResult(
-      await ipcRenderer.invoke(collaborationInvokeChannels.demoteCollaborationOwner, input),
+      await invokeDesktopCommand(collaborationInvokeChannels.demoteCollaborationOwner, input),
       z.undefined()
     ),
   revokeCollaborationDevice: async (input) =>
     unwrapCollaborationCommandResult(
-      await ipcRenderer.invoke(collaborationInvokeChannels.revokeCollaborationDevice, input),
+      await invokeDesktopCommand(collaborationInvokeChannels.revokeCollaborationDevice, input),
       z.undefined()
     ),
   listCollaborationAssignments: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.listCollaborationAssignments, input),
+    invokeDesktopCommand(collaborationInvokeChannels.listCollaborationAssignments, input),
   getCollaborationAssignment: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.getCollaborationAssignment, input),
+    invokeDesktopCommand(collaborationInvokeChannels.getCollaborationAssignment, input),
   listCollaborationEligibleAssignees: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.listCollaborationEligibleAssignees, input),
+    invokeDesktopCommand(collaborationInvokeChannels.listCollaborationEligibleAssignees, input),
   listCollaborationEligibleHostsBatch: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.listCollaborationEligibleHostsBatch, input),
+    invokeDesktopCommand(collaborationInvokeChannels.listCollaborationEligibleHostsBatch, input),
   getCollaborationWorkAuthority: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.getCollaborationWorkAuthority, input),
+    invokeDesktopCommand(collaborationInvokeChannels.getCollaborationWorkAuthority, input),
   updateCollaborationResponsibility: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.updateCollaborationResponsibility, input),
+    invokeDesktopCommand(collaborationInvokeChannels.updateCollaborationResponsibility, input),
   updateCollaborationReviewer: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.updateCollaborationReviewer, input),
+    invokeDesktopCommand(collaborationInvokeChannels.updateCollaborationReviewer, input),
   listCollaborationComments: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.listCollaborationComments, input),
+    invokeDesktopCommand(collaborationInvokeChannels.listCollaborationComments, input),
   listCollaborationActivity: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.listCollaborationActivity, input),
+    invokeDesktopCommand(collaborationInvokeChannels.listCollaborationActivity, input),
   listCollaborationAuthorizedProjects: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.listCollaborationAuthorizedProjects, input),
+    invokeDesktopCommand(collaborationInvokeChannels.listCollaborationAuthorizedProjects, input),
   listCollaborationAuthorizedCanvases: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.listCollaborationAuthorizedCanvases, input),
+    invokeDesktopCommand(collaborationInvokeChannels.listCollaborationAuthorizedCanvases, input),
   readCollaborationPackageSnapshot: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.readCollaborationPackageSnapshot, input),
+    invokeDesktopCommand(collaborationInvokeChannels.readCollaborationPackageSnapshot, input),
   createCollaborationPackageSnapshot: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.createCollaborationPackageSnapshot, input),
+    invokeDesktopCommand(collaborationInvokeChannels.createCollaborationPackageSnapshot, input),
   restoreCollaborationPackageSnapshot: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.restoreCollaborationPackageSnapshot, input),
+    invokeDesktopCommand(collaborationInvokeChannels.restoreCollaborationPackageSnapshot, input),
   updateCollaborationAssignment: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.updateCollaborationAssignment, input),
+    invokeDesktopCommand(collaborationInvokeChannels.updateCollaborationAssignment, input),
   createCollaborationComment: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.createCollaborationComment, input),
+    invokeDesktopCommand(collaborationInvokeChannels.createCollaborationComment, input),
   editCollaborationComment: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.editCollaborationComment, input),
+    invokeDesktopCommand(collaborationInvokeChannels.editCollaborationComment, input),
   tombstoneCollaborationComment: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.tombstoneCollaborationComment, input),
+    invokeDesktopCommand(collaborationInvokeChannels.tombstoneCollaborationComment, input),
   createCollaborationPendingAttachment: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.createCollaborationPendingAttachment, input),
+    invokeDesktopCommand(collaborationInvokeChannels.createCollaborationPendingAttachment, input),
   uploadCollaborationPendingAttachment: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.uploadCollaborationPendingAttachment, input),
+    invokeDesktopCommand(collaborationInvokeChannels.uploadCollaborationPendingAttachment, input),
   finalizeCollaborationPendingAttachment: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.finalizeCollaborationPendingAttachment, input),
+    invokeDesktopCommand(collaborationInvokeChannels.finalizeCollaborationPendingAttachment, input),
   readCollaborationCommentAttachment: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.readCollaborationCommentAttachment, input),
+    invokeDesktopCommand(collaborationInvokeChannels.readCollaborationCommentAttachment, input),
   listCollaborationAgentEndpoints: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.listCollaborationAgentEndpoints, input),
+    invokeDesktopCommand(collaborationInvokeChannels.listCollaborationAgentEndpoints, input),
   observeCollaborationRemoteOperation: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.observeCollaborationRemoteOperation, input),
+    invokeDesktopCommand(collaborationInvokeChannels.observeCollaborationRemoteOperation, input),
   lookupCollaborationRemoteOperation: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.lookupCollaborationRemoteOperation, input),
+    invokeDesktopCommand(collaborationInvokeChannels.lookupCollaborationRemoteOperation, input),
   lookupWorkspaceRemoteOperation: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.lookupWorkspaceRemoteOperation, input),
+    invokeDesktopCommand(collaborationInvokeChannels.lookupWorkspaceRemoteOperation, input),
   observeWorkspaceRemoteOperation: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.observeWorkspaceRemoteOperation, input),
+    invokeDesktopCommand(collaborationInvokeChannels.observeWorkspaceRemoteOperation, input),
   replayCollaborationRemoteOperationEvents: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.replayCollaborationRemoteOperationEvents, input),
+    invokeDesktopCommand(
+      collaborationInvokeChannels.replayCollaborationRemoteOperationEvents,
+      input
+    ),
   replayWorkspaceRemoteOperationEvents: async (input) =>
-    ipcRenderer.invoke(collaborationInvokeChannels.replayWorkspaceRemoteOperationEvents, input),
+    invokeDesktopCommand(collaborationInvokeChannels.replayWorkspaceRemoteOperationEvents, input),
   onCollaborationStatusChanged: (callback) => {
     const listener = (_event: IpcRendererEvent, payload: CollaborationStatus) => callback(payload);
     ipcRenderer.on(collaborationStatusChangedChannel, listener);
@@ -607,55 +617,59 @@ contextBridge.exposeInMainWorld("planweaveCollaboration", collaborationApi);
 exposeCollaborationCapture();
 
 const operatorControlApi: PlanWeaveOperatorControlApi = {
-  getOperatorControlStatus: async () => ipcRenderer.invoke(operatorControlInvokeChannels.getStatus),
+  getOperatorControlStatus: async () =>
+    invokeDesktopCommand(operatorControlInvokeChannels.getStatus),
   upsertOperatorProfile: async (input) =>
-    ipcRenderer.invoke(operatorControlInvokeChannels.upsertProfile, input),
+    invokeDesktopCommand(operatorControlInvokeChannels.upsertProfile, input),
   removeOperatorProfile: async (input) =>
-    ipcRenderer.invoke(operatorControlInvokeChannels.removeProfile, input),
+    invokeDesktopCommand(operatorControlInvokeChannels.removeProfile, input),
   setActiveOperatorProfile: async (input) =>
-    ipcRenderer.invoke(operatorControlInvokeChannels.setActiveProfile, input),
+    invokeDesktopCommand(operatorControlInvokeChannels.setActiveProfile, input),
   clearActiveOperatorProfile: async () =>
-    ipcRenderer.invoke(operatorControlInvokeChannels.clearActiveProfile),
+    invokeDesktopCommand(operatorControlInvokeChannels.clearActiveProfile),
   importOperatorCredential: async (input) =>
-    ipcRenderer.invoke(operatorControlInvokeChannels.importCredential, input),
+    invokeDesktopCommand(operatorControlInvokeChannels.importCredential, input),
   clearOperatorCredential: async (input) =>
-    ipcRenderer.invoke(operatorControlInvokeChannels.clearCredential, input),
+    invokeDesktopCommand(operatorControlInvokeChannels.clearCredential, input),
   listOperatorHosts: async (input) =>
-    ipcRenderer.invoke(operatorControlInvokeChannels.listHosts, input),
+    invokeDesktopCommand(operatorControlInvokeChannels.listHosts, input),
   listOperatorAgentEndpoints: async (input) =>
-    ipcRenderer.invoke(operatorControlInvokeChannels.listAgentEndpoints, input),
+    invokeDesktopCommand(operatorControlInvokeChannels.listAgentEndpoints, input),
   copyOperatorHostBootstrapHandoff: async (input) =>
-    ipcRenderer.invoke(operatorControlInvokeChannels.copyHostBootstrapHandoff, input),
+    invokeDesktopCommand(operatorControlInvokeChannels.copyHostBootstrapHandoff, input),
   copyOperatorMemberSetupCode: async (input) =>
-    ipcRenderer.invoke(operatorControlInvokeChannels.copyMemberSetupCode, input),
+    invokeDesktopCommand(operatorControlInvokeChannels.copyMemberSetupCode, input),
   revokeOperatorHost: async (input) =>
-    ipcRenderer.invoke(operatorControlInvokeChannels.revokeHost, input),
+    invokeDesktopCommand(operatorControlInvokeChannels.revokeHost, input),
   renewOperatorHostCredential: async (input) =>
-    ipcRenderer.invoke(operatorControlInvokeChannels.renewHostCredential, input),
+    invokeDesktopCommand(operatorControlInvokeChannels.renewHostCredential, input),
   getOperatorLocalAgentHostStatus: async (input) =>
-    ipcRenderer.invoke(operatorControlInvokeChannels.getLocalAgentHostStatus, input),
+    invokeDesktopCommand(operatorControlInvokeChannels.getLocalAgentHostStatus, input),
   repairOperatorLocalAgentHost: async (input) =>
-    ipcRenderer.invoke(operatorControlInvokeChannels.repairLocalAgentHost, input),
+    invokeDesktopCommand(operatorControlInvokeChannels.repairLocalAgentHost, input),
   registerOperatorLocalAgentHost: async (input) =>
-    ipcRenderer.invoke(operatorControlInvokeChannels.registerLocalAgentHost, input),
+    invokeDesktopCommand(operatorControlInvokeChannels.registerLocalAgentHost, input),
   enrollOperatorLocalAgentHost: async (input) =>
-    ipcRenderer.invoke(operatorControlInvokeChannels.enrollLocalAgentHost, input),
+    invokeDesktopCommand(operatorControlInvokeChannels.enrollLocalAgentHost, input),
   observeOwnerFleetRemoteOperation: async (input) =>
-    ipcRenderer.invoke(operatorControlInvokeChannels.observeOwnerFleetRemoteOperation, input),
+    invokeDesktopCommand(operatorControlInvokeChannels.observeOwnerFleetRemoteOperation, input),
   replayOwnerFleetRemoteOperationEvents: async (input) =>
-    ipcRenderer.invoke(operatorControlInvokeChannels.replayOwnerFleetRemoteOperationEvents, input),
+    invokeDesktopCommand(
+      operatorControlInvokeChannels.replayOwnerFleetRemoteOperationEvents,
+      input
+    ),
   listOperatorRemoteAgents: async (input) =>
-    ipcRenderer.invoke(operatorControlInvokeChannels.listRemoteAgents, input),
+    invokeDesktopCommand(operatorControlInvokeChannels.listRemoteAgents, input),
   setOperatorRemoteAgentAccessMode: async (input) =>
-    ipcRenderer.invoke(operatorControlInvokeChannels.setRemoteAgentAccessMode, input),
+    invokeDesktopCommand(operatorControlInvokeChannels.setRemoteAgentAccessMode, input),
   grantOperatorRemoteAgentWorkspace: async (input) =>
-    ipcRenderer.invoke(operatorControlInvokeChannels.grantRemoteAgentWorkspace, input),
+    invokeDesktopCommand(operatorControlInvokeChannels.grantRemoteAgentWorkspace, input),
   revokeOperatorRemoteAgentGrant: async (input) =>
-    ipcRenderer.invoke(operatorControlInvokeChannels.revokeRemoteAgentGrant, input),
+    invokeDesktopCommand(operatorControlInvokeChannels.revokeRemoteAgentGrant, input),
   revokeOperatorRemoteAgent: async (input) =>
-    ipcRenderer.invoke(operatorControlInvokeChannels.revokeRemoteAgent, input),
+    invokeDesktopCommand(operatorControlInvokeChannels.revokeRemoteAgent, input),
   repairOperatorRemoteAgentOwnership: async (input) =>
-    ipcRenderer.invoke(operatorControlInvokeChannels.repairRemoteAgentOwnership, input),
+    invokeDesktopCommand(operatorControlInvokeChannels.repairRemoteAgentOwnership, input),
   onOperatorControlStatusChanged: (callback) => {
     const listener = (_event: IpcRendererEvent, payload: OperatorControlStatus) =>
       callback(payload);

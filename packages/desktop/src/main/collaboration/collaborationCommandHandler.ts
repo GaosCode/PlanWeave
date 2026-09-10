@@ -1,3 +1,4 @@
+import { recordDesktopError } from "../desktopDiagnosticsLog.js";
 import type { z } from "zod";
 import {
   collaborationCommandErrorSchema,
@@ -25,6 +26,7 @@ export async function runCollaborationCommand<T>(
       value: valueSchema.parse(await operation())
     };
   } catch (error) {
+    await recordDesktopError("collaboration.command", error);
     const mapped = collaborationErrorFromUnknown(error);
     return {
       ok: false,

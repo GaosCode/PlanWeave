@@ -90,12 +90,13 @@ export function isCollaborationConnectionUnavailable(error: unknown): boolean {
     kind === "offline" ||
     kind === "network" ||
     kind === "timeout" ||
+    code === "SERVER_UNREACHABLE" ||
     code === "collaboration_offline" ||
     code === "collaboration_timeout" ||
     code === "network_unreachable" ||
     code === "canvas_replica_session_disconnected" ||
     (message !== null &&
-      /fetch failed|network request failed|network unreachable|timed?\s*out|canvas_replica_session_disconnected/i.test(
+      /configured server could not be reached|SERVER_UNREACHABLE|fetch failed|network request failed|network unreachable|timed?\s*out|canvas_replica_session_disconnected/i.test(
         message
       ))
   );
