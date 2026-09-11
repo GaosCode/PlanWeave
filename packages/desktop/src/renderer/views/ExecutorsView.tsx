@@ -1,17 +1,11 @@
 import { lazy, Suspense, useState, type ComponentProps } from "react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { AppSettingsRoute } from "../AppSettingsRoute";
 import { ManagementDialog } from "../components/ManagementDialog";
 import { useHostAdministrationController } from "../hooks/useHostAdministrationController";
 import { useRemoteAgentManagementController } from "../hooks/useRemoteAgentManagementController";
+import { ExecutorServerSelector } from "../executors/ExecutorServerSelector";
 import { ExecutorInventory } from "../executors/ExecutorInventory";
 import { HostAvailabilityCard } from "../settings/HostAvailabilityCard";
 import { formatHostAdministrationError } from "../settings/hostAdministrationErrors";
@@ -62,15 +56,13 @@ export function ExecutorsView({
               {t("executorsAddDevice")}
             </Button>
           </div>
-          {hosts.activeProfile ? (
-            <p
-              className="mb-5 flex flex-wrap items-center gap-x-2 text-xs text-text-muted"
-              data-testid="executors-server-source"
-            >
-              <span>{t("executorsServerSource")}</span>
-              <span className="truncate">{hosts.activeProfile.serverBaseUrl}</span>
-            </p>
-          ) : null}
+          <ExecutorServerSelector
+            profiles={hosts.status?.profiles ?? []}
+            activeProfile={hosts.activeProfile}
+            busy={hosts.busy}
+            onSelect={hosts.selectProfile}
+            t={t}
+          />
           <TabsContent value="agents">
             <ExecutorInventory
               agents={agents}
@@ -88,24 +80,6 @@ export function ExecutorsView({
             />
           </TabsContent>
           <TabsContent value="devices">
-            {hosts.status?.profiles.length ? (
-              <Select
-                value={hosts.activeProfile?.profileId ?? ""}
-                disabled={hosts.busy}
-                onValueChange={(profileId) => void hosts.selectProfile(profileId)}
-              >
-                <SelectTrigger className="mb-4 w-72" aria-label="Server">
-                  <SelectValue placeholder="Server" />
-                </SelectTrigger>
-                <SelectContent>
-                  {hosts.status.profiles.map((profile) => (
-                    <SelectItem key={profile.profileId} value={profile.profileId}>
-                      {profile.displayName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : null}
             {hosts.error ? (
               <p
                 role="status"

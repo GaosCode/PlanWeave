@@ -201,6 +201,8 @@
         "recordWorkspaceNavigation.test.tsx",
         "recordWorkspaceTarget.test.ts",
         "rememberedServerGroups.test.ts",
+        "serverConnectionList.test.tsx",
+        "executorServerSelector.test.tsx",
         "remoteAcpContinuation.test.tsx",
         "remoteAgentManagementErrors.test.tsx",
         "remoteEndpointDispatchGate.test.ts",

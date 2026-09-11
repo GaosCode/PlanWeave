@@ -5,6 +5,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
 import type { RememberedServerConnectionView } from "../../shared/collaboration";
@@ -26,6 +28,7 @@ export function ServerConnectionList({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [epoch, setEpoch] = useState(0);
   const [checks, setChecks] = useState<Record<string, string>>({});
   // biome-ignore lint/correctness/useExhaustiveDependencies: connection changes and completed actions invalidate the saved connection list.
@@ -61,7 +64,19 @@ export function ServerConnectionList({
   ) => {
     const api = collaborationBridge;
     if (!api) return;
-    if (action === "forget" && !window.confirm(t("serverForgetConfirm"))) return;
+    if (
+      action === "forget" &&
+      !window.confirm(
+        `${t("serverForgetConfirm")}\n${server.serverBaseUrl}\n${server.workspaceDisplayName} · ${server.profileId}`
+      )
+    )
+      return;
+    if (
+      action === "connect" &&
+      server.profileId === status?.workspaceConnection.profile?.profileId &&
+      status.workspaceConnection.status === "connected"
+    )
+      return;
     setBusy(server.profileId);
     setError(null);
     try {
@@ -110,11 +125,11 @@ export function ServerConnectionList({
       ) : null}
       <div className="overflow-x-auto">
         <div className="min-w-[560px]">
-          <div className="grid grid-cols-[1fr_1.4fr_.7fr_auto] gap-4 border-b border-border/70 pb-3 text-xs text-text-muted">
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_.7fr_11rem] gap-4 border-b border-border/70 pb-3 text-xs text-text-muted">
             <span>{t("serverSavedConnections")}</span>
             <span>{t("deploymentOrigin")}</span>
             <span>{t("executorsStatusColumn")}</span>
-            <span className="w-32" />
+            <span />
           </div>
           {rememberedServerGroups(
             servers,
@@ -129,11 +144,11 @@ export function ServerConnectionList({
             const connected = active && status?.workspaceConnection.status === "connected";
             return (
               <div
-                className="grid grid-cols-[1fr_1.4fr_.7fr_auto] items-center gap-4 border-b border-border/60 py-5 text-sm"
+                className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_.7fr_11rem] items-center gap-4 border-b border-border/60 py-5 text-sm"
                 key={group.origin}
                 data-testid="server-connection-row"
               >
-                <span className="font-medium text-text-strong">{server.displayName}</span>
+                <span className="font-medium text-text-strong">{new URL(group.origin).host}</span>
                 <span className="truncate text-text-muted" title={server.serverBaseUrl}>
                   {server.serverBaseUrl}
                 </span>
@@ -149,46 +164,80 @@ export function ServerConnectionList({
                         ? t("settingsServerRemoteError")
                         : t("serverRemembered")}
                 </span>
-                <div className="flex w-32 items-center justify-end gap-2">
+                <div className="flex items-center justify-end gap-2">
                   <Button
                     variant="outline"
                     size="sm"
                     disabled={busy !== null}
-                    onClick={() => void operate(server, connected ? "check" : "connect")}
+                    onClick={() => {
+                      if (!connected && group.connections.length > 1) setOpenMenu(group.origin);
+                      else void operate(server, connected ? "check" : "connect");
+                    }}
                   >
                     {t(connected ? "settingsServerCheckConnectivity" : "settingsServerConnect")}
                   </Button>
-                  <DropdownMenu>
+                  <DropdownMenu
+                    open={openMenu === group.origin}
+                    onOpenChange={(open) => setOpenMenu(open ? group.origin : null)}
+                  >
                     <DropdownMenuTrigger asChild>
                       <Button
                         size="icon-sm"
                         variant="ghost"
-                        aria-label={`${t("managementActions")}: ${server.displayName}`}
+                        aria-label={`${t("managementActions")}: ${new URL(group.origin).host}`}
+                        disabled={busy !== null}
                       >
                         <EllipsisIcon className="size-4" />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      {group.connections.length > 1
-                        ? group.connections.map((connection) => (
-                            <DropdownMenuItem
-                              key={connection.profileId}
-                              disabled={busy !== null}
-                              onSelect={() => void operate(connection, "connect")}
-                            >
-                              {connection.workspaceDisplayName} · {connection.profileId.slice(-6)}
-                              {connection.profileId ===
-                              status?.workspaceConnection.profile?.profileId
-                                ? " ✓"
-                                : ""}
-                            </DropdownMenuItem>
-                          ))
-                        : null}
+                    <DropdownMenuContent align="end" className="w-80">
+                      <DropdownMenuLabel>{t("serverWorkspaceConnections")}</DropdownMenuLabel>
+                      {group.connections.map((connection) => {
+                        const current =
+                          connected &&
+                          connection.profileId === status?.workspaceConnection.profile?.profileId;
+                        return (
+                          <DropdownMenuItem
+                            key={connection.profileId}
+                            className="items-start px-3 py-2.5"
+                            disabled={busy !== null || current || !connection.hasDeviceCredential}
+                            onSelect={() => void operate(connection, "connect")}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="font-medium">
+                                {t(current ? "serverCurrentConnection" : "serverUseConnection")}
+                              </div>
+                              <div
+                                className="mt-1 truncate text-xs text-text-muted"
+                                title={connection.profileId}
+                              >
+                                {connection.workspaceDisplayName} · {connection.profileId.slice(-6)}
+                              </div>
+                              {!connection.hasDeviceCredential ? (
+                                <div className="mt-1 text-xs text-text-muted">
+                                  {t("peopleMissingCredential")}
+                                </div>
+                              ) : null}
+                            </div>
+                          </DropdownMenuItem>
+                        );
+                      })}
+                      <DropdownMenuSeparator />
                       <DropdownMenuItem
                         disabled={busy !== null}
+                        variant="destructive"
+                        className="px-3 py-2.5"
                         onSelect={() => void operate(server, "forget")}
                       >
-                        {t("settingsServerForget")}
+                        <div className="min-w-0">
+                          <div>{t("serverForgetConnection")}</div>
+                          <div
+                            className="mt-1 truncate text-xs text-text-muted"
+                            title={server.profileId}
+                          >
+                            {server.workspaceDisplayName} · {server.profileId.slice(-6)}
+                          </div>
+                        </div>
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>

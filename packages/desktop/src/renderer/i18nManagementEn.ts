@@ -1,4 +1,9 @@
 export const managementEnCatalog = {
+  executorServerSelector: "Executor Server",
+  serverWorkspaceConnections: "Saved workspace connections",
+  serverCurrentConnection: "Current connection",
+  serverUseConnection: "Use connection",
+  serverForgetConnection: "Remove saved connection",
   workspaceCurrent: "Current workspace",
   workspaceJoinAnother: "Join another workspace…",
   workspaceNavigation: "Workspace",

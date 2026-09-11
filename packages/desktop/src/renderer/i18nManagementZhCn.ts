@@ -1,6 +1,11 @@
 import type { managementEnCatalog } from "./i18nManagementEn";
 
 export const managementZhCnCatalog = {
+  executorServerSelector: "执行器 Server",
+  serverWorkspaceConnections: "已保存的工作空间连接",
+  serverCurrentConnection: "当前连接",
+  serverUseConnection: "使用此连接",
+  serverForgetConnection: "移除此连接",
   workspaceCurrent: "当前工作空间",
   workspaceJoinAnother: "加入其他工作空间…",
   workspaceNavigation: "工作空间",
@@ -61,7 +66,7 @@ export const managementZhCnCatalog = {
   serverConnectionEmpty: "还没有保存的 Server 连接",
   serverRemembered: "已保存",
   serverLocalStopped: "未启动",
-  serverForgetConfirm: "忘掉这台 Server？这会移除本机保存的连接凭据。",
+  serverForgetConfirm: "移除这份已保存的连接？仅移除所列连接的本机凭据，其他连接不受影响。",
   serverMaintenanceHint: "在这台电脑上启动 Server、配置访问方式，或迁移 Server 数据。",
   serverConnectionHint: "Server 连接保存在这台电脑上。工作空间成员和执行器权限在各自页面管理。"
 } satisfies Record<keyof typeof managementEnCatalog, string>;
