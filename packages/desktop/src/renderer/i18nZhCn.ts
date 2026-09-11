@@ -722,11 +722,11 @@ export const zhCnCatalog = {
   hostAdminBridgeUnavailable: "当前版本无法管理 Agent Host，请重新启动或更新 PlanWeave。",
   hostAdminSessionOnlyWarning:
     "操作员凭证仅在本次会话可用，操作系统安全存储不可用，凭证不会持久化。",
-  hostAdminMemberSetupTitle: "邀请其他电脑",
+  hostAdminMemberSetupTitle: "成员邀请",
   hostAdminMemberSetupDescription:
-    "复制下方 Workspace 的成员连接信息，在另一台电脑的设置里粘贴即可加入。",
-  hostAdminMemberSetupRoleNote: "此邀请仅加入下方 Workspace。共享画布及其权限由所有者另行管理。",
-  hostAdminMemberSetupCopy: "复制成员连接信息",
+    "复制当前工作空间的邀请并发给对方。对方在工作空间菜单中选择“加入其他工作空间”，粘贴后即可加入。",
+  hostAdminMemberSetupRoleNote: "此邀请用于加入当前工作空间，画布访问权限由所有者另行分配。",
+  hostAdminMemberSetupCopy: "复制完整邀请",
   hostAdminMemberSetupCopied: "已复制到剪贴板。",
   hostAdminMemberSetupWorkspace: "Workspace",
   hostAdminMemberSetupExpires: "过期时间",
@@ -1337,8 +1337,7 @@ export const zhCnCatalog = {
   peopleInvitationToken: "邀请令牌",
   peopleInvitationDetails: "完整邀请",
   peopleInvitationDetailsPlaceholder: "粘贴完整的 PlanWeave 邀请",
-  peopleInvitationDetailsHint:
-    "粘贴所有者复制的完整加入信息，或设备设置邀请。PlanWeave 会自动识别。",
+  peopleInvitationDetailsHint: "请让工作空间管理员打开“工作空间 → 空间信息”，复制完整邀请发给你。",
   peopleInvitationDetailsInvalid: "邀请信息不完整或无效。请让所有者重新复制完整加入信息。",
   peopleAdvancedConnectionDetails: "手动填写连接信息",
   peopleHideAdvancedConnectionDetails: "收起手动连接信息",
@@ -1412,8 +1411,7 @@ export const zhCnCatalog = {
     "无法恢复这台设备的本机所有者身份，请刷新 Workspace 状态后重试。",
   peopleConnectionUnexpectedError: "连接操作失败，请刷新状态后重试。",
   peopleCredentialPresent: "设备凭证可用",
-  peopleInvitationBearerTrustNote:
-    "邀请令牌是持有者密钥：在过期或吊销前，任何持有令牌的人都能以成员身份加入。设备凭证保存在主进程，并使用当前配置的加密存储。",
+  peopleInvitationBearerTrustNote: "邀请包含加入权限，请仅发送给你信任的人。过期后请重新获取邀请。",
   peopleSetupCodeTrustNote:
     "设置码为一次性且限定 Workspace。Desktop 主进程兑换设置码并保存设备凭证；表单会立即清空设置码，且不会写入日志或 URL。",
   peopleSessionOnlyCredentialWarning:

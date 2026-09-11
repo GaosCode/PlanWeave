@@ -13,6 +13,7 @@ import { CollaborationConnectForm } from "../team/CollaborationConnectForm";
 import { buildCollaborationDiagnosticReport } from "../team/collaborationDiagnostics";
 import { CollaborationWorkspaceOnboarding } from "../team/CollaborationWorkspaceOnboarding";
 import { PeoplePanel } from "../team/PeoplePanel";
+import { WorkspaceInformation } from "../team/WorkspaceInformation";
 import { WorkspaceSwitcher } from "../team/WorkspaceSwitcher";
 import { Button } from "@/components/ui/button";
 import { PlusIcon } from "lucide-react";
@@ -106,7 +107,9 @@ export function PeopleView({
   const [accessOpen, setAccessOpen] = useState(false);
   const [directoryEpoch, setDirectoryEpoch] = useState(0);
   const [localHostingOpen, setLocalHostingOpen] = useState(false);
-  const [connectedSection, setConnectedSection] = useState<"members" | "workspace">("workspace");
+  const [connectedSection, setConnectedSection] = useState<"members" | "workspace" | "information">(
+    "workspace"
+  );
   const [revealInvitationManagement, setRevealInvitationManagement] = useState(false);
   const [reconnectPending, setReconnectPending] = useState(false);
   const [reconnectError, setReconnectError] = useState<string | null>(null);
@@ -337,6 +340,7 @@ export function PeopleView({
     invitationWorkspace && invitationOperator ? (
       <HostMemberSetupCard
         activeProfile={invitationOperator}
+        showWorkspace={false}
         workspace={invitationWorkspace}
         busy={hostController.busy}
         error={hostController.error}
@@ -455,7 +459,8 @@ export function PeopleView({
               <Tabs
                 value={connectedSection}
                 onValueChange={(value) => {
-                  if (value === "workspace" || value === "members") setConnectedSection(value);
+                  if (value === "workspace" || value === "members" || value === "information")
+                    setConnectedSection(value);
                 }}
               >
                 <TabsList variant="line" aria-label={t("workspaceNavigation")}>
@@ -464,6 +469,9 @@ export function PeopleView({
                   </TabsTrigger>
                   <TabsTrigger value="members" data-testid="people-section-members">
                     {t("workspaceMembersAccess")}
+                  </TabsTrigger>
+                  <TabsTrigger value="information" data-testid="people-section-information">
+                    {t("workspaceInformation")}
                   </TabsTrigger>
                 </TabsList>
               </Tabs>
@@ -477,8 +485,13 @@ export function PeopleView({
                   <PlusIcon className="size-3.5" />
                   {t("workspaceShareAction")}
                 </Button>
-              ) : panel.presence.currentUserIsOwner || invitationSetup ? (
-                <Button className="mb-2 ml-auto" size="sm" onClick={() => setInvitationOpen(true)}>
+              ) : connectedSection === "members" &&
+                (panel.presence.currentUserIsOwner || invitationSetup) ? (
+                <Button
+                  className="mb-2 ml-auto"
+                  size="sm"
+                  onClick={() => setConnectedSection("information")}
+                >
                   {t("workspaceInviteAction")}
                 </Button>
               ) : null}
@@ -505,7 +518,6 @@ export function PeopleView({
                 showTitle={false}
                 invitationOpen={invitationOpen}
                 onInvitationOpenChange={setInvitationOpen}
-                invitationSetup={invitationSetup}
                 accessScope={authoritativeCanvasAccess}
                 onManageCanvasAccess={() => setAccessOpen(true)}
                 diagnosticReport={diagnosticReport}
@@ -589,6 +601,15 @@ export function PeopleView({
                 }}
                 onRefreshDetails={handleRefreshDetails}
               />
+            ) : connectedSection === "information" && connectedWorkspace ? (
+              <WorkspaceInformation
+                connection={connectedWorkspace}
+                invitation={invitationSetup}
+                onManageInvitations={
+                  panel.presence.currentUserIsOwner ? handleManageInvitations : undefined
+                }
+                t={t}
+              />
             ) : (
               <WorkspaceCanvasDirectory
                 key={`${connectedWorkspace?.workspaceId ?? ""}:${directoryEpoch}`}
@@ -623,11 +644,6 @@ export function PeopleView({
                   setJoiningOpen(false);
                 }}
               />
-              {onManageServer ? (
-                <Button variant="ghost" className="mt-4" onClick={onManageServer}>
-                  {t("settingsServer")}
-                </Button>
-              ) : null}
             </ManagementDialog>
             <ManagementDialog
               open={sharingOpen}

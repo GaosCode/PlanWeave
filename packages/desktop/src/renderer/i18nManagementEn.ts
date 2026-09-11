@@ -1,4 +1,9 @@
 export const managementEnCatalog = {
+  workspaceInformation: "Workspace information",
+  workspaceInvitationHeading: "Member invitation",
+  workspaceInvitationContactOwner:
+    "Ask a workspace administrator for an invitation. Workspace owners can also manage their existing member invitations below.",
+  workspaceManageInvitations: "Manage member invitations",
   executorServerSelector: "Executor Server",
   serverWorkspaceConnections: "Saved workspace connections",
   serverCurrentConnection: "Current connection",

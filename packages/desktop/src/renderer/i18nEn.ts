@@ -759,12 +759,12 @@ export const enCatalog = {
     "Agent Host management is unavailable. Restart or update PlanWeave and try again.",
   hostAdminSessionOnlyWarning:
     "The operator credential is available for this session only; it is not persisted by the operating system vault.",
-  hostAdminMemberSetupTitle: "Invite another computer",
+  hostAdminMemberSetupTitle: "Member invitation",
   hostAdminMemberSetupDescription:
-    "Copy member connection details so another computer can join the Workspace shown below.",
+    "Copy an invitation for this workspace and send it to the person joining. They can choose “Join another workspace” in the workspace menu and paste it there.",
   hostAdminMemberSetupRoleNote:
-    "This invitation joins the Workspace shown below. Its owner manages shared canvases and their permissions separately.",
-  hostAdminMemberSetupCopy: "Copy member connection details",
+    "This invitation joins the current workspace. Its owner manages canvas permissions separately.",
+  hostAdminMemberSetupCopy: "Copy complete invitation",
   hostAdminMemberSetupCopied: "Copied to the clipboard.",
   hostAdminMemberSetupWorkspace: "Workspace",
   hostAdminMemberSetupExpires: "Expires",
@@ -1434,7 +1434,7 @@ export const enCatalog = {
   peopleInvitationDetails: "Complete invitation",
   peopleInvitationDetailsPlaceholder: "Paste the complete PlanWeave invitation",
   peopleInvitationDetailsHint:
-    "Paste the complete join invitation or device setup invite copied by the owner. PlanWeave will recognize either.",
+    "Ask a workspace administrator to open Workspace → Workspace information and copy the complete invitation for you.",
   peopleInvitationDetailsInvalid:
     "This invitation is incomplete or invalid. Ask the owner to copy the complete join details again.",
   peopleAdvancedConnectionDetails: "Enter connection details manually",
@@ -1513,7 +1513,7 @@ export const enCatalog = {
     "The connection operation failed. Refresh the status and try again.",
   peopleCredentialPresent: "Device credential available",
   peopleInvitationBearerTrustNote:
-    "Invitation tokens are bearer secrets: anyone with the token can join as a project member until it expires or is revoked. Device credentials stay in the main process and use the configured encrypted storage.",
+    "This invitation grants access. Share it only with people you trust; request a new invitation if it expires.",
   peopleSetupCodeTrustNote:
     "Setup codes are one-time and Workspace-scoped. Desktop main redeems the code and stores the device credential; the code is cleared from this form immediately and never written to logs or URLs.",
   peopleSessionOnlyCredentialWarning:

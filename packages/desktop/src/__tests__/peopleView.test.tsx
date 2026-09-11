@@ -554,8 +554,13 @@ describe("PeopleView", () => {
     expect(screen.queryByTestId("host-admin-member-setup")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Invite member", exact: true }));
     expect(await screen.findByTestId("host-admin-member-setup")).toBeVisible();
-    expect(screen.getByRole("heading", { name: "Invite another computer" })).toBeVisible();
-    await userEvent.click(screen.getByRole("button", { name: "Close", exact: true }));
+    expect(screen.getByTestId("people-section-information")).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+    expect(screen.getByRole("heading", { name: "Member invitation" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Copy complete invitation" })).toBeVisible();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     await userEvent.click(screen.getByTestId("people-section-workspace"));
     expect(screen.queryByTestId("host-admin-member-setup")).not.toBeInTheDocument();
   });
@@ -1410,7 +1415,10 @@ describe("PeopleView", () => {
     expect(identity.listCollaborationMembers).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole("button", { name: "Close", exact: true }));
     await userEvent.click(screen.getByRole("button", { name: "Invite member", exact: true }));
-    expect(screen.getByTestId("host-admin-member-setup-target")).toHaveTextContent("workspace-1");
+    expect(screen.getByTestId("workspace-information")).toHaveTextContent(
+      "http://127.0.0.1:56584/"
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     await userEvent.click(screen.getByTestId("host-admin-copy-member-setup"));
     expect(idleHostController.copyMemberSetupCode).toHaveBeenLastCalledWith({
       profileId: "workspace-operator",
@@ -1418,7 +1426,7 @@ describe("PeopleView", () => {
       serverBaseUrl: "http://127.0.0.1:56584/"
     });
 
-    await userEvent.click(screen.getByRole("button", { name: "Close", exact: true }));
+    await userEvent.click(screen.getByTestId("people-section-members"));
     identity.getWorkspaceConnectionSelf.mockResolvedValue({
       schemaVersion: "workspace-setup/v1",
       workspaceId: "workspace-2",

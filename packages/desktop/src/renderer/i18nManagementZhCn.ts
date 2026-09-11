@@ -1,6 +1,11 @@
 import type { managementEnCatalog } from "./i18nManagementEn";
 
 export const managementZhCnCatalog = {
+  workspaceInformation: "空间信息",
+  workspaceInvitationHeading: "成员邀请",
+  workspaceInvitationContactOwner:
+    "请向工作空间管理员获取邀请。工作空间所有者也可以在下方管理已有的成员邀请。",
+  workspaceManageInvitations: "管理成员邀请",
   executorServerSelector: "执行器 Server",
   serverWorkspaceConnections: "已保存的工作空间连接",
   serverCurrentConnection: "当前连接",

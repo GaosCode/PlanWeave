@@ -357,7 +357,7 @@ export function PeoplePanel({
         ) : null}
       </div>
       <div
-        className="flex flex-col gap-4 border-b border-border/70 px-1 pb-5 sm:flex-row sm:items-center sm:justify-between"
+        className="flex flex-col gap-4 px-1 sm:flex-row sm:items-center sm:justify-between"
         data-testid="people-toolbar"
       >
         <div>

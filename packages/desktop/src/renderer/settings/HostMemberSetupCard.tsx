@@ -10,6 +10,7 @@ type HostMemberSetupCardProps = {
   activeProfile: OperatorProfileView | null;
   workspace: { workspaceId: string; displayName: string; serverBaseUrl: string };
   busy: boolean;
+  showWorkspace?: boolean;
   error: string | null;
   copyMemberSetupCode: () => Promise<OperatorMemberSetupCodeHandoffView | null>;
   dismissMemberSetupCodeHandoff: () => void;
@@ -26,6 +27,7 @@ function formatDate(value: string, locale: string): string {
 export function HostMemberSetupCard({
   activeProfile,
   workspace,
+  showWorkspace = true,
   busy,
   error,
   copyMemberSetupCode,
@@ -44,13 +46,15 @@ export function HostMemberSetupCard({
           {t("hostAdminMemberSetupDescription")}
         </p>
       </div>
-      <div className="grid gap-1 text-sm" data-testid="host-admin-member-setup-target">
-        <span>
-          {t("hostAdminMemberSetupWorkspace")}: {workspace.displayName}
-        </span>
-        <span className="break-all text-xs text-text-muted">{workspace.workspaceId}</span>
-        <span className="break-all text-xs text-text-muted">{workspace.serverBaseUrl}</span>
-      </div>
+      {showWorkspace ? (
+        <div className="grid gap-1 text-sm" data-testid="host-admin-member-setup-target">
+          <span>
+            {t("hostAdminMemberSetupWorkspace")}: {workspace.displayName}
+          </span>
+          <span className="break-all text-xs text-text-muted">{workspace.workspaceId}</span>
+          <span className="break-all text-xs text-text-muted">{workspace.serverBaseUrl}</span>
+        </div>
+      ) : null}
       {error ? (
         <p role="alert" className="text-sm text-destructive">
           {error}
