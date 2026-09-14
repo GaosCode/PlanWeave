@@ -7,6 +7,7 @@ import type { createTranslator } from "../../i18n";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { RemoteAcpContinuation } from "../useRemoteAcpContinuation";
+import { AcpPermissionChoices } from "../../components/AcpPermissionChoices";
 
 export function RemoteAcpExecutionControls({
   continuation,
@@ -23,6 +24,9 @@ export function RemoteAcpExecutionControls({
           item={item}
           t={t}
           disabled={continuation.sending}
+          cancelExecution={
+            continuation.execution?.cancel ? () => void continuation.cancelExecution() : null
+          }
           respond={(response) => void continuation.respondExecution(response)}
         />
       ))}
@@ -33,11 +37,13 @@ function ExecutionInteraction({
   item,
   respond,
   disabled,
+  cancelExecution,
   t
 }: {
   item: RemoteInteractionView;
   respond: (response: RemoteInteractionResponse) => void;
   disabled: boolean;
+  cancelExecution: (() => void) | null;
   t: ReturnType<typeof createTranslator>;
 }) {
   const [draft, setDraft] = useState("");
@@ -58,27 +64,36 @@ function ExecutionInteraction({
         <>
           <p className="text-sm">{request.title}</p>
           <p className="whitespace-pre-wrap text-xs">{request.description}</p>
-          <Button
-            disabled={disabled}
-            onClick={() =>
-              respond({
-                ...identity,
-                type: "interaction.permission_response",
-                decision: "allow_once"
-              })
-            }
-          >
-            {t("remoteRunInteractionAllow")}
-          </Button>
-          <Button
-            disabled={disabled}
-            variant="outline"
-            onClick={() =>
-              respond({ ...identity, type: "interaction.permission_response", decision: "deny" })
-            }
-          >
-            {t("remoteRunInteractionDeny")}
-          </Button>
+          {"options" in request ? (
+            <AcpPermissionChoices
+              options={request.options}
+              disabled={disabled}
+              t={t}
+              onSelect={(optionId) =>
+                respond({
+                  ...identity,
+                  type: "interaction.permission_response",
+                  decision: "select_option",
+                  optionId
+                })
+              }
+              onCancel={() =>
+                respond({ ...identity, type: "interaction.permission_response", decision: "deny" })
+              }
+            />
+          ) : (
+            <>
+              <p className="text-xs text-muted-foreground">{t("acpPermissionLegacyOptions")}</p>
+              <Button
+                disabled={disabled || !cancelExecution}
+                variant="outline"
+                data-testid="acp-permission-stop-execution"
+                onClick={() => cancelExecution?.()}
+              >
+                {t("acpPermissionStopExecution")}
+              </Button>
+            </>
+          )}
         </>
       ) : request.type === "interaction.elicitation_requested" ? (
         <>

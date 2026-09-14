@@ -1,4 +1,12 @@
-import type { InteractionSettlement, MailboxCommand } from "@planweave-ai/agent-host-protocol";
+import {
+  assertInteractionIdentityMatches,
+  exactPermissionSettlementSchema,
+  interactionIdentitySchema,
+  selectedAcpPermissionOptionId,
+  type HistoricalInteractionSettlement,
+  type InteractionSettlement,
+  type MailboxCommand
+} from "@planweave-ai/agent-host-protocol";
 import type {
   AcpEngineElicitationRequest,
   AcpEngineInteractionContext,
@@ -17,11 +25,11 @@ type SettlementState = {
     executionAttemptId: string;
     acpSessionId: string;
     actionId: string;
-  }): InteractionSettlement | undefined;
+  }): HistoricalInteractionSettlement | undefined;
 };
 
 type PendingSettlement = {
-  resolve(command: InteractionSettlement): void;
+  resolve(command: HistoricalInteractionSettlement): void;
 };
 
 function key(
@@ -73,15 +81,27 @@ export class DurableAcpInteractionRelay implements AgentHostRemoteInteractionRes
     if (settlement.type !== "interaction.permission_response") {
       throw new Error("interaction_response_type_mismatch");
     }
-    if (settlement.decision === "deny") {
-      const denied = request.options.find((option) => option.decision === "deny");
-      return denied
-        ? { kind: "select" as const, optionId: denied.optionId }
-        : { kind: "cancel" as const };
+    if (settlement.decision === "allow_once") {
+      throw new Error("legacy_permission_selection_unsupported");
     }
-    const allowed = request.options.find((option) => option.decision === "approve");
-    if (!allowed) throw new Error("interaction_permission_allow_unavailable");
-    return { kind: "select" as const, optionId: allowed.optionId };
+    if (context.signal.aborted) throw new Error("interaction_execution_aborted");
+    if (context.deadline.getTime() <= Date.now()) throw new Error("interaction_deadline_expired");
+    const exact = exactPermissionSettlementSchema.parse(settlement);
+    assertInteractionIdentityMatches(
+      interactionIdentitySchema.parse({
+        ...identity,
+        acpSessionId: request.sessionId,
+        actionId: request.requestId
+      }),
+      exact
+    );
+    const optionId = selectedAcpPermissionOptionId(
+      request.options,
+      exact.decision === "deny"
+        ? { decision: exact.decision }
+        : { decision: exact.decision, optionId: exact.optionId }
+    );
+    return optionId === null ? { kind: "cancel" as const } : { kind: "select" as const, optionId };
   }
 
   async requestElicitation(
@@ -114,7 +134,11 @@ export class DurableAcpInteractionRelay implements AgentHostRemoteInteractionRes
     sessionId: string,
     actionId: string,
     context: AcpEngineInteractionContext
-  ): Promise<InteractionSettlement> {
+  ): Promise<HistoricalInteractionSettlement> {
+    if (context.signal.aborted) return Promise.reject(new Error("interaction_execution_aborted"));
+    if (context.deadline.getTime() <= Date.now()) {
+      return Promise.reject(new Error("interaction_deadline_expired"));
+    }
     const settlementKey = key(identity, sessionId, actionId);
     const durableIdentity = {
       ...identity,
@@ -126,7 +150,7 @@ export class DurableAcpInteractionRelay implements AgentHostRemoteInteractionRes
     if (this.pending.has(settlementKey)) {
       return Promise.reject(new Error("interaction_waiter_conflict"));
     }
-    return new Promise<InteractionSettlement>((resolve, reject) => {
+    return new Promise<HistoricalInteractionSettlement>((resolve, reject) => {
       const cleanup = (): void => {
         clearTimeout(timer);
         context.signal.removeEventListener("abort", abort);

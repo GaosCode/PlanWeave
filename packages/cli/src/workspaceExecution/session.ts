@@ -1,3 +1,4 @@
+import { parseExactPermissionSettlementForRequest } from "@planweave-ai/agent-host-protocol";
 import {
   WorkspaceExecutionCoordinator,
   createLocalPackageAuthoritySource,
@@ -252,11 +253,16 @@ export function interactionResponse(input: {
     actionId: input.request.actionId
   };
   if (input.request.type === "interaction.permission_requested") {
-    const decision = input.cancel ? "deny" : input.option;
-    if (decision !== "allow_once" && decision !== "deny") {
+    if (!input.cancel && input.option === undefined) {
       throw new WorkspaceExecutionCliError("workspace_execution_usage_invalid", 2);
     }
-    return { ...identity, type: "interaction.permission_response", decision };
+    return parseExactPermissionSettlementForRequest(input.request, {
+      ...identity,
+      type: "interaction.permission_response",
+      ...(input.cancel
+        ? { decision: "deny" }
+        : { decision: "select_option", optionId: input.option })
+    });
   }
   if (input.request.type === "interaction.elicitation_requested") {
     return input.cancel

@@ -1853,8 +1853,6 @@ export const enCatalog = {
   remoteRunActionResume: "Resume session",
   remoteRunActionFail: "Mark failed",
   remoteRunActionRetry: "Retry new attempt",
-  remoteRunInteractionAllow: "Allow once",
-  remoteRunInteractionDeny: "Deny",
   remoteRunConfirmCancel: "Cancel the remote attempt? This requests cooperative cancellation.",
   remoteRunConfirmRetry: "Create a new attempt? Prior evidence is preserved; this is not a resume.",
   remoteRunConfirmFail: "Mark this interrupted attempt as failed?",

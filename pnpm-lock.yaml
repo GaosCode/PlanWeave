@@ -247,6 +247,13 @@ importers:
       '@planweave-ai/runtime':
         specifier: workspace:*
         version: link:../runtime
+    devDependencies:
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
+      ws:
+        specifier: ^8.21.1
+        version: 8.21.1
 
   packages/mcp:
     dependencies:

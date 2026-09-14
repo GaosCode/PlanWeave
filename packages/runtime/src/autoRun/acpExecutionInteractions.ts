@@ -1,3 +1,4 @@
+import { acpPermissionOptionsSchema } from "@planweave-ai/agent-host-protocol";
 import {
   CreateElicitationRequest as CreateElicitationRequestGuard,
   RequestError,
@@ -54,10 +55,6 @@ type InteractionHandlersOptions = {
   readonly signal: AbortSignal;
   readonly emit: (event: AcpEngineEventPayload) => Promise<void>;
 };
-
-function permissionDecision(kind: RequestPermissionRequest["options"][number]["kind"]) {
-  return kind === "allow_once" || kind === "allow_always" ? "approve" : "deny";
-}
 
 function deadline(options: InteractionHandlersOptions): { at: Date; timeoutMs: number } {
   const now = options.clock.now();
@@ -168,11 +165,13 @@ export function createAcpExecutionInteractionHandlers(options: InteractionHandle
               summary: normalizedRedactedContent(
                 request.toolCall.title ?? `Permission requested for ${request.toolCall.toolCallId}.`
               ).content,
-              options: request.options.map((option) => ({
-                optionId: option.optionId,
-                label: normalizedRedactedContent(option.name).content,
-                decision: permissionDecision(option.kind)
-              }))
+              options: acpPermissionOptionsSchema.parse(
+                request.options.map((option) => ({
+                  optionId: option.optionId,
+                  label: normalizedRedactedContent(option.name).content,
+                  kind: option.kind
+                }))
+              )
             },
             { signal: options.signal, deadline: interaction.at }
           )

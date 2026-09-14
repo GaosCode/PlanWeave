@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { createTranslator } from "../i18n";
+import { AcpPermissionChoices } from "../components/AcpPermissionChoices";
 import {
   useRemoteRunPanelController,
   type RemoteRunExecutionLocator
@@ -286,16 +287,16 @@ export function RemoteRunPanel({
               </div>
               <div className="mt-1 flex flex-wrap gap-1">
                 {interaction.request.type === "interaction.permission_requested" ? (
-                  <>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      data-testid="remote-run-interaction-allow"
-                      disabled={controller.actionInFlight === "answer_interaction"}
-                      onClick={() =>
+                  "options" in interaction.request ? (
+                    <AcpPermissionChoices
+                      options={interaction.request.options}
+                      disabled={controller.actionInFlight !== null}
+                      t={t}
+                      onSelect={(optionId) =>
                         void controller.answerInteraction({
                           type: "interaction.permission_response",
-                          decision: "allow_once",
+                          decision: "select_option",
+                          optionId,
                           actionId: interaction.request.actionId,
                           dispatchId: interaction.request.dispatchId,
                           leaseId: interaction.request.leaseId,
@@ -303,15 +304,7 @@ export function RemoteRunPanel({
                           acpSessionId: interaction.request.acpSessionId
                         })
                       }
-                    >
-                      {t("remoteRunInteractionAllow")}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      data-testid="remote-run-interaction-deny"
-                      disabled={controller.actionInFlight === "answer_interaction"}
-                      onClick={() =>
+                      onCancel={() =>
                         void controller.answerInteraction({
                           type: "interaction.permission_response",
                           decision: "deny",
@@ -322,10 +315,24 @@ export function RemoteRunPanel({
                           acpSessionId: interaction.request.acpSessionId
                         })
                       }
-                    >
-                      {t("remoteRunInteractionDeny")}
-                    </Button>
-                  </>
+                    />
+                  ) : (
+                    <>
+                      <p className="text-muted-foreground">{t("acpPermissionLegacyOptions")}</p>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        data-testid="acp-permission-stop-execution"
+                        disabled={
+                          controller.actionInFlight !== null ||
+                          !availableActions.some((action) => action.kind === "cancel")
+                        }
+                        onClick={() => controller.setConfirmKind("cancel")}
+                      >
+                        {t("acpPermissionStopExecution")}
+                      </Button>
+                    </>
+                  )
                 ) : null}
               </div>
             </div>

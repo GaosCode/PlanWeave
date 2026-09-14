@@ -13,6 +13,11 @@ import {
 import { hashExecutionEnvelope } from "./executionEnvelopeHash.js";
 import { executionAttemptIdSchema, dispatchIdSchema } from "./executionIdentity.js";
 import { opaqueIdentifierSchema } from "./identifiers.js";
+import { exactPermissionOptionsVersionSchema } from "./acpPermissionOptions.js";
+import {
+  legacyPermissionRequestSchema,
+  legacyPermissionSettlementSchema
+} from "./acpPermissionInteractions.js";
 import { interactionRequestSchema, interactionSettlementSchema } from "./interactions.js";
 import { leaseIdSchema } from "./leaseIdentity.js";
 import {
@@ -60,6 +65,7 @@ export const hostHelloSchema = versionedSchema.extend({
 
 export const hostWelcomeSchema = versionedSchema.extend({
   type: z.literal("host.welcome"),
+  exactPermissionOptionsVersion: exactPermissionOptionsVersionSchema.optional(),
   serverTime: z.string().datetime(),
   heartbeatIntervalMs: z.number().int().positive().safe(),
   leaseDurationMs: z.number().int().positive().safe()
@@ -128,6 +134,12 @@ export const mailboxCommandSchema = z.discriminatedUnion("type", [
   interactionSettlementSchema.options[1],
   interactionSettlementSchema.options[2]
 ]);
+
+export const historicalMailboxCommandSchema = z.union([
+  mailboxCommandSchema,
+  legacyPermissionSettlementSchema
+]);
+export type HistoricalMailboxCommand = z.infer<typeof historicalMailboxCommandSchema>;
 
 export const mailboxDeliverySchema = versionedSchema.extend({
   type: z.literal("mailbox.message"),
@@ -204,6 +216,13 @@ export const hostEventSchema = z.union([
   ...hostToServerEventSchema.options,
   ...observationEventSchema.options
 ]);
+
+/** Only for persisted outboxes and connections without exact permission support. */
+export const historicalHostEventSchema = z.union([
+  hostEventSchema,
+  durableHostEventSchema.merge(legacyPermissionRequestSchema)
+]);
+export type HistoricalHostEvent = z.infer<typeof historicalHostEventSchema>;
 
 export const hostEventAcknowledgementSchema = versionedSchema.extend({
   type: z.literal("host.event_ack"),

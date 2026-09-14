@@ -1,5 +1,6 @@
 import { acpCapabilitySnapshotSchema } from "@planweave-ai/runtime";
 import {
+  acpPermissionOptionsSchema,
   engineTerminalLeafSchema,
   runnerBodyFragmentSchema
 } from "@planweave-ai/agent-host-protocol";
@@ -144,8 +145,18 @@ export const legacyAgentHostRemoteExecutionRecordSchema = z.discriminatedUnion("
     })
     .strict()
 ]);
-export const agentHostRemoteExecutionRecordSchema = legacyAgentHostRemoteExecutionRecordSchema;
+export const agentHostRemoteExecutionRecordSchema = z.discriminatedUnion("kind", [
+  legacyAgentHostRemoteExecutionRecordSchema.options[0],
+  legacyAgentHostRemoteExecutionRecordSchema.options[1].extend({
+    request: legacyRemotePermissionRequestSchema.extend({ options: acpPermissionOptionsSchema })
+  }),
+  legacyAgentHostRemoteExecutionRecordSchema.options[2]
+]);
+export const historicalAgentHostRemoteExecutionRecordSchema = z.union([
+  agentHostRemoteExecutionRecordSchema,
+  legacyAgentHostRemoteExecutionRecordSchema
+]);
 export type AgentHostRemoteExecutionRecord = z.infer<typeof agentHostRemoteExecutionRecordSchema>;
 export type HistoricalAgentHostRemoteExecutionRecord = z.infer<
-  typeof legacyAgentHostRemoteExecutionRecordSchema
+  typeof historicalAgentHostRemoteExecutionRecordSchema
 >;

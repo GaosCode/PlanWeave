@@ -22,7 +22,8 @@
         "commandsRunOutput.test.ts",
         "commandsSchemaHelp.test.ts",
         "recoverAcpRunCommand.test.ts",
-        "runStatusFollow.test.ts"
+        "runStatusFollow.test.ts",
+        "workspaceExecutionPermission.test.ts"
       ],
       "integration": [
         "acpProfilesCommand.test.ts",
@@ -437,6 +438,7 @@
     {
       "root": "packages/runtime/src/__tests__",
       "unit": [
+        "acpExactPermissionOptions.test.ts",
         "remoteAcpTelemetry.test.ts",
         "acpAuthentication.test.ts",
         "acpConversationProjection.test.ts",
@@ -760,6 +762,7 @@
         "canvasRuntimeWorkItemFacts.test.ts",
         "connectionStatus.test.ts",
         "durableAcpRelay.test.ts",
+        "historicalPermissionPersistence.test.ts",
         "remoteRunnerEventNegotiation.test.ts",
         "httpArtifactTransfer.test.ts",
         "hostInstallationIdentity.test.ts",
@@ -779,6 +782,8 @@
       "root": "packages/distributed-integration/src/__tests__",
       "unit": [],
       "integration": [
+        "exactPermissionHandshake.test.ts",
+        "exactPermissionRelay.test.ts",
         "canvasRuntimeAdapterContract.test.ts",
         "canvasRuntimeArtifactLoopback.test.ts"
       ],

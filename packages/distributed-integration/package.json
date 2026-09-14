@@ -11,5 +11,9 @@
     "@planweave-ai/agent-host": "workspace:*",
     "@planweave-ai/agent-host-protocol": "workspace:*",
     "@planweave-ai/runtime": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1",
+    "ws": "^8.21.1"
   }
 }

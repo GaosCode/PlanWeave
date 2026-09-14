@@ -48,6 +48,80 @@ async function setup() {
   return { directory, state, command, receive };
 }
 describe("Host remote ACP continuation", () => {
+  it("projects exact permission kinds and returns the selected original option ID", async () => {
+    const f = await setup();
+    const options = [
+      { optionId: "first-once", label: "Once", kind: "allow_once" as const },
+      { optionId: "other-once", label: "Once too", kind: "allow_once" as const },
+      { optionId: "always", label: "Always", kind: "allow_always" as const },
+      { optionId: "reject", label: "Reject", kind: "reject_once" as const },
+      { optionId: "reject-always", label: "Always reject", kind: "reject_always" as const }
+    ];
+    const selected = vi.fn();
+    const converse = vi.fn<RemoteAcpExecutor["converse"]>(
+      async (_command, broker, _sink, signal) => {
+        selected(
+          await broker.requestPermission(
+            {
+              requestId: "follow-up-permission",
+              sessionId: f.command.sessionId,
+              toolCallId: "tool",
+              summary: "Allow follow-up tool",
+              options
+            },
+            { signal, deadline: new Date(f.command.expiresAt) }
+          )
+        );
+        return { state: "succeeded", stopReason: "end_turn" };
+      }
+    );
+    const service = new RemoteAcpConversationService(f.state.conversations, { converse });
+    f.receive(f.command);
+    service.handle(f.command);
+    try {
+      expect(f.state.pendingEvents()).toContainEqual(
+        expect.objectContaining({
+          type: "acp_conversation.event",
+          payload: {
+            kind: "interaction",
+            request: {
+              kind: "permission",
+              requestId: "follow-up-permission",
+              summary: "Allow follow-up tool",
+              deadline: f.command.expiresAt,
+              options: [
+                { optionId: "first-once", label: "Once", decision: "approve" },
+                { optionId: "other-once", label: "Once too", decision: "approve" },
+                { optionId: "always", label: "Always", decision: "approve" },
+                { optionId: "reject", label: "Reject", decision: "deny" },
+                { optionId: "reject-always", label: "Always reject", decision: "deny" }
+              ]
+            }
+          }
+        })
+      );
+      const { sourceEnvelope: _source, text: _text, expiresAt: _expiry, ...identity } = f.command;
+      const response = {
+        ...identity,
+        type: "acp_conversation.respond" as const,
+        requestId: "follow-up-permission",
+        decision: { kind: "permission" as const, optionId: "other-once" }
+      };
+      f.receive(response);
+      service.handle(response);
+      await vi.waitFor(() =>
+        expect(selected).toHaveBeenCalledWith({ kind: "select", optionId: "other-once" })
+      );
+      expect(f.state.pendingEvents()).toContainEqual(
+        expect.objectContaining({
+          type: "acp_conversation.event",
+          payload: { kind: "status", status: "completed", error: null }
+        })
+      );
+    } finally {
+      await service.stop();
+    }
+  });
   it("loads the exact session for two real ACP prompts and suppresses session/load history", async () => {
     const f = await setup();
     const upload = vi.fn();

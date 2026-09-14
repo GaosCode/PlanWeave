@@ -1,3 +1,9 @@
+import {
+  EXACT_PERMISSION_OPTIONS_VERSION_HEADER,
+  historicalHostEventSchema,
+  negotiateExactPermissionOptionsVersion,
+  type HistoricalHostEvent
+} from "@planweave-ai/agent-host-protocol";
 import type { IncomingMessage, Server as HttpServer } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
@@ -14,8 +20,7 @@ import {
   executionEnvelopeProtocolVersion,
   hostEventSchema,
   hostHelloSchema,
-  serverEventSchema,
-  type HostEvent
+  serverEventSchema
 } from "./protocol.js";
 import type { WebSocketUpgradeRouter } from "./webSocketUpgradeRouter.js";
 import type { TransportAdmissionPolicy } from "./insecureTransport.js";
@@ -176,7 +181,11 @@ export function attachAgentHostWebSocketServer(
   }
   let closing = false;
 
-  const handleConnection = (socket: WebSocket, hostId: string) => {
+  const handleConnection = (
+    socket: WebSocket,
+    hostId: string,
+    exactPermissionOptionsVersion: 1 | undefined
+  ) => {
     const prior = sessions.get(hostId);
     if (prior && prior.socket.readyState === WebSocket.OPEN) {
       options.runtimeRpc?.detachHost(hostId, "superseded");
@@ -203,7 +212,7 @@ export function attachAgentHostWebSocketServer(
       alive = true;
     });
 
-    const handleHostEvent = async (event: HostEvent): Promise<void> => {
+    const handleHostEvent = async (event: HistoricalHostEvent): Promise<void> => {
       let deferredWriteback: { dispatchId: string } | undefined;
       switch (event.type) {
         case "mailbox.ack":
@@ -316,7 +325,11 @@ export function attachAgentHostWebSocketServer(
         case "interaction.elicitation_requested":
         case "interaction.authentication_required": {
           const { protocolVersion: _protocolVersion, messageId: _messageId, ...request } = event;
-          options.interactions.recordRequest(hostId, event.messageId, request);
+          if (exactPermissionOptionsVersion === 1) {
+            options.interactions.recordRequest(hostId, event.messageId, request);
+          } else {
+            options.interactions.recordLegacyRequest(hostId, event.messageId, request);
+          }
           break;
         }
         case "canvas_runtime.response":
@@ -335,6 +348,8 @@ export function attachAgentHostWebSocketServer(
       if (closing) return;
       session.processing = session.processing
         .then(async () => {
+          if (closing || socket.readyState !== WebSocket.OPEN || sessions.get(hostId) !== session)
+            return;
           if (isBinary) throw new Error("binary_messages_not_supported");
           let input: unknown;
           try {
@@ -369,7 +384,8 @@ export function attachAgentHostWebSocketServer(
               protocolVersion: agentHostProtocolVersion,
               serverTime: new Date().toISOString(),
               heartbeatIntervalMs: options.heartbeatIntervalMs,
-              leaseDurationMs: options.leaseDurationMs
+              leaseDurationMs: options.leaseDurationMs,
+              ...(exactPermissionOptionsVersion === 1 ? { exactPermissionOptionsVersion } : {})
             });
             for (const message of options.mailbox.listAfter(
               hostId,
@@ -380,7 +396,12 @@ export function attachAgentHostWebSocketServer(
             continueHostAvailability(hostId);
             return;
           }
-          await handleHostEvent(hostEventSchema.parse(input));
+          await handleHostEvent(
+            (exactPermissionOptionsVersion === 1
+              ? hostEventSchema
+              : historicalHostEventSchema
+            ).parse(input)
+          );
         })
         .catch((error: unknown) => {
           const phase = initialized ? "event" : "hello";
@@ -423,8 +444,17 @@ export function attachAgentHostWebSocketServer(
       rejectUpgrade(socket, authentication.status, authentication.message);
       return;
     }
+    let exactPermissionOptionsVersion: 1 | undefined;
+    try {
+      exactPermissionOptionsVersion = negotiateExactPermissionOptionsVersion(
+        request.headers[EXACT_PERMISSION_OPTIONS_VERSION_HEADER]
+      );
+    } catch {
+      rejectUpgrade(socket, 400, "Unsupported Permission Options Version");
+      return;
+    }
     webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
-      handleConnection(webSocket, hostId);
+      handleConnection(webSocket, hostId, exactPermissionOptionsVersion);
     });
   };
 

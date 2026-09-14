@@ -833,7 +833,8 @@ describe("human remote operation HTTP", () => {
       acpSessionId: "acp-human-1",
       expiresAt: "2099-01-01T00:00:00.000Z",
       title: "Permission",
-      description: "Allow this operation?"
+      description: "Allow this operation?",
+      options: [{ optionId: "once", label: "Allow once", kind: "allow_once" as const }]
     };
     fixture.coordination.interactions.recordRequest(fixture.host.id, "human-request-1", request);
     const interactions = await fetch(
@@ -874,7 +875,7 @@ describe("human remote operation HTTP", () => {
       {
         method: "POST",
         headers: headers(member.deviceToken),
-        body: JSON.stringify({ ...settlement, decision: "allow_once" })
+        body: JSON.stringify({ ...settlement, decision: "select_option", optionId: "once" })
       }
     );
     expect(conflictingSettlement.status).toBe(409);

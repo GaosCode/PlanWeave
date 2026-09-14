@@ -2,13 +2,17 @@ import { createHash } from "node:crypto";
 import {
   canonicalizeJson,
   interactionRequestSchema,
+  historicalInteractionRequestSchema,
+  historicalInteractionSettlementSchema,
   interactionSettlementSchema,
   parseInteractionSettlementForRequest,
-  type InteractionRequest,
+  type HistoricalInteractionRequest,
+  type HistoricalInteractionSettlement,
   type InteractionSettlement
 } from "@planweave-ai/agent-host-protocol";
 import { redactRunnerEventText } from "@planweave-ai/runtime";
 import { z } from "zod";
+import { enqueueExpiredLegacyPermissionCancellation } from "./remotePermissionExpiry.js";
 import { HostEventInbox } from "./hostEvents.js";
 import { DurableMailbox, type MailboxMessage } from "./mailbox.js";
 import { inWriteTransaction, type SqliteDatabase } from "./sqlite.js";
@@ -24,12 +28,12 @@ export type RemoteInteractionIdentity = {
 };
 
 export type RemoteInteractionRecord = {
-  request: InteractionRequest;
+  request: HistoricalInteractionRequest;
   operationId: string;
   hostId: string;
   status: RemoteInteractionStatus;
   createdAt: string;
-  settlement?: InteractionSettlement;
+  settlement?: HistoricalInteractionSettlement;
   settledBy?: string;
   settledAt?: string;
   mailboxMessageId?: string;
@@ -64,7 +68,10 @@ function identityKey(identity: RemoteInteractionIdentity): string {
   return createHash("sha256").update(canonicalizeJson(identity)).digest("hex");
 }
 
-function requestIdentity(hostId: string, request: InteractionRequest): RemoteInteractionIdentity {
+function requestIdentity(
+  hostId: string,
+  request: HistoricalInteractionRequest
+): RemoteInteractionIdentity {
   return {
     hostId,
     dispatchId: request.dispatchId,
@@ -74,22 +81,30 @@ function requestIdentity(hostId: string, request: InteractionRequest): RemoteInt
   };
 }
 
-function redactRequest(request: InteractionRequest): InteractionRequest {
+function redactRequest(request: HistoricalInteractionRequest): HistoricalInteractionRequest {
   switch (request.type) {
     case "interaction.permission_requested":
-      return interactionRequestSchema.parse({
+      return historicalInteractionRequestSchema.parse({
         ...request,
         title: redactRunnerEventText(request.title).text,
-        description: redactRunnerEventText(request.description).text
+        description: redactRunnerEventText(request.description).text,
+        ...("options" in request
+          ? {
+              options: request.options.map((option) => ({
+                ...option,
+                label: redactRunnerEventText(option.label).text
+              }))
+            }
+          : {})
       });
     case "interaction.elicitation_requested":
-      return interactionRequestSchema.parse({
+      return historicalInteractionRequestSchema.parse({
         ...request,
         prompt: redactRunnerEventText(request.prompt).text,
         options: request.options.map((option) => redactRunnerEventText(option).text)
       });
     case "interaction.authentication_required":
-      return interactionRequestSchema.parse({
+      return historicalInteractionRequestSchema.parse({
         ...request,
         hostInstruction: redactRunnerEventText(request.hostInstruction).text
       });
@@ -97,9 +112,9 @@ function redactRequest(request: InteractionRequest): InteractionRequest {
 }
 
 function toRecord(row: Record<string, unknown>): RemoteInteractionRecord {
-  const request = interactionRequestSchema.parse(JSON.parse(String(row.request_json)));
+  const request = historicalInteractionRequestSchema.parse(JSON.parse(String(row.request_json)));
   const settlement = row.settlement_json
-    ? interactionSettlementSchema.parse(JSON.parse(String(row.settlement_json)))
+    ? historicalInteractionSettlementSchema.parse(JSON.parse(String(row.settlement_json)))
     : undefined;
   if (
     request.actionId !== row.action_id ||
@@ -152,48 +167,76 @@ export class RemoteInteractionService {
     messageId: string,
     rawRequest: unknown
   ): RemoteInteractionRecord | undefined {
-    const request = interactionRequestSchema.parse(rawRequest);
+    return this.recordParsedRequest(hostId, messageId, interactionRequestSchema.parse(rawRequest));
+  }
+
+  /** Compatibility intake only for a Host connection without exact permission support. */
+  recordLegacyRequest(
+    hostId: string,
+    messageId: string,
+    rawRequest: unknown
+  ): RemoteInteractionRecord | undefined {
+    return this.recordParsedRequest(
+      hostId,
+      messageId,
+      historicalInteractionRequestSchema.parse(rawRequest)
+    );
+  }
+
+  private recordParsedRequest(
+    hostId: string,
+    messageId: string,
+    request: HistoricalInteractionRequest
+  ): RemoteInteractionRecord | undefined {
     const redacted = redactRequest(request);
     let dropReason: "remote_interaction_attempt_not_active" | undefined;
-    const applied = this.inbox.process(hostId, messageId, request.type, request, () => {
-      const identity = this.findActiveAttempt({ hostId, request });
-      // Expected race after interrupt / lease change: drop without killing the Host WS.
-      if (!identity) {
-        dropReason = "remote_interaction_attempt_not_active";
-        return;
-      }
-      const requestJson = canonicalizeJson(redacted);
-      const existing = this.get(requestIdentity(hostId, redacted));
-      if (existing) {
-        if (existing.hostId !== hostId || canonicalizeJson(existing.request) !== requestJson) {
-          throw new Error("remote_interaction_action_conflict");
+    const applied = this.inbox.process(
+      hostId,
+      messageId,
+      request.type,
+      request.type === "interaction.permission_requested" && "options" in request
+        ? redacted
+        : request,
+      () => {
+        const identity = this.findActiveAttempt({ hostId, request });
+        // Expected race after interrupt / lease change: drop without killing the Host WS.
+        if (!identity) {
+          dropReason = "remote_interaction_attempt_not_active";
+          return;
         }
-        return;
-      }
-      const now = this.clock().toISOString();
-      this.database
-        .prepare(
-          `INSERT INTO remote_interactions(
+        const requestJson = canonicalizeJson(redacted);
+        const existing = this.get(requestIdentity(hostId, redacted));
+        if (existing) {
+          if (existing.hostId !== hostId || canonicalizeJson(existing.request) !== requestJson) {
+            throw new Error("remote_interaction_action_conflict");
+          }
+          return;
+        }
+        const now = this.clock().toISOString();
+        this.database
+          .prepare(
+            `INSERT INTO remote_interactions(
             action_id,operation_id,host_id,dispatch_id,lease_id,execution_attempt_id,
             acp_session_id,request_type,request_fingerprint,request_json,status,
             expires_at,created_at
           ) VALUES (?,?,?,?,?,?,?,?,?,?,'pending',?,?)`
-        )
-        .run(
-          redacted.actionId,
-          identity.operationId,
-          hostId,
-          redacted.dispatchId,
-          redacted.leaseId,
-          redacted.executionAttemptId,
-          redacted.acpSessionId,
-          redacted.type,
-          fingerprint(redacted),
-          requestJson,
-          redacted.expiresAt,
-          now
-        );
-    });
+          )
+          .run(
+            redacted.actionId,
+            identity.operationId,
+            hostId,
+            redacted.dispatchId,
+            redacted.leaseId,
+            redacted.executionAttemptId,
+            redacted.acpSessionId,
+            redacted.type,
+            fingerprint(redacted),
+            requestJson,
+            redacted.expiresAt,
+            now
+          );
+      }
+    );
     if (dropReason) {
       console.warn(
         JSON.stringify({
@@ -330,14 +373,22 @@ export class RemoteInteractionService {
       const message = inWriteTransaction(this.database, () => {
         const interaction = this.getRequired(identity);
         if (interaction.status !== "pending") return undefined;
-        const command = this.expiryCommand(interaction.request);
+        const legacyPermission =
+          interaction.request.type === "interaction.permission_requested" &&
+          !("options" in interaction.request);
+        const command = legacyPermission ? undefined : this.expiryCommand(interaction.request);
+        const legacyDelivery =
+          legacyPermission &&
+          this.findActiveAttempt({ hostId: interaction.hostId, request: interaction.request })
+            ? enqueueExpiredLegacyPermissionCancellation(this.database, interaction, this.clock)
+            : undefined;
         const delivery = command
           ? this.mailbox.enqueueOnce(
               `interaction-expiry-${identityKey(identity)}`,
               interaction.hostId,
               command
             ).message
-          : undefined;
+          : legacyDelivery;
         const updated = this.database
           .prepare(
             `UPDATE remote_interactions SET status='expired',settled_at=?,
@@ -406,14 +457,14 @@ export class RemoteInteractionService {
 
   private findActiveAttempt(input: {
     hostId: string;
-    request: InteractionRequest;
+    request: HistoricalInteractionRequest;
   }): { operationId: string } | undefined {
     const row = this.database
       .prepare(
         `SELECT a.operation_id,a.dispatch_id,a.host_id,a.lease_id,a.status AS attempt_status,
            r.status AS reservation_status,d.status AS dispatch_status,
            d.host_id AS dispatch_host_id,d.lease_id AS dispatch_lease_id,
-           d.execution_attempt_id AS dispatch_attempt_id
+           d.execution_attempt_id AS dispatch_attempt_id, d.lease_expires_at AS dispatch_lease_expires_at
          FROM remote_execution_attempts a
          JOIN host_capacity_reservations r ON r.lease_id=a.lease_id
          JOIN dispatches d ON d.id=a.dispatch_id
@@ -429,6 +480,7 @@ export class RemoteInteractionService {
       row.dispatch_host_id !== input.hostId ||
       row.dispatch_lease_id !== input.request.leaseId ||
       row.dispatch_attempt_id !== input.request.executionAttemptId ||
+      String(row.dispatch_lease_expires_at) <= this.clock().toISOString() ||
       !["activated", "running"].includes(String(row.attempt_status)) ||
       !["leased", "running", "cancelling"].includes(String(row.dispatch_status))
     ) {
@@ -437,7 +489,7 @@ export class RemoteInteractionService {
     return { operationId: String(row.operation_id) };
   }
 
-  private requireActiveAttempt(input: { hostId: string; request: InteractionRequest }): {
+  private requireActiveAttempt(input: { hostId: string; request: HistoricalInteractionRequest }): {
     operationId: string;
   } {
     const identity = this.findActiveAttempt(input);
@@ -445,7 +497,7 @@ export class RemoteInteractionService {
     return identity;
   }
 
-  private expiryCommand(request: InteractionRequest): InteractionSettlement | undefined {
+  private expiryCommand(request: HistoricalInteractionRequest): InteractionSettlement | undefined {
     switch (request.type) {
       case "interaction.permission_requested":
         return interactionSettlementSchema.parse({

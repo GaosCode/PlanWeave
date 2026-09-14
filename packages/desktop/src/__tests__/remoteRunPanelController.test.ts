@@ -125,6 +125,7 @@ function remoteView(input?: {
                 type: "interaction.permission_requested",
                 title: "Write",
                 description: "Allow write",
+                options: [{ optionId: "write-once", label: "Write", kind: "allow_once" }],
                 actionId: "action-1",
                 dispatchId: "dispatch-1",
                 leaseId: "lease-1",
@@ -223,7 +224,8 @@ describe("useRemoteRunPanelController", () => {
     await act(async () =>
       result.current.answerInteraction({
         type: "interaction.permission_response",
-        decision: "allow_once",
+        decision: "select_option",
+        optionId: "write-once",
         actionId: request.actionId,
         dispatchId: request.dispatchId,
         leaseId: request.leaseId,
@@ -234,6 +236,20 @@ describe("useRemoteRunPanelController", () => {
     await act(async () => result.current.cancel("stop"));
 
     expect(fixture.respond).toHaveBeenCalledOnce();
+    expect(fixture.respond).toHaveBeenCalledWith(
+      expect.objectContaining({
+        response: {
+          type: "interaction.permission_response",
+          decision: "select_option",
+          optionId: "write-once",
+          actionId: request.actionId,
+          dispatchId: request.dispatchId,
+          leaseId: request.leaseId,
+          executionAttemptId: request.executionAttemptId,
+          acpSessionId: request.acpSessionId
+        }
+      })
+    );
     expect(fixture.cancel).toHaveBeenCalledWith(
       expect.objectContaining({
         locator,

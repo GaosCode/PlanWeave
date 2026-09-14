@@ -8,6 +8,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import {
+  parseExactPermissionSettlementForRequest,
+  type ExactPermissionSelection
+} from "@planweave-ai/agent-host-protocol";
+import {
   remoteAgentEndpointListSchema,
   type RemoteAgentEndpoint,
   type RemoteAgentEndpointList
@@ -623,23 +627,24 @@ export class RealProcessLifecycleClient {
   async settlePermission(
     operationId: string,
     interaction: OperatorInteractionView,
-    decision: "allow_once" | "deny" = "allow_once"
+    selection: ExactPermissionSelection
   ): Promise<OperatorInteractionView> {
     const view = await this.observe(operationId);
+    const settlement = parseExactPermissionSettlementForRequest(interaction.request, {
+      type: "interaction.permission_response",
+      actionId: interaction.request.actionId,
+      dispatchId: view.dispatchId,
+      leaseId: view.attempt.leaseId,
+      executionAttemptId: view.executionAttemptId,
+      acpSessionId: interaction.request.acpSessionId,
+      ...selection
+    });
     const response = await fetch(
       `${this.harness.origin}/api/v1/remote-operations/${encodeURIComponent(operationId)}/interactions/respond`,
       {
         method: "POST",
         headers: this.headers(true),
-        body: JSON.stringify({
-          type: "interaction.permission_response",
-          actionId: interaction.request.actionId,
-          dispatchId: view.dispatchId,
-          leaseId: view.attempt.leaseId,
-          executionAttemptId: view.executionAttemptId,
-          acpSessionId: interaction.request.acpSessionId,
-          decision
-        })
+        body: JSON.stringify(settlement)
       }
     );
     const body = (await response.json()) as OperatorInteractionView & { error?: string };

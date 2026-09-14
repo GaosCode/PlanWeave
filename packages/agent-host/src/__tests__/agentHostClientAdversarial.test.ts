@@ -90,6 +90,7 @@ describe("Agent Host adversarial executor failure", () => {
               JSON.stringify(
                 serverEventSchema.parse({
                   type: "host.welcome",
+                  exactPermissionOptionsVersion: 1,
                   protocolVersion: 1,
                   serverTime: new Date().toISOString(),
                   heartbeatIntervalMs: 60_000,

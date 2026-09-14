@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
-  interactionSettlementSchema,
+  historicalInteractionSettlementSchema,
+  type HistoricalInteractionSettlement,
   type InteractionSettlement
 } from "@planweave-ai/agent-host-protocol";
 import { parseAgentHostEvent } from "../protocol.js";
@@ -21,7 +22,7 @@ export class AgentHostInteractionSettlements {
     private readonly events: AgentHostEventOutbox
   ) {}
 
-  get(identity: AgentHostInteractionIdentity): InteractionSettlement | undefined {
+  get(identity: AgentHostInteractionIdentity): HistoricalInteractionSettlement | undefined {
     const execution = this.executions.findByIdentity(identity);
     if (!execution) return undefined;
     const settlement = this.executions.actionSettlement(
@@ -29,7 +30,9 @@ export class AgentHostInteractionSettlements {
       identity.acpSessionId,
       identity.actionId
     );
-    return settlement === undefined ? undefined : interactionSettlementSchema.parse(settlement);
+    return settlement === undefined
+      ? undefined
+      : historicalInteractionSettlementSchema.parse(settlement);
   }
 
   settle(command: InteractionSettlement, settledAt: string): void {

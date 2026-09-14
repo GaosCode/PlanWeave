@@ -81,6 +81,7 @@ async function listen(server: HttpServer): Promise<number> {
 function welcome(): ServerEvent {
   return serverEventSchema.parse({
     type: "host.welcome",
+    exactPermissionOptionsVersion: 1,
     protocolVersion: 1,
     serverTime: new Date().toISOString(),
     heartbeatIntervalMs: 60_000,

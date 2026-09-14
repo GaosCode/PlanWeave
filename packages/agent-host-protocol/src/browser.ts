@@ -1,5 +1,7 @@
 export * from "./acpPermissionOptions.js";
 export {
+  assertInteractionIdentityMatches,
+  interactionIdentitySchema,
   exactPermissionRequestSchema,
   exactPermissionSettlementSchema,
   historicalPermissionRequestSchema,
@@ -116,6 +118,10 @@ export {
   INTERACTION_OPTION_MAX_COUNT,
   INTERACTION_TEXT_MAX_LENGTH,
   interactionActionIdSchema,
+  historicalInteractionRequestSchema,
+  historicalInteractionSettlementSchema,
+  type HistoricalInteractionRequest,
+  type HistoricalInteractionSettlement,
   interactionRequestSchema,
   interactionSettlementSchema,
   parseInteractionSettlementForRequest,

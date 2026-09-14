@@ -116,7 +116,12 @@ export class RemoteAcpConversationService {
             kind: "permission",
             requestId: request.requestId,
             summary: request.summary,
-            options: [...request.options],
+            options: request.options.map((option) => ({
+              optionId: option.optionId,
+              label: option.label,
+              decision:
+                option.kind === "allow_once" || option.kind === "allow_always" ? "approve" : "deny"
+            })),
             deadline: context.deadline.toISOString()
           },
           context

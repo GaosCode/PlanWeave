@@ -447,7 +447,8 @@ describe("real-process adversarial authorization matrix", () => {
               leaseId,
               executionAttemptId,
               acpSessionId: "session-fabricated",
-              decision: "allow_once"
+              decision: "select_option",
+              optionId: "allow"
             }
           });
           assertDenied(denied, [400, 403, 404, 409, 422, 500]);

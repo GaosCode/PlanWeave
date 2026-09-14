@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { HostEventInbox } from "./hostEvents.js";
 import {
   mailboxCommandSchema,
+  historicalMailboxCommandSchema,
+  type HistoricalMailboxCommand,
   mailboxDeliveredSequenceSchema,
   mailboxMessageIdSchema,
   type MailboxCommand,
@@ -14,7 +16,7 @@ export type MailboxMessage = {
   previousSequence: number;
   messageId: MailboxMessageId;
   hostId: string;
-  command: MailboxCommand;
+  command: HistoricalMailboxCommand;
   createdAt: string;
   acknowledgedAt?: string;
   publishedAt?: string;
@@ -28,7 +30,7 @@ function toMessage(row: Record<string, unknown>): MailboxMessage {
     previousSequence: Number(row.previous_sequence),
     messageId: mailboxMessageIdSchema.parse(String(row.message_id)),
     hostId: String(row.host_id),
-    command: mailboxCommandSchema.parse(JSON.parse(String(row.command_json))),
+    command: historicalMailboxCommandSchema.parse(JSON.parse(String(row.command_json))),
     createdAt: String(row.created_at),
     acknowledgedAt: row.acknowledged_at ? String(row.acknowledged_at) : undefined,
     publishedAt: row.published_at ? String(row.published_at) : undefined

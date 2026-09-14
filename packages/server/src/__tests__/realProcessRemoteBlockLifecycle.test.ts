@@ -10,6 +10,7 @@ import { join } from "node:path";
 import {
   CANVAS_RUNTIME_EXECUTION_CAPABILITY,
   executionEnvelopeProtocolVersion,
+  exactPermissionRequestSchema,
   normalizedFailureSchema
 } from "@planweave-ai/agent-host-protocol";
 import { claimBlock, createRemoteBlockRuntimePort, submitBlockResult } from "@planweave-ai/runtime";
@@ -450,17 +451,22 @@ describe("real-process remote Block lifecycle", () => {
       executionAttemptId: dispatched.executionAttemptId,
       leaseId: dispatched.attempt.leaseId
     });
-    const settled = await client.settlePermission(
-      dispatched.operationId,
-      interaction,
-      "allow_once"
-    );
+    const request = exactPermissionRequestSchema.parse(interaction.request);
+    const onceOptions = request.options.filter((option) => option.kind === "allow_once");
+    if (onceOptions.length !== 1) throw new Error("expected_unique_allow_once_fixture_option");
+    const [onceOption] = onceOptions;
+    expect(onceOption.optionId).toBe("allow");
+    const settled = await client.settlePermission(dispatched.operationId, interaction, {
+      decision: "select_option",
+      optionId: onceOption.optionId
+    });
     expect(settled).toMatchObject({
       status: "settled",
       settledBy: "harness-operator",
       settlement: {
         type: "interaction.permission_response",
-        decision: "allow_once",
+        decision: "select_option",
+        optionId: onceOption.optionId,
         actionId: interaction.request.actionId,
         dispatchId: dispatched.dispatchId,
         executionAttemptId: dispatched.executionAttemptId

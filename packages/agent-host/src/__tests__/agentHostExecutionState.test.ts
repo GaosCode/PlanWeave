@@ -166,7 +166,8 @@ describe("authoritative Agent Host execution state", () => {
           ...identity(),
           acpSessionId: "acp-session-1",
           actionId: "action-1",
-          decision: "allow_once"
+          decision: "select_option",
+          optionId: "allow"
         }
       })
     ).toBe(true);
@@ -180,7 +181,8 @@ describe("authoritative Agent Host execution state", () => {
           ...identity(),
           acpSessionId: "acp-session-1",
           actionId: "action-1",
-          decision: "allow_once"
+          decision: "select_option",
+          optionId: "allow"
         }
       })
     ).toBe(false);

@@ -5,7 +5,8 @@ import {
   dispatchIdSchema,
   executionAttemptIdSchema,
   executionEnvelopeDigestSchema,
-  interactionRequestSchema,
+  historicalInteractionRequestSchema,
+  historicalInteractionSettlementSchema,
   interactionSettlementSchema,
   leaseIdSchema,
   normalizedAcpEventSchema,
@@ -202,12 +203,12 @@ export const operatorEventReplaySchema = z.discriminatedUnion("eventProtocolVers
 
 export const operatorInteractionViewSchema = z
   .object({
-    request: interactionRequestSchema,
+    request: historicalInteractionRequestSchema,
     operationId: opaqueIdentifierSchema,
     hostId: opaqueIdentifierSchema,
     status: z.enum(["pending", "settled", "expired"]),
     createdAt: timestampSchema,
-    settlement: interactionSettlementSchema.optional(),
+    settlement: historicalInteractionSettlementSchema.optional(),
     settledBy: opaqueIdentifierSchema.optional(),
     settledAt: timestampSchema.optional()
   })

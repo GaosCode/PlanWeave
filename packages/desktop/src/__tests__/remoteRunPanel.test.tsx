@@ -3,6 +3,7 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { AcpPermissionOption } from "@planweave-ai/agent-host-protocol/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AvailableAgentEndpoint } from "../renderer/collaboration/agentEndpointViewModel";
 import { createTranslator } from "../renderer/i18n";
@@ -113,12 +114,25 @@ const view = desktopWorkspaceExecutionResponseSchema.parse({
   ]
 });
 
-function createApi() {
-  const cancel = vi.fn().mockResolvedValue(view);
-  const respond = vi.fn().mockResolvedValue(view);
+const exactOptions: AcpPermissionOption[] = [
+  { optionId: "always-write", label: "Write", kind: "allow_always" },
+  { optionId: "once-write", label: "Write", kind: "allow_once" }
+];
+
+function createApi(options: AcpPermissionOption[] | null = exactOptions) {
+  const response = desktopWorkspaceExecutionResponseSchema.parse({
+    ...view,
+    events: view.events.map((event) =>
+      event.type === "interaction_required"
+        ? { ...event, data: { ...event.data, ...(options === null ? {} : { options }) } }
+        : event
+    )
+  });
+  const cancel = vi.fn().mockResolvedValue(response);
+  const respond = vi.fn().mockResolvedValue(response);
   const api: PlanWeaveWorkspaceExecutionApi = {
-    startWorkspaceExecution: vi.fn().mockResolvedValue(view),
-    followWorkspaceExecution: vi.fn().mockResolvedValue(view),
+    startWorkspaceExecution: vi.fn().mockResolvedValue(response),
+    followWorkspaceExecution: vi.fn().mockResolvedValue(response),
     cancelWorkspaceExecution: cancel,
     respondWorkspaceExecution: respond
   };
@@ -168,8 +182,22 @@ describe("RemoteRunPanel", () => {
     renderPanel(api);
     await waitFor(() => expect(screen.getByTestId("remote-run-interaction")).toBeInTheDocument());
 
-    await user.click(screen.getByTestId("remote-run-interaction-allow"));
+    await user.click(screen.getByRole("button", { name: "Write — Allow once" }));
     await waitFor(() => expect(respond).toHaveBeenCalledOnce());
+    expect(respond).toHaveBeenCalledWith(
+      expect.objectContaining({
+        response: {
+          type: "interaction.permission_response",
+          decision: "select_option",
+          optionId: "once-write",
+          actionId: "action-1",
+          dispatchId: "dispatch-1",
+          leaseId: "lease-1",
+          executionAttemptId: "attempt-1",
+          acpSessionId: "acp-session-1"
+        }
+      })
+    );
     await user.click(screen.getByTestId("remote-run-action-cancel"));
     await user.click(screen.getByTestId("remote-run-confirm-yes"));
 
@@ -177,5 +205,85 @@ describe("RemoteRunPanel", () => {
     expect(cancel).toHaveBeenCalledWith(
       expect.objectContaining({ locator, sessionId: "SESSION-0001" })
     );
+  });
+});
+
+describe("RemoteRunPanel exact permissions", () => {
+  it.each([
+    { name: "only always", options: [exactOptions[0]], optionId: "always-write" },
+    {
+      name: "same kind options",
+      options: [
+        { optionId: "read-a", label: "Read A", kind: "allow_once" },
+        { optionId: "read-b", label: "Read B", kind: "allow_once" }
+      ],
+      optionId: "read-b"
+    },
+    {
+      name: "explicit permanent rejection",
+      options: [{ optionId: "reject-forever", label: "Reject", kind: "reject_always" }],
+      optionId: "reject-forever"
+    }
+  ] satisfies {
+    name: string;
+    options: AcpPermissionOption[];
+    optionId: string;
+  }[])("submits the selected ID for $name", async ({ options, optionId }) => {
+    const { api, respond } = createApi(options);
+    renderPanel(api);
+    const buttons = await screen.findAllByTestId("acp-permission-option");
+    expect(buttons).toHaveLength(options.length);
+    const selected = buttons.find((button) => button.getAttribute("data-option-id") === optionId);
+    expect(selected).toBeDefined();
+    if (!selected) throw new Error("Expected exact option button");
+    if (options[0].kind === "allow_always") {
+      expect(selected).toHaveTextContent("Always allow");
+      expect(screen.queryByRole("button", { name: /Allow once/ })).toBeNull();
+    }
+    await userEvent.setup().click(selected);
+    await waitFor(() =>
+      expect(respond).toHaveBeenCalledWith(
+        expect.objectContaining({
+          response: expect.objectContaining({ decision: "select_option", optionId })
+        })
+      )
+    );
+  });
+
+  it.each([
+    "allow_always",
+    "reject_always"
+  ] as const)("cancels the request without selecting %s", async (kind) => {
+    const { api, respond, cancel } = createApi([
+      { optionId: "scope-always", label: "Permission", kind }
+    ]);
+    renderPanel(api);
+    await userEvent.setup().click(await screen.findByTestId("acp-permission-cancel"));
+    await waitFor(() => expect(respond).toHaveBeenCalledOnce());
+    expect(respond.mock.calls[0][0].response).toEqual({
+      type: "interaction.permission_response",
+      decision: "deny",
+      actionId: "action-1",
+      dispatchId: "dispatch-1",
+      leaseId: "lease-1",
+      executionAttemptId: "attempt-1",
+      acpSessionId: "acp-session-1"
+    });
+    expect(cancel).not.toHaveBeenCalled();
+  });
+
+  it("only stops the entire execution for legacy requests without options", async () => {
+    const { api, respond, cancel } = createApi(null);
+    renderPanel(api);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Stop entire execution" }));
+    expect(screen.queryByTestId("acp-permission-option")).toBeNull();
+    expect(screen.queryByTestId("acp-permission-cancel")).toBeNull();
+    expect(
+      screen.getByText(/older request does not include exact permission options/)
+    ).toBeInTheDocument();
+    await user.click(screen.getByTestId("remote-run-confirm-yes"));
+    await waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+    expect(respond).not.toHaveBeenCalled();
   });
 });

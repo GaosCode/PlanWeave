@@ -1,8 +1,10 @@
+import type { HistoricalAgentHostRemoteExecutionRecord } from "../execution/remoteExecutionRecordSchema.js";
 import { AcpConversationRepository } from "./acpConversationRepository.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type {
   HostReadinessObservation,
+  HistoricalInteractionSettlement,
   InteractionSettlement
 } from "@planweave-ai/agent-host-protocol";
 import type {
@@ -14,6 +16,7 @@ import {
   parseAgentHostMailboxCommand,
   parseAgentHostServerEvent,
   type HostEvent,
+  type HistoricalHostEvent,
   type NormalizedFailure as ProtocolDispatchFailure,
   type DispatchResult as ProtocolDispatchResult,
   type ServerEvent
@@ -257,7 +260,7 @@ export class AgentHostState implements AgentHostStateRepository {
     return this.terminalCompaction.lastAcknowledgedSequence();
   }
 
-  pendingEvents(limit = this.limits.maxPendingEvents): HostEvent[] {
+  pendingEvents(limit = this.limits.maxPendingEvents): HistoricalHostEvent[] {
     return this.events.pending(limit);
   }
 
@@ -621,7 +624,7 @@ export class AgentHostState implements AgentHostStateRepository {
     this.remoteRelay.setEventProtocolVersion(version);
   }
 
-  records(identity: AgentHostRemoteExecutionIdentity): AgentHostRemoteExecutionRecord[] {
+  records(identity: AgentHostRemoteExecutionIdentity): HistoricalAgentHostRemoteExecutionRecord[] {
     return this.remoteRecords.records(identity);
   }
 
@@ -631,7 +634,7 @@ export class AgentHostState implements AgentHostStateRepository {
 
   interactionSettlementByIdentity(
     identity: AgentHostInteractionIdentity
-  ): InteractionSettlement | undefined {
+  ): HistoricalInteractionSettlement | undefined {
     return this.interactions.get(identity);
   }
 

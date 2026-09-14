@@ -28,6 +28,13 @@ export const runnerEnCatalog = {
   acpActions: "Live interventions",
   acpCancelRun: "Cancel run",
   acpCancelPermission: "Cancel request",
+  acpPermissionAllowOnce: "Allow once",
+  acpPermissionAllowAlways: "Always allow",
+  acpPermissionRejectOnce: "Reject once",
+  acpPermissionRejectAlways: "Always reject",
+  acpPermissionLegacyOptions:
+    "This older request does not include exact permission options. You can only stop the entire execution.",
+  acpPermissionStopExecution: "Stop entire execution",
   acpActionPending: "Waiting for runtime…",
   acpActionError: "Intervention failed",
   acpElicitationResponse: "Preview elicitation response (JSON)",

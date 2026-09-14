@@ -45,7 +45,7 @@ export function createLocalAcpInteractionBroker(options: {
           options: request.options.map((option) => ({
             optionId: option.optionId,
             name: option.label,
-            kind: option.decision === "approve" ? "allow_once" : "reject_once"
+            kind: option.kind
           }))
         },
         request.requestId,

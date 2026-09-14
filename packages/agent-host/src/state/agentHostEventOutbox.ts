@@ -1,10 +1,15 @@
 import { randomUUID } from "node:crypto";
 import type { HostReadinessObservation } from "@planweave-ai/agent-host-protocol";
-import { parseAgentHostEvent, type HostEvent } from "../protocol.js";
+import {
+  parseAgentHostEvent,
+  parseHistoricalAgentHostEvent,
+  type HistoricalHostEvent,
+  type HostEvent
+} from "../protocol.js";
 import { outboxRowSchema } from "./agentHostStateRecords.js";
 import type { SqliteDatabase } from "./sqliteDatabase.js";
 
-function sameEventPayload(left: HostEvent, right: HostEvent): boolean {
+function sameEventPayload(left: HistoricalHostEvent, right: HistoricalHostEvent): boolean {
   const { messageId: _leftMessageId, ...leftPayload } = left;
   const { messageId: _rightMessageId, ...rightPayload } = right;
   return JSON.stringify(leftPayload) === JSON.stringify(rightPayload);
@@ -16,7 +21,7 @@ export class AgentHostEventOutbox {
     private readonly maxPendingEvents: number
   ) {}
 
-  pending(limit = this.maxPendingEvents): HostEvent[] {
+  pending(limit = this.maxPendingEvents): HistoricalHostEvent[] {
     if (!Number.isSafeInteger(limit) || limit < 1) {
       throw new Error("agent_host_pending_event_query_limit_invalid");
     }
@@ -26,7 +31,9 @@ export class AgentHostEventOutbox {
          WHERE acknowledged_at IS NULL ORDER BY sequence ASC LIMIT ?`
       )
       .all(limit)
-      .map((raw) => parseAgentHostEvent(JSON.parse(outboxRowSchema.parse(raw).event_json)));
+      .map((raw) =>
+        parseHistoricalAgentHostEvent(JSON.parse(outboxRowSchema.parse(raw).event_json))
+      );
   }
 
   pendingCount(): number {
@@ -42,9 +49,9 @@ export class AgentHostEventOutbox {
       .prepare("SELECT event_json FROM agent_host_outbox WHERE event_key=?")
       .get(eventKey);
     if (existing) {
-      const stored = parseAgentHostEvent(JSON.parse(String(existing.event_json)));
+      const stored = parseHistoricalAgentHostEvent(JSON.parse(String(existing.event_json)));
       if (!sameEventPayload(stored, event)) throw new Error("host_event_identity_conflict");
-      return stored;
+      return parseAgentHostEvent(stored);
     }
     if (this.pendingCount() >= this.maxPendingEvents) {
       throw new Error("agent_host_pending_event_capacity_exceeded");
@@ -79,25 +86,29 @@ export class AgentHostEventOutbox {
       )
       .get();
     if (existing) {
-      const stored = parseAgentHostEvent(JSON.parse(String(existing.event_json)));
-      if (!existing.acknowledged_at && sameEventPayload(stored, heartbeat)) return stored;
+      const stored = parseHistoricalAgentHostEvent(JSON.parse(String(existing.event_json)));
+      if (!existing.acknowledged_at && sameEventPayload(stored, heartbeat))
+        return parseAgentHostEvent(stored);
       this.database.prepare("DELETE FROM agent_host_outbox WHERE event_key='host.heartbeat'").run();
     }
     return this.queue("host.heartbeat", heartbeat);
   }
 
-  acknowledge(
-    messageId: string
-  ):
+  acknowledge(messageId: string):
     | { found: false }
     | { found: true; alreadyAcknowledged: true }
-    | { found: true; alreadyAcknowledged: false; event: HostEvent; acknowledgedAt: string } {
+    | {
+        found: true;
+        alreadyAcknowledged: false;
+        event: HistoricalHostEvent;
+        acknowledgedAt: string;
+      } {
     const raw = this.database
       .prepare("SELECT event_json,acknowledged_at FROM agent_host_outbox WHERE message_id=?")
       .get(messageId);
     if (!raw) return { found: false };
     if (raw.acknowledged_at) return { found: true, alreadyAcknowledged: true };
-    const event = parseAgentHostEvent(JSON.parse(String(raw.event_json)));
+    const event = parseHistoricalAgentHostEvent(JSON.parse(String(raw.event_json)));
     const acknowledgedAt = new Date().toISOString();
     this.database
       .prepare("UPDATE agent_host_outbox SET acknowledged_at=? WHERE message_id=?")

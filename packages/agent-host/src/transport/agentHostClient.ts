@@ -2,6 +2,8 @@ import type { RemoteAcpConversationService } from "../execution/remoteAcpConvers
 import { WebSocket } from "ws";
 import {
   CANVAS_RUNTIME_CAPABILITY,
+  EXACT_PERMISSION_OPTIONS_VERSION_HEADER,
+  requireExactPermissionOptionsVersion,
   ACP_CONVERSATION_CAPABILITY,
   remoteRunnerEventServerCapabilitySchema,
   type HostReadinessObservation
@@ -10,7 +12,7 @@ import {
   parseAgentHostCapabilities,
   parseAgentHostDispatchResult,
   parseAgentHostServerEvent,
-  serializeAgentHostEvent,
+  serializeHistoricalAgentHostEvent,
   serializeAgentHostHello,
   type ServerEvent
 } from "../protocol.js";
@@ -147,10 +149,12 @@ export class AgentHostClient implements HostTransport {
   private queuedMessages = 0;
   private processing = Promise.resolve();
   private welcomed = false;
+  private compatibilityShutdown?: Promise<void>;
   private stopped = true;
   private startupAbort?: AbortController;
   private startup?: Promise<void>;
   private lifecycleGeneration = 0;
+  private recoveredGeneration = 0;
   private serverClockOffsetMs = 0;
   private credentialRenewalInFlight?: Promise<void>;
 
@@ -192,12 +196,16 @@ export class AgentHostClient implements HostTransport {
   }
 
   start(): void {
-    if (!this.stopped) return;
+    if (
+      !this.stopped ||
+      this.compatibilityShutdown ||
+      this.runs.size > 0 ||
+      this.canvasRuns.size > 0
+    )
+      return;
     const generation = ++this.lifecycleGeneration;
     this.stopped = false;
     this.options.state.recoverInterruptedExecutions();
-    this.options.canvasRuntime?.recover();
-    this.options.conversations?.recover();
     const controller = new AbortController();
     this.startupAbort = controller;
     const startup = this.discoverRemoteRunnerEventProtocol(controller.signal)
@@ -277,6 +285,7 @@ export class AgentHostClient implements HostTransport {
     await this.waitBounded(this.processing);
     await this.waitBounded(Promise.allSettled([...this.runs]).then(() => undefined));
     await this.waitBounded(Promise.allSettled([...this.canvasRuns]).then(() => undefined));
+    this.compatibilityShutdown = undefined;
     if (!reconciliationRequired && this.lifecycleGeneration === generation) {
       this.transition({ state: "stopped" });
     }
@@ -295,12 +304,16 @@ export class AgentHostClient implements HostTransport {
       url.searchParams.set("workspaceId", this.options.workspaceId);
     }
     const socket = new WebSocket(url, {
-      headers: { Authorization: `Bearer ${this.token}` },
+      headers: {
+        Authorization: `Bearer ${this.token}`,
+        [EXACT_PERMISSION_OPTIONS_VERSION_HEADER]: "1"
+      },
       maxPayload: this.limits.maxPayloadBytes,
       ca: this.options.ca
     });
     this.socket = socket;
     socket.on("open", () => {
+      if (this.socket !== socket || this.stopped) return;
       const hello = serializeAgentHostHello({
         type: "host.hello",
         protocolVersion: 1,
@@ -313,6 +326,7 @@ export class AgentHostClient implements HostTransport {
       socket.send(hello);
     });
     socket.on("message", (data, isBinary) => {
+      if (this.socket !== socket || this.stopped) return;
       if (Buffer.byteLength(data.toString()) > this.limits.maxPayloadBytes) {
         this.transition({ state: "degraded", reason: "inbound_backpressure" });
         socket.close(4009, "inbound backpressure");
@@ -330,11 +344,13 @@ export class AgentHostClient implements HostTransport {
       this.queuedMessages += 1;
       this.processing = this.processing
         .then(async () => {
+          if (this.socket !== socket || this.stopped) return;
           if (isBinary) throw new Error("binary_messages_not_supported");
           const event = parseAgentHostServerEvent(JSON.parse(data.toString()));
           await this.handleServerEvent(event);
         })
         .catch((error: unknown) => {
+          if (this.socket !== socket || this.stopped) return;
           const reason = error instanceof Error ? error.message : "";
           this.transition(
             reason === "mailbox_message_retention_horizon_exceeded"
@@ -384,13 +400,27 @@ export class AgentHostClient implements HostTransport {
   }
 
   private async handleServerEvent(event: ServerEvent): Promise<void> {
+    if (!this.welcomed && event.type !== "host.welcome" && event.type !== "protocol.error") {
+      throw new Error("agent_host_welcome_required");
+    }
     switch (event.type) {
       case "host.welcome":
+        try {
+          requireExactPermissionOptionsVersion(event.exactPermissionOptionsVersion);
+        } catch {
+          this.rejectPermissionCompatibility();
+          return;
+        }
         this.welcomed = true;
         this.reconnectAttempt = 0;
         this.transition({ state: "connected", connectedAt: this.clock.now().toISOString() });
         this.serverClockOffsetMs = Date.parse(event.serverTime) - this.clock.now().getTime();
         this.options.canvasRuntime?.synchronizeServerTime(event.serverTime, this.clock.now());
+        if (this.recoveredGeneration !== this.lifecycleGeneration) {
+          this.recoveredGeneration = this.lifecycleGeneration;
+          this.options.canvasRuntime?.recover();
+          this.options.conversations?.recover();
+        }
         this.abandonExpiredExecutions();
         this.startHeartbeat(event.heartbeatIntervalMs);
         this.checkCredentialRenewal();
@@ -471,6 +501,39 @@ export class AgentHostClient implements HostTransport {
     }
   }
 
+  private rejectPermissionCompatibility(): void {
+    this.stopped = true;
+    this.welcomed = false;
+    this.inFlightEventIds.clear();
+    if (this.heartbeatTimer) this.clock.clearTimeout(this.heartbeatTimer);
+    if (this.reconnectTimer) this.clock.clearTimeout(this.reconnectTimer);
+    const socket = this.socket;
+    this.socket = undefined;
+    socket?.terminate();
+    for (const { controller } of this.active.values()) controller.abort();
+    this.options.canvasRuntime?.disconnect();
+    this.transition({ state: "degraded", reason: "exact_permission_options_unsupported" });
+    const cleanup = this.waitBounded(
+      Promise.all([
+        this.options.conversations?.stop() ?? Promise.resolve(),
+        Promise.allSettled([...this.runs]),
+        Promise.allSettled([...this.canvasRuns])
+      ]).then(() => undefined)
+    )
+      .then(() => {
+        if (this.compatibilityShutdown === cleanup) this.compatibilityShutdown = undefined;
+      })
+      .catch((error: unknown) => {
+        this.options.logger?.log({
+          level: "warn",
+          event: "host_permission_compatibility_shutdown_failed",
+          state: this.currentStatus.state,
+          reason: error instanceof Error ? error.message : "host_shutdown_failed"
+        });
+      });
+    this.compatibilityShutdown = cleanup;
+  }
+
   private startHeartbeat(intervalMs: number): void {
     if (this.stopped) return;
     if (this.heartbeatTimer) this.clock.clearTimeout(this.heartbeatTimer);
@@ -486,6 +549,7 @@ export class AgentHostClient implements HostTransport {
   }
 
   private flushEvents(): void {
+    if (this.stopped || !this.welcomed) return;
     const responseSafeWindow = Math.max(1, Math.floor((this.limits.maxQueuedMessages - 4) / 2));
     const windowSize = Math.min(this.limits.maxOutboundBatch, responseSafeWindow);
     let available = windowSize - this.inFlightEventIds.size;
@@ -500,8 +564,8 @@ export class AgentHostClient implements HostTransport {
   }
 
   private send(event: unknown): boolean {
-    if (!this.welcomed || this.socket?.readyState !== WebSocket.OPEN) return false;
-    const payload = serializeAgentHostEvent(event);
+    if (this.stopped || !this.welcomed || this.socket?.readyState !== WebSocket.OPEN) return false;
+    const payload = serializeHistoricalAgentHostEvent(event);
     if (Buffer.byteLength(payload) > this.limits.maxPayloadBytes)
       throw new Error("agent_host_outbound_payload_too_large");
     if (this.socket.bufferedAmount + Buffer.byteLength(payload) > this.limits.maxBufferedBytes)

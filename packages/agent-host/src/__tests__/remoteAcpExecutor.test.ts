@@ -687,7 +687,7 @@ describe("RemoteAcpExecutor", () => {
         expect.objectContaining({
           kind: "permission_request",
           request: expect.objectContaining({
-            options: [{ optionId: "allow", label: "Allow once", decision: "approve" }]
+            options: [{ optionId: "allow", label: "Allow once", kind: "allow_once" }]
           })
         })
       ])

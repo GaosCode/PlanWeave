@@ -543,8 +543,10 @@ describe("durable ACP relay", () => {
       toolCallId: "tool-1",
       summary: "Allow test tool",
       options: [
-        { optionId: "allow", label: "Allow once", decision: "approve" as const },
-        { optionId: "deny", label: "Deny", decision: "deny" as const }
+        { optionId: "always", label: "Always allow", kind: "allow_always" as const },
+        { optionId: "other", label: "Other allow", kind: "allow_once" as const },
+        { optionId: "allow", label: "Allow once", kind: "allow_once" as const },
+        { optionId: "deny", label: "Deny", kind: "reject_always" as const }
       ]
     };
     state.append({
@@ -562,7 +564,8 @@ describe("durable ACP relay", () => {
         expect.objectContaining({
           type: "interaction.permission_requested",
           actionId: "permission:1",
-          acpSessionId: "acp-session-relay-001"
+          acpSessionId: "acp-session-relay-001",
+          options: request.options
         })
       ])
     );
@@ -583,7 +586,8 @@ describe("durable ACP relay", () => {
         ...identity,
         acpSessionId: "acp-session-relay-001",
         actionId: "permission:1",
-        decision: "allow_once"
+        decision: "select_option",
+        optionId: "allow"
       }
     });
     state.receive(settlement);
@@ -611,7 +615,7 @@ describe("durable ACP relay", () => {
       sequence: settlement.sequence + 1,
       previousSequence: settlement.sequence,
       messageId: "mailbox-permission-response-conflict",
-      command: { ...settlement.command, decision: "deny" as const }
+      command: { ...settlement.command, decision: "select_option", optionId: "always" }
     };
     expect(() => state.receive(conflict)).toThrow("execution_action_response_conflict");
     expect(state.pendingEvents()).not.toEqual(
@@ -631,7 +635,7 @@ describe("durable ACP relay", () => {
         sessionId: "acp-session-relay-001",
         toolCallId: "tool-expired",
         summary: "Expired",
-        options: [{ optionId: "deny", label: "Deny", decision: "deny" }]
+        options: [{ optionId: "deny", label: "Deny", kind: "reject_always" }]
       },
       deadline: "2020-01-01T00:00:00.000Z"
     });
@@ -652,7 +656,7 @@ describe("durable ACP relay", () => {
     expect(() =>
       state.receive({
         ...settlement,
-        command: { ...settlement.command, decision: "allow_once" }
+        command: { ...settlement.command, decision: "select_option", optionId: "allow" }
       })
     ).toThrow("execution_action_expired");
     expect(() => state.receive(settlement)).not.toThrow();
@@ -674,7 +678,7 @@ describe("durable ACP relay", () => {
       sessionId: "acp-session-relay-001",
       toolCallId: "tool-recovered",
       summary: "Recovered response",
-      options: [{ optionId: "deny", label: "Deny", decision: "deny" as const }]
+      options: [{ optionId: "deny", label: "Deny", kind: "reject_always" as const }]
     };
     state.append({
       kind: "permission_request",
@@ -709,7 +713,7 @@ describe("durable ACP relay", () => {
         signal: new AbortController().signal,
         deadline: new Date("2030-01-01T00:00:00.000Z")
       })
-    ).resolves.toEqual({ kind: "select", optionId: "deny" });
+    ).resolves.toEqual({ kind: "cancel" });
 
     expect(() =>
       reopened.receive({
@@ -871,5 +875,73 @@ describe("durable ACP relay", () => {
       kind: "authentication_cancelled",
       actionId: "authentication:cancel"
     });
+  });
+  it.each([
+    "dispatchId",
+    "leaseId",
+    "executionAttemptId",
+    "acpSessionId",
+    "actionId"
+  ] as const)("rechecks original permission %s even when durable lookup returns a settlement", async (field) => {
+    const { identity } = await setup();
+    const settlement = {
+      type: "interaction.permission_response" as const,
+      ...identity,
+      acpSessionId: "acp-session-relay-001",
+      actionId: "permission:identity",
+      decision: "select_option" as const,
+      optionId: "allow"
+    };
+    const relay = new DurableAcpInteractionRelay({
+      interactionSettlement: () => undefined,
+      interactionSettlementByIdentity: () => ({ ...settlement, [field]: "wrong-identity" })
+    });
+    await expect(
+      relay.requestPermission(
+        identity,
+        {
+          requestId: "permission:identity",
+          sessionId: "acp-session-relay-001",
+          toolCallId: "tool",
+          summary: "Allow",
+          options: [{ optionId: "allow", label: "Allow", kind: "allow_once" }]
+        },
+        { signal: new AbortController().signal, deadline: new Date("2030-01-01T00:00:00.000Z") }
+      )
+    ).rejects.toThrow("interaction_identity_mismatch");
+  });
+
+  it.each([
+    { decision: "select_option", optionId: "forged" },
+    { decision: "allow_once" }
+  ])("rejects a forged or historical permission selection at the original Host request", async (selection) => {
+    const { identity } = await setup();
+    const { historicalInteractionSettlementSchema } = await import(
+      "@planweave-ai/agent-host-protocol"
+    );
+    const settlement = historicalInteractionSettlementSchema.parse({
+      type: "interaction.permission_response",
+      ...identity,
+      acpSessionId: "acp-session-relay-001",
+      actionId: "permission:identity",
+      ...selection
+    });
+    const relay = new DurableAcpInteractionRelay({
+      interactionSettlement: () => undefined,
+      interactionSettlementByIdentity: () => settlement
+    });
+    await expect(
+      relay.requestPermission(
+        identity,
+        {
+          requestId: "permission:identity",
+          sessionId: "acp-session-relay-001",
+          toolCallId: "tool",
+          summary: "Allow",
+          options: [{ optionId: "allow", label: "Allow", kind: "allow_once" }]
+        },
+        { signal: new AbortController().signal, deadline: new Date("2030-01-01T00:00:00.000Z") }
+      )
+    ).rejects.toThrow();
   });
 });

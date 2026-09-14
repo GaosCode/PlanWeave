@@ -164,7 +164,8 @@ export class AgentHostRemoteRecordRelay {
             ...common,
             type: "interaction.permission_requested",
             title: boundedText(record.request.summary, 512) || "ACP permission requested",
-            description: boundedText(record.request.summary, 16_384)
+            description: boundedText(record.request.summary, 16_384),
+            options: record.request.options
           })
         : parseAgentHostEvent({
             ...common,

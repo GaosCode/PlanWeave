@@ -1,6 +1,7 @@
 import type {
   DispatchResult as ProtocolDispatchResult,
   HostEvent,
+  HistoricalHostEvent,
   NormalizedFailure as ProtocolDispatchFailure,
   ServerEvent
 } from "../protocol.js";
@@ -47,7 +48,7 @@ export interface AgentHostStateRepository {
   close(): void;
   receive(input: ServerEvent): { stored: boolean; acknowledgement: HostEvent };
   lastAcknowledgedSequence(): number;
-  pendingEvents(limit?: number): HostEvent[];
+  pendingEvents(limit?: number): HistoricalHostEvent[];
   pendingEventCount(): number;
   queueHeartbeat(
     activeLeases: ReadonlyArray<{

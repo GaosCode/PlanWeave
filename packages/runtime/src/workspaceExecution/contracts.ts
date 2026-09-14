@@ -1,6 +1,6 @@
 import {
   blockRefSchema,
-  interactionRequestSchema,
+  historicalInteractionRequestSchema,
   interactionSettlementSchema,
   normalizedAcpEventSchema,
   remoteRunnerEventV2Schema
@@ -556,7 +556,7 @@ export const workspaceExecutionEventSchema = z.discriminatedUnion("type", [
     .object({
       ...executionEventBaseShape,
       type: z.literal("interaction_required"),
-      data: interactionRequestSchema
+      data: historicalInteractionRequestSchema
     })
     .strict(),
   z

@@ -164,7 +164,7 @@ describe("storage-neutral ACP execution engine", () => {
     expect(permission).toHaveBeenCalledWith(
       expect.objectContaining({
         requestId: "permission:1",
-        options: [expect.objectContaining({ optionId: "allow", decision: "approve" })]
+        options: [expect.objectContaining({ optionId: "allow", kind: "allow_once" })]
       }),
       expect.objectContaining({ signal: expect.any(AbortSignal), deadline: expect.any(Date) })
     );

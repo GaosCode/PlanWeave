@@ -4,12 +4,16 @@ import {
   dispatchResultSchema,
   executeBlockCommandSchema,
   hostEventSchema,
+  historicalHostEventSchema,
+  historicalMailboxCommandSchema,
   hostHelloSchema,
   mailboxCommandSchema,
   serverEventSchema,
   type ArtifactRef,
   type DispatchResult,
   type HostEvent,
+  type HistoricalHostEvent,
+  type HistoricalMailboxCommand,
   type HostHello,
   type MailboxCommand,
   type NormalizedFailure,
@@ -21,6 +25,8 @@ export type {
   ArtifactRef,
   DispatchResult,
   HostEvent,
+  HistoricalHostEvent,
+  HistoricalMailboxCommand,
   HostHello,
   MailboxCommand,
   NormalizedFailure,
@@ -64,4 +70,16 @@ export function serializeAgentHostEvent(input: unknown): string {
 
 export function serializeAgentHostHello(input: unknown): string {
   return JSON.stringify(hostHelloSchema.parse(input));
+}
+
+export function parseHistoricalAgentHostEvent(input: unknown): HistoricalHostEvent {
+  return historicalHostEventSchema.parse(input);
+}
+
+export function serializeHistoricalAgentHostEvent(input: unknown): string {
+  return JSON.stringify(parseHistoricalAgentHostEvent(input));
+}
+
+export function parseHistoricalAgentHostMailboxCommand(input: unknown): HistoricalMailboxCommand {
+  return historicalMailboxCommandSchema.parse(input);
 }

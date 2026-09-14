@@ -941,7 +941,7 @@ describe("agent host WebSocket transport", () => {
     );
     await expect(firstEvents.next()).resolves.toMatchObject({
       type: "mailbox.message",
-      command: { type: "interaction.permission_response", decision: "deny" }
+      command: { type: "cancel_execution" }
     });
     await expect(firstEvents.next()).resolves.toMatchObject({ type: "lease.renewed" });
     await expect(firstEvents.next()).resolves.toMatchObject({
@@ -973,7 +973,7 @@ describe("agent host WebSocket transport", () => {
     });
     await expect(secondEvents.next()).resolves.toMatchObject({
       type: "mailbox.message",
-      command: { type: "interaction.permission_response", decision: "deny" }
+      command: { type: "cancel_execution" }
     });
 
     secondSocket.send(

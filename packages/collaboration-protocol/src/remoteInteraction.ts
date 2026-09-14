@@ -1,5 +1,6 @@
 import {
-  interactionRequestSchema,
+  historicalInteractionRequestSchema,
+  historicalInteractionSettlementSchema,
   interactionSettlementSchema,
   opaqueIdentifierSchema
 } from "@planweave-ai/agent-host-protocol/browser";
@@ -8,12 +9,12 @@ import { timestampSchema } from "./primitives.js";
 
 export const remoteInteractionViewSchema = z
   .object({
-    request: interactionRequestSchema,
+    request: historicalInteractionRequestSchema,
     operationId: opaqueIdentifierSchema,
     hostId: opaqueIdentifierSchema,
     status: z.enum(["pending", "settled", "expired"]),
     createdAt: timestampSchema,
-    settlement: interactionSettlementSchema.optional(),
+    settlement: historicalInteractionSettlementSchema.optional(),
     settledBy: opaqueIdentifierSchema.optional(),
     settledAt: timestampSchema.optional()
   })

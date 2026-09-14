@@ -7,7 +7,7 @@ import type {
 } from "../execution/remoteAcpPorts.js";
 import {
   agentHostRemoteExecutionRecordSchema,
-  legacyAgentHostRemoteExecutionRecordSchema,
+  historicalAgentHostRemoteExecutionRecordSchema,
   type HistoricalAgentHostRemoteExecutionRecord
 } from "../execution/remoteExecutionRecordSchema.js";
 import { initializeAgentHostStateSchema } from "./agentHostStateMigrations.js";
@@ -30,7 +30,7 @@ export const DEFAULT_REMOTE_EXECUTION_RETENTION: AgentHostRemoteExecutionRetenti
   maxRecordBytes: 1_048_576
 };
 
-function recordId(record: AgentHostRemoteExecutionRecord): string {
+function recordId(record: HistoricalAgentHostRemoteExecutionRecord): string {
   return record.kind === "engine_event" ? String(record.event.sequence) : record.request.requestId;
 }
 
@@ -76,7 +76,7 @@ export class AgentHostRemoteExecutionRecordStore implements AgentHostRemoteExecu
   }
 
   importHistoricalInCurrentTransaction(recordJson: string): boolean {
-    const record = legacyAgentHostRemoteExecutionRecordSchema.parse(JSON.parse(recordJson));
+    const record = historicalAgentHostRemoteExecutionRecordSchema.parse(JSON.parse(recordJson));
     return this.insertRecord(record, recordJson);
   }
 
@@ -138,7 +138,7 @@ export class AgentHostRemoteExecutionRecordStore implements AgentHostRemoteExecu
     return true;
   }
 
-  records(identity: AgentHostRemoteExecutionIdentity): AgentHostRemoteExecutionRecord[] {
+  records(identity: AgentHostRemoteExecutionIdentity): HistoricalAgentHostRemoteExecutionRecord[] {
     return this.database
       .prepare(
         `SELECT record_json FROM agent_host_remote_execution_outbox
@@ -146,7 +146,7 @@ export class AgentHostRemoteExecutionRecordStore implements AgentHostRemoteExecu
       )
       .all(identity.dispatchId, identity.leaseId, identity.executionAttemptId)
       .map((row) =>
-        legacyAgentHostRemoteExecutionRecordSchema.parse(
+        historicalAgentHostRemoteExecutionRecordSchema.parse(
           JSON.parse(recordRowSchema.parse(row).record_json)
         )
       );
@@ -172,7 +172,7 @@ export class AgentHostSqliteRemoteExecutionOutbox implements AgentHostRemoteExec
     this.store.append(record);
   }
 
-  records(identity: AgentHostRemoteExecutionIdentity): AgentHostRemoteExecutionRecord[] {
+  records(identity: AgentHostRemoteExecutionIdentity): HistoricalAgentHostRemoteExecutionRecord[] {
     return this.store.records(identity);
   }
 }
@@ -199,7 +199,7 @@ export async function readLegacyRemoteExecutionRecords(
       .all()
       .map((row) => {
         const serialized = recordRowSchema.parse(row).record_json;
-        legacyAgentHostRemoteExecutionRecordSchema.parse(JSON.parse(serialized));
+        historicalAgentHostRemoteExecutionRecordSchema.parse(JSON.parse(serialized));
         return serialized;
       });
   } finally {

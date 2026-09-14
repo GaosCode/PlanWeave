@@ -4,8 +4,11 @@ import {
   INTERACTION_TEXT_MAX_LENGTH,
   interactionActionIdSchema,
   interactionIdentitySchema,
-  legacyPermissionRequestSchema,
-  legacyPermissionSettlementSchema,
+  exactPermissionRequestSchema,
+  historicalPermissionRequestSchema,
+  exactPermissionSettlementSchema,
+  historicalPermissionSettlementSchema,
+  parseExactPermissionSettlementForRequest,
   assertInteractionIdentityMatches
 } from "./acpPermissionInteractions.js";
 
@@ -20,7 +23,7 @@ const interactionRequestIdentitySchema = interactionIdentitySchema.extend({
 });
 
 export const interactionRequestSchema = z.discriminatedUnion("type", [
-  legacyPermissionRequestSchema,
+  exactPermissionRequestSchema,
   interactionRequestIdentitySchema.extend({
     type: z.literal("interaction.elicitation_requested"),
     prompt: z.string().min(1).max(INTERACTION_TEXT_MAX_LENGTH),
@@ -34,7 +37,7 @@ export const interactionRequestSchema = z.discriminatedUnion("type", [
 ]);
 
 export const interactionSettlementSchema = z.discriminatedUnion("type", [
-  legacyPermissionSettlementSchema,
+  exactPermissionSettlementSchema,
   interactionIdentitySchema
     .extend({
       type: z.literal("interaction.elicitation_response"),
@@ -63,6 +66,20 @@ export const interactionSettlementSchema = z.discriminatedUnion("type", [
   })
 ]);
 
+/** Read boundary for persisted requests and observations from unupgraded Hosts. */
+export const historicalInteractionRequestSchema = z.union([
+  historicalPermissionRequestSchema,
+  interactionRequestSchema.options[1],
+  interactionRequestSchema.options[2]
+]);
+export const historicalInteractionSettlementSchema = z.union([
+  historicalPermissionSettlementSchema,
+  interactionSettlementSchema.options[1],
+  interactionSettlementSchema.options[2]
+]);
+export type HistoricalInteractionRequest = z.infer<typeof historicalInteractionRequestSchema>;
+export type HistoricalInteractionSettlement = z.infer<typeof historicalInteractionSettlementSchema>;
+
 export type InteractionActionId = z.infer<typeof interactionActionIdSchema>;
 export type InteractionRequest = z.infer<typeof interactionRequestSchema>;
 export type InteractionSettlement = z.infer<typeof interactionSettlementSchema>;
@@ -77,11 +94,14 @@ export function parseInteractionSettlementForRequest(
   requestInput: unknown,
   settlementInput: unknown
 ): InteractionSettlement {
-  const request = interactionRequestSchema.parse(requestInput);
+  const request = historicalInteractionRequestSchema.parse(requestInput);
   const settlement = interactionSettlementSchema.parse(settlementInput);
   assertInteractionIdentityMatches(request, settlement);
   if (settlement.type !== settlementTypeByRequestType[request.type]) {
     throw new Error("interaction_response_type_mismatch");
+  }
+  if (request.type === "interaction.permission_requested") {
+    return parseExactPermissionSettlementForRequest(request, settlement);
   }
   return settlement;
 }

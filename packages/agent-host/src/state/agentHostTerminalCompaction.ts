@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { normalizedAcpEventBatchSchema } from "@planweave-ai/agent-host-protocol";
 import {
-  parseAgentHostEvent,
-  parseAgentHostMailboxCommand,
+  parseHistoricalAgentHostEvent,
+  parseHistoricalAgentHostMailboxCommand,
   type ServerEvent
 } from "../protocol.js";
 import { digestJson } from "./agentHostStateMigrations.js";
@@ -88,7 +88,7 @@ function parsePolicy(
 }
 
 function commandIdentity(
-  command: ReturnType<typeof parseAgentHostMailboxCommand>
+  command: ReturnType<typeof parseHistoricalAgentHostMailboxCommand>
 ): { dispatchId: string; executionAttemptId: string } | undefined {
   return "dispatchId" in command && "executionAttemptId" in command
     ? {
@@ -301,7 +301,7 @@ export class AgentHostTerminalCompactionRepository {
       .map((row) => inboxRowSchema.parse(row));
     const primary = inboxRows.find((row) => row.sequence === candidate.inbox_sequence);
     if (!primary) throw new Error("agent_host_terminal_compaction_inbox_missing");
-    const primaryCommand = parseAgentHostMailboxCommand(JSON.parse(primary.command_json));
+    const primaryCommand = parseHistoricalAgentHostMailboxCommand(JSON.parse(primary.command_json));
     if (
       primaryCommand.type !== "execute_block" ||
       primary.command_digest !== digestJson(primaryCommand) ||
@@ -317,7 +317,7 @@ export class AgentHostTerminalCompactionRepository {
       throw new Error("agent_host_terminal_compaction_identity_invalid");
     }
     for (const row of inboxRows) {
-      const command = parseAgentHostMailboxCommand(JSON.parse(row.command_json));
+      const command = parseHistoricalAgentHostMailboxCommand(JSON.parse(row.command_json));
       if (row.command_digest !== digestJson(command)) {
         throw new Error("agent_host_terminal_compaction_command_digest_invalid");
       }
@@ -381,7 +381,7 @@ export class AgentHostTerminalCompactionRepository {
         }
         continue;
       }
-      const event = parseAgentHostEvent(input);
+      const event = parseHistoricalAgentHostEvent(input);
       if (!row.acknowledged_at) return false;
       if (String(row.message_id) === candidate.terminal_event_message_id) {
         terminalEventFound = true;
@@ -423,7 +423,7 @@ export class AgentHostTerminalCompactionRepository {
         compactedAt
       );
     for (const row of inboxRows) {
-      const command = parseAgentHostMailboxCommand(JSON.parse(row.command_json));
+      const command = parseHistoricalAgentHostMailboxCommand(JSON.parse(row.command_json));
       const identity = commandIdentity(command);
       if (!identity) throw new Error("agent_host_terminal_compaction_dependency_identity_invalid");
       this.database

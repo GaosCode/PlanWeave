@@ -1,3 +1,4 @@
+import type { AcpPermissionOption } from "@planweave-ai/agent-host-protocol/browser";
 import { RemoteAcpRunConversation } from "../renderer/task-workspace/conversation/RemoteAcpRunConversation";
 import { remoteInteractionViewSchema } from "@planweave-ai/collaboration-protocol/remote-run";
 /* @vitest-environment jsdom */
@@ -254,7 +255,11 @@ describe("remote ACP composer continuation", () => {
         acpSessionId: "original-session",
         expiresAt: new Date(Date.now() + 60_000).toISOString(),
         title: "Read workspace file",
-        description: "Read README.md"
+        description: "Read README.md",
+        options: [
+          { optionId: "read-always", label: "Read", kind: "allow_always" },
+          { optionId: "read-once", label: "Read", kind: "allow_once" }
+        ]
       }
     });
     const cancel = {
@@ -279,7 +284,7 @@ describe("remote ACP composer continuation", () => {
       return <RemoteAcpComposer continuation={continuation} t={createTranslator("en")} />;
     }
     render(<View />);
-    fireEvent.click(await screen.findByRole("button", { name: "Allow once" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Read — Allow once" }));
     await waitFor(() =>
       expect(f.api.remoteAcpConversation).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -287,7 +292,8 @@ describe("remote ACP composer continuation", () => {
             kind: "execution_respond",
             response: {
               type: "interaction.permission_response",
-              decision: "allow_once",
+              decision: "select_option",
+              optionId: "read-once",
               actionId: "permission-one",
               dispatchId: "dispatch-one",
               leaseId: "lease-one",
@@ -377,6 +383,154 @@ describe("remote ACP composer continuation", () => {
       expect(f.api.remoteAcpConversation).toHaveBeenCalledWith(
         expect.objectContaining({ operationId: "operation-two", afterCursor: 0 })
       )
+    );
+  });
+});
+
+describe("remote ACP execution permission choices", () => {
+  function renderPermission(options: AcpPermissionOption[] | null) {
+    const f = setup();
+    const request = remoteInteractionViewSchema.parse({
+      operationId: scope.operationId,
+      hostId: "host-one",
+      status: "pending",
+      createdAt: new Date().toISOString(),
+      request: {
+        type: "interaction.permission_requested",
+        actionId: "permission-one",
+        dispatchId: "dispatch-one",
+        leaseId: "lease-one",
+        executionAttemptId: "attempt-one",
+        acpSessionId: "original-session",
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        title: "Write file",
+        description: "Write README.md",
+        ...(options === null ? {} : { options })
+      }
+    });
+    const cancel = {
+      kind: "cancel" as const,
+      actionId: "cancel-one",
+      operationId: scope.operationId,
+      dispatchId: request.request.dispatchId,
+      leaseId: request.request.leaseId,
+      executionAttemptId: request.request.executionAttemptId,
+      expectedAttemptVersion: 3,
+      reason: "User cancellation"
+    };
+    const page: DesktopRemoteAcpConversationPage = {
+      ...f.page,
+      available: false,
+      execution: { state: "running", cancel, interactions: [request] }
+    };
+    f.api.remoteAcpConversation.mockImplementation(async () => page);
+    function View() {
+      const continuation = useRemoteAcpContinuation(f.api, scope);
+      return <RemoteAcpComposer continuation={continuation} t={createTranslator("en")} />;
+    }
+    render(<View />);
+    return {
+      ...f,
+      cancel,
+      actions: () =>
+        f.api.remoteAcpConversation.mock.calls.flatMap(([input]) =>
+          input.action ? [input.action] : []
+        )
+    };
+  }
+
+  it.each([
+    {
+      name: "only always",
+      options: [{ optionId: "write-always", label: "Write", kind: "allow_always" }],
+      label: "Write — Always allow",
+      optionId: "write-always"
+    },
+    {
+      name: "same kind options",
+      options: [
+        { optionId: "read-a", label: "Read A", kind: "allow_once" },
+        { optionId: "read-b", label: "Read B", kind: "allow_once" }
+      ],
+      label: "Read B — Allow once",
+      optionId: "read-b"
+    },
+    {
+      name: "explicit permanent rejection",
+      options: [{ optionId: "reject-always", label: "Reject", kind: "reject_always" }],
+      label: "Reject — Always reject",
+      optionId: "reject-always"
+    }
+  ] satisfies {
+    name: string;
+    options: AcpPermissionOption[];
+    label: string;
+    optionId: string;
+  }[])("submits the exact option for $name", async ({ options, label, optionId }) => {
+    const f = renderPermission(options);
+    const button = await screen.findByRole("button", { name: label });
+    expect(screen.getAllByTestId("acp-permission-option")).toHaveLength(options.length);
+    if (options[0].kind === "allow_always")
+      expect(screen.queryByRole("button", { name: /Allow once/ })).toBeNull();
+    fireEvent.click(button);
+    await waitFor(() =>
+      expect(f.actions()).toEqual([
+        {
+          kind: "execution_respond",
+          response: {
+            type: "interaction.permission_response",
+            decision: "select_option",
+            optionId,
+            actionId: "permission-one",
+            dispatchId: "dispatch-one",
+            leaseId: "lease-one",
+            executionAttemptId: "attempt-one",
+            acpSessionId: "original-session"
+          }
+        }
+      ])
+    );
+  });
+
+  it.each([
+    "allow_always",
+    "reject_always"
+  ] as const)("cancels the request without selecting %s", async (kind) => {
+    const f = renderPermission([{ optionId: "scope-always", label: "Permission", kind }]);
+    fireEvent.click(await screen.findByTestId("acp-permission-cancel"));
+    await waitFor(() =>
+      expect(f.actions()).toEqual([
+        {
+          kind: "execution_respond",
+          response: {
+            type: "interaction.permission_response",
+            decision: "deny",
+            actionId: "permission-one",
+            dispatchId: "dispatch-one",
+            leaseId: "lease-one",
+            executionAttemptId: "attempt-one",
+            acpSessionId: "original-session"
+          }
+        }
+      ])
+    );
+  });
+
+  it("only stops the entire execution for a legacy request", async () => {
+    const f = renderPermission(null);
+    fireEvent.click(await screen.findByRole("button", { name: "Stop entire execution" }));
+    expect(screen.queryByTestId("acp-permission-option")).toBeNull();
+    expect(screen.queryByTestId("acp-permission-cancel")).toBeNull();
+    expect(
+      screen.getByText(/older request does not include exact permission options/)
+    ).toBeTruthy();
+    await waitFor(() =>
+      expect(f.actions()).toEqual([
+        {
+          kind: "execution_cancel",
+          command: f.cancel
+        }
+      ])
     );
   });
 });

@@ -1,3 +1,4 @@
+import type { AcpPermissionOption } from "@planweave-ai/agent-host-protocol";
 import type {
   AgentCapabilities,
   CreateElicitationResponse,
@@ -58,11 +59,7 @@ export type AcpEngineClock = {
   sleep(milliseconds: number, signal?: AbortSignal): Promise<void>;
 };
 
-export type AcpEnginePermissionOption = {
-  readonly optionId: string;
-  readonly label: string;
-  readonly decision: "approve" | "deny";
-};
+export type AcpEnginePermissionOption = Readonly<AcpPermissionOption>;
 
 export type AcpEnginePermissionRequest = {
   readonly requestId: string;

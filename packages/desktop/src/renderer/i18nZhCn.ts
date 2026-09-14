@@ -1737,8 +1737,6 @@ export const zhCnCatalog = {
   remoteRunActionResume: "恢复会话",
   remoteRunActionFail: "标记失败",
   remoteRunActionRetry: "重试新尝试",
-  remoteRunInteractionAllow: "允许一次",
-  remoteRunInteractionDeny: "拒绝",
   remoteRunConfirmCancel: "取消远程尝试？这将请求协作式取消。",
   remoteRunConfirmRetry: "创建新尝试？先前证据会保留；这不是恢复同一会话。",
   remoteRunConfirmFail: "将此中断尝试标记为失败？",
