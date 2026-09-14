@@ -103,13 +103,6 @@ export function ExecutorsView({
               onRenew={(host) => void hosts.renewHostCredential(host.id)}
               t={t}
             />
-            <Button
-              variant="ghost"
-              className="mt-4 text-sky-700 dark:text-sky-400"
-              onClick={() => setSetupOpen(true)}
-            >
-              {t("executorsLocal")} · {t("executorsAddDevice")}
-            </Button>
           </TabsContent>
         </Tabs>
         <ManagementDialog

@@ -304,6 +304,8 @@ describe("desktop renderer settings interactions", () => {
     expect(screen.queryByRole("heading", { name: "Executors" })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("tab", { name: "Execution devices" }));
     expect(screen.getByTestId("host-availability")).toBeVisible();
+    expect(screen.getAllByRole("button", { name: "Connect device", exact: true })).toHaveLength(1);
+    expect(screen.queryByTestId("executors-local-device-setup")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Connect device", exact: true }));
     expect(await screen.findByTestId("host-admin-bootstrap")).toBeVisible();
     expect(screen.getByRole("dialog")).toHaveAccessibleName("Connect device");
