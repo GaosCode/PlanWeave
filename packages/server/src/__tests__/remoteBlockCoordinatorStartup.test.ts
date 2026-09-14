@@ -394,6 +394,7 @@ class StartupHarness {
   restoreV17Schema(): void {
     const database = this.requireServer().database;
     database.exec(`
+      DROP TABLE acp_task_restorations;
       DROP TABLE acp_conversation_events;
       DROP TABLE acp_conversation_actions;
       DROP TABLE acp_conversation_turns;

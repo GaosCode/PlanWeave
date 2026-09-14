@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { applyMigrations, latestCentralSchemaVersion } from "../migrations.js";
+import {
+  applyMigrations,
+  centralSchemaVersion,
+  latestCentralSchemaVersion
+} from "../migrations.js";
 import { HumanObserverJournal } from "../humanObserverJournal.js";
 import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
 
@@ -66,7 +70,7 @@ describe("HumanObserverJournal", () => {
     const database = await openServerDatabase(":memory:", 5_000);
     databases.push(database);
     applyMigrations(database);
-    expect(latestCentralSchemaVersion).toBe(69);
+    expect(centralSchemaVersion(database)).toBe(latestCentralSchemaVersion);
     const journal = new HumanObserverJournal(database, 2);
 
     const first = journal.appendInCallerTransaction(projectA, { kind: "membership" });

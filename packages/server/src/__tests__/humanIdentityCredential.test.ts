@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { applyMigrations, latestCentralSchemaVersion } from "../migrations.js";
+import {
+  applyMigrations,
+  centralSchemaVersion,
+  latestCentralSchemaVersion
+} from "../migrations.js";
 import { HumanPrincipalIdentity } from "../identity/humanPrincipalIdentity.js";
 import {
   HumanIdentityCredentialError,
@@ -16,10 +20,10 @@ afterEach(() => {
 
 describe("human identity credentials", () => {
   it("issues, renews, and revokes independently of workspace sessions", async () => {
-    expect(latestCentralSchemaVersion).toBe(69);
     const database = await openServerDatabase(":memory:", 5_000);
     databases.push(database);
     applyMigrations(database);
+    expect(centralSchemaVersion(database)).toBe(latestCentralSchemaVersion);
     const now = new Date("2030-01-01T00:00:00.000Z");
     new MembershipStore(database, () => now).insertPrincipal("human-a", "Alice");
     const store = new HumanIdentityCredentialStore(database, () => now, 60_000);

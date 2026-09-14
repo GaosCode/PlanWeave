@@ -32,6 +32,7 @@ async function openDatabaseAtV26(): Promise<SqliteDatabase> {
   applyMigrations(database);
   database.exec("PRAGMA foreign_keys=OFF");
   for (const table of [
+    "acp_task_restorations",
     "acp_conversation_events",
     "acp_conversation_actions",
     "acp_conversation_turns",
@@ -92,6 +93,7 @@ async function openDatabaseAtV53(): Promise<SqliteDatabase> {
   const database = await openDatabase();
   applyMigrations(database);
   database.exec(`
+    DROP TABLE acp_task_restorations;
     DROP TABLE acp_conversation_events;
     DROP TABLE acp_conversation_actions;
     DROP TABLE acp_conversation_turns;
@@ -220,9 +222,9 @@ describe("collaboration migration reconciliation", () => {
       { name: "remote-agent-registry", versions: [57, 58, 59, 60, 61, 68] },
       { name: "remote-operation-diagnostics", versions: [63] },
       { name: "remote-runner-events", versions: [65] },
-      { name: "owner-canvas-materialization", versions: [67] }
+      { name: "owner-canvas-materialization", versions: [67] },
+      { name: "acp-task-restorations", versions: [70] }
     ]);
-    expect(latestCentralSchemaVersion).toBe(69);
   });
 
   it("removes project route selection atomically and replays v66 idempotently", async () => {
@@ -333,7 +335,7 @@ describe("collaboration migration reconciliation", () => {
 
     applyMigrations(database);
 
-    expect(centralSchemaVersion(database)).toBe(69);
+    expect(centralSchemaVersion(database)).toBe(latestCentralSchemaVersion);
     expect(
       database
         .prepare(

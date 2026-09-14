@@ -8,6 +8,7 @@ import {
   centralSchemaVersion,
   latestCentralSchemaVersion
 } from "../migrations.js";
+import { migrations } from "../migrations/registry.js";
 import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
 
 const databases: SqliteDatabase[] = [];
@@ -35,8 +36,8 @@ async function openDatabaseBeforeStockHostFleetMigration(): Promise<SqliteDataba
 }
 
 describe("stock host fleet migration v46", () => {
-  it("registers as latest schema version", () => {
-    expect(latestCentralSchemaVersion).toBe(69);
+  it("registers the stock host fleet migration", () => {
+    expect(migrations).toContainEqual(expect.objectContaining({ version: 46 }));
   });
 
   it("preserves legacy exclusive workspace bindings and lifts hosts to server-scoped usability", async () => {

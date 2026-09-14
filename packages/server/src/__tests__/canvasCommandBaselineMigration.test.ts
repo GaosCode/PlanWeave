@@ -8,7 +8,11 @@ import {
 import { type AuthoritativeContentHead } from "@planweave-ai/collaboration-protocol/content/version";
 import { createTestWorkspace } from "../../../runtime/src/__tests__/promptTestHelpers.js";
 import { captureAuthorizedCanvasContent } from "@planweave-ai/runtime";
-import { applyMigrations, latestCentralSchemaVersion } from "../migrations.js";
+import {
+  applyMigrations,
+  centralSchemaVersion,
+  latestCentralSchemaVersion
+} from "../migrations.js";
 import { migrations } from "../migrations/registry.js";
 import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
 import { CanvasCommandRepository } from "../canvas/repository.js";
@@ -154,7 +158,7 @@ describe("canvas command baseline migration", () => {
 
       applyMigrations(database);
 
-      expect(latestCentralSchemaVersion).toBe(69);
+      expect(centralSchemaVersion(database)).toBe(latestCentralSchemaVersion);
       expect(
         database
           .prepare(

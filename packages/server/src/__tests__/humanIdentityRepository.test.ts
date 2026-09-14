@@ -156,7 +156,6 @@ describe("human identity migration v16", () => {
     prepareHistoricalSchema(database, 15);
     applyMigrations(database);
     expect(centralSchemaVersion(database)).toBe(latestCentralSchemaVersion);
-    expect(latestCentralSchemaVersion).toBe(69);
 
     for (const table of [
       "human_principals",

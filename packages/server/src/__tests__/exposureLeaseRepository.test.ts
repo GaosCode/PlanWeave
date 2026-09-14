@@ -4,7 +4,11 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { SqliteExposureLeaseStore } from "../exposure/exposureLeaseRepository.js";
 import type { TailscaleServeLease } from "../exposure/types.js";
-import { applyMigrations, latestCentralSchemaVersion } from "../migrations.js";
+import {
+  applyMigrations,
+  centralSchemaVersion,
+  latestCentralSchemaVersion
+} from "../migrations.js";
 import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
 
 const databases: SqliteDatabase[] = [];
@@ -37,7 +41,7 @@ describe("SQLite exposure lease store", () => {
     const database = await openServerDatabase(":memory:", 5_000);
     databases.push(database);
     applyMigrations(database);
-    expect(latestCentralSchemaVersion).toBe(69);
+    expect(centralSchemaVersion(database)).toBe(latestCentralSchemaVersion);
 
     const store = new SqliteExposureLeaseStore(database);
     expect(store.load()).toBeNull();

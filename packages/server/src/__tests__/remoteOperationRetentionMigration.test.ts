@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { applyMigrations, latestCentralSchemaVersion } from "../migrations.js";
+import {
+  applyMigrations,
+  centralSchemaVersion,
+  latestCentralSchemaVersion
+} from "../migrations.js";
 import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
 
 const databases: SqliteDatabase[] = [];
@@ -24,7 +28,7 @@ describe("remote operation retention migration", () => {
     expect(
       database.prepare("SELECT version FROM schema_migrations WHERE version=49").get()?.version
     ).toBe(49);
-    expect(latestCentralSchemaVersion).toBe(69);
+    expect(centralSchemaVersion(database)).toBe(latestCentralSchemaVersion);
     expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   });
 

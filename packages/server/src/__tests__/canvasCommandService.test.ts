@@ -8,7 +8,7 @@ import {
 } from "@planweave-ai/collaboration-protocol/canvas/commands";
 import { ContentVersionService } from "../canvas/index.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
-import { latestCentralSchemaVersion } from "../migrations.js";
+import { centralSchemaVersion, latestCentralSchemaVersion } from "../migrations.js";
 import { inWriteTransaction } from "../sqlite.js";
 import {
   actor,
@@ -39,7 +39,7 @@ describe("canvas command service (OSS-004 B-002)", () => {
 
   it("migrates v30 and enforces CAS + operationId idempotency", async () => {
     const { service, repository, database } = await fixture();
-    expect(latestCentralSchemaVersion).toBe(69);
+    expect(centralSchemaVersion(database)).toBe(latestCentralSchemaVersion);
     expect(
       database
         .prepare(

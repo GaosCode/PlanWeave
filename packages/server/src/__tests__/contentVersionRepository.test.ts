@@ -9,7 +9,11 @@ import { createTestWorkspace } from "../../../runtime/src/__tests__/promptTestHe
 import { ContentVersionRepository } from "../canvas/contentVersionRepository.js";
 import { ContentVersionService } from "../canvas/contentVersionService.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
-import { applyMigrations, latestCentralSchemaVersion } from "../migrations.js";
+import {
+  applyMigrations,
+  centralSchemaVersion,
+  latestCentralSchemaVersion
+} from "../migrations.js";
 import { ProjectAccessRepository } from "../projectAccessRepository.js";
 import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
 
@@ -212,8 +216,8 @@ function publishInitial(
 
 describe("authoritative content version repository", () => {
   it("persists a verified immutable version before creating the first head", async () => {
-    const { repository } = await fixture();
-    expect(latestCentralSchemaVersion).toBe(69);
+    const { database, repository } = await fixture();
+    expect(centralSchemaVersion(database)).toBe(latestCentralSchemaVersion);
     const result = publishInitial(repository);
     expect(result.head.content).toEqual(result.version.completed);
     expect(
