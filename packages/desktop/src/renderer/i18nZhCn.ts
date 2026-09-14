@@ -601,11 +601,9 @@ export const zhCnCatalog = {
   deploymentConnectAnotherServer: "连接其他 Server",
   settingsServerForget: "忘掉这台 Server",
   settingsServerRetryConnection: "重试",
-  settingsServerDataTitle: "搬家 Server 数据",
+  settingsServerDataTitle: "数据迁移",
   settingsServerDataHint:
     "把这台电脑本机 Server 的数据库导出成压缩包，再在目标侧停止 Server 后导入。压缩包不含登录凭证；这台电脑会另外留下一份身份快照，删掉本机 Server 数据后仍可连接导入后的 Server。",
-  settingsServerDataExportSource: "导出源",
-  settingsServerDataExportThisComputer: "这台电脑",
   settingsServerDataExport: "导出压缩包",
   settingsServerDataImport: "导入压缩包",
   settingsServerDataImportHint:

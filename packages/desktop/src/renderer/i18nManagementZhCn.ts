@@ -1,6 +1,13 @@
 import type { managementEnCatalog } from "./i18nManagementEn";
 
 export const managementZhCnCatalog = {
+  serverLocalHostingHint: "在这台电脑运行协作服务，供其他设备连接。",
+  serverDataLocalScope: "管理这台电脑上的 Server 数据。",
+  serverDataExportTitle: "导出本机数据",
+  serverDataExportHint: "保存压缩包，用于备份或迁移到另一台 Server。",
+  serverDataImportTitle: "恢复到本机",
+  serverDataImportHint: "选择压缩包导入；如需覆盖已有数据，会再次确认。",
+  serverDataMigrationDetails: "迁移说明",
   workspaceInformation: "空间信息",
   workspaceInvitationHeading: "成员邀请",
   workspaceInvitationContactOwner:
@@ -72,6 +79,5 @@ export const managementZhCnCatalog = {
   serverRemembered: "已保存",
   serverLocalStopped: "未启动",
   serverForgetConfirm: "移除这份已保存的连接？仅移除所列连接的本机凭据，其他连接不受影响。",
-  serverMaintenanceHint: "在这台电脑上启动 Server、配置访问方式，或迁移 Server 数据。",
   serverConnectionHint: "Server 连接保存在这台电脑上。工作空间成员和执行器权限在各自页面管理。"
 } satisfies Record<keyof typeof managementEnCatalog, string>;

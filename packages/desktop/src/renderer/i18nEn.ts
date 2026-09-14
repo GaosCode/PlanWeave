@@ -623,11 +623,9 @@ export const enCatalog = {
   deploymentConnectAnotherServer: "Connect another Server",
   settingsServerForget: "Forget this Server",
   settingsServerRetryConnection: "Retry",
-  settingsServerDataTitle: "Move Server data",
+  settingsServerDataTitle: "Data migration",
   settingsServerDataHint:
     "Export the Server database on this computer into an archive, then import it on the destination after that Server is stopped. The archive does not include sign-in credentials; this computer keeps a separate identity snapshot so you can still connect after deleting local Server data.",
-  settingsServerDataExportSource: "Export from",
-  settingsServerDataExportThisComputer: "This computer",
   settingsServerDataExport: "Export archive",
   settingsServerDataImport: "Import archive",
   settingsServerDataImportHint:

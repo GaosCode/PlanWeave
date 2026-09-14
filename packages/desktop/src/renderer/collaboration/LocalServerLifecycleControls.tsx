@@ -184,7 +184,7 @@ export function LocalServerLifecycleControls({
             <Button
               type="button"
               size="sm"
-              variant="ghost"
+              variant="outline"
               disabled={busy || !api || !status}
               data-testid="local-server-lifecycle-start"
               onClick={() => void runAction("start")}

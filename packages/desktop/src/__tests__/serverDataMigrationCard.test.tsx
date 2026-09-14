@@ -3,29 +3,10 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTranslator } from "../renderer/i18n";
 import { ServerDataMigrationCard } from "../renderer/settings/ServerDataMigrationCard";
 import type { PlanWeaveCollaborationApi } from "../shared/collaboration";
-
-function installSelectDomStubs() {
-  Object.defineProperty(window.HTMLElement.prototype, "hasPointerCapture", {
-    configurable: true,
-    value: vi.fn(() => false)
-  });
-  Object.defineProperty(window.HTMLElement.prototype, "setPointerCapture", {
-    configurable: true,
-    value: vi.fn()
-  });
-  Object.defineProperty(window.HTMLElement.prototype, "releasePointerCapture", {
-    configurable: true,
-    value: vi.fn()
-  });
-  Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", {
-    configurable: true,
-    value: vi.fn()
-  });
-}
 
 function apiStub(overrides: Partial<PlanWeaveCollaborationApi> = {}): PlanWeaveCollaborationApi {
   return {
@@ -37,10 +18,6 @@ function apiStub(overrides: Partial<PlanWeaveCollaborationApi> = {}): PlanWeaveC
     ...overrides
   } as PlanWeaveCollaborationApi;
 }
-
-beforeEach(() => {
-  installSelectDomStubs();
-});
 
 afterEach(() => {
   cleanup();
@@ -54,6 +31,9 @@ describe("ServerDataMigrationCard", () => {
     render(<ServerDataMigrationCard api={api} t={createTranslator("en")} />);
 
     expect(await screen.findByTestId("server-data-migration")).toBeVisible();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Export local data" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Restore on this computer" })).toBeVisible();
     await user.click(screen.getByTestId("server-data-export"));
     expect(api.exportServerDataArchive).toHaveBeenCalledWith({ sourceId: "this_computer" });
     expect(await screen.findByTestId("server-data-migration-status")).toHaveTextContent(

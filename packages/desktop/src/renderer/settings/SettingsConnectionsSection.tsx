@@ -46,7 +46,6 @@ export function SettingsConnectionsSection({
           <ServerConnectionList refreshKey={refreshKey} t={t} />
         </TabsContent>
         <TabsContent value="maintenance">
-          <p className="mb-6 text-sm text-text-muted">{t("serverMaintenanceHint")}</p>
           <SettingsServerSection showHeader={false} maintenance t={t} />
         </TabsContent>
       </Tabs>

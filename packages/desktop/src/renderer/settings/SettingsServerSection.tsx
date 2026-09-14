@@ -34,7 +34,10 @@ export function SettingsServerSection({
     if (!existing) setPasteOpen(false);
   };
   return (
-    <section data-testid="settings-server-section" className="flex flex-col gap-6">
+    <section
+      data-testid="settings-server-section"
+      className={maintenance ? "flex max-w-3xl flex-col gap-6" : "flex flex-col gap-6"}
+    >
       {showHeader ? (
         <div>
           <h1 className="text-2xl font-semibold tracking-normal text-text-strong">
@@ -44,7 +47,14 @@ export function SettingsServerSection({
         </div>
       ) : null}
 
-      <div className="flex max-w-3xl flex-col" data-testid="settings-server-panels">
+      <div
+        className={
+          maintenance
+            ? "flex flex-col rounded-lg border border-border/70 px-5 pb-4 pt-2"
+            : "flex max-w-3xl flex-col"
+        }
+        data-testid="settings-server-panels"
+      >
         {maintenance ? (
           <div data-testid="settings-server-lifecycle-block">
             <LocalServerLifecycleControls
@@ -58,6 +68,9 @@ export function SettingsServerSection({
           </div>
         ) : null}
         <div data-testid="settings-server-connection-block">
+          {maintenance ? (
+            <p className="pt-4 text-xs leading-5 text-text-muted">{t("serverLocalHostingHint")}</p>
+          ) : null}
           <DeploymentConnectionCard
             presentation="plain"
             connectionOnly={!maintenance}

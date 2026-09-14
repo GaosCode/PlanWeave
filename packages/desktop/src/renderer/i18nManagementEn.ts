@@ -1,4 +1,13 @@
 export const managementEnCatalog = {
+  serverLocalHostingHint:
+    "Run collaboration services on this computer for other devices to connect.",
+  serverDataLocalScope: "Manage Server data stored on this computer.",
+  serverDataExportTitle: "Export local data",
+  serverDataExportHint: "Save an archive for backup or transfer to another Server.",
+  serverDataImportTitle: "Restore on this computer",
+  serverDataImportHint:
+    "Choose an archive to import. Replacing existing data requires confirmation.",
+  serverDataMigrationDetails: "Migration details",
   workspaceInformation: "Workspace information",
   workspaceInvitationHeading: "Member invitation",
   workspaceInvitationContactOwner:
@@ -72,8 +81,6 @@ export const managementEnCatalog = {
   serverLocalStopped: "Stopped",
   serverForgetConfirm:
     "Forget this Server connection? Its saved connection credentials will be removed from this computer.",
-  serverMaintenanceHint:
-    "Start a Server on this computer, configure access, or transfer Server data.",
   serverConnectionHint:
     "Server connections are saved on this computer. Workspace membership and executor access are managed in their own pages."
 } as const;

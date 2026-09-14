@@ -1,12 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from "@/components/ui/select";
 import type { PlanWeaveCollaborationApi } from "../../shared/collaboration";
 import type {
   ExportServerDataArchiveResult,
@@ -50,7 +43,6 @@ export function ServerDataMigrationCard({
   t: ReturnType<typeof createTranslator>;
 }) {
   const [sources, setSources] = useState<ServerDataExportSource[]>([]);
-  const [sourceId, setSourceId] = useState<ServerDataExportSource["id"]>("this_computer");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -58,11 +50,6 @@ export function ServerDataMigrationCard({
     if (!api) return;
     const result = await api.listServerDataExportSources();
     setSources(result.sources);
-    setSourceId((current) =>
-      result.sources.some((source: ServerDataExportSource) => source.id === current)
-        ? current
-        : (result.sources[0]?.id ?? "this_computer")
-    );
   }, [api]);
 
   useEffect(() => {
@@ -71,7 +58,7 @@ export function ServerDataMigrationCard({
     });
   }, [refreshSources]);
 
-  const selected = sources.find((source) => source.id === sourceId) ?? sources[0];
+  const selected = sources.find((source) => source.id === "this_computer");
   const running = selected?.running === true;
   const exportDisabled = !api || busy || running;
 
@@ -80,7 +67,7 @@ export function ServerDataMigrationCard({
     setBusy(true);
     setMessage(null);
     try {
-      const result = await api.exportServerDataArchive({ sourceId });
+      const result = await api.exportServerDataArchive({ sourceId: "this_computer" });
       setMessage(resultCopy(result.status, t));
       await refreshSources();
     } catch (error) {
@@ -115,42 +102,23 @@ export function ServerDataMigrationCard({
   };
 
   return (
-    <section className="flex flex-col gap-3" data-testid="server-data-migration">
-      <div className="max-w-3xl">
+    <section
+      className="rounded-lg border border-border/70 px-5 py-5"
+      data-testid="server-data-migration"
+    >
+      <div className="mb-2">
         <h2 className="text-sm font-semibold text-text-strong">{t("settingsServerDataTitle")}</h2>
-        <p className="mt-1 text-sm leading-6 text-text-muted">{t("settingsServerDataHint")}</p>
+        <p className="mt-1 text-xs leading-5 text-text-muted">{t("serverDataLocalScope")}</p>
       </div>
-      <div className="flex max-w-xl flex-col gap-3">
-        <div className="flex flex-col gap-2">
-          <label
-            id="server-data-export-source-label"
-            htmlFor="server-data-export-source"
-            className="text-xs font-semibold text-text-strong"
-          >
-            {t("settingsServerDataExportSource")}
-          </label>
-          <Select value={sourceId} onValueChange={(value) => setSourceId(value as typeof sourceId)}>
-            <SelectTrigger
-              id="server-data-export-source"
-              aria-labelledby="server-data-export-source-label"
-              className="h-9 w-full"
-              data-testid="server-data-export-source"
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem
-                value="this_computer"
-                data-testid="server-data-export-source-this-computer"
-              >
-                {t("settingsServerDataExportThisComputer")}
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex flex-wrap gap-2">
+      <div className="divide-y divide-border/60">
+        <div className="flex flex-wrap items-center justify-between gap-4 py-4">
+          <div className="min-w-0 flex-1">
+            <h3 className="text-sm font-medium">{t("serverDataExportTitle")}</h3>
+            <p className="mt-1 text-xs leading-5 text-text-muted">{t("serverDataExportHint")}</p>
+          </div>
           <Button
             type="button"
+            size="sm"
             variant="outline"
             disabled={exportDisabled}
             data-testid="server-data-export"
@@ -158,8 +126,15 @@ export function ServerDataMigrationCard({
           >
             {t("settingsServerDataExport")}
           </Button>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-4 py-4">
+          <div className="min-w-0 flex-1">
+            <h3 className="text-sm font-medium">{t("serverDataImportTitle")}</h3>
+            <p className="mt-1 text-xs leading-5 text-text-muted">{t("serverDataImportHint")}</p>
+          </div>
           <Button
             type="button"
+            size="sm"
             variant="outline"
             disabled={!api || busy || running}
             data-testid="server-data-import"
@@ -168,26 +143,21 @@ export function ServerDataMigrationCard({
             {t("settingsServerDataImport")}
           </Button>
         </div>
-        <p className="text-xs leading-5 text-text-muted">{t("settingsServerDataImportHint")}</p>
-        {running ? (
-          <p
-            className="text-sm text-text-strong"
-            data-testid="server-data-migration-status"
-            role="status"
-          >
-            {t("settingsServerDataRunning")}
-          </p>
-        ) : null}
-        {message && !running ? (
-          <p
-            className="text-sm text-text-strong"
-            data-testid="server-data-migration-status"
-            role="status"
-          >
-            {message}
-          </p>
-        ) : null}
       </div>
+      <details className="mt-2 border-t border-border/60 pt-4 text-xs text-text-muted">
+        <summary className="w-fit cursor-pointer">{t("serverDataMigrationDetails")}</summary>
+        <p className="mt-3 leading-5">{t("settingsServerDataHint")}</p>
+        <p className="mt-2 leading-5">{t("settingsServerDataImportHint")}</p>
+      </details>
+      {running || message ? (
+        <p
+          className="mt-4 rounded-md bg-muted/50 px-3 py-2 text-sm text-text-strong"
+          data-testid="server-data-migration-status"
+          role="status"
+        >
+          {running ? t("settingsServerDataRunning") : message}
+        </p>
+      ) : null}
     </section>
   );
 }
