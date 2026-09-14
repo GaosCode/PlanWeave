@@ -176,7 +176,7 @@ describe("remote ACP composer continuation", () => {
     act(() => {
       sent = result.current.send("Continue now");
     });
-    expect(result.current.pendingMessage).toMatchObject({
+    expect(result.current.pendingMessages[0]).toMatchObject({
       text: "Continue now",
       status: "sending"
     });
@@ -186,13 +186,13 @@ describe("remote ACP composer continuation", () => {
       expect(await sent).toBe(true);
     });
     expect(result.current.active?.status).toBe("running");
-    expect(result.current.pendingMessage).toMatchObject({
+    expect(result.current.pendingMessages[0]).toMatchObject({
       text: "Continue now",
       status: "accepted"
     });
     expect(f.api.remoteAcpConversation.mock.calls).toHaveLength(reads + 1);
     rerender({ input: { ...scope, operationId: "operation-two" } });
-    expect(result.current.pendingMessage).toBeNull();
+    expect(result.current.pendingMessages).toHaveLength(0);
   });
 
   it("shows the latest reply status without treating later messages as a separate conversation", async () => {
@@ -364,7 +364,7 @@ describe("remote ACP composer continuation", () => {
     await act(async () => {
       expect(await result.current.send("Retry me")).toBe(false);
     });
-    expect(result.current.pendingMessage).toMatchObject({
+    expect(result.current.pendingMessages[0]).toMatchObject({
       text: "Retry me",
       status: "unconfirmed"
     });

@@ -10,6 +10,25 @@ import type {
 } from "../../shared/remoteAcpConversation";
 import type { PlanWeaveWorkspaceExecutionApi } from "../../shared/workspaceExecution";
 
+function confirmsPrompt(
+  page: DesktopRemoteAcpConversationPage | null,
+  prompt: Pick<
+    Extract<AcpConversationAction, { kind: "prompt" }>,
+    "turnId" | "executionAttemptId" | "sessionId"
+  >
+) {
+  return (
+    page?.executionAttemptId === prompt.executionAttemptId &&
+    page.sessionId === prompt.sessionId &&
+    page.turns.some(
+      (turn) =>
+        turn.turnId === prompt.turnId &&
+        turn.executionAttemptId === prompt.executionAttemptId &&
+        turn.sessionId === prompt.sessionId
+    )
+  );
+}
+
 export function useRemoteAcpContinuation(
   api: Pick<PlanWeaveWorkspaceExecutionApi, "remoteAcpConversation"> | null,
   input: Omit<DesktopRemoteAcpConversationInput, "action" | "afterCursor"> | null
@@ -31,19 +50,31 @@ export function useRemoteAcpContinuation(
     events: AcpConversationEvent[];
   } | null>(null);
   const [restoreFailed, setRestoreFailed] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<{
+    action: NonNullable<DesktopRemoteAcpConversationInput["action"]>;
+    message: string;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  const [localMessage, setLocalMessage] = useState<{
-    key: string;
-    turnId: string;
-    text: string;
-    timestamp: string;
-  } | null>(null);
+  const [localMessages, setLocalMessages] = useState<
+    {
+      key: string;
+      turnId: string;
+      executionAttemptId: string;
+      sessionId: string;
+      text: string;
+      timestamp: string;
+    }[]
+  >([]);
   const acceptPage = useCallback((page: DesktopRemoteAcpConversationPage, scopeKey: string) => {
     for (const event of page.events) events.current.set(`${event.turnId}:${event.sequence}`, event);
     cursor.current = Math.max(cursor.current, page.cursor);
     pageRef.current = page;
+    const prompt = pendingPrompt.current;
+    if (prompt && confirmsPrompt(page, prompt)) {
+      pendingPrompt.current = null;
+      setActionError((current) => (current?.action === prompt ? null : current));
+    }
     setState({ key: scopeKey, page, events: [...events.current.values()] });
     setError(null);
   }, []);
@@ -53,7 +84,7 @@ export function useRemoteAcpContinuation(
     events.current = new Map();
     cursor.current = 0;
     pendingPrompt.current = null;
-    setLocalMessage(null);
+    setLocalMessages([]);
     sendingRef.current = false;
     pageRef.current = null;
     setRestoreFailed(false);
@@ -82,7 +113,7 @@ export function useRemoteAcpContinuation(
           } while (page.hasMore);
           acceptPage(page, key);
         } catch (cause) {
-          if (epoch.current === generation)
+          if (epoch.current === generation && revision === actionRevision.current)
             setError(cause instanceof Error ? cause.message : "acp_conversation_request_failed");
         } finally {
           running = null;
@@ -121,15 +152,14 @@ export function useRemoteAcpContinuation(
     } catch (cause) {
       if (epoch.current === generation && action.kind === "prompt") {
         await refreshRef.current();
-        if (
-          epoch.current === generation &&
-          pageRef.current?.turns.some((turn) => turn.turnId === action.turnId)
-        )
-          return true;
+        if (epoch.current === generation && confirmsPrompt(pageRef.current, action)) return true;
       }
       if (epoch.current === generation) {
         setRestoreFailed(action.kind === "restore_task");
-        setActionError(cause instanceof Error ? cause.message : "acp_conversation_request_failed");
+        setActionError({
+          action,
+          message: cause instanceof Error ? cause.message : "acp_conversation_request_failed"
+        });
       }
       return false;
     } finally {
@@ -191,6 +221,24 @@ export function useRemoteAcpContinuation(
       )
     };
   }, [state, key]);
+  const isAwaitingReplay = useCallback(
+    (message: (typeof localMessages)[number]) =>
+      message.key === key &&
+      !projection.turns.some(
+        (turn) =>
+          turn.turnId === message.turnId &&
+          turn.executionAttemptId === message.executionAttemptId &&
+          turn.sessionId === message.sessionId &&
+          turn.timeline.some((item) => item.kind === "message" && item.role === "user")
+      ),
+    [key, projection.turns]
+  );
+  useEffect(() => {
+    setLocalMessages((messages) => {
+      const remaining = messages.filter(isAwaitingReplay);
+      return remaining.length === messages.length ? messages : remaining;
+    });
+  }, [isAwaitingReplay]);
   return {
     available: page?.available ?? false,
     canRestoreTask: page?.canRestoreTask ?? false,
@@ -205,25 +253,17 @@ export function useRemoteAcpContinuation(
           })
         : Promise.resolve(false),
     reason: page?.reason ?? null,
-    error: actionError ?? error,
+    error: actionError?.message ?? error,
     restoreFailed,
     sending,
-    pendingMessage:
-      localMessage?.key === key &&
-      !projection.turns.some(
-        (turn) =>
-          turn.turnId === localMessage.turnId &&
-          turn.timeline.some((item) => item.kind === "message" && item.role === "user")
-      )
-        ? {
-            ...localMessage,
-            status: page?.turns.some((turn) => turn.turnId === localMessage.turnId)
-              ? ("accepted" as const)
-              : sending
-                ? ("sending" as const)
-                : ("unconfirmed" as const)
-          }
-        : null,
+    pendingMessages: localMessages.filter(isAwaitingReplay).map((message) => ({
+      ...message,
+      status: confirmsPrompt(page, message)
+        ? ("accepted" as const)
+        : sending && pendingPrompt.current?.turnId === message.turnId
+          ? ("sending" as const)
+          : ("unconfirmed" as const)
+    })),
     active,
     ...projection,
     execution: page?.execution ?? null,
@@ -237,7 +277,10 @@ export function useRemoteAcpContinuation(
     send: async (text: string) => {
       if (!page?.available || !page.sessionId || !key || active || sendingRef.current) return false;
       if (pendingPrompt.current && pendingPrompt.current.text !== text) {
-        setActionError("acp_conversation_retry_original_message");
+        setActionError({
+          action: pendingPrompt.current,
+          message: "acp_conversation_retry_original_message"
+        });
         return false;
       }
       const action = pendingPrompt.current ?? {
@@ -248,10 +291,27 @@ export function useRemoteAcpContinuation(
         text
       };
       pendingPrompt.current = action;
-      setLocalMessage({ key, turnId: action.turnId, text, timestamp: new Date().toISOString() });
-      const sent = await act(action);
-      if (sent && pendingPrompt.current === action) pendingPrompt.current = null;
-      return sent;
+      setLocalMessages((messages) =>
+        messages.some(
+          (message) =>
+            message.turnId === action.turnId &&
+            message.executionAttemptId === action.executionAttemptId &&
+            message.sessionId === action.sessionId
+        )
+          ? messages
+          : [
+              ...messages,
+              {
+                key,
+                turnId: action.turnId,
+                executionAttemptId: action.executionAttemptId,
+                sessionId: action.sessionId,
+                text,
+                timestamp: new Date().toISOString()
+              }
+            ]
+      );
+      return act(action);
     },
     cancel: async () =>
       active

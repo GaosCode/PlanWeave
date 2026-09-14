@@ -205,6 +205,7 @@
         "serverConnectionList.test.tsx",
         "executorServerSelector.test.tsx",
         "remoteAcpContinuation.test.tsx",
+        "remoteAcpReconciliation.test.tsx",
         "remoteAgentManagementErrors.test.tsx",
         "remoteEndpointDispatchGate.test.ts",
         "remoteLiveRun.test.ts",

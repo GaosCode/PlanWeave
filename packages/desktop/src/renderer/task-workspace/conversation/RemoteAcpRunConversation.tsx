@@ -12,20 +12,27 @@ export function RemoteAcpRunConversation({
 }) {
   const viewportRef = useRef<HTMLElement>(null);
   const followRef = useRef(true);
-  const previousPrompt = useRef<string | undefined>(undefined);
-  const pendingId = conversation.continuation?.pendingMessage?.turnId;
+  const previousMessages = useRef<PendingMessageView[]>([]);
+  const pendingMessages = conversation.continuation?.pendingMessages;
   useLayoutEffect(() => {
     void conversation.operationId;
     followRef.current = true;
+    previousMessages.current = [];
   }, [conversation.operationId]);
   useLayoutEffect(() => {
     void conversation.timeline;
     void conversation.continuation?.turns;
-    if (pendingId && pendingId !== previousPrompt.current) followRef.current = true;
-    previousPrompt.current = pendingId;
+    const messages = pendingMessages ?? [];
+    if (
+      messages.some(
+        (message) => !previousMessages.current.some((previous) => matchesTurn(message, previous))
+      )
+    )
+      followRef.current = true;
+    previousMessages.current = messages;
     if (followRef.current && viewportRef.current)
       viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
-  }, [conversation.timeline, conversation.continuation?.turns, pendingId]);
+  }, [conversation.timeline, conversation.continuation?.turns, pendingMessages]);
   const latestTurn = conversation.continuation?.active ?? conversation.continuation?.turns.at(-1);
   const state = latestTurn?.status ?? conversation.state;
   const statusKeys = {
@@ -97,9 +104,11 @@ export function RemoteAcpRunConversation({
           <AcpConversationItems presentation="workspace" timeline={conversation.timeline} t={t} />
           {conversation.continuation?.turns.map((turn) => (
             <section key={turn.turnId} data-turn-id={turn.turnId}>
-              {conversation.continuation?.pendingMessage?.turnId === turn.turnId ? (
-                <PendingMessage message={conversation.continuation.pendingMessage} t={t} />
-              ) : null}
+              {conversation.continuation?.pendingMessages
+                .filter((message) => matchesTurn(message, turn))
+                .map((message) => (
+                  <PendingMessage key={message.turnId} message={message} t={t} />
+                ))}
               <AcpConversationItems presentation="workspace" timeline={turn.timeline} t={t} />
               {turn.error ? (
                 <p role="alert" className="text-sm text-destructive">
@@ -108,15 +117,32 @@ export function RemoteAcpRunConversation({
               ) : null}
             </section>
           ))}
-          {conversation.continuation?.pendingMessage &&
-          !conversation.continuation.turns.some(
-            (turn) => turn.turnId === conversation.continuation?.pendingMessage?.turnId
-          ) ? (
-            <PendingMessage message={conversation.continuation.pendingMessage} t={t} />
-          ) : null}
+          {conversation.continuation?.pendingMessages
+            .filter(
+              (message) =>
+                !conversation.continuation?.turns.some((turn) => matchesTurn(message, turn))
+            )
+            .map((message) => (
+              <PendingMessage key={message.turnId} message={message} t={t} />
+            ))}
         </div>
       </section>
     </section>
+  );
+}
+
+type PendingMessageView = NonNullable<
+  NonNullable<TaskWorkspaceConversationSlotProps["remoteConversation"]>["continuation"]
+>["pendingMessages"][number];
+
+function matchesTurn(
+  message: PendingMessageView,
+  turn: Pick<PendingMessageView, "turnId" | "executionAttemptId" | "sessionId">
+) {
+  return (
+    message.turnId === turn.turnId &&
+    message.executionAttemptId === turn.executionAttemptId &&
+    message.sessionId === turn.sessionId
   );
 }
 
@@ -124,12 +150,9 @@ function PendingMessage({
   message,
   t
 }: {
-  message: NonNullable<
-    NonNullable<TaskWorkspaceConversationSlotProps["remoteConversation"]>["continuation"]
-  >["pendingMessage"];
+  message: PendingMessageView;
   t: ReturnType<typeof createTranslator>;
 }) {
-  if (!message) return null;
   return (
     <div data-testid="remote-acp-pending-message">
       <AcpConversationItems
