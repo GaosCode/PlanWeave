@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import {
   accessCapabilityFlags,
   type CurrentCanvasAccessView
@@ -92,6 +92,17 @@ describe("useWorkspaceAccessScope", () => {
         ],
         nextCursor: null
       }),
+      listWorkspaceCanvasSharingCandidates: vi.fn().mockResolvedValue([
+        {
+          localProjectId: "remote-project",
+          projectName: "Tiny Notes",
+          canvasId: "local-canvas",
+          canvasName: "ACP validation",
+          state: "published_shared",
+          workspaceCanvasId: "remote-canvas",
+          visibility: "shared"
+        }
+      ]),
       getCurrentCanvasAccess,
       mutateCurrentCanvasAccess: vi.fn()
     };
@@ -115,14 +126,35 @@ describe("useWorkspaceAccessScope", () => {
         key: "remote-project\0remote-canvas",
         projectId: "remote-project",
         canvasId: "remote-canvas",
-        projectLabel: "remote-project",
-        canvasLabel: "remote-canvas"
+        projectLabel: "Tiny Notes",
+        canvasLabel: "ACP validation"
       }
     ]);
+    expect(result.current.error).toBeNull();
     expect(result.current.selectedKey).toBe("remote-project\0remote-canvas");
     expect(getCurrentCanvasAccess).toHaveBeenCalledWith({
       canvasId: "remote-canvas",
       projectId: "remote-project"
     });
+
+    const previousPage = await api.listCollaborationAuthorizedCanvases({
+      projectId: "remote-project"
+    });
+    vi.mocked(api.listCollaborationAuthorizedCanvases).mockResolvedValue({
+      ...previousPage,
+      items: previousPage.items.map((canvas) => ({
+        ...canvas,
+        registry: { ...canvas.registry, canvasId: "replacement-canvas" }
+      }))
+    });
+    await act(async () => {
+      await result.current.refreshOptions();
+    });
+    expect(result.current.selectedKey).toBe("remote-project\0remote-canvas");
+    expect(result.current.selectedOption).toBeNull();
+    expect(result.current.access.view).toBeNull();
+    expect(getCurrentCanvasAccess).not.toHaveBeenCalledWith(
+      expect.objectContaining({ canvasId: "replacement-canvas" })
+    );
   });
 });

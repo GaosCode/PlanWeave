@@ -1,18 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ActiveWorkspaceConnectionStatus } from "@planweave-ai/collaboration-protocol/connection";
 import type {
   CollaborationSessionPhase,
   PlanWeaveCollaborationApi
 } from "../../shared/collaboration.js";
-import { collaborationErrorMessage } from "../collaboration/formatCollaborationError";
-import type { CanvasAccessRecord } from "@planweave-ai/collaboration-protocol/access/project";
-import { readWorkspaceCanvasDirectory } from "./useWorkspaceCanvasDirectory";
+import { useWorkspaceCanvasDirectory } from "./useWorkspaceCanvasDirectory";
 import { type CurrentCanvasAccessApi, useCurrentCanvasAccess } from "./useCurrentCanvasAccess";
 
 export type WorkspaceAccessScopeApi = CurrentCanvasAccessApi &
   Pick<
     PlanWeaveCollaborationApi,
-    "listCollaborationAuthorizedProjects" | "listCollaborationAuthorizedCanvases"
+    | "listCollaborationAuthorizedProjects"
+    | "listCollaborationAuthorizedCanvases"
+    | "listWorkspaceCanvasSharingCandidates"
   >;
 
 export type WorkspaceAccessScopeOption = {
@@ -45,61 +45,34 @@ export function useWorkspaceAccessScope({
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const connected = status?.workspaceConnection.status === "connected";
   const workspaceId = status?.workspaceConnection.workspaceId;
-  const [canvases, setCanvases] = useState<CanvasAccessRecord[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const generation = useRef(0);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the Workspace profile invalidates its authorized directory.
-  const refreshOptions = useCallback(async () => {
-    const id = ++generation.current;
-    setError(null);
-    if (!api || !connected) {
-      setCanvases([]);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    try {
-      const rows = await readWorkspaceCanvasDirectory(
-        api,
-        () => id === generation.current,
-        workspaceId
-      );
-      if (id === generation.current) setCanvases(rows);
-    } catch (cause) {
-      if (id === generation.current) {
-        setCanvases([]);
-        setError(collaborationErrorMessage(cause));
-      }
-    } finally {
-      if (id === generation.current) setLoading(false);
-    }
-  }, [api, connected, connectionKey, workspaceId]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the resource choice belongs to a Workspace identity.
   useEffect(() => {
-    setCanvases([]);
-    void refreshOptions();
-    return () => {
-      generation.current += 1;
-    };
-  }, [refreshOptions]);
+    setSelectedKey(null);
+  }, [connectionKey, workspaceId]);
+  const directory = useWorkspaceCanvasDirectory({ api, connectionKey, connected, workspaceId });
+  const { canvases, loading, error, refresh: refreshOptions } = directory;
   const options = useMemo<WorkspaceAccessScopeOption[]>(
     () =>
-      canvases.map((canvas) => ({
-        key: scopeKey(canvas.registry.projectId, canvas.registry.canvasId),
-        projectId: canvas.registry.projectId,
-        canvasId: canvas.registry.canvasId,
-        projectLabel: canvas.registry.projectId,
-        canvasLabel: canvas.registry.canvasId
-      })),
-    [canvases]
+      canvases.map((canvas) => {
+        const local = directory.candidates.find(
+          (candidate) =>
+            candidate.workspaceCanvasId === canvas.registry.canvasId &&
+            (candidate.localProjectId === canvas.registry.projectId ||
+              candidate.localProjectId === canvas.publishSource?.localProjectId)
+        );
+        return {
+          key: scopeKey(canvas.registry.projectId, canvas.registry.canvasId),
+          projectId: canvas.registry.projectId,
+          canvasId: canvas.registry.canvasId,
+          projectLabel: local?.projectName ?? canvas.registry.projectId,
+          canvasLabel: local?.canvasName ?? canvas.registry.canvasId
+        };
+      }),
+    [canvases, directory.candidates]
   );
 
   useEffect(() => {
-    setSelectedKey((current) =>
-      current && options.some((option) => option.key === current)
-        ? current
-        : (options[0]?.key ?? null)
-    );
+    setSelectedKey((current) => current ?? options[0]?.key ?? null);
   }, [options]);
 
   const visibleOptions = connected && connectionKey ? options : [];
@@ -109,6 +82,7 @@ export function useWorkspaceAccessScope({
   );
   const access = useCurrentCanvasAccess({
     api,
+    connectionKey: `${connectionKey}:${workspaceId}`,
     canvasId: selectedOption?.canvasId ?? null,
     projectId: selectedOption?.projectId,
     status

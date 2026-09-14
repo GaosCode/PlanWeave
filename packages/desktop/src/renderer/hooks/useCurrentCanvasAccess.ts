@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   ActiveCanvasPersonGrant,
   AccessMutationResult,
@@ -22,6 +22,7 @@ export type UseCurrentCanvasAccessArgs = {
   api: CurrentCanvasAccessApi | null;
   canvasId: string | null | undefined;
   projectId?: string;
+  connectionKey?: string | null;
   status: {
     session: { phase: CollaborationSessionPhase };
     workspaceConnection: { status: ActiveWorkspaceConnectionStatus };
@@ -67,11 +68,22 @@ function canLoadCurrentCanvasAccess(
 export function useCurrentCanvasAccess(
   args: UseCurrentCanvasAccessArgs
 ): UseCurrentCanvasAccessResult {
-  const { api, canvasId, projectId, status } = args;
+  const { api, canvasId, projectId, status, connectionKey } = args;
   const workspaceConnectionStatus = status?.workspaceConnection.status ?? "local_only";
   const sessionPhase = status?.session.phase ?? "idle";
   const generation = useRef(0);
-  const [view, setView] = useState<CurrentCanvasAccessView | null>(null);
+  const context = useMemo(
+    () => ({ api, canvasId, projectId, connectionKey, sessionPhase, workspaceConnectionStatus }),
+    [api, canvasId, projectId, connectionKey, sessionPhase, workspaceConnectionStatus]
+  );
+  const activeContext = useRef(context);
+  activeContext.current = context;
+  const mutationLock = useRef(false);
+  const [snapshot, setSnapshot] = useState<{
+    context: typeof context;
+    view: CurrentCanvasAccessView | null;
+  } | null>(null);
+  const view = snapshot?.context === context ? snapshot.view : null;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -87,7 +99,7 @@ export function useCurrentCanvasAccess(
       }
     };
     if (!canLoadCurrentCanvasAccess(currentArgs)) {
-      setView(null);
+      setSnapshot({ context, view: null });
       setLoading(false);
       setError(null);
       return;
@@ -99,16 +111,17 @@ export function useCurrentCanvasAccess(
         canvasId: currentArgs.canvasId,
         ...(projectId ? { projectId } : {})
       });
-      if (id === generation.current) setView(next);
+      if (id === generation.current && activeContext.current === context)
+        setSnapshot({ context, view: next });
     } catch (nextError) {
       if (id === generation.current) {
-        setView(null);
+        setSnapshot({ context, view: null });
         setError(collaborationErrorMessage(nextError));
       }
     } finally {
       if (id === generation.current) setLoading(false);
     }
-  }, [api, canvasId, projectId, sessionPhase, workspaceConnectionStatus]);
+  }, [api, canvasId, projectId, sessionPhase, workspaceConnectionStatus, context]);
 
   useEffect(() => {
     void refresh();
@@ -129,31 +142,48 @@ export function useCurrentCanvasAccess(
           workspaceConnection: { status: workspaceConnectionStatus }
         }
       };
-      if (!canLoadCurrentCanvasAccess(currentArgs) || !view || busy) return null;
+      if (
+        !canLoadCurrentCanvasAccess(currentArgs) ||
+        !view ||
+        busy ||
+        mutationLock.current ||
+        activeContext.current !== context
+      )
+        return null;
       const input: CollaborationAccessMutationInput = {
         canvasId: view.scope.canvasId,
         ...(projectId ? { projectId } : {}),
         request
       };
+      mutationLock.current = true;
       setBusy(true);
       setError(null);
       try {
         const result = await currentArgs.api.mutateCurrentCanvasAccess(input);
-        if (result.status === "conflict") {
-          setError(result.reason);
-        } else if (result.status === "denied") {
-          setError(result.reason);
-        }
+        if (activeContext.current !== context) return null;
         await refresh();
+        if (activeContext.current !== context) return null;
+        if (result.status !== "applied") setError(result.reason);
         return result;
       } catch (nextError) {
-        setError(collaborationErrorMessage(nextError));
+        if (activeContext.current === context) setError(collaborationErrorMessage(nextError));
         return null;
       } finally {
+        mutationLock.current = false;
         setBusy(false);
       }
     },
-    [api, busy, canvasId, projectId, refresh, sessionPhase, view, workspaceConnectionStatus]
+    [
+      api,
+      busy,
+      canvasId,
+      projectId,
+      refresh,
+      sessionPhase,
+      view,
+      workspaceConnectionStatus,
+      context
+    ]
   );
 
   const scopeFor = useCallback(

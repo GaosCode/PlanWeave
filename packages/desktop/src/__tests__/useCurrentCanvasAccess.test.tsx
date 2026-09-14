@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import {
   accessCapabilityFlags,
   activeCanvasPersonGrantSchema,
@@ -109,7 +109,7 @@ describe("useCurrentCanvasAccess", () => {
       }
     });
     await waitFor(() => expect(getCurrentCanvasAccess).toHaveBeenCalledTimes(2));
-    expect(result.current.error).toBeNull();
+    await waitFor(() => expect(result.current.error).toBe("acl_revision_conflict"));
   });
 
   it("uses the canvas revision for exact grant and revoke commands", async () => {
@@ -168,5 +168,30 @@ describe("useCurrentCanvasAccess", () => {
         grantId: grant.grantId
       }
     });
+  });
+  it("rejects a stale mutation callback after switching the explicit canvas scope", async () => {
+    const getCurrentCanvasAccess = vi.fn().mockResolvedValue(view);
+    const mutateCurrentCanvasAccess = vi.fn();
+    const api = { getCurrentCanvasAccess, mutateCurrentCanvasAccess };
+    const { result, rerender } = renderHook(
+      ({ canvasId }) =>
+        useCurrentCanvasAccess({
+          api,
+          canvasId,
+          projectId: scope.projectId,
+          connectionKey: "workspace-profile",
+          status: { session: { phase: "connected" }, workspaceConnection: { status: "connected" } }
+        }),
+      { initialProps: { canvasId: scope.canvasId } }
+    );
+    await waitFor(() => expect(result.current.view).toEqual(view));
+    const oldSave = result.current.updateVisibility;
+    getCurrentCanvasAccess.mockReturnValue(new Promise(() => {}));
+    rerender({ canvasId: "different-canvas" });
+    expect(result.current.view).toBeNull();
+    await act(async () => {
+      expect(await oldSave("canvas", "private")).toBeNull();
+    });
+    expect(mutateCurrentCanvasAccess).not.toHaveBeenCalled();
   });
 });

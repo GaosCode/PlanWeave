@@ -44,13 +44,20 @@ export async function readWorkspaceCanvasDirectory(
   return canvases;
 }
 
+export type WorkspaceCanvasDirectoryApi = Pick<
+  PlanWeaveCollaborationApi,
+  | "listCollaborationAuthorizedProjects"
+  | "listCollaborationAuthorizedCanvases"
+  | "listWorkspaceCanvasSharingCandidates"
+>;
+
 export function useWorkspaceCanvasDirectory({
   api,
   connectionKey,
   workspaceId,
   connected
 }: {
-  api: PlanWeaveCollaborationApi | null;
+  api: WorkspaceCanvasDirectoryApi | null;
   connectionKey: string | null;
   workspaceId?: string | null;
   connected: boolean;
