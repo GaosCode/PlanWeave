@@ -549,14 +549,21 @@ describe("remote execution CLI", () => {
             "action-1",
             ...remoteInteractionIdentityArgs(),
             "--option",
-            "allow_once",
+            "tool-approve-once",
             "--connection-profile",
             "profile-1",
             "--json"
           ],
           fixture.env
         );
-        expect(JSON.parse(responded.stdout)).toMatchObject({ type: "interaction_resolved" });
+        expect(JSON.parse(responded.stdout)).toMatchObject({
+          type: "interaction_resolved",
+          data: {
+            type: "interaction.permission_response",
+            decision: "select_option",
+            optionId: "tool-approve-once"
+          }
+        });
 
         const settled = await runCliExpectFailure(
           [
@@ -568,7 +575,7 @@ describe("remote execution CLI", () => {
             "action-1",
             ...remoteInteractionIdentityArgs(),
             "--option",
-            "allow_once",
+            "tool-approve-once",
             "--connection-profile",
             "profile-1"
           ],
@@ -616,7 +623,7 @@ describe("remote execution CLI", () => {
         ).toEqual(["action-1", "action-1", "action-1"]);
 
         const expectations = [
-          { index: 1, option: "allow_once", type: "interaction.permission_response" },
+          { index: 1, option: "tool-approve-once", type: "interaction.permission_response" },
           { index: 2, option: "answer", type: "interaction.elicitation_response" },
           { index: 3, option: "retry", type: "interaction.authentication_action" }
         ] as const;
@@ -642,6 +649,12 @@ describe("remote execution CLI", () => {
               acpSessionId: `acp-session-${expected.index}`
             }
           });
+          if (expected.type === "interaction.permission_response") {
+            expect(JSON.parse(responded.stdout).data).toMatchObject({
+              decision: "select_option",
+              optionId: expected.option
+            });
+          }
         }
 
         const empty = await runCli(skillInteractionListArgv(sessionId, "profile-1"), fixture.env);
@@ -756,7 +769,7 @@ describe("remote execution CLI", () => {
             "action-1",
             ...remoteInteractionIdentityArgs(),
             "--option",
-            "allow_once",
+            "tool-approve-once",
             "--connection-profile",
             "profile-1"
           ],
@@ -1187,12 +1200,19 @@ describe("remote execution CLI", () => {
             executionAttemptId: "attempt-1",
             acpSessionId: "acp-session-1",
             actionId: "action-1",
-            option: "allow_once",
+            option: "tool-approve-once",
             profileId: "profile-1"
           }),
           env
         );
-        expect(JSON.parse(responded.stdout)).toMatchObject({ type: "interaction_resolved" });
+        expect(JSON.parse(responded.stdout)).toMatchObject({
+          type: "interaction_resolved",
+          data: {
+            type: "interaction.permission_response",
+            decision: "select_option",
+            optionId: "tool-approve-once"
+          }
+        });
         const resumed = await runCliExpectFailure(
           skillRunSessionResumeArgv(sessionId, "profile-1"),
           env

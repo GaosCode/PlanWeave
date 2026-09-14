@@ -471,7 +471,8 @@ describe("WorkspaceExecutionCoordinator", () => {
       executionAttemptId: "attempt-2",
       actionId: "action-1",
       acpSessionId: "acp-session-1",
-      decision: "allow_once" as const
+      decision: "select_option" as const,
+      optionId: "tool-approve-once"
     };
     const resolved = await f.coordinator.respond({
       request: request(root),

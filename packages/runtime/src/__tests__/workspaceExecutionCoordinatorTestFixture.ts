@@ -295,7 +295,12 @@ export function pendingInteraction(attemptId = "attempt-2") {
           acpSessionId: "acp-session-1",
           expiresAt: "2030-01-01T01:00:00.000Z",
           title: "Permission",
-          description: "Approve tool use"
+          description: "Approve tool use",
+          options: [
+            { optionId: "tool-approve-always", label: "Always approve", kind: "allow_always" },
+            { optionId: "tool-approve-once", label: "Approve once", kind: "allow_once" },
+            { optionId: "tool-reject-once", label: "Reject once", kind: "reject_once" }
+          ]
         },
         operationId: "operation-1",
         hostId: "host-1",

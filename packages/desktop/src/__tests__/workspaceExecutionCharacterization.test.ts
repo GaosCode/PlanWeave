@@ -430,7 +430,8 @@ describe("workspace execution authority characterization", () => {
       executionAttemptId: "attempt-1",
       actionId: "action-1",
       acpSessionId: "acp-session-1",
-      decision: "allow_once" as const
+      decision: "select_option" as const,
+      optionId: "tool-approve-once"
     };
     const responded = await runWithOwner(async ({ coordinator, request: value }) => {
       await coordinator.respond({ request: value, sessionId, response });
@@ -457,6 +458,9 @@ describe("workspace execution authority characterization", () => {
     expect(followed.handle.runSessionId).toBe(sessionId);
     expect(responded.handle.runSessionId).toBe(sessionId);
     expect(cancelled.handle.runSessionId).toBe(sessionId);
+    expect(calls.find((call) => call.url.pathname.endsWith("/interactions/respond"))?.body).toEqual(
+      response
+    );
     expect(calls.every((call) => call.authorization !== null)).toBe(true);
     expect(
       calls.filter((call) => call.url.pathname === "/api/v1/owner-canvas-materializations")

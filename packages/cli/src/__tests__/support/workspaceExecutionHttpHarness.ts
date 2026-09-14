@@ -811,7 +811,12 @@ export class WorkspaceExecutionHttpHarness {
           ...identity,
           type: "interaction.permission_requested" as const,
           title: "Permission",
-          description: "Approve tool use"
+          description: "Approve tool use",
+          options: [
+            { optionId: "tool-approve-always", label: "Always approve", kind: "allow_always" },
+            { optionId: "tool-approve-once", label: "Approve once", kind: "allow_once" },
+            { optionId: "tool-reject-once", label: "Reject once", kind: "reject_once" }
+          ]
         };
       }
       if (kind === "elicitation") {

@@ -50,6 +50,22 @@ export const workspaceMappingsInventory = [
     "Agent Host client tests report empty mapping observations."
   ),
   inventoryEntry(
+    "wm-agentHostStartupDiscovery-test",
+    "workspaceMappings",
+    "endpoint_readiness",
+    "packages/agent-host/src/__tests__/agentHostStartupDiscovery.test.ts",
+    "readiness.workspaceMappings: []",
+    "Startup discovery tests report empty mapping observations."
+  ),
+  inventoryEntry(
+    "wm-agentHostLeaseExpiryHarness",
+    "workspaceMappings",
+    "endpoint_readiness",
+    "packages/agent-host/src/__tests__/support/agentHostLeaseExpiryHarness.ts",
+    "readiness.workspaceMappings: []",
+    "Lease expiry harness reports empty mapping observations."
+  ),
+  inventoryEntry(
     "wm-agentHostConfig-test",
     "workspaceMappings",
     "endpoint_readiness",
@@ -104,6 +120,14 @@ export const workspaceMappingsInventory = [
     "packages/distributed-integration/src/__tests__/canvasRuntimeArtifactLoopback.test.ts",
     "workspaceMappings: []",
     "Loopback Host readiness includes mapping array."
+  ),
+  inventoryEntry(
+    "wm-dist-exactPermissionHandshake",
+    "workspaceMappings",
+    "endpoint_readiness",
+    "packages/distributed-integration/src/__tests__/exactPermissionHandshake.test.ts",
+    "readiness.workspaceMappings: []",
+    "Exact permission handshake tests report empty mapping observations."
   ),
   inventoryEntry(
     "wm-catalog-test-ready-fixture",
@@ -330,12 +354,12 @@ export const workspaceMappingsInventory = [
     "Shared remote Runtime test environment reports project-scoped Host readiness observations."
   ),
   inventoryEntry(
-    "wm-remoteObservations-test",
+    "wm-remoteObservationsFixture",
     "workspaceMappings",
     "endpoint_readiness",
-    "packages/server/src/__tests__/remoteObservations.test.ts",
+    "packages/server/src/__tests__/support/remoteObservationsFixture.ts",
     "workspaceMappings ready",
-    "Observation HTTP tests report mapping ready."
+    "Observation HTTP fixture reports mapping ready."
   ),
   inventoryEntry(
     "wm-remoteOperations-test",
