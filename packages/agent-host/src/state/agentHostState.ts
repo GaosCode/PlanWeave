@@ -26,10 +26,12 @@ import { digestJson, initializeAgentHostStateSchema } from "./agentHostStateMigr
 import {
   type AgentHostExecution,
   type AgentHostExecutionEvidence,
+  type AgentHostExecutionStatus,
   type ExecuteBlockCommand
 } from "./agentHostStateRecords.js";
 import {
   type AgentHostCancellation,
+  type AgentHostExecutionSettlement,
   type AgentHostResumption,
   type AgentHostStateLimits,
   type AgentHostStateRepository,
@@ -60,11 +62,19 @@ export type {
   AgentHostExecutionStatus
 } from "./agentHostStateRecords.js";
 export type {
+  AgentHostExecutionSettlement,
   AgentHostCancellation,
   AgentHostResumption,
   AgentHostStateLimits,
   AgentHostStateRepository
 } from "./agentHostStateContract.js";
+
+const leasedStatuses: readonly AgentHostExecutionStatus[] = [
+  "accepted",
+  "preparing",
+  "running",
+  "interaction_wait"
+];
 
 type MailboxMessageEvent = Extract<ServerEvent, { type: "mailbox.message" }>;
 
@@ -298,12 +308,7 @@ export class AgentHostState implements AgentHostStateRepository {
 
   recoverInterruptedExecutions(): number {
     return inWriteTransaction(this.database, () => {
-      const ambiguous = this.executions.list([
-        "accepted",
-        "preparing",
-        "running",
-        "interaction_wait"
-      ]);
+      const ambiguous = this.executions.list(leasedStatuses);
       for (const execution of ambiguous) {
         this.executions.transition(execution.sequence, "interrupted", "host_restart");
         const evidence = this.executions.evidence(execution.sequence);
@@ -337,70 +342,47 @@ export class AgentHostState implements AgentHostStateRepository {
   }
 
   activeLeases(): AgentHostRemoteExecutionIdentity[] {
-    return this.executions
-      .list(["accepted", "preparing", "running", "interaction_wait"])
-      .map(({ command }) => ({
-        dispatchId: command.dispatchId,
-        leaseId: command.leaseId,
-        executionAttemptId: command.executionAttemptId
-      }));
+    return this.executions.list(leasedStatuses).map(({ command }) => ({
+      dispatchId: command.dispatchId,
+      leaseId: command.leaseId,
+      executionAttemptId: command.executionAttemptId
+    }));
+  }
+
+  nextLeaseExpiresAt(): string | undefined {
+    return this.executions.nextLeaseExpiresAt(leasedStatuses);
   }
 
   renewLease(
     dispatchId: string,
     leaseId: string,
     executionAttemptId: string,
-    leaseExpiresAt: string
+    leaseExpiresAt: string,
+    now = new Date()
   ): boolean {
     const parsedExpiry = z.string().datetime().parse(leaseExpiresAt);
-    const execution = this.executions
-      .list(["accepted", "preparing", "running", "interaction_wait"])
-      .find(
-        ({ command }) =>
-          command.dispatchId === dispatchId &&
-          command.leaseId === leaseId &&
-          command.executionAttemptId === executionAttemptId
-      );
-    if (!execution) return false;
-    this.executions.renewLease(execution.sequence, parsedExpiry);
-    return true;
+    const nowMs = z.date().parse(now).getTime();
+    return inWriteTransaction(this.database, () => {
+      const execution = this.executions.findByIdentity({ dispatchId, leaseId, executionAttemptId });
+      if (
+        !execution ||
+        !leasedStatuses.includes(execution.status) ||
+        Date.parse(execution.command.leaseExpiresAt) <= nowMs ||
+        Date.parse(parsedExpiry) <= nowMs
+      )
+        return false;
+      this.executions.renewLease(execution.sequence, parsedExpiry);
+      return true;
+    });
   }
 
   abandonExpiredExecutions(now: Date): AgentHostExecution[] {
+    const nowMs = z.date().parse(now).getTime();
     return inWriteTransaction(this.database, () => {
       const expired = this.executions
-        .list(["accepted", "preparing", "running", "interaction_wait"])
-        .filter(({ command }) => Date.parse(command.leaseExpiresAt) <= now.getTime());
-      for (const execution of expired) {
-        if (execution.status !== "accepted") {
-          const priorIntent = this.executions.evidence(execution.sequence)?.recoveryIntent;
-          this.executions.replaceRecoveryIntent(execution.sequence, {
-            kind: "lease_lost",
-            actionRequired: true,
-            ...(priorIntent === undefined ? {} : { priorIntent })
-          });
-          this.executions.transition(execution.sequence, "interrupted", "lease_expired");
-          const evidence = this.executions.evidence(execution.sequence);
-          if (!evidence) throw new Error("execution_evidence_not_found");
-          this.events.queue(
-            `dispatch.interrupted:${evidence.dispatchId}:${evidence.leaseId}:${evidence.executionAttemptId}`,
-            createInterruptedEvent(evidence, "lease_lost")
-          );
-          continue;
-        }
-        const failure = {
-          code: "execution_lease_expired",
-          message: "The execution lease expired before local execution started.",
-          retryable: false
-        } as const;
-        this.finishExecution(
-          execution.sequence,
-          "failed",
-          () => this.failedEvent(execution.command, failure),
-          failure,
-          false
-        );
-      }
+        .list(leasedStatuses)
+        .filter(({ command }) => Date.parse(command.leaseExpiresAt) <= nowMs);
+      for (const execution of expired) this.expireExecution(execution);
       return expired;
     });
   }
@@ -451,12 +433,11 @@ export class AgentHostState implements AgentHostStateRepository {
           message: "The execution was cancelled by the coordinator.",
           retryable: false
         } as const;
-        this.finishExecution(
+        this.finishExecutionInCurrentTransaction(
           execution.sequence,
           "cancelled",
           () => this.failedEvent(execution.command, failure),
-          failure,
-          false
+          failure
         );
         return { shouldAbort: false };
       }
@@ -466,12 +447,11 @@ export class AgentHostState implements AgentHostStateRepository {
           message: "The interrupted execution was cancelled by the coordinator.",
           retryable: false
         } as const;
-        this.finishExecution(
+        this.finishExecutionInCurrentTransaction(
           execution.sequence,
           "cancelled",
           () => this.failedEvent(execution.command, failure),
-          failure,
-          false
+          failure
         );
         return { shouldAbort: false };
       }
@@ -497,12 +477,16 @@ export class AgentHostState implements AgentHostStateRepository {
       .slice(0, limit);
   }
 
-  startResumption(sequence: number): AgentHostResumption | undefined {
+  startResumption(sequence: number, now = new Date()): AgentHostResumption | undefined {
     return inWriteTransaction(this.database, () => {
       const current = this.executions.get(sequence);
       const evidence = this.executions.evidence(sequence);
       if (!current || !evidence) throw new Error("mailbox_message_not_found");
       if (current.status !== "preparing") return undefined;
+      if (Date.parse(current.command.leaseExpiresAt) <= z.date().parse(now).getTime()) {
+        this.expireExecution(current);
+        return undefined;
+      }
       if (!evidence.acpSessionId) throw new Error("execution_resume_session_missing");
       const running = this.executions.transition(sequence, "running", "session_load_invoked");
       this.events.queue(
@@ -520,8 +504,19 @@ export class AgentHostState implements AgentHostStateRepository {
     });
   }
 
-  failResumption(sequence: number): void {
-    inWriteTransaction(this.database, () => {
+  failResumption(
+    sequence: number,
+    expected: AgentHostRemoteExecutionIdentity,
+    now = new Date()
+  ): AgentHostExecutionSettlement {
+    return inWriteTransaction(this.database, () => {
+      const settlement = this.executionSettlementGate(
+        sequence,
+        expected,
+        ["running", "interaction_wait"],
+        now
+      );
+      if (settlement !== "applied") return settlement;
       this.executions.markResumeFailed(sequence);
       const evidence = this.executions.evidence(sequence);
       if (!evidence) throw new Error("execution_evidence_not_found");
@@ -529,14 +524,19 @@ export class AgentHostState implements AgentHostStateRepository {
         `dispatch.interrupted:${evidence.dispatchId}:${evidence.leaseId}:${evidence.executionAttemptId}`,
         createInterruptedEvent(evidence, "acp_session_lost", true)
       );
+      return "applied";
     });
   }
 
-  startExecution(sequence: number): AgentHostExecution | undefined {
+  startExecution(sequence: number, now = new Date()): AgentHostExecution | undefined {
     return inWriteTransaction(this.database, () => {
       const current = this.executions.get(sequence);
       if (!current) throw new Error("mailbox_message_not_found");
       if (current.status !== "accepted") return undefined;
+      if (Date.parse(current.command.leaseExpiresAt) <= z.date().parse(now).getTime()) {
+        this.expireExecution(current);
+        return undefined;
+      }
       this.executions.transition(sequence, "preparing", "worker_claimed");
       const running = this.executions.transition(sequence, "running", "executor_invoked");
       this.events.queue(
@@ -554,33 +554,63 @@ export class AgentHostState implements AgentHostStateRepository {
     });
   }
 
-  completeExecution(sequence: number, result: ProtocolDispatchResult): void {
-    this.finishExecution(
-      sequence,
-      "completed",
-      (command) =>
-        parseAgentHostEvent({
-          type: "dispatch.completed",
-          protocolVersion: 1,
-          messageId: randomUUID(),
-          dispatchId: command.dispatchId,
-          leaseId: command.leaseId,
-          executionAttemptId: command.executionAttemptId,
-          result
-        }),
-      result
-    );
+  completeExecution(
+    sequence: number,
+    expected: AgentHostRemoteExecutionIdentity,
+    result: ProtocolDispatchResult,
+    now = new Date()
+  ): AgentHostExecutionSettlement {
+    return inWriteTransaction(this.database, () => {
+      const settlement = this.executionSettlementGate(
+        sequence,
+        expected,
+        ["running", "interaction_wait"],
+        now
+      );
+      if (settlement !== "applied") return settlement;
+      this.finishExecutionInCurrentTransaction(
+        sequence,
+        "completed",
+        (command) =>
+          parseAgentHostEvent({
+            type: "dispatch.completed",
+            protocolVersion: 1,
+            messageId: randomUUID(),
+            dispatchId: command.dispatchId,
+            leaseId: command.leaseId,
+            executionAttemptId: command.executionAttemptId,
+            result
+          }),
+        result
+      );
+      return "applied";
+    });
   }
 
-  failExecution(sequence: number, failure: ProtocolDispatchFailure): void {
-    const evidence = this.executions.evidence(sequence);
-    const status = evidence?.cancellationIntent === undefined ? "failed" : "cancelled";
-    this.finishExecution(
-      sequence,
-      status,
-      (command) => this.failedEvent(command, failure),
-      failure
-    );
+  failExecution(
+    sequence: number,
+    expected: AgentHostRemoteExecutionIdentity,
+    failure: ProtocolDispatchFailure,
+    now = new Date()
+  ): AgentHostExecutionSettlement {
+    return inWriteTransaction(this.database, () => {
+      const settlement = this.executionSettlementGate(
+        sequence,
+        expected,
+        ["preparing", "running", "interaction_wait"],
+        now
+      );
+      if (settlement !== "applied") return settlement;
+      const evidence = this.executions.evidence(sequence);
+      const status = evidence?.cancellationIntent === undefined ? "failed" : "cancelled";
+      this.finishExecutionInCurrentTransaction(
+        sequence,
+        status,
+        (command) => this.failedEvent(command, failure),
+        failure
+      );
+      return "applied";
+    });
   }
 
   recordSessionEvidence(sequence: number, input: unknown): AgentHostExecutionEvidence {
@@ -654,25 +684,86 @@ export class AgentHostState implements AgentHostStateRepository {
     });
   }
 
-  private finishExecution(
+  private executionSettlementGate(
+    sequence: number,
+    expected: AgentHostRemoteExecutionIdentity,
+    allowedStatuses: readonly AgentHostExecutionStatus[],
+    now: Date
+  ): AgentHostExecutionSettlement {
+    const nowMs = z.date().parse(now).getTime();
+    const current = this.executions.get(sequence);
+    if (
+      !current ||
+      current.command.dispatchId !== expected.dispatchId ||
+      current.command.leaseId !== expected.leaseId ||
+      current.command.executionAttemptId !== expected.executionAttemptId
+    )
+      return "stale";
+    if (
+      leasedStatuses.includes(current.status) &&
+      Date.parse(current.command.leaseExpiresAt) <= nowMs
+    ) {
+      this.expireExecution(current);
+      return "lease_lost";
+    }
+    if (current.status === "interrupted") {
+      const intent = this.executions.evidence(sequence)?.recoveryIntent;
+      if (
+        typeof intent === "object" &&
+        intent !== null &&
+        !Array.isArray(intent) &&
+        intent.kind === "lease_lost"
+      ) {
+        return "lease_lost";
+      }
+    }
+    return allowedStatuses.includes(current.status) ? "applied" : "stale";
+  }
+
+  private expireExecution(execution: AgentHostExecution): void {
+    if (execution.status !== "accepted") {
+      const priorIntent = this.executions.evidence(execution.sequence)?.recoveryIntent;
+      this.executions.replaceRecoveryIntent(execution.sequence, {
+        kind: "lease_lost",
+        actionRequired: true,
+        ...(priorIntent === undefined ? {} : { priorIntent })
+      });
+      this.executions.transition(execution.sequence, "interrupted", "lease_expired");
+      const evidence = this.executions.evidence(execution.sequence);
+      if (!evidence) throw new Error("execution_evidence_not_found");
+      this.events.queue(
+        `dispatch.interrupted:${evidence.dispatchId}:${evidence.leaseId}:${evidence.executionAttemptId}`,
+        createInterruptedEvent(evidence, "lease_lost")
+      );
+      return;
+    }
+    const failure = {
+      code: "execution_lease_expired",
+      message: "The execution lease expired before local execution started.",
+      retryable: false
+    } as const;
+    this.finishExecutionInCurrentTransaction(
+      execution.sequence,
+      "failed",
+      () => this.failedEvent(execution.command, failure),
+      failure
+    );
+  }
+
+  private finishExecutionInCurrentTransaction(
     sequence: number,
     status: "completed" | "failed" | "cancelled",
     createEvent: (command: ExecuteBlockCommand) => HostEvent,
-    payload: ProtocolDispatchResult | ProtocolDispatchFailure,
-    transaction = true
+    payload: ProtocolDispatchResult | ProtocolDispatchFailure
   ): void {
-    const finish = () => {
-      const current = this.executions.get(sequence);
-      if (!current) throw new Error("mailbox_message_not_found");
-      const eventType = status === "completed" ? "dispatch.completed" : "dispatch.failed";
-      const event = this.events.queue(
-        `${eventType}:${current.command.dispatchId}:${current.command.leaseId}:${current.command.executionAttemptId}`,
-        createEvent(current.command)
-      );
-      this.executions.finish(sequence, status, payload, event.messageId);
-    };
-    if (transaction) inWriteTransaction(this.database, finish);
-    else finish();
+    const current = this.executions.get(sequence);
+    if (!current) throw new Error("mailbox_message_not_found");
+    const eventType = status === "completed" ? "dispatch.completed" : "dispatch.failed";
+    const event = this.events.queue(
+      `${eventType}:${current.command.dispatchId}:${current.command.leaseId}:${current.command.executionAttemptId}`,
+      createEvent(current.command)
+    );
+    this.executions.finish(sequence, status, payload, event.messageId);
   }
 
   private failedEvent(command: ExecuteBlockCommand, failure: ProtocolDispatchFailure): HostEvent {

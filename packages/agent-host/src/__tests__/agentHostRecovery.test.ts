@@ -266,7 +266,7 @@ describe("Agent Host explicit recovery", () => {
         expect.objectContaining({ type: "dispatch.accepted", leaseId: "lease-resumed-002" })
       ])
     );
-    resumable.failResumption(1);
+    resumable.failResumption(1, resumeDelivery().command);
     expect(resumable.executionEvidence(1)).toMatchObject({
       status: "interrupted",
       recoveryIntent: { kind: "session_load_failed", leaseId: "lease-resumed-002" }
@@ -316,7 +316,7 @@ describe("Agent Host explicit recovery", () => {
     expect(state.applyCancellation(4)).toEqual({ shouldAbort: true });
     expect(state.receive(current).stored).toBe(false);
     expect(state.applyCancellation(4)).toEqual({ shouldAbort: false });
-    state.failExecution(1, {
+    state.failExecution(1, resumeDelivery().command, {
       code: "execution_cancelled",
       message: "The execution was cancelled by the coordinator.",
       retryable: false

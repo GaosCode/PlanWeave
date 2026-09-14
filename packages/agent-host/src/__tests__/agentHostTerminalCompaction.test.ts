@@ -127,7 +127,7 @@ describe("Agent Host terminal state compaction", () => {
     state.acknowledgeEvent(received.acknowledgement.messageId);
     state.startExecution(1);
     acknowledgeByType(state, "dispatch.accepted");
-    state.completeExecution(1, result);
+    state.completeExecution(1, commandFor(1), result);
     state.close();
     states.pop();
 
@@ -173,7 +173,7 @@ describe("Agent Host terminal state compaction", () => {
     state.acknowledgeEvent(received.acknowledgement.messageId);
     state.startExecution(1);
     acknowledgeByType(state, "dispatch.accepted");
-    state.completeExecution(1, result);
+    state.completeExecution(1, commandFor(1), result);
 
     state.close();
     states.pop();
@@ -188,7 +188,7 @@ describe("Agent Host terminal state compaction", () => {
     const received = pendingEvent.state.receive(delivery(1));
     pendingEvent.state.acknowledgeEvent(received.acknowledgement.messageId);
     pendingEvent.state.startExecution(1);
-    pendingEvent.state.completeExecution(1, result);
+    pendingEvent.state.completeExecution(1, commandFor(1), result);
     acknowledgeByType(pendingEvent.state, "dispatch.completed");
     expect(pendingEvent.state.executionEvidence(1)?.status).toBe("completed");
 
@@ -211,7 +211,7 @@ describe("Agent Host terminal state compaction", () => {
       afterCursor: 0,
       cursor: 1
     });
-    pendingAction.state.completeExecution(1, result);
+    pendingAction.state.completeExecution(1, commandFor(1), result);
     acknowledgeByType(pendingAction.state, "dispatch.completed");
     expect(pendingAction.state.executionEvidence(1)?.status).toBe("completed");
   });
@@ -246,7 +246,7 @@ describe("Agent Host terminal state compaction", () => {
         timestamp: "2026-08-16T00:00:00.000Z"
       }
     });
-    state.completeExecution(1, result);
+    state.completeExecution(1, commandFor(1), result);
     acknowledgeByType(state, "dispatch.completed");
     expect(state.executionEvidence(1)).toBeUndefined();
     expect(state.lastAcknowledgedSequence()).toBe(1);
@@ -281,7 +281,7 @@ describe("Agent Host terminal state compaction", () => {
     const cancelReceived = cancelled.state.receive(cancel);
     cancelled.state.acknowledgeEvent(cancelReceived.acknowledgement.messageId);
     expect(cancelled.state.applyCancellation(2)).toEqual({ shouldAbort: true });
-    cancelled.state.failExecution(1, {
+    cancelled.state.failExecution(1, commandFor(1), {
       code: "execution_cancelled",
       message: "The execution was cancelled.",
       retryable: false
@@ -326,7 +326,7 @@ describe("Agent Host terminal state compaction", () => {
     const permission = permissionDelivery(2);
     const permissionReceived = interaction.state.receive(permission);
     interaction.state.acknowledgeEvent(permissionReceived.acknowledgement.messageId);
-    interaction.state.completeExecution(1, result);
+    interaction.state.completeExecution(1, commandFor(1), result);
     acknowledgeByType(interaction.state, "dispatch.completed");
     interaction.state.close();
     states.pop();
@@ -347,7 +347,7 @@ describe("Agent Host terminal state compaction", () => {
     state.acknowledgeEvent(received.acknowledgement.messageId);
     state.startExecution(1);
     acknowledgeByType(state, "dispatch.accepted");
-    state.completeExecution(1, result);
+    state.completeExecution(1, commandFor(1), result);
     acknowledgeByType(state, "dispatch.completed");
     state.close();
     states.pop();
@@ -400,7 +400,7 @@ describe("Agent Host terminal state compaction", () => {
     for (const sequence of [1, 2]) {
       state.receive(delivery(sequence));
       state.startExecution(sequence);
-      state.completeExecution(sequence, result);
+      state.completeExecution(sequence, commandFor(sequence), result);
     }
     state.close();
     states.pop();
@@ -459,7 +459,7 @@ describe("Agent Host terminal state compaction", () => {
     migrated.acknowledgeEvent(received.acknowledgement.messageId);
     migrated.startExecution(1);
     acknowledgeByType(migrated, "dispatch.accepted");
-    migrated.completeExecution(1, result);
+    migrated.completeExecution(1, commandFor(1), result);
     acknowledgeByType(migrated, "dispatch.completed");
     migrated.close();
     states.pop();
@@ -677,7 +677,7 @@ describe("Agent Host terminal state compaction", () => {
         compacted.state.acknowledgeEvent(received.acknowledgement.messageId);
         compacted.state.startExecution(1);
         acknowledgeByType(compacted.state, "dispatch.accepted");
-        compacted.state.completeExecution(1, result);
+        compacted.state.completeExecution(1, commandFor(1), result);
         acknowledgeByType(compacted.state, "dispatch.completed");
       }
       compacted.state.close();
@@ -730,7 +730,7 @@ describe("Agent Host terminal state compaction", () => {
     const corrupt = await setup();
     corrupt.state.receive(delivery(1));
     corrupt.state.startExecution(1);
-    corrupt.state.completeExecution(1, result);
+    corrupt.state.completeExecution(1, commandFor(1), result);
     corrupt.state.close();
     states.pop();
     const corruptDatabase = await openAgentHostDatabase(corrupt.path, 5_000);

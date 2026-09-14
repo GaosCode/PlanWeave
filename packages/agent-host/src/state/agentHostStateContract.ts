@@ -5,12 +5,15 @@ import type {
   NormalizedFailure as ProtocolDispatchFailure,
   ServerEvent
 } from "../protocol.js";
+import type { AgentHostRemoteExecutionIdentity } from "../execution/remoteAcpPorts.js";
 import type { HostReadinessObservation } from "@planweave-ai/agent-host-protocol";
 import type {
   AgentHostExecution,
   AgentHostExecutionEvidence,
   CancelExecutionCommand
 } from "./agentHostStateRecords.js";
+
+export type AgentHostExecutionSettlement = "applied" | "stale" | "lease_lost";
 
 export type AgentHostCancellation = {
   sequence: number;
@@ -69,19 +72,35 @@ export interface AgentHostStateRepository {
     leaseId: string;
     executionAttemptId: string;
   }>;
+  nextLeaseExpiresAt(): string | undefined;
   renewLease(
     dispatchId: string,
     leaseId: string,
     executionAttemptId: string,
-    leaseExpiresAt: string
+    leaseExpiresAt: string,
+    now?: Date
   ): boolean;
   abandonExpiredExecutions(now: Date): AgentHostExecution[];
   pendingCancellations(): AgentHostCancellation[];
   applyCancellation(sequence: number): { shouldAbort: boolean };
   pendingResumptions(limit: number): AgentHostExecution[];
-  startResumption(sequence: number): AgentHostResumption | undefined;
-  failResumption(sequence: number): void;
-  startExecution(sequence: number): AgentHostExecution | undefined;
-  completeExecution(sequence: number, result: ProtocolDispatchResult): void;
-  failExecution(sequence: number, failure: ProtocolDispatchFailure): void;
+  startResumption(sequence: number, now?: Date): AgentHostResumption | undefined;
+  failResumption(
+    sequence: number,
+    expected: AgentHostRemoteExecutionIdentity,
+    now?: Date
+  ): AgentHostExecutionSettlement;
+  startExecution(sequence: number, now?: Date): AgentHostExecution | undefined;
+  completeExecution(
+    sequence: number,
+    expected: AgentHostRemoteExecutionIdentity,
+    result: ProtocolDispatchResult,
+    now?: Date
+  ): AgentHostExecutionSettlement;
+  failExecution(
+    sequence: number,
+    expected: AgentHostRemoteExecutionIdentity,
+    failure: ProtocolDispatchFailure,
+    now?: Date
+  ): AgentHostExecutionSettlement;
 }

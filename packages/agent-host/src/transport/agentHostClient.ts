@@ -25,7 +25,11 @@ import {
   type AgentHostExecutor
 } from "../execution/agentHostExecutor.js";
 import type { DurableAcpInteractionRelay } from "../execution/durableAcpRelay.js";
-import type { AgentHostExecution, AgentHostStateRepository } from "../state/agentHostState.js";
+import type {
+  AgentHostExecution,
+  AgentHostExecutionSettlement,
+  AgentHostStateRepository
+} from "../state/agentHostState.js";
 import type { CanvasRuntimeService } from "../runtime/canvasRuntimeService.js";
 import {
   type HostTransport,
@@ -37,6 +41,7 @@ import {
   parseHostTransportLimits,
   systemHostTransportClock
 } from "./hostTransport.js";
+import { ExecutionLeaseDeadline } from "./executionLeaseDeadline.js";
 import {
   parseReconnectBackoffOptions,
   reconnectDelay,
@@ -83,6 +88,9 @@ export type AgentHostClientOptions = {
 type ActiveExecution = {
   execution: AgentHostExecution;
   controller: AbortController;
+  sessionStart: AgentHostExecutionContext["sessionStart"];
+  cleanupTimer?: unknown;
+  cleanupFailed: boolean;
 };
 
 function endpoint(base: URL, path: string, websocket: boolean): URL {
@@ -128,6 +136,19 @@ function executionFailure(error: unknown, aborted: boolean) {
   };
 }
 
+function executionCleanupFailed(error: unknown): boolean {
+  if (error instanceof AgentHostExecutionError) {
+    return (
+      error.failure.code === "acp_cleanup_failed" ||
+      error.failure.code === "workspace_input_cleanup_failed"
+    );
+  }
+  return (
+    error instanceof AggregateError &&
+    error.message === "remote_acp_execution_and_input_cleanup_failed"
+  );
+}
+
 export class AgentHostClient implements HostTransport {
   private readonly baseUrl: URL;
   private readonly capabilities: string[];
@@ -156,6 +177,10 @@ export class AgentHostClient implements HostTransport {
   private lifecycleGeneration = 0;
   private recoveredGeneration = 0;
   private serverClockOffsetMs = 0;
+  private readonly leaseDeadline: ExecutionLeaseDeadline;
+  private leaseProtectionActive = false;
+  private leaseProtectionFailed = false;
+  private leasePersistenceFailed = false;
   private credentialRenewalInFlight?: Promise<void>;
 
   constructor(private readonly options: AgentHostClientOptions) {
@@ -172,6 +197,10 @@ export class AgentHostClient implements HostTransport {
     }
     this.clock = options.clock ?? systemHostTransportClock;
     this.limits = parseHostTransportLimits(options.limits);
+    this.leaseDeadline = new ExecutionLeaseDeadline(this.clock, () => {
+      this.checkExecutionLeases();
+      this.flushEvents();
+    });
     this.reconnect = parseReconnectBackoffOptions(options.reconnect);
     this.capabilities = parseAgentHostCapabilities(options.capabilities);
     if (
@@ -200,12 +229,17 @@ export class AgentHostClient implements HostTransport {
       !this.stopped ||
       this.compatibilityShutdown ||
       this.runs.size > 0 ||
+      this.active.size > 0 ||
       this.canvasRuns.size > 0
     )
       return;
     const generation = ++this.lifecycleGeneration;
     this.stopped = false;
+    this.leaseProtectionActive = true;
+    this.leaseProtectionFailed = false;
+    this.leasePersistenceFailed = false;
     this.options.state.recoverInterruptedExecutions();
+    if (!this.checkExecutionLeases()) return;
     const controller = new AbortController();
     this.startupAbort = controller;
     const startup = this.discoverRemoteRunnerEventProtocol(controller.signal)
@@ -258,11 +292,25 @@ export class AgentHostClient implements HostTransport {
   }
 
   async stop(): Promise<void> {
+    try {
+      await this.stopTransport();
+      if ([...this.active.values()].some((active) => active.cleanupFailed)) {
+        throw new Error("agent_host_execution_cleanup_failed");
+      }
+    } catch (error) {
+      this.failExecutionProtection("execution_cleanup_failed");
+      throw error;
+    }
+  }
+
+  private async stopTransport(): Promise<void> {
     if (this.stopped && this.currentStatus.state === "stopped" && !this.startup) return;
     const generation = ++this.lifecycleGeneration;
     const reconciliationRequired = this.currentStatus.state === "reconciliation-required";
     this.stopped = true;
     const startup = this.startup;
+    this.leaseProtectionActive = false;
+    this.leaseDeadline.stop();
     this.startupAbort?.abort();
     this.welcomed = false;
     this.inFlightEventIds.clear();
@@ -286,7 +334,11 @@ export class AgentHostClient implements HostTransport {
     await this.waitBounded(Promise.allSettled([...this.runs]).then(() => undefined));
     await this.waitBounded(Promise.allSettled([...this.canvasRuns]).then(() => undefined));
     this.compatibilityShutdown = undefined;
-    if (!reconciliationRequired && this.lifecycleGeneration === generation) {
+    if (
+      !reconciliationRequired &&
+      this.currentStatus.state !== "reconciliation-required" &&
+      this.lifecycleGeneration === generation
+    ) {
       this.transition({ state: "stopped" });
     }
   }
@@ -421,7 +473,7 @@ export class AgentHostClient implements HostTransport {
           this.options.canvasRuntime?.recover();
           this.options.conversations?.recover();
         }
-        this.abandonExpiredExecutions();
+        this.checkExecutionLeases();
         this.startHeartbeat(event.heartbeatIntervalMs);
         this.checkCredentialRenewal();
         this.flushEvents();
@@ -472,6 +524,7 @@ export class AgentHostClient implements HostTransport {
             }
           }
         }
+        this.checkExecutionLeases();
         this.flushEvents();
         this.pump();
         return;
@@ -485,8 +538,10 @@ export class AgentHostClient implements HostTransport {
           event.dispatchId,
           event.leaseId,
           event.executionAttemptId,
-          event.leaseExpiresAt
+          event.leaseExpiresAt,
+          this.serverNow()
         );
+        this.checkExecutionLeases();
         return;
       case "protocol.error":
         this.options.onProtocolError?.(event);
@@ -539,7 +594,7 @@ export class AgentHostClient implements HostTransport {
     if (this.heartbeatTimer) this.clock.clearTimeout(this.heartbeatTimer);
     const send = () => {
       if (this.stopped || !this.welcomed) return;
-      this.abandonExpiredExecutions();
+      if (!this.checkExecutionLeases()) return;
       this.options.state.queueHeartbeat(this.options.state.activeLeases(), this.options.readiness);
       this.flushEvents();
       this.checkCredentialRenewal();
@@ -576,7 +631,7 @@ export class AgentHostClient implements HostTransport {
 
   private pump(): void {
     if (!this.welcomed || this.stopped) return;
-    this.abandonExpiredExecutions();
+    if (!this.checkExecutionLeases()) return;
     for (const cancellation of this.options.state.pendingCancellations()) {
       const outcome = this.options.state.applyCancellation(cancellation.sequence);
       if (outcome.shouldAbort) {
@@ -597,24 +652,39 @@ export class AgentHostClient implements HostTransport {
     // Commands delivered here have already passed the authoritative scheduler, so
     // applying the static Host value again would serialize Owner Fleet operations
     // that the canvas runtime intentionally admitted concurrently.
-    for (;;) {
-      const pending = this.options.state.pendingResumptions(1)[0];
-      if (!pending) break;
-      const resumption = this.options.state.startResumption(pending.sequence);
+    for (const pending of this.options.state.pendingResumptions(Number.MAX_SAFE_INTEGER)) {
+      const sessionId = this.options.state.executionEvidence(pending.sequence)?.acpSessionId;
+      if (this.sessionBusy(pending.sequence, sessionId)) continue;
+      const resumption = this.options.state.startResumption(pending.sequence, this.serverNow());
       if (!resumption) continue;
       this.launch(resumption.execution, { kind: "load", sessionId: resumption.sessionId });
+      if (this.leaseProtectionFailed) return;
     }
-    for (;;) {
-      const pending = this.options.state.pendingExecutions(1)[0];
-      if (!pending) break;
-      const execution = this.options.state.startExecution(pending.sequence);
+    for (const pending of this.options.state.pendingExecutions(Number.MAX_SAFE_INTEGER)) {
+      if (this.sessionBusy(pending.sequence, pending.command.envelope.restoration?.sessionId))
+        continue;
+      const execution = this.options.state.startExecution(pending.sequence, this.serverNow());
       if (!execution) continue;
       const restoration = execution.command.envelope.restoration;
       this.launch(
         execution,
         restoration ? { kind: "load", sessionId: restoration.sessionId } : { kind: "new" }
       );
+      if (this.leaseProtectionFailed) return;
     }
+    this.checkExecutionLeases();
+  }
+
+  private sessionBusy(sequence: number, sessionId: string | undefined): boolean {
+    if (this.active.has(sequence)) return true;
+    if (!sessionId) return false;
+    return [...this.active.values()].some((active) => {
+      const activeSessionId =
+        active.sessionStart.kind === "load"
+          ? active.sessionStart.sessionId
+          : this.options.state.executionEvidence(active.execution.sequence)?.acpSessionId;
+      return activeSessionId === sessionId;
+    });
   }
 
   private launch(
@@ -622,76 +692,164 @@ export class AgentHostClient implements HostTransport {
     sessionStart: AgentHostExecutionContext["sessionStart"]
   ): void {
     const controller = new AbortController();
-    this.active.set(execution.sequence, { execution, controller });
+    const active: ActiveExecution = { execution, controller, sessionStart, cleanupFailed: false };
+    this.active.set(execution.sequence, active);
+    controller.signal.addEventListener(
+      "abort",
+      () => {
+        active.cleanupTimer = this.clock.setTimeout(() => {
+          active.cleanupTimer = undefined;
+          if (this.active.get(execution.sequence) !== active) return;
+          this.failExecutionProtection("execution_cleanup_timeout");
+        }, this.limits.shutdownTimeoutMs);
+      },
+      { once: true }
+    );
     this.flushEvents();
-    const run = this.run(execution, controller, sessionStart);
+    const run = this.run(active);
     this.runs.add(run);
     void run.then(
       () => this.runs.delete(run),
-      () => this.runs.delete(run)
+      () => {
+        this.runs.delete(run);
+        this.failExecutionProtection("execution_persistence_failed");
+      }
     );
   }
 
-  private abandonExpiredExecutions(): void {
-    const expired = this.options.state.abandonExpiredExecutions(
-      new Date(this.clock.now().getTime() + this.serverClockOffsetMs)
-    );
-    for (const execution of expired) this.active.get(execution.sequence)?.controller.abort();
+  private serverNow(): Date {
+    return new Date(this.clock.now().getTime() + this.serverClockOffsetMs);
   }
 
-  private async run(
-    execution: AgentHostExecution,
-    controller: AbortController,
-    sessionStart: AgentHostExecutionContext["sessionStart"]
-  ): Promise<void> {
+  private checkExecutionLeases(): boolean {
+    if (!this.leaseProtectionActive || this.leasePersistenceFailed) return false;
     try {
-      if (
-        execution.command.envelope.restoration &&
-        execution.command.envelope.restoration.hostId !== this.options.hostId
-      )
-        throw new Error("acp_restore_host_changed");
-      if (
-        execution.command.envelope.restoration &&
-        this.options.conversations?.isSessionActive(
-          execution.command.envelope.restoration.sessionId
+      this.options.state.abandonExpiredExecutions(this.serverNow());
+      const leased = this.options.state.activeLeases();
+      for (const active of this.active.values()) {
+        if (
+          !leased.some(
+            (identity) =>
+              identity.dispatchId === active.execution.command.dispatchId &&
+              identity.leaseId === active.execution.command.leaseId &&
+              identity.executionAttemptId === active.execution.command.executionAttemptId
+          )
         )
-      )
-        throw new Error("acp_conversation_turn_in_flight");
-      const result = parseAgentHostDispatchResult(
-        await this.options.executor.execute(execution.command, {
-          signal: controller.signal,
-          executionKey: `${execution.command.dispatchId}:${execution.command.leaseId}:${execution.command.executionAttemptId}`,
-          artifacts: this.artifacts.forExecution(
-            execution.command,
-            (evidence) =>
-              this.options.state.recordArtifactTransfer(
-                execution.sequence,
-                execution.command.leaseId,
-                evidence
-              ),
-            controller.signal
-          ),
-          sessionStart
-        })
+          active.controller.abort();
+      }
+      const next = this.options.state.nextLeaseExpiresAt();
+      this.leaseDeadline.reschedule(
+        next === undefined ? undefined : Date.parse(next) - this.serverClockOffsetMs
       );
-      if (this.stopped) return;
-      this.options.state.completeExecution(execution.sequence, result);
-    } catch (error) {
-      if (this.stopped) return;
-      if (
-        error instanceof AgentHostSessionLoadError &&
+      return true;
+    } catch {
+      // A rolled-back expiry cannot authorize more execution; cancellation is still required.
+      this.failExecutionProtection("execution_lease_persistence_failed");
+      return false;
+    }
+  }
+
+  private failExecutionProtection(reason: string): void {
+    this.leaseProtectionFailed = true;
+    this.stopped = true;
+    if (
+      reason === "execution_lease_persistence_failed" ||
+      reason === "execution_persistence_failed"
+    ) {
+      this.leasePersistenceFailed = true;
+      this.leaseDeadline.stop();
+    }
+    if (this.heartbeatTimer !== undefined) this.clock.clearTimeout(this.heartbeatTimer);
+    if (this.reconnectTimer !== undefined) this.clock.clearTimeout(this.reconnectTimer);
+    for (const active of this.active.values()) active.controller.abort();
+    this.transition({ state: "reconciliation-required", reason });
+    this.socket?.close(4003, reason);
+  }
+
+  private async run(active: ActiveExecution): Promise<void> {
+    const { execution, controller, sessionStart } = active;
+    try {
+      let outcome:
+        | { kind: "completed"; result: ReturnType<typeof parseAgentHostDispatchResult> }
+        | { kind: "failed"; error: unknown };
+      try {
+        if (!this.checkExecutionLeases() || controller.signal.aborted) return;
+        if (
+          execution.command.envelope.restoration &&
+          execution.command.envelope.restoration.hostId !== this.options.hostId
+        )
+          throw new Error("acp_restore_host_changed");
+        if (
+          execution.command.envelope.restoration &&
+          this.options.conversations?.isSessionActive(
+            execution.command.envelope.restoration.sessionId
+          )
+        )
+          throw new Error("acp_conversation_turn_in_flight");
+        outcome = {
+          kind: "completed",
+          result: parseAgentHostDispatchResult(
+            await this.options.executor.execute(execution.command, {
+              signal: controller.signal,
+              executionKey: `${execution.command.dispatchId}:${execution.command.leaseId}:${execution.command.executionAttemptId}`,
+              artifacts: this.artifacts.forExecution(
+                execution.command,
+                (evidence) =>
+                  this.options.state.recordArtifactTransfer(
+                    execution.sequence,
+                    execution.command.leaseId,
+                    evidence
+                  ),
+                controller.signal
+              ),
+              sessionStart
+            })
+          )
+        };
+      } catch (error) {
+        outcome = { kind: "failed", error };
+      }
+      if (outcome.kind === "failed" && executionCleanupFailed(outcome.error)) {
+        active.cleanupFailed = true;
+        this.failExecutionProtection("execution_cleanup_failed");
+        return;
+      }
+      if (!this.checkExecutionLeases() || this.stopped) return;
+      let settlement: AgentHostExecutionSettlement;
+      if (outcome.kind === "completed") {
+        settlement = this.options.state.completeExecution(
+          execution.sequence,
+          execution.command,
+          outcome.result,
+          this.serverNow()
+        );
+      } else if (
+        outcome.error instanceof AgentHostSessionLoadError &&
         !controller.signal.aborted &&
         !execution.command.envelope.restoration
       ) {
-        this.options.state.failResumption(execution.sequence);
-        return;
+        settlement = this.options.state.failResumption(
+          execution.sequence,
+          execution.command,
+          this.serverNow()
+        );
+      } else {
+        settlement = this.options.state.failExecution(
+          execution.sequence,
+          execution.command,
+          executionFailure(outcome.error, controller.signal.aborted),
+          this.serverNow()
+        );
       }
-      this.options.state.failExecution(
-        execution.sequence,
-        executionFailure(error, controller.signal.aborted)
-      );
+      if (settlement !== "applied") controller.abort();
+    } catch {
+      this.failExecutionProtection("execution_persistence_failed");
     } finally {
-      this.active.delete(execution.sequence);
+      if (active.cleanupTimer !== undefined) this.clock.clearTimeout(active.cleanupTimer);
+      if (this.active.get(execution.sequence) === active && !active.cleanupFailed) {
+        this.active.delete(execution.sequence);
+      }
+      this.checkExecutionLeases();
       this.flushEvents();
       this.pump();
     }

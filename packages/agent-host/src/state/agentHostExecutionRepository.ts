@@ -248,6 +248,19 @@ export class AgentHostExecutionRepository {
       .map(toExecution);
   }
 
+  nextLeaseExpiresAt(statuses: readonly AgentHostExecutionStatus[]): string | undefined {
+    if (statuses.length === 0) return undefined;
+    for (const status of statuses) agentHostExecutionStatusSchema.parse(status);
+    const placeholders = statuses.map(() => "?").join(",");
+    const row = this.database
+      .prepare(
+        `SELECT lease_expires_at FROM agent_host_executions
+         WHERE status IN (${placeholders}) ORDER BY julianday(lease_expires_at) LIMIT 1`
+      )
+      .get(...statuses);
+    return row ? z.string().datetime().parse(row.lease_expires_at) : undefined;
+  }
+
   transition(
     sequence: number,
     to: AgentHostExecutionStatus,

@@ -536,6 +536,9 @@ export class RemoteAcpExecutor implements AgentHostExecutor {
       );
     }
     const result = executionOutcome.result;
+    if (!result.cleanup.completed) {
+      throw engineFailure("cleanup_failed");
+    }
 
     if (result.terminal.state !== "succeeded") {
       if (context.sessionStart.kind === "load" && !resumedSessionLoaded) {

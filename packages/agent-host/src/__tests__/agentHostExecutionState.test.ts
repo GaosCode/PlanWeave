@@ -107,13 +107,13 @@ describe("authoritative Agent Host execution state", () => {
   it("enforces legal transitions and atomically rolls back terminal evidence on failure", async () => {
     const { state } = await setup();
     state.receive(executeMessage());
-    expect(() =>
-      state.completeExecution(1, {
+    expect(
+      state.completeExecution(1, identity(), {
         summary: "not running",
         reportArtifactRef: `artifact:sha256:${"a".repeat(64)}`,
         artifactRefs: []
       })
-    ).toThrow("execution_transition_invalid:accepted:completed");
+    ).toBe("stale");
     expect(state.executionEvidence(1)?.status).toBe("accepted");
     expect(state.pendingEvents()).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ type: "dispatch.completed" })])
@@ -231,8 +231,8 @@ describe("authoritative Agent Host execution state", () => {
       reportArtifactRef: `artifact:sha256:${"d".repeat(64)}` as const,
       artifactRefs: []
     };
-    state.completeExecution(1, result);
-    state.completeExecution(1, result);
+    state.completeExecution(1, identity(), result);
+    state.completeExecution(1, identity(), result);
     const completed = state.pendingEvents().find((event) => event.type === "dispatch.completed");
     expect(completed).toBeDefined();
     expect(state.executionEvidence(1)).toMatchObject({

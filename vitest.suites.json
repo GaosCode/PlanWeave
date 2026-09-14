@@ -734,12 +734,16 @@
     {
       "root": "packages/agent-host/src/__tests__",
       "unit": [
+        "executionLeaseDeadline.test.ts",
+        "remoteAcpCleanupFailure.test.ts",
         "agentHostPackage.test.ts",
         "canvasRuntimeContentTransfer.test.ts",
         "protocolConformance.test.ts",
         "reconnectBackoff.test.ts"
       ],
       "integration": [
+        "agentHostLeaseExpiry.test.ts",
+        "agentHostLeaseSettlement.test.ts",
         "remoteAcpConversation.test.ts",
         "agentExposure.test.ts",
         "agentHostCli.test.ts",
