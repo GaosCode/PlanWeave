@@ -38,6 +38,32 @@ describe("ACP connection process cleanup", () => {
     });
   });
 
+  it("cancels a closed SDK connection before process exit and still reaps the live process", async () => {
+    const connection = createAcpConnection({
+      launch: {
+        trusted: true,
+        command: process.execPath,
+        args: ["-e", "process.stdout.end(); setInterval(() => {}, 1000);"]
+      },
+      cwd: process.cwd(),
+      env: environment(),
+      clientInfo: { name: "cleanup-integration", version: "1" },
+      shutdown: { eofDrainMs: 25, terminateGraceMs: 25, cleanupDeadlineMs: 300 }
+    });
+    connections.push(connection);
+
+    await connection.closed;
+    expect(connection.terminalFailure).toBeNull();
+    const processId = connection.processId;
+    if (processId === null) throw new Error("ACP cleanup integration process id is missing.");
+    expect(() => process.kill(processId, 0)).not.toThrow();
+    await expect(connection.cancel({ sessionId: "closed-session" })).resolves.toBeUndefined();
+    await expect(connection.cancel({ sessionId: "closed-session" })).resolves.toBeUndefined();
+
+    await expect(connection.dispose()).resolves.toBeUndefined();
+    expectProcessExited(processId);
+  });
+
   it("reaps repeated waves of concurrent SIGTERM-resistant process trees", async () => {
     const { fixture } = await import("./support/acpRunnerLifecycleFixture.js");
 

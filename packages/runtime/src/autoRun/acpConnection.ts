@@ -370,7 +370,7 @@ class SubprocessAcpConnection implements AcpConnection {
   }
 
   cancel(notification: CancelNotification, options?: AcpOperationOptions): Promise<void> {
-    if (this.terminalError) return Promise.resolve();
+    if (this.terminalError || this.sdk.signal.aborted) return Promise.resolve();
     return this.runOperation("session/cancel", () => this.sdk.cancel(notification), options);
   }
 

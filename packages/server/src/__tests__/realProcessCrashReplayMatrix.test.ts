@@ -9,6 +9,7 @@
  * remoteBlockCoordinatorCrash.test.ts; this file covers process-level Host/Server/ACP.
  */
 import { afterEach, describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   RealProcessAcpHarness,
   type RealProcessAcpHarnessOptions
@@ -220,6 +221,13 @@ describe("real-process crash/replay fault matrix", () => {
     expect(["failed", "cancelled"]).toContain(terminal.state);
     expect(terminal.runtime.terminalReceipt?.outcome).not.toBe("completed");
     expect(client.readServerDispatch(dispatched.dispatchId).result_json).toBeNull();
+    const lifecycle = readFileSync(harness.paths.acpLifecycle, "utf8");
+    const processId = /^(\d+) paused session\/prompt$/m.exec(lifecycle)?.[1];
+    if (!processId) throw new Error("ACP force-exit process id is missing.");
+    expect(() => process.kill(Number(processId), 0)).toThrow(
+      expect.objectContaining({ code: "ESRCH" })
+    );
+    expect(client.readHostTerminalReceipt(dispatched.dispatchId)?.terminal_kind).toBe("failed");
     // Sensitivity: a success-biased assertion would only check terminal existence.
     expect(client.countLifecycleFragment("session/new")).toBe(1);
   }, 120_000);
