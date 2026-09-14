@@ -229,11 +229,14 @@ describe("Agent Host outbound transport", () => {
     expect(setVersion.mock.calls.map(([version]) => version)).toEqual([2]);
     await client.stop();
 
-    versionStatus = 503;
+    versionStatus = 404;
     client.start();
     await vi.waitFor(() => {
       expect(request).toHaveBeenCalledTimes(2);
-      expect(client.status()).toEqual({ state: "degraded", reason: "startup_failed" });
+      expect(client.status()).toEqual({
+        state: "degraded",
+        reason: "remote_runner_discovery_http_404"
+      });
     });
     expect(setVersion.mock.calls.map(([version]) => version)).toEqual([2]);
   });

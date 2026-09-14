@@ -5,7 +5,6 @@ import {
   EXACT_PERMISSION_OPTIONS_VERSION_HEADER,
   requireExactPermissionOptionsVersion,
   ACP_CONVERSATION_CAPABILITY,
-  remoteRunnerEventServerCapabilitySchema,
   type HostReadinessObservation
 } from "@planweave-ai/agent-host-protocol";
 import {
@@ -47,6 +46,12 @@ import {
   reconnectDelay,
   type ReconnectBackoffOptions
 } from "./reconnectBackoff.js";
+
+import {
+  discoverRemoteRunnerEventProtocol,
+  RemoteRunnerDiscoveryError
+} from "./remoteRunnerDiscovery.js";
+export { selectRemoteRunnerEventProtocolVersion } from "./remoteRunnerDiscovery.js";
 
 export type AgentHostClientOptions = {
   serverUrl: string;
@@ -98,14 +103,6 @@ function endpoint(base: URL, path: string, websocket: boolean): URL {
   result.protocol = websocket ? (base.protocol === "https:" ? "wss:" : "ws:") : base.protocol;
   result.pathname = path;
   return result;
-}
-
-export function selectRemoteRunnerEventProtocolVersion(capability: unknown): 2 {
-  const parsed = remoteRunnerEventServerCapabilitySchema.safeParse(capability);
-  if (!parsed.success || !parsed.data.available) {
-    throw new Error("remote_runner_event_v2_required");
-  }
-  return 2;
 }
 
 function executionFailure(error: unknown, aborted: boolean) {
@@ -174,6 +171,9 @@ export class AgentHostClient implements HostTransport {
   private stopped = true;
   private startupAbort?: AbortController;
   private startup?: Promise<void>;
+  private startupAttempt = 0;
+  private stopping?: Promise<void>;
+  private restartAfterStop = false;
   private lifecycleGeneration = 0;
   private recoveredGeneration = 0;
   private serverClockOffsetMs = 0;
@@ -225,6 +225,10 @@ export class AgentHostClient implements HostTransport {
   }
 
   start(): void {
+    if (this.stopping) {
+      this.restartAfterStop = true;
+      return;
+    }
     if (
       !this.stopped ||
       this.compatibilityShutdown ||
@@ -238,47 +242,93 @@ export class AgentHostClient implements HostTransport {
     this.leaseProtectionActive = true;
     this.leaseProtectionFailed = false;
     this.leasePersistenceFailed = false;
-    this.options.state.recoverInterruptedExecutions();
-    if (!this.checkExecutionLeases()) return;
     const controller = new AbortController();
     this.startupAbort = controller;
-    const startup = this.discoverRemoteRunnerEventProtocol(controller.signal)
-      .then(() => {
-        if (
-          !controller.signal.aborted &&
-          !this.stopped &&
-          this.lifecycleGeneration === generation
-        ) {
-          this.connect();
-        }
-      })
+    this.startupAttempt = 0;
+    this.reconnectAttempt = 0;
+    try {
+      this.options.state.recoverInterruptedExecutions();
+    } catch (error) {
+      this.failExecutionProtection("startup_local_state_failed");
+      throw error;
+    }
+    if (!this.checkExecutionLeases()) return;
+    this.beginDiscovery(generation, controller);
+  }
+
+  private isCurrentLifecycle(generation: number, controller: AbortController): boolean {
+    return !controller.signal.aborted && !this.stopped && this.lifecycleGeneration === generation;
+  }
+
+  private beginDiscovery(generation: number, controller: AbortController): void {
+    if (!this.isCurrentLifecycle(generation, controller)) return;
+    const startup = this.discoverAndConnect(generation, controller)
       .catch(() => {
-        if (this.lifecycleGeneration === generation && !controller.signal.aborted) {
-          this.stopped = true;
-          this.transition({ state: "degraded", reason: "startup_failed" });
+        if (this.isCurrentLifecycle(generation, controller)) {
+          this.failExecutionProtection("startup_local_failure");
         }
       })
       .finally(() => {
-        if (this.startupAbort === controller) this.startupAbort = undefined;
         if (this.startup === startup) this.startup = undefined;
       });
     this.startup = startup;
   }
 
-  private async discoverRemoteRunnerEventProtocol(signal: AbortSignal): Promise<void> {
-    const request = this.options.request;
-    const setVersion = this.options.state.setRemoteRunnerEventProtocolVersion.bind(
-      this.options.state
-    );
-    const response = await request(endpoint(this.baseUrl, "/version", false), {
-      headers: { Accept: "application/json" },
-      signal
-    });
-    if (signal.aborted) return;
-    if (!response.ok) throw new Error("remote_runner_event_capability_discovery_failed");
-    const body = (await response.json()) as { remoteRunnerEvents?: unknown };
-    if (signal.aborted) return;
-    setVersion(selectRemoteRunnerEventProtocolVersion(body.remoteRunnerEvents));
+  private async discoverAndConnect(generation: number, controller: AbortController): Promise<void> {
+    let version: 2;
+    try {
+      version = await discoverRemoteRunnerEventProtocol({
+        url: endpoint(this.baseUrl, "/version", false),
+        request: this.options.request,
+        signal: controller.signal,
+        clock: this.clock
+      });
+    } catch (error) {
+      if (!this.isCurrentLifecycle(generation, controller)) return;
+      if (error instanceof RemoteRunnerDiscoveryError && error.kind === "retryable") {
+        const attempt = ++this.startupAttempt;
+        const delayMs = Math.min(
+          30_000,
+          Math.max(
+            reconnectDelay(attempt, this.options.random ?? Math.random, this.reconnect),
+            error.retryAfterMs ?? 0
+          )
+        );
+        this.transition({
+          state: "backing-off",
+          attempt,
+          delayMs,
+          retryAt: new Date(this.clock.now().getTime() + delayMs).toISOString()
+        });
+        if (!this.isCurrentLifecycle(generation, controller)) return;
+        const timer = this.clock.setTimeout(() => {
+          if (this.reconnectTimer !== timer) return;
+          this.reconnectTimer = undefined;
+          this.beginDiscovery(generation, controller);
+        }, delayMs);
+        this.reconnectTimer = timer;
+        return;
+      }
+      this.stopped = true;
+      this.transition({
+        state:
+          error instanceof RemoteRunnerDiscoveryError && error.kind === "auth"
+            ? "auth-failed"
+            : "degraded",
+        reason: error instanceof RemoteRunnerDiscoveryError ? error.code : "startup_local_failure"
+      });
+      return;
+    }
+    if (!this.isCurrentLifecycle(generation, controller)) return;
+    try {
+      this.options.state.setRemoteRunnerEventProtocolVersion(version);
+    } catch {
+      this.failExecutionProtection("startup_local_state_failed");
+      return;
+    }
+    if (!this.isCurrentLifecycle(generation, controller)) return;
+    this.startupAttempt = 0;
+    this.connect();
   }
 
   status(): HostTransportStatus {
@@ -291,7 +341,28 @@ export class AgentHostClient implements HostTransport {
     return () => this.listeners.delete(listener);
   }
 
-  async stop(): Promise<void> {
+  stop(): Promise<void> {
+    this.restartAfterStop = false;
+    if (this.stopping) return this.stopping;
+    const stopping = this.stopChecked().then(
+      () => {
+        if (this.stopping === stopping) this.stopping = undefined;
+        if (this.restartAfterStop) {
+          this.restartAfterStop = false;
+          this.start();
+        }
+      },
+      (error: unknown) => {
+        if (this.stopping === stopping) this.stopping = undefined;
+        this.restartAfterStop = false;
+        throw error;
+      }
+    );
+    this.stopping = stopping;
+    return stopping;
+  }
+
+  private async stopChecked(): Promise<void> {
     try {
       await this.stopTransport();
       if ([...this.active.values()].some((active) => active.cleanupFailed)) {
@@ -312,9 +383,11 @@ export class AgentHostClient implements HostTransport {
     this.leaseProtectionActive = false;
     this.leaseDeadline.stop();
     this.startupAbort?.abort();
+    this.startupAbort = undefined;
     this.welcomed = false;
     this.inFlightEventIds.clear();
-    if (this.reconnectTimer) this.clock.clearTimeout(this.reconnectTimer);
+    if (this.reconnectTimer !== undefined) this.clock.clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = undefined;
     if (this.heartbeatTimer) this.clock.clearTimeout(this.heartbeatTimer);
     for (const { controller } of this.active.values()) controller.abort();
     this.options.canvasRuntime?.disconnect();
@@ -346,7 +419,9 @@ export class AgentHostClient implements HostTransport {
   private connect(): void {
     if (this.stopped) return;
     this.inFlightEventIds.clear();
+    const generation = this.lifecycleGeneration;
     this.transition({ state: "connecting", attempt: this.reconnectAttempt + 1 });
+    if (this.stopped || this.lifecycleGeneration !== generation) return;
     const url = endpoint(
       this.baseUrl,
       `/agent-hosts/${encodeURIComponent(this.options.hostId)}/connect`,
@@ -415,6 +490,7 @@ export class AgentHostClient implements HostTransport {
         .finally(() => this.queuedMessages--);
     });
     socket.on("unexpected-response", (_request, response) => {
+      if (this.socket !== socket || this.stopped) return;
       if (response.statusCode === 401 || response.statusCode === 403) {
         this.stopped = true;
         this.transition({ state: "auth-failed", reason: "credential_rejected" });
@@ -440,13 +516,20 @@ export class AgentHostClient implements HostTransport {
       if (!this.stopped) {
         const attempt = ++this.reconnectAttempt;
         const delayMs = reconnectDelay(attempt, this.options.random ?? Math.random, this.reconnect);
+        const generation = this.lifecycleGeneration;
         this.transition({
           state: "backing-off",
           attempt,
           delayMs,
           retryAt: new Date(this.clock.now().getTime() + delayMs).toISOString()
         });
-        this.reconnectTimer = this.clock.setTimeout(() => this.connect(), delayMs);
+        if (this.stopped || this.lifecycleGeneration !== generation) return;
+        const timer = this.clock.setTimeout(() => {
+          if (this.reconnectTimer !== timer) return;
+          this.reconnectTimer = undefined;
+          if (this.lifecycleGeneration === generation) this.connect();
+        }, delayMs);
+        this.reconnectTimer = timer;
       }
     });
   }
