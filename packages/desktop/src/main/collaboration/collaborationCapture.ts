@@ -3,7 +3,10 @@ import { writeFile } from "node:fs/promises";
 import { transportCapture, startCaptureLoopProbe } from "./collaborationCaptureRecorder.js";
 import { captureExportSchema, captureStartSchema } from "../../shared/collaborationCapture.js";
 import { collaborationCaptureChannels } from "../../shared/collaborationCaptureIpc.js";
-import { summarizeCapture } from "../../shared/collaborationCaptureSummary.js";
+import {
+  summarizeCapture,
+  summarizePresenceQueue
+} from "../../shared/collaborationCaptureSummary.js";
 
 export function registerCollaborationCaptureHandlers(): void {
   ipcMain.handle(collaborationCaptureChannels.start, (_event, input: unknown) => {
@@ -38,6 +41,8 @@ export function registerCollaborationCaptureHandlers(): void {
             chrome: process.versions.chrome
           },
           interpretation: {
+            queue:
+              "bridge_ack accepts the latest state into this connection. presence_coalesced counts local replacements without assigning a wire sequence. presence_queue_wait measures the latest state enqueue to actual socket_send on the local clock. socket_send is a local send call, not peer receipt. presence_buffer samples WebSocket queued bytes during send-budget checks. All queue samples share the capture duration and sample limits.",
             server:
               "serverForwardedMs minus serverReceivedMs measures message callback entry to pre-send, including validation and fanout. It excludes delay before the callback and actual socket transmission. Missing trace means no negotiated sender diagnostics for that message.",
             mainLoop:
@@ -55,7 +60,8 @@ export function registerCollaborationCaptureHandlers(): void {
           },
           summary: {
             renderer: summarizeCapture(capture.renderer),
-            transport: summarizeCapture(capture.transport)
+            transport: summarizeCapture(capture.transport),
+            presenceQueue: summarizePresenceQueue(capture.transport)
           },
           ...capture
         },

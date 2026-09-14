@@ -67,6 +67,7 @@ export type CollaborationPresenceHandlers = {
 
 export type CollaborationWebSocketLike = {
   readonly readyState: number;
+  readonly bufferedAmount: number;
   send(data: string): void;
   close(code?: number, reason?: string): void;
   on?(

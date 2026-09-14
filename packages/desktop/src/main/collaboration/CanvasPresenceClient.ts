@@ -1,6 +1,11 @@
+import { PresencePendingUpdate, PRESENCE_MAX_BUFFERED_BYTES } from "./PresencePendingUpdate.js";
 import type { CaptureStage, CaptureSample } from "../../shared/collaborationCapture.js";
 import { createHash } from "node:crypto";
-import { transportCapture, nextPresenceTrace } from "./collaborationCaptureRecorder.js";
+import {
+  transportCapture,
+  nextPresenceTrace,
+  peekPresenceTrace
+} from "./collaborationCaptureRecorder.js";
 import {
   CANVAS_PRESENCE_MAX_FRAME_BYTES,
   CANVAS_PRESENCE_PROTOCOL_VERSION
@@ -68,6 +73,7 @@ export class CanvasPresenceClient {
   private readonly logger?: CanvasPresenceClientOptions["logger"];
   private diagnosticsSupported = false;
   private socket?: CollaborationWebSocketLike;
+  private pendingUpdate?: PresencePendingUpdate;
   private handlers?: CollaborationPresenceHandlers;
   private status: CollaborationPresenceStatus = { state: "stopped" };
   private canvasId: string | null = null;
@@ -155,25 +161,23 @@ export class CanvasPresenceClient {
     }
     const canvasId = this.canvasId;
     const socket = this.socket;
-    if (!this.wanted || !canvasId || !socket || socket.readyState !== 1) {
+    const pending = this.pendingUpdate;
+    if (!this.wanted || !canvasId || !socket || !pending || socket.readyState !== 1) {
       throw new CollaborationClientError({
         kind: "aborted",
         code: "collaboration_presence_not_connected",
         message: "Canvas presence is not connected."
       });
     }
-    const trace = this.diagnosticsSupported ? nextPresenceTrace() : undefined;
     const update = canvasPresenceClientUpdateSchema.parse({
       type: "canvas.presence.update",
       protocolVersion: CANVAS_PRESENCE_PROTOCOL_VERSION,
       projectId: this.profile.projectId,
       canvasId,
       pointer: input.pointer,
-      selectionIds: input.selectionIds,
-      ...(trace ? { trace } : {})
+      selectionIds: input.selectionIds
     });
-    socket.send(JSON.stringify(update));
-    this.recordCapture("socket_send", { pointer: input.pointer !== null, trace });
+    pending.publish(update);
   }
 
   stop(): void {
@@ -183,6 +187,8 @@ export class CanvasPresenceClient {
     ) {
       transportCapture.bind(null);
     }
+    this.pendingUpdate?.dispose();
+    this.pendingUpdate = undefined;
     this.diagnosticsSupported = false;
     this.wanted = false;
     this.generation += 1;
@@ -247,6 +253,50 @@ export class CanvasPresenceClient {
         }
         this.socket = socket;
         const isCurrent = () => this.isScopeCurrent(generation, canvasId) && this.socket === socket;
+        const disconnect = () => {
+          if (!isCurrent()) return;
+          this.pendingUpdate?.dispose();
+          this.pendingUpdate = undefined;
+          this.recordCapture("socket_close");
+          this.socket = undefined;
+          this.scheduleReconnect(canvasId, generation);
+        };
+        const fail = (error: Error) => {
+          if (!isCurrent()) return;
+          this.logger?.error?.(redactCollaborationText(error.message));
+          disconnect();
+          try {
+            socket.close(4000, "presence send failed");
+          } catch (closeError) {
+            this.logger?.warn?.(
+              redactCollaborationText(
+                closeError instanceof Error ? closeError.message : "presence close failed"
+              )
+            );
+          }
+        };
+        this.pendingUpdate = new PresencePendingUpdate({
+          socket,
+          clock: this.clock,
+          serialize: (update) => {
+            const trace = this.diagnosticsSupported ? peekPresenceTrace() : undefined;
+            return JSON.stringify({ ...update, ...(trace ? { trace } : {}) });
+          },
+          onCoalesced: () => this.recordCapture("presence_coalesced"),
+          onBuffered: (bufferedBytes) => this.recordCapture("presence_buffer", { bufferedBytes }),
+          onFatal: fail,
+          send: (text, update, waitMs, bufferedBytes) => {
+            const trace = this.diagnosticsSupported ? nextPresenceTrace() : undefined;
+            this.recordCapture("presence_queue_wait", { durationMs: waitMs });
+            this.recordCapture("socket_send", {
+              pointer: update.pointer !== null,
+              trace,
+              bufferedBytes
+            });
+            socket.send(text);
+          }
+        });
+        let helloSent = false;
         const onOpen = () => {
           if (!isCurrent()) return;
           this.diagnosticsSupported = false;
@@ -257,11 +307,26 @@ export class CanvasPresenceClient {
             projectId: this.profile.projectId,
             canvasId
           });
-          socket.send(JSON.stringify(hello));
+          const text = JSON.stringify(hello);
+          const bytes = Buffer.byteLength(text, "utf8");
+          if (
+            bytes > CANVAS_PRESENCE_MAX_FRAME_BYTES ||
+            bytes + socket.bufferedAmount > PRESENCE_MAX_BUFFERED_BYTES
+          ) {
+            fail(new Error("Presence hello exceeded socket send budget."));
+            return;
+          }
+          try {
+            helloSent = true;
+            socket.send(text);
+          } catch (error) {
+            fail(error instanceof Error ? error : new Error("Presence hello send failed."));
+          }
         };
         const onMessage = (event: unknown) => {
           if (!isCurrent()) return;
           try {
+            if (!helloSent) throw new Error("Presence message arrived before hello.");
             const text = textFromEvent(event);
             if (Buffer.byteLength(text, "utf8") > CANVAS_PRESENCE_MAX_FRAME_BYTES) {
               throw new CollaborationClientError({
@@ -293,32 +358,14 @@ export class CanvasPresenceClient {
             }
             this.handleMessage(message, canvasId, isCurrent);
           } catch (error) {
-            this.logger?.error?.(
-              redactCollaborationText(
-                error instanceof Error ? error.message : "presence message failed"
-              )
-            );
-            try {
-              socket.close(4000, "presence protocol error");
-            } catch {
-              // ignore close races
-            }
+            fail(error instanceof Error ? error : new Error("Presence protocol error."));
           }
         };
-        const onClose = () => {
-          if (!isCurrent()) return;
-          this.recordCapture("socket_close");
-          this.socket = undefined;
-          if (this.status.state === "auth_expired") return;
-          if (!this.wanted || this.disposed) {
-            this.setStatus({ state: "stopped" });
-            return;
-          }
-          this.scheduleReconnect(canvasId, generation);
-        };
+        const onClose = disconnect;
         const onError = () => {
-          if (isCurrent()) this.recordCapture("socket_error");
-          if (isCurrent()) this.logger?.warn?.("collaboration presence socket error");
+          if (!isCurrent()) return;
+          this.recordCapture("socket_error");
+          fail(new Error("collaboration presence socket error"));
         };
         socket.addEventListener("open", onOpen);
         socket.addEventListener("message", onMessage);
@@ -348,7 +395,9 @@ export class CanvasPresenceClient {
         this.diagnosticsSupported = message.diagnosticsVersion === 1;
         this.reconnectAttempt = 0;
         this.setStatus({ state: "connected", canvasId });
+        if (!isCurrent()) return;
         this.handlers?.onSnapshot?.(message);
+        if (isCurrent()) this.pendingUpdate?.connected();
         break;
       case "canvas.presence.update":
         this.handlers?.onUpdate?.(message);
@@ -358,11 +407,16 @@ export class CanvasPresenceClient {
         break;
       case "canvas.presence.error":
         this.handlers?.onError?.(message);
+        if (!isCurrent()) return;
         if (message.code === "unauthorized" || message.code === "forbidden") {
+          this.pendingUpdate?.dispose();
+          this.pendingUpdate = undefined;
+          const socket = this.socket;
+          this.socket = undefined;
           this.wanted = false;
           this.setStatus({ state: "auth_expired", canvasId, code: message.code });
           try {
-            this.socket?.close(4001, "presence auth expired");
+            socket?.close(4001, "presence auth expired");
           } catch {
             // ignore close races
           }
@@ -401,6 +455,7 @@ export class CanvasPresenceClient {
   private recordCapture(
     stage: CaptureStage,
     options: {
+      bufferedBytes?: number;
       peer?: string;
       pointer?: boolean;
       durationMs?: number;

@@ -13,6 +13,30 @@ function distribution(values: number[]) {
   };
 }
 
+/** Local coalescing never allocates a wire sequence or implies a lost network update. */
+export function summarizePresenceQueue(trace: CaptureTrace) {
+  const sent = trace.samples.filter((sample) => sample.stage === "socket_send");
+  const buffered = trace.samples.flatMap((sample) =>
+    (sample.stage === "socket_send" || sample.stage === "presence_buffer") &&
+    sample.bufferedBytes !== undefined
+      ? [sample.bufferedBytes]
+      : []
+  );
+  return {
+    sentUpdates: sent.length,
+    coalescedUpdates: trace.samples.filter((sample) => sample.stage === "presence_coalesced")
+      .length,
+    queueWait: distribution(
+      trace.samples.flatMap((sample) =>
+        sample.stage === "presence_queue_wait" && sample.durationMs !== undefined
+          ? [sample.durationMs]
+          : []
+      )
+    ),
+    bufferedBytesHighWater: buffered.length ? Math.max(...buffered) : null
+  };
+}
+
 /** Arrival cadence is grouped by peer and pointer presence, never treated as one-way latency. */
 export function summarizeCapture(trace: CaptureTrace) {
   const groups = new Map<string, CaptureSample[]>();

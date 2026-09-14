@@ -209,7 +209,7 @@ export class CanvasPresenceHub {
       session: entry.session,
       ...(trace ? { trace } : {})
     };
-    this.fanout(entry.scope, message, entry.session.identity.sessionId);
+    this.fanout(entry.scope, message, entry);
     return entry.session;
   }
 
@@ -316,12 +316,14 @@ export class CanvasPresenceHub {
   private fanout(
     scope: CanvasPresenceScope,
     message: CanvasPresenceServerMessage,
-    exclude?: CanvasPresenceSessionId
+    source?: HubEntry
   ): void {
     const ids = this.sessionsByScope.get(scopeKey(scope));
     if (!ids) return;
     for (const id of ids) {
-      if (id === exclude) continue;
+      // Sending can synchronously remove the source through another peer's failed queue.
+      if (source && this.sessions.get(source.session.identity.sessionId) !== source) return;
+      if (id === source?.session.identity.sessionId) continue;
       const entry = this.sessions.get(id);
       if (!entry) continue;
       try {

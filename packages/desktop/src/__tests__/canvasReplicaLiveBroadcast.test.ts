@@ -542,6 +542,7 @@ describe("Workspace canvas live broadcast (Phase 5B)", () => {
     class MiniSocket {
       static instances: MiniSocket[] = [];
       readyState = 0;
+      bufferedAmount = 0;
       sent: string[] = [];
       listeners = new Map<string, SocketListener[]>();
       constructor(

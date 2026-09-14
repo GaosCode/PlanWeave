@@ -6,11 +6,17 @@ export const transportCapture = new CollaborationCaptureRecorder();
 let stream: { ticket: number; id: string; sequence: number } | null = null;
 let lagTimer: ReturnType<typeof setTimeout> | null = null;
 
-export function nextPresenceTrace(): CanvasPresenceTrace | undefined {
+export function peekPresenceTrace(): CanvasPresenceTrace | undefined {
   const ticket = transportCapture.ticket();
   if (ticket === null) return undefined;
   if (stream?.ticket !== ticket) stream = { ticket, id: randomUUID(), sequence: 0 };
-  return { streamId: stream.id, sequence: stream.sequence++ };
+  return { streamId: stream.id, sequence: stream.sequence };
+}
+
+export function nextPresenceTrace(): CanvasPresenceTrace | undefined {
+  const trace = peekPresenceTrace();
+  if (trace && stream) stream.sequence += 1;
+  return trace;
 }
 
 /** Timer lateness measures local scheduling delay, not network latency. */

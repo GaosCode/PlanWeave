@@ -57,6 +57,7 @@ export class CollaborationCaptureRecorder {
   record(
     stage: CaptureStage,
     options: {
+      bufferedBytes?: number;
       peer?: string;
       pointer?: boolean;
       durationMs?: number;
@@ -87,6 +88,7 @@ export class CollaborationCaptureRecorder {
     if (peer !== undefined) sample.peer = peer;
     if (options.pointer !== undefined) sample.pointer = options.pointer;
     if (options.durationMs !== undefined) sample.durationMs = Math.max(0, options.durationMs);
+    if (options.bufferedBytes !== undefined) sample.bufferedBytes = options.bufferedBytes;
     if (options.trace) sample.trace = { ...options.trace };
     this.trace.samples.push(sample);
   }

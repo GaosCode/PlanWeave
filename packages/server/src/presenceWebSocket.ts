@@ -1,3 +1,4 @@
+import { PresenceOutboundQueue, PRESENCE_OUTBOUND_LIMITS } from "./presenceOutboundQueue.js";
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
@@ -6,8 +7,7 @@ import {
   PRESENCE_DIAGNOSTICS_HEADER,
   canvasPresenceClientMessageSchema,
   canvasPresenceServerMessageSchema,
-  type CanvasPresenceErrorCode,
-  type CanvasPresenceServerMessage
+  type CanvasPresenceErrorCode
 } from "@planweave-ai/collaboration-protocol/canvas/presence";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 import {
@@ -98,11 +98,6 @@ function closeCodeForRemoval(reason: CanvasPresenceRemovalReason): number {
   }
 }
 
-function send(socket: WebSocket, message: CanvasPresenceServerMessage): void {
-  if (socket.readyState !== WebSocket.OPEN) return;
-  socket.send(JSON.stringify(canvasPresenceServerMessageSchema.parse(message)));
-}
-
 function parseFrame(data: RawData): unknown {
   const text = data.toString();
   if (Buffer.byteLength(text, "utf8") > CANVAS_PRESENCE_MAX_FRAME_BYTES) {
@@ -131,6 +126,7 @@ export function attachCanvasPresenceWebSocketServer(
     new CanvasPresenceHub({ clock: () => (options.clock ?? (() => new Date()))().getTime() });
   const ownsHub = options.hub === undefined;
   const sessions = new Set<WebSocket>();
+  const queues = new Map<WebSocket, PresenceOutboundQueue>();
   const authCheckIntervalMs = options.authCheckIntervalMs ?? AUTHORIZATION_SAFETY_CHECK_INTERVAL_MS;
   if (!Number.isSafeInteger(authCheckIntervalMs) || authCheckIntervalMs < 25) {
     throw new Error("canvas_presence_auth_interval_invalid");
@@ -156,7 +152,7 @@ export function attachCanvasPresenceWebSocketServer(
     let cleanedUp = false;
     let unsubscribeAuthorization = () => {};
     let authTimer: ReturnType<typeof setTimeout> | undefined;
-    const helloTimer = setTimeout(() => socket.close(4002, "presence hello required"), 10_000);
+    const helloTimer = setTimeout(() => closeConnection(4002, "presence hello required"), 10_000);
     const actor = authenticated.actor;
     const humanPrincipalId = actor.humanPrincipalId;
     const deviceSessionId =
@@ -181,7 +177,7 @@ export function attachCanvasPresenceWebSocketServer(
     };
 
     const sendError = (code: CanvasPresenceErrorCode) => {
-      send(socket, {
+      queue.enqueue({
         type: "canvas.presence.error",
         protocolVersion: 1,
         projectId: route.projectId,
@@ -193,18 +189,49 @@ export function attachCanvasPresenceWebSocketServer(
     const cleanup = (removalReason: CanvasPresenceRemovalReason = "disconnect") => {
       if (cleanedUp) return;
       cleanedUp = true;
+      queue.dispose();
+      queues.delete(socket);
       clearTimeout(helloTimer);
       if (authTimer) clearTimeout(authTimer);
       clearInterval(heartbeatTimer);
       unsubscribeAuthorization();
-      sessions.delete(socket);
       if (sessionId && !closedByHub) hub.leave(sessionId, removalReason);
     };
 
+    const closeConnection = (code: number, reason: string) => {
+      cleanup();
+      socket.close(code, reason);
+    };
+    const sendAuthorizationError = (code: CanvasPresenceErrorCode) => {
+      const busy = queue.statistics.inFlight;
+      queue.dispose();
+      if (busy || socket.readyState !== WebSocket.OPEN) return;
+      const text = JSON.stringify(
+        canvasPresenceServerMessageSchema.parse({
+          type: "canvas.presence.error",
+          protocolVersion: 1,
+          projectId: route.projectId,
+          canvasId: route.canvasId,
+          code
+        })
+      );
+      if (
+        socket.bufferedAmount + Buffer.byteLength(text, "utf8") >
+        PRESENCE_OUTBOUND_LIMITS.maxBufferedBytes
+      )
+        return;
+      try {
+        socket.send(text, (error) => {
+          if (error) socket.terminate();
+        });
+      } catch {
+        socket.terminate();
+      }
+    };
     const expireAuthorization = () => {
       if (authorizationExpired) return;
       authorizationExpired = true;
-      sendError("unauthorized");
+      sendAuthorizationError("unauthorized");
       cleanup("revoked");
       socket.close(4001, "presence authorization expired");
     };
@@ -213,12 +240,20 @@ export function attachCanvasPresenceWebSocketServer(
         if (stillAuthorized()) return true;
         expireAuthorization();
       } catch {
-        sendError("server_error");
-        cleanup();
-        socket.close(1011, "presence authorization error");
+        sendAuthorizationError("server_error");
+        closeConnection(1011, "presence authorization error");
       }
       return false;
     };
+    const queue = new PresenceOutboundQueue({
+      socket,
+      authorize: validateAuthorization,
+      onFatal: () => {
+        cleanup();
+        socket.terminate();
+      }
+    });
+    queues.set(socket, queue);
     const scheduleAuthorizationSafetyCheck = () => {
       authTimer = setTimeout(() => {
         authTimer = undefined;
@@ -228,7 +263,7 @@ export function attachCanvasPresenceWebSocketServer(
     const heartbeatTimer = setInterval(() => {
       if (socket.readyState !== WebSocket.OPEN) return;
       if (!alive) {
-        if (sessionId) hub.leave(sessionId, "expired");
+        cleanup("expired");
         socket.terminate();
         return;
       }
@@ -241,13 +276,16 @@ export function attachCanvasPresenceWebSocketServer(
         try {
           hub.touch(sessionId);
         } catch {
+          cleanup();
           socket.terminate();
         }
       }
     });
 
     const onRemoved = (reason: CanvasPresenceRemovalReason) => {
+      if (cleanedUp) return;
       closedByHub = true;
+      cleanup();
       socket.close(closeCodeForRemoval(reason), `presence ${reason}`);
     };
 
@@ -269,7 +307,7 @@ export function attachCanvasPresenceWebSocketServer(
       try {
         if (isBinary) {
           sendError("frame_too_large");
-          socket.close(1009, "binary presence frame");
+          closeConnection(1009, "binary presence frame");
           return;
         }
         if (!validateAuthorization()) return;
@@ -279,7 +317,10 @@ export function attachCanvasPresenceWebSocketServer(
         } catch (error) {
           const frameError = error instanceof Error ? error.message : "invalid_message";
           sendError(frameError === "frame_too_large" ? "frame_too_large" : "invalid_message");
-          socket.close(frameError === "frame_too_large" ? 1009 : 4000, "presence protocol error");
+          closeConnection(
+            frameError === "frame_too_large" ? 1009 : 4000,
+            "presence protocol error"
+          );
           return;
         }
         const parsed = canvasPresenceClientMessageSchema.safeParse(raw);
@@ -289,19 +330,19 @@ export function attachCanvasPresenceWebSocketServer(
               ? (raw as { protocolVersion?: unknown }).protocolVersion
               : undefined;
           sendError(protocolVersion !== 1 ? "unsupported_version" : "invalid_message");
-          socket.close(4000, "presence protocol error");
+          closeConnection(4000, "presence protocol error");
           return;
         }
         const message = parsed.data;
         if (message.projectId !== route.projectId || message.canvasId !== route.canvasId) {
           sendError("cross_scope");
-          socket.close(4003, "presence scope mismatch");
+          closeConnection(4003, "presence scope mismatch");
           return;
         }
         if (!initialized) {
           if (message.type !== "canvas.presence.hello") {
             sendError("invalid_message");
-            socket.close(4000, "presence hello required");
+            closeConnection(4000, "presence hello required");
             return;
           }
           const authenticated = authenticateCollaborationForScope(
@@ -321,26 +362,17 @@ export function attachCanvasPresenceWebSocketServer(
             humanPrincipalId: authenticated.actor.humanPrincipalId,
             displayName: authenticated.actor.displayName,
             send: (outbound) => {
-              if (!validateAuthorization()) return;
-              if (outbound.type === "canvas.presence.update" && outbound.trace) {
-                const { trace, ...ordinary } = outbound;
-                send(
-                  socket,
-                  diagnostics
-                    ? {
-                        ...ordinary,
-                        trace: { ...trace, serverForwardedMs: performance.now() }
-                      }
-                    : ordinary
-                );
-              } else send(socket, outbound);
+              if (outbound.type === "canvas.presence.update" && outbound.trace && !diagnostics) {
+                const { trace: _trace, ...ordinary } = outbound;
+                queue.enqueue(ordinary);
+              } else queue.enqueue(outbound);
             },
             onRemoved
           });
           sessionId = connected.session.identity.sessionId;
           initialized = true;
           clearTimeout(helloTimer);
-          send(socket, {
+          queue.enqueue({
             type: "canvas.presence.snapshot",
             protocolVersion: 1,
             projectId: route.projectId,
@@ -352,7 +384,7 @@ export function attachCanvasPresenceWebSocketServer(
         }
         if (message.type !== "canvas.presence.update" || !sessionId) {
           sendError("invalid_message");
-          socket.close(4000, "presence protocol error");
+          closeConnection(4000, "presence protocol error");
           return;
         }
         try {
@@ -378,19 +410,20 @@ export function attachCanvasPresenceWebSocketServer(
           if (error instanceof CanvasPresenceHubError) {
             sendError(error.code === "server_error" ? "server_error" : error.code);
             if (error.code === "server_error" || error.code === "cross_scope") {
-              socket.close(4003, "presence update rejected");
+              closeConnection(4003, "presence update rejected");
             }
             return;
           }
           sendError("server_error");
-          socket.close(1011, "presence server error");
+          closeConnection(1011, "presence server error");
         }
       } catch {
         sendError("server_error");
-        socket.close(1011, "presence server error");
+        closeConnection(1011, "presence server error");
       }
     });
     socket.on("close", () => {
+      sessions.delete(socket);
       cleanup();
     });
     socket.on("error", () => {
@@ -450,8 +483,11 @@ export function attachCanvasPresenceWebSocketServer(
     close() {
       closePromise ??= (async () => {
         unregister();
+        for (const queue of queues.values()) queue.dispose();
         hub.close();
-        for (const socket of sessions) socket.close(1001, "server shutdown");
+        for (const socket of sessions) {
+          socket.close(1001, "server shutdown");
+        }
         let timer: ReturnType<typeof setTimeout> | undefined;
         const graceful = new Promise<void>((resolve, rejectClose) => {
           webSocketServer.close((error) => (error ? rejectClose(error) : resolve()));

@@ -14,6 +14,9 @@ export const captureStageSchema = z.enum([
   "renderer_send",
   "bridge_ack",
   "bridge_error",
+  "presence_coalesced",
+  "presence_buffer",
+  "presence_queue_wait",
   "socket_send",
   "socket_receive",
   "socket_open",
@@ -34,6 +37,7 @@ export const captureSampleSchema = z
     peer: z.number().int().nonnegative().optional(),
     pointer: z.boolean().optional(),
     durationMs: z.number().finite().nonnegative().optional(),
+    bufferedBytes: z.number().int().nonnegative().optional(),
     trace: z.union([canvasPresenceServerTraceSchema, canvasPresenceTraceSchema]).optional()
   })
   .strict();

@@ -10,6 +10,7 @@ class TestSocket {
   readonly sent: string[] = [];
   readonly listeners = new Map<string, Listener[]>();
   readyState = 0;
+  bufferedAmount = 0;
 
   constructor(
     readonly url: string,

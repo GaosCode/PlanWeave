@@ -173,6 +173,7 @@ describe("desktop canvas presence transport", () => {
     let constructed = 0;
     class FakeSocket {
       readonly readyState = 0;
+      bufferedAmount = 0;
       constructor() {
         constructed += 1;
       }
