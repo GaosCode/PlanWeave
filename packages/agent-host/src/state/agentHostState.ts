@@ -644,7 +644,7 @@ export class AgentHostState implements AgentHostStateRepository {
       let imported = 0;
       let replayed = 0;
       for (const record of records) {
-        if (this.remoteRecords.appendInCurrentTransaction(record)) imported += 1;
+        if (this.remoteRecords.importHistoricalInCurrentTransaction(record)) imported += 1;
         else replayed += 1;
       }
       return { imported, replayed, sourcePresent: true };

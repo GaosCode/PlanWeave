@@ -1,27 +1,26 @@
 import { z } from "zod";
 import { opaqueIdentifierSchema } from "./identifiers.js";
-import { dispatchLifecycleIdentitySchema } from "./lifecycle.js";
-import { acpRecoveryIdentitySchema } from "./lifecycle.js";
+import {
+  INTERACTION_TEXT_MAX_LENGTH,
+  interactionActionIdSchema,
+  interactionIdentitySchema,
+  legacyPermissionRequestSchema,
+  legacyPermissionSettlementSchema,
+  assertInteractionIdentityMatches
+} from "./acpPermissionInteractions.js";
 
-export const INTERACTION_TEXT_MAX_LENGTH = 16_384 as const;
+export {
+  INTERACTION_TEXT_MAX_LENGTH,
+  interactionActionIdSchema
+} from "./acpPermissionInteractions.js";
 export const INTERACTION_OPTION_MAX_COUNT = 64 as const;
 
-export const interactionActionIdSchema = opaqueIdentifierSchema.brand("InteractionActionId");
-
-const interactionIdentitySchema = dispatchLifecycleIdentitySchema.extend({
-  actionId: interactionActionIdSchema,
-  acpSessionId: acpRecoveryIdentitySchema.shape.acpSessionId
-});
 const interactionRequestIdentitySchema = interactionIdentitySchema.extend({
   expiresAt: z.string().datetime()
 });
 
 export const interactionRequestSchema = z.discriminatedUnion("type", [
-  interactionRequestIdentitySchema.extend({
-    type: z.literal("interaction.permission_requested"),
-    title: z.string().min(1).max(512),
-    description: z.string().max(INTERACTION_TEXT_MAX_LENGTH)
-  }),
+  legacyPermissionRequestSchema,
   interactionRequestIdentitySchema.extend({
     type: z.literal("interaction.elicitation_requested"),
     prompt: z.string().min(1).max(INTERACTION_TEXT_MAX_LENGTH),
@@ -35,10 +34,7 @@ export const interactionRequestSchema = z.discriminatedUnion("type", [
 ]);
 
 export const interactionSettlementSchema = z.discriminatedUnion("type", [
-  interactionIdentitySchema.extend({
-    type: z.literal("interaction.permission_response"),
-    decision: z.enum(["allow_once", "deny"])
-  }),
+  legacyPermissionSettlementSchema,
   interactionIdentitySchema
     .extend({
       type: z.literal("interaction.elicitation_response"),
@@ -83,15 +79,7 @@ export function parseInteractionSettlementForRequest(
 ): InteractionSettlement {
   const request = interactionRequestSchema.parse(requestInput);
   const settlement = interactionSettlementSchema.parse(settlementInput);
-  if (
-    request.dispatchId !== settlement.dispatchId ||
-    request.leaseId !== settlement.leaseId ||
-    request.executionAttemptId !== settlement.executionAttemptId ||
-    request.actionId !== settlement.actionId ||
-    request.acpSessionId !== settlement.acpSessionId
-  ) {
-    throw new Error("interaction_identity_mismatch");
-  }
+  assertInteractionIdentityMatches(request, settlement);
   if (settlement.type !== settlementTypeByRequestType[request.type]) {
     throw new Error("interaction_response_type_mismatch");
   }

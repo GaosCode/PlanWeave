@@ -678,6 +678,7 @@
       "root": "packages/agent-host-protocol/src/__tests__",
       "unit": [
         "acpConversationProtocol.test.ts",
+        "acpPermissionOptions.test.ts",
         "agentHostEnrollment.test.ts",
         "agentHostProtocol.test.ts",
         "agentHostSetupHandoff.test.ts",
@@ -767,6 +768,7 @@
         "realAcpGate.test.ts",
         "realAcpLiveSmoke.test.ts",
         "remoteAcpExecutor.test.ts",
+        "remoteExecutionHistory.test.ts",
         "resolveHostExecutable.test.ts",
         "tlsTrust.test.ts"
       ],

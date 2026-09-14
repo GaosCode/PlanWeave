@@ -1,3 +1,16 @@
+export * from "./acpPermissionOptions.js";
+export {
+  exactPermissionRequestSchema,
+  exactPermissionSettlementSchema,
+  historicalPermissionRequestSchema,
+  historicalPermissionSettlementSchema,
+  parseExactPermissionSettlementForRequest,
+  permissionRequestCompatibility,
+  type ExactPermissionRequest,
+  type ExactPermissionSettlement,
+  type HistoricalPermissionRequest,
+  type HistoricalPermissionSettlement
+} from "./acpPermissionInteractions.js";
 export * from "./acpConversationProtocol.js";
 export { artifactRefSchema, type ArtifactRef } from "./artifacts.js";
 export {

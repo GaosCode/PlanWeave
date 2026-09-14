@@ -5,7 +5,11 @@ import type {
   AgentHostRemoteExecutionOutbox,
   AgentHostRemoteExecutionRecord
 } from "../execution/remoteAcpPorts.js";
-import { agentHostRemoteExecutionRecordSchema } from "../execution/remoteAcpPorts.js";
+import {
+  agentHostRemoteExecutionRecordSchema,
+  legacyAgentHostRemoteExecutionRecordSchema,
+  type HistoricalAgentHostRemoteExecutionRecord
+} from "../execution/remoteExecutionRecordSchema.js";
 import { initializeAgentHostStateSchema } from "./agentHostStateMigrations.js";
 import {
   inWriteTransaction,
@@ -68,7 +72,18 @@ export class AgentHostRemoteExecutionRecordStore implements AgentHostRemoteExecu
 
   appendInCurrentTransaction(record: AgentHostRemoteExecutionRecord): boolean {
     const parsed = agentHostRemoteExecutionRecordSchema.parse(record);
-    const serialized = JSON.stringify(parsed);
+    return this.insertRecord(parsed, JSON.stringify(parsed));
+  }
+
+  importHistoricalInCurrentTransaction(recordJson: string): boolean {
+    const record = legacyAgentHostRemoteExecutionRecordSchema.parse(JSON.parse(recordJson));
+    return this.insertRecord(record, recordJson);
+  }
+
+  private insertRecord(
+    parsed: HistoricalAgentHostRemoteExecutionRecord,
+    serialized: string
+  ): boolean {
     if (Buffer.byteLength(serialized, "utf8") > this.retention.maxRecordBytes) {
       throw new Error("remote_execution_record_too_large");
     }
@@ -131,7 +146,7 @@ export class AgentHostRemoteExecutionRecordStore implements AgentHostRemoteExecu
       )
       .all(identity.dispatchId, identity.leaseId, identity.executionAttemptId)
       .map((row) =>
-        agentHostRemoteExecutionRecordSchema.parse(
+        legacyAgentHostRemoteExecutionRecordSchema.parse(
           JSON.parse(recordRowSchema.parse(row).record_json)
         )
       );
@@ -164,7 +179,7 @@ export class AgentHostSqliteRemoteExecutionOutbox implements AgentHostRemoteExec
 
 export async function readLegacyRemoteExecutionRecords(
   path: string
-): Promise<AgentHostRemoteExecutionRecord[] | undefined> {
+): Promise<string[] | undefined> {
   try {
     if (!(await stat(path)).isFile()) return undefined;
   } catch (error) {
@@ -182,11 +197,11 @@ export async function readLegacyRemoteExecutionRecords(
     return database
       .prepare("SELECT record_json FROM agent_host_remote_execution_outbox ORDER BY sequence")
       .all()
-      .map((row) =>
-        agentHostRemoteExecutionRecordSchema.parse(
-          JSON.parse(recordRowSchema.parse(row).record_json)
-        )
-      );
+      .map((row) => {
+        const serialized = recordRowSchema.parse(row).record_json;
+        legacyAgentHostRemoteExecutionRecordSchema.parse(JSON.parse(serialized));
+        return serialized;
+      });
   } finally {
     database.close();
   }
