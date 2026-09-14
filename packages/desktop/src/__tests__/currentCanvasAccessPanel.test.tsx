@@ -8,10 +8,8 @@ import {
   type CurrentCanvasAccessView
 } from "@planweave-ai/collaboration-protocol/access/control";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  CurrentCanvasAccessPanel,
-  CurrentCanvasMemberAccess
-} from "../renderer/collaboration/CurrentCanvasAccessPanel";
+import { CurrentCanvasAccessPanel } from "../renderer/collaboration/CurrentCanvasAccessPanel";
+import { CurrentCanvasMemberAccess } from "../renderer/collaboration/CurrentCanvasMemberAccess";
 import { createTranslator } from "../renderer/i18n";
 import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
 
@@ -72,8 +70,10 @@ function accessView(
 afterEach(cleanupRendererTestEnvironment);
 
 describe("CurrentCanvasAccessPanel", () => {
-  it("uses the capability view for owner visibility controls and write states", async () => {
-    const onUpdateVisibility = vi.fn().mockResolvedValue(null);
+  it("stages canvas visibility without presenting identity records as a member list", async () => {
+    const onUpdateVisibility = vi
+      .fn()
+      .mockResolvedValue({ status: "applied", aclRevision: 6, updatedAt: "2030-01-01T00:00:00Z" });
     render(
       <CurrentCanvasAccessPanel
         view={accessView("owner")}
@@ -87,31 +87,15 @@ describe("CurrentCanvasAccessPanel", () => {
       />
     );
 
-    expect(screen.getByTestId("canvas-access-role")).toHaveTextContent(
-      "Effective role: project Owner · canvas Owner"
-    );
-    expect(screen.getByTestId("canvas-access-panel")).toContainElement(
-      screen.getByTestId("scope-selector-slot")
-    );
-    expect(screen.getByRole("radiogroup", { name: "Canvas visibility" })).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: /Private/ })).not.toBeChecked();
-    expect(screen.getByRole("radio", { name: /Shared/ })).toBeChecked();
-    expect(screen.getAllByTestId("canvas-access-capability")).toHaveLength(4);
-    expect(screen.getByTestId("canvas-access-panel")).not.toHaveClass("rounded-xl", "border");
-    expect(screen.queryByTestId("canvas-access-section-icon")).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Canvas access" })).toHaveClass("text-base");
-    expect(screen.getByTestId("canvas-access-canvas-visibility")).not.toHaveClass(
-      "rounded-lg",
-      "border"
-    );
-    for (const capability of screen.getAllByTestId("canvas-access-capability")) {
-      expect(capability).not.toHaveClass("rounded-lg", "border");
-      expect(capability).not.toHaveClass("border-b");
-    }
-    expect(screen.queryByTestId("canvas-access-people")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("canvas-access-project-private")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("canvas-access-project-shared")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("canvas-access-role")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("canvas-access-capability")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("canvas-access-person")).not.toBeInTheDocument();
+    expect(screen.queryByText("Member")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "View member" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("canvas-member-access")).not.toBeInTheDocument();
     await userEvent.click(screen.getByTestId("canvas-access-canvas-private"));
+    expect(onUpdateVisibility).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByTestId("canvas-access-save"));
     expect(onUpdateVisibility).toHaveBeenCalledWith("canvas", "private");
   });
 
@@ -131,7 +115,6 @@ describe("CurrentCanvasAccessPanel", () => {
     const canvasVisibility = screen.getByTestId("canvas-access-canvas-shared");
     expect(canvasVisibility).toBeDisabled();
     expect(canvasVisibility).toHaveAttribute("title", "This action requires an owner capability.");
-    expect(screen.getAllByText("This action requires an owner capability.")).toHaveLength(4);
   });
 
   it("keeps owner-only visibility visible but disabled for editors", () => {
@@ -155,7 +138,9 @@ describe("CurrentCanvasAccessPanel", () => {
   });
 
   it("binds project controls to project access when canvas ownership is independent", async () => {
-    const onGrant = vi.fn().mockResolvedValue(null);
+    const onGrant = vi
+      .fn()
+      .mockResolvedValue({ status: "applied", aclRevision: 6, updatedAt: "2030-01-01T00:00:00Z" });
     const view = accessView("owner", "viewer");
     render(
       <CurrentCanvasMemberAccess
@@ -168,13 +153,17 @@ describe("CurrentCanvasAccessPanel", () => {
       />
     );
 
-    await userEvent.click(screen.getByTestId("canvas-access-grant-project-viewer"));
-    expect(onGrant).toHaveBeenCalledWith("human-member-001", "viewer", "project");
+    await userEvent.click(screen.getByTestId("canvas-access-grant-project-editor"));
+    expect(onGrant).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(onGrant).toHaveBeenCalledWith("human-member-001", "editor", "project");
     expect(screen.getByTestId("canvas-access-grant-canvas-viewer")).toBeDisabled();
   });
 
   it("binds canvas controls to canvas access when project ownership is independent", async () => {
-    const onGrant = vi.fn().mockResolvedValue(null);
+    const onGrant = vi
+      .fn()
+      .mockResolvedValue({ status: "applied", aclRevision: 6, updatedAt: "2030-01-01T00:00:00Z" });
     const view = accessView("viewer", "owner");
     render(
       <CurrentCanvasMemberAccess
@@ -188,7 +177,55 @@ describe("CurrentCanvasAccessPanel", () => {
     );
 
     await userEvent.click(screen.getByTestId("canvas-access-grant-canvas-editor"));
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
     expect(onGrant).toHaveBeenCalledWith("human-member-001", "editor", "canvas");
     expect(screen.getByTestId("canvas-access-grant-project-editor")).toBeDisabled();
+  });
+  it("does not report success or attempt the canvas mutation after project authorization fails", async () => {
+    const view = accessView("owner");
+    const onGrant = vi
+      .fn()
+      .mockResolvedValue({ status: "conflict", reason: "acl_revision_conflict", aclRevision: 7 });
+    render(
+      <CurrentCanvasMemberAccess
+        view={view}
+        person={view.people[0]!}
+        busy={false}
+        t={t}
+        onGrant={onGrant}
+        onRevoke={vi.fn()}
+      />
+    );
+    await userEvent.click(screen.getByTestId("canvas-access-grant-project-editor"));
+    await userEvent.click(screen.getByTestId("canvas-access-grant-canvas-editor"));
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(onGrant).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("alert")).toHaveTextContent("could not be saved");
+    expect(screen.queryByText("Changes saved")).not.toBeInTheDocument();
+  });
+
+  it("cancels staged permission changes without issuing mutations", async () => {
+    const view = accessView("owner");
+    const onGrant = vi.fn();
+    const onRevoke = vi.fn();
+    render(
+      <CurrentCanvasMemberAccess
+        view={view}
+        person={view.people[0]!}
+        busy={false}
+        t={t}
+        onGrant={onGrant}
+        onRevoke={onRevoke}
+      />
+    );
+    await userEvent.click(screen.getByTestId("canvas-access-grant-canvas-none"));
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByTestId("canvas-access-grant-canvas-viewer")).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(onRevoke).not.toHaveBeenCalled();
+    expect(onGrant).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
   });
 });

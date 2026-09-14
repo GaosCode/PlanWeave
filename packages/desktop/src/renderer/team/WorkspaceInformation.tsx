@@ -1,6 +1,4 @@
-import type { ReactNode } from "react";
 import type { ActiveWorkspaceConnectionView } from "@planweave-ai/collaboration-protocol/connection";
-import { Button } from "@/components/ui/button";
 import type { createTranslator } from "../i18n";
 import {
   workspaceDisplayName,
@@ -9,13 +7,9 @@ import {
 
 export function WorkspaceInformation({
   connection,
-  invitation,
-  onManageInvitations,
   t
 }: {
   connection: ActiveWorkspaceConnectionView;
-  invitation: ReactNode;
-  onManageInvitations?: () => void;
   t: ReturnType<typeof createTranslator>;
 }) {
   return (
@@ -25,24 +19,13 @@ export function WorkspaceInformation({
         <dd className="font-medium text-text-strong">
           {workspaceDisplayName(connection.workspaceDisplayName, t)}
         </dd>
+        <dt className="text-text-muted">{t("workspaceIdLabel")}</dt>
+        <dd className="break-all text-text-muted">{connection.workspaceId}</dd>
         <dt className="text-text-muted">Server</dt>
         <dd className="break-all">{connection.profile?.serverBaseUrl}</dd>
         <dt className="text-text-muted">{t("executorsStatusColumn")}</dt>
         <dd>{workspaceIdentityStatusLabel(connection, t)}</dd>
       </dl>
-      {invitation || (
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold">{t("workspaceInvitationHeading")}</h2>
-          <p className="text-sm leading-6 text-text-muted">
-            {t("workspaceInvitationContactOwner")}
-          </p>
-        </section>
-      )}
-      {onManageInvitations ? (
-        <Button variant="outline" size="sm" onClick={onManageInvitations}>
-          {t("workspaceManageInvitations")}
-        </Button>
-      ) : null}
     </div>
   );
 }

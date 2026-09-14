@@ -67,14 +67,12 @@ describe("WorkspaceAccessScopeSelector", () => {
       />
     );
 
-    expect(screen.queryByRole("combobox")).toBeVisible();
+    expect(screen.getAllByRole("combobox")).toHaveLength(2);
     expect(document.querySelector("select")).not.toBeInTheDocument();
-    expect(screen.getByTestId("workspace-access-scope-select")).toHaveTextContent(
-      "tiny-notes-agent-board / default"
-    );
+    expect(screen.getByTestId("workspace-access-scope-select")).toHaveTextContent("default");
 
-    await user.click(screen.getByTestId("workspace-access-scope-select"));
-    await user.click(await screen.findByRole("option", { name: "PlanWeave / Task Canvas" }));
+    await user.click(screen.getByTestId("workspace-access-project-select"));
+    await user.click(await screen.findByRole("option", { name: "PlanWeave" }));
     expect(onSelect).toHaveBeenCalledWith(options[1]?.key);
   });
 });

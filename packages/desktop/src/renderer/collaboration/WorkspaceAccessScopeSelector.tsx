@@ -1,3 +1,4 @@
+import { useId } from "react";
 import {
   Select,
   SelectContent,
@@ -25,46 +26,74 @@ export function WorkspaceAccessScopeSelector({
   t: ReturnType<typeof createTranslator>;
   onSelect: (key: string) => void;
 }) {
-  const label = t("accessScopeLabel");
+  const id = useId();
+  const selected = options.find((option) => option.key === selectedKey);
+  const projects = [
+    ...new Map(options.map((option) => [option.projectId, option.projectLabel])).entries()
+  ];
+  const canvases = options.filter((option) => option.projectId === selected?.projectId);
   return (
-    <div className="px-1 pb-4" data-testid="workspace-access-scope-selector">
+    <div className="space-y-4 pb-3" data-testid="workspace-access-scope-selector">
       <div className="flex min-w-0 flex-col gap-2">
-        <label
-          id="workspace-access-scope-label"
-          htmlFor="workspace-access-scope"
-          className="text-xs font-semibold text-text-strong"
-        >
-          {label}
+        <label htmlFor={`${id}-project`} className="text-xs font-semibold">
+          {t("workspaceProjectColumn")}
         </label>
         <Select
-          value={selectedKey ?? undefined}
-          onValueChange={onSelect}
-          disabled={loading || busy || options.length === 0}
+          value={selected?.projectId ?? ""}
+          disabled={loading || busy || projects.length === 0}
+          onValueChange={(projectId) => {
+            const first = options.find((option) => option.projectId === projectId);
+            if (first) onSelect(first.key);
+          }}
         >
           <SelectTrigger
-            id="workspace-access-scope"
-            aria-labelledby="workspace-access-scope-label"
-            className="h-9 w-full max-w-xl"
+            id={`${id}-project`}
+            className="h-9 w-full"
+            data-testid="workspace-access-project-select"
+          >
+            <SelectValue placeholder={t("accessScopeEmpty")} />
+          </SelectTrigger>
+          <SelectContent position="popper">
+            {projects.map(([projectId, label]) => (
+              <SelectItem key={projectId} value={projectId}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="flex min-w-0 flex-col gap-2">
+        <label htmlFor={`${id}-canvas`} className="text-xs font-semibold">
+          {t("workspaceCanvasColumn")}
+        </label>
+        <Select
+          value={selectedKey ?? ""}
+          disabled={loading || busy || canvases.length === 0}
+          onValueChange={onSelect}
+        >
+          <SelectTrigger
+            id={`${id}-canvas`}
+            className="h-9 w-full"
             data-testid="workspace-access-scope-select"
             data-value={selectedKey ?? ""}
           >
             <SelectValue placeholder={t("accessScopeEmpty")} />
           </SelectTrigger>
-          <SelectContent position="popper" align="start">
-            {options.map((option) => (
+          <SelectContent position="popper">
+            {canvases.map((option) => (
               <SelectItem key={option.key} value={option.key}>
-                {option.projectLabel} / {option.canvasLabel}
+                {option.canvasLabel}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
       </div>
       {loading ? (
-        <p className="mt-3 text-xs text-muted-foreground" role="status">
+        <p role="status" className="text-xs text-text-muted">
           {t("accessScopeLoading")}
         </p>
       ) : error ? (
-        <p className="mt-3 text-xs text-destructive" role="alert">
+        <p role="alert" className="text-xs text-destructive">
           {error}
         </p>
       ) : null}

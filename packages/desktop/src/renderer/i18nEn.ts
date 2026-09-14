@@ -1432,7 +1432,7 @@ export const enCatalog = {
   peopleInvitationDetails: "Complete invitation",
   peopleInvitationDetailsPlaceholder: "Paste the complete PlanWeave invitation",
   peopleInvitationDetailsHint:
-    "Ask a workspace administrator to open Workspace → Workspace information and copy the complete invitation for you.",
+    "Ask a workspace administrator to open Workspace → Members and select Copy member invitation.",
   peopleInvitationDetailsInvalid:
     "This invitation is incomplete or invalid. Ask the owner to copy the complete join details again.",
   peopleAdvancedConnectionDetails: "Enter connection details manually",
@@ -1625,10 +1625,10 @@ export const enCatalog = {
     "Keep the selected canvas private, or open it to existing Workspace members.",
   accessDescription:
     "Manage visibility, member permissions, and capabilities for the selected canvas.",
-  accessVisibilityPrivate: "Private",
+  accessVisibilityPrivate: "Restricted access",
   accessVisibilityPrivateHint: "Only owners and explicitly granted members can access it",
-  accessVisibilityShared: "Shared",
-  accessVisibilitySharedHint: "Members of this Workspace can access it",
+  accessVisibilityShared: "Shared in this workspace",
+  accessVisibilitySharedHint: "Workspace members can view it; editing requires authorization",
   accessCapabilities: "Capabilities",
   accessCapabilityAvailable: "Available",
   accessCapabilityWrite: "Persistent canvas commands",

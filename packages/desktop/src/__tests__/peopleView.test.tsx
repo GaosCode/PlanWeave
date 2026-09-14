@@ -440,9 +440,9 @@ describe("PeopleView", () => {
     expect(await screen.findByTestId("people-panel")).toBeVisible();
     expect(screen.queryByTestId("workspace-canvas-directory")).not.toBeInTheDocument();
     expect(screen.queryByTestId("canvas-access-panel")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Canvas permissions", exact: true }));
-    expect(await screen.findByTestId("canvas-access-panel")).toBeVisible();
-    await userEvent.click(screen.getByRole("button", { name: "Close", exact: true }));
+    expect(
+      screen.queryByRole("button", { name: "Canvas permissions", exact: true })
+    ).not.toBeInTheDocument();
     await userEvent.click(screen.getByTestId("people-current-workspace-switch"));
     expect(screen.getByTestId("workspace-switcher")).toBeVisible();
     expect(screen.queryByTestId("people-connect-invitation-details")).not.toBeInTheDocument();
@@ -552,14 +552,11 @@ describe("PeopleView", () => {
 
     await userEvent.click(await screen.findByTestId("people-section-members"));
     expect(screen.queryByTestId("host-admin-member-setup")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Invite member", exact: true }));
-    expect(await screen.findByTestId("host-admin-member-setup")).toBeVisible();
-    expect(screen.getByTestId("people-section-information")).toHaveAttribute(
-      "aria-selected",
-      "true"
-    );
-    expect(screen.getByRole("heading", { name: "Member invitation" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Copy complete invitation" })).toBeVisible();
+    idleHostController.copyMemberSetupCode.mockResolvedValueOnce({ workspaceId: "workspace-1" });
+    await userEvent.click(screen.getByTestId("workspace-copy-invitation"));
+    expect(await screen.findByText("Copied · send it to the other person to join")).toBeVisible();
+    expect(screen.getByTestId("people-section-members")).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByTestId("workspace-information")).not.toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     await userEvent.click(screen.getByTestId("people-section-workspace"));
     expect(screen.queryByTestId("host-admin-member-setup")).not.toBeInTheDocument();
@@ -1414,12 +1411,9 @@ describe("PeopleView", () => {
     expect(identity.listWorkspaceConnectionMembers).toHaveBeenCalled();
     expect(identity.listCollaborationMembers).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole("button", { name: "Close", exact: true }));
-    await userEvent.click(screen.getByRole("button", { name: "Invite member", exact: true }));
-    expect(screen.getByTestId("workspace-information")).toHaveTextContent(
-      "http://127.0.0.1:56584/"
-    );
+    await userEvent.click(screen.getByTestId("workspace-copy-invitation"));
+    expect(screen.queryByTestId("workspace-information")).not.toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByTestId("host-admin-copy-member-setup"));
     expect(idleHostController.copyMemberSetupCode).toHaveBeenLastCalledWith({
       profileId: "workspace-operator",
       workspaceId: "workspace-1",

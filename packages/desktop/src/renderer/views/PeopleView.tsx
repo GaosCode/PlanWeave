@@ -20,16 +20,14 @@ import { PlusIcon } from "lucide-react";
 import { ManagementDialog } from "../components/ManagementDialog";
 import { WorkspaceCanvasDirectory } from "../team/WorkspaceCanvasDirectory";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  CurrentCanvasAccessPanel,
-  CurrentCanvasMemberAccess
-} from "../collaboration/CurrentCanvasAccessPanel";
+import { CurrentCanvasAccessPanel } from "../collaboration/CurrentCanvasAccessPanel";
+import { CurrentCanvasMemberAccess } from "../collaboration/CurrentCanvasMemberAccess";
+import { WorkspaceInvitationAction } from "../team/WorkspaceInvitationAction";
 import { LocalCollaborationServerPanel } from "../collaboration/LocalCollaborationServerPanel";
 import { LocalServerLifecycleControls } from "../collaboration/LocalServerLifecycleControls";
 import { WorkspaceAccessScopeSelector } from "../collaboration/WorkspaceAccessScopeSelector";
 import { WorkspaceCanvasSharingPanel } from "../collaboration/WorkspaceCanvasSharingPanel";
 import { DeploymentConnectionCard } from "../settings/DeploymentConnectionCard";
-import { HostMemberSetupCard } from "../settings/HostMemberSetupCard";
 import { useHostAdministrationController } from "../hooks/useHostAdministrationController";
 import { isCollaborationSessionConnected } from "../collaboration/sessionState";
 import {
@@ -104,7 +102,7 @@ export function PeopleView({
   const [joiningOpen, setJoiningOpen] = useState(false);
   const [sharingOpen, setSharingOpen] = useState(false);
   const [invitationOpen, setInvitationOpen] = useState(false);
-  const [accessOpen, setAccessOpen] = useState(false);
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [directoryEpoch, setDirectoryEpoch] = useState(0);
   const [localHostingOpen, setLocalHostingOpen] = useState(false);
   const [connectedSection, setConnectedSection] = useState<"members" | "workspace" | "information">(
@@ -163,6 +161,10 @@ export function PeopleView({
           serverBaseUrl: connectedWorkspace.profile.serverBaseUrl
         }
       : null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: member and canvas detail selections belong to one Workspace identity.
+  useEffect(() => {
+    setSelectedMemberId(null);
+  }, [connectedWorkspace?.profile?.profileId, connectedWorkspace?.workspaceId]);
   const invitationOperator =
     hostController.status?.profiles.find(
       (profile) =>
@@ -308,54 +310,41 @@ export function PeopleView({
   const membershipResult = (ok: boolean) =>
     ok ? t("notifyMembershipChanged") : (panel.actionError ?? t("peopleError"));
 
+  const scopeSelector = (
+    <WorkspaceAccessScopeSelector
+      options={workspaceAccessScope.options}
+      selectedKey={workspaceAccessScope.selectedKey}
+      loading={workspaceAccessScope.loading}
+      error={workspaceAccessScope.error}
+      busy={workspaceAccessScope.access.busy}
+      t={t}
+      onSelect={workspaceAccessScope.select}
+    />
+  );
   const authoritativeCanvasAccess = (
     <CurrentCanvasAccessPanel
+      compact
+      key={workspaceAccessScope.selectedKey}
       view={workspaceAccessScope.access.view}
-      loading={workspaceAccessScope.access.loading}
-      error={workspaceAccessScope.access.error}
+      loading={workspaceAccessScope.access.loading || workspaceAccessScope.loading}
+      error={workspaceAccessScope.access.error ?? workspaceAccessScope.error}
       busy={workspaceAccessScope.access.busy || workspaceAccessScope.loading}
-      scopeSelector={
-        <WorkspaceAccessScopeSelector
-          options={workspaceAccessScope.options}
-          selectedKey={workspaceAccessScope.selectedKey}
-          loading={workspaceAccessScope.loading}
-          error={workspaceAccessScope.error}
-          busy={workspaceAccessScope.access.busy}
-          t={t}
-          onSelect={workspaceAccessScope.select}
-        />
-      }
       t={t}
-      onRefresh={async () => {
-        await Promise.all([
-          workspaceAccessScope.refreshOptions(),
-          workspaceAccessScope.access.refresh()
-        ]);
-      }}
+      onRefresh={workspaceAccessScope.access.refresh}
       onUpdateVisibility={workspaceAccessScope.access.updateVisibility}
     />
   );
-
-  const invitationSetup =
-    invitationWorkspace && invitationOperator ? (
-      <HostMemberSetupCard
-        activeProfile={invitationOperator}
-        showWorkspace={false}
-        workspace={invitationWorkspace}
-        busy={hostController.busy}
-        error={hostController.error}
-        copyMemberSetupCode={() =>
-          hostController.copyMemberSetupCode({
-            profileId: invitationOperator.profileId,
-            workspaceId: invitationWorkspace.workspaceId,
-            serverBaseUrl: invitationWorkspace.serverBaseUrl
-          })
-        }
-        dismissMemberSetupCodeHandoff={hostController.dismissMemberSetupCodeHandoff}
-        memberSetupCodeHandoff={hostController.memberSetupCodeHandoff}
-        t={t}
-      />
-    ) : null;
+  const copyMemberInvitation = async () => {
+    if (invitationWorkspace && invitationOperator) {
+      const result = await hostController.copyMemberSetupCode({
+        profileId: invitationOperator.profileId,
+        workspaceId: invitationWorkspace.workspaceId,
+        serverBaseUrl: invitationWorkspace.serverBaseUrl
+      });
+      return Boolean(result);
+    }
+    return false;
+  };
 
   return (
     <section
@@ -486,14 +475,15 @@ export function PeopleView({
                   {t("workspaceShareAction")}
                 </Button>
               ) : connectedSection === "members" &&
-                (panel.presence.currentUserIsOwner || invitationSetup) ? (
-                <Button
-                  className="mb-2 ml-auto"
-                  size="sm"
-                  onClick={() => setConnectedSection("information")}
-                >
-                  {t("workspaceInviteAction")}
-                </Button>
+                (panel.presence.currentUserIsOwner ||
+                  (invitationWorkspace && invitationOperator)) ? (
+                <WorkspaceInvitationAction
+                  key={`${connectedWorkspace?.profile?.profileId}:${connectedWorkspace?.workspaceId}`}
+                  busy={hostController.busy}
+                  unavailable={!invitationOperator || !invitationWorkspace}
+                  onCopy={copyMemberInvitation}
+                  t={t}
+                />
               ) : null}
             </div>
             {reconnectError ? (
@@ -517,9 +507,12 @@ export function PeopleView({
                 revealInvitationManagement={revealInvitationManagement}
                 showTitle={false}
                 invitationOpen={invitationOpen}
+                invitationManagementEnabled={!workspaceConnected}
                 onInvitationOpenChange={setInvitationOpen}
-                accessScope={authoritativeCanvasAccess}
-                onManageCanvasAccess={() => setAccessOpen(true)}
+                key={`${connectedWorkspace?.profile?.profileId}:${connectedWorkspace?.workspaceId}`}
+                accessScope={scopeSelector}
+                selectedMemberId={selectedMemberId}
+                onSelectMember={setSelectedMemberId}
                 diagnosticReport={diagnosticReport}
                 diagnosticsEnabled={diagnosticsEnabled}
                 onCopyDiagnostics={copyText}
@@ -568,12 +561,7 @@ export function PeopleView({
                   reportMembership(ok, membershipResult(ok));
                   return ok;
                 }}
-                canManageMemberAccess={
-                  workspaceAccessScope.access.view?.project.capabilities.grant === true ||
-                  workspaceAccessScope.access.view?.project.capabilities.revoke === true ||
-                  workspaceAccessScope.access.view?.canvas.capabilities.grant === true ||
-                  workspaceAccessScope.access.view?.canvas.capabilities.revoke === true
-                }
+                canManageMemberAccess={workspaceConnected}
                 renderMemberAccess={(member) => {
                   if (workspaceAccessScope.access.loading && !workspaceAccessScope.access.view) {
                     return <p className="text-xs text-muted-foreground">{t("accessLoading")}</p>;
@@ -590,6 +578,7 @@ export function PeopleView({
                   }
                   return (
                     <CurrentCanvasMemberAccess
+                      key={`${member.humanPrincipalId}:${workspaceAccessScope.selectedKey}`}
                       view={workspaceAccessScope.access.view}
                       person={person}
                       busy={workspaceAccessScope.access.busy}
@@ -602,22 +591,20 @@ export function PeopleView({
                 onRefreshDetails={handleRefreshDetails}
               />
             ) : connectedSection === "information" && connectedWorkspace ? (
-              <WorkspaceInformation
-                connection={connectedWorkspace}
-                invitation={invitationSetup}
-                onManageInvitations={
-                  panel.presence.currentUserIsOwner ? handleManageInvitations : undefined
-                }
-                t={t}
-              />
+              <WorkspaceInformation connection={connectedWorkspace} t={t} />
             ) : (
               <WorkspaceCanvasDirectory
-                key={`${connectedWorkspace?.workspaceId ?? ""}:${directoryEpoch}`}
+                key={`${connectedWorkspace?.profile?.profileId ?? ""}:${connectedWorkspace?.workspaceId ?? ""}:${directoryEpoch}`}
                 api={api}
                 connected={workspaceConnected}
                 workspaceId={connectedWorkspace?.workspaceId}
                 connectionKey={connectedWorkspace?.profile?.profileId ?? null}
                 onOpen={onWorkspaceCanvasPublished}
+                onManageAccess={(projectId, canvasId) => {
+                  workspaceAccessScope.select(`${projectId}\0${canvasId}`);
+                }}
+                sharingSettings={authoritativeCanvasAccess}
+                sharingBusy={workspaceAccessScope.access.busy}
                 onReconnect={() => setConnectionOpen(true)}
                 t={t}
               />
@@ -667,14 +654,6 @@ export function PeopleView({
                 }}
                 t={t}
               />
-            </ManagementDialog>
-            <ManagementDialog
-              open={accessOpen}
-              onOpenChange={setAccessOpen}
-              title={t("workspaceAccessSettings")}
-              t={t}
-            >
-              {authoritativeCanvasAccess}
             </ManagementDialog>
           </div>
         )}

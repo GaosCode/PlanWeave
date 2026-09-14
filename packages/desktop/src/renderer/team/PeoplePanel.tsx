@@ -59,8 +59,10 @@ export type PeoplePanelProps = {
   invitationOpen?: boolean;
   onInvitationOpenChange?: (open: boolean) => void;
   invitationSetup?: ReactNode;
+  invitationManagementEnabled?: boolean;
   accessScope?: ReactNode;
-  onManageCanvasAccess?: () => void;
+  selectedMemberId?: string | null;
+  onSelectMember?: (id: string | null) => void;
 };
 
 function formatTimestamp(value: string): string {
@@ -112,8 +114,10 @@ export function PeoplePanel({
   invitationOpen,
   onInvitationOpenChange,
   invitationSetup,
+  invitationManagementEnabled = true,
   accessScope,
-  onManageCanvasAccess,
+  selectedMemberId,
+  onSelectMember,
   showTitle = true
 }: PeoplePanelProps) {
   const [showOwnerDetails, setShowOwnerDetails] = useState(revealInvitationManagement);
@@ -345,16 +349,6 @@ export function PeoplePanel({
           placeholder={t("workspaceSearchMembers")}
           aria-label={t("workspaceSearchMembers")}
         />
-        {onManageCanvasAccess ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="ml-auto text-sky-700 dark:text-sky-400"
-            onClick={onManageCanvasAccess}
-          >
-            {t("workspaceAccessSettings")}
-          </Button>
-        ) : null}
       </div>
       <div
         className="flex flex-col gap-4 px-1 sm:flex-row sm:items-center sm:justify-between"
@@ -387,7 +381,9 @@ export function PeoplePanel({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {presence.currentUserIsOwner && invitationOpen === undefined ? (
+          {invitationManagementEnabled &&
+          presence.currentUserIsOwner &&
+          invitationOpen === undefined ? (
             <Button
               type="button"
               size="sm"
@@ -477,8 +473,6 @@ export function PeoplePanel({
         </div>
       ) : null}
 
-      {diagnostics}
-
       {identity && !members.some((member) => member.isCurrentUser) ? (
         <PeopleIdentityCard
           identity={identity}
@@ -508,6 +502,8 @@ export function PeoplePanel({
             canManageMemberAccess={canManageMemberAccess}
             renderMemberAccess={renderMemberAccess}
             accessScope={accessScope}
+            selectedMemberId={selectedMemberId}
+            onSelectMember={onSelectMember}
             onUpdateOwnDisplayName={onUpdateOwnDisplayName}
             onPromoteMember={onPromoteMember}
             onDemoteMember={onDemoteMember}
@@ -519,7 +515,8 @@ export function PeoplePanel({
         </div>
 
         <p className="text-xs text-text-muted">{t("workspaceMembershipHint")}</p>
-        {presence.currentUserIsOwner || invitationSetup ? (
+        {diagnostics}
+        {invitationManagementEnabled && (presence.currentUserIsOwner || invitationSetup) ? (
           <Button
             variant="ghost"
             size="sm"
@@ -535,7 +532,7 @@ export function PeoplePanel({
           </Button>
         ) : null}
         <ManagementDialog
-          open={showInvitationDialog}
+          open={invitationManagementEnabled && showInvitationDialog}
           onOpenChange={setInvitationOpen}
           title={t("workspaceInviteAction")}
           t={t}

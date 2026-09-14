@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
-import { FileTextIcon, RefreshCwIcon, SearchIcon } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import { ChevronDownIcon, FileTextIcon, RefreshCwIcon, SearchIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import type { PlanWeaveCollaborationApi } from "../../shared/collaboration";
 import type { WorkspaceCanvasLocator } from "../../shared/canvasLocator";
@@ -15,6 +16,9 @@ export function WorkspaceCanvasDirectory({
   connected,
   emptyWorkspace = false,
   onOpen,
+  onManageAccess,
+  sharingSettings,
+  sharingBusy = false,
   onReconnect,
   t
 }: {
@@ -24,10 +28,14 @@ export function WorkspaceCanvasDirectory({
   connected: boolean;
   emptyWorkspace?: boolean;
   onOpen?: (locator: WorkspaceCanvasLocator) => void;
+  onManageAccess?: (projectId: string, canvasId: string) => void;
+  sharingSettings?: ReactNode;
+  sharingBusy?: boolean;
   onReconnect: () => void;
   t: ReturnType<typeof createTranslator>;
 }) {
   const directory = useWorkspaceCanvasDirectory({ api, connectionKey, workspaceId, connected });
+  const [openAccessKey, setOpenAccessKey] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [projectId, setProjectId] = useState("all");
   const items = useMemo(
@@ -142,6 +150,53 @@ export function WorkspaceCanvasDirectory({
                   {new Date(canvas.updatedAt).toLocaleDateString(t("hostAdminLocale"))}
                 </td>
                 <td className="py-5 text-right">
+                  {onManageAccess && sharingSettings ? (
+                    <Popover
+                      open={
+                        openAccessKey === `${canvas.registry.projectId}:${canvas.registry.canvasId}`
+                      }
+                      onOpenChange={(open) => {
+                        if (sharingBusy) return;
+                        setOpenAccessKey(
+                          open ? `${canvas.registry.projectId}:${canvas.registry.canvasId}` : null
+                        );
+                        if (open) {
+                          onManageAccess(canvas.registry.projectId, canvas.registry.canvasId);
+                        } else {
+                          void directory.refresh();
+                        }
+                      }}
+                    >
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={sharingBusy}
+                          data-testid="workspace-canvas-sharing-settings"
+                        >
+                          {t("accessScopeDetails")}
+                          <ChevronDownIcon className="size-3.5 transition-transform in-data-[state=open]:rotate-180" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        align="end"
+                        side="bottom"
+                        sideOffset={8}
+                        className="max-h-[var(--radix-popover-content-available-height)] w-[360px] max-w-[calc(100vw-2rem)] overflow-y-auto p-4 text-left"
+                        aria-label={`${name} · ${t("accessScopeDetails")}`}
+                        data-testid="workspace-canvas-sharing-popover"
+                        onInteractOutside={(event) => {
+                          if (sharingBusy) event.preventDefault();
+                        }}
+                        onEscapeKeyDown={(event) => {
+                          if (sharingBusy) event.preventDefault();
+                        }}
+                      >
+                        <p className="truncate text-xs text-text-muted">{name}</p>
+                        {sharingSettings}
+                      </PopoverContent>
+                    </Popover>
+                  ) : null}
                   <Button
                     variant="outline"
                     size="sm"

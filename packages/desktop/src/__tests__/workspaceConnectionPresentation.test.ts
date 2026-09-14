@@ -5,6 +5,7 @@ import type { CollaborationStatus } from "../shared/collaboration";
 import {
   isWorkspaceDeviceCredentialMissing,
   resolveWorkspaceIdentityProfile,
+  workspaceDisplayName,
   workspaceIdentityStatusLabel
 } from "../renderer/team/workspaceConnectionPresentation";
 
@@ -55,6 +56,11 @@ function connection(
 }
 
 describe("workspaceConnectionPresentation", () => {
+  it("preserves the stored Workspace name instead of substituting Current Workspace", () => {
+    expect(workspaceDisplayName("Configured workspace", t)).toBe("Configured workspace");
+    expect(workspaceDisplayName("Team", t)).toBe("Team");
+    expect(workspaceDisplayName(null, t)).toBe("Unnamed workspace");
+  });
   it("does not attribute a missing credential from an unrelated active profile", () => {
     const workspace = connection("connected");
     const identity = resolveWorkspaceIdentityProfile([profile("stale-local", false)], workspace);

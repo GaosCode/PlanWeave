@@ -57,8 +57,8 @@ export function workspaceDisplayName(
   displayName: string | null | undefined,
   t: ReturnType<typeof createTranslator>
 ): string {
-  if (!displayName || displayName === "Configured workspace") {
-    return t("peopleWorkspaceDefaultName");
+  if (!displayName?.trim()) {
+    return t("workspaceNameMissing");
   }
   return displayName;
 }

@@ -286,6 +286,7 @@
         "workspaceCanvasPublishAuthority.test.ts",
         "workspaceCanvasSharingPanel.test.tsx",
         "workspaceConnectionPresentation.test.ts",
+        "workspaceInvitationAction.test.tsx",
         "workspaceManagementAccess.test.ts",
         "workspacePeopleAuthority.test.tsx",
         "workspaceRemoteScopeScheduler.test.ts",

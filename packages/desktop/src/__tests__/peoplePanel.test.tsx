@@ -121,6 +121,27 @@ describe("PeoplePanel", () => {
     expect(screen.getByTestId("workspace-member-permissions")).toBeVisible();
     expect(screen.queryByTestId("people-member-promote")).not.toBeInTheDocument();
     expect(screen.queryByTestId("people-owner-section")).not.toBeInTheDocument();
+    const onSelectMember = vi.fn();
+    rerender(
+      <PeoplePanel
+        {...props}
+        canManageMemberAccess
+        selectedMemberId="human-2"
+        onSelectMember={onSelectMember}
+      />
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Close details" }));
+    expect(onSelectMember).toHaveBeenLastCalledWith(null);
+    rerender(
+      <PeoplePanel
+        {...props}
+        canManageMemberAccess
+        selectedMemberId={null}
+        onSelectMember={onSelectMember}
+      />
+    );
+    expect(screen.queryByTestId("people-member-access")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("people-member-row")).toHaveLength(2);
     rerender(<PeoplePanel {...props} canManageMemberAccess={false} />);
     expect(screen.queryByTestId("people-member-access-toggle")).not.toBeInTheDocument();
     expect(screen.queryByTestId("workspace-member-permissions")).not.toBeInTheDocument();
@@ -209,7 +230,13 @@ describe("PeoplePanel", () => {
     expect(screen.getAllByTestId("people-member-access-toggle")).toHaveLength(1);
     await userEvent.click(screen.getByTestId("people-member-access-toggle"));
     expect(screen.getByTestId("member-access-slot")).toHaveTextContent("Member access");
-    await userEvent.click(screen.getByRole("button", { name: "Close", exact: true }));
+    await userEvent.click(screen.getByTestId("people-member-access-close"));
+    expect(screen.queryByTestId("member-access-slot")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("people-member-access-toggle"));
+    expect(screen.getByTestId("member-access-slot")).toBeVisible();
+    await userEvent.click(screen.getByTestId("people-member-access-toggle"));
+    expect(screen.queryByTestId("member-access-slot")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.getByTestId("people-owner-toggle")).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByTestId("people-owner-section")).not.toBeInTheDocument();
 

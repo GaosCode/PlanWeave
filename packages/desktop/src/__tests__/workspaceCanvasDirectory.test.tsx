@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 import "@testing-library/jest-dom/vitest";
-import { act, cleanup, render, renderHook, screen } from "@testing-library/react";
+import { act, cleanup, render, renderHook, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -126,6 +126,72 @@ describe("Workspace canvas directory", () => {
     await userEvent.type(screen.getByRole("textbox", { name: "Search canvases" }), "missing");
     expect(screen.queryByTestId("workspace-directory-row")).not.toBeInTheDocument();
     expect(screen.getByText("No matching results")).toBeVisible();
+  });
+
+  it("opens sharing settings in place and preserves filtering when dismissed", async () => {
+    const api = apiFixture();
+    const onManageAccess = vi.fn();
+    render(
+      <WorkspaceCanvasDirectory
+        api={api as unknown as PlanWeaveCollaborationApi}
+        connectionKey="profile-a"
+        connected
+        onReconnect={vi.fn()}
+        onManageAccess={onManageAccess}
+        sharingSettings={<input aria-label="Visibility draft" defaultValue="shared" />}
+        t={t}
+      />
+    );
+    const trigger = await screen.findByTestId("workspace-canvas-sharing-settings");
+    const search = screen.getByRole("textbox", { name: "Search canvases" });
+    await userEvent.type(search, "canvas-a");
+    await userEvent.click(trigger);
+    expect(onManageAccess).toHaveBeenCalledWith("project-a", "canvas-a");
+    expect(screen.getByTestId("workspace-canvas-sharing-popover")).toBeVisible();
+    expect(screen.getByTestId("workspace-directory-row")).toBeVisible();
+    await userEvent.type(screen.getByRole("textbox", { name: "Visibility draft" }), " draft");
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByTestId("workspace-canvas-sharing-popover")).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+    expect(search).toHaveValue("canvas-a");
+    await userEvent.click(trigger);
+    expect(screen.getByRole("textbox", { name: "Visibility draft" })).toHaveValue("shared");
+    await userEvent.click(search);
+    expect(screen.queryByTestId("workspace-canvas-sharing-popover")).not.toBeInTheDocument();
+    await userEvent.click(trigger);
+    await userEvent.click(trigger);
+    expect(screen.queryByTestId("workspace-canvas-sharing-popover")).not.toBeInTheDocument();
+    expect(search).toHaveValue("canvas-a");
+  });
+
+  it("keeps settings open during a save and refreshes the directory on close", async () => {
+    const api = apiFixture();
+    const props = {
+      api: api as unknown as PlanWeaveCollaborationApi,
+      connectionKey: "profile-a",
+      connected: true,
+      onReconnect: vi.fn(),
+      onManageAccess: vi.fn(),
+      sharingSettings: <span>Visibility choices</span>,
+      t
+    };
+    const { rerender } = render(<WorkspaceCanvasDirectory {...props} />);
+    await userEvent.click(await screen.findByTestId("workspace-canvas-sharing-settings"));
+    rerender(<WorkspaceCanvasDirectory {...props} sharingBusy />);
+    await userEvent.keyboard("{Escape}");
+    await userEvent.click(screen.getByRole("textbox", { name: "Search canvases" }));
+    expect(screen.getByTestId("workspace-canvas-sharing-popover")).toBeVisible();
+    expect(screen.getByTestId("workspace-canvas-sharing-settings")).toBeDisabled();
+    api.listCollaborationAuthorizedCanvases.mockResolvedValue({
+      items: [canvas("project-a", "canvas-a", "private")],
+      nextCursor: null
+    });
+    rerender(<WorkspaceCanvasDirectory {...props} />);
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(screen.queryByTestId("workspace-directory-row")).not.toBeInTheDocument()
+    );
+    expect(screen.queryByTestId("workspace-canvas-sharing-popover")).not.toBeInTheDocument();
   });
 
   it("retains authorized canvas rows and reports a failed local name lookup", async () => {

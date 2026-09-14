@@ -1,4 +1,5 @@
 export const managementEnCatalog = {
+  accessCloseDetails: "Close details",
   serverLocalHostingHint:
     "Run collaboration services on this computer for other devices to connect.",
   serverDataLocalScope: "Manage Server data stored on this computer.",
@@ -8,11 +9,36 @@ export const managementEnCatalog = {
   serverDataImportHint:
     "Choose an archive to import. Replacing existing data requires confirmation.",
   serverDataMigrationDetails: "Migration details",
+
+  accessCancelChanges: "Cancel",
+  accessResources: "Resource access",
+  accessProjectGrant: "Project authorization",
+  accessCanvasGrant: "Canvas authorization",
+  accessNoDirectGrant: "No direct grant",
+  accessViewChoice: "View",
+  accessEditChoice: "Edit",
+  accessProjectGrantHint: "Applies to this project’s canvases",
+  accessCanvasGrantHint: "Applies only to the selected canvas",
+  accessInheritanceHint:
+    "Removing a direct grant may still leave access through project authorization or sharing.",
+  accessSaved: "Changes saved",
+  accessSaveFailed:
+    "Some changes could not be saved. Review the current permissions and try again.",
+  accessSourceProject: "Project authorization",
+  accessSourceCanvas: "Canvas authorization",
+  accessSourceShared: "Workspace sharing",
+  accessSourceOwner: "Resource owner",
+  accessScopeDetails: "Sharing settings",
+  workspaceInvitationRequiresServerAccess:
+    "Connect this workspace’s Server with invitation permission to copy an invitation.",
+  workspaceCopyInvitation: "Copy member invitation",
+  workspaceInvitationCopySuccess: "Copied · send it to the other person to join",
+  workspaceInvitationCopyHint:
+    "Paste it in “Join another workspace”. Canvas authorization is managed separately.",
+  workspaceInvitationCopyFailed: "Could not copy the invitation. Try again.",
+  workspaceIdLabel: "Workspace ID",
+  workspaceNameMissing: "Unnamed workspace",
   workspaceInformation: "Workspace information",
-  workspaceInvitationHeading: "Member invitation",
-  workspaceInvitationContactOwner:
-    "Ask a workspace administrator for an invitation. Workspace owners can also manage their existing member invitations below.",
-  workspaceManageInvitations: "Manage member invitations",
   executorServerSelector: "Executor Server",
   serverWorkspaceConnections: "Saved workspace connections",
   serverCurrentConnection: "Current connection",
@@ -22,7 +48,7 @@ export const managementEnCatalog = {
   workspaceJoinAnother: "Join another workspace…",
   workspaceNavigation: "Workspace",
   workspaceSharedCanvases: "Shared canvases",
-  workspaceMembersAccess: "Members & permissions",
+  workspaceMembersAccess: "Members",
   workspaceShareAction: "Share canvas",
   workspaceInviteAction: "Invite member",
   workspaceSearchCanvases: "Search canvases",
@@ -42,7 +68,7 @@ export const managementEnCatalog = {
   workspaceAccessSettings: "Canvas permissions",
   workspacePendingInvitations: "Pending invitations",
   workspaceMembershipHint:
-    "Joining a Workspace does not grant access to its canvases. Manage canvas permissions separately.",
+    "Workspace members can view shared canvases. Editing and private canvas access require separate authorization.",
   managementActions: "More actions",
   managementDetails: "Details",
   managementConfigure: "Configure",
