@@ -1,5 +1,25 @@
 import type { CaptureSample, CaptureTrace } from "./collaborationCapture.js";
 
+/** Missing evidence is a coverage gap, not a zero-latency measurement. */
+export function captureCoverage(trace: CaptureTrace) {
+  const count = (stage: CaptureSample["stage"]) =>
+    trace.samples.filter((s) => s.stage === stage).length;
+  return {
+    incomingUpdates: count("socket_receive"),
+    probeReplies: count("transport_probe"),
+    probeFailures: count("transport_probe_timeout") + count("transport_probe_error"),
+    unsupported: count("transport_probe_unavailable") > 0,
+    clientWrites: count("socket_write"),
+    serverWrites: count("server_write"),
+    serverLoopSamples: count("server_event_loop_delay"),
+    serverDroppedRecords: trace.samples.reduce(
+      (sum, sample) => sum + (sample.diagnostics?.droppedRecords ?? 0),
+      0
+    ),
+    networkEvidence: "separate-network-collector-required" as const
+  };
+}
+
 function distribution(values: number[]) {
   if (!values.length) return null;
   const ordered = [...values].sort((a, b) => a - b);

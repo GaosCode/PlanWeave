@@ -618,7 +618,10 @@ export type CollaborationRegistryReadSnapshotInput = Pick<
 export type CollaborationPresenceSignal =
   | {
       profileId: string;
-      message: CanvasPresenceServerMessage;
+      message: Exclude<
+        CanvasPresenceServerMessage,
+        { type: "canvas.presence.probe_result" | "canvas.presence.probe_error" }
+      >;
     }
   | {
       profileId: string;

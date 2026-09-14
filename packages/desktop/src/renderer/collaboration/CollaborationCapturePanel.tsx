@@ -6,10 +6,16 @@ import {
   type CollaborationCaptureApi
 } from "../../shared/collaborationCapture.js";
 import { useCollaborationCapture } from "../hooks/useCollaborationCapture.js";
+import { captureCoverage } from "../../shared/collaborationCaptureSummary.js";
 
 const COPY = {
   zh: {
+    incomplete:
+      "采集证据不完整：请检查接收更新、往返和 Server 写出是否有数据，以及报告中的失败与截断记录。",
     title: "协作性能采集",
+    rtt: "同连接往返 P95",
+    write: "Server 写出 P95",
+    serverLoop: "Server 定时器延迟 P95",
     mainLoop: "主进程定时器延迟 P95",
     server: "Server 处理耗时 P95",
     serverHint: "Server 耗时需两端新版客户端与新版 Server；未采到不代表耗时为零。",
@@ -21,7 +27,7 @@ const COPY = {
     saved: "报告已保存",
     progress: "正在采集",
     complete: "采集已结束",
-    note: "最多 60 秒，仅本机采集。记录时间与数量，不包含坐标、任务正文或凭据。",
+    note: "最多 60 秒，报告保存在本机。采集期间请求 Server 传输诊断，不包含坐标、任务正文或凭据。",
     missing: "采集接口不可用，请更新并重启此客户端。",
     startError: "未能开始采集。请确认共享画布已连接，编号只含字母、数字或连字符。",
     stopError: "未能取得完整报告，请重试停止采集。",
@@ -34,7 +40,12 @@ const COPY = {
     caveat: "消息间隔包含停手时间，不等于网络延迟；帧间隔仅统计前台页面。"
   },
   en: {
+    incomplete:
+      "Incomplete evidence: check incoming updates, round trips, Server writes, and the report's failure and truncation counts.",
     title: "Collaboration capture",
+    rtt: "Same-socket round trip P95",
+    write: "Server write P95",
+    serverLoop: "Server timer delay P95",
     mainLoop: "Main timer delay P95",
     server: "Server processing P95",
     serverHint:
@@ -47,7 +58,7 @@ const COPY = {
     saved: "Report saved",
     progress: "Recording",
     complete: "Capture finished",
-    note: "Up to 60 seconds, local only. Records timing and counts, without coordinates, task text or credentials.",
+    note: "Up to 60 seconds. Reports stay local; requests Server transport diagnostics during capture. No coordinates, task text or credentials.",
     missing: "Capture is unavailable. Update and restart this client.",
     startError:
       "Could not start. Check the shared canvas connection and use only letters, digits or hyphens in the ID.",
@@ -89,6 +100,15 @@ export function CollaborationCapturePanel({
   const [saved, setSaved] = useState(false);
   const active = capture.phase === "running" || capture.phase === "stop_failed";
   const pending = capture.phase === "starting" || capture.phase === "stopping";
+  const coverage = capture.result ? captureCoverage(capture.result.transport) : null;
+  const incomplete =
+    coverage &&
+    (!coverage.incomingUpdates ||
+      !coverage.probeReplies ||
+      !coverage.serverWrites ||
+      !coverage.serverLoopSamples ||
+      coverage.probeFailures > 0 ||
+      coverage.serverDroppedRecords > 0);
   const frames =
     capture.result?.renderer.samples
       .filter((s) => s.stage === "frame" && s.durationMs !== undefined)
@@ -156,6 +176,11 @@ export function CollaborationCapturePanel({
         </span>
       </div>
       {!capture.available && <p>{copy.missing}</p>}
+      {incomplete && (
+        <p role="status" className="text-destructive">
+          {copy.incomplete}
+        </p>
+      )}
       {capture.error && (
         <p role="alert" className="text-destructive">
           {copy[`${capture.error}Error`]}
@@ -163,6 +188,12 @@ export function CollaborationCapturePanel({
       )}
       {capture.result && (
         <dl className="grid grid-cols-2 gap-2 rounded-md bg-app-canvas p-3">
+          <dt>{copy.rtt}</dt>
+          <dd>{durationP95(capture.result.transport, "transport_probe") ?? copy.empty}</dd>
+          <dt>{copy.write}</dt>
+          <dd>{durationP95(capture.result.transport, "server_write") ?? copy.empty}</dd>
+          <dt>{copy.serverLoop}</dt>
+          <dd>{durationP95(capture.result.transport, "server_event_loop_delay") ?? copy.empty}</dd>
           <dt>{copy.mainLoop}</dt>
           <dd>{durationP95(capture.result.transport, "main_event_loop_delay") ?? copy.empty}</dd>
           <dt>{copy.server}</dt>

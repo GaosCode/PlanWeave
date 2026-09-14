@@ -98,6 +98,12 @@ const canvasPresenceScopeShape = {
 } as const;
 
 /** Opt-in diagnostics contain ephemeral correlation identifiers, never identity or authority. */
+export const PRESENCE_TRANSPORT_DIAGNOSTICS_HEADER = "x-planweave-presence-transport-diagnostics";
+export const PRESENCE_TRANSPORT_RECORD_LIMIT = 128;
+export const PRESENCE_PROBE_INTERVAL_MS = 500;
+export const PRESENCE_PROBE_LEASE_MS = 2000;
+export const PRESENCE_PROBE_TIMEOUT_MS = 5000;
+export const PRESENCE_PROBE_PENDING_LIMIT = 12;
 export const PRESENCE_DIAGNOSTICS_HEADER = "x-planweave-presence-diagnostics";
 export const canvasPresenceTraceSchema = z
   .object({
@@ -116,6 +122,64 @@ export const canvasPresenceServerTraceSchema = canvasPresenceTraceSchema
 export type CanvasPresenceTrace = z.infer<typeof canvasPresenceTraceSchema>;
 export type CanvasPresenceServerTrace = z.infer<typeof canvasPresenceServerTraceSchema>;
 
+/** Write completion is local transport completion, never proof of peer delivery. */
+export const canvasPresenceTransportRecordSchema = z
+  .object({
+    stage: z.enum(["write", "event_loop"]),
+    atMs: z.number().finite().nonnegative(),
+    durationMs: z.number().finite().nonnegative(),
+    bufferedBytes: z.number().int().nonnegative().optional(),
+    failed: z.boolean().optional(),
+    trace: canvasPresenceServerTraceSchema.optional()
+  })
+  .strict();
+export type CanvasPresenceTransportRecord = z.infer<typeof canvasPresenceTransportRecordSchema>;
+export const canvasPresenceTransportReportSchema = z
+  .object({
+    probeId: z.string().uuid(),
+    serverClockId: z.string().uuid(),
+    serverReceivedMs: z.number().finite().nonnegative(),
+    serverRespondedMs: z.number().finite().nonnegative(),
+    bufferedBytes: z.number().int().nonnegative(),
+    droppedRecords: z.number().int().nonnegative(),
+    pendingWrites: z.number().int().nonnegative(),
+    connection: z
+      .object({
+        serverPort: z.number().int().min(1).max(65535),
+        clientPort: z.number().int().min(1).max(65535)
+      })
+      .strict()
+      .optional(),
+    records: z.array(canvasPresenceTransportRecordSchema).max(PRESENCE_TRANSPORT_RECORD_LIMIT)
+  })
+  .strict()
+  .refine((v) => v.serverRespondedMs >= v.serverReceivedMs);
+export type CanvasPresenceTransportReport = z.infer<typeof canvasPresenceTransportReportSchema>;
+export const canvasPresenceProbeSchema = z
+  .object({
+    type: z.literal("canvas.presence.probe"),
+    ...canvasPresenceScopeShape,
+    probeId: z.string().uuid(),
+    captureToken: z.string().uuid()
+  })
+  .strict();
+export const canvasPresenceProbeResultSchema = z
+  .object({
+    type: z.literal("canvas.presence.probe_result"),
+    ...canvasPresenceScopeShape,
+    report: canvasPresenceTransportReportSchema
+  })
+  .strict();
+
+export const canvasPresenceProbeErrorSchema = z
+  .object({
+    type: z.literal("canvas.presence.probe_error"),
+    ...canvasPresenceScopeShape,
+    probeId: z.string().uuid(),
+    code: z.literal("rate_limited")
+  })
+  .strict();
+
 /** Client introduction contains routing only; authenticated identity is never client supplied. */
 export const canvasPresenceHelloSchema = z
   .object({
@@ -130,6 +194,7 @@ export const canvasPresenceSnapshotSchema = z
     type: z.literal("canvas.presence.snapshot"),
     ...canvasPresenceScopeShape,
     diagnosticsVersion: z.literal(1).optional(),
+    transportDiagnosticsVersion: z.literal(1).optional(),
     sessions: z.array(canvasPresenceSessionSchema).max(CANVAS_PRESENCE_MAX_SESSIONS_PER_CANVAS)
   })
   .strict()
@@ -202,7 +267,8 @@ export type CanvasPresenceError = z.infer<typeof canvasPresenceErrorSchema>;
 
 export const canvasPresenceClientMessageSchema = z.discriminatedUnion("type", [
   canvasPresenceHelloSchema,
-  canvasPresenceClientUpdateSchema
+  canvasPresenceClientUpdateSchema,
+  canvasPresenceProbeSchema
 ]);
 export type CanvasPresenceClientMessage = z.infer<typeof canvasPresenceClientMessageSchema>;
 
@@ -210,7 +276,9 @@ export const canvasPresenceServerMessageSchema = z.discriminatedUnion("type", [
   canvasPresenceSnapshotSchema,
   canvasPresenceUpdateSchema,
   canvasPresenceLeaveSchema,
-  canvasPresenceErrorSchema
+  canvasPresenceErrorSchema,
+  canvasPresenceProbeResultSchema,
+  canvasPresenceProbeErrorSchema
 ]);
 export type CanvasPresenceServerMessage = z.infer<typeof canvasPresenceServerMessageSchema>;
 

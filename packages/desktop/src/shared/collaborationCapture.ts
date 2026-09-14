@@ -1,4 +1,5 @@
 import {
+  canvasPresenceTransportReportSchema,
   canvasPresenceTraceSchema,
   canvasPresenceServerTraceSchema
 } from "@planweave-ai/collaboration-protocol/canvas/presence";
@@ -9,6 +10,14 @@ export const CAPTURE_SAMPLE_LIMIT = 20_000;
 export const captureIdSchema = z.string().regex(/^[a-zA-Z0-9-]{1,48}$/);
 export const captureStageSchema = z.enum([
   "main_event_loop_delay",
+  "transport_probe",
+  "transport_probe_timeout",
+  "transport_probe_unavailable",
+  "transport_probe_error",
+  "socket_write",
+  "socket_buffer",
+  "server_write",
+  "server_event_loop_delay",
   "server_processing",
   "pointer_input",
   "renderer_send",
@@ -38,6 +47,8 @@ export const captureSampleSchema = z
     pointer: z.boolean().optional(),
     durationMs: z.number().finite().nonnegative().optional(),
     bufferedBytes: z.number().int().nonnegative().optional(),
+    failed: z.boolean().optional(),
+    diagnostics: canvasPresenceTransportReportSchema.optional(),
     trace: z.union([canvasPresenceServerTraceSchema, canvasPresenceTraceSchema]).optional()
   })
   .strict();

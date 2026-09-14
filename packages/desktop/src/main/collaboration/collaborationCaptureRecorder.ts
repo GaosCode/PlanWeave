@@ -4,6 +4,11 @@ import type { CanvasPresenceTrace } from "@planweave-ai/collaboration-protocol/c
 
 export const transportCapture = new CollaborationCaptureRecorder();
 let stream: { ticket: number; id: string; sequence: number } | null = null;
+const probes = new Set<() => void>();
+export function registerCaptureProbe(probe: () => void): () => void {
+  probes.add(probe);
+  return () => probes.delete(probe);
+}
 let lagTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function peekPresenceTrace(): CanvasPresenceTrace | undefined {
@@ -28,6 +33,7 @@ export function startCaptureLoopProbe(): void {
   const sample = () => {
     lagTimer = null;
     if (ticket !== transportCapture.ticket()) return;
+    for (const probe of probes) probe();
     const now = performance.now();
     transportCapture.record("main_event_loop_delay", { durationMs: Math.max(0, now - due) });
     due = now + 100;

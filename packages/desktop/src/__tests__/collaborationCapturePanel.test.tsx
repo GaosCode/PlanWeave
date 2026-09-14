@@ -47,6 +47,7 @@ describe("CollaborationCapturePanel", () => {
     fireEvent.click(screen.getByText("停止采集"));
     await screen.findByText("导出 JSON");
     expect(screen.getAllByText("未采到").length).toBeGreaterThan(0);
+    expect(screen.getByText(/采集证据不完整/)).toBeInTheDocument();
     fireEvent.click(screen.getByText("导出 JSON"));
     await screen.findByRole("alert");
     expect(screen.queryByText("报告已保存")).toBeNull();

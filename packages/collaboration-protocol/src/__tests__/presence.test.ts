@@ -163,3 +163,50 @@ it("validates diagnostic correlation and rejects forged server timing from clien
     }).success
   ).toBe(false);
 });
+
+it("bounds diagnostic replies and rejects forged probe fields", () => {
+  const probe = {
+    type: "canvas.presence.probe",
+    ...scope,
+    probeId: "12345678-1234-4234-8234-123456789012",
+    captureToken: "12345678-1234-4234-8234-123456789013"
+  };
+  expect(canvasPresenceClientMessageSchema.safeParse(probe).success).toBe(true);
+  expect(
+    canvasPresenceClientMessageSchema.safeParse({ ...probe, serverClockId: probe.probeId }).success
+  ).toBe(false);
+  const result = {
+    type: "canvas.presence.probe_result",
+    ...scope,
+    report: {
+      probeId: probe.probeId,
+      serverClockId: probe.probeId,
+      serverReceivedMs: 10,
+      serverRespondedMs: 11,
+      bufferedBytes: 0,
+      pendingWrites: 0,
+      droppedRecords: 0,
+      records: []
+    }
+  };
+  expect(canvasPresenceServerMessageSchema.safeParse(result).success).toBe(true);
+  expect(
+    canvasPresenceServerMessageSchema.safeParse({
+      ...result,
+      report: { ...result.report, serverRespondedMs: 9 }
+    }).success
+  ).toBe(false);
+  expect(
+    canvasPresenceServerMessageSchema.safeParse({
+      ...result,
+      report: {
+        ...result.report,
+        records: Array.from({ length: 129 }, () => ({
+          stage: "event_loop",
+          atMs: 0,
+          durationMs: 0
+        }))
+      }
+    }).success
+  ).toBe(false);
+});

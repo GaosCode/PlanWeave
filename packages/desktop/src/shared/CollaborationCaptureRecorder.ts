@@ -58,6 +58,8 @@ export class CollaborationCaptureRecorder {
     stage: CaptureStage,
     options: {
       bufferedBytes?: number;
+      failed?: boolean;
+      diagnostics?: CaptureSample["diagnostics"];
       peer?: string;
       pointer?: boolean;
       durationMs?: number;
@@ -89,6 +91,8 @@ export class CollaborationCaptureRecorder {
     if (options.pointer !== undefined) sample.pointer = options.pointer;
     if (options.durationMs !== undefined) sample.durationMs = Math.max(0, options.durationMs);
     if (options.bufferedBytes !== undefined) sample.bufferedBytes = options.bufferedBytes;
+    if (options.failed !== undefined) sample.failed = options.failed;
+    if (options.diagnostics) sample.diagnostics = structuredClone(options.diagnostics);
     if (options.trace) sample.trace = { ...options.trace };
     this.trace.samples.push(sample);
   }
@@ -121,6 +125,7 @@ export class CollaborationCaptureRecorder {
       durationMs: this.running() ? Math.max(0, this.now() - this.started) : this.trace.durationMs,
       samples: this.trace.samples.map((sample) => ({
         ...sample,
+        ...(sample.diagnostics ? { diagnostics: structuredClone(sample.diagnostics) } : {}),
         ...(sample.trace ? { trace: { ...sample.trace } } : {})
       }))
     };

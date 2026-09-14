@@ -1,3 +1,4 @@
+import { PresenceTransportDiagnostics } from "./presenceTransportDiagnostics.js";
 import { PresenceOutboundQueue, PRESENCE_OUTBOUND_LIMITS } from "./presenceOutboundQueue.js";
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage } from "node:http";
@@ -5,9 +6,11 @@ import type { Duplex } from "node:stream";
 import { CANVAS_PRESENCE_MAX_FRAME_BYTES } from "@planweave-ai/collaboration-protocol/core/limits";
 import {
   PRESENCE_DIAGNOSTICS_HEADER,
+  PRESENCE_TRANSPORT_DIAGNOSTICS_HEADER,
   canvasPresenceClientMessageSchema,
   canvasPresenceServerMessageSchema,
-  type CanvasPresenceErrorCode
+  type CanvasPresenceErrorCode,
+  type CanvasPresenceTransportReport
 } from "@planweave-ai/collaboration-protocol/canvas/presence";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 import {
@@ -141,8 +144,11 @@ export function attachCanvasPresenceWebSocketServer(
     route: ScopedPresenceRoute,
     authorization: string | string[] | undefined,
     authenticated: AuthenticatedCollaborationScope,
-    diagnostics: boolean
+    diagnostics: boolean,
+    transportDiagnostics: boolean,
+    connection?: CanvasPresenceTransportReport["connection"]
   ) => {
+    const telemetry = new PresenceTransportDiagnostics();
     sessions.add(socket);
     let initialized = false;
     let sessionId: Parameters<CanvasPresenceHub["leave"]>[0] | undefined;
@@ -191,6 +197,7 @@ export function attachCanvasPresenceWebSocketServer(
       cleanedUp = true;
       queue.dispose();
       queues.delete(socket);
+      telemetry.close();
       clearTimeout(helloTimer);
       if (authTimer) clearTimeout(authTimer);
       clearInterval(heartbeatTimer);
@@ -251,7 +258,15 @@ export function attachCanvasPresenceWebSocketServer(
       onFatal: () => {
         cleanup();
         socket.terminate();
-      }
+      },
+      onSend: (message, bufferedBytes) =>
+        transportDiagnostics &&
+        (message.type === "canvas.presence.update" || message.type === "canvas.presence.leave")
+          ? telemetry.beginWrite(
+              bufferedBytes,
+              message.type === "canvas.presence.update" ? message.trace : undefined
+            )
+          : undefined
     });
     queues.set(socket, queue);
     const scheduleAuthorizationSafetyCheck = () => {
@@ -378,8 +393,36 @@ export function attachCanvasPresenceWebSocketServer(
             projectId: route.projectId,
             canvasId: route.canvasId,
             ...(diagnostics ? { diagnosticsVersion: 1 } : {}),
+            ...(transportDiagnostics ? { transportDiagnosticsVersion: 1 } : {}),
             sessions: connected.snapshot
           });
+          return;
+        }
+        if (message.type === "canvas.presence.probe" && transportDiagnostics && sessionId) {
+          const report = telemetry.probe(
+            message.probeId,
+            message.captureToken,
+            serverClockId,
+            receivedMs,
+            socket.bufferedAmount
+          );
+          if (report)
+            queue.enqueue({
+              type: "canvas.presence.probe_result",
+              protocolVersion: 1,
+              projectId: route.projectId,
+              canvasId: route.canvasId,
+              report: { ...report, ...(connection ? { connection } : {}) }
+            });
+          else
+            queue.enqueue({
+              type: "canvas.presence.probe_error",
+              protocolVersion: 1,
+              projectId: route.projectId,
+              canvasId: route.canvasId,
+              probeId: message.probeId,
+              code: "rate_limited"
+            });
           return;
         }
         if (message.type !== "canvas.presence.update" || !sessionId) {
@@ -471,7 +514,11 @@ export function attachCanvasPresenceWebSocketServer(
           { ...route, workspaceId: authenticated.workspaceId },
           request.headers.authorization,
           authenticated,
-          request.headers[PRESENCE_DIAGNOSTICS_HEADER] === "1"
+          request.headers[PRESENCE_DIAGNOSTICS_HEADER] === "1",
+          request.headers[PRESENCE_TRANSPORT_DIAGNOSTICS_HEADER] === "1",
+          request.socket.localPort && request.socket.remotePort
+            ? { serverPort: request.socket.localPort, clientPort: request.socket.remotePort }
+            : undefined
         )
       );
     }

@@ -121,11 +121,17 @@ async function inviteMember(origin: string, projectId: string, ownerDeviceToken:
   return JSON.parse(body) as { deviceToken: string };
 }
 
-async function connect(url: string, token: string, diagnostics = false): Promise<WebSocket> {
+async function connect(
+  url: string,
+  token: string,
+  diagnostics = false,
+  transport = false
+): Promise<WebSocket> {
   const socket = new WebSocket(url, {
     headers: {
       Authorization: `Bearer ${token}`,
-      ...(diagnostics ? { "x-planweave-presence-diagnostics": "1" } : {})
+      ...(diagnostics ? { "x-planweave-presence-diagnostics": "1" } : {}),
+      ...(transport ? { "x-planweave-presence-transport-diagnostics": "1" } : {})
     }
   });
   sockets.push(socket);
@@ -225,6 +231,77 @@ describe("canvas presence WebSocket", () => {
     const ordinary = nextMessage(receiver);
     sender.send(JSON.stringify(update));
     expect(await ordinary).not.toHaveProperty("trace");
+  });
+
+  it("collects same-socket write telemetry only after negotiated authenticated probes", async () => {
+    const fixture = await setup();
+    const owner = await bootstrap(fixture.origin, fixture.projectId);
+    const url = `${fixture.wsOrigin}/api/v1/projects/${fixture.projectId}/canvases/default/human/presence`;
+    const sender = await connect(url, owner.deviceToken, true);
+    const receiver = await connect(url, owner.deviceToken, true, true);
+    for (const socket of [sender, receiver]) {
+      const pending = nextMessage(socket);
+      hello(socket, fixture.projectId);
+      const snapshot = await pending;
+      if (socket === receiver) expect(snapshot.transportDiagnosticsVersion).toBe(1);
+      else expect(snapshot).not.toHaveProperty("transportDiagnosticsVersion");
+    }
+    const probe = {
+      type: "canvas.presence.probe",
+      protocolVersion: 1,
+      projectId: fixture.projectId,
+      canvasId: "default",
+      probeId: "12345678-1234-4234-8234-123456789012",
+      captureToken: "12345678-1234-4234-8234-123456789013"
+    };
+    const first = nextMessage(receiver);
+    receiver.send(JSON.stringify(probe));
+    expect(await first).toMatchObject({
+      type: "canvas.presence.probe_result",
+      report: { records: [] }
+    });
+    const limited = nextMessage(receiver);
+    receiver.send(JSON.stringify(probe));
+    expect(await limited).toMatchObject({
+      type: "canvas.presence.probe_error",
+      code: "rate_limited"
+    });
+    expect(receiver.readyState).toBe(WebSocket.OPEN);
+    const update = nextMessage(receiver);
+    sender.send(
+      JSON.stringify({
+        type: "canvas.presence.update",
+        protocolVersion: 1,
+        projectId: fixture.projectId,
+        canvasId: "default",
+        pointer: { x: 1, y: 2 },
+        selectionIds: [],
+        trace: { streamId: "12345678-1234-4234-8234-123456789014", sequence: 0 }
+      })
+    );
+    await update;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const result = nextMessage(receiver);
+    receiver.send(JSON.stringify(probe));
+    const report = recordFrom((await result).report);
+    expect(report.records).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          stage: "write",
+          failed: false,
+          bufferedBytes: expect.any(Number),
+          trace: expect.objectContaining({ sequence: 0 })
+        }),
+        expect.objectContaining({ stage: "event_loop", durationMs: expect.any(Number) })
+      ])
+    );
+    expect(report.pendingWrites).toBe(0);
+    const rejected = nextMessage(sender);
+    sender.send(JSON.stringify(probe));
+    expect(await rejected).toMatchObject({
+      type: "canvas.presence.error",
+      code: "invalid_message"
+    });
   });
 
   it("keeps two members mutually visible through disconnects and same-device reconnects", async () => {

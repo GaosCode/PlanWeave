@@ -5,7 +5,8 @@ import { captureExportSchema, captureStartSchema } from "../../shared/collaborat
 import { collaborationCaptureChannels } from "../../shared/collaborationCaptureIpc.js";
 import {
   summarizeCapture,
-  summarizePresenceQueue
+  summarizePresenceQueue,
+  captureCoverage
 } from "../../shared/collaborationCaptureSummary.js";
 
 export function registerCollaborationCaptureHandlers(): void {
@@ -32,7 +33,7 @@ export function registerCollaborationCaptureHandlers(): void {
       choice.filePath,
       JSON.stringify(
         {
-          schemaVersion: "planweave.collaboration.capture/v2",
+          schemaVersion: "planweave.collaboration.capture/v3",
           environment: {
             platform: process.platform,
             arch: process.arch,
@@ -43,6 +44,8 @@ export function registerCollaborationCaptureHandlers(): void {
           interpretation: {
             queue:
               "bridge_ack accepts the latest state into this connection. presence_coalesced counts local replacements without assigning a wire sequence. presence_queue_wait measures the latest state enqueue to actual socket_send on the local clock. socket_send is a local send call, not peer receipt. presence_buffer samples WebSocket queued bytes during send-budget checks. All queue samples share the capture duration and sample limits.",
+            transport:
+              "transport_probe measures same-socket application round trip, including both scheduling and network time. server_write/socket_write are local write callbacks, not peer acknowledgements. bufferedBytes is the WebSocket queued byte count, not the full kernel TCP queue. Server write/loop event timestamps are in diagnostics.records on the Server clock; flattened stage timestamps mark collection only. droppedRecords and pendingWrites expose incomplete server batches. Missing probes/writes are unavailable, never zero. Probes stop with capture; the last in-flight replies and writes may not be in the export. report.connection identifies Server-observed TCP ports for matching network samples (proxies or NAT can change the client port). Network-side TCP evidence must be collected in the same time window.",
             server:
               "serverForwardedMs minus serverReceivedMs measures message callback entry to pre-send, including validation and fanout. It excludes delay before the callback and actual socket transmission. Missing trace means no negotiated sender diagnostics for that message.",
             mainLoop:
@@ -63,6 +66,7 @@ export function registerCollaborationCaptureHandlers(): void {
             transport: summarizeCapture(capture.transport),
             presenceQueue: summarizePresenceQueue(capture.transport)
           },
+          coverage: captureCoverage(capture.transport),
           ...capture
         },
         null,
