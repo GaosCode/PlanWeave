@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { readdir, readFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
@@ -12,6 +12,22 @@ import {
 
 const execFileAsync = promisify(execFile);
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
+const nodeCoordinationPattern =
+  /workspaceExecution\/(node|coordinator)|WorkspaceExecutionCoordinator/;
+
+async function rendererSourceFiles(directory: string): Promise<string[]> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await rendererSourceFiles(path)));
+    } else if (entry.isFile() && (path.endsWith(".ts") || path.endsWith(".tsx"))) {
+      files.push(path);
+    }
+  }
+  return files;
+}
 
 describe("workspace execution architecture boundaries", () => {
   it("keeps the runtime browser graph free of Node, repository, transport, and credentials", async () => {
@@ -36,13 +52,16 @@ describe("workspace execution architecture boundaries", () => {
 
   it("keeps Node coordination out of the Desktop renderer import graph", async () => {
     const rendererRoot = resolve(repoRoot, "packages/desktop/src/renderer");
-    const result = await execFileAsync("rg", [
-      "-n",
-      "workspaceExecution/(node|coordinator)|WorkspaceExecutionCoordinator",
-      rendererRoot
-    ]).catch((error: unknown) => error as { stdout?: string; code?: number });
-    expect(result).toMatchObject({ code: 1 });
-    expect((result as { stdout?: string }).stdout ?? "").toBe("");
+    const matches: string[] = [];
+    for (const file of await rendererSourceFiles(rendererRoot)) {
+      const source = await readFile(file, "utf8");
+      source.split("\n").forEach((line, index) => {
+        if (nodeCoordinationPattern.test(line)) {
+          matches.push(`${file}:${index + 1}:${line.trim()}`);
+        }
+      });
+    }
+    expect(matches).toEqual([]);
   });
 
   it("rejects free JSON and secrets in persisted handle/session/event contracts", () => {
