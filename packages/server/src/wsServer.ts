@@ -1,5 +1,9 @@
 import {
   EXACT_PERMISSION_OPTIONS_VERSION_HEADER,
+  HISTORICAL_PERMISSION_REPLAY_VERSION_HEADER,
+  negotiateHistoricalPermissionReplayVersion,
+  historicalPermissionHostReplaySchema,
+  parseHistoricalPermissionEventJson,
   historicalHostEventSchema,
   negotiateExactPermissionOptionsVersion,
   type HistoricalHostEvent
@@ -74,7 +78,28 @@ function sendEvent(socket: WebSocket, event: unknown): void {
   socket.send(JSON.stringify(serverEventSchema.parse(event)));
 }
 
-function sendMailboxMessage(socket: WebSocket, message: MailboxMessage): void {
+function sendMailboxMessage(
+  socket: WebSocket,
+  message: MailboxMessage,
+  mailbox: DurableMailbox,
+  historicalPermissionReplayVersion: 1 | undefined
+): void {
+  if (
+    message.command.type === "interaction.permission_response" &&
+    message.command.decision === "allow_once"
+  ) {
+    if (historicalPermissionReplayVersion !== 1)
+      throw new Error("historical_permission_replay_unsupported");
+    sendEvent(socket, {
+      type: "mailbox.permission_history",
+      protocolVersion: agentHostProtocolVersion,
+      sequence: message.sequence,
+      previousSequence: message.previousSequence,
+      messageId: message.messageId,
+      commandJson: mailbox.historicalPermissionCommandJson(message.messageId)
+    });
+    return;
+  }
   sendEvent(socket, {
     type: "mailbox.message",
     protocolVersion: agentHostProtocolVersion,
@@ -184,7 +209,8 @@ export function attachAgentHostWebSocketServer(
   const handleConnection = (
     socket: WebSocket,
     hostId: string,
-    exactPermissionOptionsVersion: 1 | undefined
+    exactPermissionOptionsVersion: 1 | undefined,
+    historicalPermissionReplayVersion: 1 | undefined
   ) => {
     const prior = sessions.get(hostId);
     if (prior && prior.socket.readyState === WebSocket.OPEN) {
@@ -212,7 +238,10 @@ export function attachAgentHostWebSocketServer(
       alive = true;
     });
 
-    const handleHostEvent = async (event: HistoricalHostEvent): Promise<void> => {
+    const handleHostEvent = async (
+      event: HistoricalHostEvent,
+      historicalReplay = false
+    ): Promise<void> => {
       let deferredWriteback: { dispatchId: string } | undefined;
       switch (event.type) {
         case "mailbox.ack":
@@ -325,7 +354,13 @@ export function attachAgentHostWebSocketServer(
         case "interaction.elicitation_requested":
         case "interaction.authentication_required": {
           const { protocolVersion: _protocolVersion, messageId: _messageId, ...request } = event;
-          if (exactPermissionOptionsVersion === 1) {
+          if (historicalReplay) {
+            options.interactions.recordHistoricalPermissionRequest(
+              hostId,
+              event.messageId,
+              request
+            );
+          } else if (exactPermissionOptionsVersion === 1) {
             options.interactions.recordRequest(hostId, event.messageId, request);
           } else {
             options.interactions.recordLegacyRequest(hostId, event.messageId, request);
@@ -377,7 +412,12 @@ export function attachAgentHostWebSocketServer(
             session.initialized = true;
             clearTimeout(helloTimeout);
             unsubscribe = options.mailbox.subscribe(hostId, (message) =>
-              sendMailboxMessage(socket, message)
+              sendMailboxMessage(
+                socket,
+                message,
+                options.mailbox,
+                historicalPermissionReplayVersion
+              )
             );
             sendEvent(socket, {
               type: "host.welcome",
@@ -385,15 +425,35 @@ export function attachAgentHostWebSocketServer(
               serverTime: new Date().toISOString(),
               heartbeatIntervalMs: options.heartbeatIntervalMs,
               leaseDurationMs: options.leaseDurationMs,
-              ...(exactPermissionOptionsVersion === 1 ? { exactPermissionOptionsVersion } : {})
+              ...(exactPermissionOptionsVersion === 1 ? { exactPermissionOptionsVersion } : {}),
+              ...(historicalPermissionReplayVersion === 1
+                ? { historicalPermissionReplayVersion }
+                : {})
             });
             for (const message of options.mailbox.listAfter(
               hostId,
               hello.lastAcknowledgedSequence
             )) {
-              sendMailboxMessage(socket, message);
+              sendMailboxMessage(
+                socket,
+                message,
+                options.mailbox,
+                historicalPermissionReplayVersion
+              );
             }
             continueHostAvailability(hostId);
+            return;
+          }
+          if (
+            typeof input === "object" &&
+            input !== null &&
+            "type" in input &&
+            input.type === "host.permission_history"
+          ) {
+            if (historicalPermissionReplayVersion !== 1 || exactPermissionOptionsVersion !== 1)
+              throw new Error("historical_permission_replay_unsupported");
+            const replay = historicalPermissionHostReplaySchema.parse(input);
+            await handleHostEvent(parseHistoricalPermissionEventJson(replay.eventJson), true);
             return;
           }
           await handleHostEvent(
@@ -445,16 +505,27 @@ export function attachAgentHostWebSocketServer(
       return;
     }
     let exactPermissionOptionsVersion: 1 | undefined;
+    let historicalPermissionReplayVersion: 1 | undefined;
     try {
+      historicalPermissionReplayVersion = negotiateHistoricalPermissionReplayVersion(
+        request.headers[HISTORICAL_PERMISSION_REPLAY_VERSION_HEADER]
+      );
       exactPermissionOptionsVersion = negotiateExactPermissionOptionsVersion(
         request.headers[EXACT_PERMISSION_OPTIONS_VERSION_HEADER]
       );
+      if (historicalPermissionReplayVersion === 1 && exactPermissionOptionsVersion !== 1)
+        throw new Error("historical_permission_replay_unsupported");
     } catch {
       rejectUpgrade(socket, 400, "Unsupported Permission Options Version");
       return;
     }
     webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
-      handleConnection(webSocket, hostId, exactPermissionOptionsVersion);
+      handleConnection(
+        webSocket,
+        hostId,
+        exactPermissionOptionsVersion,
+        historicalPermissionReplayVersion
+      );
     });
   };
 

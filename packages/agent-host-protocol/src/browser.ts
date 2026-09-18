@@ -1,3 +1,4 @@
+export * from "./historicalPermissionReplay.js";
 export * from "./acpPermissionOptions.js";
 export {
   assertInteractionIdentityMatches,

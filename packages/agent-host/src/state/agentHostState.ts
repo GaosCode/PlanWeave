@@ -1,3 +1,5 @@
+import { parseHistoricalPermissionCommandJson } from "@planweave-ai/agent-host-protocol";
+import { cancellationForMailboxCommand } from "./historicalPermissionCancellation.js";
 import type { HistoricalAgentHostRemoteExecutionRecord } from "../execution/remoteExecutionRecordSchema.js";
 import { AcpConversationRepository } from "./acpConversationRepository.js";
 import { randomUUID } from "node:crypto";
@@ -13,7 +15,7 @@ import type {
 } from "../execution/remoteAcpPorts.js";
 import {
   parseAgentHostEvent,
-  parseAgentHostMailboxCommand,
+  parseHistoricalAgentHostMailboxCommand,
   parseAgentHostServerEvent,
   type HostEvent,
   type HistoricalHostEvent,
@@ -76,10 +78,16 @@ const leasedStatuses: readonly AgentHostExecutionStatus[] = [
   "interaction_wait"
 ];
 
-type MailboxMessageEvent = Extract<ServerEvent, { type: "mailbox.message" }>;
+type MailboxMessageEvent =
+  | Extract<ServerEvent, { type: "mailbox.message" }>
+  | (Extract<ServerEvent, { type: "mailbox.permission_history" }> & {
+      command: ReturnType<typeof parseHistoricalPermissionCommandJson>;
+    });
 
 function messageEvent(input: ServerEvent): MailboxMessageEvent {
   const parsed = parseAgentHostServerEvent(input);
+  if (parsed.type === "mailbox.permission_history")
+    return { ...parsed, command: parseHistoricalPermissionCommandJson(parsed.commandJson) };
   if (parsed.type !== "mailbox.message") throw new Error("mailbox_message_required");
   return parsed;
 }
@@ -149,7 +157,10 @@ export class AgentHostState implements AgentHostStateRepository {
         break;
     }
     return inWriteTransaction(this.database, () => {
-      const commandJson = JSON.stringify(event.command);
+      const commandJson =
+        event.type === "mailbox.permission_history"
+          ? event.commandJson
+          : JSON.stringify(event.command);
       const commandDigest = digestJson(event.command);
       const existing = this.database
         .prepare(
@@ -166,6 +177,13 @@ export class AgentHostState implements AgentHostStateRepository {
           String(existing.command_digest) !== commandDigest
         ) {
           throw new Error("mailbox_message_conflict");
+        }
+        if (event.type === "mailbox.permission_history") {
+          // An old Host may have processed this decision as a grant. Reconcile it
+          // through cancellation even when the immutable delivery already exists.
+          this.database
+            .prepare("UPDATE agent_host_inbox SET processed_at=NULL WHERE sequence=?")
+            .run(event.sequence);
         }
       } else if (
         this.terminalCompaction.inspectMailboxReplay(event, commandDigest) === "compacted"
@@ -242,9 +260,10 @@ export class AgentHostState implements AgentHostStateRepository {
             .run(receivedAt, event.sequence);
         }
         if (
-          event.command.type === "interaction.permission_response" ||
-          event.command.type === "interaction.elicitation_response" ||
-          event.command.type === "interaction.authentication_action"
+          event.type === "mailbox.message" &&
+          (event.command.type === "interaction.permission_response" ||
+            event.command.type === "interaction.elicitation_response" ||
+            event.command.type === "interaction.authentication_action")
         ) {
           this.interactions.settle(event.command, receivedAt);
           this.database
@@ -272,6 +291,10 @@ export class AgentHostState implements AgentHostStateRepository {
 
   pendingEvents(limit = this.limits.maxPendingEvents): HistoricalHostEvent[] {
     return this.events.pending(limit);
+  }
+
+  historicalPermissionEventJson(messageId: string): string {
+    return this.events.historicalPermissionEventJson(messageId);
   }
 
   pendingEventCount(): number {
@@ -395,8 +418,10 @@ export class AgentHostState implements AgentHostStateRepository {
       )
       .all()
       .flatMap((raw) => {
-        const command = parseAgentHostMailboxCommand(JSON.parse(String(raw.command_json)));
-        return command.type === "cancel_execution"
+        const command = cancellationForMailboxCommand(
+          parseHistoricalAgentHostMailboxCommand(JSON.parse(String(raw.command_json)))
+        );
+        return command
           ? [{ sequence: Number(raw.sequence), messageId: String(raw.message_id), command }]
           : [];
       });
@@ -408,8 +433,10 @@ export class AgentHostState implements AgentHostStateRepository {
         .prepare("SELECT command_json,processed_at FROM agent_host_inbox WHERE sequence=?")
         .get(sequence);
       if (!raw) throw new Error("mailbox_message_not_found");
-      const cancellation = parseAgentHostMailboxCommand(JSON.parse(String(raw.command_json)));
-      if (cancellation.type !== "cancel_execution") throw new Error("cancel_execution_required");
+      const cancellation = cancellationForMailboxCommand(
+        parseHistoricalAgentHostMailboxCommand(JSON.parse(String(raw.command_json)))
+      );
+      if (!cancellation) throw new Error("cancel_execution_required");
       if (raw.processed_at) return { shouldAbort: false };
       const execution = this.executions
         .list(["accepted", "preparing", "running", "interaction_wait", "interrupted"])

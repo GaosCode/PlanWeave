@@ -105,6 +105,21 @@ export class DurableMailbox {
     };
   }
 
+  get(messageId: string): MailboxMessage | undefined {
+    const row = this.database
+      .prepare("SELECT * FROM mailbox_messages WHERE message_id=?")
+      .get(mailboxMessageIdSchema.parse(messageId));
+    return row ? toMessage(row) : undefined;
+  }
+
+  historicalPermissionCommandJson(messageId: string): string {
+    const row = this.database
+      .prepare("SELECT command_json FROM mailbox_messages WHERE message_id=?")
+      .get(mailboxMessageIdSchema.parse(messageId));
+    if (!row) throw new Error("mailbox_message_not_found");
+    return String(row.command_json);
+  }
+
   markPublished(messageId: string, at = new Date()): MailboxMessage {
     const parsedMessageId = mailboxMessageIdSchema.parse(messageId);
     const updated = this.database

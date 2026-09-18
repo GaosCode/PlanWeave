@@ -1,5 +1,9 @@
 import { z } from "zod";
 import {
+  historicalPermissionMailboxReplaySchema,
+  historicalPermissionReplayVersionSchema
+} from "./historicalPermissionReplay.js";
+import {
   acpConversationCommandSchema,
   acpConversationEventSchema
 } from "./acpConversationProtocol.js";
@@ -66,6 +70,7 @@ export const hostHelloSchema = versionedSchema.extend({
 export const hostWelcomeSchema = versionedSchema.extend({
   type: z.literal("host.welcome"),
   exactPermissionOptionsVersion: exactPermissionOptionsVersionSchema.optional(),
+  historicalPermissionReplayVersion: historicalPermissionReplayVersionSchema.optional(),
   serverTime: z.string().datetime(),
   heartbeatIntervalMs: z.number().int().positive().safe(),
   leaseDurationMs: z.number().int().positive().safe()
@@ -243,6 +248,7 @@ export const protocolErrorSchema = versionedSchema.extend({
 });
 
 export const serverEventSchema = z.discriminatedUnion("type", [
+  historicalPermissionMailboxReplaySchema,
   hostWelcomeSchema,
   mailboxDeliverySchema,
   hostEventAcknowledgementSchema,

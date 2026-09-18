@@ -694,6 +694,7 @@
         "compatibility.test.ts",
         "credentialLifecycle.test.ts",
         "executionEnvelope.test.ts",
+        "historicalPermissionReplay.test.ts",
         "exports.test.ts",
         "ownerRunWorkspace.test.ts",
         "operatorControl.test.ts",
@@ -793,6 +794,8 @@
       "unit": [],
       "integration": [
         "exactPermissionHandshake.test.ts",
+        "historicalPermissionReplay.test.ts",
+        "historicalPermissionRecovery.test.ts",
         "exactPermissionRelay.test.ts",
         "canvasRuntimeAdapterContract.test.ts",
         "canvasRuntimeArtifactLoopback.test.ts"

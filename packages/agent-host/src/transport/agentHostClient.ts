@@ -3,6 +3,8 @@ import { WebSocket } from "ws";
 import {
   CANVAS_RUNTIME_CAPABILITY,
   EXACT_PERMISSION_OPTIONS_VERSION_HEADER,
+  HISTORICAL_PERMISSION_REPLAY_VERSION_HEADER,
+  historicalPermissionHostReplaySchema,
   requireExactPermissionOptionsVersion,
   ACP_CONVERSATION_CAPABILITY,
   type HostReadinessObservation
@@ -11,7 +13,8 @@ import {
   parseAgentHostCapabilities,
   parseAgentHostDispatchResult,
   parseAgentHostServerEvent,
-  serializeHistoricalAgentHostEvent,
+  serializeAgentHostEvent,
+  type HistoricalHostEvent,
   serializeAgentHostHello,
   type ServerEvent
 } from "../protocol.js";
@@ -167,6 +170,7 @@ export class AgentHostClient implements HostTransport {
   private queuedMessages = 0;
   private processing = Promise.resolve();
   private welcomed = false;
+  private historicalPermissionReplaySupported = false;
   private compatibilityShutdown?: Promise<void>;
   private stopped = true;
   private startupAbort?: AbortController;
@@ -433,7 +437,8 @@ export class AgentHostClient implements HostTransport {
     const socket = new WebSocket(url, {
       headers: {
         Authorization: `Bearer ${this.token}`,
-        [EXACT_PERMISSION_OPTIONS_VERSION_HEADER]: "1"
+        [EXACT_PERMISSION_OPTIONS_VERSION_HEADER]: "1",
+        [HISTORICAL_PERMISSION_REPLAY_VERSION_HEADER]: "1"
       },
       maxPayload: this.limits.maxPayloadBytes,
       ca: this.options.ca
@@ -546,6 +551,19 @@ export class AgentHostClient implements HostTransport {
           this.rejectPermissionCompatibility();
           return;
         }
+        this.historicalPermissionReplaySupported = event.historicalPermissionReplayVersion === 1;
+        if (
+          !this.historicalPermissionReplaySupported &&
+          this.options.state
+            .pendingEvents()
+            .some(
+              (pending) =>
+                pending.type === "interaction.permission_requested" && !("options" in pending)
+            )
+        ) {
+          this.rejectPermissionCompatibility("historical_permission_replay_unsupported");
+          return;
+        }
         this.welcomed = true;
         this.reconnectAttempt = 0;
         this.transition({ state: "connected", connectedAt: this.clock.now().toISOString() });
@@ -560,6 +578,12 @@ export class AgentHostClient implements HostTransport {
         this.startHeartbeat(event.heartbeatIntervalMs);
         this.checkCredentialRenewal();
         this.flushEvents();
+        this.pump();
+        return;
+      case "mailbox.permission_history":
+        if (!this.historicalPermissionReplaySupported)
+          throw new Error("historical_permission_replay_unsupported");
+        this.options.state.receive(event);
         this.pump();
         return;
       case "mailbox.message":
@@ -639,7 +663,7 @@ export class AgentHostClient implements HostTransport {
     }
   }
 
-  private rejectPermissionCompatibility(): void {
+  private rejectPermissionCompatibility(reason = "exact_permission_options_unsupported"): void {
     this.stopped = true;
     this.welcomed = false;
     this.inFlightEventIds.clear();
@@ -650,7 +674,7 @@ export class AgentHostClient implements HostTransport {
     socket?.terminate();
     for (const { controller } of this.active.values()) controller.abort();
     this.options.canvasRuntime?.disconnect();
-    this.transition({ state: "degraded", reason: "exact_permission_options_unsupported" });
+    this.transition({ state: "degraded", reason });
     const cleanup = this.waitBounded(
       Promise.all([
         this.options.conversations?.stop() ?? Promise.resolve(),
@@ -701,9 +725,22 @@ export class AgentHostClient implements HostTransport {
     }
   }
 
-  private send(event: unknown): boolean {
+  private send(event: HistoricalHostEvent): boolean {
     if (this.stopped || !this.welcomed || this.socket?.readyState !== WebSocket.OPEN) return false;
-    const payload = serializeHistoricalAgentHostEvent(event);
+    const historical = event.type === "interaction.permission_requested" && !("options" in event);
+    if (historical && !this.historicalPermissionReplaySupported) {
+      this.rejectPermissionCompatibility("historical_permission_replay_unsupported");
+      return false;
+    }
+    const payload = historical
+      ? JSON.stringify(
+          historicalPermissionHostReplaySchema.parse({
+            type: "host.permission_history",
+            protocolVersion: 1,
+            eventJson: this.options.state.historicalPermissionEventJson(event.messageId)
+          })
+        )
+      : serializeAgentHostEvent(event);
     if (Buffer.byteLength(payload) > this.limits.maxPayloadBytes)
       throw new Error("agent_host_outbound_payload_too_large");
     if (this.socket.bufferedAmount + Buffer.byteLength(payload) > this.limits.maxBufferedBytes)

@@ -1,3 +1,4 @@
+import { enqueueHistoricalPermissionCancellation } from "./historicalPermissionCancellation.js";
 import { createHash } from "node:crypto";
 import {
   canonicalizeJson,
@@ -183,10 +184,55 @@ export class RemoteInteractionService {
     );
   }
 
+  /** A receipt proves delivery, not that an old request was safely consumed. */
+  recordHistoricalPermissionRequest(
+    hostId: string,
+    messageId: string,
+    rawRequest: unknown
+  ): RemoteInteractionRecord | undefined {
+    const request = historicalInteractionRequestSchema.parse(rawRequest);
+    if (request.type !== "interaction.permission_requested" || "options" in request)
+      throw new Error("historical_permission_request_required");
+    const message = inWriteTransaction(this.database, () => {
+      this.recordParsedRequest(hostId, messageId, request, false);
+      const active = this.findActiveAttempt({ hostId, request });
+      const cancellation = active
+        ? enqueueHistoricalPermissionCancellation(
+            this.database,
+            { ...active, hostId, request },
+            this.clock
+          )
+        : undefined;
+      this.database
+        .prepare(
+          `UPDATE remote_interactions SET status='expired',settled_at=?,expiry_mailbox_message_id=?
+         WHERE host_id=? AND dispatch_id=? AND lease_id=? AND execution_attempt_id=?
+           AND acp_session_id=? AND action_id=? AND status='pending'`
+        )
+        .run(
+          this.clock().toISOString(),
+          cancellation?.messageId ?? null,
+          hostId,
+          request.dispatchId,
+          request.leaseId,
+          request.executionAttemptId,
+          request.acpSessionId,
+          request.actionId
+        );
+      return cancellation;
+    });
+    if (message && !message.publishedAt && this.options.publisher) {
+      this.options.publisher.publish(message);
+      this.mailbox.markPublished(message.messageId);
+    }
+    return this.get(requestIdentity(hostId, request));
+  }
+
   private recordParsedRequest(
     hostId: string,
     messageId: string,
-    request: HistoricalInteractionRequest
+    request: HistoricalInteractionRequest,
+    expireDue = true
   ): RemoteInteractionRecord | undefined {
     const redacted = redactRequest(request);
     let dropReason: "remote_interaction_attempt_not_active" | undefined;
@@ -257,10 +303,10 @@ export class RemoteInteractionService {
     if (!applied) {
       const existing = this.get(requestIdentity(hostId, request));
       if (!existing) return undefined;
-      this.expireDue();
+      if (expireDue) this.expireDue();
       return existing;
     }
-    this.expireDue();
+    if (expireDue) this.expireDue();
     return this.getRequired(requestIdentity(hostId, request));
   }
 

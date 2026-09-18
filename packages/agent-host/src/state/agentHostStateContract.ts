@@ -53,6 +53,7 @@ export interface AgentHostStateRepository {
   lastAcknowledgedSequence(): number;
   pendingEvents(limit?: number): HistoricalHostEvent[];
   pendingEventCount(): number;
+  historicalPermissionEventJson(messageId: string): string;
   queueHeartbeat(
     activeLeases: ReadonlyArray<{
       dispatchId: string;

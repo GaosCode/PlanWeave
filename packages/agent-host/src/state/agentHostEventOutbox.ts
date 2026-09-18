@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { parseHistoricalPermissionEventJson } from "@planweave-ai/agent-host-protocol";
 import type { HostReadinessObservation } from "@planweave-ai/agent-host-protocol";
 import {
   parseAgentHostEvent,
@@ -34,6 +35,19 @@ export class AgentHostEventOutbox {
       .map((raw) =>
         parseHistoricalAgentHostEvent(JSON.parse(outboxRowSchema.parse(raw).event_json))
       );
+  }
+
+  historicalPermissionEventJson(messageId: string): string {
+    const row = this.database
+      .prepare(
+        "SELECT event_json FROM agent_host_outbox WHERE message_id=? AND acknowledged_at IS NULL"
+      )
+      .get(messageId);
+    if (!row) throw new Error("historical_permission_event_not_pending");
+    const raw = outboxRowSchema.parse(row).event_json;
+    if (parseHistoricalPermissionEventJson(raw).messageId !== messageId)
+      throw new Error("host_event_identity_conflict");
+    return raw;
   }
 
   pendingCount(): number {

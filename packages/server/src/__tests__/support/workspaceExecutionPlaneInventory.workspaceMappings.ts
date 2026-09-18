@@ -122,6 +122,14 @@ export const workspaceMappingsInventory = [
     "Loopback Host readiness includes mapping array."
   ),
   inventoryEntry(
+    "wm-dist-historicalPermissionReplay",
+    "workspaceMappings",
+    "endpoint_readiness",
+    "packages/distributed-integration/src/__tests__/support/historicalPermissionReplayFixture.ts",
+    "readiness.workspaceMappings: []",
+    "Historical permission replay Host reports empty mapping observations."
+  ),
+  inventoryEntry(
     "wm-dist-exactPermissionHandshake",
     "workspaceMappings",
     "endpoint_readiness",

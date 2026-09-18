@@ -3,12 +3,16 @@ import { normalizedAcpEventBatchSchema } from "@planweave-ai/agent-host-protocol
 import {
   parseHistoricalAgentHostEvent,
   parseHistoricalAgentHostMailboxCommand,
-  type ServerEvent
+  type ServerEvent,
+  type HistoricalMailboxCommand
 } from "../protocol.js";
 import { digestJson } from "./agentHostStateMigrations.js";
 import { inWriteTransaction, type SqliteDatabase } from "./sqliteDatabase.js";
 
-type MailboxMessage = Extract<ServerEvent, { type: "mailbox.message" }>;
+type MailboxMessage = Pick<
+  Extract<ServerEvent, { type: "mailbox.message" }>,
+  "sequence" | "previousSequence" | "messageId"
+> & { command: HistoricalMailboxCommand };
 
 export type AgentHostTerminalCompactionPolicy = {
   maxReceipts: number;
