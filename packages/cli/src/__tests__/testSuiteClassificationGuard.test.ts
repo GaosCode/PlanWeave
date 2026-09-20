@@ -21,13 +21,15 @@ const requiredPlatformTests = [
   "packages/runtime/src/__tests__/stateConcurrency.test.ts"
 ];
 const requiredPerformanceTests = [
-  "packages/runtime/src/__tests__/blockRunIndexPerformance.test.ts"
+  "packages/runtime/src/__tests__/blockRunIndexPerformance.test.ts",
+  "packages/server/src/__tests__/serverDataArchiveResources.test.ts"
 ];
 const suiteRoots = [
   "packages/cli/src/__tests__",
   "packages/desktop/src/__tests__",
   "packages/mcp/src/__tests__",
-  "packages/runtime/src/__tests__"
+  "packages/runtime/src/__tests__",
+  "packages/server/src/__tests__"
 ];
 
 interface FixtureFile {

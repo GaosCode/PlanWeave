@@ -36,7 +36,10 @@ const curatedPlatformTests = [
   "packages/runtime/src/__tests__/stateConcurrency.test.ts"
 ];
 const curatedPlatformTestSet = new Set(curatedPlatformTests);
-const curatedPerformanceTests = ["packages/runtime/src/__tests__/blockRunIndexPerformance.test.ts"];
+const curatedPerformanceTests = [
+  "packages/runtime/src/__tests__/blockRunIndexPerformance.test.ts",
+  "packages/server/src/__tests__/serverDataArchiveResources.test.ts"
+];
 const curatedPerformanceTestSet = new Set(curatedPerformanceTests);
 const suiteNames = ["unit", "integration", "platform", "performance"];
 const integrationShardNames = ["cli", "core", "distributed"];

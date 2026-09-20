@@ -984,6 +984,7 @@
         "serverCompositionMigrationRecovery.test.ts",
         "serverCompositionStageH.test.ts",
         "serverDataArchive.test.ts",
+        "serverDataArchiveReader.test.ts",
         "serverDataRestorePromotion.test.ts",
         "serverDataRestorePortability.test.ts",
         "serverDataCli.test.ts",
@@ -1008,7 +1009,7 @@
         "wsServer.test.ts"
       ],
       "platform": [],
-      "performance": []
+      "performance": ["serverDataArchiveResources.test.ts"]
     }
   ]
 }

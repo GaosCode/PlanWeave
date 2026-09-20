@@ -6,7 +6,8 @@ import {
   type ServerDataRestoreDiagnostic
 } from "./serverDataArchiveError.js";
 
-export const SERVER_DATA_RESTORE_BACKUP_PREFIX = ".planweave-server-replaced-";
+import { SERVER_DATA_RESTORE_BACKUP_PREFIX } from "./serverDataArchivePolicy.js";
+export { SERVER_DATA_RESTORE_BACKUP_PREFIX } from "./serverDataArchivePolicy.js";
 
 export type ServerDataRestorePromotionOperations = {
   createDirectory(path: string): Promise<void>;

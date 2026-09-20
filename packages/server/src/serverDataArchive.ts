@@ -1,12 +1,28 @@
 import { hostname } from "node:os";
 import { createReadStream, createWriteStream } from "node:fs";
-import { chmod, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, rm, stat, open, opendir } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
-import { once } from "node:events";
-import { createGunzip, createGzip, type Gzip } from "node:zlib";
+import { Readable, Transform } from "node:stream";
+import { createGzip } from "node:zlib";
 import { randomUUID } from "node:crypto";
-import { z } from "zod";
+import { readServerDataArchive } from "./serverDataArchiveReader.js";
+import {
+  ArchivePaths,
+  assertArchivePath,
+  shouldSkipArchivePath,
+  RESTORE_STAGING_PREFIX,
+  SERVER_DATA_ARCHIVE_LIMITS,
+  assertArchiveLimit,
+  serverDataArchiveManifestSchema,
+  SERVER_DATA_ARCHIVE_SCHEMA_VERSION,
+  type ServerDataArchiveManifest
+} from "./serverDataArchivePolicy.js";
+export {
+  SERVER_DATA_ARCHIVE_SCHEMA_VERSION,
+  serverDataArchiveManifestSchema,
+  type ServerDataArchiveManifest
+} from "./serverDataArchivePolicy.js";
 import { openServerDatabase } from "./sqlite.js";
 import {
   normalizeServerDataRestoreHostBindings,
@@ -20,49 +36,10 @@ import {
 
 export { ServerDataArchiveError } from "./serverDataArchiveError.js";
 
-export const SERVER_DATA_ARCHIVE_SCHEMA_VERSION = "planweave-server-data-archive/v1" as const;
 export const SERVER_DATA_ARCHIVE_DATABASE_FILE = "planweave-server.sqlite";
-
-export const serverDataArchiveManifestSchema = z
-  .object({
-    schemaVersion: z.literal(SERVER_DATA_ARCHIVE_SCHEMA_VERSION),
-    exportedAt: z.iso.datetime(),
-    fileCount: z.number().int().nonnegative(),
-    totalBytes: z.number().int().nonnegative()
-  })
-  .strict();
-export type ServerDataArchiveManifest = z.infer<typeof serverDataArchiveManifestSchema>;
-
-const SKIP_ROOTS = new Set(["backups"]);
-const SKIP_TMP_PARENTS = new Set(["artifacts", "comment-attachments"]);
-const RESTORE_STAGING_PREFIX = ".planweave-server-restore-";
 
 function toPosix(relativePath: string): string {
   return relativePath.split(sep).join("/");
-}
-
-function assertSafeRelative(posixPath: string): void {
-  if (!posixPath || posixPath.startsWith("/") || posixPath.includes("\\")) {
-    throw new ServerDataArchiveError("server_data_archive_invalid");
-  }
-  const parts = posixPath.split("/");
-  if (parts.some((part) => part === "" || part === "." || part === "..")) {
-    throw new ServerDataArchiveError("server_data_archive_invalid");
-  }
-}
-
-function shouldSkipPosix(posixPath: string): boolean {
-  const parts = posixPath.split("/");
-  if (SKIP_ROOTS.has(parts[0] ?? "")) return true;
-  if (
-    parts[0]?.startsWith(RESTORE_STAGING_PREFIX) ||
-    parts[0]?.startsWith(SERVER_DATA_RESTORE_BACKUP_PREFIX)
-  ) {
-    return true;
-  }
-  if (parts.length >= 2 && SKIP_TMP_PARENTS.has(parts[0] ?? "") && parts[1] === "tmp") return true;
-  if (parts[parts.length - 1] === ".DS_Store") return true;
-  return false;
 }
 
 function isNotADatabase(error: unknown): boolean {
@@ -83,23 +60,33 @@ async function listIncludedFiles(
   dataDirectory: string
 ): Promise<Array<{ relativePosix: string; absolutePath: string; size: number }>> {
   const root = resolve(dataDirectory);
-  const entries = await readdir(root, { recursive: true, withFileTypes: true }).catch(
-    (error: unknown) => {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-      throw error;
-    }
-  );
   const files: Array<{ relativePosix: string; absolutePath: string; size: number }> = [];
-  for (const entry of entries) {
-    if (!entry.isFile()) continue;
-    const absolutePath = join(entry.parentPath, entry.name);
-    const relativePosix = toPosix(relative(root, absolutePath));
-    assertSafeRelative(relativePosix);
-    if (shouldSkipPosix(relativePosix)) continue;
-    const info = await stat(absolutePath);
-    if (!info.isFile()) continue;
-    files.push({ relativePosix, absolutePath, size: info.size });
+  async function visit(directory: string): Promise<void> {
+    const entries = await opendir(directory);
+    for await (const entry of entries) {
+      const absolutePath = join(directory, entry.name);
+      const relativePosix = toPosix(relative(root, absolutePath));
+      if (shouldSkipArchivePath(relativePosix)) continue;
+      if (entry.isDirectory()) {
+        await visit(absolutePath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      assertArchivePath(relativePosix);
+      const info = await stat(absolutePath);
+      if (!info.isFile()) continue;
+      assertArchiveLimit(info.size, SERVER_DATA_ARCHIVE_LIMITS.fileBytes);
+      assertArchiveLimit(files.length + 1, SERVER_DATA_ARCHIVE_LIMITS.fileCount);
+      files.push({ relativePosix, absolutePath, size: info.size });
+    }
   }
+  try {
+    await stat(root);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+  await visit(root);
   files.sort((left, right) => left.relativePosix.localeCompare(right.relativePosix));
   return files;
 }
@@ -251,7 +238,11 @@ function tarHeader(name: string, size: number, mtime: number): Buffer {
   octalField(0o600, 8).copy(header, 100);
   octalField(0, 8).copy(header, 108);
   octalField(0, 8).copy(header, 116);
-  octalField(size, 12).copy(header, 124);
+  if (size < 8 * 1024 ** 3) octalField(size, 12).copy(header, 124);
+  else {
+    header[124] = 0x80;
+    header.writeBigUInt64BE(BigInt(size), 128);
+  }
   octalField(Math.floor(mtime), 12).copy(header, 136);
   header.fill(0x20, 148, 156);
   header.write("0", 156, 1, "ascii");
@@ -267,69 +258,49 @@ function padBlock(size: number): number {
   return (512 - (size % 512)) % 512;
 }
 
-async function writeGzipChunk(gzip: Gzip, chunk: Buffer): Promise<void> {
-  if (!gzip.write(chunk)) await once(gzip, "drain");
-}
-
 async function writeTarGzip(
   archivePath: string,
   files: Array<{ name: string; bytes?: Buffer; absolutePath?: string; size: number }>
 ): Promise<void> {
   await mkdir(dirname(archivePath), { recursive: true, mode: 0o700 });
-  const gzip = createGzip();
-  const output = createWriteStream(archivePath, { mode: 0o600 });
-  const writing = pipeline(gzip, output);
-  const mtime = Date.now() / 1000;
-  for (const file of files) {
-    await writeGzipChunk(gzip, tarHeader(file.name, file.size, mtime));
-    if (file.bytes) {
-      if (file.bytes.byteLength !== file.size) {
-        throw new ServerDataArchiveError("server_data_archive_invalid");
+  async function* members() {
+    const mtime = Date.now() / 1000;
+    for (const file of files) {
+      yield tarHeader(file.name, file.size, mtime);
+      let actual = 0;
+      if (file.bytes) {
+        actual = file.bytes.length;
+        yield file.bytes;
+      } else if (file.absolutePath) {
+        for await (const chunk of createReadStream(file.absolutePath)) {
+          actual += chunk.length;
+          if (actual > file.size) throw new ServerDataArchiveError("server_data_archive_invalid");
+          yield chunk;
+        }
       }
-      await writeGzipChunk(gzip, file.bytes);
-    } else if (file.absolutePath) {
-      const source = createReadStream(file.absolutePath);
-      for await (const chunk of source) {
-        await writeGzipChunk(gzip, Buffer.from(chunk));
+      if (actual !== file.size) throw new ServerDataArchiveError("server_data_archive_invalid");
+      if (padBlock(file.size)) yield Buffer.alloc(padBlock(file.size));
+    }
+    yield Buffer.alloc(1024);
+  }
+  let compressed = 0;
+  const counter = new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      compressed += chunk.length;
+      try {
+        assertArchiveLimit(compressed, SERVER_DATA_ARCHIVE_LIMITS.compressedBytes);
+        callback(null, chunk);
+      } catch (error) {
+        callback(error instanceof Error ? error : new Error(String(error)));
       }
     }
-    const padding = padBlock(file.size);
-    if (padding > 0) await writeGzipChunk(gzip, Buffer.alloc(padding, 0));
-  }
-  await writeGzipChunk(gzip, Buffer.alloc(1024, 0));
-  gzip.end();
-  await writing;
-}
-
-async function readTarGzip(
-  archivePath: string
-): Promise<Array<{ name: string; size: number; body: Buffer }>> {
-  const gunzip = createGunzip();
-  createReadStream(archivePath).pipe(gunzip);
-  const chunks: Buffer[] = [];
-  for await (const chunk of gunzip) {
-    chunks.push(Buffer.from(chunk));
-  }
-  const buffer = Buffer.concat(chunks);
-  const files: Array<{ name: string; size: number; body: Buffer }> = [];
-  let offset = 0;
-  while (offset + 512 <= buffer.length) {
-    const header = buffer.subarray(offset, offset + 512);
-    offset += 512;
-    if (header.every((byte) => byte === 0)) break;
-    const name = header.subarray(0, 100).toString("utf8").replace(/\0.*$/s, "");
-    const sizeText = header.subarray(124, 135).toString("ascii").replace(/\0/g, "").trim();
-    const size = Number.parseInt(sizeText, 8);
-    if (!name || !Number.isFinite(size) || size < 0) {
-      throw new ServerDataArchiveError("server_data_archive_invalid");
-    }
-    if (offset + size > buffer.length) {
-      throw new ServerDataArchiveError("server_data_archive_invalid");
-    }
-    files.push({ name, size, body: Buffer.from(buffer.subarray(offset, offset + size)) });
-    offset += size + padBlock(size);
-  }
-  return files;
+  });
+  await pipeline(
+    Readable.from(members()),
+    createGzip(),
+    counter,
+    createWriteStream(archivePath, { mode: 0o600 })
+  );
 }
 
 export async function exportServerDataDirectory(input: {
@@ -348,6 +319,12 @@ export async function exportServerDataDirectory(input: {
   if (files.length === 0) {
     throw new ServerDataArchiveError("server_data_directory_empty");
   }
+  const paths = new ArchivePaths();
+  assertArchiveLimit(files.length, SERVER_DATA_ARCHIVE_LIMITS.fileCount);
+  for (const file of files) {
+    paths.add(file.relativePosix);
+    assertArchiveLimit(file.size, SERVER_DATA_ARCHIVE_LIMITS.fileBytes);
+  }
   const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
   const manifest = serverDataArchiveManifestSchema.parse({
     schemaVersion: SERVER_DATA_ARCHIVE_SCHEMA_VERSION,
@@ -356,6 +333,15 @@ export async function exportServerDataDirectory(input: {
     totalBytes
   });
   const manifestBytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  assertArchiveLimit(manifestBytes.length, SERVER_DATA_ARCHIVE_LIMITS.manifestBytes);
+  assertArchiveLimit(
+    1024 +
+      512 +
+      manifestBytes.length +
+      padBlock(manifestBytes.length) +
+      files.reduce((sum, file) => sum + 512 + file.size + padBlock(file.size), 0),
+    SERVER_DATA_ARCHIVE_LIMITS.expandedBytes
+  );
   await writeTarGzip(input.archivePath, [
     { name: "manifest.json", bytes: manifestBytes, size: manifestBytes.byteLength },
     ...files.map((file) => ({
@@ -364,31 +350,14 @@ export async function exportServerDataDirectory(input: {
       size: file.size
     }))
   ]);
-  await chmod(input.archivePath, 0o600).catch(() => undefined);
+  await chmod(input.archivePath, 0o600);
   return manifest;
 }
 
 export async function inspectServerDataArchive(
   archivePath: string
 ): Promise<ServerDataArchiveManifest> {
-  const files = await readTarGzip(archivePath);
-  const manifestFile = files.find((file) => file.name === "manifest.json");
-  if (!manifestFile) throw new ServerDataArchiveError("server_data_archive_invalid");
-  const manifest = serverDataArchiveManifestSchema.parse(
-    JSON.parse(manifestFile.body.toString("utf8"))
-  );
-  const dataFiles = files.filter((file) => file.name.startsWith("data/"));
-  if (dataFiles.length !== manifest.fileCount) {
-    throw new ServerDataArchiveError("server_data_archive_invalid");
-  }
-  for (const file of dataFiles) {
-    const relativePosix = file.name.slice("data/".length);
-    assertSafeRelative(relativePosix);
-    if (shouldSkipPosix(relativePosix)) {
-      throw new ServerDataArchiveError("server_data_archive_invalid");
-    }
-  }
-  return manifest;
+  return readServerDataArchive({ archivePath });
 }
 
 export async function restoreServerDataDirectory(input: {
@@ -403,32 +372,31 @@ export async function restoreServerDataDirectory(input: {
     throw new ServerDataArchiveError("server_data_directory_active");
   }
   await assertRestoreTarget(input.dataDirectory, input.overwrite);
-  const files = await readTarGzip(input.archivePath);
-  const manifestFile = files.find((file) => file.name === "manifest.json");
-  if (!manifestFile) throw new ServerDataArchiveError("server_data_archive_invalid");
-  const manifest = serverDataArchiveManifestSchema.parse(
-    JSON.parse(manifestFile.body.toString("utf8"))
-  );
   const target = resolve(input.dataDirectory);
   await mkdir(target, { recursive: true, mode: 0o700 });
   const stagingName = `${RESTORE_STAGING_PREFIX}${randomUUID()}`;
   const staging = join(target, stagingName);
   await mkdir(staging, { recursive: true, mode: 0o700 });
   try {
-    for (const file of files) {
-      if (file.name === "manifest.json") continue;
-      if (!file.name.startsWith("data/")) {
-        throw new ServerDataArchiveError("server_data_archive_invalid");
+    const manifest = await readServerDataArchive({
+      archivePath: input.archivePath,
+      openMember: async (relativePath) => {
+        const destination = join(staging, ...relativePath.split("/"));
+        await mkdir(dirname(destination), { recursive: true, mode: 0o700 });
+        const handle = await open(destination, "wx", 0o600);
+        return {
+          write: async (chunk) => {
+            let offset = 0;
+            while (offset < chunk.length) {
+              const { bytesWritten } = await handle.write(chunk, offset, chunk.length - offset);
+              if (bytesWritten === 0) throw new Error("Archive member write made no progress");
+              offset += bytesWritten;
+            }
+          },
+          close: () => handle.close()
+        };
       }
-      const relativePosix = file.name.slice("data/".length);
-      assertSafeRelative(relativePosix);
-      const destination = resolve(join(staging, ...relativePosix.split("/")));
-      if (!destination.startsWith(resolve(staging))) {
-        throw new ServerDataArchiveError("server_data_archive_invalid");
-      }
-      await mkdir(dirname(destination), { recursive: true, mode: 0o700 });
-      await writeFile(destination, file.body, { mode: 0o600 });
-    }
+    });
     await normalizeRestoredServerData(staging, target);
     await assertRestoreTarget(target, input.overwrite, staging);
     await chmod(target, 0o700);
