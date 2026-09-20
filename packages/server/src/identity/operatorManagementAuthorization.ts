@@ -1,3 +1,4 @@
+import { OperatorManagementDevices, managementAccessTtlMs } from "./operatorManagementDevices.js";
 import { createHash, randomBytes } from "node:crypto";
 import {
   managementAuthorizationStatusSchema,
@@ -13,6 +14,7 @@ const digestCode = (code: string) => createHash("sha256").update(code).digest("h
 
 /** Delegation remains anchored to the exact configured authority, never just an operator ID. */
 export class OperatorManagementAuthorization {
+  readonly devices: OperatorManagementDevices;
   private readonly sessions: OperatorSessionStore;
   constructor(
     private readonly database: SqliteDatabase,
@@ -21,15 +23,23 @@ export class OperatorManagementAuthorization {
     private readonly clock: () => Date = () => new Date()
   ) {
     this.sessions = new OperatorSessionStore(database, clock);
+    this.devices = new OperatorManagementDevices(
+      database,
+      credentials,
+      (principal) => this.activeAdministrator(principal),
+      (operatorId, token) => this.issue(operatorId, token, Math.min(ttlMs, managementAccessTtlMs)),
+      clock
+    );
   }
 
   delegatedCredential(sessionDigest: string): OperatorCredential | undefined {
     const row = this.database
       .prepare(
-        "SELECT authority_sha256,authority_revoked_at FROM operator_management_sessions WHERE credential_sha256=?"
+        "SELECT authority_sha256,authority_revoked_at,device_id FROM operator_management_sessions WHERE credential_sha256=?"
       )
       .get(sessionDigest);
-    if (!row) return undefined;
+    if (!row || (typeof row.device_id === "string" && !this.devices.isActive(row.device_id)))
+      return undefined;
     const authority = this.credentials.find(
       (c) => c.serverAdmin && c.tokenSha256 === row.authority_sha256
     );
@@ -48,6 +58,15 @@ export class OperatorManagementAuthorization {
         throw new Error("operator_unauthorized");
       }
       const now = this.clock();
+      const device = this.database
+        .prepare("SELECT device_id FROM operator_management_sessions WHERE credential_sha256=?")
+        .get(session.credentialSha256);
+      if (device?.device_id)
+        return this.status(
+          session.operatorId,
+          session.expiresAt,
+          Math.min(this.ttlMs, managementAccessTtlMs)
+        );
       const expiresAt =
         new Date(session.expiresAt).getTime() - now.getTime() <= this.ttlMs / 3
           ? new Date(now.getTime() + this.ttlMs).toISOString()
@@ -69,7 +88,24 @@ export class OperatorManagementAuthorization {
   ): ManagementAuthorizationStatus {
     return inWriteTransaction(this.database, () => {
       if (!this.activeAdministrator(principal)) throw new Error("operator_server_admin_required");
-      return this.issue(operatorId, newToken);
+      const session = this.sessions.findBySessionId(
+        principal.workspaceId,
+        principal.operatorSessionId
+      )!;
+      const device = this.database
+        .prepare("SELECT device_id FROM operator_management_sessions WHERE credential_sha256=?")
+        .get(session.credentialSha256);
+      if (typeof device?.device_id !== "string") return this.issue(operatorId, newToken);
+      const status = this.issue(operatorId, newToken, Math.min(this.ttlMs, managementAccessTtlMs));
+      const existing = this.database
+        .prepare("SELECT device_id FROM operator_management_sessions WHERE credential_sha256=?")
+        .get(hashOperatorSessionToken(newToken));
+      if (existing?.device_id && existing.device_id !== device.device_id)
+        throw new Error("operator_management_token_conflict");
+      this.database
+        .prepare("UPDATE operator_management_sessions SET device_id=? WHERE credential_sha256=?")
+        .run(device.device_id, hashOperatorSessionToken(newToken));
+      return status;
     });
   }
 
@@ -144,7 +180,11 @@ export class OperatorManagementAuthorization {
     return authority;
   }
 
-  private issue(operatorId: string, newToken: string): ManagementAuthorizationStatus {
+  private issue(
+    operatorId: string,
+    newToken: string,
+    ttlMs = this.ttlMs
+  ): ManagementAuthorizationStatus {
     managementTokenSchema.parse(newToken);
     const authority = this.authority(operatorId);
     const root = this.sessions.findByCredentialDigest(authority.tokenSha256)!;
@@ -157,10 +197,10 @@ export class OperatorManagementAuthorization {
         !this.sessions.authenticateDigest(digest)
       )
         throw new Error("operator_management_token_conflict");
-      return this.status(operatorId, existing.expiresAt);
+      return this.status(operatorId, existing.expiresAt, ttlMs);
     }
     const issuedAt = this.clock().toISOString();
-    const expiresAt = new Date(this.clock().getTime() + this.ttlMs).toISOString();
+    const expiresAt = new Date(this.clock().getTime() + ttlMs).toISOString();
     this.sessions.create({
       workspaceId: root.workspaceId,
       operatorId,
@@ -173,14 +213,18 @@ export class OperatorManagementAuthorization {
         "INSERT INTO operator_management_sessions(credential_sha256,authority_sha256,authority_revoked_at) VALUES(?,?,?)"
       )
       .run(digest, authority.tokenSha256, root.revokedAt);
-    return this.status(operatorId, expiresAt);
+    return this.status(operatorId, expiresAt, ttlMs);
   }
 
-  private status(operatorId: string, expiresAt: string): ManagementAuthorizationStatus {
+  private status(
+    operatorId: string,
+    expiresAt: string,
+    ttlMs = this.ttlMs
+  ): ManagementAuthorizationStatus {
     return managementAuthorizationStatusSchema.parse({
       operatorId,
       expiresAt,
-      renewAfter: new Date(new Date(expiresAt).getTime() - this.ttlMs / 3).toISOString()
+      renewAfter: new Date(new Date(expiresAt).getTime() - ttlMs / 3).toISOString()
     });
   }
 }

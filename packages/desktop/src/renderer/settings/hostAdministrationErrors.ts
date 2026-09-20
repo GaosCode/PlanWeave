@@ -2,6 +2,8 @@ import { OperatorControlError } from "../../shared/operatorControl";
 import type { createTranslator } from "../i18n";
 
 const managementErrors = {
+  operator_device_revoked: "serverManagementDeviceRevoked",
+  operator_device_not_found: "serverManagementDeviceRevoked",
   operator_management_recovery_required: "serverManagementRecoveryRequired",
   operator_recovery_invalid: "serverManagementRecoveryInvalid",
   operator_management_upgrade_required: "serverManagementUpgradeRequired",

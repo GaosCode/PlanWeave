@@ -1,3 +1,4 @@
+import type { OperatorManagementRevokeInput } from "./operatorManagement.js";
 import type {
   OperatorManagementInput,
   OperatorManagementRecoverInput,
@@ -579,6 +580,7 @@ export {
 } from "./operatorControlIpc.js";
 
 export type PlanWeaveOperatorControlApi = {
+  revokeManagementDevice: (input: OperatorManagementRevokeInput) => Promise<OperatorManagementView>;
   getManagementAuthorization: (input: OperatorManagementInput) => Promise<OperatorManagementView>;
   reauthorizeManagement: (input: OperatorManagementInput) => Promise<OperatorManagementView>;
   recoverManagement: (input: OperatorManagementRecoverInput) => Promise<OperatorManagementView>;

@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
@@ -22,7 +22,7 @@ const authorization = {
   expiresAt: "2030-02-01T00:00:00.000Z",
   renewAfter: "2030-01-22T00:00:00.000Z"
 };
-async function fixture(request: typeof fetch) {
+async function fixture(request: typeof fetch, mockDeviceEndpoints = true) {
   const root = await mkdtemp(join(tmpdir(), "management-service-"));
   roots.push(root);
   const vault = new OperatorCredentialVault({
@@ -35,7 +35,22 @@ async function fixture(request: typeof fetch) {
   });
   const service = new OperatorControlService({
     vault,
-    request,
+    request: async (url, init) => {
+      const action = String(url).split("/").at(-1);
+      const device = {
+        deviceId: "c28d8f73-0881-4a71-b21d-2a69f223aabc",
+        deviceName: "Test computer",
+        operatorId: "target-admin",
+        createdAt: "2030-01-01T00:00:00Z",
+        lastUsedAt: "2030-01-01T00:00:00Z",
+        revokedAt: null
+      };
+      if (mockDeviceEndpoints && action === "device-enroll") return response(device);
+      if (mockDeviceEndpoints && action === "device-refresh")
+        return response({ ...authorization, deviceId: device.deviceId });
+      if (mockDeviceEndpoints && action === "device-list") return response([device]);
+      return request(url, init);
+    },
     localOperatorBackend: null,
     profileStore: new OperatorProfileStore({ profilesPath: join(root, "profiles.json") }),
     clock: { now: () => new Date("2030-01-01T00:00:00.000Z") }
@@ -59,7 +74,7 @@ async function fixture(request: typeof fetch) {
       "target-admin"
     );
   }
-  return { service, vault };
+  return { service, vault, root };
 }
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 
@@ -73,7 +88,7 @@ it("reauthorizes through another saved same-server administrator and never expos
   await expect(service.listHosts({ profileId: "target" })).rejects.toThrow("operator_unauthorized");
   const result = await service.reauthorizeManagement({ profileId: "target" });
   expect((await service.getStatus()).lastErrorCode).toBeNull();
-  expect(request).toHaveBeenCalledTimes(3);
+  expect(request).toHaveBeenCalledTimes(4);
   expect(
     request.mock.calls.every(([url]) => String(url).startsWith("https://server.example/"))
   ).toBe(true);
@@ -121,6 +136,7 @@ it("reports no saved administrator, unsupported Server, and invalid input distin
   ).rejects.toThrow("operator_import_invalid");
   expect(await vault.getOperatorToken("target")).toBe(oldToken);
   expect(redactDiagnostic(recoveryCode)).toBe("[REDACTED]");
+  expect(redactDiagnostic(`pw_device_${"D".repeat(43)}`)).toBe("[REDACTED]");
 });
 
 it("automatically maintains saved authorization and stops polling on shutdown", async () => {
@@ -160,4 +176,155 @@ it("keeps a recovered credential when the local Server reconciles its original b
     operatorToken: oldToken
   });
   expect(await vault.getOperatorToken("target")).toBe(recovered);
+});
+
+it("persists a refresh retry before sending it and resumes after a lost response and process restart", async () => {
+  const deviceId = "c28d8f73-0881-4a71-b21d-2a69f223aabc";
+  const device = {
+    deviceId,
+    deviceName: "Laptop",
+    operatorId: "target-admin",
+    createdAt: "2030-01-01T00:00:00Z",
+    lastUsedAt: "2030-01-01T00:00:00Z",
+    revokedAt: null
+  };
+  const requests: { deviceSecret: string; newToken: string }[] = [];
+  let lost = true;
+  const request: typeof fetch = async (url, init) => {
+    const action = String(url).split("/").at(-1);
+    if (action === "maintain") return response(authorization);
+    if (action === "device-enroll") return response(device);
+    if (action === "device-list") return response([device]);
+    if (action === "device-refresh") {
+      requests.push(JSON.parse(String(init?.body)));
+      if (lost) {
+        lost = false;
+        throw new Error("connection interrupted");
+      }
+      return response({ ...authorization, deviceId });
+    }
+    throw new Error("unexpected request");
+  };
+  const f = await fixture(request, false);
+  expect(
+    (await f.service.getManagementAuthorization({ profileId: "target" })).authorization
+  ).toBeNull();
+  const pending = await f.vault.getManagementDevice("target");
+  expect(pending?.pendingToken).toBe(requests[0].newToken);
+  const disk = await readFile(f.vault.credentialsPath, "utf8");
+  expect(disk).not.toContain(requests[0].deviceSecret);
+  expect(disk).not.toContain(requests[0].newToken);
+  await f.service.shutdown();
+  const vault = new OperatorCredentialVault({
+    paths: { credentialsPath: f.vault.credentialsPath },
+    safeStorage: {
+      isEncryptionAvailable: () => true,
+      encryptString: (text) => Buffer.from(text),
+      decryptString: (bytes) => bytes.toString()
+    }
+  });
+  const restarted = new OperatorControlService({
+    vault,
+    request,
+    localOperatorBackend: null,
+    profileStore: new OperatorProfileStore({ profilesPath: join(f.root, "profiles.json") })
+  });
+  services.push(restarted);
+  const view = await restarted.getManagementAuthorization({ profileId: "target" });
+  expect(view.deviceId).toBe(deviceId);
+  expect(view.errorCode).toBeNull();
+  expect(requests[1]).toEqual(requests[0]);
+  expect(await vault.getOperatorToken("target")).toBe(requests[0].newToken);
+  expect(JSON.stringify(view)).not.toContain(requests[0].deviceSecret);
+  expect((await vault.getManagementDevice("target"))?.pendingToken).toBeNull();
+});
+
+it("refreshes expired access from the stored device, but does not refresh on an offline check or silently replace a revoked device", async () => {
+  const calls: string[] = [];
+  let failure = "operator_unauthorized";
+  let revoked = false;
+  const deviceId = "c28d8f73-0881-4a71-b21d-2a69f223aabc";
+  const request: typeof fetch = async (url) => {
+    const action = String(url).split("/").at(-1)!;
+    calls.push(action);
+    if (action === "maintain")
+      return response({ error: failure }, failure === "operator_unauthorized" ? 401 : 503);
+    if (action === "device-refresh")
+      return revoked
+        ? response({ error: "operator_device_revoked" }, 403)
+        : response({ ...authorization, deviceId });
+    if (action === "device-list") return response([]);
+    throw new Error("unexpected request");
+  };
+  const f = await fixture(request, false);
+  const saved = {
+    secret: `pw_device_${"D".repeat(43)}`,
+    origin: "https://server.example",
+    operatorId: "target-admin",
+    deviceId,
+    pendingToken: null
+  };
+  await f.vault.setManagementDevice("target", saved);
+  expect(
+    (await f.service.getManagementAuthorization({ profileId: "target" })).authorization
+  ).toEqual(authorization);
+  expect(calls).toEqual(["maintain", "device-refresh", "device-list"]);
+  calls.length = 0;
+  failure = "operator_offline";
+  expect((await f.service.getManagementAuthorization({ profileId: "target" })).errorCode).toBe(
+    "operator_offline"
+  );
+  expect(calls).toEqual(["maintain"]);
+  calls.length = 0;
+  failure = "operator_unauthorized";
+  revoked = true;
+  expect((await f.service.getManagementAuthorization({ profileId: "target" })).errorCode).toBe(
+    "operator_device_revoked"
+  );
+  expect(calls).toEqual(["maintain", "device-refresh"]);
+  expect((await f.vault.getManagementDevice("target"))?.secret).toBe(saved.secret);
+});
+
+it("never sends a device secret to a changed Server origin", async () => {
+  const request = vi.fn(async () => response({ error: "operator_unauthorized" }, 401));
+  const f = await fixture(request, false);
+  const secret = `pw_device_${"D".repeat(43)}`;
+  await f.vault.setManagementDevice("target", {
+    secret,
+    origin: "https://server.example",
+    operatorId: "target-admin",
+    deviceId: "c28d8f73-0881-4a71-b21d-2a69f223aabc",
+    pendingToken: null
+  });
+  await f.service.upsertProfile({
+    profileId: "target",
+    displayName: "Moved",
+    serverBaseUrl: "https://changed.example/",
+    allowInsecureTransport: false,
+    operatorId: "target-admin"
+  });
+  await f.service.getManagementAuthorization({ profileId: "target" });
+  expect(JSON.stringify(request.mock.calls)).not.toContain(secret);
+  expect(await f.vault.getManagementDevice("target")).toBeUndefined();
+});
+
+it("does not persist device secrets when operating without encrypted storage", async () => {
+  const root = await mkdtemp(join(tmpdir(), "device-session-vault-"));
+  roots.push(root);
+  const options = { paths: { credentialsPath: join(root, "credentials.json") } };
+  const vault = new OperatorCredentialVault(options);
+  await vault.setOperatorToken("target", oldToken, "target-admin");
+  const device = {
+    secret: `pw_device_${"D".repeat(43)}`,
+    origin: "https://server.example",
+    operatorId: "target-admin",
+    deviceId: null,
+    pendingToken: null
+  };
+  await vault.setManagementDevice("target", device);
+  expect(await vault.persistenceFor("target")).toBe("session-only");
+  expect(await vault.getManagementDevice("target")).toEqual(device);
+  expect(await new OperatorCredentialVault(options).getManagementDevice("target")).toBeUndefined();
+  vault.clearSessionMemory();
+  expect(await vault.getManagementDevice("target")).toBeUndefined();
 });

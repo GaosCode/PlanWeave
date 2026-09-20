@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import {
   managementAuthorizeRequestSchema,
+  managementDeviceRevokeSchema,
   managementRecoverRequestSchema
 } from "@planweave-ai/agent-host-protocol/operator-control";
 import type { OperatorTokenRegistry } from "./operatorAuth.js";
@@ -23,9 +24,10 @@ export async function handleOperatorAuthorizationHttpRequest(
   options: { authorization: OperatorTokenRegistry; transportAdmission: TransportAdmissionPolicy }
 ): Promise<boolean> {
   const pathname = new URL(request.url ?? "/", "http://planweave.invalid").pathname;
-  const action = /^\/api\/v1\/management-authorization\/(maintain|authorize|recover)$/.exec(
-    pathname
-  )?.[1];
+  const action =
+    /^\/api\/v1\/management-authorization\/(maintain|authorize|recover|device-enroll|device-refresh|device-list|device-revoke)$/.exec(
+      pathname
+    )?.[1];
   if (!action || request.method !== "POST") return false;
   try {
     if (!options.transportAdmission.allowsOperatorTransport(request.socket)) {
@@ -34,12 +36,12 @@ export async function handleOperatorAuthorizationHttpRequest(
       return true;
     }
     const principal = options.authorization.authenticate(request.headers.authorization);
-    if (action !== "recover" && !principal) {
+    if (!["recover", "device-refresh"].includes(action) && !principal) {
       request.resume();
       respond(response, 401, { error: "operator_unauthorized" });
       return true;
     }
-    if (action !== "recover" && !principal?.serverAdmin) {
+    if (!["recover", "device-refresh"].includes(action) && !principal?.serverAdmin) {
       request.resume();
       respond(response, 403, { error: "operator_server_admin_required" });
       return true;
@@ -62,7 +64,18 @@ export async function handleOperatorAuthorizationHttpRequest(
     }
     const body: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
     const service = options.authorization.management;
-    if (action === "maintain" && principal) {
+    if (action === "device-refresh") {
+      respond(response, 200, service.devices.refresh(body));
+    } else if (action === "device-enroll" && principal) {
+      respond(response, 200, service.devices.enroll(principal, body));
+    } else if (action === "device-list" && principal) {
+      z.object({}).strict().parse(body);
+      respond(response, 200, service.devices.list(principal));
+    } else if (action === "device-revoke" && principal) {
+      const input = managementDeviceRevokeSchema.parse(body);
+      service.devices.revoke(principal, input.deviceId);
+      respond(response, 200, {});
+    } else if (action === "maintain" && principal) {
       z.object({}).strict().parse(body);
       respond(response, 200, service.maintain(principal));
     } else if (action === "authorize" && principal) {
@@ -75,6 +88,8 @@ export async function handleOperatorAuthorizationHttpRequest(
   } catch (error) {
     const code = error instanceof Error ? error.message : "";
     const allowed = new Set([
+      "operator_device_revoked",
+      "operator_device_not_found",
       "operator_recovery_invalid",
       "operator_management_authority_unavailable",
       "operator_management_token_conflict",

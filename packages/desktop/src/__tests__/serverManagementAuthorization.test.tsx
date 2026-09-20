@@ -12,6 +12,7 @@ const api = vi.hoisted(() => ({
   getManagementAuthorization: vi.fn(),
   reauthorizeManagement: vi.fn(),
   recoverManagement: vi.fn(),
+  revokeManagementDevice: vi.fn(),
   onOperatorControlStatusChanged: vi.fn(() => () => undefined)
 }));
 vi.mock("../renderer/bridge", () => ({ operatorControlBridge: api }));
@@ -46,12 +47,18 @@ beforeEach(() => {
   api.reauthorizeManagement.mockResolvedValue(ready);
   api.recoverManagement.mockResolvedValue(ready);
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 const t = createTranslator("zh-CN");
 const load = async () => {
   await act(async () => {
     render(<ServerManagementAuthorization t={t} />);
   });
+  const action = screen.getByRole("button", { name: /管理访问|恢复管理权限/ });
+  await waitFor(() => expect(action).toBeEnabled());
+  await userEvent.click(action);
   await waitFor(() => expect(screen.getByRole("combobox")).toBeEnabled());
 };
 
@@ -59,6 +66,7 @@ it("makes reauthorization primary and imports only to the selected Server under 
   await load();
   await userEvent.selectOptions(screen.getByRole("combobox"), "two");
   await userEvent.click(screen.getByText(t("serverManagementAdvanced")));
+  api.getManagementAuthorization.mockResolvedValue({ ...ready, profileId: "two" });
   await userEvent.click(screen.getByRole("button", { name: t("serverManagementImport") }));
   expect(await screen.findByText(t("serverManagementVerified"))).toBeInTheDocument();
   expect(api.importOperatorCredential).toHaveBeenCalledWith({
@@ -67,13 +75,14 @@ it("makes reauthorization primary and imports only to the selected Server under 
   });
 });
 
-it("shows automatic renewal expiry and completes reauthorization", async () => {
+it("shows device access status without a routine renewal action", async () => {
   api.getManagementAuthorization.mockResolvedValue(ready);
   await load();
   expect(screen.getByText(new RegExp(t("serverManagementAutomatic")))).toBeInTheDocument();
-  await userEvent.click(screen.getByRole("button", { name: t("serverManagementReauthorize") }));
-  expect(api.reauthorizeManagement).toHaveBeenCalledWith({ profileId: "one" });
-  expect(await screen.findByText(t("serverManagementVerified"))).toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: t("serverManagementReauthorize") })
+  ).not.toBeInTheDocument();
+  expect(screen.queryByText(/有效期至/)).not.toBeInTheDocument();
 });
 
 it("opens recovery when no valid admin remains, explains invalid codes and clears successful input", async () => {
@@ -90,7 +99,7 @@ it("opens recovery when no valid admin remains, explains invalid codes and clear
   expect(await screen.findByRole("alert")).toHaveTextContent(t("serverManagementRecoveryInvalid"));
   await userEvent.click(screen.getByRole("button", { name: t("serverManagementRecover") }));
   expect(await screen.findByText(t("serverManagementVerified"))).toBeInTheDocument();
-  expect(input).toHaveValue("");
+  expect(screen.queryByLabelText(t("serverManagementRecoveryCode"))).not.toBeInTheDocument();
 });
 
 it("does not claim persistent recovery with session-only credential storage", async () => {
@@ -100,7 +109,7 @@ it("does not claim persistent recovery with session-only credential storage", as
     profiles: status.profiles.map((p) => ({ ...p, operatorCredentialPersistence: "session-only" }))
   });
   await userEvent.click(screen.getByRole("button", { name: t("serverManagementReauthorize") }));
-  expect(await screen.findByText(t("serverManagementSessionOnly"))).toBeInTheDocument();
+  expect((await screen.findAllByText(t("serverManagementSessionOnly"))).length).toBeGreaterThan(0);
 });
 
 it("explains that an older Server requires an upgrade", async () => {
@@ -156,6 +165,91 @@ it("guides remote upgrades and retries without issuing credentials to an unavail
     expect(screen.queryByTestId("management-upgrade-guide")).not.toBeInTheDocument()
   );
   expect(api.getManagementAuthorization).toHaveBeenCalledTimes(2);
-  expect(screen.getByRole("button", { name: t("serverManagementReauthorize") })).toBeEnabled();
+  expect(
+    screen.queryByRole("button", { name: t("serverManagementReauthorize") })
+  ).not.toBeInTheDocument();
   expect(screen.getByText(new RegExp(t("serverManagementAutomatic")))).toBeInTheDocument();
+});
+
+it("keeps recovery commands out of the default page", async () => {
+  api.getManagementAuthorization.mockResolvedValue(ready);
+  render(<ServerManagementAuthorization t={t} />);
+  expect(await screen.findByText(t("serverManagementAutomatic"))).toBeVisible();
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(screen.queryByText(/docker compose exec/)).not.toBeInTheDocument();
+  expect(screen.queryByLabelText(t("serverManagementRecoveryCode"))).not.toBeInTheDocument();
+});
+
+it("requires explicit confirmation before revoking a device", async () => {
+  const deviceId = "c28d8f73-0881-4a71-b21d-2a69f223aabc";
+  api.getManagementAuthorization.mockResolvedValue({
+    ...ready,
+    deviceId,
+    devices: [
+      {
+        deviceId,
+        deviceName: "My Mac",
+        operatorId: "admin",
+        createdAt: "2030-01-01T00:00:00Z",
+        lastUsedAt: "2030-01-01T00:00:00Z",
+        revokedAt: null
+      }
+    ]
+  });
+  api.revokeManagementDevice.mockResolvedValue({
+    profileId: "one",
+    authorization: null,
+    errorCode: "operator_device_revoked"
+  });
+  await load();
+  await userEvent.click(screen.getByRole("button", { name: t("serverManagementRevoke") }));
+  expect(api.revokeManagementDevice).not.toHaveBeenCalled();
+  await userEvent.click(screen.getAllByRole("button", { name: t("serverManagementRevoke") })[1]);
+  expect(api.revokeManagementDevice).toHaveBeenCalledWith({ profileId: "one", deviceId });
+  expect(await screen.findByText(t("serverManagementDeviceRevoked"))).toBeVisible();
+});
+
+it("does not describe a network failure as lost authorization", async () => {
+  api.getManagementAuthorization.mockResolvedValue({
+    profileId: "one",
+    authorization: null,
+    errorCode: "operator_offline"
+  });
+  render(<ServerManagementAuthorization t={t} />);
+  expect(await screen.findByText(t("serverManagementUnavailable"))).toBeVisible();
+  expect(screen.queryByText(t("serverManagementNeedsRecovery"))).not.toBeInTheDocument();
+});
+
+it("does not claim success when imported credentials fail the management check", async () => {
+  await load();
+  api.getManagementAuthorization.mockResolvedValue({
+    profileId: "one",
+    authorization: null,
+    errorCode: "operator_device_revoked"
+  });
+  await userEvent.click(screen.getByText(t("serverManagementAdvanced")));
+  await userEvent.click(screen.getByRole("button", { name: t("serverManagementImport") }));
+  expect(await screen.findByRole("alert")).toHaveTextContent(t("serverManagementDeviceRevoked"));
+  expect(screen.queryByText(t("serverManagementVerified"))).not.toBeInTheDocument();
+});
+
+it("clears a previous transport error after automatic rechecking succeeds", async () => {
+  await load();
+  api.reauthorizeManagement.mockRejectedValueOnce(new Error("operator_management_failed"));
+  await userEvent.click(screen.getByRole("button", { name: t("serverManagementReauthorize") }));
+  expect(await screen.findByRole("alert")).toHaveTextContent(t("serverManagementFailed"));
+  api.getManagementAuthorization.mockResolvedValue(ready);
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  // Remount establishes the polling timer under the controlled clock.
+  cleanup();
+  api.getManagementAuthorization.mockRejectedValueOnce(new Error("operator_management_failed"));
+  render(<ServerManagementAuthorization t={t} />);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+  });
+  expect(screen.getByText(t("serverManagementAutomatic"))).toBeInTheDocument();
+  vi.useRealTimers();
 });

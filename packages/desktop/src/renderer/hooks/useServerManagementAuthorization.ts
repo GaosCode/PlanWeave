@@ -40,7 +40,11 @@ export function useServerManagementAuthorization() {
         .getManagementAuthorization({ profileId })
         .then(
           (view) => {
-            if (active) setManagement(view);
+            if (active) {
+              setManagement(view);
+              setError(null);
+              if (view.errorCode || !view.authorization) setVerifiedId(null);
+            }
           },
           (cause) => {
             if (active) setError(hostAdministrationErrorCode(cause));
@@ -59,7 +63,10 @@ export function useServerManagementAuthorization() {
       refreshCheck.current = null;
     };
   }, [profileId]);
-  const run = async (operation: "import" | "reauthorize" | "recover", recoveryCode?: string) => {
+  const run = async (
+    operation: "import" | "reauthorize" | "recover" | "revoke",
+    recoveryCode?: string
+  ) => {
     if (!operatorControlBridge || !profile || busy) return false;
     setBusy(true);
     setError(null);
@@ -72,21 +79,29 @@ export function useServerManagementAuthorization() {
             verifyBeforeSave: true
           })
         );
-        setManagement(
-          await operatorControlBridge.getManagementAuthorization({ profileId: profile.profileId })
-        );
+        const next = await operatorControlBridge.getManagementAuthorization({
+          profileId: profile.profileId
+        });
+        setManagement(next);
+        if (next.errorCode || !next.authorization) return false;
       } else {
         const next =
-          operation === "recover"
-            ? await operatorControlBridge.recoverManagement({
+          operation === "revoke"
+            ? await operatorControlBridge.revokeManagementDevice({
                 profileId: profile.profileId,
-                recoveryCode: recoveryCode ?? ""
+                deviceId: recoveryCode ?? ""
               })
-            : await operatorControlBridge.reauthorizeManagement({ profileId: profile.profileId });
+            : operation === "recover"
+              ? await operatorControlBridge.recoverManagement({
+                  profileId: profile.profileId,
+                  recoveryCode: recoveryCode ?? ""
+                })
+              : await operatorControlBridge.reauthorizeManagement({ profileId: profile.profileId });
         setManagement(next);
+        if (operation !== "revoke" && (next.errorCode || !next.authorization)) return false;
         setStatus(await operatorControlBridge.getOperatorControlStatus());
       }
-      setVerifiedId(profile.profileId);
+      if (operation !== "revoke") setVerifiedId(profile.profileId);
       return true;
     } catch (cause) {
       setError(hostAdministrationErrorCode(cause));
@@ -111,6 +126,7 @@ export function useServerManagementAuthorization() {
     },
     importCredential: () => run("import"),
     reauthorize: () => run("reauthorize"),
+    revoke: (deviceId: string) => run("revoke", deviceId),
     recover: (code: string) => run("recover", code),
     selectProfile: (id: string) => {
       setSelectedId(id);

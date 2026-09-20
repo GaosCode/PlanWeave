@@ -1,6 +1,7 @@
 import { OperatorManagementService } from "./operatorManagementService.js";
 import {
   operatorManagementInputSchema,
+  operatorManagementRevokeInputSchema,
   operatorManagementRecoverInputSchema
 } from "../../shared/operatorManagement.js";
 import { serializeCollaborationSetupHandoffV1 } from "@planweave-ai/collaboration-protocol/handoff/setup";
@@ -187,7 +188,7 @@ export class OperatorControlService {
     this.management = new OperatorManagementService({
       profiles: this.profiles,
       vault: this.vault,
-      client: async (profileId) => (await this.createProfileClient(profileId)).client
+      client: async (profileId) => (await this.createProfileClient(profileId, true)).client
     });
   }
 
@@ -313,6 +314,14 @@ export class OperatorControlService {
     return this.enqueue(() => {
       this.assertOpen();
       return this.management.check(profileId);
+    });
+  }
+
+  revokeManagementDevice(input: unknown) {
+    const { profileId, deviceId } = operatorManagementRevokeInputSchema.parse(input);
+    return this.enqueue(async () => {
+      this.assertOpen();
+      return this.management.revoke(profileId, deviceId);
     });
   }
 
@@ -565,6 +574,7 @@ export class OperatorControlService {
           client.dispose();
         }
       }
+      await this.vault.setManagementDevice(parsed.profileId, undefined);
       await this.vault.setOperatorToken(parsed.profileId, parsed.operatorToken, parsed.operatorId);
       this.management.forget(parsed.profileId);
       this.lastErrorCode = null;
@@ -973,7 +983,8 @@ export class OperatorControlService {
     }
   }
 
-  private async createProfileClient(profileId: string) {
+  private async createProfileClient(profileId: string, skipManagementRefresh = false) {
+    if (!skipManagementRefresh) await this.management.ensureAccess(profileId);
     const profile = await this.profiles.get(profileId);
     if (!profile)
       throw new OperatorControlError({ kind: "validation", code: "operator_profile_not_found" });

@@ -20,7 +20,7 @@ export async function ensureDesktopDiagnosticsLog(): Promise<string> {
 export function redactDiagnostic(value: string): string {
   return redactCollaborationText(
     value.replace(
-      /\bpw_(?:operator|recover|agent|host|setup|hdev|hid|inv)_[A-Za-z0-9_-]+/gi,
+      /\bpw_(?:operator|recover|device|agent|host|setup|hdev|hid|inv)_[A-Za-z0-9_-]+/gi,
       "[REDACTED]"
     )
   );

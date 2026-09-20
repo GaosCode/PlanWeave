@@ -1,4 +1,23 @@
 export const managementEnCatalog = {
+  serverManagementNeedsRecovery: "This computer needs management authorization",
+  serverManagementUnavailable:
+    "Cannot check management access right now. Check the connection and retry.",
+  serverManagementRestoreAccess: "Restore access",
+  serverManagementDetails: "Manage access",
+  serverManagementDeviceRemembered:
+    "This device is remembered. Access credentials refresh automatically, including after time away.",
+  serverManagementLegacy: "Device authorization has not been established yet.",
+  serverManagementDevices: "Authorized devices",
+  serverManagementDevicesHint:
+    "Revoking a device immediately removes its management access to this Server.",
+  serverManagementThisDevice: "This computer",
+  serverManagementLastUsed: "Last refreshed",
+  serverManagementRevoke: "Revoke access",
+  serverManagementRevokeConfirm:
+    "This device will lose management access immediately. Restoring access requires authorization again. Continue?",
+  serverManagementDeviceRevoked:
+    "This device authorization is invalid or revoked. Restore access to continue.",
+
   serverManagementAdministrator: "Administrator",
   serverManagementCheckAgain: "Check again",
   serverManagementUpgradeTitle: "Restore management access",
@@ -25,24 +44,24 @@ export const managementEnCatalog = {
   serverManagementRecoveryInvalid:
     "The recovery code is invalid, expired, already used, or belongs to a different administrator.",
   serverManagementRecoveryRequired:
-    "No valid administrator credential is saved for this Server. Use a one-time recovery code.",
+    "No valid authorization was found. Ask the Server owner for a recovery code to authorize this computer.",
   serverManagementImportHint:
     "For credentials already issued and activated by the administrator. Copy the credential, then import and verify it.",
   serverManagementAdvanced: "Advanced: import a credential",
   serverManagementRecoveryCode: "One-time recovery code",
   serverManagementRecoveryHint:
     "Ask the Server owner to run one of these commands for their deployment (run Docker Compose in the deployment directory). Enter the returned recoveryCode below within 10 minutes. It can authorize one replacement credential. This requires an updated Server and does not change its configuration or restart it.",
-  serverManagementRecovery: "No administrator access available?",
+  serverManagementRecovery: "Restore with a recovery code",
   serverManagementReauthorizeHint:
     "Uses a valid management credential saved on this computer for the same Server. If none is available, use a recovery code below.",
-  serverManagementReauthorize: "Reauthorize",
+  serverManagementReauthorize: "Try saved authorization",
   serverManagementWorking: "Authorizing…",
   serverManagementExpires: "Valid until",
-  serverManagementAutomatic: "Authorized · automatic renewal enabled",
+  serverManagementAutomatic: "This computer has management access",
   serverManagementChecking: "Checking management authorization…",
-  serverManagementAuthorization: "Management authorization",
+  serverManagementAuthorization: "Management access",
   serverManagementAuthorizationHint:
-    "Desktop automatically renews valid management access while running and connected, within the Server session policy.",
+    "Authorize this computer once to manage this Server. Access credentials refresh automatically while the device authorization remains valid.",
   serverManagementImport: "Import from clipboard and verify",
   serverManagementVerified: "Management access verified.",
   serverManagementEmpty:

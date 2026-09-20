@@ -1,3 +1,4 @@
+import { operatorManagementDevicesMigration } from "./operatorManagementDevices.js";
 import { operatorAuthorizationMigration } from "./operatorAuthorization.js";
 import { acpTaskRestorationsMigration } from "./acpTaskRestorations.js";
 import { collaborationMigrations } from "./collaboration.js";
@@ -56,7 +57,10 @@ const observerMigrations: MigrationModule = {
 };
 
 export const migrationModules: readonly MigrationModule[] = [
-  { name: "operator-authorization", migrations: [operatorAuthorizationMigration] },
+  {
+    name: "operator-authorization",
+    migrations: [operatorAuthorizationMigration, operatorManagementDevicesMigration]
+  },
   { name: "acp-conversations", migrations: [acpConversationsMigration] },
   coreMigrations,
   collaborationMigrations,

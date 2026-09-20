@@ -170,6 +170,27 @@ it("enforces transport, authentication and strict payloads at HTTP boundary; rec
   const valid = await post("maintain", {}, rootToken);
   expect(valid.status).toBe(200);
   expect(valid.headers.get("cache-control")).toBe("no-store");
+  const deviceSecret = `pw_device_${"D".repeat(43)}`;
+  expect((await post("device-enroll", { deviceSecret, deviceName: "Laptop" })).status).toBe(401);
+  expect(
+    (await post("device-enroll", { deviceSecret, deviceName: "Laptop" }, memberToken)).status
+  ).toBe(403);
+  const device = await (
+    await post("device-enroll", { deviceSecret, deviceName: "Laptop" }, rootToken)
+  ).json();
+  expect(
+    (await post("device-refresh", { deviceSecret, newToken: `pw_operator_${"E".repeat(43)}` }))
+      .status
+  ).toBe(200);
+  expect((await post("device-list", {})).status).toBe(401);
+  expect((await (await post("device-list", {}, rootToken)).json())[0].deviceId).toBe(
+    device.deviceId
+  );
+  expect((await post("device-revoke", { deviceId: device.deviceId }, rootToken)).status).toBe(200);
+  expect(
+    (await post("device-refresh", { deviceSecret, newToken: `pw_operator_${"F".repeat(43)}` }))
+      .status
+  ).toBe(403);
   policy = createTransportAdmissionPolicyForMode("direct_https");
   expect((await post("maintain", {}, rootToken)).status).toBe(426);
   policy = createTransportAdmissionPolicyForMode("loopback_http");
@@ -264,4 +285,90 @@ it("invalidates outstanding recovery codes on revocation but permits explicit lo
   f.registry.management.recover("admin", after.recoveryCode, childToken);
   expect(f.registry.authenticate(`Bearer ${rootToken}`)).toBeUndefined();
   expect(f.registry.authenticate(`Bearer ${childToken}`)?.serverAdmin).toBe(true);
+});
+
+it("keeps device authorization across access expiry and restart, caps access lifetime, and rejects the device secret as an API bearer", async () => {
+  const f = await fixture();
+  const secret = `pw_device_${"D".repeat(43)}`;
+  const admin = f.registry.authenticate(`Bearer ${rootToken}`)!;
+  const device = f.registry.management.devices.enroll(admin, {
+    deviceSecret: secret,
+    deviceName: "Laptop"
+  });
+  expect(
+    f.registry.management.devices.enroll(admin, { deviceSecret: secret, deviceName: "Laptop" })
+      .deviceId
+  ).toBe(device.deviceId);
+  const issued = f.registry.management.devices.refresh({
+    deviceSecret: secret,
+    newToken: childToken
+  });
+  expect(issued.expiresAt).toBe("2030-01-01T01:00:00.000Z");
+  expect(f.registry.authenticate(`Bearer ${secret}`)).toBeUndefined();
+  const child = f.registry.authenticate(`Bearer ${childToken}`)!;
+  f.setTime("2030-01-01T00:50:00.000Z");
+  expect(f.registry.management.maintain(child).expiresAt).toBe(issued.expiresAt);
+  f.setTime("2030-03-01T00:00:00.000Z");
+  expect(f.registry.authenticate(`Bearer ${childToken}`)).toBeUndefined();
+  const restarted = new OperatorTokenRegistry(f.database, f.credentials, f.clock, 30 * 86400_000);
+  const fresh = `pw_operator_${"E".repeat(43)}`;
+  expect(
+    restarted.management.devices.refresh({ deviceSecret: secret, newToken: fresh }).expiresAt
+  ).toBe("2030-03-01T01:00:00.000Z");
+  expect(restarted.authenticate(`Bearer ${fresh}`)?.serverAdmin).toBe(true);
+});
+
+it("revokes both device refresh and its already-issued access sessions, including cached principals", async () => {
+  const f = await fixture();
+  const secret = `pw_device_${"D".repeat(43)}`;
+  const admin = f.registry.authenticate(`Bearer ${rootToken}`)!;
+  const device = f.registry.management.devices.enroll(admin, {
+    deviceSecret: secret,
+    deviceName: "Laptop"
+  });
+  f.registry.management.devices.refresh({ deviceSecret: secret, newToken: childToken });
+  const stale = f.registry.authenticate(`Bearer ${childToken}`)!;
+  f.registry.management.devices.revoke(admin, device.deviceId);
+  expect(f.registry.authenticate(`Bearer ${childToken}`)).toBeUndefined();
+  expect(() => f.registry.management.maintain(stale)).toThrow("operator_unauthorized");
+  expect(() =>
+    f.registry.management.devices.refresh({
+      deviceSecret: secret,
+      newToken: `pw_operator_${"E".repeat(43)}`
+    })
+  ).toThrow("operator_device_revoked");
+  expect(() =>
+    f.registry.management.devices.enroll(admin, { deviceSecret: secret, deviceName: "Laptop" })
+  ).toThrow("operator_device_revoked");
+  expect(f.registry.management.devices.list(admin)[0].revokedAt).not.toBeNull();
+});
+
+it("does not enroll expired administrators or members, and invalidates devices after root revocation or config replacement", async () => {
+  const f = await fixture();
+  const secret = `pw_device_${"D".repeat(43)}`;
+  const input = { deviceSecret: secret, deviceName: "Laptop" };
+  const admin = f.registry.authenticate(`Bearer ${rootToken}`)!;
+  expect(() =>
+    f.registry.management.devices.enroll(f.registry.authenticate(`Bearer ${memberToken}`)!, input)
+  ).toThrow("operator_server_admin_required");
+  f.registry.management.devices.enroll(admin, input);
+  const replaced = new OperatorTokenRegistry(
+    f.database,
+    [{ ...f.credentials[0], tokenSha256: "f".repeat(64) }],
+    f.clock
+  );
+  expect(() =>
+    replaced.management.devices.refresh({ deviceSecret: secret, newToken: childToken })
+  ).toThrow("operator_device_revoked");
+  f.setTime("2030-01-02T00:00:00.000Z");
+  expect(() =>
+    f.registry.management.devices.enroll(admin, {
+      ...input,
+      deviceSecret: `pw_device_${"E".repeat(43)}`
+    })
+  ).toThrow("operator_server_admin_required");
+  f.sessions.revoke(f.root.workspaceId, f.root.operatorSessionId);
+  expect(() =>
+    f.registry.management.devices.refresh({ deviceSecret: secret, newToken: childToken })
+  ).toThrow("operator_device_revoked");
 });

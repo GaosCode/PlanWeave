@@ -106,6 +106,10 @@ export function registerOperatorControlHandlers(
   const active = service;
   active.startAuthorizationMaintenance();
   handleDesktopCommand(
+    operatorControlInvokeChannels.revokeManagementDevice,
+    (_event, input: unknown) => active.revokeManagementDevice(input)
+  );
+  handleDesktopCommand(
     operatorControlInvokeChannels.getManagementAuthorization,
     (_event, input: unknown) => active.getManagementAuthorization(input)
   );

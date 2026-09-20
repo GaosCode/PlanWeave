@@ -1,6 +1,21 @@
 import type { managementEnCatalog } from "./i18nManagementEn";
 
 export const managementZhCnCatalog = {
+  serverManagementNeedsRecovery: "这台电脑需要恢复管理权限",
+  serverManagementUnavailable: "暂时无法检查管理权限，请检查连接后重试。",
+  serverManagementRestoreAccess: "恢复管理权限",
+  serverManagementDetails: "管理访问",
+  serverManagementDeviceRemembered:
+    "已记住这台设备。访问凭据会自动刷新，长时间未打开应用也无需定期重新授权。",
+  serverManagementLegacy: "尚未建立设备授权。",
+  serverManagementDevices: "已授权设备",
+  serverManagementDevicesHint: "撤销后，该设备立即失去此 Server 的管理权限。",
+  serverManagementThisDevice: "这台电脑",
+  serverManagementLastUsed: "最近刷新",
+  serverManagementRevoke: "撤销权限",
+  serverManagementRevokeConfirm: "该设备将立即失去管理权限，再次使用需要重新授权。确认撤销？",
+  serverManagementDeviceRevoked: "这台设备的授权已失效或被撤销，请恢复管理权限。",
+
   serverManagementAdministrator: "管理员",
   serverManagementCheckAgain: "重新检查",
   serverManagementUpgradeTitle: "如何恢复管理授权",
@@ -24,24 +39,24 @@ export const managementZhCnCatalog = {
     "无法访问 Server 的管理授权接口（HTTP 404）。请检查服务端版本或代理路由。",
   serverManagementRecoveryInvalid: "恢复码无效、已过期、已被使用，或不属于当前管理员。",
   serverManagementRecoveryRequired:
-    "这台电脑没有保存该 Server 的有效管理员授权，请使用一次性恢复码。",
+    "未找到可用授权。请向服务器所有者获取恢复码，为这台电脑恢复管理权限。",
   serverManagementImportHint:
     "适用于管理员已经签发并在 Server 上启用的凭据。复制该凭据后，在此导入并验证。",
   serverManagementAdvanced: "高级：导入管理凭据",
   serverManagementRecoveryCode: "一次性恢复码",
   serverManagementRecoveryHint:
     "请服务器所有者根据部署方式执行下面的一条命令（Docker Compose 在部署目录中执行），将返回的 recoveryCode 在 10 分钟内填入下方。每个码只能签发一份新凭据。需要升级后的 Server，无需修改配置或重启服务。",
-  serverManagementRecovery: "没有可用的管理员授权？",
+  serverManagementRecovery: "使用恢复码授权这台电脑",
   serverManagementReauthorizeHint:
     "使用这台电脑上保存的、同一 Server 的有效管理授权完成验证。如果没有可用授权，请使用下方恢复码。",
-  serverManagementReauthorize: "重新授权",
+  serverManagementReauthorize: "尝试已有授权",
   serverManagementWorking: "正在授权…",
   serverManagementExpires: "有效期至",
-  serverManagementAutomatic: "已授权 · 自动续期已启用",
+  serverManagementAutomatic: "这台电脑已获管理权限",
   serverManagementChecking: "正在检查管理授权…",
-  serverManagementAuthorization: "管理授权",
+  serverManagementAuthorization: "管理访问",
   serverManagementAuthorizationHint:
-    "桌面端运行且能连接 Server 时，会按服务器会话策略自动续期有效的管理授权。",
+    "授权这台电脑后即可管理此 Server。设备授权有效期间，访问凭据会自动刷新。",
   serverManagementImport: "从剪贴板导入并验证",
   serverManagementVerified: "管理授权验证成功。",
   serverManagementEmpty: "暂无 Server 管理配置，请先配置 Server，再导入管理凭据。",

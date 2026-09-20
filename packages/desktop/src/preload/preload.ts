@@ -617,6 +617,8 @@ contextBridge.exposeInMainWorld("planweaveCollaboration", collaborationApi);
 exposeCollaborationCapture();
 
 const operatorControlApi: PlanWeaveOperatorControlApi = {
+  revokeManagementDevice: (input) =>
+    invokeDesktopCommand(operatorControlInvokeChannels.revokeManagementDevice, input),
   getManagementAuthorization: (input) =>
     invokeDesktopCommand(operatorControlInvokeChannels.getManagementAuthorization, input),
   reauthorizeManagement: (input) =>

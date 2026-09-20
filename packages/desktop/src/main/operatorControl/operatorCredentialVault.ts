@@ -1,6 +1,10 @@
 import { chmod, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { operatorTokenSchema } from "@planweave-ai/agent-host-protocol";
+import {
+  managementDeviceSecretSchema,
+  managementTokenSchema
+} from "@planweave-ai/agent-host-protocol/operator-control";
 import { z } from "zod";
 import type {
   OperatorCredentialPersistence,
@@ -15,9 +19,21 @@ export type OperatorSafeStoragePort = {
   decryptString(encrypted: Buffer): string;
 };
 
+export const storedManagementDeviceSchema = z
+  .object({
+    secret: managementDeviceSecretSchema,
+    origin: z.string().url(),
+    operatorId: z.string().min(1),
+    deviceId: z.string().uuid().nullable(),
+    pendingToken: managementTokenSchema.nullable()
+  })
+  .strict();
+export type StoredManagementDevice = z.infer<typeof storedManagementDeviceSchema>;
+
 const persistedOperatorCredentialSchema = z
   .object({
     encryptedOperatorToken: z.string().trim().min(1),
+    encryptedManagementDevice: z.string().min(1).optional(),
     operatorId: z.string().trim().min(1).max(128).nullable(),
     updatedAt: z.iso.datetime()
   })
@@ -80,6 +96,7 @@ async function writePrivateJson(path: string, value: unknown): Promise<void> {
 
 /** Main-only operator bearer vault. Durable entries use configured-storage ciphertext, never plaintext. */
 export class OperatorCredentialVault {
+  private readonly managementDevices = new Map<string, StoredManagementDevice>();
   private readonly safeStorage: OperatorSafeStoragePort;
   private readonly sessionCredentials = new Map<string, SessionCredential>();
   private document: OperatorCredentialsDocument | null = null;
@@ -224,6 +241,7 @@ export class OperatorCredentialVault {
     }
     const document = await this.load();
     document.credentials[profileId] = {
+      ...document.credentials[profileId],
       encryptedOperatorToken: this.encrypt(operatorToken),
       operatorId: normalizedOperatorId,
       updatedAt
@@ -232,7 +250,46 @@ export class OperatorCredentialVault {
     return "persisted";
   }
 
+  async getManagementDevice(profileId: string): Promise<StoredManagementDevice | undefined> {
+    const cached = this.managementDevices.get(profileId);
+    if (cached) return cached;
+    if (!this.safeStorage.isEncryptionAvailable()) return undefined;
+    const encrypted = (await this.load()).credentials[profileId]?.encryptedManagementDevice;
+    if (!encrypted) return undefined;
+    const plaintext = decryptSafeStorageString(
+      this.safeStorage,
+      Buffer.from(encrypted, "base64"),
+      "management device authorization"
+    );
+    const device = storedManagementDeviceSchema.parse(JSON.parse(plaintext));
+    this.managementDevices.set(profileId, device);
+    return device;
+  }
+
+  async setManagementDevice(
+    profileId: string,
+    value: StoredManagementDevice | undefined
+  ): Promise<void> {
+    const device = value && storedManagementDeviceSchema.parse(value);
+    const document = await this.load();
+    const record = document.credentials[profileId];
+    if (this.safeStorage.isEncryptionAvailable()) {
+      if (device && !record) throw new Error("operator_credential_missing");
+      if (record) {
+        if (device)
+          record.encryptedManagementDevice = this.safeStorage
+            .encryptString(JSON.stringify(device))
+            .toString("base64");
+        else delete record.encryptedManagementDevice;
+        await this.persist(document);
+      }
+    }
+    if (device) this.managementDevices.set(profileId, device);
+    else this.managementDevices.delete(profileId);
+  }
+
   async clear(profileId: string): Promise<void> {
+    this.managementDevices.delete(profileId);
     this.sessionCredentials.delete(profileId);
     const document = await this.load();
     if (document.credentials[profileId]) {
@@ -247,5 +304,6 @@ export class OperatorCredentialVault {
 
   clearSessionMemory(): void {
     this.sessionCredentials.clear();
+    this.managementDevices.clear();
   }
 }

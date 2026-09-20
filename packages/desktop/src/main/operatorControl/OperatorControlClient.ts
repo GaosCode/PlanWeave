@@ -1,5 +1,11 @@
 import {
   managementAuthorizationStatusSchema,
+  managementDeviceAccessSchema,
+  managementDeviceSchema,
+  managementDevicesSchema,
+  managementDeviceEnrollmentSchema,
+  managementDeviceRefreshSchema,
+  managementDeviceRevokeSchema,
   managementAuthorizeRequestSchema,
   managementRecoverRequestSchema
 } from "@planweave-ai/agent-host-protocol/operator-control";
@@ -623,6 +629,49 @@ export class OperatorControlClient {
   private ensureOpen(): void {
     if (this.disposed)
       throw new OperatorControlError({ kind: "offline", code: "operator_client_closed" });
+  }
+
+  enrollManagementDevice(deviceSecret: string, deviceName: string) {
+    return this.json(
+      "POST",
+      "/api/v1/management-authorization/device-enroll",
+      managementDeviceSchema,
+      {
+        body: managementDeviceEnrollmentSchema.parse({ deviceSecret, deviceName })
+      }
+    );
+  }
+
+  refreshManagementDevice(deviceSecret: string, newToken: string) {
+    return this.json(
+      "POST",
+      "/api/v1/management-authorization/device-refresh",
+      managementDeviceAccessSchema,
+      {
+        body: managementDeviceRefreshSchema.parse({ deviceSecret, newToken }),
+        unauthenticated: true
+      }
+    );
+  }
+
+  listManagementDevices() {
+    return this.json(
+      "POST",
+      "/api/v1/management-authorization/device-list",
+      managementDevicesSchema,
+      { body: {} }
+    );
+  }
+
+  revokeManagementDevice(deviceId: string) {
+    return this.json(
+      "POST",
+      "/api/v1/management-authorization/device-revoke",
+      z.object({}).strict(),
+      {
+        body: managementDeviceRevokeSchema.parse({ deviceId })
+      }
+    );
   }
 
   maintainManagementAuthorization() {

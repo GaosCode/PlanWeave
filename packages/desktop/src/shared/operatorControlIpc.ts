@@ -3,6 +3,7 @@
  * Keep this module free of runtime agent-host-protocol imports.
  */
 export const operatorControlInvokeChannels = {
+  revokeManagementDevice: "planweave-operator:revokeManagementDevice",
   getManagementAuthorization: "planweave-operator:getManagementAuthorization",
   reauthorizeManagement: "planweave-operator:reauthorizeManagement",
   recoverManagement: "planweave-operator:recoverManagement",
