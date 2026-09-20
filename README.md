@@ -280,6 +280,8 @@ A connected project lets members share one task board and run agents on connecte
 
 See the [Agent Host guide](packages/agent-host/README.md) for installation and commands.
 
+Server data archives use `planweave-server-data-archive/v1`. Export and restore are limited to 8 GiB compressed, 32 GiB expanded (including tar metadata), 8 GiB per file, 100,000 data files, and a 64 KiB manifest. Paths must be portable across Windows, macOS, and Linux; reserved names, case or Unicode aliases, and file/directory collisions are rejected. Stop the Server and keep its data directory exclusively available during migration. Restore validates the complete archive before replacing data; archives do not include client login tokens.
+
 ## Future Direction
 
 PlanWeave will continue to expand in three directions:

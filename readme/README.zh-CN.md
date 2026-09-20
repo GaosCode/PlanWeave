@@ -280,6 +280,8 @@ ACP run 通过 CLI 和 Desktop 提供结构化进度、产物、usage 和交互�
 
 安装和命令说明见 [Agent Host 指南](../packages/agent-host/README.md)。
 
+Server 数据归档使用 `planweave-server-data-archive/v1`。导出和恢复限制为压缩后 8 GiB、解压后 32 GiB（含 tar 元数据）、单文件 8 GiB、100,000 个数据文件，manifest 最大 64 KiB。路径必须能在 Windows、macOS 和 Linux 间无损使用；保留名称、大小写或 Unicode 别名以及文件/目录冲突会被拒绝。迁移前须停止 Server 并确保数据目录独占；恢复仅在完整校验归档后替换数据。归档不包含客户端登录 token。
+
 ## 未来方向
 
 PlanWeave 将继续扩展三个方向：
