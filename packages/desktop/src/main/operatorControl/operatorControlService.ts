@@ -448,10 +448,36 @@ export class OperatorControlService {
         }
       }
       const parsed = operatorCredentialMaterialInputSchema.parse(input);
-      if (!(await this.profiles.get(parsed.profileId))) {
+      const profile = await this.profiles.get(parsed.profileId);
+      if (!profile) {
         throw new OperatorControlError({ kind: "validation", code: "operator_profile_not_found" });
       }
+      if (parsed.verifyBeforeSave) {
+        const effective = await resolveEffectiveOperatorServerBaseUrl({
+          profile,
+          backend: this.resolveLocalOperatorBackend()
+        });
+        const client = this.createClient({
+          profile: operatorControlProfileSchema.parse({
+            profileId: profile.profileId,
+            displayName: profile.displayName,
+            operatorId: profile.operatorId,
+            ...effective,
+            endpoint:
+              profile.endpoint &&
+              new URL(profile.endpoint.serverOrigin).origin ===
+                new URL(effective.serverBaseUrl).origin
+                ? profile.endpoint
+                : undefined
+          }),
+          credential: { getOperatorToken: async () => parsed.operatorToken },
+          request: this.request
+        });
+        await client.listHosts({ limit: 1 });
+      }
       await this.vault.setOperatorToken(parsed.profileId, parsed.operatorToken, parsed.operatorId);
+      this.lastErrorCode = null;
+      this.lastErrorMessage = null;
       return this.publishStatus();
     });
   }

@@ -952,7 +952,8 @@ export const enCatalog = {
   hostAdminBootstrapHeartbeatNote:
     "After registration, the device and its shared agents appear automatically below.",
   hostAdminOffline: "PlanWeave Server cannot be reached. Check your network and try again.",
-  hostAdminUnauthorized: "Server management access expired. Reconnect from Settings → Server.",
+  hostAdminUnauthorized:
+    "Server management access is invalid or expired. Reauthorize under Settings → Server → Management authorization.",
   hostAdminForbidden: "Your account cannot manage remote devices.",
   hostAdminProfileMissing:
     "The current Server connection is unavailable. Reconnect from Settings → Server.",

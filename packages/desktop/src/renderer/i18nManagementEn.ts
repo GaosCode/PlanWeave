@@ -1,4 +1,14 @@
 export const managementEnCatalog = {
+  serverManagementAuthorization: "Management authorization",
+  serverManagementAuthorizationHint:
+    "Ask the Server administrator to issue a new management credential and activate it on the Server. Copy that credential, then import it here. This does not renew execution device credentials.",
+  serverManagementImport: "Import from clipboard and verify",
+  serverManagementVerified: "Management access verified.",
+  serverManagementEmpty:
+    "No Server management profile is available. Configure the Server before importing a credential.",
+  serverManagementSessionOnly:
+    "Authorization is valid but will only be saved for this session. Import it again after restarting Desktop.",
+
   accessCloseDetails: "Close details",
   serverLocalHostingHint:
     "Run collaboration services on this computer for other devices to connect.",

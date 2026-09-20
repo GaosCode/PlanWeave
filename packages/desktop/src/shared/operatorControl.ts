@@ -97,6 +97,7 @@ export type OperatorProfileIdInput = z.infer<typeof operatorProfileIdInputSchema
 
 export const operatorImportCredentialInputSchema = z
   .object({
+    verifyBeforeSave: z.literal(true).optional(),
     profileId: operatorProfileIdSchema,
     operatorId: operatorProfileIdSchema.optional()
   })

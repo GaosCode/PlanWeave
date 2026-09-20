@@ -43,7 +43,7 @@ vi.mock("../renderer/hooks/useHostAdministrationController", () => ({
   useHostAdministrationController
 }));
 
-vi.mock("../renderer/bridge", () => ({ collaborationBridge }));
+vi.mock("../renderer/bridge", () => ({ collaborationBridge, operatorControlBridge: null }));
 
 afterEach(() => {
   cleanup();

@@ -115,7 +115,10 @@ describe("operator control main-process credential import", () => {
     const service = registerOperatorControlHandlers({
       profileStorePaths: { profilesPath: join(root, "profiles.json") },
       credentialsPath: join(root, "credentials.json"),
-      readOperatorToken
+      readOperatorToken,
+      request: vi.fn(
+        async () => new Response(JSON.stringify({ items: [], nextCursor: null }), { status: 200 })
+      )
     });
     await service.upsertProfile({
       profileId: "profile-a",
@@ -126,7 +129,7 @@ describe("operator control main-process credential import", () => {
 
     const handler = electronMock.handlers.get(operatorControlInvokeChannels.importCredential);
     if (!handler) throw new Error("operator_import_handler_missing");
-    await handler({}, { profileId: "profile-a" });
+    await handler({}, { profileId: "profile-a", verifyBeforeSave: true });
 
     expect(readOperatorToken).toHaveBeenCalledTimes(1);
     await expect(service.getStatus()).resolves.toMatchObject({

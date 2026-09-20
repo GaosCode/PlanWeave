@@ -4,6 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { createTranslator } from "../i18n";
 import { ManagementDialog } from "../components/ManagementDialog";
 import { SettingsServerSection } from "./SettingsServerSection";
+import { ServerManagementAuthorization } from "./ServerManagementAuthorization";
 import { ServerConnectionList } from "./ServerConnectionList";
 import type { SettingsConnectionsTab } from "./settingsEntry";
 
@@ -44,6 +45,7 @@ export function SettingsConnectionsSection({
         </div>
         <TabsContent value="server">
           <ServerConnectionList refreshKey={refreshKey} t={t} />
+          <ServerManagementAuthorization t={t} />
         </TabsContent>
         <TabsContent value="maintenance">
           <SettingsServerSection showHeader={false} maintenance t={t} />

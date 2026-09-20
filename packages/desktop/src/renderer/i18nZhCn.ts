@@ -896,7 +896,8 @@ export const zhCnCatalog = {
   hostAdminBootstrapCommand: "Bootstrap 命令",
   hostAdminBootstrapHeartbeatNote: "注册成功后，设备和它开放的 Agent 会自动出现在下方列表中。",
   hostAdminOffline: "当前无法连接 PlanWeave Server，请检查网络后重试。",
-  hostAdminUnauthorized: "当前 Server 管理授权已失效，请在“设置 → Server”中重新连接。",
+  hostAdminUnauthorized:
+    "当前 Server 管理授权无效或已过期，请前往“设置 → Server → 管理授权”重新授权。",
   hostAdminForbidden: "当前账号没有管理远程设备的权限。",
   hostAdminProfileMissing: "当前 Server 连接不可用，请在“设置 → Server”中重新连接。",
   hostAdminErrorGeneric: "Agent Host 操作失败，请稍后重试。",

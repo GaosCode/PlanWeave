@@ -1,6 +1,14 @@
 import type { managementEnCatalog } from "./i18nManagementEn";
 
 export const managementZhCnCatalog = {
+  serverManagementAuthorization: "管理授权",
+  serverManagementAuthorizationHint:
+    "请服务器管理员重新签发管理凭据并在 Server 上启用，然后复制新凭据，在此导入。此操作与执行设备的凭据续期不同。",
+  serverManagementImport: "从剪贴板导入并验证",
+  serverManagementVerified: "管理授权验证成功。",
+  serverManagementEmpty: "暂无 Server 管理配置，请先配置 Server，再导入管理凭据。",
+  serverManagementSessionOnly:
+    "授权有效，但本机当前只能保存在本次会话中；重启桌面端后需要重新导入。",
   accessCloseDetails: "收起详情",
   serverLocalHostingHint: "在这台电脑运行协作服务，供其他设备连接。",
   serverDataLocalScope: "管理这台电脑上的 Server 数据。",
