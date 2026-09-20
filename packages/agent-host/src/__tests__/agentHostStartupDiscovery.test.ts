@@ -111,6 +111,35 @@ async function setup(
 }
 
 describe("Agent Host startup discovery lifecycle", () => {
+  it("stops in the same call stack as start without leaving socket or timer resources", async () => {
+    const response = deferred<Response>();
+    const request = vi.fn<typeof fetch>().mockImplementation(
+      (_input, init) =>
+        new Promise<Response>((resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("cancelled", "AbortError")),
+            { once: true }
+          );
+          response.promise.then(resolve, reject);
+        })
+    );
+    const h = await setup(request);
+    h.client.start();
+    await h.client.stop();
+    expect(request).toHaveBeenCalledOnce();
+    expect(request.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    response.resolve(success());
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    h.clock.advanceBy(60_000);
+    expect(h.client.status()).toEqual({ state: "stopped" });
+    expect(h.connection).not.toHaveBeenCalled();
+    expect(h.server.sockets.size).toBe(0);
+    expect(h.clock.pendingTimerCount()).toBe(0);
+    expect(h.canvasRuntime.recover).not.toHaveBeenCalled();
+    expect(h.conversations.recover).not.toHaveBeenCalled();
+  });
+
   it("recovers from 503 through one composition start and defers execution recovery until exact welcome", async () => {
     const request = vi
       .fn<typeof fetch>()
