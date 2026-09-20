@@ -1,18 +1,20 @@
+import { findServerMigrationIdentity } from "./serverDataMigrationCandidate.js";
+import { persistServerMigrationIdentity } from "./serverDataMigrationPersistence.js";
+import { snapshotServerDataIdentity } from "./serverDataMigrationIdentity.js";
+import type { ServerDataIdentitySnapshotResult } from "../../shared/serverDataMigration.js";
 import { withWorkspaceProjectClient } from "./workspaceProjectClient.js";
 import type { CollaborationClient } from "./CollaborationClient.js";
 import {
   nowIso,
   needsIdentityRenewal,
-  isUnusableIdentityCredential,
-  isRejectedWorkspaceCredential
+  isUnusableIdentityCredential
 } from "./workspaceCredentialLifecycle.js";
 import { findAuthorizedWorkspace } from "./workspacePickerReader.js";
 import {
   localOnlyView,
   emptyWorkspacePickerPage,
   toPublicProfile,
-  isRetargetableWorkspaceProfileId,
-  exportedIdentityAsStoredProfile
+  isRetargetableWorkspaceProfileId
 } from "./workspaceConnectionViews.js";
 import {
   activeWorkspaceConnectionViewSchema,
@@ -62,10 +64,7 @@ import {
   type WorkspaceConnectionProfileStorePaths,
   workspaceConnectionProfileStorePaths
 } from "./workspaceConnectionProfileStore.js";
-import {
-  EXPORTED_SERVER_DATA_PROFILE_ID,
-  ExportedServerDataIdentityStore
-} from "./exportedServerDataIdentity.js";
+import { ExportedServerDataIdentityStore } from "./exportedServerDataIdentity.js";
 
 export type CollaborationWorkspaceConnectionOptions = {
   store?: WorkspaceConnectionProfileStore;
@@ -335,147 +334,49 @@ export class CollaborationWorkspaceConnection {
    * Keep a Workspace device credential that survives deleting this computer's Server data directory.
    * Tokens stay in the vault; they are never written into the export archive.
    */
-  async snapshotExportedServerDataIdentity(): Promise<void> {
+  async snapshotExportedServerDataIdentity(): Promise<ServerDataIdentitySnapshotResult> {
     const locals = (await this.store.list())
       .filter((profile) => isLocalCollaborationProfileId(profile.profileId))
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
-    for (const profile of locals) {
-      if (await this.vault.getDeviceToken(profile.profileId)) {
-        await this.snapshotWorkspaceCredential(profile);
-        return;
-      }
-    }
+    return this.snapshotWorkspaceCredentials(locals);
   }
 
-  private async snapshotWorkspaceCredential(
-    profile: StoredWorkspaceConnectionProfile
-  ): Promise<void> {
-    const token = await this.vault.getDeviceToken(profile.profileId);
-    if (!token) return;
-    const metadata = await this.vault.getMetadata(profile.profileId);
-    const identityToken = await this.vault.getIdentityToken(profile.profileId);
-    if (profile.profileId !== EXPORTED_SERVER_DATA_PROFILE_ID) {
-      await this.vault.setDeviceToken(EXPORTED_SERVER_DATA_PROFILE_ID, token, {
-        deviceCredentialId: metadata?.deviceCredentialId,
-        identityCredentialId: metadata?.identityCredentialId,
-        humanPrincipalId: metadata?.humanPrincipalId,
-        identityExpiresAt: metadata?.identityExpiresAt ?? null,
-        ...(identityToken ? { identityToken } : {})
-      });
-    }
-    await this.exportedIdentity.write({
-      schemaVersion: "exported-server-data-identity/v1",
-      workspaceId: profile.workspaceId,
-      workspaceDisplayName: profile.workspaceDisplayName,
-      membershipRole: profile.membershipRole,
-      updatedAt: nowIso(this.clock)
+  private snapshotWorkspaceCredentials(
+    profiles: StoredWorkspaceConnectionProfile[]
+  ): Promise<ServerDataIdentitySnapshotResult> {
+    return snapshotServerDataIdentity({
+      profiles,
+      vault: this.vault,
+      identityStore: this.exportedIdentity,
+      now: () => nowIso(this.clock)
     });
   }
 
-  /**
-   * Reconnect this device when a stored Workspace credential already exists for the origin.
-   * After Server data is restored onto a different origin, the stored credential for that
-   * URL is from the previous Server identity; retry this computer's local Workspace token.
-   */
   async tryReconnectByOrigin(serverBaseUrl: string): Promise<boolean> {
-    const origin = new URL(serverBaseUrl).origin;
-    const targetBaseUrl = `${origin}/`;
-    const originMatches: StoredWorkspaceConnectionProfile[] = [];
-    const localMatches: StoredWorkspaceConnectionProfile[] = [];
-    for (const profile of await this.store.list()) {
-      if (!(await this.vault.getDeviceToken(profile.profileId))) continue;
-      if (isRetargetableWorkspaceProfileId(profile.profileId)) {
-        localMatches.push(profile);
-        continue;
-      }
-      try {
-        if (new URL(profile.serverBaseUrl).origin !== origin) continue;
-      } catch {
-        continue;
-      }
-      originMatches.push(profile);
-    }
-    const exported = await this.exportedIdentity.read();
-    if (
-      exported &&
-      (await this.vault.getDeviceToken(EXPORTED_SERVER_DATA_PROFILE_ID)) &&
-      !localMatches.some((profile) => profile.profileId === EXPORTED_SERVER_DATA_PROFILE_ID)
-    ) {
-      localMatches.push(exportedIdentityAsStoredProfile(exported));
-    }
-    originMatches.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
-    localMatches.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
-    for (const match of originMatches) {
-      try {
-        await this.store.setActiveProfileId(match.profileId);
-        this.activeProfileId = match.profileId;
-        this.workspaceDisplayName = match.workspaceDisplayName;
-        await this.connectActiveProfile();
-        return true;
-      } catch (error) {
-        if (!isRejectedWorkspaceCredential(error)) throw error;
-      }
-    }
-    const originProfile = originMatches[0];
-    if (!originProfile || isRetargetableWorkspaceProfileId(originProfile.profileId)) {
-      return false;
-    }
-    for (const localProfile of localMatches) {
-      if (
-        await this.bindLocalWorkspaceCredentialToOrigin(localProfile, originProfile, targetBaseUrl)
-      ) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  private async bindLocalWorkspaceCredentialToOrigin(
-    localProfile: StoredWorkspaceConnectionProfile,
-    originProfile: StoredWorkspaceConnectionProfile,
-    serverBaseUrl: string
-  ): Promise<boolean> {
-    const token = await this.vault.getDeviceToken(localProfile.profileId);
-    if (!token) return false;
-    const retargeted: StoredWorkspaceConnectionProfile = {
-      ...localProfile,
-      serverBaseUrl
+    const verified = await findServerMigrationIdentity({
+      serverBaseUrl,
+      profiles: await this.store.list(),
+      identityStore: this.exportedIdentity,
+      vault: this.vault,
+      request: this.request
+    });
+    if (!verified) return false;
+    const stored = await persistServerMigrationIdentity({
+      verified,
+      store: this.store,
+      vault: this.vault
+    });
+    this.activeProfileId = stored.profileId;
+    this.workspaceDisplayName = stored.workspaceDisplayName;
+    this.status = "connected";
+    this.connectedAt = nowIso(this.clock);
+    this.error = null;
+    this.lastAuthoritativePicker = {
+      schemaVersion: "workspace-setup/v1",
+      items: [verified.authoritative],
+      nextCursor: null
     };
-    let authoritative: WorkspacePickerPage["items"][number] | null;
-    try {
-      authoritative = await this.findAuthoritativeWorkspace(retargeted);
-    } catch (error) {
-      if (isRejectedWorkspaceCredential(error)) return false;
-      throw error;
-    }
-    if (!authoritative) return false;
-    const metadata = await this.vault.getMetadata(localProfile.profileId);
-    const bound = await this.store.upsert({
-      profile: workspaceConnectionProfileSchema.parse({
-        schemaVersion: originProfile.schemaVersion,
-        profileId: originProfile.profileId,
-        displayName: originProfile.displayName,
-        serverBaseUrl,
-        workspaceId: localProfile.workspaceId,
-        allowInsecureTransport: originProfile.allowInsecureTransport
-      }),
-      workspaceDisplayName: localProfile.workspaceDisplayName,
-      membershipRole: localProfile.membershipRole,
-      membershipActive: true
-    });
-    const identityToken = await this.vault.getIdentityToken(localProfile.profileId);
-    await this.vault.setDeviceToken(bound.profileId, token, {
-      deviceCredentialId: metadata?.deviceCredentialId,
-      identityCredentialId: metadata?.identityCredentialId,
-      humanPrincipalId: metadata?.humanPrincipalId,
-      identityExpiresAt: metadata?.identityExpiresAt ?? null,
-      ...(identityToken ? { identityToken } : {})
-    });
-    await this.snapshotWorkspaceCredential(localProfile);
-    await this.store.setActiveProfileId(bound.profileId);
-    this.activeProfileId = bound.profileId;
-    this.workspaceDisplayName = bound.workspaceDisplayName;
-    await this.connectActiveProfile();
+    this.onChange?.();
     return true;
   }
 

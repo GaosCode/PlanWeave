@@ -309,7 +309,7 @@ export function registerCollaborationHandlers(
     localServerState: () => local.status().state,
     showSaveDialog: (options) => dialog.showSaveDialog(options),
     showOpenDialog: (options) => dialog.showOpenDialog(options),
-    onExported: () => active.snapshotExportedServerDataIdentity()
+    snapshotIdentity: () => active.snapshotExportedServerDataIdentity()
   });
 
   handleDesktopCommand(collaborationInvokeChannels.getCollaborationStatus, () =>

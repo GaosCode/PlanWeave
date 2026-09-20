@@ -11,7 +11,7 @@ export const EXPORTED_SERVER_DATA_PROFILE_ID = "planweave-exported-server-data";
 export const EXPORTED_SERVER_DATA_IDENTITY_SCHEMA_VERSION =
   "exported-server-data-identity/v1" as const;
 
-export const exportedServerDataIdentitySchema = z
+const legacyExportedServerDataIdentitySchema = z
   .object({
     schemaVersion: z.literal(EXPORTED_SERVER_DATA_IDENTITY_SCHEMA_VERSION),
     workspaceId: opaqueIdentifierSchema,
@@ -20,6 +20,22 @@ export const exportedServerDataIdentitySchema = z
     updatedAt: timestampSchema
   })
   .strict();
+export const exportedServerDataIdentitySchema = z.discriminatedUnion("schemaVersion", [
+  legacyExportedServerDataIdentitySchema,
+  legacyExportedServerDataIdentitySchema
+    .extend({
+      schemaVersion: z.literal("exported-server-data-identity/v2"),
+      credentialProfileId: opaqueIdentifierSchema
+    })
+    .strict()
+]);
+
+export function exportedIdentityCredentialProfileId(identity: ExportedServerDataIdentity): string {
+  return identity.schemaVersion === "exported-server-data-identity/v2"
+    ? identity.credentialProfileId
+    : EXPORTED_SERVER_DATA_PROFILE_ID;
+}
+
 export type ExportedServerDataIdentity = z.infer<typeof exportedServerDataIdentitySchema>;
 
 function isMissingFileError(error: unknown): boolean {
@@ -34,15 +50,18 @@ async function writePrivateJson(path: string, value: unknown): Promise<void> {
   });
   const tmp = `${path}.tmp`;
   await writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-  await rename(tmp, path);
-  const written = await stat(path);
+  const written = await stat(tmp);
   if ((written.mode & 0o777) !== 0o600) {
-    await chmod(path, 0o600);
+    await chmod(tmp, 0o600);
   }
+  await rename(tmp, path);
 }
 
 export function isExportedServerDataProfileId(profileId: string): boolean {
-  return profileId === EXPORTED_SERVER_DATA_PROFILE_ID;
+  return (
+    profileId === EXPORTED_SERVER_DATA_PROFILE_ID ||
+    profileId.startsWith(`${EXPORTED_SERVER_DATA_PROFILE_ID}-`)
+  );
 }
 
 export class ExportedServerDataIdentityStore {
@@ -59,7 +78,7 @@ export class ExportedServerDataIdentityStore {
       );
     } catch (error) {
       if (isMissingFileError(error)) return null;
-      return null;
+      throw new Error("Could not read exported Server identity snapshot.");
     }
   }
 

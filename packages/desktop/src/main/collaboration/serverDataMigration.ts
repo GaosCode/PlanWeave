@@ -7,6 +7,8 @@ import {
 } from "@planweave-ai/server";
 import type { LocalCollaborationServerStatus } from "../../shared/localCollaborationScopes.js";
 import {
+  serverDataIdentitySnapshotResultSchema,
+  type ServerDataIdentitySnapshotResult,
   exportServerDataArchiveInputSchema,
   exportServerDataArchiveResultSchema,
   listServerDataExportSourcesResultSchema,
@@ -32,7 +34,7 @@ export type ServerDataMigrationOptions = ServerDataMigrationDialogs & {
   dataDirectory: () => string;
   localServerState: () => LocalCollaborationServerStatus["state"];
   now?: () => Date;
-  onExported?: () => Promise<void>;
+  snapshotIdentity: () => Promise<ServerDataIdentitySnapshotResult>;
 };
 
 const archiveFilter = [{ name: "PlanWeave Server data", extensions: ["tgz"] }];
@@ -55,7 +57,7 @@ export class ServerDataMigration {
   private readonly showSaveDialog: ServerDataMigrationDialogs["showSaveDialog"];
   private readonly showOpenDialog: ServerDataMigrationDialogs["showOpenDialog"];
   private readonly now: () => Date;
-  private readonly onExported?: () => Promise<void>;
+  private readonly snapshotIdentity: () => Promise<ServerDataIdentitySnapshotResult>;
 
   constructor(options: ServerDataMigrationOptions) {
     this.dataDirectory = options.dataDirectory;
@@ -63,7 +65,7 @@ export class ServerDataMigration {
     this.showSaveDialog = options.showSaveDialog;
     this.showOpenDialog = options.showOpenDialog;
     this.now = options.now ?? (() => new Date());
-    this.onExported = options.onExported;
+    this.snapshotIdentity = options.snapshotIdentity;
   }
 
   private async isRunning(dataDirectory: string): Promise<boolean> {
@@ -108,15 +110,24 @@ export class ServerDataMigration {
         dataDirectory,
         archivePath: save.filePath
       });
+      let identity: ServerDataIdentitySnapshotResult;
       try {
-        await this.onExported?.();
-      } catch (error) {
-        console.error("Failed to snapshot exported Server data identity.", error);
+        identity = serverDataIdentitySnapshotResultSchema.parse(await this.snapshotIdentity());
+      } catch {
+        identity = { status: "unavailable", reason: "snapshot_failed" };
       }
-      return exportServerDataArchiveResultSchema.parse({
-        status: "exported",
-        fileCount: manifest.fileCount
-      });
+      return exportServerDataArchiveResultSchema.parse(
+        identity.status === "saved"
+          ? {
+              status: "exported",
+              fileCount: manifest.fileCount
+            }
+          : {
+              status: "exported_without_identity",
+              fileCount: manifest.fileCount,
+              reason: identity.reason
+            }
+      );
     } catch (error) {
       const code = archiveErrorStatus(error);
       if (code === "server_data_directory_active") {
@@ -124,6 +135,9 @@ export class ServerDataMigration {
       }
       if (code === "server_data_directory_empty") {
         return exportServerDataArchiveResultSchema.parse({ status: "empty" });
+      }
+      if (code === "server_data_archive_resource_limit") {
+        return exportServerDataArchiveResultSchema.parse({ status: "resource_limit" });
       }
       if (code) {
         return exportServerDataArchiveResultSchema.parse({ status: "unavailable" });
@@ -162,9 +176,25 @@ export class ServerDataMigration {
         fileCount: manifest.fileCount
       });
     } catch (error) {
+      if (error instanceof ServerDataArchiveError && error.diagnostic) {
+        this.pendingArchivePath = null;
+        const outcome = error.diagnostic.outcome;
+        return restoreServerDataArchiveResultSchema.parse({
+          status:
+            outcome === "committed"
+              ? "restored_cleanup_failed"
+              : outcome === "rollback_failed"
+                ? "recovery_required"
+                : "not_restored"
+        });
+      }
       const code = archiveErrorStatus(error);
       if (code === "server_data_directory_active") {
         return restoreServerDataArchiveResultSchema.parse({ status: "running" });
+      }
+      if (code === "server_data_restore_recovery_required") {
+        this.pendingArchivePath = null;
+        return restoreServerDataArchiveResultSchema.parse({ status: "recovery_required" });
       }
       if (code === "server_data_directory_nonempty") {
         return restoreServerDataArchiveResultSchema.parse({ status: "needs_overwrite" });
@@ -172,6 +202,10 @@ export class ServerDataMigration {
       if (code === "server_data_archive_invalid") {
         this.pendingArchivePath = null;
         return restoreServerDataArchiveResultSchema.parse({ status: "invalid_archive" });
+      }
+      if (code === "server_data_archive_resource_limit") {
+        this.pendingArchivePath = null;
+        return restoreServerDataArchiveResultSchema.parse({ status: "resource_limit" });
       }
       if (code) {
         return restoreServerDataArchiveResultSchema.parse({ status: "unavailable" });

@@ -41,13 +41,13 @@ describe("ServerDataMigration", () => {
     const archivePath = join(root, "server-data.tgz");
     const showSaveDialog = vi.fn(async () => ({ canceled: false, filePath: archivePath }));
     const showOpenDialog = vi.fn(async () => ({ canceled: true, filePaths: [] }));
-    const onExported = vi.fn(async () => undefined);
+    const snapshotIdentity = vi.fn(async () => ({ status: "saved" as const }));
     const migration = new ServerDataMigration({
+      snapshotIdentity,
       dataDirectory: () => dataDirectory,
       localServerState: () => "stopped",
       showSaveDialog,
       showOpenDialog,
-      onExported,
       now: () => new Date("2030-01-02T00:00:00.000Z")
     });
 
@@ -63,7 +63,32 @@ describe("ServerDataMigration", () => {
     });
     expect(await readFile(archivePath)).toBeInstanceOf(Buffer);
     expect(showOpenDialog).not.toHaveBeenCalled();
-    expect(onExported).toHaveBeenCalledTimes(1);
+    expect(snapshotIdentity).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    "missing_identity",
+    "nonpersistent_credentials",
+    "snapshot_failed"
+  ] as const)("keeps the archive and reports %s when identity cannot be preserved", async (reason) => {
+    const root = await tempDir();
+    const dataDirectory = join(root, "source");
+    await seedServerData(dataDirectory);
+    const archivePath = join(root, "partial.tgz");
+    const migration = new ServerDataMigration({
+      dataDirectory: () => dataDirectory,
+      localServerState: () => "stopped",
+      snapshotIdentity: async () => {
+        if (reason === "snapshot_failed") throw new Error("secret should not cross boundary");
+        return { status: "unavailable", reason };
+      },
+      showSaveDialog: async () => ({ canceled: false, filePath: archivePath }),
+      showOpenDialog: async () => ({ canceled: true, filePaths: [] })
+    });
+    const result = await migration.exportArchive({ sourceId: "this_computer" });
+    expect(result).toMatchObject({ status: "exported_without_identity", reason });
+    expect((await readFile(archivePath)).length).toBeGreaterThan(0);
+    expect(JSON.stringify(result)).not.toContain("secret");
   });
 
   it("refuses export while the local Server is running and does not open a dialog", async () => {
@@ -72,6 +97,7 @@ describe("ServerDataMigration", () => {
     await seedServerData(dataDirectory);
     const showSaveDialog = vi.fn(async () => ({ canceled: false, filePath: join(root, "no.tgz") }));
     const migration = new ServerDataMigration({
+      snapshotIdentity: async () => ({ status: "saved" }),
       dataDirectory: () => dataDirectory,
       localServerState: () => "running",
       showSaveDialog,
@@ -94,6 +120,7 @@ describe("ServerDataMigration", () => {
     await seedServerData(target);
     const archivePath = join(root, "server-data.tgz");
     const exporter = new ServerDataMigration({
+      snapshotIdentity: async () => ({ status: "saved" }),
       dataDirectory: () => source,
       localServerState: () => "stopped",
       showSaveDialog: async () => ({ canceled: false, filePath: archivePath }),
@@ -105,6 +132,7 @@ describe("ServerDataMigration", () => {
 
     const showOpenDialog = vi.fn(async () => ({ canceled: false, filePaths: [archivePath] }));
     const migration = new ServerDataMigration({
+      snapshotIdentity: async () => ({ status: "saved" }),
       dataDirectory: () => target,
       localServerState: () => "stopped",
       showSaveDialog: async () => ({ canceled: true }),
@@ -127,6 +155,7 @@ describe("ServerDataMigration", () => {
       filePath: join(root, "empty.tgz")
     }));
     const migration = new ServerDataMigration({
+      snapshotIdentity: async () => ({ status: "saved" }),
       dataDirectory: () => dataDirectory,
       localServerState: () => "stopped",
       showSaveDialog,

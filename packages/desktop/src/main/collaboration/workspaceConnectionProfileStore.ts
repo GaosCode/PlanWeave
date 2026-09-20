@@ -108,11 +108,11 @@ async function writePrivateJson(path: string, value: unknown): Promise<void> {
   await ensurePrivateFileParent(path);
   const tmp = `${path}.tmp`;
   await writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-  await rename(tmp, path);
-  const written = await stat(path);
+  const written = await stat(tmp);
   if ((written.mode & 0o777) !== 0o600) {
-    await chmod(path, 0o600);
+    await chmod(tmp, 0o600);
   }
+  await rename(tmp, path);
 }
 
 /**
@@ -180,7 +180,7 @@ export class WorkspaceConnectionProfileStore {
     membershipRole?: "owner" | "member" | null;
     membershipActive?: boolean;
   }): Promise<StoredWorkspaceConnectionProfile> {
-    const document = await this.read();
+    const document = structuredClone(await this.read());
     const stored: StoredWorkspaceConnectionProfile = {
       ...workspaceConnectionProfileSchema.parse(input.profile),
       workspaceDisplayName: input.workspaceDisplayName.trim(),
@@ -199,7 +199,7 @@ export class WorkspaceConnectionProfileStore {
   }
 
   async remove(profileId: string): Promise<boolean> {
-    const document = await this.read();
+    const document = structuredClone(await this.read());
     const next = document.profiles.filter((profile) => profile.profileId !== profileId);
     if (next.length === document.profiles.length) {
       return false;
@@ -224,7 +224,7 @@ export class WorkspaceConnectionProfileStore {
   }
 
   async setActiveProfileId(profileId: string | null): Promise<void> {
-    const document = await this.read();
+    const document = structuredClone(await this.read());
     if (profileId === null) {
       document.activeProfileId = null;
       await this.write(document);

@@ -1570,6 +1570,7 @@ describe("CollaborationService live Server binding", () => {
     const safeStorage = mockSafeStorage();
     const request = vi.fn<typeof fetch>();
     const service = new CollaborationService({
+      exportedIdentityPath: join(root, "exported-server-data-identity.json"),
       profileStore: new CollaborationProfileStore({ profilesPath: join(root, "profiles.json") }),
       workspaceProfileStore: new WorkspaceConnectionProfileStore({
         profilesPath: join(root, "workspaces.json")

@@ -623,6 +623,12 @@ export const enCatalog = {
   deploymentConnectAnotherServer: "Connect another Server",
   settingsServerForget: "Forget this Server",
   settingsServerRetryConnection: "Retry",
+  settingsServerMigrationRollbackFailed:
+    "The migrated connection could not be saved, and previous settings could not be fully restored. Keep the original identity and check connection settings before retrying.",
+  settingsServerMigrationPersistenceFailed:
+    "The migrated connection could not be saved. Previous settings were restored and the original identity is retained.",
+  settingsServerMigrationCredentialUnavailable:
+    "The migration identity is not available in persistent storage. Keep the original client identity and export again before reconnecting.",
   settingsServerDataTitle: "Data migration",
   settingsServerDataHint:
     "Export the Server database on this computer into an archive, then import it on the destination after that Server is stopped. The archive does not include sign-in credentials; this computer keeps a separate identity snapshot so you can still connect after deleting local Server data.",
@@ -633,11 +639,25 @@ export const enCatalog = {
   settingsServerDataOverwriteConfirm:
     "This computer already has Server data. Replace the entire database? This cannot be undone.",
   settingsServerDataExported: "Archive saved. This computer kept a sign-in identity snapshot.",
+  settingsServerDataIdentityMissing:
+    "Archive saved, but no sign-in identity was found to preserve. Keep the original client identity until access is confirmed.",
+  settingsServerDataIdentityNonpersistent:
+    "Archive saved, but sign-in credentials are only available for this session. Keep this client open and preserve the original identity until access is confirmed.",
+  settingsServerDataIdentityFailed:
+    "Archive saved, but the sign-in identity snapshot could not be saved. Keep the original client identity and retry before removing it.",
+  settingsServerDataNotRestored:
+    "Server data was not restored. The previous data remains; retry after resolving the file access problem.",
+  settingsServerDataRecoveryRequired:
+    "Restore failed and the previous data could not be fully recovered. Keep the Server stopped and retain the data directory and recovery files for manual recovery.",
+  settingsServerDataCleanupFailed:
+    "Server data was restored, but recovery files could not be cleaned up. Preserve the data directory and resolve cleanup before another migration.",
   settingsServerDataImported: "Server data restored. Start the Server when you are ready.",
   settingsServerDataCancelled: "Cancelled.",
   settingsServerDataRunning: "Stop the Server on this computer before moving data.",
   settingsServerDataEmpty: "This computer has no Server data to export.",
   settingsServerDataInvalid: "That file is not a Server data archive.",
+  settingsServerDataResourceLimit:
+    "The archive exceeds the supported size or file-count limits. Server data was not moved.",
   settingsServerDataUnavailable: "Could not move Server data.",
   deploymentExistingServerNote:
     "Use the Server host HTTPS address, not this computer's Tailscale URL.",

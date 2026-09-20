@@ -3,6 +3,22 @@ import { collaborationConnectionErrorMessage } from "../renderer/collaboration/f
 import { createTranslator } from "../renderer/i18n.js";
 
 describe("collaboration connection error presentation", () => {
+  it.each([
+    "en",
+    "zh-CN"
+  ] as const)("explains migration persistence and compensation failures in %s", (language) => {
+    const t = createTranslator(language);
+    for (const [code, key] of [
+      ["server_migration_rollback_failed", "settingsServerMigrationRollbackFailed"],
+      ["server_migration_persistence_failed", "settingsServerMigrationPersistenceFailed"],
+      ["server_migration_credential_not_persisted", "settingsServerMigrationCredentialUnavailable"]
+    ] as const) {
+      expect(collaborationConnectionErrorMessage(t, { code, message: "private details" })).toBe(
+        t(key)
+      );
+    }
+  });
+
   it("localizes local-owner recovery failures without exposing Electron IPC details", () => {
     const raw = new Error(
       "Error invoking remote method 'planweave-collaboration:registerLocalCurrentProject': Error: local_collaboration_selection_required"

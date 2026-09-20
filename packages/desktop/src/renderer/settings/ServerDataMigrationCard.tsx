@@ -10,12 +10,28 @@ import { logCollaborationRendererError } from "../collaboration/formatCollaborat
 import type { createTranslator } from "../i18n";
 
 function resultCopy(
-  status: ExportServerDataArchiveResult["status"] | RestoreServerDataArchiveResult["status"],
+  result: ExportServerDataArchiveResult | RestoreServerDataArchiveResult,
   t: ReturnType<typeof createTranslator>
 ): string {
-  switch (status) {
+  switch (result.status) {
     case "exported":
       return t("settingsServerDataExported");
+    case "exported_without_identity":
+      return t(
+        (
+          {
+            missing_identity: "settingsServerDataIdentityMissing",
+            nonpersistent_credentials: "settingsServerDataIdentityNonpersistent",
+            snapshot_failed: "settingsServerDataIdentityFailed"
+          } as const
+        )[result.reason]
+      );
+    case "not_restored":
+      return t("settingsServerDataNotRestored");
+    case "recovery_required":
+      return t("settingsServerDataRecoveryRequired");
+    case "restored_cleanup_failed":
+      return t("settingsServerDataCleanupFailed");
     case "restored":
       return t("settingsServerDataImported");
     case "cancelled":
@@ -24,14 +40,18 @@ function resultCopy(
       return t("settingsServerDataRunning");
     case "empty":
       return t("settingsServerDataEmpty");
+    case "resource_limit":
+      return t("settingsServerDataResourceLimit");
     case "unavailable":
       return t("settingsServerDataUnavailable");
     case "invalid_archive":
       return t("settingsServerDataInvalid");
     case "needs_overwrite":
       return t("settingsServerDataOverwriteConfirm");
-    default:
-      return "";
+    default: {
+      const exhaustive: never = result;
+      return exhaustive;
+    }
   }
 }
 
@@ -68,8 +88,10 @@ export function ServerDataMigrationCard({
     setMessage(null);
     try {
       const result = await api.exportServerDataArchive({ sourceId: "this_computer" });
-      setMessage(resultCopy(result.status, t));
-      await refreshSources();
+      setMessage(resultCopy(result, t));
+      await refreshSources().catch((error: unknown) => {
+        logCollaborationRendererError("server-data-sources", error);
+      });
     } catch (error) {
       logCollaborationRendererError("server-data-export", error);
       setMessage(t("settingsServerDataUnavailable"));
@@ -91,8 +113,10 @@ export function ServerDataMigrationCard({
         }
         result = await api.restoreServerDataArchive({ overwrite: true });
       }
-      setMessage(resultCopy(result.status, t));
-      await refreshSources();
+      setMessage(resultCopy(result, t));
+      await refreshSources().catch((error: unknown) => {
+        logCollaborationRendererError("server-data-sources", error);
+      });
     } catch (error) {
       logCollaborationRendererError("server-data-import", error);
       setMessage(t("settingsServerDataUnavailable"));

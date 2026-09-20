@@ -1,3 +1,4 @@
+import type { ServerDataIdentitySnapshotResult } from "../../shared/serverDataMigration.js";
 import {
   collaborationConnectionProfileSchema,
   type CollaborationConnectionProfile,
@@ -671,10 +672,10 @@ export class CollaborationService {
     });
   }
 
-  async snapshotExportedServerDataIdentity(): Promise<void> {
+  async snapshotExportedServerDataIdentity(): Promise<ServerDataIdentitySnapshotResult> {
     return this.enqueue(async () => {
       this.assertOpen();
-      await this.workspaceConnection.snapshotExportedServerDataIdentity();
+      return this.workspaceConnection.snapshotExportedServerDataIdentity();
     });
   }
 

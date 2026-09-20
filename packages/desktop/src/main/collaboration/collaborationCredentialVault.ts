@@ -130,11 +130,11 @@ async function writePrivateJson(path: string, value: unknown): Promise<void> {
   await ensurePrivateFileParent(path);
   const tmp = `${path}.tmp`;
   await writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-  await rename(tmp, path);
-  const written = await stat(path);
+  const written = await stat(tmp);
   if ((written.mode & 0o777) !== 0o600) {
-    await chmod(path, 0o600);
+    await chmod(tmp, 0o600);
   }
+  await rename(tmp, path);
 }
 
 /**
@@ -329,6 +329,31 @@ export class CollaborationCredentialVault {
     return record ? "persisted" : "missing";
   }
 
+  /** Verify a migration snapshot against durable bytes, not the in-memory session cache. */
+  async verifyPersistedCredential(
+    profileId: string,
+    expected: { deviceToken: string; identityToken: string | null }
+  ): Promise<boolean> {
+    if (!this.safeStorage.isEncryptionAvailable()) return false;
+    let raw: string;
+    try {
+      raw = await readFile(this.paths.credentialsPath, "utf8");
+    } catch (error) {
+      if (isMissingFileError(error)) return false;
+      throw new Error("Failed to verify persisted collaboration credentials.");
+    }
+    const document = collaborationCredentialsDocumentSchema.parse(JSON.parse(raw));
+    const record = document.credentials[profileId];
+    if (!record || this.decryptDeviceToken(record.encryptedDeviceToken) !== expected.deviceToken) {
+      return false;
+    }
+    const identityToken =
+      record.encryptedIdentityToken === null
+        ? null
+        : this.decryptIdentityToken(record.encryptedIdentityToken);
+    return identityToken === expected.identityToken;
+  }
+
   async hasCredential(profileId: string): Promise<boolean> {
     return (await this.persistenceFor(profileId)) !== "missing";
   }
@@ -347,7 +372,7 @@ export class CollaborationCredentialVault {
     const token = humanDeviceTokenSchema.parse(deviceToken);
     const updatedAt = nowIso();
     const existing = this.sessionTokens.get(profileId);
-    const document = await this.load();
+    const document = structuredClone(await this.load());
     const previous = document.credentials[profileId];
     const deviceCredentialId =
       metadata.deviceCredentialId === undefined
@@ -377,7 +402,7 @@ export class CollaborationCredentialVault {
         ? (existing?.identityExpiresAt ?? previous?.identityExpiresAt ?? null)
         : metadata.identityExpiresAt;
 
-    this.sessionTokens.set(profileId, {
+    const sessionCredential: SessionCredential = {
       deviceToken: token,
       identityToken,
       deviceCredentialId,
@@ -385,7 +410,7 @@ export class CollaborationCredentialVault {
       humanPrincipalId,
       identityExpiresAt,
       updatedAt
-    });
+    };
 
     if (!this.safeStorage.isEncryptionAvailable()) {
       // Never write plaintext tokens to disk.
@@ -393,6 +418,7 @@ export class CollaborationCredentialVault {
         delete document.credentials[profileId];
         await this.persist(document);
       }
+      this.sessionTokens.set(profileId, sessionCredential);
       return "session-only";
     }
 
@@ -406,16 +432,17 @@ export class CollaborationCredentialVault {
       updatedAt
     };
     await this.persist(document);
+    this.sessionTokens.set(profileId, sessionCredential);
     return "persisted";
   }
 
   async clear(profileId: string): Promise<void> {
-    this.sessionTokens.delete(profileId);
-    const document = await this.load();
+    const document = structuredClone(await this.load());
     if (document.credentials[profileId]) {
       delete document.credentials[profileId];
       await this.persist(document);
     }
+    this.sessionTokens.delete(profileId);
   }
 
   async listStoredProfileIds(): Promise<string[]> {

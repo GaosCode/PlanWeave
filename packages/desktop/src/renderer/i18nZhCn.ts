@@ -601,6 +601,11 @@ export const zhCnCatalog = {
   deploymentConnectAnotherServer: "连接其他 Server",
   settingsServerForget: "忘掉这台 Server",
   settingsServerRetryConnection: "重试",
+  settingsServerMigrationRollbackFailed:
+    "迁移连接未能保存，且旧设置未能完整恢复。请保留原身份，检查连接设置后再重试。",
+  settingsServerMigrationPersistenceFailed: "迁移连接未能保存，已恢复旧设置并保留原身份。",
+  settingsServerMigrationCredentialUnavailable:
+    "迁移身份未能从持久存储读取。请保留原客户端身份，重新导出后再连接。",
   settingsServerDataTitle: "数据迁移",
   settingsServerDataHint:
     "把这台电脑本机 Server 的数据库导出成压缩包，再在目标侧停止 Server 后导入。压缩包不含登录凭证；这台电脑会另外留下一份身份快照，删掉本机 Server 数据后仍可连接导入后的 Server。",
@@ -610,11 +615,23 @@ export const zhCnCatalog = {
     "请先停止这台电脑的本机 Server。若本机已有数据，导入时会询问是否整库覆盖。",
   settingsServerDataOverwriteConfirm: "这台电脑已有 Server 数据。要整库覆盖吗？此操作无法撤销。",
   settingsServerDataExported: "压缩包已保存。这台电脑已留下登录身份快照。",
+  settingsServerDataIdentityMissing:
+    "压缩包已保存，但没有找到可保留的登录身份。确认迁移后可访问前，请保留原客户端身份。",
+  settingsServerDataIdentityNonpersistent:
+    "压缩包已保存，但登录凭据仅在当前会话可用。确认迁移后可访问前，请保持客户端打开并保留原身份。",
+  settingsServerDataIdentityFailed:
+    "压缩包已保存，但登录身份快照未能保存。请保留原客户端身份，重试成功前不要移除。",
+  settingsServerDataNotRestored: "Server 数据未恢复，原数据仍保留。解决文件访问问题后可重试。",
+  settingsServerDataRecoveryRequired:
+    "恢复失败，且原数据未能完整回滚。请保持 Server 停止，保留数据目录和恢复文件，进行人工恢复。",
+  settingsServerDataCleanupFailed:
+    "Server 数据已恢复，但恢复文件未能清理。请保留数据目录，在下次迁移前处理清理问题。",
   settingsServerDataImported: "Server 数据已恢复。需要时再启动 Server。",
   settingsServerDataCancelled: "已取消。",
   settingsServerDataRunning: "请先停止这台电脑的本机 Server，再搬家数据。",
   settingsServerDataEmpty: "这台电脑没有可导出的 Server 数据。",
   settingsServerDataInvalid: "这个文件不是 Server 数据压缩包。",
+  settingsServerDataResourceLimit: "归档超出支持的大小或文件数量限制，Server 数据未迁移。",
   settingsServerDataUnavailable: "无法搬家 Server 数据。",
   deploymentExistingServerNote:
     "请填写 Server 主机的 HTTPS 地址，不要用这台电脑的 Tailscale 地址。",

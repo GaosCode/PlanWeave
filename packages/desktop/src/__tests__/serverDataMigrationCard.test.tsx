@@ -60,6 +60,48 @@ describe("ServerDataMigrationCard", () => {
     );
   });
 
+  it.each([
+    "en",
+    "zh-CN"
+  ] as const)("shows every partial export and recovery outcome in %s", async (language) => {
+    const t = createTranslator(language);
+    const cases = [
+      [{ status: "resource_limit" }, "settingsServerDataResourceLimit", "server-data-import"],
+      [
+        { status: "exported_without_identity", fileCount: 2, reason: "missing_identity" },
+        "settingsServerDataIdentityMissing",
+        "server-data-export"
+      ],
+      [
+        { status: "exported_without_identity", fileCount: 2, reason: "nonpersistent_credentials" },
+        "settingsServerDataIdentityNonpersistent",
+        "server-data-export"
+      ],
+      [
+        { status: "exported_without_identity", fileCount: 2, reason: "snapshot_failed" },
+        "settingsServerDataIdentityFailed",
+        "server-data-export"
+      ],
+      [{ status: "not_restored" }, "settingsServerDataNotRestored", "server-data-import"],
+      [{ status: "recovery_required" }, "settingsServerDataRecoveryRequired", "server-data-import"],
+      [
+        { status: "restored_cleanup_failed" },
+        "settingsServerDataCleanupFailed",
+        "server-data-import"
+      ]
+    ] as const;
+    for (const [result, key, button] of cases) {
+      const api = apiStub({
+        exportServerDataArchive: vi.fn().mockResolvedValue(result),
+        restoreServerDataArchive: vi.fn().mockResolvedValue(result)
+      });
+      const view = render(<ServerDataMigrationCard api={api} t={t} />);
+      await userEvent.setup().click(await screen.findByTestId(button));
+      expect(await screen.findByTestId("server-data-migration-status")).toHaveTextContent(t(key));
+      view.unmount();
+    }
+  });
+
   it("disables export and import while the local Server is running", async () => {
     const api = apiStub({
       listServerDataExportSources: vi.fn().mockResolvedValue({

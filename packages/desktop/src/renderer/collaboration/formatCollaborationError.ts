@@ -121,6 +121,15 @@ export function collaborationConnectionErrorMessage(
   ) {
     return t("peopleLocalOwnerRestoreUnavailable");
   }
+  if (code === "server_migration_rollback_failed") {
+    return t("settingsServerMigrationRollbackFailed");
+  }
+  if (code === "server_migration_persistence_failed") {
+    return t("settingsServerMigrationPersistenceFailed");
+  }
+  if (code === "server_migration_credential_not_persisted") {
+    return t("settingsServerMigrationCredentialUnavailable");
+  }
   if (code === "PRIVATE_NETWORK_UNREACHABLE") {
     return t("peoplePrivateNetworkUnreachable");
   }
