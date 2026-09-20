@@ -1,7 +1,19 @@
 import { OperatorControlError } from "../../shared/operatorControl";
 import type { createTranslator } from "../i18n";
 
+const managementErrors = {
+  operator_management_recovery_required: "serverManagementRecoveryRequired",
+  operator_recovery_invalid: "serverManagementRecoveryInvalid",
+  operator_management_upgrade_required: "serverManagementUpgradeRequired",
+  operator_management_identity_missing: "serverManagementIdentityMissing",
+  operator_management_authority_unavailable: "serverManagementAuthorityUnavailable",
+  operator_import_invalid: "serverManagementImportInvalid",
+  operator_management_failed: "serverManagementFailed",
+  operator_management_token_conflict: "serverManagementFailed"
+} as const;
+
 const knownErrorCodes = new Set([
+  ...Object.keys(managementErrors),
   "operator_bridge_unavailable",
   "operator_credential_missing",
   "operator_profile_missing",
@@ -76,6 +88,8 @@ export function formatHostAdministrationError(
   t: ReturnType<typeof createTranslator>
 ): string | null {
   if (!code) return null;
+  if (Object.hasOwn(managementErrors, code))
+    return t(managementErrors[code as keyof typeof managementErrors]);
   if (code === "local_agent_host_unavailable") {
     return t("hostAdminLocalHostUnsupported");
   }

@@ -1,3 +1,4 @@
+import { operatorAuthorizationMigration } from "./operatorAuthorization.js";
 import { acpTaskRestorationsMigration } from "./acpTaskRestorations.js";
 import { collaborationMigrations } from "./collaboration.js";
 import { acpConversationsMigration } from "./acpConversations.js";
@@ -55,6 +56,7 @@ const observerMigrations: MigrationModule = {
 };
 
 export const migrationModules: readonly MigrationModule[] = [
+  { name: "operator-authorization", migrations: [operatorAuthorizationMigration] },
   { name: "acp-conversations", migrations: [acpConversationsMigration] },
   coreMigrations,
   collaborationMigrations,

@@ -1,14 +1,52 @@
 import type { managementEnCatalog } from "./i18nManagementEn";
 
 export const managementZhCnCatalog = {
+  serverManagementAdministrator: "管理员",
+  serverManagementCheckAgain: "重新检查",
+  serverManagementUpgradeTitle: "如何恢复管理授权",
+  serverManagementUpgradeLocal:
+    "此 Server 由这台电脑托管。更新到包含管理授权功能的桌面端版本，再在“部署与维护”中重启本机 Server。",
+  serverManagementUpgradeRemote:
+    "此 Server 运行在其他设备上，需要服务器所有者更新那台设备上的服务。仅更新桌面端或重新连接不会升级远程 Server。",
+  serverManagementUpgradeDeploy:
+    "升级前备份 Server 数据和配置。Docker Compose 部署需换用包含管理授权功能的镜像并重新创建 Server 容器；源码部署需构建包含此功能的版本并重启服务。保留原有数据卷和配置。",
+  serverManagementUpgradeProxy:
+    "如果服务端已包含此功能，请检查反向代理是否将 /api/v1/management-authorization/ 路径转发到同一 Server。Tailscale 和 HTTPS 都需要可访问此接口。",
+  serverManagementUpgradeThenAuthorize:
+    "完成后点击“重新检查”，再重新授权。若没有有效的管理员授权，展开下方恢复入口，在服务器生成一次性恢复码后输入。",
+  serverManagementStandalone: "独立 CLI 部署（替换为实际配置文件路径）",
+  serverManagementRecover: "恢复授权",
+  serverManagementFailed: "管理授权失败，请检查 Server 后重试。",
+  serverManagementImportInvalid: "剪贴板中没有有效的管理凭据。",
+  serverManagementAuthorityUnavailable: "服务器管理员配置不可用，需要服务器所有者恢复管理员配置。",
+  serverManagementIdentityMissing: "该连接缺少管理员标识，请先补全管理配置。",
+  serverManagementUpgradeRequired:
+    "无法访问 Server 的管理授权接口（HTTP 404）。请检查服务端版本或代理路由。",
+  serverManagementRecoveryInvalid: "恢复码无效、已过期、已被使用，或不属于当前管理员。",
+  serverManagementRecoveryRequired:
+    "这台电脑没有保存该 Server 的有效管理员授权，请使用一次性恢复码。",
+  serverManagementImportHint:
+    "适用于管理员已经签发并在 Server 上启用的凭据。复制该凭据后，在此导入并验证。",
+  serverManagementAdvanced: "高级：导入管理凭据",
+  serverManagementRecoveryCode: "一次性恢复码",
+  serverManagementRecoveryHint:
+    "请服务器所有者根据部署方式执行下面的一条命令（Docker Compose 在部署目录中执行），将返回的 recoveryCode 在 10 分钟内填入下方。每个码只能签发一份新凭据。需要升级后的 Server，无需修改配置或重启服务。",
+  serverManagementRecovery: "没有可用的管理员授权？",
+  serverManagementReauthorizeHint:
+    "使用这台电脑上保存的、同一 Server 的有效管理授权完成验证。如果没有可用授权，请使用下方恢复码。",
+  serverManagementReauthorize: "重新授权",
+  serverManagementWorking: "正在授权…",
+  serverManagementExpires: "有效期至",
+  serverManagementAutomatic: "已授权 · 自动续期已启用",
+  serverManagementChecking: "正在检查管理授权…",
   serverManagementAuthorization: "管理授权",
   serverManagementAuthorizationHint:
-    "请服务器管理员重新签发管理凭据并在 Server 上启用，然后复制新凭据，在此导入。此操作与执行设备的凭据续期不同。",
+    "桌面端运行且能连接 Server 时，会按服务器会话策略自动续期有效的管理授权。",
   serverManagementImport: "从剪贴板导入并验证",
   serverManagementVerified: "管理授权验证成功。",
   serverManagementEmpty: "暂无 Server 管理配置，请先配置 Server，再导入管理凭据。",
   serverManagementSessionOnly:
-    "授权有效，但本机当前只能保存在本次会话中；重启桌面端后需要重新导入。",
+    "授权有效，但本机当前只能保存在本次会话中；重启桌面端后需要重新授权。",
   accessCloseDetails: "收起详情",
   serverLocalHostingHint: "在这台电脑运行协作服务，供其他设备连接。",
   serverDataLocalScope: "管理这台电脑上的 Server 数据。",

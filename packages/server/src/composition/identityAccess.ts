@@ -229,7 +229,8 @@ export function createIdentityServices(input: {
   const authorization = new OperatorTokenRegistry(
     input.database,
     input.config.operatorCredentials,
-    input.clock
+    input.clock,
+    input.config.operatorSessionTtlMs
   );
   const serverAdminAnchorWorkspaceId =
     input.runtimeRegistry.expansions[0]?.workspaceId ??

@@ -1,3 +1,4 @@
+import { handleOperatorAuthorizationHttpRequest } from "./operatorAuthorizationHttp.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { handleAccessHttpRequest } from "./accessHttp.js";
 import { handleAgentEndpointHttpRequest } from "./agentEndpointHttp.js";
@@ -131,6 +132,7 @@ function requiresAdmission(request: IncomingMessage): boolean {
     /^\/agent-hosts\/[^/]+\/credential-renewal$/.test(pathname) ||
     pathname === "/api/v1/host-enrollments" ||
     pathname === "/api/v1/setup-codes/redeem" ||
+    pathname.startsWith("/api/v1/management-authorization/") ||
     pathname === "/api/v1/human-identity/renew" ||
     pathname === "/api/v1/human-identity/revoke" ||
     pathname === "/api/v1/human-identity/merge" ||
@@ -346,6 +348,7 @@ export function createDistributedHttpRequestListener(
         })
       )
         return;
+      if (await handleOperatorAuthorizationHttpRequest(request, response, options)) return;
       if (
         await handleOperatorHttpRequest(request, response, {
           authorization: options.authorization,

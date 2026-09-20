@@ -175,3 +175,5 @@ export type OperatorOwnerTerminalResultPayload = {
   metadata: OperatorOwnerTerminalResultMetadata;
   reportBytes: Uint8Array;
 };
+
+export * from "./operatorAuthorization.js";

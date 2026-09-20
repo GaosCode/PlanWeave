@@ -1,13 +1,54 @@
 export const managementEnCatalog = {
+  serverManagementAdministrator: "Administrator",
+  serverManagementCheckAgain: "Check again",
+  serverManagementUpgradeTitle: "Restore management access",
+  serverManagementUpgradeLocal:
+    "This Server is hosted by this computer. Update Desktop to a version with management authorization, then restart the local Server in Deployment & maintenance.",
+  serverManagementUpgradeRemote:
+    "This Server runs on another device. Its owner must update the service on that device. Updating Desktop or reconnecting does not upgrade a remote Server.",
+  serverManagementUpgradeDeploy:
+    "Back up Server data and configuration first. For Docker Compose, use an image with management authorization and recreate the Server container. For source deployments, build a version with this feature and restart the service. Preserve existing data volumes and configuration.",
+  serverManagementUpgradeProxy:
+    "If the Server already includes this feature, check that the reverse proxy forwards /api/v1/management-authorization/ to the same Server. Both Tailscale and HTTPS require access to this endpoint.",
+  serverManagementUpgradeThenAuthorize:
+    "Click Check again when ready, then reauthorize. If no valid administrator credential remains, open recovery below, generate a one-time code on the Server and enter it here.",
+  serverManagementStandalone: "Standalone CLI (replace the configuration path)",
+  serverManagementRecover: "Recover authorization",
+  serverManagementFailed: "Management authorization failed. Check the Server and try again.",
+  serverManagementImportInvalid: "The clipboard does not contain a valid management credential.",
+  serverManagementAuthorityUnavailable:
+    "The configured administrator is unavailable. The Server owner must restore its administrator configuration.",
+  serverManagementIdentityMissing:
+    "This connection has no administrator ID. Complete the management profile before reauthorizing.",
+  serverManagementUpgradeRequired:
+    "The Server management authorization endpoint is unavailable (HTTP 404). Check the Server version or proxy routing.",
+  serverManagementRecoveryInvalid:
+    "The recovery code is invalid, expired, already used, or belongs to a different administrator.",
+  serverManagementRecoveryRequired:
+    "No valid administrator credential is saved for this Server. Use a one-time recovery code.",
+  serverManagementImportHint:
+    "For credentials already issued and activated by the administrator. Copy the credential, then import and verify it.",
+  serverManagementAdvanced: "Advanced: import a credential",
+  serverManagementRecoveryCode: "One-time recovery code",
+  serverManagementRecoveryHint:
+    "Ask the Server owner to run one of these commands for their deployment (run Docker Compose in the deployment directory). Enter the returned recoveryCode below within 10 minutes. It can authorize one replacement credential. This requires an updated Server and does not change its configuration or restart it.",
+  serverManagementRecovery: "No administrator access available?",
+  serverManagementReauthorizeHint:
+    "Uses a valid management credential saved on this computer for the same Server. If none is available, use a recovery code below.",
+  serverManagementReauthorize: "Reauthorize",
+  serverManagementWorking: "Authorizing…",
+  serverManagementExpires: "Valid until",
+  serverManagementAutomatic: "Authorized · automatic renewal enabled",
+  serverManagementChecking: "Checking management authorization…",
   serverManagementAuthorization: "Management authorization",
   serverManagementAuthorizationHint:
-    "Ask the Server administrator to issue a new management credential and activate it on the Server. Copy that credential, then import it here. This does not renew execution device credentials.",
+    "Desktop automatically renews valid management access while running and connected, within the Server session policy.",
   serverManagementImport: "Import from clipboard and verify",
   serverManagementVerified: "Management access verified.",
   serverManagementEmpty:
     "No Server management profile is available. Configure the Server before importing a credential.",
   serverManagementSessionOnly:
-    "Authorization is valid but will only be saved for this session. Import it again after restarting Desktop.",
+    "Authorization is valid but will only be saved for this session. Reauthorize after restarting Desktop.",
 
   accessCloseDetails: "Close details",
   serverLocalHostingHint:

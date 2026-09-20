@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createOperatorRecoveryCode } from "./operatorAuthorizationCli.js";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { loadServerConfig, resolveServerConfigPath, serverConfigSummary } from "./config.js";
@@ -17,6 +18,7 @@ export const SERVER_CLI_USAGE = [
   "",
   "Commands:",
   "  serve --config <absolute-path>",
+  "  auth recover --operator <operator-id> --config <absolute-path>",
   "  config migrate --config <absolute-path>",
   "  data export --config <absolute-path> --out <absolute-path>",
   "  data restore --from <path> [--overwrite] [--config <absolute-path>] [--compose-dir <absolute-path>]",
@@ -74,6 +76,11 @@ export async function runServerCli(
         io,
         env: options.env ? { ...options.env } : undefined
       });
+    }
+    if (command === "auth") {
+      if (args[0] !== "recover") throw new Error("server_cli_usage");
+      io.stdout(JSON.stringify(await createOperatorRecoveryCode(args.slice(1), options.env)));
+      return 0;
     }
     if (command === "config") {
       if (args[0] !== "migrate") throw new Error("server_cli_usage");

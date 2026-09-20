@@ -3,6 +3,9 @@
  * Keep this module free of runtime agent-host-protocol imports.
  */
 export const operatorControlInvokeChannels = {
+  getManagementAuthorization: "planweave-operator:getManagementAuthorization",
+  reauthorizeManagement: "planweave-operator:reauthorizeManagement",
+  recoverManagement: "planweave-operator:recoverManagement",
   getStatus: "planweave-operator:getStatus",
   upsertProfile: "planweave-operator:upsertProfile",
   removeProfile: "planweave-operator:removeProfile",

@@ -1,3 +1,8 @@
+import { OperatorManagementService } from "./operatorManagementService.js";
+import {
+  operatorManagementInputSchema,
+  operatorManagementRecoverInputSchema
+} from "../../shared/operatorManagement.js";
 import { serializeCollaborationSetupHandoffV1 } from "@planweave-ai/collaboration-protocol/handoff/setup";
 import { operatorTokenSchema } from "@planweave-ai/agent-host-protocol";
 import { randomBytes } from "node:crypto";
@@ -152,6 +157,9 @@ export class OperatorControlService {
   private readonly localAgentHost: LocalAgentHostProvisioner;
   private readonly localOperatorBackend: LocalOperatorBackendPort | null | undefined;
   private readonly resolveHumanIdentityCredential?: OperatorControlServiceOptions["resolveHumanIdentityCredential"];
+  private readonly management: OperatorManagementService;
+  private maintenanceTimer: ReturnType<typeof setTimeout> | undefined;
+  private maintenanceStarted = false;
   private disposed = false;
   private queue: Promise<unknown> = Promise.resolve();
   private lastErrorCode: string | null = null;
@@ -176,6 +184,11 @@ export class OperatorControlService {
     this.localAgentHost = options.localAgentHost ?? unavailableLocalAgentHostProvisioner();
     this.localOperatorBackend = options.localOperatorBackend;
     this.resolveHumanIdentityCredential = options.resolveHumanIdentityCredential;
+    this.management = new OperatorManagementService({
+      profiles: this.profiles,
+      vault: this.vault,
+      client: async (profileId) => (await this.createProfileClient(profileId)).client
+    });
   }
 
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {
@@ -270,6 +283,68 @@ export class OperatorControlService {
     }
   }
 
+  startAuthorizationMaintenance(): void {
+    if (this.maintenanceStarted || this.disposed) return;
+    this.maintenanceStarted = true;
+    const tick = () => {
+      void (async () => {
+        for (const profile of await this.profiles.list()) {
+          if (this.disposed) return;
+          await this.enqueue(async () => {
+            if (!this.disposed && (await this.vault.getOperatorToken(profile.profileId)))
+              await this.management.check(profile.profileId);
+          });
+        }
+      })()
+        .catch((error) => this.rememberError(error))
+        .finally(() => {
+          if (!this.disposed) {
+            this.maintenanceTimer = setTimeout(tick, 5 * 60_000);
+            this.maintenanceTimer.unref();
+          }
+        });
+    };
+    this.maintenanceTimer = setTimeout(tick, 1_000);
+    this.maintenanceTimer.unref();
+  }
+
+  getManagementAuthorization(input: unknown) {
+    const { profileId } = operatorManagementInputSchema.parse(input);
+    return this.enqueue(() => {
+      this.assertOpen();
+      return this.management.check(profileId);
+    });
+  }
+
+  reauthorizeManagement(input: unknown) {
+    const { profileId } = operatorManagementInputSchema.parse(input);
+    return this.enqueue(async () => {
+      this.assertOpen();
+      const result = await this.management.reauthorize(profileId);
+      this.lastErrorCode = null;
+      this.lastErrorMessage = null;
+      await this.publishStatus();
+      return result;
+    });
+  }
+
+  recoverManagement(input: unknown) {
+    const parsed = operatorManagementRecoverInputSchema.safeParse(input);
+    if (!parsed.success)
+      throw new OperatorControlError({ kind: "validation", code: "operator_recovery_invalid" });
+    return this.enqueue(async () => {
+      this.assertOpen();
+      const result = await this.management.reauthorize(
+        parsed.data.profileId,
+        parsed.data.recoveryCode
+      );
+      this.lastErrorCode = null;
+      this.lastErrorMessage = null;
+      await this.publishStatus();
+      return result;
+    });
+  }
+
   async getStatus(): Promise<OperatorControlStatus> {
     return this.enqueue(async () => {
       this.assertOpen();
@@ -287,6 +362,7 @@ export class OperatorControlService {
         ...profile,
         ...(existing?.endpoint ? { endpoint: existing.endpoint } : {})
       });
+      this.management.forget(profile.profileId);
       return this.publishStatus();
     });
   }
@@ -347,7 +423,13 @@ export class OperatorControlService {
       const operatorId = input.operatorId.trim();
       const operatorToken = operatorTokenSchema.parse(input.operatorToken);
       if (!operatorId) throw new Error("deployment_operator_id_required");
-      await this.vault.setOperatorToken(profile.profileId, operatorToken, operatorId);
+      const existingToken = await this.vault.getOperatorToken(profile.profileId);
+      const existingIdentity = await this.vault.getMetadata(profile.profileId);
+      // Profile reconciliation must not replace a recovered credential with the bootstrap token.
+      if (!existingToken || existingIdentity?.operatorId !== operatorId) {
+        await this.vault.setOperatorToken(profile.profileId, operatorToken, operatorId);
+        this.management.forget(profile.profileId);
+      }
       await this.profiles.upsert(profile);
       if ((await this.profiles.getActiveProfileId()) === null) {
         await this.profiles.setActiveProfileId(profile.profileId);
@@ -366,6 +448,7 @@ export class OperatorControlService {
       assertNoSmuggledOperatorSecrets(input, "removeOperatorProfile");
       const { profileId } = operatorProfileIdInputSchema.parse(input);
       await this.vault.clear(profileId);
+      this.management.forget(profileId);
       await this.profiles.remove(profileId);
       return this.publishStatus();
     });
@@ -447,7 +530,10 @@ export class OperatorControlService {
           });
         }
       }
-      const parsed = operatorCredentialMaterialInputSchema.parse(input);
+      const validation = operatorCredentialMaterialInputSchema.safeParse(input);
+      if (!validation.success)
+        throw new OperatorControlError({ kind: "validation", code: "operator_import_invalid" });
+      const parsed = validation.data;
       const profile = await this.profiles.get(parsed.profileId);
       if (!profile) {
         throw new OperatorControlError({ kind: "validation", code: "operator_profile_not_found" });
@@ -473,9 +559,14 @@ export class OperatorControlService {
           credential: { getOperatorToken: async () => parsed.operatorToken },
           request: this.request
         });
-        await client.listHosts({ limit: 1 });
+        try {
+          await client.listHosts({ limit: 1 });
+        } finally {
+          client.dispose();
+        }
       }
       await this.vault.setOperatorToken(parsed.profileId, parsed.operatorToken, parsed.operatorId);
+      this.management.forget(parsed.profileId);
       this.lastErrorCode = null;
       this.lastErrorMessage = null;
       return this.publishStatus();
@@ -488,6 +579,7 @@ export class OperatorControlService {
       assertNoSmuggledOperatorSecrets(input, "clearOperatorCredential");
       const { profileId } = operatorProfileIdInputSchema.parse(input);
       await this.vault.clear(profileId);
+      this.management.forget(profileId);
       return this.publishStatus();
     });
   }
@@ -867,6 +959,24 @@ export class OperatorControlService {
     const token = await this.vault.getOperatorToken(parsed.profileId);
     if (!token)
       throw new OperatorControlError({ kind: "unauthorized", code: "operator_credential_missing" });
+    const { client } = await this.createProfileClient(parsed.profileId);
+    try {
+      const result = await action(client, parsed, profile);
+      this.lastErrorCode = null;
+      this.lastErrorMessage = null;
+      return result;
+    } catch (error) {
+      this.rememberError(error);
+      throw error;
+    } finally {
+      client.dispose();
+    }
+  }
+
+  private async createProfileClient(profileId: string) {
+    const profile = await this.profiles.get(profileId);
+    if (!profile)
+      throw new OperatorControlError({ kind: "validation", code: "operator_profile_not_found" });
     const effective = await resolveEffectiveOperatorServerBaseUrl({
       profile: {
         profileId: profile.profileId,
@@ -888,7 +998,7 @@ export class OperatorControlService {
         ...(profile.operatorId ? { operatorId: profile.operatorId } : {})
       }),
       credential: {
-        getOperatorToken: () => this.vault.getOperatorToken(parsed.profileId),
+        getOperatorToken: () => this.vault.getOperatorToken(profileId),
         getHumanIdentityToken: async (humanPrincipalId) =>
           (
             await this.resolveHumanIdentityCredential?.({
@@ -899,17 +1009,7 @@ export class OperatorControlService {
       },
       request: this.request
     });
-    try {
-      const result = await action(client, parsed, profile);
-      this.lastErrorCode = null;
-      this.lastErrorMessage = null;
-      return result;
-    } catch (error) {
-      this.rememberError(error);
-      throw error;
-    } finally {
-      client.dispose();
-    }
+    return { client, profile };
   }
 
   private async requireProfileHumanPrincipalId(client: OperatorControlClient): Promise<string> {
@@ -926,9 +1026,11 @@ export class OperatorControlService {
   }
 
   async shutdown(): Promise<void> {
+    if (this.maintenanceTimer) clearTimeout(this.maintenanceTimer);
     await this.enqueue(async () => {
       this.vault.clearSessionMemory();
       this.disposed = true;
+      if (this.maintenanceTimer) clearTimeout(this.maintenanceTimer);
     });
   }
 }

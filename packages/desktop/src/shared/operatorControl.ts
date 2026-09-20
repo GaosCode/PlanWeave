@@ -1,3 +1,8 @@
+import type {
+  OperatorManagementInput,
+  OperatorManagementRecoverInput,
+  OperatorManagementView
+} from "./operatorManagement.js";
 import {
   operatorEnrollmentGrantRequestSchema,
   operatorHostPageSchema,
@@ -574,6 +579,9 @@ export {
 } from "./operatorControlIpc.js";
 
 export type PlanWeaveOperatorControlApi = {
+  getManagementAuthorization: (input: OperatorManagementInput) => Promise<OperatorManagementView>;
+  reauthorizeManagement: (input: OperatorManagementInput) => Promise<OperatorManagementView>;
+  recoverManagement: (input: OperatorManagementRecoverInput) => Promise<OperatorManagementView>;
   getOperatorControlStatus: () => Promise<OperatorControlStatus>;
   upsertOperatorProfile: (input: OperatorControlProfileInput) => Promise<OperatorControlStatus>;
   removeOperatorProfile: (input: OperatorProfileIdInput) => Promise<OperatorControlStatus>;

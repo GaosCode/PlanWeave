@@ -1,4 +1,9 @@
 import {
+  managementAuthorizationStatusSchema,
+  managementAuthorizeRequestSchema,
+  managementRecoverRequestSchema
+} from "@planweave-ai/agent-host-protocol/operator-control";
+import {
   acpConversationPageSchema,
   type AcpConversationAction
 } from "@planweave-ai/agent-host-protocol";
@@ -620,11 +625,42 @@ export class OperatorControlClient {
       throw new OperatorControlError({ kind: "offline", code: "operator_client_closed" });
   }
 
+  maintainManagementAuthorization() {
+    return this.json(
+      "POST",
+      "/api/v1/management-authorization/maintain",
+      managementAuthorizationStatusSchema,
+      { body: {} }
+    );
+  }
+
+  authorizeManagement(operatorId: string, newToken: string) {
+    return this.json(
+      "POST",
+      "/api/v1/management-authorization/authorize",
+      managementAuthorizationStatusSchema,
+      { body: managementAuthorizeRequestSchema.parse({ operatorId, newToken }) }
+    );
+  }
+
+  recoverManagement(operatorId: string, recoveryCode: string, newToken: string) {
+    return this.json(
+      "POST",
+      "/api/v1/management-authorization/recover",
+      managementAuthorizationStatusSchema,
+      {
+        body: managementRecoverRequestSchema.parse({ operatorId, recoveryCode, newToken }),
+        unauthenticated: true
+      }
+    );
+  }
+
   private async json<T>(
     method: "GET" | "POST",
     path: string,
     schema: ZodType<T>,
     options: {
+      unauthenticated?: true;
       body?: unknown;
       rawBody?: string;
       contentType?: string;
@@ -633,10 +669,12 @@ export class OperatorControlClient {
     } = {}
   ): Promise<T> {
     this.ensureOpen();
-    const headers = await this.authorizedHeaders(
-      options.accept ?? "application/json",
-      options.humanPrincipalId
-    );
+    const headers: Record<string, string> = options.unauthenticated
+      ? { accept: "application/json" }
+      : await this.authorizedHeaders(
+          options.accept ?? "application/json",
+          options.humanPrincipalId
+        );
     if (options.body !== undefined && options.rawBody !== undefined) {
       throw new OperatorControlError({ kind: "validation", code: "operator_body_invalid" });
     }

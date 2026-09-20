@@ -1,3 +1,4 @@
+import { OperatorManagementAuthorization } from "./identity/operatorManagementAuthorization.js";
 import { timingSafeEqual } from "node:crypto";
 import {
   credentialSha256Schema,
@@ -48,13 +49,16 @@ export class OperatorTokenRegistry implements RemoteInteractionAuthorizationPort
   private readonly credentials: Array<{ credential: OperatorCredential; digest: Buffer }>;
   private readonly principals = new Map<string, Map<string, OperatorPrincipal>>();
   private readonly sessions: OperatorSessionStore;
+  readonly management: OperatorManagementAuthorization;
 
   constructor(
     database: SqliteDatabase,
     rawCredentials: readonly OperatorCredential[],
-    clock: () => Date = () => new Date()
+    clock: () => Date = () => new Date(),
+    ttlMs = 30 * 24 * 60 * 60_000
   ) {
     this.sessions = new OperatorSessionStore(database, clock);
+    this.management = new OperatorManagementAuthorization(database, rawCredentials, ttlMs, clock);
     const credentials = z.array(operatorCredentialSchema).min(1).max(1024).parse(rawCredentials);
     const tokenDigests = new Set<string>();
     const operatorIds = new Set<string>();
@@ -82,12 +86,13 @@ export class OperatorTokenRegistry implements RemoteInteractionAuthorizationPort
     }
     if (!session) return undefined;
     const digest = Buffer.from(session.credentialSha256, "hex");
-    const credential = this.credentials.find(
-      (candidate) =>
-        candidate.digest.length === digest.length &&
-        timingSafeEqual(candidate.digest, digest) &&
-        candidate.credential.operatorId === session.operatorId
-    )?.credential;
+    const credential =
+      this.credentials.find(
+        (candidate) =>
+          candidate.digest.length === digest.length &&
+          timingSafeEqual(candidate.digest, digest) &&
+          candidate.credential.operatorId === session.operatorId
+      )?.credential ?? this.management.delegatedCredential(session.credentialSha256);
     // Setup-code operator sessions are durable without a static config credential.
     // They receive workspace-scoped, non-admin principals only.
     const principal = authenticatedOperatorPrincipalSchema.parse({
@@ -133,13 +138,24 @@ export class OperatorTokenRegistry implements RemoteInteractionAuthorizationPort
     const sessions = this.principals.get(input.responderId);
     return Boolean(
       sessions &&
-        [...sessions.values()].some(
-          (principal) =>
-            this.sessions.isActive(principal.workspaceId, principal.operatorSessionId) &&
-            (principal.serverAdmin ||
-              (principal.workspaceId === input.workspaceId &&
-                principal.projectIds.includes(input.projectId)))
-        )
+        [...sessions.values()].some((principal) => {
+          const session = this.sessions.findBySessionId(
+            principal.workspaceId,
+            principal.operatorSessionId
+          );
+          if (!session || !this.sessions.authenticateDigest(session.credentialSha256)) return false;
+          const credential =
+            this.credentials.find(
+              (candidate) =>
+                candidate.credential.operatorId === session.operatorId &&
+                candidate.credential.tokenSha256 === session.credentialSha256
+            )?.credential ?? this.management.delegatedCredential(session.credentialSha256);
+          return Boolean(
+            credential?.serverAdmin ||
+              (session.workspaceId === input.workspaceId &&
+                credential?.projectIds.includes(input.projectId))
+          );
+        })
     );
   }
 }

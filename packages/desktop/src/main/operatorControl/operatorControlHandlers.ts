@@ -104,6 +104,18 @@ export function registerOperatorControlHandlers(
   const { readOperatorToken = () => clipboard.readText(), ...serviceOptions } = options;
   service = createDefaultService(serviceOptions);
   const active = service;
+  active.startAuthorizationMaintenance();
+  handleDesktopCommand(
+    operatorControlInvokeChannels.getManagementAuthorization,
+    (_event, input: unknown) => active.getManagementAuthorization(input)
+  );
+  handleDesktopCommand(
+    operatorControlInvokeChannels.reauthorizeManagement,
+    (_event, input: unknown) => active.reauthorizeManagement(input)
+  );
+  handleDesktopCommand(operatorControlInvokeChannels.recoverManagement, (_event, input: unknown) =>
+    active.recoverManagement(input)
+  );
   handleDesktopCommand(operatorControlInvokeChannels.getStatus, () => active.getStatus());
   handleDesktopCommand(operatorControlInvokeChannels.upsertProfile, (_event, input: unknown) =>
     active.upsertProfile(input)
