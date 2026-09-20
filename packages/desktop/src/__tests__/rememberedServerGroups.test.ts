@@ -8,6 +8,12 @@ it("groups the same Server while retaining each credential identity and preferri
       displayName: "Team",
       workspaceDisplayName: "Team",
       serverBaseUrl: "https://server.example/",
+      endpoint: {
+        topology: "public_https",
+        serverOrigin: "https://server.example/",
+        allowedClientOrigins: ["https://server.example/"],
+        tlsTrust: "system_ca"
+      },
       hasDeviceCredential: true
     })
   );

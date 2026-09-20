@@ -34,6 +34,7 @@ import {
 import {
   collaborationConnectionProfileSchema,
   collaborationServerOriginSchema,
+  deploymentEndpointSchema,
   type ActiveWorkspaceConnectionView,
   type CollaborationConnectionProfile,
   type DeploymentEndpoint,
@@ -424,6 +425,7 @@ export const rememberedServerConnectionViewSchema = z
     displayName: z.string().trim().min(1).max(128),
     workspaceDisplayName: z.string().trim().min(1).max(128),
     serverBaseUrl: collaborationServerOriginSchema,
+    endpoint: deploymentEndpointSchema,
     hasDeviceCredential: z.boolean()
   })
   .strict();

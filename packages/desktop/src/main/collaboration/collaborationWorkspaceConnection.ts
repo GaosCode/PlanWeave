@@ -31,7 +31,10 @@ import {
   CollaborationSetupCodeClient,
   setupCodeFailureMessage
 } from "./collaborationSetupCodeClient.js";
-import { isLocalCollaborationProfileId } from "./collaborationProfileEndpoint.js";
+import {
+  isLocalCollaborationProfileId,
+  collaborationEndpointForServerOrigin
+} from "./collaborationProfileEndpoint.js";
 import {
   COLLABORATION_CONNECTION_ERROR_CODES,
   CollaborationClientError,
@@ -182,6 +185,10 @@ export class CollaborationWorkspaceConnection {
           displayName: profile.displayName,
           workspaceDisplayName: profile.workspaceDisplayName,
           serverBaseUrl: profile.serverBaseUrl,
+          endpoint: collaborationEndpointForServerOrigin(
+            profile.serverBaseUrl,
+            profile.allowInsecureTransport
+          ),
           hasDeviceCredential: persistence !== "missing"
         })
       );

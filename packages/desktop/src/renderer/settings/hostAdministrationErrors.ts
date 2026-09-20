@@ -41,7 +41,7 @@ const knownErrorCodes = new Set([
 
 function knownErrorCode(value: string): string | null {
   for (const code of knownErrorCodes) {
-    if (value === code || value.includes(`: ${code}`)) return code;
+    if (new RegExp(`(?:^|: )${code}(?=$|[\\s:(])`).test(value)) return code;
   }
   return null;
 }
@@ -56,7 +56,12 @@ export function hostAdministrationErrorCode(error: unknown): string {
     const code = (error as { code?: unknown }).code;
     if (typeof code === "string" && knownErrorCodes.has(code)) return code;
   }
-  if (error instanceof Error) {
+  if (
+    error &&
+    typeof error === "object" &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
     return (
       knownErrorCode(error.message) ??
       safeAgentHostErrorCode(error.message) ??

@@ -8,6 +8,7 @@ import { ExecutorInventory } from "../renderer/executors/ExecutorInventory";
 import { useRemoteAgentManagementController } from "../renderer/hooks/useRemoteAgentManagementController";
 import { RemoteAgentManagementCard } from "../renderer/settings/RemoteAgentManagementCard";
 import { createTranslator } from "../renderer/i18n";
+import { hostAdministrationErrorCode } from "../renderer/settings/hostAdministrationErrors";
 
 const mocks = vi.hoisted(() => ({
   listOperatorRemoteAgents: vi.fn(),
@@ -31,6 +32,30 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("Remote Agent management failures", () => {
+  it.each([
+    new Error("operator_unauthorized (server 8bac301aba331bc7642e4fa9799512016ccf5164)"),
+    {
+      name: "Error",
+      message: "operator_unauthorized (server 8bac301aba331bc7642e4fa9799512016ccf5164)"
+    }
+  ])("preserves expired management access across the Electron error boundary", async (error) => {
+    const t = createTranslator("zh-CN");
+    mocks.listOperatorRemoteAgents.mockRejectedValue(error);
+    render(<RemoteAgentManagementCard t={t} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(t("hostAdminUnauthorized"));
+    expect(screen.queryByTestId("remote-agent-management-empty")).not.toBeInTheDocument();
+    expect(screen.queryByText(/8bac301|operator_unauthorized/)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    "operator_unauthorized_custom",
+    "operator_unauthorized_custom (server revision)",
+    "Error invoking remote method: operator_unauthorized_custom",
+    "not_operator_unauthorized"
+  ])("does not classify a different code as an authentication failure: %s", (message) => {
+    expect(hostAdministrationErrorCode(new Error(message))).toBe("operator_request_failed");
+  });
+
   it("keeps the local executor configurable when the remote Server is offline", async () => {
     mocks.listOperatorRemoteAgents.mockRejectedValue(new Error("operator_offline"));
     const configure = vi.fn();

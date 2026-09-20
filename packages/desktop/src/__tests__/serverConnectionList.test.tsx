@@ -47,6 +47,12 @@ function fixture(status: "connected" | "disconnected" = "connected") {
       displayName: "Configured workspace",
       workspaceDisplayName: "Team",
       serverBaseUrl: "https://vps.example/",
+      endpoint: {
+        topology: "public_https",
+        serverOrigin: "https://vps.example/",
+        allowedClientOrigins: ["https://vps.example/"],
+        tlsTrust: "system_ca"
+      },
       hasDeviceCredential: true
     }))
   );
@@ -98,4 +104,35 @@ it("keeps a failed switch visible without replacing the active destination", asy
     createTranslator("en")("peopleServerUnreachable")
   );
   expect(connection.profile?.profileId).toBe("active");
+});
+
+it.each([
+  ["https://host.tailnet.ts.net/", "public_https", "Tailscale HTTPS (identified by address)"],
+  ["https://ts.net.example.com/", "public_https", "HTTPS"],
+  ["https://private.example/", "private_https", "Private network HTTPS"],
+  ["http://192.168.1.2:8787/", "lan_http", "LAN HTTP (development only)"]
+])("shows deployment information for %s and checks the stored endpoint", async (origin, topology, label) => {
+  const endpoint = {
+    topology,
+    serverOrigin: origin,
+    allowedClientOrigins: [origin],
+    tlsTrust: origin.startsWith("https:") ? "system_ca" : "not_applicable"
+  };
+  connection = { ...connection, status: "connected" };
+  api.listRememberedServerConnections.mockResolvedValue([
+    {
+      profileId: "active",
+      displayName: "Team",
+      workspaceDisplayName: "Team",
+      serverBaseUrl: origin,
+      endpoint,
+      hasDeviceCredential: true
+    }
+  ]);
+  render(<ServerConnectionList refreshKey={0} t={createTranslator("en")} />);
+  expect(await screen.findByTestId("server-deployment-method")).toHaveTextContent(label);
+  await userEvent.click(screen.getByRole("button", { name: "Check connectivity" }));
+  await waitFor(() => expect(api.validateDeploymentConnectivity).toHaveBeenCalledOnce());
+  expect(api.validateDeploymentConnectivity.mock.calls[0]?.[0].target.endpoint).toEqual(endpoint);
+  expect(api.selectWorkspaceConnection).not.toHaveBeenCalled();
 });

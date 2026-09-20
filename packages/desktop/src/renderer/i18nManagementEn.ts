@@ -98,6 +98,11 @@ export const managementEnCatalog = {
   executorsDeviceOnline: "Device online",
   serverLocalProcess: "Server on this computer",
   executorsServerSource: "Remote executors from",
+  serverDeploymentMethod: "Deployment method",
+  serverDeploymentTailscale: "Tailscale HTTPS (identified by address)",
+  serverDeployHttps: "Deploy an HTTPS Server",
+  serverDeployHttpsHint:
+    "Configure an HTTPS endpoint and export the deployment package for another computer.",
   serverConnections: "Connections",
   serverMaintenance: "Deployment & maintenance",
   serverAddConnection: "Add connection",

@@ -14,6 +14,7 @@ import { collaborationBridge } from "../bridge";
 import { useCollaborationStatus } from "../hooks/useCollaborationStatus";
 import type { createTranslator } from "../i18n";
 import { collaborationConnectionErrorMessage } from "../collaboration/formatCollaborationError";
+import { serverDeploymentLabel } from "./serverDeploymentLabel";
 import { rememberedServerGroups } from "./rememberedServerGroups";
 
 export function ServerConnectionList({
@@ -90,12 +91,7 @@ export function ServerConnectionList({
           target: {
             schemaVersion: "deployment-target-draft/v1",
             displayName: server.displayName,
-            endpoint: {
-              topology: "public_https",
-              serverOrigin: server.serverBaseUrl,
-              allowedClientOrigins: [server.serverBaseUrl],
-              tlsTrust: "system_ca"
-            },
+            endpoint: server.endpoint,
             capabilities: ["deployment_guidance", "connectivity_validation"]
           }
         });
@@ -124,10 +120,11 @@ export function ServerConnectionList({
         </p>
       ) : null}
       <div className="overflow-x-auto">
-        <div className="min-w-[560px]">
-          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_.7fr_11rem] gap-4 border-b border-border/70 pb-3 text-xs text-text-muted">
+        <div className="min-w-[720px]">
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_1fr_.7fr_11rem] gap-4 border-b border-border/70 pb-3 text-xs text-text-muted">
             <span>{t("serverSavedConnections")}</span>
             <span>{t("deploymentOrigin")}</span>
+            <span>{t("serverDeploymentMethod")}</span>
             <span>{t("executorsStatusColumn")}</span>
             <span />
           </div>
@@ -144,13 +141,21 @@ export function ServerConnectionList({
             const connected = active && status?.workspaceConnection.status === "connected";
             return (
               <div
-                className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_.7fr_11rem] items-center gap-4 border-b border-border/60 py-5 text-sm"
+                className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_1fr_.7fr_11rem] items-center gap-4 border-b border-border/60 py-5 text-sm"
                 key={group.origin}
                 data-testid="server-connection-row"
               >
-                <span className="font-medium text-text-strong">{new URL(group.origin).host}</span>
+                <span
+                  className="truncate font-medium text-text-strong"
+                  title={new URL(group.origin).host}
+                >
+                  {new URL(group.origin).host}
+                </span>
                 <span className="truncate text-text-muted" title={server.serverBaseUrl}>
                   {server.serverBaseUrl}
+                </span>
+                <span className="text-text-muted" data-testid="server-deployment-method">
+                  {serverDeploymentLabel(server.endpoint, t)}
                 </span>
                 <span className="flex items-center gap-2 text-text-muted">
                   <span
@@ -243,7 +248,7 @@ export function ServerConnectionList({
                   </DropdownMenu>
                 </div>
                 {checks[server.profileId] ? (
-                  <p role="status" className="col-span-4 text-xs text-text-muted">
+                  <p role="status" className="col-span-5 text-xs text-text-muted">
                     {t("deploymentConnectivity")}: {checks[server.profileId]}
                   </p>
                 ) : null}

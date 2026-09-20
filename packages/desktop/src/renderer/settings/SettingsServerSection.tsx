@@ -21,6 +21,7 @@ export function SettingsServerSection({
   showHeader = true,
   maintenance = false
 }: SettingsServerSectionProps) {
+  const [deployHttps, setDeployHttps] = useState(false);
   const [existingServer, setExistingServer] = useState(false);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [statusEpoch, setStatusEpoch] = useState(0);
@@ -69,7 +70,9 @@ export function SettingsServerSection({
         ) : null}
         <div data-testid="settings-server-connection-block">
           {maintenance ? (
-            <p className="pt-4 text-xs leading-5 text-text-muted">{t("serverLocalHostingHint")}</p>
+            <p className="pt-4 text-xs leading-5 text-text-muted">
+              {t("serverLocalHostingHint")} {t("deploymentPrivateHttpsNote")}
+            </p>
           ) : null}
           <DeploymentConnectionCard
             presentation="plain"
@@ -129,6 +132,28 @@ export function SettingsServerSection({
         </div>
       </div>
 
+      {maintenance ? (
+        <section className="rounded-lg border border-border/70 p-5">
+          <Button
+            variant="outline"
+            aria-expanded={deployHttps}
+            data-testid="settings-server-deploy-https"
+            onClick={() => setDeployHttps((open) => !open)}
+          >
+            {t("serverDeployHttps")}
+          </Button>
+          <p className="mt-3 text-xs leading-5 text-text-muted">{t("serverDeployHttpsHint")}</p>
+          {deployHttps ? (
+            <DeploymentConnectionCard
+              presentation="plain"
+              connectionOnly
+              showHeading={false}
+              existingServerTools="visible"
+              t={t}
+            />
+          ) : null}
+        </section>
+      ) : null}
       {maintenance ? <ServerDataMigrationCard api={collaborationBridge} t={t} /> : null}
     </section>
   );

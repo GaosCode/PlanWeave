@@ -1,6 +1,7 @@
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
+import userEvent from "@testing-library/user-event";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTranslator } from "../renderer/i18n";
@@ -205,4 +206,28 @@ describe("SettingsServerSection", () => {
     expect(await screen.findByTestId("settings-server-section")).toBeVisible();
     expect(screen.queryByTestId("host-admin-member-setup")).not.toBeInTheDocument();
   });
+});
+
+it("opens HTTPS deployment guidance without changing local hosting or connecting a Server", async () => {
+  mockThisComputerRunning();
+  collaborationBridge.getActiveWorkspaceConnection.mockResolvedValue(localOnlyConnection);
+  render(<SettingsServerSection maintenance t={createTranslator("en")} />);
+  await screen.findByTestId("deployment-topology");
+  await userEvent.click(screen.getByTestId("settings-server-deploy-https"));
+  expect(await screen.findByTestId("deployment-custom-topology")).toBeVisible();
+  await userEvent.type(screen.getByTestId("deployment-display-name"), "My Server");
+  await userEvent.type(screen.getByTestId("deployment-origin"), "https://server.example/");
+  await userEvent.click(
+    screen.getByRole("button", { name: createTranslator("en")("deploymentReview") })
+  );
+  await screen.findByTestId("deployment-guidance");
+  expect(collaborationBridge.getDeploymentGuidance).toHaveBeenCalledWith(
+    expect.objectContaining({
+      target: expect.objectContaining({
+        endpoint: expect.objectContaining({ serverOrigin: "https://server.example/" })
+      })
+    })
+  );
+  expect(collaborationBridge.setDesktopServerExposureMode).not.toHaveBeenCalled();
+  expect(collaborationBridge.connectExistingServerByOrigin).not.toHaveBeenCalled();
 });

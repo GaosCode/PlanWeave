@@ -19,6 +19,12 @@ const collaborationBridge = vi.hoisted(() => ({
       displayName: "Configured workspace",
       workspaceDisplayName: "Configured workspace",
       serverBaseUrl: "https://planweave.tailnet.ts.net/",
+      endpoint: {
+        topology: "public_https",
+        serverOrigin: "https://planweave.tailnet.ts.net/",
+        allowedClientOrigins: ["https://planweave.tailnet.ts.net/"],
+        tlsTrust: "system_ca"
+      },
       hasDeviceCredential: true
     }
   ]),
