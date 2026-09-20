@@ -1070,7 +1070,7 @@ export const zhCnCatalog = {
   resources: "资源",
   moreResources: "+{count}",
   unpinResource: "取消固定",
-  resourceMembers: "成员",
+  resourceMembers: "关联 Block",
   sharedResourceHint: "共享资源",
   sharedResourceActive: "活跃共享资源",
   sharedResourceNonBlocking: "这些任务关联同一资源，改动范围重叠时需要协调。",

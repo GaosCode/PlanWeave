@@ -121,7 +121,6 @@ export type TaskNodeData = {
   onOpenRunRecord: (recordId: string | null | undefined) => void;
   onResourceHover: (name: string | null) => void;
   onResourcePin: (name: string | null) => void;
-  onResourceOverflow: (taskId: string) => void;
 };
 
 export type TaskFlowNode = Node<TaskNodeData, "task">;

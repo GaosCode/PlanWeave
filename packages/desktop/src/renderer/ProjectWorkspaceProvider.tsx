@@ -660,23 +660,8 @@ export function ProjectWorkspaceProvider({
     transitionEpochByResource,
     onResourceHover,
     onResourcePin,
-    clearPin: clearPinnedResource,
-    setPinnedResource
+    clearPin: clearPinnedResource
   } = useSharedResourceHighlight(graph);
-
-  const handleResourceOverflow = useCallback(
-    (taskId: string) => {
-      if (pinnedResource) {
-        return;
-      }
-      const task = graph?.tasks.find((item) => item.taskId === taskId);
-      const firstResource = task?.sharedResources[0];
-      if (firstResource) {
-        setPinnedResource(firstResource);
-      }
-    },
-    [graph, pinnedResource, setPinnedResource]
-  );
 
   const { handleTaskExecutorChange } = useTaskExecutorActions({
     refreshGraph,
@@ -833,16 +818,9 @@ export function ProjectWorkspaceProvider({
       activeResource,
       transitionEpochByResource,
       onResourceHover,
-      onResourcePin,
-      onResourceOverflow: handleResourceOverflow
+      onResourcePin
     }),
-    [
-      activeResource,
-      transitionEpochByResource,
-      onResourceHover,
-      onResourcePin,
-      handleResourceOverflow
-    ]
+    [activeResource, transitionEpochByResource, onResourceHover, onResourcePin]
   );
   const assigneeUi = useMemo(
     () =>

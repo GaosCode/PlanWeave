@@ -1,7 +1,8 @@
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SharedResourceBadges } from "../renderer/graph/sharedResourceBadges";
 import {
@@ -33,7 +34,6 @@ describe("shared-resource colors and badges", () => {
         labels={labels}
         onResourceHover={vi.fn()}
         onResourcePin={vi.fn()}
-        onOverflowOpen={vi.fn()}
       />
     );
 
@@ -46,7 +46,6 @@ describe("shared-resource colors and badges", () => {
     const resources = ["a", "b", "c", "d"];
     const onResourceHover = vi.fn();
     const onResourcePin = vi.fn();
-    const onOverflowOpen = vi.fn();
     render(
       <SharedResourceBadges
         resources={resources}
@@ -56,7 +55,6 @@ describe("shared-resource colors and badges", () => {
         labels={labels}
         onResourceHover={onResourceHover}
         onResourcePin={onResourcePin}
-        onOverflowOpen={onOverflowOpen}
       />
     );
 
@@ -72,9 +70,45 @@ describe("shared-resource colors and badges", () => {
     expect(onResourceHover).toHaveBeenNthCalledWith(2, null);
     expect(onResourcePin).toHaveBeenCalledWith("a");
 
+    onResourcePin.mockClear();
     fireEvent.click(screen.getByTestId("task-node-resource-overflow"));
-    expect(onOverflowOpen).toHaveBeenCalledOnce();
+    const list = screen.getByTestId("task-node-resource-list");
+    expect(list).toHaveAttribute("data-side", "bottom");
+    expect(within(list).getAllByRole("button")).toHaveLength(4);
+    expect(onResourcePin).not.toHaveBeenCalled();
+    fireEvent.click(within(list).getByRole("button", { name: "d" }));
+    expect(onResourcePin).toHaveBeenCalledExactlyOnceWith("d");
+    expect(screen.queryByTestId("task-node-resource-list")).not.toBeInTheDocument();
     expect(screen.getByTestId("task-node-resource-overflow")).toHaveTextContent("+1");
+  });
+
+  it("opens beside its trigger with keyboard access without selecting the task or a resource", async () => {
+    const onTaskClick = vi.fn();
+    const onResourcePin = vi.fn();
+    render(
+      <div role="treeitem" tabIndex={0} onClick={onTaskClick} onKeyDown={() => undefined}>
+        <SharedResourceBadges
+          resources={["a", "b", "c", "d"]}
+          activeResources={new Set(["d"])}
+          highlightedResource="b"
+          transitionEpochByResource={{}}
+          labels={labels}
+          onResourceHover={vi.fn()}
+          onResourcePin={onResourcePin}
+        />
+      </div>
+    );
+    const trigger = screen.getByTestId("task-node-resource-overflow");
+    trigger.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    const list = screen.getByTestId("task-node-resource-list");
+    expect(within(list).getByRole("button", { name: "d" })).toBeVisible();
+    expect(onResourcePin).not.toHaveBeenCalled();
+    expect(onTaskClick).not.toHaveBeenCalled();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByTestId("task-node-resource-list")).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
   });
 
   it("remounts only the pulse layer when the transition epoch changes", () => {
@@ -84,8 +118,7 @@ describe("shared-resource colors and badges", () => {
       highlightedResource: "db",
       labels,
       onResourceHover: vi.fn(),
-      onResourcePin: vi.fn(),
-      onOverflowOpen: vi.fn()
+      onResourcePin: vi.fn()
     };
     const { rerender } = render(
       <SharedResourceBadges {...props} transitionEpochByResource={{ db: 1 }} />

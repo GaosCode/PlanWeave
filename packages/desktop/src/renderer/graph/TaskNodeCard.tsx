@@ -93,8 +93,7 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
     onTaskDelete,
     onBlockDelete,
     onResourceHover = () => undefined,
-    onResourcePin = () => undefined,
-    onResourceOverflow = () => undefined
+    onResourcePin = () => undefined
   } = data;
   const [taskCommentsOpen, setTaskCommentsOpen] = useState(false);
   const hasException = task.exceptions.length > 0;
@@ -272,7 +271,6 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
               }}
               onResourceHover={onResourceHover}
               onResourcePin={onResourcePin}
-              onOverflowOpen={() => onResourceOverflow(task.taskId)}
             />
           ) : null}
           <CardContent className="flex min-h-0 flex-1 flex-col gap-2.5">

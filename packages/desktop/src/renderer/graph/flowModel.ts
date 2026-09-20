@@ -39,7 +39,6 @@ export type GraphSharedResourceUiState = {
   transitionEpochByResource: Record<string, number>;
   onResourceHover: TaskNodeData["onResourceHover"];
   onResourcePin: TaskNodeData["onResourcePin"];
-  onResourceOverflow: TaskNodeData["onResourceOverflow"];
 };
 
 export type GraphAssigneeUiState = {
@@ -212,8 +211,7 @@ export function graphNodes(
     activeResource: null,
     transitionEpochByResource: {},
     onResourceHover: () => undefined,
-    onResourcePin: () => undefined,
-    onResourceOverflow: () => undefined
+    onResourcePin: () => undefined
   },
   assigneeUi: GraphAssigneeUiState | null = null,
   commentUi: GraphCommentUiState | null = null,
@@ -333,8 +331,7 @@ export function graphNodes(
         onBlockPromptSave,
         onOpenRunRecord,
         onResourceHover: resourceUi.onResourceHover,
-        onResourcePin: resourceUi.onResourcePin,
-        onResourceOverflow: resourceUi.onResourceOverflow
+        onResourcePin: resourceUi.onResourcePin
       }
     };
   });

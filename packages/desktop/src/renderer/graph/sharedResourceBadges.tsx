@@ -1,4 +1,4 @@
-import type { CSSProperties, MouseEvent } from "react";
+import { useState, type CSSProperties, type MouseEvent } from "react";
 import { Badge } from "@/components/ui/badge";
 import {
   Popover,
@@ -25,7 +25,6 @@ export type SharedResourceBadgesProps = {
   labels: SharedResourceBadgeLabels;
   onResourceHover: (name: string | null) => void;
   onResourcePin: (name: string | null) => void;
-  onOverflowOpen: () => void;
 };
 
 function ResourceDot({ active, name }: { active: boolean; name: string }) {
@@ -54,9 +53,9 @@ export function SharedResourceBadges({
   transitionEpochByResource,
   labels,
   onResourceHover,
-  onResourcePin,
-  onOverflowOpen
+  onResourcePin
 }: SharedResourceBadgesProps) {
+  const [overflowOpen, setOverflowOpen] = useState(false);
   if (resources.length === 0) {
     return null;
   }
@@ -134,22 +133,55 @@ export function SharedResourceBadges({
         );
       })}
       {overflowCount > 0 ? (
-        <Badge
-          asChild
-          className="h-5 cursor-pointer border-border/70 bg-surface-muted px-1.5 text-[10px] text-text-muted"
-          variant="outline"
-          data-testid="task-node-resource-overflow"
-        >
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              onOverflowOpen();
-            }}
+        <Popover open={overflowOpen} onOpenChange={setOverflowOpen}>
+          <PopoverTrigger asChild>
+            <Badge
+              asChild
+              className="nodrag nopan h-5 cursor-pointer border-border/70 bg-surface-muted px-1.5 text-[10px] text-text-muted"
+              variant="outline"
+            >
+              <button
+                type="button"
+                data-testid="task-node-resource-overflow"
+                aria-label={`${labels.sharedResource} ${labels.moreResources(overflowCount)}`}
+                onClick={(event) => event.stopPropagation()}
+              >
+                {labels.moreResources(overflowCount)}
+              </button>
+            </Badge>
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            side="bottom"
+            collisionPadding={12}
+            className="nodrag nopan nowheel w-64 max-w-[calc(100vw-24px)]"
+            aria-label={labels.sharedResource}
+            data-testid="task-node-resource-list"
+            onClick={(event) => event.stopPropagation()}
           >
-            {labels.moreResources(overflowCount)}
-          </button>
-        </Badge>
+            <PopoverTitle>{labels.sharedResource}</PopoverTitle>
+            <ul className="max-h-64 overflow-y-auto">
+              {resources.map((name) => (
+                <li key={name}>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-surface-muted focus-visible:outline"
+                    onMouseEnter={() => onResourceHover(name)}
+                    onMouseLeave={() => onResourceHover(null)}
+                    onClick={() => {
+                      onResourcePin(name);
+                      onResourceHover(null);
+                      setOverflowOpen(false);
+                    }}
+                  >
+                    <ResourceDot active={activeResources.has(name)} name={name} />
+                    <span className="min-w-0 break-all">{name}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </PopoverContent>
+        </Popover>
       ) : null}
     </div>
   );

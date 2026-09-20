@@ -137,8 +137,7 @@ describe("desktop graph flow model", () => {
         activeResource: "db",
         transitionEpochByResource: {},
         onResourceHover,
-        onResourcePin: vi.fn(),
-        onResourceOverflow: vi.fn()
+        onResourcePin: vi.fn()
       },
       null,
       {

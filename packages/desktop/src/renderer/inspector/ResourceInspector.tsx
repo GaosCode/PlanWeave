@@ -21,6 +21,7 @@ type MemberRow = {
   taskId: string;
   title: string;
   blockRef: string;
+  blockTitle: string;
   status: string;
   active: boolean;
 };
@@ -42,6 +43,7 @@ function buildMemberRows(
               taskId: task.taskId,
               title: task.title,
               blockRef,
+              blockTitle: block.title,
               status: block.status,
               active: activeRefs.has(blockRef)
             }
@@ -106,6 +108,7 @@ export function ResourceInspector({
             data-testid="resource-inspector-member"
             data-member-kind={row.active ? "active" : "other"}
           >
+            <div className="text-sm font-medium text-text-strong">{row.blockTitle}</div>
             <button
               type="button"
               className="text-left text-sm font-medium text-text-strong hover:underline"

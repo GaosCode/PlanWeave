@@ -1151,7 +1151,7 @@ export const enCatalog = {
   resources: "Resources",
   moreResources: "+{count}",
   unpinResource: "Unpin",
-  resourceMembers: "Members",
+  resourceMembers: "Related blocks",
   sharedResourceHint: "Shared resource",
   sharedResourceActive: "Active shared resource",
   sharedResourceNonBlocking:

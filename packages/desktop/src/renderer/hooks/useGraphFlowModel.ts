@@ -104,7 +104,6 @@ export function useGraphFlowModel({
   const transitionEpochByResource = resourceUi?.transitionEpochByResource;
   const onResourceHover = resourceUi?.onResourceHover;
   const onResourcePin = resourceUi?.onResourcePin;
-  const onResourceOverflow = resourceUi?.onResourceOverflow;
   const {
     handleDeleteBlock,
     handleDeleteTaskNode,
@@ -141,8 +140,7 @@ export function useGraphFlowModel({
       activeResource,
       transitionEpochByResource: transitionEpochByResource ?? {},
       onResourceHover: onResourceHover ?? (() => undefined),
-      onResourcePin: onResourcePin ?? (() => undefined),
-      onResourceOverflow: onResourceOverflow ?? (() => undefined)
+      onResourcePin: onResourcePin ?? (() => undefined)
     };
     setNodes(
       graphNodes(
@@ -192,7 +190,6 @@ export function useGraphFlowModel({
     transitionEpochByResource,
     onResourceHover,
     onResourcePin,
-    onResourceOverflow,
     agentEndpointFleetCatalogError,
     agentEndpoints,
     selectedAgentEndpointIdForTask,

@@ -86,6 +86,9 @@ describe("ResourceInspector shared-resource hints", () => {
       />
     );
 
+    expect(screen.getByText("Related blocks")).toBeInTheDocument();
+    expect(screen.getAllByText("Implementation")).toHaveLength(2);
+    expect(screen.queryByText("Members")).not.toBeInTheDocument();
     expect(screen.getByText("Shared resource")).toBeInTheDocument();
     expect(screen.getByText(overlapMessagePattern)).toBeInTheDocument();
     expect(screen.queryByTestId("resource-inspector-dispatch")).not.toBeInTheDocument();
