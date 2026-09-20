@@ -339,6 +339,7 @@
         "importRecoveryNotifications.test.tsx",
         "inspectorEndpointPickerUnification.test.tsx",
         "liveServerBinding.test.ts",
+        "liveServerBindingSession.test.ts",
         "localAgentHostProvisioner.test.ts",
         "localCollaborationCoordinatorControl.test.ts",
         "localCollaborationNetworkStore.test.ts",

@@ -5,6 +5,9 @@ import {
 import { CollaborationRegistryClient } from "./CollaborationRegistryClient.js";
 import { CollaborationHttpTransport } from "./collaborationHttpTransport.js";
 import { collaborationEndpointForServerOrigin } from "./collaborationProfileEndpoint.js";
+import { CollaborationClientError } from "./collaborationErrors.js";
+
+const REGISTRY_PAGE_LIMIT = 100;
 
 export type LiveRegistryProject = {
   projectId: string;
@@ -64,8 +67,8 @@ export async function listLiveRegistryProjects(input: {
       transport.json(method, path, schema, options)
     );
     const projects: LiveRegistryProject[] = [];
-    let cursor: number | null = 0;
-    do {
+    let cursor = 0;
+    for (let pageCount = 0; pageCount < REGISTRY_PAGE_LIMIT; pageCount += 1) {
       const page = await registry.listProjects({ cursor, limit: 50 });
       projects.push(
         ...page.items.map((item) => ({
@@ -73,9 +76,23 @@ export async function listLiveRegistryProjects(input: {
           workspaceId: item.registry.workspaceId
         }))
       );
+      if (page.nextCursor === null) return projects;
+      if (page.nextCursor <= cursor) {
+        throw new CollaborationClientError({
+          kind: "protocol",
+          code: "live_registry_pagination_invalid",
+          message: "Project registry pagination did not advance.",
+          retryable: false
+        });
+      }
       cursor = page.nextCursor;
-    } while (cursor !== null);
-    return projects;
+    }
+    throw new CollaborationClientError({
+      kind: "protocol",
+      code: "live_registry_page_limit_exceeded",
+      message: "Project registry exceeded the supported limit of 100 pages (50 projects per page).",
+      retryable: false
+    });
   } finally {
     transport.dispose();
   }
