@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readdir, rename, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { ServerDataArchiveError } from "./serverDataArchiveError.js";
+import {
+  ServerDataArchiveError,
+  type ServerDataRestoreDiagnostic
+} from "./serverDataArchiveError.js";
 
 export const SERVER_DATA_RESTORE_BACKUP_PREFIX = ".planweave-server-replaced-";
 
@@ -27,10 +30,26 @@ const filesystemPromotionOperations: ServerDataRestorePromotionOperations = {
   }
 };
 
-function promotionError(code: string, cause: unknown, recoveryFailures: unknown[] = []) {
+function promotionError(
+  code: string,
+  cause: unknown,
+  diagnostic: ServerDataRestoreDiagnostic,
+  recoveryFailures: unknown[] = []
+) {
   const preservedCause =
     recoveryFailures.length === 0 ? cause : new AggregateError([cause, ...recoveryFailures], code);
-  return new ServerDataArchiveError(code, { cause: preservedCause });
+  return new ServerDataArchiveError(code, {
+    cause: preservedCause,
+    diagnostic: {
+      ...diagnostic,
+      outcome:
+        diagnostic.outcome === "committed"
+          ? "committed"
+          : recoveryFailures.length
+            ? "rollback_failed"
+            : "not_committed"
+    }
+  });
 }
 
 async function restoreOriginalEntries(input: {
@@ -38,9 +57,11 @@ async function restoreOriginalEntries(input: {
   backup: string;
   names: readonly string[];
   operations: ServerDataRestorePromotionOperations;
+  blockedNames?: ReadonlySet<string>;
 }): Promise<unknown[]> {
   const failures: unknown[] = [];
   for (const name of [...input.names].reverse()) {
+    if (input.blockedNames?.has(name)) continue;
     try {
       await input.operations.move(join(input.backup, name), join(input.target, name));
     } catch (error) {
@@ -51,6 +72,7 @@ async function restoreOriginalEntries(input: {
 }
 
 async function removePromotedEntries(input: {
+  blockedNames: Set<string>;
   target: string;
   names: readonly string[];
   operations: ServerDataRestorePromotionOperations;
@@ -60,6 +82,7 @@ async function removePromotedEntries(input: {
     try {
       await input.operations.remove(join(input.target, name));
     } catch (error) {
+      input.blockedNames.add(name);
       failures.push(error);
     }
   }
@@ -86,10 +109,14 @@ export async function promoteRestoredDirectory(
 ): Promise<void> {
   const stagingName = basename(staging);
   const backup = join(target, `${SERVER_DATA_RESTORE_BACKUP_PREFIX}${randomUUID()}`);
+  const diagnostic = (
+    phase: ServerDataRestoreDiagnostic["phase"],
+    outcome: ServerDataRestoreDiagnostic["outcome"] = "not_committed"
+  ): ServerDataRestoreDiagnostic => ({ phase, outcome, target, staging, backup });
   try {
     await operations.createDirectory(backup);
   } catch (error) {
-    throw promotionError("server_data_restore_backup_prepare_failed", error);
+    throw promotionError("server_data_restore_backup_prepare_failed", error, diagnostic("prepare"));
   }
 
   let originalNames: string[];
@@ -100,7 +127,12 @@ export async function promoteRestoredDirectory(
   } catch (error) {
     const recoveryFailures: unknown[] = [];
     await removeEmptyBackup(backup, operations, recoveryFailures);
-    throw promotionError("server_data_restore_backup_prepare_failed", error, recoveryFailures);
+    throw promotionError(
+      "server_data_restore_backup_prepare_failed",
+      error,
+      diagnostic("backup"),
+      recoveryFailures
+    );
   }
 
   const backedUpNames: string[] = [];
@@ -117,7 +149,12 @@ export async function promoteRestoredDirectory(
       operations
     });
     await removeEmptyBackup(backup, operations, recoveryFailures);
-    throw promotionError("server_data_restore_backup_prepare_failed", error, recoveryFailures);
+    throw promotionError(
+      "server_data_restore_backup_prepare_failed",
+      error,
+      diagnostic("backup"),
+      recoveryFailures
+    );
   }
 
   let stagingNames: string[];
@@ -133,7 +170,12 @@ export async function promoteRestoredDirectory(
       operations
     });
     await removeEmptyBackup(backup, operations, recoveryFailures);
-    throw promotionError("server_data_restore_promotion_failed", error, recoveryFailures);
+    throw promotionError(
+      "server_data_restore_promotion_failed",
+      error,
+      diagnostic("promotion"),
+      recoveryFailures
+    );
   }
 
   const promotedNames: string[] = [];
@@ -143,13 +185,16 @@ export async function promoteRestoredDirectory(
       promotedNames.push(name);
     }
   } catch (error) {
+    const blockedNames = new Set<string>();
     const recoveryFailures = await removePromotedEntries({
+      blockedNames,
       target,
       names: promotedNames,
       operations
     });
     recoveryFailures.push(
       ...(await restoreOriginalEntries({
+        blockedNames,
         target,
         backup,
         names: backedUpNames,
@@ -157,7 +202,12 @@ export async function promoteRestoredDirectory(
       }))
     );
     await removeEmptyBackup(backup, operations, recoveryFailures);
-    throw promotionError("server_data_restore_promotion_failed", error, recoveryFailures);
+    throw promotionError(
+      "server_data_restore_promotion_failed",
+      error,
+      diagnostic("promotion"),
+      recoveryFailures
+    );
   }
 
   const cleanupFailures: unknown[] = [];
@@ -172,6 +222,7 @@ export async function promoteRestoredDirectory(
     throw promotionError(
       "server_data_restore_committed_cleanup_failed",
       cleanupFailures[0],
+      diagnostic("cleanup", "committed"),
       cleanupFailures.slice(1)
     );
   }

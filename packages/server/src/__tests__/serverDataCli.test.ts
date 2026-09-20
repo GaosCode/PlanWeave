@@ -1,3 +1,6 @@
+import * as promotion from "../serverDataRestorePromotion.js";
+import { serverDataCliErrorMessage } from "../serverDataCli.js";
+import { ServerDataArchiveError } from "../serverDataArchiveError.js";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -161,4 +164,69 @@ describe("planweave-server data CLI", () => {
     expect(commands[1]).toContain("run");
     expect(commands[2]).toEqual(expect.arrayContaining(["up", "-d", "--wait"]));
   });
+});
+
+it.each([
+  "not_committed",
+  "rollback_failed",
+  "committed"
+] as const)("reports restore outcome %s without exposing causes", (outcome) => {
+  const error = new ServerDataArchiveError("server_data_restore_promotion_failed", {
+    cause: new Error("secret-token"),
+    diagnostic: {
+      phase: "promotion",
+      outcome,
+      target: "/target",
+      staging: "/target/staging",
+      backup: "/target/backup"
+    }
+  });
+  const message = serverDataCliErrorMessage(error);
+  expect(message).toContain("/target/backup");
+  expect(message).not.toContain("secret-token");
+  expect(message).toContain(
+    outcome === "committed"
+      ? "Data committed"
+      : outcome === "rollback_failed"
+        ? "rollback incomplete"
+        : "before commit"
+  );
+});
+
+it("returns failure without a success manifest when restore committed but cleanup failed", async () => {
+  const { root, configPath, dataDirectory } = await fixture();
+  const archivePath = join(root, "archive.tgz");
+  const stdout = vi.fn();
+  const stderr = vi.fn();
+  await runServerCli(["data", "export", "--config", configPath, "--out", archivePath], {
+    io: { stdout, stderr }
+  });
+  stdout.mockClear();
+  const spy = vi.spyOn(promotion, "promoteRestoredDirectory").mockRejectedValueOnce(
+    new ServerDataArchiveError("server_data_restore_committed_cleanup_failed", {
+      cause: new Error("private-token"),
+      diagnostic: {
+        phase: "cleanup",
+        outcome: "committed",
+        target: dataDirectory,
+        staging: join(dataDirectory, "staging"),
+        backup: join(dataDirectory, "backup")
+      }
+    })
+  );
+  try {
+    expect(
+      await runServerCli(
+        ["data", "restore", "--config", configPath, "--from", archivePath, "--overwrite"],
+        { io: { stdout, stderr } }
+      )
+    ).toBe(1);
+    expect(stdout).not.toHaveBeenCalled();
+    expect(stderr).toHaveBeenCalledWith(
+      expect.stringContaining("Data committed; cleanup incomplete")
+    );
+    expect(String(stderr.mock.calls[0]?.[0])).not.toContain("private-token");
+  } finally {
+    spy.mockRestore();
+  }
 });

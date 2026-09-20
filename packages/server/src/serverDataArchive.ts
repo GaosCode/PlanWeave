@@ -104,8 +104,46 @@ async function listIncludedFiles(
   return files;
 }
 
-export async function serverDataDirectoryIsOccupied(dataDirectory: string): Promise<boolean> {
+export async function serverDataDirectoryHasExportableData(
+  dataDirectory: string
+): Promise<boolean> {
   return (await listIncludedFiles(dataDirectory)).length > 0;
+}
+
+async function existingRootNames(dataDirectory: string): Promise<string[]> {
+  try {
+    return await readdir(dataDirectory);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+export async function serverDataDirectoryIsOccupied(dataDirectory: string): Promise<boolean> {
+  return (await existingRootNames(dataDirectory)).length > 0;
+}
+
+async function assertRestoreTarget(
+  dataDirectory: string,
+  overwrite: boolean,
+  staging?: string
+): Promise<void> {
+  const names = (await existingRootNames(dataDirectory)).filter(
+    (name) => join(dataDirectory, name) !== staging
+  );
+  if (names.length && !overwrite)
+    throw new ServerDataArchiveError("server_data_directory_nonempty");
+  if (
+    names.some(
+      (name) =>
+        name.startsWith(RESTORE_STAGING_PREFIX) ||
+        name.startsWith(SERVER_DATA_RESTORE_BACKUP_PREFIX)
+    )
+  ) {
+    throw new ServerDataArchiveError("server_data_restore_recovery_required");
+  }
+  if (await serverDataDirectoryIsActive(dataDirectory))
+    throw new ServerDataArchiveError("server_data_directory_active");
 }
 
 export async function serverDataDirectoryIsActive(dataDirectory: string): Promise<boolean> {
@@ -364,10 +402,7 @@ export async function restoreServerDataDirectory(input: {
   if (await serverDataDirectoryIsActive(input.dataDirectory)) {
     throw new ServerDataArchiveError("server_data_directory_active");
   }
-  const occupied = await serverDataDirectoryIsOccupied(input.dataDirectory);
-  if (occupied && !input.overwrite) {
-    throw new ServerDataArchiveError("server_data_directory_nonempty");
-  }
+  await assertRestoreTarget(input.dataDirectory, input.overwrite);
   const files = await readTarGzip(input.archivePath);
   const manifestFile = files.find((file) => file.name === "manifest.json");
   if (!manifestFile) throw new ServerDataArchiveError("server_data_archive_invalid");
@@ -395,10 +430,26 @@ export async function restoreServerDataDirectory(input: {
       await writeFile(destination, file.body, { mode: 0o600 });
     }
     await normalizeRestoredServerData(staging, target);
+    await assertRestoreTarget(target, input.overwrite, staging);
+    await chmod(target, 0o700);
     await promoteRestoredDirectory(target, staging);
-    await chmod(target, 0o700).catch(() => undefined);
     return manifest;
-  } finally {
-    await rm(staging, { recursive: true, force: true }).catch(() => undefined);
+  } catch (error) {
+    if (error instanceof ServerDataArchiveError && error.diagnostic) throw error;
+    try {
+      await rm(staging, { recursive: true, force: true });
+    } catch (cleanupError) {
+      throw new ServerDataArchiveError(
+        error instanceof ServerDataArchiveError ? error.code : "server_data_restore_prepare_failed",
+        {
+          cause: new AggregateError(
+            [error, cleanupError],
+            "Restore preparation and cleanup failed"
+          ),
+          diagnostic: { phase: "prepare", outcome: "not_committed", target, staging }
+        }
+      );
+    }
+    throw error;
   }
 }

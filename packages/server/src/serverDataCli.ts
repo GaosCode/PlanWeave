@@ -101,3 +101,16 @@ export function serverDataCliErrorCode(error: unknown): string {
   if (error instanceof Error) return error.message.split(":", 1)[0] ?? "server_failed";
   return "server_failed";
 }
+
+export function serverDataCliErrorMessage(error: unknown): string {
+  const code = serverDataCliErrorCode(error);
+  if (!(error instanceof ServerDataArchiveError) || !error.diagnostic) return code;
+  const detail = error.diagnostic;
+  const status =
+    detail.outcome === "committed"
+      ? "Data committed; cleanup incomplete. Do not repeat restore."
+      : detail.outcome === "rollback_failed"
+        ? "Restore failed and rollback incomplete. Preserve recovery directories."
+        : "Restore failed before commit. Preserve recovery directories until inspected.";
+  return `${code}: ${status} Phase: ${detail.phase}. Target: ${detail.target}. Staging: ${detail.staging}.${detail.backup ? ` Backup: ${detail.backup}.` : ""}`;
+}

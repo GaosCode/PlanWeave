@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -196,5 +196,39 @@ describe("server data archive", () => {
         archivePath: join(root, "live.tgz")
       })
     ).rejects.toEqual(new ServerDataArchiveError("server_data_directory_active"));
+  });
+});
+
+describe("restore target occupancy", () => {
+  it.each([
+    "backups",
+    "empty",
+    "symlink",
+    ".planweave-server-replaced-old",
+    ".planweave-server-restore-old"
+  ])("preserves %s without overwrite", async (name) => {
+    const root = await tempDir();
+    const source = await seedDataDirectory(root);
+    const archivePath = join(root, "archive.tgz");
+    await exportServerDataDirectory({ dataDirectory: source, archivePath });
+    const target = join(root, "target");
+    await mkdir(target);
+    const entry = join(target, name);
+    if (name === "symlink") await symlink(join(root, "missing"), entry);
+    else await mkdir(entry);
+    if (name !== "empty" && name !== "symlink")
+      await writeFile(join(entry, "precious.txt"), "precious");
+    await expect(
+      restoreServerDataDirectory({ dataDirectory: target, archivePath, overwrite: false })
+    ).rejects.toMatchObject({ code: "server_data_directory_nonempty" });
+    expect(await serverDataDirectoryIsOccupied(target)).toBe(true);
+    if (name !== "empty" && name !== "symlink")
+      expect(await readFile(join(entry, "precious.txt"), "utf8")).toBe("precious");
+    if (name.startsWith(".planweave")) {
+      await expect(
+        restoreServerDataDirectory({ dataDirectory: target, archivePath, overwrite: true })
+      ).rejects.toMatchObject({ code: "server_data_restore_recovery_required" });
+      expect(await readFile(join(entry, "precious.txt"), "utf8")).toBe("precious");
+    }
   });
 });

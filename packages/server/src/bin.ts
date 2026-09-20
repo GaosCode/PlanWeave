@@ -6,7 +6,7 @@ import { migrateServerConfigFile } from "./configMigration.js";
 import { runReleaseGateCli } from "./releaseGate/cli.js";
 import { serveDistributedServer, type DistributedServerProcess } from "./serverServe.js";
 import { runVpsE2eCli } from "./vpsE2e/cli.js";
-import { runServerDataCli } from "./serverDataCli.js";
+import { runServerDataCli, serverDataCliErrorMessage } from "./serverDataCli.js";
 import type { DockerComposeRunner } from "./serverDataCompose.js";
 
 export type ServerCliIo = { stdout(value: string): void; stderr(value: string): void };
@@ -104,7 +104,7 @@ export async function runServerCli(
     return 0;
   } catch (error) {
     const code = error instanceof Error ? error.message.split(":", 1)[0] : "server_failed";
-    io.stderr(code.startsWith("server_") ? code : "server_failed");
+    io.stderr(code.startsWith("server_") ? serverDataCliErrorMessage(error) : "server_failed");
     return code === "server_cli_usage" ||
       code === "server_config_path_required" ||
       code === "server_compose_or_config_required" ||

@@ -64,6 +64,7 @@ export {
   serverDataArchiveManifestSchema,
   serverDataDirectoryIsActive,
   serverDataDirectoryIsOccupied,
+  serverDataDirectoryHasExportableData,
   type ServerDataArchiveManifest
 } from "./serverDataArchive.js";
 export {
@@ -632,3 +633,8 @@ export {
   type PendingUploadRecord,
   type PendingUploadStatus
 } from "./attachments/index.js";
+
+export {
+  serverDataRestoreDiagnosticSchema,
+  type ServerDataRestoreDiagnostic
+} from "./serverDataArchiveError.js";

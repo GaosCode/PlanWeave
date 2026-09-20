@@ -3,7 +3,7 @@ import {
   exportServerDataDirectory,
   restoreServerDataDirectory,
   serverDataDirectoryIsActive,
-  serverDataDirectoryIsOccupied
+  serverDataDirectoryHasExportableData
 } from "@planweave-ai/server";
 import type { LocalCollaborationServerStatus } from "../../shared/localCollaborationScopes.js";
 import {
@@ -79,7 +79,7 @@ export class ServerDataMigration {
       sources: [
         {
           id: "this_computer",
-          occupied: await serverDataDirectoryIsOccupied(dataDirectory),
+          occupied: await serverDataDirectoryHasExportableData(dataDirectory),
           running: await this.isRunning(dataDirectory)
         }
       ]
@@ -92,7 +92,7 @@ export class ServerDataMigration {
     if (await this.isRunning(dataDirectory)) {
       return exportServerDataArchiveResultSchema.parse({ status: "running" });
     }
-    if (!(await serverDataDirectoryIsOccupied(dataDirectory))) {
+    if (!(await serverDataDirectoryHasExportableData(dataDirectory))) {
       return exportServerDataArchiveResultSchema.parse({ status: "empty" });
     }
     const date = this.now().toISOString().slice(0, 10);

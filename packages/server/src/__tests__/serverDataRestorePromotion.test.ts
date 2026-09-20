@@ -31,6 +31,7 @@ async function fixture() {
 
 function operations(
   input: {
+    failList?: (path: string) => Error | undefined;
     failMove?: (source: string, destination: string) => Error | undefined;
     failRemove?: (path: string) => Error | undefined;
   } = {}
@@ -40,6 +41,8 @@ function operations(
       await mkdir(path, { recursive: true });
     },
     async listNames(path) {
+      const failure = input.failList?.(path);
+      if (failure) throw failure;
       return readdir(path);
     },
     async move(source, destination) {
@@ -138,7 +141,11 @@ describe("server data restore promotion", () => {
     }
     expect(caught).toBeInstanceOf(ServerDataArchiveError);
     expect(caught).toMatchObject({ code: "server_data_restore_promotion_failed" });
-    const cause = (caught as Error).cause;
+    if (!(caught instanceof ServerDataArchiveError) || !caught.diagnostic?.backup)
+      throw new Error("missing diagnostic");
+    expect(caught.diagnostic.outcome).toBe("rollback_failed");
+    expect(await readFile(join(caught.diagnostic.backup, "old-a.txt"), "utf8")).toBe("old-a");
+    const cause = caught.cause;
     expect(cause).toBeInstanceOf(AggregateError);
     expect((cause as AggregateError).errors).toEqual([promotionFailure, rollbackFailure]);
   });
@@ -160,6 +167,7 @@ describe("server data restore promotion", () => {
       )
     ).rejects.toMatchObject({
       code: "server_data_restore_committed_cleanup_failed",
+      diagnostic: { phase: "cleanup", outcome: "committed", target, staging },
       cause: cleanupFailure
     });
     await expect(readFile(join(target, "new-a.txt"), "utf8")).resolves.toBe("new-a");
@@ -167,5 +175,58 @@ describe("server data restore promotion", () => {
     await expect(readFile(join(target, "old-a.txt"), "utf8")).rejects.toMatchObject({
       code: "ENOENT"
     });
+  });
+});
+
+describe("restore fault matrix", () => {
+  it.each(["backup-first", "staging-first", "staging-list"])("rolls back %s", async (fault) => {
+    const { target, staging } = await fixture();
+    await expect(
+      promoteRestoredDirectory(
+        target,
+        staging,
+        operations({
+          failList: (path) =>
+            fault === "staging-list" && path === staging ? new Error(fault) : undefined,
+          failMove: (source, destination) =>
+            (fault === "backup-first" &&
+              basename(source) === "old-a.txt" &&
+              dirname(destination) !== target) ||
+            (fault === "staging-first" && dirname(source) === staging)
+              ? new Error(fault)
+              : undefined
+        })
+      )
+    ).rejects.toMatchObject({ diagnostic: { outcome: "not_committed", target, staging } });
+    await expectOriginalTarget(target);
+    expect((await readdir(target)).sort()).toEqual([".staging", "old-a.txt", "old-b.txt"]);
+  });
+
+  it("keeps original copies when removing a promoted same-name file fails", async () => {
+    const { target, staging } = await fixture();
+    await writeFile(join(staging, "old-a.txt"), "replacement");
+    await writeFile(join(staging, "z-last.txt"), "last");
+    let caught: unknown;
+    try {
+      await promoteRestoredDirectory(
+        target,
+        staging,
+        operations({
+          failMove: (source) =>
+            basename(source) === "z-last.txt" ? new Error("move failed") : undefined,
+          failRemove: (path) =>
+            path === join(target, "old-a.txt") ? new Error("remove failed") : undefined
+        })
+      );
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toMatchObject({
+      diagnostic: { outcome: "rollback_failed", phase: "promotion" }
+    });
+    if (!(caught instanceof ServerDataArchiveError) || !caught.diagnostic?.backup)
+      throw new Error("missing diagnostic");
+    expect(await readFile(join(caught.diagnostic.backup, "old-a.txt"), "utf8")).toBe("old-a");
+    expect(await readFile(join(target, "old-a.txt"), "utf8")).toBe("replacement");
   });
 });
