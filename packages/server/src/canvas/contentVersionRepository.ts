@@ -1,9 +1,7 @@
 import {
   authoritativeContentHeadSchema,
   authoritativeContentVersionSchema,
-  compareContentVersionMemberPaths,
   completedContentVersionRefSchema,
-  contentVersionMemberSchema,
   contentVersionJournalEntrySchema,
   workspaceCanvasPublishedAuthoritySchema,
   workspaceCanvasPublishLocalSourceSchema,
@@ -22,6 +20,7 @@ import {
 import { type ContentVersionTransferHeaderFrame } from "@planweave-ai/collaboration-protocol/content/transfer";
 import { validateAuthoritativeCanvasContent } from "@planweave-ai/runtime";
 import { inWriteTransaction, type SqliteDatabase } from "../sqlite.js";
+import { readContentVersionMembers } from "./contentVersionMemberReader.js";
 import type { ContentAuthorityStore } from "./contentAuthorityStore.js";
 import type { CanvasScopeKey } from "./repository.js";
 
@@ -186,45 +185,8 @@ export class ContentVersionRepository implements ContentAuthorityStore {
     };
     return {
       header,
-      members: this.transferMembers(scope, content)
+      members: readContentVersionMembers(this.database, scope, content)
     };
-  }
-
-  private *transferMembers(
-    scope: CanvasScopeKey,
-    content: CompletedContentVersionRef
-  ): Iterable<ContentVersionMember> {
-    const paths = this.database
-      .prepare(
-        `SELECT member_path
-         FROM canvas_content_version_members
-        WHERE workspace_id=? AND project_id=? AND canvas_id=? AND version_id=?`
-      )
-      .all(scope.workspaceId, scope.projectId, scope.canvasId, content.versionId)
-      .map((row) => String(row.member_path))
-      .sort(compareContentVersionMemberPaths);
-    const readMember = this.database.prepare(
-      `SELECT member_kind,member_path,content,digest_sha256,size_bytes
-         FROM canvas_content_version_members
-        WHERE workspace_id=? AND project_id=? AND canvas_id=? AND version_id=? AND member_path=?`
-    );
-    for (const path of paths) {
-      const row = readMember.get(
-        scope.workspaceId,
-        scope.projectId,
-        scope.canvasId,
-        content.versionId,
-        path
-      );
-      if (!row) throw new Error("content_version_member_missing");
-      yield contentVersionMemberSchema.parse({
-        kind: row.member_kind,
-        path: row.member_path,
-        content: row.content,
-        digestSha256: row.digest_sha256,
-        sizeBytes: row.size_bytes
-      });
-    }
   }
 
   private readVersionInCallerTransaction(
@@ -243,7 +205,7 @@ export class ContentVersionRepository implements ContentAuthorityStore {
     if (!row || String(row.canonical_digest) !== content.canonicalDigest) {
       throw new Error("content_version_not_found");
     }
-    const members = [...this.transferMembers(scope, content)];
+    const members = [...readContentVersionMembers(this.database, scope, content)];
     const complete = this.verify({
       members,
       canonicalDigest: row.canonical_digest,

@@ -419,6 +419,27 @@ describe("content version HTTP boundary", () => {
     expect(await revoked.json()).toEqual({ error: "unauthorized" });
   });
 
+  it("rejects damage in the last member before success headers without exposing storage details", async () => {
+    const { origin, contentVersions, database, ownerToken } = await fixture();
+    const published = contentVersions.publishInitial({
+      scope: { workspaceId: "w", projectId: "p", canvasId: "default" },
+      content: content(),
+      createdBy: { kind: "human", id: "owner" }
+    });
+    const last = published.version.content.members.at(-1)!;
+    database
+      .prepare("UPDATE canvas_content_version_members SET digest_sha256=? WHERE member_path=?")
+      .run("0".repeat(64), last.path);
+    const response = await fetch(`${origin}/api/v1/projects/p/canvases/default/content/fetch`, {
+      method: "POST",
+      headers: headers(ownerToken),
+      body: JSON.stringify({ content: published.version.completed })
+    });
+    expect(response.status).toBe(422);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    expect(await response.json()).toEqual({ error: "content_request_rejected" });
+  });
+
   it("does not route removed replica authority operations", async () => {
     const { origin, ownerToken } = await fixture();
     for (const path of [

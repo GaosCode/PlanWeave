@@ -809,7 +809,8 @@
         "historicalPermissionRecovery.test.ts",
         "exactPermissionRelay.test.ts",
         "canvasRuntimeAdapterContract.test.ts",
-        "canvasRuntimeArtifactLoopback.test.ts"
+        "canvasRuntimeArtifactLoopback.test.ts",
+        "contentVersionTransferIntegration.test.ts"
       ],
       "platform": [],
       "performance": []
@@ -895,6 +896,7 @@
         "containerPrepare.test.ts",
         "contentVersionHttp.test.ts",
         "contentVersionRepository.test.ts",
+        "contentVersionMemberReader.test.ts",
         "workspaceCanvasPublish.test.ts",
         "dispatches.test.ts",
         "distributedPackageArtifacts.test.ts",
