@@ -139,6 +139,73 @@ describe("DeploymentConnectionCard", () => {
     });
   });
 
+  it("preserves the local mode when switching back after initialization resolves on Existing Server", async () => {
+    const user = userEvent.setup();
+    const pending = deferred<typeof defaultExposure>();
+    const onExposureChange = vi.fn();
+    collaborationBridge.getDesktopServerExposure.mockReturnValueOnce(pending.promise);
+    collaborationBridge.listRememberedServerConnections.mockResolvedValue([rememberedServer]);
+    render(
+      <DeploymentConnectionCard t={createTranslator("en")} onExposureChange={onExposureChange} />
+    );
+    await chooseSelectOption(user, "deployment-topology", "LAN HTTP (development only)");
+    await chooseSelectOption(user, "deployment-kind", "Existing Server");
+    await act(async () => pending.resolve(defaultExposure));
+    expect(onExposureChange).toHaveBeenCalledWith(defaultExposure);
+    await user.click(screen.getByTestId("deployment-kind"));
+    expect(
+      await screen.findByRole("option", { name: "Old workspace (old.example.test)" })
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("option", { name: "This computer" }));
+    expect(screen.getByTestId("deployment-topology")).toHaveAttribute("data-value", "lan_http");
+  });
+
+  it.each([
+    false,
+    true
+  ])("preserves both edited local modes while refreshing facts (localOnly=%s)", async (localOnly) => {
+    const pending = deferred<typeof defaultExposure>();
+    collaborationBridge.getDesktopServerExposure.mockReturnValueOnce(pending.promise);
+    collaborationBridge.listRememberedServerConnections.mockResolvedValue([rememberedServer]);
+    const onExposureChange = vi.fn();
+    const t = createTranslator("en");
+    const { result } = renderHook(() =>
+      useDeploymentConnectionDraft({ localOnly, connectionOnly: false, onExposureChange, t })
+    );
+    act(() => {
+      result.current.markEdited();
+      result.current.setMode("lan_http");
+      result.current.setThisComputerMode("lan_http");
+    });
+    await act(async () => pending.resolve(defaultExposure));
+    expect(result.current.mode).toBe("lan_http");
+    expect(result.current.thisComputerMode).toBe("lan_http");
+    expect(result.current.exposure).toEqual(defaultExposure);
+    expect(onExposureChange).toHaveBeenCalledWith(defaultExposure);
+    expect(result.current.rememberedServers).toEqual(localOnly ? [] : [rememberedServer]);
+  });
+
+  it.each([
+    false,
+    true
+  ])("initializes both untouched local modes (localOnly=%s)", async (localOnly) => {
+    const exposure = {
+      ...defaultExposure,
+      mode: "lan_http" as const,
+      topology: "lan_http" as const
+    };
+    const pending = deferred<typeof exposure>();
+    collaborationBridge.getDesktopServerExposure.mockReturnValueOnce(pending.promise);
+    const t = createTranslator("en");
+    const { result } = renderHook(() =>
+      useDeploymentConnectionDraft({ localOnly, connectionOnly: false, t })
+    );
+    await act(async () => pending.resolve(exposure));
+    expect(result.current.mode).toBe("lan_http");
+    expect(result.current.thisComputerMode).toBe("lan_http");
+    expect(result.current.exposure).toEqual(exposure);
+  });
+
   it("keeps edits across callback and locale reinitialization and connects the edited origin", async () => {
     const user = userEvent.setup();
     const oldRequest = deferred<typeof remoteConnection>();

@@ -89,8 +89,10 @@ export function useDeploymentConnectionDraft({
           const localMode = isThisComputerExposureMode(nextExposure.mode)
             ? nextExposure.mode
             : "local_only";
-          setThisComputerMode(localMode);
-          if (canInitializeDraft()) setMode(localMode);
+          if (canInitializeDraft()) {
+            setThisComputerMode(localMode);
+            setMode(localMode);
+          }
         })
         .catch((cause: unknown) => {
           if (isCurrent()) setConnectError(collaborationConnectionErrorMessage(t, cause));
@@ -109,10 +111,10 @@ export function useDeploymentConnectionDraft({
         setExposure(nextExposure);
         onExposureChange?.(nextExposure);
         setRememberedServers(remembered);
+        if (!canInitializeDraft()) return;
         if (isThisComputerExposureMode(nextExposure.mode)) {
           setThisComputerMode(nextExposure.mode);
         }
-        if (!canInitializeDraft()) return;
         if (connectionOnly) {
           setMode("custom_https");
           return;
