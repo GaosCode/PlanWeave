@@ -737,6 +737,7 @@ export class OperatorControlClient {
         options.rawBody ?? (options.body === undefined ? undefined : JSON.stringify(options.body))
     });
     const text = await this.readTextLimited(response);
+    this.ensureOpen();
     if (!response.ok) throw errorFromHttp(response.status, text);
     let value: unknown;
     try {
@@ -802,16 +803,19 @@ export class OperatorControlClient {
     if (url.origin !== base.origin || !url.pathname.startsWith("/api/v1/")) {
       throw new OperatorControlError({ kind: "validation", code: "operator_route_invalid" });
     }
+    this.ensureOpen();
     const timeout = new AbortController();
     const timer = this.clock.setTimeout(() => timeout.abort(), this.timeoutMs);
     const signal = AbortSignal.any([this.rootController.signal, timeout.signal]);
     try {
-      return await this.fetchImpl(url, {
+      const response = await this.fetchImpl(url, {
         method: init.method,
         headers: init.headers,
         body: init.body,
         signal
       });
+      this.ensureOpen();
+      return response;
     } catch (error) {
       if (timeout.signal.aborted && !this.rootController.signal.aborted) {
         throw new OperatorControlError({ kind: "timeout", code: "operator_timeout" });

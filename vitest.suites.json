@@ -347,6 +347,8 @@
         "localCollaborationScopeStore.test.ts",
         "mcpTunnel.test.ts",
         "operatorCredentialRecovery.test.ts",
+        "operatorProfileConcurrency.test.ts",
+        "operatorProfileStore.test.ts",
         "operatorManagementService.test.ts",
         "operatorControl.test.ts",
         "operatorControlHandlers.test.ts",

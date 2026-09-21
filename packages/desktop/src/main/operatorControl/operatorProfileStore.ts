@@ -77,14 +77,16 @@ async function writePrivateJson(path: string, value: unknown): Promise<void> {
     encoding: "utf8",
     mode: 0o600
   });
+  const written = await stat(temporaryPath);
+  if ((written.mode & 0o777) !== 0o600) await chmod(temporaryPath, 0o600);
   await rename(temporaryPath, path);
-  const written = await stat(path);
-  if ((written.mode & 0o777) !== 0o600) await chmod(path, 0o600);
 }
 
 /** Durable operator identity metadata; no credential or transport override is accepted. */
 export class OperatorProfileStore {
   private loaded: OperatorProfilesDocument | null = null;
+  private loading: Promise<OperatorProfilesDocument> | undefined;
+  private queue: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly paths: OperatorProfileStorePaths = operatorProfileStorePaths()) {}
 
@@ -92,15 +94,37 @@ export class OperatorProfileStore {
     return this.paths.profilesPath;
   }
 
-  async read(): Promise<OperatorProfilesDocument> {
-    if (this.loaded) return this.loaded;
+  private exclusive<T>(operation: () => Promise<T>): Promise<T> {
+    const next = this.queue.then(operation);
+    this.queue = next.then(
+      () => undefined,
+      () => undefined
+    );
+    return next;
+  }
+
+  private load(): Promise<OperatorProfilesDocument> {
+    if (this.loaded) return Promise.resolve(this.loaded);
+    if (this.loading) return this.loading;
+    const loading = this.readDocument()
+      .then((document) => {
+        this.loaded = document;
+        return document;
+      })
+      .finally(() => {
+        if (this.loading === loading) this.loading = undefined;
+      });
+    this.loading = loading;
+    return loading;
+  }
+
+  private async readDocument(): Promise<OperatorProfilesDocument> {
     let raw: string;
     try {
       raw = await readFile(this.paths.profilesPath, "utf8");
     } catch (error) {
       if (isMissingFileError(error)) {
-        this.loaded = defaultDocument();
-        return this.loaded;
+        return defaultDocument();
       }
       throw new Error("Failed to read operator profiles.");
     }
@@ -118,15 +142,24 @@ export class OperatorProfileStore {
       throw new Error("Invalid operator profiles JSON.");
     }
     if (migration.migrated) await writePrivateJson(this.paths.profilesPath, parsed);
-    this.loaded = parsed;
-    return this.loaded;
+    return parsed;
   }
 
-  async write(document: OperatorProfilesDocument): Promise<OperatorProfilesDocument> {
+  private async persist(document: OperatorProfilesDocument): Promise<OperatorProfilesDocument> {
     const parsed = operatorProfilesDocumentSchema.parse(document);
     await writePrivateJson(this.paths.profilesPath, parsed);
     this.loaded = parsed;
     return parsed;
+  }
+
+  read(): Promise<OperatorProfilesDocument> {
+    return this.exclusive(async () => operatorProfilesDocumentSchema.parse(await this.load()));
+  }
+
+  write(document: OperatorProfilesDocument): Promise<OperatorProfilesDocument> {
+    return this.exclusive(async () =>
+      operatorProfilesDocumentSchema.parse(await this.persist(document))
+    );
   }
 
   async list(): Promise<StoredOperatorProfile[]> {
@@ -139,26 +172,30 @@ export class OperatorProfileStore {
   }
 
   async upsert(profile: OperatorControlProfile): Promise<StoredOperatorProfile> {
-    const document = await this.read();
-    const stored: StoredOperatorProfile = {
-      ...operatorControlProfileSchema.parse(profile),
-      updatedAt: new Date().toISOString()
-    };
-    const index = document.profiles.findIndex((entry) => entry.profileId === stored.profileId);
-    if (index >= 0) document.profiles[index] = stored;
-    else document.profiles.push(stored);
-    await this.write(document);
-    return stored;
+    return this.exclusive(async () => {
+      const document = operatorProfilesDocumentSchema.parse(await this.load());
+      const stored: StoredOperatorProfile = {
+        ...operatorControlProfileSchema.parse(profile),
+        updatedAt: new Date().toISOString()
+      };
+      const index = document.profiles.findIndex((entry) => entry.profileId === stored.profileId);
+      if (index >= 0) document.profiles[index] = stored;
+      else document.profiles.push(stored);
+      await this.persist(document);
+      return stored;
+    });
   }
 
   async remove(profileId: string): Promise<boolean> {
-    const document = await this.read();
-    const next = document.profiles.filter((profile) => profile.profileId !== profileId);
-    if (next.length === document.profiles.length) return false;
-    document.profiles = next;
-    if (document.activeProfileId === profileId) document.activeProfileId = null;
-    await this.write(document);
-    return true;
+    return this.exclusive(async () => {
+      const document = operatorProfilesDocumentSchema.parse(await this.load());
+      const next = document.profiles.filter((profile) => profile.profileId !== profileId);
+      if (next.length === document.profiles.length) return false;
+      document.profiles = next;
+      if (document.activeProfileId === profileId) document.activeProfileId = null;
+      await this.persist(document);
+      return true;
+    });
   }
 
   async getActiveProfileId(): Promise<string | null> {
@@ -166,14 +203,16 @@ export class OperatorProfileStore {
   }
 
   async setActiveProfileId(profileId: string | null): Promise<void> {
-    const document = await this.read();
-    if (
-      profileId !== null &&
-      !document.profiles.some((profile) => profile.profileId === profileId)
-    ) {
-      throw new Error(`Unknown operator profile: ${profileId}`);
-    }
-    document.activeProfileId = profileId;
-    await this.write(document);
+    return this.exclusive(async () => {
+      const document = operatorProfilesDocumentSchema.parse(await this.load());
+      if (
+        profileId !== null &&
+        !document.profiles.some((profile) => profile.profileId === profileId)
+      ) {
+        throw new Error(`Unknown operator profile: ${profileId}`);
+      }
+      document.activeProfileId = profileId;
+      await this.persist(document);
+    });
   }
 }

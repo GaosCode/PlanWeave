@@ -4,6 +4,9 @@ import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { OperatorControlService } from "../main/operatorControl/operatorControlService";
 import { OperatorCredentialVault } from "../main/operatorControl/operatorCredentialVault";
+import { OperatorControlClient } from "../main/operatorControl/OperatorControlClient";
+import { OperatorManagementService } from "../main/operatorControl/operatorManagementService";
+import { OperatorProfileOperations } from "../main/operatorControl/operatorProfileOperations";
 import { OperatorProfileStore } from "../main/operatorControl/operatorProfileStore";
 import { redactDiagnostic } from "../main/desktopDiagnosticsLog";
 
@@ -325,6 +328,99 @@ it("does not persist device secrets when operating without encrypted storage", a
   expect(await vault.persistenceFor("target")).toBe("session-only");
   expect(await vault.getManagementDevice("target")).toEqual(device);
   expect(await new OperatorCredentialVault(options).getManagementDevice("target")).toBeUndefined();
-  vault.clearSessionMemory();
+  await vault.clearSessionMemory();
   expect(await vault.getManagementDevice("target")).toBeUndefined();
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+it.each([
+  "clear",
+  "remove",
+  "import",
+  "origin",
+  "identity",
+  "shutdown"
+])("does not commit an old management refresh after %s invalidation", async (change) => {
+  const root = await mkdtemp(join(tmpdir(), "management-invalidation-"));
+  roots.push(root);
+  const paths = { credentialsPath: join(root, "credentials.json") };
+  const safeStorage = {
+    isEncryptionAvailable: () => true,
+    encryptString: (text: string) => Buffer.from(text),
+    decryptString: (bytes: Buffer) => bytes.toString()
+  };
+  const vault = new OperatorCredentialVault({ paths, safeStorage });
+  const profiles = new OperatorProfileStore({ profilesPath: join(root, "profiles.json") });
+  const profile = {
+    profileId: "target",
+    displayName: "Target",
+    serverBaseUrl: "https://server.example",
+    allowInsecureTransport: false,
+    operatorId: "target-admin"
+  };
+  await profiles.upsert(profile);
+  await vault.setOperatorToken("target", oldToken, "target-admin");
+  const pendingToken = `pw_operator_${"P".repeat(43)}`;
+  await vault.setManagementDevice("target", {
+    secret: `pw_device_${"D".repeat(43)}`,
+    origin: "https://server.example",
+    operatorId: "target-admin",
+    deviceId: "c28d8f73-0881-4a71-b21d-2a69f223aabc",
+    pendingToken
+  });
+  const entered = deferred<void>();
+  const refresh = deferred<Response>();
+  const operations = new OperatorProfileOperations();
+  let refreshSignal: AbortSignal | null | undefined;
+  const management = new OperatorManagementService({
+    profiles,
+    vault,
+    operations,
+    client: async () =>
+      new OperatorControlClient({
+        profile,
+        credential: { getOperatorToken: () => vault.getOperatorToken("target") },
+        request: async (_url, init) => {
+          refreshSignal = init?.signal;
+          entered.resolve();
+          // Deliberately deliver a response even after abort to test the commit guard.
+          return refresh.promise;
+        }
+      })
+  });
+  const checking = management.check("target");
+  expect(management.check("target")).toBe(checking);
+  await entered.promise;
+  expect((await vault.getManagementDevice("target"))?.pendingToken).toBe(pendingToken);
+  if (change === "shutdown") operations.shutdown();
+  else management.forget("target");
+  if (change === "clear" || change === "remove") await vault.clear("target");
+  if (change === "remove") await profiles.remove("target");
+  if (change === "import") {
+    await vault.setManagementDevice("target", undefined);
+    await vault.setOperatorToken("target", adminToken, "target-admin");
+  }
+  if (change === "origin")
+    await profiles.upsert({ ...profile, serverBaseUrl: "https://moved.example" });
+  if (change === "identity") await profiles.upsert({ ...profile, operatorId: "new-admin" });
+  expect(refreshSignal?.aborted).toBe(true);
+  refresh.resolve(response({ ...authorization, deviceId: "c28d8f73-0881-4a71-b21d-2a69f223aabc" }));
+  expect((await checking).errorCode).toBe("operator_operation_invalidated");
+  const restored = new OperatorCredentialVault({ paths, safeStorage });
+  expect(await restored.getOperatorToken("target")).toBe(
+    change === "clear" || change === "remove"
+      ? undefined
+      : change === "import"
+        ? adminToken
+        : oldToken
+  );
+  if (change === "remove") expect(await profiles.get("target")).toBeNull();
+  operations.shutdown();
 });

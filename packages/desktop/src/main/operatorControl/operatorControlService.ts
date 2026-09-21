@@ -1,3 +1,12 @@
+import {
+  OperatorLocalHostOperations,
+  localAgentHostErrorFromUnknown
+} from "./operatorLocalHostOperations.js";
+import { OperatorAuthorizationMaintenance } from "./operatorAuthorizationMaintenance.js";
+import {
+  OperatorProfileOperations,
+  type OperatorProfileOperation
+} from "./operatorProfileOperations.js";
 import { OperatorManagementService } from "./operatorManagementService.js";
 import {
   operatorManagementInputSchema,
@@ -111,17 +120,6 @@ function nowIso(clock?: { now(): Date }): string {
   return (clock?.now() ?? new Date()).toISOString();
 }
 
-const localAgentHostErrorCodePattern = /^(?:agent_host|local_agent_host)_[a-z0-9_]+$/;
-
-function localAgentHostErrorFromUnknown(error: unknown): OperatorControlError {
-  if (error instanceof OperatorControlError) return error;
-  const code =
-    error instanceof Error && localAgentHostErrorCodePattern.test(error.message)
-      ? error.message
-      : "local_agent_host_registration_failed";
-  return new OperatorControlError({ kind: "unknown", code, cause: error });
-}
-
 function toPublicProfile(
   profile: OperatorControlProfile & { updatedAt: string },
   hostedByThisDesktop: boolean,
@@ -158,9 +156,11 @@ export class OperatorControlService {
   private readonly localAgentHost: LocalAgentHostProvisioner;
   private readonly localOperatorBackend: LocalOperatorBackendPort | null | undefined;
   private readonly resolveHumanIdentityCredential?: OperatorControlServiceOptions["resolveHumanIdentityCredential"];
+  private readonly localHostOperation = Symbol("local-agent-host");
+  private readonly operations = new OperatorProfileOperations();
+  private readonly localHostMutations = new OperatorLocalHostOperations(this.operations);
   private readonly management: OperatorManagementService;
-  private maintenanceTimer: ReturnType<typeof setTimeout> | undefined;
-  private maintenanceStarted = false;
+  private readonly maintenance: OperatorAuthorizationMaintenance;
   private disposed = false;
   private queue: Promise<unknown> = Promise.resolve();
   private lastErrorCode: string | null = null;
@@ -188,7 +188,16 @@ export class OperatorControlService {
     this.management = new OperatorManagementService({
       profiles: this.profiles,
       vault: this.vault,
-      client: async (profileId) => (await this.createProfileClient(profileId, true)).client
+      operations: this.operations,
+      client: async (profileId) => (await this.createProfileClient(profileId)).client
+    });
+    this.maintenance = new OperatorAuthorizationMaintenance({
+      profiles: async () => (await this.profiles.list()).map((profile) => profile.profileId),
+      check: async (profileId) => {
+        if (!this.disposed && (await this.vault.getOperatorToken(profileId)))
+          await this.management.check(profileId);
+      },
+      onError: (error) => this.rememberError(error)
     });
   }
 
@@ -199,6 +208,20 @@ export class OperatorControlService {
       () => undefined
     );
     return next;
+  }
+
+  private changeProfile<T>(
+    profileId: string,
+    action: (operation: OperatorProfileOperation) => Promise<T>
+  ): Promise<T> {
+    this.assertOpen();
+    this.management.forget(profileId);
+    return this.operations.run(profileId, (operation) =>
+      this.enqueue(async () => {
+        operation.assertCurrent();
+        return action(operation);
+      })
+    );
   }
 
   private assertOpen(): void {
@@ -223,7 +246,7 @@ export class OperatorControlService {
       const metadata = await this.vault.getMetadata(profile.profileId);
       const humanIdentity = await this.resolveHumanIdentityCredential?.({
         serverBaseUrl: profile.serverBaseUrl,
-        recover: profile.profileId === activeProfileId
+        recover: false
       });
       views.push(
         toPublicProfile(profile, isLocalOwnedOperatorProfile(profile, localBackendSnapshot), {
@@ -285,51 +308,28 @@ export class OperatorControlService {
   }
 
   startAuthorizationMaintenance(): void {
-    if (this.maintenanceStarted || this.disposed) return;
-    this.maintenanceStarted = true;
-    const tick = () => {
-      void (async () => {
-        for (const profile of await this.profiles.list()) {
-          if (this.disposed) return;
-          await this.enqueue(async () => {
-            if (!this.disposed && (await this.vault.getOperatorToken(profile.profileId)))
-              await this.management.check(profile.profileId);
-          });
-        }
-      })()
-        .catch((error) => this.rememberError(error))
-        .finally(() => {
-          if (!this.disposed) {
-            this.maintenanceTimer = setTimeout(tick, 5 * 60_000);
-            this.maintenanceTimer.unref();
-          }
-        });
-    };
-    this.maintenanceTimer = setTimeout(tick, 1_000);
-    this.maintenanceTimer.unref();
+    this.maintenance.start();
   }
 
   getManagementAuthorization(input: unknown) {
     const { profileId } = operatorManagementInputSchema.parse(input);
-    return this.enqueue(() => {
-      this.assertOpen();
-      return this.management.check(profileId);
-    });
+
+    this.assertOpen();
+    return this.management.check(profileId);
   }
 
   revokeManagementDevice(input: unknown) {
     const { profileId, deviceId } = operatorManagementRevokeInputSchema.parse(input);
-    return this.enqueue(async () => {
-      this.assertOpen();
-      return this.management.revoke(profileId, deviceId);
-    });
+
+    this.assertOpen();
+    return this.management.revoke(profileId, deviceId);
   }
 
   reauthorizeManagement(input: unknown) {
     const { profileId } = operatorManagementInputSchema.parse(input);
-    return this.enqueue(async () => {
-      this.assertOpen();
-      const result = await this.management.reauthorize(profileId);
+
+    this.assertOpen();
+    return this.management.reauthorize(profileId).then(async (result) => {
       this.lastErrorCode = null;
       this.lastErrorMessage = null;
       await this.publishStatus();
@@ -341,37 +341,35 @@ export class OperatorControlService {
     const parsed = operatorManagementRecoverInputSchema.safeParse(input);
     if (!parsed.success)
       throw new OperatorControlError({ kind: "validation", code: "operator_recovery_invalid" });
-    return this.enqueue(async () => {
-      this.assertOpen();
-      const result = await this.management.reauthorize(
-        parsed.data.profileId,
-        parsed.data.recoveryCode
-      );
-      this.lastErrorCode = null;
-      this.lastErrorMessage = null;
-      await this.publishStatus();
-      return result;
-    });
+
+    this.assertOpen();
+    return this.management
+      .reauthorize(parsed.data.profileId, parsed.data.recoveryCode)
+      .then(async (result) => {
+        this.lastErrorCode = null;
+        this.lastErrorMessage = null;
+        await this.publishStatus();
+        return result;
+      });
   }
 
   async getStatus(): Promise<OperatorControlStatus> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      return this.buildStatus();
-    });
+    this.assertOpen();
+    await this.queue;
+    return this.buildStatus();
   }
 
   async upsertProfile(input: unknown): Promise<OperatorControlStatus> {
-    return this.enqueue(async () => {
+    assertNoSmuggledOperatorSecrets(input, "upsertOperatorProfile");
+    const profile = operatorControlProfileInputSchema.parse(input);
+    return this.changeProfile(profile.profileId, async () => {
       this.assertOpen();
-      assertNoSmuggledOperatorSecrets(input, "upsertOperatorProfile");
-      const profile = operatorControlProfileInputSchema.parse(input);
+
       const existing = await this.profiles.get(profile.profileId);
       await this.profiles.upsert({
         ...profile,
         ...(existing?.endpoint ? { endpoint: existing.endpoint } : {})
       });
-      this.management.forget(profile.profileId);
       return this.publishStatus();
     });
   }
@@ -381,9 +379,9 @@ export class OperatorControlService {
     profile: OperatorControlProfile;
     operatorId: string;
   }): Promise<string> {
-    return this.enqueue(async () => {
+    const profile = operatorControlProfileSchema.parse(input.profile);
+    return this.changeProfile(profile.profileId, async () => {
       this.assertOpen();
-      const profile = operatorControlProfileSchema.parse(input.profile);
       const operatorId = input.operatorId.trim();
       if (!operatorId) {
         throw new OperatorControlError({
@@ -425,9 +423,9 @@ export class OperatorControlService {
     operatorId: string;
     operatorToken: string;
   }): Promise<void> {
-    return this.enqueue(async () => {
+    const profile = operatorControlProfileSchema.parse(input.profile);
+    return this.changeProfile(profile.profileId, async () => {
       this.assertOpen();
-      const profile = operatorControlProfileSchema.parse(input.profile);
       if (!profile.endpoint) throw new Error("operator_deployment_endpoint_required");
       const operatorId = input.operatorId.trim();
       const operatorToken = operatorTokenSchema.parse(input.operatorToken);
@@ -437,7 +435,6 @@ export class OperatorControlService {
       // Profile reconciliation must not replace a recovered credential with the bootstrap token.
       if (!existingToken || existingIdentity?.operatorId !== operatorId) {
         await this.vault.setOperatorToken(profile.profileId, operatorToken, operatorId);
-        this.management.forget(profile.profileId);
       }
       await this.profiles.upsert(profile);
       if ((await this.profiles.getActiveProfileId()) === null) {
@@ -452,12 +449,12 @@ export class OperatorControlService {
   }
 
   async removeProfile(input: unknown): Promise<OperatorControlStatus> {
-    return this.enqueue(async () => {
+    assertNoSmuggledOperatorSecrets(input, "removeOperatorProfile");
+    const { profileId } = operatorProfileIdInputSchema.parse(input);
+    return this.changeProfile(profileId, async () => {
       this.assertOpen();
-      assertNoSmuggledOperatorSecrets(input, "removeOperatorProfile");
-      const { profileId } = operatorProfileIdInputSchema.parse(input);
+
       await this.vault.clear(profileId);
-      this.management.forget(profileId);
       await this.profiles.remove(profileId);
       return this.publishStatus();
     });
@@ -514,35 +511,38 @@ export class OperatorControlService {
   }
 
   async importCredential(input: unknown): Promise<OperatorControlStatus> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      if (!input || typeof input !== "object") {
-        throw new OperatorControlError({ kind: "validation", code: "operator_import_invalid" });
+    this.assertOpen();
+    if (!input || typeof input !== "object") {
+      throw new OperatorControlError({ kind: "validation", code: "operator_import_invalid" });
+    }
+    const raw = input as Record<string, unknown>;
+    for (const key of [
+      "encryptedOperatorToken",
+      "authorization",
+      "Authorization",
+      "credentialPath",
+      "credentialsPath",
+      "headers",
+      "url",
+      "path",
+      "command"
+    ]) {
+      if (key in raw && raw[key] !== undefined) {
+        throw new OperatorControlError({
+          kind: "validation",
+          code: "operator_ipc_payload_forbidden",
+          message: `Operator IPC rejected importCredential: field "${key}" is not allowed.`
+        });
       }
-      const raw = input as Record<string, unknown>;
-      for (const key of [
-        "encryptedOperatorToken",
-        "authorization",
-        "Authorization",
-        "credentialPath",
-        "credentialsPath",
-        "headers",
-        "url",
-        "path",
-        "command"
-      ]) {
-        if (key in raw && raw[key] !== undefined) {
-          throw new OperatorControlError({
-            kind: "validation",
-            code: "operator_ipc_payload_forbidden",
-            message: `Operator IPC rejected importCredential: field "${key}" is not allowed.`
-          });
-        }
-      }
-      const validation = operatorCredentialMaterialInputSchema.safeParse(input);
-      if (!validation.success)
-        throw new OperatorControlError({ kind: "validation", code: "operator_import_invalid" });
-      const parsed = validation.data;
+    }
+    const validation = operatorCredentialMaterialInputSchema.safeParse(input);
+    if (!validation.success)
+      throw new OperatorControlError({ kind: "validation", code: "operator_import_invalid" });
+    const parsed = validation.data;
+    this.management.forget(parsed.profileId);
+    return this.operations.run(parsed.profileId, async (operation) => {
+      await this.queue;
+      operation.assertCurrent();
       const profile = await this.profiles.get(parsed.profileId);
       if (!profile) {
         throw new OperatorControlError({ kind: "validation", code: "operator_profile_not_found" });
@@ -568,15 +568,24 @@ export class OperatorControlService {
           credential: { getOperatorToken: async () => parsed.operatorToken },
           request: this.request
         });
+        operation.track(client);
         try {
           await client.listHosts({ limit: 1 });
         } finally {
           client.dispose();
         }
       }
-      await this.vault.setManagementDevice(parsed.profileId, undefined);
-      await this.vault.setOperatorToken(parsed.profileId, parsed.operatorToken, parsed.operatorId);
-      this.management.forget(parsed.profileId);
+      await this.enqueue(async () => {
+        operation.assertCurrent();
+        await this.vault.setManagementDevice(parsed.profileId, undefined, operation.assertCurrent);
+        await this.vault.setOperatorToken(
+          parsed.profileId,
+          parsed.operatorToken,
+          parsed.operatorId,
+          operation.assertCurrent
+        );
+      });
+      operation.assertCurrent();
       this.lastErrorCode = null;
       this.lastErrorMessage = null;
       return this.publishStatus();
@@ -584,12 +593,12 @@ export class OperatorControlService {
   }
 
   async clearCredential(input: unknown): Promise<OperatorControlStatus> {
-    return this.enqueue(async () => {
+    assertNoSmuggledOperatorSecrets(input, "clearOperatorCredential");
+    const { profileId } = operatorProfileIdInputSchema.parse(input);
+    return this.changeProfile(profileId, async () => {
       this.assertOpen();
-      assertNoSmuggledOperatorSecrets(input, "clearOperatorCredential");
-      const { profileId } = operatorProfileIdInputSchema.parse(input);
+
       await this.vault.clear(profileId);
-      this.management.forget(profileId);
       return this.publishStatus();
     });
   }
@@ -599,9 +608,7 @@ export class OperatorControlService {
   ): Promise<Awaited<ReturnType<OperatorControlClient["listHosts"]>>> {
     assertNoSmuggledOperatorSecrets(input, "listHosts");
     const parsed = operatorListHostsInputSchema.parse(input);
-    return this.enqueue(() =>
-      this.withProfile(parsed, (client, value) => client.listHosts(value.query ?? {}))
-    );
+    return this.withProfile(parsed, (client, value) => client.listHosts(value.query ?? {}));
   }
 
   async listAgentEndpoints(
@@ -609,27 +616,26 @@ export class OperatorControlService {
   ): Promise<Awaited<ReturnType<OperatorControlClient["listAgentEndpoints"]>>> {
     assertNoSmuggledOperatorSecrets(input, "listAgentEndpoints");
     const parsed = operatorListAgentEndpointsInputSchema.parse(input);
-    return this.enqueue(async () => {
-      try {
-        return await this.withProfile(parsed, (client, value) =>
-          client.listAgentEndpoints({
-            humanPrincipalId: value.humanPrincipalId,
-            projectId: value.projectId,
-            canvasId: value.canvasId,
-            ...(value.workspaceId === undefined ? {} : { workspaceId: value.workspaceId })
-          })
-        );
-      } catch (error) {
-        if (
-          error instanceof OperatorControlError &&
-          error.code === "operator_local_server_not_ready"
-        ) {
-          this.rememberError(error);
-          await this.publishStatus();
-        }
-        throw error;
+
+    try {
+      return await this.withProfile(parsed, (client, value) =>
+        client.listAgentEndpoints({
+          humanPrincipalId: value.humanPrincipalId,
+          projectId: value.projectId,
+          canvasId: value.canvasId,
+          ...(value.workspaceId === undefined ? {} : { workspaceId: value.workspaceId })
+        })
+      );
+    } catch (error) {
+      if (
+        error instanceof OperatorControlError &&
+        error.code === "operator_local_server_not_ready"
+      ) {
+        this.rememberError(error);
+        await this.publishStatus();
       }
-    });
+      throw error;
+    }
   }
 
   async createEnrollmentGrant(
@@ -637,9 +643,7 @@ export class OperatorControlService {
   ): Promise<Awaited<ReturnType<OperatorControlClient["createEnrollmentGrant"]>>> {
     assertNoSmuggledOperatorSecrets(input, "createEnrollmentGrant");
     const parsed = operatorCreateEnrollmentGrantInputSchema.parse(input);
-    return this.enqueue(() =>
-      this.withProfile(parsed, (client, value) => client.createEnrollmentGrant(value.request))
-    );
+    return this.withProfile(parsed, (client, value) => client.createEnrollmentGrant(value.request));
   }
 
   async copyHostBootstrapHandoff(
@@ -648,21 +652,20 @@ export class OperatorControlService {
   ): Promise<ReturnType<typeof operatorHostBootstrapHandoffViewSchema.parse>> {
     assertNoSmuggledOperatorSecrets(input, "copyHostBootstrapHandoff");
     const parsed = operatorCopyHostBootstrapHandoffInputSchema.parse(input);
-    return this.enqueue(() =>
-      this.withProfile(parsed, async (client, value, connectionProfile) => {
-        const grant = await client.createEnrollmentGrant(value.request);
-        copyText(buildHostBootstrapHandoff(connectionProfile, value, grant));
-        return operatorHostBootstrapHandoffViewSchema.parse({
-          state: "ready",
-          ...(grant.workspaceId ? { workspaceId: grant.workspaceId } : {}),
-          expiresAt: grant.expiresAt,
-          credentialExpiresAt: grant.credentialExpiresAt,
-          credentialPolicy: grant.credentialPolicy,
-          copiedAt: new Date().toISOString(),
-          commandPreview: "planweave agent-host enroll <handoff>"
-        });
-      })
-    );
+    return this.withProfile(parsed, async (client, value, connectionProfile, operation) => {
+      const grant = await client.createEnrollmentGrant(value.request);
+      operation.assertCurrent();
+      copyText(buildHostBootstrapHandoff(connectionProfile, value, grant));
+      return operatorHostBootstrapHandoffViewSchema.parse({
+        state: "ready",
+        ...(grant.workspaceId ? { workspaceId: grant.workspaceId } : {}),
+        expiresAt: grant.expiresAt,
+        credentialExpiresAt: grant.credentialExpiresAt,
+        credentialPolicy: grant.credentialPolicy,
+        copiedAt: new Date().toISOString(),
+        commandPreview: "planweave agent-host enroll <handoff>"
+      });
+    });
   }
 
   async copyMemberSetupCode(
@@ -671,38 +674,37 @@ export class OperatorControlService {
   ): Promise<ReturnType<typeof operatorMemberSetupCodeHandoffViewSchema.parse>> {
     assertNoSmuggledOperatorSecrets(input, "copyMemberSetupCode");
     const parsed = operatorCopyMemberSetupCodeInputSchema.parse(input);
-    return this.enqueue(() =>
-      this.withProfile(parsed, async (client, _value, connectionProfile) => {
-        if (
-          new URL(connectionProfile.serverBaseUrl).origin !== new URL(parsed.serverBaseUrl).origin
-        ) {
-          throw new OperatorControlError({
-            kind: "validation",
-            code: "operator_workspace_origin_mismatch"
-          });
-        }
-        const response = await client.issueMemberDeviceSetupCode(parsed.workspaceId);
-        if (response.grant.workspaceId !== parsed.workspaceId) {
-          throw new OperatorControlError({
-            kind: "protocol",
-            code: "operator_setup_workspace_mismatch"
-          });
-        }
-        copyText(
-          serializeCollaborationSetupHandoffV1({
-            serverBaseUrl: connectionProfile.serverBaseUrl,
-            setupCode: response.setupCode,
-            allowInsecureTransport: connectionProfile.allowInsecureTransport
-          })
-        );
-        return operatorMemberSetupCodeHandoffViewSchema.parse({
-          state: "ready",
-          workspaceId: response.grant.workspaceId,
-          expiresAt: response.grant.expiresAt,
-          copiedAt: nowIso(this.clock)
+    return this.withProfile(parsed, async (client, _value, connectionProfile, operation) => {
+      if (
+        new URL(connectionProfile.serverBaseUrl).origin !== new URL(parsed.serverBaseUrl).origin
+      ) {
+        throw new OperatorControlError({
+          kind: "validation",
+          code: "operator_workspace_origin_mismatch"
         });
-      })
-    );
+      }
+      const response = await client.issueMemberDeviceSetupCode(parsed.workspaceId);
+      if (response.grant.workspaceId !== parsed.workspaceId) {
+        throw new OperatorControlError({
+          kind: "protocol",
+          code: "operator_setup_workspace_mismatch"
+        });
+      }
+      operation.assertCurrent();
+      copyText(
+        serializeCollaborationSetupHandoffV1({
+          serverBaseUrl: connectionProfile.serverBaseUrl,
+          setupCode: response.setupCode,
+          allowInsecureTransport: connectionProfile.allowInsecureTransport
+        })
+      );
+      return operatorMemberSetupCodeHandoffViewSchema.parse({
+        state: "ready",
+        workspaceId: response.grant.workspaceId,
+        expiresAt: response.grant.expiresAt,
+        copiedAt: nowIso(this.clock)
+      });
+    });
   }
 
   private async operatorProfilesForOrigin(
@@ -734,9 +736,7 @@ export class OperatorControlService {
   ): Promise<Awaited<ReturnType<OperatorControlClient["revokeHost"]>>> {
     assertNoSmuggledOperatorSecrets(input, "revokeHost");
     const parsed = operatorRevokeHostInputSchema.parse(input);
-    return this.enqueue(() =>
-      this.withProfile(parsed, (client, value) => client.revokeHost(value.hostId))
-    );
+    return this.withProfile(parsed, (client, value) => client.revokeHost(value.hostId));
   }
 
   async renewHostCredential(
@@ -744,59 +744,59 @@ export class OperatorControlService {
   ): Promise<Awaited<ReturnType<OperatorControlClient["requestHostCredentialRenewal"]>>> {
     assertNoSmuggledOperatorSecrets(input, "renewHostCredential");
     const parsed = operatorRenewHostCredentialInputSchema.parse(input);
-    return this.enqueue(() =>
-      this.withProfile(parsed, (client, value) => client.requestHostCredentialRenewal(value.hostId))
+    return this.withProfile(parsed, (client, value) =>
+      client.requestHostCredentialRenewal(value.hostId)
     );
   }
 
   async getLocalAgentHostStatus(input: unknown) {
     assertNoSmuggledOperatorSecrets(input, "getLocalAgentHostStatus");
     const parsed = operatorGetLocalAgentHostStatusInputSchema.parse(input);
-    return this.enqueue(async () => {
-      this.assertOpen();
-      if (parsed.profileId && !(await this.profiles.get(parsed.profileId))) {
-        throw new OperatorControlError({ kind: "validation", code: "operator_profile_not_found" });
-      }
-      return this.localAgentHost.status(parsed.profileId);
-    });
+
+    this.assertOpen();
+    if (parsed.profileId && !(await this.profiles.get(parsed.profileId))) {
+      throw new OperatorControlError({ kind: "validation", code: "operator_profile_not_found" });
+    }
+    return this.localAgentHost.status(parsed.profileId);
   }
 
   async registerLocalAgentHost(input: unknown) {
     assertNoSmuggledOperatorSecrets(input, "registerLocalAgentHost");
     const parsed = operatorRegisterLocalAgentHostInputSchema.parse(input);
-    return this.enqueue(() =>
-      this.withProfile(parsed, async (client, value, connectionProfile) => {
-        if (!(await this.localAgentHost.status(value.profileId)).supported) {
-          throw new Error("local_agent_host_unavailable");
-        }
-        if (connectionProfile.endpoint?.tlsTrust === "configured_ca") {
-          throw new Error("local_agent_host_custom_ca_unsupported");
-        }
-        const grant = await client.createEnrollmentGrant(value.request);
-        const handoff = buildHostBootstrapHandoffPayload(connectionProfile, grant);
-        try {
-          return await this.localAgentHost.register(
-            value.profileId,
-            handoff,
-            value.exposedProfileIds
-          );
-        } catch (error) {
-          throw localAgentHostErrorFromUnknown(error);
-        }
-      })
-    );
+    return this.withProfile(parsed, async (client, value, connectionProfile, operation) => {
+      if (!(await this.localAgentHost.status(value.profileId)).supported) {
+        throw new Error("local_agent_host_unavailable");
+      }
+      if (connectionProfile.endpoint?.tlsTrust === "configured_ca") {
+        throw new Error("local_agent_host_custom_ca_unsupported");
+      }
+      const grant = await client.createEnrollmentGrant(value.request);
+      operation.assertCurrent();
+      const handoff = buildHostBootstrapHandoffPayload(connectionProfile, grant);
+      try {
+        return await this.localHostMutations.run(operation, () =>
+          this.localAgentHost.register(value.profileId, handoff, value.exposedProfileIds)
+        );
+      } catch (error) {
+        throw localAgentHostErrorFromUnknown(error);
+      }
+    });
   }
 
   async repairLocalAgentHost(input: unknown) {
     assertNoSmuggledOperatorSecrets(input, "repairLocalAgentHost");
     const parsed = operatorRepairLocalAgentHostInputSchema.parse(input);
-    return this.enqueue(async () => {
+
+    this.assertOpen();
+    return this.operations.run(parsed.profileId ?? this.localHostOperation, async (operation) => {
       try {
         this.assertOpen();
-        return await this.localAgentHost.repair(parsed.profileId, parsed.exposedProfileIds);
+        return await this.localHostMutations.run(operation, () =>
+          this.localAgentHost.repair(parsed.profileId, parsed.exposedProfileIds)
+        );
       } catch (error) {
         const publicError = localAgentHostErrorFromUnknown(error);
-        this.rememberError(publicError);
+        if (operation.isCurrent()) this.rememberError(publicError);
         throw publicError;
       }
     });
@@ -805,7 +805,9 @@ export class OperatorControlService {
   async enrollLocalAgentHost(input: unknown) {
     assertNoSmuggledOperatorSecrets(input, "enrollLocalAgentHost");
     const parsed = operatorEnrollLocalAgentHostInputSchema.parse(input);
-    return this.enqueue(async () => {
+
+    this.assertOpen();
+    return this.operations.run(this.localHostOperation, async (operation) => {
       try {
         this.assertOpen();
         const enrollmentHandoff = parseAgentHostHandoffInput(parsed.handoff);
@@ -815,17 +817,20 @@ export class OperatorControlService {
         if (enrollmentHandoff.handoff.endpoint.tlsTrust === "configured_ca") {
           throw new Error("local_agent_host_custom_ca_unsupported");
         }
-        const result = await this.localAgentHost.register(
-          undefined,
-          enrollmentHandoff.encodedHandoff,
-          parsed.exposedProfileIds
+        const result = await this.localHostMutations.run(operation, () =>
+          this.localAgentHost.register(
+            undefined,
+            enrollmentHandoff.encodedHandoff,
+            parsed.exposedProfileIds
+          )
         );
+        operation.assertCurrent();
         this.lastErrorCode = null;
         this.lastErrorMessage = null;
         return result;
       } catch (error) {
         const publicError = localAgentHostErrorFromUnknown(error);
-        this.rememberError(publicError);
+        if (operation.isCurrent()) this.rememberError(publicError);
         throw publicError;
       }
     });
@@ -834,12 +839,10 @@ export class OperatorControlService {
   async observeOwnerFleetRemoteOperation(input: unknown) {
     assertNoSmuggledOperatorSecrets(input, "observeOwnerFleetRemoteOperation");
     const parsed = operatorObserveOwnerFleetRemoteOperationInputSchema.parse(input);
-    return this.enqueue(() =>
-      this.withProfile(parsed, async (client, value) =>
-        client.observeRemoteOperation(
-          value.operationId,
-          await this.requireProfileHumanPrincipalId(client)
-        )
+    return this.withProfile(parsed, async (client, value) =>
+      client.observeRemoteOperation(
+        value.operationId,
+        await this.requireProfileHumanPrincipalId(client)
       )
     );
   }
@@ -847,13 +850,11 @@ export class OperatorControlService {
   async replayOwnerFleetRemoteOperationEvents(input: unknown) {
     assertNoSmuggledOperatorSecrets(input, "replayOwnerFleetRemoteOperationEvents");
     const parsed = operatorReplayOwnerFleetRemoteOperationEventsInputSchema.parse(input);
-    return this.enqueue(() =>
-      this.withProfile(parsed, async (client, value) =>
-        client.replayRemoteOperationEvents(
-          value.operationId,
-          value.query.afterCursor,
-          await this.requireProfileHumanPrincipalId(client)
-        )
+    return this.withProfile(parsed, async (client, value) =>
+      client.replayRemoteOperationEvents(
+        value.operationId,
+        value.query.afterCursor,
+        await this.requireProfileHumanPrincipalId(client)
       )
     );
   }
@@ -861,87 +862,75 @@ export class OperatorControlService {
   async listRemoteAgents(input: unknown) {
     assertNoSmuggledOperatorSecrets(input, "listRemoteAgents");
     const parsed = operatorListRemoteAgentsInputSchema.parse(input);
-    return this.enqueue(() =>
-      this.withProfile(parsed, (client, value) =>
-        client.listRemoteAgents({ humanPrincipalId: value.humanPrincipalId })
-      )
+    return this.withProfile(parsed, (client, value) =>
+      client.listRemoteAgents({ humanPrincipalId: value.humanPrincipalId })
     );
   }
 
   async setRemoteAgentAccessMode(input: unknown) {
     assertNoSmuggledOperatorSecrets(input, "setRemoteAgentAccessMode");
     const parsed = operatorSetRemoteAgentAccessModeInputSchema.parse(input);
-    return this.enqueue(() =>
-      this.withProfile(parsed, (client, value) =>
-        client.setRemoteAgentAccessMode({
-          humanPrincipalId: value.humanPrincipalId,
-          endpointId: value.endpointId,
-          accessMode: value.accessMode,
-          ...(value.allowOwnerCanvas === undefined
-            ? {}
-            : { allowOwnerCanvas: value.allowOwnerCanvas }),
-          ...(value.expectedPolicyRevision === undefined
-            ? {}
-            : { expectedPolicyRevision: value.expectedPolicyRevision })
-        })
-      )
+    return this.withProfile(parsed, (client, value) =>
+      client.setRemoteAgentAccessMode({
+        humanPrincipalId: value.humanPrincipalId,
+        endpointId: value.endpointId,
+        accessMode: value.accessMode,
+        ...(value.allowOwnerCanvas === undefined
+          ? {}
+          : { allowOwnerCanvas: value.allowOwnerCanvas }),
+        ...(value.expectedPolicyRevision === undefined
+          ? {}
+          : { expectedPolicyRevision: value.expectedPolicyRevision })
+      })
     );
   }
 
   async grantRemoteAgentWorkspace(input: unknown) {
     assertNoSmuggledOperatorSecrets(input, "grantRemoteAgentWorkspace");
     const parsed = operatorGrantRemoteAgentWorkspaceInputSchema.parse(input);
-    return this.enqueue(() =>
-      this.withProfile(parsed, (client, value) =>
-        client.grantRemoteAgentWorkspace({
-          humanPrincipalId: value.humanPrincipalId,
-          endpointId: value.endpointId,
-          workspaceId: value.workspaceId,
-          ...(value.expectedGrantRevision === undefined
-            ? {}
-            : { expectedGrantRevision: value.expectedGrantRevision })
-        })
-      )
+    return this.withProfile(parsed, (client, value) =>
+      client.grantRemoteAgentWorkspace({
+        humanPrincipalId: value.humanPrincipalId,
+        endpointId: value.endpointId,
+        workspaceId: value.workspaceId,
+        ...(value.expectedGrantRevision === undefined
+          ? {}
+          : { expectedGrantRevision: value.expectedGrantRevision })
+      })
     );
   }
 
   async revokeRemoteAgentGrant(input: unknown) {
     assertNoSmuggledOperatorSecrets(input, "revokeRemoteAgentGrant");
     const parsed = operatorRevokeRemoteAgentGrantInputSchema.parse(input);
-    return this.enqueue(() =>
-      this.withProfile(parsed, (client, value) =>
-        client.revokeRemoteAgentGrant({
-          humanPrincipalId: value.humanPrincipalId,
-          endpointId: value.endpointId,
-          workspaceId: value.workspaceId
-        })
-      )
+    return this.withProfile(parsed, (client, value) =>
+      client.revokeRemoteAgentGrant({
+        humanPrincipalId: value.humanPrincipalId,
+        endpointId: value.endpointId,
+        workspaceId: value.workspaceId
+      })
     );
   }
 
   async revokeRemoteAgent(input: unknown) {
     assertNoSmuggledOperatorSecrets(input, "revokeRemoteAgent");
     const parsed = operatorRevokeRemoteAgentInputSchema.parse(input);
-    return this.enqueue(() =>
-      this.withProfile(parsed, (client, value) =>
-        client.revokeRemoteAgent({
-          humanPrincipalId: value.humanPrincipalId,
-          endpointId: value.endpointId
-        })
-      )
+    return this.withProfile(parsed, (client, value) =>
+      client.revokeRemoteAgent({
+        humanPrincipalId: value.humanPrincipalId,
+        endpointId: value.endpointId
+      })
     );
   }
 
   async repairRemoteAgentOwnership(input: unknown) {
     assertNoSmuggledOperatorSecrets(input, "repairRemoteAgentOwnership");
     const parsed = operatorRepairRemoteAgentOwnershipInputSchema.parse(input);
-    return this.enqueue(() =>
-      this.withProfile(parsed, (client, value) =>
-        client.repairRemoteAgentOwnership({
-          endpointId: value.endpointId,
-          ownerHumanPrincipalId: value.ownerHumanPrincipalId
-        })
-      )
+    return this.withProfile(parsed, (client, value) =>
+      client.repairRemoteAgentOwnership({
+        endpointId: value.endpointId,
+        ownerHumanPrincipalId: value.ownerHumanPrincipalId
+      })
     );
   }
 
@@ -951,7 +940,7 @@ export class OperatorControlService {
     action: (client: OperatorControlClient) => Promise<T>
   ): Promise<T> {
     const parsed = operatorProfileIdInputSchema.parse({ profileId });
-    return this.enqueue(() => this.withProfile(parsed, (client) => action(client)));
+    return this.withProfile(parsed, (client) => action(client));
   }
 
   private async withProfile<T, P extends { profileId: string }>(
@@ -959,32 +948,45 @@ export class OperatorControlService {
     action: (
       client: OperatorControlClient,
       parsed: P,
-      connectionProfile: OperatorControlProfile
+      connectionProfile: OperatorControlProfile,
+      operation: OperatorProfileOperation
     ) => Promise<T>
   ): Promise<T> {
     this.assertOpen();
-    const profile = await this.profiles.get(parsed.profileId);
-    if (!profile)
-      throw new OperatorControlError({ kind: "validation", code: "operator_profile_not_found" });
-    const token = await this.vault.getOperatorToken(parsed.profileId);
-    if (!token)
-      throw new OperatorControlError({ kind: "unauthorized", code: "operator_credential_missing" });
-    const { client } = await this.createProfileClient(parsed.profileId);
-    try {
-      const result = await action(client, parsed, profile);
-      this.lastErrorCode = null;
-      this.lastErrorMessage = null;
-      return result;
-    } catch (error) {
-      this.rememberError(error);
-      throw error;
-    } finally {
-      client.dispose();
-    }
+    return this.operations.run(parsed.profileId, async (operation) => {
+      await this.queue;
+      operation.assertCurrent();
+      const profile = await this.profiles.get(parsed.profileId);
+      if (!profile)
+        throw new OperatorControlError({ kind: "validation", code: "operator_profile_not_found" });
+      const token = await this.vault.getOperatorToken(parsed.profileId);
+      if (!token)
+        throw new OperatorControlError({
+          kind: "unauthorized",
+          code: "operator_credential_missing"
+        });
+      await this.management.ensureAccess(parsed.profileId, operation);
+      operation.assertCurrent();
+      const { client } = await this.createProfileClient(parsed.profileId);
+      operation.track(client);
+      try {
+        const result = await action(client, parsed, profile, operation);
+        operation.assertCurrent();
+        this.lastErrorCode = null;
+        this.lastErrorMessage = null;
+        return result;
+      } catch (error) {
+        if (operation.isCurrent()) this.rememberError(error);
+        throw error;
+      } finally {
+        client.dispose();
+      }
+    });
   }
 
-  private async createProfileClient(profileId: string, skipManagementRefresh = false) {
-    if (!skipManagementRefresh) await this.management.ensureAccess(profileId);
+  private async createProfileClient(profileId: string) {
+    await this.queue;
+    this.assertOpen();
     const profile = await this.profiles.get(profileId);
     if (!profile)
       throw new OperatorControlError({ kind: "validation", code: "operator_profile_not_found" });
@@ -1037,11 +1039,10 @@ export class OperatorControlService {
   }
 
   async shutdown(): Promise<void> {
-    if (this.maintenanceTimer) clearTimeout(this.maintenanceTimer);
-    await this.enqueue(async () => {
-      this.vault.clearSessionMemory();
-      this.disposed = true;
-      if (this.maintenanceTimer) clearTimeout(this.maintenanceTimer);
-    });
+    this.disposed = true;
+    this.maintenance.stop();
+    this.operations.shutdown();
+    await this.queue;
+    await this.vault.clearSessionMemory();
   }
 }

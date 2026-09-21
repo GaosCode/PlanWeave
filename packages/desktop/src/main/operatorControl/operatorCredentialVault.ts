@@ -89,9 +89,9 @@ async function writePrivateJson(path: string, value: unknown): Promise<void> {
     encoding: "utf8",
     mode: 0o600
   });
+  const written = await stat(temporaryPath);
+  if ((written.mode & 0o777) !== 0o600) await chmod(temporaryPath, 0o600);
   await rename(temporaryPath, path);
-  const written = await stat(path);
-  if ((written.mode & 0o777) !== 0o600) await chmod(path, 0o600);
 }
 
 /** Main-only operator bearer vault. Durable entries use configured-storage ciphertext, never plaintext. */
@@ -100,7 +100,8 @@ export class OperatorCredentialVault {
   private readonly safeStorage: OperatorSafeStoragePort;
   private readonly sessionCredentials = new Map<string, SessionCredential>();
   private document: OperatorCredentialsDocument | null = null;
-  private loaded = false;
+  private loading: Promise<OperatorCredentialsDocument> | undefined;
+  private queue: Promise<unknown> = Promise.resolve();
 
   constructor(options: OperatorCredentialVaultOptions = {}) {
     this.paths = options.paths ?? operatorCredentialVaultPaths();
@@ -139,79 +140,105 @@ export class OperatorCredentialVault {
     return operatorTokenSchema.safeParse(token).success ? token : null;
   }
 
-  private async load(): Promise<OperatorCredentialsDocument> {
-    if (this.loaded && this.document) return this.document;
+  private exclusive<T>(operation: () => Promise<T> | T): Promise<T> {
+    const next = this.queue.then(operation);
+    this.queue = next.then(
+      () => undefined,
+      () => undefined
+    );
+    return next;
+  }
+
+  private load(): Promise<OperatorCredentialsDocument> {
+    if (this.document) return Promise.resolve(this.document);
+    if (this.loading) return this.loading;
+    const loading = this.readDocument()
+      .then((document) => {
+        this.document = document;
+        return document;
+      })
+      .finally(() => {
+        if (this.loading === loading) this.loading = undefined;
+      });
+    this.loading = loading;
+    return loading;
+  }
+
+  private async readDocument(): Promise<OperatorCredentialsDocument> {
     let raw: string;
     try {
       raw = await readFile(this.paths.credentialsPath, "utf8");
     } catch (error) {
-      if (isMissingFileError(error)) {
-        this.document = defaultDocument();
-        this.loaded = true;
-        return this.document;
-      }
+      if (isMissingFileError(error)) return defaultDocument();
       throw new Error("Failed to read operator credentials.");
     }
     try {
-      this.document = operatorCredentialsDocumentSchema.parse(JSON.parse(raw));
-      this.loaded = true;
-      return this.document;
+      return operatorCredentialsDocumentSchema.parse(JSON.parse(raw));
     } catch {
       throw new Error("Invalid operator credentials JSON.");
     }
+  }
+
+  private async draft(): Promise<OperatorCredentialsDocument> {
+    return operatorCredentialsDocumentSchema.parse(await this.load());
   }
 
   private async persist(document: OperatorCredentialsDocument): Promise<void> {
     const parsed = operatorCredentialsDocumentSchema.parse(document);
     await writePrivateJson(this.paths.credentialsPath, parsed);
     this.document = parsed;
-    this.loaded = true;
   }
 
   async getOperatorToken(profileId: string): Promise<string | undefined> {
-    const session = this.sessionCredentials.get(profileId);
-    if (session) return session.operatorToken;
-    if (!this.safeStorage.isEncryptionAvailable()) return undefined;
-    const document = await this.load();
-    const record = document.credentials[profileId];
-    if (!record) return undefined;
-    const token = this.decrypt(record.encryptedOperatorToken);
-    if (!token) {
-      delete document.credentials[profileId];
-      await this.persist(document);
-      return undefined;
-    }
-    this.sessionCredentials.set(profileId, {
-      operatorToken: token,
-      operatorId: record.operatorId,
-      updatedAt: record.updatedAt
+    return this.exclusive(async () => {
+      const session = this.sessionCredentials.get(profileId);
+      if (session) return session.operatorToken;
+      if (!this.safeStorage.isEncryptionAvailable()) return undefined;
+      const document = await this.draft();
+      const record = document.credentials[profileId];
+      if (!record) return undefined;
+      const token = this.decrypt(record.encryptedOperatorToken);
+      if (!token) {
+        delete document.credentials[profileId];
+        await this.persist(document);
+        return undefined;
+      }
+      this.sessionCredentials.set(profileId, {
+        operatorToken: token,
+        operatorId: record.operatorId,
+        updatedAt: record.updatedAt
+      });
+      return token;
     });
-    return token;
   }
 
   async getMetadata(profileId: string): Promise<StoredOperatorCredentialMetadata | null> {
-    const session = this.sessionCredentials.get(profileId);
-    if (session) return { operatorId: session.operatorId, updatedAt: session.updatedAt };
-    if (!this.safeStorage.isEncryptionAvailable()) return null;
-    const document = await this.load();
-    const record = document.credentials[profileId];
-    if (!record) return null;
-    return { operatorId: record.operatorId, updatedAt: record.updatedAt };
+    return this.exclusive(async () => {
+      const session = this.sessionCredentials.get(profileId);
+      if (session) return { operatorId: session.operatorId, updatedAt: session.updatedAt };
+      if (!this.safeStorage.isEncryptionAvailable()) return null;
+      const document = await this.draft();
+      const record = document.credentials[profileId];
+      if (!record) return null;
+      return { operatorId: record.operatorId, updatedAt: record.updatedAt };
+    });
   }
 
   async persistenceFor(profileId: string): Promise<OperatorCredentialPersistence> {
-    const session = this.sessionCredentials.get(profileId);
-    if (session) {
-      if (this.safeStorage.isEncryptionAvailable()) {
-        const document = await this.load();
-        if (document.credentials[profileId]) return "persisted";
+    return this.exclusive(async () => {
+      const session = this.sessionCredentials.get(profileId);
+      if (session) {
+        if (this.safeStorage.isEncryptionAvailable()) {
+          const document = await this.draft();
+          if (document.credentials[profileId]) return "persisted";
+        }
+        return "session-only";
       }
-      return "session-only";
-    }
-    if (!this.safeStorage.isEncryptionAvailable()) return "missing";
-    const document = await this.load();
-    const record = document.credentials[profileId];
-    return record ? "persisted" : "missing";
+      if (!this.safeStorage.isEncryptionAvailable()) return "missing";
+      const document = await this.draft();
+      const record = document.credentials[profileId];
+      return record ? "persisted" : "missing";
+    });
   }
 
   async hasCredential(profileId: string): Promise<boolean> {
@@ -221,89 +248,104 @@ export class OperatorCredentialVault {
   async setOperatorToken(
     profileId: string,
     rawToken: string,
-    operatorId?: string | null
+    operatorId?: string | null,
+    assertCurrent?: () => void
   ): Promise<OperatorCredentialPersistence> {
-    const operatorToken = operatorTokenSchema.parse(rawToken);
-    const normalizedOperatorId = operatorId?.trim() || null;
-    const updatedAt = new Date().toISOString();
-    this.sessionCredentials.set(profileId, {
-      operatorToken,
-      operatorId: normalizedOperatorId,
-      updatedAt
-    });
-    if (!this.safeStorage.isEncryptionAvailable()) {
-      const document = await this.load();
-      if (document.credentials[profileId]) {
-        delete document.credentials[profileId];
-        await this.persist(document);
+    return this.exclusive(async () => {
+      const operatorToken = operatorTokenSchema.parse(rawToken);
+      const normalizedOperatorId = operatorId?.trim() || null;
+      const updatedAt = new Date().toISOString();
+      const session = { operatorToken, operatorId: normalizedOperatorId, updatedAt };
+      if (!this.safeStorage.isEncryptionAvailable()) {
+        const document = await this.draft();
+        assertCurrent?.();
+        if (document.credentials[profileId]) {
+          delete document.credentials[profileId];
+          await this.persist(document);
+        }
+        this.sessionCredentials.set(profileId, session);
+        return "session-only";
       }
-      return "session-only";
-    }
-    const document = await this.load();
-    document.credentials[profileId] = {
-      ...document.credentials[profileId],
-      encryptedOperatorToken: this.encrypt(operatorToken),
-      operatorId: normalizedOperatorId,
-      updatedAt
-    };
-    await this.persist(document);
-    return "persisted";
+      const document = await this.draft();
+      assertCurrent?.();
+      document.credentials[profileId] = {
+        ...document.credentials[profileId],
+        encryptedOperatorToken: this.encrypt(operatorToken),
+        operatorId: normalizedOperatorId,
+        updatedAt
+      };
+      await this.persist(document);
+      this.sessionCredentials.set(profileId, session);
+      return "persisted";
+    });
   }
 
   async getManagementDevice(profileId: string): Promise<StoredManagementDevice | undefined> {
-    const cached = this.managementDevices.get(profileId);
-    if (cached) return cached;
-    if (!this.safeStorage.isEncryptionAvailable()) return undefined;
-    const encrypted = (await this.load()).credentials[profileId]?.encryptedManagementDevice;
-    if (!encrypted) return undefined;
-    const plaintext = decryptSafeStorageString(
-      this.safeStorage,
-      Buffer.from(encrypted, "base64"),
-      "management device authorization"
-    );
-    const device = storedManagementDeviceSchema.parse(JSON.parse(plaintext));
-    this.managementDevices.set(profileId, device);
-    return device;
+    return this.exclusive(async () => {
+      const cached = this.managementDevices.get(profileId);
+      if (cached) return storedManagementDeviceSchema.parse(cached);
+      if (!this.safeStorage.isEncryptionAvailable()) return undefined;
+      const encrypted = (await this.load()).credentials[profileId]?.encryptedManagementDevice;
+      if (!encrypted) return undefined;
+      const plaintext = decryptSafeStorageString(
+        this.safeStorage,
+        Buffer.from(encrypted, "base64"),
+        "management device authorization"
+      );
+      const device = storedManagementDeviceSchema.parse(JSON.parse(plaintext));
+      this.managementDevices.set(profileId, device);
+      return storedManagementDeviceSchema.parse(device);
+    });
   }
 
   async setManagementDevice(
     profileId: string,
-    value: StoredManagementDevice | undefined
+    value: StoredManagementDevice | undefined,
+    assertCurrent?: () => void
   ): Promise<void> {
-    const device = value && storedManagementDeviceSchema.parse(value);
-    const document = await this.load();
-    const record = document.credentials[profileId];
-    if (this.safeStorage.isEncryptionAvailable()) {
-      if (device && !record) throw new Error("operator_credential_missing");
-      if (record) {
-        if (device)
-          record.encryptedManagementDevice = this.safeStorage
-            .encryptString(JSON.stringify(device))
-            .toString("base64");
-        else delete record.encryptedManagementDevice;
-        await this.persist(document);
+    return this.exclusive(async () => {
+      const device = value && storedManagementDeviceSchema.parse(value);
+      const document = await this.draft();
+      assertCurrent?.();
+      const record = document.credentials[profileId];
+      if (this.safeStorage.isEncryptionAvailable()) {
+        if (device && !record) throw new Error("operator_credential_missing");
+        if (record) {
+          if (device)
+            record.encryptedManagementDevice = this.safeStorage
+              .encryptString(JSON.stringify(device))
+              .toString("base64");
+          else delete record.encryptedManagementDevice;
+          await this.persist(document);
+        }
       }
-    }
-    if (device) this.managementDevices.set(profileId, device);
-    else this.managementDevices.delete(profileId);
+      if (device) this.managementDevices.set(profileId, device);
+      else this.managementDevices.delete(profileId);
+    });
   }
 
   async clear(profileId: string): Promise<void> {
-    this.managementDevices.delete(profileId);
-    this.sessionCredentials.delete(profileId);
-    const document = await this.load();
-    if (document.credentials[profileId]) {
-      delete document.credentials[profileId];
-      await this.persist(document);
-    }
+    return this.exclusive(async () => {
+      const document = await this.draft();
+      if (document.credentials[profileId]) {
+        delete document.credentials[profileId];
+        await this.persist(document);
+      }
+      this.managementDevices.delete(profileId);
+      this.sessionCredentials.delete(profileId);
+    });
   }
 
   async hasAnySessionOnlyCredential(): Promise<boolean> {
-    return !this.safeStorage.isEncryptionAvailable() && this.sessionCredentials.size > 0;
+    return this.exclusive(async () => {
+      return !this.safeStorage.isEncryptionAvailable() && this.sessionCredentials.size > 0;
+    });
   }
 
-  clearSessionMemory(): void {
-    this.sessionCredentials.clear();
-    this.managementDevices.clear();
+  clearSessionMemory(): Promise<void> {
+    return this.exclusive(() => {
+      this.sessionCredentials.clear();
+      this.managementDevices.clear();
+    });
   }
 }
