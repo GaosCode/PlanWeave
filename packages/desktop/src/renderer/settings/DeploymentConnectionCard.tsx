@@ -8,7 +8,6 @@ import type {
 } from "@planweave-ai/collaboration-protocol/deployment";
 import type {
   DesktopServerExposureErrorCode,
-  DesktopServerExposureMode,
   DesktopServerExposureView
 } from "../../shared/deploymentExposure";
 import { Button } from "@/components/ui/button";
@@ -35,6 +34,13 @@ import {
 } from "../collaboration/formatCollaborationError";
 import type { RememberedServerConnectionView } from "../../shared/collaboration";
 import type { createTranslator } from "../i18n";
+
+import {
+  useDeploymentConnectionDraft,
+  isThisComputerExposureMode,
+  sameHttpsOrigin,
+  type ThisComputerExposureMode
+} from "./useDeploymentConnectionDraft";
 
 type ExistingServerTools = "visible" | "collapsed" | "hidden";
 
@@ -112,22 +118,6 @@ function normalizedOrigin(value: string): string {
   return `${new URL(value.trim()).origin}/`;
 }
 
-function sameHttpsOrigin(left: string, right: string): boolean {
-  try {
-    return new URL(left).origin === new URL(right).origin;
-  } catch {
-    return false;
-  }
-}
-
-type ThisComputerExposureMode = Exclude<DesktopServerExposureMode, "custom_https">;
-
-function isThisComputerExposureMode(
-  value: DesktopServerExposureMode
-): value is ThisComputerExposureMode {
-  return value !== "custom_https";
-}
-
 function hostnameOf(origin: string): string {
   try {
     return new URL(origin).hostname;
@@ -138,18 +128,6 @@ function hostnameOf(origin: string): string {
 
 function rememberedServerLabel(item: RememberedServerConnectionView): string {
   return `${item.workspaceDisplayName} (${hostnameOf(item.serverBaseUrl)})`;
-}
-
-function originForExistingServer(input: {
-  profileOrigin: string;
-  advertisedOrigin: string | null;
-  exposureMode: DesktopServerExposureMode;
-}): string {
-  if (input.exposureMode === "custom_https") return input.profileOrigin;
-  if (input.advertisedOrigin && sameHttpsOrigin(input.profileOrigin, input.advertisedOrigin)) {
-    return "";
-  }
-  return input.profileOrigin;
 }
 
 function connectivityLabel(
@@ -202,104 +180,38 @@ export function DeploymentConnectionCard({
   connectAlternative,
   onNeedConnectionDetails
 }: Props) {
-  const [origin, setOrigin] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [mode, setMode] = useState<DesktopServerExposureMode>(
-    connectionOnly ? "custom_https" : "local_only"
-  );
-  const [thisComputerMode, setThisComputerMode] = useState<ThisComputerExposureMode>("local_only");
+  const {
+    origin,
+    setOrigin,
+    displayName,
+    setDisplayName,
+    mode,
+    setMode,
+    thisComputerMode,
+    setThisComputerMode,
+    exposure,
+    setExposure,
+    connectError,
+    setConnectError,
+    rememberedServers,
+    setRememberedServers,
+    selectedRememberedId,
+    setSelectedRememberedId,
+    markEdited
+  } = useDeploymentConnectionDraft({ connectionOnly, localOnly, onExposureChange, t });
   const [customTopology, setCustomTopology] =
     useState<Extract<DeploymentTopology, "loopback_https" | "private_https" | "public_https">>(
       "public_https"
     );
-  const [exposure, setExposure] = useState<DesktopServerExposureView | null>(null);
   const [guidance, setGuidance] = useState<DeploymentGuidanceView | null>(null);
   const [connectivity, setConnectivity] = useState<ConnectivityValidationView | null>(null);
   const [busy, setBusy] = useState<
     "activation" | "guidance" | "validation" | "copy" | "export" | "connect" | null
   >(null);
-  const [connectError, setConnectError] = useState<string | null>(null);
   const [notice, setNotice] = useState<
     "copied" | "exported" | "invalid" | "needs_project" | "invalid_project" | null
   >(null);
   const [deployToolsOpen, setDeployToolsOpen] = useState(false);
-  const [rememberedServers, setRememberedServers] = useState<RememberedServerConnectionView[]>([]);
-  const [selectedRememberedId, setSelectedRememberedId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!collaborationBridge) return;
-    let current = true;
-    if (localOnly) {
-      void collaborationBridge
-        .getDesktopServerExposure()
-        .then((nextExposure) => {
-          if (!current) return;
-          setExposure(nextExposure);
-          onExposureChange?.(nextExposure);
-          const localMode = isThisComputerExposureMode(nextExposure.mode)
-            ? nextExposure.mode
-            : "local_only";
-          setThisComputerMode(localMode);
-          setMode(localMode);
-        })
-        .catch((cause: unknown) => {
-          if (current) setConnectError(collaborationConnectionErrorMessage(t, cause));
-        });
-      return () => {
-        current = false;
-      };
-    }
-    void Promise.all([
-      collaborationBridge.getActiveWorkspaceConnection(),
-      collaborationBridge.getDesktopServerExposure(),
-      collaborationBridge.listRememberedServerConnections()
-    ])
-      .then(([connection, nextExposure, remembered]) => {
-        if (!current) return;
-        setExposure(nextExposure);
-        onExposureChange?.(nextExposure);
-        setRememberedServers(remembered);
-        if (isThisComputerExposureMode(nextExposure.mode)) {
-          setThisComputerMode(nextExposure.mode);
-        }
-        if (connectionOnly) {
-          setMode("custom_https");
-          return;
-        }
-        const remoteProfileId = connection.profile?.profileId;
-        const rememberedMatch =
-          remoteProfileId === undefined
-            ? undefined
-            : remembered.find((item) => item.profileId === remoteProfileId);
-        const workspaceIsRemote =
-          Boolean(rememberedMatch) &&
-          connection.status !== "local_only" &&
-          connection.profile !== null;
-        if (workspaceIsRemote && rememberedMatch) {
-          setMode("custom_https");
-          setSelectedRememberedId(rememberedMatch.profileId);
-          setOrigin(rememberedMatch.serverBaseUrl);
-          setDisplayName(rememberedMatch.workspaceDisplayName);
-          return;
-        }
-        setMode(nextExposure.mode);
-        setSelectedRememberedId(null);
-        if (!connection.profile || !connection.workspaceId) return;
-        const nextOrigin = originForExistingServer({
-          profileOrigin: connection.profile.serverBaseUrl,
-          advertisedOrigin: nextExposure.advertisedOrigin,
-          exposureMode: nextExposure.mode
-        });
-        setOrigin(nextOrigin);
-        setDisplayName(nextOrigin ? connection.profile.displayName : "");
-      })
-      .catch((cause: unknown) => {
-        if (current) setConnectError(collaborationConnectionErrorMessage(t, cause));
-      });
-    return () => {
-      current = false;
-    };
-  }, [connectionOnly, localOnly, onExposureChange, t]);
 
   const existingServer = mode === "custom_https";
   const showExistingServerDeploy = existingServer && existingServerTools !== "hidden";
@@ -435,6 +347,7 @@ export function DeploymentConnectionCard({
   };
 
   const connectByOrigin = async () => {
+    markEdited();
     if (!collaborationBridge) return;
     setConnectError(null);
     let serverBaseUrl: string;
@@ -497,6 +410,7 @@ export function DeploymentConnectionCard({
   };
 
   const forgetRemembered = async (profileId: string) => {
+    markEdited();
     if (!collaborationBridge) return;
     setConnectError(null);
     setBusy("connect");
@@ -535,7 +449,10 @@ export function DeploymentConnectionCard({
         className={settingsControlClass}
         data-testid="deployment-origin"
         value={origin}
-        onChange={(event) => setOrigin(event.target.value)}
+        onChange={(event) => {
+          markEdited();
+          setOrigin(event.target.value);
+        }}
         autoComplete="off"
         spellCheck={false}
         placeholder="https://"
@@ -556,7 +473,10 @@ export function DeploymentConnectionCard({
           className={settingsControlClass}
           data-testid="deployment-display-name"
           value={displayName}
-          onChange={(event) => setDisplayName(event.target.value)}
+          onChange={(event) => {
+            markEdited();
+            setDisplayName(event.target.value);
+          }}
         />
       </Field>
       {existingServerTools === "visible" ? originField : null}
@@ -565,7 +485,10 @@ export function DeploymentConnectionCard({
         label={t("deploymentCustomTopology")}
         value={customTopology}
         testId="deployment-custom-topology"
-        onValueChange={(next) => setCustomTopology(next as typeof customTopology)}
+        onValueChange={(next) => {
+          markEdited();
+          setCustomTopology(next as typeof customTopology);
+        }}
         items={[
           { value: "loopback_https", label: t("deploymentLoopbackHttps") },
           { value: "private_https", label: t("deploymentPrivateHttpsTopology") },
@@ -641,6 +564,7 @@ export function DeploymentConnectionCard({
             }
             testId="deployment-kind"
             onValueChange={(nextKind) => {
+              markEdited();
               if (nextKind === "existing_server") {
                 if (isThisComputerExposureMode(mode)) setThisComputerMode(mode);
                 setMode("custom_https");
@@ -692,6 +616,7 @@ export function DeploymentConnectionCard({
             value={mode}
             testId="deployment-topology"
             onValueChange={(nextMode) => {
+              markEdited();
               const typed = nextMode as ThisComputerExposureMode;
               setThisComputerMode(typed);
               setMode(typed);

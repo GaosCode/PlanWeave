@@ -1,10 +1,12 @@
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
+import { act, cleanup, renderHook, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTranslator } from "../renderer/i18n";
+import { useDeploymentConnectionDraft } from "../renderer/settings/useDeploymentConnectionDraft";
 import { DeploymentConnectionCard } from "../renderer/settings/DeploymentConnectionCard";
 
 const defaultExposure = {
@@ -64,9 +66,33 @@ async function chooseSelectOption(
   await user.click(await screen.findByRole("option", { name: optionName }));
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+const rememberedServer = {
+  profileId: "remembered-old",
+  displayName: "Old Server",
+  workspaceDisplayName: "Old workspace",
+  serverBaseUrl: "https://old.example.test/",
+  hasDeviceCredential: true
+};
+const remoteConnection = {
+  status: "connected",
+  profile: { ...rememberedServer },
+  workspaceId: "old-workspace"
+};
+
 describe("DeploymentConnectionCard", () => {
   beforeEach(() => {
     installSelectDomStubs();
+    collaborationBridge.listRememberedServerConnections.mockResolvedValue([]);
     collaborationBridge.getActiveWorkspaceConnection.mockResolvedValue({
       profile: null,
       workspaceId: null
@@ -80,6 +106,217 @@ describe("DeploymentConnectionCard", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+  });
+
+  it("preserves the complete edited draft while late initialization refreshes facts", async () => {
+    const user = userEvent.setup();
+    const pending = deferred<typeof remoteConnection>();
+    const onExposureChange = vi.fn();
+    collaborationBridge.getActiveWorkspaceConnection.mockReturnValueOnce(pending.promise);
+    collaborationBridge.listRememberedServerConnections.mockResolvedValue([rememberedServer]);
+    render(
+      <DeploymentConnectionCard t={createTranslator("en")} onExposureChange={onExposureChange} />
+    );
+    await chooseSelectOption(user, "deployment-kind", "Existing Server");
+    await user.type(screen.getByTestId("deployment-origin"), "https://new.example.test");
+    await user.type(screen.getByTestId("deployment-display-name"), "New Server");
+    await act(async () => pending.resolve(remoteConnection));
+    expect(screen.getByTestId("deployment-kind")).toHaveAttribute("data-value", "existing_server");
+    expect(screen.getByTestId("deployment-origin")).toHaveValue("https://new.example.test");
+    expect(screen.getByTestId("deployment-display-name")).toHaveValue("New Server");
+    expect(onExposureChange).toHaveBeenCalledWith(defaultExposure);
+    await user.click(screen.getByRole("button", { name: "View deploy steps" }));
+    expect(collaborationBridge.getDeploymentGuidance).toHaveBeenCalledWith({
+      action: "request_deployment_guidance",
+      target: expect.objectContaining({
+        displayName: "New Server",
+        endpoint: expect.objectContaining({ serverOrigin: "https://new.example.test/" })
+      })
+    });
+    await chooseSelectOption(user, "deployment-kind", "Old workspace (old.example.test)");
+    expect(collaborationBridge.selectWorkspaceConnection).toHaveBeenCalledWith({
+      profileId: "remembered-old"
+    });
+  });
+
+  it("keeps edits across callback and locale reinitialization and connects the edited origin", async () => {
+    const user = userEvent.setup();
+    const oldRequest = deferred<typeof remoteConnection>();
+    const newRequest = deferred<typeof remoteConnection>();
+    collaborationBridge.getActiveWorkspaceConnection
+      .mockReturnValueOnce(oldRequest.promise)
+      .mockReturnValueOnce(newRequest.promise);
+    const oldCallback = vi.fn();
+    const newCallback = vi.fn();
+    const view = render(
+      <DeploymentConnectionCard
+        connectionOnly
+        existingServerTools="hidden"
+        t={createTranslator("en")}
+        onExposureChange={oldCallback}
+      />
+    );
+    await user.type(screen.getByTestId("deployment-origin"), "https://new.example.test");
+    view.rerender(
+      <DeploymentConnectionCard
+        connectionOnly
+        existingServerTools="hidden"
+        t={createTranslator("zh-CN")}
+        onExposureChange={newCallback}
+      />
+    );
+    await act(async () => oldRequest.resolve(remoteConnection));
+    expect(oldCallback).not.toHaveBeenCalled();
+    await act(async () => newRequest.resolve(remoteConnection));
+    expect(newCallback).toHaveBeenCalledWith(defaultExposure);
+    expect(screen.getByTestId("deployment-origin")).toHaveValue("https://new.example.test");
+    await user.click(screen.getByTestId("deployment-origin-connect"));
+    expect(collaborationBridge.connectExistingServerByOrigin).toHaveBeenCalledWith({
+      serverBaseUrl: "https://new.example.test/"
+    });
+  });
+
+  it("ignores older responses after a newer initialization has populated an untouched draft", async () => {
+    const oldRequest = deferred<typeof remoteConnection>();
+    const newRequest = deferred<typeof remoteConnection>();
+    collaborationBridge.getActiveWorkspaceConnection
+      .mockReturnValueOnce(oldRequest.promise)
+      .mockReturnValueOnce(newRequest.promise);
+    const view = render(<DeploymentConnectionCard t={createTranslator("en")} />);
+    collaborationBridge.listRememberedServerConnections.mockResolvedValue([rememberedServer]);
+    view.rerender(<DeploymentConnectionCard t={createTranslator("en")} />);
+    await act(async () => newRequest.resolve(remoteConnection));
+    expect(screen.getByTestId("deployment-origin")).toHaveValue(rememberedServer.serverBaseUrl);
+    await act(async () =>
+      oldRequest.resolve({
+        ...remoteConnection,
+        profile: { ...rememberedServer, serverBaseUrl: "https://obsolete.example.test/" }
+      })
+    );
+    expect(screen.getByTestId("deployment-origin")).toHaveValue(rememberedServer.serverBaseUrl);
+    expect(screen.getByTestId("deployment-display-name")).toHaveValue("Old workspace");
+  });
+
+  it("protects local mode selection and explicitly resets when form semantics change", async () => {
+    const user = userEvent.setup();
+    const pending = deferred<typeof defaultExposure>();
+    collaborationBridge.getDesktopServerExposure.mockReturnValueOnce(pending.promise);
+    const view = render(<DeploymentConnectionCard localOnly t={createTranslator("en")} />);
+    await chooseSelectOption(user, "deployment-topology", "LAN HTTP (development only)");
+    await act(async () => pending.resolve(defaultExposure));
+    expect(screen.getByTestId("deployment-topology")).toHaveAttribute("data-value", "lan_http");
+    view.rerender(<DeploymentConnectionCard connectionOnly t={createTranslator("en")} />);
+    await user.type(screen.getByTestId("deployment-origin"), "https://new.example.test");
+    view.rerender(<DeploymentConnectionCard localOnly t={createTranslator("en")} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("deployment-topology")).toHaveAttribute("data-value", "local_only")
+    );
+    expect(screen.queryByTestId("deployment-origin")).not.toBeInTheDocument();
+  });
+
+  it("discards StrictMode's superseded request and preserves edits in its current request", async () => {
+    const user = userEvent.setup();
+    const oldRequest = deferred<typeof remoteConnection>();
+    const currentRequest = deferred<typeof remoteConnection>();
+    const onExposureChange = vi.fn();
+    collaborationBridge.getActiveWorkspaceConnection
+      .mockReturnValueOnce(oldRequest.promise)
+      .mockReturnValueOnce(currentRequest.promise);
+    render(
+      <StrictMode>
+        <DeploymentConnectionCard
+          connectionOnly
+          t={createTranslator("en")}
+          onExposureChange={onExposureChange}
+        />
+      </StrictMode>
+    );
+    await user.type(screen.getByTestId("deployment-origin"), "https://draft.example.test");
+    await user.type(screen.getByTestId("deployment-display-name"), "Draft");
+    await act(async () => oldRequest.reject(new Error("superseded")));
+    await act(async () => currentRequest.resolve(remoteConnection));
+    expect(onExposureChange).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("deployment-origin")).toHaveValue("https://draft.example.test");
+    expect(screen.getByTestId("deployment-display-name")).toHaveValue("Draft");
+    expect(screen.queryByTestId("deployment-origin-connect-error")).not.toBeInTheDocument();
+  });
+
+  it("ignores unmounted initialization and allows a fresh mount to initialize", async () => {
+    const pending = deferred<typeof remoteConnection>();
+    const callback = vi.fn();
+    collaborationBridge.getActiveWorkspaceConnection.mockReturnValueOnce(pending.promise);
+    const view = render(
+      <DeploymentConnectionCard t={createTranslator("en")} onExposureChange={callback} />
+    );
+    view.unmount();
+    collaborationBridge.getActiveWorkspaceConnection.mockResolvedValue(remoteConnection);
+    collaborationBridge.listRememberedServerConnections.mockResolvedValue([rememberedServer]);
+    render(<DeploymentConnectionCard t={createTranslator("en")} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("deployment-origin")).toHaveValue(rememberedServer.serverBaseUrl)
+    );
+    await act(async () => pending.reject(new Error("unmounted")));
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    false,
+    true
+  ])("reports current initialization rejection (localOnly=%s)", async (localOnly) => {
+    collaborationBridge.getDesktopServerExposure.mockRejectedValueOnce(
+      new Error("initialization failed")
+    );
+    const t = createTranslator("en");
+    const { result } = renderHook(() =>
+      useDeploymentConnectionDraft({ localOnly, connectionOnly: false, t })
+    );
+    await waitFor(() =>
+      expect(result.current.connectError).toBe(
+        "The connection operation failed. Refresh the status and try again."
+      )
+    );
+  });
+
+  it.each([
+    "select",
+    "forget"
+  ])("protects remembered Server %s from a pending refresh", async (action) => {
+    const user = userEvent.setup();
+    collaborationBridge.listRememberedServerConnections.mockResolvedValue([rememberedServer]);
+    collaborationBridge.getActiveWorkspaceConnection.mockResolvedValue(remoteConnection);
+    const view = render(
+      <DeploymentConnectionCard t={createTranslator("en")} existingServerTools="collapsed" />
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("deployment-kind")).toHaveAttribute("data-value", "remembered-old")
+    );
+    if (action === "select") {
+      await chooseSelectOption(user, "deployment-kind", "This computer");
+    }
+    const pending = deferred<typeof remoteConnection>();
+    collaborationBridge.getActiveWorkspaceConnection.mockReturnValueOnce(pending.promise);
+    view.rerender(
+      <DeploymentConnectionCard t={createTranslator("en")} existingServerTools="collapsed" />
+    );
+    if (action === "select") {
+      await chooseSelectOption(user, "deployment-kind", "Old workspace (old.example.test)");
+    } else {
+      collaborationBridge.forgetRememberedServerConnection.mockResolvedValue({
+        workspaceConnection: { status: "local_only", profile: null }
+      });
+      collaborationBridge.listRememberedServerConnections.mockResolvedValue([]);
+      await user.click(screen.getByTestId("deployment-forget-server"));
+      await waitFor(() =>
+        expect(screen.getByTestId("deployment-kind")).toHaveAttribute("data-value", "this_computer")
+      );
+    }
+    await act(async () => pending.resolve(remoteConnection));
+    expect(screen.getByTestId("deployment-kind")).toHaveAttribute(
+      "data-value",
+      action === "select" ? "remembered-old" : "this_computer"
+    );
+    if (action === "select")
+      expect(screen.getByTestId("deployment-origin")).toHaveValue(rememberedServer.serverBaseUrl);
   });
 
   it("does not keep this computer's advertised origin when switching to an existing Server", async () => {
