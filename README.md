@@ -218,6 +218,8 @@ For local desktop setup:
 
 Once connected, ChatGPT can create, inspect, validate, and import PlanWeave plans through the MCP tools.
 
+The content tools `read_package_file`, `read_prompt_source`, and `get_rendered_prompt` return at most 20,000 UTF-8 bytes by default. Set `maxBytes` to a positive integer up to 1 MiB (1,048,576 bytes); larger or invalid values are rejected. Prefixes end at a Unicode code-point boundary, while `contentRef.hash` and `sizeBytes` describe the full decoded content. File/source reads accept at most 64 MiB of input per file; `list_package_files` accepts at most 256 MiB per page including the manifest. Oversized files must be split or reduced; for a page budget error, request fewer files with `limit` and follow `nextCursor`. Rendered prompts are generated in full before output truncation; their generation is not covered by the file-read input budget.
+
 Source-level MCP server setup is documented in [Development](DEVELOPMENT.md).
 
 ## Auto Run

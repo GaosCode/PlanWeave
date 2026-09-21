@@ -218,6 +218,8 @@ journalctl -u planweave-mcp-tunnel -f
 
 连接完成后，ChatGPT 可以通过 MCP 工具创建、检查、校验和导入 PlanWeave 计划。
 
+内容工具 `read_package_file`、`read_prompt_source`、`get_rendered_prompt` 默认最多返回 20,000 个 UTF-8 字节。`maxBytes` 必须为正整数，最大为 1 MiB（1,048,576 字节）；非法值或超限值会报错。前缀按 Unicode 码点边界截断，`contentRef.hash` 和 `sizeBytes` 始终对应完整解码内容。文件与源 prompt 读取的单文件输入上限为 64 MiB；`list_package_files` 每页输入上限为 256 MiB，包含 manifest。文件超限时需拆分或缩小文件；列表页超限时可减小 `limit` 并通过 `nextCursor` 继续读取。Rendered prompt 仍先完整生成再截断输出，其生成过程不受上述文件读取输入预算约束。
+
 源码级 MCP server 配置见 [Development](../DEVELOPMENT.md)。
 
 ## Auto Run

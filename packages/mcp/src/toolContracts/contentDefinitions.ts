@@ -1,3 +1,7 @@
+import {
+  contentMaxBytesSchema,
+  DEFAULT_MAX_BYTES
+} from "@planweave-ai/runtime/content-read-policy";
 import * as z from "zod/v4";
 import {
   blockPromptInput,
@@ -46,7 +50,11 @@ export const contentToolDefinitions = defineToolDefinitions({
     inputSchema: {
       ...projectCanvasInput,
       ref: z.string().min(1),
-      maxBytes: z.number().int().positive().optional()
+      maxBytes: contentMaxBytesSchema
+        .optional()
+        .describe(
+          `UTF-8 output byte budget; default ${DEFAULT_MAX_BYTES}. Truncation preserves code points.`
+        )
     },
     annotations: readOnlyAnnotations
   },
@@ -68,7 +76,11 @@ export const contentToolDefinitions = defineToolDefinitions({
     inputSchema: {
       ...projectCanvasInput,
       path: z.string().min(1),
-      maxBytes: z.number().int().positive().optional()
+      maxBytes: contentMaxBytesSchema
+        .optional()
+        .describe(
+          `UTF-8 output byte budget; default ${DEFAULT_MAX_BYTES}. Truncation preserves code points.`
+        )
     },
     annotations: readOnlyAnnotations
   },

@@ -1,3 +1,4 @@
+import { normalizeContentMaxBytes } from "@planweave-ai/runtime/content-read-policy";
 import { summarizeRefreshPrompts } from "../toolExportResults.js";
 import {
   blockRefFromArgs,
@@ -35,7 +36,7 @@ export const contentToolHandlers = {
         projectId,
         canvasId,
         nonEmptyString(record.path, "path"),
-        parseOptionalPositiveInteger(record.maxBytes, "maxBytes")
+        normalizeContentMaxBytes(record.maxBytes)
       )
     });
   },
@@ -47,7 +48,7 @@ export const contentToolHandlers = {
         target: parsePromptSourceTarget(record.target),
         taskId: optionalNonEmptyString(record.taskId, "taskId"),
         blockRef: optionalNonEmptyString(record.blockRef, "blockRef"),
-        maxBytes: parseOptionalPositiveInteger(record.maxBytes, "maxBytes")
+        maxBytes: normalizeContentMaxBytes(record.maxBytes)
       })
     });
   },
@@ -59,7 +60,7 @@ export const contentToolHandlers = {
         projectId,
         canvasId,
         nonEmptyString(record.ref, "ref"),
-        parseOptionalPositiveInteger(record.maxBytes, "maxBytes")
+        normalizeContentMaxBytes(record.maxBytes)
       )
     });
   },

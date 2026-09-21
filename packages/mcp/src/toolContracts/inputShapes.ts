@@ -1,3 +1,7 @@
+import {
+  contentMaxBytesSchema,
+  DEFAULT_MAX_BYTES
+} from "@planweave-ai/runtime/content-read-policy";
 import * as z from "zod/v4";
 import {
   blockDependencyRefSchema,
@@ -101,7 +105,11 @@ export const promptSourceInput = {
   target: z.enum(["project", "task", "block"]),
   taskId: z.string().min(1).optional(),
   blockRef: z.string().min(1).optional(),
-  maxBytes: z.number().int().positive().optional()
+  maxBytes: contentMaxBytesSchema
+    .optional()
+    .describe(
+      `UTF-8 output byte budget; default ${DEFAULT_MAX_BYTES}. Truncation preserves code points.`
+    )
 };
 
 export const promptSourceWriteInput = {

@@ -1,4 +1,8 @@
 import {
+  ContentReadError,
+  normalizeContentMaxBytes
+} from "@planweave-ai/runtime/content-read-policy";
+import {
   addCanvasDependency,
   addBlock,
   addCrossTaskDependency,
@@ -301,37 +305,51 @@ export const runtimeGateway: RuntimeGateway = {
     return readProjectPrompt(await resolveProjectRoot(projectId));
   },
   async listPackageFiles(projectId, canvasId, limit, cursor) {
-    return runtimeListPackageFiles({
-      projectRoot: await resolveCanvasWorkspace(projectId, canvasId),
-      limit,
-      cursor
-    });
+    return readContentSafely(async () =>
+      runtimeListPackageFiles({
+        projectRoot: await resolveCanvasWorkspace(projectId, canvasId),
+        limit,
+        cursor
+      })
+    );
   },
   async readPackageFile(projectId, canvasId, path, maxBytes) {
-    return runtimeReadPackageFile({
-      projectRoot: await resolveCanvasWorkspace(projectId, canvasId),
-      path,
-      maxBytes
-    });
+    maxBytes = normalizeContentMaxBytes(maxBytes);
+    return readContentSafely(async () =>
+      runtimeReadPackageFile({
+        projectRoot: await resolveCanvasWorkspace(projectId, canvasId),
+        path,
+        maxBytes
+      })
+    );
   },
   async readPromptSource(projectId, canvasId, input) {
-    return runtimeReadPromptSource({
-      projectRoot: await resolveCanvasWorkspace(projectId, canvasId),
-      ...input
-    });
+    const maxBytes = normalizeContentMaxBytes(input.maxBytes);
+    return readContentSafely(async () =>
+      runtimeReadPromptSource({
+        projectRoot: await resolveCanvasWorkspace(projectId, canvasId),
+        ...input,
+        maxBytes
+      })
+    );
   },
   async readRenderedPrompt(projectId, canvasId, ref, maxBytes) {
-    return runtimeReadRenderedPrompt({
-      projectRoot: await resolveCanvasWorkspace(projectId, canvasId),
-      ref,
-      maxBytes
-    });
+    maxBytes = normalizeContentMaxBytes(maxBytes);
+    return readContentSafely(async () =>
+      runtimeReadRenderedPrompt({
+        projectRoot: await resolveCanvasWorkspace(projectId, canvasId),
+        ref,
+        maxBytes
+      })
+    );
   },
   async getPromptSources(projectId, canvasId, ref) {
-    return runtimeGetPromptSources({
-      projectRoot: await resolveCanvasWorkspace(projectId, canvasId),
-      ref
-    });
+    return readContentSafely(async () =>
+      runtimeGetPromptSources({
+        projectRoot: await resolveCanvasWorkspace(projectId, canvasId),
+        ref
+      })
+    );
   },
   async updateProjectPrompt(projectId, markdown) {
     return updateProjectPrompt(await resolveProjectRoot(projectId), markdown);
@@ -450,4 +468,23 @@ function sanitizeReadyBlock(item: DesktopTodoItem): ReadyBlock {
     sharedResources: item.sharedResources,
     reviewGate: item.reviewGate
   };
+}
+
+async function readContentSafely<T>(read: () => Promise<T>): Promise<T> {
+  try {
+    return await read();
+  } catch (error) {
+    if (error instanceof ContentReadError) throw error;
+    const code =
+      error instanceof Error && "code" in error && typeof error.code === "string"
+        ? error.code
+        : undefined;
+    const message =
+      code === "package_path_outside"
+        ? "Package path must stay inside the package directory."
+        : code && /^E[A-Z]+$/.test(code)
+          ? `Content read failed (${code}).`
+          : sanitizeLocalPaths(error instanceof Error ? error.message : String(error));
+    throw Object.assign(new Error(message), code ? { code } : {});
+  }
 }

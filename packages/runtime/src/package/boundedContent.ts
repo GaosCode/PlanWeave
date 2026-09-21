@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { loadPackage } from "./loadPackage.js";
@@ -14,9 +14,11 @@ import type {
   PackageWorkspaceRef
 } from "../types.js";
 
+import { MAX_LIST_READ_BYTES, normalizeContentMaxBytes } from "./contentReadPolicy.js";
+import { readBoundedUtf8File, utf8Prefix } from "./boundedUtf8Reader.js";
+
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
-const DEFAULT_MAX_BYTES = 20_000;
 
 function normalizeLimit(limit: number | undefined): number {
   if (limit === undefined) {
@@ -43,26 +45,8 @@ function hashContent(content: string): string {
   return `sha256:${createHash("sha256").update(content).digest("hex")}`;
 }
 
-function preview(content: string): string {
-  return content.replace(/\s+/g, " ").trim().slice(0, 220);
-}
-
 function normalizePackagePath(path: string): string {
   return path.split("\\").join("/");
-}
-
-function boundedContent(
-  content: string,
-  maxBytes: number
-): { content: string; truncated: boolean } {
-  if (Buffer.byteLength(content, "utf8") <= maxBytes) {
-    return { content, truncated: false };
-  }
-  let end = Math.min(content.length, maxBytes);
-  while (end > 0 && Buffer.byteLength(content.slice(0, end), "utf8") > maxBytes) {
-    end -= 1;
-  }
-  return { content: content.slice(0, end), truncated: true };
 }
 
 async function visitFiles(root: string, dir: string, files: string[]): Promise<void> {
@@ -110,7 +94,11 @@ export async function listPackageFiles(options: {
 }): Promise<PackageFileListResult> {
   const limit = normalizeLimit(options.limit);
   const offset = parseCursor(options.cursor);
-  const { workspace, manifest } = await loadPackage(options.projectRoot);
+  const pageBudget = { remainingBytes: MAX_LIST_READ_BYTES };
+  const { workspace, manifest, manifestContent } = await loadPackage(options.projectRoot, {
+    boundedManifest: true,
+    manifestReadBudget: pageBudget
+  });
   const paths: string[] = [];
   await visitFiles(workspace.packageDir, workspace.packageDir, paths);
   paths.sort((left, right) => left.localeCompare(right));
@@ -121,15 +109,17 @@ export async function listPackageFiles(options: {
     const absolutePath = await resolvePackagePath(workspace.packageDir, path, {
       requireExisting: true
     });
-    const content = await readFile(absolutePath, "utf8");
-    const metadata = await stat(absolutePath);
+    const result =
+      path === "manifest.json" && manifestContent
+        ? manifestContent
+        : await readBoundedUtf8File(absolutePath, { maxBytes: 0, pageBudget });
     files.push({
       path,
-      sizeBytes: metadata.size,
-      hash: hashContent(content),
+      sizeBytes: result.physicalSizeBytes,
+      hash: result.hash,
       owner: owners.get(path) ?? { kind: "unknown" },
-      preview: preview(content),
-      contentRef: contentRef("package_file", content, { path })
+      preview: result.preview,
+      contentRef: { kind: "package_file", path, hash: result.hash, sizeBytes: result.sizeBytes }
     });
   }
   const nextOffset = offset + limit;
@@ -150,7 +140,8 @@ export async function readPackageFile(options: {
   path: string;
   maxBytes?: number;
 }): Promise<PackageContentReadResult> {
-  const { workspace } = await loadPackage(options.projectRoot);
+  normalizeContentMaxBytes(options.maxBytes);
+  const { workspace } = await loadPackage(options.projectRoot, { boundedManifest: true });
   return readBoundedPackagePath(
     workspace.packageDir,
     options.path,
@@ -166,10 +157,16 @@ async function readBoundedPackagePath(
   maxBytes: number | undefined
 ): Promise<PackageContentReadResult> {
   const absolutePath = await resolvePackagePath(packageDir, path, { requireExisting: true });
-  const content = await readFile(absolutePath, "utf8");
-  const bounded = boundedContent(content, maxBytes ?? DEFAULT_MAX_BYTES);
+  const bounded = await readBoundedUtf8File(absolutePath, {
+    maxBytes: normalizeContentMaxBytes(maxBytes)
+  });
   return {
-    contentRef: contentRef(kind, content, { path: normalizePackagePath(path) }),
+    contentRef: {
+      kind,
+      path: normalizePackagePath(path),
+      hash: bounded.hash,
+      sizeBytes: bounded.sizeBytes
+    },
     content: bounded.content,
     truncated: bounded.truncated
   };
@@ -182,12 +179,19 @@ export async function readPromptSource(options: {
   blockRef?: string;
   maxBytes?: number;
 }): Promise<PackageContentReadResult> {
-  const { workspace, manifest } = await loadPackage(options.projectRoot);
+  normalizeContentMaxBytes(options.maxBytes);
+  const { workspace, manifest } = await loadPackage(options.projectRoot, { boundedManifest: true });
   if (options.target === "project") {
-    const content = await readFile(workspace.projectPromptFile, "utf8");
-    const bounded = boundedContent(content, options.maxBytes ?? DEFAULT_MAX_BYTES);
+    const bounded = await readBoundedUtf8File(workspace.projectPromptFile, {
+      maxBytes: normalizeContentMaxBytes(options.maxBytes)
+    });
     return {
-      contentRef: contentRef("prompt_source", content, { path: "policy/project-prompt.md" }),
+      contentRef: {
+        kind: "prompt_source",
+        path: "policy/project-prompt.md",
+        hash: bounded.hash,
+        sizeBytes: bounded.sizeBytes
+      },
       content: bounded.content,
       truncated: bounded.truncated
     };
@@ -229,12 +233,13 @@ export async function readRenderedPrompt(options: {
   ref: string;
   maxBytes?: number;
 }): Promise<PackageContentReadResult> {
+  const maxBytes = normalizeContentMaxBytes(options.maxBytes);
   const surface = await renderPromptSurface({
     projectRoot: options.projectRoot,
     ref: options.ref,
     allowMissingPromptSources: true
   });
-  const bounded = boundedContent(surface.markdown, options.maxBytes ?? DEFAULT_MAX_BYTES);
+  const bounded = utf8Prefix(surface.markdown, maxBytes);
   return {
     contentRef: contentRef("rendered_prompt", surface.markdown, { ref: options.ref }),
     content: bounded.content,

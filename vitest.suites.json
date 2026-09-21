@@ -432,6 +432,7 @@
         "tunnelSystemd.test.ts"
       ],
       "integration": [
+        "contentToolsRuntime.test.ts",
         "oauthClientStore.test.ts",
         "oauthTokenStore.test.ts",
         "toolPackageFiles.test.ts",
@@ -519,6 +520,7 @@
         "wslExecutionHost.test.ts"
       ],
       "integration": [
+        "boundedContentFiles.test.ts",
         "remoteTaskRestoration.test.ts",
         "acpActions.test.ts",
         "acpConnectionCleanup.test.ts",

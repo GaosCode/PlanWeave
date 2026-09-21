@@ -1,3 +1,5 @@
+import { DEFAULT_MAX_BYTES, MAX_CONTENT_BYTES } from "@planweave-ai/runtime/content-read-policy";
+import { createGateway } from "./toolTestHelpers.js";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   compatPlanweaveToolNames,
@@ -305,5 +307,50 @@ describe("MCP tool contracts", () => {
     expect(() =>
       buildToolContractRegistry<ToolDefinition>([], ["get_schema"], "PlanWeave tool definition")
     ).toThrow("Missing PlanWeave tool definition(s): get_schema");
+  });
+});
+
+describe("content byte budget contracts", () => {
+  const cases = [
+    ["read_package_file", { projectId: "project-1", path: "manifest.json" }],
+    ["read_prompt_source", { projectId: "project-1", target: "project" }],
+    ["get_rendered_prompt", { projectId: "project-1", ref: "T-001#B-001" }]
+  ] as const;
+  it.each(cases)("aligns schema and handler limits for %s", async (name, args) => {
+    const schema = planweaveToolDefinitions[name].inputSchema;
+    const gateway = createGateway();
+    for (const maxBytes of [
+      0,
+      -1,
+      1.5,
+      NaN,
+      Infinity,
+      MAX_CONTENT_BYTES + 1,
+      Number.MAX_SAFE_INTEGER + 1,
+      null,
+      "100"
+    ]) {
+      expect(schema.safeParse({ ...args, maxBytes }).success).toBe(false);
+      await expect(
+        planweaveToolHandlers[name]({ ...args, maxBytes }, gateway)
+      ).rejects.toMatchObject({ code: "content_max_bytes_invalid" });
+    }
+    for (const maxBytes of [1, MAX_CONTENT_BYTES]) {
+      expect(schema.safeParse({ ...args, maxBytes }).success).toBe(true);
+      await planweaveToolHandlers[name]({ ...args, maxBytes }, gateway);
+    }
+    expect(schema.safeParse(args).success).toBe(true);
+    await planweaveToolHandlers[name](args, gateway);
+    const call =
+      name === "read_package_file"
+        ? gateway.readPackageFile.mock.lastCall
+        : name === "get_rendered_prompt"
+          ? gateway.readRenderedPrompt.mock.lastCall
+          : gateway.readPromptSource.mock.lastCall;
+    expect(call?.at(-1)).toEqual(
+      name === "read_prompt_source"
+        ? expect.objectContaining({ maxBytes: DEFAULT_MAX_BYTES })
+        : DEFAULT_MAX_BYTES
+    );
   });
 });
