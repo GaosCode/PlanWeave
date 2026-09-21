@@ -1,7 +1,8 @@
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTranslator } from "../renderer/i18n";
 import { SettingsConnectionsSection } from "../renderer/settings/SettingsConnectionsSection";
@@ -43,7 +44,25 @@ vi.mock("../renderer/hooks/useHostAdministrationController", () => ({
   useHostAdministrationController
 }));
 
-vi.mock("../renderer/bridge", () => ({ collaborationBridge, operatorControlBridge: null }));
+const operatorControlBridge = vi.hoisted(() => ({
+  getOperatorControlStatus: vi.fn().mockResolvedValue({
+    activeProfileId: "admin",
+    profiles: [
+      {
+        profileId: "admin",
+        operatorId: "owner",
+        serverBaseUrl: "https://planweave.tailnet.ts.net/"
+      }
+    ]
+  }),
+  onOperatorControlStatusChanged: vi.fn(() => () => undefined),
+  getManagementAuthorization: vi.fn().mockResolvedValue({
+    profileId: "admin",
+    authorization: { operatorId: "owner" },
+    errorCode: null
+  })
+}));
+vi.mock("../renderer/bridge", () => ({ collaborationBridge, operatorControlBridge }));
 
 afterEach(() => {
   cleanup();
@@ -118,5 +137,13 @@ describe("SettingsConnectionsSection overview Server row", () => {
     expect(await screen.findByTestId("server-connection-row")).toHaveTextContent(remoteOrigin);
     expect(screen.queryByText("尚未开放")).not.toBeInTheDocument();
     expect(screen.getByTestId("server-connection-row")).not.toHaveTextContent("未连接");
+    expect(
+      await within(screen.getByTestId("server-connection-row")).findByText("管理员")
+    ).toBeVisible();
+    expect(screen.queryByTestId("server-management-authorization")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /planweave.tailnet.ts.net/ }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "管理权限…" }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent(remoteOrigin);
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
   });
 });

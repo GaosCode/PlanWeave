@@ -15,6 +15,7 @@ import { useCollaborationStatus } from "../hooks/useCollaborationStatus";
 import type { createTranslator } from "../i18n";
 import { collaborationConnectionErrorMessage } from "../collaboration/formatCollaborationError";
 import { serverDeploymentLabel } from "./serverDeploymentLabel";
+import { ServerManagementAuthorization } from "./ServerManagementAuthorization";
 import { rememberedServerGroups } from "./rememberedServerGroups";
 
 export function ServerConnectionList({
@@ -140,119 +141,151 @@ export function ServerConnectionList({
             const connecting = active && status?.workspaceConnection.status === "connecting";
             const connected = active && status?.workspaceConnection.status === "connected";
             return (
-              <div
-                className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_1fr_.7fr_11rem] items-center gap-4 border-b border-border/60 py-5 text-sm"
-                key={group.origin}
-                data-testid="server-connection-row"
-              >
-                <span
-                  className="truncate font-medium text-text-strong"
-                  title={new URL(group.origin).host}
-                >
-                  {new URL(group.origin).host}
-                </span>
-                <span className="truncate text-text-muted" title={server.serverBaseUrl}>
-                  {server.serverBaseUrl}
-                </span>
-                <span className="text-text-muted" data-testid="server-deployment-method">
-                  {serverDeploymentLabel(server.endpoint, t)}
-                </span>
-                <span className="flex items-center gap-2 text-text-muted">
-                  <span
-                    className={`size-1.5 rounded-full ${connected ? "bg-emerald-500" : active ? "bg-amber-500" : "bg-text-muted/40"}`}
-                  />
-                  {connected
-                    ? t("settingsServerConnected")
-                    : connecting
-                      ? t("settingsServerRemoteConnecting")
-                      : active
-                        ? t("settingsServerRemoteError")
-                        : t("serverRemembered")}
-                </span>
-                <div className="flex items-center justify-end gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={busy !== null}
-                    onClick={() => {
-                      if (!connected && group.connections.length > 1) setOpenMenu(group.origin);
-                      else void operate(server, connected ? "check" : "connect");
-                    }}
+              <ServerManagementAuthorization key={group.origin} serverOrigin={group.origin} t={t}>
+                {(access) => (
+                  <div
+                    className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_1fr_.7fr_11rem] items-center gap-4 border-b border-border/60 py-5 text-sm"
+                    data-testid="server-connection-row"
                   >
-                    {t(connected ? "settingsServerCheckConnectivity" : "settingsServerConnect")}
-                  </Button>
-                  <DropdownMenu
-                    open={openMenu === group.origin}
-                    onOpenChange={(open) => setOpenMenu(open ? group.origin : null)}
-                  >
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        size="icon-sm"
-                        variant="ghost"
-                        aria-label={`${t("managementActions")}: ${new URL(group.origin).host}`}
-                        disabled={busy !== null}
+                    <div className="min-w-0">
+                      <span
+                        className="block truncate font-medium text-text-strong"
+                        title={new URL(group.origin).host}
                       >
-                        <EllipsisIcon className="size-4" />
+                        {new URL(group.origin).host}
+                      </span>
+                      {access.label ? (
+                        <span
+                          role="status"
+                          className={`mt-1 block text-xs ${access.recoveryNeeded ? "text-amber-700 dark:text-amber-400" : "text-text-muted"}`}
+                        >
+                          {access.label}
+                        </span>
+                      ) : null}
+                      {access.recoveryNeeded ? (
+                        <Button
+                          variant="link"
+                          size="sm"
+                          className="h-auto px-0 py-1"
+                          disabled={access.disabled}
+                          onClick={access.open}
+                        >
+                          {t("serverManagementRestoreAccess")}
+                        </Button>
+                      ) : null}
+                    </div>
+                    <span className="truncate text-text-muted" title={server.serverBaseUrl}>
+                      {server.serverBaseUrl}
+                    </span>
+                    <span className="text-text-muted" data-testid="server-deployment-method">
+                      {serverDeploymentLabel(server.endpoint, t)}
+                    </span>
+                    <span className="flex items-center gap-2 text-text-muted">
+                      <span
+                        className={`size-1.5 rounded-full ${connected ? "bg-emerald-500" : active ? "bg-amber-500" : "bg-text-muted/40"}`}
+                      />
+                      {connected
+                        ? t("settingsServerConnected")
+                        : connecting
+                          ? t("settingsServerRemoteConnecting")
+                          : active
+                            ? t("settingsServerRemoteError")
+                            : t("serverRemembered")}
+                    </span>
+                    <div className="flex items-center justify-end gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={busy !== null}
+                        onClick={() => {
+                          if (!connected && group.connections.length > 1) setOpenMenu(group.origin);
+                          else void operate(server, connected ? "check" : "connect");
+                        }}
+                      >
+                        {t(connected ? "settingsServerCheckConnectivity" : "settingsServerConnect")}
                       </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-80">
-                      <DropdownMenuLabel>{t("serverWorkspaceConnections")}</DropdownMenuLabel>
-                      {group.connections.map((connection) => {
-                        const current =
-                          connected &&
-                          connection.profileId === status?.workspaceConnection.profile?.profileId;
-                        return (
-                          <DropdownMenuItem
-                            key={connection.profileId}
-                            className="items-start px-3 py-2.5"
-                            disabled={busy !== null || current || !connection.hasDeviceCredential}
-                            onSelect={() => void operate(connection, "connect")}
+                      <DropdownMenu
+                        open={openMenu === group.origin}
+                        onOpenChange={(open) => setOpenMenu(open ? group.origin : null)}
+                      >
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            size="icon-sm"
+                            variant="ghost"
+                            aria-label={`${t("managementActions")}: ${new URL(group.origin).host}`}
+                            disabled={busy !== null}
                           >
-                            <div className="min-w-0 flex-1">
-                              <div className="font-medium">
-                                {t(current ? "serverCurrentConnection" : "serverUseConnection")}
-                              </div>
+                            <EllipsisIcon className="size-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-80">
+                          <DropdownMenuItem disabled={access.disabled} onSelect={access.open}>
+                            {t("serverManagementDetails")}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuLabel>{t("serverWorkspaceConnections")}</DropdownMenuLabel>
+                          {group.connections.map((connection) => {
+                            const current =
+                              connected &&
+                              connection.profileId ===
+                                status?.workspaceConnection.profile?.profileId;
+                            return (
+                              <DropdownMenuItem
+                                key={connection.profileId}
+                                className="items-start px-3 py-2.5"
+                                disabled={
+                                  busy !== null || current || !connection.hasDeviceCredential
+                                }
+                                onSelect={() => void operate(connection, "connect")}
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <div className="font-medium">
+                                    {t(current ? "serverCurrentConnection" : "serverUseConnection")}
+                                  </div>
+                                  <div
+                                    className="mt-1 truncate text-xs text-text-muted"
+                                    title={connection.profileId}
+                                  >
+                                    {connection.workspaceDisplayName} ·{" "}
+                                    {connection.profileId.slice(-6)}
+                                  </div>
+                                  {!connection.hasDeviceCredential ? (
+                                    <div className="mt-1 text-xs text-text-muted">
+                                      {t("peopleMissingCredential")}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              </DropdownMenuItem>
+                            );
+                          })}
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            disabled={busy !== null}
+                            variant="destructive"
+                            className="px-3 py-2.5"
+                            onSelect={() => void operate(server, "forget")}
+                          >
+                            <div className="min-w-0">
+                              <div>{t("serverForgetConnection")}</div>
                               <div
                                 className="mt-1 truncate text-xs text-text-muted"
-                                title={connection.profileId}
+                                title={server.profileId}
                               >
-                                {connection.workspaceDisplayName} · {connection.profileId.slice(-6)}
+                                {server.workspaceDisplayName} · {server.profileId.slice(-6)}
                               </div>
-                              {!connection.hasDeviceCredential ? (
-                                <div className="mt-1 text-xs text-text-muted">
-                                  {t("peopleMissingCredential")}
-                                </div>
-                              ) : null}
                             </div>
                           </DropdownMenuItem>
-                        );
-                      })}
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        disabled={busy !== null}
-                        variant="destructive"
-                        className="px-3 py-2.5"
-                        onSelect={() => void operate(server, "forget")}
-                      >
-                        <div className="min-w-0">
-                          <div>{t("serverForgetConnection")}</div>
-                          <div
-                            className="mt-1 truncate text-xs text-text-muted"
-                            title={server.profileId}
-                          >
-                            {server.workspaceDisplayName} · {server.profileId.slice(-6)}
-                          </div>
-                        </div>
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-                {checks[server.profileId] ? (
-                  <p role="status" className="col-span-5 text-xs text-text-muted">
-                    {t("deploymentConnectivity")}: {checks[server.profileId]}
-                  </p>
-                ) : null}
-              </div>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                    {checks[server.profileId] ? (
+                      <p role="status" className="col-span-5 text-xs text-text-muted">
+                        {t("deploymentConnectivity")}: {checks[server.profileId]}
+                      </p>
+                    ) : null}
+                  </div>
+                )}
+              </ServerManagementAuthorization>
             );
           })}
           {loading ? (

@@ -1,10 +1,10 @@
 import type { managementEnCatalog } from "./i18nManagementEn";
 
 export const managementZhCnCatalog = {
-  serverManagementNeedsRecovery: "这台电脑需要恢复管理权限",
+  serverManagementNeedsRecovery: "管理权限需恢复",
   serverManagementUnavailable: "暂时无法检查管理权限，请检查连接后重试。",
-  serverManagementRestoreAccess: "恢复管理权限",
-  serverManagementDetails: "管理访问",
+  serverManagementRestoreAccess: "恢复权限",
+  serverManagementDetails: "管理权限…",
   serverManagementDeviceRemembered:
     "已记住这台设备。访问凭据会自动刷新，长时间未打开应用也无需定期重新授权。",
   serverManagementLegacy: "尚未建立设备授权。",
@@ -54,7 +54,7 @@ export const managementZhCnCatalog = {
   serverManagementExpires: "有效期至",
   serverManagementAutomatic: "这台电脑已获管理权限",
   serverManagementChecking: "正在检查管理授权…",
-  serverManagementAuthorization: "管理访问",
+  serverManagementAuthorization: "管理权限",
   serverManagementAuthorizationHint:
     "授权这台电脑后即可管理此 Server。设备授权有效期间，访问凭据会自动刷新。",
   serverManagementImport: "从剪贴板导入并验证",

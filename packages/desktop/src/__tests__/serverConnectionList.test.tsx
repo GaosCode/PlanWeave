@@ -28,7 +28,19 @@ let connection = activeWorkspaceConnectionViewSchema.parse({
   connectedAt: "2030-01-01T00:00:00.000Z",
   error: null
 });
-vi.mock("../renderer/bridge", () => ({ collaborationBridge: api }));
+const operatorControlBridge = vi.hoisted(() => ({
+  getOperatorControlStatus: vi.fn().mockResolvedValue({
+    activeProfileId: "admin",
+    profiles: [{ profileId: "admin", operatorId: "owner", serverBaseUrl: "https://vps.example/" }]
+  }),
+  onOperatorControlStatusChanged: vi.fn(() => () => undefined),
+  getManagementAuthorization: vi.fn().mockResolvedValue({
+    profileId: "admin",
+    authorization: null,
+    errorCode: "operator_management_recovery_required"
+  })
+}));
+vi.mock("../renderer/bridge", () => ({ collaborationBridge: api, operatorControlBridge }));
 vi.mock("../renderer/hooks/useCollaborationStatus", () => ({
   useCollaborationStatus: () => ({
     status: { workspaceConnection: connection },
@@ -135,4 +147,13 @@ it.each([
   await waitFor(() => expect(api.validateDeploymentConnectivity).toHaveBeenCalledOnce());
   expect(api.validateDeploymentConnectivity.mock.calls[0]?.[0].target.endpoint).toEqual(endpoint);
   expect(api.selectWorkspaceConnection).not.toHaveBeenCalled();
+});
+
+it("offers recovery within the Server row without changing connection status", async () => {
+  fixture();
+  expect(await screen.findByText("Management access needs recovery")).toBeVisible();
+  expect(screen.getByTestId("server-connection-row")).toHaveTextContent("Connected");
+  await userEvent.click(screen.getByRole("button", { name: "Restore access" }));
+  expect(await screen.findByRole("dialog")).toHaveTextContent("https://vps.example/");
+  expect(screen.getByLabelText("One-time recovery code")).toBeVisible();
 });

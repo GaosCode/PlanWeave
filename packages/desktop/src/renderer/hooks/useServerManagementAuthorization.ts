@@ -4,7 +4,7 @@ import type { OperatorManagementView } from "../../shared/operatorManagement";
 import { operatorControlBridge } from "../bridge";
 import { hostAdministrationErrorCode } from "../settings/hostAdministrationErrors";
 
-export function useServerManagementAuthorization() {
+export function useServerManagementAuthorization(serverOrigin: string) {
   const [status, setStatus] = useState<OperatorControlStatus | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -28,7 +28,12 @@ export function useServerManagementAuthorization() {
       unsubscribe();
     };
   }, []);
-  const profileId = selectedId ?? status?.activeProfileId;
+  const profiles =
+    status?.profiles.filter((item) => new URL(item.serverBaseUrl).origin === serverOrigin) ?? [];
+  const profileId =
+    profiles.find((item) => item.profileId === selectedId)?.profileId ??
+    profiles.find((item) => item.profileId === status?.activeProfileId)?.profileId ??
+    profiles[0]?.profileId;
   const profile = status?.profiles.find((item) => item.profileId === profileId);
   useEffect(() => {
     setManagement(null);
@@ -112,6 +117,7 @@ export function useServerManagementAuthorization() {
   };
   return {
     status,
+    profiles,
     profileId,
     profile,
     busy,

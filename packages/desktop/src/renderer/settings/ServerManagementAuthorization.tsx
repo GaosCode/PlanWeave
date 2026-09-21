@@ -1,5 +1,5 @@
 import { ManagementDialog } from "../components/ManagementDialog";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { useServerManagementAuthorization } from "../hooks/useServerManagementAuthorization";
 import { Button } from "@/components/ui/button";
 import { operatorControlBridge } from "../bridge";
@@ -7,9 +7,23 @@ import type { createTranslator } from "../i18n";
 import { serverProfileLabel } from "./serverProfileLabel";
 import { formatHostAdministrationError } from "./hostAdministrationErrors";
 
-export function ServerManagementAuthorization({ t }: { t: ReturnType<typeof createTranslator> }) {
+export function ServerManagementAuthorization({
+  serverOrigin,
+  children,
+  t
+}: {
+  serverOrigin: string;
+  children: (access: {
+    label: string | null;
+    recoveryNeeded: boolean;
+    disabled: boolean;
+    open: () => void;
+  }) => ReactNode;
+  t: ReturnType<typeof createTranslator>;
+}) {
   const {
     status,
+    profiles,
     profileId,
     profile,
     busy,
@@ -23,7 +37,7 @@ export function ServerManagementAuthorization({ t }: { t: ReturnType<typeof crea
     revoke,
     selectProfile,
     refresh
-  } = useServerManagementAuthorization();
+  } = useServerManagementAuthorization(serverOrigin);
   const [open, setOpen] = useState(false);
   const [revokeId, setRevokeId] = useState<string | null>(null);
   const [recoveryCode, setRecoveryCode] = useState("");
@@ -37,12 +51,12 @@ export function ServerManagementAuthorization({ t }: { t: ReturnType<typeof crea
   ].includes(displayedError ?? "");
   const authorized = Boolean(management?.authorization && !displayedError);
   const stateText =
-    status?.profiles.length === 0
+    status && profiles.length === 0
       ? t("serverManagementEmpty")
       : checking
         ? t("serverManagementChecking")
         : authorized
-          ? t("serverManagementAutomatic")
+          ? t("serverManagementAdministrator")
           : recoveryNeeded
             ? t("serverManagementNeedsRecovery")
             : endpointUnavailable
@@ -50,29 +64,13 @@ export function ServerManagementAuthorization({ t }: { t: ReturnType<typeof crea
               : t("serverManagementUnavailable");
   const quotedOperatorId = `'${(profile?.operatorId ?? "<operator-id>").replace(/'/g, "'\\''")}'`;
   return (
-    <section
-      className="mt-6 flex max-w-3xl flex-col gap-3 rounded-lg border border-border/70 p-5"
-      data-testid="server-management-authorization"
-    >
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-medium text-text-strong">
-            {t("serverManagementAuthorization")}
-          </h2>
-          <p role="status" className="mt-1 text-sm text-text-muted">
-            {stateText}
-          </p>
-          {profile ? (
-            <p className="mt-1 text-xs text-text-muted">{serverProfileLabel(profile, t)}</p>
-          ) : null}
-        </div>
-        <Button variant="outline" disabled={!profile || checking} onClick={() => setOpen(true)}>
-          {t(recoveryNeeded ? "serverManagementRestoreAccess" : "serverManagementDetails")}
-        </Button>
-      </div>
-      {profile?.operatorCredentialPersistence === "session-only" && authorized ? (
-        <p className="text-sm text-text-muted">{t("serverManagementSessionOnly")}</p>
-      ) : null}
+    <>
+      {children({
+        label: profile ? stateText : null,
+        recoveryNeeded,
+        disabled: !profile || checking,
+        open: () => setOpen(true)
+      })}
       <ManagementDialog
         open={open}
         onOpenChange={(value) => {
@@ -88,8 +86,8 @@ export function ServerManagementAuthorization({ t }: { t: ReturnType<typeof crea
         <div className="flex flex-col gap-3">
           <p className="text-sm text-text-muted">{t("serverManagementAuthorizationHint")}</p>
           {!operatorControlBridge ? <p role="alert">{t("hostAdminBridgeUnavailable")}</p> : null}
-          {status?.profiles.length === 0 ? <p>{t("serverManagementEmpty")}</p> : null}
-          {status && status.profiles.length > 0 ? (
+          {status && profiles.length === 0 ? <p>{t("serverManagementEmpty")}</p> : null}
+          {profiles.length > 1 ? (
             <select
               aria-label={t("serverManagementAuthorization")}
               value={profileId ?? ""}
@@ -104,7 +102,7 @@ export function ServerManagementAuthorization({ t }: { t: ReturnType<typeof crea
               <option value="" disabled>
                 {t("settingsServer")}
               </option>
-              {status.profiles.map((item) => (
+              {profiles.map((item) => (
                 <option key={item.profileId} value={item.profileId}>
                   {serverProfileLabel(item, t)} · {item.operatorId} · {item.profileId.slice(-6)}
                 </option>
@@ -118,6 +116,9 @@ export function ServerManagementAuthorization({ t }: { t: ReturnType<typeof crea
             >
               {profile.serverBaseUrl} · {t("serverManagementAdministrator")}: {profile.operatorId}
             </p>
+          ) : null}
+          {profile?.operatorCredentialPersistence === "session-only" && authorized ? (
+            <p className="text-sm text-text-muted">{t("serverManagementSessionOnly")}</p>
           ) : null}
           {checking ? (
             <p role="status" className="text-sm text-text-muted">
@@ -313,6 +314,6 @@ export function ServerManagementAuthorization({ t }: { t: ReturnType<typeof crea
           ) : null}
         </div>
       </ManagementDialog>
-    </section>
+    </>
   );
 }

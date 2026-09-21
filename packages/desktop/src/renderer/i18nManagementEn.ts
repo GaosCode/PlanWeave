@@ -1,9 +1,9 @@
 export const managementEnCatalog = {
-  serverManagementNeedsRecovery: "This computer needs management authorization",
+  serverManagementNeedsRecovery: "Management access needs recovery",
   serverManagementUnavailable:
     "Cannot check management access right now. Check the connection and retry.",
   serverManagementRestoreAccess: "Restore access",
-  serverManagementDetails: "Manage access",
+  serverManagementDetails: "Manage permissions…",
   serverManagementDeviceRemembered:
     "This device is remembered. Access credentials refresh automatically, including after time away.",
   serverManagementLegacy: "Device authorization has not been established yet.",
@@ -59,7 +59,7 @@ export const managementEnCatalog = {
   serverManagementExpires: "Valid until",
   serverManagementAutomatic: "This computer has management access",
   serverManagementChecking: "Checking management authorization…",
-  serverManagementAuthorization: "Management access",
+  serverManagementAuthorization: "Management permissions",
   serverManagementAuthorizationHint:
     "Authorize this computer once to manage this Server. Access credentials refresh automatically while the device authorization remains valid.",
   serverManagementImport: "Import from clipboard and verify",
