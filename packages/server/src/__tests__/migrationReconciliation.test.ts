@@ -32,6 +32,9 @@ async function openDatabaseAtV26(): Promise<SqliteDatabase> {
   applyMigrations(database);
   database.exec("PRAGMA foreign_keys=OFF");
   for (const table of [
+    "operator_management_sessions",
+    "operator_management_recovery_codes",
+    "operator_management_devices",
     "acp_task_restorations",
     "acp_conversation_events",
     "acp_conversation_actions",
@@ -93,6 +96,9 @@ async function openDatabaseAtV53(): Promise<SqliteDatabase> {
   const database = await openDatabase();
   applyMigrations(database);
   database.exec(`
+    DROP TABLE operator_management_sessions;
+    DROP TABLE operator_management_recovery_codes;
+    DROP TABLE operator_management_devices;
     DROP TABLE acp_task_restorations;
     DROP TABLE acp_conversation_events;
     DROP TABLE acp_conversation_actions;
@@ -194,6 +200,7 @@ describe("collaboration migration reconciliation", () => {
           versions: module.migrations.map((migration) => migration.version)
         }))
     ).toEqual([
+      { name: "operator-authorization", versions: [71, 72] },
       { name: "acp-conversations", versions: [69] },
       { name: "identity", versions: [27, 34] },
       { name: "acl-registry", versions: [28] },
