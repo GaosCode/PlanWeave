@@ -163,6 +163,176 @@ it("coalesces ten same-profile checks into one refresh without blocking another 
 });
 
 it.each([
+  "main-owned",
+  "deployment"
+])("keeps an authorization refresh alive during unchanged %s profile synchronization", async (source) => {
+  const entered = deferred<void>();
+  const release = deferred<Response>();
+  let signal: AbortSignal | null | undefined;
+  const f = await fixture(async (url, init) => {
+    if (String(url).endsWith("device-refresh")) {
+      signal = init?.signal;
+      entered.resolve();
+      return release.promise;
+    }
+    return normalReply(url);
+  });
+  const profile = {
+    profileId: "a",
+    displayName: "Local Server",
+    serverBaseUrl: "https://a.example",
+    allowInsecureTransport: false,
+    operatorId: "admin",
+    endpoint: {
+      topology: "public_https" as const,
+      serverOrigin: "https://a.example",
+      allowedClientOrigins: ["https://a.example"],
+      tlsTrust: "system_ca" as const
+    }
+  };
+  const synchronize = () =>
+    source === "main-owned"
+      ? f.service.ensureMainOwnedServerProfile({
+          profile,
+          operatorId: "admin",
+          operatorToken: token
+        })
+      : f.service.ensureDeploymentProfile({ profile, operatorId: "admin" });
+  await synchronize();
+  await f.vault.setOperatorToken("a", replacement, "admin");
+  await f.vault.setManagementDevice("a", device);
+  const checking = f.service.getManagementAuthorization({ profileId: "a" });
+  await entered.promise;
+  await synchronize();
+  expect(signal?.aborted).toBe(false);
+  profile.displayName = "Renamed Server";
+  await synchronize();
+  expect(signal?.aborted).toBe(false);
+  expect(await f.vault.getOperatorToken("a")).toBe(replacement);
+  release.resolve(response({ ...authorization, deviceId }));
+  expect((await checking).errorCode).toBeNull();
+  expect(await f.reload().getOperatorToken("a")).toBe(pendingToken);
+});
+
+it.each([
+  "origin",
+  "identity",
+  "missing-credential"
+])("invalidates authorization when main-owned synchronization changes %s", async (change) => {
+  const entered = deferred<void>();
+  const late = deferred<Response>();
+  let signal: AbortSignal | null | undefined;
+  const f = await fixture(async (url, init) => {
+    if (String(url).endsWith("device-refresh")) {
+      signal = init?.signal;
+      entered.resolve();
+      return late.promise;
+    }
+    return normalReply(url);
+  });
+  const synchronize = (origin: string, operatorId: string) =>
+    f.service.ensureMainOwnedServerProfile({
+      profile: {
+        profileId: "a",
+        displayName: "Local Server",
+        serverBaseUrl: origin,
+        allowInsecureTransport: false,
+        operatorId,
+        endpoint: {
+          topology: "public_https",
+          serverOrigin: origin,
+          allowedClientOrigins: [origin],
+          tlsTrust: "system_ca"
+        }
+      },
+      operatorId,
+      operatorToken: replacement
+    });
+  await synchronize("https://a.example", "admin");
+  await f.vault.setManagementDevice("a", device);
+  const checking = f.service.getManagementAuthorization({ profileId: "a" });
+  await entered.promise;
+  if (change === "missing-credential") await f.vault.clear("a");
+  await synchronize(
+    change === "origin" ? "https://moved.example" : "https://a.example",
+    change === "identity" ? "new-admin" : "admin"
+  );
+  expect(signal?.aborted).toBe(true);
+  expect((await checking).errorCode).toBe("operator_operation_invalidated");
+  late.resolve(response({ ...authorization, deviceId }));
+  await f.service.listHosts({ profileId: "b" });
+  expect(await f.reload().getOperatorToken("a")).toBe(change === "origin" ? token : replacement);
+});
+
+it.each([
+  "main-owned",
+  "deployment"
+])("serializes consecutive %s synchronizations without dropping newer configuration", async (source) => {
+  const f = await fixture(async (url) => normalReply(url));
+  const synchronize = (origin: string) => {
+    const profile = {
+      profileId: "a",
+      displayName: "Server",
+      serverBaseUrl: origin,
+      allowInsecureTransport: false,
+      operatorId: "admin",
+      endpoint: {
+        topology: "public_https" as const,
+        serverOrigin: origin,
+        allowedClientOrigins: [origin],
+        tlsTrust: "system_ca" as const
+      }
+    };
+    return source === "main-owned"
+      ? f.service.ensureMainOwnedServerProfile({
+          profile,
+          operatorId: "admin",
+          operatorToken: token
+        })
+      : f.service.ensureDeploymentProfile({ profile, operatorId: "admin" });
+  };
+  await Promise.all([
+    synchronize("https://a.example"),
+    synchronize("https://a.example"),
+    synchronize("https://moved.example")
+  ]);
+  expect((await f.profiles.get("a"))?.serverBaseUrl).toBe("https://moved.example");
+});
+
+it.each([
+  "clear",
+  "remove",
+  "import"
+])("gives explicit %s priority over a queued synchronization", async (change) => {
+  const f = await fixture(async (url) => normalReply(url));
+  const synchronizing = f.service.ensureDeploymentProfile({
+    profile: {
+      profileId: "a",
+      displayName: "Queued",
+      serverBaseUrl: "https://moved.example",
+      allowInsecureTransport: false
+    },
+    operatorId: "admin"
+  });
+  const rejected = expect(synchronizing).rejects.toMatchObject({
+    code: "operator_operation_invalidated"
+  });
+  if (change === "clear") await f.service.clearCredential({ profileId: "a" });
+  if (change === "remove") await f.service.removeProfile({ profileId: "a" });
+  if (change === "import")
+    await f.service.importCredential({
+      profileId: "a",
+      operatorToken: replacement,
+      operatorId: "admin"
+    });
+  await rejected;
+  expect(await f.vault.getOperatorToken("a")).toBe(change === "import" ? replacement : undefined);
+  expect((await f.profiles.get("a"))?.serverBaseUrl).toBe(
+    change === "remove" ? undefined : "https://a.example"
+  );
+});
+
+it.each([
   "clear",
   "remove",
   "upsert",
