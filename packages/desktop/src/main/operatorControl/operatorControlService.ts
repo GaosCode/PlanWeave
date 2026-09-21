@@ -1,4 +1,4 @@
-import { isDeepStrictEqual } from "node:util";
+import { OperatorProfileSynchronization } from "./operatorProfileSynchronization.js";
 import {
   OperatorLocalHostOperations,
   localAgentHostErrorFromUnknown
@@ -16,7 +16,6 @@ import {
 } from "../../shared/operatorManagement.js";
 import { serializeCollaborationSetupHandoffV1 } from "@planweave-ai/collaboration-protocol/handoff/setup";
 import { operatorTokenSchema } from "@planweave-ai/agent-host-protocol";
-import { randomBytes } from "node:crypto";
 import {
   assertNoSmuggledOperatorSecrets,
   operatorControlProfileSchema,
@@ -159,6 +158,7 @@ export class OperatorControlService {
   private readonly resolveHumanIdentityCredential?: OperatorControlServiceOptions["resolveHumanIdentityCredential"];
   private readonly localHostOperation = Symbol("local-agent-host");
   private readonly operations = new OperatorProfileOperations();
+  private readonly synchronization: OperatorProfileSynchronization;
   private readonly profileMutations = new Map<string, symbol>();
   private readonly localHostMutations = new OperatorLocalHostOperations(this.operations);
   private readonly management: OperatorManagementService;
@@ -179,6 +179,7 @@ export class OperatorControlService {
         : {})
     };
     this.vault = options.vault ?? new OperatorCredentialVault(vaultOptions);
+    this.synchronization = new OperatorProfileSynchronization(this.profiles, this.vault);
     this.createClient =
       options.createClient ?? ((clientOptions) => new OperatorControlClient(clientOptions));
     this.request = options.request;
@@ -227,13 +228,19 @@ export class OperatorControlService {
             kind: "offline",
             code: "operator_operation_invalidated"
           });
-        const current = this.operations.capture(profileId);
+        let current = this.operations.capture(profileId);
         try {
           const same = await unchanged();
           current.assertCurrent();
-          if (same) return await action(current);
-          this.management.forget(profileId);
-          return await this.operations.run(profileId, action);
+          if (!same) {
+            current.release();
+            this.management.forget(profileId);
+            current = this.operations.capture(profileId);
+          }
+          // Local persistence must drain the action, not its cancellable caller promise.
+          const result = await action(current);
+          current.assertCurrent();
+          return result;
         } finally {
           current.release();
         }
@@ -251,14 +258,6 @@ export class OperatorControlService {
   private invalidateProfile(profileId: string): void {
     this.profileMutations.set(profileId, Symbol());
     this.management.forget(profileId);
-  }
-
-  private async profileMatches(profile: OperatorControlProfile): Promise<boolean> {
-    const existing = await this.profiles.get(profile.profileId);
-    if (!existing) return false;
-    const { updatedAt: _updatedAt, displayName: _storedName, ...stored } = existing;
-    const { displayName: _profileName, ...configuration } = profile;
-    return isDeepStrictEqual(stored, configuration);
   }
 
   private assertOpen(): void {
@@ -399,14 +398,18 @@ export class OperatorControlService {
   async upsertProfile(input: unknown): Promise<OperatorControlStatus> {
     assertNoSmuggledOperatorSecrets(input, "upsertOperatorProfile");
     const profile = operatorControlProfileInputSchema.parse(input);
-    return this.changeProfile(profile.profileId, async () => {
+    return this.changeProfile(profile.profileId, async (operation) => {
       this.assertOpen();
 
       const existing = await this.profiles.get(profile.profileId);
-      await this.profiles.upsert({
-        ...profile,
-        ...(existing?.endpoint ? { endpoint: existing.endpoint } : {})
-      });
+      operation.assertCurrent();
+      await this.profiles.upsert(
+        {
+          ...profile,
+          ...(existing?.endpoint ? { endpoint: existing.endpoint } : {})
+        },
+        operation.assertCurrent
+      );
       return this.publishStatus();
     });
   }
@@ -419,43 +422,9 @@ export class OperatorControlService {
     const profile = operatorControlProfileSchema.parse(input.profile);
     return this.changeProfile(
       profile.profileId,
-      async () => {
-        this.assertOpen();
-        const operatorId = input.operatorId.trim();
-        if (!operatorId) {
-          throw new OperatorControlError({
-            kind: "validation",
-            code: "deployment_operator_id_required"
-          });
-        }
-        const existingToken = await this.vault.getOperatorToken(profile.profileId);
-        if (existingToken) {
-          if ((await this.vault.persistenceFor(profile.profileId)) !== "persisted") {
-            throw new Error("deployment_operator_credential_persistence_required");
-          }
-          await this.profiles.upsert(profile);
-          return existingToken;
-        }
-        const operatorToken = `pw_operator_${randomBytes(32).toString("base64url")}`;
-        const persistence = await this.vault.setOperatorToken(
-          profile.profileId,
-          operatorToken,
-          operatorId
-        );
-        if (persistence !== "persisted") {
-          await this.vault.clear(profile.profileId);
-          throw new Error("deployment_operator_credential_persistence_required");
-        }
-        try {
-          await this.profiles.upsert(profile);
-        } catch (error) {
-          await this.vault.clear(profile.profileId);
-          throw error;
-        }
-        return operatorToken;
-      },
+      (operation) => this.synchronization.ensureDeployment(profile, input.operatorId, operation),
       async () =>
-        (await this.profileMatches(profile)) &&
+        (await this.synchronization.matches(profile)) &&
         !!(await this.vault.getOperatorToken(profile.profileId))
     );
   }
@@ -469,22 +438,14 @@ export class OperatorControlService {
     const profile = operatorControlProfileSchema.parse(input.profile);
     return this.changeProfile(
       profile.profileId,
-      async () => {
-        this.assertOpen();
-        if (!profile.endpoint) throw new Error("operator_deployment_endpoint_required");
-        const operatorId = input.operatorId.trim();
-        const operatorToken = operatorTokenSchema.parse(input.operatorToken);
-        if (!operatorId) throw new Error("deployment_operator_id_required");
-        const existingToken = await this.vault.getOperatorToken(profile.profileId);
-        const existingIdentity = await this.vault.getMetadata(profile.profileId);
-        // Profile reconciliation must not replace a recovered credential with the bootstrap token.
-        if (!existingToken || existingIdentity?.operatorId !== operatorId) {
-          await this.vault.setOperatorToken(profile.profileId, operatorToken, operatorId);
-        }
-        await this.profiles.upsert(profile);
-        if ((await this.profiles.getActiveProfileId()) === null) {
-          await this.profiles.setActiveProfileId(profile.profileId);
-        }
+      async (operation) => {
+        await this.synchronization.ensureMainOwned(
+          profile,
+          input.operatorId,
+          input.operatorToken,
+          operation
+        );
+        operation.assertCurrent();
         if (this.lastErrorCode === "operator_local_server_not_ready") {
           this.lastErrorCode = null;
           this.lastErrorMessage = null;
@@ -492,7 +453,7 @@ export class OperatorControlService {
         await this.publishStatus();
       },
       async () =>
-        (await this.profileMatches(profile)) &&
+        (await this.synchronization.matches(profile)) &&
         !!(await this.vault.getOperatorToken(profile.profileId)) &&
         (await this.vault.getMetadata(profile.profileId))?.operatorId === input.operatorId.trim()
     );
@@ -501,11 +462,11 @@ export class OperatorControlService {
   async removeProfile(input: unknown): Promise<OperatorControlStatus> {
     assertNoSmuggledOperatorSecrets(input, "removeOperatorProfile");
     const { profileId } = operatorProfileIdInputSchema.parse(input);
-    return this.changeProfile(profileId, async () => {
+    return this.changeProfile(profileId, async (operation) => {
       this.assertOpen();
 
-      await this.vault.clear(profileId);
-      await this.profiles.remove(profileId);
+      await this.vault.clear(profileId, operation.assertCurrent);
+      await this.profiles.remove(profileId, operation.assertCurrent);
       return this.publishStatus();
     });
   }
@@ -645,10 +606,10 @@ export class OperatorControlService {
   async clearCredential(input: unknown): Promise<OperatorControlStatus> {
     assertNoSmuggledOperatorSecrets(input, "clearOperatorCredential");
     const { profileId } = operatorProfileIdInputSchema.parse(input);
-    return this.changeProfile(profileId, async () => {
+    return this.changeProfile(profileId, async (operation) => {
       this.assertOpen();
 
-      await this.vault.clear(profileId);
+      await this.vault.clear(profileId, operation.assertCurrent);
       return this.publishStatus();
     });
   }

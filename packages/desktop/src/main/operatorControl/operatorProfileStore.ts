@@ -171,9 +171,13 @@ export class OperatorProfileStore {
     return document.profiles.find((profile) => profile.profileId === profileId) ?? null;
   }
 
-  async upsert(profile: OperatorControlProfile): Promise<StoredOperatorProfile> {
+  async upsert(
+    profile: OperatorControlProfile,
+    assertCurrent?: () => void
+  ): Promise<StoredOperatorProfile> {
     return this.exclusive(async () => {
       const document = operatorProfilesDocumentSchema.parse(await this.load());
+      assertCurrent?.();
       const stored: StoredOperatorProfile = {
         ...operatorControlProfileSchema.parse(profile),
         updatedAt: new Date().toISOString()
@@ -186,9 +190,10 @@ export class OperatorProfileStore {
     });
   }
 
-  async remove(profileId: string): Promise<boolean> {
+  async remove(profileId: string, assertCurrent?: () => void): Promise<boolean> {
     return this.exclusive(async () => {
       const document = operatorProfilesDocumentSchema.parse(await this.load());
+      assertCurrent?.();
       const next = document.profiles.filter((profile) => profile.profileId !== profileId);
       if (next.length === document.profiles.length) return false;
       document.profiles = next;
@@ -202,9 +207,10 @@ export class OperatorProfileStore {
     return (await this.read()).activeProfileId;
   }
 
-  async setActiveProfileId(profileId: string | null): Promise<void> {
+  async setActiveProfileId(profileId: string | null, assertCurrent?: () => void): Promise<void> {
     return this.exclusive(async () => {
       const document = operatorProfilesDocumentSchema.parse(await this.load());
+      assertCurrent?.();
       if (
         profileId !== null &&
         !document.profiles.some((profile) => profile.profileId === profileId)

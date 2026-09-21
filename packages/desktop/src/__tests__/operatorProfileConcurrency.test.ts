@@ -646,3 +646,127 @@ it("serializes shared local Host mutations and rejects a cleared profile before 
   expect(secondAction).not.toHaveBeenCalled();
   operations.shutdown();
 });
+
+it.each([
+  "remove",
+  "clear",
+  "import",
+  "shutdown"
+])("drains an already-started synchronization before %s and fences its pending writes", async (change) => {
+  const f = await fixture(async (url) => normalReply(url));
+  const entered = deferred<void>();
+  const release = deferred<void>();
+  const metadata = await f.vault.getMetadata("a");
+  vi.spyOn(f.vault, "getMetadata").mockImplementationOnce(async () => {
+    entered.resolve();
+    await release.promise;
+    return metadata;
+  });
+  const upsert = vi.spyOn(f.profiles, "upsert");
+  const setToken = vi.spyOn(f.vault, "setOperatorToken");
+  const synchronizing = f.service.ensureMainOwnedServerProfile({
+    profile: {
+      profileId: "a",
+      displayName: "Moved",
+      serverBaseUrl: "https://moved.example",
+      allowInsecureTransport: false,
+      operatorId: "new-admin",
+      endpoint: {
+        topology: "public_https",
+        serverOrigin: "https://moved.example",
+        allowedClientOrigins: ["https://moved.example"],
+        tlsTrust: "system_ca"
+      }
+    },
+    operatorId: "new-admin",
+    operatorToken: pendingToken
+  });
+  const rejected = expect(synchronizing).rejects.toMatchObject({
+    code: "operator_operation_invalidated"
+  });
+  await entered.promise;
+  const changing =
+    change === "remove"
+      ? f.service.removeProfile({ profileId: "a" })
+      : change === "clear"
+        ? f.service.clearCredential({ profileId: "a" })
+        : change === "import"
+          ? f.service.importCredential({
+              profileId: "a",
+              operatorToken: replacement,
+              operatorId: "admin"
+            })
+          : f.service.shutdown();
+  release.resolve();
+  await Promise.all([changing, rejected]);
+  expect(upsert).not.toHaveBeenCalled();
+  expect(setToken.mock.calls.every((call) => call[1] === replacement)).toBe(true);
+  const reloadedProfiles = new OperatorProfileStore({ profilesPath: f.profiles.profilesPath });
+  expect((await reloadedProfiles.get("a"))?.serverBaseUrl).toBe(
+    change === "remove" ? undefined : "https://a.example"
+  );
+  expect(await f.reload().getOperatorToken("a")).toBe(
+    change === "import" ? replacement : change === "shutdown" ? token : undefined
+  );
+  expect(await reloadedProfiles.getActiveProfileId()).toBeNull();
+});
+
+it.each(
+  ["main-owned", "deployment"].flatMap((source) =>
+    [false, true].map((unchanged) => ({ source, unchanged }))
+  )
+)("keeps $source persistence until a started write settles (unchanged=$unchanged)", async ({
+  source,
+  unchanged
+}) => {
+  const f = await fixture(async (url) => normalReply(url));
+  const entered = deferred<void>();
+  const release = deferred<void>();
+  const upsert = f.profiles.upsert.bind(f.profiles);
+  vi.spyOn(f.profiles, "upsert").mockImplementationOnce(async (profile) => {
+    // Model a write which already passed its guard and cannot be interrupted.
+    entered.resolve();
+    await release.promise;
+    return upsert(profile);
+  });
+  const clear = vi.spyOn(f.vault, "clear");
+  const profile = {
+    profileId: "a",
+    displayName: "Moved",
+    serverBaseUrl: "https://moved.example",
+    allowInsecureTransport: false,
+    operatorId: "admin",
+    endpoint: {
+      topology: "public_https" as const,
+      serverOrigin: "https://moved.example",
+      allowedClientOrigins: ["https://moved.example"],
+      tlsTrust: "system_ca" as const
+    }
+  };
+  if (unchanged) await upsert(profile);
+  const synchronizing =
+    source === "main-owned"
+      ? f.service.ensureMainOwnedServerProfile({
+          profile,
+          operatorId: "admin",
+          operatorToken: token
+        })
+      : f.service.ensureDeploymentProfile({ profile, operatorId: "admin" });
+  const rejected = expect(synchronizing).rejects.toMatchObject({
+    code: "operator_operation_invalidated"
+  });
+  await entered.promise;
+  const removing = f.service.removeProfile({ profileId: "a" });
+  try {
+    // Advance to the next event-loop turn so all runnable queue continuations drain.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(clear).not.toHaveBeenCalled();
+  } finally {
+    release.resolve();
+    await Promise.all([removing, rejected]);
+  }
+  const reloadedProfiles = new OperatorProfileStore({ profilesPath: f.profiles.profilesPath });
+  expect(await reloadedProfiles.get("a")).toBeNull();
+  expect(await reloadedProfiles.getActiveProfileId()).toBeNull();
+  expect(await f.reload().getOperatorToken("a")).toBeUndefined();
+});

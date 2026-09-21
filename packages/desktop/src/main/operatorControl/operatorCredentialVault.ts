@@ -324,9 +324,10 @@ export class OperatorCredentialVault {
     });
   }
 
-  async clear(profileId: string): Promise<void> {
+  async clear(profileId: string, assertCurrent?: () => void): Promise<void> {
     return this.exclusive(async () => {
       const document = await this.draft();
+      assertCurrent?.();
       if (document.credentials[profileId]) {
         delete document.credentials[profileId];
         await this.persist(document);
