@@ -157,6 +157,61 @@ describe("Server migration reconnect", () => {
   });
 
   it.each([
+    "snapshot",
+    "local"
+  ])("continues past session-only local credentials to a valid %s identity", async (source) => {
+    const f = await fixture(true);
+    if (source === "local")
+      await f.addProfile("planweave-local-valid", "http://127.0.0.1:4310/", token);
+    const available = vi.spyOn(f.safeStorage, "isEncryptionAvailable").mockReturnValue(false);
+    await f.addProfile("planweave-local-unrelated", "http://127.0.0.1:4311/");
+    available.mockRestore();
+    const document = structuredClone(await f.store.read());
+    for (const profile of document.profiles)
+      profile.updatedAt =
+        profile.profileId === "planweave-local-unrelated"
+          ? "2031-01-01T00:00:00.000Z"
+          : "2030-01-01T00:00:00.000Z";
+    await f.store.write(document);
+    expect(await f.vault.persistenceFor("planweave-local-unrelated")).toBe("session-only");
+    const readSnapshot = vi.spyOn(f.identityStore, "read");
+    const request = vi.fn<typeof fetch>(async (_url, init) => {
+      expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${token}`);
+      return response(source === "local" ? { workspaceId: "workspace-old" } : {});
+    });
+    expect(await f.connection(request).tryReconnectByOrigin(baseUrl)).toBe(true);
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(readSnapshot).toHaveBeenCalledTimes(source === "snapshot" ? 1 : 0);
+    const active = await f.store.getActiveProfileId();
+    expect(active).not.toBeNull();
+    expect(await f.vault.getDeviceToken(active!)).toBe(token);
+    expect(await f.vault.getDeviceToken("planweave-local-unrelated")).toBe(staleToken);
+  });
+
+  it.each([
+    "missing",
+    "rejected"
+  ])("reports deferred credential failure after the snapshot is %s without changing storage", async (snapshot) => {
+    const f = await fixture(true);
+    const available = vi.spyOn(f.safeStorage, "isEncryptionAvailable").mockReturnValue(false);
+    await f.addProfile("planweave-local-unrelated", "http://127.0.0.1:4311/");
+    available.mockRestore();
+    if (snapshot === "missing") await rm(f.identityPath);
+    const readSnapshot = vi.spyOn(f.identityStore, "read");
+    const request = vi.fn<typeof fetch>(async () => new Response(null, { status: 401 }));
+    const profiles = await readFile(f.profilesPath, "utf8");
+    const credentials = await readFile(f.credentialsPath, "utf8");
+    await expect(f.connection(request).tryReconnectByOrigin(baseUrl)).rejects.toMatchObject({
+      code: "server_migration_credential_not_persisted"
+    });
+    expect(readSnapshot).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledTimes(snapshot === "missing" ? 0 : 1);
+    expect(await readFile(f.profilesPath, "utf8")).toBe(profiles);
+    expect(await readFile(f.credentialsPath, "utf8")).toBe(credentials);
+    expect(await f.store.getActiveProfileId()).toBe("profile-original");
+  });
+
+  it.each([
     "401",
     "403",
     "mismatch",

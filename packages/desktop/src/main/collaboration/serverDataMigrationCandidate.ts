@@ -79,6 +79,7 @@ export async function findServerMigrationIdentity(input: {
       };
   }
   const request = input.request ?? fetch;
+  let credentialError: CollaborationClientError | undefined;
   for await (const candidate of candidates()) {
     const deviceToken = await input.vault.getDeviceToken(candidate.credentialProfileId);
     if (!deviceToken) {
@@ -106,12 +107,13 @@ export async function findServerMigrationIdentity(input: {
         identityToken
       }))
     ) {
-      throw new CollaborationClientError({
+      credentialError ??= new CollaborationClientError({
         kind: "auth",
         code: "server_migration_credential_not_persisted",
         message: "The migration identity is not available in persistent credential storage.",
         retryable: false
       });
+      continue;
     }
     const profile = workspaceConnectionProfileSchema.parse({
       schemaVersion: "workspace-identity/v1",
@@ -147,5 +149,6 @@ export async function findServerMigrationIdentity(input: {
       metadata: await input.vault.getMetadata(candidate.credentialProfileId)
     };
   }
+  if (credentialError) throw credentialError;
   return null;
 }
