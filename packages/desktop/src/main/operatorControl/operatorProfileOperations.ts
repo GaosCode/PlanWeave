@@ -89,6 +89,36 @@ export class OperatorProfileOperations {
     return next;
   }
 
+  /**
+   * Hold the current generation queue until `action` settles.
+   * Invalidation rejects the caller only when `action` itself observes it;
+   * this queue entry is not a cancellation race.
+   */
+  occupy<T>(
+    profileId: string | symbol,
+    action: (operation: OperatorProfileOperation) => Promise<T>
+  ): Promise<T> {
+    const operation = this.capture(profileId);
+    const generation = this.generations.get(profileId);
+    if (!generation) {
+      operation.release();
+      throw new OperatorControlError({ kind: "offline", code: "operator_operation_invalidated" });
+    }
+    const executed = generation.queue.then(async () => {
+      try {
+        operation.assertCurrent();
+        return await action(operation);
+      } finally {
+        operation.release();
+      }
+    });
+    generation.queue = executed.then(
+      () => undefined,
+      () => undefined
+    );
+    return executed;
+  }
+
   invalidate(profileId: string | symbol): void {
     const generation = this.generations.get(profileId);
     this.generations.delete(profileId);

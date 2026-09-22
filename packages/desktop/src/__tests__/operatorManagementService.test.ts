@@ -383,8 +383,8 @@ it.each([
     profiles,
     vault,
     operations,
-    client: async () =>
-      new OperatorControlClient({
+    client: async () => ({
+      client: new OperatorControlClient({
         profile,
         credential: { getOperatorToken: () => vault.getOperatorToken("target") },
         request: async (_url, init) => {
@@ -393,7 +393,9 @@ it.each([
           // Deliberately deliver a response even after abort to test the commit guard.
           return refresh.promise;
         }
-      })
+      }),
+      profile
+    })
   });
   const checking = management.check("target");
   expect(management.check("target")).toBe(checking);

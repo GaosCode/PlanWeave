@@ -5,7 +5,8 @@ import {
 import { hostname } from "node:os";
 import type { ManagementAuthorizationStatus } from "@planweave-ai/agent-host-protocol/operator-control";
 import { randomBytes } from "node:crypto";
-import { OperatorControlError } from "../../shared/operatorControl.js";
+import { OperatorControlError, type OperatorControlProfile } from "../../shared/operatorControl.js";
+import { LOCAL_OPERATOR_PROFILE_ID } from "./localOperatorBackend.js";
 import type { OperatorManagementView } from "../../shared/operatorManagement.js";
 import type { OperatorProfileStore } from "./operatorProfileStore.js";
 import type { OperatorCredentialVault, StoredManagementDevice } from "./operatorCredentialVault.js";
@@ -13,6 +14,34 @@ import type { OperatorControlClient } from "./OperatorControlClient.js";
 
 function failure(code: string): OperatorControlError {
   return new OperatorControlError({ kind: "unauthorized", code });
+}
+function invalidated(): OperatorControlError {
+  return new OperatorControlError({ kind: "offline", code: "operator_operation_invalidated" });
+}
+function clientBoundTo(profile: OperatorControlProfile, client: OperatorControlClient): boolean {
+  if (client.connectionProfile.profileId !== profile.profileId) return false;
+  const storedOrigin = new URL(profile.serverBaseUrl).origin;
+  const clientOrigin = new URL(client.connectionProfile.serverBaseUrl).origin;
+  if (clientOrigin === storedOrigin) return true;
+  return (
+    profile.profileId === LOCAL_OPERATOR_PROFILE_ID &&
+    new URL(client.connectionProfile.serverBaseUrl).hostname === "127.0.0.1"
+  );
+}
+function assertDeviceSecretDestination(
+  device: StoredManagementDevice,
+  profile: OperatorControlProfile,
+  client: OperatorControlClient
+): void {
+  const storedOrigin = new URL(profile.serverBaseUrl).origin;
+  const clientOrigin = new URL(client.connectionProfile.serverBaseUrl).origin;
+  if (
+    !clientBoundTo(profile, client) ||
+    device.origin !== storedOrigin ||
+    (clientOrigin !== device.origin && profile.profileId !== LOCAL_OPERATOR_PROFILE_ID)
+  ) {
+    throw invalidated();
+  }
 }
 function errorCode(error: unknown): string {
   if (!(error instanceof OperatorControlError)) return "operator_management_failed";
@@ -28,7 +57,10 @@ export class OperatorManagementService {
       profiles: OperatorProfileStore;
       vault: OperatorCredentialVault;
       operations?: OperatorProfileOperations;
-      client(profileId: string): Promise<OperatorControlClient>;
+      client(profileId: string): Promise<{
+        client: OperatorControlClient;
+        profile: OperatorControlProfile;
+      }>;
     }
   ) {
     this.operations = options.operations ?? new OperatorProfileOperations();
@@ -65,10 +97,11 @@ export class OperatorManagementService {
     let client: OperatorControlClient | undefined;
     try {
       operation.assertCurrent();
-      const profile = await this.options.profiles.get(profileId);
-      if (!profile) throw failure("operator_profile_not_found");
-      client = await this.options.client(profileId);
+      const bound = await this.options.client(profileId);
+      client = bound.client;
+      const profile = bound.profile;
       operation.track(client);
+      if (!clientBoundTo(profile, client)) throw invalidated();
       let device = await this.options.vault.getManagementDevice(profileId);
       const operatorId =
         (await this.options.vault.getMetadata(profileId))?.operatorId ?? profile.operatorId;
@@ -98,11 +131,13 @@ export class OperatorManagementService {
       if (!device.deviceId) {
         let enrolled: Awaited<ReturnType<OperatorControlClient["enrollManagementDevice"]>>;
         try {
+          assertDeviceSecretDestination(device, profile, client);
           enrolled = await client.enrollManagementDevice(device.secret, hostname().slice(0, 128));
         } catch (error) {
           if (errorCode(error) !== "operator_unauthorized") throw error;
-          await this.refreshDevice(profileId, device, client, operation);
+          await this.refreshDevice(profileId, device, client, operation, profile);
           // Enrollment may have succeeded before an interrupted response and an expired access token.
+          assertDeviceSecretDestination(device, profile, client);
           enrolled = await client.enrollManagementDevice(device.secret, hostname().slice(0, 128));
         }
         if (enrolled.operatorId !== device.operatorId) throw failure("operator_response_invalid");
@@ -110,18 +145,18 @@ export class OperatorManagementService {
         await this.options.vault.setManagementDevice(profileId, device, operation.assertCurrent);
       }
       if (device.pendingToken)
-        authorization = await this.refreshDevice(profileId, device, client, operation);
+        authorization = await this.refreshDevice(profileId, device, client, operation, profile);
       else {
         try {
           authorization = await client.maintainManagementAuthorization();
           if (new Date(authorization.renewAfter).getTime() <= Date.now())
-            authorization = await this.refreshDevice(profileId, device, client, operation);
+            authorization = await this.refreshDevice(profileId, device, client, operation, profile);
         } catch (error) {
           if (
             !["operator_unauthorized", "operator_server_admin_required"].includes(errorCode(error))
           )
             throw error;
-          authorization = await this.refreshDevice(profileId, device, client, operation);
+          authorization = await this.refreshDevice(profileId, device, client, operation, profile);
         }
       }
       const devices = await client.listManagementDevices();
@@ -146,7 +181,8 @@ export class OperatorManagementService {
     profileId: string,
     device: StoredManagementDevice,
     client: OperatorControlClient,
-    operation: OperatorProfileOperation
+    operation: OperatorProfileOperation,
+    profile: OperatorControlProfile
   ): Promise<ManagementAuthorizationStatus> {
     const pending = {
       ...device,
@@ -155,6 +191,7 @@ export class OperatorManagementService {
     await this.options.vault.setManagementDevice(profileId, pending, operation.assertCurrent);
     let response: Awaited<ReturnType<OperatorControlClient["refreshManagementDevice"]>>;
     try {
+      assertDeviceSecretDestination(pending, profile, client);
       response = await client.refreshManagementDevice(pending.secret, pending.pendingToken);
     } catch (error) {
       // A saved pending token can expire while Desktop is closed. Retry with a fresh token
@@ -162,6 +199,7 @@ export class OperatorManagementService {
       if (errorCode(error) !== "operator_management_token_conflict") throw error;
       pending.pendingToken = `pw_operator_${randomBytes(32).toString("base64url")}`;
       await this.options.vault.setManagementDevice(profileId, pending, operation.assertCurrent);
+      assertDeviceSecretDestination(pending, profile, client);
       response = await client.refreshManagementDevice(pending.secret, pending.pendingToken);
     }
     const { deviceId, ...authorization } = response;
@@ -187,7 +225,8 @@ export class OperatorManagementService {
   revoke(profileId: string, deviceId: string): Promise<OperatorManagementView> {
     return this.operations.run(profileId, async (operation) => {
       await this.ensureAccess(profileId, operation);
-      const client = await this.options.client(profileId);
+      const bound = await this.options.client(profileId);
+      const client = bound.client;
       operation.track(client);
       try {
         await client.revokeManagementDevice(deviceId);
@@ -232,7 +271,14 @@ export class OperatorManagementService {
         };
         let client: OperatorControlClient | undefined;
         try {
-          client = await this.options.client(candidate.profileId);
+          const bound = await this.options.client(candidate.profileId);
+          client = bound.client;
+          if (
+            !clientBoundTo(bound.profile, client) ||
+            bound.profile.serverBaseUrl !== candidate.serverBaseUrl ||
+            bound.profile.operatorId !== candidate.operatorId
+          )
+            throw failure("operator_operation_invalidated");
           operation.track(client);
           source.track(client);
           const current = await this.options.profiles.get(candidate.profileId);

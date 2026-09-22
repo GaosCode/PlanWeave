@@ -770,3 +770,61 @@ it.each(
   expect(await reloadedProfiles.getActiveProfileId()).toBeNull();
   expect(await f.reload().getOperatorToken("a")).toBeUndefined();
 });
+
+it.each([
+  "origin",
+  "identity"
+])("does not send the saved device secret when synchronization changes %s", async (change) => {
+  const requests: { origin: string; deviceSecret?: string }[] = [];
+  const f = await fixture(async (url, init) => {
+    let deviceSecret: string | undefined;
+    if (typeof init?.body === "string") {
+      const parsed: unknown = JSON.parse(init.body);
+      if (parsed && typeof parsed === "object" && "deviceSecret" in parsed) {
+        const secret = parsed.deviceSecret;
+        if (typeof secret === "string") deviceSecret = secret;
+      }
+    }
+    requests.push({ origin: new URL(String(url)).origin, deviceSecret });
+    return normalReply(url);
+  });
+  await f.vault.setManagementDevice("a", device);
+  const entered = deferred<void>();
+  const release = deferred<void>();
+  const upsert = f.profiles.upsert.bind(f.profiles);
+  vi.spyOn(f.profiles, "upsert").mockImplementationOnce(async (profile, assertCurrent) => {
+    entered.resolve();
+    await release.promise;
+    return upsert(profile, assertCurrent);
+  });
+  const origin = change === "origin" ? "https://moved.example" : "https://a.example";
+  const operatorId = change === "identity" ? "new-admin" : "admin";
+  const synchronizing = f.service.ensureMainOwnedServerProfile({
+    profile: {
+      profileId: "a",
+      displayName: "Moved",
+      serverBaseUrl: origin,
+      allowInsecureTransport: false,
+      operatorId,
+      endpoint: {
+        topology: "public_https",
+        serverOrigin: origin,
+        allowedClientOrigins: [origin],
+        tlsTrust: "system_ca"
+      }
+    },
+    operatorId,
+    operatorToken: token
+  });
+  await entered.promise;
+  const checking = f.service.getManagementAuthorization({ profileId: "a" });
+  release.resolve();
+  const view = await checking;
+  await synchronizing;
+  expect(
+    requests.filter(
+      (request) => request.origin === origin && request.deviceSecret === device.secret
+    )
+  ).toEqual([]);
+  if (change === "origin") expect(view.errorCode).toBeNull();
+});

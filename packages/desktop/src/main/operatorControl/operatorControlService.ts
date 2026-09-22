@@ -192,7 +192,7 @@ export class OperatorControlService {
       profiles: this.profiles,
       vault: this.vault,
       operations: this.operations,
-      client: async (profileId) => (await this.createProfileClient(profileId)).client
+      client: (profileId) => this.createProfileClient(profileId)
     });
     this.maintenance = new OperatorAuthorizationMaintenance({
       profiles: async () => (await this.profiles.list()).map((profile) => profile.profileId),
@@ -228,14 +228,19 @@ export class OperatorControlService {
             kind: "offline",
             code: "operator_operation_invalidated"
           });
-        let current = this.operations.capture(profileId);
+        const current = this.operations.capture(profileId);
         try {
           const same = await unchanged();
           current.assertCurrent();
           if (!same) {
             current.release();
             this.management.forget(profileId);
-            current = this.operations.capture(profileId);
+            // The new generation queue must follow this action, not a cancellable race.
+            return await this.operations.occupy(profileId, async (operation) => {
+              const result = await action(operation);
+              operation.assertCurrent();
+              return result;
+            });
           }
           // Local persistence must drain the action, not its cancellable caller promise.
           const result = await action(current);
