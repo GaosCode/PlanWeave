@@ -173,9 +173,18 @@ For simple tasks, one agent can use `plan-runner` directly. For larger plans, us
 
 PlanWeave includes a local HTTP MCP server for MCP clients such as ChatGPT. Its tools inspect and author plans by initializing projects, creating canvases, adding tasks and blocks, wiring dependencies, editing prompts, configuring review pipelines, validating graph quality, and importing package drafts.
 
-For ChatGPT in the browser, use the CLI MCP tunnel on a VPS or PlanWeave Desktop's MCP settings on a local machine. You can use ChatGPT Web as the planning partner: describe the project goal, ask it to write a package-shaped draft in a temporary draft root, dry-run validate and quality-check it, preview the import, then apply it transactionally.
+For ChatGPT in the browser, use PlanWeave Desktop's MCP settings on a local machine. On a VPS or another machine without the desktop app, use the CLI MCP tunnel. You can use ChatGPT Web as the planning partner: describe the project goal, ask it to write a package-shaped draft in a temporary draft root, dry-run validate and quality-check it, preview the import, then apply it transactionally.
 
-Recommended headless setup for a VPS uses systemd. The MCP server stays on loopback, the OpenAI `tunnel-client` keeps an outbound connection open, and systemd manages the service lifecycle.
+On the desktop:
+
+1. Open **Settings -> MCP Tunnel** in the desktop app.
+2. Download or select the OpenAI [`tunnel-client`](https://github.com/openai/tunnel-client).
+3. Enter your Tunnel ID and Runtime API key, then start the secure tunnel.
+4. Add PlanWeave in ChatGPT using the Tunnel connection mode.
+
+Once connected, ChatGPT can create, inspect, validate, and import PlanWeave plans through the MCP tools.
+
+For a headless VPS, print a systemd unit and install it as `planweave-mcp-tunnel.service`. Put the Runtime API key in the environment file named by `print-systemd`, make that file readable only by the service owner (`chmod 600`), and do not store the key in PlanWeave's JSON config. Then run `sudo systemctl daemon-reload` and `sudo systemctl enable --now planweave-mcp-tunnel`.
 
 ```bash
 sudo mkdir -p /etc/planweave /srv/planweave
@@ -187,36 +196,6 @@ planweave mcp tunnel print-systemd \
   --planweave-home /srv/planweave \
   --env-file /etc/planweave/mcp-tunnel.env
 ```
-
-Put the Runtime API key in the systemd environment file, not in PlanWeave's JSON config:
-
-```bash
-PLANWEAVE_HOME=/srv/planweave
-OPENAI_RUNTIME_API_KEY=...
-```
-
-Keep that file readable only by the service owner:
-
-```bash
-sudo chmod 600 /etc/planweave/mcp-tunnel.env
-```
-
-Install the printed service as `planweave-mcp-tunnel.service`, then run:
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now planweave-mcp-tunnel
-journalctl -u planweave-mcp-tunnel -f
-```
-
-For local desktop setup:
-
-1. Open **Settings -> MCP Tunnel** in the desktop app.
-2. Download or select the OpenAI [`tunnel-client`](https://github.com/openai/tunnel-client).
-3. Enter your Tunnel ID and Runtime API key, then start the secure tunnel.
-4. Add PlanWeave in ChatGPT using the Tunnel connection mode.
-
-Once connected, ChatGPT can create, inspect, validate, and import PlanWeave plans through the MCP tools.
 
 Source-level MCP server setup is documented in [Development](DEVELOPMENT.md).
 

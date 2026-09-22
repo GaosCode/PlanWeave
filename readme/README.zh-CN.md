@@ -173,9 +173,18 @@ planweave doctor
 
 PlanWeave 内置本机 HTTP MCP server，可以让 ChatGPT 等 MCP client 直接使用 PlanWeave。MCP 工具可以检查和编写计划：初始化项目、创建任务画布、添加任务和 Blocks、连接依赖、编辑 prompt、配置 Review Pipeline、检查 graph quality，并导入 package draft。
 
-如果要在浏览器里的 ChatGPT 使用 PlanWeave，VPS/headless 环境推荐使用 CLI MCP tunnel，本地可视化环境可以使用桌面端设置。你可以使用 ChatGPT Web 来制定计划：描述项目目标，让它先写出临时 draft root 下的 package-shaped draft，dry-run 校验和质量检查，预览导入，再事务式 apply。
+如果要在浏览器里的 ChatGPT 使用 PlanWeave，本机使用桌面端的 MCP 设置。不打开桌面应用时，例如在 VPS 上，改用 CLI MCP tunnel。你可以使用 ChatGPT Web 来制定计划：描述项目目标，让它先写出临时 draft root 下的 package-shaped draft，dry-run 校验和质量检查，预览导入，再事务式 apply。
 
-VPS 推荐使用 systemd。MCP server 只监听 loopback，OpenAI `tunnel-client` 通过出站长连接接入，systemd 负责服务生命周期。
+在桌面端：
+
+1. 在桌面应用打开 **Settings -> MCP Tunnel**。
+2. 下载或选择 OpenAI [`tunnel-client`](https://github.com/openai/tunnel-client)。
+3. 填入 Tunnel ID 和 Runtime API key，然后启动 secure tunnel。
+4. 在 ChatGPT 中用 Tunnel 连接方式添加 PlanWeave。
+
+连接完成后，ChatGPT 可以通过 MCP 工具创建、检查、校验和导入 PlanWeave 计划。
+
+在 headless VPS 上，打印 systemd unit，并安装为 `planweave-mcp-tunnel.service`。把 Runtime API key 写入 `print-systemd` 指定的环境文件，权限设为 `600`，只允许服务所属用户读取，不要写入 PlanWeave 的 JSON 配置。然后运行 `sudo systemctl daemon-reload` 和 `sudo systemctl enable --now planweave-mcp-tunnel`。
 
 ```bash
 sudo mkdir -p /etc/planweave /srv/planweave
@@ -187,36 +196,6 @@ planweave mcp tunnel print-systemd \
   --planweave-home /srv/planweave \
   --env-file /etc/planweave/mcp-tunnel.env
 ```
-
-把 Runtime API key 写入 systemd environment file，不写入 PlanWeave 的普通 JSON 配置：
-
-```bash
-PLANWEAVE_HOME=/srv/planweave
-OPENAI_RUNTIME_API_KEY=...
-```
-
-这个文件应只允许服务所属用户读取：
-
-```bash
-sudo chmod 600 /etc/planweave/mcp-tunnel.env
-```
-
-把打印出来的 service 安装为 `planweave-mcp-tunnel.service` 后运行：
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now planweave-mcp-tunnel
-journalctl -u planweave-mcp-tunnel -f
-```
-
-本地桌面端路径：
-
-1. 在桌面应用打开 **Settings -> MCP Tunnel**。
-2. 下载或选择 OpenAI [`tunnel-client`](https://github.com/openai/tunnel-client)。
-3. 填入 Tunnel ID 和 Runtime API key，然后启动 secure tunnel。
-4. 在 ChatGPT 中用 Tunnel 连接方式添加 PlanWeave。
-
-连接完成后，ChatGPT 可以通过 MCP 工具创建、检查、校验和导入 PlanWeave 计划。
 
 源码级 MCP server 配置见 [Development](../DEVELOPMENT.md)。
 
