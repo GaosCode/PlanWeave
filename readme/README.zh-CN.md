@@ -218,8 +218,6 @@ journalctl -u planweave-mcp-tunnel -f
 
 连接完成后，ChatGPT 可以通过 MCP 工具创建、检查、校验和导入 PlanWeave 计划。
 
-内容工具 `read_package_file`、`read_prompt_source`、`get_rendered_prompt` 默认最多返回 20,000 个 UTF-8 字节。`maxBytes` 必须为正整数，最大为 1 MiB（1,048,576 字节）；非法值或超限值会报错。前缀按 Unicode 码点边界截断，`contentRef.hash` 和 `sizeBytes` 始终对应完整解码内容。文件与源 prompt 读取的单文件输入上限为 64 MiB；`list_package_files` 每页输入上限为 256 MiB，包含 manifest。文件超限时需拆分或缩小文件；列表页超限时可减小 `limit` 并通过 `nextCursor` 继续读取。Rendered prompt 仍先完整生成再截断输出，其生成过程不受上述文件读取输入预算约束。
-
 源码级 MCP server 配置见 [Development](../DEVELOPMENT.md)。
 
 ## Auto Run
@@ -281,8 +279,6 @@ ACP run 通过 CLI 和 Desktop 提供结构化进度、产物、usage 和交互�
 3. 在目标设备上运行命令，开放已安装的 Agent 并执行预检。远程 Agent 随后会出现在 Desktop 的 Agent selector 中。
 
 安装和命令说明见 [Agent Host 指南](../packages/agent-host/README.md)。
-
-Server 数据归档使用 `planweave-server-data-archive/v1`。导出和恢复限制为压缩后 8 GiB、解压后 32 GiB（含 tar 元数据）、单文件 8 GiB、100,000 个数据文件，manifest 最大 64 KiB。路径必须能在 Windows、macOS 和 Linux 间无损使用；保留名称、大小写或 Unicode 别名以及文件/目录冲突会被拒绝。迁移前须停止 Server 并确保数据目录独占；恢复仅在完整校验归档后替换数据。归档不包含客户端登录 token。
 
 ## 未来方向
 
