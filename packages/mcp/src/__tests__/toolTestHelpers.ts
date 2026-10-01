@@ -1,5 +1,4 @@
 import { resolveProjectExportSelection } from "../toolProjectExportSelection.js";
-import { selectProjectExportFiles } from "../toolExportResults.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type {
   DesktopBlockDetail,
@@ -146,6 +145,11 @@ export type TestGateway = RuntimeGateway & {
   refreshPrompts: ReturnType<
     typeof vi.fn<(projectId: string, canvasId?: string) => Promise<RefreshPromptsResult>>
   >;
+  exportPlanPackageInventory: ReturnType<
+    typeof vi.fn<RuntimeGateway["exportPlanPackageInventory"]>
+  >;
+  exportPlanPackageFiles: ReturnType<typeof vi.fn<RuntimeGateway["exportPlanPackageFiles"]>>;
+  exportProjectInventory: ReturnType<typeof vi.fn<RuntimeGateway["exportProjectInventory"]>>;
   exportProjectFiles: ReturnType<typeof vi.fn<RuntimeGateway["exportProjectFiles"]>>;
   exportPlanPackage: ReturnType<RuntimeGateway["exportPlanPackage"] & typeof vi.fn>;
   importPlanPackage: ReturnType<RuntimeGateway["importPlanPackage"] & typeof vi.fn>;
@@ -650,6 +654,31 @@ export function createGateway(): TestGateway {
       canvasId: "default",
       files: [{ path: "manifest.json", content: "{}", encoding: "utf8" }]
     })),
+    exportPlanPackageInventory: vi.fn<RuntimeGateway["exportPlanPackageInventory"]>(async () => ({
+      canvasId: "default",
+      files: [{ path: "manifest.json", contentBytes: 2, encoding: "utf8" }]
+    })),
+    exportPlanPackageFiles: vi.fn<RuntimeGateway["exportPlanPackageFiles"]>(
+      async (_projectId, paths) => {
+        const missing = paths.filter((path) => path !== "manifest.json");
+        if (missing.length)
+          throw new Error(`Requested package export file(s) not found: ${missing.join(", ")}`);
+        return {
+          canvasId: "default",
+          files: paths.map((path) => ({ path, content: "{}", encoding: "utf8" }))
+        };
+      }
+    ),
+    exportProjectInventory: vi.fn<RuntimeGateway["exportProjectInventory"]>(async () => ({
+      project,
+      projectPromptBytes: 9,
+      planPackages: [
+        {
+          canvasId: "default",
+          files: [{ path: "manifest.json", contentBytes: 2, encoding: "utf8" }]
+        }
+      ]
+    })),
     exportProject: vi.fn<RuntimeGateway["exportProject"]>(async () => ({
       project,
       projectPromptMarkdown: "# Project",
@@ -657,19 +686,23 @@ export function createGateway(): TestGateway {
         { canvasId: "default", files: [{ path: "manifest.json", content: "{}", encoding: "utf8" }] }
       ]
     })),
-    exportProjectFiles: vi.fn(async (_projectId, input) => ({
-      project,
-      projectPromptMarkdown: input.includeProjectPrompt ? "# Project" : undefined,
-      planPackages: selectProjectExportFiles(
-        [
-          {
-            canvasId: "default",
-            files: [{ path: "manifest.json", content: "{}", encoding: "utf8" }]
-          }
-        ],
-        resolveProjectExportSelection(project, input)
-      )
-    })),
+    exportProjectFiles: vi.fn<RuntimeGateway["exportProjectFiles"]>(async (_projectId, input) => {
+      const selection = resolveProjectExportSelection(project, input);
+      for (const file of selection) {
+        if (file.path !== "manifest.json")
+          throw new Error(`Requested project export file not found: ${file.canvasId}:${file.path}`);
+      }
+      return {
+        project,
+        projectPromptMarkdown: input.includeProjectPrompt ? "# Project" : undefined,
+        planPackages: [...new Set(selection.map((file) => file.canvasId))].map((canvasId) => ({
+          canvasId,
+          files: selection
+            .filter((file) => file.canvasId === canvasId)
+            .map((file) => ({ path: file.path, content: "{}", encoding: "utf8" }))
+        }))
+      };
+    }),
     importPlanPackage: vi.fn(async () => ({
       project,
       validation: { ok: true, errors: [], warnings: [], summary: validValidationSummary },

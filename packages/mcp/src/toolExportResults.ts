@@ -1,6 +1,5 @@
-import type { ResolvedProjectExportFile } from "./toolProjectExportSelection.js";
 import { sanitizeProject } from "./toolHelpers.js";
-import type { ExportedPlanPackage, RuntimeGateway } from "./toolTypes.js";
+import type { ExportedPlanPackage, PlanPackageInventory, RuntimeGateway } from "./toolTypes.js";
 
 export function summarizeRefreshPrompts(
   result: Awaited<ReturnType<RuntimeGateway["refreshPrompts"]>>,
@@ -18,32 +17,38 @@ export function summarizeRefreshPrompts(
   };
 }
 
-export function summarizePlanPackage(planPackage: ExportedPlanPackage, includeFiles: boolean) {
+export function summarizePlanPackage(planPackage: ExportedPlanPackage) {
   return {
     canvasId: planPackage.canvasId,
     fileCount: planPackage.files.length,
-    contentIncluded: includeFiles,
+    contentIncluded: true,
     files: planPackage.files.map((file) => ({
       path: file.path,
       encoding: file.encoding,
       contentBytes: Buffer.byteLength(file.content, "utf8"),
-      ...(includeFiles ? { content: file.content } : {})
+      content: file.content
     }))
+  };
+}
+
+export function summarizePlanPackageInventory(planPackage: PlanPackageInventory) {
+  return {
+    canvasId: planPackage.canvasId,
+    fileCount: planPackage.files.length,
+    contentIncluded: false,
+    files: planPackage.files
   };
 }
 
 type ExportedProject = Awaited<ReturnType<RuntimeGateway["exportProject"]>>;
 
-export function summarizeProjectExport(exported: ExportedProject, includeFiles: boolean) {
+export function summarizeProjectExport(
+  exported: Awaited<ReturnType<RuntimeGateway["exportProjectInventory"]>>
+) {
   return {
     project: sanitizeProject(exported.project),
-    projectPrompt: {
-      contentIncluded: false,
-      markdownBytes: Buffer.byteLength(exported.projectPromptMarkdown, "utf8")
-    },
-    planPackages: exported.planPackages.map((planPackage) =>
-      summarizePlanPackage(planPackage, includeFiles)
-    )
+    projectPrompt: { contentIncluded: false, markdownBytes: exported.projectPromptBytes },
+    planPackages: exported.planPackages.map(summarizePlanPackageInventory)
   };
 }
 
@@ -53,25 +58,4 @@ export function fullProjectExport(exported: ExportedProject) {
     projectPromptMarkdown: exported.projectPromptMarkdown,
     planPackages: exported.planPackages
   };
-}
-
-export function selectProjectExportFiles(
-  planPackages: ExportedPlanPackage[],
-  requestedFiles: ResolvedProjectExportFile[]
-): Array<ExportedPlanPackage & { canvasId: string }> {
-  const selectedPackages = new Map<string, ExportedPlanPackage & { canvasId: string }>();
-  for (const { canvasId, path } of requestedFiles) {
-    const planPackage = planPackages.find((candidate) => candidate.canvasId === canvasId);
-    if (!planPackage) {
-      throw new Error(`Requested project export canvas not found: ${canvasId}`);
-    }
-    const file = planPackage.files.find((candidate) => candidate.path === path);
-    if (!file) {
-      throw new Error(`Requested project export file not found: ${canvasId}:${path}`);
-    }
-    const selected = selectedPackages.get(canvasId) ?? { canvasId, files: [] };
-    selected.files.push(file);
-    selectedPackages.set(canvasId, selected);
-  }
-  return [...selectedPackages.values()];
 }

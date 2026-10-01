@@ -13,6 +13,8 @@ import {
 } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { z } from "zod";
+import { readDecodedUtf8Bytes } from "./decodedUtf8Bytes.js";
+import { PackagePathError, resolvePackagePath } from "./resolvePackagePath.js";
 
 export const packageFileEntrySchema = z
   .object({
@@ -47,30 +49,108 @@ export function safePackageFilePath(root: string, archivePath: string): string {
   return target;
 }
 
-async function visitPackageFile(
+export const packageFileInventoryEntrySchema = packageFileEntrySchema
+  .omit({ content: true })
+  .extend({ contentBytes: z.number().int().nonnegative() });
+export type PackageFileInventoryEntry = z.infer<typeof packageFileInventoryEntrySchema>;
+
+async function* packageFilePaths(
   root: string,
-  dir: string,
-  files: PackageFileEntry[]
-): Promise<void> {
+  dir = root
+): AsyncGenerator<{ archivePath: string; diskPath: string }> {
   const entries = await readdir(dir, { withFileTypes: true });
   for (const entry of entries) {
     const path = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      await visitPackageFile(root, path, files);
-    } else if (entry.isFile()) {
-      files.push({
-        path: toArchivePath(relative(root, path)),
-        content: await readFile(path, "utf8"),
-        encoding: "utf8"
-      });
-    }
+    if (entry.isDirectory()) yield* packageFilePaths(root, path);
+    else if (entry.isFile())
+      yield { archivePath: toArchivePath(relative(root, path)), diskPath: path };
   }
 }
 
 export async function readPackageFiles(root: string): Promise<PackageFileEntry[]> {
   const files: PackageFileEntry[] = [];
-  await visitPackageFile(root, root, files);
+  for await (const { archivePath, diskPath } of packageFilePaths(root)) {
+    files.push({ path: archivePath, content: await readFile(diskPath, "utf8"), encoding: "utf8" });
+  }
   return files.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+/** Exact decoded UTF-8 sizes, without retaining bodies or imposing export budgets. */
+export async function readPackageFileInventory(root: string): Promise<PackageFileInventoryEntry[]> {
+  const files: PackageFileInventoryEntry[] = [];
+  for await (const { archivePath, diskPath } of packageFilePaths(root)) {
+    files.push({
+      path: archivePath,
+      contentBytes: await readDecodedUtf8Bytes(diskPath),
+      encoding: "utf8"
+    });
+  }
+  return files.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+function packageReadFailure(path: string, error: unknown): Error {
+  const code =
+    error instanceof Error && "code" in error && typeof error.code === "string"
+      ? error.code
+      : "package_file_unavailable";
+  return new Error(`Package file '${path}' could not be read (${code}).`);
+}
+
+/** Read exact archive members in request order; repeats retain their output positions. */
+export async function readSelectedPackageFiles(
+  root: string,
+  paths: readonly string[],
+  duplicatePath: "first" | "last" = "first"
+): Promise<PackageFileEntry[]> {
+  const requested = new Set(paths);
+  const targets = new Map<string, string>();
+  for (const path of paths) {
+    // Validate the archive request separately from the actual member path.
+    try {
+      await resolvePackagePath(root, path);
+    } catch (error) {
+      if (error instanceof PackagePathError) throw error;
+      throw packageReadFailure(path, error);
+    }
+    if (toArchivePath(path) !== path) {
+      throw new Error(`Package file '${path}' was not found.`);
+    }
+  }
+  if (requested.size === 0) return [];
+  try {
+    for await (const { archivePath, diskPath } of packageFilePaths(root)) {
+      if (requested.has(archivePath) && (duplicatePath === "last" || !targets.has(archivePath))) {
+        targets.set(archivePath, diskPath);
+      }
+    }
+  } catch (error) {
+    throw packageReadFailure([...requested].join(", "), error);
+  }
+  for (const path of requested) {
+    const diskPath = targets.get(path);
+    if (!diskPath) throw new Error(`Package file '${path}' was not found.`);
+    try {
+      await resolvePackagePath(root, relative(root, diskPath), { requireExisting: true });
+    } catch (error) {
+      if (error instanceof PackagePathError) throw error;
+      throw packageReadFailure(path, error);
+    }
+  }
+  const files = new Map<string, PackageFileEntry>();
+  for (const path of requested) {
+    const absolute = targets.get(path);
+    if (!absolute) throw new Error(`Package file '${path}' was not found.`);
+    try {
+      files.set(path, { path, content: await readFile(absolute, "utf8"), encoding: "utf8" });
+    } catch (error) {
+      throw packageReadFailure(path, error);
+    }
+  }
+  return paths.map((path) => {
+    const file = files.get(path);
+    if (!file) throw new Error(`Package file '${path}' was not found.`);
+    return { ...file };
+  });
 }
 
 export async function replacePackageFiles(root: string, files: PackageFileEntry[]): Promise<void> {

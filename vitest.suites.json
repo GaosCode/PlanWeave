@@ -451,6 +451,7 @@
       ],
       "integration": [
         "contentToolsRuntime.test.ts",
+        "exportReadIntents.test.ts",
         "oauthClientStore.test.ts",
         "oauthTokenStore.test.ts",
         "projectExportSelection.test.ts",
@@ -656,6 +657,7 @@
         "orphanGraphReuse.test.ts",
         "packageDraftImport.test.ts",
         "packageFileChanges.test.ts",
+        "packageFileReadIntents.test.ts",
         "packageFiles.test.ts",
         "packageSnapshot.test.ts",
         "paths.test.ts",

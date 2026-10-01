@@ -40,8 +40,9 @@ import {
   readPromptSource as runtimeReadPromptSource,
   readRenderedPrompt as runtimeReadRenderedPrompt,
   readProjectPrompt,
-  readPackageFiles,
-  resolvePackagePath,
+  readProjectPromptBytes,
+  readPackageFileInventory,
+  readSelectedPackageFiles,
   refreshPrompts,
   removeBlock,
   removeCanvasDependency,
@@ -71,8 +72,13 @@ import {
   projectExportFilesRequestSchema,
   resolveProjectExportSelection
 } from "./toolProjectExportSelection.js";
-import { selectProjectExportFiles } from "./toolExportResults.js";
-import { exportCanvasPackage, importPackageFiles } from "./toolPackageFiles.js";
+import {
+  exportCanvasPackage,
+  exportCanvasPackageInventory,
+  exportCanvasSelectedPackage,
+  readCanvasExports,
+  importPackageFiles
+} from "./toolPackageFiles.js";
 import type { ReadyBlock, RuntimeGateway, SanitizedExecutionStatus } from "./toolTypes.js";
 
 export const runtimeGateway: RuntimeGateway = {
@@ -367,14 +373,36 @@ export const runtimeGateway: RuntimeGateway = {
   async exportPlanPackage(projectId, canvasId) {
     return exportCanvasPackage(projectId, canvasId);
   },
+  async exportPlanPackageInventory(projectId, canvasId) {
+    return exportCanvasPackageInventory(projectId, canvasId);
+  },
+  async exportPlanPackageFiles(projectId, paths, canvasId) {
+    return exportCanvasSelectedPackage(projectId, paths, canvasId);
+  },
+  async exportProjectInventory(projectId) {
+    const project = await openProject({ projectId });
+    const canvases = await listTaskCanvases(project.rootPath);
+    return {
+      project,
+      projectPromptBytes: await readProjectPromptBytes(project.rootPath),
+      planPackages: await readCanvasExports(
+        canvases.map((canvas) => canvas.canvasId),
+        async (canvasId) => {
+          const workspace = await resolveTaskCanvasWorkspace(project.rootPath, canvasId);
+          return { canvasId, files: await readPackageFileInventory(workspace.packageDir) };
+        }
+      )
+    };
+  },
   async exportProject(projectId) {
     const project = await openProject({ projectId });
     const canvases = await listTaskCanvases(project.rootPath);
     return {
       project,
       projectPromptMarkdown: await readProjectPrompt(project.rootPath),
-      planPackages: await Promise.all(
-        canvases.map((canvas) => exportCanvasPackage(projectId, canvas.canvasId))
+      planPackages: await readCanvasExports(
+        canvases.map((canvas) => canvas.canvasId),
+        (canvasId) => exportCanvasPackage(projectId, canvasId)
       )
     };
   },
@@ -383,21 +411,17 @@ export const runtimeGateway: RuntimeGateway = {
     const project = await openProject({ projectId });
     const selection = resolveProjectExportSelection(project, request);
     const canvasIds = [...new Set(selection.map((file) => file.canvasId))];
-    const planPackages = await Promise.all(
-      canvasIds.map(async (canvasId) => {
-        const workspace = await resolveTaskCanvasWorkspace(project.rootPath, canvasId);
-        for (const file of selection.filter((item) => item.canvasId === canvasId)) {
-          await resolvePackagePath(workspace.packageDir, file.path);
-        }
-        return { canvasId, files: await readPackageFiles(workspace.packageDir) };
-      })
-    );
+    const planPackages = await readCanvasExports(canvasIds, async (canvasId) => {
+      const workspace = await resolveTaskCanvasWorkspace(project.rootPath, canvasId);
+      const paths = selection.filter((file) => file.canvasId === canvasId).map((file) => file.path);
+      return { canvasId, files: await readSelectedPackageFiles(workspace.packageDir, paths) };
+    });
     return {
       project,
       projectPromptMarkdown: request.includeProjectPrompt
         ? await readProjectPrompt(project.rootPath)
         : undefined,
-      planPackages: selectProjectExportFiles(planPackages, selection)
+      planPackages
     };
   },
   async importPlanPackage(input) {

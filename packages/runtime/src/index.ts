@@ -150,6 +150,7 @@ export {
 } from "./project.js";
 export {
   readProjectPrompt,
+  readProjectPromptBytes,
   readProjectPromptPolicy,
   updateProjectPrompt,
   updateProjectPromptPolicy
@@ -212,12 +213,15 @@ export {
 export {
   exportCanvasPackageFiles,
   packageFileEntrySchema,
+  packageFileInventoryEntrySchema,
+  readPackageFileInventory,
+  readSelectedPackageFiles,
   readPackageFiles,
   replacePackageFiles,
   safePackageFilePath,
   toArchivePath
 } from "./package/packageFiles.js";
-export type { PackageFileEntry } from "./package/packageFiles.js";
+export type { PackageFileEntry, PackageFileInventoryEntry } from "./package/packageFiles.js";
 export {
   parsePromptSections,
   getPromptSection,

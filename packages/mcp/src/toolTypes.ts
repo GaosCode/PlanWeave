@@ -21,6 +21,8 @@ import type {
   PackageDraftImportPreview,
   PackageDraftValidationResult,
   PackageFileListResult,
+  PackageFileEntry,
+  PackageFileInventoryEntry,
   PlanStatus,
   ProjectGraphEditResult,
   ProjectTaskRef,
@@ -171,15 +173,16 @@ export const defaultPlanweaveToolNames = planweaveToolNames.filter(
   (name): name is PlanweaveToolName => !compatToolNameSet.has(name)
 );
 
-export type ExportedPlanPackageFile = {
-  path: string;
-  content: string;
-  encoding: "utf8";
-};
+export type ExportedPlanPackageFile = PackageFileEntry;
 
 export type ExportedPlanPackage = {
   canvasId: string | null;
   files: ExportedPlanPackageFile[];
+};
+
+export type PlanPackageInventory = {
+  canvasId: string | null;
+  files: PackageFileInventoryEntry[];
 };
 
 export type SanitizedExecutionStatus = Pick<
@@ -532,6 +535,17 @@ export type RuntimeGateway = {
   updateProjectPrompt(projectId: string, markdown: string): Promise<string>;
   refreshPrompts(projectId: string, canvasId?: string): Promise<RefreshPromptsResult>;
   exportPlanPackage(projectId: string, canvasId?: string): Promise<ExportedPlanPackage>;
+  exportPlanPackageInventory(projectId: string, canvasId?: string): Promise<PlanPackageInventory>;
+  exportPlanPackageFiles(
+    projectId: string,
+    paths: string[],
+    canvasId?: string
+  ): Promise<ExportedPlanPackage>;
+  exportProjectInventory(projectId: string): Promise<{
+    project: DesktopProjectSummary;
+    projectPromptBytes: number;
+    planPackages: PlanPackageInventory[];
+  }>;
   exportProject(projectId: string): Promise<{
     project: DesktopProjectSummary;
     projectPromptMarkdown: string;

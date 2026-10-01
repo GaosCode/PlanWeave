@@ -7,6 +7,8 @@ import {
   initManagedWorkspace,
   openProject,
   readPackageFiles,
+  readPackageFileInventory,
+  readSelectedPackageFiles,
   replacePackageFiles,
   resolvePlanweaveHome,
   resolveTaskCanvasWorkspace,
@@ -16,7 +18,11 @@ import {
   type PackageFileEntry,
   type ValidationReport
 } from "@planweave-ai/runtime";
-import type { ExportedPlanPackage, ExportedPlanPackageFile } from "./toolTypes.js";
+import type {
+  ExportedPlanPackage,
+  ExportedPlanPackageFile,
+  PlanPackageInventory
+} from "./toolTypes.js";
 
 async function exists(path: string): Promise<boolean> {
   try {
@@ -30,18 +36,66 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
-export async function exportCanvasPackage(
-  projectId: string,
-  canvasId?: string
-): Promise<ExportedPlanPackage> {
+async function resolveExportCanvas(projectId: string, canvasId?: string) {
   const project = await openProject({ projectId });
   const selectedCanvasId =
     canvasId ?? project.activeCanvasId ?? project.taskCanvases[0]?.canvasId ?? "default";
   const workspace = await resolveTaskCanvasWorkspace(project.rootPath, selectedCanvasId);
+  return { canvasId: selectedCanvasId, workspace };
+}
+
+export async function exportCanvasPackage(
+  projectId: string,
+  canvasId?: string
+): Promise<ExportedPlanPackage> {
+  const resolved = await resolveExportCanvas(projectId, canvasId);
   return {
-    canvasId: selectedCanvasId,
-    files: await readPackageFiles(workspace.packageDir)
+    canvasId: resolved.canvasId,
+    files: await readPackageFiles(resolved.workspace.packageDir)
   };
+}
+
+export async function exportCanvasPackageInventory(
+  projectId: string,
+  canvasId?: string
+): Promise<PlanPackageInventory> {
+  const resolved = await resolveExportCanvas(projectId, canvasId);
+  return {
+    canvasId: resolved.canvasId,
+    files: await readPackageFileInventory(resolved.workspace.packageDir)
+  };
+}
+
+export async function exportCanvasSelectedPackage(
+  projectId: string,
+  paths: string[],
+  canvasId?: string
+): Promise<ExportedPlanPackage> {
+  const resolved = await resolveExportCanvas(projectId, canvasId);
+  return {
+    canvasId: resolved.canvasId,
+    files: await readSelectedPackageFiles(resolved.workspace.packageDir, paths, "last")
+  };
+}
+
+const PROJECT_EXPORT_CONCURRENCY = 2;
+
+/** Fixed two-canvas batches keep result order and observe all failures before leaving a batch. */
+export async function readCanvasExports<T>(
+  canvasIds: string[],
+  read: (canvasId: string) => Promise<T>
+): Promise<T[]> {
+  const results: T[] = [];
+  for (let index = 0; index < canvasIds.length; index += PROJECT_EXPORT_CONCURRENCY) {
+    const batch = await Promise.allSettled(
+      canvasIds.slice(index, index + PROJECT_EXPORT_CONCURRENCY).map(read)
+    );
+    for (const result of batch) {
+      if (result.status === "rejected") throw result.reason;
+      results.push(result.value);
+    }
+  }
+  return results;
 }
 
 export async function importPackageFiles(

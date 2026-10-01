@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { isNodeFileNotFoundError } from "./fs/optionalFile.js";
 import { readJsonFile, writeJsonFile } from "./json.js";
+import { readDecodedUtf8Bytes } from "./package/decodedUtf8Bytes.js";
 import { resolveProjectWorkspace } from "./project.js";
 import type { PackageWorkspaceRef, ProjectWorkspace } from "./types.js";
 
@@ -75,6 +76,16 @@ export async function readProjectPrompt(projectRoot: PackageWorkspaceRef): Promi
     if (isNodeFileNotFoundError(error)) {
       return "";
     }
+    throw error;
+  }
+}
+
+export async function readProjectPromptBytes(projectRoot: PackageWorkspaceRef): Promise<number> {
+  const workspace = await resolvePolicyWorkspace(projectRoot);
+  try {
+    return await readDecodedUtf8Bytes(workspace.projectPromptFile);
+  } catch (error) {
+    if (isNodeFileNotFoundError(error)) return 0;
     throw error;
   }
 }

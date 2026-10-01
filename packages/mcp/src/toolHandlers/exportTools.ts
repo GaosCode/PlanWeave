@@ -2,6 +2,7 @@ import { projectExportFilesRequestSchema } from "../toolProjectExportSelection.j
 import {
   fullProjectExport,
   summarizePlanPackage,
+  summarizePlanPackageInventory,
   summarizeProjectExport
 } from "../toolExportResults.js";
 import {
@@ -22,40 +23,29 @@ export const exportToolHandlers = {
     const record = readObjectArgs(args);
     const { projectId, canvasId } = parseProjectCanvasArgs(record);
     return jsonToolResult({
-      planPackage: summarizePlanPackage(
-        await gateway.exportPlanPackage(projectId, canvasId),
+      planPackage:
         record.includeFiles === true
-      )
+          ? summarizePlanPackage(await gateway.exportPlanPackage(projectId, canvasId))
+          : summarizePlanPackageInventory(
+              await gateway.exportPlanPackageInventory(projectId, canvasId)
+            )
     });
   },
   export_plan_package_summary: async (args, gateway) => {
     const record = readObjectArgs(args);
     const { projectId, canvasId } = parseProjectCanvasArgs(record);
     return jsonToolResult({
-      planPackage: summarizePlanPackage(await gateway.exportPlanPackage(projectId, canvasId), false)
+      planPackage: summarizePlanPackageInventory(
+        await gateway.exportPlanPackageInventory(projectId, canvasId)
+      )
     });
   },
   export_plan_package_files: async (args, gateway) => {
     const record = readObjectArgs(args);
     const { projectId, canvasId } = parseProjectCanvasArgs(record);
     const requestedPaths = new Set(requiredStringArray(record.paths, "paths"));
-    const exported = await gateway.exportPlanPackage(projectId, canvasId);
-    const filesByPath = new Map(exported.files.map((file) => [file.path, file]));
-    const missingPaths = [...requestedPaths].filter((path) => !filesByPath.has(path));
-    if (missingPaths.length > 0) {
-      throw new Error(`Requested package export file(s) not found: ${missingPaths.join(", ")}`);
-    }
     return jsonToolResult({
-      planPackage: {
-        canvasId: exported.canvasId,
-        files: [...requestedPaths].map((path) => {
-          const file = filesByPath.get(path);
-          if (!file) {
-            throw new Error(`Requested package export file(s) not found: ${path}`);
-          }
-          return file;
-        })
-      }
+      planPackage: await gateway.exportPlanPackageFiles(projectId, [...requestedPaths], canvasId)
     });
   },
   export_plan_package_full: async (args, gateway) => {
@@ -69,13 +59,13 @@ export const exportToolHandlers = {
   export_project: async (args, gateway) => {
     const { projectId } = parseProjectArgs(args);
     return jsonToolResult({
-      projectExport: summarizeProjectExport(await gateway.exportProject(projectId), false)
+      projectExport: summarizeProjectExport(await gateway.exportProjectInventory(projectId))
     });
   },
   export_project_summary: async (args, gateway) => {
     const { projectId } = parseProjectArgs(args);
     return jsonToolResult({
-      projectExport: summarizeProjectExport(await gateway.exportProject(projectId), false)
+      projectExport: summarizeProjectExport(await gateway.exportProjectInventory(projectId))
     });
   },
   export_project_files: async (args, gateway) => {
