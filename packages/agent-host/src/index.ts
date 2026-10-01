@@ -183,3 +183,8 @@ export {
   type RealAcpSmokeEvidence,
   type SupportedHostAcpProfile
 } from "./realAcp/index.js";
+
+export {
+  AgentHostCredentialRenewal,
+  type HostCredentialRenewalPort
+} from "./credentials/credentialRenewal.js";

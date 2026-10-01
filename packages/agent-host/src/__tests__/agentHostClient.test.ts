@@ -1064,6 +1064,12 @@ describe("Agent Host outbound transport", () => {
       hostId: "host-client-001",
       token: "host-token",
       credentialRenewal: {
+        readActiveCredential: async () => ({
+          hostId: "host-client-001",
+          credentialToken: nextToken,
+          issuedAt: "2030-01-01T00:00:00.000Z",
+          expiresAt: "2030-07-01T00:00:00.000Z"
+        }),
         poll: vi.fn(async () => ({
           hostId: "host-client-001",
           credentialToken: nextToken,

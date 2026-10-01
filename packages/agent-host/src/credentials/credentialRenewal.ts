@@ -17,6 +17,7 @@ const REQUEST_TIMEOUT_MS = 30_000;
 
 export interface HostCredentialRenewalPort {
   poll(): Promise<ActiveHostCredential | undefined>;
+  readActiveCredential(): Promise<ActiveHostCredential>;
 }
 
 export function hostCredentialRenewalWindowMs(credential: ActiveHostCredential): number {
@@ -114,6 +115,10 @@ export class AgentHostCredentialRenewal implements HostCredentialRenewalPort {
     } = {}
   ) {
     this.request = options.request ?? fetch;
+  }
+
+  async readActiveCredential(): Promise<ActiveHostCredential> {
+    return this.credentials.requireUsable(this.options.clock?.() ?? new Date());
   }
 
   async poll(): Promise<ActiveHostCredential | undefined> {

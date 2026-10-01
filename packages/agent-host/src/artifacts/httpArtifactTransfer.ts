@@ -12,7 +12,7 @@ import { parseAgentHostArtifactRef, type ArtifactRef } from "../protocol.js";
 export type HttpArtifactTransferOptions = {
   baseUrl: URL;
   hostId: string;
-  token: string;
+  getToken(): string;
   request?: typeof fetch;
 };
 
@@ -64,6 +64,13 @@ export class HttpArtifactClient {
     return url;
   }
 
+  private authorization(signal: AbortSignal): string {
+    signal.throwIfAborted();
+    const token = this.options.getToken();
+    if (!token) throw new Error("artifact_credentials_required");
+    return `Bearer ${token}`;
+  }
+
   private async download(
     command: AgentHostExecuteCommand,
     input: AgentHostArtifactDownload,
@@ -82,10 +89,11 @@ export class HttpArtifactClient {
         ])
       )
       .digest("hex")}`;
+    const authorization = this.authorization(signal);
     let response: Response;
     try {
       response = await (this.options.request ?? fetch)(this.artifactUrl(command, sha256), {
-        headers: { Authorization: `Bearer ${this.options.token}` },
+        headers: { Authorization: authorization },
         signal
       });
     } catch (error) {
@@ -151,11 +159,12 @@ export class HttpArtifactClient {
 
     let response: Response | undefined;
     for (let attempt = 0; attempt < 2; attempt += 1) {
+      const authorization = this.authorization(signal);
       try {
         response = await (this.options.request ?? fetch)(url, {
           method: "PUT",
           headers: {
-            Authorization: `Bearer ${this.options.token}`,
+            Authorization: authorization,
             "content-type": mediaType,
             "content-length": String(bytes.byteLength),
             "x-planweave-artifact-operation-id": operationId,

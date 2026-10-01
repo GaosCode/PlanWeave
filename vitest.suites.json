@@ -9,6 +9,7 @@
     "distributed": [
       "packages/agent-host/src/__tests__",
       "packages/distributed-integration/src/__tests__",
+      "packages/server/integration-tests",
       "packages/server/src/__tests__"
     ]
   },
@@ -779,6 +780,7 @@
         "reconnectBackoff.test.ts"
       ],
       "integration": [
+        "agentHostArtifactRotation.test.ts",
         "agentHostLeaseExpiry.test.ts",
         "agentHostStartupDiscovery.test.ts",
         "agentHostLeaseSettlement.test.ts",
@@ -843,6 +845,13 @@
         "canvasRuntimeArtifactLoopback.test.ts",
         "contentVersionTransferIntegration.test.ts"
       ],
+      "platform": [],
+      "performance": []
+    },
+    {
+      "root": "packages/server/integration-tests",
+      "unit": [],
+      "integration": ["agentHostArtifactRotation.test.ts", "agentHostCredentialRestart.test.ts"],
       "platform": [],
       "performance": []
     },

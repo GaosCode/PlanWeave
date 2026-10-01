@@ -4,7 +4,7 @@ import {
   exampleExecuteDelivery,
   exampleExecuteDeliveryV1
 } from "@planweave-ai/agent-host-protocol";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { HttpArtifactClient } from "../artifacts/httpArtifactTransfer.js";
 
 const servers: Server[] = [];
@@ -34,7 +34,7 @@ async function listen(
     client: new HttpArtifactClient({
       baseUrl: new URL(origin),
       hostId: "host-artifact-test",
-      token: "host-token"
+      getToken: () => "host-token"
     })
   };
 }
@@ -245,5 +245,67 @@ describe("HttpArtifactClient", () => {
     ).rejects.toThrow("artifact_upload_ref_mismatch");
     expect(evidence).toHaveLength(1);
     expect(bodies).toHaveLength(2);
+  });
+});
+
+describe("HttpArtifactClient credential and cancellation failures", () => {
+  const upload = {
+    bytes: Buffer.from("report"),
+    mediaType: "text/markdown",
+    purpose: "report" as const,
+    operationKey: "report"
+  };
+  const download = {
+    artifactRef: `artifact:sha256:${"0".repeat(64)}` as const,
+    logicalName: "input"
+  };
+
+  it("rejects missing current credentials before issuing GET or PUT", async () => {
+    const request = vi.fn<typeof fetch>();
+    const evidence = vi.fn();
+    const transfer = new HttpArtifactClient({
+      baseUrl: new URL("http://127.0.0.1"),
+      hostId: "host-test",
+      getToken: () => "",
+      request
+    }).forExecution(command(), evidence, new AbortController().signal);
+    await expect(transfer.download(download)).rejects.toThrow("artifact_credentials_required");
+    await expect(transfer.upload(upload)).rejects.toThrow("artifact_credentials_required");
+    expect(request).not.toHaveBeenCalled();
+    expect(evidence).not.toHaveBeenCalled();
+  });
+
+  it("keeps HTTP 401 as a failure without retrying or recording evidence", async () => {
+    const request = vi.fn<typeof fetch>(async () => new Response(null, { status: 401 }));
+    const evidence = vi.fn();
+    const transfer = new HttpArtifactClient({
+      baseUrl: new URL("http://127.0.0.1"),
+      hostId: "host-test",
+      getToken: () => "rejected-token",
+      request
+    }).forExecution(command(), evidence, new AbortController().signal);
+    await expect(transfer.download(download)).rejects.toThrow("artifact_download_failed:401");
+    await expect(transfer.upload(upload)).rejects.toThrow("artifact_upload_failed:401");
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(evidence).not.toHaveBeenCalled();
+  });
+
+  it("does not issue a retry or a later GET after cancellation during PUT", async () => {
+    const controller = new AbortController();
+    const request = vi.fn<typeof fetch>(async () => {
+      controller.abort();
+      throw new Error("transport interrupted");
+    });
+    const evidence = vi.fn();
+    const transfer = new HttpArtifactClient({
+      baseUrl: new URL("http://127.0.0.1"),
+      hostId: "host-test",
+      getToken: () => "host-token",
+      request
+    }).forExecution(command(), evidence, controller.signal);
+    await expect(transfer.upload(upload)).rejects.toThrow();
+    await expect(transfer.download(download)).rejects.toThrow();
+    expect(request).toHaveBeenCalledOnce();
+    expect(evidence).not.toHaveBeenCalled();
   });
 });

@@ -156,7 +156,7 @@ function executionCleanupFailed(error: unknown): boolean {
 export class AgentHostClient implements HostTransport {
   private readonly baseUrl: URL;
   private readonly capabilities: string[];
-  private artifacts: HttpArtifactClient;
+  private readonly artifacts: HttpArtifactClient;
   private token: string;
   private readonly active = new Map<number, ActiveExecution>();
   private readonly runs = new Set<Promise<void>>();
@@ -222,14 +222,13 @@ export class AgentHostClient implements HostTransport {
     if (this.capabilities.includes(ACP_CONVERSATION_CAPABILITY) && !options.conversations)
       throw new Error("acp_conversation_capability_service_mismatch");
     this.token = options.token;
-    this.artifacts = this.createArtifactClient(this.token);
-  }
-
-  private createArtifactClient(token: string): HttpArtifactClient {
-    return new HttpArtifactClient({
+    this.artifacts = new HttpArtifactClient({
       baseUrl: this.baseUrl,
       hostId: this.options.hostId,
-      token,
+      getToken: () => {
+        if (this.stopped) throw new Error("artifact_host_stopped");
+        return this.token;
+      },
       request: this.options.request
     });
   }
@@ -286,6 +285,14 @@ export class AgentHostClient implements HostTransport {
   }
 
   private async discoverAndConnect(generation: number, controller: AbortController): Promise<void> {
+    if (this.options.credentialRenewal) {
+      const credential = await this.options.credentialRenewal.readActiveCredential();
+      if (!this.isCurrentLifecycle(generation, controller)) return;
+      if (credential.credentialToken !== this.token) {
+        this.token = credential.credentialToken;
+        this.options.canvasRuntime?.updateCredentialToken(this.token);
+      }
+    }
     let version: 2;
     try {
       version = await discoverRemoteRunnerEventProtocol({
@@ -1034,27 +1041,34 @@ export class AgentHostClient implements HostTransport {
   }
 
   private checkCredentialRenewal(): void {
-    if (!this.options.credentialRenewal || this.credentialRenewalInFlight) return;
-    const operation = this.options.credentialRenewal
+    const renewal = this.options.credentialRenewal;
+    if (!renewal || this.credentialRenewalInFlight) return;
+    const generation = this.lifecycleGeneration;
+    const operation = renewal
       .poll()
-      .then((credential) => {
-        if (!credential || this.stopped) return;
+      .then(async () => {
+        if (this.stopped || generation !== this.lifecycleGeneration) return;
+        const credential = await renewal.readActiveCredential();
+        if (this.stopped || generation !== this.lifecycleGeneration) return;
+        if (credential.credentialToken === this.token) return;
         this.token = credential.credentialToken;
-        this.artifacts = this.createArtifactClient(this.token);
         this.options.canvasRuntime?.updateCredentialToken(this.token);
         this.socket?.close(1000, "credential rotated");
       })
-      .catch((error: unknown) => {
+      .catch(() => {
         this.options.logger?.log({
           level: "warn",
           event: "host_credential_renewal_failed",
           state: this.currentStatus.state,
-          reason: error instanceof Error ? error.message.slice(0, 256) : "credential_renewal_failed"
+          reason: "credential_renewal_failed"
         });
       })
       .finally(() => {
         if (this.credentialRenewalInFlight === operation) {
           this.credentialRenewalInFlight = undefined;
+          if (!this.stopped && generation !== this.lifecycleGeneration) {
+            this.checkCredentialRenewal();
+          }
         }
       });
     this.credentialRenewalInFlight = operation;
