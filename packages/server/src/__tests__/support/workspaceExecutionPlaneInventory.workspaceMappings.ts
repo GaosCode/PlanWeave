@@ -42,6 +42,14 @@ export const workspaceMappingsInventory = [
     "Canvas runtime protocol fixtures include empty mapping observations."
   ),
   inventoryEntry(
+    "wm-agentHostArtifactRotation-test",
+    "workspaceMappings",
+    "endpoint_readiness",
+    "packages/agent-host/src/__tests__/agentHostArtifactRotation.test.ts",
+    "readiness.workspaceMappings: []",
+    "Credential lifecycle tests report empty mapping observations."
+  ),
+  inventoryEntry(
     "wm-agentHostClient-test",
     "workspaceMappings",
     "endpoint_readiness",

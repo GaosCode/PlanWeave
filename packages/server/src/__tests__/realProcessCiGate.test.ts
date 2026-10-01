@@ -42,6 +42,7 @@ describe("real-process CI registration gate", () => {
     expect(new Set(suites.integrationShards.distributed)).toEqual(
       new Set([
         "packages/server/src/__tests__",
+        "packages/server/integration-tests",
         "packages/agent-host/src/__tests__",
         "packages/distributed-integration/src/__tests__"
       ])
