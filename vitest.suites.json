@@ -150,6 +150,7 @@
         "desktopSearchInvalidation.test.tsx",
         "desktopSettingsBridge.test.tsx",
         "desktopSettingsEffects.test.tsx",
+        "desktopSettingsFocusRace.test.tsx",
         "diagnosticFixActions.test.ts",
         "executorOptionViewModel.test.ts",
         "executorPreflightAuthenticationUi.test.tsx",

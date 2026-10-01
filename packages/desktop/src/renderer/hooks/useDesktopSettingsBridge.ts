@@ -54,30 +54,46 @@ export function useDesktopSettingsBridge({
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const refreshQueueRef = useRef<Promise<void>>(Promise.resolve());
   const localRevisionRef = useRef(0);
+  const pendingSavesRef = useRef(0);
+  const confirmedVersionRef = useRef(0);
+  const effectVersionRef = useRef(0);
+  const mountedRef = useRef(false);
   const initializationRef = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
+    mountedRef.current = true;
+    effectVersionRef.current += 1;
     if (!settingsApi) {
       setSettingsHydrated(true);
       if (!allowInMemoryFallback) {
         setErrorRef.current(missingSettingsBridgeMessage);
       }
-      return;
+      return () => {
+        mountedRef.current = false;
+      };
     }
     let cancelled = false;
     setSettingsHydrated(false);
 
     const loadSettings = async (options: { migrateLegacy: boolean }) => {
+      const revision = localRevisionRef.current;
+      const confirmedVersion = confirmedVersionRef.current;
+      const applyLoaded = (loaded: DesktopUiSettings) => {
+        if (confirmedVersionRef.current !== confirmedVersion) {
+          return;
+        }
+        lastConfirmedSettingsRef.current = loaded;
+        if (localRevisionRef.current === revision && pendingSavesRef.current === 0) {
+          latestSettingsRef.current = loaded;
+          setSettings(loaded);
+        }
+      };
       try {
         const loaded = await settingsApi.getDesktopSettings();
         if (cancelled) {
           return;
         }
-        lastConfirmedSettingsRef.current = loaded;
-        if (localRevisionRef.current === 0) {
-          latestSettingsRef.current = loaded;
-          setSettings(loaded);
-        }
+        applyLoaded(loaded);
 
         const legacyPayload = options.migrateLegacy ? readLegacyDesktopSettingsPayload() : null;
         if (!legacyPayload) {
@@ -88,11 +104,7 @@ export function useDesktopSettingsBridge({
         if (cancelled) {
           return;
         }
-        lastConfirmedSettingsRef.current = migrated;
-        if (localRevisionRef.current === 0) {
-          latestSettingsRef.current = migrated;
-          setSettings(migrated);
-        }
+        applyLoaded(migrated);
         writeLegacyMigrationMarker();
       } catch (caught) {
         if (!cancelled) {
@@ -112,12 +124,20 @@ export function useDesktopSettingsBridge({
     const refreshOnFocus = () => {
       refreshQueueRef.current = refreshQueueRef.current
         .catch(() => undefined)
-        .then(() => loadSettings({ migrateLegacy: false }));
+        .then(async () => {
+          while (!cancelled && pendingSavesRef.current > 0) {
+            await saveQueueRef.current;
+          }
+          if (!cancelled) {
+            await loadSettings({ migrateLegacy: false });
+          }
+        });
       void refreshQueueRef.current;
     };
     window.addEventListener("focus", refreshOnFocus);
     return () => {
       cancelled = true;
+      mountedRef.current = false;
       window.removeEventListener("focus", refreshOnFocus);
     };
   }, [allowInMemoryFallback, settingsApi]);
@@ -138,11 +158,19 @@ export function useDesktopSettingsBridge({
       if (!settingsApi) {
         return Promise.resolve();
       }
+      const effectVersion = effectVersionRef.current;
+      const isCurrentEffect = () =>
+        mountedRef.current && effectVersionRef.current === effectVersion;
+      pendingSavesRef.current += 1;
       const save = saveQueueRef.current
         .then(() => initializationRef.current)
         .then(() => settingsApi.saveDesktopSettings(patch));
       const callerSave = save
         .then((nextSettings) => {
+          if (!isCurrentEffect()) {
+            return;
+          }
+          confirmedVersionRef.current += 1;
           lastConfirmedSettingsRef.current = nextSettings;
           if (localRevisionRef.current === nextRevision) {
             latestSettingsRef.current = nextSettings;
@@ -150,12 +178,17 @@ export function useDesktopSettingsBridge({
           }
         })
         .catch((caught: unknown) => {
-          if (localRevisionRef.current === nextRevision) {
+          if (isCurrentEffect() && localRevisionRef.current === nextRevision) {
             latestSettingsRef.current = lastConfirmedSettingsRef.current;
             setSettings(lastConfirmedSettingsRef.current);
           }
-          setError(errorMessage(caught));
+          if (isCurrentEffect()) {
+            setErrorRef.current(errorMessage(caught));
+          }
           throw caught;
+        })
+        .finally(() => {
+          pendingSavesRef.current -= 1;
         });
       saveQueueRef.current = callerSave.then(
         () => undefined,
