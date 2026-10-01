@@ -1,3 +1,4 @@
+import type { ProjectExportFilesRequest } from "./toolProjectExportSelection.js";
 import type {
   BlockType,
   DesktopBlockDetail,
@@ -535,6 +536,14 @@ export type RuntimeGateway = {
     project: DesktopProjectSummary;
     projectPromptMarkdown: string;
     planPackages: ExportedPlanPackage[];
+  }>;
+  exportProjectFiles(
+    projectId: string,
+    input: ProjectExportFilesRequest
+  ): Promise<{
+    project: DesktopProjectSummary;
+    projectPromptMarkdown?: string;
+    planPackages: Array<ExportedPlanPackage & { canvasId: string }>;
   }>;
   importPlanPackage(input: {
     name: string;

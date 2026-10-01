@@ -449,6 +449,7 @@
         "contentToolsRuntime.test.ts",
         "oauthClientStore.test.ts",
         "oauthTokenStore.test.ts",
+        "projectExportSelection.test.ts",
         "toolPackageFiles.test.ts",
         "toolRuntime.test.ts",
         "tunnelConfigStore.test.ts",

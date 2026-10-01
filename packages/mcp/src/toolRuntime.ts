@@ -40,6 +40,8 @@ import {
   readPromptSource as runtimeReadPromptSource,
   readRenderedPrompt as runtimeReadRenderedPrompt,
   readProjectPrompt,
+  readPackageFiles,
+  resolvePackagePath,
   refreshPrompts,
   removeBlock,
   removeCanvasDependency,
@@ -65,6 +67,11 @@ import {
 } from "@planweave-ai/runtime";
 import type { DesktopSearchResult, DesktopTodoItem } from "@planweave-ai/runtime";
 import { sanitizeLocalPaths, sanitizeValidationIssues } from "./toolHelpers.js";
+import {
+  projectExportFilesRequestSchema,
+  resolveProjectExportSelection
+} from "./toolProjectExportSelection.js";
+import { selectProjectExportFiles } from "./toolExportResults.js";
 import { exportCanvasPackage, importPackageFiles } from "./toolPackageFiles.js";
 import type { ReadyBlock, RuntimeGateway, SanitizedExecutionStatus } from "./toolTypes.js";
 
@@ -369,6 +376,28 @@ export const runtimeGateway: RuntimeGateway = {
       planPackages: await Promise.all(
         canvases.map((canvas) => exportCanvasPackage(projectId, canvas.canvasId))
       )
+    };
+  },
+  async exportProjectFiles(projectId, input) {
+    const request = projectExportFilesRequestSchema.parse(input);
+    const project = await openProject({ projectId });
+    const selection = resolveProjectExportSelection(project, request);
+    const canvasIds = [...new Set(selection.map((file) => file.canvasId))];
+    const planPackages = await Promise.all(
+      canvasIds.map(async (canvasId) => {
+        const workspace = await resolveTaskCanvasWorkspace(project.rootPath, canvasId);
+        for (const file of selection.filter((item) => item.canvasId === canvasId)) {
+          await resolvePackagePath(workspace.packageDir, file.path);
+        }
+        return { canvasId, files: await readPackageFiles(workspace.packageDir) };
+      })
+    );
+    return {
+      project,
+      projectPromptMarkdown: request.includeProjectPrompt
+        ? await readProjectPrompt(project.rootPath)
+        : undefined,
+      planPackages: selectProjectExportFiles(planPackages, selection)
     };
   },
   async importPlanPackage(input) {

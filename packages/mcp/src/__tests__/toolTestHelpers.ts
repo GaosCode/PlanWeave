@@ -1,3 +1,5 @@
+import { resolveProjectExportSelection } from "../toolProjectExportSelection.js";
+import { selectProjectExportFiles } from "../toolExportResults.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type {
   DesktopBlockDetail,
@@ -38,6 +40,8 @@ export const project: DesktopProjectSummary = {
     {
       canvasId: "default",
       name: "Default",
+      packageDir: "canvases/default/package",
+      executionPolicy: null,
       taskCount: 1,
       diagnostics: [],
       missingPromptCount: 0,
@@ -142,6 +146,7 @@ export type TestGateway = RuntimeGateway & {
   refreshPrompts: ReturnType<
     typeof vi.fn<(projectId: string, canvasId?: string) => Promise<RefreshPromptsResult>>
   >;
+  exportProjectFiles: ReturnType<typeof vi.fn<RuntimeGateway["exportProjectFiles"]>>;
   exportPlanPackage: ReturnType<RuntimeGateway["exportPlanPackage"] & typeof vi.fn>;
   importPlanPackage: ReturnType<RuntimeGateway["importPlanPackage"] & typeof vi.fn>;
   validatePackageDraft: ReturnType<typeof vi.fn<RuntimeGateway["validatePackageDraft"]>>;
@@ -192,7 +197,8 @@ export function createGateway(): TestGateway {
     latestReviewAttemptId: null,
     activeFeedbackId: null,
     exceptionReason: null,
-    reviewGate: null
+    reviewGate: null,
+    remoteExecution: null
   };
   const status: Omit<PlanStatus, "projectRoot"> & { canvasId: string | null } = {
     projectId: "project-1",
@@ -211,7 +217,8 @@ export function createGateway(): TestGateway {
         completionReason: null,
         lastRunId: null,
         latestReviewAttemptId: null,
-        activeFeedbackId: null
+        activeFeedbackId: null,
+        remoteExecution: null
       }
     ],
     currentRefs: [],
@@ -228,6 +235,7 @@ export function createGateway(): TestGateway {
         taskId: "T-001",
         blockId: "I-001",
         blockType: "implementation",
+        effectiveExecutor: "codex",
         status: "ready",
         statusReason: null,
         ready: true,
@@ -286,6 +294,10 @@ export function createGateway(): TestGateway {
     reviewGate: null
   };
   const graph: DesktopGraphViewModel = {
+    graphVersion: "test-graph-version",
+    packageFingerprint: "test-package-fingerprint",
+    autoRunPreflightExecutorHint: null,
+    sharedResourceGroups: [],
     projectId: "project-1",
     projectTitle: "Project One",
     executorOptions: ["codex"],
@@ -296,6 +308,7 @@ export function createGateway(): TestGateway {
         status: "planned",
         executor: null,
         executorLabel: "default",
+        sharedResources: [],
         promptMarkdown: "# Task",
         promptMissing: false,
         promptPreview: "Task",
@@ -308,7 +321,10 @@ export function createGateway(): TestGateway {
             status: "ready",
             executor: null,
             promptMissing: false,
-            exceptionReason: null
+            exceptionReason: null,
+            requiredCapabilities: [],
+            dispatchable: true,
+            remoteExecution: null
           }
         ],
         blockPreview: [],
@@ -574,6 +590,8 @@ export function createGateway(): TestGateway {
     createCanvas: vi.fn(async (_projectId, name) => ({
       canvasId: "canvas-new",
       name: name ?? "New canvas",
+      packageDir: "canvases/canvas-new/package",
+      executionPolicy: null,
       taskCount: 0,
       missingPromptCount: 0,
       diagnostics: [],
@@ -628,16 +646,29 @@ export function createGateway(): TestGateway {
     refreshPrompts: vi.fn(async () => ({
       prompts: [{ ref: "T-001#I-001", path: "", markdown: "# Surface" }]
     })),
-    exportPlanPackage: vi.fn(async () => ({
+    exportPlanPackage: vi.fn<RuntimeGateway["exportPlanPackage"]>(async () => ({
       canvasId: "default",
       files: [{ path: "manifest.json", content: "{}", encoding: "utf8" }]
     })),
-    exportProject: vi.fn(async () => ({
+    exportProject: vi.fn<RuntimeGateway["exportProject"]>(async () => ({
       project,
       projectPromptMarkdown: "# Project",
       planPackages: [
         { canvasId: "default", files: [{ path: "manifest.json", content: "{}", encoding: "utf8" }] }
       ]
+    })),
+    exportProjectFiles: vi.fn(async (_projectId, input) => ({
+      project,
+      projectPromptMarkdown: input.includeProjectPrompt ? "# Project" : undefined,
+      planPackages: selectProjectExportFiles(
+        [
+          {
+            canvasId: "default",
+            files: [{ path: "manifest.json", content: "{}", encoding: "utf8" }]
+          }
+        ],
+        resolveProjectExportSelection(project, input)
+      )
     })),
     importPlanPackage: vi.fn(async () => ({
       project,

@@ -447,6 +447,8 @@ describe("MCP tools: project context", () => {
       canvas: {
         canvasId: "canvas-new",
         name: "Release plan",
+        packageDir: "canvases/canvas-new/package",
+        executionPolicy: null,
         taskCount: 0,
         missingPromptCount: 0,
         diagnostics: [],

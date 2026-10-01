@@ -1,6 +1,6 @@
+import { projectExportFilesRequestSchema } from "../toolProjectExportSelection.js";
 import {
   fullProjectExport,
-  selectProjectExportFiles,
   summarizePlanPackage,
   summarizeProjectExport
 } from "../toolExportResults.js";
@@ -81,8 +81,12 @@ export const exportToolHandlers = {
   export_project_files: async (args, gateway) => {
     const record = readObjectArgs(args);
     const { projectId } = parseProjectArgs(record);
+    const exported = await gateway.exportProjectFiles(
+      projectId,
+      projectExportFilesRequestSchema.parse(record)
+    );
     return jsonToolResult({
-      projectExport: selectProjectExportFiles(await gateway.exportProject(projectId), record)
+      projectExport: { ...exported, project: sanitizeProject(exported.project) }
     });
   },
   export_project_full_debug: async (args, gateway) => {

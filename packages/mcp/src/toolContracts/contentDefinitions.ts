@@ -1,3 +1,4 @@
+import { projectExportFilesInput } from "../toolProjectExportSelection.js";
 import {
   contentMaxBytesSchema,
   DEFAULT_MAX_BYTES
@@ -138,18 +139,11 @@ export const contentToolDefinitions = defineToolDefinitions({
   },
   export_project_files: {
     title: "Export Selected PlanWeave Project Files",
-    description: "Return content only for explicitly requested project prompt or package files.",
+    description:
+      "Return requested project prompt or package files. Omitted or null canvasId selects the current active canvas (or the first canvas when none is active); explicit IDs must exist.",
     inputSchema: {
       ...projectInput,
-      includeProjectPrompt: z.boolean().optional(),
-      packageFiles: z
-        .array(
-          z.object({
-            canvasId: z.string().nullable().optional(),
-            path: z.string().min(1)
-          })
-        )
-        .optional()
+      ...projectExportFilesInput
     },
     annotations: readOnlyAnnotations
   },

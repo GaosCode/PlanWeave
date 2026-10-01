@@ -1,4 +1,5 @@
-import { nonEmptyString, sanitizeProject } from "./toolHelpers.js";
+import type { ResolvedProjectExportFile } from "./toolProjectExportSelection.js";
+import { sanitizeProject } from "./toolHelpers.js";
 import type { ExportedPlanPackage, RuntimeGateway } from "./toolTypes.js";
 
 export function summarizeRefreshPrompts(
@@ -55,38 +56,22 @@ export function fullProjectExport(exported: ExportedProject) {
 }
 
 export function selectProjectExportFiles(
-  exported: ExportedProject,
-  record: Record<string, unknown>
-) {
-  const requestedFiles = Array.isArray(record.packageFiles) ? record.packageFiles : [];
-  const selectedPackages = new Map<string, ExportedPlanPackage>();
-  for (const item of requestedFiles) {
-    if (!item || typeof item !== "object" || Array.isArray(item)) {
-      throw new Error("packageFiles entries must be objects.");
-    }
-    const request = item as Record<string, unknown>;
-    const canvasId =
-      request.canvasId === null || request.canvasId === undefined
-        ? null
-        : nonEmptyString(request.canvasId, "packageFiles[].canvasId");
-    const path = nonEmptyString(request.path, "packageFiles[].path");
-    const planPackage = exported.planPackages.find((candidate) => candidate.canvasId === canvasId);
+  planPackages: ExportedPlanPackage[],
+  requestedFiles: ResolvedProjectExportFile[]
+): Array<ExportedPlanPackage & { canvasId: string }> {
+  const selectedPackages = new Map<string, ExportedPlanPackage & { canvasId: string }>();
+  for (const { canvasId, path } of requestedFiles) {
+    const planPackage = planPackages.find((candidate) => candidate.canvasId === canvasId);
     if (!planPackage) {
-      throw new Error(`Requested project export canvas not found: ${canvasId ?? "default"}`);
+      throw new Error(`Requested project export canvas not found: ${canvasId}`);
     }
     const file = planPackage.files.find((candidate) => candidate.path === path);
     if (!file) {
-      throw new Error(`Requested project export file not found: ${canvasId ?? "default"}:${path}`);
+      throw new Error(`Requested project export file not found: ${canvasId}:${path}`);
     }
-    const key = canvasId ?? "";
-    const selected = selectedPackages.get(key) ?? { canvasId, files: [] };
+    const selected = selectedPackages.get(canvasId) ?? { canvasId, files: [] };
     selected.files.push(file);
-    selectedPackages.set(key, selected);
+    selectedPackages.set(canvasId, selected);
   }
-  return {
-    project: sanitizeProject(exported.project),
-    projectPromptMarkdown:
-      record.includeProjectPrompt === true ? exported.projectPromptMarkdown : undefined,
-    planPackages: [...selectedPackages.values()]
-  };
+  return [...selectedPackages.values()];
 }
