@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { McpTunnelStatus, StartLocalMcpInput, StartTunnelInput } from "../../shared/mcpTunnel";
 
 function idleStatus(): McpTunnelStatus {
@@ -53,6 +53,14 @@ function idleStatus(): McpTunnelStatus {
 
 export function useMcpTunnelStatus({ setError }: { setError: (message: string | null) => void }) {
   const [status, setStatus] = useState<McpTunnelStatus>(() => idleStatus());
+  const acceptedStatus = useRef(status);
+  const acceptStatus = useCallback((nextStatus: McpTunnelStatus) => {
+    acceptedStatus.current = nextStatus;
+    setStatus(nextStatus);
+  }, []);
+  const activeActions = useRef(new Set<string>());
+  const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
+  const statusEvents = useRef(0);
   const api = typeof window !== "undefined" ? window.planweaveMcpTunnel : undefined;
 
   useEffect(() => {
@@ -60,11 +68,12 @@ export function useMcpTunnelStatus({ setError }: { setError: (message: string | 
       return;
     }
     let cancelled = false;
+    const initialEvents = statusEvents.current;
     void api
       .getMcpTunnelStatus()
       .then((nextStatus) => {
-        if (!cancelled) {
-          setStatus(nextStatus);
+        if (!cancelled && statusEvents.current === initialEvents) {
+          acceptStatus(nextStatus);
         }
       })
       .catch((error: unknown) => {
@@ -73,40 +82,65 @@ export function useMcpTunnelStatus({ setError }: { setError: (message: string | 
         }
       });
     const unsubscribe = api.onMcpTunnelChanged((nextStatus) => {
-      setStatus(nextStatus);
+      statusEvents.current += 1;
+      acceptStatus(nextStatus);
     });
     return () => {
       cancelled = true;
       unsubscribe();
     };
-  }, [api, setError]);
+  }, [api, setError, acceptStatus]);
 
   const invoke = useCallback(
-    async (action: () => Promise<McpTunnelStatus>) => {
+    async (
+      name: string,
+      action: () => Promise<McpTunnelStatus>
+    ): Promise<McpTunnelStatus | null> => {
       if (!api) {
         setError("MCP tunnel bridge unavailable.");
-        return;
+        return null;
       }
+      if (activeActions.current.has(name)) return null;
+      activeActions.current.add(name);
+      setPending(new Set(activeActions.current));
+      const eventsBeforeAction = statusEvents.current;
       try {
         const nextStatus = await action();
-        setStatus(nextStatus);
-        setError(null);
+        if (statusEvents.current === eventsBeforeAction) acceptStatus(nextStatus);
+        const error =
+          name === "downloadTunnelClient"
+            ? nextStatus.download.error
+            : name === "startTunnel" || name === "stopTunnel"
+              ? nextStatus.tunnel.error
+              : name === "startLocalMcp" || name === "stopLocalMcp"
+                ? nextStatus.localMcp.error
+                : null;
+        setError(error);
+        return error ? null : acceptedStatus.current;
       } catch (error) {
         setError(error instanceof Error ? error.message : String(error));
+        return null;
+      } finally {
+        activeActions.current.delete(name);
+        setPending(new Set(activeActions.current));
       }
     },
-    [api, setError]
+    [api, setError, acceptStatus]
   );
 
   return {
     available: Boolean(api),
+    pending,
     status,
-    downloadTunnelClient: () => invoke(() => api!.downloadTunnelClient()),
-    setTunnelClientPath: (path: string | null) => invoke(() => api!.setTunnelClientPath(path)),
-    setTunnelAutoStart: (enabled: boolean) => invoke(() => api!.setTunnelAutoStart(enabled)),
-    startLocalMcp: (input?: StartLocalMcpInput) => invoke(() => api!.startLocalMcp(input)),
-    stopLocalMcp: () => invoke(() => api!.stopLocalMcp()),
-    startTunnel: (input: StartTunnelInput) => invoke(() => api!.startTunnel(input)),
-    stopTunnel: () => invoke(() => api!.stopTunnel())
+    downloadTunnelClient: () => invoke("downloadTunnelClient", () => api!.downloadTunnelClient()),
+    setTunnelClientPath: (path: string | null) =>
+      invoke("setTunnelClientPath", () => api!.setTunnelClientPath(path)),
+    setTunnelAutoStart: (enabled: boolean) =>
+      invoke("setTunnelAutoStart", () => api!.setTunnelAutoStart(enabled)),
+    startLocalMcp: (input?: StartLocalMcpInput) =>
+      invoke("startLocalMcp", () => api!.startLocalMcp(input)),
+    stopLocalMcp: () => invoke("stopLocalMcp", () => api!.stopLocalMcp()),
+    startTunnel: (input: StartTunnelInput) => invoke("startTunnel", () => api!.startTunnel(input)),
+    stopTunnel: () => invoke("stopTunnel", () => api!.stopTunnel())
   };
 }

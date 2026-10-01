@@ -20,7 +20,8 @@ import { LOCAL_OPERATOR_PROFILE_ID } from "../operatorControl/localOperatorBacke
 import {
   readTunnelClientConfig,
   writeTunnelClientConfig,
-  type TunnelClientConfigStorePaths
+  type TunnelClientConfigStorePaths,
+  type TunnelClientConfig
 } from "../mcpTunnel/tunnelClientStore.js";
 import { decryptSafeStorageString } from "../safeStorageAccess.js";
 import type { CredentialStoragePaths } from "./credentialStoragePaths.js";
@@ -250,34 +251,51 @@ async function restoreLocalOperatorCredentialFromCoordinator(options: {
   return 1;
 }
 
+type McpConfigCommit = (
+  update: (config: TunnelClientConfig) => TunnelClientConfig
+) => Promise<void>;
+
 async function migrateMcpRuntimeApiKey(options: {
   paths: TunnelClientConfigStorePaths;
+  commit?: McpConfigCommit;
   sourceMode: CredentialStorageMode;
   targetMode: CredentialStorageMode;
   sourceStorage: CollaborationSafeStoragePort;
   targetStorage: CollaborationSafeStoragePort;
 }): Promise<number> {
-  const config = await readTunnelClientConfig(options.paths);
-  const keys = { ...(config.encryptedRuntimeApiKeys ?? {}) };
-  const legacySystemCiphertext = config.encryptedRuntimeApiKey;
-  const sourceCiphertext =
-    keys[options.sourceMode] ?? (options.sourceMode === "system" ? legacySystemCiphertext : null);
-  if (!sourceCiphertext) return 0;
-  const targetCiphertext =
-    keys[options.targetMode] ?? (options.targetMode === "system" ? legacySystemCiphertext : null);
-  if (targetCiphertext) {
-    if (!keys[options.targetMode]) {
+  const commit: McpConfigCommit =
+    options.commit ??
+    (async (update) => {
+      const config = await readTunnelClientConfig(options.paths);
+      const candidate = update(config);
+      if (candidate !== config) await writeTunnelClientConfig(candidate, options.paths);
+    });
+  let migrated = 0;
+  await commit((config) => {
+    const keys = { ...(config.encryptedRuntimeApiKeys ?? {}) };
+    const legacySystemCiphertext = config.encryptedRuntimeApiKey;
+    const sourceCiphertext =
+      keys[options.sourceMode] ?? (options.sourceMode === "system" ? legacySystemCiphertext : null);
+    if (!sourceCiphertext) return config;
+    const targetCiphertext =
+      keys[options.targetMode] ?? (options.targetMode === "system" ? legacySystemCiphertext : null);
+    if (targetCiphertext) {
+      if (keys[options.targetMode]) return config;
       keys[options.targetMode] = targetCiphertext;
-      await writeTunnelClientConfig({ ...config, encryptedRuntimeApiKeys: keys }, options.paths);
+      return { ...config, encryptedRuntimeApiKeys: keys };
     }
-    return 0;
-  }
-  const sourceKey = decrypt(options.sourceStorage, sourceCiphertext, "MCP runtime API key").trim();
-  if (!sourceKey) throw new Error("credential_storage_migration_mcp_runtime_api_key_invalid");
-  if (!keys[options.sourceMode]) keys[options.sourceMode] = sourceCiphertext;
-  keys[options.targetMode] = encrypt(options.targetStorage, sourceKey);
-  await writeTunnelClientConfig({ ...config, encryptedRuntimeApiKeys: keys }, options.paths);
-  return 1;
+    const sourceKey = decrypt(
+      options.sourceStorage,
+      sourceCiphertext,
+      "MCP runtime API key"
+    ).trim();
+    if (!sourceKey) throw new Error("credential_storage_migration_mcp_runtime_api_key_invalid");
+    if (!keys[options.sourceMode]) keys[options.sourceMode] = sourceCiphertext;
+    keys[options.targetMode] = encrypt(options.targetStorage, sourceKey);
+    migrated = 1;
+    return { ...config, encryptedRuntimeApiKeys: keys };
+  });
+  return migrated;
 }
 
 export async function migrateCredentialStorage(options: {
@@ -288,6 +306,7 @@ export async function migrateCredentialStorage(options: {
   sourceStorage: CollaborationSafeStoragePort;
   targetStorage: CollaborationSafeStoragePort;
   mcpTunnelPaths: TunnelClientConfigStorePaths;
+  commitMcpConfig?: McpConfigCommit;
 }): Promise<CredentialStorageMigrationReceipt> {
   if (!options.sourceStorage.isEncryptionAvailable()) {
     throw new Error("credential_storage_migration_source_unavailable");
@@ -324,6 +343,7 @@ export async function migrateCredentialStorage(options: {
     }),
     mcpRuntimeApiKey: await migrateMcpRuntimeApiKey({
       paths: options.mcpTunnelPaths,
+      commit: options.commitMcpConfig,
       sourceMode: options.sourceMode,
       targetMode: options.targetMode,
       sourceStorage: options.sourceStorage,

@@ -1,4 +1,5 @@
-import { chmod, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { chmod, mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { desktopHomePaths } from "../planweaveHomePaths.js";
 import type { CredentialStorageMode } from "../../shared/credentialStorageSettings.js";
@@ -155,11 +156,44 @@ export async function writeTunnelClientConfig(
       throw error;
     }
   });
-  const tmp = `${paths.configPath}.tmp`;
-  await writeFile(tmp, `${JSON.stringify(config, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-  await rename(tmp, paths.configPath);
-  const written = await stat(paths.configPath);
-  if ((written.mode & 0o777) !== 0o600) {
-    await chmod(paths.configPath, 0o600);
+  const tmp = `${paths.configPath}.${randomUUID()}.tmp`;
+  const file = await open(tmp, "wx", 0o600);
+  try {
+    try {
+      await file.writeFile(`${JSON.stringify(config, null, 2)}\n`, "utf8");
+      const written = await file.stat();
+      if ((written.mode & 0o777) !== 0o600) {
+        await file.chmod(0o600);
+        // Windows chmod cannot express POSIX owner-only permissions.
+        if (process.platform !== "win32" && ((await file.stat()).mode & 0o777) !== 0o600) {
+          throw new Error("MCP tunnel config temporary file permissions are not 0o600");
+        }
+      }
+    } catch (error) {
+      try {
+        await file.close();
+      } catch (closeError) {
+        throw new AggregateError(
+          [error, closeError],
+          `${error instanceof Error ? error.message : String(error)}; failed to close MCP tunnel config temporary file`
+        );
+      }
+      throw error;
+    }
+    await file.close();
+    // Rename is the commit point; all fallible preparation happens before it.
+    await rename(tmp, paths.configPath);
+  } catch (error) {
+    try {
+      await unlink(tmp);
+    } catch (cleanupError) {
+      if (!isMissingFileError(cleanupError)) {
+        throw new AggregateError(
+          [error, cleanupError],
+          `${error instanceof Error ? error.message : String(error)}; failed to clean MCP tunnel config temporary file`
+        );
+      }
+    }
+    throw error;
   }
 }

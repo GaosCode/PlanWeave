@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CableIcon, CircleStopIcon, DownloadIcon, PlayIcon, SaveIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,7 @@ type SettingsMcpSectionProps = {
 export function SettingsMcpSection({ setError, t }: SettingsMcpSectionProps) {
   const {
     available,
+    pending,
     status,
     downloadTunnelClient,
     setTunnelClientPath,
@@ -36,11 +37,18 @@ export function SettingsMcpSection({ setError, t }: SettingsMcpSectionProps) {
   const [tunnelId, setTunnelId] = useState("");
   const [runtimeApiKey, setRuntimeApiKey] = useState("");
 
+  const binaryDraft = useRef({ dirty: false, value: binaryPath });
+  const tunnelDraft = useRef({ dirty: false, value: tunnelId });
+  binaryDraft.current.value = binaryPath;
+  tunnelDraft.current.value = tunnelId;
+
   useEffect(() => {
+    if (binaryDraft.current.dirty) return;
     setBinaryPath(status.binary.path ?? "");
   }, [status.binary.path]);
 
   useEffect(() => {
+    if (tunnelDraft.current.dirty) return;
     setTunnelId(status.config.tunnelId ?? "");
   }, [status.config.tunnelId]);
 
@@ -65,7 +73,10 @@ export function SettingsMcpSection({ setError, t }: SettingsMcpSectionProps) {
         : status.config.runtimeApiKeyStorage === "available"
           ? t("mcpRuntimeApiKeyHint")
           : t("mcpRuntimeApiKeyStorageUnavailableHint");
-  const autoStartDisabled = !available || status.config.runtimeApiKeyPersistence !== "persisted";
+  const autoStartDisabled =
+    !available ||
+    pending.has("setTunnelAutoStart") ||
+    status.config.runtimeApiKeyPersistence !== "persisted";
   const autoStartDescription =
     status.config.runtimeApiKeyPersistence === "persisted"
       ? t("mcpTunnelAutoStartHint")
@@ -96,14 +107,25 @@ export function SettingsMcpSection({ setError, t }: SettingsMcpSectionProps) {
                 className="w-80"
                 value={binaryPath}
                 aria-label={t("mcpTunnelClientPath")}
-                onChange={(event) => setBinaryPath(event.target.value)}
+                onChange={(event) => {
+                  binaryDraft.current.dirty = true;
+                  setBinaryPath(event.target.value);
+                }}
               />
               <Button
-                disabled={!available}
+                disabled={!available || pending.has("setTunnelClientPath")}
                 size="icon"
                 variant="outline"
                 title={t("save")}
-                onClick={() => void setTunnelClientPath(binaryPath)}
+                onClick={() => {
+                  const submitted = binaryPath;
+                  void setTunnelClientPath(submitted).then((saved) => {
+                    if (saved && binaryDraft.current.value === submitted) {
+                      binaryDraft.current.dirty = false;
+                      setBinaryPath(saved.binary.path ?? "");
+                    }
+                  });
+                }}
               >
                 <SaveIcon />
               </Button>
@@ -135,7 +157,7 @@ export function SettingsMcpSection({ setError, t }: SettingsMcpSectionProps) {
             </FieldContent>
             <div className="flex items-center gap-2">
               <Button
-                disabled={!available || downloadBusy}
+                disabled={!available || downloadBusy || pending.has("downloadTunnelClient")}
                 size="sm"
                 variant="outline"
                 onClick={() => void downloadTunnelClient()}
@@ -174,7 +196,12 @@ export function SettingsMcpSection({ setError, t }: SettingsMcpSectionProps) {
             </FieldContent>
             <div className="flex items-center gap-2">
               <Button
-                disabled={!available || localBusy || status.localMcp.phase === "running"}
+                disabled={
+                  !available ||
+                  localBusy ||
+                  pending.has("startLocalMcp") ||
+                  status.localMcp.phase === "running"
+                }
                 size="sm"
                 variant="outline"
                 onClick={() => void startLocalMcp()}
@@ -183,7 +210,12 @@ export function SettingsMcpSection({ setError, t }: SettingsMcpSectionProps) {
                 {t("startLocalMcp")}
               </Button>
               <Button
-                disabled={!available || localBusy || status.localMcp.phase !== "running"}
+                disabled={
+                  !available ||
+                  localBusy ||
+                  pending.has("stopLocalMcp") ||
+                  status.localMcp.phase !== "running"
+                }
                 size="sm"
                 variant="outline"
                 onClick={() => void stopLocalMcp()}
@@ -211,7 +243,10 @@ export function SettingsMcpSection({ setError, t }: SettingsMcpSectionProps) {
               className="w-80"
               value={tunnelId}
               aria-label={t("mcpTunnelId")}
-              onChange={(event) => setTunnelId(event.target.value)}
+              onChange={(event) => {
+                tunnelDraft.current.dirty = true;
+                setTunnelId(event.target.value);
+              }}
             />
           </Field>
           <Field
@@ -257,16 +292,34 @@ export function SettingsMcpSection({ setError, t }: SettingsMcpSectionProps) {
             </FieldContent>
             <div className="flex items-center gap-2">
               <Button
-                disabled={!available || tunnelBusy || status.tunnel.phase === "running"}
+                disabled={
+                  !available ||
+                  tunnelBusy ||
+                  pending.has("startTunnel") ||
+                  status.tunnel.phase === "running"
+                }
                 size="sm"
                 variant="outline"
-                onClick={() => void startTunnel({ tunnelId, runtimeApiKey })}
+                onClick={() => {
+                  const submitted = tunnelId;
+                  void startTunnel({ tunnelId: submitted, runtimeApiKey }).then((saved) => {
+                    if (saved && tunnelDraft.current.value === submitted) {
+                      tunnelDraft.current.dirty = false;
+                      setTunnelId(saved.config.tunnelId ?? "");
+                    }
+                  });
+                }}
               >
                 <CableIcon data-icon="inline-start" />
                 {t("startTunnel")}
               </Button>
               <Button
-                disabled={!available || tunnelBusy || status.tunnel.phase !== "running"}
+                disabled={
+                  !available ||
+                  tunnelBusy ||
+                  pending.has("stopTunnel") ||
+                  status.tunnel.phase !== "running"
+                }
                 size="sm"
                 variant="outline"
                 onClick={() => void stopTunnel()}

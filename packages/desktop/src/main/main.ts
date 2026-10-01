@@ -11,6 +11,7 @@ import { checkForAppUpdate, registerAppUpdateHandlers } from "./appUpdate.js";
 import {
   autoStartMcpTunnel,
   registerMcpTunnelHandlers,
+  updateMcpTunnelConfig,
   stopMcpTunnelProcesses
 } from "./mcpTunnel/mcpTunnelHandlers.js";
 import {
@@ -156,7 +157,8 @@ function startDesktopApplication(): void {
               targetPaths: credentialStoragePaths(targetMode),
               sourceStorage: credentialStorage,
               targetStorage: credentialStorageForMode(targetMode),
-              mcpTunnelPaths: mcpTunnelConfigStorePaths(app.getPath("userData"))
+              mcpTunnelPaths: mcpTunnelConfigStorePaths(app.getPath("userData")),
+              commitMcpConfig: updateMcpTunnelConfig
             })
         }
       });

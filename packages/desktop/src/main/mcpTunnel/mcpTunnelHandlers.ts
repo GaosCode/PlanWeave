@@ -1,6 +1,5 @@
 import { app, BrowserWindow, ipcMain, safeStorage } from "electron";
 import type {
-  McpTunnelRuntimeApiKeyPersistence,
   McpTunnelStatus,
   TunnelClientDownloadStatus,
   StartLocalMcpInput,
@@ -14,29 +13,24 @@ import {
   resolveTunnelClientBinaryStartTarget,
   tunnelClientDownloadUrl
 } from "./tunnelClientBinary.js";
-import type { TunnelClientBinaryVerification } from "./tunnelClientBinary.js";
 import { TunnelClientProcessManager } from "./tunnelClientProcess.js";
 import {
   mcpTunnelConfigStorePaths,
   readTunnelClientConfig,
-  writeTunnelClientConfig
+  writeTunnelClientConfig,
+  type TunnelClientConfig
 } from "./tunnelClientStore.js";
 import type { DesktopCredentialStorage } from "../credentialStorage/applicationCredentialStorage.js";
+import {
+  createTunnelClientConfigController,
+  type TunnelClientConfigSnapshot
+} from "./tunnelClientConfigController.js";
 import type { CredentialStorageMode } from "../../shared/credentialStorageSettings.js";
 
 const localMcp = new LocalMcpServerManager();
 const tunnelClient = new TunnelClientProcessManager({ onStatusChange: () => void publishStatus() });
 const envTunnelClientPath = process.env.PLANWEAVE_TUNNEL_CLIENT_PATH?.trim() || null;
-let tunnelClientPath: string | null = envTunnelClientPath;
-let tunnelClientVerification: TunnelClientBinaryVerification | null = null;
-let tunnelId: string | null = null;
-let runtimeApiKey: string | null = null;
-let sessionRuntimeApiKey: string | null = null;
-let encryptedRuntimeApiKey: string | null = null;
-let encryptedRuntimeApiKeys: Partial<Record<CredentialStorageMode, string>> = {};
 let credentialStorageMode: CredentialStorageMode = "system";
-let tunnelAutoStart = false;
-let tunnelClientConfigLoaded = false;
 let credentialStorage: DesktopCredentialStorage = {
   isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
   encryptString: (value) => safeStorage.encryptString(value),
@@ -56,142 +50,80 @@ function userDataDir(): string {
   return app.getPath("userData");
 }
 
-function runtimeApiKeyStorageAvailable(): boolean {
-  return credentialStorage.isEncryptionAvailable();
+const configController = createTunnelClientConfigController({
+  read: () => readTunnelClientConfig(mcpTunnelConfigStorePaths(userDataDir())),
+  write: (config) => writeTunnelClientConfig(config, mcpTunnelConfigStorePaths(userDataDir())),
+  storage: () => credentialStorage,
+  mode: () => credentialStorageMode
+});
+
+// Credential-mode migration shares the same configuration owner as IPC commands.
+export async function updateMcpTunnelConfig(
+  update: (config: TunnelClientConfig) => TunnelClientConfig
+): Promise<void> {
+  await configController.update((state) => ({ ...state, config: update(state.config) }));
+  await publishStatus();
 }
 
-function decryptRuntimeApiKey(value: string | null): string | null {
-  if (!value || !runtimeApiKeyStorageAvailable()) {
-    return null;
-  }
-  try {
-    const decrypted = credentialStorage.decryptString(Buffer.from(value, "base64")).trim();
-    return decrypted || null;
-  } catch {
-    return null;
-  }
+function binaryConfig(state: TunnelClientConfigSnapshot) {
+  return {
+    path: envTunnelClientPath ?? state.config.tunnelClientPath,
+    verification: envTunnelClientPath ? null : state.config.verification
+  };
 }
 
-function encryptRuntimeApiKey(value: string | null): string | null {
-  if (!value) {
-    return null;
-  }
-  if (!runtimeApiKeyStorageAvailable()) {
-    throw new Error(
-      "Configured credential storage is unavailable, so the runtime API key cannot be persisted."
-    );
-  }
-  return credentialStorage.encryptString(value).toString("base64");
-}
-
-function hasRestorableRuntimeApiKey(): boolean {
-  return Boolean(runtimeApiKey && runtimeApiKeyStorageAvailable());
-}
-
-function sessionOnlyRuntimeApiKey(): string | null {
-  return sessionRuntimeApiKey ?? (runtimeApiKeyStorageAvailable() ? null : runtimeApiKey);
-}
-
-function runtimeApiKeyPersistence(): McpTunnelRuntimeApiKeyPersistence {
-  if (hasRestorableRuntimeApiKey()) {
-    return "persisted";
-  }
-  if (sessionOnlyRuntimeApiKey()) {
-    return "session-only";
-  }
-  return "missing";
-}
-
-function effectiveTunnelAutoStart(): boolean {
-  return tunnelAutoStart && hasRestorableRuntimeApiKey();
-}
-
-async function loadTunnelClientConfig(): Promise<void> {
-  if (tunnelClientConfigLoaded) {
-    return;
-  }
-  const config = await readTunnelClientConfig(mcpTunnelConfigStorePaths(userDataDir()));
-  tunnelId = config.tunnelId;
-  encryptedRuntimeApiKeys = config.encryptedRuntimeApiKeys ?? {};
-  encryptedRuntimeApiKey =
-    encryptedRuntimeApiKeys[credentialStorageMode] ??
-    (credentialStorageMode === "system" ? config.encryptedRuntimeApiKey : null);
-  runtimeApiKey = decryptRuntimeApiKey(encryptedRuntimeApiKey);
-  if (runtimeApiKey && encryptedRuntimeApiKey && !encryptedRuntimeApiKeys[credentialStorageMode]) {
-    encryptedRuntimeApiKeys[credentialStorageMode] = encryptedRuntimeApiKey;
-  }
-  tunnelAutoStart = config.autoStart;
-  tunnelClientConfigLoaded = true;
-  if (envTunnelClientPath) {
-    tunnelClientVerification = null;
-    return;
-  }
-  tunnelClientPath = config.tunnelClientPath;
-  tunnelClientVerification = config.verification;
-  if (tunnelClientVerification && downloadStatus.phase === "idle") {
-    downloadStatus = {
-      phase: "ready",
-      assetName: tunnelClientVerification.assetName,
-      error: null
+async function statusSnapshot(): Promise<{
+  state: TunnelClientConfigSnapshot;
+  status: McpTunnelStatus;
+}> {
+  // Binary probing is outside the configuration queue. Discard a late probe if
+  // another command committed while it was running.
+  while (true) {
+    const state = await configController.read();
+    const binary = binaryConfig(state);
+    const binaryStatus = await resolveTunnelClientBinary(binary.path, binary.verification);
+    if (configController.current !== state) continue;
+    return {
+      state,
+      status: {
+        binary: binaryStatus,
+        download:
+          downloadStatus.phase === "idle" && binary.verification
+            ? { phase: "ready", assetName: binary.verification.assetName, error: null }
+            : downloadStatus,
+        localMcp: localMcp.getStatus(),
+        tunnel: tunnelClient.getStatus(),
+        config: {
+          tunnelId: state.config.tunnelId,
+          hasRuntimeApiKey: configController.persistence(state) !== "missing",
+          runtimeApiKeyPersistence: configController.persistence(state),
+          runtimeApiKeyStorage: credentialStorage.isEncryptionAvailable()
+            ? "available"
+            : "unavailable",
+          autoStart: state.config.autoStart && configController.persisted(state)
+        },
+        downloadUrl: tunnelClientDownloadUrl,
+        updatedAt: nowIso()
+      }
     };
   }
 }
 
-async function persistTunnelClientConfig(): Promise<void> {
-  const paths = mcpTunnelConfigStorePaths(userDataDir());
-  const persisted = await readTunnelClientConfig(paths);
-  encryptedRuntimeApiKeys = {
-    ...(persisted.encryptedRuntimeApiKeys ?? {}),
-    ...encryptedRuntimeApiKeys
-  };
-  if (encryptedRuntimeApiKey) {
-    encryptedRuntimeApiKeys[credentialStorageMode] = encryptedRuntimeApiKey;
-  } else if (credentialStorageMode === "system") {
-    delete encryptedRuntimeApiKeys.system;
-  }
-  await writeTunnelClientConfig(
-    {
-      tunnelClientPath,
-      verification: tunnelClientVerification,
-      tunnelId,
-      encryptedRuntimeApiKey:
-        credentialStorageMode === "system"
-          ? encryptedRuntimeApiKey
-          : (encryptedRuntimeApiKeys.system ?? persisted.encryptedRuntimeApiKey),
-      encryptedRuntimeApiKeys,
-      autoStart: tunnelAutoStart
-    },
-    paths
-  );
-}
-
 async function getStatus(): Promise<McpTunnelStatus> {
-  await loadTunnelClientConfig();
-  return {
-    binary: await resolveTunnelClientBinary(tunnelClientPath, tunnelClientVerification),
-    download: downloadStatus,
-    localMcp: localMcp.getStatus(),
-    tunnel: tunnelClient.getStatus(),
-    config: {
-      tunnelId,
-      hasRuntimeApiKey: Boolean(hasRestorableRuntimeApiKey() || sessionOnlyRuntimeApiKey()),
-      runtimeApiKeyPersistence: runtimeApiKeyPersistence(),
-      runtimeApiKeyStorage: runtimeApiKeyStorageAvailable() ? "available" : "unavailable",
-      autoStart: effectiveTunnelAutoStart()
-    },
-    downloadUrl: tunnelClientDownloadUrl,
-    updatedAt: nowIso()
-  };
+  return (await statusSnapshot()).status;
 }
 
 async function publishStatus(): Promise<McpTunnelStatus> {
-  const status = await getStatus();
-  for (const window of BrowserWindow.getAllWindows()) {
-    if (!window.webContents.isDestroyed()) {
-      window.webContents.send(mcpTunnelChangedChannel, status);
+  while (true) {
+    const { state, status } = await statusSnapshot();
+    if (configController.current !== state) continue;
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.webContents.isDestroyed()) {
+        window.webContents.send(mcpTunnelChangedChannel, status);
+      }
     }
+    return status;
   }
-  return status;
 }
 
 export async function getMcpTunnelStatus(): Promise<McpTunnelStatus> {
@@ -199,49 +131,48 @@ export async function getMcpTunnelStatus(): Promise<McpTunnelStatus> {
 }
 
 export async function setTunnelClientPath(path: string | null): Promise<McpTunnelStatus> {
-  await loadTunnelClientConfig();
-  tunnelClientPath = path?.trim() || null;
-  tunnelClientVerification = null;
-  await persistTunnelClientConfig();
+  await configController.update((state) => ({
+    ...state,
+    config: { ...state.config, tunnelClientPath: path?.trim() || null, verification: null }
+  }));
   return publishStatus();
 }
 
 export async function setTunnelAutoStart(enabled: boolean): Promise<McpTunnelStatus> {
-  await loadTunnelClientConfig();
-  if (enabled && !hasRestorableRuntimeApiKey()) {
-    throw new Error(
-      "Auto-start requires a runtime API key that can be restored from secure storage."
-    );
-  }
-  tunnelAutoStart = enabled;
-  await persistTunnelClientConfig();
+  await configController.update((state) => {
+    if (enabled && !configController.persisted(state)) {
+      throw new Error(
+        "Auto-start requires a runtime API key that can be restored from secure storage."
+      );
+    }
+    return { ...state, config: { ...state.config, autoStart: enabled } };
+  });
   return publishStatus();
 }
 
 export async function downloadTunnelClient(): Promise<McpTunnelStatus> {
-  await loadTunnelClientConfig();
-  downloadStatus = {
-    phase: "downloading",
-    assetName: null,
-    error: null
-  };
+  await configController.read();
+  downloadStatus = { phase: "downloading", assetName: null, error: null };
   await publishStatus();
   try {
     const result = await downloadOfficialTunnelClient();
-    tunnelClientPath = result.binaryPath;
-    tunnelClientVerification = result.verification;
-    downloadStatus = {
-      phase: "ready",
-      assetName: result.verification.assetName,
-      error: null
-    };
-    await persistTunnelClientConfig();
+    await configController.update((state) => ({
+      ...state,
+      config: {
+        ...state.config,
+        tunnelClientPath: result.binaryPath,
+        verification: result.verification
+      }
+    }));
+    downloadStatus = { phase: "ready", assetName: result.verification.assetName, error: null };
   } catch (error) {
     downloadStatus = {
       phase: "error",
       assetName: null,
       error: error instanceof Error ? error.message : String(error)
     };
+    await publishStatus();
+    throw error;
   }
   return publishStatus();
 }
@@ -258,37 +189,22 @@ export async function stopLocalMcp(): Promise<McpTunnelStatus> {
 }
 
 export async function startTunnel(input: StartTunnelInput = {}): Promise<McpTunnelStatus> {
-  await loadTunnelClientConfig();
   const requestedTunnelId = input.tunnelId?.trim() || null;
   const requestedRuntimeApiKey = input.runtimeApiKey?.trim() || null;
-  const effectiveTunnelId = requestedTunnelId ?? tunnelId;
-  const effectiveRuntimeApiKey =
-    requestedRuntimeApiKey ??
-    (hasRestorableRuntimeApiKey() ? runtimeApiKey : sessionOnlyRuntimeApiKey());
-  if (!effectiveTunnelId) {
-    throw new Error("tunnel_id is required.");
-  }
-  if (!effectiveRuntimeApiKey) {
-    throw new Error("Runtime API key is required.");
-  }
-  if (requestedTunnelId || requestedRuntimeApiKey) {
-    tunnelId = effectiveTunnelId;
-    if (requestedRuntimeApiKey) {
-      if (runtimeApiKeyStorageAvailable()) {
-        runtimeApiKey = effectiveRuntimeApiKey;
-        sessionRuntimeApiKey = null;
-        encryptedRuntimeApiKey = encryptRuntimeApiKey(runtimeApiKey);
-      } else {
-        sessionRuntimeApiKey = effectiveRuntimeApiKey;
-        encryptedRuntimeApiKey = null;
-        tunnelAutoStart = false;
-      }
-    }
-    await persistTunnelClientConfig();
-  }
+  const state =
+    requestedTunnelId || requestedRuntimeApiKey
+      ? await configController.prepareStart(input)
+      : await configController.read();
+  const effectiveTunnelId = state.config.tunnelId;
+  const effectiveRuntimeApiKey = configController.persisted(state)
+    ? state.runtimeApiKey
+    : configController.sessionKey(state);
+  if (!effectiveTunnelId) throw new Error("tunnel_id is required.");
+  if (!effectiveRuntimeApiKey) throw new Error("Runtime API key is required.");
+  const binary = binaryConfig(state);
   const binaryStartTarget = await resolveTunnelClientBinaryStartTarget(
-    tunnelClientPath,
-    tunnelClientVerification
+    binary.path,
+    binary.verification
   );
   let localStatus = localMcp.getStatus();
   if (localStatus.phase !== "running" || !localStatus.endpoint) {
@@ -324,13 +240,16 @@ export async function stopTunnel(): Promise<McpTunnelStatus> {
 }
 
 export async function autoStartMcpTunnel(): Promise<void> {
-  await loadTunnelClientConfig();
-  if (!tunnelAutoStart) {
-    return;
-  }
-  if (!hasRestorableRuntimeApiKey()) {
-    tunnelAutoStart = false;
-    await persistTunnelClientConfig();
+  const state = await configController.read();
+  if (!state.config.autoStart) return;
+  if (!configController.persisted(state)) {
+    await configController.update((current) => ({
+      ...current,
+      config: {
+        ...current.config,
+        autoStart: configController.persisted(current) ? current.config.autoStart : false
+      }
+    }));
     await publishStatus();
     return;
   }
