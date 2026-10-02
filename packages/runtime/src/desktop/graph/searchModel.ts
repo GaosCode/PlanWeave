@@ -40,7 +40,8 @@ export async function searchProjectWithDiagnostics(
   }
 
   const index = await readDesktopProjectSearchIndexFromContext(context, {
-    includeBodies: searchNeedsBodyIndex(filters)
+    includeBodies: searchNeedsBodyIndex(filters),
+    canvasId: filters.canvasId
   });
   appendDesktopDiagnostics(diagnostics, index.diagnostics);
   return {

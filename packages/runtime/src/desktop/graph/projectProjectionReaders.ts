@@ -148,7 +148,7 @@ async function buildProjectBodySearchIndex(input: {
 
 export async function readDesktopProjectSearchIndex(
   projectRoot: string,
-  options: { includeBodies?: boolean } = {}
+  options: { includeBodies?: boolean; canvasId?: string | null } = {}
 ): Promise<DesktopSearchIndex> {
   return readDesktopProjectSearchIndexFromContext(
     await readDesktopProjectProjectionContext(projectRoot),
@@ -158,7 +158,7 @@ export async function readDesktopProjectSearchIndex(
 
 export async function readDesktopProjectSearchIndexFromContext(
   context: DesktopProjectProjectionContext,
-  options: { includeBodies?: boolean } = {}
+  options: { includeBodies?: boolean; canvasId?: string | null } = {}
 ): Promise<DesktopSearchIndex> {
   const cachedFromProject = peekCachedDesktopProjectProjection(context.key);
   const cachedFromContext = projectionContextCache.get(context);
@@ -169,6 +169,10 @@ export async function readDesktopProjectSearchIndexFromContext(
     );
   }
   const cached = getCachedDesktopProjectProjection(context.key);
+  const aggregation = context.projection.todoContext.aggregation;
+  if (typeof options.canvasId === "string" && !aggregation.canvasesById.has(options.canvasId)) {
+    throw new Error(`Task canvas '${options.canvasId}' does not exist.`);
+  }
   const diagnostics = [...context.projection.diagnostics];
   const summaryIndex = await buildProjectSummarySearchIndex({
     cached,
@@ -178,6 +182,23 @@ export async function readDesktopProjectSearchIndexFromContext(
   });
   if (!options.includeBodies || !cached) {
     return summaryIndex;
+  }
+  if (typeof options.canvasId === "string") {
+    const entry = cached.canvases.get(options.canvasId);
+    if (!entry) {
+      throw new Error(`Project canvas '${options.canvasId}' is missing from projection cache.`);
+    }
+    const bodyIndex = await buildCanvasBodySearchIndex({
+      aggregation,
+      canvasId: options.canvasId,
+      entry,
+      diagnostics
+    });
+    const index = mergeSearchIndexBodies(summaryIndex, bodyIndex);
+    for (const diagnostic of diagnostics) {
+      appendProjectProjectionDiagnostic(index.diagnostics, diagnostic);
+    }
+    return index;
   }
   const bodyIndex = await buildProjectBodySearchIndex({
     cached,

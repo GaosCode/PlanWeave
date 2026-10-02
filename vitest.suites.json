@@ -640,6 +640,7 @@
         "desktopResultsFileIndex.test.ts",
         "desktopReviewPipelineApi.test.ts",
         "desktopRunnerInteractionApi.test.ts",
+        "desktopScopedSearchReadBudget.test.ts",
         "desktopSearchStatsApi.test.ts",
         "desktopTaskWorkspaceAcpRecovery.test.ts",
         "desktopTaskWorkspaceApi.test.ts",
