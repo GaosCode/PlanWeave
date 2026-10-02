@@ -3,7 +3,10 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { assertTunnelClientBinaryStartTarget } from "./binary.js";
+import { StartLifecycle } from "./startLifecycle.js";
+import { childClosed, terminateChild } from "./childLifecycle.js";
 import type {
   TunnelClientArgsInput,
   TunnelClientBinaryStartTarget,
@@ -67,17 +70,20 @@ function execTunnelClient(
   binary: TunnelClientBinaryStartTarget,
   args: string[],
   runtimeApiKey: string,
-  tunnelId: string
+  tunnelId: string,
+  signal: AbortSignal
 ): Promise<void> {
-  return new Promise((resolve, reject) => {
-    execFile(
+  let child!: ChildProcess;
+  const result = new Promise<void>((resolve, reject) => {
+    child = execFile(
       tunnelClientCommand(binary),
       args,
       {
         cwd: binary.executableDir,
         env: buildTunnelClientEnv(binary, runtimeApiKey, tunnelId),
         shell: false,
-        timeout: 30_000
+        timeout: 30_000,
+        signal
       },
       (error) => {
         if (error) {
@@ -87,6 +93,11 @@ function execTunnelClient(
         resolve();
       }
     );
+  });
+  const closed = childClosed(child);
+  return result.finally(async () => {
+    if (signal.aborted) await terminateChild(child, closed);
+    else await closed;
   });
 }
 
@@ -107,7 +118,9 @@ function redactTunnelClientError(
 }
 
 export class TunnelClientProcessManager {
+  private lifecycle = new StartLifecycle<TunnelClientStatus>();
   private child: ChildProcess | null = null;
+  private closed: Promise<void> | null = null;
   private healthUrlTimeoutMs: number;
   private onStatusChange: (() => void) | null;
   private readyTimeoutMs: number;
@@ -137,7 +150,7 @@ export class TunnelClientProcessManager {
     return this.status;
   }
 
-  async start(options: {
+  start(options: {
     binary: TunnelClientBinaryStartTarget;
     localMcpEndpoint: string;
     input: {
@@ -146,8 +159,15 @@ export class TunnelClientProcessManager {
     };
   }): Promise<TunnelClientStatus> {
     if (this.child && this.status.phase === "running") {
-      return this.status;
+      return Promise.resolve(this.status);
     }
+    return this.lifecycle.start((signal) => this.startOwned(options, signal));
+  }
+
+  private async startOwned(
+    options: Parameters<TunnelClientProcessManager["start"]>[0],
+    signal: AbortSignal
+  ): Promise<TunnelClientStatus> {
     const tunnelId = options.input.tunnelId.trim();
     const runtimeApiKey = options.input.runtimeApiKey.trim();
     if (!tunnelId) {
@@ -166,6 +186,11 @@ export class TunnelClientProcessManager {
       error: null
     };
     try {
+      if (this.child && this.closed) {
+        await terminateChild(this.child, this.closed);
+        this.child = null;
+        signal.throwIfAborted();
+      }
       const binary = assertTunnelClientBinaryStartTarget(options.binary);
       await execTunnelClient(
         binary,
@@ -174,12 +199,14 @@ export class TunnelClientProcessManager {
           mcpServerUrl: options.localMcpEndpoint
         }),
         runtimeApiKey,
-        tunnelId
+        tunnelId,
+        signal
       );
       let healthDir: string | null = null;
       let child: ChildProcess | null = null;
       try {
         healthDir = await mkdtemp(join(tmpdir(), "planweave-tunnel-health-"));
+        signal.throwIfAborted();
         const healthUrlFile = join(healthDir, "url");
         child = spawn(tunnelClientCommand(binary), buildTunnelClientRunArgs(healthUrlFile), {
           cwd: binary.executableDir,
@@ -188,9 +215,11 @@ export class TunnelClientProcessManager {
           stdio: ["ignore", "ignore", "ignore"]
         });
         this.child = child;
+        const closed = childClosed(child);
+        this.closed = closed;
         let lastHealthUrl: string | null = null;
-        child.once("exit", (code, signal) => {
-          if (this.child !== child) {
+        child.once("exit", (code, exitSignal) => {
+          if (this.child !== child || !this.lifecycle.owns(signal)) {
             return;
           }
           this.child = null;
@@ -213,17 +242,29 @@ export class TunnelClientProcessManager {
             error:
               code === 0
                 ? null
-                : `tunnel-client exited with code ${code ?? "null"} signal ${signal ?? "null"}.`
+                : `tunnel-client exited with code ${code ?? "null"} signal ${exitSignal ?? "null"}.`
+          };
+          this.onStatusChange?.();
+        });
+        child.on("error", (error) => {
+          if (this.child !== child || !this.lifecycle.owns(signal)) return;
+          this.status = {
+            ...this.status,
+            phase: "error",
+            ready: false,
+            error: redactTunnelClientError(error, { runtimeApiKey, tunnelId })
           };
           this.onStatusChange?.();
         });
         const healthUrl = await this.waitForHealthUrl(
           child,
           healthUrlFile,
-          this.healthUrlTimeoutMs
+          this.healthUrlTimeoutMs,
+          signal
         );
         lastHealthUrl = healthUrl;
-        const ready = await this.waitForReady(healthUrl, this.readyTimeoutMs);
+        const ready = await this.waitForReady(healthUrl, this.readyTimeoutMs, signal);
+        signal.throwIfAborted();
         this.status = {
           phase: ready ? "running" : "error",
           profile: profileName,
@@ -234,34 +275,58 @@ export class TunnelClientProcessManager {
           error: ready ? null : "tunnel-client started but /readyz is not ready."
         };
         if (!ready) {
-          child.kill("SIGTERM");
+          await terminateChild(child, closed);
+          if (this.child === child) this.child = null;
+          this.status = { ...this.status, pid: null };
         }
       } catch (error) {
-        if (child && !child.killed) {
-          child.kill("SIGTERM");
+        if (child && this.closed) {
+          await terminateChild(child, this.closed);
         }
         throw error;
       } finally {
         if (healthDir) {
-          void rm(healthDir, { recursive: true, force: true });
+          await rm(healthDir, { recursive: true, force: true });
         }
       }
     } catch (error) {
-      this.child = null;
+      const cancelled = signal.aborted && error instanceof Error && error.name === "AbortError";
+      const cleanupFailed =
+        this.child !== null && this.child.exitCode === null && this.child.signalCode === null;
+      if (!cleanupFailed) this.child = null;
       this.status = {
-        phase: "error",
+        phase: cancelled && !cleanupFailed ? "stopped" : "error",
         profile: profileName,
         tunnelId,
-        pid: null,
+        pid: cleanupFailed ? (this.child?.pid ?? null) : null,
         healthUrl: null,
         ready: false,
-        error: redactTunnelClientError(error, { runtimeApiKey, tunnelId })
+        error:
+          cancelled && !cleanupFailed
+            ? null
+            : redactTunnelClientError(error, { runtimeApiKey, tunnelId })
       };
+      if (signal.aborted && (!cancelled || cleanupFailed)) throw error;
     }
     return this.status;
   }
 
-  async stop(): Promise<TunnelClientStatus> {
+  stop(): Promise<TunnelClientStatus> {
+    this.status = { ...this.status, phase: "stopping", ready: false };
+    return this.lifecycle
+      .stop(() => this.stopOwned())
+      .catch((error: unknown) => {
+        this.status = {
+          ...this.status,
+          phase: "error",
+          ready: false,
+          error: this.status.error ?? (error instanceof Error ? error.message : String(error))
+        };
+        throw error;
+      });
+  }
+
+  private async stopOwned(): Promise<TunnelClientStatus> {
     if (!this.child) {
       this.status = {
         phase: "stopped",
@@ -276,20 +341,8 @@ export class TunnelClientProcessManager {
     }
     const child = this.child;
     this.status = { ...this.status, phase: "stopping", ready: false };
-    await new Promise<void>((resolve) => {
-      let exited = false;
-      child.once("exit", () => {
-        exited = true;
-        resolve();
-      });
-      child.kill("SIGTERM");
-      setTimeout(() => {
-        if (!exited) {
-          child.kill("SIGKILL");
-        }
-        resolve();
-      }, 3_000).unref();
-    });
+    if (!this.closed) throw new Error("Tunnel child closure is missing.");
+    await terminateChild(child, this.closed);
     if (this.child === child) {
       this.child = null;
     }
@@ -305,64 +358,65 @@ export class TunnelClientProcessManager {
     return this.status;
   }
 
-  private waitForHealthUrl(
+  private async waitForHealthUrl(
     child: ChildProcess,
     healthUrlFile: string,
-    timeoutMs: number
+    timeoutMs: number,
+    signal: AbortSignal
   ): Promise<string> {
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      const timeout = setTimeout(() => {
-        cleanup();
-        reject(new Error("Timed out waiting for tunnel-client health URL."));
-      }, timeoutMs);
-      const interval = setInterval(() => {
-        void readFile(healthUrlFile, "utf8")
-          .then((content) => {
-            if (settled) {
-              return;
-            }
-            const healthUrl = content.trim();
-            if (!/^https?:\/\/127\.0\.0\.1:\d+$/.test(healthUrl)) {
-              return;
-            }
-            settled = true;
-            cleanup();
-            resolve(healthUrl);
-          })
-          .catch(() => undefined);
-      }, 100);
-      const handleExit = () => {
-        settled = true;
-        cleanup();
-        reject(new Error("tunnel-client exited before reporting a health URL."));
-      };
-      const cleanup = () => {
-        clearTimeout(timeout);
-        clearInterval(interval);
-        child.off("exit", handleExit);
-      };
-      child.once("exit", handleExit);
-    });
-  }
-
-  private async checkReady(healthUrl: string): Promise<boolean> {
+    const controller = new AbortController();
+    const combined = AbortSignal.any([signal, controller.signal]);
+    const onExit = () =>
+      controller.abort(new Error("tunnel-client exited before reporting a health URL."));
+    const onError = (error: Error) => controller.abort(error);
+    child.once("exit", onExit);
+    child.once("error", onError);
+    const deadline = Date.now() + timeoutMs;
     try {
-      const response = await fetch(`${healthUrl}/readyz`);
-      return response.ok;
-    } catch {
-      return false;
+      while (Date.now() <= deadline) {
+        combined.throwIfAborted();
+        try {
+          const healthUrl = (
+            await readFile(healthUrlFile, { encoding: "utf8", signal: combined })
+          ).trim();
+          combined.throwIfAborted();
+          if (/^https?:\/\/127\.0\.0\.1:\d+$/.test(healthUrl)) return healthUrl;
+        } catch (error) {
+          combined.throwIfAborted();
+          if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+        }
+        await delay(100, undefined, { signal: combined });
+      }
+      throw new Error("Timed out waiting for tunnel-client health URL.");
+    } finally {
+      child.off("exit", onExit);
+      child.off("error", onError);
     }
   }
 
-  private async waitForReady(healthUrl: string, timeoutMs: number): Promise<boolean> {
+  private async waitForReady(
+    healthUrl: string,
+    timeoutMs: number,
+    signal: AbortSignal
+  ): Promise<boolean> {
     const deadline = Date.now() + timeoutMs;
     const pollIntervalMs = Math.min(250, Math.max(25, timeoutMs));
     while (Date.now() <= deadline) {
-      if (await this.checkReady(healthUrl)) {
-        return true;
+      signal.throwIfAborted();
+      try {
+        const requestSignal = AbortSignal.any([
+          signal,
+          AbortSignal.timeout(Math.max(1, deadline - Date.now()))
+        ]);
+        const response = await fetch(`${healthUrl}/readyz`, { signal: requestSignal });
+        signal.throwIfAborted();
+        if (response.ok) return true;
+      } catch {
+        signal.throwIfAborted();
+        // Readiness can legitimately be unavailable while the child initializes.
       }
-      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+      if (Date.now() >= deadline) break;
+      await delay(Math.min(pollIntervalMs, deadline - Date.now()), undefined, { signal });
     }
     return false;
   }

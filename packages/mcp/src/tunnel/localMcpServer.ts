@@ -2,6 +2,7 @@ import type { Server } from "node:http";
 import { resolvePlanweaveHome } from "@planweave-ai/runtime";
 import type { McpConfig, McpOAuthConfig } from "../config.js";
 import type { LocalMcpServerStatus } from "./types.js";
+import { StartLifecycle } from "./startLifecycle.js";
 
 const defaultHost = "127.0.0.1";
 const defaultPort = 8787;
@@ -20,6 +21,7 @@ export type LocalMcpServerManagerOptions = {
 };
 
 export class LocalMcpServerManager {
+  private lifecycle = new StartLifecycle<LocalMcpServerStatus>();
   private server: Server | null = null;
   private options: Required<
     Pick<
@@ -55,7 +57,7 @@ export class LocalMcpServerManager {
     return this.status;
   }
 
-  async start(
+  start(
     input: {
       host?: string | null;
       port?: number | null;
@@ -65,8 +67,16 @@ export class LocalMcpServerManager {
     } = {}
   ): Promise<LocalMcpServerStatus> {
     if (this.server && this.status.phase === "running") {
-      return this.status;
+      return Promise.resolve(this.status);
     }
+    return this.lifecycle.start((signal) => this.startOwned(input, signal));
+  }
+
+  private async startOwned(
+    input: Parameters<LocalMcpServerManager["start"]>[0],
+    signal: AbortSignal
+  ): Promise<LocalMcpServerStatus> {
+    input ??= {};
     const host = input.host?.trim() || this.options.host;
     const port = input.port ?? this.options.port;
     const planweaveHome = resolvePlanweaveHome();
@@ -82,6 +92,11 @@ export class LocalMcpServerManager {
       error: null
     });
     try {
+      if (this.server) {
+        await this.closeServer(this.server);
+        this.server = null;
+        signal.throwIfAborted();
+      }
       const config: McpConfig = {
         host,
         maxRequestBodyBytes: this.options.maxRequestBodyBytes,
@@ -92,7 +107,11 @@ export class LocalMcpServerManager {
         trustForwardedHeaders: input.trustForwardedHeaders ?? this.options.trustForwardedHeaders
       };
       const { listenPlanweaveMcpServer } = await import("../server.js");
+      signal.throwIfAborted();
       this.server = await listenPlanweaveMcpServer(config);
+      signal.throwIfAborted();
+      const healthy = await this.checkHealth(host, port, signal);
+      signal.throwIfAborted();
       this.status = nowStatus({
         phase: "running",
         endpoint: `http://${host}:${port}/mcp`,
@@ -101,13 +120,16 @@ export class LocalMcpServerManager {
         pid: process.pid,
         planweaveHome: resolvePlanweaveHome(),
         planweaveHomeFromEnv: Boolean(process.env.PLANWEAVE_HOME),
-        healthy: await this.checkHealth(host, port),
+        healthy,
         error: null
       });
     } catch (error) {
-      this.server = null;
+      if (this.server) {
+        await this.closeServer(this.server);
+        this.server = null;
+      }
       this.status = nowStatus({
-        phase: "error",
+        phase: signal.aborted ? "stopped" : "error",
         endpoint: null,
         host,
         port,
@@ -115,13 +137,28 @@ export class LocalMcpServerManager {
         planweaveHome: resolvePlanweaveHome(),
         planweaveHomeFromEnv: Boolean(process.env.PLANWEAVE_HOME),
         healthy: false,
-        error: error instanceof Error ? error.message : String(error)
+        error: signal.aborted ? null : error instanceof Error ? error.message : String(error)
       });
     }
     return this.status;
   }
 
-  async stop(): Promise<LocalMcpServerStatus> {
+  stop(): Promise<LocalMcpServerStatus> {
+    this.status = { ...this.status, phase: "stopping", healthy: false };
+    return this.lifecycle
+      .stop(() => this.stopOwned())
+      .catch((error: unknown) => {
+        this.status = {
+          ...this.status,
+          phase: "error",
+          healthy: false,
+          error: error instanceof Error ? error.message : String(error)
+        };
+        throw error;
+      });
+  }
+
+  private async stopOwned(): Promise<LocalMcpServerStatus> {
     if (!this.server) {
       this.status = nowStatus({
         phase: "stopped",
@@ -138,7 +175,32 @@ export class LocalMcpServerManager {
     }
     const server = this.server;
     this.status = { ...this.status, phase: "stopping" };
-    await new Promise<void>((resolve, reject) => {
+    await this.closeServer(server).catch((error: unknown) => {
+      this.status = {
+        ...this.status,
+        phase: "error",
+        healthy: false,
+        error: error instanceof Error ? error.message : String(error)
+      };
+      throw error;
+    });
+    this.server = null;
+    this.status = nowStatus({
+      phase: "stopped",
+      endpoint: null,
+      host: this.status.host,
+      port: this.status.port,
+      pid: null,
+      planweaveHome: resolvePlanweaveHome(),
+      planweaveHomeFromEnv: Boolean(process.env.PLANWEAVE_HOME),
+      healthy: false,
+      error: null
+    });
+    return this.status;
+  }
+
+  private closeServer(server: Server): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
       server.close((error) => {
         if (error) {
           reject(error);
@@ -146,29 +208,7 @@ export class LocalMcpServerManager {
         }
         resolve();
       });
-    }).catch((error: unknown) => {
-      this.status = {
-        ...this.status,
-        phase: "error",
-        healthy: false,
-        error: error instanceof Error ? error.message : String(error)
-      };
     });
-    this.server = null;
-    if (this.status.phase !== "error") {
-      this.status = nowStatus({
-        phase: "stopped",
-        endpoint: null,
-        host: this.status.host,
-        port: this.status.port,
-        pid: null,
-        planweaveHome: resolvePlanweaveHome(),
-        planweaveHomeFromEnv: Boolean(process.env.PLANWEAVE_HOME),
-        healthy: false,
-        error: null
-      });
-    }
-    return this.status;
   }
 
   private resolveOAuth(planweaveHome: string): McpOAuthConfig | undefined {
@@ -178,11 +218,12 @@ export class LocalMcpServerManager {
     return this.options.oauth;
   }
 
-  private async checkHealth(host: string, port: number): Promise<boolean> {
+  private async checkHealth(host: string, port: number, signal: AbortSignal): Promise<boolean> {
     try {
-      const response = await fetch(`http://${host}:${port}/healthz`);
+      const response = await fetch(`http://${host}:${port}/healthz`, { signal });
       return response.ok;
     } catch {
+      signal.throwIfAborted();
       return false;
     }
   }

@@ -326,9 +326,10 @@ describe("MCP tunnel application configuration commits", () => {
     const starting = api.startTunnel({ tunnelId: "start-id", runtimeApiKey: "start-key" });
     await processEntered.promise;
     await api.setTunnelClientPath("/test/while-starting");
-    await api.startTunnel({ tunnelId: "next-id", runtimeApiKey: "next-key" });
+    const repeated = api.startTunnel({ tunnelId: "next-id", runtimeApiKey: "next-key" });
     processReady.resolve(mocks.tunnelStatus);
-    await starting;
+    await Promise.all([starting, repeated]);
+    expect(mocks.start).toHaveBeenCalledOnce();
     expect(mocks.start.mock.calls[0][0]).toMatchObject({
       binary: { path: "/test/downloaded" },
       input: { tunnelId: "start-id", runtimeApiKey: "start-key" }

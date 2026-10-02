@@ -222,7 +222,9 @@ describe("MCP tunnel process helpers", () => {
     expect(status.phase).toBe("running");
     expect(status.ready).toBe(true);
     expect(status.healthUrl).toBe("http://127.0.0.1:12345");
-    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:12345/readyz");
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:12345/readyz", {
+      signal: expect.any(AbortSignal)
+    });
     expect(JSON.stringify(status)).not.toContain("secret-runtime-key");
 
     await manager.stop();

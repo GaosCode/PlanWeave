@@ -30,6 +30,13 @@ import type { CredentialStorageMode } from "../../shared/credentialStorageSettin
 const localMcp = new LocalMcpServerManager();
 const tunnelClient = new TunnelClientProcessManager({ onStatusChange: () => void publishStatus() });
 const envTunnelClientPath = process.env.PLANWEAVE_TUNNEL_CLIENT_PATH?.trim() || null;
+let processGeneration = 0;
+let pendingStart: {
+  kind: "local" | "tunnel" | "auto";
+  promise: Promise<McpTunnelStatus>;
+  controller: AbortController;
+} | null = null;
+let pendingStop: Promise<McpTunnelStatus> | null = null;
 let credentialStorageMode: CredentialStorageMode = "system";
 let credentialStorage: DesktopCredentialStorage = {
   isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
@@ -115,7 +122,9 @@ async function getStatus(): Promise<McpTunnelStatus> {
 
 async function publishStatus(): Promise<McpTunnelStatus> {
   while (true) {
+    const generation = processGeneration;
     const { state, status } = await statusSnapshot();
+    if (generation !== processGeneration) continue;
     if (configController.current !== state) continue;
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.webContents.isDestroyed()) {
@@ -177,24 +186,70 @@ export async function downloadTunnelClient(): Promise<McpTunnelStatus> {
   return publishStatus();
 }
 
-export async function startLocalMcp(input: StartLocalMcpInput = {}): Promise<McpTunnelStatus> {
-  await localMcp.start(input);
-  return publishStatus();
+function startProcesses(
+  kind: "local" | "tunnel" | "auto",
+  work: (signal: AbortSignal) => Promise<McpTunnelStatus>
+): Promise<McpTunnelStatus> {
+  if (pendingStop) return pendingStop.then(() => startProcesses(kind, work));
+  if (pendingStart) {
+    if (pendingStart.kind !== kind && !(kind === "auto" && pendingStart.kind === "tunnel"))
+      return Promise.reject(new Error("Another MCP process start is still pending."));
+    return pendingStart.promise;
+  }
+  processGeneration += 1;
+  const controller = new AbortController();
+  const promise = work(controller.signal).finally(() => {
+    if (pendingStart?.promise === promise) pendingStart = null;
+  });
+  pendingStart = { kind, promise, controller };
+  return promise;
 }
 
-export async function stopLocalMcp(): Promise<McpTunnelStatus> {
-  await tunnelClient.stop();
-  await localMcp.stop();
-  return publishStatus();
+function stopProcesses(stopLocal: boolean): Promise<McpTunnelStatus> {
+  if (pendingStop) return pendingStop.then(() => (stopLocal ? stopProcesses(true) : getStatus()));
+  processGeneration += 1;
+  const start = pendingStart;
+  start?.controller.abort();
+  const stopping = (async () => {
+    const stops: Promise<unknown>[] = [tunnelClient.stop()];
+    if (stopLocal || localMcp.getStatus().phase === "starting") stops.push(localMcp.stop());
+    const outcomes = await Promise.allSettled([...stops, ...(start ? [start.promise] : [])]);
+    const failure = outcomes.find((outcome) => outcome.status === "rejected");
+    if (failure?.status === "rejected") throw failure.reason;
+    return publishStatus();
+  })().finally(() => {
+    if (pendingStop === stopping) pendingStop = null;
+  });
+  pendingStop = stopping;
+  return stopping;
 }
 
-export async function startTunnel(input: StartTunnelInput = {}): Promise<McpTunnelStatus> {
+export function startLocalMcp(input: StartLocalMcpInput = {}): Promise<McpTunnelStatus> {
+  return startProcesses("local", async (signal) => {
+    await localMcp.start(input);
+    return signal.aborted ? getStatus() : publishStatus();
+  });
+}
+
+export function stopLocalMcp(): Promise<McpTunnelStatus> {
+  return stopProcesses(true);
+}
+
+export function startTunnel(input: StartTunnelInput = {}): Promise<McpTunnelStatus> {
+  return startProcesses("tunnel", (signal) => startTunnelOwned(input, signal));
+}
+
+async function startTunnelOwned(
+  input: StartTunnelInput,
+  signal: AbortSignal
+): Promise<McpTunnelStatus> {
   const requestedTunnelId = input.tunnelId?.trim() || null;
   const requestedRuntimeApiKey = input.runtimeApiKey?.trim() || null;
   const state =
     requestedTunnelId || requestedRuntimeApiKey
       ? await configController.prepareStart(input)
       : await configController.read();
+  if (signal.aborted) return getStatus();
   const effectiveTunnelId = state.config.tunnelId;
   const effectiveRuntimeApiKey = configController.persisted(state)
     ? state.runtimeApiKey
@@ -206,15 +261,13 @@ export async function startTunnel(input: StartTunnelInput = {}): Promise<McpTunn
     binary.path,
     binary.verification
   );
+  if (signal.aborted) return getStatus();
   let localStatus = localMcp.getStatus();
   if (localStatus.phase !== "running" || !localStatus.endpoint) {
-    if (localStatus.phase === "starting" || localStatus.phase === "stopping") {
-      throw new Error(
-        "Wait for the local PlanWeave MCP server to finish changing state before starting the tunnel."
-      );
-    }
     localStatus = await localMcp.start();
+    if (signal.aborted) return getStatus();
     await publishStatus();
+    if (signal.aborted) return getStatus();
   }
   if (localStatus.phase !== "running" || !localStatus.endpoint) {
     throw new Error(
@@ -231,42 +284,43 @@ export async function startTunnel(input: StartTunnelInput = {}): Promise<McpTunn
       runtimeApiKey: effectiveRuntimeApiKey
     }
   });
-  return publishStatus();
+  return signal.aborted ? getStatus() : publishStatus();
 }
 
-export async function stopTunnel(): Promise<McpTunnelStatus> {
-  await tunnelClient.stop();
-  return publishStatus();
+export function stopTunnel(): Promise<McpTunnelStatus> {
+  return stopProcesses(false);
 }
 
 export async function autoStartMcpTunnel(): Promise<void> {
-  const state = await configController.read();
-  if (!state.config.autoStart) return;
-  if (!configController.persisted(state)) {
-    await configController.update((current) => ({
-      ...current,
-      config: {
-        ...current.config,
-        autoStart: configController.persisted(current) ? current.config.autoStart : false
-      }
-    }));
-    await publishStatus();
-    return;
-  }
-  try {
-    await startTunnel();
-  } catch (error) {
-    console.error(
-      `Failed to auto-start MCP tunnel: ${error instanceof Error ? error.message : String(error)}`
-    );
-    await publishStatus();
-  }
+  await startProcesses("auto", async (signal) => {
+    const state = await configController.read();
+    if (signal.aborted) return getStatus();
+    if (!state.config.autoStart) return getStatus();
+    if (!configController.persisted(state)) {
+      await configController.update((current) => ({
+        ...current,
+        config: {
+          ...current.config,
+          autoStart: configController.persisted(current) ? current.config.autoStart : false
+        }
+      }));
+      await publishStatus();
+      return getStatus();
+    }
+    try {
+      return await startTunnelOwned({}, signal);
+    } catch (error) {
+      if (signal.aborted) throw error;
+      console.error(
+        `Failed to auto-start MCP tunnel: ${error instanceof Error ? error.message : String(error)}`
+      );
+      return signal.aborted ? getStatus() : publishStatus();
+    }
+  });
 }
 
 export async function stopMcpTunnelProcesses(): Promise<void> {
-  await tunnelClient.stop();
-  await localMcp.stop();
-  await publishStatus();
+  await stopProcesses(true);
 }
 
 export function registerMcpTunnelHandlers(

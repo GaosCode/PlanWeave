@@ -366,6 +366,7 @@
         "localCollaborationScopeStore.test.ts",
         "mcpTunnel.test.ts",
         "mcpTunnelConfigCommit.test.ts",
+        "mcpTunnelLifecycle.test.ts",
         "operatorCredentialRecovery.test.ts",
         "operatorProfileConcurrency.test.ts",
         "operatorProfileStore.test.ts",
@@ -455,6 +456,7 @@
       "integration": [
         "contentToolsRuntime.test.ts",
         "exportReadIntents.test.ts",
+        "localMcpLifecycle.test.ts",
         "oauthClientStore.test.ts",
         "oauthTokenStore.test.ts",
         "packageImportSelection.test.ts",
@@ -462,6 +464,7 @@
         "toolPackageFiles.test.ts",
         "toolRuntime.test.ts",
         "tunnelConfigStore.test.ts",
+        "tunnelProcessLifecycle.test.ts",
         "tunnelRun.test.ts",
         "tunnelStatus.test.ts"
       ],
