@@ -55,6 +55,7 @@
         "runSessionCli.test.ts",
         "runStatusObservability.test.ts",
         "skillContract.test.ts",
+        "testFileCommand.test.ts",
         "testSuiteClassificationGuard.test.ts"
       ],
       "platform": [],

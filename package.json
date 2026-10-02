@@ -44,6 +44,7 @@
     "audit:security": "npx --yes pnpm@11.4.0 audit --prod --audit-level=high",
     "verify:push": "pnpm audit:security && pnpm biome:check && pnpm check:test-suites && pnpm build && pnpm lint && pnpm test",
     "test": "pnpm check:test-suites && vitest run --config vitest.unit.config.ts --maxWorkers 2 && vitest run --config vitest.integration-cli.config.ts --maxWorkers 2 && vitest run --config vitest.integration-core.config.ts --maxWorkers 2 && vitest run --config vitest.integration-distributed.config.ts --maxWorkers 1 && vitest run --config vitest.performance.config.ts --maxWorkers 1 && vitest run --config vitest.platform.config.ts --maxWorkers 2",
+    "test:file": "node scripts/test-files.mjs",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:integration:cli": "vitest run --config vitest.integration-cli.config.ts",
     "test:integration:core": "vitest run --config vitest.integration-core.config.ts",

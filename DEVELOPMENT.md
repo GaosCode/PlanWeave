@@ -129,6 +129,15 @@ Run the full test suite:
 pnpm test
 ```
 
+Run one or more exact test files, using their existing suite configuration and worker limit:
+
+```bash
+pnpm test:file packages/agent-host/src/__tests__/credentialRenewal.test.ts
+pnpm test:file packages/agent-host/src/__tests__/credentialRenewal.test.ts packages/cli/src/__tests__/commandsSchemaHelp.test.ts
+```
+
+Files from different suites run sequentially. Duplicate paths run once. This command accepts file paths only, not directories, globs, name filters, or Vitest flags; empty or unclassified paths fail. Quote paths containing spaces. Use `pnpm test` for the full suite.
+
 The CI test suite is split into unit, integration, performance, and platform-dependent tests:
 
 ```bash
