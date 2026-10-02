@@ -667,6 +667,8 @@
         "orphanGraphReuse.test.ts",
         "packageDraftImport.test.ts",
         "packageDraftImportScope.test.ts",
+        "packageFileBatchConsistency.test.ts",
+        "packageLiveCanvasConsistency.test.ts",
         "packageFileChanges.test.ts",
         "packageFileReadIntents.test.ts",
         "packageFiles.test.ts",

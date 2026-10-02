@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   packageFileInventoryEntrySchema,
@@ -26,6 +26,13 @@ afterEach(async () => {
   vi.restoreAllMocks();
   await fs.rm(root, { recursive: true, force: true });
 });
+
+function bodyReadPaths(): string[] {
+  return vi
+    .mocked(fs.readFile)
+    .mock.calls.map((call) => String(call[0]))
+    .filter((path) => path.startsWith(`${root}${sep}`));
+}
 
 describe("package read intents with real filesystem IO", () => {
   it("counts decoded UTF-8 exactly across chunks, malformed bytes and incomplete tails without reading whole bodies", async () => {
@@ -67,7 +74,7 @@ describe("package read intents with real filesystem IO", () => {
       true
     );
     expect(inventory.every((file) => !("content" in file))).toBe(true);
-    expect(fs.readFile).not.toHaveBeenCalled();
+    expect(bodyReadPaths()).toEqual([]);
     expect(lengths.length).toBeGreaterThan(values.length);
     expect(Math.max(...lengths)).toBe(65536);
     expect(closed).toHaveBeenCalledTimes(values.length);
@@ -83,7 +90,7 @@ describe("package read intents with real filesystem IO", () => {
     expect(await readPackageFileInventory(root)).toEqual([
       { path: "large.md", contentBytes: 65 * 1024 * 1024, encoding: "utf8" }
     ]);
-    expect(fs.readFile).not.toHaveBeenCalled();
+    expect(bodyReadPaths()).toEqual([]);
   });
 
   it("reads only selected bodies, preserves request order and repeats, and leaves unreadable unselected files alone", async () => {
@@ -103,10 +110,7 @@ describe("package read intents with real filesystem IO", () => {
       { path: "a.md", content: "A", encoding: "utf8" },
       { path: "nested/b.md", content: "中文", encoding: "utf8" }
     ]);
-    expect(vi.mocked(fs.readFile).mock.calls.map((call) => String(call[0]))).toEqual([
-      join(root, "nested", "b.md"),
-      join(root, "a.md")
-    ]);
+    expect(bodyReadPaths()).toEqual([join(root, "nested", "b.md"), join(root, "a.md")]);
     await expect(readPackageFiles(root)).rejects.toMatchObject({ code: "EACCES" });
     await expect(readSelectedPackageFiles(root, ["unselected.md"])).rejects.toThrow(
       "unselected.md' could not be read (EACCES)"
@@ -168,7 +172,7 @@ describe("package read intents with real filesystem IO", () => {
     await expect(readSelectedPackageFiles(root, ["a.md"])).rejects.toThrow(
       "Package file 'a.md' could not be read (EACCES)."
     );
-    expect(fs.readFile).not.toHaveBeenCalled();
+    expect(bodyReadPaths()).toEqual([]);
   });
 
   it.skipIf(process.platform === "win32").each([false, true])(
@@ -197,12 +201,12 @@ describe("package read intents with real filesystem IO", () => {
         { path: "a/b.md", content: first, encoding: "utf8" },
         { path: "a/b.md", content: first, encoding: "utf8" }
       ]);
-      expect(fs.readFile).toHaveBeenCalledTimes(1);
+      expect(bodyReadPaths()).toHaveLength(1);
       vi.mocked(fs.readFile).mockClear();
       expect(await readSelectedPackageFiles(root, ["a/b.md"], "last")).toEqual([
         { path: "a/b.md", content: "literal-backslash", encoding: "utf8" }
       ]);
-      expect(fs.readFile).toHaveBeenCalledTimes(1);
+      expect(bodyReadPaths()).toHaveLength(1);
     }
   );
 

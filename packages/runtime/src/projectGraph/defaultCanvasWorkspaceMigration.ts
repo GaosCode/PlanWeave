@@ -1,3 +1,4 @@
+import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
 import { cp, mkdir, readFile, rename } from "node:fs/promises";
 import { basename, dirname, extname, join, relative } from "node:path";
 import { isNodeFileNotFoundError, optionalReaddir, optionalStat } from "../fs/optionalFile.js";
@@ -358,6 +359,18 @@ async function quarantineLegacyPaths(
 }
 
 export async function applyDefaultCanvasWorkspaceMigration(
+  projectWorkspace: ProjectWorkspace
+): Promise<DefaultCanvasWorkspaceMigrationApplyResult> {
+  return withPackageFileConsistency(
+    [
+      legacyDefaultCanvasWorkspacePaths(projectWorkspace).packageDir,
+      canonicalDefaultCanvasWorkspacePaths(projectWorkspace).packageDir
+    ],
+    () => applyDefaultCanvasWorkspaceMigrationLocked(projectWorkspace)
+  );
+}
+
+async function applyDefaultCanvasWorkspaceMigrationLocked(
   projectWorkspace: ProjectWorkspace
 ): Promise<DefaultCanvasWorkspaceMigrationApplyResult> {
   const plan = await detectDefaultCanvasWorkspaceMigration(projectWorkspace);

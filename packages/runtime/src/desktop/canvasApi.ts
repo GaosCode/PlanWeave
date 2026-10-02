@@ -1,6 +1,7 @@
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { ZodError } from "zod";
+import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
 import { optionalStat } from "../fs/optionalFile.js";
 import { initManagedWorkspace } from "../initWorkspace.js";
 import { resolvePlanweaveHome } from "../paths.js";
@@ -178,15 +179,20 @@ export async function createProjectFromTaskCanvas(
   const init = await initManagedWorkspace({ name: projectName, projectGraph: true });
   const targetWorkspace = await resolveTaskCanvasWorkspace(init.project.rootPath, defaultCanvasId);
 
-  try {
-    await rm(targetWorkspace.packageDir, { recursive: true, force: true });
-    await populateDuplicatedCanvasWorkspace(source.workspace, targetWorkspace, projectName);
-    await rm(targetWorkspace.resultsDir, { recursive: true, force: true });
-    await mkdir(targetWorkspace.resultsDir, { recursive: true });
-  } catch (error) {
-    await rm(init.workspace.workspaceRoot, { recursive: true, force: true });
-    throw error;
-  }
+  await withPackageFileConsistency(
+    [source.workspace.packageDir, targetWorkspace.packageDir],
+    async () => {
+      try {
+        await rm(targetWorkspace.packageDir, { recursive: true, force: true });
+        await populateDuplicatedCanvasWorkspace(source.workspace, targetWorkspace, projectName);
+        await rm(targetWorkspace.resultsDir, { recursive: true, force: true });
+        await mkdir(targetWorkspace.resultsDir, { recursive: true });
+      } catch (error) {
+        await rm(init.workspace.workspaceRoot, { recursive: true, force: true });
+        throw error;
+      }
+    }
+  );
 
   const activeCanvasId = await getActiveTaskCanvasId(init.project.rootPath);
   const taskCanvases = await listTaskCanvases(init.project.rootPath);

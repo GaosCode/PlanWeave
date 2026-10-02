@@ -1,3 +1,4 @@
+import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
 import { cp, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { optionalStat } from "../fs/optionalFile.js";
@@ -54,10 +55,12 @@ export async function writeEmptyCanvasWorkspace(
   workspace: ProjectWorkspace,
   title: string
 ): Promise<void> {
-  await mkdir(join(workspace.packageDir, "nodes"), { recursive: true });
-  await mkdir(workspace.resultsDir, { recursive: true });
-  await writeJsonFile(workspace.manifestFile, initialManifest(title));
-  await writeJsonFile(workspace.stateFile, createEmptyState());
+  await withPackageFileConsistency([workspace.packageDir], async () => {
+    await mkdir(join(workspace.packageDir, "nodes"), { recursive: true });
+    await mkdir(workspace.resultsDir, { recursive: true });
+    await writeJsonFile(workspace.manifestFile, initialManifest(title));
+    await writeJsonFile(workspace.stateFile, createEmptyState());
+  });
 }
 
 /**
@@ -69,9 +72,14 @@ export async function populateDuplicatedCanvasWorkspace(
   targetWorkspace: ProjectWorkspace,
   title: string
 ): Promise<void> {
-  await cp(sourceWorkspace.packageDir, targetWorkspace.packageDir, { recursive: true });
-  await writeManifestTitle(targetWorkspace, title);
-  await writeJsonFile(targetWorkspace.stateFile, createEmptyState());
-  await mkdir(targetWorkspace.resultsDir, { recursive: true });
-  await copyOptionalCanvasLayout(sourceWorkspace, targetWorkspace);
+  await withPackageFileConsistency(
+    [sourceWorkspace.packageDir, targetWorkspace.packageDir],
+    async () => {
+      await cp(sourceWorkspace.packageDir, targetWorkspace.packageDir, { recursive: true });
+      await writeManifestTitle(targetWorkspace, title);
+      await writeJsonFile(targetWorkspace.stateFile, createEmptyState());
+      await mkdir(targetWorkspace.resultsDir, { recursive: true });
+      await copyOptionalCanvasLayout(sourceWorkspace, targetWorkspace);
+    }
+  );
 }

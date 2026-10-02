@@ -13,6 +13,7 @@ import {
 } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { z } from "zod";
+import { withPackageDirectoryRead, withPackageFileConsistency } from "./packageFileConsistency.js";
 import { readDecodedUtf8Bytes } from "./decodedUtf8Bytes.js";
 import { PackagePathError, resolvePackagePath } from "./resolvePackagePath.js";
 
@@ -68,6 +69,10 @@ async function* packageFilePaths(
 }
 
 export async function readPackageFiles(root: string): Promise<PackageFileEntry[]> {
+  return withPackageDirectoryRead(root, () => readPackageFilesBatch(root));
+}
+
+async function readPackageFilesBatch(root: string): Promise<PackageFileEntry[]> {
   const files: PackageFileEntry[] = [];
   for await (const { archivePath, diskPath } of packageFilePaths(root)) {
     files.push({ path: archivePath, content: await readFile(diskPath, "utf8"), encoding: "utf8" });
@@ -77,6 +82,10 @@ export async function readPackageFiles(root: string): Promise<PackageFileEntry[]
 
 /** Exact decoded UTF-8 sizes, without retaining bodies or imposing export budgets. */
 export async function readPackageFileInventory(root: string): Promise<PackageFileInventoryEntry[]> {
+  return withPackageDirectoryRead(root, () => readPackageFileInventoryBatch(root));
+}
+
+async function readPackageFileInventoryBatch(root: string): Promise<PackageFileInventoryEntry[]> {
   const files: PackageFileInventoryEntry[] = [];
   for await (const { archivePath, diskPath } of packageFilePaths(root)) {
     files.push({
@@ -101,6 +110,29 @@ export async function readSelectedPackageFiles(
   root: string,
   paths: readonly string[],
   duplicatePath: "first" | "last" = "first"
+): Promise<PackageFileEntry[]> {
+  if (paths.length === 0) return [];
+  try {
+    return await withPackageDirectoryRead(root, () =>
+      readSelectedPackageFilesBatch(root, paths, duplicatePath)
+    );
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      typeof error.code === "string" &&
+      /^E[A-Z]+$/.test(error.code)
+    ) {
+      throw packageReadFailure(paths.join(", "), error);
+    }
+    throw error;
+  }
+}
+
+async function readSelectedPackageFilesBatch(
+  root: string,
+  paths: readonly string[],
+  duplicatePath: "first" | "last"
 ): Promise<PackageFileEntry[]> {
   const requested = new Set(paths);
   const targets = new Map<string, string>();
@@ -177,7 +209,9 @@ export async function replacePackageFilesWithFileSystem(
 
   try {
     try {
-      await replacePreparedPackageFiles(fs, targetRoot, parent, preparedFiles);
+      await withPackageFileConsistency([targetRoot], () =>
+        replacePreparedPackageFiles(fs, targetRoot, parent, preparedFiles)
+      );
     } catch (error) {
       replacementFailed = true;
       replacementFailureCause = error;

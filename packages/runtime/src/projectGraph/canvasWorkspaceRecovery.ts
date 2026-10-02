@@ -1,3 +1,4 @@
+import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
 import { mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -124,48 +125,54 @@ export async function commitCanvasWorkspaceWrite(
   projectWorkspace: ProjectWorkspace,
   staged: StagedCanvasWorkspaceWrite
 ): Promise<void> {
-  assertWorkspaceDescendant(projectWorkspace, staged.stagingRoot);
-  assertWorkspaceDescendant(projectWorkspace, staged.finalRoot);
-  if (await canvasRecoveryPathExists(staged.finalRoot)) {
-    throw new Error(
-      `Task canvas workspace '${toPosixPath(relative(projectWorkspace.workspaceRoot, staged.finalRoot))}' already exists.`
-    );
-  }
-  await mkdir(dirname(staged.finalRoot), { recursive: true });
-  await rename(staged.stagingRoot, staged.finalRoot);
+  return withPackageFileConsistency([join(staged.finalRoot, "package")], async () => {
+    assertWorkspaceDescendant(projectWorkspace, staged.stagingRoot);
+    assertWorkspaceDescendant(projectWorkspace, staged.finalRoot);
+    if (await canvasRecoveryPathExists(staged.finalRoot)) {
+      throw new Error(
+        `Task canvas workspace '${toPosixPath(relative(projectWorkspace.workspaceRoot, staged.finalRoot))}' already exists.`
+      );
+    }
+    await mkdir(dirname(staged.finalRoot), { recursive: true });
+    await rename(staged.stagingRoot, staged.finalRoot);
+  });
 }
 
 export async function quarantineCanvasWorkspace(
   projectWorkspace: ProjectWorkspace,
   options: { canvasId: string; workspaceRoot: string }
 ): Promise<string | null> {
-  assertWorkspaceDescendant(projectWorkspace, options.workspaceRoot);
-  if (!(await canvasRecoveryPathExists(options.workspaceRoot))) {
-    return null;
-  }
-  const parent = canvasQuarantineRoot(projectWorkspace);
-  await mkdir(parent, { recursive: true });
-  const quarantineRoot = await uniqueRecoveryDirectory(parent, options.canvasId);
-  await rename(options.workspaceRoot, quarantineRoot);
-  return quarantineRoot;
+  return withPackageFileConsistency([join(options.workspaceRoot, "package")], async () => {
+    assertWorkspaceDescendant(projectWorkspace, options.workspaceRoot);
+    if (!(await canvasRecoveryPathExists(options.workspaceRoot))) {
+      return null;
+    }
+    const parent = canvasQuarantineRoot(projectWorkspace);
+    await mkdir(parent, { recursive: true });
+    const quarantineRoot = await uniqueRecoveryDirectory(parent, options.canvasId);
+    await rename(options.workspaceRoot, quarantineRoot);
+    return quarantineRoot;
+  });
 }
 
 export async function restoreQuarantinedCanvasWorkspace(
   projectWorkspace: ProjectWorkspace,
   options: { quarantineRoot: string; workspaceRoot: string }
 ): Promise<void> {
-  assertWorkspaceDescendant(projectWorkspace, options.quarantineRoot);
-  assertWorkspaceDescendant(projectWorkspace, options.workspaceRoot);
-  if (!(await canvasRecoveryPathExists(options.quarantineRoot))) {
-    return;
-  }
-  if (await canvasRecoveryPathExists(options.workspaceRoot)) {
-    throw new Error(
-      `Task canvas workspace '${toPosixPath(relative(projectWorkspace.workspaceRoot, options.workspaceRoot))}' already exists.`
-    );
-  }
-  await mkdir(dirname(options.workspaceRoot), { recursive: true });
-  await rename(options.quarantineRoot, options.workspaceRoot);
+  return withPackageFileConsistency([join(options.workspaceRoot, "package")], async () => {
+    assertWorkspaceDescendant(projectWorkspace, options.quarantineRoot);
+    assertWorkspaceDescendant(projectWorkspace, options.workspaceRoot);
+    if (!(await canvasRecoveryPathExists(options.quarantineRoot))) {
+      return;
+    }
+    if (await canvasRecoveryPathExists(options.workspaceRoot)) {
+      throw new Error(
+        `Task canvas workspace '${toPosixPath(relative(projectWorkspace.workspaceRoot, options.workspaceRoot))}' already exists.`
+      );
+    }
+    await mkdir(dirname(options.workspaceRoot), { recursive: true });
+    await rename(options.quarantineRoot, options.workspaceRoot);
+  });
 }
 
 export async function removeCanvasStagingWorkspace(

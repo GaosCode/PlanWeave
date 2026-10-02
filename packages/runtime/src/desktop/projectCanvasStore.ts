@@ -1,5 +1,6 @@
 import { mkdir, rm } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
 import { optionalStat } from "../fs/optionalFile.js";
 import { initialManifest } from "../initWorkspace.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
@@ -285,11 +286,13 @@ async function restoreQuarantineAfterFailedRemoval(
 }
 
 async function resetCanvasWorkspace(workspace: ProjectWorkspace, title: string): Promise<void> {
-  await rm(workspace.packageDir, { recursive: true, force: true });
-  await writeJsonFile(workspace.manifestFile, initialManifest(title));
-  await writeJsonFile(workspace.stateFile, createEmptyState());
-  await rm(workspace.resultsDir, { recursive: true, force: true });
-  await mkdir(workspace.resultsDir, { recursive: true });
+  await withPackageFileConsistency([workspace.packageDir], async () => {
+    await rm(workspace.packageDir, { recursive: true, force: true });
+    await writeJsonFile(workspace.manifestFile, initialManifest(title));
+    await writeJsonFile(workspace.stateFile, createEmptyState());
+    await rm(workspace.resultsDir, { recursive: true, force: true });
+    await mkdir(workspace.resultsDir, { recursive: true });
+  });
 }
 
 class ProjectGraphCanvasStore implements ProjectCanvasStore {

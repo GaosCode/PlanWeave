@@ -1,3 +1,4 @@
+import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
 import { realpath, rename, rm, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { optionalReaddir, optionalStat } from "../fs/optionalFile.js";
@@ -380,42 +381,55 @@ async function renameManagedProject(
     [previousWorkspace, nextWorkspace],
     "rename-project-canvas-map-layout",
     async () => {
-      let moved = false;
-      try {
-        await rename(previousWorkspaceRoot, nextWorkspaceRoot);
-        moved = true;
-        await rewriteManagedProjectFiles(nextWorkspace, nextProject);
-        await updateSourceDefaultProjectReference(previousProjectId, {
-          projectId: nextProjectId,
-          projectRoot: nextWorkspaceRoot
-        });
-      } catch (error) {
-        if (moved) {
-          try {
-            await writeJsonFile(join(nextWorkspaceRoot, "project.json"), {
-              ...previousProject,
-              id: previousProjectId,
-              kind: "managed",
-              rootPath: previousWorkspaceRoot,
-              sourceRoot: previousProject.sourceRoot ?? null
-            });
-            await rename(nextWorkspaceRoot, previousWorkspaceRoot);
-            await rewriteManagedProjectIdentityFiles(previousWorkspace, {
-              ...previousProject,
-              id: previousProjectId,
-              kind: "managed",
-              rootPath: previousWorkspaceRoot,
-              sourceRoot: previousProject.sourceRoot ?? null
-            });
-            await restoreSingleCanvasTitleSnapshot(previousWorkspace, previousTitleSnapshot);
-          } catch (rollbackError) {
-            throw new Error(
-              `Project rename failed: ${errorMessage(error)}; rollback failed: ${errorMessage(rollbackError)}`
-            );
+      const graph = await loadProjectGraphForWorkspace(previousWorkspace);
+      const roots = [
+        previousWorkspaceRoot,
+        nextWorkspaceRoot,
+        previousWorkspace.packageDir,
+        nextWorkspace.packageDir,
+        ...graph.manifest.canvases.flatMap((canvas) => [
+          projectCanvasWorkspace(previousWorkspace, canvas).packageDir,
+          projectCanvasWorkspace(nextWorkspace, canvas).packageDir
+        ])
+      ];
+      await withPackageFileConsistency(roots, async () => {
+        let moved = false;
+        try {
+          await rename(previousWorkspaceRoot, nextWorkspaceRoot);
+          moved = true;
+          await rewriteManagedProjectFiles(nextWorkspace, nextProject);
+          await updateSourceDefaultProjectReference(previousProjectId, {
+            projectId: nextProjectId,
+            projectRoot: nextWorkspaceRoot
+          });
+        } catch (error) {
+          if (moved) {
+            try {
+              await writeJsonFile(join(nextWorkspaceRoot, "project.json"), {
+                ...previousProject,
+                id: previousProjectId,
+                kind: "managed",
+                rootPath: previousWorkspaceRoot,
+                sourceRoot: previousProject.sourceRoot ?? null
+              });
+              await rename(nextWorkspaceRoot, previousWorkspaceRoot);
+              await rewriteManagedProjectIdentityFiles(previousWorkspace, {
+                ...previousProject,
+                id: previousProjectId,
+                kind: "managed",
+                rootPath: previousWorkspaceRoot,
+                sourceRoot: previousProject.sourceRoot ?? null
+              });
+              await restoreSingleCanvasTitleSnapshot(previousWorkspace, previousTitleSnapshot);
+            } catch (rollbackError) {
+              throw new Error(
+                `Project rename failed: ${errorMessage(error)}; rollback failed: ${errorMessage(rollbackError)}`
+              );
+            }
           }
+          throw error;
         }
-        throw error;
-      }
+      });
     }
   );
 

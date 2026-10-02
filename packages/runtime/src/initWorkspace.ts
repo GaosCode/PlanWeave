@@ -1,3 +1,4 @@
+import { withPackageFileConsistency } from "./package/packageFileConsistency.js";
 import { cp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { optionalStat } from "./fs/optionalFile.js";
@@ -69,56 +70,58 @@ async function initializeWorkspace(
   }
 
   let backup: InitWorkspaceResult["backup"];
-  if (resetting) {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const backupDir = join(workspace.workspaceRoot, "backups", timestamp);
-    await mkdir(backupDir, { recursive: true });
-    backup = { backupDir };
-    if (options.resetPackage) {
-      const packageBackup = join(backupDir, "package");
-      if (await exists(workspace.packageDir)) {
-        await cp(workspace.packageDir, packageBackup, { recursive: true });
-        backup.packageDir = packageBackup;
+  await withPackageFileConsistency([workspace.packageDir], async () => {
+    if (resetting) {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const backupDir = join(workspace.workspaceRoot, "backups", timestamp);
+      await mkdir(backupDir, { recursive: true });
+      backup = { backupDir };
+      if (options.resetPackage) {
+        const packageBackup = join(backupDir, "package");
+        if (await exists(workspace.packageDir)) {
+          await cp(workspace.packageDir, packageBackup, { recursive: true });
+          backup.packageDir = packageBackup;
+        }
+        if (await exists(workspace.stateFile)) {
+          const stateBackup = join(backupDir, "state.json");
+          await cp(workspace.stateFile, stateBackup);
+          backup.stateFile = stateBackup;
+        }
+        await rm(workspace.packageDir, { recursive: true, force: true });
+        await rm(workspace.stateFile, { force: true });
       }
-      if (await exists(workspace.stateFile)) {
-        const stateBackup = join(backupDir, "state.json");
-        await cp(workspace.stateFile, stateBackup);
-        backup.stateFile = stateBackup;
+      if (options.resetResults) {
+        const resultsBackup = join(backupDir, "results");
+        if (await exists(workspace.resultsDir)) {
+          await cp(workspace.resultsDir, resultsBackup, { recursive: true });
+          backup.resultsDir = resultsBackup;
+        }
+        await rm(workspace.resultsDir, { recursive: true, force: true });
       }
-      await rm(workspace.packageDir, { recursive: true, force: true });
-      await rm(workspace.stateFile, { force: true });
     }
-    if (options.resetResults) {
-      const resultsBackup = join(backupDir, "results");
-      if (await exists(workspace.resultsDir)) {
-        await cp(workspace.resultsDir, resultsBackup, { recursive: true });
-        backup.resultsDir = resultsBackup;
-      }
-      await rm(workspace.resultsDir, { recursive: true, force: true });
+
+    await mkdir(join(resolvePlanweaveHome(), "config"), { recursive: true });
+    await mkdir(join(workspace.packageDir, "nodes"), { recursive: true });
+    await mkdir(dirname(workspace.projectPromptFile), { recursive: true });
+    await mkdir(workspace.resultsDir, { recursive: true });
+
+    if (!(await exists(join(resolvePlanweaveHome(), "config", "global-prompt.md")))) {
+      await writeFile(
+        join(resolvePlanweaveHome(), "config", "global-prompt.md"),
+        "# Global Prompt\n",
+        "utf8"
+      );
     }
-  }
+    if (!(await exists(workspace.projectPromptFile))) {
+      await writeFile(workspace.projectPromptFile, "# Project Prompt\n", "utf8");
+    }
 
-  await mkdir(join(resolvePlanweaveHome(), "config"), { recursive: true });
-  await mkdir(join(workspace.packageDir, "nodes"), { recursive: true });
-  await mkdir(dirname(workspace.projectPromptFile), { recursive: true });
-  await mkdir(workspace.resultsDir, { recursive: true });
-
-  if (!(await exists(join(resolvePlanweaveHome(), "config", "global-prompt.md")))) {
-    await writeFile(
-      join(resolvePlanweaveHome(), "config", "global-prompt.md"),
-      "# Global Prompt\n",
-      "utf8"
-    );
-  }
-  if (!(await exists(workspace.projectPromptFile))) {
-    await writeFile(workspace.projectPromptFile, "# Project Prompt\n", "utf8");
-  }
-
-  if (!alreadyExists || options.resetPackage) {
-    await writeJsonFile(workspace.projectFile, project);
-    await writeJsonFile(workspace.manifestFile, initialManifest(projectName));
-    await writeJsonFile(workspace.stateFile, createEmptyState());
-  }
+    if (!alreadyExists || options.resetPackage) {
+      await writeJsonFile(workspace.projectFile, project);
+      await writeJsonFile(workspace.manifestFile, initialManifest(projectName));
+      await writeJsonFile(workspace.stateFile, createEmptyState());
+    }
+  });
 
   const shouldMaterializeProjectGraph =
     options.projectGraph || !alreadyExists || options.resetPackage;

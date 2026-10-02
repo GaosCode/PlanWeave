@@ -1,3 +1,4 @@
+import { withPackageFileConsistency } from "./packageFileConsistency.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, rename, rm } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -323,6 +324,10 @@ export class ImportTransaction {
   }
 
   async replacePath(target: string, staged: string): Promise<void> {
+    await withPackageFileConsistency([target], () => this.replacePathLocked(target, staged));
+  }
+
+  private async replacePathLocked(target: string, staged: string): Promise<void> {
     assertWorkspaceTarget(this.workspaceRoot, target);
     const operation = this.nextOperation(
       "replace",
@@ -344,6 +349,10 @@ export class ImportTransaction {
   }
 
   async removePath(target: string): Promise<void> {
+    await withPackageFileConsistency([target], () => this.removePathLocked(target));
+  }
+
+  private async removePathLocked(target: string): Promise<void> {
     assertWorkspaceTarget(this.workspaceRoot, target);
     if (!(await this.fs.optionalStat(target))) {
       return;
@@ -358,6 +367,13 @@ export class ImportTransaction {
   }
 
   async rollback(): Promise<void> {
+    await withPackageFileConsistency(
+      this.operations.map((operation) => operation.target),
+      () => this.rollbackLocked()
+    );
+  }
+
+  private async rollbackLocked(): Promise<void> {
     if (this.state === "committed") {
       throw new Error("Committed import transaction cannot be rolled back.");
     }

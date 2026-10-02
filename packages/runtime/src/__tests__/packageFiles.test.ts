@@ -1,3 +1,4 @@
+import type { BigIntStats, PathLike, StatOptions, Stats } from "node:fs";
 import {
   lstat,
   mkdir,
@@ -165,10 +166,9 @@ describe("packageFiles primitives", () => {
 
   it("serializes concurrent package replacements with a sibling lock", async () => {
     const { parent, root } = await createReplacementTarget();
-    const before = await readPackageFiles(root);
-    let releaseFirstStagingWrite: (() => void) | null = null;
+    const stagingWriteGate: { release?: () => void } = {};
     const firstStagingWriteReleased = new Promise<void>((resolve) => {
-      releaseFirstStagingWrite = resolve;
+      stagingWriteGate.release = resolve;
     });
     let signalFirstStagingWrite: (() => void) | null = null;
     const firstStagingWriteStarted = new Promise<void>((resolve) => {
@@ -202,13 +202,14 @@ describe("packageFiles primitives", () => {
         { path: "manifest.json", content: "second manifest", encoding: "utf8" }
       ])
     ).rejects.toThrow(/replace\.lock.*already held or stale/i);
-    expect(await readPackageFiles(root)).toEqual(before);
+    const pendingRead = readPackageFiles(root);
 
-    if (releaseFirstStagingWrite === null) {
+    if (!stagingWriteGate.release) {
       throw new Error("Missing first staging write release.");
     }
-    releaseFirstStagingWrite();
+    stagingWriteGate.release();
     await expect(firstReplacement).resolves.toBeUndefined();
+    expect(await pendingRead).toEqual(replacementFiles);
 
     expect(await readPackageFiles(root)).toEqual(replacementFiles);
     await expect(lstat(join(parent, ".package.replace.lock"))).rejects.toThrow("ENOENT");
@@ -274,14 +275,25 @@ describe("packageFiles primitives", () => {
     const inspectionError = Object.assign(new Error("injected target inspection failure"), {
       code: "EACCES"
     });
+    function inspectionLstat(
+      path: PathLike,
+      options?: StatOptions & { bigint?: false }
+    ): Promise<Stats>;
+    function inspectionLstat(
+      path: PathLike,
+      options: StatOptions & { bigint: true }
+    ): Promise<BigIntStats>;
+    function inspectionLstat(path: PathLike, options?: StatOptions): Promise<Stats | BigIntStats>;
+    async function inspectionLstat(
+      path: PathLike,
+      options?: StatOptions
+    ): Promise<Stats | BigIntStats> {
+      if (path === root) throw inspectionError;
+      return nodePackageFileSystem.lstat(path, options);
+    }
     const failingFileSystem: PackageFileSystem = {
       ...nodePackageFileSystem,
-      lstat: async (path) => {
-        if (path === root) {
-          throw inspectionError;
-        }
-        return nodePackageFileSystem.lstat(path);
-      }
+      lstat: inspectionLstat
     };
 
     await expect(
