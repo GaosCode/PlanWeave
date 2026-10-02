@@ -285,7 +285,7 @@ export class DesktopLocalAgentHostProvisioner implements LocalAgentHostProvision
       agents = await this.operator.listAgents(configPath);
     } catch (error) {
       if (systemErrorSuffix(error) === "enoent") {
-        await this.registrations.remove(registration.profileId);
+        await this.registrations.removeIfCurrent(registration);
         return notRegisteredStatus();
       }
       throw localAgentHostStageError("local_agent_host_agent_status_read_failed", error);
@@ -304,7 +304,7 @@ export class DesktopLocalAgentHostProvisioner implements LocalAgentHostProvision
       if (isAgentHostCredentialUnavailable(error) || systemErrorSuffix(error) === "enoent") {
         // Stale Desktop registration with missing/expired Host credential → restore paste UI.
         // Keep the real exposure list so checkboxes are not falsely cleared before re-enroll.
-        await this.registrations.remove(registration.profileId);
+        await this.registrations.removeIfCurrent(registration);
         return operatorLocalAgentHostStatusSchema.parse({
           supported: true,
           state: "not_registered",
@@ -397,7 +397,7 @@ export class DesktopLocalAgentHostProvisioner implements LocalAgentHostProvision
       ).agents;
     } catch (error) {
       if (isAgentHostCredentialUnavailable(error)) {
-        await this.registrations.remove(registration.profileId);
+        await this.registrations.removeIfCurrent(registration);
         return notRegisteredStatus();
       }
       throw error;
@@ -410,7 +410,7 @@ export class DesktopLocalAgentHostProvisioner implements LocalAgentHostProvision
       );
     } catch (error) {
       if (isAgentHostCredentialUnavailable(error)) {
-        await this.registrations.remove(registration.profileId);
+        await this.registrations.removeIfCurrent(registration);
         return notRegisteredStatus();
       }
       throw error;

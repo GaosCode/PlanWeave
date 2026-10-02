@@ -415,7 +415,7 @@ describe("Desktop local Agent Host provisioner", () => {
       await new LocalAgentHostRegistrationStore(registrationPath).get("profile-legacy")
     ).not.toHaveProperty("workspaceId");
     expect(JSON.parse(await readFile(registrationPath, "utf8"))).toMatchObject({
-      version: 2,
+      version: 3,
       registrations: [
         {
           profileId: "profile-legacy",
