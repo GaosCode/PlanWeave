@@ -460,6 +460,7 @@
         "exportReadIntents.test.ts",
         "localMcpLifecycle.test.ts",
         "oauthClientStore.test.ts",
+        "oauthClientStoreCommit.test.ts",
         "oauthTokenStore.test.ts",
         "packageImportSelection.test.ts",
         "projectExportSelection.test.ts",

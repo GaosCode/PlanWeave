@@ -31,7 +31,7 @@ export function createMemoryOAuthClientStore(): OAuthClientStore {
 }
 
 export function createFileOAuthClientStore(path: string): OAuthClientStore {
-  const clients = new Map<string, RegisteredClient>();
+  let clients = new Map<string, RegisteredClient>();
   let loaded = false;
   let loadPromise: Promise<void> | null = null;
   let writePromise = Promise.resolve();
@@ -60,10 +60,10 @@ export function createFileOAuthClientStore(path: string): OAuthClientStore {
     await loadPromise;
   }
 
-  async function persist(): Promise<void> {
+  async function persist(nextClients: Map<string, RegisteredClient>): Promise<void> {
     const file: StoredClientFile = {
       version: 1,
-      clients: [...clients.values()].sort((left, right) =>
+      clients: [...nextClients.values()].sort((left, right) =>
         left.clientId.localeCompare(right.clientId)
       )
     };
@@ -73,13 +73,23 @@ export function createFileOAuthClientStore(path: string): OAuthClientStore {
   return {
     async get(clientId) {
       await load();
+      await writePromise;
       return clients.get(clientId);
     },
     async set(client) {
       await load();
-      clients.set(client.clientId, client);
-      writePromise = writePromise.then(persist, persist);
-      await writePromise;
+      const pendingWrite = writePromise.then(async () => {
+        const nextClients = new Map(clients);
+        nextClients.set(client.clientId, client);
+        await persist(nextClients);
+        clients = nextClients;
+      });
+      // The queue tracks settlement; the caller retains the operation's rejection.
+      writePromise = pendingWrite.then(
+        () => undefined,
+        () => undefined
+      );
+      await pendingWrite;
     }
   };
 }
