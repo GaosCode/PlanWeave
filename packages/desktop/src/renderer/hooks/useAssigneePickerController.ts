@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type {
   AssignmentDisplayProjection,
   AssignmentTarget,
@@ -158,23 +158,52 @@ export function useAssigneePickerController(
   const [actionError, setActionError] = useState<string | null>(null);
   const [lastAttemptedTarget, setLastAttemptedTarget] = useState<AssignmentTarget | null>(null);
 
-  const generationRef = useRef(0);
+  const mutationRequestRef = useRef(0);
+  const eligibleRequestRef = useRef(0);
   const pendingRef = useRef(false);
   const workItemKeyValue = args.workItem ? workItemKey(args.workItem) : null;
   const onOutcomeRef = useRef(args.onAssignmentOutcome);
   onOutcomeRef.current = args.onAssignmentOutcome;
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: workItemKeyValue is the intentional remount key
-  useEffect(() => {
-    generationRef.current += 1;
+  const scopeToken = useMemo(
+    () => ({
+      api,
+      controller,
+      workItemKeyValue,
+      authorityRole,
+      sessionConnected,
+      profileId: snapshot.profileId,
+      projectId: snapshot.projectId,
+      activeProfileId: activeProfile?.profileId,
+      activeProjectId: activeProfile?.projectId
+    }),
+    [
+      api,
+      controller,
+      workItemKeyValue,
+      authorityRole,
+      sessionConnected,
+      snapshot.profileId,
+      snapshot.projectId,
+      activeProfile?.profileId,
+      activeProfile?.projectId
+    ]
+  );
+  const currentScopeRef = useRef<object | null>(null);
+  useLayoutEffect(() => {
+    currentScopeRef.current = scopeToken;
     setEligible(null);
+    setEligibleLoading(false);
     setQuery("");
     setPending(false);
     pendingRef.current = false;
     setLocalStaleConflict(false);
     setActionError(null);
     setLastAttemptedTarget(null);
-  }, [workItemKeyValue, authorityRole]);
+    return () => {
+      currentScopeRef.current = null;
+    };
+  }, [scopeToken]);
+  const isCurrentScope = useCallback(() => currentScopeRef.current === scopeToken, [scopeToken]);
 
   useEffect(() => {
     if (!detailsOpen) {
@@ -185,31 +214,33 @@ export function useAssigneePickerController(
 
   // Load independent authority projection for the selected work item.
   useEffect(() => {
-    if (!controller || !args.workItem || !sessionConnected) return;
+    if (!controller || !args.workItem || !sessionConnected || !isCurrentScope()) return;
     void controller.ensureWorkAuthority(args.workItem).catch(() => undefined);
-  }, [args.workItem, controller, sessionConnected]);
+  }, [args.workItem, controller, isCurrentScope, sessionConnected]);
 
   const loadEligible = useCallback(async () => {
+    if (!isCurrentScope()) return;
     if (!api || !args.workItem || !sessionConnected) {
       setEligible(null);
       return;
     }
-    const generation = generationRef.current;
+    const request = ++eligibleRequestRef.current;
+    const isCurrentRequest = () => isCurrentScope() && request === eligibleRequestRef.current;
     setEligibleLoading(true);
     try {
       const page = await api.listCollaborationEligibleAssignees({ workItem: args.workItem });
-      if (generation !== generationRef.current) return;
+      if (!isCurrentRequest()) return;
       setEligible(filterEligibleForRole(page));
     } catch (error) {
-      if (generation !== generationRef.current) return;
+      if (!isCurrentRequest()) return;
       setActionError(collaborationErrorMessage(error));
       setEligible(null);
     } finally {
-      if (generation === generationRef.current) {
+      if (isCurrentRequest()) {
         setEligibleLoading(false);
       }
     }
-  }, [api, args.workItem, sessionConnected]);
+  }, [api, args.workItem, isCurrentScope, sessionConnected]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: workItemKeyValue remounts eligible load
   useEffect(() => {
@@ -235,22 +266,27 @@ export function useAssigneePickerController(
   }, [args.workItem, authority, authorityRole, projectId]);
 
   const refresh = useCallback(async () => {
+    if (!isCurrentScope()) return;
     if (controller && args.workItem) {
       await controller.ensureWorkAuthority(args.workItem);
+      if (!isCurrentScope()) return;
       await controller.refreshAuthoritative({ reason: "assignee_picker_refresh" });
     }
+    if (!isCurrentScope()) return;
     if (detailsOpen) {
       await loadEligible();
+      if (!isCurrentScope()) return;
     }
     setLocalStaleConflict(false);
     if (snapshot.syncPhase !== "stale_conflict") {
       setActionError(null);
     }
-  }, [args.workItem, controller, detailsOpen, loadEligible, snapshot.syncPhase]);
+  }, [args.workItem, controller, detailsOpen, isCurrentScope, loadEligible, snapshot.syncPhase]);
 
   const selectTarget = useCallback(
     async (target: AssignmentTarget): Promise<boolean> => {
-      if (!api || !args.workItem || !controller) return false;
+      if (!api || !args.workItem || !controller || !sessionConnected || !isCurrentScope())
+        return false;
       if (pendingRef.current) return false;
 
       if (target.kind === "exact_host" || target.kind === "automatic_host") {
@@ -276,7 +312,9 @@ export function useAssigneePickerController(
       setPending(true);
       setLastAttemptedTarget(target);
       setActionError(null);
-      const generation = generationRef.current;
+      const request = ++mutationRequestRef.current;
+      const isCurrentRequest = () => isCurrentScope() && request === mutationRequestRef.current;
+      let mutationSucceeded = false;
       const workItem = args.workItem;
 
       try {
@@ -300,7 +338,8 @@ export function useAssigneePickerController(
             expectedRevision
           });
         }
-        if (generation !== generationRef.current) return false;
+        mutationSucceeded = result !== null;
+        if (!isCurrentRequest()) return mutationSucceeded;
         if (!result) {
           const conflict =
             controller.getSnapshot().syncPhase === "stale_conflict" ||
@@ -313,6 +352,7 @@ export function useAssigneePickerController(
             "assignment_update_failed";
           setActionError(errorMessage);
           await controller.ensureWorkAuthority(workItem);
+          if (!isCurrentRequest()) return false;
           onOutcomeRef.current?.({
             ok: false,
             workItem,
@@ -324,11 +364,12 @@ export function useAssigneePickerController(
         setLocalStaleConflict(false);
         if (detailsOpen) {
           await loadEligible();
+          if (!isCurrentRequest()) return true;
         }
         onOutcomeRef.current?.({ ok: true, workItem, target, errorMessage: null });
         return true;
       } catch (error) {
-        if (generation !== generationRef.current) return false;
+        if (!isCurrentRequest()) return mutationSucceeded;
         const errorMessage = collaborationErrorMessage(error);
         setActionError(errorMessage);
         onOutcomeRef.current?.({
@@ -339,7 +380,7 @@ export function useAssigneePickerController(
         });
         return false;
       } finally {
-        if (generation === generationRef.current) {
+        if (isCurrentRequest()) {
           pendingRef.current = false;
           setPending(false);
         }
@@ -353,15 +394,18 @@ export function useAssigneePickerController(
       controller,
       detailsOpen,
       labels.taskDisallowsMachine,
-      loadEligible
+      loadEligible,
+      isCurrentScope,
+      sessionConnected
     ]
   );
 
   const retryLastTarget = useCallback(async () => {
-    if (!lastAttemptedTarget) return false;
+    if (!lastAttemptedTarget || !isCurrentScope()) return false;
     await refresh();
+    if (!isCurrentScope()) return false;
     return selectTarget(lastAttemptedTarget);
-  }, [lastAttemptedTarget, refresh, selectTarget]);
+  }, [isCurrentScope, lastAttemptedTarget, refresh, selectTarget]);
 
   const pickerViewModel = useMemo((): AssigneePickerViewModel | null => {
     if (!args.workItem) return null;

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   COMMENT_ATTACHMENTS_MAX_COUNT,
   COMMENT_LIST_PAGE_DEFAULT
@@ -154,6 +154,20 @@ export function useCommentsPanelController(
   const [stagedAttachments, setStagedAttachments] = useState<StagedAttachment[]>([]);
   const cancelledUploads = useRef(new Set<string>());
   const generationRef = useRef(0);
+  const mutationRequestRef = useRef(0);
+  const currentScopeRef = useRef<object | null>(null);
+  const scopeToken = useMemo(
+    () => ({ api, controller, open: args.open, scopeKey, workKey }),
+    [api, controller, args.open, scopeKey, workKey]
+  );
+  useLayoutEffect(() => {
+    currentScopeRef.current = scopeToken;
+    return () => {
+      currentScopeRef.current = null;
+      generationRef.current += 1;
+    };
+  }, [scopeToken]);
+  const isCurrentScope = useCallback(() => currentScopeRef.current === scopeToken, [scopeToken]);
 
   useEffect(() => {
     if (!controller || !activeProfile || !sessionConnected) return;
@@ -168,8 +182,10 @@ export function useCommentsPanelController(
   // biome-ignore lint/correctness/useExhaustiveDependencies: workKey remounts draft identity
   const draft = useMemo(() => {
     void draftTick;
-    return args.workItem ? getCommentDraft(args.workItem) : { body: "", showPreview: false };
-  }, [args.workItem, draftTick, workKey]);
+    return args.workItem
+      ? getCommentDraft(args.workItem, scopeKey)
+      : { body: "", showPreview: false };
+  }, [args.workItem, draftTick, workKey, scopeKey]);
 
   const canMutate =
     sessionConnected &&
@@ -180,7 +196,7 @@ export function useCommentsPanelController(
 
   const loadPage = useCallback(
     async (mode: "replace" | "append") => {
-      if (!api || !args.workItem || !args.open || !sessionConnected) return;
+      if (!api || !args.workItem || !args.open || !sessionConnected || !isCurrentScope()) return;
       const generation = generationRef.current;
       if (mode === "replace") setLoading(true);
       else setLoadingMore(true);
@@ -188,6 +204,7 @@ export function useCommentsPanelController(
       try {
         if (controller && mode === "replace") {
           await controller.trackWorkItemComments(args.workItem);
+          if (!isCurrentScope() || generation !== generationRef.current) return;
         }
         const page = await api.listCollaborationComments({
           workItem: args.workItem,
@@ -195,7 +212,7 @@ export function useCommentsPanelController(
           includeTombstoned: false,
           cursor: mode === "append" && nextCursor ? nextCursor : undefined
         });
-        if (generation !== generationRef.current) return;
+        if (!isCurrentScope() || generation !== generationRef.current) return;
         setComments((prev) => {
           const activeItems = page.items.filter((item) => !item.tombstoned);
           if (mode === "replace") return activeItems;
@@ -209,16 +226,16 @@ export function useCommentsPanelController(
         });
         setNextCursor(page.nextCursor);
       } catch (error) {
-        if (generation !== generationRef.current) return;
+        if (!isCurrentScope() || generation !== generationRef.current) return;
         setActionError(collaborationErrorMessage(mapBoundaryError(error)));
       } finally {
-        if (generation === generationRef.current) {
+        if (isCurrentScope() && generation === generationRef.current) {
           setLoading(false);
           setLoadingMore(false);
         }
       }
     },
-    [api, args.open, args.workItem, controller, nextCursor, sessionConnected]
+    [api, args.open, args.workItem, controller, nextCursor, sessionConnected, isCurrentScope]
   );
 
   // Intentionally reset when work item / open / connection changes.
@@ -229,7 +246,10 @@ export function useCommentsPanelController(
     setComments([]);
     setNextCursor(null);
     setStagedAttachments([]);
-    cancelledUploads.current.clear();
+    cancelledUploads.current = new Set();
+    setSubmitting(false);
+    setLoading(false);
+    setLoadingMore(false);
     setActionError(null);
     if (!args.open || !args.workItem || !sessionConnected || !api) return;
     void loadPage("replace");
@@ -241,7 +261,14 @@ export function useCommentsPanelController(
   // when the hub page is a subset — full refresh only when snapshot comments advance.
   // biome-ignore lint/correctness/useExhaustiveDependencies: updatedAt forces hub merge
   useEffect(() => {
-    if (!args.open || !workKey) return;
+    if (
+      !args.open ||
+      !workKey ||
+      !isCurrentScope() ||
+      snapshot.profileId !== activeProfile?.profileId ||
+      snapshot.projectId !== activeProfile?.projectId
+    )
+      return;
     const hubItems = snapshot.commentsByWorkItem[workKey];
     if (!hubItems) return;
     if (hubItems.length === 0) {
@@ -256,7 +283,7 @@ export function useCommentsPanelController(
       }
       return [...byId.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     });
-  }, [args.open, workKey, snapshot.commentsByWorkItem, snapshot.updatedAt]);
+  }, [args.open, workKey, scopeKey, snapshot.commentsByWorkItem, snapshot.updatedAt]);
 
   const rows = useMemo(
     () =>
@@ -286,27 +313,28 @@ export function useCommentsPanelController(
 
   const setDraftBody = useCallback(
     (body: string) => {
-      if (!args.workItem) return;
-      setCommentDraft(args.workItem, { body });
+      if (!args.workItem || !isCurrentScope()) return;
+      setCommentDraft(args.workItem, { body }, scopeKey);
       setDraftTick((v) => v + 1);
     },
-    [args.workItem]
+    [args.workItem, isCurrentScope, scopeKey]
   );
 
   const setShowPreview = useCallback(
     (show: boolean) => {
-      if (!args.workItem) return;
-      setCommentDraft(args.workItem, { showPreview: show });
+      if (!args.workItem || !isCurrentScope()) return;
+      setCommentDraft(args.workItem, { showPreview: show }, scopeKey);
       setDraftTick((v) => v + 1);
     },
-    [args.workItem]
+    [args.workItem, isCurrentScope, scopeKey]
   );
 
   const refresh = useCallback(async () => {
+    if (!isCurrentScope()) return;
     generationRef.current += 1;
     setNextCursor(null);
     await loadPage("replace");
-  }, [loadPage]);
+  }, [isCurrentScope, loadPage]);
 
   const loadMore = useCallback(async () => {
     if (!nextCursor || loadingMore) return;
@@ -314,7 +342,7 @@ export function useCommentsPanelController(
   }, [loadPage, loadingMore, nextCursor]);
 
   const submitComment = useCallback(async () => {
-    if (!api || !args.workItem || !controller || !canMutate) return false;
+    if (!api || !args.workItem || !controller || !canMutate || !isCurrentScope()) return false;
     const bodyCheck = validateCommentBodyLength(draft.body.trim());
     if (!bodyCheck.ok) {
       setActionError(args.t("commentsBodyInvalid"));
@@ -333,6 +361,10 @@ export function useCommentsPanelController(
       setActionError(args.t("commentsAttachmentsTooMany"));
       return false;
     }
+    const submittedDraft = draft;
+    const consumedAttachments = new Set(ready.map((item) => item.localId));
+    const request = ++mutationRequestRef.current;
+    const isCurrentRequest = () => isCurrentScope() && request === mutationRequestRef.current;
     setSubmitting(true);
     setActionError(null);
     try {
@@ -341,6 +373,7 @@ export function useCommentsPanelController(
         body: draft.body.trim(),
         attachments: ready.map((a) => a.input!)
       });
+      if (!isCurrentRequest()) return result !== null;
       if (!result) {
         setActionError(
           collaborationErrorMessage(snapshot.lastError) || args.t("commentsSubmitFailed")
@@ -353,15 +386,15 @@ export function useCommentsPanelController(
         next.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
         return next;
       });
-      clearCommentDraft(args.workItem);
-      setStagedAttachments([]);
+      clearCommentDraft(args.workItem, submittedDraft, scopeKey);
+      setStagedAttachments((prev) => prev.filter((item) => !consumedAttachments.has(item.localId)));
       setDraftTick((v) => v + 1);
       return true;
     } catch (error) {
-      setActionError(collaborationErrorMessage(mapBoundaryError(error)));
+      if (isCurrentRequest()) setActionError(collaborationErrorMessage(mapBoundaryError(error)));
       return false;
     } finally {
-      setSubmitting(false);
+      if (isCurrentRequest()) setSubmitting(false);
     }
   }, [
     api,
@@ -369,19 +402,23 @@ export function useCommentsPanelController(
     args.workItem,
     canMutate,
     controller,
-    draft.body,
+    draft,
+    isCurrentScope,
+    scopeKey,
     snapshot.lastError,
     stagedAttachments
   ]);
 
   const editComment = useCallback(
     async (commentId: string, body: string, expectedRevision: number) => {
-      if (!controller || !canMutate) return false;
+      if (!controller || !canMutate || !isCurrentScope()) return false;
       const bodyCheck = validateCommentBodyLength(body.trim());
       if (!bodyCheck.ok) {
         setActionError(args.t("commentsBodyInvalid"));
         return false;
       }
+      const request = ++mutationRequestRef.current;
+      const isCurrentRequest = () => isCurrentScope() && request === mutationRequestRef.current;
       setSubmitting(true);
       setActionError(null);
       try {
@@ -390,6 +427,7 @@ export function useCommentsPanelController(
           body: body.trim(),
           expectedRevision
         });
+        if (!isCurrentRequest()) return result !== null;
         if (!result) {
           setActionError(
             collaborationErrorMessage(snapshot.lastError) || args.t("commentsEditFailed")
@@ -401,18 +439,20 @@ export function useCommentsPanelController(
         );
         return true;
       } catch (error) {
-        setActionError(collaborationErrorMessage(mapBoundaryError(error)));
+        if (isCurrentRequest()) setActionError(collaborationErrorMessage(mapBoundaryError(error)));
         return false;
       } finally {
-        setSubmitting(false);
+        if (isCurrentRequest()) setSubmitting(false);
       }
     },
-    [args.t, canMutate, controller, snapshot.lastError]
+    [args.t, canMutate, controller, isCurrentScope, snapshot.lastError]
   );
 
   const tombstoneComment = useCallback(
     async (commentId: string, expectedRevision: number) => {
-      if (!controller || !canMutate) return false;
+      if (!controller || !canMutate || !isCurrentScope()) return false;
+      const request = ++mutationRequestRef.current;
+      const isCurrentRequest = () => isCurrentScope() && request === mutationRequestRef.current;
       setSubmitting(true);
       setActionError(null);
       try {
@@ -420,6 +460,7 @@ export function useCommentsPanelController(
           commentId,
           expectedRevision
         });
+        if (!isCurrentRequest()) return result !== null;
         if (!result) {
           setActionError(
             collaborationErrorMessage(snapshot.lastError) || args.t("commentsTombstoneFailed")
@@ -429,13 +470,13 @@ export function useCommentsPanelController(
         setComments((prev) => prev.filter((comment) => comment.commentId !== result.commentId));
         return true;
       } catch (error) {
-        setActionError(collaborationErrorMessage(mapBoundaryError(error)));
+        if (isCurrentRequest()) setActionError(collaborationErrorMessage(mapBoundaryError(error)));
         return false;
       } finally {
-        setSubmitting(false);
+        if (isCurrentRequest()) setSubmitting(false);
       }
     },
-    [args.t, canMutate, controller, snapshot.lastError]
+    [args.t, canMutate, controller, isCurrentScope, snapshot.lastError]
   );
 
   const stageFiles = useCallback(
@@ -447,6 +488,7 @@ export function useCommentsPanelController(
         arrayBuffer: () => Promise<ArrayBuffer>;
       }>
     ) => {
+      if (!isCurrentScope()) return;
       if (!api || !canMutate) {
         setActionError(args.t("commentsOffline"));
         return;
@@ -470,18 +512,21 @@ export function useCommentsPanelController(
         void (async () => {
           try {
             const buffer = new Uint8Array(await file.arrayBuffer());
+            if (!isCurrentScope()) return;
             await uploadStagedAttachment({
               api,
               staged: created.staged,
               bytes: buffer,
-              isCancelled: () => cancelledUploads.current.has(localId),
+              isCancelled: () => !isCurrentScope() || cancelledUploads.current.has(localId),
               onProgress: (next) => {
+                if (!isCurrentScope()) return;
                 setStagedAttachments((prev) =>
                   prev.map((item) => (item.localId === localId ? next : item))
                 );
               }
             });
           } catch {
+            if (!isCurrentScope()) return;
             setStagedAttachments((prev) =>
               prev.map((item) =>
                 item.localId === localId
@@ -498,33 +543,41 @@ export function useCommentsPanelController(
         })();
       }
     },
-    [api, args.t, canMutate, stagedAttachments]
+    [api, args.t, canMutate, isCurrentScope, stagedAttachments]
   );
 
-  const cancelAttachment = useCallback((localId: string) => {
-    cancelledUploads.current.add(localId);
-    setStagedAttachments((prev) =>
-      prev.map((item) =>
-        item.localId === localId
-          ? { ...item, phase: "cancelled", progress: 0, errorMessage: null }
-          : item
-      )
-    );
-  }, []);
+  const cancelAttachment = useCallback(
+    (localId: string) => {
+      if (!isCurrentScope()) return;
+      cancelledUploads.current.add(localId);
+      setStagedAttachments((prev) =>
+        prev.map((item) =>
+          item.localId === localId
+            ? { ...item, phase: "cancelled", progress: 0, errorMessage: null }
+            : item
+        )
+      );
+    },
+    [isCurrentScope]
+  );
 
-  const removeAttachment = useCallback((localId: string) => {
-    cancelledUploads.current.add(localId);
-    setStagedAttachments((prev) => prev.filter((item) => item.localId !== localId));
-  }, []);
+  const removeAttachment = useCallback(
+    (localId: string) => {
+      if (!isCurrentScope()) return;
+      cancelledUploads.current.add(localId);
+      setStagedAttachments((prev) => prev.filter((item) => item.localId !== localId));
+    },
+    [isCurrentScope]
+  );
 
   const readAttachment = useCallback(
     async (commentId: string, digestSha256: string) => {
-      if (!api || !sessionConnected) {
+      if (!api || !sessionConnected || !isCurrentScope()) {
         throw new Error("collaboration_session_inactive");
       }
       return api.readCollaborationCommentAttachment({ commentId, digestSha256 });
     },
-    [api, sessionConnected]
+    [api, isCurrentScope, sessionConnected]
   );
 
   return {

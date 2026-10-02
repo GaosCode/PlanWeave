@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { XIcon } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { Button } from "@/components/ui/button";
@@ -29,7 +29,21 @@ export function CommentAttachmentView({
   const [attachmentErrorId, setAttachmentErrorId] = useState<string | null>(null);
   const [expandedAttachmentId, setExpandedAttachmentId] = useState<string | null>(null);
 
+  const generationRef = useRef(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: callback identity carries the project/session/work-item scope
+  useLayoutEffect(() => {
+    generationRef.current += 1;
+    setAttachmentBody(null);
+    setAttachmentLoadingId(null);
+    setAttachmentErrorId(null);
+    setExpandedAttachmentId(null);
+    return () => {
+      generationRef.current += 1;
+    };
+  }, [commentId, onReadAttachment]);
+
   const openAttachment = async (digestSha256: string) => {
+    const generation = ++generationRef.current;
     if (attachmentBody?.digestSha256 === digestSha256) {
       setAttachmentBody(null);
       setExpandedAttachmentId(null);
@@ -40,11 +54,12 @@ export function CommentAttachmentView({
     setAttachmentLoadingId(digestSha256);
     setAttachmentErrorId(null);
     try {
-      setAttachmentBody(await onReadAttachment(commentId, digestSha256));
+      const body = await onReadAttachment(commentId, digestSha256);
+      if (generation === generationRef.current) setAttachmentBody(body);
     } catch {
-      setAttachmentErrorId(digestSha256);
+      if (generation === generationRef.current) setAttachmentErrorId(digestSha256);
     } finally {
-      setAttachmentLoadingId(null);
+      if (generation === generationRef.current) setAttachmentLoadingId(null);
     }
   };
 

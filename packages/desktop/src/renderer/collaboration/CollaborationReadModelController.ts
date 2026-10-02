@@ -18,7 +18,6 @@ import {
   type CollaborationCommentListQueryInput,
   type CollaborationCommentTombstoneInput,
   type CollaborationHostProjection,
-  type CollaborationMutationRecord,
   type CollaborationObserverSignal,
   type CollaborationReadModelSnapshot,
   type CollaborationRemoteRunProjection,
@@ -33,6 +32,10 @@ import {
   buildAssignmentRefreshProjection,
   mergeAssignmentHosts
 } from "./assignmentRefreshProjection.js";
+import {
+  publishCollaborationMutation,
+  type CollaborationMutationInput
+} from "./collaborationMutationPublication.js";
 import { beginLoading } from "./loadingLease.js";
 import {
   collaborationBoundaryErrorFromUnknown,
@@ -198,6 +201,7 @@ export class CollaborationReadModelController {
   private unsubscribers: Array<() => void> = [];
   private disposed = false;
   private generationEpoch = 0;
+  private mutationScopeGeneration = 0;
   private mutationSeq = 0;
   private observerAttemptSeq = 0;
   private refreshRequestSeq = 0;
@@ -263,13 +267,13 @@ export class CollaborationReadModelController {
         projectId: input.projectId,
         canvasId: input.canvasId ?? null,
         syncPhase: "loading",
-        generation: this.nextGeneration()
+        generation: this.nextGeneration(true)
       };
       this.attachSubscriptions();
       this.emit();
     } else if ((input.canvasId ?? null) !== this.state.canvasId) {
       this.state.canvasId = input.canvasId ?? null;
-      this.state.generation = this.nextGeneration();
+      this.state.generation = this.nextGeneration(true);
       this.state.loadingKinds = new Map();
     }
 
@@ -284,7 +288,7 @@ export class CollaborationReadModelController {
     this.observerCursorRecovery.clear();
     this.state = {
       ...emptyState(this.clock.now().toISOString()),
-      generation: this.nextGeneration()
+      generation: this.nextGeneration(true)
     };
     this.emit();
   }
@@ -381,6 +385,7 @@ export class CollaborationReadModelController {
   async updateResponsibility(
     command: CollaborationResponsibilityUpdateInput
   ): Promise<ResponsibilityReadModel | null> {
+    const isCurrentScope = this.captureMutationScope();
     const result = await this.runMutation({
       kind: "responsibility",
       workItem: command.workItem,
@@ -388,7 +393,7 @@ export class CollaborationReadModelController {
       execute: () => this.api.updateCollaborationResponsibility(command),
       onConfirmed: () => undefined
     });
-    if (result) {
+    if (result && isCurrentScope()) {
       try {
         await this.reloadWorkAuthority(command.workItem, this.state.generation);
       } catch {
@@ -401,6 +406,7 @@ export class CollaborationReadModelController {
   async updateReviewer(
     command: CollaborationReviewerUpdateInput
   ): Promise<ReviewAssignmentReadModel | null> {
+    const isCurrentScope = this.captureMutationScope();
     const result = await this.runMutation({
       kind: "reviewer",
       workItem: command.workItem,
@@ -408,7 +414,7 @@ export class CollaborationReadModelController {
       execute: () => this.api.updateCollaborationReviewer(command),
       onConfirmed: () => undefined
     });
-    if (result) {
+    if (result && isCurrentScope()) {
       try {
         await this.reloadWorkAuthority(command.workItem, this.state.generation);
       } catch {
@@ -667,8 +673,9 @@ export class CollaborationReadModelController {
     );
   }
 
-  private nextGeneration(): number {
+  private nextGeneration(scopeChanged = false): number {
     this.generationEpoch += 1;
+    if (scopeChanged) this.mutationScopeGeneration = this.generationEpoch;
     return this.generationEpoch;
   }
 
@@ -899,11 +906,13 @@ export class CollaborationReadModelController {
   }
 
   private async reloadWorkAuthority(workItem: WorkItemRef, generation: number): Promise<void> {
+    if (this.disposed || generation !== this.state.generation) return;
     const key = workItemKey(workItem);
     const loading = beginLoading(this.state, `authority:${key}`);
-    this.emit();
     try {
-      const projection = await this.api.getCollaborationWorkAuthority({ workItem });
+      const completion = this.api.getCollaborationWorkAuthority({ workItem });
+      this.emit();
+      const projection = await completion;
       loading.release();
       if (generation !== this.state.generation) return;
       this.state.workAuthorities.set(key, projection);
@@ -957,60 +966,29 @@ export class CollaborationReadModelController {
     }
   }
 
-  private async runMutation<T extends { revision?: number; workItem?: WorkItemRef }>(input: {
-    kind: CollaborationMutationRecord["kind"];
-    workItem?: WorkItemRef;
-    expectedRevision?: number;
-    execute: () => Promise<T>;
-    onConfirmed: (result: T) => void;
-  }): Promise<T | null> {
-    this.assertOpen();
-    const mutationId = this.createMutationId();
-    const workItemKeyValue = input.workItem ? workItemKey(input.workItem) : undefined;
-    const record: CollaborationMutationRecord = {
-      mutationId,
-      kind: input.kind,
-      workItemKey: workItemKeyValue,
-      status: "pending",
-      expectedRevision: input.expectedRevision,
-      submittedAt: this.clock.now().toISOString()
-    };
-    this.state.mutations.setPending(record);
-    this.emit();
+  private captureMutationScope(): () => boolean {
+    const state = this.state;
+    const scopeGeneration = this.mutationScopeGeneration;
+    return () =>
+      !this.disposed && state === this.state && scopeGeneration === this.mutationScopeGeneration;
+  }
 
-    try {
-      const result = await input.execute();
-      const confirmed: CollaborationMutationRecord = {
-        ...record,
-        status: "confirmed",
-        confirmedRevision:
-          typeof result.revision === "number" ? result.revision : input.expectedRevision,
-        resolvedAt: this.clock.now().toISOString()
-      };
-      this.state.mutations.setTerminal(confirmed);
-      input.onConfirmed(result);
-      if (this.state.syncPhase === "stale_conflict") {
-        this.state.syncPhase = "ready";
-      }
-      this.state.lastError = null;
-      this.emit();
-      return result;
-    } catch (error) {
-      const mapped = collaborationBoundaryErrorFromUnknown(error);
-      const status: CollaborationMutationRecord["status"] =
-        mapped.kind === "offline" || mapped.kind === "timeout" ? "offline" : "rejected";
-      this.state.mutations.setTerminal({
-        ...record,
-        status,
-        errorKind: mapped.kind,
-        errorCode: mapped.code,
-        errorMessage: mapped.message,
-        resolvedAt: this.clock.now().toISOString()
-      });
-      this.applyBoundaryError(mapped);
-      this.emit();
-      return null;
-    }
+  private runMutation<T extends { revision?: number; workItem?: WorkItemRef }>(
+    input: CollaborationMutationInput<T>
+  ): Promise<T | null> {
+    this.assertOpen();
+    return publishCollaborationMutation(input, {
+      mutationId: this.createMutationId(),
+      ledger: this.state.mutations,
+      now: () => this.clock.now().toISOString(),
+      isCurrent: this.captureMutationScope(),
+      emit: () => this.emit(),
+      onConfirmed: () => {
+        if (this.state.syncPhase === "stale_conflict") this.state.syncPhase = "ready";
+        this.state.lastError = null;
+      },
+      onError: (error) => this.applyBoundaryError(error)
+    });
   }
 
   private scheduleObserverCursorRefresh(

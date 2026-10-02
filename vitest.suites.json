@@ -119,6 +119,7 @@
         "collaborationHttpTransport.test.ts",
         "collaborationIntegrationScenarios.test.tsx",
         "collaborationInvitationHandoffCoordinator.test.ts",
+        "collaborationMutationScope.test.ts",
         "collaborationOperationDiagnosticsPopover.test.tsx",
         "collaborationReadModelHub.test.ts",
         "collaborationReadModels.test.ts",

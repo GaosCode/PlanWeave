@@ -23,23 +23,36 @@ export function setCommentDraftScope(scopeKey: string | null): void {
   draftScopeKey = scopeKey;
 }
 
-export function getCommentDraft(workItem: WorkItemRef): CommentComposerDraft {
+export function getCommentDraft(
+  workItem: WorkItemRef,
+  scopeKey: string | null = draftScopeKey
+): CommentComposerDraft {
+  if (scopeKey !== draftScopeKey) return emptyDraft();
   const key = workItemKey(workItem);
   return draftsByWorkItem.get(key) ?? emptyDraft();
 }
 
 export function setCommentDraft(
   workItem: WorkItemRef,
-  patch: Partial<CommentComposerDraft>
+  patch: Partial<CommentComposerDraft>,
+  scopeKey: string | null = draftScopeKey
 ): CommentComposerDraft {
   const key = workItemKey(workItem);
-  const next = { ...getCommentDraft(workItem), ...patch };
+  if (scopeKey !== draftScopeKey) return emptyDraft();
+  const next = { ...getCommentDraft(workItem, scopeKey), ...patch };
   draftsByWorkItem.set(key, next);
   return next;
 }
 
-export function clearCommentDraft(workItem: WorkItemRef): void {
-  draftsByWorkItem.delete(workItemKey(workItem));
+export function clearCommentDraft(
+  workItem: WorkItemRef,
+  expectedDraft?: CommentComposerDraft,
+  scopeKey: string | null = draftScopeKey
+): boolean {
+  if (scopeKey !== draftScopeKey) return false;
+  const key = workItemKey(workItem);
+  if (expectedDraft && draftsByWorkItem.get(key) !== expectedDraft) return false;
+  return draftsByWorkItem.delete(key);
 }
 
 /** Test helper. */

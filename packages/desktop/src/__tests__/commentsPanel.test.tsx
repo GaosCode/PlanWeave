@@ -1,10 +1,12 @@
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTranslator } from "../renderer/i18n";
+import { CommentAttachmentView } from "../renderer/team/CommentAttachmentView";
+import type { CollaborationCommentAttachmentBody } from "../shared/collaboration";
 import { CommentsPanel } from "../renderer/team/CommentsPanel";
 import { ActivityPanel } from "../renderer/team/ActivityPanel";
 import type { CommentRowViewModel } from "../renderer/collaboration/commentViewModels";
@@ -269,5 +271,60 @@ describe("ActivityPanel", () => {
     }
     expect(screen.getAllByTestId("activity-source")[0]).toHaveTextContent("Assignment");
     expect(screen.getAllByTestId("activity-source")[1]).toHaveTextContent("Remote run");
+  });
+});
+
+describe("comment attachment preview scope", () => {
+  it.each([
+    true,
+    false
+  ])("ignores old callback completion and finally while B preview is pending (success=%s)", async (success) => {
+    const user = userEvent.setup();
+    let resolveA!: (body: CollaborationCommentAttachmentBody) => void;
+    let rejectA!: (error: unknown) => void;
+    let resolveB!: (body: CollaborationCommentAttachmentBody) => void;
+    const pendingA = new Promise<CollaborationCommentAttachmentBody>((resolve, reject) => {
+      resolveA = resolve;
+      rejectA = reject;
+    });
+    const pendingB = new Promise<CollaborationCommentAttachmentBody>((resolve) => {
+      resolveB = resolve;
+    });
+    const readA = vi.fn(() => pendingA);
+    const readB = vi.fn(() => pendingB);
+    const props = { commentId: liveRow.commentId, attachments: liveRow.attachments, t };
+    const view = render(<CommentAttachmentView {...props} onReadAttachment={readA} />);
+    const buttonName = `View attachment ${imageDisplayName}`;
+    await user.click(screen.getByRole("button", { name: buttonName }));
+    view.rerender(<CommentAttachmentView {...props} onReadAttachment={readB} />);
+    await user.click(screen.getByRole("button", { name: buttonName }));
+    expect(readB).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      if (success)
+        resolveA({
+          digestSha256: "a".repeat(64),
+          mediaType: "image/png",
+          sizeBytes: 4,
+          bodyBase64: "QQ=="
+        });
+      else rejectA(new Error("A failed"));
+      await Promise.resolve();
+    });
+    expect(screen.queryByTestId("comments-attachment-preview")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("button", { name: buttonName })).toBeDisabled();
+    await act(async () => {
+      resolveB({
+        digestSha256: "a".repeat(64),
+        mediaType: "image/png",
+        sizeBytes: 4,
+        bodyBase64: "Qg=="
+      });
+    });
+    expect(screen.getByRole("img", { name: imageDisplayName })).toHaveAttribute(
+      "src",
+      "data:image/png;base64,Qg=="
+    );
+    view.unmount();
   });
 });
