@@ -8,6 +8,7 @@ import type {
   ProjectPromptPolicy
 } from "@planweave-ai/runtime";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { usePromptDraft } from "../hooks/usePromptDraft";
 import { SettingsComponentsSection } from "../settings/SettingsComponentsSection";
 import { SettingsGeneralSection } from "../settings/SettingsGeneralSection";
 import { SettingsNav } from "../settings/SettingsNav";
@@ -43,9 +44,9 @@ type SettingsViewProps = {
   projectPromptMarkdown?: string | null;
   projectPromptPolicy?: ProjectPromptPolicy | null;
   t: ReturnType<typeof createTranslator>;
-  updateProjectPrompt?: (markdown: string) => Promise<void>;
+  updateProjectPrompt?: (markdown: string) => Promise<boolean>;
   updateProjectPromptPolicy?: (patch: Partial<ProjectPromptPolicy>) => Promise<void>;
-  updateGlobalPrompt?: (markdown: string) => Promise<void>;
+  updateGlobalPrompt?: (markdown: string) => Promise<boolean>;
   updateSettings: (update: DesktopSettingsUpdate) => void;
   updateSettingsAndWait: (update: DesktopSettingsUpdate) => Promise<void>;
 };
@@ -77,24 +78,24 @@ export function SettingsView({
   useEffect(() => {
     consumeSettingsConnectionsTab();
   }, []);
-  const [projectPromptDraft, setProjectPromptDraft] = useState(projectPromptMarkdown ?? "");
-  const [projectPromptSaving, setProjectPromptSaving] = useState(false);
-  const [globalPromptDraft, setGlobalPromptDraft] = useState(globalPromptMarkdown ?? "");
-  const [globalPromptSaving, setGlobalPromptSaving] = useState(false);
+  const projectDraft = usePromptDraft(
+    JSON.stringify([settings.planweaveHome, selectedProject?.rootPath ?? null]),
+    projectPromptMarkdown,
+    updateProjectPrompt,
+    setError
+  );
+  const globalDraft = usePromptDraft(
+    settings.planweaveHome,
+    globalPromptMarkdown,
+    updateGlobalPrompt,
+    setError
+  );
   const settingsViewportRef = useRef<HTMLDivElement>(null);
   const projectPromptAvailable = Boolean(selectedProject && updateProjectPrompt);
   const projectPromptPolicyAvailable = Boolean(
     selectedProject && projectPromptPolicy && updateProjectPromptPolicy
   );
   const projectSelectorAvailable = projects.length > 0 && Boolean(loadProject);
-
-  useEffect(() => {
-    setProjectPromptDraft(projectPromptMarkdown ?? "");
-  }, [projectPromptMarkdown]);
-
-  useEffect(() => {
-    setGlobalPromptDraft(globalPromptMarkdown ?? "");
-  }, [globalPromptMarkdown]);
 
   useEffect(() => {
     if (!settings.developerMode && section === "project-doctor") {
@@ -113,20 +114,6 @@ export function SettingsView({
     if (project) {
       void loadProject?.(project);
     }
-  };
-
-  const saveProjectPrompt = () => {
-    if (!updateProjectPrompt) {
-      return;
-    }
-    setProjectPromptSaving(true);
-    void updateProjectPrompt(projectPromptDraft).finally(() => setProjectPromptSaving(false));
-  };
-
-  const saveGlobalPrompt = () => {
-    if (!updateGlobalPrompt) return;
-    setGlobalPromptSaving(true);
-    void updateGlobalPrompt(globalPromptDraft).finally(() => setGlobalPromptSaving(false));
   };
 
   return (
@@ -149,19 +136,19 @@ export function SettingsView({
             {section === "general" ? (
               <SettingsGeneralSection
                 globalPromptAvailable={Boolean(updateGlobalPrompt)}
-                globalPromptDraft={globalPromptDraft}
-                globalPromptSaving={globalPromptSaving}
+                globalPromptDraft={globalDraft.draft}
+                globalPromptSaving={globalDraft.saving}
                 language={language}
-                onGlobalPromptDraftChange={setGlobalPromptDraft}
-                onGlobalPromptSave={saveGlobalPrompt}
-                onProjectPromptDraftChange={setProjectPromptDraft}
-                onProjectPromptSave={saveProjectPrompt}
+                onGlobalPromptDraftChange={globalDraft.edit}
+                onGlobalPromptSave={globalDraft.save}
+                onProjectPromptDraftChange={projectDraft.edit}
+                onProjectPromptSave={projectDraft.save}
                 onProjectSelect={selectProject}
                 projectPromptAvailable={projectPromptAvailable}
-                projectPromptDraft={projectPromptDraft}
+                projectPromptDraft={projectDraft.draft}
                 projectPromptPolicy={projectPromptPolicy}
                 projectPromptPolicyAvailable={projectPromptPolicyAvailable}
-                projectPromptSaving={projectPromptSaving}
+                projectPromptSaving={projectDraft.saving}
                 projectSelectorAvailable={projectSelectorAvailable}
                 projects={projects}
                 refreshRuntimeTools={refreshRuntimeTools}

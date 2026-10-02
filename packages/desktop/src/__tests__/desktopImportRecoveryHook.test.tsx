@@ -46,6 +46,7 @@ describe("desktop import recovery hook", () => {
 
     const { result } = renderHook(() =>
       useDesktopProject({
+        planweaveHome: "",
         setError: vi.fn(),
         t: createTranslator("en"),
         updateSettings: vi.fn()
@@ -82,6 +83,7 @@ describe("desktop import recovery hook", () => {
 
     const { result } = renderHook(() =>
       useDesktopProject({
+        planweaveHome: "",
         setError: vi.fn(),
         t: createTranslator("en"),
         updateSettings: vi.fn()
@@ -136,6 +138,7 @@ describe("desktop import recovery hook", () => {
     const setError = vi.fn();
     const { result } = renderHook(() =>
       useDesktopProject({
+        planweaveHome: "",
         setError,
         t: createTranslator("en"),
         updateSettings: vi.fn()
@@ -193,6 +196,7 @@ describe("desktop import recovery hook", () => {
     const setError = vi.fn();
     const { result } = renderHook(() =>
       useDesktopProject({
+        planweaveHome: "",
         setError,
         t: createTranslator("en"),
         updateSettings: vi.fn()
@@ -266,6 +270,7 @@ describe("desktop import recovery hook", () => {
 
     const { result } = renderHook(() =>
       useDesktopProject({
+        planweaveHome: "",
         setError: vi.fn(),
         t: createTranslator("en"),
         updateSettings: vi.fn()

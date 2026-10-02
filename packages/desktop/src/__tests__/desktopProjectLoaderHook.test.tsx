@@ -3,17 +3,24 @@
 import { StrictMode } from "react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type {
+  DesktopGraphDiagnostics,
+  DesktopGraphDiagnosticIssue,
   DesktopGraphViewModel,
   DesktopLayout,
   DesktopProjectExecutionPlan,
   DesktopProjectSummary,
   DesktopStatistics,
-  DesktopTodoGroups,
-  ValidationIssue
+  DesktopTodoGroups
 } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDesktopBridgeMock } from "./desktopBridgeMock";
-import { deferred, layout, project, projectSnapshot } from "./helpers/desktopProjectFixtures";
+import {
+  deferred,
+  layout,
+  project,
+  projectSnapshot,
+  projectDiagnostics
+} from "./helpers/desktopProjectFixtures";
 import { graph } from "./helpers/graphFixtures";
 import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
 import { createTranslator } from "../renderer/i18n";
@@ -34,7 +41,7 @@ describe("desktop project loader hook", () => {
     const t = createTranslator("en");
     const updateSettings = vi.fn();
     const { result, unmount } = renderHook(
-      () => useDesktopProject({ setError, t, updateSettings }),
+      () => useDesktopProject({ planweaveHome: "", setError, t, updateSettings }),
       { wrapper: StrictMode }
     );
     await waitFor(() => expect(result.current.projectLoading).toBe(false));
@@ -48,21 +55,24 @@ describe("desktop project loader hook", () => {
     await act(async () => {
       first = result.current.refreshGraph();
     });
-    const activeDiagnostic = { code: "active", message: "Current diagnostic" };
-    vi.mocked(bridge.getDesktopGraphDiagnostics).mockResolvedValue({
-      diagnostics: [activeDiagnostic],
-      graphQuality: { ok: true, diagnostics: [] },
-      executionReadiness: { ok: true, diagnostics: [] }
-    });
+    const activeDiagnostic: DesktopGraphDiagnosticIssue = {
+      code: "active",
+      message: "Current diagnostic",
+      source: "graph_quality",
+      severity: "warning"
+    };
+    vi.mocked(bridge.getDesktopGraphDiagnostics).mockResolvedValue(
+      projectDiagnostics([activeDiagnostic])
+    );
     await act(async () => {
       await result.current.refreshGraph();
     });
     await act(async () => {
-      staleDiagnostics.resolve({
-        diagnostics: [{ code: "old", message: "Obsolete" }],
-        graphQuality: { ok: true, diagnostics: [] },
-        executionReadiness: { ok: true, diagnostics: [] }
-      });
+      staleDiagnostics.resolve(
+        projectDiagnostics([
+          { code: "old", message: "Obsolete", source: "graph_quality", severity: "warning" }
+        ])
+      );
       await first;
     });
     expect(result.current.graphDiagnostics).toEqual([activeDiagnostic]);
@@ -163,7 +173,9 @@ describe("desktop project loader hook", () => {
     const setError = vi.fn();
     const t = createTranslator("en");
     const updateSettings = vi.fn();
-    const { result } = renderHook(() => useDesktopProject({ setError, t, updateSettings }));
+    const { result } = renderHook(() =>
+      useDesktopProject({ planweaveHome: "", setError, t, updateSettings })
+    );
     await waitFor(() => expect(result.current.projectLoading).toBe(false));
     let loading!: Promise<void>;
     act(() => {
@@ -211,7 +223,7 @@ describe("desktop project loader hook", () => {
     const updateSettings = vi.fn();
     const t = createTranslator("en");
     const { result, unmount } = renderHook(() =>
-      useDesktopProject({ setError, updateSettings, t })
+      useDesktopProject({ planweaveHome: "", setError, updateSettings, t })
     );
     await waitFor(() => expect(result.current.projectLoading).toBe(false));
     await act(async () => {
@@ -271,6 +283,7 @@ describe("desktop project loader hook", () => {
     const { rerender, result } = renderHook(
       ({ settingsHydrated, initialProjectPath }) =>
         useDesktopProject({
+          planweaveHome: "",
           setError,
           t,
           updateSettings,
@@ -326,6 +339,7 @@ describe("desktop project loader hook", () => {
     const updateSettings = vi.fn();
     const { result } = renderHook(() =>
       useDesktopProject({
+        planweaveHome: "",
         setError: vi.fn(),
         t: createTranslator("en"),
         updateSettings
@@ -359,6 +373,7 @@ describe("desktop project loader hook", () => {
       taskCanvases: [
         ...project.taskCanvases,
         {
+          ...project.taskCanvases[0],
           canvasId: "canvas-secondary",
           name: "Secondary canvas",
           taskCount: 0,
@@ -390,11 +405,7 @@ describe("desktop project loader hook", () => {
     const updateSettings = vi.fn();
 
     const { result } = renderHook(() =>
-      useDesktopProject({
-        setError,
-        t: createTranslator("en"),
-        updateSettings
-      })
+      useDesktopProject({ planweaveHome: "", setError, t: createTranslator("en"), updateSettings })
     );
 
     await waitFor(() => expect(result.current.selectedProject?.projectId).toBe(project.projectId));
@@ -509,6 +520,7 @@ describe("desktop project loader hook", () => {
 
     const { result } = renderHook(() =>
       useDesktopProject({
+        planweaveHome: "",
         setError: vi.fn(),
         t: createTranslator("en"),
         updateSettings: vi.fn()
@@ -584,6 +596,7 @@ describe("desktop project loader hook", () => {
 
     const { result } = renderHook(() =>
       useDesktopProject({
+        planweaveHome: "",
         setError: vi.fn(),
         t: createTranslator("en"),
         updateSettings: vi.fn()
@@ -638,6 +651,7 @@ describe("desktop project loader hook", () => {
 
     const { result } = renderHook(() =>
       useDesktopProject({
+        planweaveHome: "",
         setError: vi.fn(),
         t: createTranslator("en"),
         updateSettings: vi.fn()
@@ -683,6 +697,7 @@ describe("desktop project loader hook", () => {
 
     const { result } = renderHook(() =>
       useDesktopProject({
+        planweaveHome: "",
         setError: vi.fn(),
         t: createTranslator("en"),
         updateSettings: vi.fn()
@@ -715,19 +730,15 @@ describe("desktop project loader hook", () => {
   });
 
   it("ignores stale load side effects after switching projects during diagnostics refresh", async () => {
-    const staleDiagnostics = deferred<{
-      graphQuality: { ok: boolean; diagnostics: ValidationIssue[] };
-      executionReadiness: { ok: boolean; diagnostics: ValidationIssue[] };
-      diagnostics: ValidationIssue[];
-    }>();
-    const activeDiagnostic: ValidationIssue = {
+    const staleDiagnostics = deferred<DesktopGraphDiagnostics>();
+    const activeDiagnostic: DesktopGraphDiagnosticIssue = {
       code: "task_orphaned",
       message: "Active project diagnostic.",
       source: "graph_quality",
       severity: "warning",
       suggestedTool: "add_task_dependency"
     };
-    const staleDiagnostic: ValidationIssue = {
+    const staleDiagnostic: DesktopGraphDiagnosticIssue = {
       code: "task_orphaned",
       message: "Stale project diagnostic.",
       source: "graph_quality",
@@ -750,11 +761,7 @@ describe("desktop project loader hook", () => {
       getDesktopGraphDiagnostics: vi
         .fn()
         .mockReturnValueOnce(staleDiagnostics.promise)
-        .mockResolvedValueOnce({
-          graphQuality: { ok: true, diagnostics: [] },
-          executionReadiness: { ok: true, diagnostics: [] },
-          diagnostics: [activeDiagnostic]
-        }),
+        .mockResolvedValueOnce(projectDiagnostics([activeDiagnostic])),
       refreshPackageFileChanges: vi
         .fn()
         .mockResolvedValue({ diagnostics: [], dirtyPromptRefs: [] }),
@@ -767,11 +774,7 @@ describe("desktop project loader hook", () => {
     const updateSettings = vi.fn();
     const setError = vi.fn();
     const { result } = renderHook(() =>
-      useDesktopProject({
-        setError,
-        t: createTranslator("en"),
-        updateSettings
-      })
+      useDesktopProject({ planweaveHome: "", setError, t: createTranslator("en"), updateSettings })
     );
 
     await waitFor(() => expect(result.current.projectLoading).toBe(false));
@@ -791,11 +794,7 @@ describe("desktop project loader hook", () => {
     updateSettings.mockClear();
 
     await act(async () => {
-      staleDiagnostics.resolve({
-        graphQuality: { ok: true, diagnostics: [] },
-        executionReadiness: { ok: true, diagnostics: [] },
-        diagnostics: [staleDiagnostic]
-      });
+      staleDiagnostics.resolve(projectDiagnostics([staleDiagnostic]));
       if (!staleLoadPromise) {
         throw new Error("Stale load promise was not started.");
       }
@@ -816,6 +815,7 @@ describe("desktop project loader hook", () => {
     const setError = vi.fn();
     const { result } = renderHook(() =>
       useDesktopProject({
+        planweaveHome: "",
         setError,
         t: createTranslator("en"),
         updateSettings: vi.fn()
@@ -837,6 +837,7 @@ describe("desktop project loader hook", () => {
       activeCanvasId: "canvas-active",
       taskCanvases: [
         {
+          ...project.taskCanvases[0],
           canvasId: "canvas-stale",
           name: "Stale imported canvas",
           taskCount: 0,
@@ -844,6 +845,7 @@ describe("desktop project loader hook", () => {
           updatedAt: "2026-05-23T00:00:00.000Z"
         },
         {
+          ...project.taskCanvases[0],
           canvasId: "canvas-active",
           name: "Active canvas",
           taskCount: 2,
@@ -866,6 +868,7 @@ describe("desktop project loader hook", () => {
 
     renderHook(() =>
       useDesktopProject({
+        planweaveHome: "",
         setError: vi.fn(),
         t: createTranslator("en"),
         updateSettings: vi.fn()
@@ -917,6 +920,7 @@ describe("desktop project loader hook", () => {
     const setError = vi.fn();
     const { result } = renderHook(() =>
       useDesktopProject({
+        planweaveHome: "",
         setError,
         t: createTranslator("en"),
         updateSettings: vi.fn()
@@ -958,6 +962,7 @@ describe("desktop project loader hook", () => {
     const setError = vi.fn();
     const { result } = renderHook(() =>
       useDesktopProject({
+        planweaveHome: "",
         setError,
         t: createTranslator("en"),
         updateSettings: vi.fn()
@@ -999,6 +1004,7 @@ describe("desktop project loader hook", () => {
     const setError = vi.fn();
     const { result } = renderHook(() =>
       useDesktopProject({
+        planweaveHome: "",
         setError,
         t: createTranslator("en"),
         updateSettings: vi.fn()
@@ -1030,6 +1036,7 @@ describe("desktop project loader hook", () => {
     const setError = vi.fn();
     const { result } = renderHook(() =>
       useDesktopProject({
+        planweaveHome: "",
         setError,
         t: createTranslator("en"),
         updateSettings: vi.fn()

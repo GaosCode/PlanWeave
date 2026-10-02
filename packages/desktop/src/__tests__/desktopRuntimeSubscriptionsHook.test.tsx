@@ -59,7 +59,9 @@ describe("desktop runtime subscriptions hook", () => {
     const setError = vi.fn();
     const t = createTranslator("en");
     const updateSettings = vi.fn();
-    const { result } = renderHook(() => useDesktopProject({ setError, t, updateSettings }));
+    const { result } = renderHook(() =>
+      useDesktopProject({ planweaveHome: "", setError, t, updateSettings })
+    );
     await waitFor(() => expect(result.current.projectLoading).toBe(false));
     await act(async () => {
       await result.current.loadProject(project);
@@ -117,6 +119,7 @@ describe("desktop runtime subscriptions hook", () => {
       const setError = vi.fn();
       const { result } = renderHook(() =>
         useDesktopProject({
+          planweaveHome: "",
           setError,
           t: createTranslator("en"),
           updateSettings: vi.fn()
@@ -185,6 +188,7 @@ describe("desktop runtime subscriptions hook", () => {
 
     const { result } = renderHook(() =>
       useDesktopProject({
+        planweaveHome: "",
         setError: vi.fn(),
         t: createTranslator("en"),
         updateSettings: vi.fn()

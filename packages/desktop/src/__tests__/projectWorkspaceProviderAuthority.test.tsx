@@ -397,7 +397,7 @@ function ProviderHarness({
       settingsHydrated: true,
       t: createTranslator("en"),
       updateLayoutSettings: vi.fn(),
-      updateGlobalPrompt: vi.fn().mockResolvedValue(undefined),
+      updateGlobalPrompt: vi.fn().mockResolvedValue(true),
       updateSettings,
       updateSettingsAndWait: async (update) => updateSettings(update)
     }),

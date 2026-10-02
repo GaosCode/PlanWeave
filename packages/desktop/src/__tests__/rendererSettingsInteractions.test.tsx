@@ -1186,7 +1186,7 @@ describe("desktop renderer settings interactions", () => {
 
   it("shows and saves the current project prompt without implying canvas scope", async () => {
     stubLayoutApis();
-    const updateProjectPrompt = vi.fn().mockResolvedValue(undefined);
+    const updateProjectPrompt = vi.fn().mockResolvedValue(true);
 
     render(
       <SettingsView
@@ -1221,7 +1221,7 @@ describe("desktop renderer settings interactions", () => {
 
   it("keeps project prompt editable while prompt markdown is loading", async () => {
     stubLayoutApis();
-    const updateProjectPrompt = vi.fn().mockResolvedValue(undefined);
+    const updateProjectPrompt = vi.fn().mockResolvedValue(true);
 
     render(
       <SettingsView
@@ -1255,7 +1255,7 @@ describe("desktop renderer settings interactions", () => {
 
   it("shows and saves the global prompt independently of project selection", async () => {
     stubLayoutApis();
-    const updateGlobalPrompt = vi.fn().mockResolvedValue(undefined);
+    const updateGlobalPrompt = vi.fn().mockResolvedValue(true);
 
     render(
       <SettingsView

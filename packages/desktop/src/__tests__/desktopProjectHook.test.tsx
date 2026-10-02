@@ -98,6 +98,7 @@ describe("desktop renderer hook interfaces", () => {
     const updateSettings = vi.fn();
     const { result } = renderHook(() =>
       useDesktopProject({
+        planweaveHome: "",
         setError: vi.fn(),
         t: createTranslator("en"),
         updateSettings
@@ -106,7 +107,7 @@ describe("desktop renderer hook interfaces", () => {
 
     await waitFor(() => expect(result.current.selectedProject?.projectId).toBe(project.projectId));
 
-    expect(result.current.graph?.graphVersion).toBe(projectSnapshot().graph.graphVersion);
+    expect(result.current.graph?.graphVersion).toBe(graph.graphVersion);
     expect(result.current.selectedCanvasId).toBe("canvas-main");
     expect(result.current).toEqual(
       expect.objectContaining({
@@ -136,6 +137,7 @@ describe("desktop renderer hook interfaces", () => {
 
     renderHook(() =>
       useDesktopProject({
+        planweaveHome: "",
         setError: vi.fn(),
         t: createTranslator("en"),
         updateSettings: vi.fn()

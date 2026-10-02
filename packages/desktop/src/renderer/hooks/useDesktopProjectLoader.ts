@@ -21,6 +21,7 @@ import type {
 } from "./useDesktopProjectSnapshot";
 
 type UseDesktopProjectLoaderArgs = {
+  planweaveHome: string;
   beginProjectRequest: ReturnType<
     typeof import("./useDesktopProjectSnapshot").useDesktopProjectSnapshot
   >["beginProjectRequest"];
@@ -80,6 +81,7 @@ function errorMessage(caught: unknown): string {
 }
 
 export function useDesktopProjectLoader({
+  planweaveHome,
   beginProjectRequest,
   beginSnapshotRequest,
   autoSelectInitialProject,
@@ -105,6 +107,7 @@ export function useDesktopProjectLoader({
   t,
   updateSettings
 }: UseDesktopProjectLoaderArgs) {
+  const promptWrites = useRef({ markdown: 0, policy: 0 });
   const initialProjectPathRef = useRef<string | null>(null);
   const autoSelectInitialProjectRef = useRef<boolean | null>(null);
   if (settingsHydrated && initialProjectPathRef.current === null) {
@@ -294,6 +297,18 @@ export function useDesktopProjectLoader({
     ]
   );
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only a Home switch reloads the current project's authority; selection loads already include it.
+  useEffect(() => {
+    if (!selectedProject) return;
+    const request = beginProjectRequest(
+      desktopCanvasReference(selectedProject, selectedCanvasId),
+      "prompt"
+    );
+    void refreshProjectDerivedState({ includePrompt: true }).catch((caught: unknown) => {
+      if (request.isSelectionCurrent()) setError(errorMessage(caught));
+    });
+  }, [planweaveHome]);
+
   const refreshGraphAndLayout = useCallback(async () => {
     await refreshProjectDerivedState({ includeLayout: true });
   }, [refreshProjectDerivedState]);
@@ -303,23 +318,49 @@ export function useDesktopProjectLoader({
       if (!bridge || !selectedProject) {
         return;
       }
-      setProjectPromptPolicy(
-        await bridge.updateProjectPromptPolicy(selectedProject.rootPath, patch)
+      const request = beginProjectRequest(
+        desktopCanvasReference(selectedProject, selectedCanvasId),
+        "prompt"
       );
+      if (!request.isSelectionCurrent()) return;
+      const write = ++promptWrites.current.policy;
+      const current = () => request.isSelectionCurrent() && promptWrites.current.policy === write;
+      try {
+        const updated = await bridge.updateProjectPromptPolicy(selectedProject.rootPath, patch);
+        if (current()) setProjectPromptPolicy(updated);
+      } catch (caught) {
+        if (current()) setError(errorMessage(caught));
+      }
     },
-    [selectedProject, setProjectPromptPolicy]
+    [beginProjectRequest, selectedCanvasId, selectedProject, setError, setProjectPromptPolicy]
   );
 
   const updateProjectPrompt = useCallback(
-    async (markdown: string) => {
+    async (markdown: string): Promise<boolean> => {
       if (!bridge || !selectedProject) {
-        return;
+        return false;
       }
-      setProjectPromptMarkdown(
-        await bridge.updateProjectPrompt(selectedProject.rootPath, markdown)
+      const request = beginProjectRequest(
+        desktopCanvasReference(selectedProject, selectedCanvasId),
+        "prompt"
       );
+      if (!request.isSelectionCurrent()) return false;
+      const write = ++promptWrites.current.markdown;
+      const current = () => request.isSelectionCurrent() && promptWrites.current.markdown === write;
+      try {
+        const updated = await bridge.updateProjectPrompt(selectedProject.rootPath, markdown);
+        if (!current()) return false;
+        setProjectPromptMarkdown(updated);
+        return true;
+      } catch (caught) {
+        if (current()) {
+          setError(errorMessage(caught));
+          throw caught;
+        }
+      }
+      return false;
     },
-    [selectedProject, setProjectPromptMarkdown]
+    [beginProjectRequest, selectedCanvasId, selectedProject, setError, setProjectPromptMarkdown]
   );
 
   const refreshProjectSummary = useCallback(

@@ -22,6 +22,7 @@ import { useDesktopRuntimeSubscriptions } from "./useDesktopRuntimeSubscriptions
 export { resolveProjectCanvasId } from "./useDesktopProjectLoader";
 
 export type UseDesktopProjectArgs = {
+  planweaveHome: string;
   autoSelectInitialProject?: boolean;
   initialProjectPath?: string;
   setError: (message: string | null) => void;
@@ -31,6 +32,7 @@ export type UseDesktopProjectArgs = {
 };
 
 export function useDesktopProject({
+  planweaveHome,
   autoSelectInitialProject = true,
   initialProjectPath = "",
   setError,
@@ -71,6 +73,7 @@ export function useDesktopProject({
     currentCanvasRef,
     refreshDesktopGraphDiagnostics
   } = useDesktopProjectSnapshot({
+    planweaveHome,
     graph,
     selectedCanvasId,
     selectedProjectRoot: selectedProject?.rootPath ?? null,
@@ -119,6 +122,7 @@ export function useDesktopProject({
     updateProjectPrompt,
     updateProjectPromptPolicy
   } = useDesktopProjectLoader({
+    planweaveHome,
     beginProjectRequest,
     beginSnapshotRequest,
     autoSelectInitialProject,

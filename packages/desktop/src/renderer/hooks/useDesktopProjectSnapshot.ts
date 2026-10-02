@@ -50,6 +50,7 @@ function snapshotDiagnosticDomain(diagnostic: ValidationIssue): keyof SnapshotWr
 }
 
 type UseDesktopProjectSnapshotArgs = {
+  planweaveHome: string;
   graph: DesktopGraphViewModel | null;
   selectedCanvasId: string | null;
   selectedProjectRoot: string | null;
@@ -68,6 +69,7 @@ type UseDesktopProjectSnapshotArgs = {
 };
 
 export function useDesktopProjectSnapshot({
+  planweaveHome,
   graph,
   selectedCanvasId,
   selectedProjectRoot,
@@ -93,6 +95,7 @@ export function useDesktopProjectSnapshot({
   const snapshotDiagnostics = useRef<ValidationIssue[]>([]);
 
   const lifecycle = useRef({
+    home: planweaveHome,
     mounted: true,
     generation: 0,
     load: 0,
@@ -107,6 +110,13 @@ export function useDesktopProjectSnapshot({
   const invalidateProjectRequests = useCallback(() => {
     lifecycle.current.generation += 1;
   }, []);
+  useLayoutEffect(() => {
+    if (lifecycle.current.home === planweaveHome) return;
+    lifecycle.current.home = planweaveHome;
+    invalidateProjectRequests();
+    setProjectPromptMarkdown(null);
+    setProjectPromptPolicy(null);
+  }, [invalidateProjectRequests, planweaveHome, setProjectPromptMarkdown, setProjectPromptPolicy]);
   const selectCanvas = useCallback(
     (projectRoot: string | null, canvasId: string | null) => {
       const current = currentCanvasRef.current;

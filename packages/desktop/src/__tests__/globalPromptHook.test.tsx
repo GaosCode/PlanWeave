@@ -44,7 +44,9 @@ describe("useGlobalPrompt", () => {
 
     await waitFor(() => expect(setError).toHaveBeenCalledWith("read failed"));
     await act(async () => {
-      await result.current.updateGlobalPrompt("Updated policy");
+      await expect(result.current.updateGlobalPrompt("Updated policy")).rejects.toThrow(
+        "write failed"
+      );
     });
 
     expect(setError).toHaveBeenCalledWith("write failed");

@@ -29,9 +29,9 @@ type AppSettingsRouteProps = {
   projectPromptMarkdown: string | null;
   projectPromptPolicy: ProjectPromptPolicy | null;
   t: ReturnType<typeof createTranslator>;
-  updateProjectPrompt: (markdown: string) => Promise<void>;
+  updateProjectPrompt: (markdown: string) => Promise<boolean>;
   updateProjectPromptPolicy: (patch: Partial<ProjectPromptPolicy>) => Promise<void>;
-  updateGlobalPrompt: (markdown: string) => Promise<void>;
+  updateGlobalPrompt: (markdown: string) => Promise<boolean>;
   updateSettings: (update: DesktopSettingsUpdate) => void;
   updateSettingsAndWait: (update: DesktopSettingsUpdate) => Promise<void>;
 };

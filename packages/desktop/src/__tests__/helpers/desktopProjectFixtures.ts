@@ -1,4 +1,6 @@
 import type {
+  DesktopGraphDiagnostics,
+  DesktopGraphDiagnosticIssue,
   DesktopLayout,
   DesktopProjectSnapshot,
   DesktopProjectSummary
@@ -61,4 +63,42 @@ export function deferred<T>() {
     reject = promiseReject;
   });
   return { promise, reject, resolve };
+}
+
+export function projectDiagnostics(
+  diagnostics: DesktopGraphDiagnosticIssue[] = []
+): DesktopGraphDiagnostics {
+  return {
+    graphQuality: {
+      ok: true,
+      diagnostics: [],
+      summary: {
+        taskCount: 0,
+        blockCount: 0,
+        taskDependencyCount: 0,
+        reviewBlockCount: 0,
+        orphanTaskCount: 0,
+        score: 100,
+        errorCount: 0,
+        warningCount: 0,
+        infoCount: 0
+      }
+    },
+    executionReadiness: {
+      ok: true,
+      diagnostics: [],
+      nextClaimable: [],
+      summary: {
+        taskCount: 0,
+        blockCount: 0,
+        readyBlockCount: 0,
+        currentRefCount: 0,
+        openFeedbackCount: 0,
+        errorCount: 0,
+        warningCount: 0,
+        infoCount: 0
+      }
+    },
+    diagnostics
+  };
 }

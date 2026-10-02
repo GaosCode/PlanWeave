@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDesktopBridgeMock } from "./desktopBridgeMock";
 import { deferred, project, projectSnapshot } from "./helpers/desktopProjectFixtures";
 import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
+import { graph } from "./helpers/graphFixtures";
 import { createTranslator } from "../renderer/i18n";
 
 afterEach(cleanupRendererTestEnvironment);
@@ -69,7 +70,7 @@ function latestAutoRunState(patch: Partial<DesktopAutoRunState> = {}): DesktopAu
     },
     statePath: "/tmp/demo/results/auto-runs/RUN-LIGHTWEIGHT/state.json",
     eventLogPath: "/tmp/demo/results/auto-runs/RUN-LIGHTWEIGHT/events.ndjson",
-    options: { tmuxEnabled: true },
+    options: { tmuxEnabled: true, acpRecovery: null, executorOverride: null },
     error: null,
     startedAt: "2026-06-16T00:00:00.000Z",
     updatedAt: "2026-06-16T00:00:05.000Z"
@@ -118,6 +119,7 @@ describe("desktop runtime refresh hook integration", () => {
 
       const { result } = renderHook(() => {
         const projectState = useDesktopProject({
+          planweaveHome: "",
           setError,
           t: createTranslator("en"),
           updateSettings
@@ -137,7 +139,7 @@ describe("desktop runtime refresh hook integration", () => {
 
       await settleRendererUpdates();
       expect(result.current.selectedProject?.projectId).toBe(project.projectId);
-      expect(result.current.graph?.graphVersion).toBe(projectSnapshot().graph.graphVersion);
+      expect(result.current.graph?.graphVersion).toBe(graph.graphVersion);
       getDesktopProjectSnapshot.mockClear();
 
       await act(async () => {
@@ -204,6 +206,7 @@ describe("desktop runtime refresh hook integration", () => {
 
       const { result } = renderHook(() => {
         const projectState = useDesktopProject({
+          planweaveHome: "",
           setError,
           t: createTranslator("en"),
           updateSettings
@@ -310,6 +313,7 @@ describe("desktop runtime refresh hook integration", () => {
 
       const { result } = renderHook(() => {
         const projectState = useDesktopProject({
+          planweaveHome: "",
           setError,
           t: createTranslator("en"),
           updateSettings

@@ -1,10 +1,15 @@
 /* @vitest-environment jsdom */
 
 import { act, renderHook, waitFor } from "@testing-library/react";
-import type { ValidationIssue } from "@planweave-ai/runtime";
+import type { DesktopGraphDiagnostics } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDesktopBridgeMock } from "./desktopBridgeMock";
-import { deferred, project, projectSnapshot } from "./helpers/desktopProjectFixtures";
+import {
+  deferred,
+  project,
+  projectSnapshot,
+  projectDiagnostics
+} from "./helpers/desktopProjectFixtures";
 import { graph } from "./helpers/graphFixtures";
 import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
 import { createTranslator } from "../renderer/i18n";
@@ -29,7 +34,9 @@ async function mountProject(bridge: ReturnType<typeof createDesktopBridgeMock>) 
   const setError = vi.fn();
   const t = createTranslator("en");
   const updateSettings = vi.fn();
-  const hook = renderHook(() => useDesktopProject({ setError, t, updateSettings }));
+  const hook = renderHook(() =>
+    useDesktopProject({ planweaveHome: "", setError, t, updateSettings })
+  );
   await waitFor(() => expect(hook.result.current.projectLoading).toBe(false));
   return { ...hook, setError };
 }
@@ -84,11 +91,7 @@ describe("snapshot diagnostics ownership", () => {
     "load",
     "derived"
   ])("rechecks error ownership after %s waits for graph diagnostics", async (entry) => {
-    const pendingDiagnostics = deferred<{
-      graphQuality: { ok: boolean; diagnostics: ValidationIssue[] };
-      executionReadiness: { ok: boolean; diagnostics: ValidationIssue[] };
-      diagnostics: ValidationIssue[];
-    }>();
+    const pendingDiagnostics = deferred<DesktopGraphDiagnostics>();
     const bridge = createDesktopBridgeMock({
       listProjects: vi.fn().mockResolvedValue([]),
       getDesktopProjectSnapshot: vi.fn().mockResolvedValue(projectSnapshot())
@@ -123,11 +126,7 @@ describe("snapshot diagnostics ownership", () => {
     expect(setError).toHaveBeenLastCalledWith("layout: current layout failure");
     setError.mockClear();
     await act(async () => {
-      pendingDiagnostics.resolve({
-        graphQuality: { ok: true, diagnostics: [] },
-        executionReadiness: { ok: true, diagnostics: [] },
-        diagnostics: []
-      });
+      pendingDiagnostics.resolve(projectDiagnostics());
       await oldRequest;
     });
     expect(setError).not.toHaveBeenCalled();

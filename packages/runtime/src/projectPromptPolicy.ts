@@ -3,7 +3,8 @@ import { dirname, join } from "node:path";
 import { isNodeFileNotFoundError } from "./fs/optionalFile.js";
 import { readJsonFile, writeJsonFile } from "./json.js";
 import { readDecodedUtf8Bytes } from "./package/decodedUtf8Bytes.js";
-import { resolveProjectWorkspace } from "./project.js";
+import { resolveProjectWorkspaceInHome } from "./project.js";
+import { resolvePlanweaveHome } from "./paths.js";
 import type { PackageWorkspaceRef, ProjectWorkspace } from "./types.js";
 
 export type ProjectPromptPolicy = {
@@ -15,9 +16,9 @@ const defaultProjectPromptPolicy: ProjectPromptPolicy = {
 };
 
 async function resolvePolicyWorkspace(projectRoot: PackageWorkspaceRef): Promise<ProjectWorkspace> {
-  const workspace =
-    typeof projectRoot === "string" ? await resolveProjectWorkspace(projectRoot) : projectRoot;
-  return resolveProjectWorkspace(workspace.rootPath);
+  const home = resolvePlanweaveHome();
+  const rootPath = typeof projectRoot === "string" ? projectRoot : projectRoot.rootPath;
+  return resolveProjectWorkspaceInHome(rootPath, home);
 }
 
 function projectPromptPolicyPath(workspace: ProjectWorkspace): string {
@@ -40,10 +41,9 @@ function normalizeProjectPromptPolicy(raw: unknown): ProjectPromptPolicy {
   };
 }
 
-export async function readProjectPromptPolicy(
-  projectRoot: PackageWorkspaceRef
+async function readResolvedProjectPromptPolicy(
+  workspace: ProjectWorkspace
 ): Promise<ProjectPromptPolicy> {
-  const workspace = await resolvePolicyWorkspace(projectRoot);
   const path = projectPromptPolicyPath(workspace);
   try {
     return normalizeProjectPromptPolicy(await readJsonFile<unknown>(path));
@@ -55,13 +55,19 @@ export async function readProjectPromptPolicy(
   }
 }
 
+export async function readProjectPromptPolicy(
+  projectRoot: PackageWorkspaceRef
+): Promise<ProjectPromptPolicy> {
+  return readResolvedProjectPromptPolicy(await resolvePolicyWorkspace(projectRoot));
+}
+
 export async function updateProjectPromptPolicy(
   projectRoot: PackageWorkspaceRef,
   patch: Partial<ProjectPromptPolicy>
 ): Promise<ProjectPromptPolicy> {
   const workspace = await resolvePolicyWorkspace(projectRoot);
   const next = normalizeProjectPromptPolicy({
-    ...(await readProjectPromptPolicy(workspace)),
+    ...(await readResolvedProjectPromptPolicy(workspace)),
     ...patch
   });
   await writeJsonFile(projectPromptPolicyPath(workspace), next);

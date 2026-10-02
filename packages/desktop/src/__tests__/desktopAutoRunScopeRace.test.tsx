@@ -38,6 +38,7 @@ async function sessionHarness() {
   const setError = vi.fn();
   const { result, unmount } = renderHook(() => {
     const projectState = useDesktopProject({
+      planweaveHome: "",
       autoSelectInitialProject: false,
       setError,
       t: createTranslator("en"),

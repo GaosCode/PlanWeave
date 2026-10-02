@@ -35,7 +35,7 @@ export type ProjectWorkspaceShellInput = {
   settingsHydrated: boolean;
   t: ReturnType<typeof createTranslator>;
   updateLayoutSettings: (patch: LayoutSettingsPatch) => void;
-  updateGlobalPrompt: (markdown: string) => Promise<void>;
+  updateGlobalPrompt: (markdown: string) => Promise<boolean>;
   updateSettings: (update: DesktopSettingsUpdate) => void;
   updateSettingsAndWait: (update: DesktopSettingsUpdate) => Promise<void>;
 };

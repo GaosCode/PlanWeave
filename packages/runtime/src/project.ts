@@ -148,9 +148,10 @@ async function workspaceFromRegisteredRoot(
   });
 }
 
-export async function resolveProjectWorkspace(projectRoot: string): Promise<ProjectWorkspace> {
-  const rootPath = await realpath(projectRoot);
-  const planweaveHome = resolvePlanweaveHome();
+async function resolveProjectWorkspaceAtRoot(
+  rootPath: string,
+  planweaveHome: string
+): Promise<ProjectWorkspace> {
   const registeredWorkspace = await workspaceFromRegisteredRoot(rootPath, planweaveHome);
   if (registeredWorkspace) {
     return registeredWorkspace;
@@ -164,6 +165,19 @@ export async function resolveProjectWorkspace(projectRoot: string): Promise<Proj
     planweaveHome,
     workspaceRoot: join(planweaveHome, "projects", id)
   });
+}
+
+/** Resolves canonical project paths using the Home captured by a policy operation. */
+export async function resolveProjectWorkspaceInHome(
+  projectRoot: string,
+  planweaveHome: string
+): Promise<ProjectWorkspace> {
+  return resolveProjectWorkspaceAtRoot(await realpath(projectRoot), planweaveHome);
+}
+
+export async function resolveProjectWorkspace(projectRoot: string): Promise<ProjectWorkspace> {
+  const rootPath = await realpath(projectRoot);
+  return resolveProjectWorkspaceAtRoot(rootPath, resolvePlanweaveHome());
 }
 
 export async function readProject(projectRoot: string): Promise<ProjectMetadata | null> {

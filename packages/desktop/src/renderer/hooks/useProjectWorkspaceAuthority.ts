@@ -17,7 +17,7 @@ import { useWorkspaceRuntime } from "./useWorkspaceRuntime";
 
 type UseProjectWorkspaceAuthorityInput = {
   activeView: AppView;
-  settings: Pick<DesktopUiSettings, "lastOpenedWorkspaceLocator" | "runtimePath">;
+  settings: Pick<DesktopUiSettings, "lastOpenedWorkspaceLocator" | "runtimePath" | "planweaveHome">;
   settingsHydrated: boolean;
   setActiveView: Dispatch<SetStateAction<AppView>>;
   setError: (message: string | null) => void;
@@ -33,6 +33,7 @@ export function useProjectWorkspaceAuthority(input: UseProjectWorkspaceAuthority
     [input.settings.lastOpenedWorkspaceLocator]
   );
   const desktopProject = useDesktopProject({
+    planweaveHome: input.settings.planweaveHome,
     autoSelectInitialProject: persistedWorkspaceLocator === null,
     initialProjectPath: input.settings.runtimePath,
     setError: input.setError,
