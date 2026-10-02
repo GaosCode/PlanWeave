@@ -77,7 +77,9 @@ describe("exact permission connection compatibility", () => {
     const conversations = new RemoteAcpConversationService(state.conversations, { converse });
     const recoverConversations = vi.spyOn(conversations, "recover");
     const canvasRuntime = {
-      recover: vi.fn(),
+      start: vi.fn(),
+      stop: vi.fn(async () => {}),
+      recover: vi.fn(async () => {}),
       disconnect: vi.fn(),
       enabled: () => true,
       handle: vi.fn(),
