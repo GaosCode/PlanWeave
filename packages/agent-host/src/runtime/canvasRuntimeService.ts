@@ -54,10 +54,13 @@ import type { CanvasRuntimeArtifactTransferPort } from "../artifacts/canvasRunti
 import { resolveCanvasRuntimeWorkItems } from "./canvasRuntimeWorkItemFacts.js";
 import type { CanvasRuntimeContentTransferPort } from "./canvasRuntimeContentTransfer.js";
 
+import {
+  CanvasRuntimeLifecycle,
+  type CanvasRuntimeActiveRequest as ActiveRequest
+} from "./canvasRuntimeLifecycle.js";
+
 type CanvasRuntimeCommand = CanvasRuntimeRequestCommand | CanvasRuntimeCancelCommand;
 type ResponseOperation = CanvasRuntimeResponsePayload["response"]["operation"];
-
-type ActiveRequest = { controller: AbortController; committed: boolean };
 
 class CanvasRuntimeServiceError extends Error {
   constructor(
@@ -214,7 +217,7 @@ export type CanvasRuntimeServiceOptions = {
 };
 
 export class CanvasRuntimeService {
-  private readonly active = new Map<string, ActiveRequest>();
+  private readonly lifecycle = new CanvasRuntimeLifecycle();
   private readonly materializationLocks = new Map<string, Promise<void>>();
   private readonly localNow: () => Date;
   private readonly leaseDurationMs: number;
@@ -245,33 +248,57 @@ export class CanvasRuntimeService {
     return new Date(this.localNow().getTime() + this.serverClockOffsetMs);
   }
 
-  recover(): void {
-    for (const receipt of this.options.receipts.incomplete()) {
-      if (receipt.status === "pending") {
-        void this.handle(receipt.command);
-      } else if (
-        receipt.command.type === "canvas_runtime.request" &&
-        receipt.command.operation.operation === "reset"
-      ) {
-        void this.recoverInterruptedReset(receipt.command);
-      } else {
-        this.finishError(
-          receipt.command,
-          new CanvasRuntimeServiceError("reconcile_required", true, true),
-          "reconcile_required"
-        );
+  start(): void {
+    this.lifecycle.start();
+  }
+
+  stop(): Promise<void> {
+    return this.lifecycle.stop();
+  }
+
+  recover(): Promise<void> {
+    return this.lifecycle.run(Symbol("recovery"), async (active) => {
+      if (active.controller.signal.aborted) return;
+      const operations: Promise<void>[] = [];
+      for (const receipt of this.options.receipts.incomplete()) {
+        if (receipt.status === "pending") {
+          operations.push(this.handle(receipt.command));
+        } else if (
+          receipt.command.type === "canvas_runtime.request" &&
+          receipt.command.operation.operation === "reset"
+        ) {
+          const command = receipt.command;
+          operations.push(
+            this.lifecycle.run(command.requestId, (request) =>
+              this.recoverInterruptedReset(command, request)
+            )
+          );
+        } else {
+          operations.push(
+            this.lifecycle.run(receipt.command.requestId, async () => {
+              this.finishError(
+                receipt.command,
+                new CanvasRuntimeServiceError("reconcile_required", true, true),
+                "reconcile_required"
+              );
+            })
+          );
+        }
       }
-    }
+      await Promise.all(operations);
+    });
   }
 
   disconnect(): void {
-    for (const request of this.active.values()) request.controller.abort("host_disconnected");
+    this.lifecycle.disconnect();
   }
 
-  async handle(command: CanvasRuntimeCommand): Promise<void> {
+  handle(command: CanvasRuntimeCommand): Promise<void> {
+    return this.lifecycle.run(command.requestId, (active) => this.handleRequest(command, active));
+  }
+
+  private async handleRequest(command: CanvasRuntimeCommand, active: ActiveRequest): Promise<void> {
     if (!this.options.receipts.begin(command.requestId)) return;
-    const active: ActiveRequest = { controller: new AbortController(), committed: false };
-    this.active.set(command.requestId, active);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const armDeadline = () => {
       const remaining = Date.parse(command.deadline) - this.now().getTime();
@@ -283,37 +310,39 @@ export class CanvasRuntimeService {
     };
     armDeadline();
     try {
-      if (!this.enabled()) throw new CanvasRuntimeServiceError("capability_not_negotiated");
-      this.assertOpen(command, active);
-      const result =
-        command.type === "canvas_runtime.cancel"
-          ? await this.cancel(command, active)
-          : await this.execute(command, active);
-      this.assertOpen(command, active);
-      this.options.receipts.complete(
-        command.requestId,
-        canvasRuntimeResponsePayloadSchema.parse({
+      let payload: CanvasRuntimeResponsePayload;
+      let status: "terminal" | "reconcile_required" = "terminal";
+      try {
+        if (!this.enabled()) throw new CanvasRuntimeServiceError("capability_not_negotiated");
+        this.assertOpen(command, active);
+        const result =
+          command.type === "canvas_runtime.cancel"
+            ? await this.cancel(command, active)
+            : await this.execute(command, active);
+        this.assertOpen(command, active);
+        payload = canvasRuntimeResponsePayloadSchema.parse({
           type: "canvas_runtime.response",
           protocolVersion: 1,
           requestId: command.requestId,
           response: { outcome: "success", operation: responseOperation(command), result }
-        })
-      );
-    } catch (caught) {
-      const error =
-        active.controller.signal.aborted && active.committed
-          ? new CanvasRuntimeServiceError("reconcile_required", true, true)
-          : active.controller.signal.aborted
-            ? new CanvasRuntimeServiceError(
-                active.controller.signal.reason === "deadline_exceeded"
-                  ? "deadline_exceeded"
-                  : "request_cancelled"
-              )
-            : errorCode(caught);
-      this.finishError(command, error, error.reconcileRequired ? "reconcile_required" : "terminal");
+        });
+      } catch (caught) {
+        const error =
+          active.controller.signal.aborted && active.committed
+            ? new CanvasRuntimeServiceError("reconcile_required", true, true)
+            : active.controller.signal.aborted
+              ? new CanvasRuntimeServiceError(
+                  active.controller.signal.reason === "deadline_exceeded"
+                    ? "deadline_exceeded"
+                    : "request_cancelled"
+                )
+              : errorCode(caught);
+        status = error.reconcileRequired ? "reconcile_required" : "terminal";
+        payload = this.errorPayload(command, error);
+      }
+      this.options.receipts.complete(command.requestId, payload, status);
     } finally {
       if (timer) clearTimeout(timer);
-      this.active.delete(command.requestId);
     }
   }
 
@@ -322,25 +351,28 @@ export class CanvasRuntimeService {
     error: CanvasRuntimeServiceError,
     status: "terminal" | "reconcile_required"
   ): void {
-    this.options.receipts.complete(
-      command.requestId,
-      canvasRuntimeResponsePayloadSchema.parse({
-        type: "canvas_runtime.response",
-        protocolVersion: 1,
-        requestId: command.requestId,
-        response: {
-          outcome: "error",
-          operation: responseOperation(command),
-          error: {
-            code: error.code,
-            message: "The Canvas Runtime request could not be completed.",
-            retryable: error.retryable,
-            ...(error.reconcileRequired ? { reconcileRequired: true } : {})
-          }
+    this.options.receipts.complete(command.requestId, this.errorPayload(command, error), status);
+  }
+
+  private errorPayload(
+    command: CanvasRuntimeCommand,
+    error: CanvasRuntimeServiceError
+  ): CanvasRuntimeResponsePayload {
+    return canvasRuntimeResponsePayloadSchema.parse({
+      type: "canvas_runtime.response",
+      protocolVersion: 1,
+      requestId: command.requestId,
+      response: {
+        outcome: "error",
+        operation: responseOperation(command),
+        error: {
+          code: error.code,
+          message: "The Canvas Runtime request could not be completed.",
+          retryable: error.retryable,
+          ...(error.reconcileRequired ? { reconcileRequired: true } : {})
         }
-      }),
-      status
-    );
+      }
+    });
   }
 
   private assertOpen(command: CanvasRuntimeCommand, active: ActiveRequest): void {
@@ -364,7 +396,7 @@ export class CanvasRuntimeService {
   private async cancel(command: CanvasRuntimeCancelCommand, active: ActiveRequest) {
     await this.options.resolver.resolve(command.scope);
     this.assertOpen(command, active);
-    const target = this.active.get(command.targetRequestId);
+    const target = this.lifecycle.get(command.targetRequestId);
     target?.controller.abort("request_cancelled");
     return { targetRequestId: command.targetRequestId, cancelled: Boolean(target) };
   }
@@ -832,23 +864,24 @@ export class CanvasRuntimeService {
     const status = this.options.receipts.resetStatus(command.scope, operationId);
     if (isTerminalResetResolution(status)) return status;
     const original = this.options.receipts.resetOperation(command.scope, operationId);
-    if (!original || this.active.has(original.requestId)) return status;
+    if (!original || this.lifecycle.get(original.requestId) !== undefined) return status;
     return this.resolveInterruptedReset(original.command, resolved, () =>
       this.assertOpen(command, active)
     );
   }
 
-  private async recoverInterruptedReset(command: CanvasRuntimeRequestCommand): Promise<void> {
-    if (command.operation.operation !== "reset") return;
+  private async recoverInterruptedReset(
+    command: CanvasRuntimeRequestCommand,
+    active: ActiveRequest
+  ): Promise<void> {
+    if (command.operation.operation !== "reset" || active.controller.signal.aborted) return;
     const resetCommand = { ...command, operation: command.operation };
-    let resolution: CanvasRuntimeResetResolution;
+    let resolved: ResolvedCanvasRuntime;
     try {
-      const resolved = await this.options.resolver.resolve(resetCommand.scope);
-      resolution = await this.withScopeLane(resetCommand.scope, () =>
-        this.resolveInterruptedReset(resetCommand, resolved)
-      );
+      resolved = await this.options.resolver.resolve(resetCommand.scope);
     } catch {
-      resolution = this.options.receipts.resolveReset(
+      if (active.controller.signal.aborted) return;
+      this.options.receipts.resolveReset(
         resetCommand.scope,
         resetCommand.operation.evidence.operationId,
         {
@@ -856,30 +889,53 @@ export class CanvasRuntimeService {
           error: { code: "reset_recovery_unavailable", retryable: false }
         }
       );
-    }
-    if (resolution.kind === "succeeded") {
-      this.options.receipts.complete(
-        resetCommand.requestId,
-        canvasRuntimeResponsePayloadSchema.parse({
-          type: "canvas_runtime.response",
-          protocolVersion: 1,
-          requestId: resetCommand.requestId,
-          response: { outcome: "success", operation: "reset", result: resolution.result }
-        })
+      this.finishError(
+        resetCommand,
+        new CanvasRuntimeServiceError("reset_recovery_unavailable"),
+        "terminal"
       );
       return;
     }
-    if (resolution.kind === "failed") {
-      this.finishError(
-        resetCommand,
-        new CanvasRuntimeServiceError(
-          resolution.error.code,
-          resolution.error.retryable,
-          resolution.error.reconcileRequired === true
-        ),
-        resolution.error.reconcileRequired ? "reconcile_required" : "terminal"
+    if (active.controller.signal.aborted) return;
+    await this.withScopeLane(resetCommand.scope, async () => {
+      if (active.controller.signal.aborted) return;
+      let decision: Parameters<CanvasRuntimeRpcRepository["resolveReset"]>[2];
+      try {
+        decision = await this.readInterruptedResetResolution(resetCommand, resolved);
+      } catch {
+        decision = {
+          kind: "failed",
+          error: { code: "reset_recovery_unavailable", retryable: false }
+        };
+      }
+      if (active.controller.signal.aborted) return;
+      const resolution = this.options.receipts.resolveReset(
+        resetCommand.scope,
+        resetCommand.operation.evidence.operationId,
+        decision
       );
-    }
+      if (resolution.kind === "succeeded") {
+        this.options.receipts.complete(
+          resetCommand.requestId,
+          canvasRuntimeResponsePayloadSchema.parse({
+            type: "canvas_runtime.response",
+            protocolVersion: 1,
+            requestId: resetCommand.requestId,
+            response: { outcome: "success", operation: "reset", result: resolution.result }
+          })
+        );
+      } else if (resolution.kind === "failed") {
+        this.finishError(
+          resetCommand,
+          new CanvasRuntimeServiceError(
+            resolution.error.code,
+            resolution.error.retryable,
+            resolution.error.reconcileRequired === true
+          ),
+          resolution.error.reconcileRequired ? "reconcile_required" : "terminal"
+        );
+      }
+    });
   }
 
   private async resolveInterruptedReset(
@@ -889,6 +945,21 @@ export class CanvasRuntimeService {
     resolved: ResolvedCanvasRuntime,
     beforeResolution?: () => void
   ): Promise<CanvasRuntimeResetResolution> {
+    const decision = await this.readInterruptedResetResolution(command, resolved);
+    beforeResolution?.();
+    return this.options.receipts.resolveReset(
+      command.scope,
+      command.operation.evidence.operationId,
+      decision
+    );
+  }
+
+  private async readInterruptedResetResolution(
+    command: CanvasRuntimeRequestCommand & {
+      operation: Extract<CanvasRuntimeRequestCommand["operation"], { operation: "reset" }>;
+    },
+    resolved: ResolvedCanvasRuntime
+  ): Promise<Parameters<CanvasRuntimeRpcRepository["resolveReset"]>[2]> {
     const evidence = command.operation.evidence;
     const marker = await readRuntimeResetReceipt({ projectRoot: resolved.canvas });
     if (
@@ -897,13 +968,12 @@ export class CanvasRuntimeService {
       marker.graphFingerprint === evidence.graphFingerprint
     ) {
       const after = await this.availability(resolved);
-      beforeResolution?.();
       if (
         after.sourceRevision === evidence.sourceRevision &&
         after.graphFingerprint === evidence.graphFingerprint &&
         after.status.packageFingerprint === evidence.graphFingerprint
       ) {
-        return this.options.receipts.resolveReset(command.scope, evidence.operationId, {
+        return {
           kind: "succeeded",
           result: canvasRuntimeResetResultSchema.parse({
             operationId: evidence.operationId,
@@ -911,17 +981,16 @@ export class CanvasRuntimeService {
             graphFingerprint: after.graphFingerprint,
             status: after.status
           })
-        });
+        };
       }
-      return this.options.receipts.resolveReset(command.scope, evidence.operationId, {
+      return {
         kind: "failed",
         error: { code: "content_out_of_sync", retryable: false }
-      });
+      };
     }
-    beforeResolution?.();
-    return this.options.receipts.resolveReset(command.scope, evidence.operationId, {
+    return {
       kind: "failed",
       error: { code: "reset_commit_not_observed", retryable: false }
-    });
+    };
   }
 }

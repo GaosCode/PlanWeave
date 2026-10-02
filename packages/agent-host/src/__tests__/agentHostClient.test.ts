@@ -1051,8 +1051,10 @@ describe("Agent Host outbound transport", () => {
     const state = await openState();
     const nextToken = `pw_host_${"b".repeat(43)}`;
     const canvasRuntime = {
+      start: vi.fn(),
+      stop: vi.fn(async () => {}),
       enabled: () => true,
-      recover: vi.fn(),
+      recover: vi.fn(async () => {}),
       isSessionActive: vi.fn(() => false),
       disconnect: vi.fn(),
       handle: vi.fn(async () => {}),

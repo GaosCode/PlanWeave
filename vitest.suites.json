@@ -817,6 +817,7 @@
         "canvasRuntimeServicePreparation.test.ts",
         "canvasRuntimeServiceCommitBoundary.test.ts",
         "canvasRuntimeServiceMaterializationAdmission.test.ts",
+        "canvasRuntimeShutdown.test.ts",
         "canvasRuntimeWorkItemFacts.test.ts",
         "connectionStatus.test.ts",
         "durableAcpRelay.test.ts",

@@ -41,15 +41,17 @@ export function composeAgentHost(options: AgentHostCompositionOptions): AgentHos
         try {
           if (startPromise) {
             await startPromise;
-            await options.transport.stop();
           }
+          await options.transport.stop();
         } catch (error) {
           if (containsShutdownTimeout(error)) {
             throw new AggregateError([error], "agent_host_shutdown_requires_process_exit", {
               cause: error
             });
           }
-          errors.push(error);
+          throw new AggregateError([error], "agent_host_composition_shutdown_failed", {
+            cause: error
+          });
         }
         try {
           await options.state.close();

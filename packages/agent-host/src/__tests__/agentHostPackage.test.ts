@@ -13,7 +13,8 @@ describe("@planweave-ai/agent-host", () => {
     const agentHost = await import("../index.js");
     const transport = {
       start: vi.fn(),
-      stop: vi.fn()
+      stop: vi.fn(),
+      subscribe: vi.fn(() => () => {})
     };
     const state = {
       close: vi.fn()
@@ -44,7 +45,7 @@ describe("@planweave-ai/agent-host", () => {
     await expect(composition.shutdown()).resolves.toBeUndefined();
   });
 
-  it("closes durable state when transport shutdown fails", async () => {
+  it("keeps durable state open when transport shutdown fails", async () => {
     const { composeAgentHost } = await import("../index.js");
     const failure = new Error("transport_stop_failed");
     const state = { close: vi.fn() };
@@ -52,6 +53,7 @@ describe("@planweave-ai/agent-host", () => {
       state,
       transport: {
         start() {},
+        subscribe: vi.fn(() => () => {}),
         stop() {
           throw failure;
         }
@@ -60,7 +62,7 @@ describe("@planweave-ai/agent-host", () => {
 
     await composition.start();
     await expect(composition.shutdown()).rejects.toThrow("agent_host_composition_shutdown_failed");
-    expect(state.close).toHaveBeenCalledOnce();
+    expect(state.close).not.toHaveBeenCalled();
   });
 
   it("keeps active-run state open when transport shutdown requires process exit", async () => {
@@ -72,6 +74,7 @@ describe("@planweave-ai/agent-host", () => {
       closeResources,
       transport: {
         start() {},
+        subscribe: vi.fn(() => () => {}),
         stop() {
           throw new Error("agent_host_transport_shutdown_timeout");
         }

@@ -82,6 +82,8 @@ export type AgentHostClientOptions = {
     | "enabled"
     | "handle"
     | "recover"
+    | "start"
+    | "stop"
     | "synchronizeServerTime"
     | "updateCredentialToken"
   >;
@@ -257,6 +259,7 @@ export class AgentHostClient implements HostTransport {
     this.startupAttempt = 0;
     this.reconnectAttempt = 0;
     try {
+      this.options.canvasRuntime?.start();
       this.options.state.recoverInterruptedExecutions();
     } catch (error) {
       this.failExecutionProtection("startup_local_state_failed");
@@ -394,7 +397,10 @@ export class AgentHostClient implements HostTransport {
   }
 
   private async stopTransport(): Promise<void> {
-    if (this.stopped && this.currentStatus.state === "stopped" && !this.startup) return;
+    if (this.stopped && this.currentStatus.state === "stopped" && !this.startup) {
+      if (this.options.canvasRuntime) await this.waitBounded(this.options.canvasRuntime.stop());
+      return;
+    }
     this.connectionWatchdog?.stop();
     const generation = ++this.lifecycleGeneration;
     const reconciliationRequired = this.currentStatus.state === "reconciliation-required";
@@ -411,6 +417,7 @@ export class AgentHostClient implements HostTransport {
     if (this.heartbeatTimer) this.clock.clearTimeout(this.heartbeatTimer);
     for (const { controller } of this.active.values()) controller.abort();
     this.options.canvasRuntime?.disconnect();
+    if (this.options.canvasRuntime) await this.waitBounded(this.options.canvasRuntime.stop());
     const socket = this.socket;
     this.socket = undefined;
     if (socket && socket.readyState !== WebSocket.CLOSED) {
@@ -620,7 +627,10 @@ export class AgentHostClient implements HostTransport {
         this.options.canvasRuntime?.synchronizeServerTime(event.serverTime, this.clock.now());
         if (this.recoveredGeneration !== this.lifecycleGeneration) {
           this.recoveredGeneration = this.lifecycleGeneration;
-          this.options.canvasRuntime?.recover();
+          void this.options.canvasRuntime?.recover().then(
+            () => this.flushEvents(),
+            () => this.failCanvasRuntimePersistence()
+          );
           this.options.conversations?.recover();
         }
         this.checkExecutionLeases();
@@ -658,12 +668,7 @@ export class AgentHostClient implements HostTransport {
           };
           void run.then(onSettled, () => {
             onSettled();
-            this.stopped = true;
-            this.transition({
-              state: "reconciliation-required",
-              reason: "canvas_runtime_persistence_failed"
-            });
-            this.socket?.close(4003, "canvas runtime persistence failed");
+            this.failCanvasRuntimePersistence();
           });
         }
         {
@@ -727,6 +732,7 @@ export class AgentHostClient implements HostTransport {
     const cleanup = this.waitBounded(
       Promise.all([
         this.options.conversations?.stop() ?? Promise.resolve(),
+        this.options.canvasRuntime?.stop() ?? Promise.resolve(),
         Promise.allSettled([...this.runs]),
         Promise.allSettled([...this.canvasRuns])
       ]).then(() => undefined)
@@ -1074,17 +1080,27 @@ export class AgentHostClient implements HostTransport {
     this.credentialRenewalInFlight = operation;
   }
 
+  private failCanvasRuntimePersistence(): void {
+    this.stopped = true;
+    this.transition({
+      state: "reconciliation-required",
+      reason: "canvas_runtime_persistence_failed"
+    });
+    this.socket?.close(4003, "canvas runtime persistence failed");
+  }
+
   private async waitBounded(operation: Promise<void>): Promise<void> {
     let timer: unknown;
-    const timedOut = await Promise.race([
-      operation.then(() => false),
-      new Promise<true>((resolve) => {
-        timer = this.clock.setTimeout(() => resolve(true), this.limits.shutdownTimeoutMs);
-      })
-    ]);
-    if (timer) this.clock.clearTimeout(timer);
-    if (timedOut) {
-      throw new Error("agent_host_transport_shutdown_timeout");
+    try {
+      const timedOut = await Promise.race([
+        operation.then(() => false),
+        new Promise<true>((resolve) => {
+          timer = this.clock.setTimeout(() => resolve(true), this.limits.shutdownTimeoutMs);
+        })
+      ]);
+      if (timedOut) throw new Error("agent_host_transport_shutdown_timeout");
+    } finally {
+      if (timer !== undefined) this.clock.clearTimeout(timer);
     }
   }
 }

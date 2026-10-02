@@ -33,10 +33,12 @@ async function setup(
   const server = await HostTransportSocketHarness.open();
   const clock = new FakeLeaseClock();
   const canvasRuntime = {
+    start: vi.fn(),
+    stop: vi.fn(async () => {}),
     enabled: () => true,
     disconnect: vi.fn(),
     handle: vi.fn(),
-    recover: vi.fn(),
+    recover: vi.fn(async () => {}),
     synchronizeServerTime: vi.fn(),
     updateCredentialToken: vi.fn()
   };
