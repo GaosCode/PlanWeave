@@ -365,6 +365,7 @@
         "localCollaborationCoordinatorControl.test.ts",
         "localCollaborationNetworkStore.test.ts",
         "localCollaborationScopeStore.test.ts",
+        "mcpCredentialVersion.test.ts",
         "mcpTunnel.test.ts",
         "mcpTunnelConfigCommit.test.ts",
         "mcpTunnelLifecycle.test.ts",

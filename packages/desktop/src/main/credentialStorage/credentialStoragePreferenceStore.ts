@@ -44,8 +44,8 @@ export class CredentialStoragePreferenceStore {
       encoding: "utf8",
       mode: 0o600
     });
+    await chmod(temporaryPath, 0o600);
     await rename(temporaryPath, this.path);
-    await chmod(this.path, 0o600);
     return preference;
   }
 }

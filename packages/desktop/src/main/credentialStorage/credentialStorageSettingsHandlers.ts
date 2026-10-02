@@ -46,7 +46,14 @@ export function registerCredentialStorageSettingsHandlers(options: {
       try {
         await options.store.write(parsed);
       } catch (error) {
-        await receipt?.rollbackSharedFiles();
+        try {
+          await receipt?.rollbackSharedFiles();
+        } catch (rollbackError) {
+          throw new AggregateError(
+            [error, rollbackError],
+            "Credential mode change and rollback failed."
+          );
+        }
         throw error;
       }
       return status();

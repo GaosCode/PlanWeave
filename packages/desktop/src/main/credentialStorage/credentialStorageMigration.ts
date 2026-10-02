@@ -262,7 +262,7 @@ async function migrateMcpRuntimeApiKey(options: {
   targetMode: CredentialStorageMode;
   sourceStorage: CollaborationSafeStoragePort;
   targetStorage: CollaborationSafeStoragePort;
-}): Promise<number> {
+}): Promise<{ count: number; rollback(): Promise<void> }> {
   const commit: McpConfigCommit =
     options.commit ??
     (async (update) => {
@@ -271,31 +271,73 @@ async function migrateMcpRuntimeApiKey(options: {
       if (candidate !== config) await writeTunnelClientConfig(candidate, options.paths);
     });
   let migrated = 0;
+  let previous: TunnelClientConfig | null = null;
+  let candidate: TunnelClientConfig | null = null;
   await commit((config) => {
     const keys = { ...(config.encryptedRuntimeApiKeys ?? {}) };
     const legacySystemCiphertext = config.encryptedRuntimeApiKey;
     const sourceCiphertext =
       keys[options.sourceMode] ?? (options.sourceMode === "system" ? legacySystemCiphertext : null);
     if (!sourceCiphertext) return config;
-    const targetCiphertext =
-      keys[options.targetMode] ?? (options.targetMode === "system" ? legacySystemCiphertext : null);
-    if (targetCiphertext) {
-      if (keys[options.targetMode]) return config;
-      keys[options.targetMode] = targetCiphertext;
-      return { ...config, encryptedRuntimeApiKeys: keys };
-    }
     const sourceKey = decrypt(
       options.sourceStorage,
       sourceCiphertext,
       "MCP runtime API key"
     ).trim();
     if (!sourceKey) throw new Error("credential_storage_migration_mcp_runtime_api_key_invalid");
-    if (!keys[options.sourceMode]) keys[options.sourceMode] = sourceCiphertext;
-    keys[options.targetMode] = encrypt(options.targetStorage, sourceKey);
-    migrated = 1;
-    return { ...config, encryptedRuntimeApiKeys: keys };
+    const targetCiphertext =
+      keys[options.targetMode] ?? (options.targetMode === "system" ? legacySystemCiphertext : null);
+    let targetMatches = false;
+    if (targetCiphertext) {
+      try {
+        targetMatches =
+          options.targetStorage.decryptString(Buffer.from(targetCiphertext, "base64")).trim() ===
+          sourceKey;
+      } catch {
+        // A corrupt target is replaced from the validated source authority.
+      }
+    }
+    keys[options.sourceMode] = sourceCiphertext;
+    if (!targetMatches) {
+      keys[options.targetMode] = encrypt(options.targetStorage, sourceKey);
+      migrated = 1;
+    } else if (targetCiphertext) {
+      keys[options.targetMode] = targetCiphertext;
+    }
+    const sameKeys =
+      config.encryptedRuntimeApiKeys?.application === keys.application &&
+      config.encryptedRuntimeApiKeys?.system === keys.system;
+    if (sameKeys && config.encryptedRuntimeApiKey === (keys.system ?? null)) return config;
+    previous = config;
+    candidate = {
+      ...config,
+      encryptedRuntimeApiKeys: keys,
+      encryptedRuntimeApiKey: keys.system ?? null
+    };
+    return candidate;
   });
-  return migrated;
+  return {
+    count: migrated,
+    rollback: async () => {
+      const before = previous;
+      const changed = candidate;
+      if (!before || !changed) return;
+      await commit((config) => {
+        if (
+          config.encryptedRuntimeApiKeys?.application !==
+            changed.encryptedRuntimeApiKeys?.application ||
+          config.encryptedRuntimeApiKeys?.system !== changed.encryptedRuntimeApiKeys?.system ||
+          config.encryptedRuntimeApiKey !== changed.encryptedRuntimeApiKey
+        )
+          return config;
+        return {
+          ...config,
+          encryptedRuntimeApiKeys: before.encryptedRuntimeApiKeys,
+          encryptedRuntimeApiKey: before.encryptedRuntimeApiKey
+        };
+      });
+    }
+  };
 }
 
 export async function migrateCredentialStorage(options: {
@@ -341,18 +383,20 @@ export async function migrateCredentialStorage(options: {
       targetStorage: options.targetStorage,
       label: "operator credential"
     }),
-    mcpRuntimeApiKey: await migrateMcpRuntimeApiKey({
-      paths: options.mcpTunnelPaths,
-      commit: options.commitMcpConfig,
-      sourceMode: options.sourceMode,
-      targetMode: options.targetMode,
-      sourceStorage: options.sourceStorage,
-      targetStorage: options.targetStorage
-    })
+    mcpRuntimeApiKey: 0
   };
   counts.operatorCredentials += await restoreLocalOperatorCredentialFromCoordinator({
     coordinatorPath: options.targetPaths.coordinatorCredentialsFile,
     operatorPath: options.targetPaths.operatorCredentialsFile
   });
-  return { counts, rollbackSharedFiles: async () => undefined };
+  const mcp = await migrateMcpRuntimeApiKey({
+    paths: options.mcpTunnelPaths,
+    commit: options.commitMcpConfig,
+    sourceMode: options.sourceMode,
+    targetMode: options.targetMode,
+    sourceStorage: options.sourceStorage,
+    targetStorage: options.targetStorage
+  });
+  counts.mcpRuntimeApiKey = mcp.count;
+  return { counts, rollbackSharedFiles: mcp.rollback };
 }

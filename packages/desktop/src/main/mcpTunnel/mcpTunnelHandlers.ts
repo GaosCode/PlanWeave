@@ -43,6 +43,8 @@ let credentialStorage: DesktopCredentialStorage = {
   encryptString: (value) => safeStorage.encryptString(value),
   decryptString: (value) => safeStorage.decryptString(value)
 };
+let credentialStorageForMode: ((mode: CredentialStorageMode) => DesktopCredentialStorage) | null =
+  null;
 let downloadStatus: TunnelClientDownloadStatus = {
   phase: "idle",
   assetName: null,
@@ -61,7 +63,8 @@ const configController = createTunnelClientConfigController({
   read: () => readTunnelClientConfig(mcpTunnelConfigStorePaths(userDataDir())),
   write: (config) => writeTunnelClientConfig(config, mcpTunnelConfigStorePaths(userDataDir())),
   storage: () => credentialStorage,
-  mode: () => credentialStorageMode
+  mode: () => credentialStorageMode,
+  storageForMode: (mode) => credentialStorageForMode?.(mode) ?? null
 });
 
 // Credential-mode migration shares the same configuration owner as IPC commands.
@@ -69,7 +72,6 @@ export async function updateMcpTunnelConfig(
   update: (config: TunnelClientConfig) => TunnelClientConfig
 ): Promise<void> {
   await configController.update((state) => ({ ...state, config: update(state.config) }));
-  await publishStatus();
 }
 
 function binaryConfig(state: TunnelClientConfigSnapshot) {
@@ -327,10 +329,12 @@ export function registerMcpTunnelHandlers(
   options: {
     credentialStorage?: DesktopCredentialStorage;
     credentialStorageMode?: CredentialStorageMode;
+    credentialStorageForMode?: (mode: CredentialStorageMode) => DesktopCredentialStorage;
   } = {}
 ): void {
   if (options.credentialStorage) credentialStorage = options.credentialStorage;
   if (options.credentialStorageMode) credentialStorageMode = options.credentialStorageMode;
+  if (options.credentialStorageForMode) credentialStorageForMode = options.credentialStorageForMode;
   ipcMain.handle(mcpTunnelInvokeChannels.getMcpTunnelStatus, () => getMcpTunnelStatus());
   ipcMain.handle(mcpTunnelInvokeChannels.downloadTunnelClient, () => downloadTunnelClient());
   ipcMain.handle(mcpTunnelInvokeChannels.setTunnelClientPath, (_event, path: string | null) =>

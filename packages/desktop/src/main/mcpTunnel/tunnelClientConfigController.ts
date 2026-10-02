@@ -17,6 +17,7 @@ export function createTunnelClientConfigController(options: {
   write(config: TunnelClientConfig): Promise<void>;
   storage(): DesktopCredentialStorage;
   mode(): CredentialStorageMode;
+  storageForMode(mode: CredentialStorageMode): DesktopCredentialStorage | null;
 }) {
   let committed: TunnelClientConfigSnapshot | null = null;
   let tail: Promise<void> = Promise.resolve();
@@ -97,27 +98,37 @@ export function createTunnelClientConfigController(options: {
         const mode = options.mode();
         const keys = { ...(current.config.encryptedRuntimeApiKeys ?? {}) };
         if (options.storage().isEncryptionAvailable()) {
+          const otherMode = mode === "application" ? "system" : "application";
+          const otherCiphertext =
+            keys[otherMode] ??
+            (otherMode === "system" ? current.config.encryptedRuntimeApiKey : null);
           keys[mode] = options.storage().encryptString(key).toString("base64");
+          if (otherCiphertext) {
+            const otherStorage = options.storageForMode(otherMode);
+            if (otherStorage?.isEncryptionAvailable()) {
+              keys[otherMode] = otherStorage.encryptString(key).toString("base64");
+            } else {
+              delete keys[otherMode];
+            }
+          }
           return {
             config: {
               ...current.config,
               tunnelId,
               encryptedRuntimeApiKeys: keys,
-              encryptedRuntimeApiKey:
-                mode === "system" ? (keys.system ?? null) : current.config.encryptedRuntimeApiKey
+              encryptedRuntimeApiKey: keys.system ?? null
             },
             runtimeApiKey: key,
             sessionRuntimeApiKey: null
           };
         }
-        delete keys[mode];
+        // A session-only replacement cannot leave a persisted older representation.
         return {
           config: {
             ...current.config,
             tunnelId,
-            encryptedRuntimeApiKeys: keys,
-            encryptedRuntimeApiKey:
-              mode === "system" ? null : current.config.encryptedRuntimeApiKey,
+            encryptedRuntimeApiKeys: {},
+            encryptedRuntimeApiKey: null,
             autoStart: false
           },
           runtimeApiKey: null,

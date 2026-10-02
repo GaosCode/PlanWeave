@@ -252,7 +252,7 @@ describe("MCP tunnel application configuration commits", () => {
     expect((await api.getMcpTunnelStatus()).config.tunnelId).toBe("old-id");
     expect(await disk()).toEqual(base);
     await api.startTunnel({ runtimeApiKey: "valid-key" });
-    expect((await disk()).encryptedRuntimeApiKeys?.application).toBe("other-mode-cipher");
+    expect((await disk()).encryptedRuntimeApiKeys?.application).toBeUndefined();
     expect((await api.getMcpTunnelStatus()).config.runtimeApiKeyPersistence).toBe("persisted");
   });
 
@@ -372,14 +372,24 @@ describe("MCP tunnel application configuration commits", () => {
     );
   });
 
-  it("IPC configured application mode preserves system map and restores its own saved key", async () => {
+  it("IPC configured application mode synchronizes the system replica and restores its own saved key", async () => {
     const api = await handlers();
-    api.registerMcpTunnelHandlers({ credentialStorageMode: "application" });
+    api.registerMcpTunnelHandlers({
+      credentialStorageMode: "application",
+      credentialStorageForMode: () => ({
+        isEncryptionAvailable: mocks.available,
+        encryptString: mocks.encrypt,
+        decryptString: mocks.decrypt
+      })
+    });
     const start = mocks.handle.mock.calls.find((call) => call[0].endsWith(":startTunnel"))?.[1];
     if (!start) throw new Error("Missing startTunnel IPC handler");
     await start(null, { tunnelId: "application-id", runtimeApiKey: "application-key" });
     const saved = await disk();
-    expect(saved.encryptedRuntimeApiKeys?.system).toBe(base.encryptedRuntimeApiKeys?.system);
+    expect(saved.encryptedRuntimeApiKeys?.system).toBe(
+      Buffer.from("encrypted:application-key").toString("base64")
+    );
+    expect(saved.encryptedRuntimeApiKey).toBe(saved.encryptedRuntimeApiKeys?.system);
     expect(saved.encryptedRuntimeApiKeys?.application).toBe(
       Buffer.from("encrypted:application-key").toString("base64")
     );
@@ -411,7 +421,7 @@ describe("MCP tunnel application configuration commits", () => {
       runtimeApiKeyPersistence: "session-only",
       autoStart: false
     });
-    expect((await disk()).encryptedRuntimeApiKeys?.application).toBe("other-mode-cipher");
+    expect((await disk()).encryptedRuntimeApiKeys?.application).toBeUndefined();
     expect((await disk()).encryptedRuntimeApiKey).toBeNull();
     await expect(api.setTunnelAutoStart(true)).rejects.toThrow("Auto-start requires");
     vi.resetModules();
@@ -472,5 +482,67 @@ describe("MCP tunnel application configuration commits", () => {
       expect.objectContaining({ binary: expect.objectContaining({ path: "/test/environment" }) })
     );
     expect((await disk()).tunnelClientPath).toBe("/test/saved");
+  });
+  it("keeps settings migration commit and receipt honest when unrelated binary publication would fail", async () => {
+    const api = await handlers();
+    const { migrateCredentialStorage } = await import(
+      "../main/credentialStorage/credentialStorageMigration.js"
+    );
+    const { credentialStoragePaths } = await import(
+      "../main/credentialStorage/credentialStoragePaths.js"
+    );
+    const { CredentialStoragePreferenceStore } = await import(
+      "../main/credentialStorage/credentialStoragePreferenceStore.js"
+    );
+    const { registerCredentialStorageSettingsHandlers } = await import(
+      "../main/credentialStorage/credentialStorageSettingsHandlers.js"
+    );
+    const { credentialStorageSettingsInvokeChannels } = await import(
+      "../shared/credentialStorageSettings.js"
+    );
+    const preference = new CredentialStoragePreferenceStore(join(root, "preference.json"));
+    await preference.write({ mode: "system" });
+    const storage = {
+      isEncryptionAvailable: mocks.available,
+      encryptString: mocks.encrypt,
+      decryptString: mocks.decrypt
+    };
+    let receipt: Awaited<ReturnType<typeof migrateCredentialStorage>> | null = null;
+    registerCredentialStorageSettingsHandlers({
+      store: preference,
+      activeMode: "system",
+      migration: {
+        migrate: async (targetMode) => {
+          const result = await migrateCredentialStorage({
+            sourceMode: "system",
+            targetMode,
+            sourcePaths: credentialStoragePaths("system"),
+            targetPaths: credentialStoragePaths(targetMode),
+            sourceStorage: storage,
+            targetStorage: storage,
+            mcpTunnelPaths: store.mcpTunnelConfigStorePaths(),
+            commitMcpConfig: api.updateMcpTunnelConfig
+          });
+          receipt = result;
+          return result;
+        }
+      }
+    });
+    mocks.binary.mockRejectedValueOnce(new Error("unrelated probe unavailable"));
+    const configure = mocks.handle.mock.calls.find(
+      (call) => call[0] === credentialStorageSettingsInvokeChannels.configure
+    )?.[1];
+    if (!configure) throw new Error("Missing production configure handler");
+    await expect(configure({}, { mode: "application" })).resolves.toMatchObject({
+      configuredMode: "application"
+    });
+    expect((await preference.read()).mode).toBe("application");
+    expect(receipt).toMatchObject({
+      counts: { mcpRuntimeApiKey: 1 },
+      rollbackSharedFiles: expect.any(Function)
+    });
+    expect((await disk()).encryptedRuntimeApiKeys?.application).toBe(
+      Buffer.from("encrypted:old-key").toString("base64")
+    );
   });
 });

@@ -164,7 +164,8 @@ function startDesktopApplication(): void {
       });
       registerMcpTunnelHandlers({
         credentialStorage,
-        credentialStorageMode: activeCredentialStorageMode
+        credentialStorageMode: activeCredentialStorageMode,
+        credentialStorageForMode
       });
       let collaboration: ReturnType<typeof registerCollaborationHandlers> | null = null;
       registerOperatorControlHandlers({
