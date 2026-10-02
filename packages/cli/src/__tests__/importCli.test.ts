@@ -98,6 +98,52 @@ describe("STEP-1 CLI contract: package import", () => {
     expect(qualityAfterApply.ok).toBe(true);
   }, 20_000);
 
+  it("keeps CLI default and explicit targets consistent with persisted packages and rejects unknown targets", async () => {
+    const home = await mkdtemp(join(tmpdir(), "planweave-import-selection-"));
+    const draftRoot = await mkdtemp(join(tmpdir(), "planweave-import-selection-draft-"));
+    const env = { ...process.env, PLANWEAVE_HOME: home };
+    const init = JSON.parse((await runCli(["init", "--json"], env)).stdout);
+    await runCli(
+      ["canvas", "create", "--id", "selected", "--title", "Selected", "--activate", "--json"],
+      env
+    );
+    await cp(join(repoRoot, "examples/basic-plan-package/package"), draftRoot, { recursive: true });
+    await writeFile(join(draftRoot, "imported.txt"), "CLI imported bytes");
+    await writeFile(join(init.workspace.resultsDir, "keep.txt"), "default results");
+    const selectedPackage = join(init.workspace.workspaceRoot, "canvases", "selected", "package");
+    const omitted = JSON.parse(
+      (await runCli(["package", "import", "--from", draftRoot, "--apply", "--json"], env)).stdout
+    );
+    expect(omitted).toMatchObject({ applied: true, target: { canvasId: "selected" } });
+    expect(await readFile(join(selectedPackage, "imported.txt"), "utf8")).toBe(
+      "CLI imported bytes"
+    );
+    expect(await readFile(join(init.workspace.resultsDir, "keep.txt"), "utf8")).toBe(
+      "default results"
+    );
+    const selectedBefore = await readFile(join(selectedPackage, "manifest.json"));
+    const explicit = JSON.parse(
+      (
+        await runCli(
+          ["package", "import", "--from", draftRoot, "--apply", "--canvas", "default", "--json"],
+          env
+        )
+      ).stdout
+    );
+    expect(explicit).toMatchObject({ applied: true, target: { canvasId: "default" } });
+    expect(await readFile(join(init.workspace.packageDir, "imported.txt"), "utf8")).toBe(
+      "CLI imported bytes"
+    );
+    expect(await readFile(join(selectedPackage, "manifest.json"))).toEqual(selectedBefore);
+    const failure = await runCliExpectFailure(
+      ["package", "import", "--from", draftRoot, "--apply", "--canvas", "missing", "--json"],
+      env
+    );
+    expect(failure.code).not.toBe(0);
+    expect(failure.stderr).toContain("Project has no task canvas");
+    expect(await readFile(join(selectedPackage, "manifest.json"))).toEqual(selectedBefore);
+  }, 20_000);
+
   it("returns a non-zero exit code for invalid package draft quality", async () => {
     const home = await mkdtemp(join(tmpdir(), "planweave-home-"));
     const draftRoot = await mkdtemp(join(tmpdir(), "planweave-bad-draft-"));

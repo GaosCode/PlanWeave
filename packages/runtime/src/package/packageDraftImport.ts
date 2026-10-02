@@ -384,7 +384,10 @@ type PackageDraftImportPlan = {
   effects: PackageDraftImportEffect[];
   resolvedCanvasId: string | null;
   removedCanvases: ProjectCanvasNode[];
-};
+} & (
+  | { mode: "single-canvas"; canvasWorkspace: ProjectWorkspace }
+  | { mode: "project"; projectGraph: ProjectGraphManifest }
+);
 
 async function singleCanvasImportPlan(
   projectRoot: string,
@@ -402,6 +405,8 @@ async function singleCanvasImportPlan(
   await addOptionalFile(targetFiles, "state.json", canvasWorkspace.stateFile);
   await addRemovalOnlyFiles(targetFiles, canvasWorkspace.resultsDir, "results");
   return {
+    mode: "single-canvas",
+    canvasWorkspace,
     projectWorkspace,
     sourceFiles,
     targetFiles,
@@ -491,6 +496,8 @@ async function projectImportPlan(
   }
 
   return {
+    mode: "project",
+    projectGraph,
     projectWorkspace,
     sourceFiles,
     targetFiles,
@@ -514,11 +521,11 @@ async function importPlan(
   return null;
 }
 
-export async function previewPackageDraftImport(options: {
+async function preparePackageDraftImport(options: {
   draftRoot: string;
   projectRoot: string;
   canvasId?: string | null;
-}): Promise<PackageDraftImportPreview> {
+}): Promise<{ preview: PackageDraftImportPreview; plan: PackageDraftImportPlan | null }> {
   const result = await validatePackageDraft({ draftRoot: options.draftRoot });
   const plan = await importPlan(result, options.projectRoot, options.canvasId);
   const fileDiffs = plan ? compareFileMaps(plan.sourceFiles, plan.targetFiles) : [];
@@ -529,7 +536,7 @@ export async function previewPackageDraftImport(options: {
     removed: fileDiffs.filter((diff) => diff.type === "removed").length,
     unchanged: fileDiffs.filter((diff) => diff.type === "unchanged").length
   };
-  return {
+  const preview: PackageDraftImportPreview = {
     ...result,
     target: {
       projectRoot: options.projectRoot,
@@ -539,6 +546,15 @@ export async function previewPackageDraftImport(options: {
     effects: plan?.effects ?? [],
     summary
   };
+  return { preview, plan };
+}
+
+export async function previewPackageDraftImport(options: {
+  draftRoot: string;
+  projectRoot: string;
+  canvasId?: string | null;
+}): Promise<PackageDraftImportPreview> {
+  return (await preparePackageDraftImport(options)).preview;
 }
 
 function errorSummary(error: unknown): string {
@@ -569,12 +585,9 @@ async function commitImportTransaction(transaction: ImportTransaction): Promise<
 
 async function applySingleCanvasDraft(options: {
   draftRoot: string;
-  projectRoot: string;
-  canvasId?: string | null;
+  plan: PackageDraftImportPlan & { mode: "single-canvas" };
 }): Promise<void> {
-  const { resolveTaskCanvasWorkspace } = await import("../desktop/canvasApi.js");
-  const projectWorkspace = await requireInitializedProjectWorkspace(options.projectRoot);
-  const workspace = await resolveTaskCanvasWorkspace(options.projectRoot, options.canvasId);
+  const { projectWorkspace, canvasWorkspace: workspace } = options.plan;
   const tempRoot = await mkdtemp(join(tmpdir(), "planweave-package-import-"));
   const stagedPackage = join(tempRoot, "package");
   const stagedState = join(tempRoot, "state.json");
@@ -604,14 +617,10 @@ async function writeTextFile(path: string, content: string): Promise<void> {
 
 async function applyProjectDraft(options: {
   draftRoot: string;
-  projectRoot: string;
+  plan: PackageDraftImportPlan & { mode: "project" };
 }): Promise<void> {
-  const plan = await projectImportPlan(options.projectRoot, resolve(options.draftRoot));
-  const projectWorkspace = plan.projectWorkspace;
-  const projectGraph = await loadDraftProjectGraph(resolve(options.draftRoot));
-  if (!projectGraph) {
-    throw new Error("Project package draft requires project-graph.json.");
-  }
+  const { plan } = options;
+  const { projectWorkspace, projectGraph } = plan;
   const tempRoot = await mkdtemp(join(tmpdir(), "planweave-project-import-"));
   const stagedGraph = join(tempRoot, "project-graph.json");
   const transaction = await ImportTransaction.create({
@@ -658,14 +667,14 @@ export async function applyPackageDraftImport(options: {
   projectRoot: string;
   canvasId?: string | null;
 }): Promise<PackageDraftImportApplyResult> {
-  const preview = await previewPackageDraftImport(options);
-  if (!preview.ok || preview.mode === null) {
+  const { preview, plan } = await preparePackageDraftImport(options);
+  if (!preview.ok || plan === null) {
     return { ...preview, applied: false };
   }
-  if (preview.mode === "single-canvas") {
-    await applySingleCanvasDraft(options);
+  if (plan.mode === "single-canvas") {
+    await applySingleCanvasDraft({ draftRoot: options.draftRoot, plan });
   } else {
-    await applyProjectDraft({ draftRoot: options.draftRoot, projectRoot: options.projectRoot });
+    await applyProjectDraft({ draftRoot: options.draftRoot, plan });
   }
   return { ...preview, applied: true };
 }
