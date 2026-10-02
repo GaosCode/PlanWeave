@@ -883,6 +883,7 @@
       "root": "packages/server/src/__tests__",
       "unit": [
         "agentEndpointCatalog.test.ts",
+        "artifactDownloadLifecycle.test.ts",
         "artifactMediaType.test.ts",
         "clientOrigin.test.ts",
         "collaborationProtocolAuthority.test.ts",
@@ -929,6 +930,7 @@
         "artifactAdversarialBoundary.test.ts",
         "artifactAdversarialPersistence.test.ts",
         "artifactAuthorization.test.ts",
+        "artifactDownloadHttpLifecycle.test.ts",
         "artifactMigrationV7.test.ts",
         "artifactQuota.test.ts",
         "artifacts.test.ts",
@@ -1050,6 +1052,7 @@
         "remoteWorkspaceScopeMigration.test.ts",
         "registryHttp.test.ts",
         "runtimeArtifactAdapter.test.ts",
+        "runtimeArtifactDownloadHandoff.test.ts",
         "runtimeArtifactGrantRepository.test.ts",
         "runtimeAttachment.test.ts",
         "runtimeCompositionBoundary.test.ts",

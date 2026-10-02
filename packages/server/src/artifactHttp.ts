@@ -1,3 +1,4 @@
+import { releaseHttpDownloadSource, transferHttpDownload } from "./httpDownloadTransfer.js";
 import type { IncomingMessage, Server as HttpServer, ServerResponse } from "node:http";
 import { z } from "zod";
 import { artifactMediaTypeSchema } from "./artifactMediaType.js";
@@ -179,15 +180,21 @@ export async function handleAgentHostArtifactRequest(
     if (request.method === "GET") {
       options.authorization.authorizeInputRead({ ...scope, artifactRef: ref });
       const { metadata, stream } = await options.artifacts.openRead(ref);
-      response.writeHead(200, {
-        "content-type": metadata.mediaType,
-        "content-length": metadata.sizeBytes,
-        etag: `"sha256:${metadata.sha256}"`,
-        "cache-control": "private, immutable"
-      });
-      stream.on("error", () => response.destroy());
-      stream.pipe(response);
-      return true;
+      let handedOff = false;
+      try {
+        if (response.destroyed || response.writableEnded) return true;
+        response.writeHead(200, {
+          "content-type": metadata.mediaType,
+          "content-length": metadata.sizeBytes,
+          etag: `"sha256:${metadata.sha256}"`,
+          "cache-control": "private, immutable"
+        });
+        transferHttpDownload(stream, response);
+        handedOff = true;
+        return true;
+      } finally {
+        if (!handedOff) releaseHttpDownloadSource(stream);
+      }
     }
 
     const contentLengthText = requestHeader(request.headers["content-length"], "content_length");
@@ -234,7 +241,9 @@ export async function handleAgentHostArtifactRequest(
     return true;
   } catch (error) {
     const safe = safeArtifactHttpError(error);
-    respond(response, safe.status, { error: safe.code });
+    if (response.destroyed || response.writableEnded) return true;
+    if (response.headersSent) response.destroy();
+    else respond(response, safe.status, { error: safe.code });
     request.resume();
     return true;
   }

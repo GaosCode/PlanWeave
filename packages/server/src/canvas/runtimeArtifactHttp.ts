@@ -1,3 +1,4 @@
+import { releaseHttpDownloadSource, transferHttpDownload } from "../httpDownloadTransfer.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { canvasRuntimeArtifactMetadataSchema } from "@planweave-ai/agent-host-protocol";
 import { z } from "zod";
@@ -121,18 +122,24 @@ export async function handleCanvasRuntimeArtifactRequest(
     if (request.method === "GET") {
       const grant = options.grants.authorizeDownload({ ...matched, grantId });
       const { metadata, stream } = await options.artifacts.openRead(grant.artifactRef);
-      if (metadata.sizeBytes !== grant.sizeBytes || metadata.mediaType !== grant.mediaType) {
-        throw new Error("runtime_artifact_upload_evidence_mismatch");
+      let handedOff = false;
+      try {
+        if (response.destroyed || response.writableEnded) return true;
+        if (metadata.sizeBytes !== grant.sizeBytes || metadata.mediaType !== grant.mediaType) {
+          throw new Error("runtime_artifact_upload_evidence_mismatch");
+        }
+        response.writeHead(200, {
+          "content-type": metadata.mediaType,
+          "content-length": metadata.sizeBytes,
+          etag: `"sha256:${metadata.sha256}"`,
+          "cache-control": "private, immutable"
+        });
+        transferHttpDownload(stream, response);
+        handedOff = true;
+        return true;
+      } finally {
+        if (!handedOff) releaseHttpDownloadSource(stream);
       }
-      response.writeHead(200, {
-        "content-type": metadata.mediaType,
-        "content-length": metadata.sizeBytes,
-        etag: `"sha256:${metadata.sha256}"`,
-        "cache-control": "private, immutable"
-      });
-      stream.on("error", () => response.destroy());
-      stream.pipe(response);
-      return true;
     }
     const contentLengthText = header(request.headers["content-length"]);
     const contentLength = Number(contentLengthText);
@@ -171,7 +178,9 @@ export async function handleCanvasRuntimeArtifactRequest(
     return true;
   } catch (error) {
     const safe = safeError(error);
-    respond(response, safe.status, safe.code);
+    if (response.destroyed || response.writableEnded) return true;
+    if (response.headersSent) response.destroy();
+    else respond(response, safe.status, safe.code);
     request.resume();
     return true;
   }

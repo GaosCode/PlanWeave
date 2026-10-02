@@ -1,3 +1,4 @@
+import { releaseHttpDownloadSource, transferHttpDownload } from "../httpDownloadTransfer.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import { opaqueIdentifierSchema } from "@planweave-ai/agent-host-protocol";
@@ -385,18 +386,24 @@ export async function handleCommentAttachmentHttpRequest(
           projectId: matched.projectId,
           pendingUploadId: matched.pendingUploadId
         });
-        response.writeHead(
-          200,
-          safeDownloadHeaders({
-            mediaType: opened.metadata.mediaType,
-            sizeBytes: opened.metadata.sizeBytes,
-            fileName: opened.metadata.fileName,
-            digestSha256: opened.metadata.digestSha256
-          })
-        );
-        opened.stream.on("error", () => response.destroy());
-        opened.stream.pipe(response);
-        return true;
+        let handedOff = false;
+        try {
+          if (response.destroyed || response.writableEnded) return true;
+          response.writeHead(
+            200,
+            safeDownloadHeaders({
+              mediaType: opened.metadata.mediaType,
+              sizeBytes: opened.metadata.sizeBytes,
+              fileName: opened.metadata.fileName,
+              digestSha256: opened.metadata.digestSha256
+            })
+          );
+          transferHttpDownload(opened.stream, response);
+          handedOff = true;
+          return true;
+        } finally {
+          if (!handedOff) releaseHttpDownloadSource(opened.stream);
+        }
       }
       case "read_digest": {
         const opened = await options.service.openDigestRead({
@@ -405,17 +412,23 @@ export async function handleCommentAttachmentHttpRequest(
           projectId: matched.projectId,
           digestSha256: matched.digestSha256
         });
-        response.writeHead(
-          200,
-          safeDownloadHeaders({
-            mediaType: opened.mediaType,
-            sizeBytes: opened.sizeBytes,
-            digestSha256: opened.digestSha256
-          })
-        );
-        opened.stream.on("error", () => response.destroy());
-        opened.stream.pipe(response);
-        return true;
+        let handedOff = false;
+        try {
+          if (response.destroyed || response.writableEnded) return true;
+          response.writeHead(
+            200,
+            safeDownloadHeaders({
+              mediaType: opened.mediaType,
+              sizeBytes: opened.sizeBytes,
+              digestSha256: opened.digestSha256
+            })
+          );
+          transferHttpDownload(opened.stream, response);
+          handedOff = true;
+          return true;
+        } finally {
+          if (!handedOff) releaseHttpDownloadSource(opened.stream);
+        }
       }
       case "read_comment_attachment": {
         const opened = await options.service.openCommentAttachmentRead({
@@ -425,18 +438,24 @@ export async function handleCommentAttachmentHttpRequest(
           commentId: matched.commentId,
           digestSha256: matched.digestSha256
         });
-        response.writeHead(
-          200,
-          safeDownloadHeaders({
-            mediaType: opened.binding.mediaType,
-            sizeBytes: opened.binding.sizeBytes,
-            fileName: opened.binding.fileName,
-            digestSha256: opened.binding.digestSha256
-          })
-        );
-        opened.stream.on("error", () => response.destroy());
-        opened.stream.pipe(response);
-        return true;
+        let handedOff = false;
+        try {
+          if (response.destroyed || response.writableEnded) return true;
+          response.writeHead(
+            200,
+            safeDownloadHeaders({
+              mediaType: opened.binding.mediaType,
+              sizeBytes: opened.binding.sizeBytes,
+              fileName: opened.binding.fileName,
+              digestSha256: opened.binding.digestSha256
+            })
+          );
+          transferHttpDownload(opened.stream, response);
+          handedOff = true;
+          return true;
+        } finally {
+          if (!handedOff) releaseHttpDownloadSource(opened.stream);
+        }
       }
       case "cleanup": {
         const authActor = actor;
@@ -456,7 +475,9 @@ export async function handleCommentAttachmentHttpRequest(
     }
   } catch (error) {
     const safe = safeError(error);
-    respondJson(response, safe.status, { error: safe.code });
+    if (response.destroyed || response.writableEnded) return true;
+    if (response.headersSent) response.destroy();
+    else respondJson(response, safe.status, { error: safe.code });
     request.resume();
     return true;
   }

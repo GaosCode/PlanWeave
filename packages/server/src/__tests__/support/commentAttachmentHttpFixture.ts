@@ -123,6 +123,7 @@ export async function setup(options?: { clock?: () => Date; directory?: string }
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Expected HTTP address");
   return {
+    server,
     origin: `http://127.0.0.1:${address.port}`,
     directory,
     database,
