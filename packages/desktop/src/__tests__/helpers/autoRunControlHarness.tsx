@@ -18,6 +18,8 @@ type AutoRunControlArgs = Parameters<UseAutoRunControl>[0];
 export const project: DesktopProjectSummary = {
   projectId: "P-001",
   name: "Demo project",
+  kind: "external",
+  sourceRoot: "/tmp/demo",
   rootPath: "/tmp/demo",
   workspaceRoot: "/tmp/demo",
   activeCanvasId: null,
@@ -42,7 +44,8 @@ export const selectedBlock: DesktopBlockDetail = {
   latestReviewAttemptId: null,
   activeFeedbackId: null,
   exceptionReason: null,
-  reviewGate: null
+  reviewGate: null,
+  remoteExecution: null
 };
 
 export function explanationFor(
@@ -67,7 +70,7 @@ export function explanationFor(
 }
 
 export function autoRunState(patch: Partial<DesktopAutoRunState> = {}): DesktopAutoRunState {
-  const state = {
+  const state: Omit<DesktopAutoRunState, "explanation"> = {
     runId: "DESKTOP-RUN-0001",
     projectRoot: project.rootPath,
     canvasId: "canvas-main",
@@ -83,7 +86,7 @@ export function autoRunState(patch: Partial<DesktopAutoRunState> = {}): DesktopA
     latestRecordPath: null,
     statePath: "/tmp/project/.planweave/results/auto-runs/DESKTOP-RUN-0001/state.json",
     eventLogPath: "/tmp/project/.planweave/results/auto-runs/DESKTOP-RUN-0001/events.ndjson",
-    options: { tmuxEnabled: true },
+    options: { tmuxEnabled: true, acpRecovery: null, executorOverride: null },
     error: null,
     startedAt: "2026-05-23T00:00:00.000Z",
     updatedAt: "2026-05-23T00:00:00.000Z",

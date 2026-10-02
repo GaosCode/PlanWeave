@@ -137,6 +137,7 @@
         "deploymentConnectionCard.test.tsx",
         "deploymentConnectionCardLifecycle.test.tsx",
         "desktopAgentHostServiceMode.test.ts",
+        "desktopAutoRunScopeRace.test.tsx",
         "desktopBridgeContract.test.ts",
         "desktopCommandHandler.test.ts",
         "desktopDiagnostics.test.ts",

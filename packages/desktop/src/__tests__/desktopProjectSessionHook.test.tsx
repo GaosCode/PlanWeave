@@ -49,7 +49,7 @@ function latestAutoRunState(patch: Partial<DesktopAutoRunState> = {}): DesktopAu
     },
     statePath: "/tmp/project/.planweave/results/auto-runs/RUN-001/state.json",
     eventLogPath: "/tmp/project/.planweave/results/auto-runs/RUN-001/events.ndjson",
-    options: { tmuxEnabled: true },
+    options: { tmuxEnabled: true, acpRecovery: null, executorOverride: null },
     error: null,
     startedAt: "2026-05-23T00:00:00.000Z",
     updatedAt: "2026-05-23T00:00:01.000Z"
@@ -57,8 +57,18 @@ function latestAutoRunState(patch: Partial<DesktopAutoRunState> = {}): DesktopAu
   return { ...base, ...patch };
 }
 
+const currentProjectRequest: DesktopProjectState["beginProjectRequest"] = () => ({
+  isCurrent: () => true,
+  isSelectionCurrent: () => true,
+  isGraphCurrent: () => true,
+  isAutoRunCurrent: () => true
+});
+const isRuntimeAutoRunCurrent = () => true;
+
 function projectStateFixture(overrides: Partial<DesktopProjectState> = {}): DesktopProjectState {
   return {
+    beginProjectRequest: currentProjectRequest,
+    isRuntimeAutoRunCurrent,
     expandedProjectId: null,
     executionPlan: null,
     graph: null,
@@ -86,6 +96,8 @@ function projectStateFixture(overrides: Partial<DesktopProjectState> = {}): Desk
     selectedCanvasId: "canvas-main",
     selectedProject: project,
     setLayout: vi.fn(),
+    setSelectedCanvasId: vi.fn(),
+    setSelectedProject: vi.fn(),
     statistics: null,
     todoGroups: null,
     updateProjectPrompt: vi.fn().mockResolvedValue(undefined),

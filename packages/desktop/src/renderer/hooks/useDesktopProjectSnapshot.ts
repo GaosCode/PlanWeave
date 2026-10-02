@@ -101,6 +101,7 @@ export function useDesktopProjectSnapshot({
     layout: 0,
     prompt: 0,
     runtime: 0,
+    autoRun: 0,
     diagnostics: 0
   });
   const invalidateProjectRequests = useCallback(() => {
@@ -131,7 +132,15 @@ export function useDesktopProjectSnapshot({
   const beginProjectRequest = useCallback(
     (
       canvas: { projectRoot: string; canvasId?: string | null },
-      category: "load" | "graph" | "derived" | "layout" | "prompt" | "runtime" | "diagnostics"
+      category:
+        | "load"
+        | "graph"
+        | "derived"
+        | "layout"
+        | "prompt"
+        | "runtime"
+        | "diagnostics"
+        | "autoRun"
     ) => {
       const generation = lifecycle.current.generation;
       const targetsCurrentCanvas =
@@ -142,6 +151,10 @@ export function useDesktopProjectSnapshot({
         ? ++lifecycle.current[category]
         : lifecycle.current[category];
       if (targetsCurrentCanvas && category === "graph") lifecycle.current.diagnostics += 1;
+      if (targetsCurrentCanvas && (category === "load" || category === "runtime")) {
+        lifecycle.current.autoRun += 1;
+      }
+      const autoRunSequence = lifecycle.current.autoRun;
       const graphSequence = lifecycle.current.graph;
       const isSelectionCurrent = () =>
         targetsCurrentCanvas &&
@@ -151,6 +164,8 @@ export function useDesktopProjectSnapshot({
         currentCanvasRef.current.canvasId === canvas.canvasId;
       return {
         isSelectionCurrent,
+        isAutoRunCurrent: () =>
+          isSelectionCurrent() && lifecycle.current.autoRun === autoRunSequence,
         isGraphCurrent: () => isSelectionCurrent() && lifecycle.current.graph === graphSequence,
         isCurrent: () => isSelectionCurrent() && lifecycle.current[category] === sequence
       };

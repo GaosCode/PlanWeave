@@ -8,6 +8,8 @@ import { graph } from "./graphFixtures";
 export const project: DesktopProjectSummary = {
   projectId: "P-001",
   name: "Demo project",
+  kind: "external",
+  sourceRoot: "/tmp/demo",
   rootPath: "/tmp/demo",
   workspaceRoot: "/tmp/demo",
   activeCanvasId: "canvas-main",
@@ -15,7 +17,10 @@ export const project: DesktopProjectSummary = {
     {
       canvasId: "canvas-main",
       name: "Main canvas",
+      packageDir: null,
+      executionPolicy: null,
       taskCount: 2,
+      missingPromptCount: 0,
       diagnostics: [],
       createdAt: "2026-05-23T00:00:00.000Z",
       updatedAt: "2026-05-23T00:00:00.000Z"

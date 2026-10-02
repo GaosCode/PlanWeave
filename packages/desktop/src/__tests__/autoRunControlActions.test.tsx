@@ -4,6 +4,7 @@ import { act, renderHook } from "@testing-library/react";
 import { useState } from "react";
 import type { DesktopAutoRunState } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { workspaceIdSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import type { WorkspaceAgentEndpointScopeStarter } from "../renderer/hooks/useWorkspaceAgentEndpointRun";
 import {
   autoRunState,
@@ -71,7 +72,7 @@ describe("auto run control hook actions", () => {
         canvasLocator: {
           kind: "workspace",
           connectionProfileId: "profile-1",
-          workspaceId: "workspace-1",
+          workspaceId: workspaceIdSchema.parse("workspace-1"),
           projectId: "project-server",
           canvasId: "canvas-main"
         },
@@ -137,7 +138,7 @@ describe("auto run control hook actions", () => {
         canvasLocator: {
           kind: "workspace",
           connectionProfileId: "profile-1",
-          workspaceId: "workspace-1",
+          workspaceId: workspaceIdSchema.parse("workspace-1"),
           projectId: "project-server",
           canvasId: "canvas-main"
         },
@@ -554,6 +555,7 @@ describe("auto run control hook actions", () => {
     });
     const runningState = autoRunState({ phase: "running" });
     const bridge = createDesktopBridgeMock({
+      getAutoRunState: vi.fn().mockResolvedValue(pausedState),
       resumeAutoRun: vi.fn().mockResolvedValue(runningState)
     });
     stubAutoRunControlBridge(bridge);
@@ -652,7 +654,7 @@ describe("auto run control hook actions", () => {
         canvasLocator: {
           kind: "workspace",
           connectionProfileId: "profile-1",
-          workspaceId: "workspace-1",
+          workspaceId: workspaceIdSchema.parse("workspace-1"),
           projectId: "project-1",
           canvasId: "canvas-main"
         },
@@ -696,7 +698,7 @@ describe("auto run control hook actions", () => {
         canvasLocator: {
           kind: "workspace",
           connectionProfileId: "profile-1",
-          workspaceId: "workspace-1",
+          workspaceId: workspaceIdSchema.parse("workspace-1"),
           projectId: "project-1",
           canvasId: "canvas-main"
         },
@@ -775,7 +777,7 @@ describe("auto run control hook actions", () => {
         canvasLocator: {
           kind: "workspace",
           connectionProfileId: "profile-1",
-          workspaceId: "workspace-1",
+          workspaceId: workspaceIdSchema.parse("workspace-1"),
           projectId: "project-1",
           canvasId: "canvas-main"
         },
@@ -882,7 +884,7 @@ describe("auto run control hook actions", () => {
         canvasLocator: {
           kind: "workspace",
           connectionProfileId: "profile-1",
-          workspaceId: "workspace-1",
+          workspaceId: workspaceIdSchema.parse("workspace-1"),
           projectId: "project-1",
           canvasId: "canvas-main"
         },

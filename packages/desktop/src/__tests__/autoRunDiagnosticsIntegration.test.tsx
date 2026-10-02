@@ -45,12 +45,14 @@ describe("Auto Run diagnostics integration", () => {
       import("../renderer/run/DesktopDiagnosticsPopover")
     ]);
     const t = createTranslator("en");
+    const setError = vi.fn();
+    const updateSettings = vi.fn();
 
     function DiagnosticsHarness() {
       const projectState = useDesktopProject({
-        setError: vi.fn(),
+        setError,
         t,
-        updateSettings: vi.fn()
+        updateSettings
       });
       const session = useDesktopProjectSession({
         clearSelectedBlockRecords: vi.fn(),
@@ -59,7 +61,7 @@ describe("Auto Run diagnostics integration", () => {
         selectBlock: vi.fn().mockResolvedValue(undefined),
         setActiveView: vi.fn(),
         setBlockInspectorOpen: vi.fn(),
-        setError: vi.fn(),
+        setError,
         setSelectedBlock: vi.fn(),
         setSelectedRunRecord: vi.fn()
       });

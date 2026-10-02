@@ -6,6 +6,7 @@ export const graph: DesktopGraphViewModel = {
   graphVersion: "pgv-test",
   packageFingerprint: "pkg-test",
   executorOptions: ["codex"],
+  autoRunPreflightExecutorHint: null,
   tasks: [
     {
       taskId: "T-ALPHA",
@@ -15,6 +16,7 @@ export const graph: DesktopGraphViewModel = {
       executorLabel: "inherit",
       promptMarkdown: "# Alpha",
       promptPreview: "Alpha",
+      promptMissing: false,
       sharedResources: [],
       blocks: [],
       blockPreview: [],
@@ -30,6 +32,7 @@ export const graph: DesktopGraphViewModel = {
       executorLabel: "inherit",
       promptMarkdown: "# Beta",
       promptPreview: "Beta",
+      promptMissing: false,
       sharedResources: [],
       blocks: [],
       blockPreview: [],

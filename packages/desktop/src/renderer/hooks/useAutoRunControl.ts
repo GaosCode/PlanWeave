@@ -19,6 +19,7 @@ import { clamp } from "../viewHelpers";
 import type { WorkspaceAgentEndpointScopeStarter } from "./useWorkspaceAgentEndpointRun";
 import type { CollaborationRuntimeAvailabilityView } from "../collaboration/runtimeAvailabilityView";
 import type { CanvasLocator } from "../../shared/canvasLocator";
+import { useAutoRunSelectionGuard } from "./useAutoRunSelectionGuard";
 import {
   collaborationRuntimeOperationsAllowed,
   collaborationRuntimeResetAllowed,
@@ -190,6 +191,12 @@ export function useAutoRunControl({
   const [autoRunRetrospective, setAutoRunRetrospective] =
     useState<DesktopAutoRunRetrospectiveSummary | null>(null);
 
+  const captureSelection = useAutoRunSelectionGuard(
+    selectedProject?.rootPath ?? null,
+    selectedCanvasId,
+    canvasLocator
+  );
+
   const autoRunControlRef = useCallback((element: HTMLDivElement | null) => {
     setAutoRunControlElement((currentElement) =>
       currentElement === element ? currentElement : element
@@ -198,12 +205,41 @@ export function useAutoRunControl({
 
   const applyAutoRunState = useCallback(
     async (nextState: DesktopAutoRunState, options: { refreshDerivedState?: boolean } = {}) => {
+      const request = captureSelection();
+      if (!request.isCurrent() || !request.matchesRun(nextState)) return;
       setAutoRunState(nextState);
       if (options.refreshDerivedState) {
         await onAutoRunDerivedStateRefresh?.();
       }
     },
-    [onAutoRunDerivedStateRefresh, setAutoRunState]
+    [captureSelection, onAutoRunDerivedStateRefresh, setAutoRunState]
+  );
+  const controlExistingAutoRun = useCallback(
+    async (command: "pause" | "resume" | "stop", runId: string) => {
+      if (!bridge) return;
+      const request = captureSelection();
+      try {
+        const current = await bridge.getAutoRunState(runId);
+        if (!request.isCurrent()) return;
+        if (current.runId !== runId || !request.matchesRun(current)) {
+          throw new Error("auto_run_scope_mismatch");
+        }
+        const next =
+          command === "pause"
+            ? await bridge.pauseAutoRun(runId)
+            : command === "resume"
+              ? await bridge.resumeAutoRun(runId)
+              : await bridge.stopAutoRun(runId);
+        if (!request.isCurrent()) return;
+        if (!request.matchesRun(next) || next.runId !== runId)
+          throw new Error("auto_run_scope_mismatch");
+        await applyAutoRunState(next);
+      } catch (caught) {
+        if (request.isCurrent())
+          setError(caught instanceof Error ? caught.message : String(caught));
+      }
+    },
+    [applyAutoRunState, captureSelection, setError]
   );
   const autoRunRunId = autoRunState?.runId ?? null;
   const activeRunId = isActiveAutoRunState(autoRunState) ? autoRunRunId : null;
@@ -296,7 +332,9 @@ export function useAutoRunControl({
     if (!bridge || !selectedProject) {
       return;
     }
+    const request = captureSelection();
     return bridge.onAutoRunChanged((event) => {
+      if (!request.isCurrent()) return;
       if (!autoRunEventMatchesCanvas(event, selectedProject.rootPath, selectedCanvasId)) {
         return;
       }
@@ -307,7 +345,7 @@ export function useAutoRunControl({
         refreshDerivedState: shouldRefreshGraphForAutoRunEvent(event)
       });
     });
-  }, [activeRunId, applyAutoRunState, selectedCanvasId, selectedProject]);
+  }, [activeRunId, applyAutoRunState, captureSelection, selectedCanvasId, selectedProject]);
 
   const selectedAutoRunScope = useCallback((): DesktopAutoRunScope | null => {
     if (autoRunScopeMode === "project") {
@@ -389,6 +427,7 @@ export function useAutoRunControl({
       if (!bridge || !selectedProject) {
         return null;
       }
+      const request = captureSelection();
       try {
         setMiniRunPanelOpen(true);
         if (autoRunState && ["running", "pausing"].includes(autoRunState.phase)) {
@@ -401,21 +440,25 @@ export function useAutoRunControl({
             "Retry requested from Auto Run."
           );
         }
+        if (!request.isCurrent()) return null;
         const started = await bridge.startAutoRun(
           desktopCanvasReference(selectedProject, selectedCanvasId),
           scope,
           options?.stepLimit ?? 20,
           { tmuxEnabled: tmuxMonitoringEnabled }
         );
+        if (!request.isCurrent()) return null;
         await applyAutoRunState(started);
         return started;
       } catch (caught) {
-        setError(caught instanceof Error ? caught.message : String(caught));
+        if (request.isCurrent())
+          setError(caught instanceof Error ? caught.message : String(caught));
         return null;
       }
     },
     [
       applyAutoRunState,
+      captureSelection,
       autoRunState,
       selectedCanvasId,
       selectedProject,
@@ -433,32 +476,39 @@ export function useAutoRunControl({
         return;
       }
       if (startAutoRunScope) {
+        const request = captureSelection();
         setEndpointScopeRunPhase("preparing");
         let lifecycleReported = false;
         try {
           await startAutoRunScope(scope, startLocalAutoRunWithScope, {
             onStarted: () => {
+              if (!request.isCurrent()) return;
               lifecycleReported = true;
               setAutoRunState(null);
               setEndpointScopeRunPhase("preparing");
             },
             onCompleted: () => {
+              if (!request.isCurrent()) return;
               lifecycleReported = true;
               setEndpointScopeRunPhase("completed");
             },
             onFailed: () => {
+              if (!request.isCurrent()) return;
               lifecycleReported = true;
               setEndpointScopeRunPhase("failed");
             },
             onCancelled: () => {
+              if (!request.isCurrent()) return;
               lifecycleReported = true;
               setEndpointScopeRunPhase(null);
             }
           });
-          if (!lifecycleReported) setEndpointScopeRunPhase(null);
+          if (request.isCurrent() && !lifecycleReported) setEndpointScopeRunPhase(null);
         } catch (caught) {
-          setEndpointScopeRunPhase("failed");
-          throw caught;
+          if (request.isCurrent()) {
+            setEndpointScopeRunPhase("failed");
+            throw caught;
+          }
         }
         return;
       }
@@ -469,6 +519,7 @@ export function useAutoRunControl({
       runtimeUnavailableCode,
       setError,
       startAutoRunScope,
+      captureSelection,
       startLocalAutoRunWithScope,
       setAutoRunState
     ]
@@ -499,17 +550,17 @@ export function useAutoRunControl({
         return;
       }
       if (autoRunState.phase === "running") {
-        await applyAutoRunState(await bridge.pauseAutoRun(autoRunState.runId));
+        await controlExistingAutoRun("pause", autoRunState.runId);
         return;
       }
       if (autoRunState.phase === "paused" || autoRunState.phase === "pausing") {
-        await applyAutoRunState(await bridge.resumeAutoRun(autoRunState.runId));
+        await controlExistingAutoRun("resume", autoRunState.runId);
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
   }, [
-    applyAutoRunState,
+    controlExistingAutoRun,
     autoRunState,
     endpointScopeRunPhase,
     runtimeStartAllowed,
@@ -543,6 +594,8 @@ export function useAutoRunControl({
       if (!action.enabled) {
         return;
       }
+      const request = captureSelection(action.command === "retry_ref");
+      if (!request.isCurrent()) return;
       try {
         if (action.command === "start") {
           const scope = selectedAutoRunScope();
@@ -565,7 +618,7 @@ export function useAutoRunControl({
             setError(t("runUnavailable"));
             return;
           }
-          await applyAutoRunState(await bridge.resumeAutoRun(autoRunState.runId));
+          await controlExistingAutoRun("resume", autoRunState.runId);
           return;
         }
         if (action.command === "copy_manual_command") {
@@ -591,18 +644,27 @@ export function useAutoRunControl({
           }
           const ref = desktopCanvasReference(selectedProject, selectedCanvasId);
           await bridge.unblockBlock(ref, action.ref, "Retry requested from Auto Run.");
-          await applyAutoRunState(
-            await bridge.startAutoRun(ref, { kind: "block", blockRef: action.ref }, 20, {
+          if (!request.isCurrent()) return;
+          const started = await bridge.startAutoRun(
+            ref,
+            { kind: "block", blockRef: action.ref },
+            20,
+            {
               tmuxEnabled: tmuxMonitoringEnabled
-            })
+            }
           );
+          if (!request.isCurrent()) return;
+          await applyAutoRunState(started);
         }
       } catch (caught) {
-        setError(caught instanceof Error ? caught.message : String(caught));
+        if (request.isCurrent())
+          setError(caught instanceof Error ? caught.message : String(caught));
       }
     },
     [
       applyAutoRunState,
+      captureSelection,
+      controlExistingAutoRun,
       autoRunState,
       openRecordOrRevealPath,
       selectedAutoRunScope,
@@ -615,14 +677,20 @@ export function useAutoRunControl({
     ]
   );
 
+  useEffect(() => {
+    if (captureSelection().isCurrent()) setEndpointScopeRunPhase(null);
+  }, [captureSelection]);
+
   const stopAutoRunClick = useCallback(async () => {
+    const request = captureSelection();
     if (endpointScopeRunPhase === "running" || endpointScopeRunPhase === "preparing") {
       if (!stopAutoRunScope) return;
       try {
         await stopAutoRunScope();
-        setEndpointScopeRunPhase(null);
+        if (request.isCurrent()) setEndpointScopeRunPhase(null);
       } catch (caught) {
-        setError(caught instanceof Error ? caught.message : String(caught));
+        if (request.isCurrent())
+          setError(caught instanceof Error ? caught.message : String(caught));
       }
       return;
     }
@@ -634,21 +702,23 @@ export function useAutoRunControl({
       return;
     }
     try {
-      await applyAutoRunState(await bridge.stopAutoRun(autoRunState.runId));
+      await controlExistingAutoRun("stop", autoRunState.runId);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
   }, [
-    applyAutoRunState,
+    controlExistingAutoRun,
     autoRunState,
     endpointScopeRunPhase,
     runtimeOperationsAllowed,
     runtimeUnavailableCode,
     setError,
-    stopAutoRunScope
+    stopAutoRunScope,
+    captureSelection
   ]);
 
   const resetRuntimeStateClick = useCallback(async () => {
+    if (!captureSelection().isCurrent()) return;
     const workspaceReset = canvasLocator?.kind === "workspace";
     if (!workspaceReset && !runtimeOperationsAllowed) {
       setError(runtimeUnavailableCode ?? "collaboration_runtime_unavailable");
@@ -668,6 +738,8 @@ export function useAutoRunControl({
     if (!window.confirm(t("resetRuntimeStateConfirm"))) {
       return;
     }
+    const request = captureSelection(true);
+    if (!request.isCurrent()) return;
     try {
       setMiniRunPanelOpen(true);
       if (workspaceReset) {
@@ -678,6 +750,7 @@ export function useAutoRunControl({
           reason: "Desktop reset requested."
         });
       }
+      if (!request.isCurrent()) return;
       setAutoRunState(null);
       setEndpointScopeRunPhase(null);
       setAutoRunRetrospective(null);
@@ -685,9 +758,10 @@ export function useAutoRunControl({
         await onAutoRunDerivedStateRefresh?.();
       }
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
+      if (request.isCurrent()) setError(caught instanceof Error ? caught.message : String(caught));
     }
   }, [
+    captureSelection,
     autoRunState,
     canvasLocator,
     endpointScopeRunPhase,

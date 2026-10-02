@@ -1,4 +1,4 @@
-import { useCallback, useState, type SetStateAction } from "react";
+import { useCallback, useRef, useState, type SetStateAction } from "react";
 import type {
   DesktopGraphViewModel,
   DesktopLayout,
@@ -145,25 +145,29 @@ export function useDesktopProject({
     updateSettings
   });
 
+  const runtimeAutoRunOwner = useRef<() => boolean>(() => false);
+  const isRuntimeAutoRunCurrent = useCallback(() => runtimeAutoRunOwner.current(), []);
+
   const refreshRuntimeState = useCallback(async () => {
     if (!bridge || !selectedProject) {
       return;
     }
     const canvasRef = desktopCanvasReference(selectedProject, selectedCanvasId);
     const request = beginProjectRequest(canvasRef, "runtime");
-    if (!request.isCurrent()) return;
+    if (!request.isCurrent() || !request.isAutoRunCurrent()) return;
     try {
       const snapshot = await bridge.getDesktopRuntimeRefresh(canvasRef);
-      if (!request.isCurrent()) return;
+      if (!request.isCurrent() || !request.isAutoRunCurrent()) return;
+      runtimeAutoRunOwner.current = request.isAutoRunCurrent;
       const errors = applyRuntimeRefreshSnapshot(snapshot);
       await refreshDesktopGraphDiagnostics(
         canvasRef,
         () => request.isCurrent() && request.isGraphCurrent()
       );
-      if (!request.isCurrent()) return;
+      if (!request.isCurrent() || !request.isAutoRunCurrent()) return;
       if (errors.length > 0) setError(errors.join("\n"));
     } catch (caught) {
-      if (request.isCurrent()) throw caught;
+      if (request.isCurrent() && request.isAutoRunCurrent()) throw caught;
     }
   }, [
     applyRuntimeRefreshSnapshot,
@@ -190,6 +194,8 @@ export function useDesktopProject({
   });
 
   return {
+    beginProjectRequest,
+    isRuntimeAutoRunCurrent,
     expandedProjectId,
     executionPlan,
     graph,

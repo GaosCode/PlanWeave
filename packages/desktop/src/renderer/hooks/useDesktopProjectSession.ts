@@ -43,6 +43,10 @@ export function useDesktopProjectSession({
   const [autoRunState, setAutoRunState] = useState<DesktopAutoRunState | null>(null);
   const [autoRunDiagnostics, setAutoRunDiagnostics] = useState<ValidationIssue[]>([]);
   const initialSelectionEffectSkipped = useRef(false);
+  const summaryError = useRef(setError);
+  useEffect(() => {
+    summaryError.current = setError;
+  }, [setError]);
   const [taskFocusRequest, setTaskFocusRequest] = useState<{
     taskId: string;
     version: number;
@@ -70,10 +74,21 @@ export function useDesktopProjectSession({
 
   const setAutoRunStateFromControl = useCallback(
     (nextState: SetStateAction<DesktopAutoRunState | null>) => {
+      const projectRoot = projectState.selectedProject?.rootPath;
+      if (!projectRoot) return;
+      const request = projectState.beginProjectRequest(
+        { projectRoot, canvasId: projectState.selectedCanvasId },
+        "autoRun"
+      );
+      if (!request.isCurrent()) return;
       setAutoRunState(nextState);
       setAutoRunDiagnostics(clearDiagnostics);
     },
-    []
+    [
+      projectState.beginProjectRequest,
+      projectState.selectedCanvasId,
+      projectState.selectedProject?.rootPath
+    ]
   );
 
   const refreshLatestAutoRunSummary = useCallback(
@@ -86,15 +101,28 @@ export function useDesktopProjectSession({
         setAutoRunDiagnostics(clearDiagnostics);
         return null;
       }
-      const summary = await bridge.getLatestAutoRunSummaryWithDiagnostics({
-        projectRoot,
-        canvasId
-      });
-      setAutoRunState(summary.state);
-      setAutoRunDiagnostics(summary.diagnostics);
-      return summary.state;
+      const request = projectState.beginProjectRequest({ projectRoot, canvasId }, "autoRun");
+      if (!request.isCurrent()) return null;
+      try {
+        const summary = await bridge.getLatestAutoRunSummaryWithDiagnostics({
+          projectRoot,
+          canvasId
+        });
+        if (!request.isCurrent()) return null;
+        setAutoRunState(summary.state);
+        setAutoRunDiagnostics(summary.diagnostics);
+        return summary.state;
+      } catch (caught) {
+        if (request.isCurrent())
+          summaryError.current(caught instanceof Error ? caught.message : String(caught));
+        return null;
+      }
     },
-    [projectState.selectedCanvasId, projectState.selectedProject?.rootPath]
+    [
+      projectState.beginProjectRequest,
+      projectState.selectedCanvasId,
+      projectState.selectedProject?.rootPath
+    ]
   );
 
   const selectTaskPanel = useCallback(
@@ -187,10 +215,21 @@ export function useDesktopProjectSession({
         await bridge.selectTaskCanvas(project.rootPath, nextCanvasId);
       }
       clearSelectionForCanvasChange();
-      await projectState.loadProject(project, nextCanvasId);
+      const loading = projectState.loadProject(project, nextCanvasId);
+      const request = projectState.beginProjectRequest(
+        { projectRoot: project.rootPath, canvasId: nextCanvasId },
+        "autoRun"
+      );
+      await loading;
+      if (!request.isCurrent()) return;
       await refreshLatestAutoRunSummary(project.rootPath, nextCanvasId);
     },
-    [clearSelectionForCanvasChange, projectState.loadProject, refreshLatestAutoRunSummary]
+    [
+      clearSelectionForCanvasChange,
+      projectState.beginProjectRequest,
+      projectState.loadProject,
+      refreshLatestAutoRunSummary
+    ]
   );
 
   const reloadCurrentCanvas = useCallback(async () => {
@@ -291,16 +330,18 @@ export function useDesktopProjectSession({
   ]);
 
   useEffect(() => {
+    setAutoRunState(null);
+    setAutoRunDiagnostics(clearDiagnostics);
     void refreshLatestAutoRunSummary();
   }, [refreshLatestAutoRunSummary]);
 
   useEffect(() => {
-    if (!projectState.runtimeRefreshSnapshot) {
+    if (!projectState.runtimeRefreshSnapshot || !projectState.isRuntimeAutoRunCurrent()) {
       return;
     }
     setAutoRunState(projectState.runtimeRefreshSnapshot.latestAutoRun);
     setAutoRunDiagnostics(projectState.runtimeRefreshSnapshot.diagnostics);
-  }, [projectState.runtimeRefreshSnapshot]);
+  }, [projectState.runtimeRefreshSnapshot, projectState.isRuntimeAutoRunCurrent]);
 
   return {
     ...projectState,
