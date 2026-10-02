@@ -195,7 +195,7 @@ describe("Canvas Runtime Host replay", () => {
     const command = request("request-restart");
     state.receive(delivery(1, command));
     expect(state.canvasRuntime.begin(command.requestId)).toBe(true);
-    service(state).recover();
+    await service(state).recover();
     expect(response(state, command.requestId)).toMatchObject({
       response: {
         outcome: "error",

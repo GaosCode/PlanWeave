@@ -244,7 +244,7 @@ describe("Canvas Runtime Host ResetRecovery", () => {
       receipt: { ...evidence, committedAt }
     });
 
-    new CanvasRuntimeService({
+    await new CanvasRuntimeService({
       resolver,
       receipts: state.canvasRuntime,
       capabilities: [CANVAS_RUNTIME_CAPABILITY],
