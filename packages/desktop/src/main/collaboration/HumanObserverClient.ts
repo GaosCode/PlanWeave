@@ -41,6 +41,7 @@ export class HumanObserverClient {
   private reconnectTimer?: unknown;
   private wanted = false;
   private disposed = false;
+  private generation = 0;
 
   constructor(private readonly options: HumanObserverClientOptions) {}
 
@@ -61,6 +62,8 @@ export class HumanObserverClient {
         message: "WebSocket implementation was not provided to CollaborationClient."
       });
     }
+    this.generation += 1;
+    this.releaseConnection();
     this.handlers = handlers;
     this.wanted = true;
     if (options?.cursor !== undefined) this.cursor = options.cursor;
@@ -69,6 +72,12 @@ export class HumanObserverClient {
 
   stop(): void {
     this.wanted = false;
+    this.generation += 1;
+    this.releaseConnection();
+    this.setStatus({ state: "stopped" });
+  }
+
+  private releaseConnection(): void {
     if (this.reconnectTimer) this.options.clock.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
     const socket = this.socket;
@@ -80,7 +89,6 @@ export class HumanObserverClient {
         // WebSocket close races do not change the already-stopped observer state.
       }
     }
-    this.setStatus({ state: "stopped" });
   }
 
   dispose(): void {
@@ -93,16 +101,23 @@ export class HumanObserverClient {
     if (!this.wanted || this.disposed) return;
     const WebSocketImpl = this.options.WebSocketImpl;
     if (!WebSocketImpl) return;
+    const generation = this.generation;
     this.setStatus({ state: "connecting", attempt: this.reconnectAttempt + 1 });
-    void this.connectAuthenticated(WebSocketImpl);
+    if (!this.isCurrent(generation)) return;
+    void this.connectAuthenticated(WebSocketImpl, generation);
   }
 
-  private async connectAuthenticated(WebSocketImpl: CollaborationWebSocketConstructor) {
+  private async connectAuthenticated(
+    WebSocketImpl: CollaborationWebSocketConstructor,
+    generation: number
+  ) {
     try {
+      if (!this.isCurrent(generation)) return;
       const token = await this.options.credential.getDeviceToken();
+      if (!this.isCurrent(generation)) return;
       if (!token) {
-        this.setStatus({ state: "auth_expired", code: "collaboration_credential_missing" });
         this.wanted = false;
+        this.setStatus({ state: "auth_expired", code: "collaboration_credential_missing" });
         return;
       }
       const base = new URL(this.options.profile.serverBaseUrl);
@@ -115,10 +130,18 @@ export class HumanObserverClient {
           Origin: derivedWebSocketOrigin(this.options.profile.serverBaseUrl)
         }
       });
+      if (!this.isCurrent(generation)) {
+        try {
+          socket.close(1000, "stale observer connection");
+        } catch {
+          // A constructor-side lifecycle change has already invalidated this connection.
+        }
+        return;
+      }
       this.socket = socket;
       socket.on?.("unexpected-response", (_request, response) => {
-        if (this.socket !== socket) return;
         response.resume?.();
+        if (!this.isSocketCurrent(generation, socket)) return;
         const statusCode = response.statusCode;
         const code =
           statusCode === undefined
@@ -130,26 +153,28 @@ export class HumanObserverClient {
           return;
         }
         this.setStatus({ state: "failed", code });
+        if (!this.isSocketCurrent(generation, socket)) return;
         this.socket = undefined;
-        this.scheduleReconnect();
+        this.scheduleReconnect(generation);
       });
-      socket.addEventListener("open", () => this.onOpen(socket));
-      socket.addEventListener("message", (event) => this.onMessage(socket, event));
-      socket.addEventListener("close", () => this.onClose(socket));
+      socket.addEventListener("open", () => this.onOpen(socket, generation));
+      socket.addEventListener("message", (event) => this.onMessage(socket, event, generation));
+      socket.addEventListener("close", () => this.onClose(socket, generation));
       socket.addEventListener("error", () => {
-        if (this.socket === socket)
+        if (this.isSocketCurrent(generation, socket))
           this.options.logger?.warn?.("collaboration observer socket error");
       });
     } catch (error) {
+      if (!this.isCurrent(generation)) return;
       this.options.logger?.error?.(
         redactCollaborationText(error instanceof Error ? error.message : "observer connect failed")
       );
-      if (this.wanted && !this.disposed) this.scheduleReconnect();
+      if (this.isCurrent(generation)) this.scheduleReconnect(generation);
     }
   }
 
-  private onOpen(socket: CollaborationWebSocketLike): void {
-    if (this.socket !== socket) return;
+  private onOpen(socket: CollaborationWebSocketLike, generation: number): void {
+    if (!this.isSocketCurrent(generation, socket)) return;
     socket.send(
       JSON.stringify(
         humanObserverHelloSchema.parse({
@@ -162,8 +187,8 @@ export class HumanObserverClient {
     );
   }
 
-  private onMessage(socket: CollaborationWebSocketLike, event: unknown): void {
-    if (this.socket !== socket) return;
+  private onMessage(socket: CollaborationWebSocketLike, event: unknown, generation: number): void {
+    if (!this.isSocketCurrent(generation, socket)) return;
     try {
       const data =
         typeof event === "object" && event !== null && "data" in event
@@ -191,8 +216,9 @@ export class HumanObserverClient {
           message: "Observer payload exceeded size limit."
         });
       }
-      this.handleMessage(parseHumanObserverServerMessage(JSON.parse(text)));
+      this.handleMessage(parseHumanObserverServerMessage(JSON.parse(text)), socket, generation);
     } catch (error) {
+      if (!this.isSocketCurrent(generation, socket)) return;
       this.options.logger?.error?.(
         redactCollaborationText(error instanceof Error ? error.message : "observer message failed")
       );
@@ -204,18 +230,17 @@ export class HumanObserverClient {
     }
   }
 
-  private onClose(socket: CollaborationWebSocketLike): void {
-    if (this.socket !== socket) return;
+  private onClose(socket: CollaborationWebSocketLike, generation: number): void {
+    if (!this.isSocketCurrent(generation, socket)) return;
     this.socket = undefined;
-    if (this.status.state === "auth_expired") return;
-    if (!this.wanted || this.disposed) {
-      this.setStatus({ state: "stopped" });
-      return;
-    }
-    this.scheduleReconnect();
+    this.scheduleReconnect(generation);
   }
 
-  private handleMessage(message: HumanObserverServerMessage): void {
+  private handleMessage(
+    message: HumanObserverServerMessage,
+    socket: CollaborationWebSocketLike,
+    generation: number
+  ): void {
     switch (message.type) {
       case "human.observer.welcome":
         this.cursor = message.cursor;
@@ -240,36 +265,50 @@ export class HumanObserverClient {
       case "human.observer.catchup_required":
         this.cursor = message.resumeCursor;
         this.setStatus({ state: "catching_up", resumeCursor: message.resumeCursor });
-        this.handlers?.onCatchupRequired?.(message);
+        if (this.isSocketCurrent(generation, socket)) this.handlers?.onCatchupRequired?.(message);
         return;
-      case "human.observer.auth_expired":
+      case "human.observer.auth_expired": {
         this.wanted = false;
-        this.setStatus({ state: "auth_expired", code: message.code });
-        this.handlers?.onAuthExpired?.(message);
+        this.socket = undefined;
+        const handlers = this.handlers;
         try {
-          this.socket?.close(4001, "auth expired");
+          socket.close(4001, "auth expired");
         } catch {
-          // The authoritative observer state is already auth_expired.
+          // The socket is detached before notifying application callbacks.
         }
+        if (generation !== this.generation || this.disposed) return;
+        this.setStatus({ state: "auth_expired", code: message.code });
+        if (generation === this.generation && !this.disposed) handlers?.onAuthExpired?.(message);
         return;
+      }
       case "human.observer.pong":
         return;
     }
   }
 
-  private scheduleReconnect(): void {
-    if (!this.wanted || this.disposed) return;
+  private scheduleReconnect(generation: number): void {
+    if (!this.isCurrent(generation)) return;
     this.reconnectAttempt += 1;
     const delayMs = reconnectDelay(this.reconnectAttempt, this.options.random, {
       initialDelayMs: this.options.limits.reconnectInitialDelayMs,
       maxDelayMs: this.options.limits.reconnectMaxDelayMs
     });
     this.setStatus({ state: "reconnecting", attempt: this.reconnectAttempt, delayMs });
+    if (!this.isCurrent(generation)) return;
     if (this.reconnectTimer) this.options.clock.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = this.options.clock.setTimeout(() => {
+      if (!this.isCurrent(generation)) return;
       this.reconnectTimer = undefined;
       this.connect();
     }, delayMs);
+  }
+
+  private isCurrent(generation: number): boolean {
+    return this.wanted && !this.disposed && generation === this.generation;
+  }
+
+  private isSocketCurrent(generation: number, socket: CollaborationWebSocketLike): boolean {
+    return this.isCurrent(generation) && this.socket === socket;
   }
 
   private setStatus(status: CollaborationObserverStatus): void {
