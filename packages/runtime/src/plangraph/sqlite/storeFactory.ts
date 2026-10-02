@@ -36,6 +36,7 @@ async function resolveIndexPath(
   indexPath?: string
 ): Promise<{ workspace: ProjectWorkspace; indexPath: string }> {
   const { workspace } = await loadPackage(projectRoot);
+  if (indexPath !== undefined) return { workspace, indexPath };
   const projectWorkspace = await resolveProjectWorkspace(workspace.rootPath);
   return { workspace, indexPath: indexPath ?? defaultPlanGraphIndexPath(projectWorkspace) };
 }

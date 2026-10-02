@@ -6,6 +6,7 @@ import { initialManifest } from "../initWorkspace.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import {
   loadProjectGraph,
+  loadProjectGraphForWorkspace,
   projectCanvasWorkspace as workspaceForProjectCanvas,
   writeProjectGraph
 } from "../projectGraph/index.js";
@@ -26,14 +27,17 @@ import {
 } from "../projectGraph/projectCanvasMutation.js";
 import { resolveProjectWorkspace } from "../project.js";
 import { createEmptyState } from "../state.js";
-import type { ProjectWorkspace, ValidationIssue } from "../types.js";
+import type { PackageWorkspaceRef, ProjectWorkspace, ValidationIssue } from "../types.js";
 import {
   normalizeRegistry,
   registryVersion,
   type TaskCanvasRecord,
   type TaskCanvasRegistry
 } from "./canvasRegistry.js";
-import { readActiveTaskCanvasSelection } from "./canvasSelectionStore.js";
+import {
+  readActiveTaskCanvasSelection,
+  readActiveTaskCanvasSelectionForWorkspace
+} from "./canvasSelectionStore.js";
 import { desktopDiagnostic, errorMessage } from "./graph/desktopDiagnostics.js";
 import { invalidateDesktopProjectProjection } from "./graph/projectProjectionModel.js";
 import { summarizeTaskCanvasFromPackage } from "./canvasSummaryModel.js";
@@ -117,14 +121,15 @@ function defaultCanvasRecord(workspace: ProjectWorkspace, name: string): TaskCan
 }
 
 async function readRegistry(
-  projectRoot: string,
+  projectRoot: PackageWorkspaceRef,
   options: { createDefault?: boolean } = {}
 ): Promise<{
   projectWorkspace: ProjectWorkspace;
   registry: TaskCanvasRegistry;
   diagnosticsByCanvasId: Map<string, ValidationIssue[]>;
 }> {
-  const projectWorkspace = await resolveProjectWorkspace(projectRoot);
+  const projectWorkspace =
+    typeof projectRoot === "string" ? await resolveProjectWorkspace(projectRoot) : projectRoot;
   const path = registryPath(projectWorkspace);
   if (!(await optionalStat(path))) {
     if (options.createDefault === false) {
@@ -679,4 +684,21 @@ class ResolvingProjectCanvasStore implements ProjectCanvasStore {
 
 export async function createProjectCanvasStore(projectRoot: string): Promise<ProjectCanvasStore> {
   return new ResolvingProjectCanvasStore(projectRoot);
+}
+
+/** Resolve command/history membership using an internally resolved project owner. */
+export async function resolveSelectedCanvasWorkspaceForProject(
+  projectWorkspace: ProjectWorkspace
+): Promise<ProjectWorkspace> {
+  const loaded = await loadProjectGraphForWorkspace(projectWorkspace);
+  if (loaded.source === "project_graph") {
+    const { activeCanvasId } = await readActiveTaskCanvasSelectionForWorkspace(loaded.workspace);
+    const canvas = loaded.manifest.canvases.find((candidate) => candidate.id === activeCanvasId);
+    if (!canvas) throw new Error("Project has no task canvas.");
+    return workspaceForProjectCanvas(loaded.workspace, canvas);
+  }
+  const { registry } = await readRegistry(projectWorkspace);
+  const record = selectedCanvasRecord(registry);
+  if (!record) throw new Error("Project has no task canvas.");
+  return legacyCanvasWorkspace(projectWorkspace, record);
 }

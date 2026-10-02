@@ -27,6 +27,8 @@ export type CurrentDesktopCanvasRef = {
   projectRoot: string | null;
 };
 
+export type DesktopSelectionReceipt = { isCurrent: () => boolean };
+
 type SnapshotWriteScope = { graph: boolean; derived: boolean; layout: boolean; prompt: boolean };
 
 function snapshotDiagnosticDomain(diagnostic: ValidationIssue): keyof SnapshotWriteScope {
@@ -105,7 +107,8 @@ export function useDesktopProjectSnapshot({
     prompt: 0,
     runtime: 0,
     autoRun: 0,
-    diagnostics: 0
+    diagnostics: 0,
+    projects: 0
   });
   const invalidateProjectRequests = useCallback(() => {
     lifecycle.current.generation += 1;
@@ -138,6 +141,25 @@ export function useDesktopProjectSnapshot({
     selectCanvas(selectedProjectRoot, selectedCanvasId);
     currentCanvasRef.current.hasGraph = Boolean(graph);
   }, [graph, selectedCanvasId, selectedProjectRoot, selectCanvas]);
+
+  const captureProjectSelection = useCallback((category?: "projects"): DesktopSelectionReceipt => {
+    const generation = lifecycle.current.generation;
+    const sequence = category ? ++lifecycle.current[category] : null;
+    return {
+      isCurrent: () =>
+        lifecycle.current.mounted &&
+        lifecycle.current.generation === generation &&
+        (!category || lifecycle.current[category] === sequence)
+    };
+  }, []);
+  const beginSelectionIntent = useCallback(
+    (canvas?: { projectRoot: string; canvasId: string | null }) => {
+      invalidateProjectRequests();
+      if (canvas) selectCanvas(canvas.projectRoot, canvas.canvasId);
+      return captureProjectSelection();
+    },
+    [captureProjectSelection, invalidateProjectRequests, selectCanvas]
+  );
 
   const beginProjectRequest = useCallback(
     (
@@ -353,6 +375,8 @@ export function useDesktopProjectSnapshot({
   );
 
   return {
+    beginSelectionIntent,
+    captureProjectSelection,
     beginProjectRequest,
     beginSnapshotRequest,
     selectCanvas,

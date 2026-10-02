@@ -68,6 +68,8 @@ const isRuntimeAutoRunCurrent = () => true;
 function projectStateFixture(overrides: Partial<DesktopProjectState> = {}): DesktopProjectState {
   return {
     beginProjectRequest: currentProjectRequest,
+    beginProjectSelection: () => ({ isCurrent: () => true, finishLoading: () => undefined }),
+    captureProjectSelection: () => ({ isCurrent: () => true }),
     isRuntimeAutoRunCurrent,
     expandedProjectId: null,
     executionPlan: null,
@@ -100,7 +102,7 @@ function projectStateFixture(overrides: Partial<DesktopProjectState> = {}): Desk
     setSelectedProject: vi.fn(),
     statistics: null,
     todoGroups: null,
-    updateProjectPrompt: vi.fn().mockResolvedValue(undefined),
+    updateProjectPrompt: vi.fn().mockResolvedValue(true),
     updateProjectPromptPolicy: vi.fn().mockResolvedValue(undefined),
     ...overrides
   };
@@ -148,7 +150,14 @@ describe("desktop project session hook", () => {
     expect(setSelectedRunRecord).toHaveBeenCalledWith(null);
     expect(setBlockInspectorOpen).toHaveBeenCalledWith(false);
     expect(clearSelectedBlockRecords).toHaveBeenCalled();
-    expect(loadProject).toHaveBeenCalledWith(project, "canvas-main");
+    expect(loadProject).toHaveBeenCalledWith(
+      project,
+      "canvas-main",
+      expect.objectContaining({
+        isCurrent: expect.any(Function),
+        finishLoading: expect.any(Function)
+      })
+    );
     expect(bridge.getLatestAutoRunSummaryWithDiagnostics).toHaveBeenCalledWith({
       projectRoot: project.rootPath,
       canvasId: "canvas-main"
@@ -203,9 +212,16 @@ describe("desktop project session hook", () => {
     });
 
     expect(bridge.duplicateTaskCanvas).toHaveBeenCalledWith(project.rootPath, "canvas-main");
-    expect(refreshProjectSummary).toHaveBeenCalledWith(project.rootPath, "canvas-copy");
+    expect(refreshProjectSummary).toHaveBeenCalledWith(project.rootPath);
     expect(bridge.selectTaskCanvas).toHaveBeenCalledWith(project.rootPath, "canvas-copy");
-    expect(loadProject).toHaveBeenCalledWith(refreshedProject, "canvas-copy");
+    expect(loadProject).toHaveBeenCalledWith(
+      refreshedProject,
+      "canvas-copy",
+      expect.objectContaining({
+        isCurrent: expect.any(Function),
+        finishLoading: expect.any(Function)
+      })
+    );
     expect(bridge.getLatestAutoRunSummaryWithDiagnostics).toHaveBeenCalledWith({
       projectRoot: project.rootPath,
       canvasId: "canvas-copy"

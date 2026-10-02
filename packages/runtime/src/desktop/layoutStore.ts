@@ -8,7 +8,9 @@ import type { PlanGraphLayoutStore } from "../plangraph/ports.js";
 import type { DesktopLayout, DesktopLayoutNode } from "./types.js";
 import {
   readActiveTaskCanvasSelection,
-  writeActiveTaskCanvasSelection
+  readActiveTaskCanvasSelectionForWorkspace,
+  writeActiveTaskCanvasSelection,
+  writeActiveTaskCanvasSelectionForWorkspace
 } from "./canvasSelectionStore.js";
 
 export function defaultDesktopLayout(projectId: string): DesktopLayout {
@@ -186,8 +188,9 @@ export async function resetDesktopLayoutDirect(
 export const desktopLayoutCommandStore: PlanGraphLayoutStore = {
   async read(projectRoot, layoutScope) {
     if (layoutScope === "canvas") {
-      const projectWorkspace = typeof projectRoot === "string" ? projectRoot : projectRoot.rootPath;
-      return readActiveTaskCanvasSelection(projectWorkspace);
+      return typeof projectRoot === "string"
+        ? readActiveTaskCanvasSelection(projectRoot)
+        : readActiveTaskCanvasSelectionForWorkspace(projectRoot);
     }
     if (layoutScope !== "desktop") {
       throw new Error(`Unsupported PlanGraph layout scope '${layoutScope}'.`);
@@ -196,7 +199,6 @@ export const desktopLayoutCommandStore: PlanGraphLayoutStore = {
   },
   async write(projectRoot, layoutScope, layout) {
     if (layoutScope === "canvas") {
-      const projectWorkspace = typeof projectRoot === "string" ? projectRoot : projectRoot.rootPath;
       const activeCanvasId =
         layout && typeof layout === "object" && !Array.isArray(layout)
           ? (layout as Record<string, unknown>).activeCanvasId
@@ -204,7 +206,9 @@ export const desktopLayoutCommandStore: PlanGraphLayoutStore = {
       if (typeof activeCanvasId !== "string" || !activeCanvasId.trim()) {
         throw new Error("Active canvas selection requires activeCanvasId.");
       }
-      return writeActiveTaskCanvasSelection(projectWorkspace, activeCanvasId);
+      return typeof projectRoot === "string"
+        ? writeActiveTaskCanvasSelection(projectRoot, activeCanvasId)
+        : writeActiveTaskCanvasSelectionForWorkspace(projectRoot, activeCanvasId);
     }
     if (layoutScope !== "desktop") {
       throw new Error(`Unsupported PlanGraph layout scope '${layoutScope}'.`);

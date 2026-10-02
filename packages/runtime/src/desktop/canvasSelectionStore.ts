@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { optionalStat } from "../fs/optionalFile.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { resolveProjectWorkspace } from "../project.js";
-import { loadProjectGraph } from "../projectGraph/index.js";
+import { loadProjectGraphForWorkspace } from "../projectGraph/index.js";
 import type { ProjectWorkspace } from "../types.js";
 import { normalizeRegistry, registryVersion, type TaskCanvasRegistry } from "./canvasRegistry.js";
 
@@ -60,7 +60,14 @@ export async function readActiveTaskCanvasSelection(
   projectRoot: string
 ): Promise<ActiveTaskCanvasSelection> {
   const projectWorkspace = await resolveProjectWorkspace(projectRoot);
-  const loaded = await loadProjectGraph(projectRoot);
+  return readActiveTaskCanvasSelectionForWorkspace(projectWorkspace);
+}
+
+export async function readActiveTaskCanvasSelectionForWorkspace(
+  workspace: ProjectWorkspace
+): Promise<ActiveTaskCanvasSelection> {
+  const loaded = await loadProjectGraphForWorkspace(workspace);
+  const projectWorkspace = loaded.workspace;
   if (loaded.source === "project_graph") {
     const activeCanvasId = await readProjectGraphActiveCanvas(
       projectWorkspace,
@@ -84,7 +91,15 @@ export async function writeActiveTaskCanvasSelection(
   activeCanvasId: string
 ): Promise<ActiveTaskCanvasSelection> {
   const projectWorkspace = await resolveProjectWorkspace(projectRoot);
-  const loaded = await loadProjectGraph(projectRoot);
+  return writeActiveTaskCanvasSelectionForWorkspace(projectWorkspace, activeCanvasId);
+}
+
+export async function writeActiveTaskCanvasSelectionForWorkspace(
+  workspace: ProjectWorkspace,
+  activeCanvasId: string
+): Promise<ActiveTaskCanvasSelection> {
+  const loaded = await loadProjectGraphForWorkspace(workspace);
+  const projectWorkspace = loaded.workspace;
   if (loaded.source === "project_graph") {
     if (!loaded.manifest.canvases.some((canvas) => canvas.id === activeCanvasId)) {
       throw new Error(`Project canvas '${activeCanvasId}' does not exist.`);

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type SetStateAction } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type SetStateAction } from "react";
 import type {
   DesktopGraphViewModel,
   DesktopLayout,
@@ -65,6 +65,8 @@ export function useDesktopProject({
   const {
     beginProjectRequest,
     beginSnapshotRequest,
+    beginSelectionIntent,
+    captureProjectSelection,
     selectCanvas,
     applyDesktopProjectSnapshot,
     applyDesktopGraph,
@@ -110,6 +112,35 @@ export function useDesktopProject({
     [clearProjectState, currentCanvasRef, selectCanvas]
   );
 
+  const beginProjectSelection = useCallback(
+    (project: DesktopProjectSummary, canvasId: string | null) => {
+      const previous = currentCanvasRef.current;
+      if (previous.projectRoot !== project.rootPath || previous.canvasId !== canvasId)
+        clearProjectState();
+      const receipt = beginSelectionIntent({ projectRoot: project.rootPath, canvasId });
+      setSelectedProjectState(project);
+      setSelectedCanvasIdState(canvasId);
+      setExpandedProjectId(project.projectId);
+      setProjectLoading(true);
+      setProjectRefreshing(false);
+      setError(null);
+      return {
+        ...receipt,
+        finishLoading: () => {
+          if (receipt.isCurrent()) setProjectLoading(false);
+        }
+      };
+    },
+    [beginSelectionIntent, clearProjectState, currentCanvasRef, setError]
+  );
+  const previousHome = useRef(planweaveHome);
+  useLayoutEffect(() => {
+    if (previousHome.current === planweaveHome) return;
+    previousHome.current = planweaveHome;
+    setProjectLoading(false);
+    setProjectRefreshing(false);
+  }, [planweaveHome]);
+
   const {
     handleOpenProject,
     loadProject,
@@ -123,6 +154,9 @@ export function useDesktopProject({
     updateProjectPromptPolicy
   } = useDesktopProjectLoader({
     planweaveHome,
+    beginProjectSelection,
+    beginSelectionIntent,
+    captureProjectSelection,
     beginProjectRequest,
     beginSnapshotRequest,
     autoSelectInitialProject,
@@ -198,6 +232,8 @@ export function useDesktopProject({
   });
 
   return {
+    beginProjectSelection,
+    captureProjectSelection,
     beginProjectRequest,
     isRuntimeAutoRunCurrent,
     expandedProjectId,

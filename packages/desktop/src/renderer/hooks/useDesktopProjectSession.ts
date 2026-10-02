@@ -206,27 +206,37 @@ export function useDesktopProjectSession({
       options: { recordCanvasSelection?: boolean } = {}
     ) => {
       const nextCanvasId = resolveProjectCanvasId(project, canvasId);
-      if (
-        bridge &&
-        canvasId !== undefined &&
-        nextCanvasId &&
-        options.recordCanvasSelection !== false
-      ) {
-        await bridge.selectTaskCanvas(project.rootPath, nextCanvasId);
+      const selection = projectState.beginProjectSelection(project, nextCanvasId);
+      try {
+        if (
+          bridge &&
+          canvasId !== undefined &&
+          nextCanvasId &&
+          options.recordCanvasSelection !== false
+        ) {
+          await bridge.selectTaskCanvas(project.rootPath, nextCanvasId);
+          if (!selection.isCurrent()) return;
+        }
+        if (!selection.isCurrent()) return;
+        clearSelectionForCanvasChange();
+        const loading = projectState.loadProject(project, nextCanvasId, selection);
+        const request = projectState.beginProjectRequest(
+          { projectRoot: project.rootPath, canvasId: nextCanvasId },
+          "autoRun"
+        );
+        await loading;
+        if (!selection.isCurrent() || !request.isCurrent()) return;
+        await refreshLatestAutoRunSummary(project.rootPath, nextCanvasId);
+      } catch (caught) {
+        if (selection.isCurrent()) throw caught;
+      } finally {
+        selection.finishLoading();
       }
-      clearSelectionForCanvasChange();
-      const loading = projectState.loadProject(project, nextCanvasId);
-      const request = projectState.beginProjectRequest(
-        { projectRoot: project.rootPath, canvasId: nextCanvasId },
-        "autoRun"
-      );
-      await loading;
-      if (!request.isCurrent()) return;
-      await refreshLatestAutoRunSummary(project.rootPath, nextCanvasId);
     },
     [
       clearSelectionForCanvasChange,
       projectState.beginProjectRequest,
+      projectState.beginProjectSelection,
       projectState.loadProject,
       refreshLatestAutoRunSummary
     ]
@@ -244,12 +254,20 @@ export function useDesktopProjectSession({
       if (!bridge) {
         return null;
       }
-      const canvas = await bridge.createTaskCanvas(project.rootPath);
-      const refreshed = await projectState.refreshProjectSummary(project.rootPath, canvas.canvasId);
-      await openProject(refreshed ?? project, canvas.canvasId);
-      return canvas;
+      const selection = projectState.captureProjectSelection();
+      try {
+        const canvas = await bridge.createTaskCanvas(project.rootPath);
+        if (!selection.isCurrent()) return canvas;
+        const refreshed = await projectState.refreshProjectSummary(project.rootPath);
+        if (!selection.isCurrent()) return canvas;
+        await openProject(refreshed ?? project, canvas.canvasId);
+        return canvas;
+      } catch (caught) {
+        if (selection.isCurrent()) throw caught;
+        return null;
+      }
     },
-    [openProject, projectState.refreshProjectSummary]
+    [openProject, projectState.captureProjectSelection, projectState.refreshProjectSummary]
   );
 
   const duplicateTaskCanvas = useCallback(
@@ -257,12 +275,20 @@ export function useDesktopProjectSession({
       if (!bridge) {
         return null;
       }
-      const canvas = await bridge.duplicateTaskCanvas(project.rootPath, canvasId);
-      const refreshed = await projectState.refreshProjectSummary(project.rootPath, canvas.canvasId);
-      await openProject(refreshed ?? project, canvas.canvasId);
-      return canvas;
+      const selection = projectState.captureProjectSelection();
+      try {
+        const canvas = await bridge.duplicateTaskCanvas(project.rootPath, canvasId);
+        if (!selection.isCurrent()) return canvas;
+        const refreshed = await projectState.refreshProjectSummary(project.rootPath);
+        if (!selection.isCurrent()) return canvas;
+        await openProject(refreshed ?? project, canvas.canvasId);
+        return canvas;
+      } catch (caught) {
+        if (selection.isCurrent()) throw caught;
+        return null;
+      }
     },
-    [openProject, projectState.refreshProjectSummary]
+    [openProject, projectState.captureProjectSelection, projectState.refreshProjectSummary]
   );
 
   const createProjectFromTaskCanvas = useCallback(
@@ -270,11 +296,18 @@ export function useDesktopProjectSession({
       if (!bridge) {
         return null;
       }
-      const createdProject = await bridge.createProjectFromTaskCanvas(project.rootPath, canvasId);
-      await projectState.refreshProjects({ selectProjectId: createdProject.projectId });
-      return createdProject;
+      const selection = projectState.captureProjectSelection();
+      try {
+        const createdProject = await bridge.createProjectFromTaskCanvas(project.rootPath, canvasId);
+        if (!selection.isCurrent()) return createdProject;
+        await projectState.refreshProjects({ selectProjectId: createdProject.projectId });
+        return createdProject;
+      } catch (caught) {
+        if (selection.isCurrent()) throw caught;
+        return null;
+      }
     },
-    [projectState.refreshProjects]
+    [projectState.captureProjectSelection, projectState.refreshProjects]
   );
 
   const deleteTaskCanvas = useCallback(
@@ -282,14 +315,26 @@ export function useDesktopProjectSession({
       if (!bridge) {
         return;
       }
-      const canvases = await bridge.removeTaskCanvas(project.rootPath, canvasId);
-      const nextCanvasId = canvases[0]?.canvasId ?? null;
-      const refreshed = await projectState.refreshProjectSummary(project.rootPath, nextCanvasId);
-      if (projectState.selectedProject?.projectId === project.projectId && refreshed) {
-        await openProject(refreshed, nextCanvasId);
+      const selection = projectState.captureProjectSelection();
+      try {
+        const canvases = await bridge.removeTaskCanvas(project.rootPath, canvasId);
+        if (!selection.isCurrent()) return;
+        const nextCanvasId = canvases[0]?.canvasId ?? null;
+        const refreshed = await projectState.refreshProjectSummary(project.rootPath);
+        if (!selection.isCurrent()) return;
+        if (projectState.selectedProject?.projectId === project.projectId && refreshed) {
+          await openProject(refreshed, nextCanvasId);
+        }
+      } catch (caught) {
+        if (selection.isCurrent()) throw caught;
       }
     },
-    [openProject, projectState.refreshProjectSummary, projectState.selectedProject?.projectId]
+    [
+      openProject,
+      projectState.captureProjectSelection,
+      projectState.refreshProjectSummary,
+      projectState.selectedProject?.projectId
+    ]
   );
 
   const renameTaskCanvas = useCallback(
@@ -297,18 +342,27 @@ export function useDesktopProjectSession({
       if (!bridge) {
         return null;
       }
-      const canvas = await bridge.renameTaskCanvas(project.rootPath, canvasId, name);
-      const refreshed = await projectState.refreshProjectSummary(
-        project.rootPath,
-        projectState.selectedCanvasId
-      );
-      if (projectState.selectedProject?.projectId === project.projectId && refreshed) {
-        await openProject(refreshed, projectState.selectedCanvasId);
+      const selection = projectState.captureProjectSelection();
+      try {
+        const canvas = await bridge.renameTaskCanvas(project.rootPath, canvasId, name);
+        if (!selection.isCurrent()) return canvas;
+        const refreshed = await projectState.refreshProjectSummary(
+          project.rootPath,
+          projectState.selectedCanvasId
+        );
+        if (!selection.isCurrent()) return canvas;
+        if (projectState.selectedProject?.projectId === project.projectId && refreshed) {
+          await openProject(refreshed, projectState.selectedCanvasId);
+        }
+        return canvas;
+      } catch (caught) {
+        if (selection.isCurrent()) throw caught;
+        return null;
       }
-      return canvas;
     },
     [
       openProject,
+      projectState.captureProjectSelection,
       projectState.refreshProjectSummary,
       projectState.selectedCanvasId,
       projectState.selectedProject?.projectId

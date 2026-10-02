@@ -17,11 +17,23 @@ import type { createTranslator } from "../i18n";
 import type { DesktopSettingsUpdate } from "../types";
 import type {
   ApplyDesktopProjectSnapshotOptions,
-  CurrentDesktopCanvasRef
+  CurrentDesktopCanvasRef,
+  DesktopSelectionReceipt
 } from "./useDesktopProjectSnapshot";
 
 type UseDesktopProjectLoaderArgs = {
   planweaveHome: string;
+  beginProjectSelection: (
+    project: DesktopProjectSummary,
+    canvasId: string | null
+  ) => DesktopSelectionReceipt & { finishLoading: () => void };
+  beginSelectionIntent: ReturnType<
+    typeof import("./useDesktopProjectSnapshot").useDesktopProjectSnapshot
+  >["beginSelectionIntent"];
+  captureProjectSelection: ReturnType<
+    typeof import("./useDesktopProjectSnapshot").useDesktopProjectSnapshot
+  >["captureProjectSelection"];
+
   beginProjectRequest: ReturnType<
     typeof import("./useDesktopProjectSnapshot").useDesktopProjectSnapshot
   >["beginProjectRequest"];
@@ -82,6 +94,9 @@ function errorMessage(caught: unknown): string {
 
 export function useDesktopProjectLoader({
   planweaveHome,
+  beginProjectSelection,
+  beginSelectionIntent,
+  captureProjectSelection,
   beginProjectRequest,
   beginSnapshotRequest,
   autoSelectInitialProject,
@@ -108,6 +123,8 @@ export function useDesktopProjectLoader({
   updateSettings
 }: UseDesktopProjectLoaderArgs) {
   const promptWrites = useRef({ markdown: 0, policy: 0 });
+  const initialProjectsLoaded = useRef(false);
+  const initialProjectsHome = useRef(planweaveHome);
   const initialProjectPathRef = useRef<string | null>(null);
   const autoSelectInitialProjectRef = useRef<boolean | null>(null);
   if (settingsHydrated && initialProjectPathRef.current === null) {
@@ -116,29 +133,17 @@ export function useDesktopProjectLoader({
   }
 
   const loadProject = useCallback(
-    async (project: DesktopProjectSummary, requestedCanvasId?: string | null) => {
-      if (!bridge) {
-        setProjectLoading(false);
-        return;
-      }
-      setProjectLoading(true);
+    async (
+      project: DesktopProjectSummary,
+      requestedCanvasId?: string | null,
+      existingSelection?: DesktopSelectionReceipt & { finishLoading: () => void }
+    ) => {
       const canvasId = resolveProjectCanvasId(project, requestedCanvasId);
-      const currentCanvas = currentCanvasRef.current;
-      const canKeepCurrentCanvas =
-        currentCanvas.hasGraph &&
-        currentCanvas.projectRoot === project.rootPath &&
-        currentCanvas.canvasId === canvasId;
-      currentCanvasRef.current = {
-        canvasId,
-        hasGraph: canKeepCurrentCanvas ? currentCanvas.hasGraph : false,
-        projectRoot: project.rootPath
-      };
-      setSelectedProject(project);
-      setSelectedCanvasId(canvasId);
-      setExpandedProjectId(project.projectId);
-      setError(null);
-      if (!canKeepCurrentCanvas) {
-        clearProjectState();
+      const selection = existingSelection ?? beginProjectSelection(project, canvasId);
+      if (!selection.isCurrent()) return;
+      if (!bridge) {
+        selection.finishLoading();
+        return;
       }
       const canvasRef = desktopCanvasReference(project, canvasId);
       const loadRequest = beginProjectRequest(canvasRef, "load");
@@ -170,27 +175,26 @@ export function useDesktopProjectLoader({
         if (request.isCurrent() && errors.length > 0) setError(errors.join("\n"));
         updateSettings({ runtimePath: project.workspaceRoot });
       } finally {
-        if (loadRequest.isCurrent()) setProjectLoading(false);
+        if (loadRequest.isCurrent()) selection.finishLoading();
       }
     },
     [
       applyDesktopProjectSnapshot,
       beginProjectRequest,
+      beginProjectSelection,
       beginSnapshotRequest,
-      clearProjectState,
-      currentCanvasRef,
       refreshDesktopGraphDiagnostics,
       setError,
-      setExpandedProjectId,
-      setProjectLoading,
-      setSelectedCanvasId,
-      setSelectedProject,
       updateSettings
     ]
   );
 
   useEffect(() => {
-    if (!settingsHydrated) {
+    if (initialProjectsHome.current !== planweaveHome) {
+      initialProjectsHome.current = planweaveHome;
+      initialProjectsLoaded.current = false;
+    }
+    if (!settingsHydrated || initialProjectsLoaded.current) {
       return;
     }
     if (!bridge) {
@@ -198,12 +202,13 @@ export function useDesktopProjectLoader({
       return;
     }
     let cancelled = false;
+    const request = captureProjectSelection("projects");
     bridge
       .listProjects()
       .then((items) => {
-        if (cancelled) {
-          return;
-        }
+        if (cancelled) return;
+        initialProjectsLoaded.current = true;
+        if (!request.isCurrent()) return;
         setProjects(items);
         if (autoSelectInitialProjectRef.current === false) {
           setProjectLoading(false);
@@ -220,16 +225,24 @@ export function useDesktopProjectLoader({
         setProjectLoading(false);
       })
       .catch((caught: unknown) => {
-        if (cancelled) {
-          return;
-        }
+        if (cancelled) return;
+        initialProjectsLoaded.current = true;
+        if (!request.isCurrent()) return;
         setProjectLoading(false);
         setError(errorMessage(caught));
       });
     return () => {
       cancelled = true;
     };
-  }, [loadProject, setError, setProjectLoading, setProjects, settingsHydrated]);
+  }, [
+    captureProjectSelection,
+    loadProject,
+    planweaveHome,
+    setError,
+    setProjectLoading,
+    setProjects,
+    settingsHydrated
+  ]);
 
   const refreshGraph = useCallback(async () => {
     if (!bridge || !selectedProject) {
@@ -368,10 +381,12 @@ export function useDesktopProjectLoader({
       if (!bridge) {
         return null;
       }
+      const request = captureProjectSelection("projects");
       const nextProjects = await bridge.listProjects();
+      if (!request.isCurrent()) return null;
       setProjects(nextProjects);
       const project = nextProjects.find((item) => item.rootPath === projectRoot) ?? null;
-      if (project && selectedProject?.rootPath === projectRoot) {
+      if (project && currentCanvasRef.current.projectRoot === projectRoot) {
         setSelectedProject(project);
         if (canvasId !== undefined) {
           setSelectedCanvasId(canvasId);
@@ -379,7 +394,13 @@ export function useDesktopProjectLoader({
       }
       return project;
     },
-    [selectedProject?.rootPath, setProjects, setSelectedCanvasId, setSelectedProject]
+    [
+      captureProjectSelection,
+      currentCanvasRef,
+      setProjects,
+      setSelectedCanvasId,
+      setSelectedProject
+    ]
   );
 
   const refreshProjects = useCallback(
@@ -387,9 +408,11 @@ export function useDesktopProjectLoader({
       if (!bridge) {
         return;
       }
+      const request = captureProjectSelection("projects");
       setProjectRefreshing(true);
       try {
         const nextProjects = await bridge.listProjects();
+        if (!request.isCurrent()) return;
         setProjects(nextProjects);
         const requestedProject = options.selectProjectId
           ? (nextProjects.find((item) => item.projectId === options.selectProjectId) ?? null)
@@ -429,12 +452,13 @@ export function useDesktopProjectLoader({
         clearProjectState();
         setError(null);
       } catch (caught) {
-        setError(errorMessage(caught));
+        if (request.isCurrent()) setError(errorMessage(caught));
       } finally {
-        setProjectRefreshing(false);
+        if (request.isCurrent()) setProjectRefreshing(false);
       }
     },
     [
+      captureProjectSelection,
       clearProjectState,
       loadProject,
       selectedProject?.projectId,
@@ -453,30 +477,35 @@ export function useDesktopProjectLoader({
       setError(t("openProjectBridgeUnavailable"));
       return false;
     }
+    const request = beginSelectionIntent();
     try {
       const selectedPath = await bridge.chooseProjectFolder();
-      if (!selectedPath) {
+      if (!request.isCurrent() || !selectedPath) {
         return false;
       }
       const project = await bridge.initOrOpenProject(selectedPath);
+      if (!request.isCurrent()) return false;
       setProjects((items) =>
         items.some((item) => item.projectId === project.projectId) ? items : [...items, project]
       );
       await loadProject(project);
       return true;
     } catch (caught) {
-      setError(`${t("openProjectFailedHint")}\n${errorMessage(caught)}`);
+      if (request.isCurrent()) setError(`${t("openProjectFailedHint")}\n${errorMessage(caught)}`);
       return false;
     }
-  }, [loadProject, setError, setProjects, t]);
+  }, [beginSelectionIntent, loadProject, setError, setProjects, t]);
 
   const removeProject = useCallback(
     async (project: DesktopProjectSummary) => {
       if (!bridge) {
         return;
       }
+      const request = captureProjectSelection("projects");
       await bridge.removeProject(project.projectId);
+      if (!request.isCurrent()) return;
       const nextProjects = await bridge.listProjects();
+      if (!request.isCurrent()) return;
       setProjects(nextProjects);
       if (selectedProject?.projectId !== project.projectId) {
         return;
@@ -492,6 +521,7 @@ export function useDesktopProjectLoader({
       clearProjectState();
     },
     [
+      captureProjectSelection,
       clearProjectState,
       loadProject,
       selectedProject?.projectId,
