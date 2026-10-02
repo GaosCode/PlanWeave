@@ -90,11 +90,13 @@ it.each([
     client.start();
     await welcomes[0]!.promise;
     await new Promise<void>((resolve) => setImmediate(resolve));
-    await client.stop();
-    if (!remainStopped) {
-      client.start();
-      await welcomes[1]!.promise;
-    }
+    let stopped = false;
+    const stopping = client.stop().then(() => {
+      stopped = true;
+    });
+    if (!remainStopped) client.start();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(stopped).toBe(false);
     authority = nextToken;
     pending.resolve({
       hostId: "host-stop-test",
@@ -103,18 +105,21 @@ it.each([
       expiresAt: new Date(Date.now() + 86400000).toISOString()
     });
     await pending.promise;
+    await stopping;
     await new Promise<void>((resolve) => setImmediate(resolve));
     if (remainStopped) {
       expect(authorization).toHaveLength(1);
       client.start();
       await welcomes[1]!.promise;
-    } else await welcomes[2]!.promise;
-    expect(authorization).toEqual(
-      remainStopped
-        ? [`Bearer ${initialToken}`, `Bearer ${nextToken}`]
-        : [`Bearer ${initialToken}`, `Bearer ${initialToken}`, `Bearer ${nextToken}`]
-    );
+    } else await welcomes[1]!.promise;
+    expect(authorization).toEqual([`Bearer ${initialToken}`, `Bearer ${nextToken}`]);
   } finally {
+    pending.resolve({
+      hostId: "host-stop-test",
+      credentialToken: authority,
+      issuedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 86400000).toISOString()
+    });
     await client?.stop();
     for (const socket of sockets.clients) socket.terminate();
     await new Promise<void>((resolve) => sockets.close(() => resolve()));

@@ -16,7 +16,7 @@ const RESPONSE_MAX_BYTES = 16_384;
 const REQUEST_TIMEOUT_MS = 30_000;
 
 export interface HostCredentialRenewalPort {
-  poll(): Promise<ActiveHostCredential | undefined>;
+  poll(signal?: AbortSignal): Promise<ActiveHostCredential | undefined>;
   readActiveCredential(): Promise<ActiveHostCredential>;
 }
 
@@ -105,6 +105,7 @@ function assertMatchingStatus(
 export class AgentHostCredentialRenewal implements HostCredentialRenewalPort {
   private readonly request: typeof fetch;
   private nextPollAt = 0;
+  private pending?: Promise<ActiveHostCredential | undefined>;
 
   constructor(
     private readonly serverUrl: string,
@@ -121,11 +122,23 @@ export class AgentHostCredentialRenewal implements HostCredentialRenewalPort {
     return this.credentials.requireUsable(this.options.clock?.() ?? new Date());
   }
 
-  async poll(): Promise<ActiveHostCredential | undefined> {
+  poll(signal?: AbortSignal): Promise<ActiveHostCredential | undefined> {
+    if (this.pending) return this.pending;
+    const operation = this.pollOwned(signal).finally(() => {
+      if (this.pending === operation) this.pending = undefined;
+      if (signal?.aborted) this.nextPollAt = 0;
+    });
+    this.pending = operation;
+    return operation;
+  }
+
+  private async pollOwned(signal?: AbortSignal): Promise<ActiveHostCredential | undefined> {
+    signal?.throwIfAborted();
     const now = this.options.clock?.() ?? new Date();
     if (now.getTime() < this.nextPollAt) return undefined;
     this.nextPollAt = now.getTime() + STATUS_POLL_INTERVAL_MS;
     const document = await this.credentials.read();
+    signal?.throwIfAborted();
     const active = document?.active;
     const pendingRotation = document?.rotation;
     if (!active?.credentialPolicy || active.revokedAt) return undefined;
@@ -133,7 +146,8 @@ export class AgentHostCredentialRenewal implements HostCredentialRenewalPort {
       throw new Error("agent_host_credential_unavailable");
     }
 
-    const status = await this.readStatus(active);
+    const status = await this.readStatus(active, signal);
+    signal?.throwIfAborted();
     assertMatchingStatus(active, status);
     const shouldRotate =
       pendingRotation !== undefined ||
@@ -148,33 +162,44 @@ export class AgentHostCredentialRenewal implements HostCredentialRenewalPort {
       createdAt: now.toISOString()
     };
     await this.credentials.beginRotation(rotation);
-    const response = await this.rotate(active, rotation);
+    signal?.throwIfAborted();
+    const response = await this.rotate(active, rotation, signal);
+    signal?.throwIfAborted();
     return this.credentials.commitRotation(response, now);
   }
 
-  private async readStatus(active: ActiveHostCredential): Promise<HostCredentialRenewalStatus> {
-    const response = await this.requestWithTimeout(
+  private async readStatus(
+    active: ActiveHostCredential,
+    signal?: AbortSignal
+  ): Promise<HostCredentialRenewalStatus> {
+    return this.requestWithTimeout(
       renewalEndpoint(this.serverUrl, active.hostId, active.workspaceId),
       {
         method: "GET",
         headers: { authorization: `Bearer ${active.credentialToken}` },
         redirect: "error"
-      }
+      },
+      (response, payload) => {
+        if (!response.ok) {
+          const error = hostCredentialRenewalErrorSchema.parse(payload);
+          throw new Error(`agent_host_credential_renewal_rejected:${error.error}`);
+        }
+        return hostCredentialRenewalStatusSchema.parse(payload);
+      },
+      signal
     );
-    const payload = await readBoundedJson(response);
-    if (!response.ok) {
-      const error = hostCredentialRenewalErrorSchema.parse(payload);
-      throw new Error(`agent_host_credential_renewal_rejected:${error.error}`);
-    }
-    return hostCredentialRenewalStatusSchema.parse(payload);
   }
 
-  private async rotate(active: ActiveHostCredential, rotation: PendingHostCredentialRotation) {
+  private async rotate(
+    active: ActiveHostCredential,
+    rotation: PendingHostCredentialRotation,
+    signal?: AbortSignal
+  ) {
     const request = hostCredentialRotationRequestSchema.parse({
       rotationId: rotation.rotationId,
       nextCredentialToken: rotation.credentialToken
     });
-    const response = await this.requestWithTimeout(
+    return this.requestWithTimeout(
       renewalEndpoint(this.serverUrl, active.hostId, active.workspaceId),
       {
         method: "POST",
@@ -184,23 +209,38 @@ export class AgentHostCredentialRenewal implements HostCredentialRenewalPort {
         },
         body: JSON.stringify(request),
         redirect: "error"
-      }
+      },
+      (response, payload) => {
+        if (!response.ok) {
+          const error = hostCredentialRenewalErrorSchema.parse(payload);
+          throw new Error(`agent_host_credential_rotation_rejected:${error.error}`);
+        }
+        return hostCredentialRotationResponseSchema.parse(payload);
+      },
+      signal
     );
-    const payload = await readBoundedJson(response);
-    if (!response.ok) {
-      const error = hostCredentialRenewalErrorSchema.parse(payload);
-      throw new Error(`agent_host_credential_rotation_rejected:${error.error}`);
-    }
-    return hostCredentialRotationResponseSchema.parse(payload);
   }
 
-  private async requestWithTimeout(input: URL, init: RequestInit): Promise<Response> {
+  private async requestWithTimeout<T>(
+    input: URL,
+    init: RequestInit,
+    parse: (response: Response, payload: unknown) => T,
+    owner?: AbortSignal
+  ): Promise<T> {
     const controller = new AbortController();
+    const signal = owner ? AbortSignal.any([owner, controller.signal]) : controller.signal;
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
-      return await this.request(input, { ...init, signal: controller.signal });
+      signal.throwIfAborted();
+      const response = await this.request(input, { ...init, signal });
+      const payload = await readBoundedJson(response);
+      signal.throwIfAborted();
+      const result = parse(response, payload);
+      signal.throwIfAborted();
+      return result;
     } finally {
       clearTimeout(timeout);
+      controller.abort();
     }
   }
 }

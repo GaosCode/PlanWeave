@@ -50,6 +50,14 @@ export const workspaceMappingsInventory = [
     "Credential lifecycle tests report empty mapping observations."
   ),
   inventoryEntry(
+    "wm-agentHostRenewalShutdown-test",
+    "workspaceMappings",
+    "endpoint_readiness",
+    "packages/agent-host/src/__tests__/agentHostRenewalShutdown.test.ts",
+    "readiness.workspaceMappings: []",
+    "Credential HTTP shutdown tests report empty mapping observations."
+  ),
+  inventoryEntry(
     "wm-canvasRuntimeShutdown-test",
     "workspaceMappings",
     "endpoint_readiness",

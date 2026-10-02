@@ -101,8 +101,8 @@ it("aligns restarted artifacts with real committed credentials when the next ord
   );
   const credentials = new FileHostCredentialStore(credentialPath);
   const admission = createTransportAdmissionPolicyForMode("loopback_http");
-  const rotationResponse = deferred<void>();
-  const releaseResponse = deferred<void>();
+  const rotationCommitted = deferred<void>();
+  const releaseCommit = deferred<void>();
   const ordinaryPoll = deferred<void>();
   const firstExecution = deferred<AgentHostExecutionContext>();
   const restartedExecution = deferred<AgentHostExecutionContext>();
@@ -205,16 +205,15 @@ it("aligns restarted artifacts with real committed credentials when the next ord
     const address = http.address();
     if (!address || typeof address === "string") throw new Error("expected_port");
     const origin = `http://127.0.0.1:${address.port}`;
+    const commitRotation = credentials.commitRotation.bind(credentials);
+    vi.spyOn(credentials, "commitRotation").mockImplementationOnce(async (response, at) => {
+      const current = await commitRotation(response, at);
+      rotationCommitted.resolve();
+      await releaseCommit.promise;
+      return current;
+    });
     const renewal = new AgentHostCredentialRenewal(origin, credentials, {
-      clock: () => now,
-      request: async (url, init) => {
-        const response = await fetch(url, init);
-        if (init?.method === "POST") {
-          rotationResponse.resolve();
-          await releaseResponse.promise;
-        }
-        return response;
-      }
+      clock: () => now
     });
     hosts.requestCredentialRenewal(hostId);
     client = new AgentHostClient({
@@ -231,8 +230,8 @@ it("aligns restarted artifacts with real committed credentials when the next ord
       logger: { log: (event) => logs.push(event) },
       credentialRenewal: {
         readActiveCredential: () => renewal.readActiveCredential(),
-        poll: async () => {
-          const result = await renewal.poll();
+        poll: async (signal) => {
+          const result = await renewal.poll(signal);
           pollResults.push(result);
           if (pollResults.length > 1) ordinaryPoll.resolve();
           return result;
@@ -259,14 +258,20 @@ it("aligns restarted artifacts with real committed credentials when the next ord
     });
     client.start();
     const oldContext = await firstExecution.promise;
-    await rotationResponse.promise;
-    await client.stop();
+    await rotationCommitted.promise;
+    let stopped = false;
+    const stopping = client.stop().then(() => {
+      stopped = true;
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(stopped).toBe(false);
     expect(oldContext.signal.aborted).toBe(true);
+    releaseCommit.resolve();
+    await stopping;
     client.start();
     await welcomes[1]!.promise;
     const context = await restartedExecution.promise;
     now = new Date(now.getTime() + 30001);
-    releaseResponse.resolve();
     await vi.waitFor(async () => expect((await credentials.read())?.rotation).toBeUndefined());
     const current = await credentials.requireUsable(now);
     await ordinaryPoll.promise;
@@ -301,7 +306,7 @@ it("aligns restarted artifacts with real committed credentials when the next ord
     expect(JSON.stringify(logs)).not.toContain(initialToken);
     expect(JSON.stringify(logs)).not.toContain(current.credentialToken);
   } finally {
-    releaseResponse.resolve();
+    releaseCommit.resolve();
     finish.resolve();
     await client?.stop();
     for (const socket of sockets.clients) socket.terminate();

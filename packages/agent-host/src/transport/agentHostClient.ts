@@ -193,6 +193,7 @@ export class AgentHostClient implements HostTransport {
   private leaseProtectionFailed = false;
   private leasePersistenceFailed = false;
   private credentialRenewalInFlight?: Promise<void>;
+  private credentialRenewalAbort?: AbortController;
 
   constructor(private readonly options: AgentHostClientOptions) {
     this.baseUrl = new URL(options.serverUrl);
@@ -397,7 +398,10 @@ export class AgentHostClient implements HostTransport {
   }
 
   private async stopTransport(): Promise<void> {
+    this.credentialRenewalAbort?.abort();
+    const credentialRenewal = this.credentialRenewalInFlight;
     if (this.stopped && this.currentStatus.state === "stopped" && !this.startup) {
+      if (credentialRenewal) await this.waitBounded(credentialRenewal);
       if (this.options.canvasRuntime) await this.waitBounded(this.options.canvasRuntime.stop());
       return;
     }
@@ -417,6 +421,7 @@ export class AgentHostClient implements HostTransport {
     if (this.heartbeatTimer) this.clock.clearTimeout(this.heartbeatTimer);
     for (const { controller } of this.active.values()) controller.abort();
     this.options.canvasRuntime?.disconnect();
+    if (credentialRenewal) await this.waitBounded(credentialRenewal);
     if (this.options.canvasRuntime) await this.waitBounded(this.options.canvasRuntime.stop());
     const socket = this.socket;
     this.socket = undefined;
@@ -1048,10 +1053,12 @@ export class AgentHostClient implements HostTransport {
 
   private checkCredentialRenewal(): void {
     const renewal = this.options.credentialRenewal;
-    if (!renewal || this.credentialRenewalInFlight) return;
+    if (!renewal || this.stopped || this.credentialRenewalInFlight) return;
     const generation = this.lifecycleGeneration;
+    const controller = new AbortController();
+    this.credentialRenewalAbort = controller;
     const operation = renewal
-      .poll()
+      .poll(controller.signal)
       .then(async () => {
         if (this.stopped || generation !== this.lifecycleGeneration) return;
         const credential = await renewal.readActiveCredential();
@@ -1061,7 +1068,11 @@ export class AgentHostClient implements HostTransport {
         this.options.canvasRuntime?.updateCredentialToken(this.token);
         this.socket?.close(1000, "credential rotated");
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) {
+          if (error instanceof Error && error.name === "AbortError") return;
+          throw error;
+        }
         this.options.logger?.log({
           level: "warn",
           event: "host_credential_renewal_failed",
@@ -1072,6 +1083,7 @@ export class AgentHostClient implements HostTransport {
       .finally(() => {
         if (this.credentialRenewalInFlight === operation) {
           this.credentialRenewalInFlight = undefined;
+          if (this.credentialRenewalAbort === controller) this.credentialRenewalAbort = undefined;
           if (!this.stopped && generation !== this.lifecycleGeneration) {
             this.checkCredentialRenewal();
           }
