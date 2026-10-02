@@ -45,6 +45,9 @@ async function fixture(heldMethod: "GET" | "POST", clock?: FakeHostTransportCloc
   const held = deferred<void>();
   const responses: ServerResponse[] = [];
   let complete = false;
+  let failBody = false;
+  const failures = deferred<void>();
+  const renewalRequests: string[] = [];
   let peerClosed = 0;
   let now = new Date("2030-01-02T00:00:00.000Z");
   const authorizations: Array<string | undefined> = [];
@@ -59,8 +62,13 @@ async function fixture(heldMethod: "GET" | "POST", clock?: FakeHostTransportCloc
       body += chunk.toString();
     });
     request.on("end", async () => {
+      renewalRequests.push(request.method ?? "");
       response.writeHead(200, { "content-type": "application/json" });
       if (!complete && request.method === heldMethod) {
+        if (failBody) {
+          response.end("{malformed");
+          return;
+        }
         responses.push(response);
         response.on("close", () => {
           peerClosed += 1;
@@ -132,6 +140,11 @@ async function fixture(heldMethod: "GET" | "POST", clock?: FakeHostTransportCloc
     clock,
     limits: { shutdownTimeoutMs: 100 },
     reconnect: { initialDelayMs: 1, maxDelayMs: 1 },
+    logger: {
+      log(event) {
+        if (event.event === "host_credential_renewal_failed") failures.resolve();
+      }
+    },
     executor: {
       execute: async () => {
         throw new Error("Unexpected execution.");
@@ -154,6 +167,11 @@ async function fixture(heldMethod: "GET" | "POST", clock?: FakeHostTransportCloc
     active,
     held,
     authorizations,
+    failures,
+    renewalRequests,
+    fail: () => {
+      failBody = true;
+    },
     peerClosed: () => peerClosed,
     resume: () => {
       complete = true;
@@ -165,6 +183,42 @@ async function fixture(heldMethod: "GET" | "POST", clock?: FakeHostTransportCloc
 }
 
 describe("Host credential HTTP cancellation and shutdown authority", () => {
+  it.each([
+    "GET",
+    "POST"
+  ] as const)("releases a failed %s renewal and rotates on the next live heartbeat", async (method) => {
+    const clock = new FakeHostTransportClock();
+    const f = await fixture(method, clock);
+    f.fail();
+    f.client.start();
+    await f.failures.promise;
+    expect(f.client.status().state).toBe("connected");
+    const failedDocument = await f.store.read();
+    expect(failedDocument?.active).toEqual(f.active);
+    if (method === "GET") expect(failedDocument?.rotation).toBeUndefined();
+    else expect(failedDocument?.rotation).toBeDefined();
+    expect(f.renewalRequests).toEqual(method === "GET" ? ["GET"] : ["GET", "POST"]);
+    f.resume();
+    f.nextPoll();
+    clock.advanceBy(0);
+    await vi.waitFor(async () => {
+      const current = await f.store.read();
+      expect(current?.active?.credentialToken).not.toBe(f.active.credentialToken);
+      expect(current?.rotation).toBeUndefined();
+    });
+    await vi.waitFor(() => expect(f.client.status().state).toBe("backing-off"));
+    clock.advanceBy(1);
+    await vi.waitFor(() => {
+      expect(f.client.status().state).toBe("connected");
+      expect(f.authorizations).toHaveLength(2);
+    });
+    const current = await f.store.requireUsable(new Date("2030-01-02T00:00:31.000Z"));
+    expect(f.authorizations.at(-1)).toBe(`Bearer ${current.credentialToken}`);
+    await f.client.stop();
+    expect(f.client.status().state).toBe("stopped");
+    expect(clock.pendingTimerCount()).toBe(0);
+  });
+
   it.each([
     "GET",
     "POST"

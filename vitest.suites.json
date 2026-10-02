@@ -816,6 +816,7 @@
         "agentHostClientLoad.test.ts",
         "agentHostConfig.test.ts",
         "credentialRenewal.test.ts",
+        "credentialRenewalDeadline.test.ts",
         "credentialRenewalHttpLifecycle.test.ts",
         "agentHostEnrollment.test.ts",
         "agentHostHandoffProvenance.test.ts",

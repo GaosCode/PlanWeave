@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentHostCredentialRenewal } from "../credentials/credentialRenewal.js";
+import type { ActiveHostCredential } from "../credentials/credentialContract.js";
 import { FileHostCredentialStore } from "../credentials/fileCredentialStore.js";
 
 const policy = { lifetimeDays: 180, renewal: "automatic" as const };
@@ -41,12 +42,14 @@ async function fixture(method: "GET" | "POST") {
     response.writeHead(200, { "content-type": "application/json" });
     response.flushHeaders();
   };
-  const status = () => ({
+  const status = (credential: ActiveHostCredential = active) => ({
     hostId: active.hostId,
     serverTime: "2030-01-02T00:00:00.000Z",
-    credentialExpiresAt: active.expiresAt,
+    credentialExpiresAt: credential.expiresAt,
     policy,
-    renewalRequestedAt: "2030-01-01T23:59:00.000Z"
+    ...(credential.credentialToken === active.credentialToken
+      ? { renewalRequestedAt: "2030-01-01T23:59:00.000Z" }
+      : {})
   });
   const rotation = (body: string) => ({
     hostId: active.hostId,
@@ -58,7 +61,7 @@ async function fixture(method: "GET" | "POST") {
     request.on("data", (chunk: Buffer) => {
       body += chunk.toString();
     });
-    request.on("end", () => {
+    request.on("end", async () => {
       calls.push({
         method: request.method ?? "",
         body,
@@ -66,7 +69,11 @@ async function fixture(method: "GET" | "POST") {
       });
       if (request.method !== method) {
         response.writeHead(200, { "content-type": "application/json" });
-        response.end(JSON.stringify(request.method === "GET" ? status() : rotation(body)));
+        response.end(
+          JSON.stringify(
+            request.method === "GET" ? status(await store.requireUsable(now)) : rotation(body)
+          )
+        );
         return;
       }
       responses.push(response);
@@ -81,7 +88,8 @@ async function fixture(method: "GET" | "POST") {
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Missing fixture port.");
   let now = new Date("2030-01-02T00:00:00.000Z");
-  const renewal = new AgentHostCredentialRenewal(`http://127.0.0.1:${address.port}`, store, {
+  const origin = `http://127.0.0.1:${address.port}`;
+  let renewal = new AgentHostCredentialRenewal(origin, store, {
     clock: () => now
   });
   const results: Promise<unknown>[] = [];
@@ -106,6 +114,11 @@ async function fixture(method: "GET" | "POST") {
     calls,
     status,
     rotation,
+    rebuild: () => {
+      renewal = new AgentHostCredentialRenewal(origin, new FileHostCredentialStore(path), {
+        clock: () => now
+      });
+    },
     closed: () => closed,
     setBehavior: (next: typeof behavior) => {
       behavior = next;
@@ -135,6 +148,36 @@ async function settledAfterDeadline(result: Promise<unknown>, received: Promise<
 }
 
 describe("Credential renewal actual HTTP body lifecycle", () => {
+  it("keeps the persisted POST identity after a real deadline and commits it once after owner reconstruction", async () => {
+    const f = await fixture("POST");
+    const result = f.poll();
+    const rejected = expect(result).rejects.toMatchObject({ name: "AbortError" });
+    await f.received;
+    const pending = (await f.store.read())?.rotation;
+    expect(pending).toBeDefined();
+    await rejected;
+    await vi.waitFor(() => expect(f.closed()).toBe(1));
+    const afterTimeout = await f.store.read();
+    expect(afterTimeout?.active).toEqual(active);
+    expect(afterTimeout?.rotation).toEqual(pending);
+    f.rebuild();
+    f.setBehavior((response, body) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify(f.rotation(body)));
+    });
+    const next = await f.poll();
+    const posts = f.calls.filter((call) => call.method === "POST");
+    expect(posts).toHaveLength(2);
+    expect(posts[1]!.body).toBe(posts[0]!.body);
+    expect(next?.credentialToken).toBe(pending?.credentialToken);
+    expect((await f.store.read())?.rotation).toBeUndefined();
+    const committed = await readFile(f.path);
+    f.nextPoll();
+    await expect(f.poll()).resolves.toBeUndefined();
+    expect(f.calls.filter((call) => call.method === "POST")).toHaveLength(2);
+    expect(await readFile(f.path)).toEqual(committed);
+  }, 45000);
+
   it.each([
     "GET",
     "POST"

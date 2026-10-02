@@ -42,7 +42,25 @@ function renewalEndpoint(serverUrl: string, hostId: string, workspaceId?: string
   return base;
 }
 
-async function readBoundedJson(response: Response): Promise<unknown> {
+async function settleBeforeAbort<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  let abort!: () => void;
+  const canceled = new Promise<never>((_resolve, reject) => {
+    abort = () => reject(signal.reason);
+    if (signal.aborted) abort();
+    else signal.addEventListener("abort", abort, { once: true });
+  });
+  try {
+    return await Promise.race([operation, canceled]);
+  } finally {
+    signal.removeEventListener("abort", abort);
+  }
+}
+
+async function readBoundedJson(
+  response: Response,
+  signal: AbortSignal,
+  checkDeadline: () => void
+): Promise<unknown> {
   if (
     !/^application\/json(?:;\s*charset=utf-8)?$/i.test(response.headers.get("content-type") ?? "")
   ) {
@@ -62,18 +80,24 @@ async function readBoundedJson(response: Response): Promise<unknown> {
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
+  let consumed = false;
   try {
     while (true) {
-      const chunk = await reader.read();
-      if (chunk.done) break;
+      checkDeadline();
+      const chunk = await settleBeforeAbort(reader.read(), signal);
+      if (chunk.done) {
+        consumed = true;
+        break;
+      }
       size += chunk.value.byteLength;
       if (size > RESPONSE_MAX_BYTES) {
-        await reader.cancel();
         throw new Error("agent_host_credential_renewal_response_too_large");
       }
       chunks.push(chunk.value);
     }
   } finally {
+    // Underlying cancellation may never settle; preserve the original request failure.
+    if (!consumed) void Promise.allSettled([reader.cancel()]);
     reader.releaseLock();
   }
   const body = new Uint8Array(size);
@@ -229,18 +253,33 @@ export class AgentHostCredentialRenewal implements HostCredentialRenewalPort {
   ): Promise<T> {
     const controller = new AbortController();
     const signal = owner ? AbortSignal.any([owner, controller.signal]) : controller.signal;
+    const deadline = performance.now() + REQUEST_TIMEOUT_MS;
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    let response: Response | undefined;
+    const checkDeadline = () => {
+      if (performance.now() >= deadline) controller.abort();
+      signal.throwIfAborted();
+    };
     try {
-      signal.throwIfAborted();
-      const response = await this.request(input, { ...init, signal });
-      const payload = await readBoundedJson(response);
-      signal.throwIfAborted();
+      checkDeadline();
+      const requested = this.request(input, { ...init, signal }).then((received) => {
+        // A request adapter can return headers after its owner has already canceled.
+        if (signal.aborted && received.body) void Promise.allSettled([received.body.cancel()]);
+        return received;
+      });
+      response = await settleBeforeAbort(requested, signal);
+      checkDeadline();
+      const payload = await readBoundedJson(response, signal, checkDeadline);
+      checkDeadline();
       const result = parse(response, payload);
-      signal.throwIfAborted();
+      checkDeadline();
       return result;
     } finally {
       clearTimeout(timeout);
       controller.abort();
+      if (response?.body && !response.bodyUsed) {
+        void Promise.allSettled([response.body.cancel()]);
+      }
     }
   }
 }
