@@ -42,7 +42,6 @@ export async function publishCollaborationMutation<T extends { revision?: number
     const completion = input.execute();
     if (owner.isCurrent()) owner.emit();
     const result = await completion;
-    if (!owner.isCurrent()) return result;
     owner.ledger.setTerminal({
       ...record,
       status: "confirmed",
@@ -50,12 +49,12 @@ export async function publishCollaborationMutation<T extends { revision?: number
         typeof result.revision === "number" ? result.revision : input.expectedRevision,
       resolvedAt: owner.now()
     });
+    if (!owner.isCurrent()) return result;
     input.onConfirmed(result);
     owner.onConfirmed();
     owner.emit();
     return result;
   } catch (error) {
-    if (!owner.isCurrent()) throw error;
     const mapped = collaborationBoundaryErrorFromUnknown(error);
     owner.ledger.setTerminal({
       ...record,
@@ -65,6 +64,7 @@ export async function publishCollaborationMutation<T extends { revision?: number
       errorMessage: mapped.message,
       resolvedAt: owner.now()
     });
+    if (!owner.isCurrent()) throw error;
     owner.onError(mapped);
     owner.emit();
     return null;

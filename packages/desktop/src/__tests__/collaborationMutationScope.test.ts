@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { workAuthorityProjectionSchema } from "@planweave-ai/collaboration-protocol/work/authority";
 import {
   exampleAssignmentProjection,
@@ -11,6 +11,10 @@ import {
   type CollaborationReadBridgePort
 } from "../renderer/collaboration/CollaborationReadModelController";
 import type { CollaborationObserverSignal } from "../shared/collaboration";
+
+import { CollaborationMutationLedger } from "../renderer/collaboration/collaborationRetention";
+
+afterEach(() => vi.restoreAllMocks());
 
 const workItem = exampleAssignmentProjection.workItem;
 const projectA = "project-demo-001";
@@ -247,6 +251,89 @@ describe("mutation publication belongs to the original collaboration scope", () 
       const snapshot = f.controller.getSnapshot();
       f.gate.resolve();
       expect(await pending).toBe(f.results.create);
+      expect(f.controller.getSnapshot()).toBe(snapshot);
+    } finally {
+      f.controller.dispose();
+    }
+  });
+
+  for (const success of [true, false]) {
+    it(`finishes retired canvas ledger with ${success ? "success" : "failure"} while new writes stay isolated`, async () => {
+      const f = setup();
+      let retired: CollaborationMutationLedger | undefined;
+      const original = CollaborationMutationLedger.prototype.setPending;
+      const capture = vi
+        .spyOn(CollaborationMutationLedger.prototype, "setPending")
+        .mockImplementation(function (this: CollaborationMutationLedger, record) {
+          retired = this;
+          original.call(this, record);
+        });
+      try {
+        await f.activate();
+        const old = f.start("create");
+        const observed = old.then(
+          (value) => ({ value }),
+          (error) => ({ error })
+        );
+        expect(retired?.records.get("mut-1")?.status).toBe("pending");
+        capture.mockRestore();
+        await f.activate(projectA, "profile-A", "canvas-B");
+        const currentGate = deferred();
+        vi.mocked(f.api.createCollaborationComment).mockImplementationOnce(async () => {
+          await currentGate.promise;
+          return { ...f.results.create, body: "current canvas confirmed" };
+        });
+        const current = f.start("create");
+        const snapshot = f.controller.getSnapshot();
+        const listener = vi.fn();
+        f.controller.subscribe(listener);
+        const failure = { kind: "offline", code: "retired_failure", message: "old canvas failed" };
+        if (success) f.gate.resolve();
+        else f.gate.reject(failure);
+        expect(await observed).toEqual(success ? { value: f.results.create } : { error: failure });
+        expect(retired?.records.get("mut-1")?.status).toBe(success ? "confirmed" : "offline");
+        expect(f.controller.getSnapshot()).toBe(snapshot);
+        expect(listener).not.toHaveBeenCalled();
+        expect(Object.values(snapshot.mutationsById)).toEqual([
+          expect.objectContaining({ mutationId: "mut-2", status: "pending" })
+        ]);
+        currentGate.resolve();
+        expect(await current).toMatchObject({ body: "current canvas confirmed" });
+        expect(f.controller.getSnapshot().mutationsById["mut-2"]?.status).toBe("confirmed");
+        await f.activate();
+        expect(f.controller.getSnapshot().mutationsById).toEqual({});
+      } finally {
+        f.controller.dispose();
+      }
+    });
+  }
+
+  it("bounds retired ledger history when more than 256 old canvas writes finish", async () => {
+    const f = setup();
+    let retired: CollaborationMutationLedger | undefined;
+    const original = CollaborationMutationLedger.prototype.setPending;
+    vi.spyOn(CollaborationMutationLedger.prototype, "setPending").mockImplementation(function (
+      this: CollaborationMutationLedger,
+      record
+    ) {
+      retired = this;
+      original.call(this, record);
+    });
+    try {
+      await f.activate();
+      const old = Array.from({ length: 257 }, () => f.start("create"));
+      expect(retired?.records.size).toBe(257);
+      await f.activate(projectA, "profile-A", "canvas-B");
+      await f.activate();
+      const snapshot = f.controller.getSnapshot();
+      f.gate.resolve();
+      expect(await Promise.all(old)).toEqual(Array.from({ length: 257 }, () => f.results.create));
+      expect(retired?.records.size).toBe(256);
+      expect(retired?.records.has("mut-1")).toBe(false);
+      expect([...retired!.records.values()].every((record) => record.status === "confirmed")).toBe(
+        true
+      );
+      expect(snapshot.mutationsById).toEqual({});
       expect(f.controller.getSnapshot()).toBe(snapshot);
     } finally {
       f.controller.dispose();

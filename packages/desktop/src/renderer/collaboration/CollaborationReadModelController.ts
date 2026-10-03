@@ -273,6 +273,7 @@ export class CollaborationReadModelController {
       this.emit();
     } else if ((input.canvasId ?? null) !== this.state.canvasId) {
       this.state.canvasId = input.canvasId ?? null;
+      this.state.mutations = new CollaborationMutationLedger();
       this.state.generation = this.nextGeneration(true);
       this.state.loadingKinds = new Map();
     }
