@@ -195,7 +195,8 @@ function startPollingRuntimeStateWatchBackend(
 async function startRuntimeStateWatchBackend(
   stateFile: string,
   recordChange: (generation: number) => void,
-  scheduler: WatchScheduler
+  scheduler: WatchScheduler,
+  transferPendingFlush: () => void
 ): Promise<RuntimeStateWatchBackend> {
   const lastFingerprint = await fingerprintStateFile(stateFile);
   const backend: RuntimeStateWatchBackend = {
@@ -217,6 +218,7 @@ async function startRuntimeStateWatchBackend(
       `PlanWeave native runtime state watch failed for '${stateFile}'; switching to polling: ${caught instanceof Error ? caught.message : String(caught)}`
     );
     closeNativeRuntimeStateWatcher(backend);
+    transferPendingFlush();
     startPollingRuntimeStateWatchBackend(backend, stateFile, recordChange, scheduler);
   };
   const parentDir = dirname(stateFile);
@@ -314,9 +316,12 @@ function scheduleRuntimeStateFlush(
     activeWatch.timer.cancel();
   }
   const generation = activeWatch.backend.generation;
-  activeWatch.timer = activeWatch.scheduler.schedule(Math.max(0, scheduledAt - now), () =>
-    flushRuntimeStateChange(projectRoot, canvasId, activeWatch, generation)
-  );
+  const timer: WatchTimer = activeWatch.scheduler.schedule(Math.max(0, scheduledAt - now), () => {
+    if (activeWatch.timer !== timer) return;
+    activeWatch.timer = null;
+    return flushRuntimeStateChange(projectRoot, canvasId, activeWatch, generation);
+  });
+  activeWatch.timer = timer;
 }
 
 async function flushRuntimeStateChange(
@@ -333,7 +338,6 @@ async function flushRuntimeStateChange(
   ) {
     return;
   }
-  activeWatch.timer = null;
   if (activeWatch.flushInFlight) {
     activeWatch.flushRequested = true;
     return;
@@ -345,9 +349,11 @@ async function flushRuntimeStateChange(
     if (
       activeWatch.closed ||
       runtimeStateWatches.get(key) !== activeWatch ||
-      generation !== activeWatch.backend.generation ||
-      !changedFingerprint(activeWatch.backend.lastFingerprint, nextFingerprint)
+      generation !== activeWatch.backend.generation
     ) {
+      return;
+    }
+    if (!changedFingerprint(activeWatch.backend.lastFingerprint, nextFingerprint)) {
       activeWatch.flushFailureBackoffMs = 0;
       activeWatch.flushRetryNotBeforeMs = 0;
       return;
@@ -432,7 +438,19 @@ async function getOrCreateRuntimeStateWatch(
     const backend = await startRuntimeStateWatchBackend(
       workspace.stateFile,
       recordChange,
-      scheduler
+      scheduler,
+      () => {
+        const currentWatch = createdWatch;
+        if (
+          !currentWatch?.timer ||
+          currentWatch.closed ||
+          runtimeStateWatches.get(key) !== currentWatch
+        )
+          return;
+        currentWatch.timer.cancel();
+        currentWatch.timer = null;
+        scheduleRuntimeStateFlush(currentWatch, projectRoot, canvasId, 0);
+      }
     );
     createdWatch = {
       backend,

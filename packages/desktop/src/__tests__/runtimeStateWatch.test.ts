@@ -81,6 +81,49 @@ describe("runtime state watcher", () => {
     }
   });
 
+  it("transfers a failed fingerprint retry across failover and ignores a cancelled old callback", async () => {
+    const workspace = await createWorkspace();
+    const webContents = createWebContents();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const scheduled = vi.spyOn(watchRuntimeDriver, "schedule");
+    try {
+      await registerAndWatch(webContents, workspace);
+      await writeFile(
+        workspace.stateFile,
+        JSON.stringify({ version: 2, tasks: { recovered: true } })
+      );
+      fsPromisesMock.state.readFileHook = () => {
+        throw new Error("temporary fingerprint read failure");
+      };
+      fsMock.watchers[0].callback("change", "state.json");
+      await flushDebounce();
+      expect(webContents.send).not.toHaveBeenCalled();
+      expect(watchRuntimeDriver.pendingTimerCount()).toBe(1);
+      const oldRetry = scheduled.mock.calls.at(-1)![1];
+      fsMock.watchers[0].nativeFailure(new Error("native backend failure during retry"));
+      expect(watchRuntimeDriver.pendingTimerCount()).toBe(3);
+      await oldRetry();
+      expect(watchRuntimeDriver.pendingTimerCount()).toBe(3);
+      fsPromisesMock.state.readFileHook = null;
+      await watchRuntimeDriver.advanceByAndDrain(999);
+      expect(webContents.send).not.toHaveBeenCalled();
+      await watchRuntimeDriver.advanceByAndDrain(1);
+      expect(webContents.send).toHaveBeenCalledTimes(1);
+      await watchRuntimeDriver.advanceByAndDrain(1150);
+      expect(webContents.send).toHaveBeenCalledTimes(1);
+      expect(fsPromisesMock.state.maxActiveReadFiles).toBe(1);
+      await unwatch(webContents, workspace);
+      expect(watchRuntimeDriver.pendingTimerCount()).toBe(0);
+      await oldRetry();
+      await watchRuntimeDriver.advanceByAndDrain(60_000);
+      expect(webContents.send).toHaveBeenCalledTimes(1);
+      expect(watchRuntimeDriver.pendingTimerCount()).toBe(0);
+    } finally {
+      warn.mockRestore();
+      scheduled.mockRestore();
+    }
+  });
+
   it("retains shared polling until the last subscriber closes and releases normal close listeners", async () => {
     const workspace = await createWorkspace();
     const first = createWebContents(1);

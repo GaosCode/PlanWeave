@@ -20,7 +20,7 @@ export function projectWorkspaceExecutionCoordinatorView(
       updatedAt: result.session.updatedAt,
       finishedAt: result.session.finishedAt,
       error: result.session.error,
-      interactionStatus: state?.interactions ?? [],
+      interactionStatus: state?.interactions.map(({ key, status }) => ({ key, status })) ?? [],
       evidence: state?.evidence ?? { status: "complete", diagnostics: [] }
     },
     events: result.events

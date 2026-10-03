@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { remoteInteractionViewSchema } from "@planweave-ai/collaboration-protocol/remote-run";
+import { projectWorkspaceExecutionCoordinatorView } from "../workspaceExecution/nodeView.js";
 import { getRunSession, updateRunSession } from "../runSessions/repository.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
 import {
@@ -65,8 +66,10 @@ describe("remote interaction checkpoints", () => {
     const pending = pendingInteraction("attempt-1").items[0]!;
     let settled: ReturnType<typeof remoteInteractionViewSchema.parse> | undefined;
     let deliveries = 0;
+    let now = new Date("2030-01-01T00:10:00.000Z");
     const f = fixture({
       packageWorkspace: root,
+      clock: () => now,
       interactions: async () => (settled ? emptyInteractions() : pendingInteraction("attempt-1")),
       respond: async (answer) => {
         if (!settled) {
@@ -91,12 +94,36 @@ describe("remote interaction checkpoints", () => {
         response
       })
     ).rejects.toMatchObject({ code: "remote_interaction_checkpoint_failed" });
+    const checkpoint = (await getRunSession(root, started.session.sessionId)).session;
+    expect(checkpoint.workspaceExecution?.interactions[0]?.responseIntent?.response).toEqual(
+      response
+    );
+    expect(
+      projectWorkspaceExecutionCoordinatorView({ ...started, session: checkpoint }).session
+        .interactionStatus
+    ).toEqual([{ key: checkpoint.workspaceExecution?.interactions[0]?.key, status: "pending" }]);
+    now = new Date("2030-01-01T01:00:01.000Z");
     const observed = await f.coordinator.synchronizeInteractions({
       request: request(root),
       sessionId: started.session.sessionId
     });
     expect(observed.items).toEqual([]);
     expect(deliveries).toBe(1);
+    await expect(
+      f.coordinator.respond({
+        request: request(root),
+        sessionId: started.session.sessionId,
+        response: { ...response, optionId: "tool-reject-once" }
+      })
+    ).rejects.toMatchObject({ code: "remote_interaction_response_conflict" });
+    await expect(
+      f.coordinator.respond({
+        request: request(root),
+        sessionId: started.session.sessionId,
+        response: { ...response, acpSessionId: "forged-session" }
+      })
+    ).rejects.toMatchObject({ code: "workspace_execution_resume_mismatch" });
+    expect(f.respond).toHaveBeenCalledTimes(1);
     await expect(
       f.coordinator.respond({
         request: request(root),
@@ -111,6 +138,47 @@ describe("remote interaction checkpoints", () => {
     expect(deliveries).toBe(1);
     expect(f.respond).toHaveBeenCalledTimes(2);
   });
+  it("rejects a changed request before reusing an existing response intent", async () => {
+    const { root } = await createTestWorkspace();
+    let changed = false;
+    const f = fixture({
+      packageWorkspace: root,
+      interactions: async () => {
+        const page = pendingInteraction("attempt-1");
+        const permission = page.items[0]!.request;
+        if (changed && permission.type === "interaction.permission_requested")
+          permission.title = "A different permission request";
+        return page;
+      },
+      respond: async () => {
+        throw new Error("network unavailable");
+      }
+    });
+    const started = await f.coordinator.execute(request(root));
+    await expect(
+      f.coordinator.respond({
+        request: request(root),
+        sessionId: started.session.sessionId,
+        response
+      })
+    ).rejects.toMatchObject({ code: "remote_interaction_response_unavailable" });
+    const durable = (await getRunSession(root, started.session.sessionId)).session
+      .workspaceExecution?.interactions[0]?.responseIntent;
+    changed = true;
+    await expect(
+      f.coordinator.respond({
+        request: request(root),
+        sessionId: started.session.sessionId,
+        response
+      })
+    ).rejects.toMatchObject({ code: "remote_interaction_response_conflict" });
+    expect(f.respond).toHaveBeenCalledTimes(1);
+    expect(
+      (await getRunSession(root, started.session.sessionId)).session.workspaceExecution
+        ?.interactions[0]?.responseIntent
+    ).toEqual(durable);
+  });
+
   it("does not deliver a response when the intent checkpoint or session read fails", async () => {
     const { root } = await createTestWorkspace();
     const f = fixture({

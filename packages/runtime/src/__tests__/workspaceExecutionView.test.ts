@@ -1,3 +1,13 @@
+import { getRunSession } from "../runSessions/repository.js";
+import { projectWorkspaceExecutionCoordinatorView } from "../workspaceExecution/nodeView.js";
+import { createTestWorkspace } from "./promptTestHelpers.js";
+import {
+  fixture,
+  request,
+  pendingInteraction,
+  deferred,
+  observation
+} from "./workspaceExecutionCoordinatorTestFixture.js";
 import { describe, expect, it } from "vitest";
 import {
   projectWorkspaceExecutionTimeline,
@@ -19,6 +29,74 @@ const base = {
 };
 
 describe("workspace execution browser view", () => {
+  it("projects only public interaction status during a response and after network failure", async () => {
+    const { root } = await createTestWorkspace();
+    const entered = deferred<void>();
+    const released = deferred<void>();
+    const f = fixture({
+      packageWorkspace: root,
+      observe: async () => observation({ state: "running", revision: 2 }),
+      interactions: async () => pendingInteraction("attempt-1"),
+      respond: async () => {
+        entered.resolve();
+        await released.promise;
+        throw new Error("network response failed");
+      }
+    });
+    const started = await f.coordinator.execute(request(root));
+    const response = {
+      type: "interaction.permission_response" as const,
+      dispatchId: "dispatch-attempt-1",
+      leaseId: "lease-1",
+      executionAttemptId: "attempt-1",
+      actionId: "action-1",
+      acpSessionId: "acp-session-1",
+      decision: "select_option" as const,
+      optionId: "tool-approve-once"
+    };
+    const answering = f.coordinator.respond({
+      request: request(root),
+      sessionId: started.session.sessionId,
+      response
+    });
+    const failed = expect(answering).rejects.toMatchObject({
+      code: "remote_interaction_response_unavailable"
+    });
+    await entered.promise;
+    try {
+      const refreshed = await f.coordinator.follow(request(root), started.session.sessionId);
+      expect(
+        refreshed.session.workspaceExecution?.interactions[0]?.responseIntent?.response
+      ).toEqual(response);
+      const view = projectWorkspaceExecutionCoordinatorView(refreshed);
+      expect(view.session.interactionStatus).toEqual([
+        { key: refreshed.session.workspaceExecution?.interactions[0]?.key, status: "pending" }
+      ]);
+      expect(() =>
+        workspaceExecutionCoordinatorViewSchema.parse({
+          ...view,
+          session: {
+            ...view.session,
+            interactionStatus: [
+              { ...view.session.interactionStatus[0], responseIntent: { response } }
+            ]
+          }
+        })
+      ).toThrow();
+    } finally {
+      released.resolve();
+      await failed;
+    }
+    const persisted = (await getRunSession(root, started.session.sessionId)).session;
+    expect(persisted.workspaceExecution?.interactions[0]?.responseIntent?.response).toEqual(
+      response
+    );
+    expect(
+      projectWorkspaceExecutionCoordinatorView({ ...started, session: persisted }).session
+        .interactionStatus
+    ).toEqual([{ key: persisted.workspaceExecution?.interactions[0]?.key, status: "pending" }]);
+  });
+
   it("projects one canonical attempt, interaction, cursor, and terminal timeline", () => {
     const required = {
       ...base,

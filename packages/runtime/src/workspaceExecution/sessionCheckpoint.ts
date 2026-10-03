@@ -13,7 +13,10 @@ import type { ValidatedWorkspaceAuthorityBinding } from "./authorityBinding.js";
 import { WorkspaceExecutionError } from "./errors.js";
 import type { RemoteWorkspaceAdapterSnapshot } from "./ports.js";
 import { stableJson } from "../plangraph/hash.js";
-import { remoteInteractionIdentityKey } from "./remoteExecutionAdapter.js";
+import {
+  remoteInteractionIdentityKey,
+  remoteInteractionIdentityKeyFrom
+} from "./remoteExecutionAdapter.js";
 import {
   WorkspaceExecutionSessionVersionConflictError,
   type WorkspaceExecutionSessionRecord,
@@ -326,18 +329,25 @@ export async function persistRemoteResponseIntent(input: {
       handle.data.operationId !== input.handle.operationId ||
       handle.data.dispatchId !== input.handle.dispatchId ||
       handle.data.executionAttemptId !== input.handle.executionAttemptId ||
-      handle.data.leaseId !== input.handle.leaseId
+      handle.data.leaseId !== input.handle.leaseId ||
+      remoteInteractionIdentityKeyFrom({
+        operationId: input.handle.operationId,
+        ...input.request
+      }) !== input.key
     ) {
       throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
     }
+    if (record.responseIntent) {
+      if (
+        stableJson(record.responseIntent.request) !== stableJson(input.request) ||
+        stableJson(record.responseIntent.response) !== stableJson(input.response)
+      ) {
+        throw new WorkspaceExecutionError("remote_interaction_response_conflict");
+      }
+      return current;
+    }
     if (Date.parse(input.request.expiresAt) <= (input.clock ?? (() => new Date()))().getTime()) {
       throw new WorkspaceExecutionError("remote_interaction_expired");
-    }
-    if (
-      record.responseIntent &&
-      stableJson(record.responseIntent.response) !== stableJson(input.response)
-    ) {
-      throw new WorkspaceExecutionError("remote_interaction_response_conflict");
     }
     const workspaceExecution = workspaceExecutionSessionStateSchema.parse({
       ...state,
