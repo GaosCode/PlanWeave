@@ -1,5 +1,6 @@
 import {
   OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE,
+  operatorPublicOperationViewSchema,
   remoteActionViewSchema,
   remoteDispatchIntentV3Schema,
   remoteHumanExecutionActionCommandSchema,
@@ -117,7 +118,7 @@ export function createOperatorRemoteOperationsPort(input: {
     async dispatchRemoteOperation(command) {
       const body = remoteDispatchIntentV3Schema.parse(command);
       return operatorObservationToRemoteRun(
-        await input.json("POST", "/api/v1/remote-operations", operatorOperationViewSchema, {
+        await input.json("POST", "/api/v1/remote-operations", operatorPublicOperationViewSchema, {
           body,
           accept: OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE
         })
@@ -128,7 +129,7 @@ export function createOperatorRemoteOperationsPort(input: {
         await input.json(
           "GET",
           `/api/v1/remote-operations/${encodeURIComponent(operationId)}`,
-          operatorOperationViewSchema,
+          operatorPublicOperationViewSchema,
           { accept: OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE }
         )
       );

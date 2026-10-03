@@ -8,7 +8,9 @@ import {
   remoteEndpointOperationObservationSchema,
   remoteEventReplaySchema,
   remoteOperationLookupQuerySchema,
-  remoteOperationObservationSchema
+  remoteOperationObservationSchema,
+  operatorPublicOperationViewSchema,
+  operatorEndpointOperationObservationSchema
 } from "../remoteRun.js";
 
 const v3 = {
@@ -101,6 +103,38 @@ describe("remote-run/v3 dispatch contract", () => {
       },
       runtime: { ref: "T-001#B-001", status: "in_progress" }
     };
+    const operatorObservation = {
+      ...endpointObservation,
+      envelopeDigest: `envelope:sha256:${"a".repeat(64)}`,
+      diagnostics: {
+        stage: "running" as const,
+        revision: 1,
+        attemptId: "attempt-1",
+        locator: { workspaceId: "workspace-1", projectId: "project-a", canvasId: "default" },
+        authorityRevisions: { responsibility: 0, reviewer: 0, executionTarget: 0 },
+        content: { revision: "snapshot-1", fingerprint: "fingerprint-1" },
+        startedAt: endpointObservation.createdAt,
+        updatedAt: endpointObservation.updatedAt
+      }
+    };
+    expect(operatorEndpointOperationObservationSchema.parse(operatorObservation)).toEqual(
+      operatorObservation
+    );
+    for (const invalid of [
+      { ...operatorObservation, envelopeDigest: "invalid-digest" },
+      { ...operatorObservation, diagnostics: undefined },
+      { ...operatorObservation, agentEndpoint: undefined },
+      { ...operatorObservation, unknown: true },
+      {
+        ...operatorObservation,
+        attempt: { ...operatorObservation.attempt, hostId: "internal-host" }
+      }
+    ]) {
+      expect(() => operatorEndpointOperationObservationSchema.parse(invalid)).toThrow();
+    }
+    const { agentEndpoint: _endpoint, ...unscoped } = operatorObservation;
+    expect(operatorPublicOperationViewSchema.parse(unscoped)).toEqual(unscoped);
+    expect(() => remoteOperationObservationSchema.parse(operatorObservation)).toThrow();
     expect(remoteEndpointOperationObservationSchema.parse(endpointObservation)).toEqual(
       endpointObservation
     );

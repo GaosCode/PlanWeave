@@ -34,6 +34,7 @@ import {
 } from "@planweave-ai/agent-host-protocol";
 import {
   OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE,
+  operatorPublicOperationViewSchema,
   remoteEventReplaySchema,
   remoteInteractionPageQuerySchema,
   remoteInteractionPageSchema,
@@ -284,7 +285,7 @@ export class OperatorControlClient {
       ...(workspaceId === undefined ? {} : { workspaceId })
     };
     return operatorObservationToRemoteRun(
-      await this.json("POST", "/api/v1/remote-operations", z.object({}).passthrough(), {
+      await this.json("POST", "/api/v1/remote-operations", operatorPublicOperationViewSchema, {
         body,
         accept: OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE,
         humanPrincipalId
@@ -431,7 +432,7 @@ export class OperatorControlClient {
       await this.json(
         "GET",
         `/api/v1/remote-operations/${encodeURIComponent(id)}`,
-        z.object({}).passthrough(),
+        operatorPublicOperationViewSchema,
         {
           accept: OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE,
           ...(humanPrincipalId ? { humanPrincipalId } : {})

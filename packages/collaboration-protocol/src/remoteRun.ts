@@ -3,6 +3,7 @@ import {
   blockRefSchema,
   dispatchIdSchema,
   executionAttemptIdSchema,
+  executionEnvelopeDigestSchema,
   leaseIdSchema,
   normalizedFailureSchema,
   opaqueIdentifierSchema
@@ -245,6 +246,18 @@ export const remoteOperationObservationSchema = z
 export type RemoteOperationObservation = z.infer<typeof remoteOperationObservationSchema>;
 
 export const remoteEndpointOperationObservationSchema = remoteOperationObservationSchema.refine(
+  (observation) => observation.agentEndpoint !== undefined,
+  { message: "endpoint_observation_required", path: ["agentEndpoint"] }
+);
+
+/** Operator public-runtime wire retains envelope evidence and requires diagnostics. */
+export const operatorPublicOperationViewSchema = remoteOperationObservationSchema.safeExtend({
+  envelopeDigest: executionEnvelopeDigestSchema.optional(),
+  diagnostics: remoteOperationDiagnosticsSchema
+});
+export type OperatorPublicOperationView = z.infer<typeof operatorPublicOperationViewSchema>;
+
+export const operatorEndpointOperationObservationSchema = operatorPublicOperationViewSchema.refine(
   (observation) => observation.agentEndpoint !== undefined,
   { message: "endpoint_observation_required", path: ["agentEndpoint"] }
 );

@@ -127,8 +127,20 @@ describe("operatorRemoteOperations", () => {
   });
 
   it("requests the public Runtime wire for operation dispatch and observation", async () => {
+    let unexpectedField = false;
     const calls: Array<{ method: string; path: string; accept?: string }> = [];
     const response = {
+      envelopeDigest: `envelope:sha256:${"a".repeat(64)}`,
+      diagnostics: {
+        stage: "terminal",
+        revision: 1,
+        attemptId: "attempt-4",
+        locator: { workspaceId: "workspace-1", projectId: "project-a", canvasId: "canvas-main" },
+        authorityRevisions: { responsibility: 0, reviewer: 0, executionTarget: 0 },
+        content: { revision: "snapshot-1", fingerprint: "fingerprint-1" },
+        startedAt: "2026-08-03T08:00:00.000Z",
+        updatedAt: "2026-08-03T08:00:01.000Z"
+      },
       operationId: "operation-4",
       projectId: "project-a",
       canvasId: "canvas-main",
@@ -154,7 +166,7 @@ describe("operatorRemoteOperations", () => {
     const port = createOperatorRemoteOperationsPort({
       async json(_method, _path, _schema, options) {
         calls.push({ method: _method, path: _path, accept: options?.accept });
-        return _schema.parse(response);
+        return _schema.parse(unexpectedField ? { ...response, unexpected: true } : response);
       }
     });
 
@@ -172,8 +184,10 @@ describe("operatorRemoteOperations", () => {
       graphFingerprint: `pkg-${"a".repeat(64)}`
     });
     await port.observeRemoteOperation("operation-4");
+    unexpectedField = true;
+    await expect(port.observeRemoteOperation("operation-4")).rejects.toThrow();
 
-    expect(calls).toEqual([
+    expect(calls.slice(0, 2)).toEqual([
       {
         method: "POST",
         path: "/api/v1/remote-operations",

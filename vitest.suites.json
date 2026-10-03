@@ -1026,6 +1026,7 @@
         "realProcessInteractionRenewal.test.ts",
         "realProcessLifecycleClient.test.ts",
         "realProcessRemoteBlockLifecycle.test.ts",
+        "operatorCliObservationContract.test.ts",
         "releaseGate.test.ts",
         "remoteAgentAccessPolicy.test.ts",
         "remoteAgentCatalogDispatchFeatures.test.ts",

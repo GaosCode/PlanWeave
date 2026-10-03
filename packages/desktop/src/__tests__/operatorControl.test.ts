@@ -799,6 +799,7 @@ describe("Desktop operator control trust boundary", () => {
   });
 
   it("negotiates the public Runtime wire only for operation views", async () => {
+    let unexpectedField = false;
     const accepts: string[] = [];
     const request = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       accepts.push(new Headers(init?.headers).get("accept") ?? "");
@@ -807,6 +808,22 @@ describe("Desktop operator control trust boundary", () => {
       }
       return new Response(
         JSON.stringify({
+          ...(unexpectedField ? { unexpected: true } : {}),
+          envelopeDigest: `envelope:sha256:${"a".repeat(64)}`,
+          diagnostics: {
+            stage: "terminal",
+            revision: 1,
+            attemptId: "attempt-owner-001",
+            locator: {
+              workspaceId: "workspace-1",
+              projectId: "project-a",
+              canvasId: "canvas-main"
+            },
+            authorityRevisions: { responsibility: 0, reviewer: 0, executionTarget: 0 },
+            content: { revision: "snapshot-1", fingerprint: "fingerprint-1" },
+            startedAt: "2026-08-03T08:00:00.000Z",
+            updatedAt: "2026-08-03T08:00:01.000Z"
+          },
           operationId: "operation-owner-001",
           projectId: "project-a",
           canvasId: "canvas-main",
@@ -840,8 +857,10 @@ describe("Desktop operator control trust boundary", () => {
 
     await client.listHosts({ cursor: 0, limit: 100 });
     await client.observeRemoteOperation("operation-owner-001");
+    unexpectedField = true;
+    await expect(client.observeRemoteOperation("operation-owner-001")).rejects.toThrow();
 
-    expect(accepts).toEqual([
+    expect(accepts.slice(0, 2)).toEqual([
       "application/json",
       "application/vnd.planweave.operator-operation.public-runtime-v1+json"
     ]);

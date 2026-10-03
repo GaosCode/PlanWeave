@@ -24,12 +24,12 @@ import { humanPrincipalIdSchema } from "@planweave-ai/collaboration-protocol/cor
 import {
   OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE,
   remoteDispatchIntentV3Schema,
-  remoteEndpointOperationObservationSchema,
+  operatorEndpointOperationObservationSchema,
   remoteEventReplaySchema,
   remoteInteractionPageSchema,
   remoteInteractionResponseSchema,
   remoteInteractionViewSchema,
-  remoteOperationObservationSchema
+  operatorPublicOperationViewSchema
 } from "@planweave-ai/collaboration-protocol/remote-run";
 import {
   isOwnerCanvasRemoteAuthorityBinding,
@@ -199,7 +199,7 @@ export function createCliOwnerCanvasExecutionHttpPorts(input: {
     command: {
       dispatch: ({ binding, intent }, signal) => {
         const owner = requireOwnerBinding(binding);
-        return transport.json("POST", operationPath(), remoteEndpointOperationObservationSchema, {
+        return transport.json("POST", operationPath(), operatorEndpointOperationObservationSchema, {
           body: {
             ...remoteDispatchIntentV3Schema.parse(intent),
             humanPrincipalId: owner.humanPrincipalId
@@ -216,10 +216,15 @@ export function createCliOwnerCanvasExecutionHttpPorts(input: {
       },
       observe: ({ binding, operationId }, signal) => {
         requireOwnerBinding(binding);
-        return transport.json("GET", operationPath(operationId), remoteOperationObservationSchema, {
-          accept: OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE,
-          signal
-        });
+        return transport.json(
+          "GET",
+          operationPath(operationId),
+          operatorPublicOperationViewSchema,
+          {
+            accept: OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE,
+            signal
+          }
+        );
       },
       replay: ({ binding, operationId, afterCursor }, signal) => {
         requireOwnerBinding(binding);

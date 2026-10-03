@@ -31,9 +31,9 @@ import {
   workspaceIdSchema
 } from "@planweave-ai/collaboration-protocol/core/primitives";
 import {
+  operatorPublicOperationViewSchema,
   remoteDispatchIntentV3Schema,
   remoteOperationDiagnosticsSchema,
-  remoteRuntimeBindingProjectionSchema,
   type RemoteDispatchIntentV3
 } from "@planweave-ai/collaboration-protocol/remote-run";
 import { availableRemoteAgentEndpointSchema } from "@planweave-ai/collaboration-protocol/agent-endpoint";
@@ -130,10 +130,7 @@ export const operatorLegacyOperationViewSchema = operatorOperationViewBaseSchema
   .strict()
   .superRefine(refineOperatorOperationView);
 
-export const operatorPublicOperationViewSchema = operatorOperationViewBaseSchema
-  .extend({ runtime: remoteRuntimeBindingProjectionSchema })
-  .strict()
-  .superRefine(refineOperatorOperationView);
+export { operatorPublicOperationViewSchema };
 
 export const operatorOperationViewSchema = z.union([
   operatorPublicOperationViewSchema,

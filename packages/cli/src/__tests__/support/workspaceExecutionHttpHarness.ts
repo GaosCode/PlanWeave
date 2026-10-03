@@ -21,6 +21,7 @@ import {
 } from "@planweave-ai/collaboration-protocol/owner-canvas/materialization";
 import {
   remoteDispatchIntentV3Schema,
+  operatorEndpointOperationObservationSchema,
   remoteEndpointOperationObservationSchema,
   remoteEventReplaySchema,
   remoteInteractionPageSchema,
@@ -744,8 +745,12 @@ export class WorkspaceExecutionHttpHarness {
     if (!this.dispatchIntent) throw new Error("dispatch_intent_missing");
     const attemptId = this.replayTransitionCompleted() ? "attempt-2" : "attempt-1";
     const dispatchId = this.replayTransitionCompleted() ? "dispatch-2" : "dispatch-1";
-    return remoteEndpointOperationObservationSchema.parse({
+    const schema = this.ownerOperation
+      ? operatorEndpointOperationObservationSchema
+      : remoteEndpointOperationObservationSchema;
+    return schema.parse({
       operationId: "operation-1",
+      ...(this.ownerOperation ? { envelopeDigest: `envelope:sha256:${"a".repeat(64)}` } : {}),
       projectId: this.dispatchIntent.projectId,
       canvasId: this.dispatchIntent.canvasId,
       blockRef: this.dispatchIntent.blockRef,
