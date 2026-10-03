@@ -13,6 +13,7 @@ import {
   readDesktopProjectProjectionContext,
   readDesktopProjectSearchIndexFromContext
 } from "../desktop/graph/projectProjectionModel.js";
+import { projectionContextCache } from "../desktop/graph/projectProjectionCache.js";
 import { searchDesktopSearchIndex } from "../desktop/graph/searchIndexModel.js";
 import { writeJsonFile } from "../json.js";
 import { basicManifest, createTestWorkspace, writePromptFiles } from "./promptTestHelpers.js";
@@ -239,6 +240,49 @@ describe("selected canvas search body read budget", () => {
         includeBodies: true,
         canvasId: "unknown"
       })
+    ).rejects.toThrow("Task canvas 'unknown' does not exist.");
+  });
+
+  it.each([
+    "project",
+    "canvas"
+  ])("delivers selected bodies when %s invalidates the rebuilt context during handoff", async (invalidation) => {
+    const { root, bodies } = await fixture();
+    const context = await readDesktopProjectProjectionContext(root);
+    invalidateDesktopProjectProjection(root);
+    const originalSet = projectionContextCache.set;
+    projectionContextCache.set = (key, value) => {
+      originalSet.call(projectionContextCache, key, value);
+      queueMicrotask(() => {
+        if (invalidation === "project") invalidateDesktopProjectProjection(root);
+        else invalidateDesktopCanvasProjection(root, "default");
+      });
+      return projectionContextCache;
+    };
+    try {
+      const index = await readDesktopProjectSearchIndexFromContext(context, {
+        includeBodies: true,
+        canvasId: "default"
+      });
+      expect(searchDesktopSearchIndex(index, "scope needle", { canvasId: "default" })).toEqual(
+        expected("default")
+      );
+      expect(bodyReads(bodies[0])).toHaveLength(5);
+      expect(bodyReads([...bodies[1], ...bodies[2]])).toEqual([]);
+    } finally {
+      projectionContextCache.set = originalSet;
+    }
+    await fs.writeFile(bodies[0][0], "handoff next read fresh needle\n");
+    vi.mocked(fs.readFile).mockClear();
+    const fresh = await searchProjectWithDiagnostics(root, "handoff next read fresh needle", {
+      canvasId: "default"
+    });
+    expect(fresh.results).toEqual([
+      expect.objectContaining({ canvasId: "default", kind: "prompt", ref: "T-001" })
+    ]);
+    expect(bodyReads([...bodies[1], ...bodies[2]])).toEqual([]);
+    await expect(
+      searchProjectWithDiagnostics(root, "needle", { canvasId: "unknown" })
     ).rejects.toThrow("Task canvas 'unknown' does not exist.");
   });
 

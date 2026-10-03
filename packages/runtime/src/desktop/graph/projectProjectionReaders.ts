@@ -28,9 +28,11 @@ import {
   type DesktopStatisticsProjection
 } from "./statisticsIndexModel.js";
 
-export async function readDesktopProjectProjectionContext(
-  projectRoot: string
-): Promise<DesktopProjectProjectionContext> {
+async function readDesktopProjectProjectionCapture(projectRoot: string): Promise<{
+  context: DesktopProjectProjectionContext;
+  sourceCache: CachedProjectProjection;
+  snapshot: CachedProjectProjection;
+}> {
   const key = projectProjectionKey(projectRoot);
   const cached = getCachedDesktopProjectProjection(key);
   const next = await buildDesktopProjectProjection(projectRoot, cached);
@@ -39,8 +41,16 @@ export async function readDesktopProjectProjectionContext(
     key,
     projection: next.projection
   };
+  // Capture before publishing the context: cache retirement may run before the caller resumes.
+  const snapshot = { ...next, canvases: new Map(next.canvases) };
   projectionContextCache.set(context, next);
-  return context;
+  return { context, sourceCache: next, snapshot };
+}
+
+export async function readDesktopProjectProjectionContext(
+  projectRoot: string
+): Promise<DesktopProjectProjectionContext> {
+  return (await readDesktopProjectProjectionCapture(projectRoot)).context;
 }
 
 export async function readDesktopProjectProjection(
@@ -160,7 +170,9 @@ export async function readDesktopProjectSearchIndexFromContext(
   context: DesktopProjectProjectionContext,
   options: { includeBodies?: boolean; canvasId?: string | null } = {}
 ): Promise<DesktopSearchIndex> {
-  let cached = getCachedDesktopProjectProjection(context.key);
+  const cached = getCachedDesktopProjectProjection(context.key);
+  let sourceCache: CachedProjectProjection;
+  let snapshot: CachedProjectProjection;
   if (
     projectionContextCache.get(context) !== cached ||
     !cached ||
@@ -168,14 +180,14 @@ export async function readDesktopProjectSearchIndexFromContext(
       (canvasId) => !cached?.canvases.has(canvasId)
     )
   ) {
-    context = await readDesktopProjectProjectionContext(context.projection.projectRoot);
-    cached = projectionContextCache.get(context);
+    const refreshed = await readDesktopProjectProjectionCapture(context.projection.projectRoot);
+    context = refreshed.context;
+    sourceCache = refreshed.sourceCache;
+    snapshot = refreshed.snapshot;
+  } else {
+    sourceCache = cached;
+    snapshot = { ...cached, canvases: new Map(cached.canvases) };
   }
-  if (!cached) {
-    throw new Error("Project projection cache is unavailable after refresh.");
-  }
-  const sourceCache = cached;
-  const snapshot: CachedProjectProjection = { ...cached, canvases: new Map(cached.canvases) };
   const aggregation = context.projection.todoContext.aggregation;
   if (typeof options.canvasId === "string" && !aggregation.canvasesById.has(options.canvasId)) {
     throw new Error(`Task canvas '${options.canvasId}' does not exist.`);
