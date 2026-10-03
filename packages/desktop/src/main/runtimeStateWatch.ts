@@ -30,6 +30,7 @@ type RuntimeStateWatchBackend = {
   lastFingerprint: RuntimeStateFingerprint | null;
   lastObservedMetadata: RuntimeStateMetadata | null;
   closed: boolean;
+  generation: number;
 };
 
 type RuntimeStateWatchSubscriber = {
@@ -146,54 +147,24 @@ function nextFailureBackoffMs(currentMs: number): number {
   return Math.min(runtimeStateWatchFailureBackoffMaxMs, currentMs * 2);
 }
 
-function startNativeRuntimeStateWatchBackend(
-  stateFile: string,
-  lastFingerprint: RuntimeStateFingerprint | null,
-  recordChange: () => void
-): RuntimeStateWatchBackend | null {
-  const parentDir = dirname(stateFile);
-  if (!existsSync(parentDir)) {
-    return null;
-  }
-  const stateFileName = basename(stateFile);
-  try {
-    const watcher = watch(parentDir, { recursive: false }, (_eventType, filename) => {
-      if (!filename || filename.toString() === stateFileName) {
-        recordChange();
-      }
-    });
-    return {
-      kind: "native",
-      watcher,
-      pollLane: null,
-      hashSweepTimer: null,
-      lastFingerprint,
-      lastObservedMetadata: lastFingerprint,
-      closed: false
-    };
-  } catch (caught) {
-    console.warn(
-      `PlanWeave native runtime state watch failed for '${stateFile}': ${caught instanceof Error ? caught.message : String(caught)}`
-    );
-    return null;
-  }
+function closeNativeRuntimeStateWatcher(backend: RuntimeStateWatchBackend): void {
+  const watcher = backend.watcher;
+  backend.watcher = null;
+  watcher?.close();
 }
 
-async function startPollingRuntimeStateWatchBackend(
+function startPollingRuntimeStateWatchBackend(
+  backend: RuntimeStateWatchBackend,
   stateFile: string,
-  lastFingerprint: RuntimeStateFingerprint | null,
-  recordChange: () => void,
+  recordChange: (generation: number) => void,
   scheduler: WatchScheduler
-): Promise<RuntimeStateWatchBackend> {
-  const backend: RuntimeStateWatchBackend = {
-    kind: "polling",
-    watcher: null,
-    pollLane: null,
-    hashSweepTimer: null,
-    lastFingerprint,
-    lastObservedMetadata: lastFingerprint,
-    closed: false
-  };
+): void {
+  if (backend.closed || backend.pollLane) {
+    return;
+  }
+  backend.kind = "polling";
+  const generation = backend.generation;
+  const isCurrentBackend = () => !backend.closed && backend.generation === generation;
   const pollLane = new PollingWatchLane({
     scheduler,
     intervalMs: runtimeStateWatchPollIntervalMs,
@@ -201,13 +172,13 @@ async function startPollingRuntimeStateWatchBackend(
     backoffMaxMs: runtimeStateWatchFailureBackoffMaxMs,
     run: async (isCurrent) => {
       const nextMetadata = await metadataStateFile(stateFile);
-      if (!isCurrent()) {
+      if (!isCurrent() || !isCurrentBackend()) {
         return;
       }
       const changed = !sameMetadata(backend.lastObservedMetadata, nextMetadata);
       backend.lastObservedMetadata = nextMetadata;
       if (changed) {
-        recordChange();
+        recordChange(generation);
       }
     },
     onError: (error) => warnPollingSnapshotFailure(stateFile, error)
@@ -215,28 +186,64 @@ async function startPollingRuntimeStateWatchBackend(
   backend.pollLane = pollLane;
   pollLane.start();
   backend.hashSweepTimer = scheduler.repeat(runtimeStateWatchHashSweepIntervalMs, () => {
-    if (!backend.closed) {
-      recordChange();
+    if (isCurrentBackend()) {
+      recordChange(generation);
     }
   });
-  return backend;
 }
 
 async function startRuntimeStateWatchBackend(
   stateFile: string,
-  recordChange: () => void,
+  recordChange: (generation: number) => void,
   scheduler: WatchScheduler
 ): Promise<RuntimeStateWatchBackend> {
   const lastFingerprint = await fingerprintStateFile(stateFile);
-  return (
-    startNativeRuntimeStateWatchBackend(stateFile, lastFingerprint, recordChange) ??
-    (await startPollingRuntimeStateWatchBackend(
-      stateFile,
-      lastFingerprint,
-      recordChange,
-      scheduler
-    ))
-  );
+  const backend: RuntimeStateWatchBackend = {
+    kind: "native",
+    watcher: null,
+    pollLane: null,
+    hashSweepTimer: null,
+    lastFingerprint,
+    lastObservedMetadata: lastFingerprint,
+    closed: false,
+    generation: 0
+  };
+  const failover = (caught: unknown): void => {
+    if (backend.closed || backend.generation !== 0) {
+      return;
+    }
+    backend.generation += 1;
+    console.warn(
+      `PlanWeave native runtime state watch failed for '${stateFile}'; switching to polling: ${caught instanceof Error ? caught.message : String(caught)}`
+    );
+    closeNativeRuntimeStateWatcher(backend);
+    startPollingRuntimeStateWatchBackend(backend, stateFile, recordChange, scheduler);
+  };
+  const parentDir = dirname(stateFile);
+  const stateFileName = basename(stateFile);
+  if (existsSync(parentDir)) {
+    try {
+      const watcher = watch(parentDir, { recursive: false }, (_eventType, filename) => {
+        if (
+          !backend.closed &&
+          backend.generation === 0 &&
+          (!filename || filename.toString() === stateFileName)
+        ) {
+          recordChange(0);
+        }
+      });
+      backend.watcher = watcher;
+      // Explicit close queues a close event; native errors may close without one.
+      // Keep the guarded error listener until close, or until the failed watcher is collected.
+      watcher.once("close", () => watcher.removeListener("error", failover));
+      watcher.on("error", failover);
+    } catch (caught) {
+      failover(caught);
+    }
+  } else {
+    startPollingRuntimeStateWatchBackend(backend, stateFile, recordChange, scheduler);
+  }
+  return backend;
 }
 
 function addPendingRuntimeStateWatchSubscriber(key: string, webContents: WebContents): void {
@@ -271,11 +278,12 @@ function closeRuntimeStateWatch(activeWatch: RuntimeStateWatch): void {
   }
   activeWatch.closed = true;
   activeWatch.backend.closed = true;
+  activeWatch.backend.generation += 1;
   for (const subscriber of activeWatch.subscribers.values()) {
     subscriber.webContents.removeListener("destroyed", subscriber.onDestroyed);
   }
   activeWatch.subscribers.clear();
-  activeWatch.backend.watcher?.close();
+  closeNativeRuntimeStateWatcher(activeWatch.backend);
   activeWatch.backend.pollLane?.close();
   if (activeWatch.backend.hashSweepTimer) {
     activeWatch.backend.hashSweepTimer.cancel();
@@ -305,18 +313,24 @@ function scheduleRuntimeStateFlush(
     }
     activeWatch.timer.cancel();
   }
+  const generation = activeWatch.backend.generation;
   activeWatch.timer = activeWatch.scheduler.schedule(Math.max(0, scheduledAt - now), () =>
-    flushRuntimeStateChange(projectRoot, canvasId)
+    flushRuntimeStateChange(projectRoot, canvasId, activeWatch, generation)
   );
 }
 
 async function flushRuntimeStateChange(
   projectRoot: string,
-  canvasId?: string | null
+  canvasId: string | null | undefined,
+  activeWatch: RuntimeStateWatch,
+  generation: number
 ): Promise<void> {
   const key = watchKey(projectRoot, canvasId);
-  const activeWatch = runtimeStateWatches.get(key);
-  if (!activeWatch || activeWatch.closed) {
+  if (
+    runtimeStateWatches.get(key) !== activeWatch ||
+    activeWatch.closed ||
+    generation !== activeWatch.backend.generation
+  ) {
     return;
   }
   activeWatch.timer = null;
@@ -331,6 +345,7 @@ async function flushRuntimeStateChange(
     if (
       activeWatch.closed ||
       runtimeStateWatches.get(key) !== activeWatch ||
+      generation !== activeWatch.backend.generation ||
       !changedFingerprint(activeWatch.backend.lastFingerprint, nextFingerprint)
     ) {
       activeWatch.flushFailureBackoffMs = 0;
@@ -352,7 +367,11 @@ async function flushRuntimeStateChange(
       }
     }
   } catch (caught) {
-    if (!activeWatch.closed && runtimeStateWatches.get(key) === activeWatch) {
+    if (
+      !activeWatch.closed &&
+      runtimeStateWatches.get(key) === activeWatch &&
+      generation === activeWatch.backend.generation
+    ) {
       activeWatch.flushFailureBackoffMs = nextFailureBackoffMs(activeWatch.flushFailureBackoffMs);
       activeWatch.flushRetryNotBeforeMs =
         activeWatch.scheduler.nowMs() + activeWatch.flushFailureBackoffMs;
@@ -390,9 +409,15 @@ async function getOrCreateRuntimeStateWatch(
   }
   const start = (async () => {
     const workspace = await resolveTaskCanvasWorkspace(projectRoot, canvasId);
-    const recordChange = () => {
-      const currentWatch = runtimeStateWatches.get(key);
-      if (!currentWatch || currentWatch.closed) {
+    let createdWatch: RuntimeStateWatch | null = null;
+    const recordChange = (generation: number) => {
+      const currentWatch = createdWatch;
+      if (
+        !currentWatch ||
+        currentWatch.closed ||
+        runtimeStateWatches.get(key) !== currentWatch ||
+        generation !== currentWatch.backend.generation
+      ) {
         return;
       }
       if (currentWatch.flushInFlight) {
@@ -409,7 +434,7 @@ async function getOrCreateRuntimeStateWatch(
       recordChange,
       scheduler
     );
-    const createdWatch: RuntimeStateWatch = {
+    createdWatch = {
       backend,
       subscribers: new Map(),
       stateFile: workspace.stateFile,

@@ -1,278 +1,25 @@
-import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile, utimes, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { desktopBridgeInvokeChannels, runtimeStateChangedChannel } from "../shared/ipcChannels";
-import { WatchRuntimeTestDriver } from "./support/watchRuntimeTestDriver.js";
-
-type RegisteredHandler = (
-  event: { sender: TestWebContents },
-  ref: { projectRoot: string; canvasId?: string | null }
-) => unknown;
-type WatchCallback = (eventType: string, filename: string | Buffer | null) => void;
-
-type TestWebContents = {
-  id: number;
-  send: ReturnType<typeof vi.fn>;
-  isDestroyed: () => boolean;
-  once: ReturnType<typeof vi.fn>;
-  removeListener: ReturnType<typeof vi.fn>;
-};
-
-type TestWorkspace = {
-  rootPath: string;
-  workspaceRoot: string;
-  stateFile: string;
-};
-
-const electronMock = vi.hoisted(() => {
-  const handlers = new Map<string, RegisteredHandler>();
-  return {
-    handlers,
-    ipcMain: {
-      handle: vi.fn((channel: string, handler: RegisteredHandler) => {
-        handlers.set(channel, handler);
-      })
-    }
-  };
-});
-
-const fsMock = vi.hoisted(() => {
-  const watchers: Array<{
-    rootPath: string;
-    options: { recursive?: boolean };
-    callback: WatchCallback;
-    close: ReturnType<typeof vi.fn>;
-  }> = [];
-  return {
-    watchers,
-    watch: vi.fn((rootPath: string, options: { recursive?: boolean }, callback: WatchCallback) => {
-      const watcher = {
-        rootPath,
-        options,
-        callback,
-        close: vi.fn()
-      };
-      watchers.push(watcher);
-      return watcher;
-    })
-  };
-});
-
-const fsPromisesMock = vi.hoisted(() => {
-  const state = {
-    activeReadFiles: 0,
-    failStat: false,
-    maxActiveReadFiles: 0,
-    readFileCalls: 0,
-    readFileCallHook: null as null | ((path: string) => void),
-    readFileHook: null as null | ((path: string) => Buffer | Promise<Buffer> | undefined),
-    readFileResultHook: null as null | ((path: string) => void),
-    statResultHook: null as null | ((path: string) => void)
-  };
-  return {
-    state,
-    reset() {
-      state.activeReadFiles = 0;
-      state.failStat = false;
-      state.maxActiveReadFiles = 0;
-      state.readFileCalls = 0;
-      state.readFileCallHook = null;
-      state.readFileHook = null;
-      state.readFileResultHook = null;
-      state.statResultHook = null;
-    }
-  };
-});
-
-const runtimeMock = vi.hoisted(() => {
-  const state = {
-    workspace: null as TestWorkspace | null
-  };
-  return {
-    state,
-    resolveTaskCanvasWorkspace: vi.fn(async () => {
-      if (!state.workspace) {
-        throw new Error("Test workspace is not configured.");
-      }
-      return state.workspace;
-    })
-  };
-});
-
-vi.mock("electron", () => ({
-  ipcMain: electronMock.ipcMain
-}));
-
-vi.mock("node:fs", async () => {
-  const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
-  return {
-    ...actual,
-    watch: fsMock.watch
-  };
-});
-
-vi.mock("node:fs/promises", async () => {
-  const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
-  return {
-    ...actual,
-    readFile: async (path: Parameters<typeof actual.readFile>[0]) => {
-      const normalizedPath = String(path);
-      fsPromisesMock.state.readFileCalls += 1;
-      fsPromisesMock.state.readFileCallHook?.(normalizedPath);
-      fsPromisesMock.state.activeReadFiles += 1;
-      fsPromisesMock.state.maxActiveReadFiles = Math.max(
-        fsPromisesMock.state.maxActiveReadFiles,
-        fsPromisesMock.state.activeReadFiles
-      );
-      try {
-        const hooked = fsPromisesMock.state.readFileHook?.(normalizedPath);
-        const result = hooked === undefined ? await actual.readFile(path) : await hooked;
-        fsPromisesMock.state.readFileResultHook?.(normalizedPath);
-        return result;
-      } finally {
-        fsPromisesMock.state.activeReadFiles -= 1;
-      }
-    },
-    stat: async (path: Parameters<typeof actual.stat>[0]) => {
-      const normalizedPath = String(path);
-      if (fsPromisesMock.state.failStat) {
-        throw new Error("simulated stat failure");
-      }
-      const result = await actual.stat(path);
-      fsPromisesMock.state.statResultHook?.(normalizedPath);
-      return result;
-    }
-  };
-});
-
-vi.mock("@planweave-ai/runtime", () => ({
-  resolveTaskCanvasWorkspace: runtimeMock.resolveTaskCanvasWorkspace
-}));
-
-const tempRoots: string[] = [];
-const activeWatches: Array<{
-  webContents: TestWebContents;
-  workspace: TestWorkspace;
-}> = [];
-const watchRuntimeDriver = new WatchRuntimeTestDriver();
-
-function createDeferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => {
-    resolve = resolvePromise;
-  });
-  return { promise, resolve };
-}
-
-async function createWorkspace(): Promise<TestWorkspace> {
-  const rootPath = await mkdtemp(join(tmpdir(), "planweave-runtime-state-watch-"));
-  tempRoots.push(rootPath);
-  const canvasRoot = join(rootPath, "canvases", "canvas-a");
-  await mkdir(canvasRoot, { recursive: true });
-  const stateFile = join(canvasRoot, "state.json");
-  await writeFile(stateFile, JSON.stringify({ version: 1, tasks: {} }), "utf8");
-  return {
-    rootPath,
-    workspaceRoot: canvasRoot,
-    stateFile
-  };
-}
-
-function createWebContents(id = 1): TestWebContents {
-  return {
-    id,
-    send: vi.fn(),
-    isDestroyed: () => false,
-    once: vi.fn(),
-    removeListener: vi.fn()
-  };
-}
-
-async function registerAndWatch(
-  webContents: TestWebContents,
-  workspace: TestWorkspace
-): Promise<void> {
-  runtimeMock.state.workspace = workspace;
-  const { registerRuntimeStateWatchHandlers } = await import("../main/runtimeStateWatch");
-  registerRuntimeStateWatchHandlers({ scheduler: watchRuntimeDriver });
-  const handler = electronMock.handlers.get(desktopBridgeInvokeChannels.watchRuntimeState);
-  expect(handler).toBeDefined();
-  await handler?.(
-    { sender: webContents },
-    { projectRoot: workspace.rootPath, canvasId: "canvas-a" }
-  );
-  activeWatches.push({ webContents, workspace });
-}
-
-async function unwatch(webContents: TestWebContents, workspace: TestWorkspace): Promise<void> {
-  const handler = electronMock.handlers.get(desktopBridgeInvokeChannels.unwatchRuntimeState);
-  expect(handler).toBeDefined();
-  await handler?.(
-    { sender: webContents },
-    { projectRoot: workspace.rootPath, canvasId: "canvas-a" }
-  );
-  const activeWatchIndex = activeWatches.findIndex(
-    (activeWatch) => activeWatch.webContents === webContents && activeWatch.workspace === workspace
-  );
-  if (activeWatchIndex >= 0) {
-    activeWatches.splice(activeWatchIndex, 1);
-  }
-}
-
-async function flushDebounce(): Promise<void> {
-  await watchRuntimeDriver.advanceByAndDrain(150);
-}
-
-async function advanceUntilStateStat(ms: number, stateFile: string): Promise<void> {
-  const completed = createDeferred<void>();
-  fsPromisesMock.state.statResultHook = (path) => {
-    if (path === stateFile) {
-      completed.resolve();
-    }
-  };
-  watchRuntimeDriver.advanceBy(ms);
-  await completed.promise;
-  fsPromisesMock.state.statResultHook = null;
-  await watchRuntimeDriver.drain();
-}
-
-async function advanceUntilFingerprint(ms: number, stateFile: string): Promise<void> {
-  const completed = createDeferred<void>();
-  let contentRead = false;
-  fsPromisesMock.state.readFileResultHook = (path) => {
-    if (path === stateFile) {
-      contentRead = true;
-    }
-  };
-  fsPromisesMock.state.statResultHook = (path) => {
-    if (path === stateFile && contentRead) {
-      completed.resolve();
-    }
-  };
-  watchRuntimeDriver.advanceBy(ms);
-  await completed.promise;
-  fsPromisesMock.state.readFileResultHook = null;
-  fsPromisesMock.state.statResultHook = null;
-  await watchRuntimeDriver.drain();
-}
-
-async function advanceUntilReadFileCall(
-  ms: number,
-  stateFile: string,
-  expectedCalls: number
-): Promise<void> {
-  const started = createDeferred<void>();
-  fsPromisesMock.state.readFileCallHook = (path) => {
-    if (path === stateFile && fsPromisesMock.state.readFileCalls >= expectedCalls) {
-      started.resolve();
-    }
-  };
-  watchRuntimeDriver.advanceBy(ms);
-  await started.promise;
-  fsPromisesMock.state.readFileCallHook = null;
-  await watchRuntimeDriver.drain();
-}
+import { runtimeStateChangedChannel } from "../shared/ipcChannels";
+import {
+  electronMock,
+  fsMock,
+  fsPromisesMock,
+  runtimeMock,
+  tempRoots,
+  activeWatches,
+  watchRuntimeDriver,
+  createDeferred,
+  createWorkspace,
+  createWebContents,
+  registerAndWatch,
+  unwatch,
+  flushDebounce,
+  advanceUntilStateStat,
+  advanceUntilFingerprint,
+  advanceUntilReadFileCall
+} from "./support/runtimeStateWatchTestHarness.js";
 
 describe("runtime state watcher", () => {
   beforeEach(() => {
@@ -294,6 +41,206 @@ describe("runtime state watcher", () => {
     await Promise.all(
       tempRoots.splice(0).map((rootPath) => rm(rootPath, { recursive: true, force: true }))
     );
+  });
+
+  it.each([
+    "queued",
+    "native"
+  ])("fails over %s native errors once and continues actual state notifications", async (failureKind) => {
+    const workspace = await createWorkspace();
+    const webContents = createWebContents();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await registerAndWatch(webContents, workspace);
+      const watcher = fsMock.watchers[0];
+      expect(() => {
+        if (failureKind === "native") watcher.nativeFailure(new Error("native watch lost"));
+        else watcher.emit("error", new Error("native watch lost"));
+      }).not.toThrow();
+      expect(() => watcher.emit("error", new Error("queued second error"))).not.toThrow();
+      expect(watcher.close).toHaveBeenCalledTimes(1);
+      expect(watchRuntimeDriver.pendingTimerCount()).toBe(2);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]?.[0]).toContain("native watch lost");
+      expect(webContents.send).not.toHaveBeenCalled();
+      fsPromisesMock.state.readFileCalls = 0;
+      await advanceUntilStateStat(1000, workspace.stateFile);
+      expect(fsPromisesMock.state.readFileCalls).toBe(0);
+      await writeFile(workspace.stateFile, JSON.stringify({ version: 2, tasks: { done: true } }));
+      await advanceUntilStateStat(1000, workspace.stateFile);
+      await advanceUntilFingerprint(150, workspace.stateFile);
+      expect(webContents.send).toHaveBeenCalledTimes(1);
+      await advanceUntilStateStat(850, workspace.stateFile);
+      expect(webContents.send).toHaveBeenCalledTimes(1);
+      await unwatch(webContents, workspace);
+      expect(watchRuntimeDriver.pendingTimerCount()).toBe(0);
+      await watchRuntimeDriver.advanceByAndDrain(60_000);
+      expect(webContents.send).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("retains shared polling until the last subscriber closes and releases normal close listeners", async () => {
+    const workspace = await createWorkspace();
+    const first = createWebContents(1);
+    const second = createWebContents(2);
+    await registerAndWatch(first, workspace);
+    await registerAndWatch(second, workspace);
+    const watcher = fsMock.watchers[0];
+    watcher.emit("error", new Error("lost native watch"));
+    await new Promise<void>((resolve) => process.nextTick(resolve));
+    expect(watcher.listenerCount("error")).toBe(0);
+    await unwatch(first, workspace);
+    expect(watchRuntimeDriver.pendingTimerCount()).toBe(2);
+    await writeFile(workspace.stateFile, JSON.stringify({ version: 2, tasks: { shared: true } }));
+    await advanceUntilStateStat(1000, workspace.stateFile);
+    await advanceUntilFingerprint(150, workspace.stateFile);
+    expect(first.send).not.toHaveBeenCalled();
+    expect(second.send).toHaveBeenCalledTimes(1);
+    await unwatch(second, workspace);
+    expect(watchRuntimeDriver.pendingTimerCount()).toBe(0);
+  });
+
+  it("does not revive polling when unwatch runs during native failover close", async () => {
+    const workspace = await createWorkspace();
+    const webContents = createWebContents();
+    await registerAndWatch(webContents, workspace);
+    const watcher = fsMock.watchers[0];
+    const close = watcher.close.getMockImplementation();
+    watcher.close.mockImplementation(() => {
+      close?.();
+      void unwatch(webContents, workspace);
+    });
+    watcher.emit("error", new Error("native close interleaving"));
+    expect(watchRuntimeDriver.pendingTimerCount()).toBe(0);
+    watcher.callback("change", "state.json");
+    watcher.emit("error", new Error("late error before close event"));
+    await watchRuntimeDriver.advanceByAndDrain(60_000);
+    expect(webContents.send).not.toHaveBeenCalled();
+    expect(watcher.close).toHaveBeenCalledTimes(1);
+    expect(watchRuntimeDriver.pendingTimerCount()).toBe(0);
+  });
+
+  it("ignores retired native callbacks after another subscription replaces the instance", async () => {
+    const workspace = await createWorkspace();
+    const first = createWebContents(1);
+    await registerAndWatch(first, workspace);
+    const oldWatcher = fsMock.watchers[0];
+    await unwatch(first, workspace);
+    const second = createWebContents(2);
+    await registerAndWatch(second, workspace);
+    await writeFile(workspace.stateFile, JSON.stringify({ version: 2, tasks: { replaced: true } }));
+    oldWatcher.callback("change", "state.json");
+    await flushDebounce();
+    expect(second.send).not.toHaveBeenCalled();
+    fsMock.watchers[1].callback("change", "state.json");
+    await advanceUntilFingerprint(150, workspace.stateFile);
+    expect(second.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("discards old native scans across failover then publishes through current polling", async () => {
+    const workspace = await createWorkspace();
+    const webContents = createWebContents();
+    const replacement = Buffer.from(JSON.stringify({ version: 2, tasks: { current: true } }));
+    await registerAndWatch(webContents, workspace);
+    await writeFile(workspace.stateFile, replacement);
+    const held = createDeferred<Buffer>();
+    const started = createDeferred<void>();
+    fsPromisesMock.state.readFileHook = (path) => {
+      if (path === workspace.stateFile) {
+        started.resolve();
+        return held.promise;
+      }
+    };
+    const watcher = fsMock.watchers[0];
+    watcher.callback("change", "state.json");
+    watchRuntimeDriver.advanceBy(150);
+    await started.promise;
+    watcher.nativeFailure(new Error("failed during scan"));
+    watcher.callback("change", "state.json");
+    held.resolve(replacement);
+    fsPromisesMock.state.readFileHook = null;
+    await watchRuntimeDriver.drain();
+    expect(webContents.send).not.toHaveBeenCalled();
+    await advanceUntilStateStat(1000, workspace.stateFile);
+    await advanceUntilFingerprint(150, workspace.stateFile);
+    expect(webContents.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes pending native startup when its subscription was removed", async () => {
+    const workspace = await createWorkspace();
+    const webContents = createWebContents();
+    const held = createDeferred<Buffer>();
+    const started = createDeferred<void>();
+    const content = await readFile(workspace.stateFile);
+    fsPromisesMock.state.readFileHook = (path) => {
+      if (path === workspace.stateFile) {
+        started.resolve();
+        return held.promise;
+      }
+    };
+    const pending = registerAndWatch(webContents, workspace);
+    await started.promise;
+    await unwatch(webContents, workspace);
+    held.resolve(content);
+    fsPromisesMock.state.readFileHook = null;
+    await pending;
+    expect(fsMock.watchers[0].close).toHaveBeenCalledTimes(1);
+    expect(watchRuntimeDriver.pendingTimerCount()).toBe(0);
+    fsMock.watchers[0].emit("error", new Error("queued during startup close"));
+    await flushDebounce();
+    expect(webContents.send).not.toHaveBeenCalled();
+  });
+
+  it("does not publish an in-flight polling metadata scan or revive timers after unwatch", async () => {
+    const workspace = await createWorkspace();
+    const webContents = createWebContents();
+    await registerAndWatch(webContents, workspace);
+    fsMock.watchers[0].nativeFailure(new Error("start polling"));
+    await writeFile(workspace.stateFile, JSON.stringify({ version: 2, tasks: { changed: true } }));
+    const observed = createDeferred<void>();
+    fsPromisesMock.state.statResultHook = (path) => {
+      if (path === workspace.stateFile) {
+        void unwatch(webContents, workspace);
+        observed.resolve();
+      }
+    };
+    watchRuntimeDriver.advanceBy(1000);
+    await observed.promise;
+    fsPromisesMock.state.statResultHook = null;
+    await watchRuntimeDriver.drain();
+    await watchRuntimeDriver.advanceByAndDrain(60_000);
+    expect(webContents.send).not.toHaveBeenCalled();
+    expect(watchRuntimeDriver.pendingTimerCount()).toBe(0);
+  });
+
+  it("reclaims its allocated native handle when listener initialization fails", async () => {
+    const workspace = await createWorkspace();
+    const webContents = createWebContents();
+    const createWatcher = fsMock.watch.getMockImplementation();
+    if (!createWatcher) throw new Error("Missing watcher fixture implementation.");
+    fsMock.watch.mockImplementationOnce((root, options, callback) => {
+      const watcher = createWatcher(root, options, callback);
+      const on = watcher.on.bind(watcher);
+      vi.spyOn(watcher, "on").mockImplementation((event, listener) => {
+        if (event === "error") throw new Error("native listener setup failed");
+        return on(event, listener);
+      });
+      return watcher;
+    });
+    await registerAndWatch(webContents, workspace);
+    expect(fsMock.watchers[0].close).toHaveBeenCalledTimes(1);
+    expect(watchRuntimeDriver.pendingTimerCount()).toBe(2);
+    await writeFile(
+      workspace.stateFile,
+      JSON.stringify({ version: 2, tasks: { recovered: true } })
+    );
+    await advanceUntilStateStat(1000, workspace.stateFile);
+    await advanceUntilFingerprint(150, workspace.stateFile);
+    expect(webContents.send).toHaveBeenCalledTimes(1);
+    await unwatch(webContents, workspace);
+    expect(watchRuntimeDriver.pendingTimerCount()).toBe(0);
   });
 
   it("notifies subscribers when the current canvas state file changes", async () => {
@@ -390,16 +337,23 @@ describe("runtime state watcher", () => {
     expect(fsPromisesMock.state.readFileCalls).toBe(1);
   });
 
-  it("polling hash sweep detects same-size same-mtime edits", async () => {
+  it.each([
+    "startup",
+    "async"
+  ])("%s polling hash sweep detects same-size same-mtime edits", async (failureKind) => {
     const workspace = await createWorkspace();
     const webContents = createWebContents();
     const pinned = new Date("2020-01-01T00:00:00.000Z");
     await utimes(workspace.stateFile, pinned, pinned);
-    fsMock.watch.mockImplementationOnce(() => {
-      throw new Error("native watch unsupported");
-    });
+    if (failureKind === "startup") {
+      fsMock.watch.mockImplementationOnce(() => {
+        throw new Error("native watch unsupported");
+      });
+    }
 
     await registerAndWatch(webContents, workspace);
+    if (failureKind === "async")
+      fsMock.watchers[0].nativeFailure(new Error("native hash fallback"));
     const original = await readFile(workspace.stateFile);
     const replacement = Buffer.alloc(original.length, 0x20);
     await writeFile(workspace.stateFile, replacement);
