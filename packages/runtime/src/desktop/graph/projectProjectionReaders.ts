@@ -160,31 +160,52 @@ export async function readDesktopProjectSearchIndexFromContext(
   context: DesktopProjectProjectionContext,
   options: { includeBodies?: boolean; canvasId?: string | null } = {}
 ): Promise<DesktopSearchIndex> {
-  const cachedFromProject = peekCachedDesktopProjectProjection(context.key);
-  const cachedFromContext = projectionContextCache.get(context);
-  if (cachedFromContext !== cachedFromProject) {
-    return readDesktopProjectSearchIndexFromContext(
-      await readDesktopProjectProjectionContext(context.projection.projectRoot),
-      options
-    );
+  let cached = getCachedDesktopProjectProjection(context.key);
+  if (
+    projectionContextCache.get(context) !== cached ||
+    !cached ||
+    context.projection.todoContext.aggregation.orderedCanvasIds.some(
+      (canvasId) => !cached?.canvases.has(canvasId)
+    )
+  ) {
+    context = await readDesktopProjectProjectionContext(context.projection.projectRoot);
+    cached = projectionContextCache.get(context);
   }
-  const cached = getCachedDesktopProjectProjection(context.key);
+  if (!cached) {
+    throw new Error("Project projection cache is unavailable after refresh.");
+  }
+  const sourceCache = cached;
+  const snapshot: CachedProjectProjection = { ...cached, canvases: new Map(cached.canvases) };
   const aggregation = context.projection.todoContext.aggregation;
   if (typeof options.canvasId === "string" && !aggregation.canvasesById.has(options.canvasId)) {
     throw new Error(`Task canvas '${options.canvasId}' does not exist.`);
   }
+  // Invalidation may retire entries during I/O; this read keeps its captured projection.
+  const finish = (index: DesktopSearchIndex): DesktopSearchIndex => {
+    if (
+      peekCachedDesktopProjectProjection(context.key) === sourceCache &&
+      sourceCache.canvases.size === snapshot.canvases.size &&
+      [...snapshot.canvases].every(
+        ([canvasId, entry]) => sourceCache.canvases.get(canvasId) === entry
+      )
+    ) {
+      sourceCache.searchIndex = snapshot.searchIndex;
+      sourceCache.bodySearchIndex = snapshot.bodySearchIndex;
+    }
+    return index;
+  };
   const diagnostics = [...context.projection.diagnostics];
   const summaryIndex = await buildProjectSummarySearchIndex({
-    cached,
+    cached: snapshot,
     projection: context.projection,
     projectRoot: context.projection.projectRoot,
     diagnostics
   });
-  if (!options.includeBodies || !cached) {
-    return summaryIndex;
+  if (!options.includeBodies) {
+    return finish(summaryIndex);
   }
   if (typeof options.canvasId === "string") {
-    const entry = cached.canvases.get(options.canvasId);
+    const entry = snapshot.canvases.get(options.canvasId);
     if (!entry) {
       throw new Error(`Project canvas '${options.canvasId}' is missing from projection cache.`);
     }
@@ -198,15 +219,15 @@ export async function readDesktopProjectSearchIndexFromContext(
     for (const diagnostic of diagnostics) {
       appendProjectProjectionDiagnostic(index.diagnostics, diagnostic);
     }
-    return index;
+    return finish(index);
   }
   const bodyIndex = await buildProjectBodySearchIndex({
-    cached,
+    cached: snapshot,
     projection: context.projection,
     projectRoot: context.projection.projectRoot,
     diagnostics
   });
-  return mergeSearchIndexBodies(summaryIndex, bodyIndex);
+  return finish(mergeSearchIndexBodies(summaryIndex, bodyIndex));
 }
 
 export async function buildDesktopProjectStatisticsProjectionFromProjection(

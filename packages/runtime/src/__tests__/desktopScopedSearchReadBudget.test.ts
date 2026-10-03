@@ -8,6 +8,7 @@ import {
   searchProjectWithDiagnostics
 } from "../desktop/index.js";
 import {
+  invalidateDesktopCanvasProjection,
   invalidateDesktopProjectProjection,
   readDesktopProjectProjectionContext,
   readDesktopProjectSearchIndexFromContext
@@ -214,19 +215,31 @@ describe("selected canvas search body read budget", () => {
     ).rejects.toThrow("Task canvas 'unknown' does not exist.");
   });
 
-  it("retains selected scope when an invalidated projection context is rebuilt", async () => {
+  it.each([
+    "project after start",
+    "canvas after start",
+    "canvas before start"
+  ])("keeps selected bodies available across %s invalidation", async (timing) => {
     const { root, bodies } = await fixture();
     const context = await readDesktopProjectProjectionContext(root);
-    invalidateDesktopProjectProjection(root);
-    vi.mocked(fs.readFile).mockClear();
-    const index = await readDesktopProjectSearchIndexFromContext(context, {
+    if (timing === "canvas before start") invalidateDesktopCanvasProjection(root, "default");
+    const pending = readDesktopProjectSearchIndexFromContext(context, {
       includeBodies: true,
       canvasId: "default"
     });
+    if (timing === "project after start") invalidateDesktopProjectProjection(root);
+    if (timing === "canvas after start") invalidateDesktopCanvasProjection(root, "default");
+    const index = await pending;
     expect(searchDesktopSearchIndex(index, "scope needle", { canvasId: "default" })).toEqual(
       expected("default")
     );
     expect(bodyReads([...bodies[1], ...bodies[2]])).toEqual([]);
+    await expect(
+      readDesktopProjectSearchIndexFromContext(context, {
+        includeBodies: true,
+        canvasId: "unknown"
+      })
+    ).rejects.toThrow("Task canvas 'unknown' does not exist.");
   });
 
   it("isolates interleaved selected hydration from a later invalidated cache", async () => {
