@@ -11,7 +11,8 @@ const bridgeMock = vi.hoisted(() => ({
   listOperatorHosts: vi.fn(),
   getOperatorLocalAgentHostStatus: vi.fn(),
   copyOperatorHostBootstrapHandoff: vi.fn(),
-  registerOperatorLocalAgentHost: vi.fn()
+  registerOperatorLocalAgentHost: vi.fn(),
+  repairOperatorLocalAgentHost: vi.fn()
 }));
 
 vi.mock("../renderer/bridge", () => ({
@@ -139,6 +140,193 @@ afterEach(() => {
 });
 
 describe("Host administration request authority", () => {
+  it("waits for a slow local query to settle before scheduling the next five-second poll", async () => {
+    vi.useFakeTimers();
+    const slow = deferred<{ supported: boolean; state: string; agents: never[] }>();
+    bridgeMock.getOperatorLocalAgentHostStatus.mockImplementation((input) =>
+      input.profileId
+        ? slow.promise
+        : Promise.resolve({ supported: true, state: "not_registered", agents: [] })
+    );
+    const { unmount } = renderHook(() => useHostAdministrationController());
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    const initial = bridgeMock.getOperatorLocalAgentHostStatus.mock.calls.length;
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+    expect(bridgeMock.getOperatorLocalAgentHostStatus).toHaveBeenCalledTimes(initial);
+    await act(async () => slow.resolve({ supported: true, state: "not_registered", agents: [] }));
+    await act(async () => vi.advanceTimersByTimeAsync(4_999));
+    expect(bridgeMock.getOperatorLocalAgentHostStatus).toHaveBeenCalledTimes(initial);
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(bridgeMock.getOperatorLocalAgentHostStatus).toHaveBeenCalledTimes(initial + 1);
+    unmount();
+  });
+
+  it("keeps a registration result when an older local poll settles afterward", async () => {
+    const slow = deferred<{ supported: boolean; state: string; agents: never[] }>();
+    bridgeMock.getOperatorLocalAgentHostStatus.mockImplementation((input) =>
+      input.profileId
+        ? slow.promise
+        : Promise.resolve({ supported: true, state: "not_registered", agents: [] })
+    );
+    bridgeMock.registerOperatorLocalAgentHost.mockResolvedValue({
+      supported: true,
+      state: "ready",
+      background: "running",
+      agents: []
+    });
+    const { result } = renderHook(() => useHostAdministrationController());
+    await waitFor(() => expect(result.current.activeProfile?.profileId).toBe("profile-a"));
+    await act(async () => {
+      await result.current.registerLocalAgentHost([]);
+    });
+    expect(result.current.localAgentHost?.state).toBe("ready");
+    await act(async () => slow.resolve({ supported: true, state: "not_registered", agents: [] }));
+    expect(result.current.localAgentHost?.state).toBe("ready");
+  });
+
+  it("recovers after a slow local refresh fails and stops polling when unmounted", async () => {
+    vi.useFakeTimers();
+    const pending = deferred<{ supported: boolean; state: string; agents: never[] }>();
+    bridgeMock.getOperatorLocalAgentHostStatus.mockImplementation((input) =>
+      input.profileId
+        ? pending.promise
+        : Promise.resolve({ supported: true, state: "not_registered", agents: [] })
+    );
+    const { result, unmount } = renderHook(() => useHostAdministrationController());
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    const initial = bridgeMock.getOperatorLocalAgentHostStatus.mock.calls.length;
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+    expect(bridgeMock.getOperatorLocalAgentHostStatus).toHaveBeenCalledTimes(initial);
+    await act(async () => pending.reject(new Error("agent_host_background_query_timeout")));
+    expect(result.current.error).toBe("agent_host_background_query_timeout");
+    expect(result.current.localAgentHost).toBeNull();
+    expect(result.current.localAgentHostLoading).toBe(false);
+    bridgeMock.getOperatorLocalAgentHostStatus.mockResolvedValue({
+      supported: true,
+      state: "ready",
+      background: "running",
+      agents: []
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(5_000));
+    expect(result.current.localAgentHost?.state).toBe("ready");
+    expect(result.current.error).toBeNull();
+    unmount();
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+    expect(bridgeMock.getOperatorLocalAgentHostStatus).toHaveBeenCalledTimes(initial + 1);
+  });
+
+  it.each([
+    "resolve",
+    "reject"
+  ] as const)("ignores an old local A %s after A to B to A", async (settlement) => {
+    const oldA = deferred<{ supported: boolean; state: string; agents: never[] }>();
+    let aReads = 0;
+    bridgeMock.getOperatorLocalAgentHostStatus.mockImplementation((input) => {
+      if (input.profileId === "profile-a" && ++aReads === 1) return oldA.promise;
+      return Promise.resolve({
+        supported: true,
+        state: "ready",
+        background: "running",
+        workspaceId: input.profileId ?? "initial",
+        agents: []
+      });
+    });
+    const { result } = renderHook(() => useHostAdministrationController());
+    await waitFor(() => expect(aReads).toBe(1));
+    await act(async () => statusListener?.(status("profile-b")));
+    await waitFor(() => expect(result.current.localAgentHost?.workspaceId).toBe("profile-b"));
+    await act(async () => statusListener?.(status("profile-a")));
+    await waitFor(() => expect(result.current.localAgentHost?.workspaceId).toBe("profile-a"));
+    await act(async () => {
+      if (settlement === "resolve")
+        oldA.resolve({ supported: true, state: "not_registered", agents: [] });
+      else oldA.reject(new Error("agent_host_background_query_timeout"));
+    });
+    expect(result.current.localAgentHost?.workspaceId).toBe("profile-a");
+    expect(result.current.localAgentHostLoading).toBe(false);
+    expect(result.current.error).toBeNull();
+  });
+
+  it.each([
+    { method: "register" as const, settlement: "resolve" },
+    { method: "register" as const, settlement: "reject" },
+    { method: "repair" as const, settlement: "resolve" },
+    { method: "repair" as const, settlement: "reject" }
+  ])("does not let old $method $settlement clear a new A action after A to B to A", async ({
+    method,
+    settlement
+  }) => {
+    const old = deferred<{ supported: boolean; state: string; agents: never[] }>();
+    const current = deferred<{ supported: boolean; state: string; agents: never[] }>();
+    const bridge =
+      method === "register"
+        ? bridgeMock.registerOperatorLocalAgentHost
+        : bridgeMock.repairOperatorLocalAgentHost;
+    bridge.mockImplementationOnce(() => old.promise).mockImplementationOnce(() => current.promise);
+    const { result } = renderHook(() => useHostAdministrationController());
+    await waitFor(() => expect(result.current.activeProfile?.profileId).toBe("profile-a"));
+    let oldAction!: Promise<unknown>;
+    await act(async () => {
+      oldAction =
+        method === "register"
+          ? result.current.registerLocalAgentHost([])
+          : result.current.repairLocalAgentHost([]);
+    });
+    await act(async () => statusListener?.(status("profile-b")));
+    await act(async () => statusListener?.(status("profile-a")));
+    let newAction!: Promise<unknown>;
+    await act(async () => {
+      newAction =
+        method === "register"
+          ? result.current.registerLocalAgentHost([])
+          : result.current.repairLocalAgentHost([]);
+    });
+    expect(result.current.busy).toBe(true);
+    const reads = bridgeMock.getOperatorLocalAgentHostStatus.mock.calls.length;
+    await act(async () => {
+      if (settlement === "resolve")
+        old.resolve({ supported: true, state: "not_registered", agents: [] });
+      else old.reject(new Error("local_agent_host_registration_failed"));
+      await oldAction;
+    });
+    expect(result.current.busy).toBe(true);
+    expect(result.current.error).toBeNull();
+    expect(bridgeMock.getOperatorLocalAgentHostStatus).toHaveBeenCalledTimes(reads);
+    await act(async () => {
+      current.resolve({ supported: true, state: "ready", agents: [] });
+      await newAction;
+    });
+    expect(result.current.localAgentHost?.state).toBe("ready");
+    expect(result.current.busy).toBe(false);
+  });
+
+  it("does not create another local query after unmounting a pending poll and repair", async () => {
+    vi.useFakeTimers();
+    const poll = deferred<{ supported: boolean; state: string; agents: never[] }>();
+    const action = deferred<{ supported: boolean; state: string; agents: never[] }>();
+    bridgeMock.getOperatorLocalAgentHostStatus.mockImplementation((input) =>
+      input.profileId
+        ? poll.promise
+        : Promise.resolve({ supported: true, state: "not_registered", agents: [] })
+    );
+    bridgeMock.repairOperatorLocalAgentHost.mockImplementation(() => action.promise);
+    const { result, unmount } = renderHook(() => useHostAdministrationController());
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    let repair!: Promise<unknown>;
+    await act(async () => {
+      repair = result.current.repairLocalAgentHost([]);
+    });
+    const reads = bridgeMock.getOperatorLocalAgentHostStatus.mock.calls.length;
+    unmount();
+    await act(async () => {
+      poll.reject(new Error("agent_host_background_query_cancelled"));
+      action.reject(new Error("local_agent_host_registration_failed"));
+      await repair;
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+    expect(bridgeMock.getOperatorLocalAgentHostStatus).toHaveBeenCalledTimes(reads);
+  });
+
   it("ignores an old A failure after A to B to A publishes the latest success", async () => {
     const oldA = deferred<{ items: ReturnType<typeof host>[]; nextCursor: null }>();
     bridgeMock.listOperatorHosts

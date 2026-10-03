@@ -113,6 +113,7 @@ export {
   serializeHostTransportStatus,
   type HostConnectionStatusDocument
 } from "./transport/connectionStatus.js";
+export { DEFAULT_AGENT_HOST_BACKGROUND_STATUS_BUDGET_MS } from "./background/backgroundService.js";
 export type {
   AgentHostBackgroundIdentity,
   AgentHostBackgroundInstall,
@@ -120,7 +121,8 @@ export type {
   AgentHostBackgroundLogs,
   AgentHostBackgroundResult,
   AgentHostBackgroundService,
-  AgentHostBackgroundState
+  AgentHostBackgroundState,
+  AgentHostBackgroundStatusOptions
 } from "./background/backgroundService.js";
 export {
   createPrivateStorageSecurity,

@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import {
   AgentHostOperator,
+  DEFAULT_AGENT_HOST_BACKGROUND_STATUS_BUDGET_MS,
   FileHostCredentialStore,
   handoffInstanceKey,
   listSupportedHostAcpProfiles,
@@ -11,6 +12,7 @@ import {
   type AgentExposureMutationResult,
   type AgentHostBackgroundLauncher,
   type AgentHostBackgroundResult,
+  type AgentHostBackgroundStatusOptions,
   type PortableEnrollmentResult
 } from "@planweave-ai/agent-host";
 import { parseAgentHostSetupHandoff } from "@planweave-ai/agent-host-protocol";
@@ -19,7 +21,10 @@ import {
   type OperatorLocalAgentHostServerConnection,
   type OperatorLocalAgentHostStatus
 } from "../../shared/operatorControl.js";
-import { LocalAgentHostRegistrationStore } from "./localAgentHostRegistrationStore.js";
+import {
+  LocalAgentHostRegistrationStore,
+  type LocalAgentHostRegistration
+} from "./localAgentHostRegistrationStore.js";
 
 export interface LocalAgentHostOperatorPort {
   enrollHandoff(
@@ -41,7 +46,10 @@ export interface LocalAgentHostOperatorPort {
     configPath: string,
     launcher: AgentHostBackgroundLauncher
   ): Promise<AgentHostBackgroundResult>;
-  backgroundStatus(configPath: string): Promise<AgentHostBackgroundResult>;
+  backgroundStatus(
+    configPath: string,
+    options?: AgentHostBackgroundStatusOptions
+  ): Promise<AgentHostBackgroundResult>;
 }
 
 export interface LocalAgentHostProvisioner {
@@ -248,7 +256,7 @@ function createDefaultLocalAgentHostOperator(): LocalAgentHostOperatorPort {
       return workspaceIds.length === 1 ? workspaceIds[0] : undefined;
     },
     installBackground: (configPath, launcher) => operator.installBackground(configPath, launcher),
-    backgroundStatus: (configPath) => operator.backgroundStatus(configPath)
+    backgroundStatus: (configPath, options) => operator.backgroundStatus(configPath, options)
   };
 }
 
@@ -257,6 +265,29 @@ export class DesktopLocalAgentHostProvisioner implements LocalAgentHostProvision
   private readonly launcher: AgentHostBackgroundLauncher;
   private readonly operator: LocalAgentHostOperatorPort;
   private readonly registrations: LocalAgentHostRegistrationStore;
+  private statusGeneration = 0;
+  private readonly statusQueries = new Map<
+    string,
+    {
+      controller: AbortController;
+      promise: Promise<OperatorLocalAgentHostStatus>;
+    }
+  >();
+
+  private invalidateStatusQueries(): void {
+    this.statusGeneration += 1;
+    for (const query of this.statusQueries.values()) query.controller.abort();
+    this.statusQueries.clear();
+  }
+
+  private async resolveRegistration(
+    profileId?: string
+  ): Promise<LocalAgentHostRegistration | null> {
+    return (
+      (profileId ? await this.registrations.get(profileId) : null) ??
+      (await this.registrations.latest())
+    );
+  }
 
   constructor(options: LocalAgentHostProvisionerOptions) {
     this.platform = options.platform ?? process.platform;
@@ -273,23 +304,72 @@ export class DesktopLocalAgentHostProvisioner implements LocalAgentHostProvision
         agents: supportedProfiles()
       });
     }
-    const registration =
-      (profileId ? await this.registrations.get(profileId) : null) ??
-      (await this.registrations.latest());
-    if (!registration) {
-      return notRegisteredStatus();
-    }
+    const generation = this.statusGeneration;
+    const registration = await this.resolveRegistration(profileId);
+    if (generation !== this.statusGeneration) throw new Error("local_agent_host_status_cancelled");
+    if (!registration) return notRegisteredStatus();
+    const key = JSON.stringify([
+      profileId ?? null,
+      registration.profileId,
+      registration.instanceKey,
+      registration.generation,
+      generation
+    ]);
+    const pending = this.statusQueries.get(key);
+    if (pending) return pending.promise;
+    const controller = new AbortController();
+    const assertCurrent = () => {
+      if (controller.signal.aborted || generation !== this.statusGeneration)
+        throw new Error("local_agent_host_status_cancelled");
+    };
+    const promise = this.readRegistrationStatus(
+      registration,
+      {
+        deadline: Date.now() + DEFAULT_AGENT_HOST_BACKGROUND_STATUS_BUDGET_MS,
+        signal: controller.signal
+      },
+      assertCurrent
+    )
+      .then(async (result) => {
+        assertCurrent();
+        const current = await this.resolveRegistration(profileId);
+        assertCurrent();
+        if (
+          current?.generation !== registration.generation &&
+          !(current === null && result.state === "not_registered")
+        )
+          throw new Error("local_agent_host_status_cancelled");
+        return result;
+      })
+      .catch((error) => {
+        assertCurrent();
+        throw error;
+      })
+      .finally(() => {
+        if (this.statusQueries.get(key)?.controller === controller) this.statusQueries.delete(key);
+      });
+    this.statusQueries.set(key, { controller, promise });
+    return promise;
+  }
+
+  private async readRegistrationStatus(
+    registration: LocalAgentHostRegistration,
+    options: AgentHostBackgroundStatusOptions,
+    assertCurrent: () => void
+  ): Promise<OperatorLocalAgentHostStatus> {
     const configPath = resolveAgentHostDefaultPaths(registration.instanceKey).configPath;
     let agents: PortableEnrollmentResult["agents"];
     try {
       agents = await this.operator.listAgents(configPath);
     } catch (error) {
+      assertCurrent();
       if (systemErrorSuffix(error) === "enoent") {
         await this.registrations.removeIfCurrent(registration);
         return notRegisteredStatus();
       }
       throw localAgentHostStageError("local_agent_host_agent_status_read_failed", error);
     }
+    assertCurrent();
     const resolveWorkspaceId = this.operator.resolveWorkspaceId;
     const workspaceId =
       registration.workspaceId ??
@@ -301,6 +381,7 @@ export class DesktopLocalAgentHostProvisioner implements LocalAgentHostProvision
     try {
       await this.operator.requireUsableCredential(configPath);
     } catch (error) {
+      assertCurrent();
       if (isAgentHostCredentialUnavailable(error) || systemErrorSuffix(error) === "enoent") {
         // Stale Desktop registration with missing/expired Host credential → restore paste UI.
         // Keep the real exposure list so checkboxes are not falsely cleared before re-enroll.
@@ -314,10 +395,12 @@ export class DesktopLocalAgentHostProvisioner implements LocalAgentHostProvision
       }
       throw localAgentHostStageError("local_agent_host_credential_status_failed", error);
     }
+    assertCurrent();
     const background = await withinLocalAgentHostStage(
       "local_agent_host_background_status_read_failed",
-      () => this.operator.backgroundStatus(configPath)
+      () => this.operator.backgroundStatus(configPath, options)
     );
+    assertCurrent();
     const serverConnection = await resolveServerConnection(configPath, background.state);
     return operatorLocalAgentHostStatusSchema.parse({
       supported: true,
@@ -330,6 +413,19 @@ export class DesktopLocalAgentHostProvisioner implements LocalAgentHostProvision
   }
 
   async register(
+    profileId: string | undefined,
+    handoff: string,
+    exposedProfileIds: readonly string[]
+  ): Promise<OperatorLocalAgentHostStatus> {
+    this.invalidateStatusQueries();
+    try {
+      return await this.registerRegistration(profileId, handoff, exposedProfileIds);
+    } finally {
+      this.invalidateStatusQueries();
+    }
+  }
+
+  private async registerRegistration(
     profileId: string | undefined,
     handoff: string,
     exposedProfileIds: readonly string[]
@@ -372,6 +468,18 @@ export class DesktopLocalAgentHostProvisioner implements LocalAgentHostProvision
   }
 
   async repair(
+    profileId: string | undefined,
+    exposedProfileIds: readonly string[]
+  ): Promise<OperatorLocalAgentHostStatus> {
+    this.invalidateStatusQueries();
+    try {
+      return await this.repairRegistration(profileId, exposedProfileIds);
+    } finally {
+      this.invalidateStatusQueries();
+    }
+  }
+
+  private async repairRegistration(
     profileId: string | undefined,
     exposedProfileIds: readonly string[]
   ): Promise<OperatorLocalAgentHostStatus> {

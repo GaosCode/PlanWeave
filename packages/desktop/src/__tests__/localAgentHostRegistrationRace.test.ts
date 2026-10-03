@@ -7,6 +7,7 @@ import {
   type LocalAgentHostOperatorPort
 } from "../main/operatorControl/localAgentHostProvisioner.js";
 import { LocalAgentHostRegistrationStore } from "../main/operatorControl/localAgentHostRegistrationStore.js";
+import { resolveAgentHostDefaultPaths } from "@planweave-ai/agent-host";
 import { OperatorControlService } from "../main/operatorControl/operatorControlService.js";
 import { OperatorProfileStore } from "../main/operatorControl/operatorProfileStore.js";
 import { OperatorCredentialVault } from "../main/operatorControl/operatorCredentialVault.js";
@@ -82,6 +83,137 @@ async function fixture() {
 }
 
 describe("Local Host registration identity across stale reads", () => {
+  it("shares one pending status query for the same resolved registration", async () => {
+    const f = await fixture();
+    const entered = deferred<void>();
+    const pending = deferred<{ state: "running"; platform: "macos-launch-agent" }>();
+    f.operator.backgroundStatus.mockImplementation(() => {
+      entered.resolve();
+      return pending.promise;
+    });
+    const first = f.provisioner.status("profile");
+    await entered.promise;
+    const second = f.provisioner.status("profile");
+    await f.store.get("profile");
+    pending.resolve({ state: "running", platform: "macos-launch-agent" });
+    await Promise.all([first, second]);
+    expect(f.operator.backgroundStatus).toHaveBeenCalledOnce();
+    await f.provisioner.status("profile");
+    expect(f.operator.backgroundStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    true,
+    false
+  ])("isolates different requested profiles when distinct resolved registration is %s", async (distinct) => {
+    const f = await fixture();
+    if (distinct)
+      await f.store.upsert("other", {
+        instanceKey: "instance-other",
+        workspaceId: "workspace-other"
+      });
+    const first = deferred<{ state: "running"; platform: "macos-launch-agent" }>();
+    const second = deferred<{ state: "stopped"; platform: "macos-launch-agent" }>();
+    const enteredFirst = deferred<void>();
+    const enteredSecond = deferred<void>();
+    f.operator.backgroundStatus
+      .mockImplementationOnce(() => {
+        enteredFirst.resolve();
+        return first.promise;
+      })
+      .mockImplementationOnce(() => {
+        enteredSecond.resolve();
+        return second.promise;
+      });
+    const a = f.provisioner.status("profile");
+    await enteredFirst.promise;
+    const b = f.provisioner.status("other");
+    await enteredSecond.promise;
+    expect(f.operator.backgroundStatus).toHaveBeenCalledTimes(2);
+    expect(f.operator.backgroundStatus.mock.calls[0]?.[1]?.signal).not.toBe(
+      f.operator.backgroundStatus.mock.calls[1]?.[1]?.signal
+    );
+    second.resolve({ state: "stopped", platform: "macos-launch-agent" });
+    await expect(b).resolves.toMatchObject({
+      background: "stopped",
+      workspaceId: distinct ? "workspace-other" : "workspace-old"
+    });
+    first.resolve({ state: "running", platform: "macos-launch-agent" });
+    await expect(a).resolves.toMatchObject({ background: "running", workspaceId: "workspace-old" });
+  });
+
+  it("rejects an external registration generation change without contaminating the new query", async () => {
+    const f = await fixture();
+    const old = deferred<{ state: "running"; platform: "macos-launch-agent" }>();
+    const entered = deferred<void>();
+    f.operator.backgroundStatus.mockImplementationOnce(() => {
+      entered.resolve();
+      return old.promise;
+    });
+    const before = f.provisioner.status("profile");
+    const rejected = expect(before).rejects.toThrow("local_agent_host_status_cancelled");
+    await entered.promise;
+    await new LocalAgentHostRegistrationStore(f.path).upsert("profile", {
+      instanceKey: "instance-new",
+      workspaceId: "workspace-new"
+    });
+    const bytes = await readFile(f.path);
+    await expect(f.provisioner.status("profile")).resolves.toMatchObject({
+      workspaceId: "workspace-new"
+    });
+    old.resolve({ state: "running", platform: "macos-launch-agent" });
+    await rejected;
+    expect(await readFile(f.path)).toEqual(bytes);
+    expect(f.operator.backgroundStatus.mock.calls[1]?.[0]).toBe(
+      resolveAgentHostDefaultPaths("instance-new").configPath
+    );
+  });
+
+  it("cleans failed shared status queries and permits a fresh read", async () => {
+    const f = await fixture();
+    const failed = deferred<{ state: "running"; platform: "macos-launch-agent" }>();
+    const entered = deferred<void>();
+    f.operator.backgroundStatus.mockImplementationOnce(() => {
+      entered.resolve();
+      return failed.promise;
+    });
+    const first = f.provisioner.status("profile");
+    const firstFailure = expect(first).rejects.toThrow("agent_host_background_query_timeout");
+    await entered.promise;
+    const second = f.provisioner.status("profile");
+    const secondFailure = expect(second).rejects.toThrow("agent_host_background_query_timeout");
+    await f.store.get("profile");
+    failed.reject(new Error("agent_host_background_query_timeout"));
+    await Promise.all([firstFailure, secondFailure]);
+    await expect(f.provisioner.status("profile")).resolves.toMatchObject({ state: "ready" });
+    expect(f.operator.backgroundStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it("cancels the query owner during repair and cleans it for the next query", async () => {
+    const f = await fixture();
+    const entered = deferred<void>();
+    let signal: AbortSignal | undefined;
+    f.operator.backgroundStatus.mockImplementationOnce((_path, options) => {
+      signal = options?.signal;
+      entered.resolve();
+      return new Promise((_resolve, reject) =>
+        signal?.addEventListener(
+          "abort",
+          () => reject(new Error("agent_host_background_query_cancelled")),
+          { once: true }
+        )
+      );
+    });
+    const old = f.provisioner.status("profile");
+    const cancellation = expect(old).rejects.toThrow("local_agent_host_status_cancelled");
+    await entered.promise;
+    await f.provisioner.repair("profile", []);
+    await cancellation;
+    expect(signal?.aborted).toBe(true);
+    await expect(f.provisioner.status("profile")).resolves.toMatchObject({ state: "ready" });
+    expect(f.operator.backgroundStatus).toHaveBeenCalledTimes(2);
+  });
+
   it.each([
     {
       boundary: "listAgents",
@@ -105,7 +237,7 @@ describe("Local Host registration identity across stale reads", () => {
     const newRegistration = await f.store.get("profile");
     const newBytes = await readFile(f.path);
     pending.reject(failure);
-    await oldStatus;
+    await expect(oldStatus).rejects.toThrow("local_agent_host_status_cancelled");
     expect(await new LocalAgentHostRegistrationStore(f.path).get("profile")).toEqual(
       newRegistration
     );
@@ -140,7 +272,7 @@ describe("Local Host registration identity across stale reads", () => {
     await f.provisioner.register("profile", "opaque-handoff", []);
     const newBytes = await readFile(f.path);
     pending.reject(new Error("agent_host_credential_unavailable"));
-    await oldStatus;
+    await expect(oldStatus).rejects.toThrow("local_agent_host_status_cancelled");
     expect(await readFile(f.path)).toEqual(newBytes);
     expect(await new LocalAgentHostRegistrationStore(f.path).get("profile")).not.toBeNull();
   });
@@ -204,7 +336,7 @@ describe("Local Host registration identity across stale reads", () => {
     await f.provisioner.register("profile", "opaque-handoff", []);
     const bytes = await readFile(f.path);
     pending.reject(Object.assign(new Error("missing"), { code: "ENOENT" }));
-    await status;
+    await expect(status).rejects.toThrow("local_agent_host_status_cancelled");
     expect(await readFile(f.path)).toEqual(bytes);
   });
   it("serializes concurrent store instances and rejects removal with an obsolete generation", async () => {

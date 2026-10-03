@@ -834,6 +834,7 @@
         "agentHostRenewalShutdown.test.ts",
         "agentHostState.test.ts",
         "backgroundServices.test.ts",
+        "backgroundProcessRunner.test.ts",
         "canvasRuntimeArtifactTransfer.test.ts",
         "canvasRuntimeReplay.test.ts",
         "canvasRuntimeServiceMaterialization.test.ts",

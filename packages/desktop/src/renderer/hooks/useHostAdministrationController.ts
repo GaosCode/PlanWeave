@@ -179,6 +179,19 @@ export function useHostAdministrationController(
       profileId: activeProfileId
     };
   }
+  const localHostQueryError = useRef<string | null>(null);
+  const localHostAuthority = useRef({
+    identity: hostAuthorityIdentity,
+    generation: 0,
+    action: false
+  });
+  if (localHostAuthority.current.identity !== hostAuthorityIdentity) {
+    localHostAuthority.current = {
+      identity: hostAuthorityIdentity,
+      generation: localHostAuthority.current.generation + 1,
+      action: false
+    };
+  }
   const previousActiveProfileId = useRef(activeProfile?.profileId);
   const hostSnapshotRef = useRef(hostSnapshot);
   hostSnapshotRef.current = hostSnapshot;
@@ -355,34 +368,50 @@ export function useHostAdministrationController(
       return;
     }
     let active = true;
-    let pollTimer: ReturnType<typeof setInterval> | undefined;
-
-    const loadLocalAgentHost = (options?: { silent?: boolean }) => {
-      if (!options?.silent) setLocalAgentHostLoading(true);
-      return operatorControlBridge!
-        .getOperatorLocalAgentHostStatus(activeProfileId ? { profileId: activeProfileId } : {})
-        .then((next) => {
-          if (active) setLocalAgentHost(next);
-        })
-        .catch((cause) => {
-          if (active && !options?.silent) setError(hostAdministrationErrorCode(cause));
-        })
-        .finally(() => {
-          if (active && !options?.silent) setLocalAgentHostLoading(false);
-        });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    setLocalAgentHost(null);
+    setBusy(false);
+    const poll = async (silent = false) => {
+      const authority = localHostAuthority.current;
+      const generation = authority.generation;
+      const isCurrent = () =>
+        active &&
+        localHostAuthority.current === authority &&
+        authority.identity === hostAuthorityIdentity &&
+        authority.generation === generation &&
+        !authority.action;
+      if (!authority.action) {
+        if (!silent) setLocalAgentHostLoading(true);
+        try {
+          const next = await operatorControlBridge!.getOperatorLocalAgentHostStatus(
+            activeProfileId ? { profileId: activeProfileId } : {}
+          );
+          if (isCurrent()) {
+            setLocalAgentHost(next);
+            const previousError = localHostQueryError.current;
+            if (previousError) setError((current) => (current === previousError ? null : current));
+            localHostQueryError.current = null;
+          }
+        } catch (cause) {
+          if (isCurrent()) {
+            setLocalAgentHost(null);
+            const code = hostAdministrationErrorCode(cause);
+            localHostQueryError.current = code;
+            setError(code);
+          }
+        } finally {
+          if (isCurrent()) setLocalAgentHostLoading(false);
+        }
+      }
+      if (active) timer = setTimeout(() => void poll(true), 5_000);
     };
-
-    void loadLocalAgentHost();
-    // Refresh connection-status.json while Host is registered so process vs Server state stays current.
-    pollTimer = setInterval(() => {
-      void loadLocalAgentHost({ silent: true });
-    }, 5_000);
-
+    void poll();
     return () => {
       active = false;
-      if (pollTimer) clearInterval(pollTimer);
+      localHostAuthority.current.generation += 1;
+      if (timer) clearTimeout(timer);
     };
-  }, [activeProfileId]);
+  }, [activeProfileId, hostAuthorityIdentity]);
 
   const runStatusAction = useCallback(
     async (action: () => Promise<OperatorControlStatus>): Promise<boolean> => {
@@ -582,6 +611,57 @@ export function useHostAdministrationController(
     [activeProfile]
   );
 
+  const runLocalHostAction = useCallback(
+    async (
+      action: () => Promise<OperatorLocalAgentHostStatus>,
+      refreshAfterFailure = false
+    ): Promise<OperatorLocalAgentHostStatus | null> => {
+      const authority = localHostAuthority.current;
+      if (authority.identity !== hostAuthorityIdentity) return null;
+      const generation = ++authority.generation;
+      authority.action = true;
+      const isCurrent = () =>
+        localHostAuthority.current === authority && authority.generation === generation;
+      setLocalAgentHostLoading(false);
+      setBusy(true);
+      try {
+        const next = await action();
+        if (!isCurrent()) return null;
+        setLocalAgentHost(next);
+        setError(null);
+        await refreshHosts();
+        return isCurrent() ? next : null;
+      } catch (cause) {
+        if (!isCurrent()) return null;
+        setError(hostAdministrationErrorCode(cause));
+        setLocalAgentHost(null);
+        if (refreshAfterFailure) {
+          try {
+            const next = await operatorControlBridge!.getOperatorLocalAgentHostStatus(
+              activeProfileId ? { profileId: activeProfileId } : {}
+            );
+            if (isCurrent()) setLocalAgentHost(next);
+          } catch (statusCause) {
+            if (isCurrent()) {
+              setLocalAgentHost(null);
+              console.warn(
+                "Failed to refresh local Agent Host status after an action error.",
+                statusCause
+              );
+            }
+          }
+        }
+        return null;
+      } finally {
+        if (isCurrent()) {
+          authority.action = false;
+          setBusy(false);
+        }
+      }
+    },
+    [activeProfileId, hostAuthorityIdentity, refreshHosts]
+  );
+
   const registerLocalAgentHost = useCallback(
     async (exposedProfileIds: readonly string[]) => {
       if (!operatorControlBridge || !activeProfile || !activeProfile.hasOperatorCredential) {
@@ -592,41 +672,27 @@ export function useHostAdministrationController(
         setError("human_principal_unavailable");
         return null;
       }
-      setBusy(true);
-      try {
-        const next = await operatorControlBridge.registerOperatorLocalAgentHost({
-          profileId: activeProfile.profileId,
-          request: {
-            expiresAt: nextExpiry(15),
-            credentialPolicy: { lifetimeDays: credentialLifetimeDays, renewal: "automatic" },
-            ...enrollmentOwnerFields(humanPrincipalId, enrollmentWorkspaceId)
-          },
-          exposedProfileIds: [...exposedProfileIds]
-        });
-        setLocalAgentHost(next);
-        setError(null);
-        await refreshHosts();
-        return next;
-      } catch (cause) {
-        setError(hostAdministrationErrorCode(cause));
-        try {
-          setLocalAgentHost(
-            await operatorControlBridge.getOperatorLocalAgentHostStatus({
-              profileId: activeProfile.profileId
-            })
-          );
-        } catch (statusCause) {
-          console.warn(
-            "Failed to refresh local Agent Host status after registration error.",
-            statusCause
-          );
-        }
-        return null;
-      } finally {
-        setBusy(false);
-      }
+      return runLocalHostAction(
+        () =>
+          operatorControlBridge!.registerOperatorLocalAgentHost({
+            profileId: activeProfile.profileId,
+            request: {
+              expiresAt: nextExpiry(15),
+              credentialPolicy: { lifetimeDays: credentialLifetimeDays, renewal: "automatic" },
+              ...enrollmentOwnerFields(humanPrincipalId, enrollmentWorkspaceId)
+            },
+            exposedProfileIds: [...exposedProfileIds]
+          }),
+        true
+      );
     },
-    [activeProfile, credentialLifetimeDays, enrollmentWorkspaceId, humanPrincipalId, refreshHosts]
+    [
+      activeProfile,
+      credentialLifetimeDays,
+      enrollmentWorkspaceId,
+      humanPrincipalId,
+      runLocalHostAction
+    ]
   );
 
   const enrollLocalAgentHost = useCallback(
@@ -635,36 +701,16 @@ export function useHostAdministrationController(
         setError("operator_bridge_unavailable");
         return null;
       }
-      setBusy(true);
-      try {
-        const next = await operatorControlBridge.enrollOperatorLocalAgentHost({
-          handoff,
-          exposedProfileIds: [...exposedProfileIds]
-        });
-        setLocalAgentHost(next);
-        setError(null);
-        await refreshHosts();
-        return next;
-      } catch (cause) {
-        setError(hostAdministrationErrorCode(cause));
-        try {
-          setLocalAgentHost(
-            await operatorControlBridge.getOperatorLocalAgentHostStatus(
-              activeProfileId ? { profileId: activeProfileId } : {}
-            )
-          );
-        } catch (statusCause) {
-          console.warn(
-            "Failed to refresh local Agent Host status after enrollment error.",
-            statusCause
-          );
-        }
-        return null;
-      } finally {
-        setBusy(false);
-      }
+      return runLocalHostAction(
+        () =>
+          operatorControlBridge!.enrollOperatorLocalAgentHost({
+            handoff,
+            exposedProfileIds: [...exposedProfileIds]
+          }),
+        true
+      );
     },
-    [activeProfileId, refreshHosts]
+    [runLocalHostAction]
   );
 
   const repairLocalAgentHost = useCallback(
@@ -673,24 +719,14 @@ export function useHostAdministrationController(
         setError("operator_bridge_unavailable");
         return null;
       }
-      setBusy(true);
-      try {
-        const next = await operatorControlBridge.repairOperatorLocalAgentHost({
+      return runLocalHostAction(() =>
+        operatorControlBridge!.repairOperatorLocalAgentHost({
           ...(activeProfileId ? { profileId: activeProfileId } : {}),
           exposedProfileIds: [...exposedProfileIds]
-        });
-        setLocalAgentHost(next);
-        setError(null);
-        await refreshHosts();
-        return next;
-      } catch (cause) {
-        setError(hostAdministrationErrorCode(cause));
-        return null;
-      } finally {
-        setBusy(false);
-      }
+        })
+      );
     },
-    [activeProfileId, refreshHosts]
+    [activeProfileId, runLocalHostAction]
   );
 
   return {

@@ -8,7 +8,8 @@ import type {
   AgentHostBackgroundInstall,
   AgentHostBackgroundLogs,
   AgentHostBackgroundResult,
-  AgentHostBackgroundService
+  AgentHostBackgroundService,
+  AgentHostBackgroundStatusOptions
 } from "./backgroundService.js";
 import { AgentHostBackgroundSetupError } from "./backgroundService.js";
 import { runFixedArgv, type FixedArgvRunner } from "./processRunner.js";
@@ -148,10 +149,17 @@ export class MacosLaunchAgentService implements AgentHostBackgroundService {
     return { state: "not_installed", platform: "macos-launch-agent" };
   }
 
-  async status({ workspaceId }: AgentHostBackgroundIdentity): Promise<AgentHostBackgroundResult> {
+  async status(
+    { workspaceId }: AgentHostBackgroundIdentity,
+    options?: AgentHostBackgroundStatusOptions
+  ): Promise<AgentHostBackgroundResult> {
     const label = launchAgentLabel(workspaceId);
     try {
-      const result = await this.runner("launchctl", ["print", `${this.domain()}/${label}`]);
+      const result = await this.runner(
+        "launchctl",
+        ["print", `${this.domain()}/${label}`],
+        ...(options ? [options] : [])
+      );
       return {
         state: /\bstate\s*=\s*running\b/u.test(result.stdout) ? "running" : "stopped",
         platform: "macos-launch-agent"

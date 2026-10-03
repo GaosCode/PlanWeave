@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { FixedArgvRunner } from "../background/processRunner.js";
 import { AgentHostBackgroundSetupError } from "../background/backgroundService.js";
 import { LinuxUserSystemdService, linuxAgentHostUnitText } from "../background/linuxUserSystemd.js";
 import {
@@ -407,5 +408,119 @@ describe("Agent Host background adapters", () => {
       state: "stopped",
       platform: "windows-user-startup"
     });
+  });
+});
+
+describe("read-only background status failures", () => {
+  it("does not report an OS query timeout as a missing Linux service", async () => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-systemd-timeout-"));
+    directories.push(root);
+    const failure = new Error("agent_host_background_query_timeout");
+    const service = new LinuxUserSystemdService(vi.fn().mockRejectedValue(failure), root);
+    await expect(service.status(identity)).rejects.toBe(failure);
+  });
+});
+
+const statusAdapters = [
+  {
+    name: "Linux",
+    stdout: "active",
+    make: (runner: FixedArgvRunner, root: string) => new LinuxUserSystemdService(runner, root)
+  },
+  {
+    name: "macOS",
+    stdout: "state = running",
+    make: (runner: FixedArgvRunner, root: string) =>
+      new MacosLaunchAgentService(runner, root, () => 501)
+  },
+  {
+    name: "Windows",
+    stdout: "1",
+    make: (runner: FixedArgvRunner, _root: string) =>
+      new WindowsUserStartupService(runner, async () => undefined)
+  }
+];
+
+describe("platform query budget and action contracts", () => {
+  it.each(
+    statusAdapters
+  )("forwards one owner deadline and signal through every $name status command", async ({
+    make,
+    stdout,
+    name
+  }) => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-status-contract-"));
+    directories.push(root);
+    const runner = vi.fn<FixedArgvRunner>().mockResolvedValue({ stdout, stderr: "" });
+    const options = { deadline: Date.now() + 15_000, signal: new AbortController().signal };
+    await expect(make(runner, root).status(identity, options)).resolves.toMatchObject({
+      state: "running"
+    });
+    expect(runner).toHaveBeenCalledTimes(name === "Windows" ? 2 : 1);
+    for (const [, , forwarded] of runner.mock.calls) {
+      expect(forwarded?.deadline).toBe(options.deadline);
+      expect(forwarded?.signal).toBe(options.signal);
+    }
+    if (name === "Windows")
+      expect(runner.mock.calls[1]?.[2]?.environment?.PLANWEAVE_AGENT_HOST_INSTANCE).toMatch(
+        /^[a-f0-9]{16}$/u
+      );
+  });
+
+  it.each(
+    statusAdapters
+  )("does not reuse readonly query options in $name install or restart", async ({
+    make,
+    stdout
+  }) => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-action-budget-"));
+    directories.push(root);
+    const runner = vi.fn<FixedArgvRunner>().mockResolvedValue({ stdout, stderr: "" });
+    const service = make(runner, root);
+    const localInstall = { ...install, privateDirectory: root };
+    await service.status(
+      { ...identity, privateDirectory: root },
+      { deadline: Date.now() + 15_000, signal: new AbortController().signal }
+    );
+    runner.mockClear();
+    await service.install(localInstall);
+    await service.restart({ ...identity, privateDirectory: root });
+    expect(runner.mock.calls.length).toBeGreaterThan(1);
+    for (const [, , options] of runner.mock.calls) {
+      expect(options?.deadline).toBeUndefined();
+      expect(options?.budgetMs).toBeUndefined();
+      expect(options?.signal).toBeUndefined();
+    }
+  });
+
+  it.each(
+    statusAdapters
+  )("propagates cancellation from $name without a missing-service result or later command", async ({
+    make
+  }) => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-status-cancel-"));
+    directories.push(root);
+    const failure = new Error("agent_host_background_query_cancelled");
+    const runner = vi.fn<FixedArgvRunner>().mockRejectedValue(failure);
+    await expect(
+      make(runner, root).status(identity, {
+        deadline: Date.now() + 15_000,
+        signal: new AbortController().signal
+      })
+    ).rejects.toBe(failure);
+    expect(runner).toHaveBeenCalledOnce();
+  });
+
+  it.each(
+    statusAdapters.filter(({ name }) => name !== "Linux")
+  )("propagates timeout from $name without executing later status steps", async ({ make }) => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-status-timeout-"));
+    directories.push(root);
+    const failure = new Error("agent_host_background_query_timeout");
+    const runner = vi.fn<FixedArgvRunner>().mockRejectedValue(failure);
+    await expect(
+      make(runner, root).status(identity, { deadline: Date.now() + 15_000 })
+    ).rejects.toBe(failure);
+    expect(runner).toHaveBeenCalledOnce();
   });
 });

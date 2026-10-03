@@ -1,3 +1,9 @@
+import type { FixedArgvOptions } from "./processRunner.js";
+
+export const DEFAULT_AGENT_HOST_BACKGROUND_STATUS_BUDGET_MS = 15_000;
+
+export type AgentHostBackgroundStatusOptions = Pick<FixedArgvOptions, "deadline" | "signal">;
+
 export type AgentHostBackgroundState = "running" | "stopped" | "not_installed";
 
 export type AgentHostBackgroundLauncher = {
@@ -61,7 +67,10 @@ export class AgentHostBackgroundSetupError extends Error {
 export interface AgentHostBackgroundService {
   install(input: AgentHostBackgroundInstall): Promise<AgentHostBackgroundResult>;
   uninstall(identity: AgentHostBackgroundIdentity): Promise<AgentHostBackgroundResult>;
-  status(identity: AgentHostBackgroundIdentity): Promise<AgentHostBackgroundResult>;
+  status(
+    identity: AgentHostBackgroundIdentity,
+    options?: AgentHostBackgroundStatusOptions
+  ): Promise<AgentHostBackgroundResult>;
   restart(identity: AgentHostBackgroundIdentity): Promise<AgentHostBackgroundResult>;
   logs(identity: AgentHostBackgroundIdentity): Promise<AgentHostBackgroundLogs>;
 }

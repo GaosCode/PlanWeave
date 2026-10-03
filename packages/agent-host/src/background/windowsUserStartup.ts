@@ -9,7 +9,8 @@ import type {
   AgentHostBackgroundInstall,
   AgentHostBackgroundLogs,
   AgentHostBackgroundResult,
-  AgentHostBackgroundService
+  AgentHostBackgroundService,
+  AgentHostBackgroundStatusOptions
 } from "./backgroundService.js";
 import { AgentHostBackgroundSetupError } from "./backgroundService.js";
 import { runFixedArgv, type FixedArgvRunner } from "./processRunner.js";
@@ -189,14 +190,16 @@ export class WindowsUserStartupService implements AgentHostBackgroundService {
     return { state: "not_installed", platform: "windows-user-startup" };
   }
 
-  async status(identity: AgentHostBackgroundIdentity): Promise<AgentHostBackgroundResult> {
+  async status(
+    identity: AgentHostBackgroundIdentity,
+    options?: AgentHostBackgroundStatusOptions
+  ): Promise<AgentHostBackgroundResult> {
     try {
-      await this.runner("reg.exe", [
-        "QUERY",
-        userRunKey,
-        "/V",
-        registryValueName(identity.workspaceId)
-      ]);
+      await this.runner(
+        "reg.exe",
+        ["QUERY", userRunKey, "/V", registryValueName(identity.workspaceId)],
+        ...(options ? [options] : [])
+      );
     } catch (error) {
       if (processErrorCode(error) === 1) {
         return { state: "not_installed", platform: "windows-user-startup" };
@@ -207,6 +210,7 @@ export class WindowsUserStartupService implements AgentHostBackgroundService {
       "powershell.exe",
       ["-NoProfile", "-NonInteractive", "-Command", PROCESS_STATE_SCRIPT],
       {
+        ...options,
         environment: {
           PLANWEAVE_AGENT_HOST_INSTANCE: registryValueName(identity.workspaceId).slice(-16)
         }

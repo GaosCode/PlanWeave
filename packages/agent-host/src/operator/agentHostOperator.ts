@@ -61,11 +61,13 @@ import {
 import { createPlatformBackgroundService } from "../background/platformBackground.js";
 import {
   AgentHostBackgroundSetupError,
+  DEFAULT_AGENT_HOST_BACKGROUND_STATUS_BUDGET_MS,
   type AgentHostBackgroundLauncher,
   type AgentHostBackgroundGuidance,
   type AgentHostBackgroundLogs,
   type AgentHostBackgroundResult,
-  type AgentHostBackgroundService
+  type AgentHostBackgroundService,
+  type AgentHostBackgroundStatusOptions
 } from "../background/backgroundService.js";
 import { resolveHostExecutable } from "../platform/resolveHostExecutable.js";
 import { agentProcessEnv, DEFAULT_ACP_SHUTDOWN_POLICY } from "@planweave-ai/runtime";
@@ -605,9 +607,16 @@ export class AgentHostOperator {
     return service.uninstall(await this.backgroundIdentity(configPath));
   }
 
-  async backgroundStatus(configPath: string): Promise<AgentHostBackgroundResult> {
+  async backgroundStatus(
+    configPath: string,
+    options?: AgentHostBackgroundStatusOptions
+  ): Promise<AgentHostBackgroundResult> {
     const service = this.requireBackgroundService();
-    return service.status(await this.backgroundIdentity(configPath));
+    const queryOptions = {
+      deadline: Date.now() + DEFAULT_AGENT_HOST_BACKGROUND_STATUS_BUDGET_MS,
+      ...options
+    };
+    return service.status(await this.backgroundIdentity(configPath), queryOptions);
   }
 
   async restartBackground(configPath: string): Promise<AgentHostBackgroundResult> {

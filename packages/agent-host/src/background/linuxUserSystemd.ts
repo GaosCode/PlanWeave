@@ -7,7 +7,8 @@ import type {
   AgentHostBackgroundInstall,
   AgentHostBackgroundLogs,
   AgentHostBackgroundResult,
-  AgentHostBackgroundService
+  AgentHostBackgroundService,
+  AgentHostBackgroundStatusOptions
 } from "./backgroundService.js";
 import { AgentHostBackgroundSetupError } from "./backgroundService.js";
 import { runFixedArgv, type FixedArgvRunner } from "./processRunner.js";
@@ -95,15 +96,24 @@ export class LinuxUserSystemdService implements AgentHostBackgroundService {
     return { state: "not_installed", platform: "linux-systemd-user" };
   }
 
-  async status({ workspaceId }: AgentHostBackgroundIdentity): Promise<AgentHostBackgroundResult> {
+  async status(
+    { workspaceId }: AgentHostBackgroundIdentity,
+    options?: AgentHostBackgroundStatusOptions
+  ): Promise<AgentHostBackgroundResult> {
     const unit = serviceName(workspaceId);
     try {
-      const result = await this.runner("systemctl", ["--user", "is-active", unit]);
+      const result = await this.runner(
+        "systemctl",
+        ["--user", "is-active", unit],
+        ...(options ? [options] : [])
+      );
       return {
         state: result.stdout.trim() === "active" ? "running" : "stopped",
         platform: "linux-systemd-user"
       };
-    } catch {
+    } catch (error) {
+      const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
+      if (code !== 3 && code !== 4) throw error;
       try {
         await readFile(join(this.userConfigDirectory, unit));
         return { state: "stopped", platform: "linux-systemd-user" };
