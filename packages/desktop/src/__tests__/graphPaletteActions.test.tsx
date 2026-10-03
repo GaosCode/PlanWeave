@@ -114,6 +114,7 @@ describe("useGraphPaletteActions layout snapshots", () => {
     const setLayout = vi.fn();
     const { result } = renderHook(() =>
       useGraphPaletteActions({
+        captureProjectSelection: () => ({ isCurrent: () => true }),
         flowInstance: null,
         graph,
         layout,
@@ -184,6 +185,7 @@ describe("useGraphPaletteActions layout snapshots", () => {
     const setLayout = vi.fn();
     const { result } = renderHook(() =>
       useGraphPaletteActions({
+        captureProjectSelection: () => ({ isCurrent: () => true }),
         flowInstance: null,
         getLayoutNodes,
         graph,
@@ -224,7 +226,13 @@ describe("useGraphPaletteActions layout snapshots", () => {
 
   it("uses committed layout nodes for dependency edge snapshots", async () => {
     const addDependencyEdge = vi.fn().mockResolvedValue({ ok: true, diagnostics: [] });
-    const removeDependencyEdge = vi.fn().mockResolvedValue({ ok: true, diagnostics: [] });
+    const removeDependencyEdge = vi.fn().mockResolvedValue({
+      ok: true,
+      graphVersion: "pgv-after",
+      committed: { graphVersion: "pgv-after" },
+      affectedTasks: ["T-ALPHA"],
+      diagnostics: []
+    });
     const reconnectDependencyEdge = vi.fn().mockResolvedValue({ ok: true, diagnostics: [] });
     const bridge = createDesktopBridgeMock({
       addDependencyEdge,
@@ -250,6 +258,7 @@ describe("useGraphPaletteActions layout snapshots", () => {
     const refreshProjectDerivedState = vi.fn().mockResolvedValue(undefined);
     const { result } = renderHook(() =>
       useGraphPaletteActions({
+        captureProjectSelection: () => ({ isCurrent: () => true }),
         flowInstance: null,
         getLayoutNodes: () => committedNodes,
         graph: { ...graph, graphVersion: "pgv-before" },

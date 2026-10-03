@@ -210,6 +210,14 @@ export const workspaceMappingsInventory = [
     "Authority matrix still treats empty mappings as Host not ready."
   ),
   inventoryEntry(
+    "wm-canvasRuntimeAvailabilityService-test",
+    "workspaceMappings",
+    "endpoint_readiness",
+    "packages/server/src/__tests__/canvasRuntimeAvailabilityService.test.ts",
+    "reportOnline workspaceMappings ready",
+    "Availability lifecycle tests report ready mapping observations before Host reconnection."
+  ),
+  inventoryEntry(
     "wm-canvasRuntimeCommandCoordinator-test",
     "workspaceMappings",
     "endpoint_readiness",

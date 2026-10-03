@@ -29,7 +29,13 @@ describe("runtime schema documents", () => {
   });
 
   it("exposes the complete runtime schema topic registry in one order", () => {
-    expect(runtimeSchemaTopicOrder).toEqual(["manifest", "project", "state", "layout"]);
+    expect(runtimeSchemaTopicOrder).toEqual([
+      "manifest",
+      "project",
+      "state",
+      "layout",
+      "workspace-session"
+    ]);
     expect(Object.keys(runtimeSchemaDocuments)).toEqual([...runtimeSchemaTopicOrder]);
   });
 
