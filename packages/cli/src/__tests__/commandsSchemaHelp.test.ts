@@ -119,6 +119,10 @@ describe("planweave CLI help and schema output", () => {
     expect(formatSchemaHelp("state")).toContain("report_output_missing");
     expect(formatSchemaHelp("state")).toContain("report_output_too_large");
     expect(formatSchemaHelp("state")).not.toContain("preserve the portable code");
+    expect(formatSchemaHelp("workspace-session")).toContain('"responseIntent"');
+    expect(formatSchemaHelp("workspace-session")).toContain('"request"');
+    expect(formatSchemaHelp("workspace-session")).toContain('"response"');
+    expect(formatSchemaHelp()).toContain("workspace-session: durable remote execution");
     expect(formatSchemaHelp("layout")).toContain('"desktop-layout/v1"');
     expect(formatSchemaHelp("layout")).toContain("legacy_layout_schema");
     expect(formatSchemaHelp("all")).toContain("manifest: Plan Package source graph schema.");

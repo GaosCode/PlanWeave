@@ -1,4 +1,7 @@
-import type { RemoteInteractionView } from "@planweave-ai/collaboration-protocol/remote-run";
+import type {
+  RemoteInteractionView,
+  RemoteInteractionResponse
+} from "@planweave-ai/collaboration-protocol/remote-run";
 import {
   remoteWorkspaceExecutionHandleSchema,
   workspaceExecutionSessionStateSchema,
@@ -9,6 +12,7 @@ import {
 import type { ValidatedWorkspaceAuthorityBinding } from "./authorityBinding.js";
 import { WorkspaceExecutionError } from "./errors.js";
 import type { RemoteWorkspaceAdapterSnapshot } from "./ports.js";
+import { stableJson } from "../plangraph/hash.js";
 import { remoteInteractionIdentityKey } from "./remoteExecutionAdapter.js";
 import {
   WorkspaceExecutionSessionVersionConflictError,
@@ -60,7 +64,11 @@ function interactionRecords(
     const key = remoteInteractionIdentityKey(interaction);
     const previous = records.get(key);
     if (!previous || previous.status === "pending") {
-      records.set(key, { key, status: interaction.status });
+      records.set(key, {
+        ...(interaction.status === "pending" ? previous : {}),
+        key,
+        status: interaction.status
+      });
     }
   }
   return [...records.values()].sort((left, right) => left.key.localeCompare(right.key));
@@ -245,6 +253,109 @@ export async function persistRemoteInteraction(input: {
     } catch (error) {
       if (!(error instanceof WorkspaceExecutionSessionVersionConflictError)) throw error;
       current = (await input.sessions.get(input.storage, current.sessionId)).session;
+    }
+  }
+}
+
+export async function persistRemoteInteractions(input: {
+  sessions: WorkspaceExecutionSessionRepositoryPort;
+  storage: WorkspaceExecutionSessionStorage;
+  original: WorkspaceExecutionSessionRecord;
+  handle: RemoteWorkspaceExecutionHandle;
+  interactions: RemoteInteractionView[];
+}): Promise<WorkspaceExecutionSessionRecord> {
+  for (;;) {
+    const current = (await input.sessions.get(input.storage, input.original.sessionId)).session;
+    const state = current.workspaceExecution;
+    const handle = remoteWorkspaceExecutionHandleSchema.safeParse(state?.handle);
+    if (
+      !state ||
+      !handle.success ||
+      handle.data.authorityBindingId !== input.handle.authorityBindingId ||
+      handle.data.operationId !== input.handle.operationId ||
+      handle.data.dispatchId !== input.handle.dispatchId ||
+      handle.data.executionAttemptId !== input.handle.executionAttemptId ||
+      handle.data.leaseId !== input.handle.leaseId
+    ) {
+      throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
+    }
+    const records = interactionRecords(state.interactions, input.interactions);
+    const workspaceExecution = workspaceExecutionSessionStateSchema.parse({
+      ...state,
+      interactions: ["completed", "failed", "stopped"].includes(current.phase)
+        ? terminalInteractions(records)
+        : records
+    });
+    try {
+      return await input.sessions.update(
+        input.storage,
+        current.sessionId,
+        { workspaceExecution },
+        { expectedStateVersion: current.stateVersion }
+      );
+    } catch (error) {
+      if (!(error instanceof WorkspaceExecutionSessionVersionConflictError)) throw error;
+    }
+  }
+}
+
+export async function persistRemoteResponseIntent(input: {
+  sessions: WorkspaceExecutionSessionRepositoryPort;
+  storage: WorkspaceExecutionSessionStorage;
+  original: WorkspaceExecutionSessionRecord;
+  handle: RemoteWorkspaceExecutionHandle;
+  key: string;
+  request: RemoteInteractionView["request"];
+  response: RemoteInteractionResponse;
+  clock?: Clock;
+  signal?: AbortSignal;
+}): Promise<WorkspaceExecutionSessionRecord> {
+  for (;;) {
+    input.signal?.throwIfAborted();
+    const current = (await input.sessions.get(input.storage, input.original.sessionId)).session;
+    const state = current.workspaceExecution;
+    const handle = remoteWorkspaceExecutionHandleSchema.safeParse(state?.handle);
+    const record = state?.interactions.find((item) => item.key === input.key);
+    if (
+      !state ||
+      !handle.success ||
+      !record ||
+      record.status !== "pending" ||
+      ["completed", "failed", "stopped"].includes(current.phase) ||
+      handle.data.authorityBindingId !== input.handle.authorityBindingId ||
+      handle.data.operationId !== input.handle.operationId ||
+      handle.data.dispatchId !== input.handle.dispatchId ||
+      handle.data.executionAttemptId !== input.handle.executionAttemptId ||
+      handle.data.leaseId !== input.handle.leaseId
+    ) {
+      throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
+    }
+    if (Date.parse(input.request.expiresAt) <= (input.clock ?? (() => new Date()))().getTime()) {
+      throw new WorkspaceExecutionError("remote_interaction_expired");
+    }
+    if (
+      record.responseIntent &&
+      stableJson(record.responseIntent.response) !== stableJson(input.response)
+    ) {
+      throw new WorkspaceExecutionError("remote_interaction_response_conflict");
+    }
+    const workspaceExecution = workspaceExecutionSessionStateSchema.parse({
+      ...state,
+      interactions: state.interactions.map((item) =>
+        item.key === input.key
+          ? { ...item, responseIntent: { request: input.request, response: input.response } }
+          : item
+      )
+    });
+    try {
+      return await input.sessions.update(
+        input.storage,
+        current.sessionId,
+        { workspaceExecution },
+        { expectedStateVersion: current.stateVersion }
+      );
+    } catch (error) {
+      if (!(error instanceof WorkspaceExecutionSessionVersionConflictError)) throw error;
     }
   }
 }

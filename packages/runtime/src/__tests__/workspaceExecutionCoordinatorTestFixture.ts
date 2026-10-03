@@ -5,7 +5,9 @@ import {
   remoteInteractionViewSchema,
   remoteOperationObservationSchema,
   type RemoteEventReplay,
-  type RemoteOperationObservation
+  type RemoteOperationObservation,
+  type RemoteInteractionResponse,
+  type RemoteInteractionView
 } from "@planweave-ai/collaboration-protocol/remote-run";
 import { workAuthorityProjectionSchema } from "@planweave-ai/collaboration-protocol/work/authority";
 import { createWorkspaceAuthorityBindingResolver } from "../workspaceExecution/authorityBinding.js";
@@ -135,6 +137,7 @@ export function observation(
     authorityRevisions?: typeof revisions;
     contentRevision?: string;
     graphFingerprint?: string;
+    leaseId?: string;
   } = {}
 ) {
   const attemptId = input.attemptId ?? "attempt-1";
@@ -155,7 +158,8 @@ export function observation(
       executionAttemptId: attemptId,
       dispatchId: `dispatch-${attemptId}`,
       status: input.attemptStatus ?? (state === "completed" ? "completed" : state),
-      stateVersion: input.attemptStateVersion ?? input.revision ?? 1
+      stateVersion: input.attemptStateVersion ?? input.revision ?? 1,
+      ...(input.leaseId ? { leaseId: input.leaseId } : {})
     },
     diagnostics: {
       stage:
@@ -201,6 +205,8 @@ export function fixture(input: {
   observe?: () => Promise<RemoteOperationObservation>;
   replay?: (afterCursor: number) => Promise<ReturnType<typeof emptyReplay>>;
   interactions?: (cursor: number) => Promise<ReturnType<typeof emptyInteractions>>;
+  respond?: (response: RemoteInteractionResponse) => Promise<RemoteInteractionView>;
+  clock?: () => Date;
   sessions?: ConstructorParameters<typeof WorkspaceExecutionCoordinator>[0]["sessions"];
 }) {
   const catalog = {
@@ -223,17 +229,19 @@ export function fixture(input: {
   const interactions = vi.fn(
     async ({ cursor }: { cursor: number }) => input.interactions?.(cursor) ?? emptyInteractions()
   );
-  const respond = vi.fn(async ({ response }: { response: unknown }) =>
-    remoteInteractionViewSchema.parse({
-      request: pendingInteraction().items[0]?.request,
-      operationId: "operation-1",
-      hostId: "host-1",
-      status: "settled",
-      createdAt: "2030-01-01T00:00:00.000Z",
-      settlement: response,
-      settledBy: "human-1",
-      settledAt: "2030-01-01T00:01:00.000Z"
-    })
+  const respond = vi.fn(async ({ response }: { response: RemoteInteractionResponse }) =>
+    input.respond
+      ? input.respond(response)
+      : remoteInteractionViewSchema.parse({
+          request: pendingInteraction().items[0]?.request,
+          operationId: "operation-1",
+          hostId: "host-1",
+          status: "settled",
+          createdAt: "2030-01-01T00:00:00.000Z",
+          settlement: response,
+          settledBy: "human-1",
+          settledAt: "2030-01-01T00:01:00.000Z"
+        })
   );
   const workAuthorityPort = {
     ensure: vi.fn(input.workAuthority ?? (async () => workAuthority()))
@@ -251,7 +259,7 @@ export function fixture(input: {
     local: { launch: vi.fn() },
     remote,
     sessions: input.sessions,
-    clock: () => new Date("2030-01-01T00:10:00.000Z")
+    clock: input.clock ?? (() => new Date("2030-01-01T00:10:00.000Z"))
   });
   return {
     coordinator,

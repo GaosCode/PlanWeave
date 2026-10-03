@@ -1,5 +1,10 @@
+import { parseInteractionSettlementForRequest } from "@planweave-ai/agent-host-protocol/browser";
+import { stableJson } from "../plangraph/hash.js";
 import { randomUUID } from "node:crypto";
-import type { RemoteInteractionResponse } from "@planweave-ai/collaboration-protocol/remote-run";
+import type {
+  RemoteInteractionResponse,
+  RemoteInteractionView
+} from "@planweave-ai/collaboration-protocol/remote-run";
 import type { RunSessionTrigger } from "../runSessions/types.js";
 import {
   remoteWorkspaceExecutionHandleSchema,
@@ -38,11 +43,16 @@ import type {
   RemoteWorkspaceExecutionAdapter,
   WorkAuthorityPort
 } from "./ports.js";
-import { remoteInteractionIdentityKeyFrom } from "./remoteExecutionAdapter.js";
+import {
+  remoteInteractionIdentityKey,
+  remoteInteractionIdentityKeyFrom
+} from "./remoteExecutionAdapter.js";
 import {
   persistRemoteEvidence,
   persistRemoteEvidenceDiagnostic,
   persistRemoteInteraction,
+  persistRemoteInteractions,
+  persistRemoteResponseIntent,
   persistRemoteObservation,
   remoteSessionState
 } from "./sessionCheckpoint.js";
@@ -397,12 +407,16 @@ export class WorkspaceExecutionCoordinator {
     });
   }
 
-  async respond(input: {
+  async synchronizeInteractions(input: {
     request: unknown;
     sessionId: string;
-    response: RemoteInteractionResponse;
     signal?: AbortSignal;
-  }): Promise<WorkspaceExecutionEvent> {
+  }): Promise<{
+    session: WorkspaceExecutionSessionRecord;
+    handle: RemoteWorkspaceExecutionHandle;
+    binding: Extract<ValidatedWorkspaceAuthorityBinding, { kind: "remote" }>;
+    items: RemoteInteractionView[];
+  }> {
     const request = workspaceExecutionRequestSchema.parse(input.request);
     const storage = this.storageForExistingSession(request);
     const detail = await this.sessions.get(storage, input.sessionId);
@@ -424,27 +438,117 @@ export class WorkspaceExecutionCoordinator {
     if (!handle.success) {
       throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
     }
-    const responseKey = remoteInteractionIdentityKeyFrom({
-      operationId: handle.data.operationId,
-      ...input.response
-    });
-    const pending = detail.session.workspaceExecution.interactions.some(
-      (record) => record.key === responseKey && record.status === "pending"
-    );
-    if (!pending) throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
-    const interaction = await this.input.remote.respond({
+    input.signal?.throwIfAborted();
+    const page = await this.input.remote.readInteractions({
       handle: handle.data,
       binding,
-      response: input.response,
       signal: input.signal
     });
-    await persistRemoteInteraction({
+    input.signal?.throwIfAborted();
+    const items = page.items.map((item) =>
+      item.status === "pending" &&
+      Date.parse(item.request.expiresAt) <= (this.input.clock ?? (() => new Date()))().getTime()
+        ? { ...item, status: "expired" as const }
+        : item
+    );
+    const session = await persistRemoteInteractions({
       sessions: this.sessions,
       storage,
       original: detail.session,
-      interaction
+      handle: handle.data,
+      interactions: items
     });
-    return projectRemoteInteractionEvent(handle.data, interaction, this.input.clock);
+    const records = new Map(
+      session.workspaceExecution?.interactions.map((record) => [record.key, record.status])
+    );
+    return {
+      session,
+      handle: handle.data,
+      binding,
+      items: items.map((item) => {
+        const status = records.get(remoteInteractionIdentityKey(item));
+        if (status === undefined) {
+          throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
+        }
+        return { ...item, status };
+      })
+    };
+  }
+
+  async respond(input: {
+    request: unknown;
+    sessionId: string;
+    response: RemoteInteractionResponse;
+    signal?: AbortSignal;
+  }): Promise<WorkspaceExecutionEvent> {
+    const synchronized = await this.synchronizeInteractions(input);
+    const storage = this.storageForExistingSession(
+      workspaceExecutionRequestSchema.parse(input.request)
+    );
+    const { session, handle, binding } = synchronized;
+    const responseKey = remoteInteractionIdentityKeyFrom({
+      operationId: handle.operationId,
+      ...input.response
+    });
+    input.signal?.throwIfAborted();
+    const record = session.workspaceExecution?.interactions.find(
+      (item) => item.key === responseKey
+    );
+    const pending = synchronized.items.find(
+      (item) => remoteInteractionIdentityKey(item) === responseKey && item.status === "pending"
+    );
+    const recovery = record?.responseIntent;
+    if (!record || record.status !== "pending" || (!pending && !recovery)) {
+      throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
+    }
+    if (recovery && stableJson(recovery.response) !== stableJson(input.response)) {
+      throw new WorkspaceExecutionError("remote_interaction_response_conflict");
+    }
+    const interactionRequest = pending?.request ?? recovery?.request;
+    if (!interactionRequest)
+      throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
+    const response = parseInteractionSettlementForRequest(interactionRequest, input.response);
+    if (
+      response.dispatchId !== handle.dispatchId ||
+      response.executionAttemptId !== handle.executionAttemptId ||
+      (handle.leaseId !== null && response.leaseId !== handle.leaseId)
+    ) {
+      throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
+    }
+    const prepared = await persistRemoteResponseIntent({
+      sessions: this.sessions,
+      storage,
+      original: session,
+      handle,
+      key: responseKey,
+      request: interactionRequest,
+      response,
+      clock: this.input.clock,
+      signal: input.signal
+    });
+    input.signal?.throwIfAborted();
+    const interaction = await this.input.remote.respond({
+      handle,
+      binding,
+      response,
+      signal: input.signal
+    });
+    try {
+      await persistRemoteInteraction({
+        sessions: this.sessions,
+        storage,
+        original: prepared,
+        interaction
+      });
+    } catch (error) {
+      throw new WorkspaceExecutionError(
+        "remote_interaction_checkpoint_failed",
+        "Remote response accepted; synchronize this same interaction before retrying.",
+        true,
+        { cause: error }
+      );
+    }
+    return projectRemoteInteractionEvent(handle, interaction, this.input.clock);
   }
 
   private async resumeOrRecover(

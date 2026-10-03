@@ -157,7 +157,11 @@ export function registerInteractionCommand(program: Command): void {
         throw new WorkspaceExecutionCliError("workspace_execution_usage_invalid", 2);
       }
       const projectRoot = await resolveCliPackageWorkspace(options);
-      const { context, items: interactions } = await loadRemoteSessionInteractions({
+      const {
+        context,
+        items: interactions,
+        session
+      } = await loadRemoteSessionInteractions({
         projectRoot,
         sessionId: options.session,
         connectionProfile: options.connectionProfile
@@ -170,20 +174,31 @@ export function registerInteractionCommand(program: Command): void {
           item.request.executionAttemptId === options.attempt &&
           item.request.acpSessionId === options.acpSession
       );
-      if (!selected) {
+      const recovery = session.workspaceExecution?.interactions.find(
+        (item) =>
+          item.status === "pending" &&
+          item.responseIntent &&
+          item.responseIntent.request.actionId === options.action &&
+          item.responseIntent.request.dispatchId === options.dispatch &&
+          item.responseIntent.request.leaseId === options.lease &&
+          item.responseIntent.request.executionAttemptId === options.attempt &&
+          item.responseIntent.request.acpSessionId === options.acpSession
+      )?.responseIntent;
+      const interactionRequest = selected?.request ?? recovery?.request;
+      if (!interactionRequest) {
         throw new WorkspaceExecutionCliError("remote_interaction_not_found", 7);
       }
-      if (selected.status === "expired") {
+      if (selected?.status === "expired") {
         throw new WorkspaceExecutionCliError("remote_interaction_expired", 7);
       }
-      if (selected.status === "settled") {
+      if (selected?.status === "settled") {
         throw new WorkspaceExecutionCliError("remote_interaction_already_settled", 7);
       }
       const event = await context.coordinator.respond({
         request: context.request,
         sessionId: options.session,
         response: interactionResponse({
-          request: selected.request,
+          request: interactionRequest,
           option: options.option,
           cancel: options.cancel
         })

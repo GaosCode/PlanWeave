@@ -1,6 +1,7 @@
 import { layoutSchemaDocument } from "./layout.js";
 import { manifestSchemaDocument } from "./manifest.js";
 import { projectSchemaDocument } from "./project.js";
+import { workspaceSessionSchemaDocument } from "./workspaceSession.js";
 import { stateSchemaDocument } from "./state.js";
 import type { RuntimeSchemaTopicName, SchemaDocument } from "./types.js";
 
@@ -8,7 +9,8 @@ export const runtimeSchemaDocuments: Record<RuntimeSchemaTopicName, SchemaDocume
   manifest: manifestSchemaDocument,
   project: projectSchemaDocument,
   state: stateSchemaDocument,
-  layout: layoutSchemaDocument
+  layout: layoutSchemaDocument,
+  "workspace-session": workspaceSessionSchemaDocument
 };
 
 export { layoutSchemaDocument } from "./layout.js";

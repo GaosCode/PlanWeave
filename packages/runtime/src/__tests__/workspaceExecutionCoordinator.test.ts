@@ -419,6 +419,59 @@ describe("WorkspaceExecutionCoordinator", () => {
     expect(restarted.interactions).not.toHaveBeenCalled();
   });
 
+  it("checkpoints new pending interactions before direct response without follow", async () => {
+    const { root } = await createTestWorkspace();
+    let published = false;
+    const f = fixture({
+      packageWorkspace: root,
+      dispatch: async () => observation({ attemptId: "attempt-2" }),
+      replay: async (afterCursor) => ({
+        ...emptyReplay(afterCursor),
+        executionAttemptId: "attempt-2"
+      }),
+      interactions: async () => (published ? pendingInteraction("attempt-2") : emptyInteractions())
+    });
+    const started = await f.coordinator.execute(request(root));
+    expect(started.session.workspaceExecution?.interactions).toEqual([]);
+    published = true;
+    const response = {
+      type: "interaction.permission_response" as const,
+      dispatchId: "dispatch-attempt-2",
+      leaseId: "lease-1",
+      executionAttemptId: "attempt-2",
+      actionId: "action-1",
+      acpSessionId: "acp-session-1",
+      decision: "select_option" as const,
+      optionId: "tool-approve-once"
+    };
+    await expect(
+      f.coordinator.respond({
+        request: request(root),
+        sessionId: started.session.sessionId,
+        response
+      })
+    ).resolves.toMatchObject({ type: "interaction_resolved", data: response });
+    const stored = await getRunSession(root, started.session.sessionId);
+    expect(stored.session.workspaceExecution?.interactions).toEqual([
+      expect.objectContaining({ status: "settled" })
+    ]);
+    const synchronized = await f.coordinator.synchronizeInteractions({
+      request: request(root),
+      sessionId: started.session.sessionId
+    });
+    expect(synchronized.items).toEqual([expect.objectContaining({ status: "settled" })]);
+    await expect(
+      f.coordinator.respond({
+        request: request(root),
+        sessionId: started.session.sessionId,
+        response
+      })
+    ).rejects.toMatchObject({ code: "workspace_execution_resume_mismatch" });
+    expect(f.observe).not.toHaveBeenCalled();
+    expect(f.dispatch).toHaveBeenCalledTimes(1);
+    expect(f.respond).toHaveBeenCalledTimes(1);
+  });
+
   it("resets attempt cursors, exposes retention and interaction identity, and routes settlement exactly", async () => {
     const { root } = await createTestWorkspace();
     const f = fixture({

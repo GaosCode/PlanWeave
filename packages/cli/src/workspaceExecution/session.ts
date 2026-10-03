@@ -226,18 +226,11 @@ export async function loadRemoteSessionInteractions(input: {
   if (!context.handle) {
     throw new WorkspaceExecutionCliError("workspace_execution_usage_invalid", 2);
   }
-  const items = [];
-  let cursor = 0;
-  for (;;) {
-    const page = await context.ports.query.interactions({
-      binding,
-      operationId: context.handle.operationId,
-      cursor
-    });
-    items.push(...page.items);
-    if (page.nextCursor === null) return { context, items };
-    cursor = page.nextCursor;
-  }
+  const { items, session } = await context.coordinator.synchronizeInteractions({
+    request: context.request,
+    sessionId: input.sessionId
+  });
+  return { context, items, session };
 }
 
 export function interactionResponse(input: {

@@ -129,6 +129,11 @@ export interface LocalWorkspaceExecutionAdapter {
 }
 
 export interface RemoteWorkspaceExecutionAdapter {
+  readInteractions(input: {
+    handle: RemoteWorkspaceExecutionHandle;
+    binding: ValidatedWorkspaceAuthorityBinding;
+    signal?: AbortSignal;
+  }): Promise<RemoteInteractionPage>;
   inspectExisting(input: {
     binding: ValidatedWorkspaceAuthorityBinding;
     operationId: string;

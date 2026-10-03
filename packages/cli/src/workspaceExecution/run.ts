@@ -191,6 +191,9 @@ export async function executeWorkspaceRun(
       },
       local: createLocalWorkspaceExecutionAdapter(),
       remote: {
+        async readInteractions() {
+          throw new WorkspaceExecutionCliError("workspace_connection_required", 3);
+        },
         async inspectExisting() {
           throw new WorkspaceExecutionCliError("workspace_connection_required", 3);
         },

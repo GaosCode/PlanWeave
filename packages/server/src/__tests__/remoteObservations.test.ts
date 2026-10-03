@@ -370,6 +370,16 @@ describe("remote interaction settlement", () => {
     expect(
       interactions.settle({ hostId: fixture.host.id, responderId: "member-1", settlement })
     ).toMatchObject({ status: "settled" });
+    const mailbox = fixture.server.database
+      .prepare("SELECT command_json FROM mailbox_messages WHERE host_id=?")
+      .all(fixture.host.id);
+    expect(
+      mailbox
+        .map((row) => JSON.parse(String(row.command_json)))
+        .filter(
+          (command) => command.type === settlement.type && command.actionId === settlement.actionId
+        )
+    ).toEqual([settlement]);
     expect(() =>
       interactions.settle({
         hostId: fixture.host.id,

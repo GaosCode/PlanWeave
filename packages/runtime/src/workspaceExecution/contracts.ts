@@ -330,7 +330,14 @@ const remoteDispatchIntentStateSchema = z
 const workspaceExecutionInteractionIdentitySchema = z
   .object({
     key: z.string().regex(/^wxi:sha256:[a-f0-9]{64}$/),
-    status: z.enum(["pending", "settled", "expired"])
+    status: z.enum(["pending", "settled", "expired"]),
+    responseIntent: z
+      .object({
+        request: historicalInteractionRequestSchema,
+        response: interactionSettlementSchema
+      })
+      .strict()
+      .optional()
   })
   .strict();
 

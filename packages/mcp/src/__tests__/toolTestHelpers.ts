@@ -64,7 +64,8 @@ export const schemaDocuments = {
   manifest: schemaDocument,
   project: { ...schemaDocument, name: "project" },
   state: { ...schemaDocument, name: "state" },
-  layout: { ...schemaDocument, name: "layout" }
+  layout: { ...schemaDocument, name: "layout" },
+  "workspace-session": { ...schemaDocument, name: "workspace-session" }
 } satisfies Record<RuntimeSchemaTopicName, SchemaDocument>;
 
 export const validValidationSummary: ValidationReport["summary"] = {

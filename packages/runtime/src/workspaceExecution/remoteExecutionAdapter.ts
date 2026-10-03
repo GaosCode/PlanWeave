@@ -230,7 +230,9 @@ async function readInteractionSnapshot(
   const items: RemoteInteractionView[] = [];
   let cursor = 0;
   for (;;) {
+    signal?.throwIfAborted();
     const page = await query.interactions({ binding, operationId, cursor }, signal);
+    signal?.throwIfAborted();
     items.push(...page.items);
     if (page.nextCursor === null) return { items, nextCursor: null };
     if (page.nextCursor <= cursor) {
@@ -277,7 +279,38 @@ export function createRemoteWorkspaceExecutionAdapter(input: {
     };
   }
 
+  async function readInteractions(args: {
+    handle: RemoteWorkspaceExecutionHandle;
+    binding: ValidatedWorkspaceAuthorityBinding;
+    signal?: AbortSignal;
+  }): Promise<RemoteInteractionPage> {
+    const { handle, binding, signal } = args;
+    assertRemoteBinding(binding);
+    if (handle.authorityBindingId !== binding.bindingId) {
+      throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
+    }
+    let first: RemoteInteractionPage;
+    try {
+      first = await readInteractionSnapshot(input.query, binding, handle.operationId, signal);
+    } catch (error) {
+      if (error instanceof WorkspaceExecutionError) throw error;
+      throw workspaceExecutionPortError(error, "remote_interactions_unavailable");
+    }
+    for (const item of first.items) {
+      if (
+        item.operationId !== handle.operationId ||
+        item.request.dispatchId !== handle.dispatchId ||
+        item.request.executionAttemptId !== handle.executionAttemptId ||
+        (handle.leaseId !== null && item.request.leaseId !== handle.leaseId)
+      ) {
+        throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
+      }
+    }
+    return first;
+  }
+
   return {
+    readInteractions,
     async inspectExisting({ binding, operationId, signal }) {
       assertRemoteBinding(binding);
       let observation: RemoteOperationObservation;
@@ -406,23 +439,7 @@ export function createRemoteWorkspaceExecutionAdapter(input: {
           throw new WorkspaceExecutionError("remote_event_cursor_gap");
         }
       }
-      let first: RemoteInteractionPage;
-      try {
-        first = await readInteractionSnapshot(input.query, binding, handle.operationId, signal);
-      } catch (error) {
-        if (error instanceof WorkspaceExecutionError) throw error;
-        throw workspaceExecutionPortError(error, "remote_interactions_unavailable");
-      }
-      for (const item of first.items) {
-        if (
-          item.operationId !== handle.operationId ||
-          item.request.dispatchId !== handle.dispatchId ||
-          item.request.executionAttemptId !== handle.executionAttemptId ||
-          (handle.leaseId !== null && item.request.leaseId !== handle.leaseId)
-        ) {
-          throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
-        }
-      }
+      const first = await readInteractions({ handle, binding, signal });
       return {
         handle: remoteWorkspaceExecutionHandleSchema.parse({
           ...handle,

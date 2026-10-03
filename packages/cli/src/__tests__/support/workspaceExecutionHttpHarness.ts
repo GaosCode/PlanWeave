@@ -6,6 +6,7 @@ import {
   type ServerResponse
 } from "node:http";
 import {
+  canonicalizeJson,
   OPERATOR_OWNER_TERMINAL_RESULT_MEDIA_TYPE,
   OPERATOR_OWNER_TERMINAL_RESULT_METADATA_HEADER
 } from "@planweave-ai/agent-host-protocol";
@@ -27,6 +28,7 @@ import {
   remoteInteractionViewSchema,
   type RemoteDispatchIntentV3,
   type RemoteInteractionView,
+  type RemoteInteractionResponse,
   type RemoteOperationObservation
 } from "@planweave-ai/collaboration-protocol/remote-run";
 import { workAuthorityProjectionSchema } from "@planweave-ai/collaboration-protocol/work/authority";
@@ -100,6 +102,19 @@ export class WorkspaceExecutionHttpHarness {
   private ownerMaterializedDigest: string | null = null;
   private readonly settledInteractions = new Set<number>();
   private settlementFailure: SettlementFailure | null = null;
+  private interactionsPublished = true;
+  private readonly settlements = new Map<number, RemoteInteractionResponse>();
+  onSettlement?: () => Promise<void>;
+
+  hideInteractions(): void {
+    this.interactionsPublished = false;
+  }
+  publishInteractions(): void {
+    this.interactionsPublished = true;
+  }
+  get settlementCount(): number {
+    return this.settlements.size;
+  }
 
   constructor(
     private readonly input: {
@@ -428,8 +443,17 @@ export class WorkspaceExecutionHttpHarness {
         writeJson(response, 404, { error: "remote_interaction_not_found" });
         return;
       }
-      this.settledInteractions.add(index);
-      writeJson(response, 200, this.interaction(index, "settled", settlement));
+      const existing = this.settlements.get(index);
+      if (existing && canonicalizeJson(existing) !== canonicalizeJson(settlement)) {
+        writeJson(response, 409, { error: "remote_interaction_already_settled" });
+        return;
+      }
+      if (!existing) {
+        this.settlements.set(index, settlement);
+        this.settledInteractions.add(index);
+        await this.onSettlement?.();
+      }
+      writeJson(response, 200, this.interaction(index, "settled", existing ?? settlement));
       return;
     }
     if (url.pathname.endsWith("/interactions") && method === "GET") {
@@ -437,7 +461,7 @@ export class WorkspaceExecutionHttpHarness {
         response,
         200,
         remoteInteractionPageSchema.parse({
-          items: this.interactionRequests()
+          items: (this.interactionsPublished ? this.interactionRequests() : [])
             .map((_request, index) => index)
             .filter((index) => !this.settledInteractions.has(index))
             .map((index) => this.interaction(index, "pending")),

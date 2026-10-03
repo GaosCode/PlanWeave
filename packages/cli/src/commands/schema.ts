@@ -45,6 +45,7 @@ export function formatSchemaHelp(topicName?: string): string {
     "- project: project-graph.json canvas graph",
     "- state: runtime state at the CLI-returned statePath",
     "- layout: desktop/layout.json",
+    "- workspace-session: durable remote execution and response checkpoints",
     "- all: print every schema topic",
     "",
     "Recommended flow:",

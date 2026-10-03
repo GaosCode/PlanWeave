@@ -1,4 +1,10 @@
-export const runtimeSchemaTopicOrder = ["manifest", "project", "state", "layout"] as const;
+export const runtimeSchemaTopicOrder = [
+  "manifest",
+  "project",
+  "state",
+  "layout",
+  "workspace-session"
+] as const;
 
 export type RuntimeSchemaTopicName = (typeof runtimeSchemaTopicOrder)[number];
 

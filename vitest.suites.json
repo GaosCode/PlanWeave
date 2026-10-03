@@ -49,6 +49,7 @@
         "projectRoot.test.ts",
         "remoteCanvasBindingCli.test.ts",
         "remoteExecutionCli.test.ts",
+        "remoteInteractionCheckpointCli.test.ts",
         "workspaceExecutionCredential.test.ts",
         "runIndexCli.test.ts",
         "runInteractionEventStream.test.ts",
@@ -726,7 +727,8 @@
         "windowsJobProcessContract.test.ts",
         "workspaceExecutionArchitectureBoundaries.test.ts",
         "workspaceExecutionCoordinator.test.ts",
-        "workspaceExecutionCoordinatorObserve.test.ts"
+        "workspaceExecutionCoordinatorObserve.test.ts",
+        "workspaceExecutionInteractionCheckpoint.test.ts"
       ],
       "platform": [
         "agentRunControlServer.test.ts",
