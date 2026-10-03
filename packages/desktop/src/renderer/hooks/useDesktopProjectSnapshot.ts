@@ -19,6 +19,7 @@ export type ApplyDesktopProjectSnapshotOptions = {
   includePrompt?: boolean;
   requireCurrentCanvas?: boolean;
   throwOnErrors?: boolean;
+  isOwnerCurrent?: () => boolean;
 };
 
 export type CurrentDesktopCanvasRef = {

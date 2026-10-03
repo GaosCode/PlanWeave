@@ -165,6 +165,11 @@ export default defineConfig({
               priority: 13
             },
             {
+              name: "graph-actions",
+              test: (id) => id.endsWith("/renderer/hooks/useGraphPaletteActions.ts"),
+              priority: 14
+            },
+            {
               // Search state stays mounted in the shell; its view retains its lazy route.
               name: "search-controller",
               test: (id) =>

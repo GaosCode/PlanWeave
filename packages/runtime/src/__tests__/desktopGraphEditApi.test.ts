@@ -13,6 +13,7 @@ import {
   bulkUpdateParallelPolicy,
   bulkUpdateTasks,
   getDesktopLayout,
+  getGraphViewModel,
   getProjectOverview,
   removeBlock,
   removeDependencyEdge,
@@ -649,9 +650,9 @@ describe("desktop graph edit API", () => {
       updatedAt: new Date(0).toISOString()
     };
 
-    await expect(
-      removeDependencyEdge(root, "T-001", "T-002", undefined, layoutSnapshot)
-    ).resolves.toMatchObject({ ok: true });
+    const removed = await removeDependencyEdge(root, "T-001", "T-002", undefined, layoutSnapshot);
+    expect(removed.ok).toBe(true);
+    expect(removed).toHaveProperty("graphVersion", (await getGraphViewModel(root)).graphVersion);
     expect((await getDesktopLayout(root)).nodes).toEqual(layoutSnapshot.nodes);
     let manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
     expect(manifest.edges).not.toContainEqual({ from: "T-001", to: "T-002", type: "depends_on" });

@@ -5,6 +5,8 @@ import { remoteAgentManagementZhCnCatalog } from "./i18nRemoteAgentManagementZhC
 import { runnerZhCnCatalog } from "./i18nRunnerZhCn";
 
 export const zhCnCatalog = {
+  dependencyDeletePartial: "已删除 {completed} 条依赖，{remaining} 条未删除。",
+  dependencyDeleteRefreshFailed: "图谱刷新失败：{reason}",
   ...managementZhCnCatalog,
   statistics: "统计",
   search: "搜索",

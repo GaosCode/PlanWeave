@@ -4,6 +4,8 @@ import { remoteAgentManagementEnCatalog } from "./i18nRemoteAgentManagementEn";
 import { runnerEnCatalog } from "./i18nRunnerEn";
 
 export const enCatalog = {
+  dependencyDeletePartial: "Deleted {completed} dependencies; {remaining} not deleted.",
+  dependencyDeleteRefreshFailed: "Graph refresh failed: {reason}",
   ...managementEnCatalog,
   statistics: "Statistics",
   search: "Search",

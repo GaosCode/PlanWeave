@@ -137,7 +137,8 @@ const planGraphCommandSchemaOptions = [
       ...baseCommandShape,
       type: z.literal("addTaskDependency"),
       fromTaskId: z.string(),
-      toTaskId: z.string()
+      toTaskId: z.string(),
+      insertIndex: z.number().int().nonnegative().optional()
     })
     .strict(),
   z

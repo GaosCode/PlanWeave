@@ -18,6 +18,7 @@ export type AddTaskDependencyCommand = PlanGraphCommandBase & {
   type: "addTaskDependency";
   fromTaskId: string;
   toTaskId: string;
+  insertIndex?: number;
 };
 
 export type RemoveTaskDependencyCommand = PlanGraphCommandBase & {

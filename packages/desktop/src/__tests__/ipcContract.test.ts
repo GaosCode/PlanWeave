@@ -482,6 +482,8 @@ describe("desktop IPC contract", () => {
   it("strips compiled graph internals from graph edit IPC results", () => {
     const result: GraphEditResult = {
       ok: true,
+      graphVersion: "pgv-command",
+      committed: { graphVersion: "pgv-command" },
       affectedTasks: ["T-001"],
       diagnostics: [],
       graph: { indexes: "not cloneable over IPC" } as never
@@ -489,6 +491,8 @@ describe("desktop IPC contract", () => {
 
     expect(cloneDesktopGraphEditResult(result)).toEqual({
       ok: true,
+      graphVersion: "pgv-command",
+      committed: { graphVersion: "pgv-command" },
       affectedTasks: ["T-001"],
       diagnostics: []
     });

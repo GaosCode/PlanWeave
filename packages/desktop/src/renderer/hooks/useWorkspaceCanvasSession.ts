@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CanvasCommandIntent } from "@planweave-ai/collaboration-protocol/canvas/commands";
 import type { CanvasRuntimeAvailability } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import type {
@@ -87,6 +87,15 @@ export function useWorkspaceCanvasSession(input: {
   locator: WorkspaceCanvasLocator | null;
   sessionConnected: boolean;
 }): WorkspaceCanvasSessionView {
+  const generation = useRef(0);
+  const locatorKey = JSON.stringify(input.locator);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: changing the session authority invalidates pending submission publications.
+  useLayoutEffect(() => {
+    generation.current += 1;
+    return () => {
+      generation.current += 1;
+    };
+  }, [input.api, locatorKey, input.sessionConnected]);
   const [workspaceView, setWorkspaceView] = useState<{
     projection: WorkspaceCanvasProjection;
   } | null>(null);
@@ -158,14 +167,17 @@ export function useWorkspaceCanvasSession(input: {
       if (activeWorkspaceProjection?.readOnly) {
         return { ok: false, error: input.labels.notConnected, staleConflict: null };
       }
+      const submittedGeneration = generation.current;
       try {
         const projection = await input.api.submitWorkspaceCanvasCommand({
           locator: input.locator,
           intent: submitInput.intent
         });
-        setWorkspaceView({ projection });
         const nextSnapshot = snapshotFromWorkspaceProjection(projection, input.labels, "connected");
-        setSnapshot(nextSnapshot);
+        if (generation.current === submittedGeneration) {
+          setWorkspaceView({ projection });
+          setSnapshot(nextSnapshot);
+        }
         if (projection.status === "accepted") {
           return { ok: true, error: null, staleConflict: null };
         }
@@ -176,7 +188,9 @@ export function useWorkspaceCanvasSession(input: {
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        setSnapshot((current) => ({ ...current, busy: false, lastError: message }));
+        if (generation.current === submittedGeneration) {
+          setSnapshot((current) => ({ ...current, busy: false, lastError: message }));
+        }
         return { ok: false, error: message, staleConflict: null };
       }
     },

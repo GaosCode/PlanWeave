@@ -19,10 +19,40 @@ async function commandResult(
   const graph = compileTaskGraph(manifest);
   return {
     ok: result.ok && graph.diagnostics.errors.length === 0,
+    graphVersion: result.graphVersion,
+    ...(result.ok ? { committed: { graphVersion: result.graphVersion } } : {}),
     affectedTasks: result.ok ? result.affected.tasks : [],
     diagnostics: result.ok ? graph.diagnostics.errors : result.diagnostics,
     graph
   };
+}
+
+async function finishDesktopCommand(
+  projectRoot: PackageWorkspaceRef,
+  result: PlanGraphCommandResult,
+  layoutSnapshot?: DesktopLayout | null
+): Promise<GraphEditResult> {
+  const resultWorkspace = result.ok ? result.workspaceRef : projectRoot;
+  invalidateDesktopProjectProjection(resultWorkspace);
+  if (!result.ok) return commandResult(resultWorkspace, result);
+  try {
+    await applyLayoutNodeSideEffects(resultWorkspace, result);
+    if (layoutSnapshot) await saveDesktopLayoutDirect(resultWorkspace, layoutSnapshot);
+    return await commandResult(resultWorkspace, result);
+  } catch (error) {
+    return {
+      ok: false,
+      graphVersion: result.graphVersion,
+      committed: { graphVersion: result.graphVersion },
+      affectedTasks: result.affected.tasks,
+      diagnostics: [
+        {
+          code: "desktop_post_commit_failed",
+          message: error instanceof Error ? error.message : String(error)
+        }
+      ]
+    };
+  }
 }
 
 export async function executeDesktopPlanGraphCommand(
@@ -31,33 +61,19 @@ export async function executeDesktopPlanGraphCommand(
   options: { layoutSnapshot?: DesktopLayout | null } = {}
 ): Promise<GraphEditResult> {
   const result = await executePlanGraphCommand({ projectRoot, command });
-  const resultWorkspace = result.ok ? result.workspaceRef : projectRoot;
-  await applyLayoutNodeSideEffects(resultWorkspace, result);
-  if (result.ok && options.layoutSnapshot) {
-    await saveDesktopLayoutDirect(resultWorkspace, options.layoutSnapshot);
-  }
-  invalidateDesktopProjectProjection(resultWorkspace);
-  return commandResult(resultWorkspace, result);
+  return finishDesktopCommand(projectRoot, result, options.layoutSnapshot);
 }
 
 export async function undoDesktopPlanGraphCommand(
   projectRoot: PackageWorkspaceRef
 ): Promise<GraphEditResult> {
-  const result = await undoPlanGraphCommand({ projectRoot });
-  const resultWorkspace = result.ok ? result.workspaceRef : projectRoot;
-  await applyLayoutNodeSideEffects(resultWorkspace, result);
-  invalidateDesktopProjectProjection(resultWorkspace);
-  return commandResult(resultWorkspace, result);
+  return finishDesktopCommand(projectRoot, await undoPlanGraphCommand({ projectRoot }));
 }
 
 export async function redoDesktopPlanGraphCommand(
   projectRoot: PackageWorkspaceRef
 ): Promise<GraphEditResult> {
-  const result = await redoPlanGraphCommand({ projectRoot });
-  const resultWorkspace = result.ok ? result.workspaceRef : projectRoot;
-  await applyLayoutNodeSideEffects(resultWorkspace, result);
-  invalidateDesktopProjectProjection(resultWorkspace);
-  return commandResult(resultWorkspace, result);
+  return finishDesktopCommand(projectRoot, await redoPlanGraphCommand({ projectRoot }));
 }
 
 async function applyLayoutNodeSideEffects(

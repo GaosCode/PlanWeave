@@ -98,7 +98,28 @@ export const dependencyCommandHandler: PlanGraphCommandHandler<DependencyCommand
       if (loaded.manifest.edges.some((candidate) => sameEdge(candidate, edge))) {
         return diagnostic("edge_duplicate", "Task dependency edge already exists.", "edges");
       }
-      return buildPlanPackageGraphMutation(loaded.manifest, { kind: "addEdge", edge });
+      if (command.insertIndex === undefined) {
+        return buildPlanPackageGraphMutation(loaded.manifest, { kind: "addEdge", edge });
+      }
+      if (
+        !Number.isInteger(command.insertIndex) ||
+        command.insertIndex < 0 ||
+        command.insertIndex > loaded.manifest.edges.length
+      ) {
+        return diagnostic(
+          "edge_insert_index_invalid",
+          "Task dependency insertion index is outside the manifest edge list.",
+          "edges"
+        );
+      }
+      return buildPlanPackageManifestChangeMutation(loaded.manifest, {
+        ...loaded.manifest,
+        edges: [
+          ...loaded.manifest.edges.slice(0, command.insertIndex),
+          edge,
+          ...loaded.manifest.edges.slice(command.insertIndex)
+        ]
+      });
     }
     if (command.type === "removeTaskDependency") {
       const edge = dependencyEdge(command.fromTaskId, command.toTaskId);
@@ -109,7 +130,7 @@ export const dependencyCommandHandler: PlanGraphCommandHandler<DependencyCommand
     }
     return reconnectDependencyMutation(loaded.manifest, command);
   },
-  inverse(_loaded: LoadedPlanGraphPackage, command: DependencyCommand): PlanGraphCommand {
+  inverse(loaded: LoadedPlanGraphPackage, command: DependencyCommand): PlanGraphCommand {
     if (command.type === "addTaskDependency") {
       return {
         type: "removeTaskDependency",
@@ -121,7 +142,10 @@ export const dependencyCommandHandler: PlanGraphCommandHandler<DependencyCommand
       return {
         type: "addTaskDependency",
         fromTaskId: command.fromTaskId,
-        toTaskId: command.toTaskId
+        toTaskId: command.toTaskId,
+        insertIndex: loaded.manifest.edges.findIndex((edge) =>
+          sameEdge(edge, dependencyEdge(command.fromTaskId, command.toTaskId))
+        )
       };
     }
     return {

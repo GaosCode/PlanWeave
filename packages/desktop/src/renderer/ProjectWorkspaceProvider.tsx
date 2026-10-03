@@ -913,6 +913,8 @@ export function ProjectWorkspaceProvider({
     handlePaletteDragStart,
     resetLayout
   } = useGraphPaletteActions({
+    captureProjectSelection: desktopProject.captureProjectSelection,
+    canvasLocator,
     flowInstance,
     getLayoutNodes: lerpedNodeDrag.commitDragTargets,
     graph,

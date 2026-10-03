@@ -94,6 +94,39 @@ function bridge(initial: WorkspaceCanvasProjection) {
 afterEach(cleanupRendererTestEnvironment);
 
 describe("useWorkspaceCanvasCommands", () => {
+  it("ignores an old submission completion after navigating A to B to A", async () => {
+    const { api, submitWorkspaceCanvasCommand } = bridge(projection());
+    api.openWorkspaceCanvasSession = vi.fn(async (value) => projectionForLocator(value));
+    let finish!: (value: WorkspaceCanvasProjection) => void;
+    submitWorkspaceCanvasCommand.mockImplementation(
+      () =>
+        new Promise<WorkspaceCanvasProjection>((resolve) => {
+          finish = resolve;
+        })
+    );
+    const { result, rerender } = renderHook(
+      ({ selectedLocator }) =>
+        useWorkspaceCanvasCommands({ api, locator: selectedLocator, sessionConnected: true, t }),
+      { initialProps: { selectedLocator: locator } }
+    );
+    await waitFor(() => expect(result.current.snapshot.connectionPhase).toBe("connected"));
+    let pending!: ReturnType<typeof result.current.submit>;
+    act(() => {
+      pending = result.current.submit({
+        intent: { kind: "remove_task_dependency", fromTaskId: "A", toTaskId: "B" }
+      });
+    });
+    rerender({ selectedLocator: { ...locator, canvasId: "canvas-2" } });
+    await waitFor(() => expect(result.current.snapshot.session?.canvasId).toBe("canvas-2"));
+    rerender({ selectedLocator: locator });
+    await waitFor(() => expect(result.current.snapshot.session?.canvasId).toBe("canvas-1"));
+    await act(async () => {
+      finish({ ...projection(), replica: { ...projection().replica, revision: 99 } });
+      await pending;
+    });
+    expect(result.current.snapshot.session?.revision).toBe(4);
+  });
+
   it("does not call a collaboration adapter for a Local Canvas", () => {
     const openWorkspaceCanvasSession = vi.fn();
     const api: WorkspaceCanvasCommandBridge = {

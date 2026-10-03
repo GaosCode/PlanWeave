@@ -271,11 +271,11 @@ export function useDesktopProjectLoader({
 
   const refreshProjectDerivedState = useCallback(
     async (options: ApplyDesktopProjectSnapshotOptions = {}) => {
-      if (!bridge || !selectedProject) return;
+      if (!bridge || !selectedProject || options.isOwnerCurrent?.() === false) return;
       const canvasRef = desktopCanvasReference(selectedProject, selectedCanvasId);
       const request = beginSnapshotRequest(canvasRef, options);
       const assertCurrent = () => {
-        if (request.isCurrent()) return true;
+        if (request.isCurrent() && options.isOwnerCurrent?.() !== false) return true;
         if (options.requireCurrentCanvas) throw new Error("project_canvas_changed_during_refresh");
         return false;
       };

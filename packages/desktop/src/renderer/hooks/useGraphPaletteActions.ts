@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useLayoutEffect, useRef } from "react";
 import type * as React from "react";
 import type { Connection, Edge, Node, ReactFlowInstance } from "@xyflow/react";
 import type {
@@ -24,14 +24,22 @@ import type {
 import { defaultBlockTitleForUi } from "../viewHelpers";
 import type { WorkspaceCanvasCommandsResult } from "./useWorkspaceCanvasCommands";
 
+import type { CanvasLocator } from "../../shared/canvasLocator";
+import type {
+  DesktopSelectionReceipt,
+  ApplyDesktopProjectSnapshotOptions
+} from "./useDesktopProjectSnapshot";
+
 type UseGraphPaletteActionsArgs = {
+  captureProjectSelection: () => DesktopSelectionReceipt;
+  canvasLocator?: CanvasLocator | null;
   flowInstance: ReactFlowInstance<AppFlowNode, Edge> | null;
   getLayoutNodes?: (dragStopNode?: Node) => AppFlowNode[];
   graph: DesktopGraphViewModel | null;
   layout: DesktopLayout | null;
   loadProject: (project: DesktopProjectSummary, canvasId?: string | null) => Promise<void>;
   nodes: AppFlowNode[];
-  refreshProjectDerivedState: () => Promise<void>;
+  refreshProjectDerivedState: (options?: ApplyDesktopProjectSnapshotOptions) => Promise<void>;
   selectedCanvasId: string | null;
   selectedBlock: DesktopBlockDetail | null;
   selectedProject: DesktopProjectSummary | null;
@@ -98,6 +106,8 @@ function currentLayoutSnapshot(
 }
 
 export function useGraphPaletteActions({
+  captureProjectSelection,
+  canvasLocator = null,
   flowInstance,
   getLayoutNodes,
   graph,
@@ -116,6 +126,16 @@ export function useGraphPaletteActions({
   t,
   workspaceCanvas = null
 }: UseGraphPaletteActionsArgs) {
+  const scopeGeneration = useRef(0);
+  const scopeKey = JSON.stringify([selectedProject?.rootPath, selectedCanvasId, canvasLocator]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: every navigation identity change invalidates in-flight graph operations.
+  useLayoutEffect(() => {
+    scopeGeneration.current += 1;
+    return () => {
+      scopeGeneration.current += 1;
+    };
+  }, [scopeKey]);
+
   const getPersistableLayoutNodes = useCallback(
     (dragStopNode?: Node) => getLayoutNodes?.(dragStopNode) ?? nodes,
     [getLayoutNodes, nodes]
@@ -284,38 +304,94 @@ export function useGraphPaletteActions({
       if (!selectedProject) {
         return;
       }
-      for (const edge of deletedEdges) {
-        const manifestEdge = dependencyDisplayEdgeToManifestEndpoints(edge);
-        if (!manifestEdge) continue;
-        if (workspaceCanvas?.enabled) {
-          const ok = await submitSharedIntent(
-            workspaceCanvas,
-            {
-              kind: "remove_task_dependency",
-              fromTaskId: manifestEdge.from,
-              toTaskId: manifestEdge.to
-            },
-            setError
-          );
-          if (!ok) return;
-          continue;
+      const pendingEdges = [
+        ...new Map(
+          deletedEdges.flatMap((edge) => {
+            const endpoints = dependencyDisplayEdgeToManifestEndpoints(edge);
+            return endpoints
+              ? [[JSON.stringify([endpoints.from, endpoints.to]), endpoints] as const]
+              : [];
+          })
+        ).values()
+      ].sort(
+        (left, right) => left.from.localeCompare(right.from) || left.to.localeCompare(right.to)
+      );
+      if (pendingEdges.length === 0 || (!workspaceCanvas?.enabled && !bridge)) return;
+      const generation = scopeGeneration.current;
+      const selection = captureProjectSelection();
+      const isCurrent = () => scopeGeneration.current === generation && selection.isCurrent();
+      const canvas = desktopCanvasReference(selectedProject, selectedCanvasId);
+      const layoutSnapshot = currentLayoutSnapshot(graph, layout, getPersistableLayoutNodes());
+      let baseVersion = graph?.graphVersion;
+      let completed = 0;
+      const errors: string[] = [];
+      try {
+        for (const edge of pendingEdges) {
+          if (!isCurrent()) break;
+          if (workspaceCanvas?.enabled) {
+            const result = await workspaceCanvas.submit({
+              intent: {
+                kind: "remove_task_dependency",
+                fromTaskId: edge.from,
+                toTaskId: edge.to
+              }
+            });
+            if (!result.ok) {
+              if (result.error) errors.push(result.error);
+              else errors.push(t("canvasCommandNotConnected"));
+              break;
+            }
+          } else if (bridge) {
+            const result = await bridge.removeDependencyEdge(
+              canvas,
+              edge.from,
+              edge.to,
+              baseVersion,
+              layoutSnapshot
+            );
+            if (result.committed) {
+              completed += 1;
+              baseVersion = result.committed.graphVersion;
+            }
+            if (!result.ok) {
+              errors.push(...result.diagnostics.map((diagnostic) => diagnostic.message));
+              break;
+            }
+            if (!result.committed) completed += 1;
+            if (!result.graphVersion)
+              throw new Error("Dependency deletion result is missing graphVersion.");
+            baseVersion = result.graphVersion;
+            continue;
+          }
+          completed += 1;
         }
-        if (!bridge) return;
-        const result = await bridge.removeDependencyEdge(
-          desktopCanvasReference(selectedProject, selectedCanvasId),
-          manifestEdge.from,
-          manifestEdge.to,
-          graph?.graphVersion,
-          currentLayoutSnapshot(graph, layout, getPersistableLayoutNodes())
-        );
-        if (!result.ok) {
-          setError(result.diagnostics.map((diagnostic) => diagnostic.message).join("\n"));
-          return;
+      } catch (caught) {
+        errors.push(caught instanceof Error ? caught.message : String(caught));
+      } finally {
+        try {
+          await refreshProjectDerivedState({ throwOnErrors: true, isOwnerCurrent: isCurrent });
+        } catch (caught) {
+          errors.push(
+            t("dependencyDeleteRefreshFailed").replace(
+              "{reason}",
+              caught instanceof Error ? caught.message : String(caught)
+            )
+          );
+        }
+        if (isCurrent() && errors.length > 0) {
+          setError(
+            [
+              t("dependencyDeletePartial")
+                .replace("{completed}", String(completed))
+                .replace("{remaining}", String(pendingEdges.length - completed)),
+              ...errors
+            ].join("\n")
+          );
         }
       }
-      await refreshProjectDerivedState();
     },
     [
+      captureProjectSelection,
       getPersistableLayoutNodes,
       graph,
       layout,
@@ -323,7 +399,8 @@ export function useGraphPaletteActions({
       selectedCanvasId,
       selectedProject,
       setError,
-      workspaceCanvas
+      workspaceCanvas,
+      t
     ]
   );
 

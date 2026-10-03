@@ -79,6 +79,10 @@ export type DrainGraphReadQueueResult = {
 
 export type GraphEditResult = {
   ok: boolean;
+  /** Present for versioned PlanGraph command results. */
+  graphVersion?: string;
+  /** Authoritative receipt retained even when Desktop post-commit work fails. */
+  committed?: { graphVersion: string };
   affectedTasks: string[];
   diagnostics: ValidationIssue[];
   graph?: CompiledExecutionGraph;
