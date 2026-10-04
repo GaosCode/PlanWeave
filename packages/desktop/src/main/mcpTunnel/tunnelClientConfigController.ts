@@ -59,7 +59,10 @@ export function createTunnelClientConfigController(options: {
   const persistence = (state: TunnelClientConfigSnapshot): McpTunnelRuntimeApiKeyPersistence =>
     persisted(state) ? "persisted" : sessionKey(state) ? "session-only" : "missing";
 
-  const update = (command: (current: TunnelClientConfigSnapshot) => TunnelClientConfigSnapshot) =>
+  const update = (
+    command: (current: TunnelClientConfigSnapshot) => TunnelClientConfigSnapshot,
+    persist: (config: TunnelClientConfig) => Promise<void> = options.write
+  ) =>
     enqueue(async () => {
       const previous = await load();
       const config = await options.read();
@@ -72,7 +75,7 @@ export function createTunnelClientConfigController(options: {
         sessionRuntimeApiKey: previous.sessionRuntimeApiKey
       };
       const candidate = command(current);
-      if (candidate.config !== config) await options.write(candidate.config);
+      if (candidate.config !== config) await persist(candidate.config);
       committed = candidate;
       return candidate;
     });

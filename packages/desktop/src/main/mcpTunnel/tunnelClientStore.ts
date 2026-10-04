@@ -1,3 +1,4 @@
+import { withTunnelConfigLock } from "@planweave-ai/mcp/tunnel";
 import { randomUUID } from "node:crypto";
 import { chmod, mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -149,51 +150,53 @@ export async function writeTunnelClientConfig(
   config: TunnelClientConfig,
   paths: Pick<TunnelClientConfigStorePaths, "configPath"> = mcpTunnelConfigStorePaths()
 ): Promise<void> {
-  const dir = dirname(paths.configPath);
-  await mkdir(dir, { recursive: true, mode: 0o700 });
-  await chmod(dir, 0o700).catch((error: unknown) => {
-    if ((error as NodeJS.ErrnoException).code !== "EPERM") {
+  await withTunnelConfigLock(paths.configPath, async () => {
+    const dir = dirname(paths.configPath);
+    await mkdir(dir, { recursive: true, mode: 0o700 });
+    await chmod(dir, 0o700).catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code !== "EPERM") {
+        throw error;
+      }
+    });
+    const tmp = `${paths.configPath}.${randomUUID()}.tmp`;
+    const file = await open(tmp, "wx", 0o600);
+    try {
+      try {
+        await file.writeFile(`${JSON.stringify(config, null, 2)}\n`, "utf8");
+        const written = await file.stat();
+        if ((written.mode & 0o777) !== 0o600) {
+          await file.chmod(0o600);
+          // Windows chmod cannot express POSIX owner-only permissions.
+          if (process.platform !== "win32" && ((await file.stat()).mode & 0o777) !== 0o600) {
+            throw new Error("MCP tunnel config temporary file permissions are not 0o600");
+          }
+        }
+      } catch (error) {
+        try {
+          await file.close();
+        } catch (closeError) {
+          throw new AggregateError(
+            [error, closeError],
+            `${error instanceof Error ? error.message : String(error)}; failed to close MCP tunnel config temporary file`
+          );
+        }
+        throw error;
+      }
+      await file.close();
+      // Rename is the commit point; all fallible preparation happens before it.
+      await rename(tmp, paths.configPath);
+    } catch (error) {
+      try {
+        await unlink(tmp);
+      } catch (cleanupError) {
+        if (!isMissingFileError(cleanupError)) {
+          throw new AggregateError(
+            [error, cleanupError],
+            `${error instanceof Error ? error.message : String(error)}; failed to clean MCP tunnel config temporary file`
+          );
+        }
+      }
       throw error;
     }
   });
-  const tmp = `${paths.configPath}.${randomUUID()}.tmp`;
-  const file = await open(tmp, "wx", 0o600);
-  try {
-    try {
-      await file.writeFile(`${JSON.stringify(config, null, 2)}\n`, "utf8");
-      const written = await file.stat();
-      if ((written.mode & 0o777) !== 0o600) {
-        await file.chmod(0o600);
-        // Windows chmod cannot express POSIX owner-only permissions.
-        if (process.platform !== "win32" && ((await file.stat()).mode & 0o777) !== 0o600) {
-          throw new Error("MCP tunnel config temporary file permissions are not 0o600");
-        }
-      }
-    } catch (error) {
-      try {
-        await file.close();
-      } catch (closeError) {
-        throw new AggregateError(
-          [error, closeError],
-          `${error instanceof Error ? error.message : String(error)}; failed to close MCP tunnel config temporary file`
-        );
-      }
-      throw error;
-    }
-    await file.close();
-    // Rename is the commit point; all fallible preparation happens before it.
-    await rename(tmp, paths.configPath);
-  } catch (error) {
-    try {
-      await unlink(tmp);
-    } catch (cleanupError) {
-      if (!isMissingFileError(cleanupError)) {
-        throw new AggregateError(
-          [error, cleanupError],
-          `${error instanceof Error ? error.message : String(error)}; failed to clean MCP tunnel config temporary file`
-        );
-      }
-    }
-    throw error;
-  }
 }

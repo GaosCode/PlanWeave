@@ -1,3 +1,4 @@
+import { withTunnelConfigLock } from "./configLock.js";
 import { constants } from "node:fs";
 import { access, chmod, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -146,24 +147,26 @@ export function createFileTunnelConfigStore(
       }
     },
     async write(config: TunnelConfig): Promise<void> {
-      const normalized = normalizeTunnelConfig(config);
-      const dir = dirname(resolvedPath);
-      await mkdir(dir, { recursive: true, mode: 0o700 });
-      await chmod(dir, 0o700).catch((error: unknown) => {
-        if ((error as NodeJS.ErrnoException).code !== "EPERM") {
-          throw error;
+      await withTunnelConfigLock(resolvedPath, async () => {
+        const normalized = normalizeTunnelConfig(config);
+        const dir = dirname(resolvedPath);
+        await mkdir(dir, { recursive: true, mode: 0o700 });
+        await chmod(dir, 0o700).catch((error: unknown) => {
+          if ((error as NodeJS.ErrnoException).code !== "EPERM") {
+            throw error;
+          }
+        });
+        const tempPath = join(dir, `.config-${process.pid}-${Date.now()}.tmp`);
+        await writeFile(tempPath, `${JSON.stringify(normalized, null, 2)}\n`, {
+          encoding: "utf8",
+          mode: 0o600
+        });
+        await rename(tempPath, resolvedPath);
+        const written = await stat(resolvedPath);
+        if ((written.mode & 0o777) !== 0o600) {
+          await chmod(resolvedPath, 0o600);
         }
       });
-      const tempPath = join(dir, `.config-${process.pid}-${Date.now()}.tmp`);
-      await writeFile(tempPath, `${JSON.stringify(normalized, null, 2)}\n`, {
-        encoding: "utf8",
-        mode: 0o600
-      });
-      await rename(tempPath, resolvedPath);
-      const written = await stat(resolvedPath);
-      if ((written.mode & 0o777) !== 0o600) {
-        await chmod(resolvedPath, 0o600);
-      }
     }
   };
 }

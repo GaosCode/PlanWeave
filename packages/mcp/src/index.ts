@@ -106,3 +106,5 @@ if (isCliEntrypoint()) {
     process.exit(1);
   }
 }
+
+export { commitTunnelClientDownload } from "./tunnel/downloadCandidate.js";

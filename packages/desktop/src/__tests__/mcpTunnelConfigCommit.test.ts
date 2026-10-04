@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { zipSync } from "fflate";
 import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -45,7 +47,8 @@ vi.mock("../main/mcpTunnel/tunnelClientBinary.js", () => ({
   resolveTunnelClientBinaryStartTarget: mocks.target,
   tunnelClientDownloadUrl: "https://example.test/release"
 }));
-vi.mock("../main/mcpTunnel/tunnelClientDownloader.js", () => ({
+vi.mock("../main/mcpTunnel/tunnelClientDownloader.js", async (original) => ({
+  ...(await original<typeof import("../main/mcpTunnel/tunnelClientDownloader.js")>()),
   downloadOfficialTunnelClient: mocks.download
 }));
 vi.mock("../main/mcpTunnel/tunnelClientProcess.js", () => ({
@@ -107,6 +110,28 @@ const base: TunnelClientConfig = {
   },
   autoStart: false
 };
+async function downloadFixture() {
+  const downloader = await import("@planweave-ai/mcp/tunnel");
+  const platform = downloader.tunnelClientPlatformAsset();
+  const name = `tunnel-client-v-test-${platform.assetSuffix}`;
+  const bytes = zipSync({ [platform.binaryName]: Buffer.from("downloaded fixture") });
+  const hash = createHash("sha256").update(bytes).digest("hex");
+  vi.stubGlobal("fetch", async (url: string) =>
+    String(url).endsWith("/latest")
+      ? Response.json({
+          tag_name: "v-test",
+          assets: [
+            { name, browser_download_url: "https://fixture.test/zip" },
+            { name: "SHA256SUMS.txt", browser_download_url: "https://fixture.test/sums" }
+          ]
+        })
+      : String(url).endsWith("/sums")
+        ? new Response(`${hash}  ${name}`)
+        : new Response(bytes)
+  );
+  expect(store.mcpTunnelConfigPath()).toBe(join(root, "desktop/mcp-tunnel/config.json"));
+  return downloader.downloadOfficialTunnelClient(store.mcpTunnelDownloadsDir());
+}
 async function handlers() {
   return import("../main/mcpTunnel/mcpTunnelHandlers.js");
 }
@@ -160,6 +185,7 @@ beforeEach(async () => {
 afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
   await fs.rm(root, { recursive: true, force: true });
 });
 
@@ -299,6 +325,7 @@ describe("MCP tunnel application configuration commits", () => {
 
   it("pending downloads and process startup leave ordinary configuration commands free", async () => {
     const api = await handlers();
+    const downloaded = await downloadFixture();
     const downloading = deferred<{
       binaryPath: string;
       verification: { assetName: string; assetSha256: string; binarySha256: string };
@@ -312,10 +339,7 @@ describe("MCP tunnel application configuration commits", () => {
     await downloadEntered.promise;
     await api.setTunnelAutoStart(true);
     expect((await disk()).autoStart).toBe(true);
-    downloading.resolve({
-      binaryPath: "/test/downloaded",
-      verification: { assetName: "test.zip", assetSha256: "a", binarySha256: "b" }
-    });
+    downloading.resolve(downloaded);
     await result;
     const processEntered = deferred<void>();
     const processReady = deferred<typeof mocks.tunnelStatus>();
@@ -331,7 +355,7 @@ describe("MCP tunnel application configuration commits", () => {
     await Promise.all([starting, repeated]);
     expect(mocks.start).toHaveBeenCalledOnce();
     expect(mocks.start.mock.calls[0][0]).toMatchObject({
-      binary: { path: "/test/downloaded" },
+      binary: { path: downloaded.binaryPath },
       input: { tunnelId: "start-id", runtimeApiKey: "start-key" }
     });
     expect((await disk()).tunnelClientPath).toBe("/test/while-starting");
@@ -339,10 +363,7 @@ describe("MCP tunnel application configuration commits", () => {
 
   it("download config failure reports failure without claiming the installed binary is ready", async () => {
     const api = await handlers();
-    mocks.download.mockResolvedValueOnce({
-      binaryPath: "/test/downloaded",
-      verification: { assetName: "test.zip", assetSha256: "a", binarySha256: "b" }
-    });
+    mocks.download.mockResolvedValueOnce(await downloadFixture());
     vi.mocked(fs.rename).mockRejectedValueOnce(new Error("download commit denied"));
     await expect(api.downloadTunnelClient()).rejects.toThrow("download commit denied");
     expect((await api.getMcpTunnelStatus()).download).toMatchObject({

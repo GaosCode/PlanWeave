@@ -1,6 +1,7 @@
 import type { Server } from "node:http";
 import type { Command } from "commander";
 import {
+  commitTunnelClientDownload,
   createFileTunnelConfigStore,
   defaultTunnelClientInstallRoot,
   defaultTunnelMcpUrl,
@@ -190,7 +191,11 @@ export function registerMcpCommand(program: Command): void {
         tunnelClientPath: result.binaryPath,
         verification: result.verification
       };
-      await store.write(nextConfig);
+      await commitTunnelClientDownload(result, {
+        configPath: store.path(),
+        write: () => store.write(nextConfig),
+        readPath: async () => (await store.read()).tunnelClientPath
+      });
       console.log(`downloaded tunnel-client: ${result.binaryPath}`);
     });
 

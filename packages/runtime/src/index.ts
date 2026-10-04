@@ -1123,3 +1123,5 @@ export {
   sessionConfigurationFromNewSession,
   sessionConfigurationFromProtocol
 } from "./autoRun/acpSessionConfiguration.js";
+
+export { withAdvisoryDirectoryLock } from "./fs/advisoryDirectoryLock.js";

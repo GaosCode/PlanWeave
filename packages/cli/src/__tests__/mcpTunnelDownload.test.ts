@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -13,13 +13,26 @@ beforeEach(async () => {
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
-async function cli(mode: "timeout" | "limit" | "success") {
+async function cli(mode: "timeout" | "limit" | "success" | "commit-failure") {
   const preload = join(root, `fetch-${mode}.mjs`);
   await writeFile(
     preload,
     `
     import { createRequire } from 'node:module';
     import { createHash } from 'node:crypto';
+    import fs from 'node:fs';
+    import { join } from 'node:path';
+    import { syncBuiltinESMExports } from 'node:module';
+    const home = process.env.PLANWEAVE_HOME;
+    if (home !== ${JSON.stringify(root)}) throw new Error('Unsafe PLANWEAVE_HOME');
+    if (${JSON.stringify(mode)} === 'commit-failure') {
+      const configPath = join(home, 'config/mcp-tunnel/config.json');
+      const blocked = join(home, 'blocked-config');
+      fs.mkdirSync(blocked, { recursive: true });
+      const nativeRename = fs.promises.rename;
+      fs.promises.rename = (from, to) => nativeRename(from, to === configPath ? blocked : to);
+      syncBuiltinESMExports();
+    }
     const mode = ${JSON.stringify(mode)};
     if (mode === 'timeout') {
       const native = globalThis.setTimeout;
@@ -55,6 +68,24 @@ async function cli(mode: "timeout" | "limit" | "success") {
 }
 
 describe("CLI tunnel download failures", () => {
+  it("releases failed config candidates on real disk and retries without losing the previous binary", async () => {
+    await cli("success");
+    const configPath = join(root, "config/mcp-tunnel/config.json");
+    const previous = await readFile(configPath, "utf8");
+    const config = JSON.parse(previous) as { tunnelClientPath: string };
+    const original = await readFile(config.tunnelClientPath);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await expect(cli("commit-failure")).rejects.toMatchObject({
+        code: 1,
+        stderr: expect.stringMatching(/EISDIR|EPERM|EEXIST/)
+      });
+      expect(await readdir(join(root, "config/mcp-tunnel/tunnel-client/v-test"))).toHaveLength(1);
+      expect(await readFile(configPath, "utf8")).toBe(previous);
+      expect(await readFile(config.tunnelClientPath)).toEqual(original);
+    }
+    await cli("success");
+    expect(await readdir(join(root, "config/mcp-tunnel/tunnel-client/v-test"))).toHaveLength(2);
+  }, 20_000);
   it.each([
     "timeout",
     "limit"

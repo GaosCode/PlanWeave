@@ -1,11 +1,17 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rename, rm } from "node:fs/promises";
+import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { zipSync } from "fflate";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { tunnelClientPlatformAsset } from "../main/mcpTunnel/tunnelClientDownloader.js";
 import * as store from "../main/mcpTunnel/tunnelClientStore.js";
+
+vi.mock("node:fs/promises", async (original) => {
+  const actual = await original<typeof fs>();
+  return { ...actual, rename: vi.fn(actual.rename) };
+});
 
 const mocks = vi.hoisted(() => ({ userData: vi.fn(), send: vi.fn() }));
 vi.mock("electron", () => ({
@@ -44,6 +50,8 @@ function serveFixture(content: string) {
   );
 }
 beforeEach(async () => {
+  const actualFs = await vi.importActual<typeof fs>("node:fs/promises");
+  vi.mocked(rename).mockReset().mockImplementation(actualFs.rename);
   vi.resetModules();
   vi.clearAllMocks();
   root = await mkdtemp(join(tmpdir(), "planweave-wrapper-download-"));
@@ -66,6 +74,8 @@ describe("Desktop tunnel download owner integration", () => {
   it("keeps the verified previous generation through a real download and failed config commit, then retries", async () => {
     const api = await import("../main/mcpTunnel/mcpTunnelHandlers.js");
     const activeStore = await import("../main/mcpTunnel/tunnelClientStore.js");
+    expect(activeStore.mcpTunnelConfigPath()).toBe(join(root, "desktop/mcp-tunnel/config.json"));
+    expect(activeStore.mcpTunnelDownloadsDir()).toBe(join(root, "desktop/mcp-tunnel/downloads"));
     serveFixture("old verified binary");
     const initial = await api.downloadTunnelClient();
     expect(initial.download.phase).toBe("ready");
@@ -75,19 +85,31 @@ describe("Desktop tunnel download owner integration", () => {
     if (!previous.tunnelClientPath) throw new Error("Expected installed path");
     const previousBinary = await readFile(previous.tunnelClientPath);
     serveFixture("replacement binary");
-    vi.mocked(activeStore.writeTunnelClientConfig).mockRejectedValueOnce(
-      new Error("config commit denied")
-    );
-    await expect(api.downloadTunnelClient()).rejects.toThrow("config commit denied");
+    const blocked = join(root, "blocked-config");
+    await mkdir(blocked);
+    const actualFs = await vi.importActual<typeof fs>("node:fs/promises");
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      vi.mocked(rename).mockImplementation((from, to) =>
+        actualFs.rename(from, to === activeStore.mcpTunnelConfigPath() ? blocked : to)
+      );
+      await expect(api.downloadTunnelClient()).rejects.toThrow();
+      expect(
+        await readdir(join(activeStore.mcpTunnelDownloadsDir(), "tunnel-client/v-test"))
+      ).toHaveLength(1);
+    }
     expect(await readFile(activeStore.mcpTunnelConfigPath(), "utf8")).toBe(previousConfigBytes);
     expect(await readFile(previous.tunnelClientPath)).toEqual(previousBinary);
     const failed = await api.getMcpTunnelStatus();
-    expect(failed.download).toMatchObject({ phase: "error", error: "config commit denied" });
+    expect(failed.download).toMatchObject({
+      phase: "error",
+      error: expect.stringMatching(/EISDIR|EPERM|EEXIST/)
+    });
     expect(failed.binary).toMatchObject({
       path: previous.tunnelClientPath,
       available: true,
       verified: true
     });
+    vi.mocked(rename).mockImplementation(actualFs.rename);
     const recovered = await api.downloadTunnelClient();
     expect(recovered.download.phase).toBe("ready");
     expect(recovered.binary.verified).toBe(true);

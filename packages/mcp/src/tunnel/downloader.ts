@@ -1,6 +1,7 @@
 import { chmod, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
+import { ownTunnelClientDownload } from "./downloadCandidate.js";
 import { TunnelDownloadOperation } from "./downloadOperation.js";
 import { TunnelDownloadError, tunnelDownloadLimits } from "./downloadPolicy.js";
 import { verifyAndExtractTunnelBinary } from "./downloadArchive.js";
@@ -212,6 +213,7 @@ export async function downloadOfficialTunnelClient(
         binarySha256
       }
     };
+    ownTunnelClientDownload(result, stagingDir);
     stagingDir = undefined;
     return result;
   } catch (error) {

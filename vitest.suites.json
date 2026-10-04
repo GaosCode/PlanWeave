@@ -479,6 +479,7 @@
         "toolPackageFiles.test.ts",
         "toolRuntime.test.ts",
         "tunnelConfigStore.test.ts",
+        "tunnelDownloadCandidate.test.ts",
         "tunnelDownloaderBounds.test.ts",
         "tunnelProcessLifecycle.test.ts",
         "tunnelRun.test.ts",
