@@ -50,6 +50,7 @@
         "remoteCanvasBindingCli.test.ts",
         "remoteExecutionCli.test.ts",
         "remoteInteractionCheckpointCli.test.ts",
+        "remoteInteractionOutput.test.ts",
         "workspaceExecutionCredential.test.ts",
         "runIndexCli.test.ts",
         "runInteractionEventStream.test.ts",

@@ -15,10 +15,10 @@ import {
 import { resolveCliProjectRoot } from "../projectRoot.js";
 import {
   interactionResponse,
-  loadRemoteSessionInteractions,
-  listRemoteSessionInteractions
+  loadRemoteSessionInteractions
 } from "../workspaceExecution/session.js";
 import { WorkspaceExecutionCliError } from "../workspaceExecution/errors.js";
+import { formatRemoteInteraction } from "./remoteInteractionOutput.js";
 
 type InteractionListOptions = CanvasCommandOptions & {
   json?: boolean;
@@ -95,7 +95,8 @@ export function registerInteractionCommand(program: Command): void {
       .option("--json", "print JSON output")
   ).action(async (options: InteractionListOptions) => {
     if (options.session) {
-      const items = await listRemoteSessionInteractions({
+      const projectRoot = await resolveCliProjectRoot();
+      const { items, session, context } = await loadRemoteSessionInteractions({
         projectRoot: await resolveCliPackageWorkspace(options),
         sessionId: options.session,
         connectionProfile: options.connectionProfile
@@ -104,8 +105,18 @@ export function registerInteractionCommand(program: Command): void {
       if (options.json) console.log(JSON.stringify(pending, null, 2));
       else if (pending.length === 0) console.log("No actionable remote interactions.");
       else {
+        if (context.binding.kind !== "remote") {
+          throw new WorkspaceExecutionCliError("workspace_connection_invalid", 3);
+        }
         for (const item of pending) {
-          console.log(`${item.request.actionId}\t${item.request.type}\t${item.request.expiresAt}`);
+          console.log(
+            formatRemoteInteraction(item, {
+              projectRoot,
+              canvasId: session.canvasId,
+              sessionId: options.session,
+              connectionProfileId: context.binding.connectionProfileId
+            })
+          );
         }
       }
       return;
@@ -133,8 +144,11 @@ export function registerInteractionCommand(program: Command): void {
       .option("--record <recordId>", "runner record id")
       .option("--request <requestId>", "runner interaction request id")
       .option("--lease <ownerLeaseId>", "runner owner lease id")
-      .option("--option <optionId>", "select an advertised permission option")
-      .option("--cancel", "cancel the permission request")
+      .option(
+        "--option <optionId>",
+        "exact permission option ID, elicitation response, or retry_after_host_login after Host login"
+      )
+      .option("--cancel", "cancel the interaction request")
       .option("--source <clientLabel>", "stable audit label for the local runner decision client")
       .option("--reason <text>", "audit reason (required with --cancel)")
       .option("--session <sessionId>", "respond to a Remote Agent interaction by run session")

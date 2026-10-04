@@ -13,6 +13,7 @@ import {
   repoRoot,
   runCli,
   runCliExpectFailure,
+  execFileAsync,
   cliWorkflowTimeoutMs
 } from "./support/cliTestHarness.js";
 import {
@@ -30,7 +31,10 @@ import {
   skillInteractionRespondArgv
 } from "./support/workspaceExecutionSkillCommands.js";
 
-async function lateInteractionWorkspace(mode: "workspace" | "owner") {
+async function lateInteractionWorkspace(
+  mode: "workspace" | "owner",
+  interactionKinds: readonly ("permission" | "elicitation" | "authentication")[] = ["permission"]
+) {
   const home = await mkdtemp(join(tmpdir(), "planweave-late-interaction-"));
   const env: NodeJS.ProcessEnv = {
     ...process.env,
@@ -66,6 +70,7 @@ async function lateInteractionWorkspace(mode: "workspace" | "owner") {
     graphFingerprint: graph.graph.packageFingerprint,
     dispatchMode: "action_required",
     ownerHumanPrincipalId: ownerExecutionHumanPrincipalId,
+    interactionKinds,
     registryCanvases: [
       {
         canvasId: "default",
@@ -111,6 +116,21 @@ async function lateInteractionWorkspace(mode: "workspace" | "owner") {
   };
 }
 
+async function templateArgv(output: string, selection: string) {
+  const line = output
+    .split("\n")
+    .find((candidate) => candidate.startsWith("POSIX: ") && candidate.includes(selection));
+  if (!line) throw new Error(`Missing response example for ${selection}`);
+  const received = await execFileAsync("sh", [
+    "-c",
+    `planweave() { node -e 'process.stdout.write(JSON.stringify(process.argv.slice(1)))' -- "$@"; };\n${line.slice(7)}`
+  ]);
+  const args: unknown = JSON.parse(received.stdout);
+  if (!Array.isArray(args) || !args.every((arg): arg is string => typeof arg === "string"))
+    throw new Error("Response example did not yield string argv");
+  return args;
+}
+
 describe("remote interaction CLI durable checkpoints", () => {
   it.each(["workspace", "owner"] as const)(
     "synchronizes a late pending request after no-follow run for %s authority",
@@ -118,6 +138,16 @@ describe("remote interaction CLI durable checkpoints", () => {
       const f = await lateInteractionWorkspace(mode);
       try {
         f.server.publishInteractions();
+        const human = (
+          await runCli(
+            skillInteractionListArgv(f.sessionId, "profile-1").filter((arg) => arg !== "--json"),
+            f.env
+          )
+        ).stdout;
+        expect(human).toContain("Approve tool use");
+        expect(human).toContain("tool-approve-once");
+        expect(human).toContain("POSIX:");
+        expect(human).toContain("PowerShell:");
         const listed = JSON.parse(
           (await runCli(skillInteractionListArgv(f.sessionId, "profile-1"), f.env)).stdout
         );
@@ -140,7 +170,22 @@ describe("remote interaction CLI durable checkpoints", () => {
           expect(durable.workspaceExecution?.binding.contentAuthority.kind).toBe(
             "package_snapshot"
           );
-        const answered = JSON.parse((await runCli(f.respond, f.env)).stdout);
+        const template = await templateArgv(human, "--option=tool-approve-once");
+        for (const flag of ["--action", "--dispatch", "--lease", "--attempt", "--acp-session"]) {
+          const wrong = [...template];
+          wrong[wrong.indexOf(flag) + 1] = "wrong-identity";
+          const rejected = await runCliExpectFailure(wrong, f.env);
+          expect(rejected.stderr).toContain("remote_interaction_not_found");
+        }
+        const invalidOption = await runCliExpectFailure(
+          template.map((arg) =>
+            arg === "--option=tool-approve-once" ? "--option=unadvertised-option" : arg
+          ),
+          f.env
+        );
+        expect(invalidOption.stderr).toContain("interaction_permission_option_unknown");
+        expect(f.server.settlementCount).toBe(0);
+        const answered = JSON.parse((await runCli([...template, "--json"], f.env)).stdout);
         expect(answered).toMatchObject({
           type: "interaction_resolved",
           data: { actionId: "action-1", optionId: "tool-approve-once" }
@@ -157,6 +202,78 @@ describe("remote interaction CLI durable checkpoints", () => {
         expect(again.stderr).toContain("remote_interaction_not_found");
         expect(f.server.settlementCount).toBe(1);
         expect(mode === "workspace" ? f.server.dispatchCount : f.server.ownerDispatchCount).toBe(1);
+      } finally {
+        await f.server.stop();
+      }
+    },
+    cliWorkflowTimeoutMs
+  );
+
+  it(
+    "responds to elicitation and authentication examples and cancels the permission over HTTP",
+    async () => {
+      const f = await lateInteractionWorkspace("workspace", [
+        "permission",
+        "elicitation",
+        "authentication"
+      ]);
+      try {
+        f.server.publishInteractions();
+        const human = (
+          await runCli(
+            skillInteractionListArgv(f.sessionId, "profile-1").filter((arg) => arg !== "--json"),
+            f.env
+          )
+        ).stdout;
+        expect(human).toContain("Prompt: Provide input");
+        expect(human).toContain("Option: answer");
+        expect(human).toContain("Host instruction: Authenticate on the Host");
+        expect(human).toContain("not a permission option");
+        let settledCount = 0;
+        for (const [selection, settlement] of [
+          [
+            "--option=answer",
+            { type: "interaction.elicitation_response", outcome: "accepted", response: "answer" }
+          ],
+          [
+            "--option=retry_after_host_login",
+            { type: "interaction.authentication_action", action: "retry_after_host_login" }
+          ],
+          ["--cancel", { type: "interaction.permission_response", decision: "deny" }]
+        ] as const) {
+          const args = await templateArgv(human, selection);
+          const accepted = JSON.parse((await runCli([...args, "--json"], f.env)).stdout);
+          expect(accepted).toMatchObject({ type: "interaction_resolved", data: settlement });
+          const persisted = (await getRunSession(f.workspace, f.sessionId)).session;
+          expect(
+            persisted.workspaceExecution?.interactions.filter((item) => item.status === "settled")
+          ).toHaveLength(++settledCount);
+        }
+        expect(f.server.settlementCount).toBe(3);
+      } finally {
+        await f.server.stop();
+      }
+    },
+    cliWorkflowTimeoutMs
+  );
+
+  it(
+    "preserves the remote expiration rejection for a response copied from human output",
+    async () => {
+      const f = await lateInteractionWorkspace("workspace");
+      try {
+        f.server.publishInteractions();
+        const human = (
+          await runCli(
+            skillInteractionListArgv(f.sessionId, "profile-1").filter((arg) => arg !== "--json"),
+            f.env
+          )
+        ).stdout;
+        const args = await templateArgv(human, "--option=tool-approve-once");
+        f.server.expireInteraction();
+        const rejected = await runCliExpectFailure(args, f.env);
+        expect(rejected.stderr).toContain("remote_interaction_expired");
+        expect(f.server.settlementCount).toBe(0);
       } finally {
         await f.server.stop();
       }
