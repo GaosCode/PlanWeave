@@ -1,8 +1,13 @@
 import { decodeCanvasReplicaDocument } from "@planweave-ai/runtime";
 import type { ContentAuthorityStore } from "../canvas/contentAuthorityStore.js";
 import type { CanvasScopeKey } from "../canvas/repository.js";
-import { createManifestWorkItemPort, type WorkItemPackagePort } from "../work/workItemFacts.js";
-import { workItemRefSchema, type WorkItemPackageFacts, type WorkItemRef } from "../work/schemas.js";
+import { manifestWorkItemFacts, type WorkItemPackagePort } from "../work/workItemFacts.js";
+import {
+  workItemPackageFactsSchema,
+  workItemRefSchema,
+  type WorkItemPackageFacts,
+  type WorkItemRef
+} from "../work/schemas.js";
 
 const maxVersions = 64;
 const maxIndexBytes = 4 * 1024 * 1024;
@@ -18,28 +23,17 @@ function itemKey(item: WorkItemRef): string {
 /** Retains only facts; the validated replica and compiled graph die after construction. */
 function buildIndex(content: unknown, canvasId: string): Index {
   const document = decodeCanvasReplicaDocument(content);
-  const source = createManifestWorkItemPort(document.manifest, canvasId);
-  const refs: WorkItemRef[] = document.manifest.nodes.flatMap((task) => [
-    { kind: "task", canvasId, taskId: task.id },
-    ...task.blocks.map(
-      (block): WorkItemRef => ({
-        kind: "block",
-        canvasId,
-        blockRef: `${task.id}#${block.id}`
-      })
-    )
-  ]);
   const facts = new Map<string, WorkItemPackageFacts>();
   let weight = document.manifest.edges.length * 32;
-  for (const [position, fact] of source.resolveWorkItems(refs).entries()) {
-    const key = itemKey(refs[position]!);
+  for (const { workItem, facts: fact } of manifestWorkItemFacts(document.manifest, canvasId)) {
+    const key = itemKey(workItem);
     facts.set(key, fact);
     weight += Buffer.byteLength(key + JSON.stringify(fact), "utf8");
   }
   const resolveWorkItem = (input: WorkItemRef): WorkItemPackageFacts => {
     const item = workItemRefSchema.parse(input);
     const fact = item.canvasId === canvasId ? facts.get(itemKey(item)) : undefined;
-    if (fact) return { ...fact, requiredCapabilities: [...fact.requiredCapabilities] };
+    if (fact) return workItemPackageFactsSchema.parse(fact);
     return {
       canvasId: item.canvasId,
       kind: item.kind,

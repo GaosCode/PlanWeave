@@ -146,6 +146,143 @@ async function setupPathlessComposition() {
 }
 
 describe("pathless comment activity composition", () => {
+  it.each(
+    (["task", "block"] as const).flatMap((kind) =>
+      (["query", "create", "edit", "tombstone"] as const).map((operation) => ({ kind, operation }))
+    )
+  )("keeps $operation responses consistent with SQLite around an unrelated long $kind ID", async ({
+    kind,
+    operation
+  }) => {
+    const fixture = await setupPathlessComposition();
+    const workItem = { kind: "block", canvasId, blockRef: "T-001#B-001" } as const;
+    const base = `${fixture.origin}/api/v1/projects/${projectId}/comments`;
+    const headers = jsonHeaders(fixture.token);
+    const originals: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      const response = await fetch(base, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ workItem, body: "original", attachments: [] })
+      });
+      expect(response.status).toBe(201);
+      originals.push(((await response.json()) as { commentId: string }).commentId);
+    }
+    const manifest = basicManifest();
+    const longId = "X".repeat(129);
+    const task = manifest.nodes[0]!;
+    if (kind === "task") {
+      manifest.nodes.push({
+        ...task,
+        id: longId,
+        prompt: `nodes/${longId}/prompt.md`,
+        blocks: [{ ...task.blocks[0]!, prompt: `nodes/${longId}/blocks/B-001.prompt.md` }]
+      });
+    } else {
+      task.blocks.push({
+        ...task.blocks[0]!,
+        id: longId,
+        prompt: `nodes/T-001/blocks/${longId}.prompt.md`
+      });
+    }
+    const database = await openServerDatabase(fixture.config.databasePath, 5_000);
+    try {
+      const versions = new ContentVersionRepository(database, clock);
+      const next = versions.persistImmutable({
+        scope: fixture.scope,
+        content: authoritativeContent(manifest),
+        createdBy: { kind: "human", id: ownerId }
+      });
+      inWriteTransaction(database, () =>
+        versions.advanceHeadForSqliteCommit({
+          scope: fixture.scope,
+          expectedRevision: 1,
+          content: next.completed
+        })
+      );
+      expect(versions.head(fixture.scope)?.revision).toBe(2);
+      const reads = vi.spyOn(ContentVersionRepository.prototype, "readVersion");
+      for (let warm = 0; warm < 2; warm++) {
+        const commentId = originals[warm]!;
+        const body = `new body ${warm}`;
+        const query = new URLSearchParams({ workItem: JSON.stringify(workItem) });
+        const response =
+          operation === "query"
+            ? await fetch(`${base}?${query}`, { headers })
+            : await fetch(
+                operation === "create"
+                  ? base
+                  : `${base}/${commentId}${operation === "tombstone" ? "/tombstone" : ""}`,
+                {
+                  method: operation === "edit" ? "PATCH" : "POST",
+                  headers,
+                  body: JSON.stringify(
+                    operation === "create"
+                      ? { workItem, body, attachments: [] }
+                      : operation === "edit"
+                        ? { body, expectedRevision: 1 }
+                        : { expectedRevision: 1, reason: "removed" }
+                  )
+                }
+              );
+        expect(response.status).toBe(operation === "create" ? 201 : 200);
+        const result = await response.json();
+        if (operation === "query") {
+          expect(result.items).toHaveLength(2);
+          expect(result).toMatchObject({
+            items: expect.arrayContaining(
+              originals.map((id) =>
+                expect.objectContaining({
+                  commentId: id,
+                  revision: 1,
+                  body: "original",
+                  workItemPresence: "present"
+                })
+              )
+            )
+          });
+        } else {
+          expect(result).toMatchObject({
+            revision: operation === "create" ? 1 : 2,
+            body: operation === "tombstone" ? null : body,
+            workItemPresence: "present",
+            tombstoned: operation === "tombstone"
+          });
+          const stored = database
+            .prepare("SELECT body,revision,tombstoned_at FROM comments WHERE comment_id=?")
+            .get(result.commentId);
+          expect(stored).toEqual({
+            body: operation === "tombstone" ? "original" : body,
+            revision: operation === "create" ? 1 : 2,
+            tombstoned_at: operation === "tombstone" ? clock().toISOString() : null
+          });
+        }
+      }
+      expect(reads).toHaveBeenCalledTimes(1);
+      if (operation === "query") {
+        for (const invalid of [
+          { kind: "task", canvasId, taskId: longId },
+          { kind: "block", canvasId, blockRef: `T-001#${longId}` }
+        ]) {
+          const query = new URLSearchParams({ workItem: JSON.stringify(invalid) });
+          const rejectedList = await fetch(`${base}?${query}`, { headers });
+          expect(rejectedList.status).toBe(400);
+          const rejectedCreate = await fetch(base, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ workItem: invalid, body: "invalid", attachments: [] })
+          });
+          expect(rejectedCreate.status).toBe(400);
+        }
+      }
+      expect(database.prepare("SELECT COUNT(*) AS count FROM comments").get()).toEqual({
+        count: operation === "create" ? 4 : 2
+      });
+    } finally {
+      database.close();
+    }
+  });
+
   it("reuses one verified version across concurrent and warm empty comment queries", async () => {
     const fixture = await setupPathlessComposition();
     const reads = vi.spyOn(ContentVersionRepository.prototype, "readVersion");

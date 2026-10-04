@@ -27,52 +27,84 @@ export function workItemFactsFromCompiledGraph(
   canvasId: string,
   workItem: WorkItemRef
 ): WorkItemPackageFacts {
-  const parsedRef = workItemRefSchema.parse(workItem);
-  if (parsedRef.canvasId !== canvasId) {
-    return workItemPackageFactsSchema.parse({
-      canvasId: parsedRef.canvasId,
-      kind: parsedRef.kind,
+  return workItemPackageFactsSchema.parse(
+    packageFactsFromCompiledGraph(graph, canvasId, workItemRefSchema.parse(workItem))
+  );
+}
+
+function packageFactsFromCompiledGraph(
+  graph: CompiledExecutionGraph,
+  canvasId: string,
+  workItem: WorkItemRef
+): WorkItemPackageFacts {
+  if (workItem.canvasId !== canvasId) {
+    return {
+      canvasId: workItem.canvasId,
+      kind: workItem.kind,
       exists: false,
-      taskId: parsedRef.kind === "task" ? parsedRef.taskId : undefined,
-      blockRef: parsedRef.kind === "block" ? parsedRef.blockRef : undefined,
+      taskId: workItem.kind === "task" ? workItem.taskId : undefined,
+      blockRef: workItem.kind === "block" ? workItem.blockRef : undefined,
       requiredCapabilities: []
-    });
+    };
   }
 
-  if (parsedRef.kind === "task") {
-    const task = graph.tasksById.get(parsedRef.taskId);
-    return workItemPackageFactsSchema.parse({
+  if (workItem.kind === "task") {
+    const task = graph.tasksById.get(workItem.taskId);
+    return {
       canvasId,
       kind: "task",
       exists: task !== undefined,
-      taskId: parsedRef.taskId,
+      taskId: workItem.taskId,
       requiredCapabilities: []
-    });
+    };
   }
 
-  const block = graph.blocksByRef.get(parsedRef.blockRef);
+  const block = graph.blocksByRef.get(workItem.blockRef);
   if (!block) {
-    return workItemPackageFactsSchema.parse({
+    return {
       canvasId,
       kind: "block",
       exists: false,
-      blockRef: parsedRef.blockRef,
+      blockRef: workItem.blockRef,
       requiredCapabilities: []
-    });
+    };
   }
 
   const requiredCapabilities =
     block.type === "implementation" ? [...(block.requirements?.capabilities ?? [])] : [];
 
-  return workItemPackageFactsSchema.parse({
+  return {
     canvasId,
     kind: "block",
     exists: true,
-    blockRef: parsedRef.blockRef,
-    taskId: graph.blockTaskByRef.get(parsedRef.blockRef),
+    blockRef: workItem.blockRef,
+    taskId: graph.blockTaskByRef.get(workItem.blockRef),
     blockType: block.type,
     requiredCapabilities
-  });
+  };
+}
+
+/** Internal package projection: manifest identifiers are not request wire identifiers. */
+export function* manifestWorkItemFacts(
+  manifest: PlanPackageManifest,
+  canvasId: string
+): Generator<{ workItem: WorkItemRef; facts: WorkItemPackageFacts }> {
+  const graph = compileTaskGraph(manifest);
+  for (const task of manifest.nodes) {
+    const workItems: WorkItemRef[] = [
+      { kind: "task", canvasId, taskId: task.id },
+      ...task.blocks.map(
+        (block): WorkItemRef => ({
+          kind: "block",
+          canvasId,
+          blockRef: `${task.id}#${block.id}`
+        })
+      )
+    ];
+    for (const workItem of workItems) {
+      yield { workItem, facts: packageFactsFromCompiledGraph(graph, canvasId, workItem) };
+    }
+  }
 }
 
 /** Pure adapter: compile an in-memory Plan Package manifest and resolve one WorkItemRef. */
