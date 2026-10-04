@@ -68,7 +68,7 @@ export function createMemoryOAuthTokenStore(): OAuthTokenStore {
 }
 
 export function createFileOAuthTokenStore(path: string): OAuthTokenStore {
-  const tokens = new Map<string, StoredOAuthToken>();
+  let tokens = new Map<string, StoredOAuthToken>();
   let loaded = false;
   let loadPromise: Promise<void> | null = null;
   let writePromise = Promise.resolve();
@@ -81,10 +81,7 @@ export function createFileOAuthTokenStore(path: string): OAuthTokenStore {
       try {
         const parsed = JSON.parse(await readFile(path, "utf8")) as unknown;
         const file = parseStoredTokenFile(parsed);
-        tokens.clear();
-        for (const token of file.tokens) {
-          tokens.set(token.tokenHash, token);
-        }
+        tokens = new Map(file.tokens.map((token) => [token.tokenHash, token]));
       } catch (error) {
         if (isNodeError(error) && error.code === "ENOENT") {
           loaded = true;
@@ -94,7 +91,15 @@ export function createFileOAuthTokenStore(path: string): OAuthTokenStore {
       }
       loaded = true;
     })();
-    await loadPromise;
+    const pendingLoad = loadPromise;
+    try {
+      await pendingLoad;
+    } catch (error) {
+      if (loadPromise === pendingLoad) {
+        loadPromise = null;
+      }
+      throw error;
+    }
   }
 
   async function persist(nextTokens: Map<string, StoredOAuthToken>): Promise<void> {

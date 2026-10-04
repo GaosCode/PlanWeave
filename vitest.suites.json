@@ -468,6 +468,7 @@
         "localMcpLifecycle.test.ts",
         "oauthClientStore.test.ts",
         "oauthClientStoreCommit.test.ts",
+        "oauthStoreLoadRecovery.test.ts",
         "oauthTokenStore.test.ts",
         "packageImportSelection.test.ts",
         "projectExportSelection.test.ts",

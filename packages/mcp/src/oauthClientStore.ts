@@ -44,10 +44,7 @@ export function createFileOAuthClientStore(path: string): OAuthClientStore {
       try {
         const parsed = JSON.parse(await readFile(path, "utf8")) as unknown;
         const file = parseStoredClientFile(parsed);
-        clients.clear();
-        for (const client of file.clients) {
-          clients.set(client.clientId, client);
-        }
+        clients = new Map(file.clients.map((client) => [client.clientId, client]));
       } catch (error) {
         if (isNodeError(error) && error.code === "ENOENT") {
           loaded = true;
@@ -57,7 +54,15 @@ export function createFileOAuthClientStore(path: string): OAuthClientStore {
       }
       loaded = true;
     })();
-    await loadPromise;
+    const pendingLoad = loadPromise;
+    try {
+      await pendingLoad;
+    } catch (error) {
+      if (loadPromise === pendingLoad) {
+        loadPromise = null;
+      }
+      throw error;
+    }
   }
 
   async function persist(nextClients: Map<string, RegisteredClient>): Promise<void> {
