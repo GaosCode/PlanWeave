@@ -10,7 +10,7 @@ import * as store from "../main/mcpTunnel/tunnelClientStore.js";
 
 vi.mock("node:fs/promises", async (original) => {
   const actual = await original<typeof fs>();
-  return { ...actual, rename: vi.fn(actual.rename) };
+  return { ...actual, rename: vi.fn(actual.rename), readFile: vi.fn(actual.readFile) };
 });
 
 const mocks = vi.hoisted(() => ({ userData: vi.fn(), send: vi.fn() }));
@@ -52,6 +52,7 @@ function serveFixture(content: string) {
 beforeEach(async () => {
   const actualFs = await vi.importActual<typeof fs>("node:fs/promises");
   vi.mocked(rename).mockReset().mockImplementation(actualFs.rename);
+  vi.mocked(readFile).mockReset().mockImplementation(actualFs.readFile);
   vi.resetModules();
   vi.clearAllMocks();
   root = await mkdtemp(join(tmpdir(), "planweave-wrapper-download-"));
@@ -71,6 +72,38 @@ afterEach(async () => {
 });
 
 describe("Desktop tunnel download owner integration", () => {
+  it("reclaims candidates after repeated config preparation read failures and permits retry", async () => {
+    const api = await import("../main/mcpTunnel/mcpTunnelHandlers.js");
+    const activeStore = await import("../main/mcpTunnel/tunnelClientStore.js");
+    expect(activeStore.mcpTunnelConfigPath()).toBe(join(root, "desktop/mcp-tunnel/config.json"));
+    serveFixture("old verified binary");
+    await api.downloadTunnelClient();
+    const previous = await activeStore.readTunnelClientConfig();
+    if (!previous.tunnelClientPath) throw new Error("Expected installed path");
+    const before = await readFile(activeStore.mcpTunnelConfigPath());
+    const actualFs = await vi.importActual<typeof fs>("node:fs/promises");
+    serveFixture("replacement binary");
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      vi.mocked(readFile).mockImplementationOnce(async (...args) => {
+        expect(args[0]).toBe(activeStore.mcpTunnelConfigPath());
+        throw new Error("config preparation read denied");
+      });
+      await expect(api.downloadTunnelClient()).rejects.toThrow("config preparation read denied");
+      expect(
+        await readdir(join(activeStore.mcpTunnelDownloadsDir(), "tunnel-client/v-test"))
+      ).toHaveLength(1);
+      expect((await api.getMcpTunnelStatus()).download.phase).toBe("error");
+    }
+    expect(await actualFs.readFile(activeStore.mcpTunnelConfigPath())).toEqual(before);
+    expect(await readFile(previous.tunnelClientPath, "utf8")).toBe("old verified binary");
+    const recovered = await api.downloadTunnelClient();
+    expect(recovered.download.phase).toBe("ready");
+    expect(recovered.binary.path).not.toBe(previous.tunnelClientPath);
+    expect(
+      await readdir(join(activeStore.mcpTunnelDownloadsDir(), "tunnel-client/v-test"))
+    ).toHaveLength(2);
+  });
+
   it("keeps the verified previous generation through a real download and failed config commit, then retries", async () => {
     const api = await import("../main/mcpTunnel/mcpTunnelHandlers.js");
     const activeStore = await import("../main/mcpTunnel/tunnelClientStore.js");

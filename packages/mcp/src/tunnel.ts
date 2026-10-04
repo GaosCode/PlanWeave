@@ -33,5 +33,8 @@ export type {
   TunnelClientPlatformAsset
 } from "./tunnel/types.js";
 
-export { commitTunnelClientDownload } from "./tunnel/downloadCandidate.js";
+export {
+  commitTunnelClientDownload,
+  withTunnelClientDownload
+} from "./tunnel/downloadCandidate.js";
 export { withTunnelConfigLock } from "./tunnel/configLock.js";

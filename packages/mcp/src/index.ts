@@ -107,4 +107,7 @@ if (isCliEntrypoint()) {
   }
 }
 
-export { commitTunnelClientDownload } from "./tunnel/downloadCandidate.js";
+export {
+  commitTunnelClientDownload,
+  withTunnelClientDownload
+} from "./tunnel/downloadCandidate.js";

@@ -7,7 +7,7 @@ import type {
 } from "../../shared/mcpTunnel.js";
 import { mcpTunnelChangedChannel, mcpTunnelInvokeChannels } from "../../shared/mcpTunnel.js";
 import { LocalMcpServerManager } from "./localMcpProcess.js";
-import { commitTunnelClientDownload } from "@planweave-ai/mcp/tunnel";
+import { commitTunnelClientDownload, withTunnelClientDownload } from "@planweave-ai/mcp/tunnel";
 import { downloadOfficialTunnelClient } from "./tunnelClientDownloader.js";
 import {
   resolveTunnelClientBinary,
@@ -168,23 +168,25 @@ export async function downloadTunnelClient(): Promise<McpTunnelStatus> {
   await publishStatus();
   try {
     const result = await downloadOfficialTunnelClient();
-    await configController.update(
-      (state) => ({
-        ...state,
-        config: {
-          ...state.config,
-          tunnelClientPath: result.binaryPath,
-          verification: result.verification
-        }
-      }),
-      (config) =>
-        commitTunnelClientDownload(result, {
-          configPath: mcpTunnelConfigStorePaths(userDataDir()).configPath,
-          write: () => writeTunnelClientConfig(config, mcpTunnelConfigStorePaths(userDataDir())),
-          readPath: async () =>
-            (await readTunnelClientConfig(mcpTunnelConfigStorePaths(userDataDir())))
-              .tunnelClientPath
-        })
+    await withTunnelClientDownload(result, () =>
+      configController.update(
+        (state) => ({
+          ...state,
+          config: {
+            ...state.config,
+            tunnelClientPath: result.binaryPath,
+            verification: result.verification
+          }
+        }),
+        (config) =>
+          commitTunnelClientDownload(result, {
+            configPath: mcpTunnelConfigStorePaths(userDataDir()).configPath,
+            write: () => writeTunnelClientConfig(config, mcpTunnelConfigStorePaths(userDataDir())),
+            readPath: async () =>
+              (await readTunnelClientConfig(mcpTunnelConfigStorePaths(userDataDir())))
+                .tunnelClientPath
+          })
+      )
     );
     downloadStatus = { phase: "ready", assetName: result.verification.assetName, error: null };
   } catch (error) {
