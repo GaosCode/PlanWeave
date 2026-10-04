@@ -60,6 +60,14 @@ export function useMcpTunnelStatus({ setError }: { setError: (message: string | 
   }, []);
   const activeActions = useRef(new Set<string>());
   const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
+  const lifecycle = useRef<object | null>(null);
+  useEffect(() => {
+    lifecycle.current = {};
+    return () => {
+      lifecycle.current = null;
+      activeActions.current.clear();
+    };
+  }, []);
   const statusEvents = useRef(0);
   const api = typeof window !== "undefined" ? window.planweaveMcpTunnel : undefined;
 
@@ -82,6 +90,7 @@ export function useMcpTunnelStatus({ setError }: { setError: (message: string | 
         }
       });
     const unsubscribe = api.onMcpTunnelChanged((nextStatus) => {
+      if (cancelled) return;
       statusEvents.current += 1;
       acceptStatus(nextStatus);
     });
@@ -96,6 +105,8 @@ export function useMcpTunnelStatus({ setError }: { setError: (message: string | 
       name: string,
       action: () => Promise<McpTunnelStatus>
     ): Promise<McpTunnelStatus | null> => {
+      const actionLifecycle = lifecycle.current;
+      if (!actionLifecycle) return null;
       if (!api) {
         setError("MCP tunnel bridge unavailable.");
         return null;
@@ -106,6 +117,7 @@ export function useMcpTunnelStatus({ setError }: { setError: (message: string | 
       const eventsBeforeAction = statusEvents.current;
       try {
         const nextStatus = await action();
+        if (lifecycle.current !== actionLifecycle) return null;
         if (statusEvents.current === eventsBeforeAction) acceptStatus(nextStatus);
         const error =
           name === "downloadTunnelClient"
@@ -118,11 +130,14 @@ export function useMcpTunnelStatus({ setError }: { setError: (message: string | 
         setError(error);
         return error ? null : acceptedStatus.current;
       } catch (error) {
+        if (lifecycle.current !== actionLifecycle) return null;
         setError(error instanceof Error ? error.message : String(error));
         return null;
       } finally {
-        activeActions.current.delete(name);
-        setPending(new Set(activeActions.current));
+        if (lifecycle.current === actionLifecycle) {
+          activeActions.current.delete(name);
+          setPending(new Set(activeActions.current));
+        }
       }
     },
     [api, setError, acceptStatus]

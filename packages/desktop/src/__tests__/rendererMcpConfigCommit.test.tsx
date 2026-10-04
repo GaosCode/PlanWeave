@@ -58,7 +58,7 @@ function deferred<T>() {
   });
   return { promise, resolve, reject };
 }
-function mount(getStatus: Promise<McpTunnelStatus> = Promise.resolve(initial)) {
+function mount(getStatus: Promise<McpTunnelStatus> = Promise.resolve(initial), setError = vi.fn()) {
   let changed: (status: McpTunnelStatus) => void = () => undefined;
   const api: PlanWeaveMcpTunnelApi = {
     getMcpTunnelStatus: vi.fn(() => getStatus),
@@ -75,9 +75,13 @@ function mount(getStatus: Promise<McpTunnelStatus> = Promise.resolve(initial)) {
     stopLocalMcp: vi.fn(async () => initial)
   };
   Object.defineProperty(window, "planweaveMcpTunnel", { configurable: true, value: api });
-  const setError = vi.fn();
-  render(<SettingsMcpSection setError={setError} t={createTranslator("en")} />);
-  return { api, setError, emit: (status: McpTunnelStatus) => act(() => changed(status)) };
+  const view = render(<SettingsMcpSection setError={setError} t={createTranslator("en")} />);
+  return {
+    api,
+    setError,
+    unmount: view.unmount,
+    emit: (status: McpTunnelStatus) => act(() => changed(status))
+  };
 }
 afterEach(() => {
   cleanup();
@@ -85,6 +89,64 @@ afterEach(() => {
 });
 
 describe("MCP settings commit feedback", () => {
+  it.each([
+    "operation deadline",
+    "archive exceeds its byte limit"
+  ])("shows %s, releases the download button and retries exactly once", async (message) => {
+    const { api, setError, emit } = mount();
+    const download = screen.getByRole("button", {
+      name: createTranslator("en")("downloadTunnelClient")
+    });
+    const attempt = deferred<McpTunnelStatus>();
+    vi.mocked(api.downloadTunnelClient).mockReturnValueOnce(attempt.promise);
+    fireEvent.click(download);
+    expect(download).toBeDisabled();
+    emit({ ...initial, download: { phase: "downloading", assetName: null, error: null } });
+    emit({ ...initial, download: { phase: "error", assetName: null, error: message } });
+    await act(async () => attempt.reject(new Error(message)));
+    expect(setError).toHaveBeenLastCalledWith(message);
+    expect(screen.getByText(message)).toBeInTheDocument();
+    expect(download).toBeEnabled();
+    vi.mocked(api.downloadTunnelClient).mockResolvedValueOnce({
+      ...initial,
+      download: { phase: "ready", assetName: "client.zip", error: null }
+    });
+    fireEvent.click(download);
+    await waitFor(() => expect(download).toBeEnabled());
+    expect(api.downloadTunnelClient).toHaveBeenCalledTimes(2);
+    expect(setError).toHaveBeenLastCalledWith(null);
+  });
+
+  it.each([
+    "resolve",
+    "reject"
+  ])("ignores late download %s after the settings view is destroyed", async (outcome) => {
+    const { api, setError, unmount } = mount();
+    const attempt = deferred<McpTunnelStatus>();
+    vi.mocked(api.downloadTunnelClient).mockReturnValueOnce(attempt.promise);
+    fireEvent.click(
+      screen.getByRole("button", { name: createTranslator("en")("downloadTunnelClient") })
+    );
+    unmount();
+    const current = mount(Promise.resolve(initial), setError);
+    const retry = deferred<McpTunnelStatus>();
+    vi.mocked(current.api.downloadTunnelClient).mockReturnValueOnce(retry.promise);
+    const button = screen.getByRole("button", {
+      name: createTranslator("en")("downloadTunnelClient")
+    });
+    fireEvent.click(button);
+    setError.mockClear();
+    await act(async () => {
+      if (outcome === "reject") attempt.reject(new Error("late deadline"));
+      else attempt.resolve(initial);
+    });
+    expect(setError).not.toHaveBeenCalled();
+    expect(button).toBeDisabled();
+    await act(async () => retry.resolve(initial));
+    expect(button).toBeEnabled();
+    expect(current.api.downloadTunnelClient).toHaveBeenCalledOnce();
+  });
+
   it("blocks duplicate saves, preserves newer draft edits across broadcasts and failed persistence, then retries", async () => {
     const { api, setError, emit } = mount();
     const path = screen.getByRole("textbox", { name: "tunnel-client path" });

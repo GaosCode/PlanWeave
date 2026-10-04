@@ -44,6 +44,7 @@
         "importCli.test.ts",
         "interactionCommands.test.ts",
         "mcpCommand.test.ts",
+        "mcpTunnelDownload.test.ts",
         "packageExportCli.test.ts",
         "projectGraphCli.test.ts",
         "projectRoot.test.ts",
@@ -377,6 +378,7 @@
         "mcpCredentialVersion.test.ts",
         "mcpTunnel.test.ts",
         "mcpTunnelConfigCommit.test.ts",
+        "mcpTunnelDownloadIntegration.test.ts",
         "mcpTunnelLifecycle.test.ts",
         "operatorCredentialRecovery.test.ts",
         "operatorProfileConcurrency.test.ts",
@@ -477,6 +479,7 @@
         "toolPackageFiles.test.ts",
         "toolRuntime.test.ts",
         "tunnelConfigStore.test.ts",
+        "tunnelDownloaderBounds.test.ts",
         "tunnelProcessLifecycle.test.ts",
         "tunnelRun.test.ts",
         "tunnelStatus.test.ts"

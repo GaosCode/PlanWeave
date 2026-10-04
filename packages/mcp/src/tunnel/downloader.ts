@@ -1,7 +1,9 @@
-import { createHash } from "node:crypto";
-import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { unzipSync } from "fflate";
+import { z } from "zod";
+import { TunnelDownloadOperation } from "./downloadOperation.js";
+import { TunnelDownloadError, tunnelDownloadLimits } from "./downloadPolicy.js";
+import { verifyAndExtractTunnelBinary } from "./downloadArchive.js";
 import { tunnelClientDownloadUrl } from "./binary.js";
 import type {
   GitHubRelease,
@@ -11,10 +13,6 @@ import type {
 } from "./types.js";
 
 const latestReleaseApiUrl = "https://api.github.com/repos/openai/tunnel-client/releases/latest";
-
-function sha256(bytes: Uint8Array): string {
-  return createHash("sha256").update(bytes).digest("hex");
-}
 
 export function tunnelClientPlatformAsset(
   platform = process.platform,
@@ -38,31 +36,13 @@ export function tunnelClientPlatformAsset(
   };
 }
 
-function parseRelease(value: unknown): GitHubRelease {
-  if (!value || typeof value !== "object") {
-    throw new Error("Invalid tunnel-client release metadata.");
-  }
-  const record = value as Record<string, unknown>;
-  if (typeof record.tag_name !== "string" || !Array.isArray(record.assets)) {
-    throw new Error("Invalid tunnel-client release metadata.");
-  }
-  return {
-    tag_name: record.tag_name,
-    assets: record.assets.map((asset) => {
-      const assetRecord = asset as Record<string, unknown>;
-      if (
-        typeof assetRecord.name !== "string" ||
-        typeof assetRecord.browser_download_url !== "string"
-      ) {
-        throw new Error("Invalid tunnel-client release asset metadata.");
-      }
-      return {
-        name: assetRecord.name,
-        browser_download_url: assetRecord.browser_download_url
-      };
-    })
-  };
-}
+const releaseSchema = z.object({
+  tag_name: z
+    .string()
+    .min(1)
+    .regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/),
+  assets: z.array(z.object({ name: z.string(), browser_download_url: z.url() }))
+});
 
 export function parseSha256Sums(content: string): Map<string, string> {
   const sums = new Map<string, string>();
@@ -132,104 +112,131 @@ export function selectTunnelClientReleaseAssets(
   release: GitHubRelease,
   platformAsset: TunnelClientPlatformAsset
 ): { checksumAsset: GitHubReleaseAsset; platformZipAsset: GitHubReleaseAsset } {
-  const checksumAsset = release.assets.find((asset) => asset.name === "SHA256SUMS.txt");
-  const platformZipAsset = release.assets.find((asset) =>
-    asset.name.endsWith(platformAsset.assetSuffix)
-  );
-  if (!checksumAsset) {
-    throw new Error("Tunnel client release is missing SHA256SUMS.txt.");
+  const checksums = release.assets.filter((asset) => asset.name === "SHA256SUMS.txt");
+  const assetName = `tunnel-client-${release.tag_name}-${platformAsset.assetSuffix}`;
+  const platforms = release.assets.filter((asset) => asset.name === assetName);
+  if (checksums.length !== 1) {
+    throw new Error("Tunnel client release must contain exactly one SHA256SUMS.txt.");
   }
-  if (!platformZipAsset) {
-    throw new Error(`Tunnel client release is missing ${platformAsset.assetSuffix}.`);
+  if (platforms.length !== 1) {
+    throw new Error(`Tunnel client release must contain exactly one ${assetName}.`);
   }
+  const checksumAsset = checksums[0];
+  const platformZipAsset = platforms[0];
   return { checksumAsset, platformZipAsset };
-}
-
-async function fetchText(url: string): Promise<string> {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to download ${url}: ${response.status}.`);
-  }
-  return response.text();
-}
-
-async function fetchBytes(url: string): Promise<Uint8Array> {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to download ${url}: ${response.status}.`);
-  }
-  return new Uint8Array(await response.arrayBuffer());
-}
-
-async function fetchRelease(): Promise<GitHubRelease> {
-  const response = await fetch(latestReleaseApiUrl, {
-    headers: {
-      accept: "application/vnd.github+json"
-    }
-  });
-  if (!response.ok) {
-    if (response.status === 403) {
-      throw new Error(
-        `GitHub API rate limit blocked tunnel-client metadata. Open ${tunnelClientDownloadUrl} and try again later.`
-      );
-    }
-    throw new Error(`Failed to fetch tunnel-client release metadata: ${response.status}.`);
-  }
-  return parseRelease(await response.json());
-}
-
-function extractBinary(zipBytes: Uint8Array, binaryName: string): Uint8Array {
-  const entries = unzipSync(zipBytes);
-  const entry = Object.entries(entries).find(
-    ([name]) => name === binaryName || name.endsWith(`/${binaryName}`)
-  );
-  if (!entry) {
-    throw new Error(`Tunnel client archive does not contain ${binaryName}.`);
-  }
-  return entry[1];
 }
 
 export async function downloadOfficialTunnelClient(
   targetRoot: string
 ): Promise<TunnelClientDownloadResult> {
-  const platformAsset = tunnelClientPlatformAsset();
-  const release = await fetchRelease();
-  const { checksumAsset, platformZipAsset } = selectTunnelClientReleaseAssets(
-    release,
-    platformAsset
-  );
-  const [checksumText, zipBytes] = await Promise.all([
-    fetchText(checksumAsset.browser_download_url),
-    fetchBytes(platformZipAsset.browser_download_url)
-  ]);
-  const expectedAssetSha256 = parseSha256Sums(checksumText).get(platformZipAsset.name);
-  if (!expectedAssetSha256) {
-    throw new Error(`SHA256SUMS.txt does not contain ${platformZipAsset.name}.`);
-  }
-  const actualAssetSha256 = sha256(zipBytes);
-  if (actualAssetSha256 !== expectedAssetSha256) {
-    throw new Error("Tunnel client archive checksum does not match SHA256SUMS.txt.");
-  }
-
-  const binaryBytes = extractBinary(zipBytes, platformAsset.binaryName);
-  const binarySha256 = sha256(binaryBytes);
-  const targetDir = join(targetRoot, "tunnel-client", release.tag_name);
-  const binaryPath = join(targetDir, platformAsset.binaryName);
-  await mkdir(targetRoot, { recursive: true, mode: 0o700 });
-  await chmod(targetRoot, 0o700);
-  await mkdir(targetDir, { recursive: true, mode: 0o700 });
-  await chmod(targetDir, 0o700);
-  await writeFile(binaryPath, binaryBytes);
-  if (process.platform !== "win32") {
-    await chmod(binaryPath, 0o700);
-  }
-
-  return {
-    binaryPath,
-    verification: {
-      assetName: platformZipAsset.name,
-      assetSha256: expectedAssetSha256,
-      binarySha256
+  const operation = new TunnelDownloadOperation();
+  let stagingDir: string | undefined;
+  try {
+    const platformAsset = tunnelClientPlatformAsset();
+    let metadata: Uint8Array;
+    try {
+      metadata = await operation.bytes(
+        latestReleaseApiUrl,
+        "release metadata",
+        tunnelDownloadLimits.metadataBytes,
+        { accept: "application/vnd.github+json" }
+      );
+    } catch (error) {
+      if (error instanceof Error && error.message === "Failed to download release metadata: 403.") {
+        throw new Error(
+          `GitHub API rate limit blocked tunnel-client metadata. Open ${tunnelClientDownloadUrl} and try again later.`
+        );
+      }
+      throw error;
     }
-  };
+    const release = releaseSchema.parse(JSON.parse(new TextDecoder().decode(metadata)));
+    const { checksumAsset, platformZipAsset } = selectTunnelClientReleaseAssets(
+      release,
+      platformAsset
+    );
+    const requests = [
+      operation.bytes(
+        checksumAsset.browser_download_url,
+        "checksum",
+        tunnelDownloadLimits.checksumBytes
+      ),
+      operation.bytes(
+        platformZipAsset.browser_download_url,
+        "archive",
+        tunnelDownloadLimits.zipBytes
+      )
+    ];
+    let responses: Uint8Array[];
+    try {
+      responses = await Promise.all(requests);
+    } catch (error) {
+      operation.abort(error);
+      await Promise.allSettled(requests);
+      throw error;
+    }
+    const expectedAssetSha256 = parseSha256Sums(new TextDecoder().decode(responses[0])).get(
+      platformZipAsset.name
+    );
+    if (!expectedAssetSha256)
+      throw new Error(`SHA256SUMS.txt does not contain ${platformZipAsset.name}.`);
+    const { binary, binarySha256 } = await verifyAndExtractTunnelBinary(
+      responses[1],
+      platformAsset.binaryName,
+      expectedAssetSha256,
+      operation
+    );
+    operation.check();
+    await mkdir(targetRoot, { recursive: true, mode: 0o700 });
+    operation.check();
+    await chmod(targetRoot, 0o700);
+    operation.check();
+    const versionDir = join(targetRoot, "tunnel-client", release.tag_name);
+    await mkdir(versionDir, { recursive: true, mode: 0o700 });
+    operation.check();
+    await chmod(versionDir, 0o700);
+    operation.check();
+    // Each successful install has its own path so persisted verification never describes overwritten bytes.
+    stagingDir = await mkdtemp(join(versionDir, "install-"));
+    operation.check();
+    const pendingPath = join(stagingDir, ".binary.pending");
+    const binaryPath = join(stagingDir, platformAsset.binaryName);
+    await writeFile(pendingPath, binary, { mode: 0o700, signal: operation.signal });
+    operation.check();
+    await rename(pendingPath, binaryPath);
+    operation.check();
+    const result = {
+      binaryPath,
+      verification: {
+        assetName: platformZipAsset.name,
+        assetSha256: expectedAssetSha256,
+        binarySha256
+      }
+    };
+    stagingDir = undefined;
+    return result;
+  } catch (error) {
+    const reason = operation.signal.reason;
+    const failure =
+      error instanceof Error &&
+      error.name === "AbortError" &&
+      error.cause === reason &&
+      reason instanceof TunnelDownloadError &&
+      reason.code === "timeout"
+        ? reason
+        : error;
+    operation.abort(failure);
+    if (stagingDir) {
+      try {
+        await rm(stagingDir, { recursive: true, force: true });
+      } catch (cleanupError) {
+        throw new AggregateError(
+          [failure, cleanupError],
+          "Tunnel client download failed and its staging directory could not be removed."
+        );
+      }
+    }
+    throw failure;
+  } finally {
+    operation.close();
+  }
 }

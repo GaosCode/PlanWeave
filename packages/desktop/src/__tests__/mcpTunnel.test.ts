@@ -585,7 +585,7 @@ exit 1
   it("downloads the official platform zip, verifies its checksum, and stores the extracted binary", async () => {
     const planweaveHome = await useTempPlanweaveHome();
     const platformAsset = tunnelClientPlatformAsset();
-    const assetName = `tunnel-client-test-${platformAsset.assetSuffix}`;
+    const assetName = `tunnel-client-v-test-${platformAsset.assetSuffix}`;
     const binaryBytes = new TextEncoder().encode("binary-from-official-zip");
     const zipBytes = zipSync({ [platformAsset.binaryName]: binaryBytes });
     const zipHash = createHash("sha256").update(zipBytes).digest("hex");
