@@ -1,5 +1,10 @@
 /* @vitest-environment jsdom */
 
+import { workspaceCanvasLocatorSchema } from "../shared/canvasLocator";
+import type {
+  NotificationScope,
+  NotificationNavigationContext
+} from "../renderer/notificationIdentity";
 import { useState } from "react";
 import type { DesktopUiSettings, DesktopSettingsUpdate } from "../renderer/types";
 import { graph } from "./helpers/graphFixtures";
@@ -29,6 +34,7 @@ function controllerArgs() {
     handleRevealPathInFinder: vi.fn().mockResolvedValue(undefined),
     keepLocalPromptConflicts: vi.fn(),
     lastFileChange: null,
+    graphScope: null,
     navigationContext: null,
     openRunWorkspace: vi.fn().mockResolvedValue(undefined),
     openTaskWorkspace: vi.fn(),
@@ -126,6 +132,7 @@ describe("notification controller read persistence", () => {
             ...args,
             autoRunState: null,
             graph: { ...graph, dirtyPromptRefs: ["T-ALPHA"] },
+            graphScope: { projectRoot: "/projects/a", canvasId },
             navigationContext: { projectRoot: "/projects/a", canvasId },
             settings,
             updateSettings
@@ -277,5 +284,100 @@ describe("notification scope producers", () => {
     const originalId = notifications.result.current.notificationItems[0].id;
     notifications.rerender({ canvasId: "B" });
     expect(notifications.result.current.notificationItems[0].id).toBe(originalId);
+  });
+});
+
+describe("Workspace notification scope identity", () => {
+  it("isolates all locator dimensions and Local read state without requiring navigation, across remount", async () => {
+    const remote = workspaceCanvasLocatorSchema.parse({
+      kind: "workspace",
+      connectionProfileId: "profile-1",
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+      canvasId: "canvas-1"
+    });
+    const scopes: NotificationScope[] = [
+      remote,
+      { ...remote, connectionProfileId: "profile-2" },
+      workspaceCanvasLocatorSchema.parse({ ...remote, workspaceId: "workspace-2" }),
+      { ...remote, projectId: "project-2" },
+      { ...remote, canvasId: "canvas-2" },
+      { projectRoot: "/projects/local", canvasId: "canvas-1" }
+    ];
+    let persisted = defaultDesktopSettings;
+    const args = controllerArgs();
+    const exceptionGraph = {
+      ...graph,
+      tasks: graph.tasks.map((task) => ({
+        ...task,
+        exceptions: [
+          { ref: task.taskId, reason: "remote runtime failed", source: "blocked" as const }
+        ]
+      }))
+    };
+    const mount = (scope: NotificationScope, navigation: NotificationNavigationContext | null) =>
+      renderHook(
+        ({
+          scope,
+          navigation
+        }: {
+          scope: NotificationScope;
+          navigation: NotificationNavigationContext | null;
+        }) => {
+          const [settings, setSettings] = useState(persisted);
+          return useNotificationController({
+            ...args,
+            autoRunState: null,
+            graph: exceptionGraph,
+            graphScope: scope,
+            navigationContext: navigation,
+            settings,
+            updateSettings: (update) =>
+              setSettings((current) => {
+                persisted = {
+                  ...current,
+                  ...(typeof update === "function" ? update(current) : update)
+                };
+                return persisted;
+              })
+          });
+        },
+        { initialProps: { scope, navigation } }
+      );
+    const hook = mount(remote, remote);
+    expect(hook.result.current.notificationItems.filter((item) => !item.read)).toHaveLength(2);
+    const original = hook.result.current.notificationItems[0];
+    act(() =>
+      hook.result.current.notificationItems.forEach((item) => {
+        hook.result.current.onMarkNotificationRead(item.id);
+      })
+    );
+    expect(hook.result.current.notificationItems.filter((item) => !item.read)).toHaveLength(0);
+    const ids = [original.id];
+    for (const scope of scopes.slice(1)) {
+      hook.rerender({ scope, navigation: null });
+      expect(hook.result.current.notificationItems.filter((item) => !item.read)).toHaveLength(2);
+      expect(hook.result.current.notificationItems[0].navigationIntent).toBeUndefined();
+      ids.push(hook.result.current.notificationItems[0].id);
+    }
+    expect(new Set(ids).size).toBe(scopes.length);
+    await act(async () => hook.result.current.onOpenNotification(original));
+    expect(args.openTaskWorkspace).toHaveBeenCalledWith({
+      authority: "workspace",
+      connectionProfileId: remote.connectionProfileId,
+      workspaceId: remote.workspaceId,
+      projectId: remote.projectId,
+      canvasId: remote.canvasId,
+      taskId: "T-ALPHA"
+    });
+    hook.unmount();
+    const restored = mount(remote, null);
+    expect(restored.result.current.notificationItems.filter((item) => !item.read)).toHaveLength(0);
+    restored.rerender({
+      scope: workspaceCanvasLocatorSchema.parse({ ...remote, workspaceId: "workspace-2" }),
+      navigation: null
+    });
+    expect(restored.result.current.notificationItems.filter((item) => !item.read)).toHaveLength(2);
+    restored.unmount();
   });
 });

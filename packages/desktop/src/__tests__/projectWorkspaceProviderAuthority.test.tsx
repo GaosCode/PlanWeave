@@ -3,6 +3,8 @@
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { graph } from "./helpers/graphFixtures";
+import type { WorkspaceCanvasProjectionSignal } from "../shared/workspaceCanvasProjection";
 import { project, projectSnapshot } from "./helpers/desktopProjectFixtures";
 import {
   ProjectWorkspaceProvider,
@@ -77,14 +79,6 @@ vi.mock("../renderer/hooks/useCollaborationSurface", () => ({
     sessionConnected: bridges.status.current?.session.phase === "connected",
     localOwnerDirectWriteAvailable: false,
     collaborationNotificationDrafts: []
-  })
-}));
-
-vi.mock("../renderer/hooks/useWorkspaceRuntime", () => ({
-  useWorkspaceRuntime: ({ graph }: { graph: unknown }) => ({
-    graph,
-    availability: { kind: "unavailable" },
-    resetWorkspaceRuntime: undefined
   })
 }));
 
@@ -286,9 +280,6 @@ vi.mock("../renderer/hooks/useGraphPaletteActions", () => ({
     resetLayout: stubs.asyncCall
   })
 }));
-vi.mock("../renderer/controllers/NotificationController", () => ({
-  useNotificationController: () => ({ notificationItems: [] })
-}));
 vi.mock("../renderer/AppSettingsRouteProps", () => ({ buildAppSettingsRouteProps: () => ({}) }));
 vi.mock("../renderer/controllers/GraphWorkspaceController", () => ({
   useGraphWorkspaceController: (input: {
@@ -474,7 +465,9 @@ describe("ProjectWorkspaceProvider startup authority", () => {
       expect(current?.graphWorkspace.graph?.projectTitle).toBe("Cached Workspace")
     );
     expect(current?.graphWorkspace.workspaceCanvasOffline).toBe(true);
-    expect(current?.graphWorkspace.runtimeAvailability).toEqual({ kind: "unavailable" });
+    expect(current?.graphWorkspace.runtimeAvailability).toEqual({
+      kind: "checking"
+    });
     expect(bridges.desktop.target.listProjects).toHaveBeenCalled();
     expect(bridges.desktop.target.getDesktopProjectSnapshot).not.toHaveBeenCalled();
     expect(bridges.collaboration.target.openWorkspaceCanvasSession).toHaveBeenCalledWith(locator);
@@ -689,5 +682,167 @@ describe("ProjectWorkspaceProvider startup authority", () => {
     expect(bridges.desktop.target.listProjects).toHaveBeenCalledOnce();
     expect(bridges.collaboration.target.listCollaborationAuthorizedProjects).toHaveBeenCalledOnce();
     expect(bridges.collaboration.target.listCollaborationAuthorizedCanvases).toHaveBeenCalledOnce();
+  });
+});
+
+describe("Workspace runtime exception notifications", () => {
+  it.each([
+    "blocked",
+    "diverged"
+  ] as const)("shows %s from the real Workspace authority and isolates remote switching while retiring late projections after Local opens", async (exceptionStatus) => {
+    const replica = cachedProjection();
+    const task = graph.tasks[0];
+    const block = {
+      ref: `${task.taskId}#B-001`,
+      blockId: "B-001",
+      type: "implementation" as const,
+      title: "Implementation",
+      status: "ready" as const,
+      executor: null,
+      requiredCapabilities: [],
+      promptMissing: false,
+      exceptionReason: null,
+      dispatchable: false,
+      remoteExecution: null
+    };
+    replica.content.tasks = [{ ...task, blocks: [block], blockPreview: [block] }];
+    const runtimeStatus = {
+      schemaVersion: "canvas-runtime-status/v2" as const,
+      scope: {
+        workspaceId: locator.workspaceId,
+        projectId: locator.projectId,
+        canvasId: locator.canvasId
+      },
+      packageFingerprint: replica.content.packageFingerprint,
+      capturedAt: "2026-08-22T00:00:00.000Z",
+      tasks: [{ taskId: task.taskId, status: "ready" as const, openFeedbackCount: 0 }],
+      blocks: [
+        {
+          ref: block.ref,
+          status: exceptionStatus,
+          completionReason: null,
+          blockedReason: exceptionStatus === "blocked" ? "remote blocked" : null,
+          divergenceReason: exceptionStatus === "diverged" ? "remote diverged" : null,
+          dispatchable: false
+        }
+      ]
+    };
+    const projection = {
+      locator,
+      status: "accepted" as const,
+      authorityMode: "server_authoritative" as const,
+      readOnly: false,
+      cachedAt: null,
+      conflict: null,
+      rejectCode: null,
+      replica,
+      initialRuntimeAvailability: {
+        schemaVersion: "canvas-runtime-view/v2" as const,
+        authority: {
+          revision: 1,
+          sourceRevision: "source-1",
+          graphFingerprint: replica.content.packageFingerprint
+        },
+        state: { kind: "initialized" as const, runtimeRevision: 1, status: runtimeStatus },
+        execution: {
+          schemaVersion: "canvas-runtime-availability/v1" as const,
+          kind: "available" as const,
+          status: runtimeStatus,
+          sourceRevision: "source-1",
+          graphFingerprint: replica.content.packageFingerprint
+        }
+      }
+    };
+    bridges.status.current = {
+      activeProfileId: locator.connectionProfileId,
+      profiles: [{ profileId: locator.connectionProfileId, projectId: locator.projectId }],
+      session: { phase: "connected" }
+    };
+    bridges.collaboration.target.listCollaborationAuthorizedProjects = vi
+      .fn()
+      .mockResolvedValue({ items: [], nextCursor: null });
+    bridges.collaboration.target.listCollaborationAuthorizedCanvases = vi
+      .fn()
+      .mockResolvedValue({ items: [{ registry: runtimeStatus.scope }], nextCursor: null });
+    bridges.collaboration.target.openWorkspaceCanvasSession = vi.fn().mockResolvedValue(projection);
+    let lateSignal: ((signal: WorkspaceCanvasProjectionSignal) => void) | null = null;
+    bridges.collaboration.target.onWorkspaceCanvasProjectionSignal = vi.fn((listener) => {
+      lateSignal = listener;
+      return () => undefined;
+    });
+    let current: ProjectWorkspaceValue | null = null;
+    let settings = workspaceSettings();
+    const onValue = (value: ProjectWorkspaceValue) => {
+      current = value;
+    };
+    const onSettings = (value: DesktopUiSettings) => {
+      settings = value;
+    };
+    const mount = () =>
+      render(
+        <ProviderHarness initialSettings={settings} onSettings={onSettings} onValue={onValue} />
+      );
+    const mounted = mount();
+    await waitFor(() => expect(current?.graphWorkspace.graph?.tasks[0].exceptions).toHaveLength(1));
+    expect(current?.notifications.notificationItems).toHaveLength(1);
+    const notification = current!.notifications.notificationItems[0];
+    expect(notification.read).toBe(false);
+    expect(notification.navigationIntent).toEqual({
+      kind: "task-workspace",
+      target: {
+        authority: "workspace",
+        connectionProfileId: locator.connectionProfileId,
+        workspaceId: locator.workspaceId,
+        projectId: locator.projectId,
+        canvasId: locator.canvasId,
+        taskId: task.taskId,
+        blockRef: block.ref
+      }
+    });
+    act(() => current!.notifications.onMarkNotificationRead(notification.id));
+    expect(current!.notifications.notificationItems.filter((item) => !item.read)).toHaveLength(0);
+    const otherLocator = { ...locator, canvasId: "canvas-other" };
+    const otherStatus = {
+      ...runtimeStatus,
+      scope: { ...runtimeStatus.scope, canvasId: otherLocator.canvasId }
+    };
+    const otherProjection = {
+      ...projection,
+      locator: otherLocator,
+      replica: { ...replica, canvasId: otherLocator.canvasId },
+      initialRuntimeAvailability: {
+        ...projection.initialRuntimeAvailability,
+        state: { ...projection.initialRuntimeAvailability.state, status: otherStatus },
+        execution: { ...projection.initialRuntimeAvailability.execution, status: otherStatus }
+      }
+    };
+    bridges.collaboration.target.openWorkspaceCanvasSession = vi
+      .fn()
+      .mockImplementation((opened) =>
+        Promise.resolve(opened.canvasId === otherLocator.canvasId ? otherProjection : projection)
+      );
+    const retiredSignal = lateSignal;
+    act(() => current!.shell.openWorkspaceCanvasLocator(otherLocator));
+    await waitFor(() => expect(current?.notifications.notificationItems[0]?.read).toBe(false));
+    const otherId = current!.notifications.notificationItems[0].id;
+    expect(otherId).not.toBe(notification.id);
+    act(() => retiredSignal?.({ type: "workspace.canvas.projection", projection }));
+    expect(current!.notifications.notificationItems[0].id).toBe(otherId);
+    expect(current!.notifications.notificationItems[0].navigationIntent).toMatchObject({
+      target: { canvasId: otherLocator.canvasId }
+    });
+    act(() => current!.shell.openWorkspaceCanvasLocator(locator));
+    await waitFor(() => expect(current?.notifications.notificationItems[0]?.read).toBe(true));
+    mounted.unmount();
+    const restored = mount();
+    await waitFor(() => expect(current?.notifications.notificationItems[0]?.read).toBe(true));
+    await act(async () => {
+      await current!.shell.loadProject(project, "canvas-main");
+    });
+    await waitFor(() => expect(settings.lastOpenedWorkspaceLocator).toBeNull());
+    act(() => lateSignal?.({ type: "workspace.canvas.projection", projection }));
+    expect(current!.notifications.notificationItems).toHaveLength(0);
+    expect(current!.graphWorkspace.graph?.projectId).toBe(projectSnapshot().graph.projectId);
+    restored.unmount();
   });
 });

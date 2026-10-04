@@ -18,6 +18,7 @@ describe("import recovery notifications", () => {
       fileSyncDiagnostics: [],
       graph: null,
       lastFileChange: null,
+      graphScope: null,
       navigationContext: null,
       pendingImportRecoveries: [
         {

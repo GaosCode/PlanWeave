@@ -180,6 +180,7 @@ describe("desktop renderer interface interactions", () => {
         fileSyncDiagnostics: [],
         graph: notificationGraph,
         lastFileChange: null,
+        graphScope: { projectRoot: project.rootPath, canvasId: "canvas-main" },
         navigationContext: { projectRoot: project.rootPath, canvasId: "canvas-main" },
         promptConflicts: [],
         settings,

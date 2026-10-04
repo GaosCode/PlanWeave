@@ -1,3 +1,4 @@
+import type { NotificationScope, NotificationNavigationContext } from "../notificationIdentity";
 import { useCallback, type SetStateAction } from "react";
 import type {
   DesktopAutoRunState,
@@ -27,6 +28,7 @@ export function useNotificationController({
   collaborationItems = [],
   fileSyncDiagnostics,
   graph,
+  graphScope,
   handleRevealPathInFinder,
   keepLocalPromptConflicts,
   lastFileChange,
@@ -48,10 +50,11 @@ export function useNotificationController({
   collaborationItems?: readonly CollaborationNotificationDraft[];
   fileSyncDiagnostics: string[];
   graph: DesktopGraphViewModel | null;
+  graphScope: NotificationScope | null;
   handleRevealPathInFinder: (path: string | null | undefined) => Promise<void>;
   keepLocalPromptConflicts: () => void;
   lastFileChange: DesktopPackageFileChangeEvent | null;
-  navigationContext: { projectRoot: string; canvasId: string } | null;
+  navigationContext: NotificationNavigationContext | null;
   openRunWorkspace: (locator: {
     projectRoot: string;
     canvasId: string;
@@ -73,6 +76,7 @@ export function useNotificationController({
     collaborationItems,
     fileSyncDiagnostics,
     graph,
+    graphScope,
     lastFileChange,
     navigationContext,
     pendingImportRecoveries,

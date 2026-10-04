@@ -1,3 +1,4 @@
+import type { NotificationScope, NotificationNavigationContext } from "../notificationIdentity";
 import { useCallback } from "react";
 import type {
   DesktopAutoRunState,
@@ -16,6 +17,7 @@ export function useAppNotifications({
   collaborationItems = [],
   fileSyncDiagnostics,
   graph,
+  graphScope,
   lastFileChange,
   navigationContext,
   pendingImportRecoveries,
@@ -28,8 +30,9 @@ export function useAppNotifications({
   collaborationItems?: readonly CollaborationNotificationDraft[];
   fileSyncDiagnostics: string[];
   graph: DesktopGraphViewModel | null;
+  graphScope: NotificationScope | null;
   lastFileChange: DesktopPackageFileChangeEvent | null;
-  navigationContext: { projectRoot: string; canvasId: string } | null;
+  navigationContext: NotificationNavigationContext | null;
   pendingImportRecoveries: PendingImportTransaction[];
   promptConflicts: PromptConflictRef[];
   settings: DesktopUiSettings;
@@ -41,6 +44,7 @@ export function useAppNotifications({
     collaborationItems,
     fileSyncDiagnostics,
     graph,
+    graphScope,
     lastFileChange,
     navigationContext,
     pendingImportRecoveries,

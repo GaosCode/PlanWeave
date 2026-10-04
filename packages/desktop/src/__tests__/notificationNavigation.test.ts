@@ -9,6 +9,7 @@ const baseInput = {
   fileSyncDiagnostics: [],
   graph: null,
   lastFileChange: null,
+  graphScope: null,
   navigationContext: null,
   pendingImportRecoveries: [],
   promptConflicts: [],
@@ -72,6 +73,7 @@ describe("notification read identities", () => {
         ...baseInput,
         autoRunState: null,
         graph: notificationGraph,
+        graphScope: navigationContext,
         navigationContext,
         settings: { ...defaultDesktopSettings, readNotificationIds }
       });
@@ -90,6 +92,7 @@ describe("notification read identities", () => {
     const items = buildNotificationItems({
       ...baseInput,
       autoRunState: null,
+      graphScope: scopes[0],
       navigationContext: scopes[0],
       graph: {
         ...notificationGraph,
@@ -112,6 +115,7 @@ describe("notification read identities", () => {
   it("uses original file event and execution scope instead of active navigation scope", () => {
     const first = buildNotificationItems({
       ...baseInput,
+      graphScope: scopes[0],
       navigationContext: scopes[0],
       autoRunState: autoRunState({
         ...scopes[0],
@@ -122,6 +126,7 @@ describe("notification read identities", () => {
     });
     const late = buildNotificationItems({
       ...baseInput,
+      graphScope: scopes[1],
       navigationContext: scopes[1],
       autoRunState: autoRunState({
         ...scopes[0],
@@ -134,6 +139,7 @@ describe("notification read identities", () => {
     expect(late.every((item) => item.read)).toBe(true);
     const differentSource = buildNotificationItems({
       ...baseInput,
+      graphScope: scopes[0],
       navigationContext: scopes[0],
       autoRunState: autoRunState({
         ...scopes[1],

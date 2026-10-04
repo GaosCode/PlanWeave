@@ -1,7 +1,15 @@
-export type NotificationScope = {
+import type { WorkspaceCanvasLocator } from "../shared/canvasLocator";
+
+export type LocalNotificationScope = {
   projectRoot: string;
   canvasId: string | null;
 };
+
+export type NotificationScope = LocalNotificationScope | WorkspaceCanvasLocator;
+
+export type NotificationNavigationContext =
+  | { projectRoot: string; canvasId: string }
+  | WorkspaceCanvasLocator;
 
 export function notificationIdentity(
   kind:
@@ -15,6 +23,15 @@ export function notificationIdentity(
   scope: NotificationScope,
   ...eventIdentity: readonly string[]
 ): string {
+  if ("kind" in scope) {
+    return `${kind}:workspace:v1:${JSON.stringify([
+      scope.connectionProfileId,
+      scope.workspaceId,
+      scope.projectId,
+      scope.canvasId,
+      ...eventIdentity
+    ])}`;
+  }
   return `${kind}:v2:${JSON.stringify([scope.projectRoot, scope.canvasId, ...eventIdentity])}`;
 }
 

@@ -89,6 +89,7 @@ for (const queue of ["manual", "watcher"] as const) {
           const notifications = buildNotificationItems({
             autoRunState: null,
             graph: null,
+            graphScope: { projectRoot: project.rootPath, canvasId },
             navigationContext: { projectRoot: project.rootPath, canvasId },
             fileSyncDiagnostics: fileSync.fileSyncDiagnostics,
             lastFileChange: fileSync.lastFileChange,

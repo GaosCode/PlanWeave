@@ -165,6 +165,7 @@ export function ProjectWorkspaceProvider({
     collaborationSurface,
     desktopProject,
     graph,
+    graphNotificationScope,
     layout,
     openWorkspaceCanvasLocator,
     projectLoadingForAuthority: workspaceProjectLoading,
@@ -948,13 +949,16 @@ export function ProjectWorkspaceProvider({
     collaborationItems: collaborationSurface.collaborationNotificationDrafts,
     fileSyncDiagnostics: fileSyncController.fileSyncDiagnostics,
     graph,
+    graphScope: graphNotificationScope,
     handleRevealPathInFinder,
     keepLocalPromptConflicts,
     lastFileChange: fileSyncController.lastFileChange,
     navigationContext:
-      selectedProject && selectedCanvasId
-        ? { projectRoot: selectedProject.rootPath, canvasId: selectedCanvasId }
-        : null,
+      canvasLocator?.kind === "workspace"
+        ? canvasLocator
+        : selectedProject && selectedCanvasId
+          ? { projectRoot: selectedProject.rootPath, canvasId: selectedCanvasId }
+          : null,
     openRunWorkspace: openNotificationRunWorkspace,
     openTaskWorkspace: (target) => openTaskWorkspaceFrom("notifications", target),
     pendingImportRecoveries,

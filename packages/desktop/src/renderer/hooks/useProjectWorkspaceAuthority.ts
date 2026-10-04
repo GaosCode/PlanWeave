@@ -1,3 +1,4 @@
+import type { NotificationScope } from "../notificationIdentity";
 import { useCallback, useEffect, useMemo, type Dispatch, type SetStateAction } from "react";
 import {
   parsePersistedWorkspaceCanvasLocator,
@@ -153,7 +154,16 @@ export function useProjectWorkspaceAuthority(input: UseProjectWorkspaceAuthority
     t: input.t
   });
 
+  const graphNotificationScope: NotificationScope | null = collaborationRuntime.graph
+    ? canvasLocator?.kind === "workspace"
+      ? canvasLocator
+      : selectedProject && selectedCanvasId
+        ? { projectRoot: selectedProject.rootPath, canvasId: selectedCanvasId }
+        : null
+    : null;
+
   return {
+    graphNotificationScope,
     activeCanvasId,
     canvasBinding,
     canvasLocator,

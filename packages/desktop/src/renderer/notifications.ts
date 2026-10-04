@@ -8,13 +8,17 @@ import type { CollaborationNotificationDraft } from "./collaboration/assigneeSur
 import type { createTranslator } from "./i18n";
 import type { PromptConflictRef } from "./hooks/usePromptDrafts";
 import type { DesktopUiSettings, NotificationItem, NotificationItemDraft } from "./types";
-import { notificationIdentity } from "./notificationIdentity";
-import { blockWorkspaceTarget, taskWorkspaceTarget } from "./taskWorkspaceNavigation";
-
-type NotificationNavigationContext = {
-  projectRoot: string;
-  canvasId: string;
-};
+import {
+  notificationIdentity,
+  type NotificationScope,
+  type NotificationNavigationContext
+} from "./notificationIdentity";
+import {
+  blockWorkspaceTarget,
+  taskWorkspaceTarget,
+  workspaceBlockWorkspaceTarget,
+  workspaceTaskWorkspaceTarget
+} from "./taskWorkspaceNavigation";
 
 function directNavigationIntent(
   graph: DesktopGraphViewModel,
@@ -27,18 +31,32 @@ function directNavigationIntent(
   if (!task) {
     return;
   }
-  if (separatorIndex < 0) {
+  if (separatorIndex >= 0 && !task.blocks.some((block) => block.ref === ref)) {
+    return;
+  }
+  if ("kind" in context) {
+    const workspaceContext = {
+      authority: "workspace" as const,
+      connectionProfileId: context.connectionProfileId,
+      workspaceId: context.workspaceId,
+      projectId: context.projectId,
+      canvasId: context.canvasId,
+      taskId
+    };
     return {
       kind: "task-workspace",
-      target: taskWorkspaceTarget({ ...context, taskId })
+      target:
+        separatorIndex < 0
+          ? workspaceTaskWorkspaceTarget(workspaceContext)
+          : workspaceBlockWorkspaceTarget({ ...workspaceContext, blockRef: ref })
     };
-  }
-  if (!task.blocks.some((block) => block.ref === ref)) {
-    return;
   }
   return {
     kind: "task-workspace",
-    target: blockWorkspaceTarget({ ...context, taskId, blockRef: ref })
+    target:
+      separatorIndex < 0
+        ? taskWorkspaceTarget({ ...context, taskId })
+        : blockWorkspaceTarget({ ...context, taskId, blockRef: ref })
   };
 }
 
@@ -47,6 +65,7 @@ export function buildNotificationItems({
   collaborationItems = [],
   fileSyncDiagnostics,
   graph,
+  graphScope,
   lastFileChange,
   navigationContext,
   pendingImportRecoveries = [],
@@ -58,6 +77,7 @@ export function buildNotificationItems({
   collaborationItems?: readonly CollaborationNotificationDraft[];
   fileSyncDiagnostics: string[];
   graph: DesktopGraphViewModel | null;
+  graphScope: NotificationScope | null;
   lastFileChange: DesktopPackageFileChangeEvent | null;
   navigationContext: NotificationNavigationContext | null;
   pendingImportRecoveries?: PendingImportTransaction[];
@@ -99,13 +119,13 @@ export function buildNotificationItems({
           : undefined
     });
   }
-  if (settings.notifications.graphExceptions && navigationContext) {
+  if (settings.notifications.graphExceptions && graphScope) {
     for (const task of graph?.tasks ?? []) {
       for (const exception of task.exceptions) {
         notificationItems.push({
           id: notificationIdentity(
             "exception",
-            navigationContext,
+            graphScope,
             task.taskId,
             exception.ref,
             exception.source
@@ -121,10 +141,10 @@ export function buildNotificationItems({
       }
     }
   }
-  if (settings.notifications.dirtyPrompts && navigationContext) {
+  if (settings.notifications.dirtyPrompts && graphScope) {
     for (const ref of graph?.dirtyPromptRefs ?? []) {
       notificationItems.push({
-        id: notificationIdentity("dirty", navigationContext, ref),
+        id: notificationIdentity("dirty", graphScope, ref),
         title: t("notifyDirtyPrompts"),
         detail: ref,
         tone: "secondary",
