@@ -1,3 +1,4 @@
+import { collaborationNotificationIdentity } from "../notificationIdentity";
 import type { ActivityRecord } from "@planweave-ai/collaboration-protocol/activity/comments";
 import type { AssignmentDisplayProjection } from "@planweave-ai/collaboration-protocol/work/assignment";
 import type { WorkItemRef } from "@planweave-ai/collaboration-protocol/core/primitives";
@@ -156,6 +157,7 @@ const MEMBERSHIP_ACTIVITY = new Set([
  * Does not invent success from pending/offline mutations.
  */
 export function buildCollaborationNotificationDrafts(input: {
+  scope: Pick<CollaborationReadModelSnapshot, "profileId" | "projectId" | "canvasId">;
   activity: readonly ActivityRecord[];
   mutations: readonly CollaborationMutationRecord[];
   labels: {
@@ -169,6 +171,8 @@ export function buildCollaborationNotificationDrafts(input: {
   activityLimit?: number;
 }): CollaborationNotificationDraft[] {
   const drafts: CollaborationNotificationDraft[] = [];
+  const { profileId, projectId, canvasId } = input.scope;
+  if (!profileId || !projectId) return drafts;
   const activityLimit = input.activityLimit ?? 12;
 
   const relevantActivity = input.activity
@@ -178,7 +182,15 @@ export function buildCollaborationNotificationDrafts(input: {
   for (const item of relevantActivity) {
     const isAssignment = item.type === "assignment_updated";
     drafts.push({
-      id: `collab-activity:${item.activityId}`,
+      id: collaborationNotificationIdentity(
+        "collab-activity",
+        {
+          profileId,
+          projectId: item.projectId,
+          canvasId: item.workItem?.canvasId ?? item.summary.workItem?.canvasId ?? null
+        },
+        item.activityId
+      ),
       title: isAssignment ? input.labels.assignmentUpdated : input.labels.membershipChanged,
       detail: item.summary.headline,
       tone: isAssignment ? "outline" : "secondary",
@@ -190,7 +202,11 @@ export function buildCollaborationNotificationDrafts(input: {
     if (mutation.kind !== "assignment") continue;
     if (mutation.status === "confirmed") {
       drafts.push({
-        id: `collab-mutation:${mutation.mutationId}`,
+        id: collaborationNotificationIdentity(
+          "collab-mutation",
+          { profileId, projectId, canvasId },
+          mutation.mutationId
+        ),
         title: input.labels.mutationConfirmed,
         detail: mutation.workItemKey
           ? `${input.labels.assignmentUpdated} · ${mutation.workItemKey}`
@@ -200,7 +216,11 @@ export function buildCollaborationNotificationDrafts(input: {
       });
     } else if (mutation.status === "rejected") {
       drafts.push({
-        id: `collab-mutation:${mutation.mutationId}`,
+        id: collaborationNotificationIdentity(
+          "collab-mutation",
+          { profileId, projectId, canvasId },
+          mutation.mutationId
+        ),
         title: input.labels.mutationRejected,
         detail: mutation.errorMessage ?? mutation.errorCode ?? input.labels.assignmentFailed,
         tone: "destructive",

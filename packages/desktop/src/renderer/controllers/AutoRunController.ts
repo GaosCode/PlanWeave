@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type {
   DesktopAutoRunState,
   DesktopBlockDetail,
@@ -189,8 +189,30 @@ export function useFileSyncController({
   t: ReturnType<typeof createTranslator>;
 }): FileSyncController {
   const [lastFileChange, setLastFileChange] = useState<DesktopPackageFileChangeEvent | null>(null);
-  const [fileSyncDiagnostics, setFileSyncDiagnostics] = useState<string[]>([]);
-  const [fileSyncResult, setFileSyncResult] = useState<DesktopPackageFileSyncResult | null>(null);
+  const scopeKey = JSON.stringify([selectedProject?.rootPath ?? null, selectedCanvasId]);
+  const [diagnosticsSnapshot, setDiagnosticsSnapshot] = useState<{
+    scopeKey: string;
+    diagnostics: string[];
+  } | null>(null);
+  const [resultSnapshot, setResultSnapshot] = useState<{
+    scopeKey: string;
+    result: DesktopPackageFileSyncResult | null;
+  } | null>(null);
+  const setFileSyncDiagnostics = useCallback(
+    (diagnostics: string[]) => {
+      setDiagnosticsSnapshot({ scopeKey, diagnostics });
+    },
+    [scopeKey]
+  );
+  const setFileSyncResult = useCallback(
+    (result: DesktopPackageFileSyncResult | null) => {
+      setResultSnapshot({ scopeKey, result });
+    },
+    [scopeKey]
+  );
+  const fileSyncDiagnostics =
+    diagnosticsSnapshot?.scopeKey === scopeKey ? diagnosticsSnapshot.diagnostics : [];
+  const fileSyncResult = resultSnapshot?.scopeKey === scopeKey ? resultSnapshot.result : null;
   const { refreshPackageFiles } = usePackageFileSync({
     refreshProjectDerivedState,
     reloadCurrentCanvas,

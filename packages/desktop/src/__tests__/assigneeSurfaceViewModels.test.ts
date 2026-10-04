@@ -123,6 +123,7 @@ describe("assigneeSurfaceViewModels", () => {
 
   it("builds collaboration notifications from activity and confirmed/rejected mutations only", () => {
     const drafts = buildCollaborationNotificationDrafts({
+      scope: baseSnapshot(),
       activity: [
         {
           ...exampleActivityListPage.items[0]!,
@@ -183,8 +184,80 @@ describe("assigneeSurfaceViewModels", () => {
         mutationRejected: "Assignment rejected"
       }
     });
-    expect(drafts.some((item) => item.id === "collab-mutation:mut-ok")).toBe(true);
-    expect(drafts.some((item) => item.id === "collab-mutation:mut-pending")).toBe(false);
-    expect(drafts.find((item) => item.id === "collab-mutation:mut-bad")?.tone).toBe("destructive");
+    expect(drafts).toHaveLength(4);
+    expect(drafts.filter((item) => item.title === "Assignment confirmed")).toHaveLength(1);
+    expect(drafts.find((item) => item.detail === "stale revision")?.tone).toBe("destructive");
+  });
+});
+
+describe("collaboration notification authority", () => {
+  it("isolates recycled mutation IDs by original authority and event, preserving refresh identity", () => {
+    const input = {
+      scope: { profileId: "profile:一", projectId: "project:1", canvasId: "canvas:1" },
+      activity: [],
+      mutations: [
+        {
+          mutationId: "mut-1",
+          kind: "assignment" as const,
+          status: "confirmed" as const,
+          submittedAt: "2030-01-01T00:00:00.000Z"
+        }
+      ],
+      labels: {
+        assignmentUpdated: "updated",
+        assignmentFailed: "failed",
+        membershipChanged: "member",
+        mutationConfirmed: "confirmed",
+        mutationRejected: "rejected"
+      }
+    };
+    const first = buildCollaborationNotificationDrafts(input)[0];
+    const alternatives = [
+      { ...input, scope: { ...input.scope, profileId: "profile:二" } },
+      { ...input, scope: { ...input.scope, projectId: "other" } },
+      { ...input, scope: { ...input.scope, canvasId: "other" } },
+      { ...input, mutations: [{ ...input.mutations[0], mutationId: "mut-2" }] }
+    ];
+    expect(
+      new Set([
+        first.id,
+        ...alternatives.map((value) => buildCollaborationNotificationDrafts(value)[0].id)
+      ]).size
+    ).toBe(5);
+    expect(buildCollaborationNotificationDrafts(input)[0].id).toBe(first.id);
+  });
+
+  it("keeps activity identity on its original canvas while the selected collaboration canvas changes", () => {
+    const input = {
+      scope: { profileId: "profile-1", projectId: "project-1", canvasId: "B" },
+      activity: [
+        {
+          ...exampleActivityListPage.items[0]!,
+          type: "assignment_updated" as const,
+          workItem: { kind: "block" as const, canvasId: "A", blockRef: "T-1#B-001" }
+        }
+      ],
+      mutations: [],
+      labels: {
+        assignmentUpdated: "updated",
+        assignmentFailed: "failed",
+        membershipChanged: "member",
+        mutationConfirmed: "confirmed",
+        mutationRejected: "rejected"
+      }
+    };
+    const first = buildCollaborationNotificationDrafts(input)[0];
+    expect(
+      buildCollaborationNotificationDrafts({
+        ...input,
+        scope: { ...input.scope, canvasId: "C" }
+      })[0].id
+    ).toBe(first.id);
+    expect(
+      buildCollaborationNotificationDrafts({
+        ...input,
+        scope: { ...input.scope, profileId: "other-profile" }
+      })[0].id
+    ).not.toBe(first.id);
   });
 });

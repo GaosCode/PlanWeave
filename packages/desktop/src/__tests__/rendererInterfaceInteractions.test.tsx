@@ -184,10 +184,9 @@ describe("desktop renderer interface interactions", () => {
         promptConflicts: [],
         settings,
         t
-      }).filter((item) => item.id.startsWith("dirty-"))
+      }).filter((item) => item.id.startsWith("dirty:"))
     ).toEqual([
       expect.objectContaining({
-        id: "dirty-T-001#B-001",
         detail: "T-001#B-001",
         navigationIntent: {
           kind: "task-workspace",

@@ -8,6 +8,7 @@ import type { CollaborationNotificationDraft } from "./collaboration/assigneeSur
 import type { createTranslator } from "./i18n";
 import type { PromptConflictRef } from "./hooks/usePromptDrafts";
 import type { DesktopUiSettings, NotificationItem, NotificationItemDraft } from "./types";
+import { notificationIdentity } from "./notificationIdentity";
 import { blockWorkspaceTarget, taskWorkspaceTarget } from "./taskWorkspaceNavigation";
 
 type NotificationNavigationContext = {
@@ -68,7 +69,12 @@ export function buildNotificationItems({
   const notificationItems: NotificationItemDraft[] = [];
   if (settings.notifications.autoRunFailure && autoRunState?.error) {
     notificationItems.push({
-      id: `auto-run-error:${autoRunState.error}`,
+      id: notificationIdentity(
+        "auto-run-error",
+        autoRunState,
+        autoRunState.runId,
+        autoRunState.error
+      ),
       title: t("notifyAutoRun"),
       detail: autoRunState.error,
       tone: "destructive"
@@ -76,7 +82,7 @@ export function buildNotificationItems({
   }
   if (settings.notifications.autoRunFailure && autoRunState?.latestRecordPath) {
     notificationItems.push({
-      id: `latest-record:${autoRunState.latestRecordPath}`,
+      id: notificationIdentity("latest-record", autoRunState, autoRunState.latestRecordPath),
       title: t("latestRecord"),
       detail: autoRunState.latestRecordPath,
       tone: "outline",
@@ -93,11 +99,17 @@ export function buildNotificationItems({
           : undefined
     });
   }
-  if (settings.notifications.graphExceptions) {
+  if (settings.notifications.graphExceptions && navigationContext) {
     for (const task of graph?.tasks ?? []) {
       for (const exception of task.exceptions) {
         notificationItems.push({
-          id: `${task.taskId}-${exception.ref}-${exception.source}`,
+          id: notificationIdentity(
+            "exception",
+            navigationContext,
+            task.taskId,
+            exception.ref,
+            exception.source
+          ),
           title: `${t("graphExceptions")} · ${task.title}`,
           detail: exception.reason,
           tone: "destructive",
@@ -109,10 +121,10 @@ export function buildNotificationItems({
       }
     }
   }
-  if (settings.notifications.dirtyPrompts) {
+  if (settings.notifications.dirtyPrompts && navigationContext) {
     for (const ref of graph?.dirtyPromptRefs ?? []) {
       notificationItems.push({
-        id: `dirty-${ref}`,
+        id: notificationIdentity("dirty", navigationContext, ref),
         title: t("notifyDirtyPrompts"),
         detail: ref,
         tone: "secondary",
@@ -126,7 +138,7 @@ export function buildNotificationItems({
   if (settings.notifications.fileSyncConflict) {
     for (const conflict of promptConflicts) {
       notificationItems.push({
-        id: `prompt-conflict:${conflict.taskId}`,
+        id: notificationIdentity("prompt-conflict", conflict, conflict.taskId),
         title: `${t("fileSyncConflict")} · ${conflict.title}`,
         detail: conflict.taskId,
         tone: "destructive",
@@ -136,22 +148,27 @@ export function buildNotificationItems({
     if (lastFileChange) {
       const detail = lastFileChange.paths.join(", ");
       notificationItems.push({
-        id: `file-change:${detail}`,
+        id: notificationIdentity(
+          "file-change",
+          { projectRoot: lastFileChange.projectRoot, canvasId: lastFileChange.canvasId ?? null },
+          ...lastFileChange.paths
+        ),
         title: t("fileChangesDetected"),
         detail,
         tone: "outline",
         kind: "fileSync"
       });
     }
-    for (const diagnostic of fileSyncDiagnostics) {
-      notificationItems.push({
-        id: `sync-${diagnostic}`,
-        title: t("fileSyncConflict"),
-        detail: diagnostic,
-        tone: "destructive",
-        kind: "fileSync"
-      });
-    }
+    if (navigationContext)
+      for (const diagnostic of fileSyncDiagnostics) {
+        notificationItems.push({
+          id: notificationIdentity("sync", navigationContext, diagnostic),
+          title: t("fileSyncConflict"),
+          detail: diagnostic,
+          tone: "destructive",
+          kind: "fileSync"
+        });
+      }
   }
   for (const recovery of pendingImportRecoveries) {
     notificationItems.push({

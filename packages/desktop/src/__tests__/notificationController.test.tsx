@@ -1,11 +1,19 @@
 /* @vitest-environment jsdom */
 
+import { useState } from "react";
+import type { DesktopUiSettings, DesktopSettingsUpdate } from "../renderer/types";
+import { graph } from "./helpers/graphFixtures";
+import { project } from "./helpers/desktopProjectFixtures";
+import { createDesktopBridgeMock } from "./desktopBridgeMock";
+import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
 import { act, renderHook } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { defaultDesktopSettings } from "../shared/desktopSettings";
 import { useNotificationController } from "../renderer/controllers/NotificationController";
 import { createTranslator } from "../renderer/i18n";
 import { autoRunState } from "./helpers/autoRunControlHarness";
+
+afterEach(cleanupRendererTestEnvironment);
 
 function controllerArgs() {
   return {
@@ -92,5 +100,182 @@ describe("notification navigation controller", () => {
     await act(async () => result.current.onOpenNotification(latest));
 
     expect(args.setError).toHaveBeenCalledWith("Run record response mismatched.");
+  });
+});
+
+describe("notification controller read persistence", () => {
+  it("keeps A read across B, return to A and remount while navigating to the original target", async () => {
+    let persisted: DesktopUiSettings = {
+      ...defaultDesktopSettings,
+      readNotificationIds: ["dirty-T-ALPHA"]
+    };
+    const args = controllerArgs();
+    const mount = (canvasId: string) =>
+      renderHook(
+        ({ canvasId }) => {
+          const [settings, setSettings] = useState(persisted);
+          const updateSettings = (update: DesktopSettingsUpdate) =>
+            setSettings((current) => {
+              persisted = {
+                ...current,
+                ...(typeof update === "function" ? update(current) : update)
+              };
+              return persisted;
+            });
+          return useNotificationController({
+            ...args,
+            autoRunState: null,
+            graph: { ...graph, dirtyPromptRefs: ["T-ALPHA"] },
+            navigationContext: { projectRoot: "/projects/a", canvasId },
+            settings,
+            updateSettings
+          });
+        },
+        { initialProps: { canvasId } }
+      );
+    const hook = mount("A");
+    expect(hook.result.current.notificationItems.filter((item) => !item.read)).toHaveLength(1);
+    const itemA = hook.result.current.notificationItems[0];
+    act(() => hook.result.current.onMarkNotificationRead(itemA.id));
+    expect(hook.result.current.notificationItems.filter((item) => !item.read)).toHaveLength(0);
+    hook.rerender({ canvasId: "B" });
+    expect(hook.result.current.notificationItems.filter((item) => !item.read)).toHaveLength(1);
+    await act(async () =>
+      hook.result.current.onOpenNotification(hook.result.current.notificationItems[0])
+    );
+    expect(args.openTaskWorkspace).toHaveBeenCalledWith({
+      projectRoot: "/projects/a",
+      canvasId: "B",
+      taskId: "T-ALPHA"
+    });
+    hook.rerender({ canvasId: "A" });
+    expect(hook.result.current.notificationItems[0].read).toBe(true);
+    expect(persisted.readNotificationIds).toEqual(["dirty-T-ALPHA", itemA.id]);
+    hook.unmount();
+    const restored = mount("A");
+    expect(restored.result.current.notificationItems[0].read).toBe(true);
+    restored.rerender({ canvasId: "B" });
+    expect(restored.result.current.notificationItems[0].read).toBe(false);
+    restored.unmount();
+  });
+
+  it("retains late A execution read state in B and opens the A authority record", async () => {
+    const args = controllerArgs();
+    const hook = renderHook(
+      ({ canvasId, state, settings }) =>
+        useNotificationController({
+          ...args,
+          autoRunState: state,
+          settings,
+          navigationContext: { projectRoot: "/projects/authority", canvasId }
+        }),
+      {
+        initialProps: { canvasId: "A", state: args.autoRunState, settings: defaultDesktopSettings }
+      }
+    );
+    const ids = hook.result.current.notificationItems.map((item) => item.id);
+    hook.rerender({
+      canvasId: "B",
+      state: { ...args.autoRunState, updatedAt: "later" },
+      settings: { ...defaultDesktopSettings, readNotificationIds: ids }
+    });
+    expect(hook.result.current.notificationItems.filter((item) => !item.read)).toHaveLength(0);
+    await act(async () =>
+      hook.result.current.onOpenNotification(hook.result.current.notificationItems[0])
+    );
+    expect(args.openRunWorkspace).toHaveBeenCalledWith({
+      projectRoot: "/projects/authority",
+      canvasId: "canvas-authority",
+      recordId: "T-001#B-001::RUN-001"
+    });
+    hook.rerender({
+      canvasId: "B",
+      state: { ...args.autoRunState, canvasId: "B" },
+      settings: { ...defaultDesktopSettings, readNotificationIds: ids }
+    });
+    expect(hook.result.current.notificationItems.filter((item) => !item.read)).toHaveLength(1);
+    hook.unmount();
+  });
+});
+
+describe("notification scope producers", () => {
+  it("does not reuse completed file diagnostics when switching project/canvas", async () => {
+    const syncBridge = createDesktopBridgeMock({
+      refreshPackageFileChanges: vi.fn().mockResolvedValue({
+        ok: false,
+        primed: false,
+        fullRefresh: false,
+        affectedTasks: [],
+        dirtyPromptRefs: [],
+        refreshedPromptCount: 0,
+        refreshConcurrency: null,
+        diagnostics: [{ code: "file_conflict", message: "A conflict", path: "prompt.md" }]
+      })
+    });
+    vi.stubGlobal("planweave", syncBridge);
+    vi.resetModules();
+    const { useFileSyncController } = await import("../renderer/controllers/AutoRunController");
+    const hook = renderHook(
+      ({ canvasId, selectedProject }) =>
+        useFileSyncController({
+          projectDiagnostics: [],
+          refreshProjectDerivedState: async () => {},
+          reloadCurrentCanvas: async () => {},
+          selectedCanvasId: canvasId,
+          selectedProject,
+          setError: vi.fn(),
+          t: createTranslator("en")
+        }),
+      { initialProps: { canvasId: "A", selectedProject: project } }
+    );
+    await act(async () => hook.result.current.refreshPackageFiles());
+    expect(hook.result.current.fileSyncDiagnostics).toEqual(["A conflict"]);
+    hook.rerender({ canvasId: "B", selectedProject: project });
+    expect(hook.result.current.fileSyncDiagnostics).toEqual([]);
+    hook.rerender({ canvasId: "A", selectedProject: { ...project, rootPath: "/projects/other" } });
+    expect(hook.result.current.fileSyncDiagnostics).toEqual([]);
+    hook.rerender({ canvasId: "A", selectedProject: project });
+    expect(hook.result.current.fileSyncDiagnostics).toEqual(["A conflict"]);
+  });
+
+  it("carries task draft conflict origin to notifications even when another canvas is active", async () => {
+    vi.stubGlobal("planweave", createDesktopBridgeMock());
+    vi.resetModules();
+    const { useTaskPromptDrafts } = await import("../renderer/hooks/useTaskPromptDrafts");
+    const hook = renderHook(
+      ({ currentGraph }) =>
+        useTaskPromptDrafts({
+          graph: currentGraph,
+          selectedProject: project,
+          selectedCanvasId: "A",
+          refreshGraph: async () => {},
+          setError: vi.fn(),
+          workspaceCanvas: null
+        }),
+      { initialProps: { currentGraph: graph } }
+    );
+    act(() => hook.result.current.handlePromptChange("T-ALPHA", "local draft"));
+    hook.rerender({
+      currentGraph: {
+        ...graph,
+        tasks: graph.tasks.map((task) => ({ ...task, promptMarkdown: "remote changed" }))
+      }
+    });
+    const conflict = hook.result.current.promptConflicts[0];
+    expect(conflict).toMatchObject({ projectRoot: project.rootPath, canvasId: "A" });
+    const args = controllerArgs();
+    const notifications = renderHook(
+      ({ canvasId }) =>
+        useNotificationController({
+          ...args,
+          autoRunState: null,
+          promptConflicts: [conflict],
+          navigationContext: { projectRoot: project.rootPath, canvasId }
+        }),
+      { initialProps: { canvasId: "A" } }
+    );
+    const originalId = notifications.result.current.notificationItems[0].id;
+    notifications.rerender({ canvasId: "B" });
+    expect(notifications.result.current.notificationItems[0].id).toBe(originalId);
   });
 });

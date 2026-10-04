@@ -76,7 +76,7 @@ function authority(projectId: string) {
   });
 }
 
-function setup() {
+function setup(useDefaultMutationIds = false) {
   const gate = deferred();
   let projectId = projectA;
   let signalListener: ((signal: CollaborationObserverSignal) => void) | undefined;
@@ -131,7 +131,12 @@ function setup() {
       };
     }
   };
-  const controller = new CollaborationReadModelController({ api });
+  let mutationSequence = 0;
+  const controller = new CollaborationReadModelController({
+    api,
+    clock: { now: () => new Date("2030-01-01T00:00:00.000Z") },
+    ...(useDefaultMutationIds ? {} : { createMutationId: () => `mut-${++mutationSequence}` })
+  });
   const activate = async (project = projectA, profile = "profile-A", canvas = "canvas-1") => {
     projectId = project;
     await controller.setActiveProject({ profileId: profile, projectId: project, canvasId: canvas });
@@ -425,4 +430,30 @@ describe("mutation publication belongs to the original collaboration scope", () 
       f.controller.dispose();
     }
   });
+});
+
+it("does not recycle mutation event identity across controller remounts in the same millisecond", async () => {
+  const first = setup(true);
+  const second = setup(true);
+  try {
+    await first.activate();
+    await second.activate();
+    const one = first.start("assignment");
+    const two = second.start("assignment");
+    const firstRecord = Object.values(first.controller.getSnapshot().mutationsById)[0];
+    const secondRecord = Object.values(second.controller.getSnapshot().mutationsById)[0];
+    expect(firstRecord.submittedAt).toBe(secondRecord.submittedAt);
+    expect(firstRecord.mutationId).not.toBe(secondRecord.mutationId);
+    first.gate.resolve();
+    second.gate.resolve();
+    await Promise.all([one, two]);
+    expect(Object.values(first.controller.getSnapshot().mutationsById)[0].mutationId).toBe(
+      firstRecord.mutationId
+    );
+  } finally {
+    first.gate.resolve();
+    second.gate.resolve();
+    first.controller.dispose();
+    second.controller.dispose();
+  }
 });

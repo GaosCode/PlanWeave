@@ -260,6 +260,7 @@
         "singleInstanceLifecycle.test.ts",
         "smokeFailureGate.test.ts",
         "statisticsAndSettingsViews.test.tsx",
+        "t002QueuedScopeReview.test.tsx",
         "taskNodeCardInteractions.test.tsx",
         "taskNodeFocus.test.tsx",
         "taskNodeStatus.test.tsx",

@@ -189,6 +189,11 @@ export function useCollaborationSurface(
   const collaborationNotificationDrafts = useMemo(
     () =>
       buildCollaborationNotificationDrafts({
+        scope: {
+          profileId: snapshot.profileId,
+          projectId: snapshot.projectId,
+          canvasId: snapshot.canvasId
+        },
         activity: snapshot.activity,
         mutations: Object.values(snapshot.mutationsById),
         labels: {
@@ -199,7 +204,14 @@ export function useCollaborationSurface(
           mutationRejected: args.t("notifyAssignmentRejected")
         }
       }),
-    [args.t, snapshot.activity, snapshot.mutationsById]
+    [
+      args.t,
+      snapshot.activity,
+      snapshot.mutationsById,
+      snapshot.profileId,
+      snapshot.projectId,
+      snapshot.canvasId
+    ]
   );
 
   return {

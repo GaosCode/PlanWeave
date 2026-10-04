@@ -6,6 +6,8 @@ import type { TaskNodeData } from "../types";
 import type { WorkspaceCanvasCommandsResult } from "./useWorkspaceCanvasCommands";
 
 export type PromptConflictRef = {
+  projectRoot: string;
+  canvasId: string | null;
   taskId: string;
   title: string;
   draft: string;
@@ -34,7 +36,13 @@ type PromptDraft = {
   conflictRevision: number;
   inFlight?: PromptWrite;
 };
-type PromptScope = { id: string; tasks: Map<string, PromptDraft>; graph: DesktopGraphViewModel };
+type PromptScope = {
+  id: string;
+  projectRoot: string;
+  canvasId: string | null;
+  tasks: Map<string, PromptDraft>;
+  graph: DesktopGraphViewModel;
+};
 type PromptSnapshot = {
   promptDrafts: Record<string, string>;
   promptConflicts: PromptConflictRef[];
@@ -112,7 +120,13 @@ export function useTaskPromptDrafts({
     ]);
     let scope = scopeRef.current;
     if (!scope || scope.id !== id) {
-      scope = { id, tasks: new Map(), graph };
+      scope = {
+        id,
+        projectRoot: selectedProject.rootPath,
+        canvasId: selectedCanvasId,
+        tasks: new Map(),
+        graph
+      };
       scopeRef.current = scope;
     } else if (scope.graph === graph) {
       return;
@@ -163,6 +177,8 @@ export function useTaskPromptDrafts({
       } else {
         draft.conflictRevision += 1;
         draft.conflict = {
+          projectRoot: scope.projectRoot,
+          canvasId: scope.canvasId,
           taskId: task.taskId,
           title: task.title,
           draft: draft.draft,
@@ -260,6 +276,8 @@ export function useTaskPromptDrafts({
                   if (isCurrent()) {
                     draft.conflictRevision += 1;
                     draft.conflict = {
+                      projectRoot: scope.projectRoot,
+                      canvasId: scope.canvasId,
                       taskId,
                       title: draft.title,
                       draft: draft.draft,
@@ -282,6 +300,8 @@ export function useTaskPromptDrafts({
             if (remote.promptMarkdown !== write.markdown) {
               draft.conflictRevision += 1;
               draft.conflict = {
+                projectRoot: scope.projectRoot,
+                canvasId: scope.canvasId,
                 taskId,
                 title: draft.title,
                 draft: draft.draft,

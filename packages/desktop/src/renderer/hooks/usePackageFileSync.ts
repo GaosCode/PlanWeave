@@ -54,6 +54,14 @@ function syncResultWithWatcherMetadata(
 }
 
 type RefreshTarget = {
+  callbacks: Pick<
+    UsePackageFileSyncArgs,
+    | "reloadCurrentCanvas"
+    | "refreshProjectDerivedState"
+    | "setError"
+    | "setFileSyncDiagnostics"
+    | "setFileSyncResult"
+  >;
   canvasId: string | null;
   generation: number;
   project: DesktopProjectSummary;
@@ -171,6 +179,13 @@ export function usePackageFileSync({
   }
   latestTargetRef.current = selectedProject
     ? {
+        callbacks: {
+          reloadCurrentCanvas,
+          refreshProjectDerivedState,
+          setError,
+          setFileSyncDiagnostics,
+          setFileSyncResult
+        },
         project: selectedProject,
         canvasId: selectedCanvasId,
         generation: refreshGenerationRef.current
@@ -229,6 +244,13 @@ export function usePackageFileSync({
       if (!bridge || !isCurrentRefreshTarget(pending.target)) {
         return;
       }
+      const {
+        reloadCurrentCanvas,
+        refreshProjectDerivedState,
+        setError,
+        setFileSyncDiagnostics,
+        setFileSyncResult
+      } = pending.target.callbacks;
       try {
         const ref = desktopCanvasReference(pending.target.project, pending.target.canvasId);
         const changedPaths = sortedChangedPaths(pending.changedPaths);
@@ -250,7 +272,9 @@ export function usePackageFileSync({
           try {
             await refreshProjectDerivedState();
           } catch (caught) {
-            setError([message, errorMessage(caught)].filter(Boolean).join("\n"));
+            if (isCurrentRefreshTarget(pending.target)) {
+              setError([message, errorMessage(caught)].filter(Boolean).join("\n"));
+            }
           }
           return;
         }
@@ -265,14 +289,7 @@ export function usePackageFileSync({
         }
       }
     },
-    [
-      isCurrentRefreshTarget,
-      refreshProjectDerivedState,
-      reloadCurrentCanvas,
-      setError,
-      setFileSyncDiagnostics,
-      setFileSyncResult
-    ]
+    [isCurrentRefreshTarget]
   );
 
   const drainRefreshQueue = useCallback(() => {

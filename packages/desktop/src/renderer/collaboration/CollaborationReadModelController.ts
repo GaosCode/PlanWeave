@@ -202,7 +202,6 @@ export class CollaborationReadModelController {
   private disposed = false;
   private generationEpoch = 0;
   private mutationScopeGeneration = 0;
-  private mutationSeq = 0;
   private observerAttemptSeq = 0;
   private refreshRequestSeq = 0;
   private lastSuccessfulRefreshRequest = 0;
@@ -225,12 +224,7 @@ export class CollaborationReadModelController {
     this.api = options.api;
     this.pageLimit = options.pageLimit ?? DEFAULT_PAGE_LIMIT;
     this.clock = options.clock ?? { now: () => new Date() };
-    this.createMutationId =
-      options.createMutationId ??
-      (() => {
-        this.mutationSeq += 1;
-        return `mut-${this.mutationSeq}`;
-      });
+    this.createMutationId = options.createMutationId ?? (() => crypto.randomUUID());
     this.state = emptyState(this.clock.now().toISOString());
     this.cachedSnapshot = buildCollaborationSnapshot(this.state);
   }
