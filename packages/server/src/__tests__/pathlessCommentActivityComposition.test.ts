@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { encodeCanvasReplicaDocument, type PlanPackageManifest } from "@planweave-ai/runtime";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { basicManifest } from "../../../runtime/src/__tests__/promptTestHelpers.js";
 import { ContentVersionRepository } from "../canvas/contentVersionRepository.js";
 import { parseServerConfig } from "../config.js";
@@ -29,6 +29,7 @@ const compositions: DistributedServerComposition[] = [];
 const directories: string[] = [];
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const composition of compositions.splice(0)) await composition.close();
   await Promise.all(
     servers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve())))
@@ -145,6 +146,35 @@ async function setupPathlessComposition() {
 }
 
 describe("pathless comment activity composition", () => {
+  it("reuses one verified version across concurrent and warm empty comment queries", async () => {
+    const fixture = await setupPathlessComposition();
+    const reads = vi.spyOn(ContentVersionRepository.prototype, "readVersion");
+    const query = new URLSearchParams({
+      workItem: JSON.stringify({ kind: "block", canvasId, blockRef: "T-001#B-001" })
+    });
+    const list = () =>
+      fetch(`${fixture.origin}/api/v1/projects/${projectId}/comments?${query}`, {
+        headers: { Authorization: `Bearer ${fixture.token}` }
+      });
+    const responses = await Promise.all(Array.from({ length: 8 }, list));
+    for (const response of responses) {
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({ items: [], nextCursor: null });
+    }
+    expect((await list()).status).toBe(200);
+    expect(reads).toHaveBeenCalledTimes(1);
+
+    const database = await openServerDatabase(fixture.config.databasePath, 5_000);
+    database
+      .prepare(
+        "UPDATE workspace_memberships SET revoked_at=? WHERE workspace_id=? AND human_principal_id=?"
+      )
+      .run(clock().toISOString(), fixture.scope.workspaceId, ownerId);
+    database.close();
+    expect((await list()).status).toBe(403);
+    expect(reads).toHaveBeenCalledTimes(1);
+  });
+
   it("uses restored registry scope and current authoritative content without a Runtime registry", async () => {
     const fixture = await setupPathlessComposition();
     const workItem = { kind: "block", canvasId, blockRef: "T-001#B-001" } as const;

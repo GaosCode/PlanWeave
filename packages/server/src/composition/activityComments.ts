@@ -1,5 +1,4 @@
 import type { SqliteDatabase } from "../sqlite.js";
-import { decodeCanvasReplicaDocument } from "@planweave-ai/runtime";
 import { ArtifactStore } from "../artifacts.js";
 import {
   ActivityProjectionService,
@@ -25,7 +24,7 @@ import type { ServerConfig } from "../config.js";
 import type { CollaborationScopeAuthority } from "../identity/index.js";
 import { ContentVersionRepository } from "../canvas/index.js";
 import { createRoutedWorkItemPackagePort } from "../work/ports.js";
-import { createManifestWorkItemPort } from "../work/workItemFacts.js";
+import { createCommentWorkItemResolver } from "./commentWorkItemResolver.js";
 
 function appendHumanObserverActivity(
   journal: HumanObserverJournal,
@@ -126,21 +125,19 @@ export function createActivityCommentsComposition(input: {
     clock: input.clock
   });
   const contentVersions = new ContentVersionRepository(input.database, input.clock);
+  const resolveWorkItems = createCommentWorkItemResolver({
+    contentVersions,
+    hasScope: (scope) => input.collaborationScopeAuthority.hasScope(scope)
+  });
   const commentServices = new Map<string, CommentService>();
   const resolveCommentService = (workspaceId: string, projectId: string) => {
     if (!input.collaborationScopeAuthority.hasScope({ workspaceId, projectId })) return undefined;
     const serviceKey = collaborationScopeKey(workspaceId, projectId);
     let service = commentServices.get(serviceKey);
     if (!service) {
-      const packagePort = createRoutedWorkItemPackagePort((canvasId) => {
-        const scope = { workspaceId, projectId, canvasId };
-        if (!input.collaborationScopeAuthority.hasScope(scope)) return undefined;
-        const head = contentVersions.head(scope);
-        if (!head) return undefined;
-        const content = contentVersions.readVersion(scope, head.content).content;
-        const document = decodeCanvasReplicaDocument(content);
-        return createManifestWorkItemPort(document.manifest, canvasId);
-      });
+      const packagePort = createRoutedWorkItemPackagePort((canvasId) =>
+        resolveWorkItems({ workspaceId, projectId, canvasId })
+      );
       service = new CommentService({
         workspaceId,
         comments: new CommentRepository(input.database, workspaceId),

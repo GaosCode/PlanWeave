@@ -973,6 +973,7 @@
         "commentAttachmentLifecycle.test.ts",
         "commentAttachmentLifecycleProcess.test.ts",
         "commentService.test.ts",
+        "commentWorkItemResolver.test.ts",
         "config.test.ts",
         "configMigration.test.ts",
         "containerPrepare.test.ts",
