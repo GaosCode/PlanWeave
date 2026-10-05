@@ -1,9 +1,42 @@
 import { spawn } from "node:child_process";
-import { cp, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { runCli, repoRoot, cliWorkflowTimeoutMs } from "./support/cliTestHarness.js";
+import {
+  runCli,
+  runCliExpectFailure,
+  repoRoot,
+  cliWorkflowTimeoutMs,
+  type CreateCanvasWorkspaceJsonResult
+} from "./support/cliTestHarness.js";
+
+async function snapshotTree(root: string): Promise<Record<string, string>> {
+  const snapshot: Record<string, string> = {};
+  async function visit(directory: string, prefix: string): Promise<void> {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        snapshot[`${relativePath}/`] = "directory";
+        await visit(path, relativePath);
+      } else {
+        snapshot[relativePath] = createHash("sha256")
+          .update(await readFile(path))
+          .digest("hex");
+      }
+    }
+  }
+  await visit(root, "");
+  return snapshot;
+}
+
+function snapshotHash(snapshot: Record<string, string>): string {
+  return createHash("sha256")
+    .update(JSON.stringify(Object.entries(snapshot).sort()))
+    .digest("hex");
+}
 
 async function waitForText(path: string, pattern: RegExp): Promise<void> {
   for (let attempt = 0; attempt < 200; attempt += 1) {
@@ -18,6 +51,215 @@ async function waitForText(path: string, pattern: RegExp): Promise<void> {
 }
 
 describe("STEP-1 CLI contract: run sessions", () => {
+  it(
+    "prunes only the explicit canvas and keeps conflicting modes and previews read-only",
+    async () => {
+      const fixtureRoot = await mkdtemp(join(tmpdir(), "planweave-prune-cli-"));
+      const home = join(fixtureRoot, "home");
+      const sourceRoot = join(fixtureRoot, "source");
+      await mkdir(sourceRoot);
+      const env = { ...process.env, PLANWEAVE_HOME: home, PLANWEAVE_CANVAS_ID: "b" };
+      const cli = (args: string[]) => runCli(["--project-root", sourceRoot, ...args], env);
+      const failure = (args: string[]) =>
+        runCliExpectFailure(["--project-root", sourceRoot, ...args], env);
+      try {
+        await cli(["init", "--json"]);
+        const canvases: CreateCanvasWorkspaceJsonResult[] = [];
+        for (const id of ["a", "b"]) {
+          const canvas = JSON.parse(
+            (await cli(["canvas", "create", "--id", id, "--title", id, "--json"])).stdout
+          ) as CreateCanvasWorkspaceJsonResult;
+          canvases.push(canvas);
+          for (const [runId, month] of [
+            ["RUN-001", "01"],
+            ["RUN-002", "02"],
+            ["RUN-003", "03"]
+          ]) {
+            const runDir = join(canvas.resultsDir, "T-001", "blocks", "B-001", "runs", runId);
+            await mkdir(runDir, { recursive: true });
+            await writeFile(join(runDir, "report.md"), `${id} ${runId}\n`);
+            await writeFile(
+              join(runDir, "metadata.json"),
+              JSON.stringify({
+                runId,
+                submittedAt: `2026-${month}-01T00:00:00.000Z`
+              })
+            );
+          }
+          await writeFile(
+            canvas.statePath,
+            JSON.stringify({
+              currentRefs: [],
+              currentFeedbackId: null,
+              currentReviewBlockRef: null,
+              tasks: {},
+              blocks: { "T-001#B-001": { status: "completed", lastRunId: "RUN-002" } },
+              feedback: {}
+            })
+          );
+          const sessionDir = join(canvas.resultsDir, "run-sessions", "SESSION-0001");
+          await mkdir(sessionDir, { recursive: true });
+          await writeFile(
+            join(sessionDir, "session.json"),
+            JSON.stringify({
+              stateVersion: 0,
+              sessionId: "SESSION-0001",
+              kind: "run",
+              trigger: "manual",
+              projectRoot: sourceRoot,
+              canvasId: id,
+              scope: { kind: "project" },
+              phase: "running",
+              startedAt: "2026-01-01T00:00:00.000Z",
+              updatedAt: "2026-01-01T00:00:00.000Z",
+              finishedAt: null,
+              reset: null,
+              autoRun: null,
+              latestRecordId: null,
+              latestRecordPath: null,
+              workspaceExecution: null,
+              error: null
+            })
+          );
+        }
+        await cli(["canvas", "use", "b", "--json"]);
+        const [a, b] = canvases;
+        const before = await snapshotTree(home);
+        const conflict = await failure([
+          "run-sessions",
+          "--canvas",
+          "a",
+          "prune",
+          "--dry-run",
+          "--force",
+          "--reason",
+          "test-owned cleanup",
+          "--keep-last",
+          "1",
+          "--json"
+        ]);
+        expect(conflict.code).toBe(1);
+        expect(conflict.stderr).toContain("--dry-run cannot be combined with --force");
+        expect(conflict.stdout).toBe("");
+        expect(await snapshotTree(home)).toEqual(before);
+
+        for (const { args, canvas } of [
+          {
+            args: ["run-sessions", "--canvas", "a", "prune", "--keep-last", "1", "--json"],
+            canvas: a
+          },
+          {
+            args: ["run-sessions", "--canvas", "a", "--json", "prune", "--keep-last", "1"],
+            canvas: a
+          },
+          {
+            args: [
+              "run-sessions",
+              "prune",
+              "--canvas",
+              "a",
+              "--dry-run",
+              "--keep-last",
+              "1",
+              "--json"
+            ],
+            canvas: a
+          },
+          {
+            args: [
+              "run-sessions",
+              "--canvas",
+              "a",
+              "prune",
+              "--canvas",
+              "b",
+              "--keep-last",
+              "1",
+              "--json"
+            ],
+            canvas: b
+          }
+        ]) {
+          const output = (await cli(args)).stdout;
+          expect(output).toContain(
+            join(canvas.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001")
+          );
+          const preview = JSON.parse(output);
+          expect(preview.mode).toBe("dry-run");
+          expect(preview.plan.items.map((item: { path: string }) => item.path)).toEqual([
+            join(canvas.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001")
+          ]);
+          expect(preview.plan.totals).toMatchObject({ runs: 3, sessions: 1 });
+          expect(await snapshotTree(home)).toEqual(before);
+        }
+        for (const [options, message] of [
+          [["--force", "--keep-last", "1"], "requires --reason"],
+          [["--force", "--reason", "test"], "requires at least one"],
+          [["--keep-last", "-1"], "must be a non-negative integer"],
+          [["--keep-last", "1.5"], "must be a non-negative integer"]
+        ] as const) {
+          const invalid = await failure(["run-sessions", "prune", "--canvas", "a", ...options]);
+          expect(invalid.code).toBe(1);
+          expect(invalid.stderr).toContain(message);
+          expect(await snapshotTree(home)).toEqual(before);
+        }
+        const bBefore = await snapshotTree(b.canvasRoot);
+        const aBefore = await snapshotTree(a.canvasRoot);
+        const readOnlyHash = snapshotHash(await snapshotTree(home));
+        const applied = JSON.parse(
+          (
+            await cli([
+              "run-sessions",
+              "--canvas",
+              "a",
+              "prune",
+              "--force",
+              "--reason",
+              "  test-owned cleanup  ",
+              "--keep-last",
+              "1",
+              "--json"
+            ])
+          ).stdout
+        );
+        expect(applied.mode).toBe("applied");
+        expect(applied.applied.reason).toBe("test-owned cleanup");
+        expect(applied.applied.deleted.map((item: { id: string }) => item.id)).toEqual(["RUN-001"]);
+        expect(applied.applied.skipped).toEqual([]);
+        expect(await snapshotTree(b.canvasRoot)).toEqual(bBefore);
+        const removedPrefix = "results/T-001/blocks/B-001/runs/RUN-001/";
+        const expectedA = Object.fromEntries(
+          Object.entries(aBefore).filter(([path]) => !path.startsWith(removedPrefix))
+        );
+        const afterA = await snapshotTree(a.canvasRoot);
+        const indexPrefix = "results/T-001/blocks/B-001/runs/.planweave-task-workspace-run-index/";
+        expect(
+          Object.fromEntries(
+            Object.entries(afterA).filter(([path]) => !path.startsWith(indexPrefix))
+          )
+        ).toEqual(expectedA);
+        process.stdout.write(
+          `prune fixture evidence ${JSON.stringify({
+            fixtureRoot,
+            conflictExitCode: conflict.code,
+            readOnly: { before: snapshotHash(before), after: readOnlyHash },
+            force: {
+              exitCode: 0,
+              deleted: applied.applied.deleted.map((item: { id: string }) => item.id),
+              aBefore: snapshotHash(aBefore),
+              aAfter: snapshotHash(afterA),
+              bBefore: snapshotHash(bBefore),
+              bAfter: snapshotHash(await snapshotTree(b.canvasRoot))
+            }
+          })}\n`
+        );
+      } finally {
+        await rm(fixtureRoot, { recursive: true, force: true });
+      }
+    },
+    cliWorkflowTimeoutMs
+  );
+
   it(
     "reports explainable Auto Run status in JSON and text output",
     async () => {

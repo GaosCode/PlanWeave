@@ -123,12 +123,16 @@ export function registerRunSessionsCommands(program: Command): void {
       .option("--keep-last <n>", "keep the newest N terminal artifacts per container")
       .option(
         "--dry-run",
-        "preview the prune plan without deleting (default when --force is omitted)"
+        "preview the prune plan without deleting (default; cannot combine with --force)"
       )
       .option("--force", "actually delete the planned set (requires --reason)")
       .option("--reason <text>", "why this prune is being performed (required with --force)")
       .option("--json", "print JSON output")
-  ).action(async (options: PruneCommandOptions) => {
+  ).action(async (_options: PruneCommandOptions, command: Command) => {
+    const options = command.optsWithGlobals() as PruneCommandOptions;
+    if (options.dryRun === true && options.force === true) {
+      throw new Error("run-sessions prune --dry-run cannot be combined with --force.");
+    }
     if (options.force === true) {
       const reason = options.reason?.trim();
       if (!reason) {

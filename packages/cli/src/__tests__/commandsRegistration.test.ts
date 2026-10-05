@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import * as cliWorkspace from "../cliWorkspace.js";
+import * as runtime from "@planweave-ai/runtime";
 import { createProgram } from "../index.js";
 import {
   commandOptionLongs,
@@ -8,6 +10,30 @@ import {
 } from "./cliCommandTestHelpers.js";
 
 describe("planweave CLI command registration", () => {
+  it("rejects conflicting prune modes before resolving or pruning a workspace", async () => {
+    const resolver = vi
+      .spyOn(cliWorkspace, "resolveCliPackageWorkspace")
+      .mockRejectedValue(new Error("Workspace must not be resolved for conflicting prune modes."));
+    const preview = vi.spyOn(runtime, "computePrunePlan");
+    const apply = vi.spyOn(runtime, "applyPrunePlan");
+    try {
+      const program = createProgram();
+      await expect(
+        program.parseAsync(
+          ["run-sessions", "prune", "--dry-run", "--force", "--reason", "test", "--keep-last", "1"],
+          { from: "user" }
+        )
+      ).rejects.toThrow("run-sessions prune --dry-run cannot be combined with --force.");
+      expect(resolver).not.toHaveBeenCalled();
+      expect(preview).not.toHaveBeenCalled();
+      expect(apply).not.toHaveBeenCalled();
+    } finally {
+      resolver.mockRestore();
+      preview.mockRestore();
+      apply.mockRestore();
+    }
+  });
+
   it("registers agent workflow commands", () => {
     const commandNames = createProgram().commands.map((command) => command.name());
 
