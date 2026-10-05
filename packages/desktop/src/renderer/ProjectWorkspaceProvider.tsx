@@ -830,19 +830,19 @@ export function ProjectWorkspaceProvider({
   );
   const assigneeUi = useMemo(
     () =>
-      selectedCanvasId
+      activeCanvasId
         ? {
-            canvasId: selectedCanvasId,
+            canvasId: activeCanvasId,
             index: collaborationSurface.assigneeIndex
           }
         : null,
-    [collaborationSurface.assigneeIndex, selectedCanvasId]
+    [collaborationSurface.assigneeIndex, activeCanvasId]
   );
   const commentUi = useMemo(
     () =>
-      selectedCanvasId
+      activeCanvasId
         ? {
-            canvasId: selectedCanvasId,
+            canvasId: activeCanvasId,
             countsByWorkItem: Object.fromEntries(
               Object.entries(collaborationSurface.snapshot.commentsByWorkItem).map(
                 ([key, comments]) => [key, comments.filter((comment) => !comment.tombstoned).length]
@@ -851,7 +851,7 @@ export function ProjectWorkspaceProvider({
             t
           }
         : null,
-    [collaborationSurface.snapshot.commentsByWorkItem, selectedCanvasId, t]
+    [collaborationSurface.snapshot.commentsByWorkItem, activeCanvasId, t]
   );
 
   useGraphFlowModel({

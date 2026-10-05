@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { ReactFlowProvider } from "@xyflow/react";
+import { TaskNodeCard } from "../renderer/graph/TaskNodeCard";
+import type { AppFlowNode } from "../renderer/types";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { graph } from "./helpers/graphFixtures";
@@ -19,6 +22,13 @@ import type { AppView, DesktopSettingsUpdate, DesktopUiSettings } from "../rende
 import type { WorkspaceCanvasLocator } from "../shared/canvasLocator";
 import { collaborationRemoteCanvasReplicaProjectionSchema } from "../shared/canvasReplicaIpc";
 
+const stableSurface = vi.hoisted(() => ({
+  snapshot: { commentsByWorkItem: {}, commentInvalidationVersionByWorkItem: {}, mutationsById: {} },
+  index: { byWorkItemKey: {}, syncPhase: "idle", surfaceActive: false },
+  emptyMap: {},
+  selectedEndpointId: () => "__custom",
+  endpoints: []
+}));
 const bridges = vi.hoisted(() => {
   function bridgeProxy() {
     const target: Record<PropertyKey, unknown> = {};
@@ -70,14 +80,10 @@ vi.mock("../renderer/hooks/useCollaborationStatus", () => ({
 vi.mock("../renderer/hooks/useCollaborationSurface", () => ({
   useCollaborationSurface: () => ({
     status: bridges.status.current,
-    snapshot: {
-      commentsByWorkItem: {},
-      commentInvalidationVersionByWorkItem: {},
-      mutationsById: {}
-    },
+    snapshot: stableSurface.snapshot,
     viewModel: null,
     controller: null,
-    assigneeIndex: { byWorkItemKey: {}, syncPhase: "idle", surfaceActive: false },
+    assigneeIndex: stableSurface.index,
     activeProfileId: bridges.status.current?.activeProfileId ?? null,
     activeProjectId: bridges.status.current?.profiles[0]?.projectId ?? null,
     sessionConnected: bridges.status.current?.session.phase === "connected",
@@ -111,7 +117,7 @@ vi.mock("../renderer/hooks/useWorkspaceAgentEndpointCatalog", () => ({
   useWorkspaceAgentEndpointCatalog: (input: unknown) => {
     endpointCatalogProbe.input = input;
     return {
-      endpoints: [],
+      endpoints: stableSurface.endpoints,
       errorCode: null,
       savePreference: stubs.asyncCall
     };
@@ -218,18 +224,18 @@ vi.mock("../renderer/hooks/usePromptDrafts", () => ({
     handleTitleChange: stubs.sync,
     handleTitleSave: stubs.asyncCall,
     keepLocalPromptConflicts: stubs.sync,
-    promptDrafts: {},
+    promptDrafts: stableSurface.emptyMap,
     promptConflicts: [],
     reloadPromptConflicts: stubs.asyncCall,
-    saveStates: {},
-    titleDrafts: {}
+    saveStates: stableSurface.emptyMap,
+    titleDrafts: stableSurface.emptyMap
   })
 }));
 vi.mock("../renderer/hooks/useSharedResourceHighlight", () => ({
   useSharedResourceHighlight: () => ({
     activeResource: null,
     pinnedResource: null,
-    transitionEpochByResource: {},
+    transitionEpochByResource: stableSurface.emptyMap,
     onResourceHover: stubs.sync,
     onResourcePin: stubs.sync,
     clearPin: stubs.sync,
@@ -241,7 +247,7 @@ vi.mock("../renderer/hooks/useTaskExecutorActions", () => ({
 }));
 vi.mock("../renderer/hooks/useTaskAgentEndpointSelection", () => ({
   useTaskAgentEndpointSelection: () => ({
-    selectedEndpointId: () => null,
+    selectedEndpointId: stableSurface.selectedEndpointId,
     changeEndpoint: stubs.asyncCall
   })
 }));
@@ -270,7 +276,7 @@ vi.mock("../renderer/hooks/useGraphHistoryActions", () => ({
     handleUndoGraph: stubs.asyncCall
   })
 }));
-vi.mock("../renderer/hooks/useGraphFlowModel", () => ({ useGraphFlowModel: stubs.sync }));
+
 vi.mock("../renderer/hooks/useGraphPaletteActions", () => ({
   useGraphPaletteActions: () => ({
     addPaletteComponent: stubs.asyncCall,
@@ -288,11 +294,13 @@ vi.mock("../renderer/AppSettingsRouteProps", () => ({ buildAppSettingsRouteProps
 vi.mock("../renderer/controllers/GraphWorkspaceController", () => ({
   useGraphWorkspaceController: (input: {
     graph: unknown;
+    nodes: AppFlowNode[];
     runtimeAvailability: unknown;
     workspaceCanvasOffline: boolean;
     workspaceCanvasRevision: number | null;
   }) => ({
     graph: input.graph,
+    nodes: input.nodes,
     runtimeAvailability: input.runtimeAvailability,
     workspaceCanvasOffline: input.workspaceCanvasOffline,
     workspaceCanvasRevision: input.workspaceCanvasRevision
@@ -340,18 +348,48 @@ function cachedProjection() {
   });
 }
 
-function Probe({ onValue }: { onValue: (value: ProjectWorkspaceValue) => void }) {
+function Probe({
+  onValue,
+  showGraph
+}: {
+  onValue: (value: ProjectWorkspaceValue) => void;
+  showGraph?: boolean;
+}) {
   const value = useProjectWorkspace();
   useEffect(() => onValue(value), [onValue, value]);
-  return null;
+  return showGraph ? (
+    <ReactFlowProvider>
+      {value.graphWorkspace.nodes
+        .filter((node) => node.type === "task")
+        .map((node) => (
+          <TaskNodeCard
+            key={node.id}
+            id={node.id}
+            data={node.data}
+            type="task"
+            selected={false}
+            dragging={false}
+            isConnectable={false}
+            zIndex={0}
+            positionAbsoluteX={0}
+            positionAbsoluteY={0}
+            draggable={false}
+            selectable={false}
+            deletable={false}
+          />
+        ))}
+    </ReactFlowProvider>
+  ) : null;
 }
 
 function ProviderHarness({
   initialSettings,
   onError,
   onSettings,
-  onValue
+  onValue,
+  showGraph
 }: {
+  showGraph?: boolean;
   initialSettings: DesktopUiSettings;
   onError?: (message: string | null) => void;
   onSettings: (settings: DesktopUiSettings) => void;
@@ -400,7 +438,7 @@ function ProviderHarness({
   );
   return (
     <ProjectWorkspaceProvider shell={shell}>
-      <Probe onValue={onValue} />
+      <Probe onValue={onValue} showGraph={showGraph} />
     </ProjectWorkspaceProvider>
   );
 }
@@ -442,6 +480,77 @@ afterEach(() => {
 });
 
 describe("ProjectWorkspaceProvider startup authority", () => {
+  it.each([
+    false,
+    true
+  ])("shows Task and Block comment entry points on a Workspace canvas without a Local selection (connected=%s)", async (connected) => {
+    const replica = cachedProjection();
+    const task = graph.tasks[0]!;
+    const block = {
+      ref: `${task.taskId}#B-001`,
+      blockId: "B-001",
+      type: "implementation" as const,
+      title: "Implementation",
+      status: "ready" as const,
+      executor: null,
+      requiredCapabilities: [],
+      promptMissing: false,
+      exceptionReason: null,
+      dispatchable: false,
+      remoteExecution: null
+    };
+    replica.content.tasks = [{ ...task, blocks: [block], blockPreview: [block] }];
+    if (connected) {
+      bridges.status.current = {
+        activeProfileId: locator.connectionProfileId,
+        profiles: [{ profileId: locator.connectionProfileId, projectId: locator.projectId }],
+        session: { phase: "connected" }
+      };
+      bridges.collaboration.target.listCollaborationAuthorizedProjects = vi
+        .fn()
+        .mockResolvedValue({ items: [], nextCursor: null });
+      bridges.collaboration.target.listCollaborationAuthorizedCanvases = vi.fn().mockResolvedValue({
+        items: [
+          {
+            registry: {
+              workspaceId: locator.workspaceId,
+              projectId: locator.projectId,
+              canvasId: locator.canvasId
+            }
+          }
+        ],
+        nextCursor: null
+      });
+    }
+    bridges.collaboration.target.openWorkspaceCanvasSession = vi.fn().mockResolvedValue({
+      locator,
+      status: "accepted",
+      authorityMode: connected ? "server_authoritative" : "offline_cache_readonly",
+      readOnly: !connected,
+      cachedAt: "2026-08-22T00:00:00.000Z",
+      conflict: null,
+      rejectCode: null,
+      replica
+    });
+    render(
+      <ProviderHarness
+        initialSettings={workspaceSettings()}
+        onSettings={vi.fn()}
+        onValue={vi.fn()}
+        showGraph
+      />
+    );
+    await screen.findByDisplayValue(task.title);
+    const commentTriggers = screen.getAllByTestId("work-item-comments-trigger");
+    expect(commentTriggers).toHaveLength(2);
+    fireEvent.click(commentTriggers[0]!);
+    await screen.findByTestId("work-item-comments-popover");
+    expect(
+      screen.getByTestId("work-item-collaboration-panel").getAttribute("data-work-item-kind")
+    ).toBe("task");
+    expect(bridges.desktop.target.getDesktopProjectSnapshot).not.toHaveBeenCalled();
+  });
+
   it("keeps a persisted Workspace cache authoritative after the Local project list resolves", async () => {
     const replica = cachedProjection();
     bridges.collaboration.target.openWorkspaceCanvasSession = vi.fn().mockResolvedValue({
