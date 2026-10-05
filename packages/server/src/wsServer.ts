@@ -223,9 +223,11 @@ export function attachAgentHostWebSocketServer(
       socket.terminate();
     });
     const prior = sessions.get(hostId);
-    if (prior && prior.socket.readyState === WebSocket.OPEN) {
+    if (prior) {
       options.runtimeRpc?.detachHost(hostId, "superseded");
-      prior.socket.close(4001, "superseded");
+      if (prior.socket.readyState === WebSocket.OPEN) {
+        prior.socket.close(4001, "superseded");
+      }
     }
     const session = { socket, initialized: false, processing: Promise.resolve() };
     sessions.set(hostId, session);

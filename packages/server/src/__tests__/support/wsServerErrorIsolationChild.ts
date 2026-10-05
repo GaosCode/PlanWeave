@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { z } from "zod";
+import { WebSocket, WebSocketServer } from "ws";
 import { CanvasRuntimeRpcBroker, CanvasRuntimeRpcError } from "../../canvas/runtimeRpcBroker.js";
 import { createRemoteBlockCoordination } from "../../distributedCoordination.js";
 import { startPlanweaveServer } from "../../lifecycle.js";
@@ -54,10 +55,23 @@ const server = createServer((request, response) => {
   response.end(
     JSON.stringify({
       active: registrations.map(({ host }) => broker.isActive(host.id)),
-      pending: broker.pendingCount()
+      pending: broker.pendingCount(),
+      versions: registrations.map(({ host }) => broker.attachmentVersion(host.id)),
+      states: registrations.map(({ host }) => serverSockets.get(host.id)?.readyState)
     })
   );
 });
+const serverSockets = new Map<string, WebSocket>();
+const heldCloses = new Map<string, () => void>();
+const handleUpgrade = WebSocketServer.prototype.handleUpgrade;
+WebSocketServer.prototype.handleUpgrade = function (request, socket, head, callback) {
+  return handleUpgrade.call(this, request, socket, head, (webSocket, incoming) => {
+    const hostId = request.url?.split("/")[2];
+    if (!hostId) throw new Error("test_host_id_missing");
+    serverSockets.set(hostId, webSocket);
+    callback(webSocket, incoming);
+  });
+};
 const transport = attachAgentHostWebSocketServer({
   server,
   hosts: coordination.hosts,
@@ -75,11 +89,41 @@ const transport = attachAgentHostWebSocketServer({
 });
 const commandSchema = z.discriminatedUnion("command", [
   z.object({ command: z.literal("rpc"), id: z.string(), hostId: z.string() }),
-  z.object({ command: z.literal("stop") })
+  z.object({ command: z.literal("stop") }),
+  z.object({ command: z.literal("hold-close"), hostId: z.string() }),
+  z.object({ command: z.literal("release-close"), hostId: z.string() })
 ]);
 process.on("message", (message: unknown) => {
   const command = commandSchema.parse(message);
+  if (command.command === "hold-close") {
+    const socket = serverSockets.get(command.hostId);
+    if (!socket) throw new Error("test_socket_missing");
+    const emitClose: unknown = Reflect.get(socket, "emitClose");
+    if (typeof emitClose !== "function") throw new Error("test_ws_emit_close_missing");
+    // Delay only the dependency's close delivery, retaining its real CLOSING state.
+    Object.defineProperty(socket, "emitClose", {
+      configurable: true,
+      value() {
+        heldCloses.set(command.hostId, () => {
+          Reflect.deleteProperty(socket, "emitClose");
+          emitClose.call(socket);
+        });
+      }
+    });
+    process.send?.({ event: "close-held", hostId: command.hostId });
+    return;
+  }
+  if (command.command === "release-close") {
+    const release = heldCloses.get(command.hostId);
+    if (!release) throw new Error("test_close_not_held");
+    heldCloses.delete(command.hostId);
+    release();
+    process.send?.({ event: "close-released", hostId: command.hostId });
+    return;
+  }
   if (command.command === "stop") {
+    for (const release of heldCloses.values()) release();
+    heldCloses.clear();
     void (async () => {
       await transport.close();
       broker.close();

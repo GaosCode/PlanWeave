@@ -41,6 +41,7 @@ const childEventSchema = z.discriminatedUnion("event", [
     origin: z.string().url(),
     hosts: z.array(z.object({ hostId: z.string(), token: z.string() })).length(2)
   }),
+  z.object({ event: z.enum(["close-held", "close-released"]), hostId: z.string() }),
   z.object({
     event: z.literal("rpc"),
     id: z.string(),
@@ -168,6 +169,20 @@ async function setup(heartbeatIntervalMs = 30_000) {
     };
     return {
       child,
+      async holdClose(hostId: string) {
+        child.send({ command: "hold-close", hostId });
+        await waitEvent((event) => event.event === "close-held" && event.hostId === hostId);
+      },
+      async releaseClose(hostId: string) {
+        child.send({ command: "release-close", hostId });
+        await waitEvent((event) => event.event === "close-released" && event.hostId === hostId);
+      },
+      async lifecycle() {
+        const response = await fetch(`${origin}/health`, { signal: AbortSignal.timeout(2_000) });
+        return z
+          .object({ versions: z.array(z.number()), states: z.array(z.number().nullable()) })
+          .parse(await response.json());
+      },
       connect,
       rpc,
       rpcOutcome,
@@ -263,6 +278,54 @@ describe("Agent Host WebSocket transport error isolation", () => {
       ]);
       expect(fixture.output()).not.toContain("frame-secret");
       expect(fixture.child.exitCode).toBeNull();
+    } finally {
+      expect(await fixture.dispose(), fixture.output()).toEqual({ code: 0, signal: null });
+    }
+  });
+
+  it("retires pending RPC when an errored CLOSING socket is superseded before its close", async () => {
+    const fixture = await setup();
+    try {
+      const old = await fixture.connect(0);
+      const version = (await fixture.lifecycle()).versions[0]!;
+      fixture.rpc("old-pending", old.hostId);
+      const oldRequest = await old.next("mailbox.message");
+      await fixture.holdClose(old.hostId);
+      old.socket.send("bad-frame", { mask: false });
+      await expect.poll(async () => (await fixture.lifecycle()).states[0]).toBe(WebSocket.CLOSING);
+      const replacement = await fixture.connect(0);
+      const replay = await replacement.next("mailbox.message");
+      expect(replay).toEqual(oldRequest);
+      expect((await fixture.lifecycle()).versions[0]).toBe(version + 1);
+      await expect(fixture.rpcOutcome("old-pending")).resolves.toMatchObject({
+        outcome: "error",
+        code: "canvas_runtime_host_superseded"
+      });
+      fixture.rpc("new-pending", replacement.hostId);
+      await fixture.releaseClose(old.hostId);
+      expect((await fixture.lifecycle()).versions[0]).toBe(version + 1);
+      if (replay.type !== "mailbox.message" || replay.command.type !== "canvas_runtime.request")
+        throw new Error("test_runtime_request_expected");
+      replacement.socket.send(
+        JSON.stringify({
+          type: "canvas_runtime.response",
+          protocolVersion: 1,
+          messageId: "late-old-response",
+          requestId: replay.command.requestId,
+          response: {
+            outcome: "success",
+            operation: "availability",
+            result: { kind: "unavailable", reason: "runtime_not_attached" }
+          }
+        })
+      );
+      await replacement.next("host.event_ack");
+      expect(await fixture.health()).toEqual({ active: [true, false], pending: 1 });
+      await respond(replacement);
+      await expect(fixture.rpcOutcome("new-pending")).resolves.toMatchObject({
+        outcome: "success"
+      });
+      expect(await fixture.health()).toEqual({ active: [true, false], pending: 0 });
     } finally {
       expect(await fixture.dispose(), fixture.output()).toEqual({ code: 0, signal: null });
     }
