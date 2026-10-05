@@ -3,9 +3,12 @@ import {
   COMMENT_ATTACHMENTS_MAX_COUNT,
   COMMENT_LIST_PAGE_DEFAULT
 } from "@planweave-ai/collaboration-protocol/core/limits";
-import { type CommentDisplayProjection } from "@planweave-ai/collaboration-protocol/activity/comments";
 import { type WorkItemRef } from "@planweave-ai/collaboration-protocol/core/primitives";
 import { collaborationBridge } from "../bridge";
+import {
+  CommentPaginationSession,
+  emptyCommentPaginationSnapshot
+} from "../collaboration/commentPaginationSession";
 import {
   createStagedAttachmentFromFile,
   uploadStagedAttachment,
@@ -83,8 +86,6 @@ export type UseCommentsPanelControllerResult = {
   removeAttachment: (localId: string) => void;
 };
 
-type CommentCursor = { createdAt: string; commentId: string };
-
 function mapBoundaryError(error: unknown): CollaborationBoundaryErrorView {
   if (
     error &&
@@ -145,10 +146,9 @@ export function useCommentsPanelController(
   }, [scopeKey]);
 
   const workKey = args.workItem ? workItemKey(args.workItem) : null;
-  const [comments, setComments] = useState<CommentDisplayProjection[]>([]);
-  const [nextCursor, setNextCursor] = useState<CommentCursor | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [pagination, setPagination] = useState(emptyCommentPaginationSnapshot);
+  const { items: comments, nextCursor, loading, loadingMore } = pagination;
+  const paginationRef = useRef<CommentPaginationSession | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [draftTick, setDraftTick] = useState(0);
@@ -195,96 +195,83 @@ export function useCommentsPanelController(
       snapshot.syncPhase === "stale_conflict" ||
       snapshot.syncPhase === "loading");
 
-  const loadPage = useCallback(
-    async (mode: "replace" | "append") => {
-      if (!api || !args.workItem || !args.open || !sessionConnected || !isCurrentScope()) return;
-      const generation = generationRef.current;
-      if (mode === "replace") setLoading(true);
-      else setLoadingMore(true);
-      setActionError(null);
-      try {
-        if (controller && mode === "replace") {
-          await controller.trackWorkItemComments(args.workItem);
-          if (!isCurrentScope() || generation !== generationRef.current) return;
-        }
-        const page = await api.listCollaborationComments({
-          workItem: args.workItem,
-          limit: COMMENT_LIST_PAGE_DEFAULT,
-          includeTombstoned: false,
-          cursor: mode === "append" && nextCursor ? nextCursor : undefined
-        });
-        if (!isCurrentScope() || generation !== generationRef.current) return;
-        setComments((prev) => {
-          const activeItems = page.items.filter((item) => !item.tombstoned);
-          if (mode === "replace") return activeItems;
-          const seen = new Set(prev.map((c) => c.commentId));
-          const merged = [...prev];
-          for (const item of activeItems) {
-            if (!seen.has(item.commentId)) merged.push(item);
-          }
-          merged.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-          return merged;
-        });
-        setNextCursor(page.nextCursor);
-      } catch (error) {
-        if (!isCurrentScope() || generation !== generationRef.current) return;
-        setActionError(collaborationErrorMessage(mapBoundaryError(error)));
-      } finally {
-        if (isCurrentScope() && generation === generationRef.current) {
-          setLoading(false);
-          setLoadingMore(false);
-        }
-      }
-    },
-    [api, args.open, args.workItem, controller, nextCursor, sessionConnected, isCurrentScope]
-  );
+  const invalidationVersion = workKey
+    ? snapshot.commentInvalidationVersionByWorkItem[workKey]
+    : undefined;
 
-  // Intentionally reset when work item / open / connection changes.
-  // loadPage depends on nextCursor; initial replace must not re-fire when cursor advances.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: scope-driven reload only
+  // biome-ignore lint/correctness/useExhaustiveDependencies: scopeToken captures api/open/work identity; invalidations do not retire the composer
   useEffect(() => {
     generationRef.current += 1;
-    setComments([]);
-    setNextCursor(null);
+    setPagination(emptyCommentPaginationSnapshot());
     setStagedAttachments([]);
     cancelledUploads.current = new Set();
     setSubmitting(false);
-    setLoading(false);
-    setLoadingMore(false);
     setActionError(null);
     if (!args.open || !args.workItem || !sessionConnected || !api) return;
-    void loadPage("replace");
-    // Intentionally reset when work item / open / connection changes.
-    // loadPage depends on nextCursor; initial replace must not re-fire when cursor advances.
-  }, [args.open, workKey, sessionConnected, api, scopeKey]);
+    const generation = generationRef.current;
+    const workItem = args.workItem;
+    const session = new CommentPaginationSession({
+      initialVersion: invalidationVersion ?? 0,
+      listPage: (cursor) =>
+        api.listCollaborationComments({
+          workItem,
+          limit: COMMENT_LIST_PAGE_DEFAULT,
+          includeTombstoned: true,
+          cursor
+        }),
+      onChange: (next) => {
+        if (
+          isCurrentScope() &&
+          generation === generationRef.current &&
+          paginationRef.current === session
+        )
+          setPagination(next);
+      },
+      onError: (error) => {
+        if (isCurrentScope() && generation === generationRef.current)
+          setActionError(collaborationErrorMessage(mapBoundaryError(error)));
+      },
+      onRequestStart: () => {
+        if (isCurrentScope() && generation === generationRef.current) setActionError(null);
+      }
+    });
+    paginationRef.current = session;
+    setPagination({ ...emptyCommentPaginationSnapshot(), loading: true });
+    void (async () => {
+      try {
+        if (controller) await controller.trackWorkItemComments(workItem);
+        if (!isCurrentScope() || generation !== generationRef.current) return;
+        await session.start();
+      } catch (error) {
+        if (isCurrentScope() && generation === generationRef.current) {
+          setActionError(collaborationErrorMessage(mapBoundaryError(error)));
+          setPagination((current) => ({ ...current, loading: false, loadingMore: false }));
+        }
+      }
+    })();
+    return () => {
+      session.dispose();
+      if (paginationRef.current === session) paginationRef.current = null;
+    };
+  }, [scopeToken, sessionConnected]);
 
-  // Reconcile hub invalidations (first page) into the open list without dropping loaded history
-  // when the hub page is a subset — full refresh only when snapshot comments advance.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: updatedAt forces hub merge
   useEffect(() => {
     if (
-      !args.open ||
-      !workKey ||
-      !isCurrentScope() ||
       snapshot.profileId !== activeProfile?.profileId ||
-      snapshot.projectId !== activeProfile?.projectId
+      snapshot.projectId !== activeProfile?.projectId ||
+      !isCurrentScope()
     )
       return;
-    const hubItems = snapshot.commentsByWorkItem[workKey];
-    if (!hubItems) return;
-    if (hubItems.length === 0) {
-      setComments([]);
-      return;
-    }
-    setComments((prev) => {
-      const byId = new Map(prev.map((c) => [c.commentId, c]));
-      for (const item of hubItems) {
-        if (item.tombstoned) byId.delete(item.commentId);
-        else byId.set(item.commentId, item);
-      }
-      return [...byId.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    });
-  }, [args.open, workKey, scopeKey, snapshot.commentsByWorkItem, snapshot.updatedAt]);
+    if (invalidationVersion !== undefined)
+      void paginationRef.current?.invalidate(invalidationVersion);
+  }, [
+    activeProfile?.profileId,
+    activeProfile?.projectId,
+    invalidationVersion,
+    isCurrentScope,
+    snapshot.profileId,
+    snapshot.projectId
+  ]);
 
   const rows = useMemo(
     () =>
@@ -331,16 +318,12 @@ export function useCommentsPanelController(
   );
 
   const refresh = useCallback(async () => {
-    if (!isCurrentScope()) return;
-    generationRef.current += 1;
-    setNextCursor(null);
-    await loadPage("replace");
-  }, [isCurrentScope, loadPage]);
+    if (isCurrentScope()) await paginationRef.current?.refresh();
+  }, [isCurrentScope]);
 
   const loadMore = useCallback(async () => {
-    if (!nextCursor || loadingMore) return;
-    await loadPage("append");
-  }, [loadPage, loadingMore, nextCursor]);
+    if (isCurrentScope()) await paginationRef.current?.loadMore();
+  }, [isCurrentScope]);
 
   const submitComment = useCallback(async () => {
     if (!api || !args.workItem || !controller || !canMutate || !isCurrentScope()) return false;
@@ -381,12 +364,7 @@ export function useCommentsPanelController(
         );
         return false;
       }
-      setComments((prev) => {
-        const next = prev.filter((c) => c.commentId !== result.commentId);
-        next.push(result);
-        next.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-        return next;
-      });
+      paginationRef.current?.confirm(result);
       clearCommentDraft(args.workItem, submittedDraft, scopeKey);
       setStagedAttachments((prev) => prev.filter((item) => !consumedAttachments.has(item.localId)));
       setDraftTick((v) => v + 1);
@@ -435,9 +413,7 @@ export function useCommentsPanelController(
           );
           return false;
         }
-        setComments((prev) =>
-          prev.map((comment) => (comment.commentId === result.commentId ? result : comment))
-        );
+        paginationRef.current?.confirm(result);
         return true;
       } catch (error) {
         if (isCurrentRequest()) setActionError(collaborationErrorMessage(mapBoundaryError(error)));
@@ -468,7 +444,7 @@ export function useCommentsPanelController(
           );
           return false;
         }
-        setComments((prev) => prev.filter((comment) => comment.commentId !== result.commentId));
+        paginationRef.current?.confirm(result);
         return true;
       } catch (error) {
         if (isCurrentRequest()) setActionError(collaborationErrorMessage(mapBoundaryError(error)));

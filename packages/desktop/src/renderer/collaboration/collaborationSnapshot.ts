@@ -22,6 +22,7 @@ type SnapshotSource = {
   assignments: Map<string, AssignmentDisplayProjection>;
   workAuthorities: Map<string, WorkAuthorityProjection>;
   comments: Map<string, CommentDisplayProjection[]>;
+  commentInvalidationVersions: Map<string, number>;
   activity: CollaborationReadModelSnapshot["activity"];
   remoteRuns: Map<string, CollaborationRemoteRunProjection>;
   mutations: CollaborationMutationLedger;
@@ -42,6 +43,7 @@ export function buildCollaborationSnapshot(source: SnapshotSource): Collaboratio
     assignmentsByWorkItem: Object.fromEntries(source.assignments),
     workAuthorityByWorkItem: Object.fromEntries(source.workAuthorities),
     commentsByWorkItem: Object.fromEntries(source.comments),
+    commentInvalidationVersionByWorkItem: Object.fromEntries(source.commentInvalidationVersions),
     activity: source.activity,
     remoteRunsByDispatchId: Object.fromEntries(source.remoteRuns),
     mutationsById: Object.fromEntries(source.mutations.records),

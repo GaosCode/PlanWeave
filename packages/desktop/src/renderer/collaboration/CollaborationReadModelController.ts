@@ -96,6 +96,7 @@ type InternalState = {
   assignments: Map<string, AssignmentDisplayProjection>;
   workAuthorities: Map<string, WorkAuthorityProjection>;
   comments: Map<string, CommentDisplayProjection[]>;
+  commentInvalidationVersions: Map<string, number>;
   activity: CollaborationReadModelSnapshot["activity"];
   remoteRuns: Map<string, CollaborationRemoteRunProjection>;
   mutations: CollaborationMutationLedger;
@@ -132,6 +133,7 @@ function emptyState(now: string): InternalState {
     assignments: new Map(),
     workAuthorities: new Map(),
     comments: new Map(),
+    commentInvalidationVersions: new Map(),
     activity: [],
     remoteRuns: new Map(),
     mutations: new CollaborationMutationLedger(),
@@ -201,6 +203,7 @@ export class CollaborationReadModelController {
   private unsubscribers: Array<() => void> = [];
   private disposed = false;
   private generationEpoch = 0;
+  private commentInvalidationSeq = 0;
   private mutationScopeGeneration = 0;
   private observerAttemptSeq = 0;
   private refreshRequestSeq = 0;
@@ -270,6 +273,9 @@ export class CollaborationReadModelController {
       this.state.mutations = new CollaborationMutationLedger();
       this.state.generation = this.nextGeneration(true);
       this.state.loadingKinds = new Map();
+      this.state.comments = new Map();
+      this.state.trackedCommentWorkItems = new Map();
+      this.state.commentInvalidationVersions = new Map();
     }
 
     const generation = this.state.generation;
@@ -300,11 +306,14 @@ export class CollaborationReadModelController {
     if (!this.state.projectId) return;
     const key = workItemKey(workItem);
     this.state.trackedCommentWorkItems.set(key, workItem);
+    if (!this.state.commentInvalidationVersions.has(key)) {
+      this.state.commentInvalidationVersions.set(key, 0);
+    }
     await this.reloadComments(workItem, this.state.generation);
   }
 
   async refreshAuthoritative(
-    _meta: { reason: string } = { reason: "manual" },
+    meta: { reason: string } = { reason: "manual" },
     generation = this.state.generation
   ): Promise<void> {
     this.assertOpen();
@@ -316,6 +325,11 @@ export class CollaborationReadModelController {
       .catch(() => undefined)
       .then(async () => {
         if (this.disposed || generation !== this.state.generation) return;
+        if (meta.reason === "observer_cursor_window") {
+          for (const workItem of this.state.trackedCommentWorkItems.values()) {
+            this.invalidateComments(workItem);
+          }
+        }
         this.refreshArbitration.beginAggregate();
         const snapshotLoading = beginLoading(this.state, "snapshot");
         if (this.state.syncPhase !== "reconnecting" && this.state.syncPhase !== "auth_expired") {
@@ -485,9 +499,13 @@ export class CollaborationReadModelController {
   // ---------------------------------------------------------------------------
 
   private attachSubscriptions(): void {
+    const state = this.state;
     this.unsubscribers.push(
-      this.api.onCollaborationStatusChanged((status) => this.handleStatus(status)),
+      this.api.onCollaborationStatusChanged((status) => {
+        if (state === this.state) this.handleStatus(status);
+      }),
       this.api.onCollaborationObserverSignal((signal) => {
+        if (state !== this.state) return;
         const generation = this.state.generation;
         void this.handleObserverSignal(signal).catch((error: unknown) => {
           this.handleObserverSignalFailure(error, signal, generation);
@@ -572,14 +590,17 @@ export class CollaborationReadModelController {
     }
 
     if (signal.type === "human.observer.catchup_required") {
-      // Retention gap / cursor reset: drop cached projections and reload bounded APIs.
+      // Retention gaps reload bounded APIs; retain comment pages until replacement succeeds.
       this.observerEventQueue.cancelQueued();
       this.state.generation = this.nextGeneration();
       this.state.observerCursor = signal.resumeCursor;
       this.state.eventCursors.resetForCatchup();
       this.state.assignments.clear();
       this.state.workAuthorities.clear();
-      this.state.comments.clear();
+      this.state.commentInvalidationVersions = new Map();
+      for (const workItem of this.state.trackedCommentWorkItems.values()) {
+        this.invalidateComments(workItem);
+      }
       this.state.activity = [];
       this.state.remoteRuns.clear();
       this.state.hosts.clear();
@@ -638,6 +659,9 @@ export class CollaborationReadModelController {
         return;
       }
       entry.eventCursors.markApplied(event.cursor);
+      if ((event.kind === "comment" || event.kind === "attachment") && event.workItem) {
+        this.invalidateComments(event.workItem);
+      }
       this.scheduleObserverCursorRefresh(entry.generation, entry.eventCursors);
       if (event.cursor > this.state.observerCursor) {
         this.state.observerCursor = event.cursor;
@@ -1036,6 +1060,12 @@ export class CollaborationReadModelController {
 
   private upsertComment(projection: CommentDisplayProjection): void {
     upsertCommentProjection(this.state.comments, this.state.trackedCommentWorkItems, projection);
+    this.invalidateComments(projection.workItem);
+  }
+
+  private invalidateComments(workItem: WorkItemRef): void {
+    this.commentInvalidationSeq += 1;
+    this.state.commentInvalidationVersions.set(workItemKey(workItem), this.commentInvalidationSeq);
   }
 
   private emit(): void {

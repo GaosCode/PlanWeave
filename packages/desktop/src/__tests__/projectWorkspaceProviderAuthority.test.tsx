@@ -70,7 +70,11 @@ vi.mock("../renderer/hooks/useCollaborationStatus", () => ({
 vi.mock("../renderer/hooks/useCollaborationSurface", () => ({
   useCollaborationSurface: () => ({
     status: bridges.status.current,
-    snapshot: { commentsByWorkItem: {}, mutationsById: {} },
+    snapshot: {
+      commentsByWorkItem: {},
+      commentInvalidationVersionByWorkItem: {},
+      mutationsById: {}
+    },
     viewModel: null,
     controller: null,
     assigneeIndex: { byWorkItemKey: {}, syncPhase: "idle", surfaceActive: false },

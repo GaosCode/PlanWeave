@@ -6,7 +6,6 @@ import "@testing-library/jest-dom/vitest";
 import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { WorkItemRef } from "@planweave-ai/collaboration-protocol/core/primitives";
 import {
   acquireCollaborationReadModelController,
   resetCollaborationReadModelHubForTests
@@ -15,191 +14,19 @@ import {
   getCommentDraft,
   resetCommentDraftStoreForTests
 } from "../renderer/collaboration/commentDraftStore";
-import type { CollaborationReadBridgePort } from "../renderer/collaboration/CollaborationReadModelController";
 import { useCommentsPanelController } from "../renderer/hooks/useCommentsPanelController";
 import { useActivityPanelController } from "../renderer/hooks/useActivityPanelController";
 import { createTranslator } from "../renderer/i18n";
-import type { CollaborationStatus, PlanWeaveCollaborationApi } from "../shared/collaboration";
+import type { PlanWeaveCollaborationApi } from "../shared/collaboration";
 import { workItemKey } from "../shared/collaborationReadModels";
 import { WorkItemCollaborationPanel } from "../renderer/team/WorkItemCollaborationPanel";
 import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
-
-const taskItem: WorkItemRef = { kind: "task", canvasId: "canvas-1", taskId: "T-1" };
-
-function connectedStatus(): CollaborationStatus {
-  return {
-    profiles: [
-      {
-        profileId: "profile-1",
-        displayName: "Demo",
-        serverBaseUrl: "https://example.test",
-        projectId: "project-1",
-        allowInsecureTransport: false,
-        hasDeviceCredential: true,
-        deviceCredentialPersistence: "persisted",
-        deviceCredentialId: "device-1",
-        humanPrincipalId: "human-1",
-        updatedAt: "2030-01-01T00:00:00.000Z"
-      }
-    ],
-    activeProfileId: "profile-1",
-    credentialStorage: "available",
-    nonPersistenceWarning: null,
-    session: {
-      phase: "connected",
-      activeProfileId: "profile-1",
-      detail: null,
-      lastErrorCode: null,
-      lastErrorMessage: null
-    },
-    updatedAt: "2030-01-01T00:00:00.000Z",
-    workspaceConnection: {
-      schemaVersion: "workspace-setup/v1",
-      status: "local_only",
-      profile: null,
-      workspaceId: null,
-      workspaceDisplayName: null,
-      connectedAt: null,
-      error: null
-    },
-    workspacePicker: { schemaVersion: "workspace-setup/v1", items: [], nextCursor: null }
-  };
-}
-
-function commentProjection(id: string, body: string, revision = 1) {
-  return {
-    commentId: id,
-    projectId: "project-1",
-    workItem: taskItem,
-    author: {
-      humanPrincipalId: "human-1",
-      displayName: "Ada",
-      membershipActive: true
-    },
-    body,
-    bodyFormat: "markdown" as const,
-    revision,
-    createdAt: `2030-01-01T00:00:0${id.slice(-1)}.000Z`,
-    updatedAt: `2030-01-01T00:00:0${id.slice(-1)}.000Z`,
-    tombstoned: false,
-    attachments: [],
-    workItemPresence: "present" as const
-  };
-}
-
-function createApi() {
-  let status = connectedStatus();
-  const statusListeners = new Set<(status: CollaborationStatus) => void>();
-  const listComments = vi.fn().mockImplementation(async (query: { cursor?: unknown }) => {
-    if (query?.cursor) {
-      return {
-        items: [commentProjection("comment-0", "older")],
-        nextCursor: null
-      };
-    }
-    return {
-      items: [
-        { ...commentProjection("comment-1", "first"), projectId: status.profiles[0]!.projectId }
-      ],
-      nextCursor: { createdAt: "2030-01-01T00:00:01.000Z", commentId: "comment-1" }
-    };
-  });
-  const listActivity = vi.fn().mockImplementation(async (query: { cursor?: unknown }) => {
-    if (query?.cursor) {
-      return { items: [], nextCursor: null };
-    }
-    return {
-      items: [
-        {
-          activityId: "act-1",
-          projectId: "project-1",
-          type: "comment_created",
-          source: { kind: "comment", sourceId: "comment-1" },
-          summary: { headline: "Ada commented", commentId: "comment-1", workItem: taskItem },
-          subjects: [{ kind: "human", humanPrincipalId: "human-1", displayName: "Ada" }],
-          workItem: taskItem,
-          occurredAt: "2030-01-01T00:00:01.000Z"
-        }
-      ],
-      nextCursor: { occurredAt: "2030-01-01T00:00:01.000Z", activityId: "act-1" }
-    };
-  });
-
-  const createComment = vi.fn().mockResolvedValue(commentProjection("comment-2", "new", 1));
-  const editComment = vi.fn().mockResolvedValue(commentProjection("comment-1", "edited", 2));
-  const tombstoneComment = vi.fn().mockResolvedValue({
-    ...commentProjection("comment-1", "first", 3),
-    body: null,
-    tombstoned: true,
-    tombstonedAt: "2030-01-01T00:05:00.000Z"
-  });
-  const readCommentAttachment = vi.fn().mockResolvedValue({
-    digestSha256: "a".repeat(64),
-    mediaType: "image/png",
-    sizeBytes: 4,
-    bodyBase64: "iVBORw=="
-  });
-
-  const api = {
-    getCollaborationStatus: vi.fn(async () => status),
-    listCollaborationMembers: vi.fn().mockResolvedValue({
-      items: [
-        {
-          membershipId: "m-1",
-          projectId: "project-1",
-          humanPrincipalId: "human-1",
-          displayName: "Ada",
-          role: "owner",
-          createdAt: "2030-01-01T00:00:00.000Z",
-          updatedAt: "2030-01-01T00:00:00.000Z"
-        }
-      ],
-      nextCursor: null
-    }),
-    listCollaborationAssignments: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
-    listCollaborationEligibleAssignees: vi.fn().mockResolvedValue({
-      workItem: taskItem,
-      humans: [],
-      hosts: [],
-      nextHumanCursor: null,
-      nextHostCursor: null
-    }),
-    listCollaborationComments: listComments,
-    listCollaborationActivity: listActivity,
-    updateCollaborationAssignment: vi.fn(),
-    createCollaborationComment: createComment,
-    editCollaborationComment: editComment,
-    tombstoneCollaborationComment: tombstoneComment,
-    createCollaborationPendingAttachment: vi.fn(),
-    uploadCollaborationPendingAttachment: vi.fn(),
-    finalizeCollaborationPendingAttachment: vi.fn(),
-    readCollaborationCommentAttachment: readCommentAttachment,
-    onCollaborationStatusChanged: vi.fn((listener: (next: CollaborationStatus) => void) => {
-      statusListeners.add(listener);
-      return () => {
-        statusListeners.delete(listener);
-      };
-    }),
-    onCollaborationObserverSignal: vi.fn(() => () => undefined)
-  } as unknown as PlanWeaveCollaborationApi & CollaborationReadBridgePort;
-
-  return {
-    api,
-    listComments,
-    listActivity,
-    createComment,
-    editComment,
-    tombstoneComment,
-    readCommentAttachment,
-    changeStatus: (projectId: string, profileId = "profile-1") => {
-      status = connectedStatus();
-      status.activeProfileId = profileId;
-      status.session.activeProfileId = profileId;
-      status.profiles[0] = { ...status.profiles[0]!, projectId, profileId };
-      for (const listener of statusListeners) listener(status);
-    }
-  };
-}
+import {
+  taskItem,
+  commentProjection,
+  createApi,
+  connectedStatus
+} from "./helpers/commentsPanelFixture";
 
 afterEach(() => {
   cleanupRendererTestEnvironment();
@@ -277,6 +104,20 @@ describe("useCommentsPanelController", () => {
       });
       await act(async () => {
         await shell.controller.refreshAuthoritative();
+        fixture.emitObserver({
+          type: "human.observer.event",
+          profileId: "profile-1",
+          projectId: "project-1",
+          event: {
+            type: "human.observer.event",
+            protocolVersion: 1,
+            cursor: 1,
+            previousCursor: 0,
+            kind: "comment",
+            workItem: taskItem,
+            occurredAt: "2030-01-01T00:00:02.000Z"
+          }
+        });
       });
       await waitFor(() => expect(screen.getByTestId("comments-edit-save")).toBeEnabled());
       expect(screen.getByLabelText(t("commentsEditAria"))).toHaveValue("unsaved local draft");
@@ -355,9 +196,11 @@ describe("useCommentsPanelController", () => {
       expect(result.current.rows.length).toBeGreaterThan(0);
     });
     expect(listComments).toHaveBeenCalledWith(
-      expect.objectContaining({ includeTombstoned: false })
+      expect.objectContaining({ includeTombstoned: true, limit: 20 })
     );
-    expect(listComments).toHaveBeenCalledWith(expect.objectContaining({ includeTombstoned: true }));
+    expect(listComments).toHaveBeenCalledWith(
+      expect.objectContaining({ includeTombstoned: true, limit: 50 })
+    );
     expect(result.current.hasMore).toBe(true);
 
     await expect(result.current.readAttachment("comment-1", "a".repeat(64))).resolves.toMatchObject(

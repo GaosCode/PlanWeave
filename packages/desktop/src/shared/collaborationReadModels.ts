@@ -393,6 +393,8 @@ export type CollaborationReadModelSnapshot = {
   /** Independent OSS-003 authority projections keyed by workItemKey. */
   workAuthorityByWorkItem: Record<string, WorkAuthorityProjection>;
   commentsByWorkItem: Record<string, CommentDisplayProjection[]>;
+  /** Renderer-local revalidation signal; ordinary projection reads do not advance it. */
+  commentInvalidationVersionByWorkItem: Record<string, number>;
   activity: ActivityRecord[];
   remoteRunsByDispatchId: Record<string, CollaborationRemoteRunProjection>;
   mutationsById: Record<string, CollaborationMutationRecord>;

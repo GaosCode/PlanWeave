@@ -30,6 +30,7 @@ function baseSnapshot(
     assignmentsByWorkItem: {},
     workAuthorityByWorkItem: {},
     commentsByWorkItem: {},
+    commentInvalidationVersionByWorkItem: {},
     activity: [],
     remoteRunsByDispatchId: {},
     mutationsById: {},

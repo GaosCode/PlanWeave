@@ -22,6 +22,7 @@ function snapshotWithConflictingRuns(): CollaborationReadModelSnapshot {
     assignmentsByWorkItem: {},
     workAuthorityByWorkItem: {},
     commentsByWorkItem: {},
+    commentInvalidationVersionByWorkItem: {},
     activity: [],
     remoteRunsByDispatchId: {
       "dispatch-first": {
