@@ -1,7 +1,10 @@
 /* @vitest-environment jsdom */
 
 import { webcrypto } from "node:crypto";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { createElement } from "react";
+import "@testing-library/jest-dom/vitest";
+import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkItemRef } from "@planweave-ai/collaboration-protocol/core/primitives";
 import {
@@ -18,6 +21,8 @@ import { useActivityPanelController } from "../renderer/hooks/useActivityPanelCo
 import { createTranslator } from "../renderer/i18n";
 import type { CollaborationStatus, PlanWeaveCollaborationApi } from "../shared/collaboration";
 import { workItemKey } from "../shared/collaborationReadModels";
+import { WorkItemCollaborationPanel } from "../renderer/team/WorkItemCollaborationPanel";
+import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
 
 const taskItem: WorkItemRef = { kind: "task", canvasId: "canvas-1", taskId: "T-1" };
 
@@ -197,6 +202,7 @@ function createApi() {
 }
 
 afterEach(() => {
+  cleanupRendererTestEnvironment();
   resetCollaborationReadModelHubForTests();
   resetCommentDraftStoreForTests();
   vi.restoreAllMocks();
@@ -204,6 +210,103 @@ afterEach(() => {
 });
 
 describe("useCommentsPanelController", () => {
+  it.each([
+    "offline",
+    "timeout",
+    "refresh"
+  ] as const)("preserves the editing baseline through a real loading-to-%s failure and recovery", async (failure) => {
+    const user = userEvent.setup();
+    const t = createTranslator("en");
+    const fixture = createApi();
+    const shell = acquireCollaborationReadModelController(fixture.api);
+    await shell.controller.setActiveProject({
+      profileId: "profile-1",
+      projectId: "project-1",
+      canvasId: "canvas-1"
+    });
+    const members =
+      deferred<Awaited<ReturnType<PlanWeaveCollaborationApi["listCollaborationMembers"]>>>();
+    const currentMembers = await fixture.api.listCollaborationMembers();
+    let refresh = Promise.resolve();
+    const view = render(
+      createElement(WorkItemCollaborationPanel, { workItem: taskItem, api: fixture.api, t })
+    );
+    try {
+      await user.click(await screen.findByTestId("comments-edit"));
+      await user.clear(screen.getByLabelText(t("commentsEditAria")));
+      await user.type(screen.getByLabelText(t("commentsEditAria")), "unsaved local draft");
+      vi.mocked(fixture.api.listCollaborationMembers).mockReturnValueOnce(members.promise);
+      act(() => {
+        refresh = shell.controller.refreshAuthoritative();
+      });
+      await waitFor(() => expect(shell.controller.getSnapshot().syncPhase).toBe("loading"));
+      expect(screen.getByTestId("comments-edit-save")).toBeEnabled();
+      if (failure === "refresh") {
+        await act(async () => {
+          members.reject({
+            kind: "offline",
+            code: "refresh_unavailable",
+            message: "Refresh unavailable",
+            retryable: true
+          });
+          await refresh;
+        });
+        expect(shell.controller.getSnapshot().syncPhase).toBe("error");
+      } else {
+        fixture.editComment.mockRejectedValueOnce({
+          kind: failure,
+          code: "edit_unavailable",
+          message: "Edit unavailable",
+          retryable: true
+        });
+        await user.click(screen.getByTestId("comments-edit-save"));
+        await waitFor(() => expect(shell.controller.getSnapshot().syncPhase).toBe("disconnected"));
+        expect(await screen.findByRole("alert")).toBeVisible();
+      }
+      expect(screen.getByLabelText(t("commentsEditAria"))).toHaveValue("unsaved local draft");
+      expect(screen.getByTestId("comments-edit-save")).toBeDisabled();
+      if (failure !== "refresh") {
+        await act(async () => {
+          members.resolve(currentMembers);
+          await refresh;
+        });
+      }
+      fixture.listComments.mockResolvedValue({
+        items: [commentProjection("comment-1", "second device body", 2)],
+        nextCursor: null
+      });
+      await act(async () => {
+        await shell.controller.refreshAuthoritative();
+      });
+      await waitFor(() => expect(screen.getByTestId("comments-edit-save")).toBeEnabled());
+      expect(screen.getByLabelText(t("commentsEditAria"))).toHaveValue("unsaved local draft");
+      fixture.editComment.mockRejectedValueOnce({
+        kind: "conflict",
+        code: "comment_revision_conflict",
+        message: "Comment revision conflict",
+        retryable: false
+      });
+      await user.click(screen.getByTestId("comments-edit-save"));
+      await waitFor(() =>
+        expect(fixture.editComment).toHaveBeenLastCalledWith({
+          commentId: "comment-1",
+          body: "unsaved local draft",
+          expectedRevision: 1
+        })
+      );
+      expect(screen.getByLabelText(t("commentsEditAria"))).toHaveValue("unsaved local draft");
+      await user.click(screen.getByRole("button", { name: t("commentsCancelEdit") }));
+      expect(screen.getByTestId("comments-item-body")).toHaveTextContent("second device body");
+    } finally {
+      await act(async () => {
+        members.resolve(currentMembers);
+        await refresh;
+      });
+      view.unmount();
+      shell.release();
+    }
+  });
+
   it("binds an idle secondary-window hub to the connected profile", async () => {
     const { api } = createApi();
 

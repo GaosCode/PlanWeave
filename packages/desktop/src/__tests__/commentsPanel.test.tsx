@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTranslator } from "../renderer/i18n";
 import { CommentAttachmentView } from "../renderer/team/CommentAttachmentView";
 import type { CollaborationCommentAttachmentBody } from "../shared/collaboration";
-import { CommentsPanel } from "../renderer/team/CommentsPanel";
+import { CommentsPanel, type CommentsPanelProps } from "../renderer/team/CommentsPanel";
 import { ActivityPanel } from "../renderer/team/ActivityPanel";
 import type { CommentRowViewModel } from "../renderer/collaboration/commentViewModels";
 import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
@@ -44,7 +44,7 @@ const liveRow: CommentRowViewModel = {
       digestShort: "bbbbbbbb…"
     }
   ],
-  actions: { canEdit: true, canTombstone: true, reason: "author" }
+  actions: { hasEditPermission: true, canEdit: true, canTombstone: true, reason: "author" }
 };
 
 afterEach(() => {
@@ -53,6 +53,163 @@ afterEach(() => {
 });
 
 describe("CommentsPanel", () => {
+  function editProps(overrides: Partial<CommentsPanelProps> = {}): CommentsPanelProps {
+    return {
+      mode: "ready",
+      rows: [{ ...liveRow, attachments: [] }],
+      editScope: {},
+      draft: { body: "", showPreview: false },
+      stagedAttachments: [],
+      loading: false,
+      loadingMore: false,
+      hasMore: false,
+      submitting: false,
+      actionError: null,
+      canCompose: true,
+      t,
+      onDraftBodyChange: vi.fn(),
+      onShowPreviewChange: vi.fn(),
+      onLoadMore: vi.fn().mockResolvedValue(undefined),
+      onRefresh: vi.fn().mockResolvedValue(undefined),
+      onSubmit: vi.fn().mockResolvedValue(true),
+      onEdit: vi.fn().mockResolvedValue(false),
+      onTombstone: vi.fn().mockResolvedValue(true),
+      onReadAttachment: vi.fn(),
+      onStageFiles: vi.fn().mockResolvedValue(undefined),
+      onCancelAttachment: vi.fn(),
+      onRemoveAttachment: vi.fn(),
+      ...overrides
+    };
+  }
+
+  it("keeps the opening revision and draft across remote updates and failed saves", async () => {
+    const user = userEvent.setup();
+    const onEdit = vi.fn().mockResolvedValue(false);
+    const props = editProps({ onEdit });
+    const view = render(<CommentsPanel {...props} />);
+    await user.click(screen.getByTestId("comments-edit"));
+    await user.clear(screen.getByLabelText(t("commentsEditAria")));
+    await user.type(screen.getByLabelText(t("commentsEditAria")), "local draft");
+    const remoteRow = { ...props.rows[0]!, revision: 2, body: "second device body" };
+    view.rerender(<CommentsPanel {...props} rows={[remoteRow]} />);
+    await user.click(screen.getByTestId("comments-edit-save"));
+    expect(onEdit).toHaveBeenLastCalledWith("comment-1", "local draft", 1);
+    const retry = vi.fn().mockResolvedValue(false);
+    view.rerender(
+      <CommentsPanel
+        {...props}
+        rows={[remoteRow]}
+        onEdit={retry}
+        actionError="Comment revision conflict"
+      />
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("Comment revision conflict");
+    expect(screen.getByLabelText(t("commentsEditAria"))).toHaveValue("local draft");
+    await user.click(screen.getByTestId("comments-edit-save"));
+    expect(retry).toHaveBeenLastCalledWith("comment-1", "local draft", 1);
+    view.rerender(
+      <CommentsPanel
+        {...props}
+        rows={[remoteRow]}
+        onEdit={retry}
+        actionError="Network unavailable"
+      />
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("Network unavailable");
+    expect(screen.getByLabelText(t("commentsEditAria"))).toHaveValue("local draft");
+    await user.click(screen.getByRole("button", { name: t("commentsCancelEdit") }));
+    expect(screen.getByTestId("comments-item-body")).toHaveTextContent("second device body");
+    await user.click(screen.getByTestId("comments-edit"));
+    expect(screen.getByLabelText(t("commentsEditAria"))).toHaveValue("second device body");
+    retry.mockResolvedValueOnce(true);
+    await user.click(screen.getByTestId("comments-edit-save"));
+    expect(retry).toHaveBeenLastCalledWith("comment-1", "second device body", 2);
+    expect(screen.queryByLabelText(t("commentsEditAria"))).toBeNull();
+  });
+
+  it.each([
+    "scope",
+    "permission",
+    "tombstone",
+    "removed"
+  ])("invalidates an edit when its %s scope or target changes", async (change) => {
+    const user = userEvent.setup();
+    const props = editProps();
+    const view = render(<CommentsPanel {...props} />);
+    await user.click(screen.getByTestId("comments-edit"));
+    await user.clear(screen.getByLabelText(t("commentsEditAria")));
+    await user.type(screen.getByLabelText(t("commentsEditAria")), "old scope draft");
+    const row = { ...props.rows[0]!, revision: 2, body: "current body" };
+    view.rerender(
+      <CommentsPanel
+        {...props}
+        editScope={change === "scope" ? { change } : props.editScope}
+        rows={
+          change === "removed"
+            ? []
+            : [
+                {
+                  ...row,
+                  tombstoned: change === "tombstone",
+                  actions:
+                    change === "permission"
+                      ? {
+                          hasEditPermission: false,
+                          canEdit: false,
+                          canTombstone: false,
+                          reason: "none"
+                        }
+                      : row.actions
+                }
+              ]
+        }
+      />
+    );
+    expect(screen.queryByLabelText(t("commentsEditAria"))).toBeNull();
+    expect(props.onEdit).not.toHaveBeenCalled();
+    view.rerender(<CommentsPanel {...props} rows={[row]} editScope={{ restored: true }} />);
+    await user.click(screen.getByTestId("comments-edit"));
+    expect(screen.getByLabelText(t("commentsEditAria"))).toHaveValue("current body");
+  });
+
+  it("blocks duplicate saves and ignores completion from an invalidated edit", async () => {
+    const user = userEvent.setup();
+    let complete!: (ok: boolean) => void;
+    const onEdit = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          complete = resolve;
+        })
+    );
+    const props = editProps({ onEdit });
+    const view = render(<CommentsPanel {...props} />);
+    await user.click(screen.getByTestId("comments-edit"));
+    await user.click(screen.getByTestId("comments-edit-save"));
+    expect(screen.getByTestId("comments-edit-save")).toBeDisabled();
+    await user.click(screen.getByTestId("comments-edit-save"));
+    expect(onEdit).toHaveBeenCalledTimes(1);
+    view.rerender(
+      <CommentsPanel
+        {...props}
+        rows={[{ ...props.rows[0]!, revision: 2, body: "remote update while saving" }]}
+      />
+    );
+    expect(screen.getByLabelText(t("commentsEditAria"))).toHaveValue(liveRow.body);
+    expect(screen.getByTestId("comments-edit-save")).toBeDisabled();
+    const nextProps = {
+      ...props,
+      editScope: {},
+      rows: [{ ...props.rows[0]!, body: "new scope body" }]
+    };
+    view.rerender(<CommentsPanel {...nextProps} />);
+    expect(screen.queryByLabelText(t("commentsEditAria"))).toBeNull();
+    await user.click(screen.getByTestId("comments-edit"));
+    await user.clear(screen.getByLabelText(t("commentsEditAria")));
+    await user.type(screen.getByLabelText(t("commentsEditAria")), "new scope draft");
+    await act(async () => complete(true));
+    expect(screen.getByLabelText(t("commentsEditAria"))).toHaveValue("new scope draft");
+  });
+
   it("renders active comments without exposing removed tombstones", async () => {
     const user = userEvent.setup();
     const onEdit = vi.fn().mockResolvedValue(true);
@@ -77,6 +234,7 @@ describe("CommentsPanel", () => {
 
     render(
       <CommentsPanel
+        editScope={{}}
         mode="ready"
         rows={[liveRow]}
         draft={{ body: "draft body", showPreview: false }}
@@ -170,6 +328,7 @@ describe("CommentsPanel", () => {
 
     render(
       <CommentsPanel
+        editScope={{}}
         mode="error"
         rows={[]}
         draft={{ body: "", showPreview: false }}

@@ -47,7 +47,12 @@ describe("commentViewModels", () => {
         currentUserIsOwner: false,
         canMutate: true
       })
-    ).toMatchObject({ canEdit: true, canTombstone: true, reason: "author" });
+    ).toMatchObject({
+      hasEditPermission: true,
+      canEdit: true,
+      canTombstone: true,
+      reason: "author"
+    });
 
     expect(
       resolveCommentActions({
@@ -56,7 +61,12 @@ describe("commentViewModels", () => {
         currentUserIsOwner: true,
         canMutate: true
       })
-    ).toMatchObject({ canEdit: false, canTombstone: true, reason: "owner" });
+    ).toMatchObject({
+      hasEditPermission: false,
+      canEdit: false,
+      canTombstone: true,
+      reason: "owner"
+    });
 
     expect(
       resolveCommentActions({
@@ -65,7 +75,28 @@ describe("commentViewModels", () => {
         currentUserIsOwner: true,
         canMutate: true
       })
-    ).toMatchObject({ canEdit: false, canTombstone: false, reason: "tombstoned" });
+    ).toMatchObject({
+      hasEditPermission: false,
+      canEdit: false,
+      canTombstone: false,
+      reason: "tombstoned"
+    });
+
+    for (const membershipActive of [true, false]) {
+      expect(
+        resolveCommentActions({
+          comment: { ...baseComment, author: { ...baseComment.author, membershipActive } },
+          currentHumanPrincipalId: "human-1",
+          currentUserIsOwner: false,
+          canMutate: false
+        })
+      ).toMatchObject({
+        hasEditPermission: membershipActive,
+        canEdit: false,
+        canTombstone: false,
+        reason: "offline"
+      });
+    }
   });
 
   it("sanitizes attachment names and never surfaces path segments", () => {

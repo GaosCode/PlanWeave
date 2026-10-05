@@ -215,6 +215,7 @@ describe("collaboration accessibility", () => {
     render(
       <>
         <CommentsPanel
+          editScope={{}}
           mode="ready"
           rows={[]}
           draft={{ body: "", showPreview: false }}
@@ -483,6 +484,7 @@ describe("collaboration accessibility", () => {
   it("does not introduce unbounded motion classes on collaboration surfaces", () => {
     const { container } = render(
       <CommentsPanel
+        editScope={{}}
         mode="ready"
         rows={[]}
         draft={{ body: "", showPreview: false }}

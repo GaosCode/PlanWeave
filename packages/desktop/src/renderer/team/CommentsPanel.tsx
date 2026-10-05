@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { createTranslator } from "../i18n";
@@ -10,6 +10,7 @@ import type { CollaborationCommentAttachmentBody } from "../../shared/collaborat
 import { CommentAttachmentView } from "./CommentAttachmentView";
 
 export type CommentsPanelProps = {
+  editScope: object;
   mode: CommentsPanelMode;
   rows: CommentRowViewModel[];
   draft: CommentComposerDraft;
@@ -77,6 +78,7 @@ function ModeMessage({
 }
 
 function CommentItem({
+  editScope,
   row,
   submitting,
   t,
@@ -84,6 +86,7 @@ function CommentItem({
   onTombstone,
   onReadAttachment
 }: {
+  editScope: object;
   row: CommentRowViewModel;
   submitting: boolean;
   t: ReturnType<typeof createTranslator>;
@@ -94,8 +97,42 @@ function CommentItem({
     digestSha256: string
   ) => Promise<CollaborationCommentAttachmentBody>;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [editBody, setEditBody] = useState(row.body ?? "");
+  const [editSession, setEditSession] = useState<{
+    commentId: string;
+    body: string;
+    baseRevision: number;
+  } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const requestRef = useRef(0);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Scope and target eligibility changes retire the local editing session.
+  useLayoutEffect(() => {
+    setEditSession(null);
+    setSaving(false);
+    savingRef.current = false;
+    return () => {
+      requestRef.current += 1;
+      savingRef.current = false;
+    };
+  }, [editScope, row.commentId, row.tombstoned, row.actions.hasEditPermission]);
+
+  const saveEdit = async () => {
+    if (!editSession || savingRef.current || submitting || !row.actions.canEdit || row.tombstoned)
+      return;
+    const request = ++requestRef.current;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      const ok = await onEdit(editSession.commentId, editSession.body, editSession.baseRevision);
+      if (request === requestRef.current && ok) setEditSession(null);
+    } finally {
+      if (request === requestRef.current) {
+        savingRef.current = false;
+        setSaving(false);
+      }
+    }
+  };
   return (
     <article
       className="rounded-md border border-border/70 bg-card/40 p-2.5"
@@ -123,34 +160,33 @@ function CommentItem({
         <p className="text-sm italic text-muted-foreground" data-testid="comments-item-tombstone">
           {row.tombstoneLabel}
         </p>
-      ) : editing ? (
+      ) : editSession ? (
         <div className="flex flex-col gap-2">
           <Textarea
             aria-label={t("commentsEditAria")}
             className="min-h-20 text-sm"
-            value={editBody}
-            onChange={(event) => setEditBody(event.target.value)}
+            value={editSession.body}
+            disabled={submitting || saving}
+            onChange={(event) => {
+              const body = event.target.value;
+              setEditSession((current) => (current ? { ...current, body } : null));
+            }}
           />
           <div className="flex gap-2">
             <Button
               size="sm"
-              disabled={submitting}
+              disabled={submitting || saving || !row.actions.canEdit}
               data-testid="comments-edit-save"
-              onClick={() => {
-                void onEdit(row.commentId, editBody, row.revision).then((ok) => {
-                  if (ok) setEditing(false);
-                });
-              }}
+              onClick={() => void saveEdit()}
             >
               {t("commentsSaveEdit")}
             </Button>
             <Button
               size="sm"
               variant="ghost"
-              disabled={submitting}
+              disabled={submitting || saving}
               onClick={() => {
-                setEditing(false);
-                setEditBody(row.body ?? "");
+                setEditSession(null);
               }}
             >
               {t("commentsCancelEdit")}
@@ -174,15 +210,18 @@ function CommentItem({
 
       {!row.tombstoned && (row.actions.canEdit || row.actions.canTombstone) ? (
         <div className="mt-2 flex gap-2">
-          {row.actions.canEdit ? (
+          {row.actions.canEdit && !editSession ? (
             <Button
               size="sm"
               variant="ghost"
-              disabled={submitting}
+              disabled={submitting || saving}
               data-testid="comments-edit"
               onClick={() => {
-                setEditBody(row.body ?? "");
-                setEditing(true);
+                setEditSession({
+                  commentId: row.commentId,
+                  body: row.body ?? "",
+                  baseRevision: row.revision
+                });
               }}
             >
               {t("commentsEdit")}
@@ -192,7 +231,7 @@ function CommentItem({
             <Button
               size="sm"
               variant="ghost"
-              disabled={submitting}
+              disabled={submitting || saving}
               data-testid="comments-tombstone"
               onClick={() => {
                 if (window.confirm(t("commentsTombstoneConfirm"))) {
@@ -210,6 +249,7 @@ function CommentItem({
 }
 
 export function CommentsPanel({
+  editScope,
   mode,
   rows,
   draft,
@@ -324,6 +364,7 @@ export function CommentsPanel({
           rows.map((row) => (
             <CommentItem
               key={row.commentId}
+              editScope={editScope}
               row={row}
               submitting={submitting}
               t={t}

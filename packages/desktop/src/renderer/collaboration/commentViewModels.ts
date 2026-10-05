@@ -24,6 +24,8 @@ export type CommentsPanelMode =
   | "empty";
 
 export type CommentActionVisibility = {
+  /** Author permission is independent of temporary sync write availability. */
+  hasEditPermission: boolean;
   canEdit: boolean;
   canTombstone: boolean;
   reason: "author" | "owner" | "none" | "tombstoned" | "inactive_author" | "offline" | "forbidden";
@@ -130,25 +132,27 @@ export function resolveCommentActions(input: {
   currentUserIsOwner: boolean;
   canMutate: boolean;
 }): CommentActionVisibility {
-  if (input.comment.tombstoned) {
-    return { canEdit: false, canTombstone: false, reason: "tombstoned" };
-  }
-  if (!input.canMutate) {
-    return { canEdit: false, canTombstone: false, reason: "offline" };
-  }
   const isAuthor =
     input.currentHumanPrincipalId != null &&
     input.comment.author.humanPrincipalId === input.currentHumanPrincipalId;
+  const hasEditPermission =
+    !input.comment.tombstoned && isAuthor && input.comment.author.membershipActive;
+  if (input.comment.tombstoned) {
+    return { hasEditPermission, canEdit: false, canTombstone: false, reason: "tombstoned" };
+  }
+  if (!input.canMutate) {
+    return { hasEditPermission, canEdit: false, canTombstone: false, reason: "offline" };
+  }
   if (isAuthor) {
     if (!input.comment.author.membershipActive) {
-      return { canEdit: false, canTombstone: false, reason: "inactive_author" };
+      return { hasEditPermission, canEdit: false, canTombstone: false, reason: "inactive_author" };
     }
-    return { canEdit: true, canTombstone: true, reason: "author" };
+    return { hasEditPermission, canEdit: true, canTombstone: true, reason: "author" };
   }
   if (input.currentUserIsOwner) {
-    return { canEdit: false, canTombstone: true, reason: "owner" };
+    return { hasEditPermission, canEdit: false, canTombstone: true, reason: "owner" };
   }
-  return { canEdit: false, canTombstone: false, reason: "none" };
+  return { hasEditPermission, canEdit: false, canTombstone: false, reason: "none" };
 }
 
 /**

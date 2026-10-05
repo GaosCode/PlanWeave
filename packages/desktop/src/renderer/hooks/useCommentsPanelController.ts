@@ -49,6 +49,7 @@ export type UseCommentsPanelControllerArgs = {
 };
 
 export type UseCommentsPanelControllerResult = {
+  editScope: object;
   mode: CommentsPanelMode;
   rows: CommentRowViewModel[];
   draft: CommentComposerDraft;
@@ -581,6 +582,7 @@ export function useCommentsPanelController(
   );
 
   return {
+    editScope: scopeToken,
     mode,
     rows,
     draft,

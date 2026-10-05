@@ -110,6 +110,7 @@ export function WorkItemCollaborationPanel({
 
       {tab === "comments" ? (
         <CommentsPanel
+          editScope={comments.editScope}
           mode={comments.mode}
           rows={comments.rows}
           draft={comments.draft}
