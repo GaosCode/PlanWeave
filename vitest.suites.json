@@ -306,6 +306,7 @@
         "windowAppearanceHandlers.test.ts",
         "windowChrome.test.ts",
         "windowExternalLinks.test.ts",
+        "workItemCommentPopoverInteractions.test.tsx",
         "workAuthorityDesktop.test.ts",
         "workItemIdentity.test.ts",
         "workspaceAccessScopeSelector.test.tsx",

@@ -3,6 +3,7 @@ import { MessageSquareIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { useCommentPopoverDismissal } from "../hooks/useCommentPopoverDismissal";
 import type { createTranslator } from "../i18n";
 import { WorkItemCollaborationPanel } from "./WorkItemCollaborationPanel";
 
@@ -23,6 +24,7 @@ export function WorkItemCommentPopover({
   t,
   className
 }: WorkItemCommentPopoverProps) {
+  const { triggerRef, contentRef } = useCommentPopoverDismissal(open, onOpenChange);
   const label =
     commentCount > 0
       ? t("commentsViewCount").replace("{count}", String(commentCount))
@@ -32,6 +34,7 @@ export function WorkItemCommentPopover({
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
         <Button
+          ref={triggerRef}
           type="button"
           size="icon-sm"
           variant="ghost"
@@ -59,6 +62,7 @@ export function WorkItemCommentPopover({
         </Button>
       </PopoverTrigger>
       <PopoverContent
+        ref={contentRef}
         align="end"
         className="nodrag nowheel w-[min(420px,calc(100vw-32px))] p-3"
         data-testid="work-item-comments-popover"
