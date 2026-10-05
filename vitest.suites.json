@@ -53,6 +53,7 @@
         "remoteInteractionCheckpointCli.test.ts",
         "remoteInteractionOutput.test.ts",
         "workspaceExecutionCredential.test.ts",
+        "workspaceExecutionHttpTransport.test.ts",
         "runIndexCli.test.ts",
         "runInteractionEventStream.test.ts",
         "runSessionCli.test.ts",

@@ -123,30 +123,82 @@ function httpError(status: number, domainCode?: string): WorkspaceExecutionCliEr
   );
 }
 
-async function responseErrorCode(response: Response): Promise<string | undefined> {
+function observeCancellation(pending: Promise<unknown>): void {
+  // Cancellation can reject after the request has settled; it is cleanup, not a new result.
+  void pending.catch(() => undefined);
+}
+
+async function readBody(
+  response: Response,
+  signal: AbortSignal,
+  maxBytes?: number
+): Promise<Uint8Array> {
+  signal.throwIfAborted();
+  if (!response.body) return new Uint8Array();
+  const reader = response.body.getReader();
+  const cancel = () => observeCancellation(reader.cancel(signal.reason));
+  signal.addEventListener("abort", cancel, { once: true });
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  let complete = false;
   try {
-    return serverErrorCode(await response.json());
+    while (true) {
+      const chunk = await reader.read();
+      signal.throwIfAborted();
+      if (chunk.done) break;
+      length += chunk.value.byteLength;
+      if (maxBytes !== undefined && length > maxBytes) {
+        throw new WorkspaceExecutionCliError("workspace_http_invalid_response", 9, true);
+      }
+      chunks.push(chunk.value);
+    }
+    const body = new Uint8Array(length);
+    let offset = 0;
+    for (const chunk of chunks) {
+      body.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    complete = true;
+    return body;
+  } finally {
+    signal.removeEventListener("abort", cancel);
+    if (!complete && !signal.aborted) observeCancellation(reader.cancel());
+    reader.releaseLock();
+  }
+}
+
+async function responseJson(response: Response, signal: AbortSignal): Promise<unknown> {
+  return JSON.parse(new TextDecoder().decode(await readBody(response, signal)));
+}
+
+async function responseErrorCode(
+  response: Response,
+  signal: AbortSignal
+): Promise<string | undefined> {
+  try {
+    return serverErrorCode(await responseJson(response, signal));
   } catch {
+    signal.throwIfAborted();
+    // An unreadable error envelope retains the status-based HTTP classification.
     return undefined;
   }
 }
 
-async function fetchWithDeadline(input: {
+async function consumeWithDeadline<T>(input: {
   request: typeof fetch;
   url: URL;
   init: RequestInit;
   callerSignal?: AbortSignal;
   timeoutMs: number;
-}): Promise<Response> {
+  consume(response: Response, signal: AbortSignal): Promise<T>;
+}): Promise<T> {
   if (input.callerSignal?.aborted) {
     throw input.callerSignal.reason ?? new DOMException("Aborted", "AbortError");
   }
   const controller = new AbortController();
-  const onCallerAbort = () => {
+  const onCallerAbort = () =>
     controller.abort(input.callerSignal?.reason ?? new DOMException("Aborted", "AbortError"));
-  };
   input.callerSignal?.addEventListener("abort", onCallerAbort, { once: true });
-  let timeout: ReturnType<typeof setTimeout> | undefined;
   const timeoutFailure = new WorkspaceExecutionCliError(
     "workspace_http_unavailable",
     9,
@@ -154,32 +206,49 @@ async function fetchWithDeadline(input: {
     undefined,
     "unavailable"
   );
-  const deadline = new Promise<never>((_resolve, reject) => {
-    timeout = setTimeout(() => {
-      controller.abort(timeoutFailure);
-      reject(timeoutFailure);
-    }, input.timeoutMs);
+  let rejectAbort!: (reason: unknown) => void;
+  const interruption = new Promise<never>((_resolve, reject) => {
+    rejectAbort = reject;
   });
-  const callerAbort = new Promise<never>((_resolve, reject) => {
-    controller.signal.addEventListener(
-      "abort",
-      () => {
-        if (controller.signal.reason !== timeoutFailure) {
-          reject(controller.signal.reason ?? new DOMException("Aborted", "AbortError"));
-        }
-      },
-      { once: true }
-    );
-  });
+  const onAbort = () => rejectAbort(controller.signal.reason);
+  controller.signal.addEventListener("abort", onAbort, { once: true });
+  const startedAt = performance.now();
+  const timeout = setTimeout(() => controller.abort(timeoutFailure), input.timeoutMs);
+  const operation = (async () => {
+    let response: Response;
+    try {
+      response = await input.request(input.url, { ...input.init, signal: controller.signal });
+    } catch (error) {
+      if (controller.signal.aborted) throw controller.signal.reason;
+      if (error instanceof WorkspaceExecutionCliError) throw error;
+      if (error instanceof DOMException && error.name === "AbortError") throw error;
+      throw new WorkspaceExecutionCliError(
+        "workspace_http_unavailable",
+        9,
+        true,
+        { cause: error },
+        "unavailable"
+      );
+    }
+    if (controller.signal.aborted) {
+      if (response.body) observeCancellation(response.body.cancel(controller.signal.reason));
+      throw controller.signal.reason;
+    }
+    try {
+      return await input.consume(response, controller.signal);
+    } finally {
+      // Synchronous parsing cannot be interrupted, but a result past the deadline must fail.
+      if (performance.now() - startedAt >= input.timeoutMs) controller.abort(timeoutFailure);
+      controller.signal.throwIfAborted();
+    }
+  })();
   try {
-    return await Promise.race([
-      input.request(input.url, { ...input.init, signal: controller.signal }),
-      deadline,
-      callerAbort
-    ]);
+    // The race observes late request/body rejection even when an injected fetch ignores abort.
+    return await Promise.race([interruption, operation]);
   } finally {
-    if (timeout) clearTimeout(timeout);
+    clearTimeout(timeout);
     input.callerSignal?.removeEventListener("abort", onCallerAbort);
+    controller.signal.removeEventListener("abort", onAbort);
   }
 }
 
@@ -192,11 +261,12 @@ export function createWorkspaceJsonTransport(input: {
 }): WorkspaceJsonTransport {
   const request = input.fetch ?? fetch;
 
-  async function send(
+  async function send<T>(
     method: "GET" | "POST",
     path: string,
-    options: WorkspaceJsonRequestOptions = {}
-  ): Promise<Response> {
+    options: WorkspaceJsonRequestOptions,
+    consume: (response: Response, signal: AbortSignal) => Promise<T>
+  ): Promise<T> {
     if (options.body !== undefined && options.rawBody !== undefined) {
       throw new WorkspaceExecutionCliError("workspace_execution_usage_invalid", 2);
     }
@@ -217,67 +287,56 @@ export function createWorkspaceJsonTransport(input: {
       }
       headers["content-type"] = contentType;
     }
-    try {
-      return await fetchWithDeadline({
-        request,
-        url: new URL(path, input.serverOrigin),
-        callerSignal: options.signal,
-        timeoutMs: input.timeoutMs ?? WORKSPACE_HTTP_TIMEOUT_MS,
-        init: {
-          method,
-          headers,
-          ...(body === undefined ? {} : { body })
-        }
-      });
-    } catch (error) {
-      if (error instanceof WorkspaceExecutionCliError) throw error;
-      if (options.signal?.aborted) {
-        throw options.signal.reason ?? new DOMException("Aborted", "AbortError");
-      }
-      if (error instanceof DOMException && error.name === "AbortError") throw error;
-      throw new WorkspaceExecutionCliError(
-        "workspace_http_unavailable",
-        9,
-        true,
-        { cause: error },
-        "unavailable"
-      );
-    }
+    return consumeWithDeadline({
+      request,
+      url: new URL(path, input.serverOrigin),
+      callerSignal: options.signal,
+      timeoutMs: input.timeoutMs ?? WORKSPACE_HTTP_TIMEOUT_MS,
+      init: { method, headers, ...(body === undefined ? {} : { body }) },
+      consume
+    });
   }
 
   return {
     async json(method, path, schema, options = {}) {
-      const response = await send(method, path, options);
-      if (!response.ok) throw httpError(response.status, await responseErrorCode(response));
-      let payload: unknown;
-      try {
-        payload = await response.json();
-      } catch (error) {
-        throw new WorkspaceExecutionCliError("workspace_http_invalid_response", 9, true, {
-          cause: error
-        });
-      }
-      const parsed = schema.safeParse(payload);
-      if (!parsed.success) {
-        throw new WorkspaceExecutionCliError("workspace_http_invalid_response", 9, true);
-      }
-      return parsed.data;
+      return send(method, path, options, async (response, signal) => {
+        if (!response.ok)
+          throw httpError(response.status, await responseErrorCode(response, signal));
+        let payload: unknown;
+        try {
+          payload = await responseJson(response, signal);
+        } catch (error) {
+          signal.throwIfAborted();
+          throw new WorkspaceExecutionCliError("workspace_http_invalid_response", 9, true, {
+            cause: error
+          });
+        }
+        const parsed = schema.safeParse(payload);
+        signal.throwIfAborted();
+        if (!parsed.success) {
+          throw new WorkspaceExecutionCliError("workspace_http_invalid_response", 9, true);
+        }
+        return parsed.data;
+      });
     },
     async bytes(method, path, options = {}) {
-      const response = await send(method, path, options);
-      if (!response.ok) throw httpError(response.status, await responseErrorCode(response));
-      let body: Uint8Array;
-      try {
-        body = new Uint8Array(await response.arrayBuffer());
-      } catch (error) {
-        throw new WorkspaceExecutionCliError("workspace_http_invalid_response", 9, true, {
-          cause: error
-        });
-      }
-      if (options.maxBytes !== undefined && body.byteLength > options.maxBytes) {
-        throw new WorkspaceExecutionCliError("workspace_http_invalid_response", 9, true);
-      }
-      return { headers: response.headers, body };
+      return send(method, path, options, async (response, signal) => {
+        if (!response.ok)
+          throw httpError(response.status, await responseErrorCode(response, signal));
+        try {
+          const body = await readBody(response, signal, options.maxBytes);
+          if (options.maxBytes !== undefined && body.byteLength > options.maxBytes) {
+            throw new WorkspaceExecutionCliError("workspace_http_invalid_response", 9, true);
+          }
+          return { headers: response.headers, body };
+        } catch (error) {
+          signal.throwIfAborted();
+          if (error instanceof WorkspaceExecutionCliError) throw error;
+          throw new WorkspaceExecutionCliError("workspace_http_invalid_response", 9, true, {
+            cause: error
+          });
+        }
+      });
     }
   };
 }

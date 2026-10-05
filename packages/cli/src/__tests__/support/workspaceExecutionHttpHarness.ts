@@ -96,6 +96,10 @@ export class WorkspaceExecutionHttpHarness {
   readonly catalogCanvasIds: string[] = [];
   readonly ownerMaterializationCanvasIds: string[] = [];
   readonly dispatchReceived: Promise<void>;
+  readonly hangingBodyStarted: Promise<void>;
+  readonly hangingBodyClosed: Promise<void>;
+  private resolveHangingBodyStarted!: () => void;
+  private resolveHangingBodyClosed!: () => void;
   private resolveDispatchReceived!: () => void;
   private server: Server | null = null;
   private dispatchIntent: RemoteDispatchIntentV3 | null = null;
@@ -134,8 +138,15 @@ export class WorkspaceExecutionHttpHarness {
       ownerHumanPrincipalId?: string;
       ownerAccessMode?: "unrestricted" | "workspace_restricted";
       terminalResultMismatch?: boolean;
+      hangingBody?: { status: number };
     }
   ) {
+    this.hangingBodyStarted = new Promise((resolve) => {
+      this.resolveHangingBodyStarted = resolve;
+    });
+    this.hangingBodyClosed = new Promise((resolve) => {
+      this.resolveHangingBodyClosed = resolve;
+    });
     this.dispatchReceived = new Promise((resolve) => {
       this.resolveDispatchReceived = resolve;
     });
@@ -234,6 +245,13 @@ export class WorkspaceExecutionHttpHarness {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
     const method = request.method ?? "GET";
     this.calls.push(`${method} ${url.pathname}`);
+    if (url.pathname === "/hanging-body" && this.input.hangingBody) {
+      response.writeHead(this.input.hangingBody.status, { "content-type": "application/json" });
+      response.once("close", () => this.resolveHangingBodyClosed());
+      response.write("{");
+      this.resolveHangingBodyStarted();
+      return;
+    }
     if (await this.routeOwner(request, url, method, response)) return;
 
     if (url.pathname.endsWith("/assignments/authority") && method === "GET") {
