@@ -212,6 +212,16 @@ export function attachAgentHostWebSocketServer(
     exactPermissionOptionsVersion: 1 | undefined,
     historicalPermissionReplayVersion: 1 | undefined
   ) => {
+    socket.on("error", (error: Error) => {
+      const code =
+        "code" in error && typeof error.code === "string" && /^WS_ERR_[A-Z_]+$/.test(error.code)
+          ? error.code
+          : "socket_transport_error";
+      console.error(
+        JSON.stringify({ scope: "agent-host-ws", event: "socket_error", hostId, code })
+      );
+      socket.terminate();
+    });
     const prior = sessions.get(hostId);
     if (prior && prior.socket.readyState === WebSocket.OPEN) {
       options.runtimeRpc?.detachHost(hostId, "superseded");

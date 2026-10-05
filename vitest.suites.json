@@ -1111,7 +1111,8 @@
         "workspaceExecutionPlaneGapHttp.test.ts",
         "workspaceIdentityHttp.test.ts",
         "workspaceIdentityMigration.test.ts",
-        "wsServer.test.ts"
+        "wsServer.test.ts",
+        "wsServerErrorIsolation.test.ts"
       ],
       "platform": [],
       "performance": ["serverDataArchiveResources.test.ts"]
