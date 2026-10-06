@@ -1070,6 +1070,7 @@
         "remoteAcpEventsV2.test.ts",
         "remoteObservations.test.ts",
         "remoteOperationRetention.test.ts",
+        "remoteOperationRetentionComposition.test.ts",
         "remoteOperationRetentionMigration.test.ts",
         "remoteOperationRetentionPolicy.test.ts",
         "remoteOperationRetentionTransaction.test.ts",

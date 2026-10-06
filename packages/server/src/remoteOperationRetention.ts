@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { dispatchFailureSchema, dispatchResultSchema } from "./protocol.js";
+import { RemoteOperationRetentionCandidates } from "./remoteOperationRetentionCandidates.js";
 import { auditRemoteOperationCompaction } from "./remoteOperationRetentionAudit.js";
 import {
   parseRetentionSummary,
@@ -89,104 +90,47 @@ function failureReference(value: string | null) {
 }
 
 export class RemoteOperationRetention {
+  private readonly candidates: RemoteOperationRetentionCandidates;
   constructor(
     private readonly database: SqliteDatabase,
     private readonly clock: () => Date = () => new Date(),
-    private readonly fullPerScope = REMOTE_OPERATION_RETENTION_FULL_PER_SCOPE,
+    fullPerScope = REMOTE_OPERATION_RETENTION_FULL_PER_SCOPE,
     private readonly maxAgeMs = REMOTE_OPERATION_RETENTION_MAX_AGE_MS,
-    private readonly batchSize = REMOTE_OPERATION_RETENTION_BATCH_SIZE
+    batchSize = REMOTE_OPERATION_RETENTION_BATCH_SIZE
   ) {
     z.number().int().nonnegative().parse(fullPerScope);
     z.number().int().positive().parse(maxAgeMs);
     z.number().int().positive().parse(batchSize);
+    this.candidates = new RemoteOperationRetentionCandidates(database, fullPerScope, batchSize);
   }
 
   compactBatch(): RemoteOperationRetentionResult {
     const cutoff = new Date(this.clock().getTime() - this.maxAgeMs).toISOString();
-    return inWriteTransaction(this.database, () => {
-      const candidates = this.database
-        .prepare(
-          `WITH ranked AS (
-             SELECT id,ROW_NUMBER() OVER (
-               PARTITION BY workspace_id,project_id,canvas_id
-               ORDER BY terminal_at DESC,id DESC
-             ) AS retention_rank
-             FROM remote_operations
-             WHERE state IN ('completed','failed','cancelled')
-           )
-           SELECT operation.id
-           FROM ranked
-           JOIN remote_operations operation ON operation.id=ranked.id
-           JOIN remote_execution_attempts current_attempt
-             ON current_attempt.execution_attempt_id=operation.execution_attempt_id
-            AND current_attempt.operation_id=operation.id
-            AND current_attempt.dispatch_id=operation.dispatch_id
-            AND current_attempt.workspace_id=operation.workspace_id
-            AND current_attempt.project_id=operation.project_id
-            AND current_attempt.canvas_id=operation.canvas_id
-            AND current_attempt.block_ref=operation.block_ref
-           JOIN dispatches current_dispatch
-             ON current_dispatch.id=operation.dispatch_id
-            AND current_dispatch.execution_attempt_id=operation.execution_attempt_id
-            AND current_dispatch.workspace_id=operation.workspace_id
-            AND current_dispatch.project_id=operation.project_id
-            AND current_dispatch.block_ref=operation.block_ref
-           LEFT JOIN remote_operation_retention_receipts receipt ON receipt.operation_id=operation.id
-           WHERE ranked.retention_rank>? AND operation.terminal_at<? AND receipt.operation_id IS NULL
-             AND current_attempt.status IN ('superseded','completed','failed','cancelled')
-             AND current_attempt.terminal_at IS NOT NULL
-             AND current_dispatch.status IN ('completed','failed','cancelled')
-             AND NOT EXISTS (
-               SELECT 1 FROM remote_execution_attempts attempt
-               WHERE attempt.operation_id=operation.id
-                 AND (attempt.status NOT IN ('superseded','completed','failed','cancelled')
-                   OR attempt.terminal_at IS NULL
-                   OR attempt.workspace_id<>operation.workspace_id
-                   OR attempt.project_id<>operation.project_id
-                   OR attempt.canvas_id<>operation.canvas_id
-                   OR attempt.block_ref<>operation.block_ref)
-             )
-             AND NOT EXISTS (
-               SELECT 1 FROM remote_execution_attempts attempt
-               LEFT JOIN dispatches dispatch
-                 ON dispatch.id=attempt.dispatch_id
-                AND dispatch.execution_attempt_id=attempt.execution_attempt_id
-                AND dispatch.workspace_id=attempt.workspace_id
-                AND dispatch.project_id=attempt.project_id
-                AND dispatch.block_ref=attempt.block_ref
-               WHERE attempt.operation_id=operation.id
-                 AND (dispatch.id IS NULL OR dispatch.status NOT IN ('completed','failed','cancelled'))
-             )
-             AND NOT EXISTS (
-               SELECT 1 FROM host_capacity_reservations reservation
-               JOIN remote_execution_attempts attempt
-                 ON attempt.execution_attempt_id=reservation.execution_attempt_id
-               WHERE attempt.operation_id=operation.id AND reservation.status='active'
-             )
-             AND NOT EXISTS (
-               SELECT 1 FROM remote_execution_actions action
-               WHERE action.operation_id=operation.id AND action.state NOT IN ('settled','rejected')
-             )
-             AND NOT EXISTS (
-               SELECT 1 FROM remote_interactions interaction
-               WHERE interaction.operation_id=operation.id AND interaction.status='pending'
-             )
-           ORDER BY operation.terminal_at,operation.id LIMIT ?`
-        )
-        .all(this.fullPerScope, cutoff, this.batchSize);
+    const page = this.candidates.read(cutoff);
+    if (!page) return { selected: 0, compacted: 0, skipped: 0 };
+    if (page.ids.length === 0) {
+      this.candidates.advance(page);
+      return { selected: 0, compacted: 0, skipped: 0 };
+    }
+    const result = inWriteTransaction(this.database, () => {
+      const eligible = this.candidates.revalidate(page, cutoff);
       let compacted = 0;
-      for (const candidate of candidates) {
-        if (typeof candidate.id === "string" && this.compactEligible(candidate.id)) compacted += 1;
+      for (const id of eligible) {
+        if (this.compactEligible(id)) compacted += 1;
       }
+      // Keep complete integrity diagnostics on actual compaction transactions.
+      // Empty read passes never acquire the write lock or scan all foreign keys.
       const violations = this.database.prepare("PRAGMA foreign_key_check").all();
       if (violations.length > 0)
         throw new Error("remote_operation_retention_foreign_key_violation");
       return {
-        selected: candidates.length,
+        selected: page.ids.length,
         compacted,
-        skipped: candidates.length - compacted
+        skipped: page.ids.length - compacted
       };
     });
+    this.candidates.advance(page);
+    return result;
   }
 
   getReceipt(operationId: string): RemoteOperationRetentionReceipt | undefined {

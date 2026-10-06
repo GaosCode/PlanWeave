@@ -102,6 +102,24 @@ describe("remote operation retention transaction", () => {
         .get(operation.id)?.count
     ).toBe(1);
     server.database.exec("DROP TRIGGER reject_retention_delete");
+    server.database.exec(`
+      PRAGMA foreign_keys=OFF;
+      CREATE TABLE corrupted_child(operation_id TEXT REFERENCES remote_operations(id));
+      INSERT INTO corrupted_child VALUES ('missing-operation');
+      PRAGMA foreign_keys=ON;
+    `);
+    expect(server.database.prepare("PRAGMA foreign_key_check").all()).toHaveLength(1);
+    expect(() => retention.compactBatch()).toThrow(
+      "remote_operation_retention_foreign_key_violation"
+    );
+    expect(retention.getReceipt(operation.id)).toBeUndefined();
+    expect(
+      server.database
+        .prepare("SELECT COUNT(*) AS count FROM remote_operation_events WHERE operation_id=?")
+        .get(operation.id)?.count
+    ).toBe(1);
+    server.database.exec("DELETE FROM corrupted_child");
+    expect(retention.compactBatch().compacted).toBe(1);
     server.close();
     servers.splice(servers.indexOf(server), 1);
 
@@ -120,6 +138,6 @@ describe("remote operation retention transaction", () => {
         1,
         25
       ).compactBatch()
-    ).toMatchObject({ compacted: 1 });
+    ).toMatchObject({ compacted: 0 });
   });
 });
