@@ -72,31 +72,40 @@ function isSamePathOrAncestor(ancestor: string, descendant: string): boolean {
 }
 
 function targetViolatesProtection(
-  canonicalTarget: string,
-  protection: ExportTargetProtection & { canonicalPath: string }
+  targetPath: string,
+  protectedPath: string,
+  mode: ExportTargetProtection["mode"]
 ): boolean {
-  if (isSamePathOrAncestor(canonicalTarget, protection.canonicalPath)) {
+  if (isSamePathOrAncestor(targetPath, protectedPath)) {
     return true;
   }
-  return (
-    protection.mode === "overlap" && isSamePathOrAncestor(protection.canonicalPath, canonicalTarget)
-  );
+  return mode === "overlap" && isSamePathOrAncestor(protectedPath, targetPath);
 }
 
 async function assertSafeExportTarget(
   target: string,
   protections: ExportTargetProtection[]
 ): Promise<void> {
-  const canonicalTarget = await canonicalPath(target);
-  const canonicalProtections = await Promise.all(
-    protections.map(async (protection) => ({
-      ...protection,
-      canonicalPath: await canonicalPath(protection.path)
-    }))
+  const normalizedTarget = resolve(target);
+  let matchedProtection = protections.find((protection) =>
+    targetViolatesProtection(normalizedTarget, resolve(protection.path), protection.mode)
   );
-  const matchedProtection = canonicalProtections.find((protection) =>
-    targetViolatesProtection(canonicalTarget, protection)
-  );
+  if (!matchedProtection) {
+    const canonicalTarget = await canonicalPath(target);
+    // Replacement renames the target entry rather than following its final symlink.
+    const replacementTarget = resolve(await canonicalPath(dirname(target)), basename(target));
+    const canonicalProtections = await Promise.all(
+      protections.map(async (protection) => ({
+        ...protection,
+        canonicalPath: await canonicalPath(protection.path)
+      }))
+    );
+    matchedProtection = canonicalProtections.find(
+      (protection) =>
+        targetViolatesProtection(canonicalTarget, protection.canonicalPath, protection.mode) ||
+        targetViolatesProtection(replacementTarget, protection.canonicalPath, protection.mode)
+    );
+  }
   if (!matchedProtection) {
     return;
   }
@@ -166,6 +175,14 @@ export function registerPackageExportSubcommand(packageCommand: Command): void {
     const selectedCanvasId =
       requestedCanvasId ?? activeCanvasId ?? canvases[0]?.canvasId ?? "default";
     const workspace = await resolveTaskCanvasWorkspace(projectRoot, selectedCanvasId);
+    const canvasWorkspaces = await Promise.all(
+      [...new Set([selectedCanvasId, ...canvases.map((canvas) => canvas.canvasId)])].map(
+        async (canvasId) => ({
+          canvasId,
+          workspace: await resolveTaskCanvasWorkspace(projectRoot, canvasId)
+        })
+      )
+    );
     const protections: ExportTargetProtection[] = [
       { label: "project root", path: workspace.rootPath, mode: "ancestor_only" },
       {
@@ -173,13 +190,28 @@ export function registerPackageExportSubcommand(packageCommand: Command): void {
         path: dirname(workspace.projectFile),
         mode: "ancestor_only"
       },
-      {
-        label: "task canvas workspace root",
-        path: workspace.workspaceRoot,
-        mode: "ancestor_only"
-      },
-      { label: "package directory", path: workspace.packageDir, mode: "overlap" },
-      { label: "results directory", path: workspace.resultsDir, mode: "overlap" }
+      ...canvasWorkspaces.flatMap(({ canvasId, workspace: canvasWorkspace }) => [
+        {
+          label: `package directory (${canvasId})`,
+          path: canvasWorkspace.packageDir,
+          mode: "overlap" as const
+        },
+        {
+          label: `results directory (${canvasId})`,
+          path: canvasWorkspace.resultsDir,
+          mode: "overlap" as const
+        },
+        {
+          label: `state file (${canvasId})`,
+          path: canvasWorkspace.stateFile,
+          mode: "overlap" as const
+        },
+        {
+          label: `task canvas workspace root (${canvasId})`,
+          path: canvasWorkspace.workspaceRoot,
+          mode: "overlap" as const
+        }
+      ])
     ];
     if (workspace.sourceRoot && workspace.sourceRoot !== workspace.rootPath) {
       protections.push({

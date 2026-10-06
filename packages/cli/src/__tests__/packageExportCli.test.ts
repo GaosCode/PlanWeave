@@ -1,14 +1,30 @@
-import { cp, mkdir, mkdtemp, readdir, readFile, symlink, writeFile } from "node:fs/promises";
+import {
+  cp,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  readlink,
+  symlink,
+  writeFile
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, sep } from "node:path";
 import { describe, expect, it } from "vitest";
-import { runCli, runCliExpectFailure, repoRoot } from "./support/cliTestHarness.js";
+import {
+  runCli,
+  runCliExpectFailure,
+  repoRoot,
+  type CreateCanvasWorkspaceJsonResult
+} from "./support/cliTestHarness.js";
 
 const cliTestTimeoutMs = 20_000;
 const roundTripTimeoutMs = 30_000;
 const cliPackageRoot = join(repoRoot, "packages", "cli");
 const nonEmptyTargetErrorPattern = /not empty|force/i;
-const protectedRootErrorPattern = /export target.*root.*ancestor/i;
+const protectedRootErrorPattern =
+  /export target.*root.*ancestor|export target.*overlap.*protected/i;
 const protectedProjectRootErrorPattern = /export target.*project root.*ancestor/i;
 const destructiveOverlapErrorPattern = /export target.*overlap.*package directory/i;
 const resultsOverlapErrorPattern = /export target.*overlap.*results directory/i;
@@ -61,6 +77,151 @@ async function expectProtectedExportTarget(
 }
 
 describe("CLI package export", () => {
+  it("protects every registered canvas before force replacement and preserves safe exports", async () => {
+    const project = await createTestProject("planweave-export-all-canvases-");
+    const second = JSON.parse(
+      (
+        await runCli(
+          projectArgs(project, [
+            "canvas",
+            "create",
+            "--id",
+            "second",
+            "--title",
+            "Second",
+            "--json"
+          ]),
+          project.env
+        )
+      ).stdout
+    ) as CreateCanvasWorkspaceJsonResult;
+    await mkdir(join(second.resultsDir, "T-001", "runs", "RUN-001"), { recursive: true });
+    await writeFile(
+      join(second.resultsDir, "T-001", "runs", "RUN-001", "report.md"),
+      "keep history"
+    );
+    await writeFile(
+      second.statePath,
+      JSON.stringify({
+        currentRefs: [],
+        currentFeedbackId: null,
+        currentReviewBlockRef: null,
+        tasks: {},
+        blocks: {},
+        feedback: {}
+      })
+    );
+    const desktopLink = join(second.canvasRoot, "desktop");
+    const externalDesktop = join(project.sandboxRoot, "external-desktop");
+    await mkdir(externalDesktop);
+    await symlink(externalDesktop, desktopLink, process.platform === "win32" ? "junction" : "dir");
+    await writeFile(
+      join(second.canvasRoot, "desktop", "layout.json"),
+      JSON.stringify({
+        version: "desktop-layout/v1",
+        projectId: "second",
+        nodes: [],
+        updatedAt: "2026-10-06T00:00:00.000Z"
+      })
+    );
+    const snapshot = async () => {
+      const paths = [...(await listRelativeFiles(second.canvasRoot)), "desktop/layout.json"];
+      return {
+        desktopIsLink: (await lstat(desktopLink)).isSymbolicLink(),
+        desktopLinkTarget: await readlink(desktopLink),
+        files: await Promise.all(
+          paths.map(async (path) => ({
+            path,
+            bytes: (await readFile(join(second.canvasRoot, path))).toString("base64")
+          }))
+        )
+      };
+    };
+    const original = await snapshot();
+    const alias = join(project.sandboxRoot, "second-alias");
+    await symlink(second.canvasRoot, alias, process.platform === "win32" ? "junction" : "dir");
+    const targets = [
+      second.canvasRoot,
+      second.packageDir,
+      second.statePath,
+      second.resultsDir,
+      join(second.resultsDir, "T-001", "runs", "RUN-001"),
+      join(second.canvasRoot, "desktop"),
+      join(second.canvasRoot, "desktop", "layout.json"),
+      join(second.canvasRoot, "desktop", "missing", "export"),
+      join(second.canvasRoot, "missing", "export"),
+      join(project.init.workspace.packageDir, "missing", "export"),
+      dirname(second.canvasRoot),
+      alias,
+      join(alias, "missing", "export"),
+      join(alias, "desktop")
+    ];
+    for (const target of targets) {
+      const failure = await runCliExpectFailure(
+        projectArgs(project, [
+          "package",
+          "export",
+          "--canvas",
+          "default",
+          "--target",
+          target,
+          "--force",
+          "--json"
+        ]),
+        project.env
+      );
+      expect(failure.code, target).not.toBe(0);
+      expect(`${failure.stdout}\n${failure.stderr}`, target).toMatch(
+        /export target.*protected|export target.*ancestor/i
+      );
+      expect(await snapshot(), target).toEqual(original);
+    }
+    const sourceFiles = await listRelativeFiles(project.init.workspace.packageDir);
+    for (const target of [
+      join(project.sandboxRoot, "safe-export"),
+      join(project.sourceRoot, "exports", "plan"),
+      join(alias, "desktop", "exports", "plan")
+    ]) {
+      for (const force of [false, true]) {
+        if (force) await writeFile(join(target, "obsolete.txt"), "replace me");
+        const output = JSON.parse(
+          (
+            await runCli(
+              projectArgs(project, [
+                "package",
+                "export",
+                "--canvas",
+                "default",
+                "--target",
+                target,
+                ...(force ? ["--force"] : []),
+                "--json"
+              ]),
+              project.env
+            )
+          ).stdout
+        ) as { ok: boolean; canvasId: string };
+        expect(output).toMatchObject({ ok: true, canvasId: "default" });
+        expect(await listRelativeFiles(target)).toEqual(sourceFiles);
+        for (const path of sourceFiles) {
+          expect(await readFile(join(target, path))).toEqual(
+            await readFile(join(project.init.workspace.packageDir, path))
+          );
+        }
+        const validation = JSON.parse(
+          (
+            await runCli(
+              projectArgs(project, ["package-draft", "validate", "--draft-root", target, "--json"]),
+              project.env
+            )
+          ).stdout
+        ) as { ok: boolean };
+        expect(validation.ok).toBe(true);
+      }
+    }
+    expect(await snapshot()).toEqual(original);
+  }, 120_000);
+
   it(
     "exports package files, validates, and round-trips through import",
     async () => {
