@@ -14,7 +14,8 @@ import { WebSocket, WebSocketServer } from "ws";
 import { DispatchService } from "./dispatches.js";
 import { AgentHostRepository } from "./hosts.js";
 import { authenticateAgentHostRequest } from "./hostTransportAuth.js";
-import { DurableMailbox, type MailboxMessage } from "./mailbox.js";
+import { DurableMailbox } from "./mailbox.js";
+import { createAgentHostMailboxDelivery } from "./agentHostMailboxDelivery.js";
 import { RemoteAcpEventRepository } from "./remoteAcpEvents.js";
 import type { AcpConversationService } from "./acpConversationService.js";
 import { RemoteInteractionService } from "./remoteInteractions.js";
@@ -73,41 +74,9 @@ function hostIdFromUrl(url: string | undefined): string | undefined {
   }
 }
 
-function sendEvent(socket: WebSocket, event: unknown): void {
+function sendEvent(socket: WebSocket, event: unknown, onSent?: (error?: Error) => void): void {
   if (socket.readyState !== WebSocket.OPEN) return;
-  socket.send(JSON.stringify(serverEventSchema.parse(event)));
-}
-
-function sendMailboxMessage(
-  socket: WebSocket,
-  message: MailboxMessage,
-  mailbox: DurableMailbox,
-  historicalPermissionReplayVersion: 1 | undefined
-): void {
-  if (
-    message.command.type === "interaction.permission_response" &&
-    message.command.decision === "allow_once"
-  ) {
-    if (historicalPermissionReplayVersion !== 1)
-      throw new Error("historical_permission_replay_unsupported");
-    sendEvent(socket, {
-      type: "mailbox.permission_history",
-      protocolVersion: agentHostProtocolVersion,
-      sequence: message.sequence,
-      previousSequence: message.previousSequence,
-      messageId: message.messageId,
-      commandJson: mailbox.historicalPermissionCommandJson(message.messageId)
-    });
-    return;
-  }
-  sendEvent(socket, {
-    type: "mailbox.message",
-    protocolVersion: agentHostProtocolVersion,
-    sequence: message.sequence,
-    previousSequence: message.previousSequence,
-    messageId: message.messageId,
-    command: message.command
-  });
+  socket.send(JSON.stringify(serverEventSchema.parse(event)), onSent);
 }
 
 function logDeferredWritebackFailure(input: {
@@ -149,6 +118,7 @@ export function attachAgentHostWebSocketServer(
     socket: WebSocket;
     initialized: boolean;
     processing: Promise<void>;
+    stopWork(): void;
   };
   const sessions = new Map<string, HostSession>();
   const openSessions = new Set<HostSession>();
@@ -212,6 +182,7 @@ export function attachAgentHostWebSocketServer(
     exactPermissionOptionsVersion: 1 | undefined,
     historicalPermissionReplayVersion: 1 | undefined
   ) => {
+    let stopSessionWork = () => {};
     socket.on("error", (error: Error) => {
       const code =
         "code" in error && typeof error.code === "string" && /^WS_ERR_[A-Z_]+$/.test(error.code)
@@ -220,22 +191,29 @@ export function attachAgentHostWebSocketServer(
       console.error(
         JSON.stringify({ scope: "agent-host-ws", event: "socket_error", hostId, code })
       );
+      stopSessionWork();
       socket.terminate();
     });
+    let delivery: ReturnType<typeof createAgentHostMailboxDelivery> | undefined;
     const prior = sessions.get(hostId);
     if (prior) {
+      prior.stopWork();
       options.runtimeRpc?.detachHost(hostId, "superseded");
       if (prior.socket.readyState === WebSocket.OPEN) {
         prior.socket.close(4001, "superseded");
       }
     }
-    const session = { socket, initialized: false, processing: Promise.resolve() };
+    const session: HostSession = {
+      socket,
+      initialized: false,
+      processing: Promise.resolve(),
+      stopWork: () => stopSessionWork()
+    };
     sessions.set(hostId, session);
     openSessions.add(session);
 
     let initialized = false;
     let alive = true;
-    let unsubscribe = () => {};
     const helloTimeout = setTimeout(() => socket.close(4002, "host.hello required"), 10_000);
     const pingTimer = setInterval(() => {
       if (!alive) {
@@ -245,6 +223,12 @@ export function attachAgentHostWebSocketServer(
       alive = false;
       socket.ping();
     }, options.heartbeatIntervalMs);
+
+    stopSessionWork = () => {
+      clearTimeout(helloTimeout);
+      clearInterval(pingTimer);
+      delivery?.stop();
+    };
 
     socket.on("pong", () => {
       alive = true;
@@ -383,11 +367,24 @@ export function attachAgentHostWebSocketServer(
           options.runtimeRpc?.handleResponse(hostId, event);
           break;
       }
-      sendEvent(socket, {
-        type: "host.event_ack",
-        protocolVersion: agentHostProtocolVersion,
-        messageId: event.messageId
-      });
+      sendEvent(
+        socket,
+        {
+          type: "host.event_ack",
+          protocolVersion: agentHostProtocolVersion,
+          messageId: event.messageId
+        },
+        event.type === "mailbox.ack"
+          ? (error) => {
+              if (error) {
+                stopSessionWork();
+                socket.terminate();
+                return;
+              }
+              delivery?.confirm(event.sequence);
+            }
+          : undefined
+      );
       if (deferredWriteback) continueWriteback(hostId, deferredWriteback.dispatchId);
     };
 
@@ -423,14 +420,6 @@ export function attachAgentHostWebSocketServer(
             initialized = true;
             session.initialized = true;
             clearTimeout(helloTimeout);
-            unsubscribe = options.mailbox.subscribe(hostId, (message) =>
-              sendMailboxMessage(
-                socket,
-                message,
-                options.mailbox,
-                historicalPermissionReplayVersion
-              )
-            );
             sendEvent(socket, {
               type: "host.welcome",
               protocolVersion: agentHostProtocolVersion,
@@ -442,17 +431,25 @@ export function attachAgentHostWebSocketServer(
                 ? { historicalPermissionReplayVersion }
                 : {})
             });
-            for (const message of options.mailbox.listAfter(
+            delivery = createAgentHostMailboxDelivery({
+              socket,
               hostId,
-              hello.lastAcknowledgedSequence
-            )) {
-              sendMailboxMessage(
-                socket,
-                message,
-                options.mailbox,
-                historicalPermissionReplayVersion
-              );
-            }
+              mailbox: options.mailbox,
+              lastAcknowledgedSequence: hello.lastAcknowledgedSequence,
+              historicalPermissionReplayVersion,
+              isActive: () => !closing && sessions.get(hostId) === session,
+              onError: (error) => {
+                const publicRejection = publicHostProtocolRejection(error);
+                logHostProtocolRejection({ hostId, phase: "event", error, publicRejection });
+                sendEvent(socket, {
+                  type: "protocol.error",
+                  protocolVersion: agentHostProtocolVersion,
+                  code: publicRejection.code,
+                  message: publicRejection.message
+                });
+              }
+            });
+            delivery.wake();
             continueHostAvailability(hostId);
             return;
           }
@@ -489,9 +486,7 @@ export function attachAgentHostWebSocketServer(
     });
 
     socket.on("close", () => {
-      clearTimeout(helloTimeout);
-      clearInterval(pingTimer);
-      unsubscribe();
+      stopSessionWork();
       openSessions.delete(session);
       if (sessions.get(hostId) === session) {
         sessions.delete(hostId);
@@ -555,7 +550,10 @@ export function attachAgentHostWebSocketServer(
   return {
     disconnectHost(hostId) {
       const session = sessions.get(hostId);
-      if (session) session.initialized = false;
+      if (session) {
+        session.initialized = false;
+        session.stopWork();
+      }
       options.runtimeRpc?.detachHost(hostId, "revoked");
       session?.socket.close(4003, "host revoked");
     },
@@ -580,6 +578,7 @@ export function attachAgentHostWebSocketServer(
           return outcome === "settled";
         };
         const closingSessions = [...openSessions];
+        for (const session of closingSessions) session.stopWork();
         const processingDrained = await waitWithinShutdownBudget(
           Promise.allSettled(closingSessions.map(({ processing }) => processing))
         );

@@ -153,7 +153,11 @@ describe("historical permission recovery over SQLite and WebSocket", () => {
     const fixture = await setup();
     const { execution, historical } = await seedHistoricalInbox(fixture, false);
     let tamper = false;
+    let activeServerSocket: import("ws").WebSocket | undefined;
+    let originalReplay: Record<string, unknown> | undefined;
     const frames = captureWrites((frame, socket) => {
+      if (frame.type === "host.welcome") activeServerSocket = socket;
+      if (frame.type === "mailbox.permission_history") originalReplay ??= frame;
       if (tamper && frame.type === "mailbox.permission_history") {
         tamper = false;
         socket.send(
@@ -183,9 +187,8 @@ describe("historical permission recovery over SQLite and WebSocket", () => {
     await first.stop();
     const second = await fixture.start(execute);
     await vi.waitFor(() => expect(second.client.status().state).toBe("connected"));
-    const message = fixture.mailbox.listAfter(fixture.host.id, execution.sequence)[0];
-    if (!message) throw new Error("history_required");
-    fixture.mailbox.publish(message);
+    if (!activeServerSocket || !originalReplay) throw new Error("test_real_replay_required");
+    activeServerSocket.send(JSON.stringify(originalReplay));
     await vi.waitFor(() =>
       expect(frames.filter((frame) => frame.type === "mailbox.permission_history")).toHaveLength(2)
     );
@@ -203,7 +206,7 @@ describe("historical permission recovery over SQLite and WebSocket", () => {
       historical.sequence
     );
     tamper = true;
-    fixture.mailbox.publish(message);
+    activeServerSocket.send(JSON.stringify(originalReplay));
     await vi.waitFor(() =>
       expect(second.client.status()).toEqual({ state: "degraded", reason: "invalid_server_event" })
     );
@@ -290,7 +293,15 @@ describe("historical permission recovery over SQLite and WebSocket", () => {
   ])("safely handles %s Server history with only an old outbox request", async (kind) => {
     const fixture = await setup();
     const delivery = queueExecution(fixture);
-    captureWrites((frame) => frame.type === "dispatch.failed");
+    let deliverySocket: import("ws").WebSocket | undefined;
+    let deliveryFrame: Record<string, unknown> | undefined;
+    captureWrites((frame, socket) => {
+      if (frame.type === "mailbox.message" && frame.sequence === delivery.sequence) {
+        deliverySocket = socket;
+        deliveryFrame = frame;
+      }
+      return frame.type === "dispatch.failed";
+    });
     let aborted = 0;
     const execute = vi.fn<AgentHostExecutor["execute"]>(
       async (_command, context) =>
@@ -332,8 +343,9 @@ describe("historical permission recovery over SQLite and WebSocket", () => {
       fixture.interactions.recordLegacyRequest(fixture.host.id, request.messageId, payload);
     }
     const eventJson = await insertOutbox(fixture, request);
-    // Replaying an already accepted delivery triggers the real transport pump.
-    fixture.mailbox.publish(delivery);
+    // An actual duplicate wire delivery wakes the Host's persisted outbox.
+    if (!deliverySocket || !deliveryFrame) throw new Error("test_real_delivery_required");
+    deliverySocket.send(JSON.stringify(deliveryFrame));
     await vi.waitFor(() => expect(running.state.pendingEvents()).not.toContainEqual(request));
     if (kind === "fresh" || kind === "existing") await vi.waitFor(() => expect(aborted).toBe(1));
     else {

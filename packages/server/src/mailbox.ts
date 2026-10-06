@@ -148,6 +148,18 @@ export class DurableMailbox {
       .map(toMessage);
   }
 
+  listPageAfter(hostId: string, sequence: number, limit: number): MailboxMessage[] {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 128) {
+      throw new Error("mailbox_page_limit_invalid");
+    }
+    return this.database
+      .prepare(
+        "SELECT * FROM mailbox_messages WHERE host_id=? AND sequence>? ORDER BY sequence ASC LIMIT ?"
+      )
+      .all(hostId, sequence, limit)
+      .map(toMessage);
+  }
+
   acknowledge(hostId: string, messageId: string, sequence: number): MailboxMessage {
     this.inbox.process(hostId, messageId, "mailbox.ack", { sequence }, () => {
       this.acknowledgeSequence(hostId, sequence);

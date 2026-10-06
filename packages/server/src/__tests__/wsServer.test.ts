@@ -939,14 +939,14 @@ describe("agent host WebSocket transport", () => {
         ]
       })
     );
-    await expect(firstEvents.next()).resolves.toMatchObject({
-      type: "mailbox.message",
-      command: { type: "cancel_execution" }
-    });
     await expect(firstEvents.next()).resolves.toMatchObject({ type: "lease.renewed" });
     await expect(firstEvents.next()).resolves.toMatchObject({
       type: "host.event_ack",
       messageId: "heartbeat-expire-observation"
+    });
+    await expect(firstEvents.next()).resolves.toMatchObject({
+      type: "mailbox.message",
+      command: { type: "cancel_execution" }
     });
     firstSocket.close();
     await new Promise<void>((resolve) => firstSocket.once("close", () => resolve()));
@@ -1112,13 +1112,16 @@ describe("agent host WebSocket transport", () => {
         ]
       })
     );
+    await expect(secondEvents.next()).resolves.toMatchObject({ type: "lease.renewed" });
+    await expect(secondEvents.next()).resolves.toMatchObject({
+      type: "host.event_ack",
+      messageId: "offline-expiry-heartbeat"
+    });
     const expiryDelivery = await secondEvents.next();
     expect(expiryDelivery).toMatchObject({
       type: "mailbox.message",
       command: { type: "interaction.elicitation_response", outcome: "cancelled" }
     });
-    await secondEvents.next();
-    await secondEvents.next();
     second.close();
     await new Promise<void>((resolve) => second.once("close", () => resolve()));
 
