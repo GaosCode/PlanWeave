@@ -87,8 +87,10 @@ export async function runManagementServerSwitchSmoke(
             detail = await waitFor(() => {
               const menuId = actions.getAttribute('aria-controls');
               const menu = menuId ? document.getElementById(menuId) : null;
-              return [...(menu?.querySelectorAll('[role="menuitem"]') ?? [])]
+              const item = [...(menu?.querySelectorAll('[role="menuitem"]') ?? [])]
                 .find((item) => /Manage permissions|管理权限/.test(item.textContent ?? ""));
+              return item && item.getAttribute('aria-disabled') !== 'true' &&
+                !item.hasAttribute('data-disabled') ? item : null;
             }, "Server management details menu");
           } catch (error) {
             throw new Error(String(error) + ": " + JSON.stringify({
@@ -98,7 +100,11 @@ export async function runManagementServerSwitchSmoke(
                 popup: button.getAttribute('aria-haspopup'),
                 expanded: button.getAttribute('aria-expanded')
               })),
-              menus: [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent?.trim())
+              menus: [...document.querySelectorAll('[role="menuitem"]')].map((item) => ({
+                label: item.textContent?.trim(),
+                disabled: item.getAttribute('aria-disabled'),
+                connected: item.isConnected
+              }))
             }));
           }
           detail.click();
@@ -111,6 +117,8 @@ export async function runManagementServerSwitchSmoke(
               requestedOrigin: origin,
               selectedRow: row.textContent?.slice(0, 180),
               selectedMenuItem: detail.textContent?.trim(),
+              selectedMenuItemDisabled: detail.getAttribute('aria-disabled'),
+              selectedMenuItemConnected: detail.isConnected,
               serverRows: [...document.querySelectorAll('[data-testid="server-connection-row"]')]
                 .map((element) => element.textContent?.slice(0, 180)),
               identities: [...document.querySelectorAll('[data-testid="management-server-identity"]')]
