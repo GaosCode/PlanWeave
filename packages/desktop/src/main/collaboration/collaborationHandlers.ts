@@ -901,10 +901,15 @@ export async function shutdownCollaborationHandlers(): Promise<void> {
 
   const activeService = service;
   service = null;
-  await activeService?.shutdown();
+  const serviceResult = await Promise.allSettled([activeService?.shutdown()]);
 
   const activeCoordinator = coordinator;
   coordinator = null;
   setLocalOperatorBackendPort(null);
-  await activeCoordinator?.stop();
+  const coordinatorResult = await Promise.allSettled([activeCoordinator?.stop()]);
+  const failures = [...serviceResult, ...coordinatorResult].flatMap((result) =>
+    result.status === "rejected" ? [result.reason] : []
+  );
+  if (failures.length > 1) throw new AggregateError(failures, "collaboration_shutdown_failed");
+  if (failures.length === 1) throw failures[0];
 }

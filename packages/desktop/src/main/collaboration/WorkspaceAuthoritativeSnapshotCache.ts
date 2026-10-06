@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { completeContentVersionSchema } from "@planweave-ai/collaboration-protocol/content/version";
-import { decodeCanvasReplicaDocument } from "@planweave-ai/runtime";
+import { decodeCanvasReplicaDocument, withAdvisoryDirectoryLock } from "@planweave-ai/runtime";
 import { z } from "zod";
 import { desktopHomePaths } from "../planweaveHomePaths.js";
 import type { CanvasReplicaCommittedSnapshot } from "./CanvasReplicaStore.js";
@@ -60,7 +60,22 @@ export type WorkspaceAuthoritativeSnapshotCacheEntry = z.infer<
   typeof workspaceAuthoritativeSnapshotCacheEntrySchema
 >;
 
-const writeLocks = new Map<string, Promise<void>>();
+type CapturedWrite = {
+  snapshot: CanvasReplicaCommittedSnapshot;
+  sequence: number;
+};
+
+type CaptureState = {
+  key: WorkspaceRemoteAuthorityKey;
+  pending: CapturedWrite | null;
+  inflight: CapturedWrite | null;
+  latest: { revision: number; contentDigest: string } | null;
+  submitted: number;
+  settled: number;
+  error: unknown;
+  conflict: Error | null;
+  barriers: Array<{ target: number; resolve(): void; reject(error: unknown): void }>;
+};
 
 function isMissing(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && "code" in error && error.code === "ENOENT");
@@ -76,30 +91,14 @@ function sameKey(left: WorkspaceRemoteAuthorityKey, right: WorkspaceRemoteAuthor
   );
 }
 
-async function withWriteLock<T>(path: string, action: () => Promise<T>): Promise<T> {
-  const previous = writeLocks.get(path) ?? Promise.resolve();
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const queued = previous.then(() => gate);
-  writeLocks.set(path, queued);
-  await previous;
-  try {
-    return await action();
-  } finally {
-    release();
-    if (writeLocks.get(path) === queued) writeLocks.delete(path);
-  }
-}
-
 /**
  * Main-only durable recovery copy of a Server-confirmed Workspace snapshot.
  * Each exact remote authority has an isolated file; invalid files are quarantined and never read.
  */
 export class WorkspaceAuthoritativeSnapshotCache {
-  private tail: Promise<void> = Promise.resolve();
-  private lastWriteError: unknown = null;
+  private readonly captures = new Map<string, CaptureState>();
+  private readonly ready = new Set<string>();
+  private draining = false;
 
   constructor(
     private readonly directory: string = join(
@@ -163,24 +162,30 @@ export class WorkspaceAuthoritativeSnapshotCache {
     });
     decodeCanvasReplicaDocument(entry.content);
     const path = this.pathForKey(entry.key);
-    return withWriteLock(path, async () => {
-      const current = await this.get(entry.key);
-      if (current && current.contentRevision > entry.contentRevision) return current;
-      if (current && current.contentRevision === entry.contentRevision) {
-        if (current.contentDigest !== entry.contentDigest) {
-          throw new Error("workspace_snapshot_cache_revision_digest_conflict");
+    await mkdir(this.directory, { recursive: true, mode: 0o700 });
+    return withAdvisoryDirectoryLock(
+      {
+        lockPath: `${path}.write.lock`,
+        operation: "workspace-authoritative-snapshot-write"
+      },
+      async () => {
+        const current = await this.get(entry.key);
+        if (current && current.contentRevision > entry.contentRevision) return current;
+        if (current && current.contentRevision === entry.contentRevision) {
+          if (current.contentDigest !== entry.contentDigest) {
+            throw new Error("workspace_snapshot_cache_revision_digest_conflict");
+          }
+          return current;
         }
-        return current;
+        const temporaryPath = `${path}.${process.pid}.${Date.now()}.tmp`;
+        await writeFile(temporaryPath, `${JSON.stringify(entry, null, 2)}\n`, {
+          encoding: "utf8",
+          mode: 0o600
+        });
+        await rename(temporaryPath, path);
+        return entry;
       }
-      await mkdir(this.directory, { recursive: true, mode: 0o700 });
-      const temporaryPath = `${path}.${process.pid}.${Date.now()}.tmp`;
-      await writeFile(temporaryPath, `${JSON.stringify(entry, null, 2)}\n`, {
-        encoding: "utf8",
-        mode: 0o600
-      });
-      await rename(temporaryPath, path);
-      return entry;
-    });
+    );
   }
 
   capture(key: WorkspaceRemoteAuthorityKey, snapshot: CanvasReplicaCommittedSnapshot): void {
@@ -193,26 +198,124 @@ export class WorkspaceAuthoritativeSnapshotCache {
     ) {
       throw new Error("workspace_snapshot_cache_capture_scope_mismatch");
     }
-    this.tail = this.tail
-      .catch(() => undefined)
-      .then(async () => {
-        try {
-          await this.put({
-            key: parsedKey,
-            contentRevision: snapshot.revision,
-            contentDigest: snapshot.contentDigest,
-            content: snapshot.content
-          });
-          this.lastWriteError = null;
-        } catch (error) {
-          this.lastWriteError = error;
-        }
-      });
+    z.number().int().nonnegative().parse(snapshot.revision);
+    digestSchema.parse(snapshot.contentDigest);
+    if (snapshot.contentDigest !== snapshot.content.canonicalDigest) {
+      throw new Error("workspace_snapshot_content_digest_mismatch");
+    }
+    const id = this.pathForKey(parsedKey);
+    let state = this.captures.get(id);
+    if (!state) {
+      state = {
+        key: parsedKey,
+        pending: null,
+        inflight: null,
+        latest: null,
+        submitted: 0,
+        settled: 0,
+        error: null,
+        conflict: null,
+        barriers: []
+      };
+      this.captures.set(id, state);
+    }
+    const comparable = [state.latest, state.pending?.snapshot, state.inflight?.snapshot];
+    if (
+      comparable.some(
+        (value) =>
+          value?.revision === snapshot.revision && value.contentDigest !== snapshot.contentDigest
+      )
+    ) {
+      state.conflict = new Error("workspace_snapshot_cache_revision_digest_conflict");
+      this.settleBarriers(state);
+      throw state.conflict;
+    }
+    if (state.latest && snapshot.revision < state.latest.revision) return;
+    state.latest = { revision: snapshot.revision, contentDigest: snapshot.contentDigest };
+    state.pending = { snapshot, sequence: ++state.submitted };
+    if (!state.inflight) this.ready.add(id);
+    if (!this.draining) void this.drain();
   }
 
   async flush(): Promise<void> {
-    await this.tail;
-    if (this.lastWriteError) throw this.lastWriteError;
+    const targets = [...this.captures.values()];
+    try {
+      const results = await Promise.allSettled(
+        targets.map(
+          (state) =>
+            new Promise<void>((resolve, reject) => {
+              state.barriers.push({ target: state.submitted, resolve, reject });
+              this.settleBarriers(state);
+            })
+        )
+      );
+      const failed = results.find((result) => result.status === "rejected");
+      if (failed?.status === "rejected") throw failed.reason;
+    } finally {
+      for (const state of targets) {
+        if (
+          !state.pending &&
+          !state.inflight &&
+          !state.error &&
+          !state.conflict &&
+          state.barriers.length === 0
+        ) {
+          this.captures.delete(this.pathForKey(state.key));
+        }
+      }
+    }
+  }
+
+  private settleBarriers(state: CaptureState): void {
+    state.barriers = state.barriers.filter((barrier) => {
+      if (state.settled < barrier.target) return true;
+      if (state.conflict) {
+        barrier.reject(state.conflict);
+        return false;
+      }
+      if (state.error) barrier.reject(state.error);
+      else barrier.resolve();
+      return false;
+    });
+  }
+
+  private async drain(): Promise<void> {
+    this.draining = true;
+    try {
+      while (this.ready.size > 0) {
+        const id = this.ready.values().next().value;
+        if (id === undefined) break;
+        this.ready.delete(id);
+        const state = this.captures.get(id);
+        if (!state?.pending) continue;
+        const write = state.pending;
+        state.pending = null;
+        state.inflight = write;
+        try {
+          await this.put({
+            key: state.key,
+            contentRevision: write.snapshot.revision,
+            contentDigest: write.snapshot.contentDigest,
+            content: write.snapshot.content
+          });
+          state.error = null;
+        } catch (error) {
+          state.error = error;
+          if (
+            error instanceof Error &&
+            error.message === "workspace_snapshot_cache_revision_digest_conflict"
+          ) {
+            state.conflict = error;
+          }
+        }
+        state.settled = write.sequence;
+        state.inflight = null;
+        this.settleBarriers(state);
+        if (state.pending) this.ready.add(id);
+      }
+    } finally {
+      this.draining = false;
+    }
   }
 
   private async quarantine(path: string): Promise<void> {

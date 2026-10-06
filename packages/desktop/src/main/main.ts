@@ -229,8 +229,14 @@ function startDesktopApplication(): void {
         cleanupTasks: [
           stopMcpTunnelProcesses,
           async () => {
-            await shutdownCollaborationHandlers();
-            await shutdownOperatorControlService();
+            const collaborationResult = await Promise.allSettled([shutdownCollaborationHandlers()]);
+            const operatorResult = await Promise.allSettled([shutdownOperatorControlService()]);
+            const failures = [...collaborationResult, ...operatorResult].flatMap((result) =>
+              result.status === "rejected" ? [result.reason] : []
+            );
+            if (failures.length > 1)
+              throw new AggregateError(failures, "desktop_services_shutdown_failed");
+            if (failures.length === 1) throw failures[0];
           },
           () => shutdownDesktopAutoRuns("PlanWeave Desktop is quitting.")
         ],

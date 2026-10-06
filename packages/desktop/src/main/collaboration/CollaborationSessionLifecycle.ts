@@ -231,14 +231,12 @@ export class CollaborationSessionLifecycle {
     const profileId = this.dependencies.getClientProfileId();
     this.observerGeneration += 1;
     this.dependencies.presenceSession.reset();
+    this.dependencies.setClient(null, null);
+    let persistenceError: ReturnType<typeof collaborationErrorFromUnknown> | null = null;
     try {
       await this.dependencies.canvasCommands.flushSnapshotCache();
     } catch (error) {
-      const mapped = collaborationErrorFromUnknown(error);
-      this.dependencies.setSession("error", "canvas_replica_persistence_failed", {
-        code: mapped.code,
-        message: mapped.message
-      });
+      persistenceError = collaborationErrorFromUnknown(error);
     }
     this.dependencies.canvasCommands.clearAllSessions();
     if (client && profileId) {
@@ -248,9 +246,8 @@ export class CollaborationSessionLifecycle {
         // The observer may close between cursor read and client teardown.
       }
     }
-    this.dependencies.setClient(null, null);
     this.observerStatus = { state: "stopped" };
-    this.dependencies.setSession("idle", reason, null);
+    if (!persistenceError) this.dependencies.setSession("idle", reason, null);
     if (client) {
       try {
         client.stopPresence();
@@ -275,6 +272,13 @@ export class CollaborationSessionLifecycle {
     }
     if (reason === "logout" || reason === "profile_removed" || reason === "shutdown") {
       this.clearRememberedObserverCursor(profileId);
+    }
+    if (persistenceError) {
+      this.dependencies.setSession("error", "canvas_replica_persistence_failed", {
+        code: persistenceError.code,
+        message: persistenceError.message
+      });
+      throw persistenceError;
     }
   }
 

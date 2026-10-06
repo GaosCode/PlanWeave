@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -14,13 +14,24 @@ import {
   parseCanvasReplicaDocument
 } from "@planweave-ai/runtime";
 import { basicManifest } from "../../../runtime/src/__tests__/promptTestHelpers.js";
-import type { CollaborationClient } from "../main/collaboration/CollaborationClient.js";
+import { CollaborationClient } from "../main/collaboration/CollaborationClient.js";
 import { CollaborationCanvasCommandFacade } from "../main/collaboration/collaborationCanvasCommands.js";
 import { CollaborationClientError } from "../main/collaboration/collaborationErrors.js";
 import { CanvasReplicaStore } from "../main/collaboration/CanvasReplicaStore.js";
 import type { CanvasReplicaCommandTransport } from "../main/collaboration/CanvasReplicaCommandWorker.js";
+import { CollaborationSessionLifecycle } from "../main/collaboration/CollaborationSessionLifecycle.js";
+import { CollaborationPresenceSession } from "../main/collaboration/collaborationPresenceSession.js";
+import { CollaborationProfileStore } from "../main/collaboration/collaborationProfileStore.js";
+import { CollaborationCredentialVault } from "../main/collaboration/collaborationCredentialVault.js";
+import { ContentVersionFacade } from "../main/collaboration/ContentVersionFacade.js";
+import { createWorkspaceCanvasSnapshotSessionComposition } from "../main/collaboration/workspaceCanvasSnapshotSessionComposition.js";
+import { parseCollaborationConnectionProfile } from "@planweave-ai/collaboration-protocol/connection";
+import { CollaborationService } from "../main/collaboration/collaborationService.js";
 import { WorkspaceCanvasSession } from "../main/collaboration/WorkspaceCanvasSession.js";
-import { WorkspaceAuthoritativeSnapshotCache } from "../main/collaboration/WorkspaceAuthoritativeSnapshotCache.js";
+import {
+  workspaceAuthoritativeSnapshotCacheEntrySchema,
+  WorkspaceAuthoritativeSnapshotCache
+} from "../main/collaboration/WorkspaceAuthoritativeSnapshotCache.js";
 import {
   type WorkspaceRemoteAuthorityKey,
   workspaceRemoteAuthorityId
@@ -246,7 +257,9 @@ function createHarness(options?: {
   let content = fixtureContent();
   const store = new CanvasReplicaStore(
     () => undefined,
-    (snapshot) => options?.snapshotCache?.capture(cacheKey, snapshot)
+    (snapshot) => {
+      if (options?.connectedProfileId !== null) options?.snapshotCache?.capture(cacheKey, snapshot);
+    }
   );
   const submitted: Array<{
     expectedRevision: number;
@@ -385,7 +398,168 @@ function createHarness(options?: {
   };
 }
 
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+function serviceWithCache(directory: string, cache: WorkspaceAuthoritativeSnapshotCache) {
+  return new CollaborationService({
+    profileStorePaths: { profilesPath: join(directory, "profiles.json") },
+    workspaceProfileStorePaths: { profilesPath: join(directory, "workspace-profiles.json") },
+    credentialsPath: join(directory, "credentials.json"),
+    invitationsPath: join(directory, "invitations.json"),
+    exportedIdentityPath: join(directory, "identity.json"),
+    workspaceSnapshotCache: cache
+  });
+}
+
 describe("WorkspaceCanvasSession", () => {
+  it.each([
+    false,
+    true
+  ])("detaches authority before the flush barrier and cleans the saved client (write fails=%s)", async (writeFails) => {
+    const directory = await mkdtemp(join(tmpdir(), "workspace-close-authority-"));
+    temporaryDirectories.push(directory);
+    const cacheDirectory = join(directory, "cache");
+    if (writeFails) await writeFile(cacheDirectory, "blocked");
+    const cache = new WorkspaceAuthoritativeSnapshotCache(cacheDirectory);
+    const profile = parseCollaborationConnectionProfile({
+      profileId: cacheKey.connectionProfileId,
+      displayName: "test",
+      serverBaseUrl: cacheKey.serverOrigin,
+      projectId: cacheKey.projectId,
+      allowInsecureTransport: true,
+      endpoint: {
+        topology: "loopback_http",
+        serverOrigin: cacheKey.serverOrigin,
+        allowedClientOrigins: [cacheKey.serverOrigin],
+        tlsTrust: "not_applicable"
+      }
+    });
+    const savedClient = new CollaborationClient({
+      profile,
+      credential: { getDeviceToken: () => undefined }
+    });
+    let activeClient: CollaborationClient | null = savedClient;
+    const getClient = () => activeClient;
+    const cleanup = [
+      vi.spyOn(savedClient, "stopPresence"),
+      vi.spyOn(savedClient, "stopLiveSync"),
+      vi.spyOn(savedClient, "stopObserver"),
+      vi.spyOn(savedClient, "dispose")
+    ];
+    const cursor = vi.spyOn(savedClient, "lastObserverCursor");
+    const composition = createWorkspaceCanvasSnapshotSessionComposition({
+      snapshotCache: cache,
+      contentVersions: new ContentVersionFacade(getClient),
+      resolveClient: getClient,
+      resolveConnectedProfileId: () => (activeClient ? profile.profileId : null),
+      resolveProfile: async () => profile,
+      enqueue: async (operation) => operation(),
+      assertOpen: () => {}
+    });
+    const content = fixtureContent();
+    const entry = (revision: number) =>
+      workspaceAuthoritativeSnapshotCacheEntrySchema.parse({
+        schemaVersion: "workspace-authoritative-snapshot-cache/v1",
+        key: cacheKey,
+        contentRevision: revision,
+        contentDigest: content.canonicalDigest,
+        contentIdentity: {
+          canonicalDigest: content.canonicalDigest,
+          totalBytes: content.totalBytes
+        },
+        recovery: { mode: "offline_readonly", mutationsAllowed: false, executionAllowed: false },
+        cachedAt: "2026-10-06T00:00:00.000Z",
+        content
+      });
+    const started = deferred();
+    const release = deferred();
+    const realPut = cache.put.bind(cache);
+    const put = vi.spyOn(cache, "put").mockImplementation(async (...args) => {
+      started.resolve();
+      await release.promise;
+      return realPut(...args);
+    });
+    const publishStatus = () => serviceWithCache(directory, cache).getStatus();
+    const setSession = vi.fn();
+    const lifecycle = new CollaborationSessionLifecycle({
+      profiles: new CollaborationProfileStore({ profilesPath: join(directory, "profiles.json") }),
+      vault: new CollaborationCredentialVault({
+        paths: { credentialsPath: join(directory, "credentials.json") }
+      }),
+      presenceSession: new CollaborationPresenceSession({
+        getClient,
+        getClientProfileId: () => (activeClient ? profile.profileId : null),
+        publishPresenceSignal: () => {},
+        setSessionError: () => {},
+        clearDeviceCredential: async () => {},
+        publishStatus
+      }),
+      canvasCommands: composition.commands,
+      enqueue: async (operation) => operation(),
+      assertOpen: () => {},
+      getClient,
+      getClientProfileId: () => (activeClient ? profile.profileId : null),
+      setClient: (client) => {
+        activeClient = client;
+      },
+      getSessionPhase: () => "connected",
+      setSession,
+      clientForProfile: async () => {
+        throw new Error("unused");
+      },
+      publishStatus,
+      publishObserverSignal: () => {}
+    });
+    composition.commands.bindCached({ key: cacheKey, entry: entry(2) });
+    await started.promise;
+    let closed = false;
+    const closing = lifecycle.dispose("disconnect").finally(() => {
+      closed = true;
+    });
+    const outcome = closing.then(
+      () => null,
+      (error: unknown) => error
+    );
+    expect(activeClient).toBeNull();
+    expect(closed).toBe(false);
+    const binding = {
+      kind: "remote" as const,
+      workspaceId: cacheKey.workspaceId,
+      projectId: cacheKey.projectId,
+      canvasId: cacheKey.canvasId
+    };
+    expect(composition.commands.projectionForBinding(binding)).not.toBeNull();
+    // A delayed baseline still reaches the real store's committed callback during teardown.
+    composition.commands.bindCached({ key: cacheKey, entry: entry(3) });
+    release.resolve();
+    const error = await outcome;
+    expect(put).toHaveBeenCalledTimes(1);
+    expect(composition.commands.projectionForBinding(binding)).toBeNull();
+    for (const stop of cleanup.slice(0, 2)) expect(stop).toHaveBeenCalledTimes(2);
+    expect(cleanup[2]).toHaveBeenCalledTimes(1);
+    expect(cleanup[3]).toHaveBeenCalledTimes(1);
+    expect(cursor).toHaveBeenCalledTimes(1);
+    if (writeFails) {
+      expect(error).not.toBeNull();
+      expect(setSession).toHaveBeenLastCalledWith(
+        "error",
+        "canvas_replica_persistence_failed",
+        expect.objectContaining({ message: expect.any(String) })
+      );
+    } else {
+      expect(error).toBeNull();
+      expect(
+        await new WorkspaceAuthoritativeSnapshotCache(cacheDirectory).get(cacheKey)
+      ).toMatchObject({ contentRevision: 2, content });
+    }
+  });
+
   it("opens a verified Server projection without a local package directory", async () => {
     const harness = createHarness();
     const projection = await harness.session.open(locator);
@@ -579,7 +753,13 @@ describe("WorkspaceCanvasSession", () => {
     await snapshotCache.flush();
     await online.session.close(locator);
 
-    const restarted = createHarness({ connectedProfileId: null, snapshotCache });
+    const reopenedCache = new WorkspaceAuthoritativeSnapshotCache(directory);
+    const offlineCapture = vi.spyOn(reopenedCache, "capture");
+    const offlinePut = vi.spyOn(reopenedCache, "put");
+    const restarted = createHarness({
+      connectedProfileId: null,
+      snapshotCache: reopenedCache
+    });
     const recovered = await restarted.session.open(locator);
     expect(recovered).toMatchObject({
       authorityMode: "offline_cache_readonly",
@@ -605,6 +785,8 @@ describe("WorkspaceCanvasSession", () => {
       })
     ).rejects.toMatchObject({ code: "workspace_canvas_offline_execution_disabled" });
     expect(restarted.resetRuntime).not.toHaveBeenCalled();
+    expect(offlineCapture).not.toHaveBeenCalled();
+    expect(offlinePut).not.toHaveBeenCalled();
   });
 
   it("advances the durable recovery snapshot only after a confirmed content revision", async () => {
@@ -662,5 +844,93 @@ describe("WorkspaceCanvasSession", () => {
       code: "canvas_snapshot_invalid"
     });
     expect(get).not.toHaveBeenCalled();
+  });
+  it.each([
+    "disconnect",
+    "shutdown"
+  ] as const)("waits for the last Server-confirmed snapshot during %s before reopening offline", async (action) => {
+    const directory = await mkdtemp(join(tmpdir(), "planweave-workspace-close-cache-"));
+    temporaryDirectories.push(directory);
+    const cacheDirectory = join(directory, "snapshots");
+    const cache = new WorkspaceAuthoritativeSnapshotCache(cacheDirectory);
+    const service = serviceWithCache(directory, cache);
+    const firstWrite = deferred();
+    const flushStarted = deferred();
+    const put = cache.put.bind(cache);
+    vi.spyOn(cache, "put").mockImplementationOnce(async (input) => {
+      await firstWrite.promise;
+      return put(input);
+    });
+    const online = createHarness({ snapshotCache: cache });
+    await online.session.open(locator);
+    const accepted = await online.session.submit({ locator, intent: layoutIntent });
+    expect(accepted.replica.revision).toBe(2);
+    const flush = cache.flush.bind(cache);
+    vi.spyOn(cache, "flush").mockImplementation(() => {
+      flushStarted.resolve();
+      return flush();
+    });
+    let closed = false;
+    const closing = (
+      action === "disconnect" ? service.disconnectSession() : service.shutdown()
+    ).then(() => {
+      closed = true;
+    });
+    await flushStarted.promise;
+    await Promise.resolve();
+    expect(closed).toBe(false);
+    expect(await new WorkspaceAuthoritativeSnapshotCache(cacheDirectory).get(cacheKey)).toBeNull();
+    firstWrite.resolve();
+    await closing;
+    await online.session.close(locator);
+    const reopenedCache = new WorkspaceAuthoritativeSnapshotCache(cacheDirectory);
+    expect(await reopenedCache.get(cacheKey)).toMatchObject({
+      contentRevision: 2,
+      contentDigest: accepted.replica.contentDigest,
+      content: online.content(),
+      recovery: { mode: "offline_readonly", mutationsAllowed: false, executionAllowed: false }
+    });
+    const offline = createHarness({ connectedProfileId: null, snapshotCache: reopenedCache });
+    expect(await offline.session.open(locator)).toMatchObject({
+      authorityMode: "offline_cache_readonly",
+      readOnly: true,
+      replica: { revision: 2, contentDigest: accepted.replica.contentDigest, canEdit: false }
+    });
+    await expect(offline.session.submit({ locator, intent: layoutIntent })).rejects.toMatchObject({
+      code: "workspace_canvas_offline_readonly"
+    });
+  });
+
+  it.each([
+    "disconnect",
+    "shutdown"
+  ] as const)("reports a real persistence failure during %s and allows a later snapshot retry", async (action) => {
+    const directory = await mkdtemp(join(tmpdir(), "planweave-workspace-close-failure-"));
+    temporaryDirectories.push(directory);
+    const cacheDirectory = join(directory, "snapshots");
+    await writeFile(cacheDirectory, "blocked cache directory", "utf8");
+    const cache = new WorkspaceAuthoritativeSnapshotCache(cacheDirectory);
+    const service = serviceWithCache(directory, cache);
+    const online = createHarness({ snapshotCache: cache });
+    await online.session.open(locator);
+    await expect(
+      action === "disconnect" ? service.disconnectSession() : service.shutdown()
+    ).rejects.toBeInstanceOf(Error);
+    expect((await service.getStatus()).session).toMatchObject({
+      phase: "error",
+      detail: "canvas_replica_persistence_failed",
+      lastErrorMessage: expect.any(String)
+    });
+    await rm(cacheDirectory);
+    const accepted = await online.session.submit({ locator, intent: layoutIntent });
+    if (action === "disconnect") await service.disconnectSession();
+    else await service.shutdown();
+    expect(
+      await new WorkspaceAuthoritativeSnapshotCache(cacheDirectory).get(cacheKey)
+    ).toMatchObject({
+      contentRevision: 2,
+      contentDigest: accepted.replica.contentDigest,
+      recovery: { mode: "offline_readonly", mutationsAllowed: false, executionAllowed: false }
+    });
   });
 });
