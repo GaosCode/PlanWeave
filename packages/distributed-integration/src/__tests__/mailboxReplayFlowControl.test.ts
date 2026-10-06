@@ -35,6 +35,9 @@ function executor() {
 describe("durable mailbox flow control through the default Agent Host", () => {
   it("bounds held real ACKs, drains mixed-size backlog and replays on takeover without repeating execution", async () => {
     const fixture = await setup();
+    if (exampleExecuteDelivery.type !== "mailbox.message") {
+      throw new Error("test_execute_delivery_required");
+    }
     const example = executeBlockCommandSchema.parse(exampleExecuteDelivery.command);
     const envelope = executionEnvelopeSchema.parse({
       ...example.envelope,
@@ -102,11 +105,14 @@ describe("durable mailbox flow control through the default Agent Host", () => {
     );
     expect(first.state.lastAcknowledgedSequence()).toBe(execution.sequence);
     expect(writes).toHaveLength(33);
-    const live = fixture.mailbox.enqueue(fixture.host.id, {
-      ...cancelExecutionCommandSchema.parse(messages[1]!.command),
-      dispatchId: "idle-live",
-      executionAttemptId: "idle-live-attempt"
-    });
+    const live = fixture.mailbox.enqueue(
+      fixture.host.id,
+      cancelExecutionCommandSchema.parse({
+        ...cancelExecutionCommandSchema.parse(messages[1]!.command),
+        dispatchId: "idle-live",
+        executionAttemptId: "idle-live-attempt"
+      })
+    );
     fixture.mailbox.publish(live);
     expect(writes).toHaveLength(33);
     const originalAck = held.values().next().value;
@@ -138,11 +144,14 @@ describe("durable mailbox flow control through the default Agent Host", () => {
     await first.stop();
     await second.stop();
     const third = await fixture.start(execute);
-    const final = fixture.mailbox.enqueue(fixture.host.id, {
-      ...cancelExecutionCommandSchema.parse(messages[1]!.command),
-      dispatchId: "idle-final",
-      executionAttemptId: "idle-final-attempt"
-    });
+    const final = fixture.mailbox.enqueue(
+      fixture.host.id,
+      cancelExecutionCommandSchema.parse({
+        ...cancelExecutionCommandSchema.parse(messages[1]!.command),
+        dispatchId: "idle-final",
+        executionAttemptId: "idle-final-attempt"
+      })
+    );
     fixture.mailbox.publish(final);
     await waitFor(() => expect(third.state.lastAcknowledgedSequence()).toBe(final.sequence));
     expect(execute).toHaveBeenCalledOnce();
