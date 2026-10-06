@@ -357,6 +357,81 @@ describe("WorkspaceAuthoritativeSnapshotCache", () => {
     expect((await cache.get(key))?.contentRevision).toBe(3);
   });
 
+  it.each([
+    false,
+    true
+  ])("keeps a recaptured key pending after an overlapping flush settles (other write fails: %s)", async (otherFails) => {
+    const { cache, directory } = await cacheHarness();
+    const first = deferred();
+    const other = deferred();
+    const otherStarted = deferred();
+    const recaptured = deferred();
+    const recapturedStarted = deferred();
+    const recapturedWritten = deferred();
+    const put = cache.put.bind(cache);
+    const writeFailure = new Error("other_write_failed");
+    vi.spyOn(cache, "put")
+      .mockImplementationOnce(async (input) => {
+        await first.promise;
+        return put(input);
+      })
+      .mockImplementationOnce(async (input) => {
+        otherStarted.resolve();
+        await other.promise;
+        if (otherFails) throw writeFailure;
+        return put(input);
+      })
+      .mockImplementationOnce(async (input) => {
+        recapturedStarted.resolve();
+        try {
+          await recaptured.promise;
+          return await put(input);
+        } finally {
+          recapturedWritten.resolve();
+        }
+      });
+    capture(cache, 1);
+    const firstFlush = cache.flush();
+    capture(cache, 1, 1, { ...key, canvasId: "canvas-2" });
+    const overlappingFlush = cache.flush().catch((error: unknown) => error);
+    let latestFlush: Promise<void> | undefined;
+    try {
+      first.resolve();
+      await otherStarted.promise;
+      await firstFlush;
+      capture(cache, 2);
+      other.resolve();
+      await recapturedStarted.promise;
+      expect(await overlappingFlush).toBe(otherFails ? writeFailure : undefined);
+
+      let result: string | null = null;
+      latestFlush = cache.flush().then(
+        () => {
+          result = "success";
+        },
+        () => {
+          result = "failure";
+        }
+      );
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      const reopened = new WorkspaceAuthoritativeSnapshotCache(directory);
+      expect((await reopened.get(key))?.contentRevision).toBe(1);
+      expect(result).toBeNull();
+      recaptured.resolve();
+      await latestFlush;
+      expect(result).toBe(otherFails ? "failure" : "success");
+      expect(await reopened.get(key)).toMatchObject({
+        contentRevision: 2,
+        content: content(2)
+      });
+    } finally {
+      first.resolve();
+      other.resolve();
+      recaptured.resolve();
+      await Promise.all([firstFlush, overlappingFlush, latestFlush, recapturedWritten.promise]);
+    }
+  });
+
   it("keeps one authority's failure visible across another success and retries the failed key", async () => {
     const { cache } = await cacheHarness();
     const put = cache.put.bind(cache);

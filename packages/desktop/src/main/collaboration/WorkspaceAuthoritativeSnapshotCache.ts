@@ -253,14 +253,16 @@ export class WorkspaceAuthoritativeSnapshotCache {
       if (failed?.status === "rejected") throw failed.reason;
     } finally {
       for (const state of targets) {
+        const id = this.pathForKey(state.key);
         if (
+          this.captures.get(id) === state &&
           !state.pending &&
           !state.inflight &&
           !state.error &&
           !state.conflict &&
           state.barriers.length === 0
         ) {
-          this.captures.delete(this.pathForKey(state.key));
+          this.captures.delete(id);
         }
       }
     }
