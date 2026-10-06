@@ -13,7 +13,7 @@ import {
   projectRemoteAcpReplay,
   projectWorkspaceExecutionTimeline
 } from "@planweave-ai/runtime/browser";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type {
   DesktopWorkspaceExecutionResponse,
   DesktopOwnerCanvasExecutionLocator,
@@ -214,19 +214,39 @@ export function useRemoteRunPanelController(
   const [actionInFlight, setActionInFlight] = useState<RemoteRunAuthorizedActionKind | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirmKind, setConfirmKind] = useState<"cancel" | null>(null);
-  const scopeGenerationRef = useRef(0);
   const existingOperationId = args.runtimeRemoteExecution?.identity.operationId;
-  const executionScopeKey = args.executionLocator
-    ? [
-        args.executionLocator.operatorProfileId,
-        args.executionLocator.humanPrincipalId,
-        args.executionLocator.projectRoot,
-        args.executionLocator.projectId,
-        args.executionLocator.canvasId,
-        args.workItem?.kind === "block" ? args.workItem.blockRef : ""
-      ].join("\u0000")
-    : "";
-  const executionScopeRef = useRef(executionScopeKey);
+  const executionScopeKey = JSON.stringify([
+    args.executionLocator?.operatorProfileId ?? null,
+    args.executionLocator?.humanPrincipalId ?? null,
+    args.executionLocator?.projectRoot ?? null,
+    args.executionLocator?.projectId ?? null,
+    args.executionLocator?.canvasId ?? null,
+    args.canvasRef?.projectRoot ?? null,
+    args.canvasRef?.canvasId ?? null,
+    args.workItem?.kind ?? null,
+    args.workItem?.canvasId ?? null,
+    args.workItem?.kind === "block" ? args.workItem.blockRef : null
+  ]);
+  const scopeGenerationRef = useRef<{ key: string | null }>({ key: executionScopeKey });
+  const [stateScopeKey, setStateScopeKey] = useState(executionScopeKey);
+  const actionOwnerRef = useRef<object | null>(null);
+  const followOwnerRef = useRef<object | null>(null);
+  if (stateScopeKey !== executionScopeKey) {
+    setStateScopeKey(executionScopeKey);
+    setView(null);
+    setActionError(null);
+    setLoading(false);
+    setActionInFlight(null);
+    setConfirmKind(null);
+  }
+  useLayoutEffect(() => {
+    scopeGenerationRef.current = { key: executionScopeKey };
+    actionOwnerRef.current = null;
+    followOwnerRef.current = null;
+    return () => {
+      scopeGenerationRef.current = { key: null };
+    };
+  }, [executionScopeKey]);
   const autoFollowKey = args.open ? `${executionScopeKey}\u0000${existingOperationId ?? ""}` : null;
   const logicalExecutors =
     args.logicalExecutors ??
@@ -263,15 +283,12 @@ export function useRemoteRunPanelController(
     if (args.refreshAgentEndpoints) return args.refreshAgentEndpoints();
   }, [args.refreshAgentEndpoints]);
   useEffect(() => {
-    if (args.open) void refreshAgentEndpoints().catch((error) => setActionError(String(error)));
+    const generation = scopeGenerationRef.current;
+    if (args.open)
+      void refreshAgentEndpoints().catch((error) => {
+        if (scopeGenerationRef.current === generation) setActionError(String(error));
+      });
   }, [args.open, refreshAgentEndpoints]);
-  useEffect(() => {
-    if (executionScopeRef.current === executionScopeKey) return;
-    executionScopeRef.current = executionScopeKey;
-    scopeGenerationRef.current += 1;
-    setView(null);
-    setActionError(null);
-  }, [executionScopeKey]);
 
   const currentRemoteEndpointId = remoteEndpointId(view);
   const endpointForView = currentRemoteEndpointId
@@ -281,6 +298,8 @@ export function useRemoteRunPanelController(
   const follow = useCallback(async () => {
     if (!executionApi || !args.executionLocator || args.workItem?.kind !== "block") return;
     const scopeGeneration = scopeGenerationRef.current;
+    const owner = {};
+    followOwnerRef.current = owner;
     setLoading(true);
     setActionError(null);
     try {
@@ -304,7 +323,10 @@ export function useRemoteRunPanelController(
         setActionError(error instanceof Error ? error.message : String(error));
       }
     } finally {
-      if (scopeGenerationRef.current === scopeGeneration) setLoading(false);
+      if (scopeGenerationRef.current === scopeGeneration && followOwnerRef.current === owner) {
+        followOwnerRef.current = null;
+        setLoading(false);
+      }
     }
   }, [args, currentRemoteEndpointId, endpointForView, executionApi, existingOperationId, view]);
   const followRef = useRef(follow);
@@ -319,7 +341,9 @@ export function useRemoteRunPanelController(
       kind: RemoteRunAuthorizedActionKind,
       call: () => Promise<DesktopWorkspaceExecutionResponse | undefined>
     ) => {
-      if (actionInFlight) return;
+      if (actionOwnerRef.current) return;
+      const owner = {};
+      actionOwnerRef.current = owner;
       const scopeGeneration = scopeGenerationRef.current;
       setActionInFlight(kind);
       setActionError(null);
@@ -334,10 +358,13 @@ export function useRemoteRunPanelController(
           setActionError(error instanceof Error ? error.message : String(error));
         }
       } finally {
-        if (scopeGenerationRef.current === scopeGeneration) setActionInFlight(null);
+        if (scopeGenerationRef.current === scopeGeneration && actionOwnerRef.current === owner) {
+          actionOwnerRef.current = null;
+          setActionInFlight(null);
+        }
       }
     },
-    [actionInFlight]
+    []
   );
   const dispatch = useCallback(async () => {
     const workItem = args.workItem;

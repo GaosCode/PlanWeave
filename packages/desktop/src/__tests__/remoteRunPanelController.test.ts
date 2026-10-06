@@ -53,9 +53,11 @@ const runtimeRemoteExecution = {
 function remoteView(input?: {
   phase?: "running" | "blocked" | "completed" | "failed" | "stopped";
   operationId?: string;
+  blockRef?: string;
   includeInteraction?: boolean;
 }): DesktopWorkspaceExecutionResponse {
   const operationId = input?.operationId ?? "operation-1";
+  const blockRef = input?.blockRef ?? blockItem.blockRef;
   const phase = input?.phase ?? "running";
   const source = {
     target: "remote" as const,
@@ -67,7 +69,7 @@ function remoteView(input?: {
     version: "planweave.execution-event/v1" as const,
     observedAt: "2030-01-01T00:00:01.000Z",
     runSessionId: "SESSION-0001",
-    scope: { kind: "block" as const, blockRef: blockItem.blockRef },
+    scope: { kind: "block" as const, blockRef },
     source
   };
   return desktopWorkspaceExecutionResponseSchema.parse({
@@ -76,7 +78,7 @@ function remoteView(input?: {
       version: "planweave.workspace-execution-handle/v1",
       runSessionId: "SESSION-0001",
       authorityBindingId: `wxb:sha256:${"a".repeat(64)}`,
-      scope: { kind: "block", blockRef: blockItem.blockRef },
+      scope: { kind: "block", blockRef },
       capabilities: { interactionResponse: true },
       target: "remote",
       phase: "acp_session",
@@ -93,7 +95,7 @@ function remoteView(input?: {
       sessionId: "SESSION-0001",
       stateVersion: 2,
       phase,
-      scope: { kind: "block", blockRef: blockItem.blockRef },
+      scope: { kind: "block", blockRef },
       startedAt: "2030-01-01T00:00:00.000Z",
       updatedAt: "2030-01-01T00:00:01.000Z",
       finishedAt: ["completed", "failed", "stopped"].includes(phase)
@@ -160,10 +162,10 @@ function renderController(input: {
   executionLocator?: DesktopOwnerCanvasExecutionLocator;
 }) {
   return renderHook(
-    ({ executionLocator }) =>
+    ({ executionLocator, workItem }) =>
       useRemoteRunPanelController({
         agentEndpoints: [endpoint],
-        workItem: blockItem,
+        workItem,
         runtimeRemoteExecution: input.runtime ?? null,
         executionLocator,
         executionApi: input.api,
@@ -172,8 +174,18 @@ function renderController(input: {
         t: createTranslator("en"),
         createId: () => "action-cancel"
       }),
-    { initialProps: { executionLocator: input.executionLocator ?? locator } }
+    { initialProps: { executionLocator: input.executionLocator ?? locator, workItem: blockItem } }
   );
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<T>((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  return { promise, resolve, reject };
 }
 
 describe("useRemoteRunPanelController", () => {
@@ -276,7 +288,7 @@ describe("useRemoteRunPanelController", () => {
       respondWorkspaceExecution: vi.fn()
     };
     const { result, rerender } = renderController({ api, runtime: runtimeRemoteExecution });
-    rerender({ executionLocator: { ...locator, canvasId: "next" } });
+    rerender({ executionLocator: { ...locator, canvasId: "next" }, workItem: blockItem });
 
     await waitFor(() =>
       expect(result.current.viewModel.identity?.operationId).toBe("operation-new")
@@ -285,5 +297,160 @@ describe("useRemoteRunPanelController", () => {
     await act(async () => Promise.resolve());
 
     expect(result.current.viewModel.identity?.operationId).toBe("operation-new");
+  });
+  it.each([
+    "resolve",
+    "reject"
+  ] as const)("isolates pending dispatch and its late %s after block navigation", async (settlement) => {
+    const old = deferred<DesktopWorkspaceExecutionResponse>();
+    const next = deferred<DesktopWorkspaceExecutionResponse>();
+    const fixture = apiReturning(remoteView());
+    fixture.start
+      .mockImplementationOnce(() => old.promise)
+      .mockImplementationOnce(() => next.promise);
+    const { result, rerender } = renderController({ api: fixture.api });
+    let oldCall!: Promise<void>;
+    act(() => {
+      oldCall = result.current.dispatch();
+      void result.current.dispatch();
+      result.current.setConfirmKind("cancel");
+    });
+    expect(result.current.actionInFlight).toBe("dispatch");
+    expect(fixture.start).toHaveBeenCalledTimes(1);
+    rerender({ executionLocator: locator, workItem: { ...blockItem, blockRef: "T-1#B-2" } });
+    expect(result.current.actionInFlight).toBeNull();
+    expect(result.current.confirmKind).toBeNull();
+    expect(result.current.actionError).toBeNull();
+    expect(result.current.loading).toBe(false);
+    let nextCall!: Promise<void>;
+    act(() => {
+      nextCall = result.current.dispatch();
+    });
+    expect(fixture.start).toHaveBeenLastCalledWith(
+      expect.objectContaining({ blockRef: "T-1#B-2" })
+    );
+    await act(async () => {
+      settlement === "resolve"
+        ? old.resolve(remoteView({ operationId: "old" }))
+        : old.reject(new Error("old failure"));
+      await oldCall;
+    });
+    expect(result.current.actionInFlight).toBe("dispatch");
+    expect(result.current.actionError).toBeNull();
+    expect(result.current.viewModel.identity).toBeNull();
+    await act(async () => {
+      next.resolve(remoteView({ operationId: "new", blockRef: "T-1#B-2" }));
+      await nextCall;
+    });
+    expect(result.current.actionInFlight).toBeNull();
+    expect(result.current.viewModel.identity?.operationId).toBe("new");
+  });
+
+  it.each([
+    { kind: "follow", settlement: "resolve", boundary: "profile" },
+    { kind: "follow", settlement: "reject", boundary: "canvas" },
+    { kind: "cancel", settlement: "resolve", boundary: "canvas" },
+    { kind: "cancel", settlement: "reject", boundary: "profile" }
+  ] as const)("keeps B busy after A $kind $settlement across $boundary", async ({
+    kind,
+    settlement,
+    boundary
+  }) => {
+    const old = deferred<DesktopWorkspaceExecutionResponse>();
+    const next = deferred<DesktopWorkspaceExecutionResponse>();
+    const fixture = apiReturning(remoteView());
+    const { result, rerender } = renderController({
+      api: fixture.api,
+      runtime: runtimeRemoteExecution
+    });
+    await waitFor(() => expect(result.current.viewModel.identity).not.toBeNull());
+    const method = kind === "follow" ? fixture.follow : fixture.cancel;
+    method.mockImplementationOnce(() => old.promise);
+    let oldCall!: Promise<void>;
+    act(() => {
+      oldCall = kind === "follow" ? result.current.refresh() : result.current.cancel("stop A");
+    });
+    expect(kind === "follow" ? result.current.loading : result.current.actionInFlight).toBe(
+      kind === "follow" ? true : "cancel"
+    );
+    fixture.follow.mockImplementationOnce(() => next.promise);
+    rerender({
+      executionLocator: {
+        ...locator,
+        ...(boundary === "profile" ? { operatorProfileId: "profile-B" } : { canvasId: "B" })
+      },
+      workItem: blockItem
+    });
+    expect(result.current.actionInFlight).toBeNull();
+    expect(result.current.actionError).toBeNull();
+    expect(result.current.loading).toBe(true);
+    await act(async () => {
+      settlement === "resolve"
+        ? old.resolve(remoteView({ operationId: "old" }))
+        : old.reject(new Error("old failure"));
+      await oldCall;
+    });
+    expect(result.current.loading).toBe(true);
+    expect(result.current.viewModel.identity?.operationId).not.toBe("old");
+    expect(result.current.actionError).toBeNull();
+    await act(async () => {
+      next.resolve(remoteView({ operationId: "B" }));
+      await next.promise;
+    });
+    expect(result.current.loading).toBe(false);
+    expect(result.current.viewModel.identity?.operationId).toBe("B");
+    expect(fixture.cancel).toHaveBeenCalledTimes(kind === "cancel" ? 1 : 0);
+  });
+
+  it("retires pending work on unmount without cancelling the operation", async () => {
+    const pending = deferred<DesktopWorkspaceExecutionResponse>();
+    const fixture = apiReturning(remoteView());
+    fixture.start.mockImplementationOnce(() => pending.promise);
+    const { result, unmount } = renderController({ api: fixture.api });
+    let call!: Promise<void>;
+    act(() => {
+      call = result.current.dispatch();
+    });
+    unmount();
+    await act(async () => {
+      pending.reject(new Error("late failure"));
+      await call;
+    });
+    expect(fixture.cancel).not.toHaveBeenCalled();
+  });
+
+  it("clears follow loading and current errors on navigation to an idle block", async () => {
+    const pending = deferred<DesktopWorkspaceExecutionResponse>();
+    const fixture = apiReturning(remoteView());
+    fixture.follow.mockImplementationOnce(() => pending.promise);
+    const { result, rerender } = renderHook(
+      ({ blockRef, active }) =>
+        useRemoteRunPanelController({
+          workItem: { ...blockItem, blockRef },
+          executionLocator: locator,
+          executionApi: fixture.api,
+          runtimeRemoteExecution: active ? runtimeRemoteExecution : null,
+          agentEndpoints: [endpoint],
+          selectedAgentEndpointId: endpoint.id,
+          open: true,
+          t: createTranslator("en")
+        }),
+      { initialProps: { blockRef: blockItem.blockRef, active: true } }
+    );
+    expect(result.current.loading).toBe(true);
+    rerender({ blockRef: "T-1#B-2", active: false });
+    expect(result.current.loading).toBe(false);
+    expect(result.current.actionInFlight).toBeNull();
+    expect(fixture.follow).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      pending.reject(new Error("A failure"));
+      await pending.promise.catch(() => undefined);
+    });
+    expect(result.current.actionError).toBeNull();
+    fixture.start.mockRejectedValueOnce(new Error("B failure"));
+    await act(async () => result.current.dispatch());
+    expect(result.current.actionError).toBe("B failure");
+    rerender({ blockRef: "T-1#B-3", active: false });
+    expect(result.current.actionError).toBeNull();
   });
 });

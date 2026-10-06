@@ -208,6 +208,29 @@ describe("RemoteRunPanel", () => {
   });
 });
 
+describe("RemoteRunPanel navigation", () => {
+  it("closes A's cancel confirmation and enables B dispatch without remounting", async () => {
+    const { api, cancel } = createApi();
+    const { rerender } = renderPanel(api);
+    await userEvent.setup().click(await screen.findByTestId("remote-run-action-cancel"));
+    expect(screen.getByTestId("remote-run-confirm-yes")).toBeInTheDocument();
+    rerender(
+      <RemoteRunPanel
+        agentEndpoints={[endpoint]}
+        workItem={{ kind: "block", canvasId: "default", blockRef: "T-1#B-2" }}
+        executionLocator={locator}
+        executionApi={api}
+        selectedAgentEndpointId={endpoint.id}
+        open
+        t={createTranslator("en")}
+      />
+    );
+    expect(screen.queryByTestId("remote-run-confirm-yes")).toBeNull();
+    expect(screen.getByTestId("remote-run-action-dispatch")).toBeEnabled();
+    expect(cancel).not.toHaveBeenCalled();
+  });
+});
+
 describe("RemoteRunPanel exact permissions", () => {
   it.each([
     { name: "only always", options: [exactOptions[0]], optionId: "always-write" },
