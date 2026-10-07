@@ -85,6 +85,8 @@ import {
   type OperatorSetRemoteAgentAccessModeInput
 } from "../../shared/operatorControl.js";
 
+import { cancelHttpBody, readHttpResponseBytes } from "../httpResponseBody.js";
+
 const OPERATOR_REQUEST_TIMEOUT_MS = 30_000;
 const OPERATOR_JSON_BODY_MAX_BYTES = 64 * 1024;
 
@@ -368,7 +370,7 @@ export class OperatorControlClient {
 
   async readOwnerRemoteOperationTerminalResult(operationId: string, humanPrincipalId?: string) {
     const id = opaqueIdentifierSchema.parse(operationId);
-    const response = await this.send(
+    return this.consumeResponse(
       `/api/v1/remote-operations/${encodeURIComponent(id)}/terminal-result`,
       {
         method: "GET",
@@ -376,53 +378,57 @@ export class OperatorControlClient {
           OPERATOR_OWNER_TERMINAL_RESULT_MEDIA_TYPE,
           humanPrincipalId
         )
+      },
+      async (response) => {
+        if (!response.ok) {
+          throw errorFromHttp(response.status, await this.readTextLimited(response));
+        }
+        const mediaType = response.headers.get("content-type")?.split(";", 1)[0]?.trim();
+        if (mediaType !== OPERATOR_OWNER_TERMINAL_RESULT_MEDIA_TYPE) {
+          if (response.body) cancelHttpBody(response.body);
+          throw new OperatorControlError({
+            kind: "protocol",
+            code: "operator_response_invalid"
+          });
+        }
+        const encodedMetadata = response.headers.get(
+          OPERATOR_OWNER_TERMINAL_RESULT_METADATA_HEADER
+        );
+        if (
+          !encodedMetadata ||
+          encodedMetadata.length > OPERATOR_JSON_BODY_MAX_BYTES * 2 ||
+          !/^[A-Za-z0-9_-]+$/.test(encodedMetadata)
+        ) {
+          if (response.body) cancelHttpBody(response.body);
+          throw new OperatorControlError({
+            kind: "protocol",
+            code: "operator_response_invalid"
+          });
+        }
+        let metadata: OperatorOwnerTerminalResultPayload["metadata"];
+        try {
+          const metadataBytes = Buffer.from(encodedMetadata, "base64url");
+          if (metadataBytes.byteLength > OPERATOR_JSON_BODY_MAX_BYTES) throw new Error();
+          metadata = operatorOwnerTerminalResultMetadataSchema.parse(
+            JSON.parse(metadataBytes.toString("utf8"))
+          );
+        } catch {
+          if (response.body) cancelHttpBody(response.body);
+          throw new OperatorControlError({
+            kind: "protocol",
+            code: "operator_response_invalid"
+          });
+        }
+        return {
+          metadata,
+          reportBytes: await this.readBytesLimited(
+            response,
+            OUTPUT_MAX_ARTIFACT_BYTES,
+            "operator_terminal_result_too_large"
+          )
+        } satisfies OperatorOwnerTerminalResultPayload;
       }
     );
-    if (!response.ok) {
-      throw errorFromHttp(response.status, await this.readTextLimited(response));
-    }
-    const mediaType = response.headers.get("content-type")?.split(";", 1)[0]?.trim();
-    if (mediaType !== OPERATOR_OWNER_TERMINAL_RESULT_MEDIA_TYPE) {
-      await response.body?.cancel();
-      throw new OperatorControlError({
-        kind: "protocol",
-        code: "operator_response_invalid"
-      });
-    }
-    const encodedMetadata = response.headers.get(OPERATOR_OWNER_TERMINAL_RESULT_METADATA_HEADER);
-    if (
-      !encodedMetadata ||
-      encodedMetadata.length > OPERATOR_JSON_BODY_MAX_BYTES * 2 ||
-      !/^[A-Za-z0-9_-]+$/.test(encodedMetadata)
-    ) {
-      await response.body?.cancel();
-      throw new OperatorControlError({
-        kind: "protocol",
-        code: "operator_response_invalid"
-      });
-    }
-    let metadata: OperatorOwnerTerminalResultPayload["metadata"];
-    try {
-      const metadataBytes = Buffer.from(encodedMetadata, "base64url");
-      if (metadataBytes.byteLength > OPERATOR_JSON_BODY_MAX_BYTES) throw new Error();
-      metadata = operatorOwnerTerminalResultMetadataSchema.parse(
-        JSON.parse(metadataBytes.toString("utf8"))
-      );
-    } catch {
-      await response.body?.cancel();
-      throw new OperatorControlError({
-        kind: "protocol",
-        code: "operator_response_invalid"
-      });
-    }
-    return {
-      metadata,
-      reportBytes: await this.readBytesLimited(
-        response,
-        OUTPUT_MAX_ARTIFACT_BYTES,
-        "operator_terminal_result_too_large"
-      )
-    } satisfies OperatorOwnerTerminalResultPayload;
   }
 
   async observeRemoteOperation(operationId: string, humanPrincipalId?: string) {
@@ -731,32 +737,37 @@ export class OperatorControlClient {
     if (options.body !== undefined || options.rawBody !== undefined) {
       headers["content-type"] = options.contentType ?? "application/json; charset=utf-8";
     }
-    const response = await this.send(path, {
-      method,
-      headers,
-      body:
-        options.rawBody ?? (options.body === undefined ? undefined : JSON.stringify(options.body))
-    });
-    const text = await this.readTextLimited(response);
-    this.ensureOpen();
-    if (!response.ok) throw errorFromHttp(response.status, text);
-    let value: unknown;
-    try {
-      value = text.length === 0 ? null : JSON.parse(text);
-    } catch {
-      throw new OperatorControlError({
-        kind: "protocol",
-        code: "operator_malformed_json"
-      });
-    }
-    try {
-      return schema.parse(value);
-    } catch {
-      throw new OperatorControlError({
-        kind: "protocol",
-        code: "operator_response_invalid"
-      });
-    }
+    return this.consumeResponse(
+      path,
+      {
+        method,
+        headers,
+        body:
+          options.rawBody ?? (options.body === undefined ? undefined : JSON.stringify(options.body))
+      },
+      async (response) => {
+        const text = await this.readTextLimited(response);
+        this.ensureOpen();
+        if (!response.ok) throw errorFromHttp(response.status, text);
+        let value: unknown;
+        try {
+          value = text.length === 0 ? null : JSON.parse(text);
+        } catch {
+          throw new OperatorControlError({
+            kind: "protocol",
+            code: "operator_malformed_json"
+          });
+        }
+        try {
+          return schema.parse(value);
+        } catch {
+          throw new OperatorControlError({
+            kind: "protocol",
+            code: "operator_response_invalid"
+          });
+        }
+      }
+    );
   }
 
   private async authorizedHeaders(
@@ -795,10 +806,11 @@ export class OperatorControlClient {
     return headers;
   }
 
-  private async send(
+  private async consumeResponse<T>(
     path: string,
-    init: { method: "GET" | "POST"; headers: Record<string, string>; body?: string }
-  ): Promise<Response> {
+    init: { method: "GET" | "POST"; headers: Record<string, string>; body?: string },
+    consume: (response: Response) => Promise<T>
+  ): Promise<T> {
     const base = new URL(this.profile.serverBaseUrl);
     const url = new URL(path, base);
     if (url.origin !== base.origin || !url.pathname.startsWith("/api/v1/")) {
@@ -808,19 +820,24 @@ export class OperatorControlClient {
     const timeout = new AbortController();
     const timer = this.clock.setTimeout(() => timeout.abort(), this.timeoutMs);
     const signal = AbortSignal.any([this.rootController.signal, timeout.signal]);
+    let response: Response | undefined;
     try {
-      const response = await this.fetchImpl(url, {
+      response = await this.fetchImpl(url, {
         method: init.method,
         headers: init.headers,
         body: init.body,
         signal
       });
       this.ensureOpen();
-      return response;
+      const result = await consume(response);
+      this.ensureOpen();
+      return result;
     } catch (error) {
-      if (timeout.signal.aborted && !this.rootController.signal.aborted) {
+      if (response?.body && !response.body.locked) cancelHttpBody(response.body, error);
+      if (timeout.signal.aborted && signal.reason === timeout.signal.reason) {
         throw new OperatorControlError({ kind: "timeout", code: "operator_timeout" });
       }
+      this.ensureOpen();
       throw operatorErrorFromUnknown(error);
     } finally {
       this.clock.clearTimeout(timer);
@@ -828,74 +845,28 @@ export class OperatorControlClient {
   }
 
   private async readTextLimited(response: Response): Promise<string> {
-    const declared = response.headers.get("content-length");
-    if (declared && /^\d+$/.test(declared) && Number(declared) > OPERATOR_JSON_BODY_MAX_BYTES) {
-      await response.body?.cancel();
-      throw new OperatorControlError({
-        kind: "payload_too_large",
-        code: "operator_response_too_large",
-        httpStatus: response.status
-      });
-    }
-    const reader = response.body?.getReader();
-    if (!reader) return "";
-    const chunks: Uint8Array[] = [];
-    let totalBytes = 0;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      totalBytes += value.byteLength;
-      if (totalBytes > OPERATOR_JSON_BODY_MAX_BYTES) {
-        await reader.cancel();
-        throw new OperatorControlError({
-          kind: "payload_too_large",
-          code: "operator_response_too_large",
-          httpStatus: response.status
-        });
-      }
-      chunks.push(value);
-    }
-    return Buffer.concat(
-      chunks.map((chunk) => Buffer.from(chunk)),
-      totalBytes
-    ).toString("utf8");
+    const bytes = await this.readBytesLimited(
+      response,
+      OPERATOR_JSON_BODY_MAX_BYTES,
+      "operator_response_too_large"
+    );
+    return Buffer.from(bytes).toString("utf8");
   }
 
-  private async readBytesLimited(
+  private readBytesLimited(
     response: Response,
     maxBytes: number,
     tooLargeCode: string
   ): Promise<Uint8Array> {
-    const declared = response.headers.get("content-length");
-    if (declared && /^\d+$/.test(declared) && Number(declared) > maxBytes) {
-      await response.body?.cancel();
-      throw new OperatorControlError({
-        kind: "payload_too_large",
-        code: tooLargeCode,
-        httpStatus: response.status
-      });
-    }
-    const reader = response.body?.getReader();
-    if (!reader) return new Uint8Array();
-    const chunks: Uint8Array[] = [];
-    let totalBytes = 0;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      totalBytes += value.byteLength;
-      if (totalBytes > maxBytes) {
-        await reader.cancel();
-        throw new OperatorControlError({
+    return readHttpResponseBytes(
+      response,
+      maxBytes,
+      () =>
+        new OperatorControlError({
           kind: "payload_too_large",
           code: tooLargeCode,
           httpStatus: response.status
-        });
-      }
-      chunks.push(value);
-    }
-    return Buffer.concat(
-      chunks.map((chunk) => Buffer.from(chunk)),
-      totalBytes
+        })
     );
   }
 }

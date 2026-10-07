@@ -5,6 +5,7 @@ import {
   type CollaborationClientLimits
 } from "@planweave-ai/collaboration-protocol/connection";
 import type { ZodType } from "zod";
+import { cancelHttpBody, readHttpResponseBytes } from "../httpResponseBody.js";
 import {
   CollaborationClientError,
   collaborationErrorFromHttp,
@@ -28,6 +29,7 @@ export type CollaborationHttpTransportOptions = {
 
 export type CollaborationHttpStream = {
   response: Response;
+  signal: AbortSignal;
   timedOut(): boolean;
   release(): void;
 };
@@ -235,56 +237,57 @@ export class CollaborationHttpTransport {
   }
 
   async readBytesLimited(response: Response, maxBytes: number): Promise<Uint8Array> {
-    const declared = response.headers.get("content-length");
-    if (declared && /^\d+$/.test(declared) && Number(declared) > maxBytes) {
-      await response.body?.cancel();
-      throw new CollaborationClientError({
-        kind: "payload_too_large",
-        code: "collaboration_response_too_large",
-        message: "Response exceeded body size limit.",
-        httpStatus: response.status
-      });
-    }
-    if (!response.body) return new Uint8Array();
-    const reader = response.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let bytesRead = 0;
-    try {
-      while (true) {
-        const next = await reader.read();
-        if (next.done) break;
-        bytesRead += next.value.byteLength;
-        if (bytesRead > maxBytes) {
-          throw new CollaborationClientError({
-            kind: "payload_too_large",
-            code: "collaboration_response_too_large",
-            message: "Response exceeded body size limit.",
-            httpStatus: response.status
-          });
-        }
-        chunks.push(next.value);
-      }
-      return Buffer.concat(chunks);
-    } catch (error) {
-      await reader.cancel(error);
-      throw error;
-    } finally {
-      reader.releaseLock();
-    }
+    return readHttpResponseBytes(
+      response,
+      maxBytes,
+      () =>
+        new CollaborationClientError({
+          kind: "payload_too_large",
+          code: "collaboration_response_too_large",
+          message: "Response exceeded body size limit.",
+          httpStatus: response.status
+        })
+    );
   }
 
-  async send(
+  /** Own headers, body consumption and domain validation in one deadline scope. */
+  async consumeResponse<T>(
     path: string,
     init: {
       method: string;
       headers: Record<string, string>;
       body?: string | Uint8Array;
       signal?: AbortSignal;
-    }
-  ): Promise<Response> {
+    },
+    consume: (response: Response) => Promise<T>
+  ): Promise<T> {
     const stream = await this.startRequest(path, init);
-    stream.release();
-    return stream.response;
+    try {
+      return await consume(stream.response);
+    } catch (error) {
+      if (stream.timedOut()) {
+        throw new CollaborationClientError({
+          kind: "timeout",
+          code: "collaboration_timeout",
+          message: "Collaboration request timed out.",
+          retryable: true,
+          cause: error
+        });
+      }
+      if (stream.signal.aborted) {
+        throw new CollaborationClientError({
+          kind: "aborted",
+          code: "collaboration_aborted",
+          message: "Request was aborted.",
+          retryable: false,
+          cause: error
+        });
+      }
+      throw error;
+    } finally {
+      if (stream.response.body && !stream.response.bodyUsed) cancelHttpBody(stream.response.body);
+      stream.release();
+    }
   }
 
   private async readJsonResponse(
@@ -296,26 +299,10 @@ export class CollaborationHttpTransport {
       signal?: AbortSignal;
     }
   ): Promise<{ response: Response; text: string }> {
-    const stream = await this.startRequest(path, init);
-    try {
-      return {
-        response: stream.response,
-        text: await this.readTextLimited(stream.response)
-      };
-    } catch (error) {
-      if (stream.timedOut()) {
-        throw new CollaborationClientError({
-          kind: "timeout",
-          code: "collaboration_timeout",
-          message: "Collaboration request timed out.",
-          retryable: true,
-          cause: error
-        });
-      }
-      throw error;
-    } finally {
-      stream.release();
-    }
+    return this.consumeResponse(path, init, async (response) => ({
+      response,
+      text: await this.readTextLimited(response)
+    }));
   }
 
   private async startRequest(
@@ -327,12 +314,18 @@ export class CollaborationHttpTransport {
       signal?: AbortSignal;
     }
   ): Promise<CollaborationHttpStream> {
+    this.ensureOpen();
     const url = new URL(path, this.serverBaseUrl);
     const timeout = new AbortController();
-    const timer = this.clock.setTimeout(() => timeout.abort(), this.limits.requestTimeoutMs);
     const signals = [this.rootController.signal, timeout.signal];
     if (init.signal) signals.push(init.signal);
     const signal = AbortSignal.any(signals);
+    let timedOut = false;
+    const timer = this.clock.setTimeout(() => {
+      if (signal.aborted) return;
+      timedOut = true;
+      timeout.abort();
+    }, this.limits.requestTimeoutMs);
     try {
       const body: BodyInit | undefined =
         init.body === undefined
@@ -349,7 +342,8 @@ export class CollaborationHttpTransport {
       let released = false;
       return {
         response,
-        timedOut: () => timeout.signal.aborted && !this.rootController.signal.aborted,
+        signal,
+        timedOut: () => timedOut,
         release: () => {
           if (released) return;
           released = true;
@@ -358,12 +352,20 @@ export class CollaborationHttpTransport {
       };
     } catch (error) {
       this.clock.clearTimeout(timer);
-      if (signal.aborted && timeout.signal.aborted && !this.rootController.signal.aborted) {
+      if (timedOut) {
         throw new CollaborationClientError({
           kind: "timeout",
           code: "collaboration_timeout",
           message: "Collaboration request timed out.",
           retryable: true,
+          cause: error
+        });
+      }
+      if (signal.aborted) {
+        throw new CollaborationClientError({
+          kind: "aborted",
+          code: "collaboration_aborted",
+          retryable: false,
           cause: error
         });
       }
@@ -373,7 +375,16 @@ export class CollaborationHttpTransport {
 
   private async readTextLimited(response: Response): Promise<string> {
     const bytes = await this.readBytesLimited(response, this.limits.jsonBodyMaxBytes);
-    return Buffer.from(bytes).toString("utf8");
+    try {
+      return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch (error) {
+      throw new CollaborationClientError({
+        kind: "protocol",
+        code: "collaboration_malformed_json",
+        message: "Response was not valid UTF-8.",
+        cause: error
+      });
+    }
   }
 }
 

@@ -823,38 +823,57 @@ export class CollaborationClient {
     };
     if (input.digestSha256) headers["x-planweave-content-sha256"] = input.digestSha256;
     await this.transport.applyAuth(headers);
-    const response = await this.transport.send(path, {
-      method: "PUT",
-      headers,
-      body: input.body,
-      signal
-    });
-    // Reuse transport JSON body budget via a raw send + manual size check path.
-    const buffer = await response.arrayBuffer();
-    if (buffer.byteLength > this.limits.jsonBodyMaxBytes) {
-      throw new CollaborationClientError({
-        kind: "payload_too_large",
-        code: "collaboration_response_too_large",
-        message: "Response exceeded body size limit.",
-        httpStatus: response.status
-      });
-    }
-    const text = Buffer.from(buffer).toString("utf8");
-    if (!response.ok) {
-      throw collaborationErrorFromHttp(response.status, text, response.headers.get("retry-after"));
-    }
-    const parsed = uploadPendingAttachmentResponseSchema.parse(JSON.parse(text));
-    return pendingAttachmentViewSchema.parse({
-      pendingUploadId: parsed.pendingUploadId,
-      projectId: this.profile.projectId,
-      expectedSizeBytes: parsed.sizeBytes ?? input.body.byteLength,
-      mediaType: parsed.mediaType,
-      status: parsed.status === "finalized" ? "finalized" : "uploaded",
-      createdAt: this.clock.now().toISOString(),
-      expiresAt: this.clock.now().toISOString(),
-      digestSha256: parsed.digestSha256,
-      uploadedAt: parsed.uploadedAt
-    });
+    return this.transport.consumeResponse(
+      path,
+      {
+        method: "PUT",
+        headers,
+        body: input.body,
+        signal
+      },
+      async (response) => {
+        const text = await this.transport.readBoundedError(response);
+        if (!response.ok) {
+          throw collaborationErrorFromHttp(
+            response.status,
+            text,
+            response.headers.get("retry-after")
+          );
+        }
+        let value: unknown;
+        try {
+          value = JSON.parse(text);
+        } catch (error) {
+          throw new CollaborationClientError({
+            kind: "protocol",
+            code: "collaboration_malformed_json",
+            message: "Response was not valid JSON.",
+            cause: error
+          });
+        }
+        try {
+          const parsed = uploadPendingAttachmentResponseSchema.parse(value);
+          return pendingAttachmentViewSchema.parse({
+            pendingUploadId: parsed.pendingUploadId,
+            projectId: this.profile.projectId,
+            expectedSizeBytes: parsed.sizeBytes ?? input.body.byteLength,
+            mediaType: parsed.mediaType,
+            status: parsed.status === "finalized" ? "finalized" : "uploaded",
+            createdAt: this.clock.now().toISOString(),
+            expiresAt: this.clock.now().toISOString(),
+            digestSha256: parsed.digestSha256,
+            uploadedAt: parsed.uploadedAt
+          });
+        } catch (error) {
+          throw new CollaborationClientError({
+            kind: "protocol",
+            code: "collaboration_response_invalid",
+            message: "Response failed contract validation.",
+            cause: error
+          });
+        }
+      }
+    );
   }
 
   async finalizePendingAttachment(
@@ -886,35 +905,44 @@ export class CollaborationClient {
       `/attachments/comments/${encodeURIComponent(commentId)}/${encodeURIComponent(digestSha256)}`;
     const headers: Record<string, string> = { accept: "*/*" };
     await this.transport.applyAuth(headers);
-    const response = await this.transport.send(path, {
-      method: "GET",
-      headers,
-      signal
-    });
-    if (!response.ok) {
-      const text = await this.transport.readBoundedError(response);
-      throw collaborationErrorFromHttp(response.status, text, response.headers.get("retry-after"));
-    }
-    const mediaType = commentAttachmentMediaTypeSchema.parse(
-      response.headers.get("content-type")?.split(";", 1)[0]?.trim()
+    return this.transport.consumeResponse(
+      path,
+      {
+        method: "GET",
+        headers,
+        signal
+      },
+      async (response) => {
+        if (!response.ok) {
+          const text = await this.transport.readBoundedError(response);
+          throw collaborationErrorFromHttp(
+            response.status,
+            text,
+            response.headers.get("retry-after")
+          );
+        }
+        const mediaType = commentAttachmentMediaTypeSchema.parse(
+          response.headers.get("content-type")?.split(";", 1)[0]?.trim()
+        );
+        const bytes = await this.transport.readBytesLimited(response, COMMENT_ATTACHMENT_MAX_BYTES);
+        const sizeBytes = commentAttachmentSizeBytesSchema.parse(bytes.byteLength);
+        const actualDigest = createHash("sha256").update(bytes).digest("hex");
+        if (actualDigest !== digestSha256) {
+          throw new CollaborationClientError({
+            kind: "protocol",
+            code: "collaboration_attachment_digest_mismatch",
+            message: "Attachment content did not match its declared digest.",
+            retryable: true
+          });
+        }
+        return {
+          digestSha256: actualDigest,
+          mediaType,
+          sizeBytes,
+          bodyBase64: Buffer.from(bytes).toString("base64")
+        };
+      }
     );
-    const bytes = await this.transport.readBytesLimited(response, COMMENT_ATTACHMENT_MAX_BYTES);
-    const sizeBytes = commentAttachmentSizeBytesSchema.parse(bytes.byteLength);
-    const actualDigest = createHash("sha256").update(bytes).digest("hex");
-    if (actualDigest !== digestSha256) {
-      throw new CollaborationClientError({
-        kind: "protocol",
-        code: "collaboration_attachment_digest_mismatch",
-        message: "Attachment content did not match its declared digest.",
-        retryable: true
-      });
-    }
-    return {
-      digestSha256: actualDigest,
-      mediaType,
-      sizeBytes,
-      bodyBase64: Buffer.from(bytes).toString("base64")
-    };
   }
 
   // ---------------------------------------------------------------------------

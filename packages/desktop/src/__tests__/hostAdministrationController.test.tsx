@@ -12,6 +12,8 @@ const bridgeMock = vi.hoisted(() => ({
   getOperatorLocalAgentHostStatus: vi.fn(),
   copyOperatorHostBootstrapHandoff: vi.fn(),
   registerOperatorLocalAgentHost: vi.fn(),
+  revokeOperatorHost: vi.fn(),
+  renewOperatorHostCredential: vi.fn(),
   repairOperatorLocalAgentHost: vi.fn()
 }));
 
@@ -659,5 +661,32 @@ describe("Host administration request authority", () => {
         createWorkspaceGrant: true
       }
     });
+  });
+  it.each([
+    "revoke",
+    "renew"
+  ] as const)("clears busy and preserves hosts after %s has an unknown timeout outcome", async (action) => {
+    const pending = deferred<never>();
+    const transport =
+      action === "revoke" ? bridgeMock.revokeOperatorHost : bridgeMock.renewOperatorHostCredential;
+    transport.mockReturnValue(pending.promise);
+    const { result } = renderHook(() => useHostAdministrationController());
+    await waitFor(() => expect(result.current.hosts).toEqual([host("host-a")]));
+    let operation!: Promise<unknown>;
+    act(() => {
+      operation =
+        action === "revoke"
+          ? result.current.revokeHost("host-a")
+          : result.current.renewHostCredential("host-a");
+    });
+    expect(result.current.busy).toBe(true);
+    await act(async () => {
+      pending.reject(new Error("operator_timeout"));
+      await operation;
+    });
+    expect(result.current.busy).toBe(false);
+    expect(result.current.error).toBe("operator_timeout");
+    expect(result.current.hosts).toEqual([host("host-a")]);
+    expect(transport).toHaveBeenCalledTimes(1);
   });
 });

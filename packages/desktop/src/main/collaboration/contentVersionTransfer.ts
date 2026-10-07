@@ -1,3 +1,4 @@
+import { cancelHttpBody } from "../httpResponseBody.js";
 import { createHash } from "node:crypto";
 import {
   authoritativeContentVersionSchema,
@@ -84,7 +85,7 @@ async function* ndjsonFrames(response: Response) {
     pending += decoder.decode();
     if (pending.length > 0) throw protocolError("content_transfer_frame_unterminated");
   } catch (error) {
-    await reader.cancel(error);
+    cancelHttpBody(reader, error);
     throw error;
   } finally {
     reader.releaseLock();
@@ -111,7 +112,7 @@ export async function fetchContentVersionTransfer(input: {
     const declaredType = response.headers.get("content-type") ?? "";
     const mediaType = declaredType.split(";", 1)[0]?.trim().toLowerCase();
     if (mediaType !== contentVersionTransferMediaType) {
-      await response.body?.cancel();
+      if (response.body) cancelHttpBody(response.body);
       throw protocolError("content_transfer_media_type_invalid");
     }
     let header: ReturnType<typeof contentVersionTransferHeaderFrameSchema.parse> | undefined;
