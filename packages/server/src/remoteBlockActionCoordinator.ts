@@ -1,3 +1,4 @@
+import { withRemoteRuntimeLease } from "./remoteRuntimeLeaseCleanup.js";
 import {
   RemoteExecutionActionRejectedError,
   RemoteExecutionActionService,
@@ -346,13 +347,7 @@ export class RemoteBlockActionCoordinator {
   }
 
   private async withRuntime<T>(
-    locator: {
-      workspaceId: string;
-      projectId: string;
-      canvasId: string;
-      endpointSelection?: { hostId: string };
-      agentAccess?: { authorized: { remoteAgent: { hostId: string } } };
-    },
+    locator: RemoteOperation,
     operation: (runtime: RemoteBlockRuntimePort) => Promise<T>
   ): Promise<T> {
     const acquired = await acquireRemoteRuntimeLease(
@@ -360,11 +355,9 @@ export class RemoteBlockActionCoordinator {
       locator,
       authorizedOperationHostId(locator)
     );
-    try {
-      return await operation(acquired.runtime);
-    } finally {
-      await acquired.release();
-    }
+    return withRemoteRuntimeLease(this.options.operations, locator.id, acquired, () =>
+      operation(acquired.runtime)
+    );
   }
 
   private prepare(

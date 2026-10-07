@@ -1,3 +1,5 @@
+import { inspectLegacyRemoteRuntime } from "./remoteLegacyRuntimePreflight.js";
+import { withRemoteRuntimeLease } from "./remoteRuntimeLeaseCleanup.js";
 import { restoredTaskDispatchRequest } from "./remoteTaskRestoration.js";
 import {
   agentHostProtocolVersion,
@@ -152,11 +154,9 @@ export class RemoteBlockCoordinator {
     const hostId = record.attempt.hostId;
     if (!hostId) throw new CanvasRuntimeUnavailableError("runtime_not_attached");
     const acquired = await acquireRemoteRuntimeLease(this.options.runtimeLeases, record, hostId);
-    try {
-      return await operation(acquired.runtime);
-    } finally {
-      await acquired.release();
-    }
+    return withRemoteRuntimeLease(this.options.operations, record.id, acquired, () =>
+      operation(acquired.runtime)
+    );
   }
 
   getAuthorizedHostSelection(operationId: string): DispatchHostSelectionSnapshot | undefined {
@@ -245,11 +245,9 @@ export class RemoteBlockCoordinator {
         operation,
         reservation.hostId
       );
-      try {
-        return await this.reenterWithLease(operation.id, lease, undefined, true);
-      } finally {
-        await lease.release();
-      }
+      return withRemoteRuntimeLease(this.options.operations, operation.id, lease, () =>
+        this.reenterWithLease(operation.id, lease, undefined, true)
+      );
     }
     const managedRuntimeExecution = usesManagedCanvasRuntime(operation);
     const reservation = operation.endpointSelection
@@ -272,15 +270,15 @@ export class RemoteBlockCoordinator {
         this.preparationCoordinator().releaseOnFailure(operation, reservation, error);
       throw error;
     }
-    try {
-      return await this.reenterWithLease(operationId, lease, attachment, false);
-    } catch (error) {
-      if (reservation)
-        this.preparationCoordinator().releaseOnFailure(operation, reservation, error);
-      throw error;
-    } finally {
-      await lease.release();
-    }
+    return withRemoteRuntimeLease(this.options.operations, operationId, lease, async () => {
+      try {
+        return await this.reenterWithLease(operationId, lease, attachment, false);
+      } catch (error) {
+        if (reservation)
+          this.preparationCoordinator().releaseOnFailure(operation, reservation, error);
+        throw error;
+      }
+    });
   }
 
   private async reenterWithLease(
@@ -581,7 +579,6 @@ export class RemoteBlockCoordinator {
   async reenterPending(): Promise<RemoteDispatchOutcome[]> {
     const outcomes: RemoteDispatchOutcome[] = [];
     for (const operation of this.options.operations.listNonTerminal()) {
-      let legacyRuntimeLease: CanvasExecutionRuntimeLease | undefined;
       try {
         if (
           (operation.state === "preparing" || operation.state === "claimed") &&
@@ -589,35 +586,9 @@ export class RemoteBlockCoordinator {
           !operation.attempt.leaseId &&
           !operation.agentAccess
         ) {
-          if (!operation.endpointSelection) {
-            if (operation.state === "preparing") this.options.operations.markClaimed(operation.id);
-            throw new Error("remote_operation_endpoint_selection_missing");
-          }
-          legacyRuntimeLease = await acquireRemoteRuntimeLease(
-            this.options.runtimeLeases,
-            operation,
-            authorizedOperationHostId(operation)
-          );
-          const current = await legacyRuntimeLease.runtime.inspect({ ref: operation.blockRef });
-          const candidate = candidateForIdentity(operation, this.options.candidates);
-          if (
-            current.sourceRevision !== candidate.sourceRevision ||
-            current.graphFingerprint !== candidate.graphFingerprint
-          ) {
-            if (operation.state === "preparing") this.options.operations.markClaimed(operation.id);
-            this.options.operations.recordDiagnostic(
-              operation.id,
-              "remote_source_changed",
-              "The Runtime source changed before Host reservation."
-            );
-            throw new Error("remote_source_changed");
-          }
-          await legacyRuntimeLease.release();
-          legacyRuntimeLease = undefined;
-          outcomes.push(await this.reenter(operation.id));
-        } else {
-          outcomes.push(await this.reenter(operation.id));
+          await inspectLegacyRemoteRuntime(this.options, operation);
         }
+        outcomes.push(await this.reenter(operation.id));
       } catch (error) {
         const decision = classifyReenterFailure(error);
         if (decision === "fatal") throw error;
@@ -633,8 +604,6 @@ export class RemoteBlockCoordinator {
         outcomes.push(
           await this.writebackCoordinator().sealOperationLocalFailure(operation, error)
         );
-      } finally {
-        await legacyRuntimeLease?.release();
       }
     }
     return outcomes;

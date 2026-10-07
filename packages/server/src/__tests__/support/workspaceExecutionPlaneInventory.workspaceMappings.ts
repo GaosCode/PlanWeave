@@ -354,6 +354,14 @@ export const workspaceMappingsInventory = [
     "Host A/B runtime recovery fixtures report the current workspace mapping ready."
   ),
   inventoryEntry(
+    "wm-remoteRuntimeLeaseCleanup-test",
+    "workspaceMappings",
+    "endpoint_readiness",
+    "packages/server/src/__tests__/remoteRuntimeLeaseCleanup.test.ts",
+    "reportOnline Host A/B workspaceMappings ready",
+    "Runtime lease cleanup tests report ready workspace mapping observations for both Hosts."
+  ),
+  inventoryEntry(
     "wm-remoteBlockCoordinator-ready",
     "workspaceMappings",
     "endpoint_readiness",

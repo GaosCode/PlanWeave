@@ -1066,6 +1066,7 @@
         "remoteBlockCoordinatorAuthority.test.ts",
         "remoteBlockCoordinatorCrash.test.ts",
         "remoteBlockCoordinatorRuntimeAvailability.test.ts",
+        "remoteRuntimeLeaseCleanup.test.ts",
         "remoteBlockCoordinatorStartup.test.ts",
         "remoteBlockOwnerCanvas.test.ts",
         "remoteBlockOwnerRestart.test.ts",

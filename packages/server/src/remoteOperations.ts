@@ -934,16 +934,27 @@ export class RemoteOperationRepository {
     });
   }
 
-  recordDiagnostic(operationId: string, code: string, message: string): void {
+  recordDiagnostic(
+    operationId: string,
+    code: string,
+    message: string,
+    options?: { includeTerminal: true }
+  ): void {
     const parsedCode = opaqueIdentifierSchema.parse(code);
     const parsedMessage = z.string().min(1).max(4_096).parse(message);
     const retryable = requireRemoteOperationDiagnosticRetryability(parsedCode);
     const updated = this.database
       .prepare(
         `UPDATE remote_operations SET diagnostic_code=?,diagnostic_message=?,updated_at=?
-         WHERE id=? AND state NOT IN ('completed','failed','cancelled')`
+         WHERE id=? AND (?=1 OR state NOT IN ('completed','failed','cancelled'))`
       )
-      .run(parsedCode, parsedMessage, this.clock().toISOString(), operationId);
+      .run(
+        parsedCode,
+        parsedMessage,
+        this.clock().toISOString(),
+        operationId,
+        options?.includeTerminal ? 1 : 0
+      );
     if (updated.changes !== 1) throw new Error("remote_operation_not_actionable");
     const operation = this.getRequired(operationId);
     const latest = this.latestDiagnostic(operationId);
