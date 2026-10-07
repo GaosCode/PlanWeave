@@ -693,6 +693,7 @@
         "packageDraftImportScope.test.ts",
         "packageFileBatchConsistency.test.ts",
         "packageLiveCanvasConsistency.test.ts",
+        "packageDraftImportStaging.test.ts",
         "packageFileChanges.test.ts",
         "packageFileReadIntents.test.ts",
         "packageFiles.test.ts",
